@@ -1,0 +1,1957 @@
+SuperMemo Report
+   Activity: Analysis of the process of spreading activation when building a neural queue
+   Collection: h:\siyuanmemo\supermemo\systems\examination
+   Date: Friday, May 23, 2025, 10:40:22 PM
+   SuperMemo 19 (Build 19.1, Apr 23, 2025)
+
+Activation: Spreading activation
+   Size: 0
+   Topic #53: 太棒了！我们现在就用你提出的“解构范例”中的问题，来一步步剖析“条件概率独立性”的证明过程。 要证明的命题: I(A, B) ? (P(AB) = P(A) * P(B) ∧ P(A) > 0 ∧ P(B) >0) 翻译: 事件 A 和 B 相互独立，当且仅当 A 和 B 同时发生的概率等于 A 发生的概率乘以 B 发生的概率，并且 A 和 B .
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 54.37
+Activation: Following concept links
+   Size: 0
+   Topic #53: 太棒了！我们现在就用你提出的“解构范例”中的问题，来一步步剖析“条件概率独立性”的证明过程。 要证明的命题: I(A, B) ? (P(AB) = P(A) * P(B) ∧ P(A) > 0 ∧ P(B) >0) 翻译: 事件 A 和 B 相互独立，当且仅当 A 和 B 同时发生的概率等于 A 发生的概率乘以 B 发生的概率，并且 A 和 B .
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 54.37
+Activation: Following inter-element links
+   Size: 0
+   Topic #53: 太棒了！我们现在就用你提出的“解构范例”中的问题，来一步步剖析“条件概率独立性”的证明过程。 要证明的命题: I(A, B) ? (P(AB) = P(A) * P(B) ∧ P(A) > 0 ∧ P(B) >0) 翻译: 事件 A 和 B 相互独立，当且仅当 A 和 B 同时发生的概率等于 A 发生的概率乘以 B 发生的概率，并且 A 和 B .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 54.37
+Activation: Parent
+   Size: 0
+   Topic #27: TODO
+   Source of activation: Topic #53: 太棒了！我们现在就用你提出的“解构范例”中的问题，来一步步剖析“条件概率独立性”的证明过程。 要证明的命题: I(A, B) ? (P(AB) = P(A) * P(B) ∧ P(A) > 0 ∧ P(B) >0) 翻译: 事件 A 和 B 相互独立，当且仅当 A 和 B 同时发生的概率等于 A 发生的概率乘以 B 发生的概率，并且 A 和 B .
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 53.729
+Activation: Adding new element
+   Size: 1
+   Topic #27: TODO
+   Link priority: 0.996
+   Layer priority: 0.99
+   Element priority: 53.729
+Activation: Collecting siblings
+   Size: 1
+   Topic #53: 太棒了！我们现在就用你提出的“解构范例”中的问题，来一步步剖析“条件概率独立性”的证明过程。 要证明的命题: I(A, B) ? (P(AB) = P(A) * P(B) ∧ P(A) > 0 ∧ P(B) >0) 翻译: 事件 A 和 B 相互独立，当且仅当 A 和 B 同时发生的概率等于 A 发生的概率乘以 B 发生的概率，并且 A 和 B .
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 54.37
+Activation: Adding new element
+   Size: 2
+   Topic #52: 好的，我们来总结一下上面证明过程的逻辑，并明确每一步的目的： **总体目标：** 证明“事件 A 和 B 相互独立 (`I(A, B)`)”与“`P(AB) = P(A) * P(B)` 并且 `P(A)>0`, `P(B)>0`”这两个说法是完全等价的（用符号 `?` 表示）。 **证明策略：** 证明等价关系 (`?`) .
+   Link priority: 0.986
+   Layer priority: 0.3
+   Element priority: 55.974
+Activation: Adding new element
+   Size: 3
+   Topic #54: 你说得非常准确和深刻！这是一个非常棒的观察和类比。我完全同意你的看法。 确实，我们刚才用来解构证明过程的那套问题模板，和 RemNote 的概念描述符框架（CDF）或者类似的思想（比如费曼学习法中的某些步骤）在**核心理念**上是高度一致的： 1.  **结构化思考 (Structured Thinking):** .
+   Link priority: 0.986
+   Layer priority: 0.3
+   Element priority: 56.776
+Activation: Adding new element
+   Size: 4
+   Topic #48: 换底公式
+   Link priority: 0.998
+   Layer priority: 0.33
+   Element priority: 94.627
+Activation: Adding new element
+   Size: 5
+   Topic #56: 证明解构CDF
+   Link priority: 0.988
+   Layer priority: 0.33
+   Element priority: 60.305
+Activation: Adding new element
+   Size: 6
+   Topic #44: 要理解排列数的性质  A<sub>n+1</sub><sup>n+1</sup> = (n+1)A<sub>n</sub><sup>n</sup> ，可以从排列的定义和阶乘的性质入手：. <div class="p"><!----></div>. 1. **排列数的定义**.     A<sub>n</sub><sup>k</sup>  表示从 .
+   Link priority: 0.988
+   Layer priority: 0.363
+   Element priority: 56.455
+Activation: Adding new element
+   Size: 7
+   Topic #158: 高等院校哲学专业核心课程教材 # 符号逻辑讲义 <img src="http://localhost:6806/public/assets/0195adc7-d324-7ddb-ba9b-92aaaeb107ce_0_592_862_378_391_0.jpg" alt="0195adc7-d324-7ddb-ba9b-92aaaeb107ce_0 .
+   Link priority: 0.988
+   Layer priority: 0.363
+   Element priority: 56.536
+Activation: Adding new element
+   Size: 8
+   Topic #28: 巴斯卡恒等式: 巴斯卡恒等式的中文解释: 巴斯卡恒等式表达了组合数之间的一个基本关系，我们可以用组合意义来解释它： 假设你有一个包含 n 个元素的集合。 你想要从中选出 k 个元素组成一个子集。 总共有 C(n, k) 种方法。 现在，我们考虑这个集合中一个 特定的元素，我们称它为 "元素 X"。 当我们选择 k 个元素时，对于 "元素 X" .
+   Link priority: 0.988
+   Layer priority: 0.399
+   Element priority: 55.573
+Activation: Adding new element
+   Size: 9
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.989
+   Layer priority: 0.399
+   Element priority: 59.262
+Activation: Adding new element
+   Size: 10
+   Topic #21: 子集数量和排列组合
+   Link priority: 0.99
+   Layer priority: 0.439
+   Element priority: 59.824
+Activation: Adding new element
+   Size: 11
+   Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.979
+   Layer priority: 0.439
+   Element priority: 15.958
+Activation: Adding new element
+   Size: 12
+   Topic #4: 逻辑入门推荐书籍
+   Link priority: 0.989
+   Layer priority: 0.483
+   Element priority: 54.771
+Activation: Adding new element
+   Size: 13
+   Topic #561: 注：这是关于隐性知识系列的第 2 部分。请点击这里*阅读第 1 部分。 假设你相信隐性知识的确存在。同时假设你也认同隐性知识主要是通过模仿、学徒制和沉浸式学习获得的。 那么很自然地会产生这样的疑问：有没有方法可以更高效地掌握它？是否有研究告诉我们如何优化模仿能力，或者提升学徒制的学习效率？我在之前的文章中提到，自然决策（Naturalistic .
+   Link priority: 0.987
+   Layer priority: 0.483
+   Element priority: 45.148
+Activation: Adding new element
+   Size: 14
+   Topic #2: 符号逻辑证明概率独立性
+   Link priority: 0.991
+   Layer priority: 0.531
+   Element priority: 55.012
+Activation: Adding new element
+   Size: 15
+   Topic #563: 学习者身处于复杂的发展、认知、生理、社会和文化系统之中。不同领域的研究与理论已促使人们逐渐认识到，所有学习者都是在特定文化背景下（culturally defined contexts），以特定文化方式（culturally defined .
+   Link priority: 0.988
+   Layer priority: 0.531
+   Element priority: 45.068
+Activation: Adding new element
+   Size: 16
+   Topic #565: 原文： Andy Matuschak and Michael Nielsen, How can we develop transformative tools for thought? October 2019 译者：  @叶峻峣 @Shom @Mass Point （排名不分先后） 译者按 作者 Andy Matuschak .
+   Link priority: 0.99
+   Layer priority: 0.585
+   Element priority: 44.587
+Activation: Adding new element
+   Size: 17
+   Topic #566: 临沂炒鸡
+   Link priority: 0.992
+   Layer priority: 0.643
+   Element priority: 50.12
+Activation: Expanding into deeper layers
+   Size: 17
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 59.262
+Activation: Spreading activation
+   Size: 17
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 59.262
+Activation: Following concept links
+   Size: 17
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 59.262
+Activation: Following inter-element links
+   Size: 17
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 59.262
+Activation: Descendant relationship
+   Size: 17
+   Item #655: 通过运用概率论，我们能提炼出所有[.]的共同特征，由此形式化地刻画理性信念遵循的一般性规律。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.283
+Activation: Adding new element
+   Size: 18
+   Item #655: 通过运用概率论，我们能提炼出所有[.]的共同特征，由此形式化地刻画理性信念遵循的一般性规律。
+   Link priority: 0.2
+   Layer priority: 0
+   Element priority: 1.283
+Activation: Descendant relationship
+   Size: 18
+   Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 50.922
+Activation: Adding new element
+   Size: 19
+   Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.602
+   Layer priority: 0
+   Element priority: 50.922
+Activation: Descendant relationship
+   Size: 19
+   Topic #111: 我应该相信什么？ : 理性：序言 - 知乎
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 60.225
+Activation: Adding new element
+   Size: 20
+   Topic #111: 我应该相信什么？ : 理性：序言 - 知乎
+   Link priority: 0.678
+   Layer priority: 0
+   Element priority: 60.225
+Activation: Descendant relationship
+   Size: 20
+   Topic #543: 但《死亡螺旋》系列指出，团结在共同利益和闪亮理念下的群体，也可能受到某些危害的影响。要从理性主义社区中获得最大收益，我们必须克服这些危害。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 43.063
+Activation: Adding new element
+   Size: 21
+   Topic #543: 但《死亡螺旋》系列指出，团结在共同利益和闪亮理念下的群体，也可能受到某些危害的影响。要从理性主义社区中获得最大收益，我们必须克服这些危害。
+   Link priority: 0.539
+   Layer priority: 0
+   Element priority: 43.063
+Activation: Descendant relationship
+   Size: 21
+   Topic #157: 下一篇：
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 59.182
+Activation: Adding new element
+   Size: 22
+   Topic #157: 下一篇：
+   Link priority: 0.669
+   Layer priority: 0
+   Element priority: 59.182
+Activation: Descendant relationship
+   Size: 22
+   Topic #87: 与之类似，决策理论告诉我们根据自身的信念应该采取何种行动。无论我对 Bob 持有什么样一致的信念和偏好，决策理论都能给出如何行动才能使我的偏好得到满足。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 48.356
+Activation: Adding new element
+   Size: 23
+   Topic #87: 与之类似，决策理论告诉我们根据自身的信念应该采取何种行动。无论我对 Bob 持有什么样一致的信念和偏好，决策理论都能给出如何行动才能使我的偏好得到满足。
+   Link priority: 0.582
+   Layer priority: 0
+   Element priority: 48.356
+Activation: Descendant relationship
+   Size: 23
+   Topic #170: 偏见已经成为我们自我的一部分。但在内心深处，我们也怀有贝叶斯主义的影子，那是一架有瑕疵的仪器，却能真正带我们接近真理。它或许并非尽善尽美，但足以让我们迈出脚步，上路启程。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 53.087
+Activation: Adding new element
+   Size: 24
+   Topic #170: 偏见已经成为我们自我的一部分。但在内心深处，我们也怀有贝叶斯主义的影子，那是一架有瑕疵的仪器，却能真正带我们接近真理。它或许并非尽善尽美，但足以让我们迈出脚步，上路启程。
+   Link priority: 0.62
+   Layer priority: 0
+   Element priority: 53.087
+Activation: Descendant relationship
+   Size: 24
+   Topic #111: 我应该相信什么？ : 理性：序言 - 知乎
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 60.225
+Activation: Descendant relationship
+   Size: 24
+   Topic #554: 《反对合理化》系列探讨了这一问题，而《对抗双重思想》（关于自我欺骗）和《用新眼光看问题》（关于挑战我们识别与预期和假设不符的证据的能力）系列则对此进行了进一步阐述。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 48.516
+Activation: Adding new element
+   Size: 25
+   Topic #554: 《反对合理化》系列探讨了这一问题，而《对抗双重思想》（关于自我欺骗）和《用新眼光看问题》（关于挑战我们识别与预期和假设不符的证据的能力）系列则对此进行了进一步阐述。
+   Link priority: 0.583
+   Layer priority: 0
+   Element priority: 48.516
+Activation: Descendant relationship
+   Size: 25
+   Topic #872: 给定背景知识（先验）和新获得的证据，概率论可以唯一确定我们应该采信的最佳新观点（后验）。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.486
+Activation: Adding new element
+   Size: 26
+   Topic #872: 给定背景知识（先验）和新获得的证据，概率论可以唯一确定我们应该采信的最佳新观点（后验）。
+   Link priority: 0.21
+   Layer priority: 0
+   Element priority: 2.486
+Activation: Descendant relationship
+   Size: 26
+   Topic #555: 我们可以训练自己的数学技能；学会何时该相信或怀疑自己的数学直觉
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 43.224
+Activation: Adding new element
+   Size: 27
+   Topic #555: 我们可以训练自己的数学技能；学会何时该相信或怀疑自己的数学直觉
+   Link priority: 0.54
+   Layer priority: 0
+   Element priority: 43.224
+Activation: Descendant relationship
+   Size: 27
+   Topic #66: 20 世纪心理学的一个重要洞见，启发了从弗洛伊德的追随者到当代认知心理学家等各领域的研究者。这一洞见就是：人的行为常常受到潜意识中复杂过程的驱动，而我们对自身动机和理由的解释，往往掺杂了大量的偏见和虚构成分，远没有我们自认为的那般客观和理性。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 49.639
+Activation: Adding new element
+   Size: 28
+   Topic #66: 20 世纪心理学的一个重要洞见，启发了从弗洛伊德的追随者到当代认知心理学家等各领域的研究者。这一洞见就是：人的行为常常受到潜意识中复杂过程的驱动，而我们对自身动机和理由的解释，往往掺杂了大量的偏见和虚构成分，远没有我们自认为的那般客观和理性。
+   Link priority: 0.592
+   Layer priority: 0
+   Element priority: 49.639
+Activation: Descendant relationship
+   Size: 28
+   Item #656: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画[.]。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 0.561
+Activation: Adding new element
+   Size: 29
+   Item #656: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画[.]。
+   Link priority: 0.195
+   Layer priority: 0
+   Element priority: 0.561
+Activation: Descendant relationship
+   Size: 29
+   Item #559: 当我们面临证据不足，或者个人偏见和执念扭曲了我们对证据的解读时，[.]能帮助我们更有效地利用手头的证据。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.043
+Activation: Adding new element
+   Size: 30
+   Item #559: 当我们面临证据不足，或者个人偏见和执念扭曲了我们对证据的解读时，[.]能帮助我们更有效地利用手头的证据。
+   Link priority: 0.198
+   Layer priority: 0
+   Element priority: 1.043
+Activation: Descendant relationship
+   Size: 30
+   Topic #169: 这并不意味着我们无法克服偏见。就像在消除所有算术错误后，我们也不是完美无缺的计算机一样。我们在数学上的诸多局限，其实源自人脑运作方式的一些根深蒂固的特性。. 不过，我们可以训练自己的数学技能；学会何时该相信或怀疑自己的数学直觉，彼此分享知识，互帮互助；我们可以塑造有利的环境，让困难的事情变得更容易，还可以打造各种工具来分担大部分的工作。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 49.318
+Activation: Adding new element
+   Size: 31
+   Topic #169: 这并不意味着我们无法克服偏见。就像在消除所有算术错误后，我们也不是完美无缺的计算机一样。我们在数学上的诸多局限，其实源自人脑运作方式的一些根深蒂固的特性。. 不过，我们可以训练自己的数学技能；学会何时该相信或怀疑自己的数学直觉，彼此分享知识，互帮互助；我们可以塑造有利的环境，让困难的事情变得更容易，还可以打造各种工具来分担大部分的工作。
+   Link priority: 0.589
+   Layer priority: 0
+   Element priority: 49.318
+Activation: Descendant relationship
+   Size: 31
+   Topic #126: 但《死亡螺旋》系列指出，团结在共同利益和闪亮理念下的群体，也可能受到某些危害的影响。要从理性主义社区中获得最大收益，我们必须克服这些危害。《如何真正改变你的想法》系列最后以《放手》系列作为总结。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 94.547
+Activation: Adding new element
+   Size: 32
+   Topic #126: 但《死亡螺旋》系列指出，团结在共同利益和闪亮理念下的群体，也可能受到某些危害的影响。要从理性主义社区中获得最大收益，我们必须克服这些危害。《如何真正改变你的想法》系列最后以《放手》系列作为总结。
+   Link priority: 0.956
+   Layer priority: 0
+   Element priority: 94.547
+Activation: Descendant relationship
+   Size: 32
+   Topic #155: 参考. ^过于方便的借口 https://zhuanlan.zhihu.com/p/991304319. ^政治与理性 https://zhuanlan.zhihu.com/p/7906110908
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 56.856
+Activation: Adding new element
+   Size: 33
+   Topic #155: 参考. ^过于方便的借口 https://zhuanlan.zhihu.com/p/991304319. ^政治与理性 https://zhuanlan.zhihu.com/p/7906110908
+   Link priority: 0.651
+   Layer priority: 0
+   Element priority: 56.856
+Activation: Descendant relationship
+   Size: 33
+   Topic #553: 我们的大部分推理过程实际上是在事后合理化——我们编造故事，让自己当前的观点显得更加连贯和有道理，但这并不一定能提高观点的准确性。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 49.078
+Activation: Adding new element
+   Size: 34
+   Topic #553: 我们的大部分推理过程实际上是在事后合理化——我们编造故事，让自己当前的观点显得更加连贯和有道理，但这并不一定能提高观点的准确性。
+   Link priority: 0.588
+   Layer priority: 0
+   Element priority: 49.078
+Activation: Descendant relationship
+   Size: 34
+   Topic #1,027: 如果人类拥有充足的时间、强大的计算能力和良好的自控力，概率论定义了我们在面对不确定性时如何做出最理想的推理。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.844
+Activation: Adding new element
+   Size: 35
+   Topic #1,027: 如果人类拥有充足的时间、强大的计算能力和良好的自控力，概率论定义了我们在面对不确定性时如何做出最理想的推理。
+   Link priority: 0.205
+   Layer priority: 0
+   Element priority: 1.844
+Activation: Descendant relationship
+   Size: 35
+   Topic #140: 译者按. 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是 .
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 94.868
+Activation: Adding new element
+   Size: 36
+   Topic #140: 译者按. 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是 .
+   Link priority: 0.958
+   Layer priority: 0
+   Element priority: 94.868
+Activation: Descendant relationship
+   Size: 36
+   Topic #1,027: 如果人类拥有充足的时间、强大的计算能力和良好的自控力，概率论定义了我们在面对不确定性时如何做出最理想的推理。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.844
+Activation: Descendant relationship
+   Size: 36
+   Topic #169: 这并不意味着我们无法克服偏见。就像在消除所有算术错误后，我们也不是完美无缺的计算机一样。我们在数学上的诸多局限，其实源自人脑运作方式的一些根深蒂固的特性。. 不过，我们可以训练自己的数学技能；学会何时该相信或怀疑自己的数学直觉，彼此分享知识，互帮互助；我们可以塑造有利的环境，让困难的事情变得更容易，还可以打造各种工具来分担大部分的工作。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 49.318
+Activation: Descendant relationship
+   Size: 36
+   Item #559: 当我们面临证据不足，或者个人偏见和执念扭曲了我们对证据的解读时，[.]能帮助我们更有效地利用手头的证据。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.043
+Activation: Parent
+   Size: 36
+   Topic #27: TODO
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 53.729
+Activation: Collecting siblings
+   Size: 36
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 59.262
+Activation: Adding new element
+   Size: 37
+   Topic #53: 太棒了！我们现在就用你提出的“解构范例”中的问题，来一步步剖析“条件概率独立性”的证明过程。 要证明的命题: I(A, B) ? (P(AB) = P(A) * P(B) ∧ P(A) > 0 ∧ P(B) >0) 翻译: 事件 A 和 B 相互独立，当且仅当 A 和 B 同时发生的概率等于 A 发生的概率乘以 B 发生的概率，并且 A 和 B .
+   Link priority: 0.988
+   Layer priority: 0.399
+   Element priority: 54.37
+Activation: Adding new element
+   Size: 38
+   Topic #567: 1. 假装成功直到成功（Fake It Till You Make It） - 原理：通过模仿成功者的行为或心态，逐步建立自信和正向反馈，最终实现目标。 - 应用场景：公开演讲、新角色适应（如领导岗位）、技能学习初期。 - 优点：快速提升自信心，减少因自我怀疑导致的拖延。 - 缺点：可能脱离实际能力，需结合行动调整。 .
+   Link priority: 0.999
+   Layer priority: 0.483
+   Element priority: 95.188
+Activation: Adding new element
+   Size: 39
+   Topic #568: 二重继承：文化演化和基因
+   Link priority: 0.988
+   Layer priority: 0.531
+   Element priority: 43.625
+Activation: Adding new element
+   Size: 40
+   Topic #569: 如何让自己有能力发现联系：对领域知识的了解加上直觉？ 参考资料或许可以看看历史学家养成的三个阶段
+   Link priority: 0.981
+   Layer priority: 0.585
+   Element priority: 0
+Activation: Adding new element
+   Size: 41
+   Topic #570: 在渐进学习中，大脑的学习熵扫描仪将挑选那些最好的频道，对其进行优先级排序，并采用完美的时机来最大化语义连接和记忆巩固。于是乎，为什么「我非常高兴我永远再不会被迫坐在学校的课桌旁！」是很容易理解的。我太喜欢学习了！. 学习的乐趣 - 知乎
+   Link priority: 0.991
+   Layer priority: 0.643
+   Element priority: 43.464
+Activation: Expanding into deeper layers
+   Size: 41
+   Topic #554: 《反对合理化》系列探讨了这一问题，而《对抗双重思想》（关于自我欺骗）和《用新眼光看问题》（关于挑战我们识别与预期和假设不符的证据的能力）系列则对此进行了进一步阐述。
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 48.516
+Activation: Spreading activation
+   Size: 41
+   Topic #554: 《反对合理化》系列探讨了这一问题，而《对抗双重思想》（关于自我欺骗）和《用新眼光看问题》（关于挑战我们识别与预期和假设不符的证据的能力）系列则对此进行了进一步阐述。
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 48.516
+Activation: Following concept links
+   Size: 41
+   Topic #554: 《反对合理化》系列探讨了这一问题，而《对抗双重思想》（关于自我欺骗）和《用新眼光看问题》（关于挑战我们识别与预期和假设不符的证据的能力）系列则对此进行了进一步阐述。
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 48.516
+Activation: Following inter-element links
+   Size: 41
+   Topic #554: 《反对合理化》系列探讨了这一问题，而《对抗双重思想》（关于自我欺骗）和《用新眼光看问题》（关于挑战我们识别与预期和假设不符的证据的能力）系列则对此进行了进一步阐述。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 48.516
+Activation: Root article
+   Size: 41
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Source of activation: Topic #554: 《反对合理化》系列探讨了这一问题，而《对抗双重思想》（关于自我欺骗）和《用新眼光看问题》（关于挑战我们识别与预期和假设不符的证据的能力）系列则对此进行了进一步阐述。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 59.262
+Activation: Collecting siblings
+   Size: 41
+   Topic #554: 《反对合理化》系列探讨了这一问题，而《对抗双重思想》（关于自我欺骗）和《用新眼光看问题》（关于挑战我们识别与预期和假设不符的证据的能力）系列则对此进行了进一步阐述。
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 48.516
+Activation: Expanding into deeper layers
+   Size: 41
+   Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 50.922
+Activation: Spreading activation
+   Size: 41
+   Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 50.922
+Activation: Following concept links
+   Size: 41
+   Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 50.922
+Activation: Following inter-element links
+   Size: 41
+   Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 50.922
+Activation: Descendant relationship
+   Size: 41
+   Topic #552: 近似算法
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 35.926
+Activation: Adding new element
+   Size: 42
+   Topic #552: 近似算法
+   Link priority: 0.481
+   Layer priority: 0
+   Element priority: 35.926
+Activation: Descendant relationship
+   Size: 42
+   Topic #165: 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 50.441
+Activation: Adding new element
+   Size: 43
+   Topic #165: 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。
+   Link priority: 0.599
+   Layer priority: 0
+   Element priority: 50.441
+Activation: Descendant relationship
+   Size: 43
+   Item #883: 如果人类拥有充足的时间、强大的计算能力和良好的自控力，概率论定义了我们在面对[.]时如何做出最理想的推理。
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.566
+Activation: Adding new element
+   Size: 44
+   Item #883: 如果人类拥有充足的时间、强大的计算能力和良好的自控力，概率论定义了我们在面对[.]时如何做出最理想的推理。
+   Link priority: 0.211
+   Layer priority: 0
+   Element priority: 2.566
+Activation: Descendant relationship
+   Size: 44
+   Topic #119: 如果我们没有一个判断思维方法优劣的总体框架，就会觉得无从下手去提升自己的理性思维能力。因此，本书旨在帮助读者为自己构建这样一个思维框架。
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 37.931
+Activation: Adding new element
+   Size: 45
+   Topic #119: 如果我们没有一个判断思维方法优劣的总体框架，就会觉得无从下手去提升自己的理性思维能力。因此，本书旨在帮助读者为自己构建这样一个思维框架。
+   Link priority: 0.497
+   Layer priority: 0
+   Element priority: 37.931
+Activation: Descendant relationship
+   Size: 45
+   Topic #166: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画理性信念遵循的一般性规律。
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 95.509
+Activation: Adding new element
+   Size: 46
+   Topic #166: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画理性信念遵循的一般性规律。
+   Link priority: 0.964
+   Layer priority: 0
+   Element priority: 95.509
+Activation: Descendant relationship
+   Size: 46
+   Topic #1,027: 如果人类拥有充足的时间、强大的计算能力和良好的自控力，概率论定义了我们在面对不确定性时如何做出最理想的推理。
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.844
+Activation: Descendant relationship
+   Size: 46
+   Topic #165: 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 50.441
+Activation: Descendant relationship
+   Size: 46
+   Topic #541: 借助决策论，我们甚至可以对理性行为的一般特性作出严格的数学描述。数学语言让我们以前所未有的精度来分析、把握理性的内涵与外延。
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 50.361
+Activation: Adding new element
+   Size: 47
+   Topic #541: 借助决策论，我们甚至可以对理性行为的一般特性作出严格的数学描述。数学语言让我们以前所未有的精度来分析、把握理性的内涵与外延。
+   Link priority: 0.598
+   Layer priority: 0
+   Element priority: 50.361
+Activation: Descendant relationship
+   Size: 47
+   Topic #119: 如果我们没有一个判断思维方法优劣的总体框架，就会觉得无从下手去提升自己的理性思维能力。因此，本书旨在帮助读者为自己构建这样一个思维框架。
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 37.931
+Activation: Descendant relationship
+   Size: 47
+   Topic #1,027: 如果人类拥有充足的时间、强大的计算能力和良好的自控力，概率论定义了我们在面对不确定性时如何做出最理想的推理。
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.844
+Activation: Descendant relationship
+   Size: 47
+   Topic #552: 近似算法
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 35.926
+Activation: Descendant relationship
+   Size: 47
+   Topic #167: 如果人类拥有充足的时间、强大的计算能力和良好的自控力，概率论定义了我们在面对不确定性时如何做出最理想的推理。. 给定背景知识（先验）和新获得的证据，概率论可以唯一确定我们应该采信的最佳新观点（后验）。
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.967
+Activation: Adding new element
+   Size: 48
+   Topic #167: 如果人类拥有充足的时间、强大的计算能力和良好的自控力，概率论定义了我们在面对不确定性时如何做出最理想的推理。. 给定背景知识（先验）和新获得的证据，概率论可以唯一确定我们应该采信的最佳新观点（后验）。
+   Link priority: 0.214
+   Layer priority: 0
+   Element priority: 2.967
+Activation: Descendant relationship
+   Size: 48
+   Item #883: 如果人类拥有充足的时间、强大的计算能力和良好的自控力，概率论定义了我们在面对[.]时如何做出最理想的推理。
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.566
+Activation: Descendant relationship
+   Size: 48
+   Item #883: 如果人类拥有充足的时间、强大的计算能力和良好的自控力，概率论定义了我们在面对[.]时如何做出最理想的推理。
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.566
+Activation: Descendant relationship
+   Size: 48
+   Topic #552: 近似算法
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 35.926
+Activation: Descendant relationship
+   Size: 48
+   Item #656: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画[.]。
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 0.561
+Activation: Descendant relationship
+   Size: 48
+   Topic #119: 如果我们没有一个判断思维方法优劣的总体框架，就会觉得无从下手去提升自己的理性思维能力。因此，本书旨在帮助读者为自己构建这样一个思维框架。
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 37.931
+Activation: Descendant relationship
+   Size: 48
+   Topic #542: 人类并非完美的推理者或决策者，正如我们不是完美的计算者一样。我们的大脑只不过是自然选择的匆忙拼凑之物。即使在最佳状态下，关于「应该如何思考」和「应该如何行动」这两个问题，我们也无法得出完全准确的答案。我们缺乏足够的时间和计算能力，而进化也缺乏工程专业知识和远见，无法修正人类固有的种种缺陷
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 49.238
+Activation: Adding new element
+   Size: 49
+   Topic #542: 人类并非完美的推理者或决策者，正如我们不是完美的计算者一样。我们的大脑只不过是自然选择的匆忙拼凑之物。即使在最佳状态下，关于「应该如何思考」和「应该如何行动」这两个问题，我们也无法得出完全准确的答案。我们缺乏足够的时间和计算能力，而进化也缺乏工程专业知识和远见，无法修正人类固有的种种缺陷
+   Link priority: 0.589
+   Layer priority: 0
+   Element priority: 49.238
+Activation: Root article
+   Size: 49
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Source of activation: Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 59.262
+Activation: Collecting siblings
+   Size: 49
+   Topic #106: 理性的数学基础. 20 世纪之交，数学家为算术提出了简单的公理系统（如集合论公理），这为判断算术结论的正确性提供了一个更加明确、严谨的标准。现在，如果有人或计算器得出「2 + 2 = 4」的结果，我们不仅可以直观地认为它是对的，还能解释它为何正确，并证明它的正确性与算术体系的其他部分有着系统而紧密的内在联系。 .
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 50.922
+Activation: Adding new element
+   Size: 50
+   Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0.971
+   Layer priority: 0.3
+   Element priority: 94.787
+Activation: Adding new element
+   Size: 51
+   Topic #122: 理性的应用. 在一篇探讨理性主义者与反经验主义理性主义者区别的博文中，Scott Alexander 指出：[10]. 显然，证据如金钱，拥有得越多越好。但同样不言而喻，懂得如何明智地使用手头有限的证据，就像懂得如何明智地花钱一样重要。 .
+   Link priority: 0.755
+   Layer priority: 0.3
+   Element priority: 55.333
+Activation: Adding new element
+   Size: 52
+   Topic #105: 脚注. [1] Robin Hanson, “You Are Never Entitled to Your Opinion,” Overcoming Bias (blog) (2006), http://www.overcomingbias.com/2006/12/you_are_never_e.html. [2] This follows .
+   Link priority: 0.768
+   Layer priority: 0.33
+   Element priority: 55.734
+Activation: Adding new element
+   Size: 53
+   Topic #96: 补充：这个系列讨论的理性基于贝叶斯主. 为什么隐性知识比刻意练习更重要 - 知乎专栏. https://zhuanlan.zhihu.com/p/1889973887506297083. 注：这是隐性知识系列的第 1 部分。我想用一篇文章探讨隐性知识，以及为什么我认为它是技能习得领域中最引人入胜的话题。如果你是 Commonplace .
+   Link priority: 0.533
+   Layer priority: 0.399
+   Element priority: 0.802
+Activation: Adding new element
+   Size: 54
+   Topic #124: Thoughts Memo 汉化组译制. 感谢主要译者 claude-3-opus，校对Jarrett Ye. 原文：Rationality: An Introduction (readthesequences.com) . 作者：Rob Bensinger
+   Link priority: 0.81
+   Layer priority: 0.399
+   Element priority: 59.663
+Activation: Expanding into deeper layers
+   Size: 54
+   Topic #166: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画理性信念遵循的一般性规律。
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 95.509
+Activation: Spreading activation
+   Size: 54
+   Topic #166: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画理性信念遵循的一般性规律。
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 95.509
+Activation: Following concept links
+   Size: 54
+   Topic #166: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画理性信念遵循的一般性规律。
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 95.509
+Activation: Following inter-element links
+   Size: 54
+   Topic #166: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画理性信念遵循的一般性规律。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 95.509
+Activation: Descendant relationship
+   Size: 54
+   Item #655: 通过运用概率论，我们能提炼出所有[.]的共同特征，由此形式化地刻画理性信念遵循的一般性规律。
+   Source of activation: Topic #166: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画理性信念遵循的一般性规律。
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.283
+Activation: Descendant relationship
+   Size: 54
+   Item #655: 通过运用概率论，我们能提炼出所有[.]的共同特征，由此形式化地刻画理性信念遵循的一般性规律。
+   Source of activation: Topic #166: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画理性信念遵循的一般性规律。
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.283
+Activation: Descendant relationship
+   Size: 54
+   Item #655: 通过运用概率论，我们能提炼出所有[.]的共同特征，由此形式化地刻画理性信念遵循的一般性规律。
+   Source of activation: Topic #166: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画理性信念遵循的一般性规律。
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.283
+Activation: Root article
+   Size: 54
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Source of activation: Topic #166: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画理性信念遵循的一般性规律。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 59.262
+Activation: Collecting siblings
+   Size: 54
+   Topic #166: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画理性信念遵循的一般性规律。
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 95.509
+Activation: Adding new element
+   Size: 55
+   Topic #144: 事实上，即便是现实世界中最高效、最精准的推理者，也仍须借助启发式方法和近似算法。就连计算复杂度最优的算法，也无法完全符合概率论的一致性要求。
+   Link priority: 0.74
+   Layer priority: 0.363
+   Element priority: 47.795
+Activation: Expanding into deeper layers
+   Size: 55
+   Item #656: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画[.]。
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 0.561
+Activation: Spreading activation
+   Size: 55
+   Item #656: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画[.]。
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 0.561
+Activation: Following concept links
+   Size: 55
+   Item #656: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画[.]。
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 0.561
+Activation: Following inter-element links
+   Size: 55
+   Item #656: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画[.]。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 0.561
+Activation: Root article
+   Size: 55
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Source of activation: Item #656: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画[.]。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 59.262
+Activation: Collecting siblings
+   Size: 55
+   Item #656: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画[.]。
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 0.561
+Activation: Expanding into deeper layers
+   Size: 55
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 59.262
+Activation: Spreading activation
+   Size: 55
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 59.262
+Activation: Following concept links
+   Size: 55
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 59.262
+Activation: Following inter-element links
+   Size: 55
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 59.262
+Activation: Descendant relationship
+   Size: 55
+   Topic #133: 如今，一些心理学家甚至大胆推测，人类形成条理清晰进行论证的能力，根本目的就是为了在争论中赢得优势。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 51.083
+Activation: Adding new element
+   Size: 56
+   Topic #133: 如今，一些心理学家甚至大胆推测，人类形成条理清晰进行论证的能力，根本目的就是为了在争论中赢得优势。
+   Link priority: 0.604
+   Layer priority: 0
+   Element priority: 51.083
+Activation: Descendant relationship
+   Size: 56
+   Topic #124: Thoughts Memo 汉化组译制. 感谢主要译者 claude-3-opus，校对Jarrett Ye. 原文：Rationality: An Introduction (readthesequences.com) . 作者：Rob Bensinger
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 59.663
+Activation: Descendant relationship
+   Size: 56
+   Item #1,170: 给定背景知识（先验）和新获得的证据，概率论可以唯一确定我们应该采信的[.]。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 4.571
+Activation: Adding new element
+   Size: 57
+   Item #1,170: 给定背景知识（先验）和新获得的证据，概率论可以唯一确定我们应该采信的[.]。
+   Link priority: 0.227
+   Layer priority: 0
+   Element priority: 4.571
+Activation: Descendant relationship
+   Size: 57
+   Item #1,130: 如果人类拥有充足的时间、强大的计算能力和良好的自控力，概率论定义了我们在面对不确定性时如何做出[.]。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.727
+Activation: Adding new element
+   Size: 58
+   Item #1,130: 如果人类拥有充足的时间、强大的计算能力和良好的自控力，概率论定义了我们在面对不确定性时如何做出[.]。
+   Link priority: 0.212
+   Layer priority: 0
+   Element priority: 2.727
+Activation: Descendant relationship
+   Size: 58
+   Topic #552: 近似算法
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 35.926
+Activation: Descendant relationship
+   Size: 58
+   Topic #545: 没有一个判断思维方法优劣的总体框架，就会觉得无从下手去提升自己的理性思维能力。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.326
+Activation: Adding new element
+   Size: 59
+   Topic #545: 没有一个判断思维方法优劣的总体框架，就会觉得无从下手去提升自己的理性思维能力。
+   Link priority: 0.209
+   Layer priority: 0
+   Element priority: 2.326
+Activation: Descendant relationship
+   Size: 59
+   Item #1,130: 如果人类拥有充足的时间、强大的计算能力和良好的自控力，概率论定义了我们在面对不确定性时如何做出[.]。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.727
+Activation: Descendant relationship
+   Size: 59
+   Topic #133: 如今，一些心理学家甚至大胆推测，人类形成条理清晰进行论证的能力，根本目的就是为了在争论中赢得优势。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 51.083
+Activation: Descendant relationship
+   Size: 59
+   Topic #542: 人类并非完美的推理者或决策者，正如我们不是完美的计算者一样。我们的大脑只不过是自然选择的匆忙拼凑之物。即使在最佳状态下，关于「应该如何思考」和「应该如何行动」这两个问题，我们也无法得出完全准确的答案。我们缺乏足够的时间和计算能力，而进化也缺乏工程专业知识和远见，无法修正人类固有的种种缺陷
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 49.238
+Activation: Descendant relationship
+   Size: 59
+   Topic #118: 当我们所珍视的事物受到威胁，不论是我们的世界观、群体认同、社会地位还是其他，我们的思想和观念就会自发地奔赴它们的辩护. 大脑算法保护现实的模型-woz
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 53.889
+Activation: Adding new element
+   Size: 60
+   Topic #118: 当我们所珍视的事物受到威胁，不论是我们的世界观、群体认同、社会地位还是其他，我们的思想和观念就会自发地奔赴它们的辩护. 大脑算法保护现实的模型-woz
+   Link priority: 0.627
+   Layer priority: 0
+   Element priority: 53.889
+Activation: Descendant relationship
+   Size: 60
+   Topic #1,027: 如果人类拥有充足的时间、强大的计算能力和良好的自控力，概率论定义了我们在面对不确定性时如何做出最理想的推理。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.844
+Activation: Descendant relationship
+   Size: 60
+   Item #1,170: 给定背景知识（先验）和新获得的证据，概率论可以唯一确定我们应该采信的[.]。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 4.571
+Activation: Descendant relationship
+   Size: 60
+   Topic #164: 更不用说让立场对立的群体在国家政治或道德哲学等复杂议题上达成共识了；持有不同群体认同的学生，甚至对亲眼所见的客观事实都无法形成一致看法
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 52.366
+Activation: Adding new element
+   Size: 61
+   Topic #164: 更不用说让立场对立的群体在国家政治或道德哲学等复杂议题上达成共识了；持有不同群体认同的学生，甚至对亲眼所见的客观事实都无法形成一致看法
+   Link priority: 0.614
+   Layer priority: 0
+   Element priority: 52.366
+Activation: Descendant relationship
+   Size: 61
+   Topic #1,027: 如果人类拥有充足的时间、强大的计算能力和良好的自控力，概率论定义了我们在面对不确定性时如何做出最理想的推理。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.844
+Activation: Descendant relationship
+   Size: 61
+   Topic #144: 事实上，即便是现实世界中最高效、最精准的推理者，也仍须借助启发式方法和近似算法。就连计算复杂度最优的算法，也无法完全符合概率论的一致性要求。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 47.795
+Activation: Descendant relationship
+   Size: 61
+   Topic #553: 我们的大部分推理过程实际上是在事后合理化——我们编造故事，让自己当前的观点显得更加连贯和有道理，但这并不一定能提高观点的准确性。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 49.078
+Activation: Descendant relationship
+   Size: 61
+   Topic #140: 译者按. 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是 .
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 94.868
+Activation: Descendant relationship
+   Size: 61
+   Topic #66: 20 世纪心理学的一个重要洞见，启发了从弗洛伊德的追随者到当代认知心理学家等各领域的研究者。这一洞见就是：人的行为常常受到潜意识中复杂过程的驱动，而我们对自身动机和理由的解释，往往掺杂了大量的偏见和虚构成分，远没有我们自认为的那般客观和理性。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 49.639
+Activation: Descendant relationship
+   Size: 61
+   Topic #164: 更不用说让立场对立的群体在国家政治或道德哲学等复杂议题上达成共识了；持有不同群体认同的学生，甚至对亲眼所见的客观事实都无法形成一致看法
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 52.366
+Activation: Descendant relationship
+   Size: 61
+   Item #558: 当我们面临证据不足，或者[.]扭曲了我们对证据的解读时，理性技术能帮助我们更有效地利用手头的证据。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 49.559
+Activation: Adding new element
+   Size: 62
+   Item #558: 当我们面临证据不足，或者[.]扭曲了我们对证据的解读时，理性技术能帮助我们更有效地利用手头的证据。
+   Link priority: 0.591
+   Layer priority: 0
+   Element priority: 49.559
+Activation: Descendant relationship
+   Size: 62
+   Topic #164: 更不用说让立场对立的群体在国家政治或道德哲学等复杂议题上达成共识了；持有不同群体认同的学生，甚至对亲眼所见的客观事实都无法形成一致看法
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 52.366
+Activation: Descendant relationship
+   Size: 62
+   Topic #92: 其根源在于，人们往往受到各自所处环境和接触信息的影响，从而形成带有偏见的主观判断
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 50.281
+Activation: Adding new element
+   Size: 63
+   Topic #92: 其根源在于，人们往往受到各自所处环境和接触信息的影响，从而形成带有偏见的主观判断
+   Link priority: 0.597
+   Layer priority: 0
+   Element priority: 50.281
+Activation: Descendant relationship
+   Size: 63
+   Item #656: 通过运用概率论，我们能提炼出所有成功推理形式的共同特征，由此形式化地刻画[.]。
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 0.561
+Activation: Parent
+   Size: 63
+   Topic #27: TODO
+   Source of activation: Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 53.729
+Activation: Collecting siblings
+   Size: 63
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 59.262
+Activation: Expanding into deeper layers
+   Size: 63
+   Topic #570: 在渐进学习中，大脑的学习熵扫描仪将挑选那些最好的频道，对其进行优先级排序，并采用完美的时机来最大化语义连接和记忆巩固。于是乎，为什么「我非常高兴我永远再不会被迫坐在学校的课桌旁！」是很容易理解的。我太喜欢学习了！. 学习的乐趣 - 知乎
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 43.464
+Activation: Spreading activation
+   Size: 63
+   Topic #570: 在渐进学习中，大脑的学习熵扫描仪将挑选那些最好的频道，对其进行优先级排序，并采用完美的时机来最大化语义连接和记忆巩固。于是乎，为什么「我非常高兴我永远再不会被迫坐在学校的课桌旁！」是很容易理解的。我太喜欢学习了！. 学习的乐趣 - 知乎
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 43.464
+Activation: Following concept links
+   Size: 63
+   Topic #570: 在渐进学习中，大脑的学习熵扫描仪将挑选那些最好的频道，对其进行优先级排序，并采用完美的时机来最大化语义连接和记忆巩固。于是乎，为什么「我非常高兴我永远再不会被迫坐在学校的课桌旁！」是很容易理解的。我太喜欢学习了！. 学习的乐趣 - 知乎
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 43.464
+Activation: Following inter-element links
+   Size: 63
+   Topic #570: 在渐进学习中，大脑的学习熵扫描仪将挑选那些最好的频道，对其进行优先级排序，并采用完美的时机来最大化语义连接和记忆巩固。于是乎，为什么「我非常高兴我永远再不会被迫坐在学校的课桌旁！」是很容易理解的。我太喜欢学习了！. 学习的乐趣 - 知乎
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 43.464
+Activation: Parent
+   Size: 63
+   Topic #27: TODO
+   Source of activation: Topic #570: 在渐进学习中，大脑的学习熵扫描仪将挑选那些最好的频道，对其进行优先级排序，并采用完美的时机来最大化语义连接和记忆巩固。于是乎，为什么「我非常高兴我永远再不会被迫坐在学校的课桌旁！」是很容易理解的。我太喜欢学习了！. 学习的乐趣 - 知乎
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 53.729
+Activation: Collecting siblings
+   Size: 63
+   Topic #570: 在渐进学习中，大脑的学习熵扫描仪将挑选那些最好的频道，对其进行优先级排序，并采用完美的时机来最大化语义连接和记忆巩固。于是乎，为什么「我非常高兴我永远再不会被迫坐在学校的课桌旁！」是很容易理解的。我太喜欢学习了！. 学习的乐趣 - 知乎
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 43.464
+Activation: Adding new element
+   Size: 64
+   Topic #613: 修改建议，客散酒醒深夜后
+   Link priority: 0.999
+   Layer priority: 0.3
+   Element priority: 95.67
+Activation: Adding new element
+   Size: 65
+   Topic #660: 大概翻了一下评论区随便谈几点. 1.本刊谈不上评论区所谓水刊。因为自引率低+if10左右不算特别低+发文量也不大。以上三个条件的反向达成一般认定为水刊。. 2.本刊的review不 .
+   Link priority: 0.999
+   Layer priority: 0.33
+   Element priority: 95.349
+Activation: Adding new element
+   Size: 66
+   Topic #659: 个人测试有客观表现的三种补剂是肌酸主要作用，提高力量训练的做组能力附带效果：增加储水（一点点肌肉纬度），增加体重（2到4kg）副作用：血肌酐正常升高咖啡因主要作用：提高兴奋度，提高疲劳耐性附带作用：利尿副作用：失去疲劳感知，容易过度训练，失眠锌主要作用：提高射精量（？），而且是非常直观的提高 鱼油是智商税_哔哩哔哩_bilibili
+   Link priority: 0.981
+   Layer priority: 0.363
+   Element priority: 34.563
+Activation: Adding new element
+   Size: 67
+   Topic #671: 小雪教你一招刚学的技能，与别人聊天，千万不要连着三个问句[呲牙]，可以问一个，然后接着别人的话顺着往下交流。比如：你高寿，在这儿多久了？然后人家回答完就不要再接着问了，可以说自己爷 .
+   Link priority: 0.985
+   Layer priority: 0.399
+   Element priority: 43.144
+Activation: Adding new element
+   Size: 68
+   Topic #677: 对于这个故事的关注，让我看了很多相关的视频。我对老人的心态有了一些新的认识。首先很严肃的说，两个人的相处模式没有“基情”，老人曾经在80岁的采访里面。主持人采访怎么看待和宋阳的关系 .
+   Link priority: 0.999
+   Layer priority: 0.439
+   Element priority: 95.589
+Activation: Adding new element
+   Size: 69
+   Topic #679: 因为大部分学习资源本身是“死”的，难以适应知识背景各异的人自学。只有一部分人恰好匹配了这些学习资源，所以他们成功了。 如果这些学习资源能够“活”起来，那将会有更多人能够从中获益，取得成功。 以下内容摘自  @Thoughts Memo 汉化组的译文《为何不直接用教科书、MIT OpenCourseWare、可汗学院等资源学习？》 .
+   Link priority: 0.983
+   Layer priority: 0.483
+   Element priority: 26.223
+Activation: Adding new element
+   Size: 70
+   Topic #680: 所谓「以绝大数人努力程度之低，根本没有要到拼天赋的地步」这种说法，在基础教育领域完全就是扯淡。 实际上，更符合实际的说法是：以绝大多数人所受的教育方法效果之低，根本没有到受限于天赋差异的地步。 .
+   Link priority: 0.988
+   Layer priority: 0.531
+   Element priority: 41.941
+Activation: Adding new element
+   Size: 71
+   Topic #681: 我们如何学习？
+   Link priority: 0.989
+   Layer priority: 0.585
+   Element priority: 40.096
+Activation: Adding new element
+   Size: 72
+   Topic #687: 大米老师，这个观点 非常深刻，极具洞察力！ 它用一种充满张力甚至有些悖论的方式，精准地捕捉到了你们社区（乃至许多学习和知识管理社群）一直以来存在的那个核心矛盾。我觉得这个观点非常有解释力，原因如下： 揭示了“输入结构”与“认知结构”的差异： 系统学习（如读教科书、上课）： .
+   Link priority: 0.99
+   Layer priority: 0.643
+   Element priority: 34.964
+Activation: Expanding into deeper layers
+   Size: 72
+   Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 15.958
+Activation: Spreading activation
+   Size: 72
+   Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 15.958
+Activation: Following concept links
+   Size: 72
+   Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 15.958
+Activation: Following inter-element links
+   Size: 72
+   Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 15.958
+Activation: Descendant relationship
+   Size: 72
+   Topic #83: 他们在知乎也有一个汉化组
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 0.882
+Activation: Adding new element
+   Size: 73
+   Topic #83: 他们在知乎也有一个汉化组
+   Link priority: 0.197
+   Layer priority: 0
+   Element priority: 0.882
+Activation: Descendant relationship
+   Size: 73
+   Topic #151: 我的理解是：贝叶斯主义的“正确使用”理论上能使一个人不断改变自己的信念，不断利用已有证据靠近真理；但是，使用贝叶斯主义的人们依旧在主观地决定哪些、多少“足够的证据”足以让自己确信某个极端的结论极为可能。作者称，这是“an abyss between their theory and their .
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.363
+Activation: Adding new element
+   Size: 74
+   Topic #151: 我的理解是：贝叶斯主义的“正确使用”理论上能使一个人不断改变自己的信念，不断利用已有证据靠近真理；但是，使用贝叶斯主义的人们依旧在主观地决定哪些、多少“足够的证据”足以让自己确信某个极端的结论极为可能。作者称，这是“an abyss between their theory and their .
+   Link priority: 0.201
+   Layer priority: 0
+   Element priority: 1.363
+Activation: Descendant relationship
+   Size: 74
+   Topic #648: double crux 待读章节，理性手册
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.604
+Activation: Adding new element
+   Size: 75
+   Topic #648: double crux 待读章节，理性手册
+   Link priority: 0.203
+   Layer priority: 0
+   Element priority: 1.604
+Activation: Descendant relationship
+   Size: 75
+   Topic #125: 这个系列基本上是一部EY简史，详细梳理了EY及其社群的发展历程，把他与密码朋克、新右翼的关联都整理得很清楚
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 0.642
+Activation: Adding new element
+   Size: 76
+   Topic #125: 这个系列基本上是一部EY简史，详细梳理了EY及其社群的发展历程，把他与密码朋克、新右翼的关联都整理得很清楚
+   Link priority: 0.195
+   Layer priority: 0
+   Element priority: 0.642
+Activation: Descendant relationship
+   Size: 76
+   Topic #648: double crux 待读章节，理性手册
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.604
+Activation: Descendant relationship
+   Size: 76
+   Topic #646: Bucket error
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.524
+Activation: Adding new element
+   Size: 77
+   Topic #646: Bucket error
+   Link priority: 0.202
+   Layer priority: 0
+   Element priority: 1.524
+Activation: Descendant relationship
+   Size: 77
+   Topic #647: hamming questions 待探索章节
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.684
+Activation: Adding new element
+   Size: 78
+   Topic #647: hamming questions 待探索章节
+   Link priority: 0.204
+   Layer priority: 0
+   Element priority: 1.684
+Activation: Descendant relationship
+   Size: 78
+   Topic #646: Bucket error
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.524
+Activation: Descendant relationship
+   Size: 78
+   Topic #151: 我的理解是：贝叶斯主义的“正确使用”理论上能使一个人不断改变自己的信念，不断利用已有证据靠近真理；但是，使用贝叶斯主义的人们依旧在主观地决定哪些、多少“足够的证据”足以让自己确信某个极端的结论极为可能。作者称，这是“an abyss between their theory and their .
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.363
+Activation: Descendant relationship
+   Size: 78
+   Topic #83: 他们在知乎也有一个汉化组
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 0.882
+Activation: Descendant relationship
+   Size: 78
+   Topic #550: Bucket error, hamming questions, 和double crux这几章写得很不错，非常推荐阅读！
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.165
+Activation: Adding new element
+   Size: 79
+   Topic #550: Bucket error, hamming questions, 和double crux这几章写得很不错，非常推荐阅读！
+   Link priority: 0.208
+   Layer priority: 0
+   Element priority: 2.165
+Activation: Descendant relationship
+   Size: 79
+   Topic #156: 这篇简史的第二章非常震撼，我认为读者在阅读EY（Eliezer Yudkowsky，本书《如何真正改变你的想法》的作者）的贝叶斯主义/理性主义之前，有必要了解在这一章中，与EY的LessWrong社区关系紧密的Leverage .
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.887
+Activation: Adding new element
+   Size: 80
+   Topic #156: 这篇简史的第二章非常震撼，我认为读者在阅读EY（Eliezer Yudkowsky，本书《如何真正改变你的想法》的作者）的贝叶斯主义/理性主义之前，有必要了解在这一章中，与EY的LessWrong社区关系紧密的Leverage .
+   Link priority: 0.213
+   Layer priority: 0
+   Element priority: 2.887
+Activation: Descendant relationship
+   Size: 80
+   Topic #129: 我扫读了前145页的CFAR的handbook（所有Core Classes），收获意外得非常多：它并没有学术地谈论理性思考本身，而是在就事论事地谈论各种生活建议与决策为何是更为理性的选择，在哪些地方我们应该进行更多的思考。Bucket error, hamming questions, 和double crux这几章写得很不错，非常推荐阅读！ .
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.123
+Activation: Adding new element
+   Size: 81
+   Topic #129: 我扫读了前145页的CFAR的handbook（所有Core Classes），收获意外得非常多：它并没有学术地谈论理性思考本身，而是在就事论事地谈论各种生活建议与决策为何是更为理性的选择，在哪些地方我们应该进行更多的思考。Bucket error, hamming questions, 和double crux这几章写得很不错，非常推荐阅读！ .
+   Link priority: 0.199
+   Layer priority: 0
+   Element priority: 1.123
+Activation: Descendant relationship
+   Size: 81
+   Topic #125: 这个系列基本上是一部EY简史，详细梳理了EY及其社群的发展历程，把他与密码朋克、新右翼的关联都整理得很清楚
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 0.642
+Activation: Descendant relationship
+   Size: 81
+   Topic #162: 虽然简史的作者批评了bayesianism，但就算是EY的LessWrong也远比bayesianism探讨得多得多，CFAR的handbook中也仅仅出现了几次bayesianism。 我们唯一能确定的是一个将rationalism作为主要研究对象的群体曾经确实诞生过邪教，但确实并不能以此作为批判bayesianism或其他理性工具的依据
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 10.265
+Activation: Adding new element
+   Size: 82
+   Topic #162: 虽然简史的作者批评了bayesianism，但就算是EY的LessWrong也远比bayesianism探讨得多得多，CFAR的handbook中也仅仅出现了几次bayesianism。 我们唯一能确定的是一个将rationalism作为主要研究对象的群体曾经确实诞生过邪教，但确实并不能以此作为批判bayesianism或其他理性工具的依据
+   Link priority: 0.273
+   Layer priority: 0
+   Element priority: 10.265
+Activation: Parent
+   Size: 82
+   Topic #27: TODO
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 53.729
+Activation: Collecting siblings
+   Size: 82
+   Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 15.958
+Activation: Expanding into deeper layers
+   Size: 82
+   Topic #541: 借助决策论，我们甚至可以对理性行为的一般特性作出严格的数学描述。数学语言让我们以前所未有的精度来分析、把握理性的内涵与外延。
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 50.361
+Activation: Spreading activation
+   Size: 82
+   Topic #541: 借助决策论，我们甚至可以对理性行为的一般特性作出严格的数学描述。数学语言让我们以前所未有的精度来分析、把握理性的内涵与外延。
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 50.361
+Activation: Following concept links
+   Size: 82
+   Topic #541: 借助决策论，我们甚至可以对理性行为的一般特性作出严格的数学描述。数学语言让我们以前所未有的精度来分析、把握理性的内涵与外延。
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 50.361
+Activation: Following inter-element links
+   Size: 82
+   Topic #541: 借助决策论，我们甚至可以对理性行为的一般特性作出严格的数学描述。数学语言让我们以前所未有的精度来分析、把握理性的内涵与外延。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 50.361
+Activation: Root article
+   Size: 82
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Source of activation: Topic #541: 借助决策论，我们甚至可以对理性行为的一般特性作出严格的数学描述。数学语言让我们以前所未有的精度来分析、把握理性的内涵与外延。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 59.262
+Activation: Collecting siblings
+   Size: 82
+   Topic #541: 借助决策论，我们甚至可以对理性行为的一般特性作出严格的数学描述。数学语言让我们以前所未有的精度来分析、把握理性的内涵与外延。
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 50.361
+Activation: Expanding into deeper layers
+   Size: 82
+   Topic #545: 没有一个判断思维方法优劣的总体框架，就会觉得无从下手去提升自己的理性思维能力。
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 2.326
+Activation: Spreading activation
+   Size: 82
+   Topic #545: 没有一个判断思维方法优劣的总体框架，就会觉得无从下手去提升自己的理性思维能力。
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 2.326
+Activation: Following concept links
+   Size: 82
+   Topic #545: 没有一个判断思维方法优劣的总体框架，就会觉得无从下手去提升自己的理性思维能力。
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 2.326
+Activation: Following inter-element links
+   Size: 82
+   Topic #545: 没有一个判断思维方法优劣的总体框架，就会觉得无从下手去提升自己的理性思维能力。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 2.326
+Activation: Root article
+   Size: 82
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Source of activation: Topic #545: 没有一个判断思维方法优劣的总体框架，就会觉得无从下手去提升自己的理性思维能力。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 59.262
+Activation: Collecting siblings
+   Size: 82
+   Topic #545: 没有一个判断思维方法优劣的总体框架，就会觉得无从下手去提升自己的理性思维能力。
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 2.326
+Activation: Expanding into deeper layers
+   Size: 82
+   Topic #144: 事实上，即便是现实世界中最高效、最精准的推理者，也仍须借助启发式方法和近似算法。就连计算复杂度最优的算法，也无法完全符合概率论的一致性要求。
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 47.795
+Activation: Spreading activation
+   Size: 82
+   Topic #144: 事实上，即便是现实世界中最高效、最精准的推理者，也仍须借助启发式方法和近似算法。就连计算复杂度最优的算法，也无法完全符合概率论的一致性要求。
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 47.795
+Activation: Following concept links
+   Size: 82
+   Topic #144: 事实上，即便是现实世界中最高效、最精准的推理者，也仍须借助启发式方法和近似算法。就连计算复杂度最优的算法，也无法完全符合概率论的一致性要求。
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 47.795
+Activation: Following inter-element links
+   Size: 82
+   Topic #144: 事实上，即便是现实世界中最高效、最精准的推理者，也仍须借助启发式方法和近似算法。就连计算复杂度最优的算法，也无法完全符合概率论的一致性要求。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 47.795
+Activation: Descendant relationship
+   Size: 82
+   Topic #552: 近似算法
+   Source of activation: Topic #144: 事实上，即便是现实世界中最高效、最精准的推理者，也仍须借助启发式方法和近似算法。就连计算复杂度最优的算法，也无法完全符合概率论的一致性要求。
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 35.926
+Activation: Descendant relationship
+   Size: 82
+   Topic #552: 近似算法
+   Source of activation: Topic #144: 事实上，即便是现实世界中最高效、最精准的推理者，也仍须借助启发式方法和近似算法。就连计算复杂度最优的算法，也无法完全符合概率论的一致性要求。
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 35.926
+Activation: Root article
+   Size: 82
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Source of activation: Topic #144: 事实上，即便是现实世界中最高效、最精准的推理者，也仍须借助启发式方法和近似算法。就连计算复杂度最优的算法，也无法完全符合概率论的一致性要求。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 59.262
+Activation: Collecting siblings
+   Size: 82
+   Topic #144: 事实上，即便是现实世界中最高效、最精准的推理者，也仍须借助启发式方法和近似算法。就连计算复杂度最优的算法，也无法完全符合概率论的一致性要求。
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 47.795
+Activation: Expanding into deeper layers
+   Size: 82
+   Topic #646: Bucket error
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 1.524
+Activation: Spreading activation
+   Size: 82
+   Topic #646: Bucket error
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 1.524
+Activation: Following concept links
+   Size: 82
+   Topic #646: Bucket error
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 1.524
+Activation: Following inter-element links
+   Size: 82
+   Topic #646: Bucket error
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 1.524
+Activation: Root article
+   Size: 82
+   Topic #156: 这篇简史的第二章非常震撼，我认为读者在阅读EY（Eliezer Yudkowsky，本书《如何真正改变你的想法》的作者）的贝叶斯主义/理性主义之前，有必要了解在这一章中，与EY的LessWrong社区关系紧密的Leverage .
+   Source of activation: Topic #646: Bucket error
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 2.887
+Activation: Collecting siblings
+   Size: 82
+   Topic #646: Bucket error
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 1.524
+Activation: Expanding into deeper layers
+   Size: 82
+   Topic #569: 如何让自己有能力发现联系：对领域知识的了解加上直觉？ 参考资料或许可以看看历史学家养成的三个阶段
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 0
+Activation: Spreading activation
+   Size: 82
+   Topic #569: 如何让自己有能力发现联系：对领域知识的了解加上直觉？ 参考资料或许可以看看历史学家养成的三个阶段
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 0
+Activation: Following concept links
+   Size: 82
+   Topic #569: 如何让自己有能力发现联系：对领域知识的了解加上直觉？ 参考资料或许可以看看历史学家养成的三个阶段
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 0
+Activation: Following inter-element links
+   Size: 82
+   Topic #569: 如何让自己有能力发现联系：对领域知识的了解加上直觉？ 参考资料或许可以看看历史学家养成的三个阶段
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 0
+Activation: Parent
+   Size: 82
+   Topic #27: TODO
+   Source of activation: Topic #569: 如何让自己有能力发现联系：对领域知识的了解加上直觉？ 参考资料或许可以看看历史学家养成的三个阶段
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 53.729
+Activation: Collecting siblings
+   Size: 82
+   Topic #569: 如何让自己有能力发现联系：对领域知识的了解加上直觉？ 参考资料或许可以看看历史学家养成的三个阶段
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 0
+Activation: Expanding into deeper layers
+   Size: 82
+   Topic #96: 补充：这个系列讨论的理性基于贝叶斯主. 为什么隐性知识比刻意练习更重要 - 知乎专栏. https://zhuanlan.zhihu.com/p/1889973887506297083. 注：这是隐性知识系列的第 1 部分。我想用一篇文章探讨隐性知识，以及为什么我认为它是技能习得领域中最引人入胜的话题。如果你是 Commonplace .
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 0.802
+Activation: Spreading activation
+   Size: 82
+   Topic #96: 补充：这个系列讨论的理性基于贝叶斯主. 为什么隐性知识比刻意练习更重要 - 知乎专栏. https://zhuanlan.zhihu.com/p/1889973887506297083. 注：这是隐性知识系列的第 1 部分。我想用一篇文章探讨隐性知识，以及为什么我认为它是技能习得领域中最引人入胜的话题。如果你是 Commonplace .
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 0.802
+Activation: Following concept links
+   Size: 82
+   Topic #96: 补充：这个系列讨论的理性基于贝叶斯主. 为什么隐性知识比刻意练习更重要 - 知乎专栏. https://zhuanlan.zhihu.com/p/1889973887506297083. 注：这是隐性知识系列的第 1 部分。我想用一篇文章探讨隐性知识，以及为什么我认为它是技能习得领域中最引人入胜的话题。如果你是 Commonplace .
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 0.802
+Activation: Following inter-element links
+   Size: 82
+   Topic #96: 补充：这个系列讨论的理性基于贝叶斯主. 为什么隐性知识比刻意练习更重要 - 知乎专栏. https://zhuanlan.zhihu.com/p/1889973887506297083. 注：这是隐性知识系列的第 1 部分。我想用一篇文章探讨隐性知识，以及为什么我认为它是技能习得领域中最引人入胜的话题。如果你是 Commonplace .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 0.802
+Activation: Root article
+   Size: 82
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Source of activation: Topic #96: 补充：这个系列讨论的理性基于贝叶斯主. 为什么隐性知识比刻意练习更重要 - 知乎专栏. https://zhuanlan.zhihu.com/p/1889973887506297083. 注：这是隐性知识系列的第 1 部分。我想用一篇文章探讨隐性知识，以及为什么我认为它是技能习得领域中最引人入胜的话题。如果你是 Commonplace .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 59.262
+Activation: Collecting siblings
+   Size: 82
+   Topic #96: 补充：这个系列讨论的理性基于贝叶斯主. 为什么隐性知识比刻意练习更重要 - 知乎专栏. https://zhuanlan.zhihu.com/p/1889973887506297083. 注：这是隐性知识系列的第 1 部分。我想用一篇文章探讨隐性知识，以及为什么我认为它是技能习得领域中最引人入胜的话题。如果你是 Commonplace .
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 0.802
+Activation: Expanding into deeper layers
+   Size: 82
+   Item #1,170: 给定背景知识（先验）和新获得的证据，概率论可以唯一确定我们应该采信的[.]。
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 4.571
+Activation: Spreading activation
+   Size: 82
+   Item #1,170: 给定背景知识（先验）和新获得的证据，概率论可以唯一确定我们应该采信的[.]。
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 4.571
+Activation: Following concept links
+   Size: 82
+   Item #1,170: 给定背景知识（先验）和新获得的证据，概率论可以唯一确定我们应该采信的[.]。
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 4.571
+Activation: Following inter-element links
+   Size: 82
+   Item #1,170: 给定背景知识（先验）和新获得的证据，概率论可以唯一确定我们应该采信的[.]。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 4.571
+Activation: Root article
+   Size: 82
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Source of activation: Item #1,170: 给定背景知识（先验）和新获得的证据，概率论可以唯一确定我们应该采信的[.]。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 59.262
+Activation: Collecting siblings
+   Size: 82
+   Item #1,170: 给定背景知识（先验）和新获得的证据，概率论可以唯一确定我们应该采信的[.]。
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 4.571
+Activation: Expanding into deeper layers
+   Size: 82
+   Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 15.958
+Activation: Spreading activation
+   Size: 82
+   Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 15.958
+Activation: Following concept links
+   Size: 82
+   Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 15.958
+Activation: Following inter-element links
+   Size: 82
+   Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 15.958
+Activation: Descendant relationship
+   Size: 82
+   Topic #162: 虽然简史的作者批评了bayesianism，但就算是EY的LessWrong也远比bayesianism探讨得多得多，CFAR的handbook中也仅仅出现了几次bayesianism。 我们唯一能确定的是一个将rationalism作为主要研究对象的群体曾经确实诞生过邪教，但确实并不能以此作为批判bayesianism或其他理性工具的依据
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 10.265
+Activation: Descendant relationship
+   Size: 82
+   Topic #548: >但是，使用贝叶斯主义的人们依旧在主观地决定哪些、多少“足够的证据”足以让自己确信某个极端的结论极为可能。. 这个结论所说的“主观决定使用哪些证据”就是正文里所说的“先验”——也就是背景知识。而贝叶斯主义这种方法是“后验”
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 0.16
+Activation: Adding new element
+   Size: 83
+   Topic #548: >但是，使用贝叶斯主义的人们依旧在主观地决定哪些、多少“足够的证据”足以让自己确信某个极端的结论极为可能。. 这个结论所说的“主观决定使用哪些证据”就是正文里所说的“先验”——也就是背景知识。而贝叶斯主义这种方法是“后验”
+   Link priority: 0.191
+   Layer priority: 0
+   Element priority: 0.16
+Activation: Descendant relationship
+   Size: 83
+   Topic #548: >但是，使用贝叶斯主义的人们依旧在主观地决定哪些、多少“足够的证据”足以让自己确信某个极端的结论极为可能。. 这个结论所说的“主观决定使用哪些证据”就是正文里所说的“先验”——也就是背景知识。而贝叶斯主义这种方法是“后验”
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 0.16
+Activation: Descendant relationship
+   Size: 83
+   Topic #125: 这个系列基本上是一部EY简史，详细梳理了EY及其社群的发展历程，把他与密码朋克、新右翼的关联都整理得很清楚
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 0.642
+Activation: Descendant relationship
+   Size: 83
+   Topic #162: 虽然简史的作者批评了bayesianism，但就算是EY的LessWrong也远比bayesianism探讨得多得多，CFAR的handbook中也仅仅出现了几次bayesianism。 我们唯一能确定的是一个将rationalism作为主要研究对象的群体曾经确实诞生过邪教，但确实并不能以此作为批判bayesianism或其他理性工具的依据
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 10.265
+Activation: Descendant relationship
+   Size: 83
+   Topic #162: 虽然简史的作者批评了bayesianism，但就算是EY的LessWrong也远比bayesianism探讨得多得多，CFAR的handbook中也仅仅出现了几次bayesianism。 我们唯一能确定的是一个将rationalism作为主要研究对象的群体曾经确实诞生过邪教，但确实并不能以此作为批判bayesianism或其他理性工具的依据
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 10.265
+Activation: Descendant relationship
+   Size: 83
+   Topic #645: 使用者在估计贝叶斯概率的时候，概率本身可能就来自于自身已有的错误认知，使错误的前提在正确的推导下得出了错误的结论
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.203
+Activation: Adding new element
+   Size: 84
+   Topic #645: 使用者在估计贝叶斯概率的时候，概率本身可能就来自于自身已有的错误认知，使错误的前提在正确的推导下得出了错误的结论
+   Link priority: 0.2
+   Layer priority: 0
+   Element priority: 1.203
+Activation: Descendant relationship
+   Size: 84
+   Topic #648: double crux 待读章节，理性手册
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.604
+Activation: Descendant relationship
+   Size: 84
+   Topic #156: 这篇简史的第二章非常震撼，我认为读者在阅读EY（Eliezer Yudkowsky，本书《如何真正改变你的想法》的作者）的贝叶斯主义/理性主义之前，有必要了解在这一章中，与EY的LessWrong社区关系紧密的Leverage .
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.887
+Activation: Descendant relationship
+   Size: 84
+   Topic #646: Bucket error
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.524
+Activation: Descendant relationship
+   Size: 84
+   Topic #162: 虽然简史的作者批评了bayesianism，但就算是EY的LessWrong也远比bayesianism探讨得多得多，CFAR的handbook中也仅仅出现了几次bayesianism。 我们唯一能确定的是一个将rationalism作为主要研究对象的群体曾经确实诞生过邪教，但确实并不能以此作为批判bayesianism或其他理性工具的依据
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 10.265
+Activation: Descendant relationship
+   Size: 84
+   Topic #151: 我的理解是：贝叶斯主义的“正确使用”理论上能使一个人不断改变自己的信念，不断利用已有证据靠近真理；但是，使用贝叶斯主义的人们依旧在主观地决定哪些、多少“足够的证据”足以让自己确信某个极端的结论极为可能。作者称，这是“an abyss between their theory and their .
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.363
+Activation: Descendant relationship
+   Size: 84
+   Topic #647: hamming questions 待探索章节
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.684
+Activation: Descendant relationship
+   Size: 84
+   Topic #645: 使用者在估计贝叶斯概率的时候，概率本身可能就来自于自身已有的错误认知，使错误的前提在正确的推导下得出了错误的结论
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 1.203
+Activation: Descendant relationship
+   Size: 84
+   Topic #156: 这篇简史的第二章非常震撼，我认为读者在阅读EY（Eliezer Yudkowsky，本书《如何真正改变你的想法》的作者）的贝叶斯主义/理性主义之前，有必要了解在这一章中，与EY的LessWrong社区关系紧密的Leverage .
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.887
+Activation: Parent
+   Size: 84
+   Topic #27: TODO
+   Source of activation: Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 53.729
+Activation: Collecting siblings
+   Size: 84
+   Topic #112: 非常感谢你们汉化组的工作，EY也是我的启蒙者之一
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 15.958
+Activation: Expanding into deeper layers
+   Size: 84
+   Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 94.787
+Activation: Spreading activation
+   Size: 84
+   Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 94.787
+Activation: Following concept links
+   Size: 84
+   Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 94.787
+Activation: Following inter-element links
+   Size: 84
+   Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 94.787
+Activation: Descendant relationship
+   Size: 84
+   Topic #163: 表达你对所热爱事物的支持本无可厚非——无论是你认同的群体，还是令你感到振奋的精神体验。但如果我们将支持性言论与事实信念相混淆，那些被误读的言论就可能成为保护整个意识形态，使其免受证据威胁的屏障。
+   Source of activation: Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 49.96
+Activation: Adding new element
+   Size: 85
+   Topic #163: 表达你对所热爱事物的支持本无可厚非——无论是你认同的群体，还是令你感到振奋的精神体验。但如果我们将支持性言论与事实信念相混淆，那些被误读的言论就可能成为保护整个意识形态，使其免受证据威胁的屏障。
+   Link priority: 0.595
+   Layer priority: 0
+   Element priority: 49.96
+Activation: Descendant relationship
+   Size: 85
+   Topic #133: 如今，一些心理学家甚至大胆推测，人类形成条理清晰进行论证的能力，根本目的就是为了在争论中赢得优势。
+   Source of activation: Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 51.083
+Activation: Descendant relationship
+   Size: 85
+   Topic #164: 更不用说让立场对立的群体在国家政治或道德哲学等复杂议题上达成共识了；持有不同群体认同的学生，甚至对亲眼所见的客观事实都无法形成一致看法
+   Source of activation: Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 52.366
+Activation: Descendant relationship
+   Size: 85
+   Topic #163: 表达你对所热爱事物的支持本无可厚非——无论是你认同的群体，还是令你感到振奋的精神体验。但如果我们将支持性言论与事实信念相混淆，那些被误读的言论就可能成为保护整个意识形态，使其免受证据威胁的屏障。
+   Source of activation: Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 49.96
+Activation: Descendant relationship
+   Size: 85
+   Topic #92: 其根源在于，人们往往受到各自所处环境和接触信息的影响，从而形成带有偏见的主观判断
+   Source of activation: Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 50.281
+Activation: Descendant relationship
+   Size: 85
+   Topic #546: 如果我们将支持性言论与事实信念相混淆，那些被误读的言论就可能成为保护整个意识形态，使其免受证据威胁的屏障。
+   Source of activation: Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 18.204
+Activation: Adding new element
+   Size: 86
+   Topic #546: 如果我们将支持性言论与事实信念相混淆，那些被误读的言论就可能成为保护整个意识形态，使其免受证据威胁的屏障。
+   Link priority: 0.337
+   Layer priority: 0
+   Element priority: 18.204
+Activation: Descendant relationship
+   Size: 86
+   Topic #118: 当我们所珍视的事物受到威胁，不论是我们的世界观、群体认同、社会地位还是其他，我们的思想和观念就会自发地奔赴它们的辩护. 大脑算法保护现实的模型-woz
+   Source of activation: Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 53.889
+Activation: Descendant relationship
+   Size: 86
+   Topic #164: 更不用说让立场对立的群体在国家政治或道德哲学等复杂议题上达成共识了；持有不同群体认同的学生，甚至对亲眼所见的客观事实都无法形成一致看法
+   Source of activation: Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 52.366
+Activation: Descendant relationship
+   Size: 86
+   Topic #78: 平淡无奇的信念ーー那些原则上是可证伪的、确实会限制我们期望所见之物的信念——仍然根深蒂固地卡在我们脑海中，被一张由种种幻觉和偏见编织成的大网所强化
+   Source of activation: Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 47.394
+Activation: Adding new element
+   Size: 87
+   Topic #78: 平淡无奇的信念ーー那些原则上是可证伪的、确实会限制我们期望所见之物的信念——仍然根深蒂固地卡在我们脑海中，被一张由种种幻觉和偏见编织成的大网所强化
+   Link priority: 0.574
+   Layer priority: 0
+   Element priority: 47.394
+Activation: Descendant relationship
+   Size: 87
+   Topic #164: 更不用说让立场对立的群体在国家政治或道德哲学等复杂议题上达成共识了；持有不同群体认同的学生，甚至对亲眼所见的客观事实都无法形成一致看法
+   Source of activation: Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 52.366
+Activation: Root article
+   Size: 87
+   Topic #61: 译者按 本文是《如何真正改变你的想法》一书的序言。而《如何真正改变你的想法》是 Eliezer Yudkowsky 所著的《理性：从人工智能到僵尸》丛书的第二卷。该丛书的第一卷是《 .
+   Source of activation: Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 59.262
+Activation: Collecting siblings
+   Size: 87
+   Topic #103: 如何不真正改变你的想法. 然而，要真正做到以这种近乎理想化的方式来修正我们的信念，谈何容易。. 在《理性：从人工智能到僵尸》的第一卷中，我们探讨了「恰当」信念的价值。表达你对所热爱 .
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 94.787
+
+Process completed at 10:40:22 PM in 00:00:00 sec (Friday, May 23, 2025)
+
+NO ERRORS (Analysis of the process of spreading activation when building a neural queue)
+
+____________________________________________________________

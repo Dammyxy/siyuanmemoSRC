@@ -1,0 +1,23 @@
+/**
+ * FSRS Plugin Styles
+ */
+
+.fsrs-dock-container {
+  padding: 16px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.fsrs-dock-header {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--b3-border-color);
+}
+
+.fsrs-dock-content {
+  flex: 1;
+  overflow-y: auto;
+}

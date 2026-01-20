@@ -1,0 +1,20 @@
+SuperMemo Report
+   Activity: Checking the integrity of the collection
+   Collection: h:\siyuanmemo\supermemo\systems\examination
+   Date: 2025年5月20日, 23:14:59
+   SuperMemo 19 (Build 19.08, Jan 6, 2025)
+
+Checking 1,203 element records (ElementInfo.dat)
+Verifying integrity of element data (1203 elements in ElementInfo.dat)
+Verifying knowledge tree (1,203 elements in Contents.dat)
+414 children at Topic #59: 总目录 费曼物理学讲义：新千年版．第1卷 费曼物理学讲义：新千年版．第2卷 费曼物理学讲义：新千年版．第3卷 费曼物理学讲义补编 费曼物理学讲义习题集：新千年版       图书在版编目（CIP）数据 费曼物理学讲义：新千年版．第1卷/（美）费曼（Richard Feynman），（美）莱顿（Robert .
+Verifying the priority queue of 1,160 elements
+Verifying repetition schedule (Workload.dat and ElementInfo.dat)
+Verifying pending queue (Intact.dat)
+Verifying A-Factor, Lapses and Repetitions distributions
+
+Process completed at 23:15:00 in 00:00:01 sec (2025年5月20日)
+
+NO ERRORS (Checking the integrity of the collection)
+
+____________________________________________________________

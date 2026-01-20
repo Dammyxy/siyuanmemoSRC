@@ -1,0 +1,13 @@
+SuperMemo Report
+   Activity: Collecting retention data
+   Collection: c:\supermemo\systems\todo
+   Date: Friday, January 31, 2025, 2:32:08 AM
+   SuperMemo 19 (Build 19.08, Jan 6, 2025)
+
+Retention data errors can be ignored
+
+Process completed at 2:32:08 AM in 00:00:00 sec (Friday, January 31, 2025)
+
+NO ERRORS (Collecting retention data)
+
+____________________________________________________________

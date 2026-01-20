@@ -1,0 +1,13 @@
+SuperMemo Report
+   Activity: Collecting retention data
+   Collection: h:\siyuanmemo\supermemo\systems\examination
+   Date: Sunday, March 23, 2025, 12:35:38 AM
+   SuperMemo 19 (Build 19.08, Jan 6, 2025)
+
+Retention data errors can be ignored
+
+Process completed at 12:35:38 AM in 00:00:00 sec (Sunday, March 23, 2025)
+
+NO ERRORS (Collecting retention data)
+
+____________________________________________________________

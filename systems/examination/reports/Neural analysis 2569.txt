@@ -1,0 +1,1076 @@
+SuperMemo Report
+   Activity: Analysis of the process of spreading activation when building a neural queue
+   Collection: h:\siyuanmemo\supermemo\systems\examination
+   Date: 2025年11月12日, 2:11:11
+   SuperMemo 19 (Build 19.1, Apr 23, 2025)
+
+Activation: Spreading activation
+   Size: 0
+   Item #2,569: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B 同时发生的概率 (相对于[.]空间的比例)。
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 5.189
+Activation: Following concept links
+   Size: 0
+   Item #2,569: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B 同时发生的概率 (相对于[.]空间的比例)。
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 5.189
+Activation: Following inter-element links
+   Size: 0
+   Item #2,569: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B 同时发生的概率 (相对于[.]空间的比例)。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 5.189
+Activation: Root article
+   Size: 0
+   Topic #2,164: 全概率定律的条件概率表述
+   Source of activation: Item #2,569: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B 同时发生的概率 (相对于[.]空间的比例)。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 15.678
+Activation: Adding new element
+   Size: 1
+   Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.279
+   Layer priority: 0.05
+   Element priority: 15.678
+Activation: Collecting siblings
+   Size: 1
+   Item #2,569: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B 同时发生的概率 (相对于[.]空间的比例)。
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 5.189
+Activation: Adding new element
+   Size: 2
+   Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.474
+   Layer priority: 0.3
+   Element priority: 4.114
+Activation: Expanding into deeper layers
+   Size: 2
+   Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 4.114
+Activation: Spreading activation
+   Size: 2
+   Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 4.114
+Activation: Following concept links
+   Size: 2
+   Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 4.114
+Activation: Following inter-element links
+   Size: 2
+   Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 4.114
+Activation: Descendant relationship
+   Size: 2
+   Topic #2,668: 样本空间不同
+   Source of activation: Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.854
+Activation: Adding new element
+   Size: 3
+   Topic #2,668: 样本空间不同
+   Link priority: 0.213
+   Layer priority: 0
+   Element priority: 2.854
+Activation: Descendant relationship
+   Size: 3
+   Topic #2,668: 样本空间不同
+   Source of activation: Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.854
+Activation: Root article
+   Size: 3
+   Topic #2,164: 全概率定律的条件概率表述
+   Source of activation: Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 15.678
+Activation: Collecting siblings
+   Size: 3
+   Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 4.114
+Activation: Adding new element
+   Size: 4
+   Item #2,569: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B 同时发生的概率 (相对于[.]空间的比例)。
+   Link priority: 0.48
+   Layer priority: 0.3
+   Element priority: 5.189
+Activation: Expanding into deeper layers
+   Size: 4
+   Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 4.114
+Activation: Spreading activation
+   Size: 4
+   Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 4.114
+Activation: Following concept links
+   Size: 4
+   Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 4.114
+Activation: Following inter-element links
+   Size: 4
+   Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 4.114
+Activation: Descendant relationship
+   Size: 4
+   Topic #2,668: 样本空间不同
+   Source of activation: Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.854
+Activation: Descendant relationship
+   Size: 4
+   Topic #2,668: 样本空间不同
+   Source of activation: Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.854
+Activation: Root article
+   Size: 4
+   Topic #2,164: 全概率定律的条件概率表述
+   Source of activation: Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 15.678
+Activation: Collecting siblings
+   Size: 4
+   Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 4.114
+Activation: Expanding into deeper layers
+   Size: 4
+   Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 15.678
+Activation: Spreading activation
+   Size: 4
+   Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 15.678
+Activation: Following concept links
+   Size: 4
+   Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 15.678
+Activation: Following inter-element links
+   Size: 4
+   Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 15.678
+Activation: Descendant relationship
+   Size: 4
+   Topic #1,479: 问： 对于三个事件 A, B, C，条件概率的乘法法则（链式法则）是如何表述 P(A ∩ B ∩ C) 的？ . 答： P(A ∩ B ∩ C) = P(A) * P(B|A) * P(C|A ∩ B)。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 12.565
+Activation: Adding new element
+   Size: 5
+   Topic #1,479: 问： 对于三个事件 A, B, C，条件概率的乘法法则（链式法则）是如何表述 P(A ∩ B ∩ C) 的？ . 答： P(A ∩ B ∩ C) = P(A) * P(B|A) * P(C|A ∩ B)。
+   Link priority: 0.292
+   Layer priority: 0
+   Element priority: 12.565
+Activation: Descendant relationship
+   Size: 5
+   Topic #1,508: 问： 条件概率 P(A|B) 的核心定义是什么？ 答： 在事件 B 已经发生的条件下，事件 A 发生的概率。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 69.088
+Activation: Adding new element
+   Size: 6
+   Topic #1,508: 问： 条件概率 P(A|B) 的核心定义是什么？ 答： 在事件 B 已经发生的条件下，事件 A 发生的概率。
+   Link priority: 0.75
+   Layer priority: 0
+   Element priority: 69.088
+Activation: Descendant relationship
+   Size: 6
+   Topic #2,208: 问： 在概率树图中，一条特定路径（代表一系列相继事件的发生）的概率是如何利用条件概率的乘法法则计算的？ . 答： 将该路径上所有分支的概率（通常是条件概率，除了第一个分支是先验概率）相乘。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 99.296
+Activation: Adding new element
+   Size: 7
+   Topic #2,208: 问： 在概率树图中，一条特定路径（代表一系列相继事件的发生）的概率是如何利用条件概率的乘法法则计算的？ . 答： 将该路径上所有分支的概率（通常是条件概率，除了第一个分支是先验概率）相乘。
+   Link priority: 0.994
+   Layer priority: 0
+   Element priority: 99.296
+Activation: Descendant relationship
+   Size: 7
+   Topic #2,208: 问： 在概率树图中，一条特定路径（代表一系列相继事件的发生）的概率是如何利用条件概率的乘法法则计算的？ . 答： 将该路径上所有分支的概率（通常是条件概率，除了第一个分支是先验概率）相乘。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 99.296
+Activation: Descendant relationship
+   Size: 7
+   Topic #2,207: 问： 条件概率 P(A|B) 和 P(B|A) 通常是相同的吗？为什么？ . 答： 通常不相同。因为 P(A|B) = P(A∩B)/P(B) 而 P(B|A) = P(A∩B)/P(A)，它们的分母不同，除非 P(A)=P(B)。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 5.226
+Activation: Adding new element
+   Size: 8
+   Topic #2,207: 问： 条件概率 P(A|B) 和 P(B|A) 通常是相同的吗？为什么？ . 答： 通常不相同。因为 P(A|B) = P(A∩B)/P(B) 而 P(B|A) = P(A∩B)/P(A)，它们的分母不同，除非 P(A)=P(B)。
+   Link priority: 0.232
+   Layer priority: 0
+   Element priority: 5.226
+Activation: Descendant relationship
+   Size: 8
+   Item #2,567: 问： 条件概率 P(A|B) 的主要功能是什么？    答： [.]。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 6.56
+Activation: Adding new element
+   Size: 9
+   Item #2,567: 问： 条件概率 P(A|B) 的主要功能是什么？    答： [.]。
+   Link priority: 0.243
+   Layer priority: 0
+   Element priority: 6.56
+Activation: Descendant relationship
+   Size: 9
+   Item #2,567: 问： 条件概率 P(A|B) 的主要功能是什么？    答： [.]。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 6.56
+Activation: Descendant relationship
+   Size: 9
+   Topic #2,699: 全概率定律的标准表述：P(A) = P(A ∩ B) + P(A ∩ B').
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 12.009
+Activation: Adding new element
+   Size: 10
+   Topic #2,699: 全概率定律的标准表述：P(A) = P(A ∩ B) + P(A ∩ B').
+   Link priority: 0.287
+   Layer priority: 0
+   Element priority: 12.009
+Activation: Descendant relationship
+   Size: 10
+   Topic #2,668: 样本空间不同
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.854
+Activation: Descendant relationship
+   Size: 10
+   Item #2,667: 问： 计算条件概率 P(A|B) 的标准公式是什么？    答： P(A|B) = P(A ∩ B) / P(B)，其中 [.] > 0。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 12.046
+Activation: Adding new element
+   Size: 11
+   Item #2,667: 问： 计算条件概率 P(A|B) 的标准公式是什么？    答： P(A|B) = P(A ∩ B) / P(B)，其中 [.] > 0。
+   Link priority: 0.288
+   Layer priority: 0
+   Element priority: 12.046
+Activation: Descendant relationship
+   Size: 11
+   Topic #2,204: 问： 条件概率的乘法法则（针对两个事件 A 和 B）的基本表达式是什么？ . 答： P(A ∩ B) = P(A|B) * P(B) 或 P(A ∩ B) = P(B|A) * P(A)。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 15.085
+Activation: Adding new element
+   Size: 12
+   Topic #2,204: 问： 条件概率的乘法法则（针对两个事件 A 和 B）的基本表达式是什么？ . 答： P(A ∩ B) = P(A|B) * P(B) 或 P(A ∩ B) = P(B|A) * P(A)。
+   Link priority: 0.312
+   Layer priority: 0
+   Element priority: 15.085
+Activation: Descendant relationship
+   Size: 12
+   Topic #2,211: 问： 条件概率 P(A|B) 的主要功能是什么？ . 答： zzz333ClozeMarker321zzz。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 16.345
+Activation: Adding new element
+   Size: 13
+   Topic #2,211: 问： 条件概率 P(A|B) 的主要功能是什么？ . 答： zzz333ClozeMarker321zzz。
+   Link priority: 0.322
+   Layer priority: 0
+   Element priority: 16.345
+Activation: Descendant relationship
+   Size: 13
+   Topic #1,611: 问： 条件概率的乘法法则在风险评估或系统可靠性分析等领域有何实际应用？ . 答： 可以用来计算一个系统中多个串联部件都正常工作（或都失效）的概率，或者一系列风险事件相继发生的概率。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 5.004
+Activation: Adding new element
+   Size: 14
+   Topic #1,611: 问： 条件概率的乘法法则在风险评估或系统可靠性分析等领域有何实际应用？ . 答： 可以用来计算一个系统中多个串联部件都正常工作（或都失效）的概率，或者一系列风险事件相继发生的概率。
+   Link priority: 0.231
+   Layer priority: 0
+   Element priority: 5.004
+Activation: Descendant relationship
+   Size: 14
+   Topic #2,203: 问： 在条件概率 P(A|B) 中，我们实际上是将样本空间缩减到了哪个事件？ . 答： 事件 B (即，我们将事件 B 视为新的、临时的样本空间)。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 14.937
+Activation: Adding new element
+   Size: 15
+   Topic #2,203: 问： 在条件概率 P(A|B) 中，我们实际上是将样本空间缩减到了哪个事件？ . 答： 事件 B (即，我们将事件 B 视为新的、临时的样本空间)。
+   Link priority: 0.311
+   Layer priority: 0
+   Element priority: 14.937
+Activation: Descendant relationship
+   Size: 15
+   Topic #2,207: 问： 条件概率 P(A|B) 和 P(B|A) 通常是相同的吗？为什么？ . 答： 通常不相同。因为 P(A|B) = P(A∩B)/P(B) 而 P(B|A) = P(A∩B)/P(A)，它们的分母不同，除非 P(A)=P(B)。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 5.226
+Activation: Descendant relationship
+   Size: 15
+   Item #2,567: 问： 条件概率 P(A|B) 的主要功能是什么？    答： [.]。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 6.56
+Activation: Descendant relationship
+   Size: 15
+   Item #2,233: 问： 条件概率的乘法法则与概率的加法法则（P(A ∪ B) = P(A) + P(B) - P(A ∩ B)）在应用目标上有何不同？  答： 乘法法则用于计算事件[.]发生的概率 (交集，AND)；加法法则用于计算事件“至少一个”发生的概率 (并集，OR)。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 8.636
+Activation: Adding new element
+   Size: 16
+   Item #2,233: 问： 条件概率的乘法法则与概率的加法法则（P(A ∪ B) = P(A) + P(B) - P(A ∩ B)）在应用目标上有何不同？  答： 乘法法则用于计算事件[.]发生的概率 (交集，AND)；加法法则用于计算事件“至少一个”发生的概率 (并集，OR)。
+   Link priority: 0.26
+   Layer priority: 0
+   Element priority: 8.636
+Activation: Descendant relationship
+   Size: 16
+   Topic #2,212: 问： 条件概率的乘法法则主要用于解决什么问题？ . 答： 计算一系列相关事件（尤其是序贯事件）都发生的累积概率。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 69.125
+Activation: Adding new element
+   Size: 17
+   Topic #2,212: 问： 条件概率的乘法法则主要用于解决什么问题？ . 答： 计算一系列相关事件（尤其是序贯事件）都发生的累积概率。
+   Link priority: 0.75
+   Layer priority: 0
+   Element priority: 69.125
+Activation: Descendant relationship
+   Size: 17
+   Topic #2,207: 问： 条件概率 P(A|B) 和 P(B|A) 通常是相同的吗？为什么？ . 答： 通常不相同。因为 P(A|B) = P(A∩B)/P(B) 而 P(B|A) = P(A∩B)/P(A)，它们的分母不同，除非 P(A)=P(B)。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 5.226
+Activation: Descendant relationship
+   Size: 17
+   Topic #2,210: 请举一个计算条件概率 P(A|B) 的简单例子（定义A、B和数值）。 . 答： 例：掷骰子，B={掷出偶数}={2,4,6}，A={掷出小于3的点数}={1,2}。. A∩B={2}。P(B)=3/6，P(A∩B)=1/6。. 则 P(A|B) = (1/6) / (3/6) = 1/3。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 15.789
+Activation: Adding new element
+   Size: 18
+   Topic #2,210: 请举一个计算条件概率 P(A|B) 的简单例子（定义A、B和数值）。 . 答： 例：掷骰子，B={掷出偶数}={2,4,6}，A={掷出小于3的点数}={1,2}。. A∩B={2}。P(B)=3/6，P(A∩B)=1/6。. 则 P(A|B) = (1/6) / (3/6) = 1/3。
+   Link priority: 0.318
+   Layer priority: 0
+   Element priority: 15.789
+Activation: Descendant relationship
+   Size: 18
+   Topic #2,216: 问： 理解条件概率对于避免哪些常见的认知偏差（如“基础概率谬误”）为何重要？ . 答： 它帮助我们正确地结合新的证据和原有的基础概率，而不是过分强调当前证据而忽略了事件本身的罕见性或普遍性。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 14.27
+Activation: Adding new element
+   Size: 19
+   Topic #2,216: 问： 理解条件概率对于避免哪些常见的认知偏差（如“基础概率谬误”）为何重要？ . 答： 它帮助我们正确地结合新的证据和原有的基础概率，而不是过分强调当前证据而忽略了事件本身的罕见性或普遍性。
+   Link priority: 0.306
+   Layer priority: 0
+   Element priority: 14.27
+Activation: Descendant relationship
+   Size: 19
+   Topic #2,202: 问： 计算条件概率 P(A|B) 的标准公式是什么？ . 答： P(A|B) = P(A ∩ B) / P(B)，其中 P(B) > 0。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 11.972
+Activation: Adding new element
+   Size: 20
+   Topic #2,202: 问： 计算条件概率 P(A|B) 的标准公式是什么？ . 答： P(A|B) = P(A ∩ B) / P(B)，其中 P(B) > 0。
+   Link priority: 0.287
+   Layer priority: 0
+   Element priority: 11.972
+Activation: Descendant relationship
+   Size: 20
+   Item #2,233: 问： 条件概率的乘法法则与概率的加法法则（P(A ∪ B) = P(A) + P(B) - P(A ∩ B)）在应用目标上有何不同？  答： 乘法法则用于计算事件[.]发生的概率 (交集，AND)；加法法则用于计算事件“至少一个”发生的概率 (并集，OR)。
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 8.636
+Activation: Parent
+   Size: 20
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.399
+Activation: Adding new element
+   Size: 21
+   Topic #1,104: Math Academy
+   Link priority: 0.994
+   Layer priority: 0.99
+   Element priority: 38.399
+Activation: Collecting siblings
+   Size: 21
+   Topic #2,164: 全概率定律的条件概率表述
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 15.678
+Activation: Adding new element
+   Size: 22
+   Topic #2,163: 全概率定律
+   Link priority: 0.973
+   Layer priority: 0.3
+   Element priority: 12.713
+Activation: Adding new element
+   Size: 23
+   Topic #2,165: 从 100 枚硬币中，有一枚两面都是正面。随机选取一枚硬币并抛掷两次，得到两次正面的概率是多少？ : 解题逻辑和思路：
+   Link priority: 0.973
+   Layer priority: 0.3
+   Element priority: 13.047
+Activation: Adding new element
+   Size: 24
+   Topic #2,162: <p>有时，抛物线的顶点可能不在原点。例如，下图中所示的抛物线顶点位于 (4, 4)。</p> <p style="text-align:center;"><img src="image_of_parabola.png" alt="Parabola with vertex at (4,4)" /></p> <p>For any upward or .
+   Link priority: 0.974
+   Layer priority: 0.33
+   Element priority: 13.417
+Activation: Adding new element
+   Size: 25
+   Topic #2,166: 通过配方法求解具有复数根的二次方程
+   Link priority: 0.975
+   Layer priority: 0.33
+   Element priority: 15.715
+Activation: Adding new element
+   Size: 26
+   Topic #2,161: <p><b>Tools for Proving Similarity Statements</b><br />相似性证明工具</p> <p>Finally, we'll prove some statements about similar right triangles. Before we do, let's state some tools .
+   Link priority: 0.975
+   Layer priority: 0.363
+   Element priority: 14.492
+Activation: Adding new element
+   Size: 27
+   Topic #2,167: <p>Which of the following is a root of the polynomial x<sup>3</sup> + 2x<sup>2</sup> &#8722; x &#8722; 2?<br />以下哪项是多项式 x<sup>3</sup> + 2x<sup>2</sup> &#8722; x &#8722; 2? .
+   Link priority: 0.975
+   Layer priority: 0.363
+   Element priority: 13.936
+Activation: Adding new element
+   Size: 28
+   Topic #1,430: 相似三角形中的 CPSTP 与对应角 : 解题逻辑和思路：
+   Link priority: 0.999
+   Layer priority: 0.399
+   Element priority: 96.627
+Activation: Adding new element
+   Size: 29
+   Topic #2,168: <p><b>Question 4 问题 4</b></p> <p>Two dice are thrown. Both dice land on the same number. What is the probability that this number is 5?<br />掷两枚骰子。两枚骰子落在相同的数字上。这个数字是 5? .
+   Link priority: 0.977
+   Layer priority: 0.399
+   Element priority: 13.121
+Activation: Adding new element
+   Size: 30
+   Topic #2,160: <p>Two segments are congruent if they have the same length.<br />若两条线段长度相同，则它们全等。</p> <ul> <li>Angle bisector: 角平分线:</li> </ul> <p>An angle bisector is a line that divides an .
+   Link priority: 0.999
+   Layer priority: 0.439
+   Element priority: 97.48
+Activation: Adding new element
+   Size: 31
+   Topic #2,169: 条件概率的乘法法则
+   Link priority: 0.978
+   Layer priority: 0.439
+   Element priority: 12.75
+Activation: Adding new element
+   Size: 32
+   Topic #2,159: 计算达到特定金额所需的年数 : 解题逻辑和思路：
+   Link priority: 0.98
+   Layer priority: 0.483
+   Element priority: 14.418
+Activation: Adding new element
+   Size: 33
+   Topic #1,773: <p><b>Stating the Full Proof Using the Two-Column Format</b><br />以双栏格式陈述完整证明</p> <p>The table below shows the proof of the interior angles of a triangle theorem in a two .
+   Link priority: 0.98
+   Layer priority: 0.483
+   Element priority: 12.973
+Activation: Adding new element
+   Size: 34
+   Topic #2,158: <p>When money is deposited into a bank account, the bank pays an annual interest. This interest can be compounded, or split, throughout the year .
+   Link priority: 0.982
+   Layer priority: 0.531
+   Element priority: 13.491
+Activation: Adding new element
+   Size: 35
+   Topic #1,337: <p><b>Question 4 问题 4</b></p> <p>In the diagram above, the points X, H, and Y are collinear.<br />在上图中，点 X、、H, 和 Y 共线。</p> <p>Consider the following statement:<br />考虑以下陈述:< .
+   Link priority: 0.981
+   Layer priority: 0.531
+   Element priority: 10.823
+Activation: Adding new element
+   Size: 36
+   Topic #2,157: 中点定理第一部分的证明
+   Link priority: 0.984
+   Layer priority: 0.585
+   Element priority: 14.196
+Activation: Adding new element
+   Size: 37
+   Topic #1,826: <p><b>Introduction 引言</b></p> <p>The five congruence criteria for triangles are often needed when proving geometric results. Therefore, it's essential to identify which .
+   Link priority: 0.984
+   Layer priority: 0.585
+   Element priority: 13.195
+Activation: Adding new element
+   Size: 38
+   Topic #2,149: 增根：为什么 x = ?1 会混进来？ 当你对方程 A = B 两边平方时，你得到 A^2 = B^2。 这个新方程 A^2 = B^2 其实是两个可能情况的并集：A = B 或者 A = -B。 在我们的例子中，原方程是 sqrt(x + 2) = x。 两边平方后得到的方程 x + 2 = x^2，实际上是下面两个方程的解的集合： sqrt(x + .
+   Link priority: 1
+   Layer priority: 0.643
+   Element priority: 98.258
+Activation: Adding new element
+   Size: 39
+   Topic #2,170: <p><b>Introduction 引言</b></p> <p>The five congruence criteria for triangles are often needed when proving geometric results. Therefore, it's essential to identify which .
+   Link priority: 0.986
+   Layer priority: 0.643
+   Element priority: 13.343
+Activation: Expanding into deeper layers
+   Size: 39
+   Topic #1,337: <p><b>Question 4 问题 4</b></p> <p>In the diagram above, the points X, H, and Y are collinear.<br />在上图中，点 X、、H, 和 Y 共线。</p> <p>Consider the following statement:<br />考虑以下陈述:< .
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 10.823
+Activation: Spreading activation
+   Size: 39
+   Topic #1,337: <p><b>Question 4 问题 4</b></p> <p>In the diagram above, the points X, H, and Y are collinear.<br />在上图中，点 X、、H, 和 Y 共线。</p> <p>Consider the following statement:<br />考虑以下陈述:< .
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 10.823
+Activation: Following concept links
+   Size: 39
+   Topic #1,337: <p><b>Question 4 问题 4</b></p> <p>In the diagram above, the points X, H, and Y are collinear.<br />在上图中，点 X、、H, 和 Y 共线。</p> <p>Consider the following statement:<br />考虑以下陈述:< .
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 10.823
+Activation: Following inter-element links
+   Size: 39
+   Topic #1,337: <p><b>Question 4 问题 4</b></p> <p>In the diagram above, the points X, H, and Y are collinear.<br />在上图中，点 X、、H, 和 Y 共线。</p> <p>Consider the following statement:<br />考虑以下陈述:< .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 10.823
+Activation: Parent
+   Size: 39
+   Topic #1,104: Math Academy
+   Source of activation: Topic #1,337: <p><b>Question 4 问题 4</b></p> <p>In the diagram above, the points X, H, and Y are collinear.<br />在上图中，点 X、、H, 和 Y 共线。</p> <p>Consider the following statement:<br />考虑以下陈述:< .
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.399
+Activation: Collecting siblings
+   Size: 39
+   Topic #1,337: <p><b>Question 4 问题 4</b></p> <p>In the diagram above, the points X, H, and Y are collinear.<br />在上图中，点 X、、H, 和 Y 共线。</p> <p>Consider the following statement:<br />考虑以下陈述:< .
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 10.823
+Activation: Adding new element
+   Size: 40
+   Topic #1,408: <p><b>Why Is There No SSA Criterion?</b><br />为什么不存在 SSA 判定准则?</p> <p>The SAS congruence criterion states that if two triangles have two pairs of congruent sides and the .
+   Link priority: 0.999
+   Layer priority: 0.363
+   Element priority: 97.294
+Activation: Adding new element
+   Size: 41
+   Topic #2,171: 重心比例定理的证明
+   Link priority: 0.976
+   Layer priority: 0.399
+   Element priority: 12.305
+Activation: Adding new element
+   Size: 42
+   Topic #2,172: <p><b>EXPLANATION 说明</b></p> <p>The correct proof is shown below.<br />下方展示的是正确的证明过程。</p> <table border="1" style="width:100%; border-collapse: collapse;">     <thead> .
+   Link priority: 0.978
+   Layer priority: 0.439
+   Element priority: 11.898
+Activation: Adding new element
+   Size: 43
+   Topic #1,744: 重心定理
+   Link priority: 0.978
+   Layer priority: 0.483
+   Element priority: 3.744
+Activation: Adding new element
+   Size: 44
+   Topic #1,364: <p><b>The Coordinates of the Centroid</b><br />重心的坐标</p> <p>In the diagram above, <span class="overacc2">―</span>RJ, <span class="overacc2">―</span>SI, and <span .
+   Link priority: 0.981
+   Layer priority: 0.531
+   Element priority: 11.453
+Activation: Adding new element
+   Size: 45
+   Topic #2,173: <p>good, usually denoted p(x). The price function gives the price per unit of selling x units of a product.<br />公司经理和经济学家经常关注的一个重要函数是商品的价格函数, 通常表示为 p(x)。. 该价格函数给出了销售 x .
+   Link priority: 1
+   Layer priority: 0.585
+   Element priority: 98.184
+Activation: Adding new element
+   Size: 46
+   Topic #2,174: <p><b>Cost Functions 成本函数</b></p> <p>We can construct a cost function C(x) for a business using the following equation:<br />我们可以通过以下方程构建企业的成本函数 C(x) :</p> <br clear="all" .
+   Link priority: 0.986
+   Layer priority: 0.643
+   Element priority: 12.528
+Activation: Expanding into deeper layers
+   Size: 46
+   Topic #2,668: 样本空间不同
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 2.854
+Activation: Spreading activation
+   Size: 46
+   Topic #2,668: 样本空间不同
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 2.854
+Activation: Following concept links
+   Size: 46
+   Topic #2,668: 样本空间不同
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 2.854
+Activation: Following inter-element links
+   Size: 46
+   Topic #2,668: 样本空间不同
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 2.854
+Activation: Root article
+   Size: 46
+   Topic #2,164: 全概率定律的条件概率表述
+   Source of activation: Topic #2,668: 样本空间不同
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 15.678
+Activation: Collecting siblings
+   Size: 46
+   Topic #2,668: 样本空间不同
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 2.854
+Activation: Expanding into deeper layers
+   Size: 46
+   Topic #1,430: 相似三角形中的 CPSTP 与对应角 : 解题逻辑和思路：
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 96.627
+Activation: Spreading activation
+   Size: 46
+   Topic #1,430: 相似三角形中的 CPSTP 与对应角 : 解题逻辑和思路：
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 96.627
+Activation: Following concept links
+   Size: 46
+   Topic #1,430: 相似三角形中的 CPSTP 与对应角 : 解题逻辑和思路：
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 96.627
+Activation: Following inter-element links
+   Size: 46
+   Topic #1,430: 相似三角形中的 CPSTP 与对应角 : 解题逻辑和思路：
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 96.627
+Activation: Descendant relationship
+   Size: 46
+   Item #2,614: CPSTP：相似三角形的对应部分成[.]。
+   Source of activation: Topic #1,430: 相似三角形中的 CPSTP 与对应角 : 解题逻辑和思路：
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 3.336
+Activation: Adding new element
+   Size: 47
+   Item #2,614: CPSTP：相似三角形的对应部分成[.]。
+   Link priority: 0.217
+   Layer priority: 0
+   Element priority: 3.336
+Activation: Descendant relationship
+   Size: 47
+   Item #2,617: 相似性判定准则  SSS,  [.]  AA  ASA
+   Source of activation: Topic #1,430: 相似三角形中的 CPSTP 与对应角 : 解题逻辑和思路：
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.079
+Activation: Adding new element
+   Size: 48
+   Item #2,617: 相似性判定准则  SSS,  [.]  AA  ASA
+   Link priority: 0.247
+   Layer priority: 0
+   Element priority: 7.079
+Activation: Descendant relationship
+   Size: 48
+   Item #2,616: 在几何证明中的应用：  第一步通常是运用 [.], SAS, AA, ASA 等相似性判定准则证明两个三角形相似 (例如本例中通过 SAS 证明 △ABC ～ △EFG)。
+   Source of activation: Topic #1,430: 相似三角形中的 CPSTP 与对应角 : 解题逻辑和思路：
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 5.411
+Activation: Adding new element
+   Size: 49
+   Item #2,616: 在几何证明中的应用：  第一步通常是运用 [.], SAS, AA, ASA 等相似性判定准则证明两个三角形相似 (例如本例中通过 SAS 证明 △ABC ～ △EFG)。
+   Link priority: 0.234
+   Layer priority: 0
+   Element priority: 5.411
+Activation: Descendant relationship
+   Size: 49
+   Topic #2,613: CPSTP：相似三角形的对应部分成比例。
+   Source of activation: Topic #1,430: 相似三角形中的 CPSTP 与对应角 : 解题逻辑和思路：
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 99.185
+Activation: Adding new element
+   Size: 50
+   Topic #2,613: CPSTP：相似三角形的对应部分成比例。
+   Link priority: 0.993
+   Layer priority: 0
+   Element priority: 99.185
+Activation: Descendant relationship
+   Size: 50
+   Item #2,614: CPSTP：相似三角形的对应部分成[.]。
+   Source of activation: Topic #1,430: 相似三角形中的 CPSTP 与对应角 : 解题逻辑和思路：
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 3.336
+Activation: Descendant relationship
+   Size: 50
+   Item #2,619: 相似性判定准则  SSS,  SAS  AA  [.]
+   Source of activation: Topic #1,430: 相似三角形中的 CPSTP 与对应角 : 解题逻辑和思路：
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 9.303
+Activation: Adding new element
+   Size: 51
+   Item #2,619: 相似性判定准则  SSS,  SAS  AA  [.]
+   Link priority: 0.265
+   Layer priority: 0
+   Element priority: 9.303
+Activation: Descendant relationship
+   Size: 51
+   Item #2,616: 在几何证明中的应用：  第一步通常是运用 [.], SAS, AA, ASA 等相似性判定准则证明两个三角形相似 (例如本例中通过 SAS 证明 △ABC ～ △EFG)。
+   Source of activation: Topic #1,430: 相似三角形中的 CPSTP 与对应角 : 解题逻辑和思路：
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 5.411
+Activation: Descendant relationship
+   Size: 51
+   Item #2,616: 在几何证明中的应用：  第一步通常是运用 [.], SAS, AA, ASA 等相似性判定准则证明两个三角形相似 (例如本例中通过 SAS 证明 △ABC ～ △EFG)。
+   Source of activation: Topic #1,430: 相似三角形中的 CPSTP 与对应角 : 解题逻辑和思路：
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 5.411
+Activation: Parent
+   Size: 51
+   Topic #1,104: Math Academy
+   Source of activation: Topic #1,430: 相似三角形中的 CPSTP 与对应角 : 解题逻辑和思路：
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.399
+Activation: Collecting siblings
+   Size: 51
+   Topic #1,430: 相似三角形中的 CPSTP 与对应角 : 解题逻辑和思路：
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 96.627
+Activation: Adding new element
+   Size: 52
+   Topic #2,148: <p>The Reciprocal Trigonometric Ratios and the Pythagorean Theorem</p> <p>《倒数三角函数与毕达哥拉斯定理》</p> <p>If we are given two sides of a right triangle, how can we calculate the .
+   Link priority: 0.981
+   Layer priority: 0.483
+   Element priority: 16.271
+Activation: Adding new element
+   Size: 53
+   Topic #2,147: <p>The reciprocals of sine, cosine, and tangent are given special names:</p> <p>正弦、余弦和正切的倒数有特定的名称：</p> <ul> <li>The reciprocal of sine is cosecant, abbreviated csc.</li> .
+   Link priority: 0.983
+   Layer priority: 0.531
+   Element priority: 17.717
+Activation: Adding new element
+   Size: 54
+   Topic #2,143: 所有球体都是相似的。由此推之，所有半球体都是相似的，所有四分之一球体都是相似的，所有八分之一球体也都是相似的。
+   Link priority: 0.985
+   Layer priority: 0.585
+   Element priority: 18.532
+Activation: Adding new element
+   Size: 55
+   Topic #931: 与其他工具的对比 (Postpone vs. Mercy)
+   Link priority: 0.986
+   Layer priority: 0.643
+   Element priority: 14.381
+Activation: Expanding into deeper layers
+   Size: 55
+   Topic #2,613: CPSTP：相似三角形的对应部分成比例。
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 99.185
+Activation: Spreading activation
+   Size: 55
+   Topic #2,613: CPSTP：相似三角形的对应部分成比例。
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 99.185
+Activation: Following concept links
+   Size: 55
+   Topic #2,613: CPSTP：相似三角形的对应部分成比例。
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 99.185
+Activation: Following inter-element links
+   Size: 55
+   Topic #2,613: CPSTP：相似三角形的对应部分成比例。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 99.185
+Activation: Descendant relationship
+   Size: 55
+   Item #2,614: CPSTP：相似三角形的对应部分成[.]。
+   Source of activation: Topic #2,613: CPSTP：相似三角形的对应部分成比例。
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 3.336
+Activation: Descendant relationship
+   Size: 55
+   Item #2,614: CPSTP：相似三角形的对应部分成[.]。
+   Source of activation: Topic #2,613: CPSTP：相似三角形的对应部分成比例。
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 3.336
+Activation: Root article
+   Size: 55
+   Topic #1,430: 相似三角形中的 CPSTP 与对应角 : 解题逻辑和思路：
+   Source of activation: Topic #2,613: CPSTP：相似三角形的对应部分成比例。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 96.627
+Activation: Collecting siblings
+   Size: 55
+   Topic #2,613: CPSTP：相似三角形的对应部分成比例。
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 99.185
+Activation: Adding new element
+   Size: 56
+   Topic #2,615: 在几何证明中的应用：  第一步通常是运用 SSS, SAS, AA, ASA 等相似性判定准则证明两个三角形相似 (例如本例中通过 SAS 证明 △ABC ～ △EFG)。
+   Link priority: 0.503
+   Layer priority: 0.3
+   Element priority: 9.34
+Activation: Expanding into deeper layers
+   Size: 56
+   Topic #2,207: 问： 条件概率 P(A|B) 和 P(B|A) 通常是相同的吗？为什么？ . 答： 通常不相同。因为 P(A|B) = P(A∩B)/P(B) 而 P(B|A) = P(A∩B)/P(A)，它们的分母不同，除非 P(A)=P(B)。
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 5.226
+Activation: Spreading activation
+   Size: 56
+   Topic #2,207: 问： 条件概率 P(A|B) 和 P(B|A) 通常是相同的吗？为什么？ . 答： 通常不相同。因为 P(A|B) = P(A∩B)/P(B) 而 P(B|A) = P(A∩B)/P(A)，它们的分母不同，除非 P(A)=P(B)。
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 5.226
+Activation: Following concept links
+   Size: 56
+   Topic #2,207: 问： 条件概率 P(A|B) 和 P(B|A) 通常是相同的吗？为什么？ . 答： 通常不相同。因为 P(A|B) = P(A∩B)/P(B) 而 P(B|A) = P(A∩B)/P(A)，它们的分母不同，除非 P(A)=P(B)。
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 5.226
+Activation: Following inter-element links
+   Size: 56
+   Topic #2,207: 问： 条件概率 P(A|B) 和 P(B|A) 通常是相同的吗？为什么？ . 答： 通常不相同。因为 P(A|B) = P(A∩B)/P(B) 而 P(B|A) = P(A∩B)/P(A)，它们的分母不同，除非 P(A)=P(B)。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 5.226
+Activation: Root article
+   Size: 56
+   Topic #2,164: 全概率定律的条件概率表述
+   Source of activation: Topic #2,207: 问： 条件概率 P(A|B) 和 P(B|A) 通常是相同的吗？为什么？ . 答： 通常不相同。因为 P(A|B) = P(A∩B)/P(B) 而 P(B|A) = P(A∩B)/P(A)，它们的分母不同，除非 P(A)=P(B)。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 15.678
+Activation: Collecting siblings
+   Size: 56
+   Topic #2,207: 问： 条件概率 P(A|B) 和 P(B|A) 通常是相同的吗？为什么？ . 答： 通常不相同。因为 P(A|B) = P(A∩B)/P(B) 而 P(B|A) = P(A∩B)/P(A)，它们的分母不同，除非 P(A)=P(B)。
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 5.226
+Activation: Adding new element
+   Size: 57
+   Topic #2,206: 问： 条件概率的乘法法则与概率的加法法则（P(A ∪ B) = P(A) + P(B) - P(A ∩ B)）在应用目标上有何不同？ . 答： 乘法法则用于计算事件“同时”或“相继”发生的概率 (交集，AND)；加法法则用于计算事件“至少一个”发生的概率 (并集，OR)。
+   Link priority: 0.976
+   Layer priority: 0.3
+   Element priority: 95.589
+Activation: Adding new element
+   Size: 58
+   Topic #1,158: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？ . 答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B 同时发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.543
+   Layer priority: 0.33
+   Element priority: 12.861
+Activation: Adding new element
+   Size: 59
+   Topic #2,205: 问： 如果事件 A 和 B 相互独立，条件概率的乘法法则 P(A ∩ B) 会简化成什么形式？ . 答： P(A ∩ B) = P(A) * P(B)。
+   Link priority: 0.559
+   Layer priority: 0.363
+   Element priority: 11.527
+Activation: Adding new element
+   Size: 60
+   Topic #2,209: 问： 条件概率的乘法法则 P(A ∩ B) = P(A|B)P(B) 是如何从条件概率的定义推导出来的？ 答： 由 P(A|B) = P(A ∩ B) / P(B) 两边同乘以 P(B) 即可得到。
+   Link priority: 0.566
+   Layer priority: 0.363
+   Element priority: 13.01
+Activation: Adding new element
+   Size: 61
+   Topic #2,213: 问： 为什么说条件概率的乘法法则是构建贝叶斯定理的基础之一？ 答： 因为贝叶斯定理 P(A|B) = [P(B|A)P(A)] / P(B) 的分子 P(B|A)P(A) 就是乘法法则 P(A ∩ B) 的一种形式。
+   Link priority: 0.678
+   Layer priority: 0.531
+   Element priority: 12.268
+Activation: Adding new element
+   Size: 62
+   Topic #2,199: 条件概率的乘法法则
+   Link priority: 0.731
+   Layer priority: 0.585
+   Element priority: 17.309
+Activation: Adding new element
+   Size: 63
+   Topic #2,214: 问： 了解事件B的发生，可能对事件A的概率产生哪三种基本影响（用条件概率与无条件概率比较）？ . 1. P(A|B) > P(A) (B的发生使得A更可能发生) . 2. P(A|B) < P(A) (B的发生使得A更不可能发生) . 3. P(A|B) = P(A) (B的发生不影响A的概率，即A、B独立)。
+   Link priority: 0.989
+   Layer priority: 0.585
+   Element priority: 96.553
+Activation: Expanding into deeper layers
+   Size: 63
+   Topic #2,213: 问： 为什么说条件概率的乘法法则是构建贝叶斯定理的基础之一？ 答： 因为贝叶斯定理 P(A|B) = [P(B|A)P(A)] / P(B) 的分子 P(B|A)P(A) 就是乘法法则 P(A ∩ B) 的一种形式。
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 12.268
+Activation: Spreading activation
+   Size: 63
+   Topic #2,213: 问： 为什么说条件概率的乘法法则是构建贝叶斯定理的基础之一？ 答： 因为贝叶斯定理 P(A|B) = [P(B|A)P(A)] / P(B) 的分子 P(B|A)P(A) 就是乘法法则 P(A ∩ B) 的一种形式。
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 12.268
+Activation: Following concept links
+   Size: 63
+   Topic #2,213: 问： 为什么说条件概率的乘法法则是构建贝叶斯定理的基础之一？ 答： 因为贝叶斯定理 P(A|B) = [P(B|A)P(A)] / P(B) 的分子 P(B|A)P(A) 就是乘法法则 P(A ∩ B) 的一种形式。
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 12.268
+Activation: Following inter-element links
+   Size: 63
+   Topic #2,213: 问： 为什么说条件概率的乘法法则是构建贝叶斯定理的基础之一？ 答： 因为贝叶斯定理 P(A|B) = [P(B|A)P(A)] / P(B) 的分子 P(B|A)P(A) 就是乘法法则 P(A ∩ B) 的一种形式。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 12.268
+Activation: Root article
+   Size: 63
+   Topic #2,164: 全概率定律的条件概率表述
+   Source of activation: Topic #2,213: 问： 为什么说条件概率的乘法法则是构建贝叶斯定理的基础之一？ 答： 因为贝叶斯定理 P(A|B) = [P(B|A)P(A)] / P(B) 的分子 P(B|A)P(A) 就是乘法法则 P(A ∩ B) 的一种形式。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 15.678
+Activation: Collecting siblings
+   Size: 63
+   Topic #2,213: 问： 为什么说条件概率的乘法法则是构建贝叶斯定理的基础之一？ 答： 因为贝叶斯定理 P(A|B) = [P(B|A)P(A)] / P(B) 的分子 P(B|A)P(A) 就是乘法法则 P(A ∩ B) 的一种形式。
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 12.268
+Activation: Adding new element
+   Size: 64
+   Topic #1,560: 问： (联系实际) 如果一位医生知道某种检测对某种疾病的灵敏度（P(阳性|患病)）和特异性（P(阴性|未患病)），以及疾病的基础发病率，运用条件概率和相关法则（如贝叶斯）能帮助医生更好地解释什么？ . 答： 帮助医生更准确地解释一个阳性或阴性检测结果的真正意义，即患者实际患病或未患病的后验概率，避免仅凭检测结果做草率判断。
+   Link priority: 0.592
+   Layer priority: 0.399
+   Element priority: 13.232
+Activation: Adding new element
+   Size: 65
+   Topic #2,217: 问： 从条件概率和乘法法则中，我们可以学到的关于信息价值的核心启示是什么？ 答： 新的信息可以改变我们
+   Link priority: 0.58
+   Layer priority: 0.439
+   Element priority: 4.374
+Activation: Expanding into deeper layers
+   Size: 65
+   Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 4.114
+Activation: Spreading activation
+   Size: 65
+   Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 4.114
+Activation: Following concept links
+   Size: 65
+   Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 4.114
+Activation: Following inter-element links
+   Size: 65
+   Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 4.114
+Activation: Descendant relationship
+   Size: 65
+   Topic #2,668: 样本空间不同
+   Source of activation: Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.854
+Activation: Descendant relationship
+   Size: 65
+   Topic #2,668: 样本空间不同
+   Source of activation: Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.854
+Activation: Root article
+   Size: 65
+   Topic #2,164: 全概率定律的条件概率表述
+   Source of activation: Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 15.678
+Activation: Collecting siblings
+   Size: 65
+   Item #2,568: 问： 条件概率 P(A|B) 与联合概率 P(A ∩ B) 的主要区别是什么？    答： P(A|B) 是在 B 发生前提下 A 发生的概率 (一个比例)，而 P(A ∩ B) 是 A 和 B [.]发生的概率 (相对于原始样本空间的比例)。
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 4.114
+
+Process completed at 2:11:12 in 00:00:00 sec (2025年11月12日)
+
+NO ERRORS (Analysis of the process of spreading activation when building a neural queue)
+
+____________________________________________________________

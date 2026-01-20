@@ -1,0 +1,28 @@
+{
+  "name": "siyuan-plugin-fsrs",
+  "author": "Dammy",
+  "url": "https://github.com/Dammy/siyuan-plugin-fsrs",
+  "version": "0.0.1",
+  "minAppVersion": "2.10.14",
+  "backends": ["all"],
+  "frontends": ["all"],
+  "displayName": {
+    "default": "FSRS Flashcard",
+    "en_US": "FSRS Flashcard",
+    "zh_CN": "FSRS 闪卡"
+  },
+  "description": {
+    "default": "Modern flashcard plugin based on FSRS v6 algorithm with incremental reading support",
+    "en_US": "Modern flashcard plugin based on FSRS v6 algorithm with incremental reading support",
+    "zh_CN": "基于 FSRS v6 算法的现代闪卡插件，支持增量阅读"
+  },
+  "readme": {
+    "default": "README.md",
+    "en_US": "README.md",
+    "zh_CN": "README_zh_CN.md"
+  },
+  "funding": {
+    "custom": []
+  },
+  "keywords": ["flashcard", "spaced-repetition", "fsrs", "incremental-reading"]
+}

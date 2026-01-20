@@ -1,0 +1,2205 @@
+SuperMemo Report
+   Activity: Analysis of the process of spreading activation when building a neural queue
+   Collection: h:\siyuanmemo\supermemo\systems\examination
+   Date: Friday, November 14, 2025, 1:55:10 AM
+   SuperMemo 19 (Build 19.1, Apr 23, 2025)
+
+Activation: Spreading activation
+   Size: 0
+   Topic #2,733: 核心定律/推论： P(A' ∪ B) = P(A') + P(A ∩ B)
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 4.96
+Activation: Following concept links
+   Size: 0
+   Topic #2,733: 核心定律/推论： P(A' ∪ B) = P(A') + P(A ∩ B)
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 4.96
+Activation: Following inter-element links
+   Size: 0
+   Topic #2,733: 核心定律/推论： P(A' ∪ B) = P(A') + P(A ∩ B)
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 4.96
+Activation: Descendant relationship
+   Size: 0
+   Topic #2,768: 推导与理解（为什么这个定律成立）： 我们可以用文氏图来理解。 A'∪B 指的是“不属于A的区域”与“属于B的区域”的并集。  想象一下，A' 是整个样本空间中除了A圆圈之外的所有区域。  B 是B圆圈的全部。  把这两块区域合并在一起，你会发现 A' 已经包含了“只属于B而不属于A”的部分 (A'∩B)。为了构成完整的 A'∪B，我们还需要补充上被 .
+   Source of activation: Topic #2,733: 核心定律/推论： P(A' ∪ B) = P(A') + P(A ∩ B)
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 8.45
+Activation: Adding new element
+   Size: 1
+   Topic #2,768: 推导与理解（为什么这个定律成立）： 我们可以用文氏图来理解。 A'∪B 指的是“不属于A的区域”与“属于B的区域”的并集。  想象一下，A' 是整个样本空间中除了A圆圈之外的所有区域。  B 是B圆圈的全部。  把这两块区域合并在一起，你会发现 A' 已经包含了“只属于B而不属于A”的部分 (A'∩B)。为了构成完整的 A'∪B，我们还需要补充上被 .
+   Link priority: 0.258
+   Layer priority: 0
+   Element priority: 8.45
+Activation: Descendant relationship
+   Size: 1
+   Topic #2,768: 推导与理解（为什么这个定律成立）： 我们可以用文氏图来理解。 A'∪B 指的是“不属于A的区域”与“属于B的区域”的并集。  想象一下，A' 是整个样本空间中除了A圆圈之外的所有区域。  B 是B圆圈的全部。  把这两块区域合并在一起，你会发现 A' 已经包含了“只属于B而不属于A”的部分 (A'∩B)。为了构成完整的 A'∪B，我们还需要补充上被 .
+   Source of activation: Topic #2,733: 核心定律/推论： P(A' ∪ B) = P(A') + P(A ∩ B)
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 8.45
+Activation: Descendant relationship
+   Size: 1
+   Topic #2,768: 推导与理解（为什么这个定律成立）： 我们可以用文氏图来理解。 A'∪B 指的是“不属于A的区域”与“属于B的区域”的并集。  想象一下，A' 是整个样本空间中除了A圆圈之外的所有区域。  B 是B圆圈的全部。  把这两块区域合并在一起，你会发现 A' 已经包含了“只属于B而不属于A”的部分 (A'∩B)。为了构成完整的 A'∪B，我们还需要补充上被 .
+   Source of activation: Topic #2,733: 核心定律/推论： P(A' ∪ B) = P(A') + P(A ∩ B)
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 8.45
+Activation: Parent
+   Size: 1
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,733: 核心定律/推论： P(A' ∪ B) = P(A') + P(A ∩ B)
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Adding new element
+   Size: 2
+   Topic #1,104: Math Academy
+   Link priority: 0.994
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 2
+   Topic #2,733: 核心定律/推论： P(A' ∪ B) = P(A') + P(A ∩ B)
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 4.96
+Activation: Adding new element
+   Size: 3
+   Topic #2,759: Want a younger brain? Learn another language
+   Link priority: 0.98
+   Layer priority: 0.3
+   Element priority: 37.913
+Activation: Adding new element
+   Size: 4
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.972
+   Layer priority: 0.33
+   Element priority: 8.156
+Activation: Adding new element
+   Size: 5
+   Topic #1,551: <html> <body> <h3>1. 文本翻译</h3> <p><b>6. 在已知斜边长度的情况下求 45-45-90 三角形的面积</b></p> <p>如果一个 45°-45°-90° 三角形的斜边长度为 <table border="0" style="display:inline-block; vertical-align .
+   Link priority: 1
+   Layer priority: 0.363
+   Element priority: 99.743
+Activation: Adding new element
+   Size: 6
+   Topic #2,756: <html> <body> <h3>1. 文本翻译</h3> <p><b>3. 解两边都含根式表达式及一个额外项的方程</b></p> <p>求解x，其中 <br clear="all" /><table border="0" width="100%"><tr><td> <table align="center" cellspacing="0" .
+   Link priority: 0.975
+   Layer priority: 0.399
+   Element priority: 8.229
+Activation: Adding new element
+   Size: 7
+   Topic #2,752: HTML: <IMG alt="" src="http://siyuanmemo:6806/assets/image-20251112140335-kgayxfq.png">
+   Link priority: 0.977
+   Layer priority: 0.439
+   Element priority: 8.486
+Activation: Adding new element
+   Size: 8
+   Topic #2,695: 容斥原理
+   Link priority: 1
+   Layer priority: 0.483
+   Element priority: 99.927
+Activation: Adding new element
+   Size: 9
+   Topic #2,694: 不喝茶、不喝卡布奇诺、也不喝水果冰沙的概率是多少？
+   Link priority: 1
+   Layer priority: 0.531
+   Element priority: 99.78
+Activation: Adding new element
+   Size: 10
+   Topic #2,693: <!DOCTYPE html> <html> <head> <meta charset="UTF-8"> </head> <body> <h3>翻译</h3> <p><b>介绍</b></p> <p>要解一个两边具有相同底数的对数方程，我们可以对等式两边以该底数进行取幂运算。例如，考虑以下方程</p> <p style="text-align .
+   Link priority: 0.984
+   Layer priority: 0.585
+   Element priority: 13.262
+Activation: Adding new element
+   Size: 11
+   Topic #2,689: <!DOCTYPE html> <html> <head> <title>数学学习辅助</title> </head> <body> <h3>1. 中文翻译</h3> <p>使用平均变化率的公式，我们得到：</p> <br clear="all" /><table border="0" width="100%"><tr><td> <table .
+   Link priority: 1
+   Layer priority: 0.643
+   Element priority: 98.788
+Activation: Expanding into deeper layers
+   Size: 11
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 8.156
+Activation: Spreading activation
+   Size: 11
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 8.156
+Activation: Following concept links
+   Size: 11
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 8.156
+Activation: Following inter-element links
+   Size: 11
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 8.156
+Activation: Descendant relationship
+   Size: 11
+   Topic #2,757: 2. 易错点提示 (根据你的要求添加) 注意关键词：“连续复利 (continuously compounded)” 这道题你做错的原因很可能是混淆了不同类型的复利计算。问题中的“连续复利”是解题的关键。 连续复利公式: P = P0ert。这是本题必须使用的公式。  按期复利公式 (例如年复利): P = P0(1 + r .
+   Source of activation: Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.311
+Activation: Adding new element
+   Size: 12
+   Topic #2,757: 2. 易错点提示 (根据你的要求添加) 注意关键词：“连续复利 (continuously compounded)” 这道题你做错的原因很可能是混淆了不同类型的复利计算。问题中的“连续复利”是解题的关键。 连续复利公式: P = P0ert。这是本题必须使用的公式。  按期复利公式 (例如年复利): P = P0(1 + r .
+   Link priority: 0.249
+   Layer priority: 0
+   Element priority: 7.311
+Activation: Descendant relationship
+   Size: 12
+   Topic #2,757: 2. 易错点提示 (根据你的要求添加) 注意关键词：“连续复利 (continuously compounded)” 这道题你做错的原因很可能是混淆了不同类型的复利计算。问题中的“连续复利”是解题的关键。 连续复利公式: P = P0ert。这是本题必须使用的公式。  按期复利公式 (例如年复利): P = P0(1 + r .
+   Source of activation: Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.311
+Activation: Parent
+   Size: 12
+   Topic #1,104: Math Academy
+   Source of activation: Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 12
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 8.156
+Activation: Adding new element
+   Size: 13
+   Topic #2,733: 核心定律/推论： P(A' ∪ B) = P(A') + P(A ∩ B)
+   Link priority: 0.971
+   Layer priority: 0.33
+   Element priority: 4.96
+Activation: Adding new element
+   Size: 14
+   Topic #2,688: 第四步：开平方（这是最关键的一步！） 现在我们要对等式两边同时开平方来解出 x + 5。问题就在这里：一个数的平方等于 -1，这个数可以是 i，也可以是 -i。 就像解 y2 = 9 时，我们会得到 y = ±3 而不仅仅是 3 一样。在解 (x + 5)2 = -1 时，我们必须得到： x + 5 = ±√(-1) 所以， x + 5 = ±i
+   Link priority: 1
+   Layer priority: 0.585
+   Element priority: 99.192
+Activation: Adding new element
+   Size: 15
+   Topic #2,686: 两直线相交，对顶角全等，无需平行等条件
+   Link priority: 1
+   Layer priority: 0.643
+   Element priority: 98.237
+Activation: Expanding into deeper layers
+   Size: 15
+   Topic #2,693: <!DOCTYPE html> <html> <head> <meta charset="UTF-8"> </head> <body> <h3>翻译</h3> <p><b>介绍</b></p> <p>要解一个两边具有相同底数的对数方程，我们可以对等式两边以该底数进行取幂运算。例如，考虑以下方程</p> <p style="text-align .
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 13.262
+Activation: Spreading activation
+   Size: 15
+   Topic #2,693: <!DOCTYPE html> <html> <head> <meta charset="UTF-8"> </head> <body> <h3>翻译</h3> <p><b>介绍</b></p> <p>要解一个两边具有相同底数的对数方程，我们可以对等式两边以该底数进行取幂运算。例如，考虑以下方程</p> <p style="text-align .
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 13.262
+Activation: Following concept links
+   Size: 15
+   Topic #2,693: <!DOCTYPE html> <html> <head> <meta charset="UTF-8"> </head> <body> <h3>翻译</h3> <p><b>介绍</b></p> <p>要解一个两边具有相同底数的对数方程，我们可以对等式两边以该底数进行取幂运算。例如，考虑以下方程</p> <p style="text-align .
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 13.262
+Activation: Following inter-element links
+   Size: 15
+   Topic #2,693: <!DOCTYPE html> <html> <head> <meta charset="UTF-8"> </head> <body> <h3>翻译</h3> <p><b>介绍</b></p> <p>要解一个两边具有相同底数的对数方程，我们可以对等式两边以该底数进行取幂运算。例如，考虑以下方程</p> <p style="text-align .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 13.262
+Activation: Parent
+   Size: 15
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,693: <!DOCTYPE html> <html> <head> <meta charset="UTF-8"> </head> <body> <h3>翻译</h3> <p><b>介绍</b></p> <p>要解一个两边具有相同底数的对数方程，我们可以对等式两边以该底数进行取幂运算。例如，考虑以下方程</p> <p style="text-align .
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 15
+   Topic #2,693: <!DOCTYPE html> <html> <head> <meta charset="UTF-8"> </head> <body> <h3>翻译</h3> <p><b>介绍</b></p> <p>要解一个两边具有相同底数的对数方程，我们可以对等式两边以该底数进行取幂运算。例如，考虑以下方程</p> <p style="text-align .
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 13.262
+Activation: Adding new element
+   Size: 16
+   Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.976
+   Layer priority: 0.399
+   Element priority: 11.646
+Activation: Adding new element
+   Size: 17
+   Topic #2,669: 这里约掉4p时，把下面的4P^2看成 （4P）^2
+   Link priority: 0.978
+   Layer priority: 0.439
+   Element priority: 11.903
+Activation: Adding new element
+   Size: 18
+   Topic #2,666: <!DOCTYPE html> <html> <head> <title>数学学习辅助</title> </head> <body> <h3>1. 中文翻译</h3> <p><b>推导对角线长度公式</b></p> <p>在本节中，我们将推导公式</p> <br clear="all" /><table border="0" .
+   Link priority: 0.98
+   Layer priority: 0.483
+   Element priority: 12.381
+Activation: Adding new element
+   Size: 19
+   Topic #2,591: <html> <body>     <h3>中文翻译</h3>     <p>         <b>问题 1</b>     </p>     <p>         化简 i<sup>16</sup>。     </p>     <p>         a. &#8722;1<br>         b. i<br>         c .
+   Link priority: 0.999
+   Layer priority: 0.531
+   Element priority: 97.024
+Activation: Adding new element
+   Size: 20
+   Topic #2,579: 解题逻辑和思路 : 在3个随机选择的、都在12月出生的人中，至少有两个人同一天生日的概率是多少？
+   Link priority: 0.983
+   Layer priority: 0.585
+   Element priority: 11.205
+Activation: Adding new element
+   Size: 21
+   Topic #2,578: 一个盒子里装有20个彩球，一个孩子随机从中抽取了2个黑球和1个白球。已知盒子中有10个黑球和10个白球，求发生此事件的概率是多少？将你的答案四舍五入到最接近的百分数。
+   Link priority: 0.999
+   Layer priority: 0.643
+   Element priority: 95.591
+Activation: Expanding into deeper layers
+   Size: 21
+   Topic #2,759: Want a younger brain? Learn another language
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 37.913
+Activation: Spreading activation
+   Size: 21
+   Topic #2,759: Want a younger brain? Learn another language
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 37.913
+Activation: Following concept links
+   Size: 21
+   Topic #2,759: Want a younger brain? Learn another language
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 37.913
+Activation: Following inter-element links
+   Size: 21
+   Topic #2,759: Want a younger brain? Learn another language
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 37.913
+Activation: Parent
+   Size: 21
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,759: Want a younger brain? Learn another language
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 21
+   Topic #2,759: Want a younger brain? Learn another language
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 37.913
+Activation: Expanding into deeper layers
+   Size: 21
+   Topic #2,768: 推导与理解（为什么这个定律成立）： 我们可以用文氏图来理解。 A'∪B 指的是“不属于A的区域”与“属于B的区域”的并集。  想象一下，A' 是整个样本空间中除了A圆圈之外的所有区域。  B 是B圆圈的全部。  把这两块区域合并在一起，你会发现 A' 已经包含了“只属于B而不属于A”的部分 (A'∩B)。为了构成完整的 A'∪B，我们还需要补充上被 .
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 8.45
+Activation: Spreading activation
+   Size: 21
+   Topic #2,768: 推导与理解（为什么这个定律成立）： 我们可以用文氏图来理解。 A'∪B 指的是“不属于A的区域”与“属于B的区域”的并集。  想象一下，A' 是整个样本空间中除了A圆圈之外的所有区域。  B 是B圆圈的全部。  把这两块区域合并在一起，你会发现 A' 已经包含了“只属于B而不属于A”的部分 (A'∩B)。为了构成完整的 A'∪B，我们还需要补充上被 .
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 8.45
+Activation: Following concept links
+   Size: 21
+   Topic #2,768: 推导与理解（为什么这个定律成立）： 我们可以用文氏图来理解。 A'∪B 指的是“不属于A的区域”与“属于B的区域”的并集。  想象一下，A' 是整个样本空间中除了A圆圈之外的所有区域。  B 是B圆圈的全部。  把这两块区域合并在一起，你会发现 A' 已经包含了“只属于B而不属于A”的部分 (A'∩B)。为了构成完整的 A'∪B，我们还需要补充上被 .
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 8.45
+Activation: Following inter-element links
+   Size: 21
+   Topic #2,768: 推导与理解（为什么这个定律成立）： 我们可以用文氏图来理解。 A'∪B 指的是“不属于A的区域”与“属于B的区域”的并集。  想象一下，A' 是整个样本空间中除了A圆圈之外的所有区域。  B 是B圆圈的全部。  把这两块区域合并在一起，你会发现 A' 已经包含了“只属于B而不属于A”的部分 (A'∩B)。为了构成完整的 A'∪B，我们还需要补充上被 .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 8.45
+Activation: Root article
+   Size: 21
+   Topic #2,733: 核心定律/推论： P(A' ∪ B) = P(A') + P(A ∩ B)
+   Source of activation: Topic #2,768: 推导与理解（为什么这个定律成立）： 我们可以用文氏图来理解。 A'∪B 指的是“不属于A的区域”与“属于B的区域”的并集。  想象一下，A' 是整个样本空间中除了A圆圈之外的所有区域。  B 是B圆圈的全部。  把这两块区域合并在一起，你会发现 A' 已经包含了“只属于B而不属于A”的部分 (A'∩B)。为了构成完整的 A'∪B，我们还需要补充上被 .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 4.96
+Activation: Collecting siblings
+   Size: 21
+   Topic #2,768: 推导与理解（为什么这个定律成立）： 我们可以用文氏图来理解。 A'∪B 指的是“不属于A的区域”与“属于B的区域”的并集。  想象一下，A' 是整个样本空间中除了A圆圈之外的所有区域。  B 是B圆圈的全部。  把这两块区域合并在一起，你会发现 A' 已经包含了“只属于B而不属于A”的部分 (A'∩B)。为了构成完整的 A'∪B，我们还需要补充上被 .
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 8.45
+Activation: Adding new element
+   Size: 22
+   Topic #2,769: 方法二：更通用的标准方法（基于概率加法公式） 如果你没有想到方法一的巧妙拆分，也可以使用最基础的概率加法公式，这更具普适性。 核心定律（概率加法公式）： P(X ∪ Y) = P(X) + P(Y) - P(X ∩ Y) 计算步骤： 在这里，我们令 X = A'，Y = B。 P(A' ∪ B) = P(A') + P(B) - P(A' ∩ B)
+   Link priority: 0.472
+   Layer priority: 0.3
+   Element priority: 3.674
+Activation: Expanding into deeper layers
+   Size: 22
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 8.156
+Activation: Spreading activation
+   Size: 22
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 8.156
+Activation: Following concept links
+   Size: 22
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 8.156
+Activation: Following inter-element links
+   Size: 22
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 8.156
+Activation: Descendant relationship
+   Size: 22
+   Topic #2,757: 2. 易错点提示 (根据你的要求添加) 注意关键词：“连续复利 (continuously compounded)” 这道题你做错的原因很可能是混淆了不同类型的复利计算。问题中的“连续复利”是解题的关键。 连续复利公式: P = P0ert。这是本题必须使用的公式。  按期复利公式 (例如年复利): P = P0(1 + r .
+   Source of activation: Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.311
+Activation: Descendant relationship
+   Size: 22
+   Topic #2,757: 2. 易错点提示 (根据你的要求添加) 注意关键词：“连续复利 (continuously compounded)” 这道题你做错的原因很可能是混淆了不同类型的复利计算。问题中的“连续复利”是解题的关键。 连续复利公式: P = P0ert。这是本题必须使用的公式。  按期复利公式 (例如年复利): P = P0(1 + r .
+   Source of activation: Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.311
+Activation: Parent
+   Size: 22
+   Topic #1,104: Math Academy
+   Source of activation: Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 22
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 8.156
+Activation: Expanding into deeper layers
+   Size: 22
+   Topic #2,757: 2. 易错点提示 (根据你的要求添加) 注意关键词：“连续复利 (continuously compounded)” 这道题你做错的原因很可能是混淆了不同类型的复利计算。问题中的“连续复利”是解题的关键。 连续复利公式: P = P0ert。这是本题必须使用的公式。  按期复利公式 (例如年复利): P = P0(1 + r .
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 7.311
+Activation: Spreading activation
+   Size: 22
+   Topic #2,757: 2. 易错点提示 (根据你的要求添加) 注意关键词：“连续复利 (continuously compounded)” 这道题你做错的原因很可能是混淆了不同类型的复利计算。问题中的“连续复利”是解题的关键。 连续复利公式: P = P0ert。这是本题必须使用的公式。  按期复利公式 (例如年复利): P = P0(1 + r .
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 7.311
+Activation: Following concept links
+   Size: 22
+   Topic #2,757: 2. 易错点提示 (根据你的要求添加) 注意关键词：“连续复利 (continuously compounded)” 这道题你做错的原因很可能是混淆了不同类型的复利计算。问题中的“连续复利”是解题的关键。 连续复利公式: P = P0ert。这是本题必须使用的公式。  按期复利公式 (例如年复利): P = P0(1 + r .
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 7.311
+Activation: Following inter-element links
+   Size: 22
+   Topic #2,757: 2. 易错点提示 (根据你的要求添加) 注意关键词：“连续复利 (continuously compounded)” 这道题你做错的原因很可能是混淆了不同类型的复利计算。问题中的“连续复利”是解题的关键。 连续复利公式: P = P0ert。这是本题必须使用的公式。  按期复利公式 (例如年复利): P = P0(1 + r .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 7.311
+Activation: Root article
+   Size: 22
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Source of activation: Topic #2,757: 2. 易错点提示 (根据你的要求添加) 注意关键词：“连续复利 (continuously compounded)” 这道题你做错的原因很可能是混淆了不同类型的复利计算。问题中的“连续复利”是解题的关键。 连续复利公式: P = P0ert。这是本题必须使用的公式。  按期复利公式 (例如年复利): P = P0(1 + r .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 8.156
+Activation: Collecting siblings
+   Size: 22
+   Topic #2,757: 2. 易错点提示 (根据你的要求添加) 注意关键词：“连续复利 (continuously compounded)” 这道题你做错的原因很可能是混淆了不同类型的复利计算。问题中的“连续复利”是解题的关键。 连续复利公式: P = P0ert。这是本题必须使用的公式。  按期复利公式 (例如年复利): P = P0(1 + r .
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 7.311
+Activation: Expanding into deeper layers
+   Size: 22
+   Topic #2,693: <!DOCTYPE html> <html> <head> <meta charset="UTF-8"> </head> <body> <h3>翻译</h3> <p><b>介绍</b></p> <p>要解一个两边具有相同底数的对数方程，我们可以对等式两边以该底数进行取幂运算。例如，考虑以下方程</p> <p style="text-align .
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 13.262
+Activation: Spreading activation
+   Size: 22
+   Topic #2,693: <!DOCTYPE html> <html> <head> <meta charset="UTF-8"> </head> <body> <h3>翻译</h3> <p><b>介绍</b></p> <p>要解一个两边具有相同底数的对数方程，我们可以对等式两边以该底数进行取幂运算。例如，考虑以下方程</p> <p style="text-align .
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 13.262
+Activation: Following concept links
+   Size: 22
+   Topic #2,693: <!DOCTYPE html> <html> <head> <meta charset="UTF-8"> </head> <body> <h3>翻译</h3> <p><b>介绍</b></p> <p>要解一个两边具有相同底数的对数方程，我们可以对等式两边以该底数进行取幂运算。例如，考虑以下方程</p> <p style="text-align .
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 13.262
+Activation: Following inter-element links
+   Size: 22
+   Topic #2,693: <!DOCTYPE html> <html> <head> <meta charset="UTF-8"> </head> <body> <h3>翻译</h3> <p><b>介绍</b></p> <p>要解一个两边具有相同底数的对数方程，我们可以对等式两边以该底数进行取幂运算。例如，考虑以下方程</p> <p style="text-align .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 13.262
+Activation: Parent
+   Size: 22
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,693: <!DOCTYPE html> <html> <head> <meta charset="UTF-8"> </head> <body> <h3>翻译</h3> <p><b>介绍</b></p> <p>要解一个两边具有相同底数的对数方程，我们可以对等式两边以该底数进行取幂运算。例如，考虑以下方程</p> <p style="text-align .
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 22
+   Topic #2,693: <!DOCTYPE html> <html> <head> <meta charset="UTF-8"> </head> <body> <h3>翻译</h3> <p><b>介绍</b></p> <p>要解一个两边具有相同底数的对数方程，我们可以对等式两边以该底数进行取幂运算。例如，考虑以下方程</p> <p style="text-align .
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 13.262
+Activation: Expanding into deeper layers
+   Size: 22
+   Topic #2,579: 解题逻辑和思路 : 在3个随机选择的、都在12月出生的人中，至少有两个人同一天生日的概率是多少？
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 11.205
+Activation: Spreading activation
+   Size: 22
+   Topic #2,579: 解题逻辑和思路 : 在3个随机选择的、都在12月出生的人中，至少有两个人同一天生日的概率是多少？
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 11.205
+Activation: Following concept links
+   Size: 22
+   Topic #2,579: 解题逻辑和思路 : 在3个随机选择的、都在12月出生的人中，至少有两个人同一天生日的概率是多少？
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 11.205
+Activation: Following inter-element links
+   Size: 22
+   Topic #2,579: 解题逻辑和思路 : 在3个随机选择的、都在12月出生的人中，至少有两个人同一天生日的概率是多少？
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 11.205
+Activation: Descendant relationship
+   Size: 22
+   Topic #2,735: 确定解题方法：使用补集。 识别到关键词“至少有两人”，这提示我们计算其对立事件（补集）的概率可能更简单。  事件 A：至少两人同生日。  补集 A'：所有人不同生日。
+   Source of activation: Topic #2,579: 解题逻辑和思路 : 在3个随机选择的、都在12月出生的人中，至少有两个人同一天生日的概率是多少？
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.678
+Activation: Adding new element
+   Size: 23
+   Topic #2,735: 确定解题方法：使用补集。 识别到关键词“至少有两人”，这提示我们计算其对立事件（补集）的概率可能更简单。  事件 A：至少两人同生日。  补集 A'：所有人不同生日。
+   Link priority: 0.252
+   Layer priority: 0
+   Element priority: 7.678
+Activation: Descendant relationship
+   Size: 23
+   Topic #2,735: 确定解题方法：使用补集。 识别到关键词“至少有两人”，这提示我们计算其对立事件（补集）的概率可能更简单。  事件 A：至少两人同生日。  补集 A'：所有人不同生日。
+   Source of activation: Topic #2,579: 解题逻辑和思路 : 在3个随机选择的、都在12月出生的人中，至少有两个人同一天生日的概率是多少？
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.678
+Activation: Parent
+   Size: 23
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,579: 解题逻辑和思路 : 在3个随机选择的、都在12月出生的人中，至少有两个人同一天生日的概率是多少？
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 23
+   Topic #2,579: 解题逻辑和思路 : 在3个随机选择的、都在12月出生的人中，至少有两个人同一天生日的概率是多少？
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 11.205
+Activation: Adding new element
+   Size: 24
+   Topic #2,577: 等效利率
+   Link priority: 0.973
+   Layer priority: 0.33
+   Element priority: 11.278
+Activation: Adding new element
+   Size: 25
+   Topic #2,576: 转换指数函数
+   Link priority: 0.975
+   Layer priority: 0.363
+   Element priority: 11.756
+Activation: Adding new element
+   Size: 26
+   Topic #2,573: 如何利用对数来估算一个非常大的数（如 460）的数量级（即位数）。
+   Link priority: 0.978
+   Layer priority: 0.399
+   Element priority: 19.067
+Activation: Adding new element
+   Size: 27
+   Topic #2,572: 利用函数图像的特征来确定函数表达式中的未知参数
+   Link priority: 0.979
+   Layer priority: 0.439
+   Element priority: 18.442
+Activation: Adding new element
+   Size: 28
+   Topic #2,523: 思考以下陈述：, ?AB 是 ―PQ 的垂直平分线。
+   Link priority: 0.982
+   Layer priority: 0.483
+   Element priority: 22.52
+Activation: Adding new element
+   Size: 29
+   Topic #2,522: 构建垂直线定理的完整证明
+   Link priority: 0.982
+   Layer priority: 0.531
+   Element priority: 13.042
+Activation: Adding new element
+   Size: 30
+   Topic #2,521: 如何证明逆垂直平分线定理
+   Link priority: 1
+   Layer priority: 0.585
+   Element priority: 98.714
+Activation: Adding new element
+   Size: 31
+   Topic #2,520: 从一副标准的52张扑克牌中随机抽取一张。抽到一张标有奇数的牌或一张黑色的牌的概率是多少？
+   Link priority: 1
+   Layer priority: 0.643
+   Element priority: 97.979
+Activation: Expanding into deeper layers
+   Size: 31
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 8.156
+Activation: Spreading activation
+   Size: 31
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 8.156
+Activation: Following concept links
+   Size: 31
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 8.156
+Activation: Following inter-element links
+   Size: 31
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 8.156
+Activation: Descendant relationship
+   Size: 31
+   Topic #2,757: 2. 易错点提示 (根据你的要求添加) 注意关键词：“连续复利 (continuously compounded)” 这道题你做错的原因很可能是混淆了不同类型的复利计算。问题中的“连续复利”是解题的关键。 连续复利公式: P = P0ert。这是本题必须使用的公式。  按期复利公式 (例如年复利): P = P0(1 + r .
+   Source of activation: Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.311
+Activation: Descendant relationship
+   Size: 31
+   Topic #2,757: 2. 易错点提示 (根据你的要求添加) 注意关键词：“连续复利 (continuously compounded)” 这道题你做错的原因很可能是混淆了不同类型的复利计算。问题中的“连续复利”是解题的关键。 连续复利公式: P = P0ert。这是本题必须使用的公式。  按期复利公式 (例如年复利): P = P0(1 + r .
+   Source of activation: Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.311
+Activation: Parent
+   Size: 31
+   Topic #1,104: Math Academy
+   Source of activation: Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 31
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 8.156
+Activation: Expanding into deeper layers
+   Size: 31
+   Topic #1,551: <html> <body> <h3>1. 文本翻译</h3> <p><b>6. 在已知斜边长度的情况下求 45-45-90 三角形的面积</b></p> <p>如果一个 45°-45°-90° 三角形的斜边长度为 <table border="0" style="display:inline-block; vertical-align .
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 99.743
+Activation: Spreading activation
+   Size: 31
+   Topic #1,551: <html> <body> <h3>1. 文本翻译</h3> <p><b>6. 在已知斜边长度的情况下求 45-45-90 三角形的面积</b></p> <p>如果一个 45°-45°-90° 三角形的斜边长度为 <table border="0" style="display:inline-block; vertical-align .
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 99.743
+Activation: Following concept links
+   Size: 31
+   Topic #1,551: <html> <body> <h3>1. 文本翻译</h3> <p><b>6. 在已知斜边长度的情况下求 45-45-90 三角形的面积</b></p> <p>如果一个 45°-45°-90° 三角形的斜边长度为 <table border="0" style="display:inline-block; vertical-align .
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 99.743
+Activation: Following inter-element links
+   Size: 31
+   Topic #1,551: <html> <body> <h3>1. 文本翻译</h3> <p><b>6. 在已知斜边长度的情况下求 45-45-90 三角形的面积</b></p> <p>如果一个 45°-45°-90° 三角形的斜边长度为 <table border="0" style="display:inline-block; vertical-align .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 99.743
+Activation: Descendant relationship
+   Size: 31
+   Topic #2,758: 基于斜边的面积公式 (针对45°-45°-90°三角形): 题目中直接给出的公式 A = (1/4)d2 是一个推导出的便捷公式。它可以通过基础公式推导：  直角边 s = d/√2  面积 A = (1/2) ? s ? s = (1/2) ? (d/√2)2 = (1/2) ? (d2/2) = (1/4)d2。
+   Source of activation: Topic #1,551: <html> <body> <h3>1. 文本翻译</h3> <p><b>6. 在已知斜边长度的情况下求 45-45-90 三角形的面积</b></p> <p>如果一个 45°-45°-90° 三角形的斜边长度为 <table border="0" style="display:inline-block; vertical-align .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 3.968
+Activation: Adding new element
+   Size: 32
+   Topic #2,758: 基于斜边的面积公式 (针对45°-45°-90°三角形): 题目中直接给出的公式 A = (1/4)d2 是一个推导出的便捷公式。它可以通过基础公式推导：  直角边 s = d/√2  面积 A = (1/2) ? s ? s = (1/2) ? (d/√2)2 = (1/2) ? (d2/2) = (1/4)d2。
+   Link priority: 0.222
+   Layer priority: 0
+   Element priority: 3.968
+Activation: Descendant relationship
+   Size: 32
+   Topic #2,758: 基于斜边的面积公式 (针对45°-45°-90°三角形): 题目中直接给出的公式 A = (1/4)d2 是一个推导出的便捷公式。它可以通过基础公式推导：  直角边 s = d/√2  面积 A = (1/2) ? s ? s = (1/2) ? (d/√2)2 = (1/2) ? (d2/2) = (1/4)d2。
+   Source of activation: Topic #1,551: <html> <body> <h3>1. 文本翻译</h3> <p><b>6. 在已知斜边长度的情况下求 45-45-90 三角形的面积</b></p> <p>如果一个 45°-45°-90° 三角形的斜边长度为 <table border="0" style="display:inline-block; vertical-align .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 3.968
+Activation: Parent
+   Size: 32
+   Topic #1,104: Math Academy
+   Source of activation: Topic #1,551: <html> <body> <h3>1. 文本翻译</h3> <p><b>6. 在已知斜边长度的情况下求 45-45-90 三角形的面积</b></p> <p>如果一个 45°-45°-90° 三角形的斜边长度为 <table border="0" style="display:inline-block; vertical-align .
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 32
+   Topic #1,551: <html> <body> <h3>1. 文本翻译</h3> <p><b>6. 在已知斜边长度的情况下求 45-45-90 三角形的面积</b></p> <p>如果一个 45°-45°-90° 三角形的斜边长度为 <table border="0" style="display:inline-block; vertical-align .
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 99.743
+Activation: Expanding into deeper layers
+   Size: 32
+   Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 11.646
+Activation: Spreading activation
+   Size: 32
+   Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 11.646
+Activation: Following concept links
+   Size: 32
+   Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 11.646
+Activation: Following inter-element links
+   Size: 32
+   Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 11.646
+Activation: Descendant relationship
+   Size: 32
+   Item #2,673: 德摩根定律  (A ∪ B)' = A' ∩ B' P(A' ∩ B') = P((A ∪ B)') = [.]
+   Source of activation: Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 5.952
+Activation: Adding new element
+   Size: 33
+   Item #2,673: 德摩根定律  (A ∪ B)' = A' ∩ B' P(A' ∩ B') = P((A ∪ B)') = [.]
+   Link priority: 0.238
+   Layer priority: 0
+   Element priority: 5.952
+Activation: Descendant relationship
+   Size: 33
+   Topic #1,407: P(A' ∪ B') = 1 - P(A ∩ B)
+   Source of activation: Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 99.596
+Activation: Adding new element
+   Size: 34
+   Topic #1,407: P(A' ∪ B') = 1 - P(A ∩ B)
+   Link priority: 0.997
+   Layer priority: 0
+   Element priority: 99.596
+Activation: Descendant relationship
+   Size: 34
+   Item #2,673: 德摩根定律  (A ∪ B)' = A' ∩ B' P(A' ∩ B') = P((A ∪ B)') = [.]
+   Source of activation: Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 5.952
+Activation: Descendant relationship
+   Size: 34
+   Topic #1,407: P(A' ∪ B') = 1 - P(A ∩ B)
+   Source of activation: Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 99.596
+Activation: Descendant relationship
+   Size: 34
+   Topic #1,407: P(A' ∪ B') = 1 - P(A ∩ B)
+   Source of activation: Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 99.596
+Activation: Parent
+   Size: 34
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 34
+   Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 11.646
+Activation: Expanding into deeper layers
+   Size: 34
+   Topic #2,572: 利用函数图像的特征来确定函数表达式中的未知参数
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 18.442
+Activation: Spreading activation
+   Size: 34
+   Topic #2,572: 利用函数图像的特征来确定函数表达式中的未知参数
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 18.442
+Activation: Following concept links
+   Size: 34
+   Topic #2,572: 利用函数图像的特征来确定函数表达式中的未知参数
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 18.442
+Activation: Following inter-element links
+   Size: 34
+   Topic #2,572: 利用函数图像的特征来确定函数表达式中的未知参数
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 18.442
+Activation: Descendant relationship
+   Size: 34
+   Topic #2,702: 有理函数 (Rational Function): 特指形式为 y = a x ? b + k 的函数图像，这是一个双曲线。
+   Source of activation: Topic #2,572: 利用函数图像的特征来确定函数表达式中的未知参数
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 10.029
+Activation: Adding new element
+   Size: 35
+   Topic #2,702: 有理函数 (Rational Function): 特指形式为 y = a x ? b + k 的函数图像，这是一个双曲线。
+   Link priority: 0.271
+   Layer priority: 0
+   Element priority: 10.029
+Activation: Descendant relationship
+   Size: 35
+   Topic #2,703: 水平渐近线 (Horizontal Asymptote): 当 x 趋向于正无穷或负无穷时，函数图像无限接近的一条水平线。对于 y = a x ? b
+   Source of activation: Topic #2,572: 利用函数图像的特征来确定函数表达式中的未知参数
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 9.882
+Activation: Adding new element
+   Size: 36
+   Topic #2,703: 水平渐近线 (Horizontal Asymptote): 当 x 趋向于正无穷或负无穷时，函数图像无限接近的一条水平线。对于 y = a x ? b
+   Link priority: 0.27
+   Layer priority: 0
+   Element priority: 9.882
+Activation: Descendant relationship
+   Size: 36
+   Topic #2,703: 水平渐近线 (Horizontal Asymptote): 当 x 趋向于正无穷或负无穷时，函数图像无限接近的一条水平线。对于 y = a x ? b
+   Source of activation: Topic #2,572: 利用函数图像的特征来确定函数表达式中的未知参数
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 9.882
+Activation: Descendant relationship
+   Size: 36
+   Topic #2,704: 垂直渐近线 (Vertical Asymptote): 当函数值趋向于正无穷或负无穷时，函数图像无限接近的一条垂直线。它发生在分母为零的位置。对于 y = a x ? b
+   Source of activation: Topic #2,572: 利用函数图像的特征来确定函数表达式中的未知参数
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 9.809
+Activation: Adding new element
+   Size: 37
+   Topic #2,704: 垂直渐近线 (Vertical Asymptote): 当函数值趋向于正无穷或负无穷时，函数图像无限接近的一条垂直线。它发生在分母为零的位置。对于 y = a x ? b
+   Link priority: 0.269
+   Layer priority: 0
+   Element priority: 9.809
+Activation: Parent
+   Size: 37
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,572: 利用函数图像的特征来确定函数表达式中的未知参数
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 37
+   Topic #2,572: 利用函数图像的特征来确定函数表达式中的未知参数
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 18.442
+Activation: Adding new element
+   Size: 38
+   Topic #2,515: <!DOCTYPE html> <html> <head> <meta charset="UTF-8"> </head> <body> <h3>翻译</h3> <p><b>问题 8</b></p> <p>（图片显示一个三角形XYZ，其中有一条从顶点X到边YZ的高线XW）</p> <p>在上方所示的三角形 ΔXYZ 中，∠XWY 是一个直角且 .
+   Link priority: 0.999
+   Layer priority: 0.439
+   Element priority: 94.636
+Activation: Adding new element
+   Size: 39
+   Topic #2,514: 等腰三角形定理： 如果三角形是等腰三角形，则底角是全等的。
+   Link priority: 1
+   Layer priority: 0.483
+   Element priority: 98.09
+Activation: Adding new element
+   Size: 40
+   Topic #2,513: 通过对原文本进行摘录——理解——搭建学习之路的形式，有时候不太行 因为理解原文本不仅要在原文里，有时还要结合其它材料 也就是说前置知识需要更多
+   Link priority: 0.989
+   Layer priority: 0.531
+   Element priority: 47.649
+Activation: Adding new element
+   Size: 41
+   Topic #2,497: 好的，这篇帮助文档非常全面，它详细解释了这个逻辑训练软件背后的所有规则和方法。这下我们就可以彻底搞清楚它的运作方式了。 这篇文档的核心是介绍了一套独特的、名为“星号测试 (The Star Test)”的机械化方法，来判断一个三段论是否有效。同时，它也介绍了传统的**文氏图法 (Venn Diagrams)**作为辅助。 .
+   Link priority: 0.999
+   Layer priority: 0.585
+   Element priority: 94.195
+Activation: Adding new element
+   Size: 42
+   Topic #2,491: 好的，我们来做一个快速总结。这是一个很好的学习习惯，能帮你巩固知识。  我们今天主要聊了两个核心点：  1. 什么是中项 (Middle Term)？  定义：在一个三段论中，中项是那个在两个前提中都出现，但在结论中消失的词项。 .
+   Link priority: 0.999
+   Layer priority: 0.643
+   Element priority: 96.657
+Activation: Expanding into deeper layers
+   Size: 42
+   Topic #2,522: 构建垂直线定理的完整证明
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 13.042
+Activation: Spreading activation
+   Size: 42
+   Topic #2,522: 构建垂直线定理的完整证明
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 13.042
+Activation: Following concept links
+   Size: 42
+   Topic #2,522: 构建垂直线定理的完整证明
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 13.042
+Activation: Following inter-element links
+   Size: 42
+   Topic #2,522: 构建垂直线定理的完整证明
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 13.042
+Activation: Descendant relationship
+   Size: 42
+   Topic #2,716: 核心策略：通过证明包含这两条线段的两个三角形 (△DCB 和 △DCA) 全等，然后使用 CPCTC 得出结论。
+   Source of activation: Topic #2,522: 构建垂直线定理的完整证明
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.788
+Activation: Adding new element
+   Size: 43
+   Topic #2,716: 核心策略：通过证明包含这两条线段的两个三角形 (△DCB 和 △DCA) 全等，然后使用 CPCTC 得出结论。
+   Link priority: 0.253
+   Layer priority: 0
+   Element priority: 7.788
+Activation: Descendant relationship
+   Size: 43
+   Topic #2,716: 核心策略：通过证明包含这两条线段的两个三角形 (△DCB 和 △DCA) 全等，然后使用 CPCTC 得出结论。
+   Source of activation: Topic #2,522: 构建垂直线定理的完整证明
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.788
+Activation: Parent
+   Size: 43
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,522: 构建垂直线定理的完整证明
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 43
+   Topic #2,522: 构建垂直线定理的完整证明
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 13.042
+Activation: Adding new element
+   Size: 44
+   Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.999
+   Layer priority: 0.585
+   Element priority: 96.51
+Activation: Adding new element
+   Size: 45
+   Topic #2,474: 概率乘法通用法则 P(A∩B) = P(A)P(B|A) 的核心作用
+   Link priority: 1
+   Layer priority: 0.643
+   Element priority: 97.539
+Activation: Expanding into deeper layers
+   Size: 45
+   Topic #2,752: HTML: <IMG alt="" src="http://siyuanmemo:6806/assets/image-20251112140335-kgayxfq.png">
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 8.486
+Activation: Spreading activation
+   Size: 45
+   Topic #2,752: HTML: <IMG alt="" src="http://siyuanmemo:6806/assets/image-20251112140335-kgayxfq.png">
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 8.486
+Activation: Following concept links
+   Size: 45
+   Topic #2,752: HTML: <IMG alt="" src="http://siyuanmemo:6806/assets/image-20251112140335-kgayxfq.png">
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 8.486
+Activation: Following inter-element links
+   Size: 45
+   Topic #2,752: HTML: <IMG alt="" src="http://siyuanmemo:6806/assets/image-20251112140335-kgayxfq.png">
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 8.486
+Activation: Descendant relationship
+   Size: 45
+   Topic #2,753: <h3>翻译</h3> <h4>问题 8</h4> <br clear="all" /><table border="0" width="100%"><tr><td> <table align="center" cellspacing="0"  cellpadding="2"><tr>     <td nowrap="nowrap" .
+   Source of activation: Topic #2,752: HTML: <IMG alt="" src="http://siyuanmemo:6806/assets/image-20251112140335-kgayxfq.png">
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 8.413
+Activation: Adding new element
+   Size: 46
+   Topic #2,753: <h3>翻译</h3> <h4>问题 8</h4> <br clear="all" /><table border="0" width="100%"><tr><td> <table align="center" cellspacing="0"  cellpadding="2"><tr>     <td nowrap="nowrap" .
+   Link priority: 0.258
+   Layer priority: 0
+   Element priority: 8.413
+Activation: Descendant relationship
+   Size: 46
+   Topic #2,753: <h3>翻译</h3> <h4>问题 8</h4> <br clear="all" /><table border="0" width="100%"><tr><td> <table align="center" cellspacing="0"  cellpadding="2"><tr>     <td nowrap="nowrap" .
+   Source of activation: Topic #2,752: HTML: <IMG alt="" src="http://siyuanmemo:6806/assets/image-20251112140335-kgayxfq.png">
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 8.413
+Activation: Parent
+   Size: 46
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,752: HTML: <IMG alt="" src="http://siyuanmemo:6806/assets/image-20251112140335-kgayxfq.png">
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 46
+   Topic #2,752: HTML: <IMG alt="" src="http://siyuanmemo:6806/assets/image-20251112140335-kgayxfq.png">
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 8.486
+Activation: Expanding into deeper layers
+   Size: 46
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 8.156
+Activation: Spreading activation
+   Size: 46
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 8.156
+Activation: Following concept links
+   Size: 46
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 8.156
+Activation: Following inter-element links
+   Size: 46
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 8.156
+Activation: Descendant relationship
+   Size: 46
+   Topic #2,757: 2. 易错点提示 (根据你的要求添加) 注意关键词：“连续复利 (continuously compounded)” 这道题你做错的原因很可能是混淆了不同类型的复利计算。问题中的“连续复利”是解题的关键。 连续复利公式: P = P0ert。这是本题必须使用的公式。  按期复利公式 (例如年复利): P = P0(1 + r .
+   Source of activation: Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.311
+Activation: Descendant relationship
+   Size: 46
+   Topic #2,757: 2. 易错点提示 (根据你的要求添加) 注意关键词：“连续复利 (continuously compounded)” 这道题你做错的原因很可能是混淆了不同类型的复利计算。问题中的“连续复利”是解题的关键。 连续复利公式: P = P0ert。这是本题必须使用的公式。  按期复利公式 (例如年复利): P = P0(1 + r .
+   Source of activation: Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.311
+Activation: Parent
+   Size: 46
+   Topic #1,104: Math Academy
+   Source of activation: Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 46
+   Topic #1,506: 5. 计算利率或时间, 艾玛在4年前向一个共同基金投资了15,000美元。如果该共同基金目前的价值为18,600美元，那么其连续复利年利率是多少？
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 8.156
+Activation: Expanding into deeper layers
+   Size: 46
+   Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 96.51
+Activation: Spreading activation
+   Size: 46
+   Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 96.51
+Activation: Following concept links
+   Size: 46
+   Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 96.51
+Activation: Following inter-element links
+   Size: 46
+   Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 96.51
+Activation: Descendant relationship
+   Size: 46
+   Item #2,478: 数学知识点 Title: 抛物线标准方程 (Standard Equation of a Parabola): 开口向上/下 (Vertical): (x ? h)2 = 4p(y ? k)  开口向左/右 (Horizontal): (y ? k)2 = 4p(x ? h) 本题是开口向下，所以选用第一种形式。 顶点 (Vertex) .
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 8.927
+Activation: Adding new element
+   Size: 47
+   Item #2,478: 数学知识点 Title: 抛物线标准方程 (Standard Equation of a Parabola): 开口向上/下 (Vertical): (x ? h)2 = 4p(y ? k)  开口向左/右 (Horizontal): (y ? k)2 = 4p(x ? h) 本题是开口向下，所以选用第一种形式。 顶点 (Vertex) .
+   Link priority: 0.262
+   Layer priority: 0
+   Element priority: 8.927
+Activation: Descendant relationship
+   Size: 47
+   Item #2,644: 开口向上/下 (Vertical): [.]
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 8.119
+Activation: Adding new element
+   Size: 48
+   Item #2,644: 开口向上/下 (Vertical): [.]
+   Link priority: 0.256
+   Layer priority: 0
+   Element priority: 8.119
+Activation: Descendant relationship
+   Size: 48
+   Item #2,478: 数学知识点 Title: 抛物线标准方程 (Standard Equation of a Parabola): 开口向上/下 (Vertical): (x ? h)2 = 4p(y ? k)  开口向左/右 (Horizontal): (y ? k)2 = 4p(x ? h) 本题是开口向下，所以选用第一种形式。 顶点 (Vertex) .
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 8.927
+Activation: Descendant relationship
+   Size: 48
+   Topic #1,579: 开口向左/右 (Horizontal): (y ? k)2 = 4p(x ? h) 本题是开口向下，所以选用第一种形式。
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 95.371
+Activation: Adding new element
+   Size: 49
+   Topic #1,579: 开口向左/右 (Horizontal): (y ? k)2 = 4p(x ? h) 本题是开口向下，所以选用第一种形式。
+   Link priority: 0.963
+   Layer priority: 0
+   Element priority: 95.371
+Activation: Descendant relationship
+   Size: 49
+   Item #2,594: 开口向左/右: [.]
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 3.784
+Activation: Adding new element
+   Size: 50
+   Item #2,594: 开口向左/右: [.]
+   Link priority: 0.221
+   Layer priority: 0
+   Element priority: 3.784
+Activation: Descendant relationship
+   Size: 50
+   Topic #2,476: 开口向上/下 (Vertical): (x ? h)2 = 4p(y ? k)
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 97.134
+Activation: Adding new element
+   Size: 51
+   Topic #2,476: 开口向上/下 (Vertical): (x ? h)2 = 4p(y ? k)
+   Link priority: 0.977
+   Layer priority: 0
+   Element priority: 97.134
+Activation: Descendant relationship
+   Size: 51
+   Item #2,477: 数学知识点 Title: 抛物线标准方程 (Standard Equation of a Parabola): 开口向上/下 (Vertical): (x ? h)2 = 4p(y ? k)  开口向左/右 (Horizontal): (y ? k)2 = 4p(x ? h) 本题是开口向下，所以选用第一种形式。 顶点 (Vertex) .
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.131
+Activation: Adding new element
+   Size: 52
+   Item #2,477: 数学知识点 Title: 抛物线标准方程 (Standard Equation of a Parabola): 开口向上/下 (Vertical): (x ? h)2 = 4p(y ? k)  开口向左/右 (Horizontal): (y ? k)2 = 4p(x ? h) 本题是开口向下，所以选用第一种形式。 顶点 (Vertex) .
+   Link priority: 0.207
+   Layer priority: 0
+   Element priority: 2.131
+Activation: Descendant relationship
+   Size: 52
+   Topic #1,579: 开口向左/右 (Horizontal): (y ? k)2 = 4p(x ? h) 本题是开口向下，所以选用第一种形式。
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 95.371
+Activation: Descendant relationship
+   Size: 52
+   Item #2,645: p 的绝对值 |p| 决定了开口的“宽窄”：|p| 越大，开口越[.]。
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.421
+Activation: Adding new element
+   Size: 53
+   Item #2,645: p 的绝对值 |p| 决定了开口的“宽窄”：|p| 越大，开口越[.]。
+   Link priority: 0.25
+   Layer priority: 0
+   Element priority: 7.421
+Activation: Descendant relationship
+   Size: 53
+   Item #2,646: 对于 (y ? k)2 形式：p > 0 开口向[.]。
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 4.519
+Activation: Adding new element
+   Size: 54
+   Item #2,646: 对于 (y ? k)2 形式：p > 0 开口向[.]。
+   Link priority: 0.227
+   Layer priority: 0
+   Element priority: 4.519
+Activation: Descendant relationship
+   Size: 54
+   Item #2,594: 开口向左/右: [.]
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 3.784
+Activation: Descendant relationship
+   Size: 54
+   Topic #2,642: p 的绝对值 |p| 决定了开口的“宽窄”：|p| 越大，开口越宽。
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 96.473
+Activation: Adding new element
+   Size: 55
+   Topic #2,642: p 的绝对值 |p| 决定了开口的“宽窄”：|p| 越大，开口越宽。
+   Link priority: 0.971
+   Layer priority: 0
+   Element priority: 96.473
+Activation: Parent
+   Size: 55
+   Topic #1,104: Math Academy
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 55
+   Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 96.51
+Activation: Adding new element
+   Size: 56
+   Topic #2,466: 公理、定义、定理的搭建
+   Link priority: 0.976
+   Layer priority: 0.33
+   Element priority: 18.993
+Activation: Adding new element
+   Size: 57
+   Topic #2,446: <p><b>Reciprocal Functions of Complementary Angles (互补角的三角函数关系)</b></p> <p>So far, we know that<br>目前，我们知道</p> <div style="text-align:center;">     <p>sin θ = cos(90° ? θ),< .
+   Link priority: 0.998
+   Layer priority: 0.363
+   Element priority: 94.526
+Activation: Adding new element
+   Size: 58
+   Topic #2,445: 证明对角线全等的平行四边形是矩形
+   Link priority: 0.98
+   Layer priority: 0.399
+   Element priority: 24.871
+Activation: Adding new element
+   Size: 59
+   Topic #1,646: 替换和等式的传递还有疑惑
+   Link priority: 0.981
+   Layer priority: 0.439
+   Element priority: 25.496
+Activation: Adding new element
+   Size: 60
+   Topic #2,435: <p><b>The Perpendicular Bisector Theorems (垂直平分线定理)</b></p> <p>The diagram below shows a segment <span class="overacc2">―</span>AB and a line &harr;CD, where &harr;CD is the .
+   Link priority: 0.999
+   Layer priority: 0.483
+   Element priority: 94.967
+Activation: Adding new element
+   Size: 61
+   Topic #2,433: 从数学逻辑上讲，并不一定要严格遵循 A=B, B=C 的形式。您提出的 A=B 和 C=B 直接推导出 A=C 是完全成立的。 这两种方法其实对应了两个在逻辑上略有不同的公理： 方法一：您的方法 (更直接) - 使用“代换公理 (Substitution Property)” 我们有 m∠a = 90° (来自第二步)。 我们也有 m∠b = .
+   Link priority: 0.999
+   Layer priority: 0.531
+   Element priority: 96.694
+Activation: Adding new element
+   Size: 62
+   Topic #2,429: 你这个想法非常棒，而且非常深刻！你完全抓住了现代数学，尤其是解析几何的核心思想。 你总结的思路是完全正确的！ 我帮你把这个思路梳理得更清晰一些： 几何领域 (Geometric Domain): 这里处理的是点、线、角、图形这些看得见摸得着的“形状”。 .
+   Link priority: 0.985
+   Layer priority: 0.585
+   Element priority: 18.699
+Activation: Adding new element
+   Size: 63
+   Topic #2,428: 证明线对垂直定理
+   Link priority: 0.987
+   Layer priority: 0.643
+   Element priority: 19.398
+Activation: Expanding into deeper layers
+   Size: 63
+   Topic #2,694: 不喝茶、不喝卡布奇诺、也不喝水果冰沙的概率是多少？
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 99.78
+Activation: Spreading activation
+   Size: 63
+   Topic #2,694: 不喝茶、不喝卡布奇诺、也不喝水果冰沙的概率是多少？
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 99.78
+Activation: Following concept links
+   Size: 63
+   Topic #2,694: 不喝茶、不喝卡布奇诺、也不喝水果冰沙的概率是多少？
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 99.78
+Activation: Following inter-element links
+   Size: 63
+   Topic #2,694: 不喝茶、不喝卡布奇诺、也不喝水果冰沙的概率是多少？
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 99.78
+Activation: Descendant relationship
+   Size: 63
+   Topic #2,713: 容斥原理 (Principle of Inclusion-Exclusion): 用于计算多个集合并集大小的公式。对于三个集合，公式为：|T ∪ C ∪ F| = |T| + |C| + |F| ? |T ∩ C| ? |T ∩ F| ? |C ∩ F| + |T ∩ C ∩ F|。
+   Source of activation: Topic #2,694: 不喝茶、不喝卡布奇诺、也不喝水果冰沙的概率是多少？
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 99.706
+Activation: Adding new element
+   Size: 64
+   Topic #2,713: 容斥原理 (Principle of Inclusion-Exclusion): 用于计算多个集合并集大小的公式。对于三个集合，公式为：|T ∪ C ∪ F| = |T| + |C| + |F| ? |T ∩ C| ? |T ∩ F| ? |C ∩ F| + |T ∩ C ∩ F|。
+   Link priority: 0.998
+   Layer priority: 0
+   Element priority: 99.706
+Activation: Descendant relationship
+   Size: 64
+   Item #2,714: 容斥原理 (Principle of Inclusion-Exclusion): 用于计算多个集合并集大小的公式。对于三个集合，公式为：|T ∪ C ∪ F| = |T| + |C| + |F| ? [.]+ |T ∩ C ∩ F|。
+   Source of activation: Topic #2,694: 不喝茶、不喝卡布奇诺、也不喝水果冰沙的概率是多少？
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.939
+Activation: Adding new element
+   Size: 65
+   Item #2,714: 容斥原理 (Principle of Inclusion-Exclusion): 用于计算多个集合并集大小的公式。对于三个集合，公式为：|T ∪ C ∪ F| = |T| + |C| + |F| ? [.]+ |T ∩ C ∩ F|。
+   Link priority: 0.214
+   Layer priority: 0
+   Element priority: 2.939
+Activation: Descendant relationship
+   Size: 65
+   Topic #2,713: 容斥原理 (Principle of Inclusion-Exclusion): 用于计算多个集合并集大小的公式。对于三个集合，公式为：|T ∪ C ∪ F| = |T| + |C| + |F| ? |T ∩ C| ? |T ∩ F| ? |C ∩ F| + |T ∩ C ∩ F|。
+   Source of activation: Topic #2,694: 不喝茶、不喝卡布奇诺、也不喝水果冰沙的概率是多少？
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 99.706
+Activation: Descendant relationship
+   Size: 65
+   Item #2,714: 容斥原理 (Principle of Inclusion-Exclusion): 用于计算多个集合并集大小的公式。对于三个集合，公式为：|T ∪ C ∪ F| = |T| + |C| + |F| ? [.]+ |T ∩ C ∩ F|。
+   Source of activation: Topic #2,694: 不喝茶、不喝卡布奇诺、也不喝水果冰沙的概率是多少？
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.939
+Activation: Parent
+   Size: 65
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,694: 不喝茶、不喝卡布奇诺、也不喝水果冰沙的概率是多少？
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 65
+   Topic #2,694: 不喝茶、不喝卡布奇诺、也不喝水果冰沙的概率是多少？
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 99.78
+Activation: Expanding into deeper layers
+   Size: 65
+   Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 96.51
+Activation: Spreading activation
+   Size: 65
+   Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 96.51
+Activation: Following concept links
+   Size: 65
+   Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 96.51
+Activation: Following inter-element links
+   Size: 65
+   Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 96.51
+Activation: Descendant relationship
+   Size: 65
+   Item #2,477: 数学知识点 Title: 抛物线标准方程 (Standard Equation of a Parabola): 开口向上/下 (Vertical): (x ? h)2 = 4p(y ? k)  开口向左/右 (Horizontal): (y ? k)2 = 4p(x ? h) 本题是开口向下，所以选用第一种形式。 顶点 (Vertex) .
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.131
+Activation: Descendant relationship
+   Size: 65
+   Item #2,477: 数学知识点 Title: 抛物线标准方程 (Standard Equation of a Parabola): 开口向上/下 (Vertical): (x ? h)2 = 4p(y ? k)  开口向左/右 (Horizontal): (y ? k)2 = 4p(x ? h) 本题是开口向下，所以选用第一种形式。 顶点 (Vertex) .
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.131
+Activation: Descendant relationship
+   Size: 65
+   Item #2,646: 对于 (y ? k)2 形式：p > 0 开口向[.]。
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 4.519
+Activation: Descendant relationship
+   Size: 65
+   Item #2,696: 对于 (y ? k)2 形式：开口向右，p[.] 0
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 38.244
+Activation: Adding new element
+   Size: 66
+   Item #2,696: 对于 (y ? k)2 形式：开口向右，p[.] 0
+   Link priority: 0.5
+   Layer priority: 0
+   Element priority: 38.244
+Activation: Descendant relationship
+   Size: 66
+   Item #2,646: 对于 (y ? k)2 形式：p > 0 开口向[.]。
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 4.519
+Activation: Descendant relationship
+   Size: 66
+   Item #2,646: 对于 (y ? k)2 形式：p > 0 开口向[.]。
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 4.519
+Activation: Descendant relationship
+   Size: 66
+   Item #2,594: 开口向左/右: [.]
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 3.784
+Activation: Descendant relationship
+   Size: 66
+   Item #2,477: 数学知识点 Title: 抛物线标准方程 (Standard Equation of a Parabola): 开口向上/下 (Vertical): (x ? h)2 = 4p(y ? k)  开口向左/右 (Horizontal): (y ? k)2 = 4p(x ? h) 本题是开口向下，所以选用第一种形式。 顶点 (Vertex) .
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.131
+Activation: Descendant relationship
+   Size: 66
+   Item #2,478: 数学知识点 Title: 抛物线标准方程 (Standard Equation of a Parabola): 开口向上/下 (Vertical): (x ? h)2 = 4p(y ? k)  开口向左/右 (Horizontal): (y ? k)2 = 4p(x ? h) 本题是开口向下，所以选用第一种形式。 顶点 (Vertex) .
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 8.927
+Activation: Descendant relationship
+   Size: 66
+   Item #2,645: p 的绝对值 |p| 决定了开口的“宽窄”：|p| 越大，开口越[.]。
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.421
+Activation: Descendant relationship
+   Size: 66
+   Topic #2,642: p 的绝对值 |p| 决定了开口的“宽窄”：|p| 越大，开口越宽。
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 96.473
+Activation: Descendant relationship
+   Size: 66
+   Item #2,477: 数学知识点 Title: 抛物线标准方程 (Standard Equation of a Parabola): 开口向上/下 (Vertical): (x ? h)2 = 4p(y ? k)  开口向左/右 (Horizontal): (y ? k)2 = 4p(x ? h) 本题是开口向下，所以选用第一种形式。 顶点 (Vertex) .
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.131
+Activation: Parent
+   Size: 66
+   Topic #1,104: Math Academy
+   Source of activation: Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 66
+   Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 96.51
+Activation: Expanding into deeper layers
+   Size: 66
+   Topic #2,428: 证明线对垂直定理
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 19.398
+Activation: Spreading activation
+   Size: 66
+   Topic #2,428: 证明线对垂直定理
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 19.398
+Activation: Following concept links
+   Size: 66
+   Topic #2,428: 证明线对垂直定理
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 19.398
+Activation: Following inter-element links
+   Size: 66
+   Topic #2,428: 证明线对垂直定理
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 19.398
+Activation: Descendant relationship
+   Size: 66
+   Topic #2,736: 公设 vs. 定理 (Postulate vs. Theorem):  公设 (或公理 Axiom): 一个被接受为真理而无需证明的基本陈述，是逻辑推演的起点。  定理: 一个可以通过公设、定义以及其他已被证明的定理来证明为真的陈述。本例中证明的“线对垂直定理”就是一个定理。
+   Source of activation: Topic #2,428: 证明线对垂直定理
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 14.548
+Activation: Adding new element
+   Size: 67
+   Topic #2,736: 公设 vs. 定理 (Postulate vs. Theorem):  公设 (或公理 Axiom): 一个被接受为真理而无需证明的基本陈述，是逻辑推演的起点。  定理: 一个可以通过公设、定义以及其他已被证明的定理来证明为真的陈述。本例中证明的“线对垂直定理”就是一个定理。
+   Link priority: 0.308
+   Layer priority: 0
+   Element priority: 14.548
+Activation: Descendant relationship
+   Size: 67
+   Topic #2,595: 垂直线 (Perpendicular Lines): 两条相交的直线，如果它们形成的任意一个角是直角 (90°)，则这两条直线互相垂直。
+   Source of activation: Topic #2,428: 证明线对垂直定理
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 9.295
+Activation: Adding new element
+   Size: 68
+   Topic #2,595: 垂直线 (Perpendicular Lines): 两条相交的直线，如果它们形成的任意一个角是直角 (90°)，则这两条直线互相垂直。
+   Link priority: 0.265
+   Layer priority: 0
+   Element priority: 9.295
+Activation: Descendant relationship
+   Size: 68
+   Topic #2,736: 公设 vs. 定理 (Postulate vs. Theorem):  公设 (或公理 Axiom): 一个被接受为真理而无需证明的基本陈述，是逻辑推演的起点。  定理: 一个可以通过公设、定义以及其他已被证明的定理来证明为真的陈述。本例中证明的“线对垂直定理”就是一个定理。
+   Source of activation: Topic #2,428: 证明线对垂直定理
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 14.548
+Activation: Descendant relationship
+   Size: 68
+   Topic #2,595: 垂直线 (Perpendicular Lines): 两条相交的直线，如果它们形成的任意一个角是直角 (90°)，则这两条直线互相垂直。
+   Source of activation: Topic #2,428: 证明线对垂直定理
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 9.295
+Activation: Parent
+   Size: 68
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,428: 证明线对垂直定理
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 68
+   Topic #2,428: 证明线对垂直定理
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 19.398
+Activation: Adding new element
+   Size: 69
+   Topic #2,427: 连续复利与复利方程的关系
+   Link priority: 0.976
+   Layer priority: 0.3
+   Element priority: 23.953
+Activation: Adding new element
+   Size: 70
+   Topic #2: 符号逻辑证明概率独立性
+   Link priority: 0.975
+   Layer priority: 0.33
+   Element priority: 16.532
+Activation: Adding new element
+   Size: 71
+   Topic #677: 对于这个故事的关注，让我看了很多相关的视频。我对老人的心态有了一些新的认识。首先很严肃的说，两个人的相处模式没有“基情”，老人曾经在80岁的采访里面。主持人采访怎么看待和宋阳的关系 .
+   Link priority: 0.982
+   Layer priority: 0.363
+   Element priority: 36.848
+Activation: Adding new element
+   Size: 72
+   Topic #2,193: 同学你好！ 你犯的错误在于第 9 行的“理由”选择。 你哪里错了： 在第 9 行： Statement（命题）：∠YXO ? ∠WZO 你选择的 Reason（理由）：Alternate interior angles theorem (内错角定理) 正确理由：CPCTC (全等三角形的对应部分全等) 详细解释： 在第 8 行，你已经成功地证明了 .
+   Link priority: 0.976
+   Layer priority: 0.399
+   Element priority: 11.058
+Activation: Adding new element
+   Size: 73
+   Topic #2,192: 同学你好！问得非常好！这是这个证明中最关键的一步，理解了它，整个证明的逻辑就通了。 “逆内错角定理”之所以能证明两条对边平行，是因为它恰好是用来从“角相等”反推“线平行”的工具。 我们来分解一下这个逻辑：    1. 先理解“正向”的定理（内错角定理） 我们平时更熟悉的是 内错角定理 (Alternate Interior Angles .
+   Link priority: 0.977
+   Layer priority: 0.439
+   Element priority: 10.14
+Activation: Adding new element
+   Size: 74
+   Topic #2,191: 四边形对角线互相平分则为平行四边形的证明
+   Link priority: 0.979
+   Layer priority: 0.483
+   Element priority: 9.662
+Activation: Adding new element
+   Size: 75
+   Topic #1,706: 平行四边形对角线互相平分的证明 : 平行四边形对角线互相平分的证明过程
+   Link priority: 0.981
+   Layer priority: 0.531
+   Element priority: 10.213
+Activation: Adding new element
+   Size: 76
+   Topic #2,181: “定义”和“性质”
+   Link priority: 0.999
+   Layer priority: 0.585
+   Element priority: 94.379
+Activation: Adding new element
+   Size: 77
+   Topic #2,178: 定义 (Definition) 和 性质 (Property) 的区别
+   Link priority: 0.999
+   Layer priority: 0.643
+   Element priority: 95.738
+Activation: Expanding into deeper layers
+   Size: 77
+   Topic #2,193: 同学你好！ 你犯的错误在于第 9 行的“理由”选择。 你哪里错了： 在第 9 行： Statement（命题）：∠YXO ? ∠WZO 你选择的 Reason（理由）：Alternate interior angles theorem (内错角定理) 正确理由：CPCTC (全等三角形的对应部分全等) 详细解释： 在第 8 行，你已经成功地证明了 .
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 11.058
+Activation: Spreading activation
+   Size: 77
+   Topic #2,193: 同学你好！ 你犯的错误在于第 9 行的“理由”选择。 你哪里错了： 在第 9 行： Statement（命题）：∠YXO ? ∠WZO 你选择的 Reason（理由）：Alternate interior angles theorem (内错角定理) 正确理由：CPCTC (全等三角形的对应部分全等) 详细解释： 在第 8 行，你已经成功地证明了 .
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 11.058
+Activation: Following concept links
+   Size: 77
+   Topic #2,193: 同学你好！ 你犯的错误在于第 9 行的“理由”选择。 你哪里错了： 在第 9 行： Statement（命题）：∠YXO ? ∠WZO 你选择的 Reason（理由）：Alternate interior angles theorem (内错角定理) 正确理由：CPCTC (全等三角形的对应部分全等) 详细解释： 在第 8 行，你已经成功地证明了 .
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 11.058
+Activation: Following inter-element links
+   Size: 77
+   Topic #2,193: 同学你好！ 你犯的错误在于第 9 行的“理由”选择。 你哪里错了： 在第 9 行： Statement（命题）：∠YXO ? ∠WZO 你选择的 Reason（理由）：Alternate interior angles theorem (内错角定理) 正确理由：CPCTC (全等三角形的对应部分全等) 详细解释： 在第 8 行，你已经成功地证明了 .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 11.058
+Activation: Parent
+   Size: 77
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,193: 同学你好！ 你犯的错误在于第 9 行的“理由”选择。 你哪里错了： 在第 9 行： Statement（命题）：∠YXO ? ∠WZO 你选择的 Reason（理由）：Alternate interior angles theorem (内错角定理) 正确理由：CPCTC (全等三角形的对应部分全等) 详细解释： 在第 8 行，你已经成功地证明了 .
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 77
+   Topic #2,193: 同学你好！ 你犯的错误在于第 9 行的“理由”选择。 你哪里错了： 在第 9 行： Statement（命题）：∠YXO ? ∠WZO 你选择的 Reason（理由）：Alternate interior angles theorem (内错角定理) 正确理由：CPCTC (全等三角形的对应部分全等) 详细解释： 在第 8 行，你已经成功地证明了 .
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 11.058
+Activation: Adding new element
+   Size: 78
+   Topic #2,177: 平行四边形的相邻（或连续）角互补
+   Link priority: 0.979
+   Layer priority: 0.483
+   Element priority: 10.911
+Activation: Adding new element
+   Size: 79
+   Topic #1,436: <p><b>More Properties of Parallelograms</b><br />平行四边形的更多性质</p> <p>We can use a similar approach to prove the following property:<br />我们可以采用类似的方法来证明以下性质:</p> <div .
+   Link priority: 0.981
+   Layer priority: 0.531
+   Element priority: 11.683
+Activation: Adding new element
+   Size: 80
+   Topic #2,176: 平行四边形对边相等的证明
+   Link priority: 0.983
+   Layer priority: 0.585
+   Element priority: 11.315
+Activation: Adding new element
+   Size: 81
+   Topic #2,175: <p>Recall that profit function P(x) is equal to the revenue function R(x) minus the cost function C(x):<br />回顾利润函数 P(x) 等于收入函数 R(x) 减去成本函数 C(x):</p> <br clear="all" /><table .
+   Link priority: 0.986
+   Layer priority: 0.643
+   Element priority: 11.389
+Activation: Expanding into deeper layers
+   Size: 81
+   Topic #2,695: 容斥原理
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 99.927
+Activation: Spreading activation
+   Size: 81
+   Topic #2,695: 容斥原理
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 99.927
+Activation: Following concept links
+   Size: 81
+   Topic #2,695: 容斥原理
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 99.927
+Activation: Following inter-element links
+   Size: 81
+   Topic #2,695: 容斥原理
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 99.927
+Activation: Descendant relationship
+   Size: 81
+   Topic #2,726: 2. 三个集合的情况 (T ∪ C ∪ F) 现在来看你图片里的公式： |T ∪ C ∪ F| = |T|+|C|+|F| - |T∩C| - |T∩F| - |C∩F| + |T∩C∩F| 为什么最后是加法？ 我们一步一步来看元素的计数过程：    第一步 (加单项): |T| + |C| + |F|  只属于一个集合的元素，被计算了 1 次。 .
+   Source of activation: Topic #2,695: 容斥原理
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 4.776
+Activation: Adding new element
+   Size: 82
+   Topic #2,726: 2. 三个集合的情况 (T ∪ C ∪ F) 现在来看你图片里的公式： |T ∪ C ∪ F| = |T|+|C|+|F| - |T∩C| - |T∩F| - |C∩F| + |T∩C∩F| 为什么最后是加法？ 我们一步一步来看元素的计数过程：    第一步 (加单项): |T| + |C| + |F|  只属于一个集合的元素，被计算了 1 次。 .
+   Link priority: 0.229
+   Layer priority: 0
+   Element priority: 4.776
+Activation: Descendant relationship
+   Size: 82
+   Topic #2,725: 这个模式会一直持续下去，符号是“加-减-加-减.”交替出现的。  两个集合: 加单项 - 减交集   三个集合: 加单项 - 减两两交集 + 加三者交集   四个集合: 加单项 - 减两两交集 + 加三三交集 - 减四者交集
+   Source of activation: Topic #2,695: 容斥原理
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 6.135
+Activation: Adding new element
+   Size: 83
+   Topic #2,725: 这个模式会一直持续下去，符号是“加-减-加-减.”交替出现的。  两个集合: 加单项 - 减交集   三个集合: 加单项 - 减两两交集 + 加三者交集   四个集合: 加单项 - 减两两交集 + 加三三交集 - 减四者交集
+   Link priority: 0.24
+   Layer priority: 0
+   Element priority: 6.135
+Activation: Descendant relationship
+   Size: 83
+   Topic #2,725: 这个模式会一直持续下去，符号是“加-减-加-减.”交替出现的。  两个集合: 加单项 - 减交集   三个集合: 加单项 - 减两两交集 + 加三者交集   四个集合: 加单项 - 减两两交集 + 加三三交集 - 减四者交集
+   Source of activation: Topic #2,695: 容斥原理
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 6.135
+Activation: Parent
+   Size: 83
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,695: 容斥原理
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 83
+   Topic #2,695: 容斥原理
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 99.927
+Activation: Expanding into deeper layers
+   Size: 83
+   Topic #2,192: 同学你好！问得非常好！这是这个证明中最关键的一步，理解了它，整个证明的逻辑就通了。 “逆内错角定理”之所以能证明两条对边平行，是因为它恰好是用来从“角相等”反推“线平行”的工具。 我们来分解一下这个逻辑：    1. 先理解“正向”的定理（内错角定理） 我们平时更熟悉的是 内错角定理 (Alternate Interior Angles .
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 10.14
+Activation: Spreading activation
+   Size: 83
+   Topic #2,192: 同学你好！问得非常好！这是这个证明中最关键的一步，理解了它，整个证明的逻辑就通了。 “逆内错角定理”之所以能证明两条对边平行，是因为它恰好是用来从“角相等”反推“线平行”的工具。 我们来分解一下这个逻辑：    1. 先理解“正向”的定理（内错角定理） 我们平时更熟悉的是 内错角定理 (Alternate Interior Angles .
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 10.14
+Activation: Following concept links
+   Size: 83
+   Topic #2,192: 同学你好！问得非常好！这是这个证明中最关键的一步，理解了它，整个证明的逻辑就通了。 “逆内错角定理”之所以能证明两条对边平行，是因为它恰好是用来从“角相等”反推“线平行”的工具。 我们来分解一下这个逻辑：    1. 先理解“正向”的定理（内错角定理） 我们平时更熟悉的是 内错角定理 (Alternate Interior Angles .
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 10.14
+Activation: Following inter-element links
+   Size: 83
+   Topic #2,192: 同学你好！问得非常好！这是这个证明中最关键的一步，理解了它，整个证明的逻辑就通了。 “逆内错角定理”之所以能证明两条对边平行，是因为它恰好是用来从“角相等”反推“线平行”的工具。 我们来分解一下这个逻辑：    1. 先理解“正向”的定理（内错角定理） 我们平时更熟悉的是 内错角定理 (Alternate Interior Angles .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 10.14
+Activation: Parent
+   Size: 83
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,192: 同学你好！问得非常好！这是这个证明中最关键的一步，理解了它，整个证明的逻辑就通了。 “逆内错角定理”之所以能证明两条对边平行，是因为它恰好是用来从“角相等”反推“线平行”的工具。 我们来分解一下这个逻辑：    1. 先理解“正向”的定理（内错角定理） 我们平时更熟悉的是 内错角定理 (Alternate Interior Angles .
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 83
+   Topic #2,192: 同学你好！问得非常好！这是这个证明中最关键的一步，理解了它，整个证明的逻辑就通了。 “逆内错角定理”之所以能证明两条对边平行，是因为它恰好是用来从“角相等”反推“线平行”的工具。 我们来分解一下这个逻辑：    1. 先理解“正向”的定理（内错角定理） 我们平时更熟悉的是 内错角定理 (Alternate Interior Angles .
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 10.14
+Activation: Adding new element
+   Size: 84
+   Topic #2,174: <p><b>Cost Functions 成本函数</b></p> <p>We can construct a cost function C(x) for a business using the following equation:<br />我们可以通过以下方程构建企业的成本函数 C(x) :</p> <br clear="all" .
+   Link priority: 0.986
+   Layer priority: 0.643
+   Element priority: 12.234
+Activation: Expanding into deeper layers
+   Size: 84
+   Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 11.646
+Activation: Spreading activation
+   Size: 84
+   Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 11.646
+Activation: Following concept links
+   Size: 84
+   Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 11.646
+Activation: Following inter-element links
+   Size: 84
+   Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 11.646
+Activation: Descendant relationship
+   Size: 84
+   Topic #2,671: 德摩根定律 . P(A' ∩ B') = P((A ∪ B)') = 1 - P(A ∪ B)
+   Source of activation: Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 6.466
+Activation: Adding new element
+   Size: 85
+   Topic #2,671: 德摩根定律 . P(A' ∩ B') = P((A ∪ B)') = 1 - P(A ∪ B)
+   Link priority: 0.242
+   Layer priority: 0
+   Element priority: 6.466
+Activation: Descendant relationship
+   Size: 85
+   Item #2,673: 德摩根定律  (A ∪ B)' = A' ∩ B' P(A' ∩ B') = P((A ∪ B)') = [.]
+   Source of activation: Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 5.952
+Activation: Descendant relationship
+   Size: 85
+   Item #2,673: 德摩根定律  (A ∪ B)' = A' ∩ B' P(A' ∩ B') = P((A ∪ B)') = [.]
+   Source of activation: Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 5.952
+Activation: Descendant relationship
+   Size: 85
+   Item #2,672: P(A' ∪ B') = P((A ∩ B)') = [.]
+   Source of activation: Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 2.057
+Activation: Adding new element
+   Size: 86
+   Item #2,672: P(A' ∪ B') = P((A ∩ B)') = [.]
+   Link priority: 0.207
+   Layer priority: 0
+   Element priority: 2.057
+Activation: Descendant relationship
+   Size: 86
+   Topic #1,407: P(A' ∪ B') = 1 - P(A ∩ B)
+   Source of activation: Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 99.596
+Activation: Parent
+   Size: 86
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 86
+   Topic #2,670: 计算 P(A' ∪ B') 的整个过程 : 更快捷的计算方法 (德摩根定律)
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 11.646
+Activation: Expanding into deeper layers
+   Size: 86
+   Topic #2,642: p 的绝对值 |p| 决定了开口的“宽窄”：|p| 越大，开口越宽。
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 96.473
+Activation: Spreading activation
+   Size: 86
+   Topic #2,642: p 的绝对值 |p| 决定了开口的“宽窄”：|p| 越大，开口越宽。
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 96.473
+Activation: Following concept links
+   Size: 86
+   Topic #2,642: p 的绝对值 |p| 决定了开口的“宽窄”：|p| 越大，开口越宽。
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 96.473
+Activation: Following inter-element links
+   Size: 86
+   Topic #2,642: p 的绝对值 |p| 决定了开口的“宽窄”：|p| 越大，开口越宽。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 96.473
+Activation: Descendant relationship
+   Size: 86
+   Item #2,645: p 的绝对值 |p| 决定了开口的“宽窄”：|p| 越大，开口越[.]。
+   Source of activation: Topic #2,642: p 的绝对值 |p| 决定了开口的“宽窄”：|p| 越大，开口越宽。
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.421
+Activation: Descendant relationship
+   Size: 86
+   Item #2,645: p 的绝对值 |p| 决定了开口的“宽窄”：|p| 越大，开口越[.]。
+   Source of activation: Topic #2,642: p 的绝对值 |p| 决定了开口的“宽窄”：|p| 越大，开口越宽。
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.421
+Activation: Root article
+   Size: 86
+   Topic #1,384: 抛物线标准方程 (Standard Equation of a Parabola):
+   Source of activation: Topic #2,642: p 的绝对值 |p| 决定了开口的“宽窄”：|p| 越大，开口越宽。
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 96.51
+Activation: Collecting siblings
+   Size: 86
+   Topic #2,642: p 的绝对值 |p| 决定了开口的“宽窄”：|p| 越大，开口越宽。
+   Link priority: 0.217
+   Layer priority: 0.13
+   Element priority: 96.473
+Activation: Adding new element
+   Size: 87
+   Topic #2,643: 对于 (y ? k)2 形式：p > 0 开口向右，p < 0 开口向左。
+   Link priority: 0.945
+   Layer priority: 0.3
+   Element priority: 89.934
+Activation: Expanding into deeper layers
+   Size: 87
+   Topic #2,191: 四边形对角线互相平分则为平行四边形的证明
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 9.662
+Activation: Spreading activation
+   Size: 87
+   Topic #2,191: 四边形对角线互相平分则为平行四边形的证明
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 9.662
+Activation: Following concept links
+   Size: 87
+   Topic #2,191: 四边形对角线互相平分则为平行四边形的证明
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 9.662
+Activation: Following inter-element links
+   Size: 87
+   Topic #2,191: 四边形对角线互相平分则为平行四边形的证明
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 9.662
+Activation: Descendant relationship
+   Size: 87
+   Item #2,729: 核心思路是利用对角线平分的条件，用[.]证明由对角线形成的两个相对的三角形全等，进而用逆内错角定理得出对边平行，最终根据平行四边形的定义得出结论
+   Source of activation: Topic #2,191: 四边形对角线互相平分则为平行四边形的证明
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 9.148
+Activation: Adding new element
+   Size: 88
+   Item #2,729: 核心思路是利用对角线平分的条件，用[.]证明由对角线形成的两个相对的三角形全等，进而用逆内错角定理得出对边平行，最终根据平行四边形的定义得出结论
+   Link priority: 0.264
+   Layer priority: 0
+   Element priority: 9.148
+Activation: Descendant relationship
+   Size: 88
+   Topic #2,570: 已知条件 (Given)：  L 是对角线 ―HJ 和 ―IK 的中点。这是证明的起点。 运用中点定义：  根据中点定义，L 将对角线分成两半。所以，―HL ? ―JL 和 ―IL ? ―KL。这些全等线段是证明三角形全等的“边”条件。 识别垂直角：  对角线相交形成的 ∠ILJ 和 ∠KLH .
+   Source of activation: Topic #2,191: 四边形对角线互相平分则为平行四边形的证明
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 12.344
+Activation: Adding new element
+   Size: 89
+   Topic #2,570: 已知条件 (Given)：  L 是对角线 ―HJ 和 ―IK 的中点。这是证明的起点。 运用中点定义：  根据中点定义，L 将对角线分成两半。所以，―HL ? ―JL 和 ―IL ? ―KL。这些全等线段是证明三角形全等的“边”条件。 识别垂直角：  对角线相交形成的 ∠ILJ 和 ∠KLH .
+   Link priority: 0.29
+   Layer priority: 0
+   Element priority: 12.344
+Activation: Descendant relationship
+   Size: 89
+   Item #2,729: 核心思路是利用对角线平分的条件，用[.]证明由对角线形成的两个相对的三角形全等，进而用逆内错角定理得出对边平行，最终根据平行四边形的定义得出结论
+   Source of activation: Topic #2,191: 四边形对角线互相平分则为平行四边形的证明
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 9.148
+Activation: Descendant relationship
+   Size: 89
+   Topic #2,570: 已知条件 (Given)：  L 是对角线 ―HJ 和 ―IK 的中点。这是证明的起点。 运用中点定义：  根据中点定义，L 将对角线分成两半。所以，―HL ? ―JL 和 ―IL ? ―KL。这些全等线段是证明三角形全等的“边”条件。 识别垂直角：  对角线相交形成的 ∠ILJ 和 ∠KLH .
+   Source of activation: Topic #2,191: 四边形对角线互相平分则为平行四边形的证明
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 12.344
+Activation: Descendant relationship
+   Size: 89
+   Item #2,571: 已知条件 (Given)：  L 是对角线 ―HJ 和 ―IK 的中点。这是证明的起点。 运用中点定义：  根据中点定义，L 将对角线分成两半。所以，―HL ? ―JL 和 ―IL ? ―KL。这些全等线段是证明三角形全等的“边”条件。 识别对顶角：  对角线相交形成的 ∠ILJ 和 ∠KLH .
+   Source of activation: Topic #2,191: 四边形对角线互相平分则为平行四边形的证明
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 4.188
+Activation: Adding new element
+   Size: 90
+   Item #2,571: 已知条件 (Given)：  L 是对角线 ―HJ 和 ―IK 的中点。这是证明的起点。 运用中点定义：  根据中点定义，L 将对角线分成两半。所以，―HL ? ―JL 和 ―IL ? ―KL。这些全等线段是证明三角形全等的“边”条件。 识别对顶角：  对角线相交形成的 ∠ILJ 和 ∠KLH .
+   Link priority: 0.224
+   Layer priority: 0
+   Element priority: 4.188
+Activation: Descendant relationship
+   Size: 90
+   Item #2,730: 核心思路是利用对角线平分的条件，用SAS证明由对角线形成的两个相对的三角形全等，进而用[.]定理得出对边平行，最终根据平行四边形的定义得出结论
+   Source of activation: Topic #2,191: 四边形对角线互相平分则为平行四边形的证明
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 3.012
+Activation: Adding new element
+   Size: 91
+   Item #2,730: 核心思路是利用对角线平分的条件，用SAS证明由对角线形成的两个相对的三角形全等，进而用[.]定理得出对边平行，最终根据平行四边形的定义得出结论
+   Link priority: 0.214
+   Layer priority: 0
+   Element priority: 3.012
+Activation: Parent
+   Size: 91
+   Topic #1,104: Math Academy
+   Source of activation: Topic #2,191: 四边形对角线互相平分则为平行四边形的证明
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 91
+   Topic #2,191: 四边形对角线互相平分则为平行四边形的证明
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 9.662
+Activation: Adding new element
+   Size: 92
+   Topic #2,173: <p>good, usually denoted p(x). The price function gives the price per unit of selling x units of a product.<br />公司经理和经济学家经常关注的一个重要函数是商品的价格函数, 通常表示为 p(x)。. 该价格函数给出了销售 x .
+   Link priority: 1
+   Layer priority: 0.643
+   Element priority: 97.428
+Activation: Expanding into deeper layers
+   Size: 92
+   Topic #1,436: <p><b>More Properties of Parallelograms</b><br />平行四边形的更多性质</p> <p>We can use a similar approach to prove the following property:<br />我们可以采用类似的方法来证明以下性质:</p> <div .
+   Link priority: 0.1
+   Layer priority: 0
+   Element priority: 11.683
+Activation: Spreading activation
+   Size: 92
+   Topic #1,436: <p><b>More Properties of Parallelograms</b><br />平行四边形的更多性质</p> <p>We can use a similar approach to prove the following property:<br />我们可以采用类似的方法来证明以下性质:</p> <div .
+   Link priority: 0
+   Layer priority: 0.1
+   Element priority: 11.683
+Activation: Following concept links
+   Size: 92
+   Topic #1,436: <p><b>More Properties of Parallelograms</b><br />平行四边形的更多性质</p> <p>We can use a similar approach to prove the following property:<br />我们可以采用类似的方法来证明以下性质:</p> <div .
+   Link priority: 0.1
+   Layer priority: 0.01
+   Element priority: 11.683
+Activation: Following inter-element links
+   Size: 92
+   Topic #1,436: <p><b>More Properties of Parallelograms</b><br />平行四边形的更多性质</p> <p>We can use a similar approach to prove the following property:<br />我们可以采用类似的方法来证明以下性质:</p> <div .
+   Link priority: 0.1
+   Layer priority: 0.05
+   Element priority: 11.683
+Activation: Descendant relationship
+   Size: 92
+   Item #835: 全等 (Congruent)：在几何中，当形状和大小都相同时，我们称之为全等。对于角而言，全等意味着它们的[.]相等。
+   Source of activation: Topic #1,436: <p><b>More Properties of Parallelograms</b><br />平行四边形的更多性质</p> <p>We can use a similar approach to prove the following property:<br />我们可以采用类似的方法来证明以下性质:</p> <div .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 8.817
+Activation: Adding new element
+   Size: 93
+   Item #835: 全等 (Congruent)：在几何中，当形状和大小都相同时，我们称之为全等。对于角而言，全等意味着它们的[.]相等。
+   Link priority: 0.261
+   Layer priority: 0
+   Element priority: 8.817
+Activation: Descendant relationship
+   Size: 93
+   Topic #2,486: 全等 (Congruent)：在几何中，当形状和大小都相同时，我们称之为全等。对于角而言，全等意味着它们的度数相等。
+   Source of activation: Topic #1,436: <p><b>More Properties of Parallelograms</b><br />平行四边形的更多性质</p> <p>We can use a similar approach to prove the following property:<br />我们可以采用类似的方法来证明以下性质:</p> <div .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 97.465
+Activation: Adding new element
+   Size: 94
+   Topic #2,486: 全等 (Congruent)：在几何中，当形状和大小都相同时，我们称之为全等。对于角而言，全等意味着它们的度数相等。
+   Link priority: 0.979
+   Layer priority: 0
+   Element priority: 97.465
+Activation: Descendant relationship
+   Size: 94
+   Item #2,489: 平行四边形 (Parallelogram) 的性质：  [.] (Opposite Angles are Congruent)：平行四边形中，相对的角是全等的（即它们的度数相等）。  邻角互补 (Adjacent/Consecutive Angles are .
+   Source of activation: Topic #1,436: <p><b>More Properties of Parallelograms</b><br />平行四边形的更多性质</p> <p>We can use a similar approach to prove the following property:<br />我们可以采用类似的方法来证明以下性质:</p> <div .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 7.127
+Activation: Adding new element
+   Size: 95
+   Item #2,489: 平行四边形 (Parallelogram) 的性质：  [.] (Opposite Angles are Congruent)：平行四边形中，相对的角是全等的（即它们的度数相等）。  邻角互补 (Adjacent/Consecutive Angles are .
+   Link priority: 0.248
+   Layer priority: 0
+   Element priority: 7.127
+Activation: Descendant relationship
+   Size: 95
+   Topic #2,485: 平行四边形 (Parallelogram) 的性质：  对角全等 (Opposite Angles are Congruent)：平行四边形中，相对的角是全等的（即它们的度数相等）。  邻角互补 (Adjacent/Consecutive Angles are .
+   Source of activation: Topic #1,436: <p><b>More Properties of Parallelograms</b><br />平行四边形的更多性质</p> <p>We can use a similar approach to prove the following property:<br />我们可以采用类似的方法来证明以下性质:</p> <div .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 94.82
+Activation: Adding new element
+   Size: 96
+   Topic #2,485: 平行四边形 (Parallelogram) 的性质：  对角全等 (Opposite Angles are Congruent)：平行四边形中，相对的角是全等的（即它们的度数相等）。  邻角互补 (Adjacent/Consecutive Angles are .
+   Link priority: 0.958
+   Layer priority: 0
+   Element priority: 94.82
+Activation: Descendant relationship
+   Size: 96
+   Item #835: 全等 (Congruent)：在几何中，当形状和大小都相同时，我们称之为全等。对于角而言，全等意味着它们的[.]相等。
+   Source of activation: Topic #1,436: <p><b>More Properties of Parallelograms</b><br />平行四边形的更多性质</p> <p>We can use a similar approach to prove the following property:<br />我们可以采用类似的方法来证明以下性质:</p> <div .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 8.817
+Activation: Descendant relationship
+   Size: 96
+   Topic #2,485: 平行四边形 (Parallelogram) 的性质：  对角全等 (Opposite Angles are Congruent)：平行四边形中，相对的角是全等的（即它们的度数相等）。  邻角互补 (Adjacent/Consecutive Angles are .
+   Source of activation: Topic #1,436: <p><b>More Properties of Parallelograms</b><br />平行四边形的更多性质</p> <p>We can use a similar approach to prove the following property:<br />我们可以采用类似的方法来证明以下性质:</p> <div .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 94.82
+Activation: Descendant relationship
+   Size: 96
+   Topic #2,487: 互补角 (Supplementary Angles)：两个角的度数之和为 180°。
+   Source of activation: Topic #1,436: <p><b>More Properties of Parallelograms</b><br />平行四边形的更多性质</p> <p>We can use a similar approach to prove the following property:<br />我们可以采用类似的方法来证明以下性质:</p> <div .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 97.318
+Activation: Adding new element
+   Size: 97
+   Topic #2,487: 互补角 (Supplementary Angles)：两个角的度数之和为 180°。
+   Link priority: 0.978
+   Layer priority: 0
+   Element priority: 97.318
+Activation: Descendant relationship
+   Size: 97
+   Topic #2,487: 互补角 (Supplementary Angles)：两个角的度数之和为 180°。
+   Source of activation: Topic #1,436: <p><b>More Properties of Parallelograms</b><br />平行四边形的更多性质</p> <p>We can use a similar approach to prove the following property:<br />我们可以采用类似的方法来证明以下性质:</p> <div .
+   Link priority: 0.19
+   Layer priority: 0.1
+   Element priority: 97.318
+Activation: Parent
+   Size: 97
+   Topic #1,104: Math Academy
+   Source of activation: Topic #1,436: <p><b>More Properties of Parallelograms</b><br />平行四边形的更多性质</p> <p>We can use a similar approach to prove the following property:<br />我们可以采用类似的方法来证明以下性质:</p> <div .
+   Link priority: 0.1
+   Layer priority: 0.99
+   Element priority: 38.134
+Activation: Collecting siblings
+   Size: 97
+   Topic #1,436: <p><b>More Properties of Parallelograms</b><br />平行四边形的更多性质</p> <p>We can use a similar approach to prove the following property:<br />我们可以采用类似的方法来证明以下性质:</p> <div .
+   Link priority: 0.955
+   Layer priority: 0.95
+   Element priority: 11.683
+Activation: Adding new element
+   Size: 98
+   Topic #1,364: <p><b>The Coordinates of the Centroid</b><br />重心的坐标</p> <p>In the diagram above, <span class="overacc2">―</span>RJ, <span class="overacc2">―</span>SI, and <span .
+   Link priority: 0.978
+   Layer priority: 0.439
+   Element priority: 11.132
+Activation: Adding new element
+   Size: 99
+   Topic #1,744: 重心定理
+   Link priority: 0.978
+   Layer priority: 0.483
+   Element priority: 5.217
+Activation: Adding new element
+   Size: 100
+   Topic #2,172: <p><b>EXPLANATION 说明</b></p> <p>The correct proof is shown below.<br />下方展示的是正确的证明过程。</p> <table border="1" style="width:100%; border-collapse: collapse;">     <thead> .
+   Link priority: 0.981
+   Layer priority: 0.531
+   Element priority: 11.462
+Activation: Adding new element
+   Size: 101
+   Topic #2,171: 重心比例定理的证明
+   Link priority: 0.984
+   Layer priority: 0.585
+   Element priority: 12.05
+Activation: Adding new element
+   Size: 102
+   Topic #1,408: <p><b>Why Is There No SSA Criterion?</b><br />为什么不存在 SSA 判定准则?</p> <p>The SAS congruence criterion states that if two triangles have two pairs of congruent sides and the .
+   Link priority: 0.999
+   Layer priority: 0.643
+   Element priority: 96.547
+
+Process completed at 1:55:11 AM in 00:00:00 sec (Friday, November 14, 2025)
+
+NO ERRORS (Analysis of the process of spreading activation when building a neural queue)
+
+____________________________________________________________

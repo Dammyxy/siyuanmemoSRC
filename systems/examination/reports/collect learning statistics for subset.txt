@@ -1,0 +1,12 @@
+SuperMemo Report
+   Activity: Operation: collect learning statistics for elements
+   Collection: h:\siyuanmemo\supermemo\systems\examination
+   Date: Friday, May 23, 2025, 10:41:19 PM
+   SuperMemo 19 (Build 19.1, Apr 23, 2025)
+
+
+Process completed at 10:41:19 PM in 00:00:00 sec (Friday, May 23, 2025)
+
+NO ERRORS (Operation: collect learning statistics for elements)
+
+____________________________________________________________

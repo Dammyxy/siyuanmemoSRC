@@ -1,0 +1,103 @@
+/**
+ * FSRS Card Types
+ * 基于 FSRS v6 算法的卡片数据结构
+ */
+
+/** 卡片状态 */
+export enum CardState {
+    New = 0,        // 新卡片
+    Learning = 1,   // 学习中
+    Review = 2,     // 复习阶段
+    Relearning = 3, // 重新学习
+}
+
+/** 卡片类型 */
+export enum CardType {
+    Item = 'item',               // 普通闪卡
+    Topic = 'topic',             // 主题（增量阅读）
+    Incremental = 'incremental', // 增量内容
+}
+
+/** 评分 */
+export enum Rating {
+    Again = 1, // 完全忘记
+    Hard = 2,  // 有点难
+    Good = 3,  // 一般
+    Easy = 4,  // 很简单
+}
+
+/** FSRS 卡片核心数据 */
+export interface FSRSCard {
+    // === 标识 ===
+    id: string;           // 卡片唯一 ID
+    blockId: string;      // 关联的思源块 ID
+
+    // === FSRS 核心字段 ===
+    due: number;          // 下次复习时间戳 (ms)
+    stability: number;    // 稳定性 (S)
+    difficulty: number;   // 难度 (D) 1-10
+    reps: number;         // 复习次数
+    lapses: number;       // 遗忘次数
+    state: CardState;     // 卡片状态
+    lastReview: number;   // 上次复习时间戳 (ms)
+    elapsedDays: number;  // 距上次复习经过的天数
+    scheduledDays: number; // 预定的间隔天数
+
+    // === 扩展功能 ===
+    priority: number;     // 优先级 0-100 (越小越优先)
+    type: CardType;       // 卡片类型
+    tags: string[];       // 标签
+
+    // === 难点攻克 ===
+    leechCount: number;   // 连续遗忘计数
+    isLeech: boolean;     // 是否标记为难点
+
+    // === 跳过/留言 ===
+    skipped: boolean;     // 是否跳过
+    skipNote?: string;    // 跳过原因/留言
+    skipUntil?: number;   // 跳过到期时间
+
+    // === 增量阅读 ===
+    sourceUrl?: string;   // 来源网页 URL
+    extractedFrom?: string; // 原始块 ID（如果是摘录）
+
+    // === 元数据 ===
+    createdAt: number;    // 创建时间戳
+    updatedAt: number;    // 更新时间戳
+}
+
+/** 创建新卡片的默认值 */
+export function createDefaultCard(blockId: string): FSRSCard {
+    const now = Date.now();
+    return {
+        id: generateCardId(),
+        blockId,
+        due: now,
+        stability: 0,
+        difficulty: 0,
+        reps: 0,
+        lapses: 0,
+        state: CardState.New,
+        lastReview: 0,
+        elapsedDays: 0,
+        scheduledDays: 0,
+        priority: 50,
+        type: CardType.Item,
+        tags: [],
+        leechCount: 0,
+        isLeech: false,
+        skipped: false,
+        createdAt: now,
+        updatedAt: now,
+    };
+}
+
+/** 生成卡片 ID */
+function generateCardId(): string {
+    const now = new Date();
+    const timestamp = now.toISOString()
+        .replace(/[-:T]/g, '')
+        .slice(0, 14);
+    const random = Math.random().toString(36).slice(2, 9);
+    return `${timestamp}-${random}`;
+}
