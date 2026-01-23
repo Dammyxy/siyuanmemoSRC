@@ -1,0 +1,180 @@
+import type { QueueInterface, QueueItem } from '../types';
+import type { PersistenceAdapter } from '../persistence';
+
+export interface FilterGroupConfig {
+  id: string;
+  weight: number;
+}
+
+export interface FilterGroupSnapshot {
+  groups: Record<string, QueueItem[]>;
+  cursor: number;
+  schedule: string[];
+}
+
+export class FilterGroupQueue implements QueueInterface<QueueItem> {
+  private groups: Record<string, QueueItem[]> = {};
+  private schedule: string[] = [];
+  private cursor = 0;
+  private readonly configs: FilterGroupConfig[];
+  private readonly persistence?: PersistenceAdapter<FilterGroupSnapshot>;
+
+  constructor(
+    configs: FilterGroupConfig[],
+    persistence?: PersistenceAdapter<FilterGroupSnapshot>,
+  ) {
+    this.configs = configs;
+    this.persistence = persistence;
+    this.schedule = this.buildSchedule(configs);
+    for (const cfg of configs) {
+      this.groups[cfg.id] = [];
+    }
+  }
+
+  async init(): Promise<void> {
+    const stored = await this.persistence?.load();
+    if (!stored) return;
+    this.groups = stored.groups || this.groups;
+    this.cursor = stored.cursor || 0;
+    this.schedule = stored.schedule?.length ? stored.schedule : this.schedule;
+  }
+
+  async addItem(item: QueueItem): Promise<void> {
+    const groupId = String(item?.meta?.groupId || this.configs[0]?.id || 'default');
+    if (!this.groups[groupId]) {
+      this.groups[groupId] = [];
+    }
+    if (this.groups[groupId].some((x) => x.cardID === item.cardID)) return;
+    this.groups[groupId].push(item);
+    await this.persistence?.save(this.snapshot());
+  }
+
+  async addItems(items: QueueItem[]): Promise<number> {
+    let added = 0;
+    for (const item of items || []) {
+      const groupId = String(item?.meta?.groupId || this.configs[0]?.id || 'default');
+      if (!this.groups[groupId]) this.groups[groupId] = [];
+      if (!item?.cardID) continue;
+      if (this.groups[groupId].some((x) => x.cardID === item.cardID)) continue;
+      this.groups[groupId].push(item);
+      added++;
+    }
+    if (added > 0) {
+      await this.persistence?.save(this.snapshot());
+    }
+    return added;
+  }
+
+  getNextItem(): QueueItem | null {
+    if (this.isEmpty()) return null;
+    for (let i = 0; i < this.schedule.length; i++) {
+      const idx = (this.cursor + i) % this.schedule.length;
+      const gid = this.schedule[idx];
+      const q = this.groups[gid];
+      if (q && q.length > 0) {
+        return q[0];
+      }
+    }
+    return null;
+  }
+
+  getAllItems(): QueueItem[] {
+    const all: QueueItem[] = [];
+    for (const q of Object.values(this.groups)) {
+      all.push(...q);
+    }
+    return all;
+  }
+
+  async moveToEnd(cardID: string): Promise<boolean> {
+    if (!cardID) return false;
+    for (const gid of Object.keys(this.groups)) {
+      const q = this.groups[gid] || [];
+      const idx = q.findIndex((x) => x.cardID === cardID);
+      if (idx === -1) continue;
+      const [item] = q.splice(idx, 1);
+      q.push(item);
+      this.groups[gid] = q;
+      await this.persistence?.save(this.snapshot());
+      return true;
+    }
+    return false;
+  }
+
+  async clear(): Promise<void> {
+    let changed = false;
+    for (const gid of Object.keys(this.groups)) {
+      if ((this.groups[gid] || []).length > 0) {
+        this.groups[gid] = [];
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    this.cursor = 0;
+    await this.persistence?.save(this.snapshot());
+  }
+
+  async removeItem(item: QueueItem): Promise<boolean> {
+    let removed = false;
+    for (const gid of Object.keys(this.groups)) {
+      const q = this.groups[gid];
+      const before = q.length;
+      this.groups[gid] = q.filter((x) => x.cardID !== item.cardID);
+      if (this.groups[gid].length !== before) {
+        removed = true;
+      }
+    }
+    if (removed) {
+      await this.persistence?.save(this.snapshot());
+    }
+    return removed;
+  }
+
+  async removeItems(items: QueueItem[]): Promise<number> {
+    const removeSet = new Set((items || []).map((x) => x?.cardID).filter(Boolean) as string[]);
+    if (removeSet.size === 0) return 0;
+    const before = this.size();
+    for (const gid of Object.keys(this.groups)) {
+      this.groups[gid] = (this.groups[gid] || []).filter((x) => !removeSet.has(x.cardID));
+    }
+    const removed = before - this.size();
+    if (removed > 0) {
+      await this.persistence?.save(this.snapshot());
+    }
+    return removed;
+  }
+
+  size(): number {
+    return Object.values(this.groups).reduce((n, q) => n + q.length, 0);
+  }
+
+  isEmpty(): boolean {
+    return this.size() === 0;
+  }
+
+  async advanceGroupCursor(): Promise<void> {
+    if (this.schedule.length === 0) return;
+    this.cursor = (this.cursor + 1) % this.schedule.length;
+    await this.persistence?.save(this.snapshot());
+  }
+
+  snapshot(): FilterGroupSnapshot {
+    const groups: Record<string, QueueItem[]> = {};
+    for (const [k, v] of Object.entries(this.groups)) {
+      groups[k] = [...v];
+    }
+    return { groups, cursor: this.cursor, schedule: [...this.schedule] };
+  }
+
+  private buildSchedule(configs: FilterGroupConfig[]): string[] {
+    const result: string[] = [];
+    for (const cfg of configs) {
+      const w = Math.max(1, Math.floor(cfg.weight || 1));
+      for (let i = 0; i < w; i++) {
+        result.push(cfg.id);
+      }
+    }
+    return result.length ? result : ['default'];
+  }
+}
+

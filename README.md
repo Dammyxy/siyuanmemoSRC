@@ -45,7 +45,7 @@
 
   ```
 
-  > plugin-sample-vite-vue@0.0.1 dev /path/to/your/plugin-sample-vite-vue
+  > plugin-siyuanmemo@0.0.1 dev /path/to/your/plugin-siyuanmemo
   > vite build --watch
 
   mode=> production
@@ -59,10 +59,10 @@
 
   Plugin will build to:
   # ✅ the plugin will build into here
-  /path/to/siyuan/workspace/data/plugins/plugin-sample-vite-vue
+  /path/to/siyuan/workspace/data/plugins/plugin-siyuanmemo
 
   isWatch=> true
-  distDir=> /path/to/siyuan/workspace/data/plugins/plugin-sample-vite-vue
+  distDir=> /path/to/siyuan/workspace/data/plugins/plugin-siyuanmemo
   vite v6.3.5 building for production...
 
   watching for file changes...
@@ -70,14 +70,14 @@
   build started...
   ✓ 26 modules transformed.
   rendering chunks (1)...LiveReload enabled
-  ../../Siyuan-plugin/data/plugins/plugin-sample-vite-vue/index.css    1.08 kB │ gzip:  0.41 kB
-  ../../Siyuan-plugin/data/plugins/plugin-sample-vite-vue/index.js   198.60 kB │ gzip: 46.59 kB
+  ../../Siyuan-plugin/data/plugins/plugin-siyuanmemo/index.css    1.08 kB │ gzip:  0.41 kB
+  ../../Siyuan-plugin/data/plugins/plugin-siyuanmemo/index.js   198.60 kB │ gzip: 46.59 kB
   [vite-plugin-static-copy] Copied 7 items.
   built in 502ms.
   ```
 
 
-   If successed, restart your siyuan, and you will find the plugin in `Siyuan - Settings - Marketplace`, named as `plugin-sample-vite-vue`.
+   If successed, restart your siyuan, and you will find the plugin in `Siyuan - Settings - Marketplace`, named as `plugin-siyuanmemo`.
 6. Enable the plugin, and check the `App.vue` file to start your development.
    
    This file contains some example codes.
@@ -145,3 +145,7 @@ The github action is included in this sample, you can use it to publish your new
 ---
 
 More other plugin info, please check in [siyuan/plugin-sample](https://github.com/siyuan-note/plugin-sample).
+
+## API Notes
+
+- /riff/getRiffCardsByBlockIDs returns created/updated mapped to block created_time/last_edited_time

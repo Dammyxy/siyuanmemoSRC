@@ -1,0 +1,161 @@
+import type FSRSPlugin from '@/index';
+import { CardBuilderContext } from '@/core/card-builder';
+import { getBlockKramdown } from '@/core/siyuan/api';
+import { getRiffCardsByBlockIDs, addRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
+import { isFlashcardBlock, markBlockAsCard, hasRiffAttribute } from '@/core/siyuan/block';
+
+interface DoOperation {
+    action: string;
+    data: any;
+    id: string;
+    parentID?: string;
+    previousID?: string;
+    nextID?: string;
+}
+
+interface TransactionDetail {
+    cmd: string;
+    data: {
+        doOperations: DoOperation[];
+        undoOperations: DoOperation[] | null;
+    }[];
+}
+
+export class TransactionObserver {
+    private plugin: FSRSPlugin;
+    private builder: CardBuilderContext;
+    private processing: Set<string> = new Set();
+    private debounceTimer: any = null;
+    private pendingBlocks: Set<string> = new Set();
+    private enabled: boolean = false;
+
+    constructor(plugin: FSRSPlugin) {
+        this.plugin = plugin;
+        this.builder = new CardBuilderContext();
+    }
+
+    public init() {
+        console.log('[FSRS] TransactionObserver initialized');
+        this.plugin.eventBus.on('ws-main', this.handleTransaction);
+    }
+
+    public unload() {
+        this.plugin.eventBus.off('ws-main', this.handleTransaction);
+    }
+
+    public setEnabled(enabled: boolean) {
+        console.log('[FSRS] TransactionObserver enabled:', enabled);
+        this.enabled = enabled;
+    }
+
+    private handleTransaction = (event: any) => {
+        if (!this.enabled) return;
+
+        const detail = event.detail as TransactionDetail;
+        console.log('[FSRS] WS Event:', detail.cmd);
+
+        if (detail.cmd !== 'transactions' || !detail.data) return;
+
+        console.log('[FSRS] Transaction received:', detail.data.length);
+
+        detail.data.forEach(data => {
+            data.doOperations.forEach(op => {
+                // We monitor insert and update actions
+                if (op.action === 'insert' || op.action === 'update') {
+                    console.log('[FSRS] Ops:', op.action, op.id);
+                    this.queueBlockCheck(op.id);
+                }
+            });
+        });
+    }
+
+    private queueBlockCheck(blockId: string) {
+        // console.log('[FSRS] Queueing check for block:', blockId);
+        this.pendingBlocks.add(blockId);
+        if (this.debounceTimer) clearTimeout(this.debounceTimer);
+
+        // Debounce for 2 seconds to avoid processing receiving partial inputs
+        this.debounceTimer = setTimeout(() => {
+            this.processQueue();
+        }, 2000);
+    }
+
+    private async processQueue() {
+        const blocks = Array.from(this.pendingBlocks);
+        console.log('[FSRS] Processing queue, blocks:', blocks.length);
+        this.pendingBlocks.clear();
+
+        for (const blockId of blocks) {
+            try {
+                await this.checkAndCreateCard(blockId);
+            } catch (err) {
+                console.error(`[FSRS] Auto-card failed for block ${blockId}:`, err);
+            }
+        }
+        // Save storage once after batch
+        this.plugin.storage.saveCards();
+    }
+
+    private async checkAndCreateCard(blockId: string) {
+        if (this.processing.has(blockId)) return;
+        this.processing.add(blockId);
+
+        console.log(`[FSRS] checkAndCreateCard called for ${blockId}`);
+
+        try {
+            // 1. Get block markdown content
+            const { kramdown } = await getBlockKramdown(blockId);
+            console.log(`[FSRS] Check block ${blockId}, content: ${kramdown}`);
+            if (!kramdown) return;
+
+            // 2. Check if content matches any strategy (Excluding default)
+            const strategy = this.builder.matchStrategy(blockId, kramdown, true);
+            console.log(`[FSRS] Strategy match result for ${blockId}:`, strategy ? strategy.strategyName : 'None');
+            if (!strategy) {
+                return;
+            }
+
+            // 3. Check if already a card (via Riff DB)
+            const existingRiffCards = await getRiffCardsByBlockIDs([blockId]);
+            const isRiffInDb = existingRiffCards && existingRiffCards.length > 0;
+
+            // Check if block has Riff attribute (for UI marker)
+            const hasRiffAttr = await hasRiffAttribute(blockId);
+
+            // Check if plugin knows it (via FSRS block attrs)
+            const isFsrsAttr = await isFlashcardBlock(blockId);
+
+            console.log(`[FSRS] Card Status for ${blockId}: RiffDB=${isRiffInDb}, RiffAttr=${hasRiffAttr}, FSRSAttr=${isFsrsAttr}`);
+
+            if (isRiffInDb && hasRiffAttr && isFsrsAttr) {
+                // Completely done and synced
+                return;
+            }
+
+            console.log(`[FSRS] Syncing card for block ${blockId}...`);
+
+            // 4. Build card object (generate metadata)
+            const card = await strategy.build(blockId, kramdown);
+
+            // 5. Add to Siyuan Riff Deck (Native) if not in DB OR missing attribute (repair UI)
+            if (!isRiffInDb || !hasRiffAttr) {
+                console.log(`[FSRS] Adding to Riff Deck: ${BUILTIN_DECK_ID}`);
+                const res = await addRiffCards(BUILTIN_DECK_ID, [blockId]);
+                console.log(`[FSRS] addRiffCards result:`, res);
+            }
+
+            // 6. Mark block with FSRS attributes (Plugin UI support) if not exists
+            if (!isFsrsAttr) {
+                await markBlockAsCard(blockId, card.id, card.priority);
+            }
+
+            // 7. Save to Plugin Storage
+            this.plugin.storage.setCard(card);
+
+        } catch (err) {
+            console.error(`[FSRS] Failed to auto-create card for ${blockId}:`, err);
+        } finally {
+            this.processing.delete(blockId);
+        }
+    }
+}

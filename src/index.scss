@@ -1,0 +1,20 @@
+.fsrs-meta-menu-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--b3-theme-on-surface);
+}
+.fsrs-meta-menu-icon {
+  width: 24px;
+  height: 24px;
+  color: var(--b3-theme-primary);
+  flex-shrink: 0;
+}
+
+.fsrs-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+}

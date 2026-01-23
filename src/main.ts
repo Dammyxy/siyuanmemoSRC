@@ -23,7 +23,7 @@ export function init(plugin: Plugin) {
   usePlugin(plugin);
 
   const div = document.createElement('div')
-  div.classList.toggle('plugin-sample-vite-vue-app')
+  div.classList.toggle('plugin-siyuanmemo-app')
   div.id = this.name
   app = createApp(App)
   app.mount(div)

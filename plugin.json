@@ -1,10 +1,9 @@
 {
-  "name": "plugin-sample-vite-vue",
-  "author": "wetoria",
-  "url": "https://github.com/Wetoria/plugin-sample-vite-vue",
+  "name": "siyuan-plugin-fsrs",
+  "author": "Dammy",
+  "url": "https://github.com/Dammy/siyuan-plugin-fsrs",
   "version": "0.0.1",
   "minAppVersion": "2.10.14",
-  "disabledInPublish": true,
   "backends": [
     "all"
   ],
@@ -12,14 +11,14 @@
     "all"
   ],
   "displayName": {
-    "default": "plugin-sample-vite-vue",
-    "en_US": "plugin-sample-vite-vue",
-    "zh_CN": "plugin-sample-vite-vue"
+    "default": "FSRS Flashcard",
+    "en_US": "FSRS Flashcard",
+    "zh_CN": "FSRS 闪卡"
   },
   "description": {
-    "default": "plugin-sample-vite-vue",
-    "en_US": "plugin-sample-vite-vue",
-    "zh_CN": "plugin-sample-vite-vue"
+    "default": "Modern flashcard plugin based on FSRS v6 algorithm with incremental reading support",
+    "en_US": "Modern flashcard plugin based on FSRS v6 algorithm with incremental reading support",
+    "zh_CN": "基于 FSRS v6 算法的现代闪卡插件，支持增量阅读"
   },
   "readme": {
     "default": "README.md",
@@ -29,5 +28,10 @@
   "funding": {
     "custom": []
   },
-  "keywords": []
+  "keywords": [
+    "flashcard",
+    "spaced-repetition",
+    "fsrs",
+    "incremental-reading"
+  ]
 }

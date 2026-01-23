@@ -47,7 +47,7 @@
 
   ```
 
-  > plugin-sample-vite-vue@0.0.1 dev /path/to/your/plugin-sample-vite-vue
+  > plugin-siyuanmemo@0.0.1 dev /path/to/your/plugin-siyuanmemo
   > vite build --watch
 
   mode=> production
@@ -60,10 +60,10 @@
 
   Plugin will build to:
   # ✅ 插件将会构建至下面的位置
-  /path/to/siyuan/workspace/data/plugins/plugin-sample-vite-vue
+  /path/to/siyuan/workspace/data/plugins/plugin-siyuanmemo
 
   isWatch=> true
-  distDir=> /path/to/siyuan/workspace/data/plugins/plugin-sample-vite-vue
+  distDir=> /path/to/siyuan/workspace/data/plugins/plugin-siyuanmemo
   vite v6.3.5 building for production...
 
   watching for file changes...
@@ -71,13 +71,13 @@
   build started...
   ✓ 26 modules transformed.
   rendering chunks (1)...LiveReload enabled
-  ../../Siyuan-plugin/data/plugins/plugin-sample-vite-vue/index.css    1.08 kB │ gzip:  0.41 kB
-  ../../Siyuan-plugin/data/plugins/plugin-sample-vite-vue/index.js   198.60 kB │ gzip: 46.59 kB
+  ../../Siyuan-plugin/data/plugins/plugin-siyuanmemo/index.css    1.08 kB │ gzip:  0.41 kB
+  ../../Siyuan-plugin/data/plugins/plugin-siyuanmemo/index.js   198.60 kB │ gzip: 46.59 kB
   [vite-plugin-static-copy] Copied 7 items.
   built in 502ms.
   ```
 
-   刷新思源，你将会在 `思源 - 设置 - 集市` 中看到名为 `plugin-sample-vite-vue` 的插件。
+   刷新思源，你将会在 `思源 - 设置 - 集市` 中看到名为 `plugin-siyuanmemo` 的插件。
    
 6. 启用插件, 并检查 `App.vue` 文件进行开发。
 
@@ -149,3 +149,17 @@
 ---
 
 更多有关于插件的信息，请查看： [siyuan/plugin-sample](https://github.com/siyuan-note/plugin-sample).
+
+## 练习界面
+
+- 机械练习模式下不显示新卡/复习卡数量状态栏
+- 其他练习模式保留新卡/复习卡数量状态栏展示
+
+## SRS 编辑器
+
+- 卡片元数据面板展示问题/答案与学习状态
+- 数据校验支持批量修正创建/修改时间
+
+## API 说明
+
+- /riff/getRiffCardsByBlockIDs 返回的 created/updated 现在对应块的 created_time/last_edited_time
