@@ -1,84 +1,127 @@
-import type { ICardDataSource, CardBrowserAction, CardRow } from './types';
+import type { BrowserCard } from '../types';
 import { loadQueueCards } from '../browserService';
+import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
+
+type FinalDrillQueueLike = {
+  getAllItems?: () => any[];
+  removeItems?: (items: any[]) => Promise<number> | number;
+  removeItem?: (item: any) => Promise<boolean> | boolean;
+  setPriority?: (cardID: string, priority: number) => Promise<boolean> | boolean;
+  sort?: () => Promise<void> | void;
+  insertAt?: (items: any[], index: number) => Promise<void> | void;
+};
+
+type FsrsPluginLike = {
+  finalDrillQueue?: FinalDrillQueueLike;
+};
+
+function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
+  if (!sortModel?.length) return rows;
+  const [{ colId, sort }] = sortModel;
+  const dir = sort === 'desc' ? -1 : 1;
+  const key = String(colId || '');
+  const copy = [...rows];
+  copy.sort((a: any, b: any) => {
+    const av = (a as any)?.[key];
+    const bv = (b as any)?.[key];
+    if (av == null && bv == null) return 0;
+    if (av == null) return -1 * dir;
+    if (bv == null) return 1 * dir;
+    if (av instanceof Date && bv instanceof Date) return (av.getTime() - bv.getTime()) * dir;
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+    return String(av).localeCompare(String(bv)) * dir;
+  });
+  return copy;
+}
 
 export class FinalDrillDataSource implements ICardDataSource {
   id = 'final-drill';
   label = 'Final Drill';
 
-  private readonly plugin: any;
+  private readonly plugin?: FsrsPluginLike;
 
-  constructor(plugin: any) {
+  constructor(plugin: FsrsPluginLike | undefined) {
     this.plugin = plugin;
   }
 
-  async fetchRows(): Promise<CardRow[]> {
+  async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
     const q = this.plugin?.finalDrillQueue;
-    const items: any[] = q?.getAllItems?.() || [];
-    const blockIds = items.map((it) => String(it?.blockID || '')).filter(Boolean);
+    const items = q?.getAllItems?.() || [];
+    const blockIds = (items || []).map((it: any) => String(it?.blockID || '')).filter(Boolean);
     const cards = await loadQueueCards(blockIds);
-    const priorityMap = new Map<string, number>();
+    const byBlockId = new Map(cards.map((c) => [c.blockId, c]));
+
+    const ordered: BrowserCard[] = [];
     for (const it of items) {
-      const id = String(it?.cardID || '');
-      if (!id) continue;
-      if (typeof it?.priority === 'number') priorityMap.set(id, it.priority);
-    }
-    return cards.map((c: any) => {
-      const row: any = { ...c, originalItem: c };
-      const k = String(c?.fsrsCardId || '');
-      if (k && priorityMap.has(k)) {
-        row.priority = priorityMap.get(k);
+      const bid = String(it?.blockID || '');
+      const card = byBlockId.get(bid);
+      if (!card) continue;
+      const p = Number(it?.priority);
+      if (Number.isFinite(p)) {
+        (card as any).priority = p;
       }
-      return row as CardRow;
-    });
+      ordered.push(card);
+    }
+
+    const sorted = applySort(ordered, params?.sortModel || []);
+    return { rows: sorted, totalCount: sorted.length };
   }
 
   getSupportedActions(): CardBrowserAction[] {
     return [
+      { id: 'open', label: 'Open', icon: 'iconOpen' },
       { id: 'remove-from-queue', label: 'Remove from Queue', icon: 'iconTrashcan' },
-      { id: 'set-priority', label: 'Set Queue Priority', icon: 'iconMark' },
-      { id: 'auto-sort', label: 'Auto-Sort Queue', icon: 'iconSort' },
+      { id: 'dismiss', label: 'Dismiss', icon: 'iconTrashcan' },
+      { id: 'insert-at', label: 'Insert at', icon: 'iconAlignLeft' },
+      { id: 'set-priority', label: 'Set Priority', icon: 'iconMark' },
+      { id: 'auto-sort', label: 'Auto Sort', icon: 'iconSort' },
     ];
   }
 
-  async performAction(actionId: string, rows: CardRow[], payload?: any): Promise<{ refresh?: boolean } | void> {
+  async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<void> {
+    if (actionId === 'open') return;
     const q = this.plugin?.finalDrillQueue;
-    if (!q) throw new Error('finalDrillQueue not available');
+    if (!q) return;
+    const items = (selectedRows || []).map((r) => ({
+      cardID: r.fsrsCardId || r.id || r.blockId,
+      blockID: r.blockId,
+      deckID: r.deckId,
+      priority: typeof r.priority === 'number' ? r.priority : 50,
+    }));
 
-    if (actionId === 'remove-from-queue') {
-      const items = rows.map((r: any) => ({
-        cardID: r.fsrsCardId || r.id || r.blockId,
-        blockID: r.blockId,
-        deckID: r.deckId,
-      }));
-      if (q?.removeItems) {
-        await q.removeItems(items);
-      } else {
-        for (const it of items) {
-          await q.removeItem?.(it);
-        }
+    if (actionId === 'remove-from-queue' || actionId === 'dismiss') {
+      if (q.removeItems) {
+        await Promise.resolve(q.removeItems(items));
+        return;
       }
-      return { refresh: true };
+      for (const it of items) {
+        await Promise.resolve(q.removeItem?.(it));
+      }
+      return;
+    }
+
+    if (actionId === 'insert-at') {
+      const idx = Math.max(0, Math.floor(Number(context?.index ?? 0)));
+      await Promise.resolve(q.insertAt?.(items, idx));
+      return;
     }
 
     if (actionId === 'set-priority') {
-      const p = Number(payload?.priority);
-      if (!Number.isFinite(p)) return;
-      const clamped = Math.max(0, Math.min(100, Math.round(p)));
-      if (!q?.setPriority) throw new Error('finalDrillQueue.setPriority not implemented');
-      let changed = 0;
-      for (const r of rows) {
-        const cardID = String((r as any)?.fsrsCardId || '');
-        if (!cardID) continue;
-        (r as any).priority = clamped;
-        const ok = await q.setPriority(cardID, clamped);
-        if (ok) changed++;
+      const p = Math.max(0, Math.min(100, Math.floor(Number(context?.priority))));
+      for (const r of selectedRows as any[]) {
+        r.priority = p;
       }
-      return { refresh: changed > 0 };
+      for (const it of items) {
+        const id = String((it as any)?.cardID || '');
+        if (!id) continue;
+        await Promise.resolve(q.setPriority?.(id, p));
+      }
+      return;
     }
 
     if (actionId === 'auto-sort') {
-      await q.sort?.();
-      return { refresh: true };
+      await Promise.resolve(q.sort?.());
+      return;
     }
   }
 }

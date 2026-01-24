@@ -51,18 +51,22 @@ export class FilterGroupQueue implements QueueInterface<QueueItem> {
 
   async addItems(items: QueueItem[]): Promise<number> {
     let added = 0;
-    for (const item of items || []) {
-      const groupId = String(item?.meta?.groupId || this.configs[0]?.id || 'default');
-      if (!this.groups[groupId]) this.groups[groupId] = [];
-      if (!item?.cardID) continue;
-      if (this.groups[groupId].some((x) => x.cardID === item.cardID)) continue;
-      this.groups[groupId].push(item);
-      added++;
-    }
-    if (added > 0) {
-      await this.persistence?.save(this.snapshot());
+    for (const it of items || []) {
+      const before = this.size();
+      await this.addItem(it);
+      if (this.size() !== before) {
+        added++;
+      }
     }
     return added;
+  }
+
+  getAllItems(): QueueItem[] {
+    const result: QueueItem[] = [];
+    for (const q of Object.values(this.groups)) {
+      result.push(...q);
+    }
+    return result;
   }
 
   getNextItem(): QueueItem | null {
@@ -76,42 +80,6 @@ export class FilterGroupQueue implements QueueInterface<QueueItem> {
       }
     }
     return null;
-  }
-
-  getAllItems(): QueueItem[] {
-    const all: QueueItem[] = [];
-    for (const q of Object.values(this.groups)) {
-      all.push(...q);
-    }
-    return all;
-  }
-
-  async moveToEnd(cardID: string): Promise<boolean> {
-    if (!cardID) return false;
-    for (const gid of Object.keys(this.groups)) {
-      const q = this.groups[gid] || [];
-      const idx = q.findIndex((x) => x.cardID === cardID);
-      if (idx === -1) continue;
-      const [item] = q.splice(idx, 1);
-      q.push(item);
-      this.groups[gid] = q;
-      await this.persistence?.save(this.snapshot());
-      return true;
-    }
-    return false;
-  }
-
-  async clear(): Promise<void> {
-    let changed = false;
-    for (const gid of Object.keys(this.groups)) {
-      if ((this.groups[gid] || []).length > 0) {
-        this.groups[gid] = [];
-        changed = true;
-      }
-    }
-    if (!changed) return;
-    this.cursor = 0;
-    await this.persistence?.save(this.snapshot());
   }
 
   async removeItem(item: QueueItem): Promise<boolean> {
@@ -131,11 +99,11 @@ export class FilterGroupQueue implements QueueInterface<QueueItem> {
   }
 
   async removeItems(items: QueueItem[]): Promise<number> {
-    const removeSet = new Set((items || []).map((x) => x?.cardID).filter(Boolean) as string[]);
-    if (removeSet.size === 0) return 0;
+    const set = new Set((items || []).map((x) => String((x as any)?.cardID || '')).filter(Boolean));
+    if (set.size === 0) return 0;
     const before = this.size();
     for (const gid of Object.keys(this.groups)) {
-      this.groups[gid] = (this.groups[gid] || []).filter((x) => !removeSet.has(x.cardID));
+      this.groups[gid] = (this.groups[gid] || []).filter((x) => !set.has(String(x.cardID)));
     }
     const removed = before - this.size();
     if (removed > 0) {

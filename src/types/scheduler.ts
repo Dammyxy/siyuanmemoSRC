@@ -1,6 +1,6 @@
 export interface RescheduleLog {
     ts: number;
-    action: 'advance' | 'postpone' | 'reschedule-absolute' | 'reschedule-relative';
+    action: 'advance' | 'postpone' | 'reschedule-absolute' | 'reschedule-relative' | 'spread';
     source: string; // 'browser' | 'queue' | 'command' | 'unknown'
     targets: string[]; // IDs
     result: {
@@ -27,7 +27,7 @@ export interface RescheduleResult {
         newDue: string;
     }>;
     skipped: Array<{
-        reason: 'no-id' | 'safety-lock' | 'invalid-input' | 'api-failed';
+        reason: 'no-id' | 'jit-failed' | 'safety-lock' | 'invalid-input' | 'api-failed';
         blockId?: string;
         cardId?: string;
     }>;

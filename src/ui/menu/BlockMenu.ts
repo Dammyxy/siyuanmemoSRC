@@ -76,6 +76,25 @@ export class BlockMenuManager {
 
         menu.addItem({
             icon: 'iconList',
+            label: this.plugin.i18n?.addToQueuePractice || '加入队列练习',
+            click: async () => {
+                if (drillCount === 0) {
+                    await pushMsg(this.plugin.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+                    return;
+                }
+                const items = this.buildQueueItemsFromElements(drillBlocks);
+                // @ts-ignore - access private
+                const added = await (this.plugin as any).extractionQueue.addItems(items);
+                if (added > 0) {
+                    await pushMsg((this.plugin.i18n?.queueAdded || '已加入 {n} 张闪卡到队列练习').replace('{n}', String(added)));
+                } else {
+                    await pushMsg(this.plugin.i18n?.queueNoAdded || '没有新增闪卡（可能已在队列中）');
+                }
+            },
+        });
+
+        menu.addItem({
+            icon: 'iconCards',
             label: this.plugin.i18n?.addToDeliberateQueue || '加入刻意队列',
             click: async () => {
                 if (drillCount === 0) {
@@ -84,8 +103,14 @@ export class BlockMenuManager {
                 }
                 const items = this.buildQueueItemsFromElements(drillBlocks);
                 // @ts-ignore
-                const q = (this.plugin as any).finalDrillQueue;
-                const added = q?.addItems ? await q.addItems(items) : 0;
+                const before = (this.plugin as any).deliberateQueue?.size?.() ?? 0;
+                for (const item of items) {
+                    // @ts-ignore
+                    await (this.plugin as any).deliberateQueue.addItem(item);
+                }
+                // @ts-ignore
+                const after = (this.plugin as any).deliberateQueue?.size?.() ?? before;
+                const added = Math.max(0, after - before);
                 if (added > 0) {
                     await pushMsg((this.plugin.i18n?.deliberateAdded || '已加入 {n} 张闪卡到刻意队列').replace('{n}', String(added)));
                 } else {
@@ -110,8 +135,14 @@ export class BlockMenuManager {
                     }
                     const items = this.buildQueueItemsFromElements(drillBlocks, gid);
                     // @ts-ignore
-                    const q = (this.plugin as any).filterGroupQueue;
-                    const added = q?.addItems ? await q.addItems(items) : 0;
+                    const before = (this.plugin as any).filterGroupQueue?.size?.() ?? 0;
+                    for (const item of items) {
+                        // @ts-ignore
+                        await (this.plugin as any).filterGroupQueue.addItem(item);
+                    }
+                    // @ts-ignore
+                    const after = (this.plugin as any).filterGroupQueue?.size?.() ?? before;
+                    const added = Math.max(0, after - before);
                     if (added > 0) {
                         await pushMsg((this.plugin.i18n?.filterGroupAdded || '已加入 {n} 张闪卡到分组队列').replace('{n}', String(added)));
                     } else {

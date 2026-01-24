@@ -192,6 +192,8 @@ export interface RiffBlock {
     type: string;
     subType: string;
     ial: Record<string, string>;
+    riffCardID?: string;
+    riffCardId?: string;
     // 卡片信息
     riffCard?: RiffCard;
 }

@@ -1,10 +1,10 @@
 import { AsyncMutex } from './AsyncMutex.ts';
-import type { DismissType, IQueueStrategy, InsertOptions, QueueEvent, QueueId, QueueInterface, QueueState, QueueStats, QueueUIConfig, RescheduleOptions, ReviewFeedback } from './types';
+import type { QueueEvent, QueueId, QueueInterface, QueueState } from './types';
 import type { QueueMonitor } from './monitors.ts';
 
 export class QueueContext<TItem> implements QueueInterface<TItem> {
   private readonly mutex = new AsyncMutex();
-  private readonly strategies = new Map<QueueId, IQueueStrategy<TItem>>();
+  private readonly strategies = new Map<QueueId, QueueInterface<TItem>>();
   private readonly monitors: QueueMonitor[];
   private currentId: QueueId;
 
@@ -13,7 +13,7 @@ export class QueueContext<TItem> implements QueueInterface<TItem> {
     this.monitors = options.monitors || [];
   }
 
-  register(queueId: QueueId, strategy: IQueueStrategy<TItem>): void {
+  register(queueId: QueueId, strategy: QueueInterface<TItem>): void {
     this.strategies.set(queueId, strategy);
   }
 
@@ -46,16 +46,6 @@ export class QueueContext<TItem> implements QueueInterface<TItem> {
     });
   }
 
-  next(): Promise<TItem | null> {
-    return this.withMetrics('next', async () => {
-      const s = this.getStrategy();
-      if (typeof (s as any).next === 'function') {
-        return await Promise.resolve((s as any).next());
-      }
-      return await Promise.resolve(s.getNextItem());
-    });
-  }
-
   removeItem(item: TItem): Promise<boolean> {
     return this.withMetrics('remove', async () => {
       const s = this.getStrategy();
@@ -77,72 +67,7 @@ export class QueueContext<TItem> implements QueueInterface<TItem> {
     });
   }
 
-  async onFeedback(item: TItem | null, feedback: ReviewFeedback): Promise<void> {
-    await this.withMetrics('feedback', async () => {
-      const s = this.getStrategy();
-      const fn = (s as any).onFeedback;
-      if (typeof fn !== 'function') {
-        throw new Error(`Queue strategy does not implement onFeedback: ${this.currentId}`);
-      }
-      await fn.call(s, item, feedback);
-    }, { item, feedback });
-  }
-
-  getUIConfig(currentItem: TItem | null): QueueUIConfig {
-    const s = this.getStrategy();
-    const fn = (s as any).getUIConfig;
-    if (typeof fn === 'function') {
-      return fn.call(s, currentItem);
-    }
-    return { statsType: 'queue-size', showRatingButtons: true, allowSkip: true };
-  }
-
-  async getStats(): Promise<QueueStats> {
-    return this.withMetrics('stats', async () => {
-      const s = this.getStrategy();
-      const fn = (s as any).getStats;
-      if (typeof fn === 'function') {
-        return await Promise.resolve(fn.call(s));
-      }
-      const size = await Promise.resolve(s.size());
-      return { size };
-    });
-  }
-
-  async reschedule(item: TItem, options: RescheduleOptions): Promise<void> {
-    await this.withMetrics('feedback', async () => {
-      const s = this.getStrategy();
-      const fn = (s as any).reschedule;
-      if (typeof fn !== 'function') {
-        throw new Error(`Queue strategy does not implement reschedule: ${this.currentId}`);
-      }
-      await fn.call(s, item, options);
-    }, { item, options });
-  }
-
-  async insert(item: TItem, options: InsertOptions): Promise<void> {
-    await this.withMetrics('add', async () => {
-      const s = this.getStrategy();
-      const fn = (s as any).insert;
-      if (typeof fn !== 'function') {
-        throw new Error(`Queue strategy does not implement insert: ${this.currentId}`);
-      }
-      await fn.call(s, item, options);
-    }, { item, options });
-  }
-
-  async dismiss(item: TItem, type: DismissType): Promise<void> {
-    await this.withMetrics('remove', async () => {
-      const s = this.getStrategy();
-      const fn = (s as any).dismiss;
-      if (typeof fn !== 'function') {
-        throw new Error(`Queue strategy does not implement dismiss: ${this.currentId}`);
-      }
-      await fn.call(s, item, type);
-    }, { item, type });
-  }
-
-  private getStrategy(): IQueueStrategy<TItem> {
+  private getStrategy(): QueueInterface<TItem> {
     const s = this.strategies.get(this.currentId);
     if (!s) {
       throw new Error(`Queue strategy not registered: ${this.currentId}`);

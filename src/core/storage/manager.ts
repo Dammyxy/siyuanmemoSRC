@@ -13,6 +13,7 @@ const STORAGE_FILES = {
     CARDS: 'cards.json',
     SETTINGS: 'settings.json',
     LOGS_DIR: 'logs',
+    PRACTICE_QUEUE: 'practice-queue.json',
 };
 
 /**
@@ -23,6 +24,7 @@ export class StorageManager {
     private cardsCache: Map<string, FSRSCard> = new Map();
     private settings: PluginSettings = DEFAULT_SETTINGS;
     private isDirty: boolean = false;
+    private practiceQueue: any[] = [];
 
     constructor(pluginName: string) {
         this.basePath = siyuanApi.getPluginDataPath(pluginName);
@@ -34,6 +36,7 @@ export class StorageManager {
     async init(): Promise<void> {
         await this.loadSettings();
         await this.loadCards();
+        await this.loadPracticeQueue();
     }
 
     // ==================== 设置 ====================
@@ -165,36 +168,43 @@ export class StorageManager {
         console.log(`[FSRS] Saved ${cards.length} cards`);
     }
 
+    getPracticeQueue(): any[] {
+        return this.practiceQueue;
+    }
+
+    async setPracticeQueue(queue: any[]): Promise<void> {
+        this.practiceQueue = queue;
+        await this.savePracticeQueue();
+    }
+
+    async addPracticeQueue(cards: any[]): Promise<number> {
+        const existing = new Set(this.practiceQueue.map(card => card.cardID));
+        let added = 0;
+        for (const card of cards) {
+            if (!card?.cardID || existing.has(card.cardID)) {
+                continue;
+            }
+            existing.add(card.cardID);
+            this.practiceQueue.push(card);
+            added++;
+        }
+        if (added > 0) {
+            await this.savePracticeQueue();
+        }
+        return added;
+    }
+
+    async clearPracticeQueue(): Promise<void> {
+        this.practiceQueue = [];
+        await this.savePracticeQueue();
+    }
+
     async readPluginFile(fileName: string): Promise<string | null> {
         return this.readPluginData(fileName);
     }
 
     async writePluginFile(fileName: string, content: string): Promise<void> {
         await this.writePluginData(fileName, content);
-    }
-
-    // ==================== 调度日志 ====================
-
-    /**
-     * 添加调度日志
-     */
-    async addRescheduleLog(log: RescheduleLog): Promise<void> {
-        const date = new Date(log.ts);
-        const fileName = `scheduler-${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}.json`;
-        const filePath = `${STORAGE_FILES.LOGS_DIR}/${fileName}`;
-
-        let logs: RescheduleLog[] = [];
-        try {
-            const data = await this.readPluginData(filePath);
-            if (data) {
-                logs = JSON.parse(data);
-            }
-        } catch {
-            // 文件不存在
-        }
-
-        logs.push(log);
-        await this.writePluginData(filePath, JSON.stringify(logs, null, 2));
     }
 
     // ==================== 复习日志 ====================
@@ -211,10 +221,30 @@ export class StorageManager {
         try {
             const data = await this.readPluginData(filePath);
             if (data) {
-                logs = JSON.parse(data);
+                const parsed = JSON.parse(data);
+                logs = Array.isArray(parsed) ? parsed : [];
             }
         } catch {
             // 文件不存在，创建新的
+        }
+
+        logs.push(log);
+        await this.writePluginData(filePath, JSON.stringify(logs, null, 2));
+    }
+
+    async addRescheduleLog(log: RescheduleLog): Promise<void> {
+        const date = new Date(log.ts);
+        const fileName = `reschedule-${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}.json`;
+        const filePath = `${STORAGE_FILES.LOGS_DIR}/${fileName}`;
+
+        let logs: RescheduleLog[] = [];
+        try {
+            const data = await this.readPluginData(filePath);
+            if (data) {
+                const parsed = JSON.parse(data);
+                logs = Array.isArray(parsed) ? parsed : [];
+            }
+        } catch {
         }
 
         logs.push(log);
@@ -231,7 +261,8 @@ export class StorageManager {
         try {
             const data = await this.readPluginData(filePath);
             if (data) {
-                return JSON.parse(data);
+                const parsed = JSON.parse(data);
+                return Array.isArray(parsed) ? parsed : [];
             }
         } catch {
             // 文件不存在
@@ -255,6 +286,24 @@ export class StorageManager {
         }
 
         return allLogs;
+    }
+
+    private async loadPracticeQueue(): Promise<void> {
+        try {
+            const data = await this.readPluginData(STORAGE_FILES.PRACTICE_QUEUE);
+            if (data) {
+                this.practiceQueue = JSON.parse(data);
+            } else {
+                this.practiceQueue = [];
+            }
+        } catch (err) {
+            console.warn('[FSRS] Failed to load practice queue:', err);
+            this.practiceQueue = [];
+        }
+    }
+
+    private async savePracticeQueue(): Promise<void> {
+        await this.writePluginData(STORAGE_FILES.PRACTICE_QUEUE, JSON.stringify(this.practiceQueue, null, 2));
     }
 
     // ==================== 底层 API ====================

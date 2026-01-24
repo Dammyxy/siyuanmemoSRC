@@ -7,7 +7,7 @@
     <div class="card-browser__main">
       <div v-if="viewMode === 'hierarchy'" class="card-browser__hierarchy">
         <BrowserHierarchy
-          :cards="allCards"
+          :cards="rows"
           :queues="{ active: activeQueueId || '', counts: queueCounts }"
           :i18n="props.i18n"
           @selectQueue="handleSelectQueue"
@@ -85,7 +85,7 @@
           <button 
             v-if="selectedRows.length > 0"
             class="b3-button b3-button--outline" 
-            @click="showBatchMenu"
+            @click="showBatchMenu($event)"
           >
             <svg><use xlink:href="#iconEdit"></use></svg>
             ({{ selectedRows.length }})
@@ -215,11 +215,13 @@ import { type RowSelectionOptions } from 'ag-grid-community';
 import { openTab, Menu, Protyle, type App } from 'siyuan';
 import { pushErrMsg, pushMsg } from '@/core/siyuan/api';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
-import { loadCards, loadQueueCards, parseQuery, batchReschedule, batchReset, batchSuspend } from './browserService';
+import { parseQuery } from './browserService';
 import { type BrowserCard, CardState } from './types';
 import type { ICardDataSource } from './datasource/types';
 import { FinalDrillDataSource } from './datasource/FinalDrillDataSource';
 import { DeckDataSource } from './datasource/DeckDataSource';
+import { QueryDataSource } from './datasource/QueryDataSource';
+import { BlockIdsDataSource } from './datasource/BlockIdsDataSource';
 import ActionParamsDialog from './ActionParamsDialog.vue';
 import BrowserHierarchy from './BrowserHierarchy.vue';
 
@@ -244,8 +246,7 @@ const emit = defineEmits<{
 
 // State
 const loading = ref(false);
-const allCards = ref<BrowserCard[]>([]);
-const queueCards = ref<BrowserCard[]>([]);
+const rows = ref<BrowserCard[]>([]);
 const currentDataSource = ref<ICardDataSource | null>(null);
 const currentPreset = ref('all');
 const selectedRows = ref<BrowserCard[]>([]);
@@ -255,28 +256,6 @@ const viewMode = ref<'flat' | 'hierarchy'>('flat');
 const activeQueueId = ref<string | null>(null);
 const activeDocId = ref<string | null>(null);
 const queueCounts = ref<Record<string, number>>({});
-
-function redrawGridRows(rows?: BrowserCard[]) {
-  const api = gridApi.value;
-  if (!api) return;
-  if (!rows || rows.length === 0) {
-    api.redrawRows();
-    return;
-  }
-  const set = new Set(rows);
-  const idSet = new Set(rows.map(r => r?.id).filter(Boolean));
-  const nodes: any[] = [];
-  api.forEachNode((node: any) => {
-    const data = node?.data;
-    if (!data) return;
-    if (set.has(data) || (data?.id && idSet.has(data.id))) nodes.push(node);
-  });
-  if (nodes.length > 0) {
-    api.redrawRows({ rowNodes: nodes });
-  } else {
-    api.redrawRows();
-  }
-}
 
 // 预览状态
 const showPreview = ref(true);
@@ -410,7 +389,7 @@ const columnDefs = ref<ColDef[]>([
     headerName: 'Prior', 
     width: 55,
     sortable: true,
-    valueFormatter: (params) => `${params.value ?? 50}%`,
+    valueFormatter: (params) => `${params.value || 50}%`,
   },
   // Intrv - 间隔
   { 
@@ -495,11 +474,30 @@ const defaultColDef: ColDef = {
   sortable: false,
 };
 
+function extractSqlStmt(input: string): string | null {
+  const raw = String(input || '');
+  const idx = raw.toLowerCase().indexOf('sql:');
+  if (idx !== 0) return null;
+  return raw.slice(4).trim();
+}
+
+const hasConfirmedSqlMode = ref(false);
+async function ensureSqlModeConfirmed(): Promise<boolean> {
+  if (hasConfirmedSqlMode.value) return true;
+  const ok = await confirmDialog({
+    title: t('sqlModeTitle', 'SQL 查询模式'),
+    content: t('sqlModeWarning', 'SQL 查询为高级功能，拥有读取所有块信息的权限。请仅执行你信任的 SQL。是否继续？'),
+    confirmText: t('confirm', '确认'),
+    cancelText: t('cancel', '取消'),
+  });
+  if (ok) hasConfirmedSqlMode.value = true;
+  return ok;
+}
+
 // 筛选后的卡片
-const activeCards = computed(() => {
-  if (activeQueueId.value) return queueCards.value;
-  if (activeDocId.value) return allCards.value.filter((c) => c.rootId === activeDocId.value);
-  return allCards.value;
+const scopedRows = computed(() => {
+  if (activeDocId.value) return rows.value.filter((c) => c.rootId === activeDocId.value);
+  return rows.value;
 });
 
 function matchesParsed(card: BrowserCard, parsed: ReturnType<typeof parseQuery>) {
@@ -521,20 +519,47 @@ function matchesParsed(card: BrowserCard, parsed: ReturnType<typeof parseQuery>)
 }
 
 const filteredCards = computed(() => {
+  if (extractSqlStmt(searchQuery.value) != null) return scopedRows.value;
   const parsed = parseQuery(searchQuery.value || '');
-  return activeCards.value.filter((c) => matchesParsed(c, parsed));
+  return scopedRows.value.filter((c) => matchesParsed(c, parsed));
 });
 
 // 加载数据 - 使用 browserService (riff API)
 async function loadData() {
   loading.value = true;
   try {
-    currentDataSource.value = new DeckDataSource(props.plugin, { preset: currentPreset.value, currentDocId: props.currentDocId });
-    allCards.value = await currentDataSource.value.fetchRows();
+    selectedRows.value = [];
+    previewCard.value = null;
+
+    const sqlStmt = extractSqlStmt(searchQuery.value);
+    if (sqlStmt != null) {
+      const ok = await ensureSqlModeConfirmed();
+      if (!ok) return;
+      activeQueueId.value = null;
+      activeDocId.value = null;
+      currentDataSource.value = new QueryDataSource(sqlStmt);
+    } else if (activeQueueId.value === 'final-drill') {
+      currentDataSource.value = new FinalDrillDataSource(props.plugin);
+    } else if (activeQueueId.value) {
+      const q = getQueueById(activeQueueId.value);
+      const items = q?.getAllItems?.() || [];
+      const ids = (items || []).map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
+      currentDataSource.value = new BlockIdsDataSource({ id: activeQueueId.value, label: activeQueueId.value, blockIds: ids });
+    } else {
+      currentDataSource.value = new DeckDataSource(props.plugin, { preset: currentPreset.value, currentDocId: props.currentDocId });
+    }
+
+    if (!currentDataSource.value) {
+      rows.value = [];
+      return;
+    }
+
+    const { rows: fetchedRows } = await currentDataSource.value.fetchRows({ sortModel: [], filterModel: {} });
+    rows.value = fetchedRows;
     await refreshQueueCounts();
   } catch (err) {
     console.error('[CardBrowser] Load data error:', err);
-    allCards.value = [];
+    rows.value = [];
   } finally {
     loading.value = false;
   }
@@ -542,9 +567,16 @@ async function loadData() {
 
 // 搜索处理
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let lastSqlStmt: string | null = null;
 function handleSearchInput() {
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
-  searchDebounceTimer = setTimeout(() => {}, 150);
+  searchDebounceTimer = setTimeout(() => {
+    const current = extractSqlStmt(searchQuery.value);
+    if (current !== lastSqlStmt) {
+      lastSqlStmt = current;
+      void loadData();
+    }
+  }, 150);
 }
 
 // AG Grid 选择配置 (v35+)
@@ -736,263 +768,193 @@ function convertToTab() {
   emit('convertToTab');
 }
 
+type ActionParamBuilder = (targetCards: BrowserCard[]) => Promise<any | null>;
+
+const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
+  postpone: async () => {
+    const days = await openNumberDialog({
+      title: t('postpone', '推迟'),
+      label: t('daysLabel', '天数'),
+      description: t('postponeHint', '将到期时间推迟 N 天'),
+      defaultValue: 7,
+      min: 1,
+      max: 365,
+      step: 1,
+      integer: true,
+    });
+    if (days == null || days <= 0) return null;
+    return { days };
+  },
+  advance: async () => {
+    const maxDays = await openNumberDialog({
+      title: t('advance', '提前复习'),
+      label: t('maxDaysLabel', '最大天数'),
+      description: t('advanceHint', 'NewDue = Today + Random(1..N)'),
+      defaultValue: 30,
+      min: 1,
+      max: 365,
+      step: 1,
+      integer: true,
+    });
+    if (maxDays == null || maxDays <= 0) return null;
+    return { maxDays };
+  },
+  spread: async (cards) => {
+    const maxDays = await openNumberDialog({
+      title: t('spread', '平摊复习'),
+      label: t('maxDaysLabel', '最大天数'),
+      description: t('spreadHint', '将 {n} 张卡片均匀分布在未来 N 天内')
+        .replace('{n}', String(cards.length)),
+      defaultValue: 7,
+      min: 1,
+      max: 365,
+      step: 1,
+      integer: true,
+    });
+    if (maxDays == null || maxDays <= 0) return null;
+    return { maxDays };
+  },
+  'set-priority': async (cards) => {
+    const row = cards?.[0] as any;
+    const p = await openNumberDialog({
+      title: t('setPriority', '设置优先级'),
+      label: t('priorityLabel', '优先级'),
+      description: t('priorityHint', '0-100，越小越优先'),
+      defaultValue: typeof row?.priority === 'number' ? row.priority : 50,
+      min: 0,
+      max: 100,
+      step: 1,
+      integer: true,
+    });
+    if (p == null) return null;
+    return { priority: p };
+  },
+  'insert-at': async () => {
+    const q = (props.plugin as any)?.finalDrillQueue;
+    const len = typeof q?.size === 'function'
+      ? Number(q.size()) || 0
+      : Array.isArray(q?.getAllItems?.()) ? q.getAllItems().length : 0;
+    const pos = await openNumberDialog({
+      title: t('insertAt', '插入到位置...'),
+      label: t('positionLabel', '位置'),
+      description: t('insertAtHint', '输入 1~{max}，1 表示插到队首')
+        .replace('{max}', String(len + 1)),
+      defaultValue: 1,
+      min: 1,
+      max: Math.max(1, len + 1),
+      step: 1,
+      integer: true,
+    });
+    if (pos == null) return null;
+    const index = Math.max(0, Math.floor(Number(pos)) - 1);
+    return { index };
+  },
+};
+
+function getActionLabel(action: { id: string; label: string }): string {
+  const map: Record<string, { key: string; fallback: string }> = {
+    'review-subset': { key: 'reviewSubset', fallback: 'Review Subset' },
+    open: { key: 'openInTab', fallback: 'Open' },
+    postpone: { key: 'postpone', fallback: 'Postpone' },
+    advance: { key: 'advance', fallback: 'Advance' },
+    spread: { key: 'spread', fallback: 'Spread' },
+    reset: { key: 'resetCard', fallback: 'Reset' },
+    suspend: { key: 'suspend', fallback: 'Suspend' },
+    'remove-from-queue': { key: 'removeFromQueue', fallback: 'Remove from Queue' },
+    dismiss: { key: 'dismiss', fallback: 'Dismiss' },
+    'insert-at': { key: 'insertAt', fallback: 'Insert at' },
+    'set-priority': { key: 'setPriority', fallback: 'Set Priority' },
+    'auto-sort': { key: 'autoSortQueue', fallback: 'Auto Sort' },
+  };
+  const m = map[action.id];
+  if (!m) return action.label;
+  return t(m.key, action.label || m.fallback);
+}
+
+async function handleAction(actionId: string, targetCards: BrowserCard[], anchorRow?: BrowserCard) {
+  if (!targetCards?.length) return;
+
+  if (actionId === 'open') {
+    const blockId = String(anchorRow?.blockId || targetCards[0]?.blockId || '');
+    if (props.app && blockId) {
+      openTab({ app: props.app, doc: { id: blockId } });
+      return;
+    }
+    await pushErrMsg(t('envNotInit', '当前环境未初始化，无法打开页签'));
+    return;
+  }
+
+  const ds = currentDataSource.value;
+  if (!ds) return;
+
+  if (actionId === 'reset') {
+    const ok = await confirmDialog({
+      title: t('resetCard', 'Reset'),
+      content: t('confirmReset', `确定要重置 ${targetCards.length} 张卡片吗？`),
+      confirmText: t('confirm', '确认'),
+      cancelText: t('cancel', '取消'),
+    });
+    if (!ok) return;
+  }
+
+  const builder = ACTION_PARAM_BUILDERS[actionId];
+  const ctx = builder ? await builder(targetCards) : undefined;
+  if (builder && ctx == null) return;
+
+  try {
+    const res = await (ds.performAction(actionId, targetCards as any, ctx) as any);
+    const updated = Number(res?.updated?.length || 0);
+    const skipped = Number(res?.skipped?.length || 0);
+    if (updated <= 0 && skipped > 0) {
+      await pushErrMsg(t('batchNoEffect', '本次没有卡片被更新（可能存在未同步的新卡）'));
+      return;
+    }
+    if (skipped > 0) {
+      await pushMsg(
+        t('batchSummary', '已更新 {updated} 张，跳过 {skipped} 张')
+          .replace('{updated}', String(updated))
+          .replace('{skipped}', String(skipped))
+      );
+    }
+
+    if (
+      actionId === 'remove-from-queue'
+      || actionId === 'dismiss'
+      || actionId === 'insert-at'
+      || actionId === 'auto-sort'
+      || actionId === 'reset'
+      || actionId === 'suspend'
+    ) {
+      await loadData();
+    } else {
+      gridApi.value?.refreshCells({ force: true });
+    }
+    await refreshQueueCounts();
+    await pushMsg(t('actionSuccess', '操作成功'));
+  } catch (err: any) {
+    console.error('[CardBrowser] action failed:', { actionId, err });
+    await pushErrMsg(err?.message || t('actionFailed', '操作失败'));
+  }
+}
+
 // 右键菜单
 function onCellContextMenu(event: CellContextMenuEvent) {
   event.event?.preventDefault();
-  
-  const rowData = event.data as BrowserCard;
+
+  const ds = currentDataSource.value;
+  const actions = ds?.getSupportedActions?.() || [];
   const menu = new Menu('card-browser-context');
-
+  const rowData = event.data as BrowserCard;
   const selected = selectedRows.value?.length ? selectedRows.value : [rowData];
-  const queueItems = selected.map((c) => ({
-    cardID: c.fsrsCardId || c.id || c.blockId,
-    blockID: c.blockId,
-    deckID: c.deckId,
-    priority: typeof c.priority === 'number' ? c.priority : 50,
-  }));
 
-  if (!activeQueueId.value) {
+  for (const action of actions) {
     menu.addItem({
-      icon: 'iconList',
-      label: t('addToQueue', 'Add to Queue (加入队列) >'),
-      submenu: [
-        {
-          icon: 'iconFlag',
-          label: t('queueDeliberate', 'Deliberate Practice (刻意练习)'),
-          click: async () => {
-            try {
-              const q = (props.plugin as any)?.finalDrillQueue;
-              if (!q?.addItems) {
-                await pushErrMsg(t('initFailed', 'FSRS 插件初始化失败，请打开控制台查看错误'));
-                return;
-              }
-              const added = await q.addItems(queueItems);
-              if (String(process.env.DEV_MODE) === 'true') {
-                console.log('[CardBrowser] add to final-drill', { added, queueItems });
-              }
-              if (added > 0) {
-                await pushMsg((props.i18n?.deliberateAdded || '已加入 {n} 张闪卡到刻意队列').replace('{n}', String(added)));
-              } else {
-                await pushMsg(props.i18n?.queueNoAdded || '没有新增闪卡（可能已在队列中）');
-              }
-              await refreshQueueCounts();
-            } catch (err) {
-              console.error('[CardBrowser] add to final-drill failed:', err);
-              await pushErrMsg(t('loadFailed', 'Failed to load'));
-            }
-          },
-        },
-        {
-          icon: 'iconRefresh',
-          label: t('queueNeural', 'Neural Wandering (神经漫游)'),
-          click: async () => {
-            try {
-              const q = props.plugin?.neuralQueue;
-              if (!q?.addItems) {
-                await pushErrMsg(t('initFailed', 'FSRS 插件初始化失败，请打开控制台查看错误'));
-                return;
-              }
-              const added = await q.addItems(queueItems);
-              if (String(process.env.DEV_MODE) === 'true') {
-                console.log('[CardBrowser] add to neural-wandering', { added, queueItems });
-              }
-              if (added > 0) {
-                await pushMsg((props.i18n?.queueAdded || '已加入 {n} 张闪卡到队列练习').replace('{n}', String(added)));
-              } else {
-                await pushMsg(props.i18n?.queueNoAdded || '没有新增闪卡（可能已在队列中）');
-              }
-              await refreshQueueCounts();
-            } catch (err) {
-              console.error('[CardBrowser] add to neural failed:', err);
-              await pushErrMsg(t('loadFailed', 'Failed to load'));
-            }
-          },
-        },
-        {
-          icon: 'iconList',
-          label: t('queueFilterGroup', 'Filter Group (筛选复习)'),
-          click: async () => {
-            try {
-              const q = props.plugin?.filterGroupQueue;
-              if (!q?.addItems) {
-                await pushErrMsg(t('initFailed', 'FSRS 插件初始化失败，请打开控制台查看错误'));
-                return;
-              }
-              const added = await q.addItems(queueItems);
-              if (String(process.env.DEV_MODE) === 'true') {
-                console.log('[CardBrowser] add to filter-group', { added, queueItems });
-              }
-              if (added > 0) {
-                await pushMsg((props.i18n?.filterGroupAdded || '已加入 {n} 张闪卡到分组队列').replace('{n}', String(added)));
-              } else {
-                await pushMsg(props.i18n?.queueNoAdded || '没有新增闪卡（可能已在队列中）');
-              }
-              await refreshQueueCounts();
-            } catch (err) {
-              console.error('[CardBrowser] add to filter-group failed:', err);
-              await pushErrMsg(t('loadFailed', 'Failed to load'));
-            }
-          },
-        },
-      ],
+      icon: (action as any)?.icon || 'iconMore',
+      label: getActionLabel({ id: action.id, label: action.label }),
+      click: () => void handleAction(action.id, selected, rowData),
     });
-    menu.addSeparator();
-  } else {
-    menu.addItem({
-      icon: 'iconTrashcan',
-      label: t('removeFromQueue', 'Remove from Queue (从队列移除)'),
-      click: async () => {
-        try {
-          if (activeQueueId.value === 'final-drill' && currentDataSource.value?.id === 'final-drill') {
-            const removeSet = new Set(selected.map((r: any) => String(r?.fsrsCardId || r?.id || r?.blockId || '')).filter(Boolean));
-            queueCards.value = queueCards.value.filter((c: any) => !removeSet.has(String(c?.fsrsCardId || c?.id || c?.blockId || '')));
-            selectedRows.value = [];
-            await currentDataSource.value.performAction('remove-from-queue', selected as any);
-            redrawGridRows();
-            await refreshQueueCounts();
-            await pushMsg((props.i18n?.msg_removed || '已移除 {n} 张闪卡').replace('{n}', String(removeSet.size)));
-            return;
-          }
-          const q = getQueueById(activeQueueId.value!);
-          if (!q) {
-            await pushErrMsg(t('initFailed', 'FSRS 插件初始化失败，请打开控制台查看错误'));
-            return;
-          }
-          let removed = 0;
-          if (q?.removeItems) {
-            removed = await q.removeItems(queueItems);
-          } else {
-            for (const it of queueItems) {
-              const ok = await q?.removeItem?.(it);
-              if (ok) removed++;
-            }
-          }
-          if (String(process.env.DEV_MODE) === 'true') {
-            console.log('[CardBrowser] remove from queue', { queueId: activeQueueId.value, removed, queueItems });
-          }
-          if (removed > 0) {
-            await pushMsg((props.i18n?.msg_removed || '已移除 {n} 张闪卡').replace('{n}', String(removed)));
-          } else {
-            await pushMsg(props.i18n?.msg_no_removable || '未找到可取消的闪卡');
-          }
-          const removeSet = new Set(queueItems.map((x) => x.cardID));
-          queueCards.value = queueCards.value.filter((c) => !removeSet.has((c.fsrsCardId || c.id || c.blockId) as any));
-          await refreshQueueCounts();
-        } catch (err) {
-          console.error('[CardBrowser] remove from queue failed:', err);
-          await pushErrMsg(t('loadFailed', 'Failed to load'));
-        }
-      },
-    });
-    if (activeQueueId.value === 'final-drill') {
-      menu.addItem({
-        icon: 'iconMark',
-        label: t('setQueuePriority', 'Set Queue Priority (设置队列优先级)'),
-        click: async () => {
-          const p = await openNumberDialog({
-            title: t('setQueuePriority', '设置队列优先级'),
-            label: t('priorityLabel', '优先级'),
-            description: t('priorityHint', '0-100，越小越优先'),
-            defaultValue: 50,
-            min: 0,
-            max: 100,
-            step: 1,
-            integer: true,
-          });
-          if (p == null) return;
-          if (currentDataSource.value?.id === 'final-drill') {
-            await currentDataSource.value.performAction('set-priority', selected as any, { priority: p });
-            redrawGridRows(selected as any);
-            await pushMsg(t('priorityUpdated', '已更新队列优先级'));
-            return;
-          }
-          const q = (props.plugin as any)?.finalDrillQueue;
-          if (!q?.setPriority) {
-            await pushErrMsg(t('initFailed', 'FSRS 插件初始化失败，请打开控制台查看错误'));
-            return;
-          }
-          let changed = 0;
-          for (const r of selected as any[]) {
-            r.priority = p;
-          }
-          for (const it of queueItems) {
-            const ok = await q.setPriority(String((it as any).cardID), p);
-            if (ok) changed++;
-          }
-          if (changed > 0) {
-            await pushMsg(t('priorityUpdated', '已更新队列优先级'));
-            redrawGridRows(selected as any);
-          } else {
-            await pushMsg(t('priorityNoChange', '未找到可更新的队列项'));
-          }
-        },
-      });
-      menu.addItem({
-        icon: 'iconSort',
-        label: t('autoSortQueue', 'Auto-Sort Queue (按优先级重排队列)'),
-        click: async () => {
-          if (currentDataSource.value?.id === 'final-drill') {
-            await currentDataSource.value.performAction('auto-sort', selected as any);
-            reorderFinalDrillRows();
-            redrawGridRows();
-            await pushMsg(t('queueSorted', '已按优先级重排队列'));
-            return;
-          }
-          const q = (props.plugin as any)?.finalDrillQueue;
-          if (!q?.sort) {
-            await pushErrMsg(t('initFailed', 'FSRS 插件初始化失败，请打开控制台查看错误'));
-            return;
-          }
-          await q.sort();
-          await pushMsg(t('queueSorted', '已按优先级重排队列'));
-          if (activeQueueId.value) {
-            reorderFinalDrillRows();
-            redrawGridRows();
-          }
-        },
-      });
-    }
-    menu.addSeparator();
   }
-  
-  menu.addItem({
-    icon: 'iconCalendar',
-    label: t('postpone', 'Postpone'),
-    click: () => handlePostpone(selected),
-  });
-  menu.addItem({
-    icon: 'iconCalendar',
-    label: t('advance', 'Advance (Spread)'),
-    click: () => handleAdvance(selected),
-  });
-  
-  menu.addItem({
-    icon: 'iconRefresh',
-    label: t('resetCard', 'Reset'),
-    click: () => handleReset(selected),
-  });
-  
-  menu.addItem({
-    icon: 'iconPause',
-    label: t('suspend', 'Suspend'),
-    click: () => handleSuspend(selected),
-  });
-  
-  menu.addSeparator();
-  
-  menu.addItem({
-    icon: 'iconOpen',
-    label: t('openInTab', 'Open'),
-    click: () => {
-      if (props.app && rowData.blockId) {
-        openTab({
-          app: props.app,
-          doc: { id: rowData.blockId },
-        });
-      }
-    },
-  });
-  
+
   const mouseEvent = event.event as MouseEvent;
   menu.open({ x: mouseEvent.clientX, y: mouseEvent.clientY });
 }
@@ -1006,143 +968,54 @@ async function autoSortFinalDrillQueue() {
   await q.sort();
   await pushMsg(t('queueSorted', '已按优先级重排队列'));
   if (activeQueueId.value === 'final-drill') {
-    reorderFinalDrillRows();
-    redrawGridRows();
+    await loadData();
   } else {
     await refreshQueueCounts();
   }
 }
 
-function reorderFinalDrillRows() {
-  const q = (props.plugin as any)?.finalDrillQueue;
-  const items = q?.getAllItems?.() || [];
-  if (!Array.isArray(items) || items.length === 0) return;
-  const map = new Map<string, any>();
-  for (const r of queueCards.value) {
-    const id = String((r as any)?.fsrsCardId || '');
-    if (id) map.set(id, r);
-  }
-  const ordered: any[] = [];
-  for (const it of items) {
-    const id = String(it?.cardID || '');
-    if (!id) continue;
-    const row = map.get(id);
-    if (row) ordered.push(row);
-  }
-  if (ordered.length > 0) {
-    queueCards.value = ordered;
-  }
-}
-
 // 批量菜单
-function showBatchMenu() {
+function showBatchMenu(event?: MouseEvent) {
   const menu = new Menu('card-browser-batch');
-  
-  menu.addItem({
-    icon: 'iconCalendar',
-    label: t('postpone', 'Postpone'),
-    click: () => handlePostpone(selectedRows.value),
-  });
-  menu.addItem({
-    icon: 'iconCalendar',
-    label: t('advance', 'Advance'),
-    click: () => handleAdvance(selectedRows.value),
-  });
-  
-  menu.addItem({
-    icon: 'iconRefresh',
-    label: t('resetCard', 'Reset Cards'),
-    click: () => handleReset(selectedRows.value),
-  });
-  
-  menu.addItem({
-    icon: 'iconPause',
-    label: t('suspend', 'Suspend'),
-    click: () => handleSuspend(selectedRows.value),
-  });
-  
-  menu.open({ x: 0, y: 0, isLeft: true });
-}
 
-// 操作处理
-async function handlePostpone(targetCards: BrowserCard[]) {
-  const days = await openNumberDialog({
-    title: t('postpone', '推迟'),
-    label: t('daysLabel', '天数'),
-    description: t('postponeHint', '将到期时间推迟 N 天'),
-    defaultValue: 7,
-    min: 1,
-    max: 365,
-    step: 1,
-    integer: true,
-  });
-  if (days == null || days <= 0) return;
-  const ds = currentDataSource.value?.id === 'deck'
-    ? currentDataSource.value
-    : new DeckDataSource(props.plugin, { preset: currentPreset.value, currentDocId: props.currentDocId });
-  if (ds) {
-    await ds.performAction('postpone', targetCards as any, { days });
-  } else {
-    await batchReschedule(targetCards, 'relative', days);
+  const ds = currentDataSource.value;
+  const actions = ds?.getSupportedActions?.() || [];
+  const selected = selectedRows.value || [];
+  const anchorRow = selected[0];
+
+  for (const action of actions) {
+    menu.addItem({
+      icon: (action as any)?.icon || 'iconMore',
+      label: getActionLabel({ id: action.id, label: action.label }),
+      click: () => void handleAction(action.id, selected, anchorRow),
+    });
   }
-  redrawGridRows(targetCards as any);
-  await pushMsg(t('actionSuccess', '操作成功'));
-}
-
-async function handleAdvance(targetCards: BrowserCard[]) {
-  const maxDays = await openNumberDialog({
-    title: t('advance', '提前复习'),
-    label: t('maxDaysLabel', '最大天数'),
-    description: t('advanceHint', 'Randomly disperse review dates within 1..N days (Spread)'),
-    defaultValue: 30,
-    min: 1,
-    max: 365,
-    step: 1,
-    integer: true,
-  });
-  if (maxDays == null || maxDays <= 0) return;
-  const ds = currentDataSource.value?.id === 'deck'
-    ? currentDataSource.value
-    : new DeckDataSource(props.plugin, { preset: currentPreset.value, currentDocId: props.currentDocId });
-  if (!ds) return;
-  await ds.performAction('advance', targetCards as any, { maxDays });
-  redrawGridRows(targetCards as any);
-  await pushMsg(t('actionSuccess', '操作成功'));
-}
-
-async function handleReset(targetCards: BrowserCard[]) {
-  const ok = await confirmDialog({
-    title: t('resetCard', 'Reset'),
-    content: t('confirmReset', `确定要重置 ${targetCards.length} 张卡片吗？`),
-    confirmText: t('confirm', '确认'),
-    cancelText: t('cancel', '取消'),
-  });
-  if (!ok) return;
   
-  const blockIds = targetCards.map(c => c.blockId);
-  await batchReset(blockIds);
-  await refreshData();
-}
-
-async function handleSuspend(targetCards: BrowserCard[]) {
-  const blockIds = targetCards.map(c => c.blockId);
-  await batchSuspend(blockIds, true);
-  await refreshData();
+  const anchor = (event?.currentTarget || event?.target) as HTMLElement | null;
+  const rect = anchor?.getBoundingClientRect?.();
+  if (rect) {
+    menu.open({ x: rect.left, y: rect.bottom, isLeft: true });
+    return;
+  }
+  if (event) {
+    menu.open({ x: event.clientX, y: event.clientY, isLeft: true });
+    return;
+  }
+  menu.open({ x: 0, y: 0, isLeft: true });
 }
 
 // 刷新数据
 async function refreshData() {
   selectedRows.value = [];
   previewCard.value = null;
-  activeQueueId.value = null;
-  activeDocId.value = null;
-  queueCards.value = [];
   await loadData();
 }
 
 // 切换预设
 function handlePresetChange() {
-  refreshData();
+  activeQueueId.value = null;
+  activeDocId.value = null;
+  void refreshData();
 }
 
 // 清理
@@ -1276,24 +1149,7 @@ async function refreshQueueCounts() {
 async function handleSelectQueue(queueId: string) {
   activeQueueId.value = queueId;
   activeDocId.value = null;
-  selectedRows.value = [];
-  previewCard.value = null;
-  if (queueId === 'final-drill') {
-    if (!props.plugin) {
-      await pushErrMsg(t('initFailed', 'FSRS 插件初始化失败，请打开控制台查看错误'));
-      return;
-    }
-    const ds = new FinalDrillDataSource(props.plugin);
-    currentDataSource.value = ds;
-    queueCards.value = await ds.fetchRows();
-  } else {
-    currentDataSource.value = null;
-    const q = getQueueById(queueId);
-    const items = q?.getAllItems?.() || [];
-    const ids = (items || []).map((it: any) => it?.blockID).filter(Boolean);
-    queueCards.value = await loadQueueCards(ids);
-  }
-  await refreshQueueCounts();
+  await loadData();
 }
 
 function handleSelectDoc(docId: string) {

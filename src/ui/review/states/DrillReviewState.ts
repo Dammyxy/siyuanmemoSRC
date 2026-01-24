@@ -1,5 +1,4 @@
 import type { ReviewSessionState, ReviewSessionStateContext } from './types';
-import { DrillBreadcrumbTopArea } from '../components/DrillBreadcrumbTopArea';
 
 export class DrillReviewState implements ReviewSessionState {
   private readonly ctx: ReviewSessionStateContext;
@@ -13,7 +12,7 @@ export class DrillReviewState implements ReviewSessionState {
   }
 
   getTopAreaComponent(): any {
-    return DrillBreadcrumbTopArea;
+    return null;
   }
 
   getOverlayComponent(): any {
@@ -21,11 +20,11 @@ export class DrillReviewState implements ReviewSessionState {
   }
 
   shouldShowAnswerBtn(): boolean {
-    return this.ctx.totalCards.value > 0 && this.ctx.hideAnswer.value;
+    return this.ctx.hideAnswer.value === true;
   }
 
   shouldShowRatingBtns(): boolean {
-    return this.ctx.totalCards.value > 0 && !this.ctx.hideAnswer.value;
+    return this.ctx.hideAnswer.value === false;
   }
 
   async onRating(rating: 1 | 2 | 3 | 4): Promise<void> {

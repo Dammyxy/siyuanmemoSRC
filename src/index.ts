@@ -12,7 +12,8 @@ import {
 import { createApp } from 'vue';
 
 import { StorageManager } from '@/core/storage';
-import { createScheduler, type SchedulerEngineAdapter, RescheduleService } from '@/core/scheduler';
+import { createScheduler, type SchedulerEngineAdapter } from '@/core/scheduler';
+import { RescheduleService } from '@/core/scheduler/rescheduleService';
 import { riff } from '@/core/siyuan';
 import { markBlockAsCard, unmarkBlockAsCard, ATTR_CARD_ID, getCardBlocksInDocTree, getCardBlocksInDoc, getCardBlocksBySql } from '@/core/siyuan/block';
 import { getRiffCardsByBlockIDs } from '@/core/siyuan/riff';
@@ -26,8 +27,8 @@ import { createVueDialog } from '@/utils/dialog';
 import { createDefaultCard } from '@/types';
 import '@/index.scss';
 import { ConsoleQueueMonitor, QueueContext, StorageFileJsonAdapter, type QueueItem } from '@/core/queue';
-import { FinalDrillQueue, FilterGroupQueue, FilterGroupStrategy, FinalDrillStrategy, LeechStrategy, NeuralStrategy, RetrievalPracticeStrategy } from '@/core/queue/strategies';
-import { NeuralQueue, NeuralQueueStorage, DEFAULT_NEURAL_QUEUE_CONFIG } from '@/core/queue/neural';
+import { DeliberatePracticeQueue, ExtractionPracticeQueue, FilterGroupQueue, SubsetPracticeStrategy } from '@/core/queue/strategies';
+import { NeuralQueue, NeuralQueueStorage } from '@/core/queue/neural';
 
 type PracticeQueueFilter = { type: 'doc' | 'tree' | 'sql'; value: string };
 
@@ -41,9 +42,10 @@ export default class FSRSPlugin extends Plugin {
   public scheduler!: SchedulerEngineAdapter;
   public rescheduleService!: RescheduleService;
   private queueContext!: QueueContext<QueueItem>;
-  public finalDrillQueue!: FinalDrillQueue;
-  public filterGroupQueue!: FilterGroupQueue;
+  private extractionQueue!: ExtractionPracticeQueue;
   public neuralQueue!: NeuralQueue;
+  public finalDrillQueue!: DeliberatePracticeQueue;
+  public filterGroupQueue!: FilterGroupQueue;
 
   private TAB_TYPE = 'plugin-fsrs-card-browser';
 
@@ -69,14 +71,14 @@ export default class FSRSPlugin extends Plugin {
 </svg>`);
       this.topBarElement = this.addTopBar({
         icon: 'iconFSRS',
-        title: this.i18n?.topbarTitle || 'FSRS 闪卡 (左键卡片浏览器/右键菜单)',
+        title: this.i18n?.topbarTitle || 'FSRS 闪卡 (左键制卡/右键菜单)',
         position: 'right',
         callback: () => {
           if (!this.isInitialized) {
             pushMsg(this.i18n?.loading || '插件初始化中，请稍后...');
             return;
           }
-          this.openCardBrowser();
+          pushMsg(this.i18n?.featureRemoved || '该功能已暂时移除');
         },
       });
       this.topBarElement.classList.add('fsrs-topbar');
@@ -101,12 +103,15 @@ export default class FSRSPlugin extends Plugin {
       await this.storage.init();
 
       const settings = this.storage.getSettings();
+      this.rescheduleService = new RescheduleService(this.storage);
 
+      this.extractionQueue = new ExtractionPracticeQueue(this.storage);
       this.queueContext = new QueueContext<QueueItem>({
-        initial: (settings.queues?.defaultQueue as any) || 'final-drill',
+        initial: 'extraction',
         monitors: [new ConsoleQueueMonitor()],
       });
-
+      this.queueContext.register('extraction', this.extractionQueue);
+      
       const groupConfigs = (settings.queues?.filterGroup?.groups || []).map((g: any) => ({
         id: String(g.id),
         weight: Number(g.weight) || 1,
@@ -118,43 +123,25 @@ export default class FSRSPlugin extends Plugin {
       );
       await filterGroupQueue.init();
       this.filterGroupQueue = filterGroupQueue;
-      this.queueContext.register('filter-group', new FilterGroupStrategy(filterGroupQueue));
-      const finalDrillQueue = new FinalDrillQueue({
-        persistence: new StorageFileJsonAdapter(this.storage, 'queue-final-drill.json'),
-        priorityMode: settings.queues?.finalDrill?.priorityMode,
-        fuzzyBand: settings.queues?.finalDrill?.fuzzyBand,
-      });
-      await finalDrillQueue.init();
-      this.finalDrillQueue = finalDrillQueue;
-      this.queueContext.register('final-drill', new FinalDrillStrategy(finalDrillQueue));
-      this.queueContext.register('final-drill', new FinalDrillStrategy(finalDrillQueue));
-      this.queueContext.register('retrieval-practice', new RetrievalPracticeStrategy({
-        deckID: riff.BUILTIN_DECK_ID,
-        rescheduleService: this.rescheduleService
-      }));
-      this.queueContext.register('leech', new LeechStrategy(this.storage));
-      this.queueContext.register('leech', new LeechStrategy(this.storage));
+      this.queueContext.register('filter-group', this.filterGroupQueue);
+      this.finalDrillQueue = new DeliberatePracticeQueue(this.storage);
+      await this.finalDrillQueue.init();
+      this.queueContext.register('deliberate', this.finalDrillQueue);
 
       // 初始化神经漫游队列
       const neuralConfig = NeuralQueueStorage.loadConfig();
-      this.neuralQueue = new NeuralQueue(
-        neuralConfig,
-        undefined,
-        new StorageFileJsonAdapter(this.storage, 'queue-neural-wandering.json'),
-      );
-      await this.neuralQueue.init();
-      this.queueContext.register('neural-wandering', new NeuralStrategy(this.neuralQueue));
+      this.neuralQueue = new NeuralQueue(neuralConfig);
+      this.queueContext.register('neural-wandering', this.neuralQueue);
 
       // 初始化调度器
       this.scheduler = createScheduler(settings.fsrs, settings.schedulerEngine);
-      this.rescheduleService = new RescheduleService(this.storage);
 
       this.isInitialized = true;
     } catch (err) {
       console.error('[FSRS] Plugin initialization failed:', err);
       try {
         await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
-      } catch { }
+      } catch {}
     }
 
     // 注册 Dock 面板
@@ -177,7 +164,7 @@ export default class FSRSPlugin extends Plugin {
       langKey: 'startReview',
       hotkey: 'Alt+R',
       callback: () => {
-        void this.openRetrievalPracticeDialog();
+        this.openReviewDialog();
       },
     });
 
@@ -185,7 +172,7 @@ export default class FSRSPlugin extends Plugin {
       langKey: 'startDrill',
       hotkey: 'Alt+D',
       callback: () => {
-        void this.openFinalDrillDialog();
+        this.openDrillDialog();
       },
     });
 
@@ -208,8 +195,8 @@ export default class FSRSPlugin extends Plugin {
         const app = createApp(CardBrowser, {
           app: self.app,
           i18n: self.i18n || {},
-          plugin: self,
           mode: 'tab',
+          plugin: self,
         });
         app.mount(this.element);
         (this as any).vueApp = app;
@@ -245,7 +232,7 @@ export default class FSRSPlugin extends Plugin {
       if (this.topBarElement && this.topBarContextMenuHandler) {
         this.topBarElement.removeEventListener('contextmenu', this.topBarContextMenuHandler);
       }
-    } catch { }
+    } catch {}
 
     // 保存数据
     this.storage?.saveCards?.();
@@ -266,24 +253,16 @@ export default class FSRSPlugin extends Plugin {
       label: this.i18n?.startReview || '开始提取练习',
       accelerator: 'Alt+R',
       click: () => {
-        void this.openRetrievalPracticeDialog();
+        this.openReviewDialog();
       },
     });
 
     menu.addItem({
-      icon: 'iconFlag',
-      label: this.i18n?.startDeliberatePractice || '开始刻意练习',
+      icon: 'iconCards',
+      label: this.i18n?.startQueuePractice || '开始刻意练习',
       accelerator: 'Alt+D',
       click: () => {
-        void this.openFinalDrillDialog();
-      },
-    });
-
-    menu.addItem({
-      icon: 'iconList',
-      label: this.i18n?.startFilterGroupPractice || '开始筛选复习',
-      click: () => {
-        void this.openFilterGroupPracticeDialog();
+        this.openDrillDialog();
       },
     });
 
@@ -293,14 +272,6 @@ export default class FSRSPlugin extends Plugin {
       accelerator: 'Alt+N',
       click: () => {
         this.openNeuralReviewDialog();
-      },
-    });
-
-    menu.addItem({
-      icon: 'iconBug',
-      label: this.i18n?.startLeechPractice || '开始难点攻坚',
-      click: () => {
-        void this.openLeechPracticeDialog();
       },
     });
 
@@ -348,185 +319,6 @@ export default class FSRSPlugin extends Plugin {
     }
   }
 
-  async openFinalDrillDialog(): Promise<void> {
-    await this.openPracticeSession('final-drill');
-  }
-
-  async openDeliberatePracticeDialog(): Promise<void> {
-    await this.openFinalDrillDialog();
-  }
-
-  async openRetrievalPracticeDialog(): Promise<void> {
-    await this.openPracticeSession('retrieval-practice');
-  }
-
-  async openPracticeSession(queueId: 'retrieval-practice' | 'final-drill' | 'filter-group' | 'neural-wandering' | 'leech'): Promise<void> {
-    if (this.reviewDialog) {
-      this.reviewDialog.destroy();
-    }
-
-    if (!this.isInitialized) {
-      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
-      return;
-    }
-    if (!this.queueContext) {
-      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
-      return;
-    }
-
-    this.queueContext.setStrategy(queueId);
-
-    const buildCard = (queueItem: QueueItem) => {
-      const card = this.storage.getCard(queueItem.cardID);
-      if (!card) {
-        return { ...queueItem, state: 0, due: new Date().toISOString() };
-      }
-      return { ...queueItem, ...card };
-    };
-
-    const first = await this.queueContext.next();
-    if (!first) {
-      if (queueId === 'retrieval-practice') {
-        await pushMsg(this.i18n?.noDueCards || '暂无到期卡片');
-      } else {
-        await pushMsg(this.i18n?.practiceQueueEmpty || '练习队列为空');
-      }
-      return;
-    }
-
-    const stats = await this.queueContext.getStats();
-    this.reviewDialog = createVueDialog({
-      title: (() => {
-        if (queueId === 'retrieval-practice') return this.i18n?.reviewTitle || 'FSRS 复习';
-        if (queueId === 'final-drill') return `${this.i18n?.deliberateModeLabel || '刻意练习'} (${stats.size} 张)`;
-        if (queueId === 'filter-group') return `${this.i18n?.filterGroupModeLabel || '分组队列'} (${stats.size} 张)`;
-        if (queueId === 'neural-wandering') return this.i18n?.neuralReviewTitle || '神经复习';
-        if (queueId === 'leech') return `${this.i18n?.leechModeLabel || '难点攻坚'} (${stats.size} 张)`;
-        return this.i18n?.reviewTitle || 'FSRS 复习';
-      })(),
-      component: ReviewPanel,
-      props: {
-        cards: [buildCard(first)],
-        deckID: riff.BUILTIN_DECK_ID,
-        app: this.app,
-        i18n: this.i18n || {},
-        drillMode: true,
-        practiceMode: queueId,
-        queueSession: {
-          getUIConfig: (current: any | null) => this.queueContext.getUIConfig(current),
-          getStats: () => this.queueContext.getStats(),
-          onFeedback: (current: any | null, feedback: any) => this.queueContext.onFeedback(current, feedback),
-          next: async () => {
-            const next = await this.queueContext.next();
-            return next ? buildCard(next) : null;
-          },
-        },
-      },
-      events: {
-        close: () => {
-          this.reviewDialog?.destroy();
-        },
-      },
-      width: '80vw',
-      height: '70vh',
-      onClose: () => {
-        this.reviewDialog = null;
-      },
-    });
-  }
-
-  async openFilterGroupPracticeDialog(): Promise<void> {
-    await this.openPracticeSession('filter-group');
-  }
-
-  async openLeechPracticeDialog(): Promise<void> {
-    await this.openPracticeSession('leech');
-  }
-
-  private async openQueueDrillDialog(options: {
-    title: string;
-    practiceMode: 'filter-group';
-    getNextItem: () => Promise<QueueItem | null> | QueueItem | null;
-    rotate: (cardID: string) => Promise<boolean> | boolean;
-    remove: (cardID: string) => Promise<boolean> | boolean;
-  }): Promise<void> {
-    if (this.reviewDialog) {
-      this.reviewDialog.destroy();
-    }
-
-    const buildCard = (queueItem: QueueItem) => {
-      const card = this.storage.getCard(queueItem.cardID);
-      if (!card) {
-        return { ...queueItem, state: 0, due: new Date().toISOString() };
-      }
-      return { ...queueItem, ...card };
-    };
-
-    const first = await options.getNextItem();
-    if (!first) {
-      await pushMsg(this.i18n?.practiceQueueEmpty || '练习队列为空');
-      return;
-    }
-
-    this.reviewDialog = createVueDialog({
-      title: options.title,
-      component: ReviewPanel,
-      props: {
-        cards: [buildCard(first)],
-        deckID: riff.BUILTIN_DECK_ID,
-        app: this.app,
-        i18n: this.i18n || {},
-        drillMode: true,
-        practiceMode: options.practiceMode,
-        getNextDrillCard: async (current: any | null, action: 'rate' | 'skip' | 'custom', rating?: 1 | 2 | 3 | 4) => {
-          const currentId = String((current as any)?.cardID || '');
-          if (currentId) {
-            if (action === 'rate') {
-              if ((rating || 0) >= 4) {
-                await options.remove(currentId);
-              } else {
-                await options.rotate(currentId);
-              }
-            } else if (action === 'skip' || action === 'custom') {
-              await options.rotate(currentId);
-            }
-          }
-
-          const next = await options.getNextItem();
-          return next ? buildCard(next) : null;
-        },
-      },
-      events: {
-        close: () => {
-          this.reviewDialog?.destroy();
-        },
-      },
-      width: '80vw',
-      height: '70vh',
-      onClose: () => {
-        this.reviewDialog = null;
-      },
-    });
-
-    const dialogEl = this.reviewDialog.dialog.element;
-    const scrim = dialogEl.querySelector('.b3-dialog__scrim') as HTMLElement;
-    const container = dialogEl.querySelector('.b3-dialog__container') as HTMLElement;
-
-    if (scrim) {
-      scrim.style.backgroundColor = 'var(--b3-theme-surface)';
-    }
-    if (container) {
-      container.style.maxWidth = '1024px';
-    }
-
-    setTimeout(() => {
-      const focusEl = dialogEl.querySelector('.block__icon') as HTMLElement;
-      if (focusEl) {
-        focusEl.focus();
-      }
-    }, 100);
-  }
-
   private ensureTopbarMounted(): void {
     const el = this.topBarElement;
     if (!el) return;
@@ -567,7 +359,7 @@ export default class FSRSPlugin extends Plugin {
         queueSettings: currentSettings.queues,
         i18n: this.i18n || {},
         defaultTab,
-        queueCount: this.finalDrillQueue.size(),
+        queueCount: this.extractionQueue.size(),
         queueHandlers: {
           preview: (filter: PracticeQueueFilter) => this.previewPracticeQueue(filter),
           add: (filter: PracticeQueueFilter) => this.addPracticeQueue(filter),
@@ -615,8 +407,8 @@ export default class FSRSPlugin extends Plugin {
       props: {
         app: this.app,
         i18n: this.i18n || {},
-        plugin: this,
         mode: 'dialog',
+        plugin: this,
       },
       events: {
         convertToTab: () => {
@@ -720,49 +512,169 @@ export default class FSRSPlugin extends Plugin {
     await this.startPracticeQueue();
   }
 
+  openDeliberatePracticeDialog() {
+    this.openCardBrowser();
+  }
+
+  openFilterGroupPracticeDialog() {
+    this.openCardBrowser();
+  }
+
   async openNeuralReviewDialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) {
     if (!this.isInitialized || !this.queueContext) {
       await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
       return;
     }
+    if (this.reviewDialog) {
+      this.reviewDialog.destroy();
+    }
+
     try {
+      // 如果需要重置历史记录
       if (options?.resetHistory) {
         this.neuralQueue.clearHistory();
       }
 
+      // 如果指定了种子块，创建新的 NeuralQueue 实例
       let queueToUse = this.neuralQueue;
       if (options?.seedBlockId) {
         const neuralConfig = NeuralQueueStorage.loadConfig();
-        queueToUse = new NeuralQueue(
-          neuralConfig,
-          options.seedBlockId,
-          new StorageFileJsonAdapter(this.storage, 'queue-neural-wandering.json'),
-        );
-        await queueToUse.init();
-        this.queueContext.register('neural-wandering', new NeuralStrategy(queueToUse));
+        queueToUse = new NeuralQueue(neuralConfig, options.seedBlockId);
+        // 临时注册这个队列实例
+        this.queueContext.register('neural-wandering', queueToUse);
       }
 
-      await this.openPracticeSession('neural-wandering');
+      // 切换到神经漫游队列
+      this.queueContext.setStrategy('neural-wandering');
+
+      // 获取第一张卡片
+      console.log('[NeuralQueue] Getting first card...');
+      const firstQueueItem = await this.queueContext.getNextItem();
+      console.log('[NeuralQueue] First queue item:', firstQueueItem);
+      
+      if (!firstQueueItem) {
+        console.warn('[NeuralQueue] No cards available');
+        await pushMsg((this.i18n as any)?.neuralNoCardsAvailable || '没有可用的卡片');
+        return;
+      }
+
+      // 获取第一张卡片的完整数据
+      const firstCard = this.storage.getCard(firstQueueItem.cardID);
+      console.log('[NeuralQueue] First card from storage:', firstCard);
+      
+      const initialCard = firstCard ? {
+        ...firstQueueItem,
+        ...firstCard,
+      } : {
+        ...firstQueueItem,
+        state: 0,
+        due: new Date().toISOString(),
+      };
+      console.log('[NeuralQueue] Initial card data:', initialCard);
+
+      this.reviewDialog = createVueDialog({
+        title: this.i18n?.neuralReviewTitle || '神经复习',
+        component: ReviewPanel,
+        props: {
+          cards: [initialCard], // 传入第一张卡片
+          deckID: riff.BUILTIN_DECK_ID,
+          app: this.app,
+          i18n: this.i18n || {},
+          drillMode: true,
+          practiceMode: 'neural',
+          getNextDrillCard: async (current: any | null, action: 'rate' | 'skip', rating?: 1 | 2 | 3 | 4) => {
+            void current;
+            console.log('[NeuralQueue] Getting next drill card...', { action, rating });
+            const queueItem = await this.queueContext.getNextItem();
+            console.log('[NeuralQueue] Queue item:', queueItem);
+            
+            if (!queueItem) {
+              console.warn('[NeuralQueue] No queue item returned');
+              return null;
+            }
+
+            // 获取卡片的 FSRS 数据
+            const card = this.storage.getCard(queueItem.cardID);
+            console.log('[NeuralQueue] Card from storage:', card);
+            
+            if (!card) {
+              console.warn('[NeuralQueue] Card not found in storage:', queueItem.cardID);
+              // 返回基本的卡片数据
+              return {
+                ...queueItem,
+                state: 0,
+                due: new Date().toISOString(),
+              };
+            }
+
+            // 合并队列项和存储的卡片数据
+            const result = {
+              ...queueItem,
+              ...card,
+            };
+            console.log('[NeuralQueue] Final card data:', result);
+            return result;
+          },
+        },
+        events: {
+          close: () => {
+            this.reviewDialog?.destroy();
+          },
+        },
+        width: '80vw',
+        height: '70vh',
+        onClose: () => {
+          this.reviewDialog = null;
+        },
+      });
     } catch (err) {
       console.error('[FSRS] Failed to open neural review dialog:', err);
       await pushErrMsg(this.i18n?.neuralReviewFailed || '神经复习启动失败');
     }
   }
 
-  private openDrillDialogWithCards(
-    cards: any[],
-    practiceMode: 'queue' | 'block' | 'final-drill' | 'filter-group' | 'leech' = 'queue',
-  ) {
+  async openSubsetReviewDialog(blockIds: string[]) {
     if (this.reviewDialog) {
       this.reviewDialog.destroy();
     }
-    const modeLabel = (() => {
-      if (practiceMode === 'block') return this.i18n?.blockModeLabel || '块练习';
-      if (practiceMode === 'final-drill') return this.i18n?.deliberateModeLabel || '刻意练习';
-      if (practiceMode === 'filter-group') return this.i18n?.filterGroupModeLabel || '分组队列';
-      if (practiceMode === 'leech') return this.i18n?.leechModeLabel || '难点攻坚';
-      return this.i18n?.queueModeLabel || '队列练习';
-    })();
+    const ids = Array.from(new Set((blockIds || []).map((x) => String(x || '')).filter(Boolean)));
+    if (ids.length === 0) {
+      await pushMsg(this.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+      return;
+    }
+    const session = new SubsetPracticeStrategy({ blockIds: ids, deckID: riff.BUILTIN_DECK_ID });
+    this.reviewDialog = createVueDialog({
+      title: (this.i18n?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(ids.length)),
+      component: ReviewPanel,
+      props: {
+        cards: [],
+        deckID: riff.BUILTIN_DECK_ID,
+        app: this.app,
+        i18n: this.i18n || {},
+        drillMode: true,
+        practiceMode: 'retrieval-practice',
+        queueSession: session as any,
+      },
+      events: {
+        close: () => {
+          this.reviewDialog?.destroy();
+        },
+      },
+      width: '80vw',
+      height: '70vh',
+      onClose: () => {
+        this.reviewDialog = null;
+      },
+    });
+  }
+
+  private openDrillDialogWithCards(cards: any[], practiceMode: 'queue' | 'block' = 'queue') {
+    if (this.reviewDialog) {
+      this.reviewDialog.destroy();
+    }
+    const modeLabel = practiceMode === 'block'
+      ? (this.i18n?.blockModeLabel || '块练习')
+      : (this.i18n?.queueModeLabel || '队列练习');
     const blockTitleTemplate = this.i18n?.blockPracticeTitleWithCount || '当前练习队列：{n}张闪卡';
     const blockTitle = blockTitleTemplate.replace('{n}', String(cards.length));
     this.reviewDialog = createVueDialog({
@@ -1150,7 +1062,6 @@ export default class FSRSPlugin extends Plugin {
         continue;
       }
       seen.add(cardID);
-      const priority = this.storage.getCard(cardID)?.priority ?? 50;
       result.push({
         cardID,
         blockID,
@@ -1159,7 +1070,6 @@ export default class FSRSPlugin extends Plugin {
         state: 0,
         lapses: 0,
         reps: 0,
-        priority,
       });
     }
     return result;
@@ -1188,7 +1098,6 @@ export default class FSRSPlugin extends Plugin {
           continue;
         }
         seen.add(cardID);
-        const priority = this.storage.getCard(cardID)?.priority ?? 50;
         result.push({
           cardID,
           blockID,
@@ -1197,7 +1106,6 @@ export default class FSRSPlugin extends Plugin {
           state: 0,
           lapses: 0,
           reps: 0,
-          priority,
         });
       }
     }
@@ -1231,15 +1139,20 @@ export default class FSRSPlugin extends Plugin {
       return 0;
     }
     const cards = await this.buildDrillCardsFromBlockIds(blockIds);
-    return this.finalDrillQueue.addItems(cards as QueueItem[]);
+    return this.extractionQueue.addItems(cards as QueueItem[]);
   }
 
   private async clearPracticeQueue(): Promise<void> {
-    await this.finalDrillQueue.clear();
+    await this.extractionQueue.clear();
   }
 
   private async startPracticeQueue(): Promise<void> {
-    await this.openFinalDrillDialog();
+    const cards = this.extractionQueue.getAllItems();
+    if (cards.length === 0) {
+      await pushMsg(this.i18n?.practiceQueueEmpty || '练习队列为空');
+      return;
+    }
+    this.openDrillDialogWithCards(cards, 'queue');
   }
 
 

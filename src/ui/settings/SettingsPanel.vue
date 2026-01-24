@@ -152,26 +152,12 @@
           <label>{{ t('defaultQueue', '默认队列') }}</label>
           <div class="form-control">
             <select v-model="queueSettings.defaultQueue">
-              <option value="retrieval-practice">{{ t('queueExtraction', '提取练习队列') }}</option>
-              <option value="final-drill">{{ t('queueDeliberate', '刻意练习队列') }}</option>
+              <option value="extraction">{{ t('queueExtraction', '提取练习队列') }}</option>
+              <option value="deliberate">{{ t('queueDeliberate', '刻意练习队列') }}</option>
               <option value="neural-wandering">{{ t('queueNeural', '神经漫游队列') }}</option>
               <option value="filter-group">{{ t('queueFilterGroup', '筛选组队列') }}</option>
             </select>
           </div>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('finalDrillPriorityMode', '刻意练习优先级模式') }}</label>
-          <div class="form-control">
-            <select v-model="queueSettings.finalDrill.priorityMode">
-              <option value="strict">{{ t('priorityModeStrict', '严格优先级') }}</option>
-              <option value="fuzzy">{{ t('priorityModeFuzzy', '模糊优先级（区间随机）') }}</option>
-            </select>
-            <span class="fn__space"></span>
-            <span>{{ t('fuzzyBand', '模糊区间') }}</span>
-            <input type="number" min="0" max="100" v-model.number="queueSettings.finalDrill.fuzzyBand" style="width: 90px;">
-          </div>
-          <p class="form-hint">{{ t('fuzzyBandHint', '当启用模糊优先级时，会在 [min, min+band] 区间内随机选卡。') }}</p>
         </div>
 
         <!-- TODO: 神经漫游队列配置UI - 等待新实现 -->
@@ -284,11 +270,7 @@ const queueCount = ref(props.queueCount || 0);
 const queueConfigError = ref('');
 
 const queueSettings = ref<QueueSettings>({
-  defaultQueue: 'final-drill',
-  finalDrill: {
-    priorityMode: 'strict',
-    fuzzyBand: 10,
-  },
+  defaultQueue: 'extraction',
   neuralWandering: {
     enabled: false,
     maxPool: 200,
@@ -342,10 +324,6 @@ function loadSettings() {
     queueSettings.value = {
       ...queueSettings.value,
       ...incoming,
-      finalDrill: {
-        ...queueSettings.value.finalDrill,
-        ...(incoming.finalDrill || {}),
-      },
       neuralWandering: {
         ...queueSettings.value.neuralWandering,
         ...(incoming.neuralWandering || {}),

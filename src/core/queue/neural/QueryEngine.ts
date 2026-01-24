@@ -9,7 +9,7 @@
 
 import * as api from '../../siyuan/api.ts';
 import { ATTR_CARD_ID } from '../../siyuan/block.ts';
-import { AssociationType, NeighborQueryResult, NeuralQueueConfig, NeuralBlockType, NeuralBlock } from './types.ts';
+import { AssociationType, NeighborQueryResult, NeuralQueueConfig, NeuralBlockType } from './types.ts';
 
 /**
  * 卡片数据接口
@@ -239,7 +239,6 @@ export class QueryEngine {
       const limit = this.config.queryLimits.tagCards;
 
       // 查询具有相同标签的其他闪卡
-      const tagsCondition = tags.map(tag => `'${this.escapeSQL(tag)}'`).join(',');
       const stmt = `
         SELECT DISTINCT b.id, 'tag' as type
         FROM blocks b
@@ -370,6 +369,7 @@ export class QueryEngine {
    * @returns 神经块类型
    */
   classifyBlock(siyuanBlockType: string, hasFlashcard: boolean): NeuralBlockType {
+    void siyuanBlockType;
     return hasFlashcard ? NeuralBlockType.FLASHCARD : NeuralBlockType.TOPIC;
   }
 

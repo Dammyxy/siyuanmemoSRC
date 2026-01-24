@@ -1,8 +1,9 @@
 import type { ComputedRef, Ref } from 'vue';
-import type { FsrsReviewMode } from '@/core/events';
+
+export type ReviewMode = 'standard' | 'drill' | 'neural';
 
 export interface ReviewSessionSnapshot {
-  mode: FsrsReviewMode;
+  mode: ReviewMode;
   action: 'rate' | 'skip';
   timestamp: number;
   cards: any[];
@@ -19,10 +20,10 @@ export interface ReviewSessionSnapshot {
   breadcrumbs: any[];
   pinnedBreadcrumbId: string;
   standardRated?: {
-    filterType: 'all' | 'doc' | 'notebook';
-    filterId: string;
     deckID: string;
     blockID: string;
+    filterType: 'all' | 'doc' | 'notebook';
+    filterId: string;
   };
 }
 

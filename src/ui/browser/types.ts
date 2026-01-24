@@ -29,12 +29,12 @@ export const STATE_COLORS: Record<CardState, string> = {
 /** 浏览器卡片数据结构 */
 export interface BrowserCard {
     id: string;              // Riff 卡片 ID
-    fsrsCardId?: string;     // custom-fsrs-card-id（插件内部卡片 ID，用于队列等）
+    fsrsCardId?: string;     // 块属性 custom-fsrs-card-id
     blockId: string;         // 块 ID
     deckId: string;          // 卡组 ID
-    rootId?: string;         // 文档 ID (blocks.root_id)
     content: string;         // 截断内容 (100字)
     fullContent?: string;    // 完整内容
+    rootId?: string;
 
     // FSRS 状态
     state: CardState;

@@ -8,7 +8,6 @@
  */
 
 import type { QueueInterface, QueueItem } from '../types.ts';
-import type { PersistenceAdapter } from '../persistence';
 import { HistoryFilter } from './HistoryFilter.ts';
 import { QueryEngine, CardData } from './QueryEngine.ts';
 import { WeightedWalkEngine } from './WeightedWalkEngine.ts';
@@ -20,15 +19,7 @@ import {
   NeuralContext,
 } from './types.ts';
 
-export interface NeuralQueueSnapshot {
-  items: QueueItem[];
-  history: string[];
-}
-
 export class NeuralQueue implements QueueInterface<QueueItem> {
-  private items: QueueItem[] = [];
-  private readonly persistence?: PersistenceAdapter<NeuralQueueSnapshot>;
-
   /** 历史过滤器 */
   private readonly historyFilter: HistoryFilter;
   
@@ -51,7 +42,6 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
   private previousCardId: string | null = null;
   
   /** 前一张卡片的关联类型 */
-  private previousAssociationType: AssociationType | null = null;
 
   /**
    * 构造函数
@@ -60,11 +50,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    * @param initialSeedId 用户指定的初始种子 ID（可选）
    * Requirements: 2.1, 4.2
    */
-  constructor(
-    config?: Partial<NeuralQueueConfig>,
-    initialSeedId?: string,
-    persistence?: PersistenceAdapter<NeuralQueueSnapshot>,
-  ) {
+  constructor(config?: Partial<NeuralQueueConfig>, initialSeedId?: string) {
     // 合并配置
     this.config = {
       ...DEFAULT_NEURAL_QUEUE_CONFIG,
@@ -93,18 +79,9 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       [AssociationType.SIBLING]: this.config.weights.sibling,
     });
 
-    this.persistence = persistence;
-
     // 保存用户指定的初始种子
     this.initialSeedId = initialSeedId || null;
     this.currentSeedId = this.initialSeedId;
-  }
-
-  async init(): Promise<void> {
-    const stored = await this.persistence?.load();
-    if (!stored) return;
-    this.items = Array.isArray(stored.items) ? stored.items : [];
-    this.restoreHistory(Array.isArray(stored.history) ? stored.history : []);
   }
 
   /**
@@ -113,26 +90,9 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    * @param item 队列项
    */
   async addItem(item: QueueItem): Promise<void> {
-    if (!item?.cardID) return;
-    if (this.items.some((x) => x.cardID === item.cardID)) return;
-    this.items.push(item);
-    await this.persistence?.save(this.snapshot());
-  }
-
-  async addItems(items: QueueItem[]): Promise<number> {
-    const next = [...this.items];
-    let added = 0;
-    for (const item of items || []) {
-      if (!item?.cardID) continue;
-      if (next.some((x) => x.cardID === item.cardID)) continue;
-      next.push(item);
-      added++;
-    }
-    if (added > 0) {
-      this.items = next;
-      await this.persistence?.save(this.snapshot());
-    }
-    return added;
+    void item;
+    // 神经队列通过漫游自动发现卡片，不支持手动添加
+    console.warn('[NeuralQueue] addItem is not supported in neural queue');
   }
 
   /**
@@ -143,10 +103,6 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    */
   async getNextItem(): Promise<QueueItem | null> {
     try {
-      if (this.items.length > 0) {
-        return this.items[0];
-      }
-
       // 1. 初始化种子（如果需要）
       if (!this.currentSeedId) {
         this.currentSeedId = await this.pickRandomSeed();
@@ -156,7 +112,6 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
         }
         // 第一张卡片没有前驱
         this.previousCardId = null;
-        this.previousAssociationType = null;
       }
 
       // 2. 获取当前种子的邻居
@@ -179,7 +134,6 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
         // 重置状态
         this.previousCardId = this.currentSeedId;
         this.currentSeedId = newSeed;
-        this.previousAssociationType = null;
         
         // 递归调用获取下一张卡片
         return this.getNextItem();
@@ -213,7 +167,6 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
 
       // 8. 更新状态
       this.previousCardId = this.currentSeedId;
-      this.previousAssociationType = selectedNeighbor.associationType;
       this.currentSeedId = selectedNeighbor.id;
       this.historyFilter.add(selectedNeighbor.id);
 
@@ -247,29 +200,9 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    * @returns 总是返回 false
    */
   async removeItem(item: QueueItem): Promise<boolean> {
-    const before = this.items.length;
-    this.items = this.items.filter((x) => x.cardID !== item?.cardID);
-    const removed = this.items.length !== before;
-    if (removed) {
-      await this.persistence?.save(this.snapshot());
-    }
-    return removed;
-  }
-
-  async removeItems(items: QueueItem[]): Promise<number> {
-    const removeSet = new Set((items || []).map((x) => x?.cardID).filter(Boolean) as string[]);
-    if (removeSet.size === 0) return 0;
-    const before = this.items.length;
-    this.items = this.items.filter((x) => !removeSet.has(x.cardID));
-    const removed = before - this.items.length;
-    if (removed > 0) {
-      await this.persistence?.save(this.snapshot());
-    }
-    return removed;
-  }
-
-  getAllItems(): QueueItem[] {
-    return [...this.items];
+    void item;
+    console.warn('[NeuralQueue] removeItem is not supported in neural queue');
+    return false;
   }
 
   /**
@@ -278,7 +211,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    * @returns 历史记录大小
    */
   size(): number {
-    return this.items.length;
+    return this.historyFilter.size();
   }
 
   /**
@@ -287,7 +220,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    * @returns 总是返回 false
    */
   isEmpty(): boolean {
-    return this.items.length === 0;
+    return false;
   }
 
   /**
@@ -297,7 +230,6 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     this.historyFilter.clear();
     this.currentSeedId = this.initialSeedId;
     this.previousCardId = null;
-    this.previousAssociationType = null;
   }
 
   /**
@@ -312,13 +244,6 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    */
   restoreHistory(snapshot: string[]): void {
     this.historyFilter.restore(snapshot);
-  }
-
-  snapshot(): NeuralQueueSnapshot {
-    return {
-      items: [...this.items],
-      history: this.getHistorySnapshot(),
-    };
   }
 
   /**

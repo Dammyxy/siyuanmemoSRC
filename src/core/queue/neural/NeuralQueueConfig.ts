@@ -143,6 +143,14 @@ export class NeuralQueueConfigManager {
         tag: config.weights?.tag ?? DEFAULT_NEURAL_QUEUE_CONFIG.weights.tag,
         sibling: config.weights?.sibling ?? DEFAULT_NEURAL_QUEUE_CONFIG.weights.sibling,
       },
+      blockWeights: {
+        flashcard: config.blockWeights?.flashcard ?? DEFAULT_NEURAL_QUEUE_CONFIG.blockWeights.flashcard,
+        topic: {
+          heading: config.blockWeights?.topic?.heading ?? DEFAULT_NEURAL_QUEUE_CONFIG.blockWeights.topic.heading,
+          paragraph: config.blockWeights?.topic?.paragraph ?? DEFAULT_NEURAL_QUEUE_CONFIG.blockWeights.topic.paragraph,
+          listItem: config.blockWeights?.topic?.listItem ?? DEFAULT_NEURAL_QUEUE_CONFIG.blockWeights.topic.listItem,
+        },
+      },
       queryLimits: {
         contextCards: config.queryLimits?.contextCards ?? DEFAULT_NEURAL_QUEUE_CONFIG.queryLimits.contextCards,
         tagCards: config.queryLimits?.tagCards ?? DEFAULT_NEURAL_QUEUE_CONFIG.queryLimits.tagCards,
@@ -150,6 +158,14 @@ export class NeuralQueueConfigManager {
       features: {
         enableTagAssociation: config.features?.enableTagAssociation ?? DEFAULT_NEURAL_QUEUE_CONFIG.features.enableTagAssociation,
         enableSiblingAssociation: config.features?.enableSiblingAssociation ?? DEFAULT_NEURAL_QUEUE_CONFIG.features.enableSiblingAssociation,
+      },
+      topicMode: {
+        enabled: config.topicMode?.enabled ?? DEFAULT_NEURAL_QUEUE_CONFIG.topicMode.enabled,
+        minContentLength: config.topicMode?.minContentLength ?? DEFAULT_NEURAL_QUEUE_CONFIG.topicMode.minContentLength,
+        maxContentLength: config.topicMode?.maxContentLength ?? DEFAULT_NEURAL_QUEUE_CONFIG.topicMode.maxContentLength,
+        allowedBlockTypes: config.topicMode?.allowedBlockTypes ?? DEFAULT_NEURAL_QUEUE_CONFIG.topicMode.allowedBlockTypes,
+        excludePaths: config.topicMode?.excludePaths ?? DEFAULT_NEURAL_QUEUE_CONFIG.topicMode.excludePaths,
+        qualityThreshold: config.topicMode?.qualityThreshold ?? DEFAULT_NEURAL_QUEUE_CONFIG.topicMode.qualityThreshold,
       },
       fsrsIntegration: config.fsrsIntegration ?? DEFAULT_NEURAL_QUEUE_CONFIG.fsrsIntegration,
     };

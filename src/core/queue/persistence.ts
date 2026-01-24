@@ -4,7 +4,7 @@ export interface PersistenceAdapter<TSnapshot> {
   clear(): Promise<void>;
 }
 
-export interface PersistableQueue<TItem, TSnapshot> {
+export interface PersistableQueue<TSnapshot> {
   snapshot(): TSnapshot;
   restore(snapshot: TSnapshot): void;
   onAfterMutate?(): Promise<void> | void;

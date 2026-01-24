@@ -1,35 +1,30 @@
 <template>
-  <div class="fn__flex-column" style="height: 100%; gap: 12px; padding: 12px;">
-    <div v-if="description" class="ft__breakword">{{ description }}</div>
-
-    <div class="fn__flex" style="align-items: center; gap: 8px;">
-      <label class="ft__nowrap">{{ label }}</label>
-      <input
-        ref="inputRef"
-        class="b3-text-field fn__block"
-        type="number"
-        :min="min"
-        :max="max"
-        :step="step"
-        v-model="rawValue"
-        @click.stop
-        @keydown.stop="handleKeydown"
-      />
-      <span v-if="unit" class="ft__nowrap">{{ unit }}</span>
+  <div class="fsrs-action-params">
+    <div class="b3-form">
+      <div v-if="description" class="b3-form__desc">{{ description }}</div>
+      <label class="b3-form__label">{{ label }}</label>
+      <div class="fsrs-action-params__row">
+        <input
+          class="b3-text-field"
+          type="number"
+          v-model="rawValue"
+          :min="min"
+          :max="max"
+          :step="step"
+          @keydown.enter.prevent="handleConfirm"
+        />
+        <span v-if="unit" class="ft__secondary fsrs-action-params__unit">{{ unit }}</span>
+      </div>
     </div>
-
-    <div v-if="errorText" class="ft__error">{{ errorText }}</div>
-
     <div class="b3-dialog__action">
-      <button class="b3-button b3-button--cancel" @click="emitCancel">{{ cancelText }}</button>
-      <div class="fn__space"></div>
-      <button class="b3-button b3-button--text" @click="emitConfirm">{{ confirmText }}</button>
+      <button class="b3-button b3-button--cancel" @click="emit('cancel')">{{ cancelText }}</button>
+      <button class="b3-button b3-button--text" @click="handleConfirm">{{ confirmText }}</button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { ref } from 'vue';
 
 const props = defineProps<{
   label: string;
@@ -40,8 +35,8 @@ const props = defineProps<{
   max?: number;
   step?: number;
   integer?: boolean;
-  confirmText?: string;
-  cancelText?: string;
+  confirmText: string;
+  cancelText: string;
 }>();
 
 const emit = defineEmits<{
@@ -49,60 +44,32 @@ const emit = defineEmits<{
   (e: 'cancel'): void;
 }>();
 
-const inputRef = ref<HTMLInputElement | null>(null);
-const rawValue = ref<string>(String(props.defaultValue ?? ''));
+const rawValue = ref(String(props.defaultValue ?? ''));
 
-const confirmText = computed(() => props.confirmText || 'Confirm');
-const cancelText = computed(() => props.cancelText || 'Cancel');
-
-const errorText = ref('');
-
-function validate(): number | null {
+function handleConfirm() {
   const n = Number(rawValue.value);
-  if (!Number.isFinite(n)) {
-    errorText.value = '请输入有效数字';
-    return null;
-  }
+  if (!Number.isFinite(n)) return;
   let v = n;
-  if (props.integer !== false) {
-    v = Math.round(v);
-  }
-  if (typeof props.min === 'number' && v < props.min) v = props.min;
-  if (typeof props.max === 'number' && v > props.max) v = props.max;
-  errorText.value = '';
-  return v;
-}
-
-function emitConfirm() {
-  const v = validate();
-  if (v == null) return;
+  if (props.integer) v = Math.trunc(v);
+  if (typeof props.min === 'number') v = Math.max(props.min, v);
+  if (typeof props.max === 'number') v = Math.min(props.max, v);
   emit('confirm', v);
 }
-
-function emitCancel() {
-  emit('cancel');
-}
-
-function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    emitConfirm();
-    return;
-  }
-  if (e.key === 'Escape') {
-    e.preventDefault();
-    emitCancel();
-  }
-}
-
-onMounted(() => {
-  nextTick(() => {
-    setTimeout(() => {
-      try {
-        inputRef.value?.focus();
-        inputRef.value?.select?.();
-      } catch {}
-    }, 0);
-  });
-});
 </script>
+
+<style scoped>
+.fsrs-action-params {
+  padding: 16px;
+}
+
+.fsrs-action-params__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fsrs-action-params__unit {
+  white-space: nowrap;
+}
+</style>
+

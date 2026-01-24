@@ -1928,18 +1928,7 @@ function handleMore(e: MouseEvent) {
         const due = new Date();
         due.setDate(due.getDate() + days);
         const dueStr = due.toISOString().replace(/[-:]/g, '').replace('T', '').split('.')[0];
-        const rawCardID = String((card as any)?.cardID || '');
-        const blockID = String((card as any)?.blockID || '');
-        let riffCardID = rawCardID;
-        if (!/^\d{19}$/.test(riffCardID) && blockID) {
-          try {
-            const blocks = await riff.getRiffCardsByBlockIDs([blockID]);
-            const resolved = String((blocks?.[0] as any)?.riffCard?.id || '');
-            if (resolved) riffCardID = resolved;
-          } catch {}
-        }
-        console.log('[FSRS] setDueTime cardID:', rawCardID, 'resolved:', riffCardID, 'blockID:', blockID, 'mode:', props.practiceMode);
-        await riff.batchSetRiffCardsDueTime([{ id: riffCardID, due: dueStr }]);
+        await riff.batchSetRiffCardsDueTime([{ id: card.cardID, due: dueStr }]);
         handleSkip();
       }
     }

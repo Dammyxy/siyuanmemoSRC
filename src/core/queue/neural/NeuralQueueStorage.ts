@@ -6,7 +6,7 @@
  * Requirements: 10.6
  */
 
-import { NeuralQueueConfig, NeuralQueueState } from './types.ts';
+import { NeuralQueueConfig } from './types.ts';
 import { NeuralQueueConfigManager } from './NeuralQueueConfig.ts';
 
 /**

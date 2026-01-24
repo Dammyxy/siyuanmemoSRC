@@ -4,7 +4,6 @@
  */
 
 import * as api from './api.ts';
-import type { FSRSCard } from '../../types/index.ts';
 
 /** 块属性前缀 */
 export const ATTR_PREFIX = 'custom-fsrs-';

@@ -70,11 +70,7 @@ export interface FilterGroupDefinition {
 }
 
 export interface QueueSettings {
-    defaultQueue: 'retrieval-practice' | 'final-drill' | 'neural-wandering' | 'filter-group';
-    finalDrill?: {
-        priorityMode?: 'strict' | 'fuzzy';
-        fuzzyBand?: number;
-    };
+    defaultQueue: 'extraction' | 'deliberate' | 'neural-wandering' | 'filter-group';
     neuralWandering: {
         enabled: boolean;
         maxPool: number;
@@ -171,11 +167,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
         shuffleCards: true,
     },
     queues: {
-        defaultQueue: 'final-drill',
-        finalDrill: {
-            priorityMode: 'strict',
-            fuzzyBand: 10,
-        },
+        defaultQueue: 'extraction',
         neuralWandering: {
             enabled: false,
             maxPool: 200,

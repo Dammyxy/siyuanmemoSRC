@@ -20,11 +20,11 @@ export class StandardReviewState implements ReviewSessionState {
   }
 
   shouldShowAnswerBtn(): boolean {
-    return this.ctx.totalCards.value > 0 && this.ctx.hideAnswer.value;
+    return this.ctx.hideAnswer.value === true;
   }
 
   shouldShowRatingBtns(): boolean {
-    return this.ctx.totalCards.value > 0 && !this.ctx.hideAnswer.value;
+    return this.ctx.hideAnswer.value === false;
   }
 
   async onRating(rating: 1 | 2 | 3 | 4): Promise<void> {

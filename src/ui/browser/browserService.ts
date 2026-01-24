@@ -5,7 +5,7 @@
 import { riff } from '@/core/siyuan';
 
 const { BUILTIN_DECK_ID } = riff;
-import { pushErrMsg, sql, setBlockAttrs } from '@/core/siyuan/api';
+import { sql, setBlockAttrs } from '@/core/siyuan/api';
 import { ATTR_CARD_ID } from '@/core/siyuan/block';
 import {
     type BrowserCard,
@@ -15,7 +15,6 @@ import {
     formatDate,
     truncateContent
 } from './types';
-import type { CardRow } from './datasource/types';
 
 /** 自定义属性名 */
 const ATTR_PRIORITY = 'custom-fsrs-priority';
@@ -113,7 +112,7 @@ function parseSiyuanTime(timeStr: string | undefined): Date | null {
         const h = parseInt(timeStr.slice(8, 10));
         const min = parseInt(timeStr.slice(10, 12));
         const s = parseInt(timeStr.slice(12, 14));
-        return new Date(y, m, d, h, min, s);
+        return new Date(Date.UTC(y, m, d, h, min, s));
     }
 
     // 2. ISO 格式: 2026-01-21T05:17:35+08:00 -> Date
@@ -127,13 +126,13 @@ function parseSiyuanTime(timeStr: string | undefined): Date | null {
 
 /** 格式化为思源时间格式 */
 function formatSiyuanTime(date: Date): string {
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+    return date.toISOString().replace(/[-:]/g, '').replace('T', '').split('.')[0];
 }
 
 /** 将 Riff Block 转换为浏览器卡片 */
 function transformRiffBlock(block: any, customAttrs: Record<string, string>): BrowserCard {
     const riffCard = block.riffCard || {};
+    const realCardId = String(block?.riffCardID || block?.riffCardId || riffCard?.id || '');
     const state = (riffCard.state ?? 0) as CardState;
     const due = parseSiyuanTime(riffCard.due) ?? new Date();
     const lastReview = parseSiyuanTime(riffCard.lastReview);
@@ -149,7 +148,7 @@ function transformRiffBlock(block: any, customAttrs: Record<string, string>): Br
     }
 
     return {
-        id: riffCard.id || '',
+        id: realCardId,
         fsrsCardId: customAttrs[ATTR_CARD_ID] || '',
         blockId: block.id,
         deckId: riffCard.deckID || BUILTIN_DECK_ID,
@@ -251,7 +250,7 @@ export async function loadCards(
         // 获取自定义属性
         let attrsMap = new Map<string, Record<string, string>>();
         if (blockIds.length > 0) {
-            const attrsResult = await sql(`
+        const attrsResult = await sql(`
         SELECT block_id, name, value 
         FROM attributes 
         WHERE block_id IN (${blockIds.map(id => `'${escapeSQL(id)}'`).join(',')})
@@ -420,18 +419,54 @@ export async function batchReschedule(
 ): Promise<number> {
     if (cards.length === 0) return 0;
 
+    const newDue = mode === 'absolute'
+        ? (value as Date)
+        : new Date(Date.now() + (value as number) * 24 * 60 * 60 * 1000);
+
+    const dueStr = formatSiyuanTime(newDue);
+
+    const resolveRiffCardIdsByBlockIds = async (blockIds: string[]): Promise<Map<string, string>> => {
+        const map = new Map<string, string>();
+        const ids = Array.from(new Set((blockIds || []).map(x => String(x || '')).filter(Boolean)));
+        if (ids.length === 0) return map;
+
+        const fetchOnce = async (batchIds: string[]) => {
+            const blocks = await riff.getRiffCardsByBlockIDs(batchIds);
+            for (const b of blocks as any[]) {
+                const blockID = String(b?.id || '');
+                const riffCardID = String(b?.riffCardID || b?.riffCardId || b?.riffCard?.id || '');
+                if (blockID && riffCardID) map.set(blockID, riffCardID);
+            }
+        };
+
+        for (let i = 0; i < ids.length; i += 200) {
+            await fetchOnce(ids.slice(i, i + 200));
+        }
+
+        const pending = ids.filter((bid) => !map.has(bid));
+        if (pending.length === 0) return map;
+
+        for (let i = 0; i < pending.length; i += 200) {
+            await riff.addRiffCards(BUILTIN_DECK_ID, pending.slice(i, i + 200));
+        }
+
+        for (let i = 0; i < pending.length; i += 200) {
+            await fetchOnce(pending.slice(i, i + 200));
+        }
+
+        return map;
+    };
+
+    const missingBlockIds = cards.filter(c => !c.id && c.blockId).map(c => c.blockId);
+    const resolved = missingBlockIds.length > 0 ? await resolveRiffCardIdsByBlockIds(missingBlockIds) : new Map<string, string>();
+
     // 构建批量更新数据
-    const cardDues = mode === 'absolute'
-        ? cards
-            .filter(c => c.id)
-            .map(c => ({ id: c.id, due: formatSiyuanTime(value as Date) }))
-        : cards
-            .filter(c => c.id)
-            .map(c => {
-                const baseDue = c?.due instanceof Date ? c.due : new Date();
-                const due = new Date(baseDue.getTime() + (value as number) * 24 * 60 * 60 * 1000);
-                return { id: c.id, due: formatSiyuanTime(due) };
-            });
+    const cardDues = cards
+        .map(c => {
+            const id = c.id || resolved.get(c.blockId) || '';
+            return { id, due: dueStr };
+        })
+        .filter(x => x.id); // 确保有卡片 ID
 
     if (cardDues.length === 0) return 0;
 
@@ -442,24 +477,6 @@ export async function batchReschedule(
         console.error('[CardBrowser] Batch reschedule error:', err);
         return 0;
     }
-}
-
-
-
-
-
-/**
- * @deprecated Use RescheduleService.advance instead
- */
-export async function batchAdvance(rows: any[], maxDays: number): Promise<{ count: number; skipped: number }> {
-    return { count: 0, skipped: 0 };
-}
-
-/**
- * @deprecated Use RescheduleService.postpone instead
- */
-export async function batchPostpone(rows: any[], days: number): Promise<{ count: number; skipped: number }> {
-    return { count: 0, skipped: 0 };
 }
 
 /** 批量重置为新卡 */
@@ -525,4 +542,3 @@ export async function batchDelete(blockIds: string[]): Promise<number> {
         return 0;
     }
 }
-

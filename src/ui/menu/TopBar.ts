@@ -88,7 +88,7 @@ export class TopBarManager {
             label: this.plugin.i18n?.startReview || '开始提取练习',
             accelerator: 'Alt+R',
             click: () => {
-                this.plugin.openRetrievalPracticeDialog();
+                this.plugin.openReviewDialog();
             },
         });
 
@@ -97,7 +97,7 @@ export class TopBarManager {
             label: this.plugin.i18n?.startQueuePractice || '开始队列练习',
             accelerator: 'Alt+D',
             click: () => {
-                this.plugin.openFinalDrillDialog();
+                this.plugin.openDrillDialog();
             },
         });
 
@@ -114,7 +114,7 @@ export class TopBarManager {
             icon: 'iconCards',
             label: this.plugin.i18n?.startDeliberatePractice || '开始刻意练习',
             click: () => {
-                this.plugin.openFinalDrillDialog();
+                this.plugin.openDeliberatePracticeDialog();
             },
         });
 

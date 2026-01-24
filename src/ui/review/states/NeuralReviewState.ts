@@ -1,5 +1,4 @@
 import type { ReviewSessionState, ReviewSessionStateContext } from './types';
-import { NeuralTopArea } from '../components/NeuralTopArea';
 
 export class NeuralReviewState implements ReviewSessionState {
   private readonly ctx: ReviewSessionStateContext;
@@ -13,7 +12,7 @@ export class NeuralReviewState implements ReviewSessionState {
   }
 
   getTopAreaComponent(): any {
-    return NeuralTopArea;
+    return null;
   }
 
   getOverlayComponent(): any {
@@ -21,13 +20,11 @@ export class NeuralReviewState implements ReviewSessionState {
   }
 
   shouldShowAnswerBtn(): boolean {
-    if (this.ctx.isTopicMode.value) return false;
-    return this.ctx.totalCards.value > 0 && this.ctx.hideAnswer.value;
+    return this.ctx.hideAnswer.value === true;
   }
 
   shouldShowRatingBtns(): boolean {
-    if (this.ctx.isTopicMode.value) return false;
-    return this.ctx.totalCards.value > 0 && !this.ctx.hideAnswer.value;
+    return this.ctx.hideAnswer.value === false;
   }
 
   async onRating(rating: 1 | 2 | 3 | 4): Promise<void> {
