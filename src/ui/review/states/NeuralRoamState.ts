@@ -1,6 +1,6 @@
 import type { ReviewSessionState, ReviewSessionStateContext } from './types';
 
-export class NeuralReviewState implements ReviewSessionState {
+export class NeuralRoamState implements ReviewSessionState {
   private readonly ctx: ReviewSessionStateContext;
 
   constructor(ctx: ReviewSessionStateContext) {

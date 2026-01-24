@@ -4,6 +4,7 @@
  */
 
 import * as api from './api.ts';
+import { buildCardBlockIdStmt } from './cardBlockSql.ts';
 
 /** 块属性前缀 */
 export const ATTR_PREFIX = 'custom-fsrs-';
@@ -96,15 +97,27 @@ export async function getAllCardBlockIds(): Promise<string[]> {
     return blocks.map(b => b.id);
 }
 
+export type CardBlockIdFilter = {
+    type: 'doc' | 'tree' | 'sql' | 'backlink';
+    value: string;
+};
+
+export async function getCardBlockIds(filter: CardBlockIdFilter): Promise<string[]> {
+    const type = filter?.type;
+    const value = String(filter?.value || '');
+    if (!value) return [];
+    if (type === 'doc') return getCardBlocksInDoc(value);
+    if (type === 'tree') return getCardBlocksInDocTree(value);
+    if (type === 'backlink') return getCardBlocksByBacklink(value);
+    if (type === 'sql') return getCardBlocksBySql(value);
+    return [];
+}
+
 /**
  * 根据文档 ID 获取其下所有闪卡块
  */
 export async function getCardBlocksInDoc(docId: string): Promise<string[]> {
-    const stmt = `
-    SELECT b.id FROM blocks b
-    INNER JOIN attributes a ON b.id = a.block_id
-    WHERE b.root_id = '${docId}' AND a.name = '${ATTR_CARD_ID}' AND a.value != ''
-  `;
+    const stmt = buildCardBlockIdStmt({ type: 'doc', docId });
     const blocks = await api.sql(stmt);
     return blocks.map(b => b.id);
 }
@@ -121,14 +134,7 @@ export async function getCardBlocksInDocTree(docId: string): Promise<string[]> {
     const box = docInfo.box;
 
     // 查询该路径下所有文档的闪卡
-    const stmt = `
-    SELECT b.id FROM blocks b
-    INNER JOIN attributes a ON b.id = a.block_id
-    WHERE b.box = '${box}' 
-      AND b.path LIKE '${path}%'
-      AND a.name = '${ATTR_CARD_ID}' 
-      AND a.value != ''
-  `;
+    const stmt = buildCardBlockIdStmt({ type: 'tree', box, pathPrefix: path });
     const blocks = await api.sql(stmt);
     return blocks.map(b => b.id);
 }
@@ -137,14 +143,7 @@ export async function getCardBlocksInDocTree(docId: string): Promise<string[]> {
  * 获取块的反向链接中的闪卡
  */
 export async function getCardBlocksByBacklink(blockId: string): Promise<string[]> {
-    const stmt = `
-    SELECT b.id FROM blocks b
-    INNER JOIN refs r ON b.id = r.block_id
-    INNER JOIN attributes a ON b.id = a.block_id
-    WHERE r.def_block_id = '${blockId}'
-      AND a.name = '${ATTR_CARD_ID}'
-      AND a.value != ''
-  `;
+    const stmt = buildCardBlockIdStmt({ type: 'backlink', defBlockId: blockId });
     const blocks = await api.sql(stmt);
     return blocks.map(b => b.id);
 }
@@ -154,11 +153,7 @@ export async function getCardBlocksByBacklink(blockId: string): Promise<string[]
  */
 export async function getCardBlocksBySql(customSql: string): Promise<string[]> {
     // 将用户 SQL 包装为获取闪卡的查询
-    const stmt = `
-    SELECT b.id FROM (${customSql}) b
-    INNER JOIN attributes a ON b.id = a.block_id
-    WHERE a.name = '${ATTR_CARD_ID}' AND a.value != ''
-  `;
+    const stmt = buildCardBlockIdStmt({ type: 'sql', stmt: customSql });
     const blocks = await api.sql(stmt);
     return blocks.map(b => b.id);
 }

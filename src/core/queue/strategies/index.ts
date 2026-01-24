@@ -1,5 +1,7 @@
 export { FilterGroupQueue } from './FilterGroupQueue';
 export { ExtractionPracticeQueue } from './ExtractionPracticeQueue';
-export { DeliberatePracticeQueue } from './DeliberatePracticeQueue';
+export { FinalDrillQueue } from './FinalDrillQueue';
+export { RetrievalPracticeQueue } from './RetrievalPracticeQueue';
+export { NeuralRoamQueue } from './NeuralRoamQueue';
 export { SubsetPracticeStrategy } from './SubsetPracticeStrategy';
-
+export { LeechQueue } from './LeechQueue';

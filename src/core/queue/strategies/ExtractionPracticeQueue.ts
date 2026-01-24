@@ -1,5 +1,5 @@
 import type { StorageManager } from '@/core/storage';
-import type { QueueInterface, QueueItem } from '../types';
+import type { QueueInterface, QueueItem } from '../types.ts';
 
 export class ExtractionPracticeQueue implements QueueInterface<QueueItem> {
   private readonly storage: StorageManager;
@@ -51,4 +51,3 @@ export class ExtractionPracticeQueue implements QueueInterface<QueueItem> {
     return this.size() === 0;
   }
 }
-

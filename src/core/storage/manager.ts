@@ -7,6 +7,8 @@
 import type { FSRSCard, ReviewLog, PluginSettings, RescheduleLog } from '@/types';
 import { DEFAULT_SETTINGS } from '@/types';
 import * as siyuanApi from '@/core/siyuan/api';
+import { ATTR_PRIORITY } from '@/core/siyuan/block';
+import { clampPriority, DEFAULT_PRIORITY } from '@/core/queue/abstraction/IPriority';
 
 /** 存储文件名 */
 const STORAGE_FILES = {
@@ -25,6 +27,7 @@ export class StorageManager {
     private settings: PluginSettings = DEFAULT_SETTINGS;
     private isDirty: boolean = false;
     private practiceQueue: any[] = [];
+    private practiceQueueLastAutoSortDay = '';
 
     constructor(pluginName: string) {
         this.basePath = siyuanApi.getPluginDataPath(pluginName);
@@ -64,6 +67,9 @@ export class StorageManager {
             const data = await this.readPluginData(STORAGE_FILES.SETTINGS);
             if (data) {
                 this.settings = { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
+                const dq = (this.settings as any)?.queues?.defaultQueue;
+                if (dq === 'deliberate') (this.settings as any).queues.defaultQueue = 'final-drill';
+                if (dq === 'neural-wandering') (this.settings as any).queues.defaultQueue = 'neural-roam';
             }
         } catch (err) {
             console.warn('[FSRS] Failed to load settings, using defaults:', err);
@@ -292,18 +298,80 @@ export class StorageManager {
         try {
             const data = await this.readPluginData(STORAGE_FILES.PRACTICE_QUEUE);
             if (data) {
-                this.practiceQueue = JSON.parse(data);
+                const parsed = JSON.parse(data);
+                if (Array.isArray(parsed)) {
+                    this.practiceQueue = parsed;
+                    this.practiceQueueLastAutoSortDay = '';
+                } else if (parsed && typeof parsed === 'object') {
+                    this.practiceQueue = Array.isArray((parsed as any).items) ? (parsed as any).items : [];
+                    this.practiceQueueLastAutoSortDay = String((parsed as any).lastAutoSortDay || '');
+                } else {
+                    this.practiceQueue = [];
+                    this.practiceQueueLastAutoSortDay = '';
+                }
             } else {
                 this.practiceQueue = [];
+                this.practiceQueueLastAutoSortDay = '';
             }
         } catch (err) {
             console.warn('[FSRS] Failed to load practice queue:', err);
             this.practiceQueue = [];
+            this.practiceQueueLastAutoSortDay = '';
         }
+        await this.autoSortPracticeQueueIfNeeded();
     }
 
     private async savePracticeQueue(): Promise<void> {
-        await this.writePluginData(STORAGE_FILES.PRACTICE_QUEUE, JSON.stringify(this.practiceQueue, null, 2));
+        const payload = { items: this.practiceQueue, lastAutoSortDay: this.practiceQueueLastAutoSortDay };
+        await this.writePluginData(STORAGE_FILES.PRACTICE_QUEUE, JSON.stringify(payload, null, 2));
+    }
+
+    private async autoSortPracticeQueueIfNeeded(): Promise<void> {
+        const today = new Date().toISOString().slice(0, 10);
+        if (today === this.practiceQueueLastAutoSortDay) return;
+        if (!Array.isArray(this.practiceQueue) || this.practiceQueue.length <= 1) {
+            this.practiceQueueLastAutoSortDay = today;
+            await this.savePracticeQueue();
+            return;
+        }
+        const blockIds = this.practiceQueue
+            .map((x) => String((x as any)?.blockID || (x as any)?.blockId || ''))
+            .filter(Boolean);
+        const priMap = await this.getPrioritiesByBlockIDs(blockIds).catch(() => new Map<string, number>());
+        const keyed = this.practiceQueue.map((it, idx) => {
+            const bid = String((it as any)?.blockID || (it as any)?.blockId || '');
+            const p = clampPriority(priMap.get(bid), DEFAULT_PRIORITY);
+            return { it, idx, p };
+        });
+        keyed.sort((a, b) => {
+            if (a.p !== b.p) return a.p - b.p;
+            return a.idx - b.idx;
+        });
+        this.practiceQueue = keyed.map((x) => x.it);
+        this.practiceQueueLastAutoSortDay = today;
+        await this.savePracticeQueue();
+    }
+
+    private async getPrioritiesByBlockIDs(blockIDs: string[]): Promise<Map<string, number>> {
+        const ids = Array.from(new Set((blockIDs || []).map((x) => String(x || '')).filter(Boolean)));
+        const out = new Map<string, number>();
+        if (ids.length === 0) return out;
+        for (let i = 0; i < ids.length; i += 200) {
+            const batch = ids.slice(i, i + 200);
+            const inList = batch.map((id) => `'${this.escapeSQL(id)}'`).join(',');
+            const stmt = `SELECT block_id, value FROM attributes WHERE name = '${ATTR_PRIORITY}' AND block_id IN (${inList})`;
+            const rows = await siyuanApi.sql(stmt).catch(() => []);
+            for (const r of rows as any[]) {
+                const bid = String(r?.block_id || r?.blockId || '');
+                if (!bid) continue;
+                out.set(bid, clampPriority(r?.value, DEFAULT_PRIORITY));
+            }
+        }
+        return out;
+    }
+
+    private escapeSQL(value: string): string {
+        return String(value || '').replace(/'/g, "''");
     }
 
     // ==================== 底层 API ====================

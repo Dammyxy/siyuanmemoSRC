@@ -1,4 +1,4 @@
-export type QueueId = 'extraction' | 'deliberate' | 'neural-wandering' | 'filter-group';
+export type QueueId = 'extraction' | 'final-drill' | 'neural-roam' | 'filter-group';
 
 export interface QueueInterface<TItem> {
   addItem(item: TItem): Promise<void> | void;
@@ -41,6 +41,7 @@ export interface QueueState {
 export type QueueStats = {
   size: number;
   label?: string;
+  extra?: string;
 };
 
 export type QueueUIConfig = {
@@ -53,5 +54,5 @@ export type QueueUIConfig = {
     icon?: string;
     danger?: boolean;
   }>;
+  menuCommands?: IQueueCommand<any>[]; // Context Menu Commands
 };
-

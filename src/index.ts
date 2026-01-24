@@ -15,7 +15,7 @@ import { StorageManager } from '@/core/storage';
 import { createScheduler, type SchedulerEngineAdapter } from '@/core/scheduler';
 import { RescheduleService } from '@/core/scheduler/rescheduleService';
 import { riff } from '@/core/siyuan';
-import { markBlockAsCard, unmarkBlockAsCard, ATTR_CARD_ID, getCardBlocksInDocTree, getCardBlocksInDoc, getCardBlocksBySql } from '@/core/siyuan/block';
+import { markBlockAsCard, unmarkBlockAsCard, ATTR_CARD_ID, getCardBlockIds } from '@/core/siyuan/block';
 import { getRiffCardsByBlockIDs } from '@/core/siyuan/riff';
 import { pushErrMsg, pushMsg, sql } from '@/core/siyuan/api';
 import { ReviewPanel } from '@/ui/review';
@@ -27,7 +27,7 @@ import { createVueDialog } from '@/utils/dialog';
 import { createDefaultCard } from '@/types';
 import '@/index.scss';
 import { ConsoleQueueMonitor, QueueContext, StorageFileJsonAdapter, type QueueItem } from '@/core/queue';
-import { DeliberatePracticeQueue, ExtractionPracticeQueue, FilterGroupQueue, SubsetPracticeStrategy } from '@/core/queue/strategies';
+import { ExtractionPracticeQueue, FilterGroupQueue, FinalDrillQueue, NeuralRoamQueue, RetrievalPracticeQueue, SubsetPracticeStrategy, LeechQueue } from '@/core/queue/strategies';
 import { NeuralQueue, NeuralQueueStorage } from '@/core/queue/neural';
 
 type PracticeQueueFilter = { type: 'doc' | 'tree' | 'sql'; value: string };
@@ -44,7 +44,7 @@ export default class FSRSPlugin extends Plugin {
   private queueContext!: QueueContext<QueueItem>;
   private extractionQueue!: ExtractionPracticeQueue;
   public neuralQueue!: NeuralQueue;
-  public finalDrillQueue!: DeliberatePracticeQueue;
+  public finalDrillQueue!: FinalDrillQueue;
   public filterGroupQueue!: FilterGroupQueue;
 
   private TAB_TYPE = 'plugin-fsrs-card-browser';
@@ -124,14 +124,14 @@ export default class FSRSPlugin extends Plugin {
       await filterGroupQueue.init();
       this.filterGroupQueue = filterGroupQueue;
       this.queueContext.register('filter-group', this.filterGroupQueue);
-      this.finalDrillQueue = new DeliberatePracticeQueue(this.storage);
+      this.finalDrillQueue = new FinalDrillQueue(this.storage);
       await this.finalDrillQueue.init();
-      this.queueContext.register('deliberate', this.finalDrillQueue);
+      this.queueContext.register('final-drill', this.finalDrillQueue);
 
       // 初始化神经漫游队列
       const neuralConfig = NeuralQueueStorage.loadConfig();
       this.neuralQueue = new NeuralQueue(neuralConfig);
-      this.queueContext.register('neural-wandering', this.neuralQueue);
+      this.queueContext.register('neural-roam', this.neuralQueue);
 
       // 初始化调度器
       this.scheduler = createScheduler(settings.fsrs, settings.schedulerEngine);
@@ -271,7 +271,16 @@ export default class FSRSPlugin extends Plugin {
       label: this.i18n?.startNeuralReview || '开始神经复习',
       accelerator: 'Alt+N',
       click: () => {
-        this.openNeuralReviewDialog();
+        this.openNeuralRoamDialog();
+      },
+    });
+
+    menu.addItem({
+      icon: 'iconBug',
+      label: (this.i18n as any)?.startLeechPractice || '开始难点攻坚',
+      accelerator: 'Alt+L',
+      click: () => {
+        this.openLeechReviewDialog();
       },
     });
 
@@ -448,29 +457,19 @@ export default class FSRSPlugin extends Plugin {
     }
 
     try {
-      // 获取思源原生到期卡片
-      const dueData = await riff.getRiffDueCards(riff.BUILTIN_DECK_ID);
-      const cards = dueData?.cards || [];
-
-      console.log(`[FSRS] Found ${cards.length} due cards from riff`);
-
       // 创建复习对话框
+      const session = new RetrievalPracticeQueue({ deckID: riff.BUILTIN_DECK_ID });
       this.reviewDialog = createVueDialog({
-        title: cards.length > 0
-          ? (this.i18n?.reviewTitleWithCount || 'FSRS 复习 ({n} 张待复习)').replace('{n}', String(cards.length))
-          : (this.i18n?.reviewTitle || 'FSRS 复习'),
+        title: this.i18n?.reviewTitle || 'FSRS 复习',
         component: ReviewPanel,
         props: {
-          cards: cards,
+          cards: [],
           deckID: riff.BUILTIN_DECK_ID,
           app: this.app,
           i18n: this.i18n || {},
-          onRating: async (cardID: string, rating: 1 | 2 | 3 | 4) => {
-            await riff.reviewRiffCard(riff.BUILTIN_DECK_ID, cardID, rating);
-          },
-          onSkip: async (cardID: string) => {
-            await riff.skipReviewRiffCard(riff.BUILTIN_DECK_ID, cardID);
-          },
+          drillMode: true,
+          practiceMode: 'retrieval-practice',
+          queueSession: session as any,
         },
         events: {
           close: () => {
@@ -508,20 +507,68 @@ export default class FSRSPlugin extends Plugin {
     }
   }
 
+  async openLeechReviewDialog() {
+    if (this.reviewDialog) {
+      this.reviewDialog.destroy();
+    }
+    try {
+      const settings = this.storage?.getSettings?.();
+      const leech = (settings as any)?.leech || {};
+      const session = new LeechQueue({
+        deckID: riff.BUILTIN_DECK_ID,
+        threshold: Number(leech.threshold) || 8,
+        action: (leech.action || 'notify') as any,
+        tagName: String(leech.tagName || ''),
+      });
+      this.reviewDialog = createVueDialog({
+        title: (this.i18n as any)?.startLeechPractice || '难点攻坚',
+        component: ReviewPanel,
+        props: {
+          cards: [],
+          deckID: riff.BUILTIN_DECK_ID,
+          app: this.app,
+          i18n: this.i18n || {},
+          drillMode: true,
+          practiceMode: 'leech',
+          queueSession: session as any,
+        },
+        events: {
+          close: () => {
+            this.reviewDialog?.destroy();
+          },
+        },
+        width: '80vw',
+        height: '70vh',
+        onClose: () => {
+          this.reviewDialog = null;
+        },
+      });
+    } catch (err) {
+      console.error('[FSRS] Failed to open leech review dialog:', err);
+      try {
+        await pushErrMsg('难点攻坚启动失败');
+      } catch {}
+    }
+  }
+
   async openDrillDialog() {
     await this.startPracticeQueue();
   }
 
-  openDeliberatePracticeDialog() {
+  openFinalDrillDialog() {
     this.openCardBrowser();
+  }
+
+  openDeliberatePracticeDialog() {
+    this.openFinalDrillDialog();
   }
 
   openFilterGroupPracticeDialog() {
     this.openCardBrowser();
   }
 
-  async openNeuralReviewDialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) {
-    if (!this.isInitialized || !this.queueContext) {
+  async openNeuralRoamDialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) {
+    if (!this.isInitialized) {
       await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
       return;
     }
@@ -530,91 +577,23 @@ export default class FSRSPlugin extends Plugin {
     }
 
     try {
-      // 如果需要重置历史记录
-      if (options?.resetHistory) {
-        this.neuralQueue.clearHistory();
-      }
-
-      // 如果指定了种子块，创建新的 NeuralQueue 实例
-      let queueToUse = this.neuralQueue;
-      if (options?.seedBlockId) {
-        const neuralConfig = NeuralQueueStorage.loadConfig();
-        queueToUse = new NeuralQueue(neuralConfig, options.seedBlockId);
-        // 临时注册这个队列实例
-        this.queueContext.register('neural-wandering', queueToUse);
-      }
-
-      // 切换到神经漫游队列
-      this.queueContext.setStrategy('neural-wandering');
-
-      // 获取第一张卡片
-      console.log('[NeuralQueue] Getting first card...');
-      const firstQueueItem = await this.queueContext.getNextItem();
-      console.log('[NeuralQueue] First queue item:', firstQueueItem);
-      
-      if (!firstQueueItem) {
-        console.warn('[NeuralQueue] No cards available');
-        await pushMsg((this.i18n as any)?.neuralNoCardsAvailable || '没有可用的卡片');
-        return;
-      }
-
-      // 获取第一张卡片的完整数据
-      const firstCard = this.storage.getCard(firstQueueItem.cardID);
-      console.log('[NeuralQueue] First card from storage:', firstCard);
-      
-      const initialCard = firstCard ? {
-        ...firstQueueItem,
-        ...firstCard,
-      } : {
-        ...firstQueueItem,
-        state: 0,
-        due: new Date().toISOString(),
-      };
-      console.log('[NeuralQueue] Initial card data:', initialCard);
-
+      const session = new NeuralRoamQueue({
+        deckID: riff.BUILTIN_DECK_ID,
+        i18n: this.i18n || {},
+        seedBlockId: options?.seedBlockId,
+        includeSeedAsFirst: options?.includeSeedAsFirst,
+      });
       this.reviewDialog = createVueDialog({
         title: this.i18n?.neuralReviewTitle || '神经复习',
         component: ReviewPanel,
         props: {
-          cards: [initialCard], // 传入第一张卡片
+          cards: [],
           deckID: riff.BUILTIN_DECK_ID,
           app: this.app,
           i18n: this.i18n || {},
           drillMode: true,
-          practiceMode: 'neural',
-          getNextDrillCard: async (current: any | null, action: 'rate' | 'skip', rating?: 1 | 2 | 3 | 4) => {
-            void current;
-            console.log('[NeuralQueue] Getting next drill card...', { action, rating });
-            const queueItem = await this.queueContext.getNextItem();
-            console.log('[NeuralQueue] Queue item:', queueItem);
-            
-            if (!queueItem) {
-              console.warn('[NeuralQueue] No queue item returned');
-              return null;
-            }
-
-            // 获取卡片的 FSRS 数据
-            const card = this.storage.getCard(queueItem.cardID);
-            console.log('[NeuralQueue] Card from storage:', card);
-            
-            if (!card) {
-              console.warn('[NeuralQueue] Card not found in storage:', queueItem.cardID);
-              // 返回基本的卡片数据
-              return {
-                ...queueItem,
-                state: 0,
-                due: new Date().toISOString(),
-              };
-            }
-
-            // 合并队列项和存储的卡片数据
-            const result = {
-              ...queueItem,
-              ...card,
-            };
-            console.log('[NeuralQueue] Final card data:', result);
-            return result;
-          },
+          practiceMode: 'neural-roam',
+          queueSession: session as any,
         },
         events: {
           close: () => {
@@ -631,6 +610,10 @@ export default class FSRSPlugin extends Plugin {
       console.error('[FSRS] Failed to open neural review dialog:', err);
       await pushErrMsg(this.i18n?.neuralReviewFailed || '神经复习启动失败');
     }
+  }
+
+  async openNeuralReviewDialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) {
+    await this.openNeuralRoamDialog(options);
   }
 
   async openSubsetReviewDialog(blockIds: string[]) {
@@ -1076,7 +1059,7 @@ export default class FSRSPlugin extends Plugin {
   }
 
   private async getDrillCardsFromDocTree(docId: string) {
-    const blockIds = await getCardBlocksInDocTree(docId);
+    const blockIds = await getCardBlockIds({ type: 'tree', value: docId });
     return this.buildDrillCardsFromBlockIds(blockIds);
   }
 
@@ -1116,16 +1099,7 @@ export default class FSRSPlugin extends Plugin {
     if (!filter.value) {
       return [];
     }
-    if (filter.type === 'doc') {
-      return getCardBlocksInDoc(filter.value);
-    }
-    if (filter.type === 'tree') {
-      return getCardBlocksInDocTree(filter.value);
-    }
-    if (filter.type === 'sql') {
-      return getCardBlocksBySql(filter.value);
-    }
-    return [];
+    return getCardBlockIds({ type: filter.type, value: filter.value });
   }
 
   private async previewPracticeQueue(filter: PracticeQueueFilter): Promise<number> {

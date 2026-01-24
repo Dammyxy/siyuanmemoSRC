@@ -1083,7 +1083,7 @@ function openPracticeMenu(ev: MouseEvent) {
     icon: 'iconRefresh',
     label: t('practiceNeural', '神经漫游'),
     click: () => {
-      void plugin.openNeuralReviewDialog?.();
+      void (plugin as any).openNeuralRoamDialog?.();
     },
   });
 
@@ -1130,7 +1130,7 @@ function openPracticeMenu(ev: MouseEvent) {
 
 function getQueueById(id: string) {
   if (id === 'final-drill') return (props.plugin as any)?.finalDrillQueue;
-  if (id === 'neural-wandering') return props.plugin?.neuralQueue;
+  if (id === 'neural-roam') return props.plugin?.neuralQueue;
   if (id === 'filter-group') return props.plugin?.filterGroupQueue;
   return null;
 }
@@ -1141,7 +1141,7 @@ async function refreshQueueCounts() {
   const filterGroup = props.plugin?.filterGroupQueue?.size?.() ?? (props.plugin?.filterGroupQueue?.getAllItems?.()?.length ?? 0);
   queueCounts.value = {
     'final-drill': Number(finalDrill) || 0,
-    'neural-wandering': Number(neural) || 0,
+    'neural-roam': Number(neural) || 0,
     'filter-group': Number(filterGroup) || 0,
   };
 }

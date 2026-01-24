@@ -1,5 +1,5 @@
-import type { QueueInterface, QueueItem } from '../types';
-import type { PersistenceAdapter } from '../persistence';
+import type { QueueInterface, QueueItem } from '../types.ts';
+import type { PersistenceAdapter } from '../persistence.ts';
 
 export interface FilterGroupConfig {
   id: string;
@@ -145,4 +145,3 @@ export class FilterGroupQueue implements QueueInterface<QueueItem> {
     return result.length ? result : ['default'];
   }
 }
-

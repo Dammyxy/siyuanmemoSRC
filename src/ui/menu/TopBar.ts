@@ -106,15 +106,15 @@ export class TopBarManager {
             label: this.plugin.i18n?.startNeuralReview || '开始神经复习',
             accelerator: 'Alt+N',
             click: () => {
-                this.plugin.openNeuralReviewDialog();
+                (this.plugin as any).openNeuralRoamDialog();
             },
         });
 
         menu.addItem({
             icon: 'iconCards',
-            label: this.plugin.i18n?.startDeliberatePractice || '开始刻意练习',
+            label: this.plugin.i18n?.startDeliberatePractice || '开始最终冲刺',
             click: () => {
-                this.plugin.openDeliberatePracticeDialog();
+                (this.plugin as any).openFinalDrillDialog();
             },
         });
 

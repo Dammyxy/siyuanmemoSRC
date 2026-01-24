@@ -60,7 +60,7 @@ function t(key: string, fallback: string): string {
 
 const queueItems = computed(() => [
   { id: 'final-drill', label: t('queueDeliberate', '刻意练习') },
-  { id: 'neural-wandering', label: t('queueNeural', '神经漫游') },
+  { id: 'neural-roam', label: t('queueNeural', '神经漫游') },
   { id: 'filter-group', label: t('queueFilterGroup', '筛选复习') },
 ]);
 

@@ -1,6 +1,7 @@
 import type { BrowserCard } from '../types';
 import { loadQueueCards } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
+import { AutoSortCommand, InsertAtCommand, RemoveItemsCommand, SetPriorityCommand } from '@/core/queue/commands';
 
 type FinalDrillQueueLike = {
   getAllItems?: () => any[];
@@ -9,6 +10,10 @@ type FinalDrillQueueLike = {
   setPriority?: (cardID: string, priority: number) => Promise<boolean> | boolean;
   sort?: () => Promise<void> | void;
   insertAt?: (items: any[], index: number) => Promise<void> | void;
+  getMutableTrait?: () => any;
+  getRemovableTrait?: () => any;
+  getPrioritizableTrait?: () => any;
+  getAutoSortableTrait?: () => any;
 };
 
 type FsrsPluginLike = {
@@ -90,18 +95,28 @@ export class FinalDrillDataSource implements ICardDataSource {
     }));
 
     if (actionId === 'remove-from-queue' || actionId === 'dismiss') {
+      const trait = q.getRemovableTrait?.();
+      if (trait) {
+        const cmd = new RemoveItemsCommand<any>();
+        await cmd.execute({ trait, items });
+        return;
+      }
       if (q.removeItems) {
         await Promise.resolve(q.removeItems(items));
         return;
       }
-      for (const it of items) {
-        await Promise.resolve(q.removeItem?.(it));
-      }
+      for (const it of items) await Promise.resolve(q.removeItem?.(it));
       return;
     }
 
     if (actionId === 'insert-at') {
       const idx = Math.max(0, Math.floor(Number(context?.index ?? 0)));
+      const trait = q.getMutableTrait?.();
+      if (trait) {
+        const cmd = new InsertAtCommand<any>();
+        await cmd.execute({ trait, items, index: idx });
+        return;
+      }
       await Promise.resolve(q.insertAt?.(items, idx));
       return;
     }
@@ -110,6 +125,12 @@ export class FinalDrillDataSource implements ICardDataSource {
       const p = Math.max(0, Math.min(100, Math.floor(Number(context?.priority))));
       for (const r of selectedRows as any[]) {
         r.priority = p;
+      }
+      const trait = q.getPrioritizableTrait?.();
+      if (trait) {
+        const cmd = new SetPriorityCommand<any>();
+        await cmd.execute({ trait, items, priority: p });
+        return;
       }
       for (const it of items) {
         const id = String((it as any)?.cardID || '');
@@ -120,6 +141,12 @@ export class FinalDrillDataSource implements ICardDataSource {
     }
 
     if (actionId === 'auto-sort') {
+      const trait = q.getAutoSortableTrait?.();
+      if (trait) {
+        const cmd = new AutoSortCommand();
+        await cmd.execute({ trait });
+        return;
+      }
       await Promise.resolve(q.sort?.());
       return;
     }

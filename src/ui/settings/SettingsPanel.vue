@@ -153,8 +153,8 @@
           <div class="form-control">
             <select v-model="queueSettings.defaultQueue">
               <option value="extraction">{{ t('queueExtraction', '提取练习队列') }}</option>
-              <option value="deliberate">{{ t('queueDeliberate', '刻意练习队列') }}</option>
-              <option value="neural-wandering">{{ t('queueNeural', '神经漫游队列') }}</option>
+              <option value="final-drill">{{ t('queueDeliberate', '最终冲刺队列') }}</option>
+              <option value="neural-roam">{{ t('queueNeural', '神经漫游队列') }}</option>
               <option value="filter-group">{{ t('queueFilterGroup', '筛选组队列') }}</option>
             </select>
           </div>

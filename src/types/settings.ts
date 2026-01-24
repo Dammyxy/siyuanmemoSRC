@@ -70,7 +70,7 @@ export interface FilterGroupDefinition {
 }
 
 export interface QueueSettings {
-    defaultQueue: 'extraction' | 'deliberate' | 'neural-wandering' | 'filter-group';
+    defaultQueue: 'extraction' | 'final-drill' | 'neural-roam' | 'filter-group';
     neuralWandering: {
         enabled: boolean;
         maxPool: number;

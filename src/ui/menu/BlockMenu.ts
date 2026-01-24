@@ -1,6 +1,6 @@
 import type FSRSPlugin from '@/index';
 import { pushErrMsg, pushMsg, sql } from '@/core/siyuan/api';
-import { ATTR_CARD_ID, markBlockAsCard, unmarkBlockAsCard, getCardBlocksInDocTree } from '@/core/siyuan/block';
+import { ATTR_CARD_ID, markBlockAsCard, unmarkBlockAsCard, getCardBlockIds } from '@/core/siyuan/block';
 import { getRiffCardsByBlockIDs } from '@/core/siyuan/riff';
 import { riff } from '@/core/siyuan';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
@@ -159,7 +159,7 @@ export class BlockMenuManager {
                 const seedBlockId = blockIds[0];
                 const includeSeedAsFirst = Boolean(blockElements[0]?.hasAttribute?.(ATTR_CARD_ID));
                 try {
-                    await this.plugin.openNeuralReviewDialog({ seedBlockId, includeSeedAsFirst, resetHistory: true });
+                    await (this.plugin as any).openNeuralRoamDialog({ seedBlockId, includeSeedAsFirst, resetHistory: true });
                 } catch (err) {
                     console.error('[FSRS] Failed to open neural review from block:', err);
                     await pushErrMsg(this.plugin.i18n?.neuralReviewFailed || '神经复习启动失败');
@@ -430,7 +430,7 @@ export class BlockMenuManager {
     }
 
     private async getDrillCardsFromDocTree(docId: string) {
-        const blockIds = await getCardBlocksInDocTree(docId);
+        const blockIds = await getCardBlockIds({ type: 'tree', value: docId });
         return this.buildDrillCardsFromBlockIds(blockIds);
     }
 

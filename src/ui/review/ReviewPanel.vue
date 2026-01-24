@@ -181,7 +181,7 @@ import type { QueueStats, QueueUIConfig } from '../../core/queue/types';
 import type { ReviewSessionSnapshot, ReviewSessionState, ReviewSessionStateContext } from './states/types';
 import { StandardReviewState } from './states/StandardReviewState';
 import { DrillReviewState } from './states/DrillReviewState';
-import { NeuralReviewState } from './states/NeuralReviewState';
+import { NeuralRoamState } from './states/NeuralRoamState';
 import { DRILL_BREADCRUMB_UI_CONTEXT_KEY, NEURAL_TOP_AREA_CONTEXT_KEY } from './components/contexts';
 
 const props = defineProps<{
@@ -190,7 +190,7 @@ const props = defineProps<{
   app?: App;
   i18n?: Record<string, string>;
   drillMode?: boolean;
-  practiceMode?: 'queue' | 'block' | 'neural' | 'neural-wandering' | 'retrieval-practice' | 'final-drill' | 'filter-group' | 'leech';
+  practiceMode?: 'queue' | 'block' | 'neural' | 'neural-roam' | 'retrieval-practice' | 'final-drill' | 'filter-group' | 'leech';
   eventBus?: FsrsEventBus;
   queueSession?: {
     getUIConfig: (currentItem: any | null) => QueueUIConfig;
@@ -418,7 +418,7 @@ const isStrategySession = computed(() => {
     mode !== 'retrieval-practice'
     && mode !== 'final-drill'
     && mode !== 'filter-group'
-    && mode !== 'neural-wandering'
+    && mode !== 'neural-roam'
     && mode !== 'leech'
   ) return false;
   const q = props.queueSession;
@@ -460,7 +460,7 @@ const showCountBar = computed(() => {
   if (!isStrategySession.value) return false;
   return queueUiConfig.value.statsType !== 'infinite';
 });
-const isNeuralPractice = computed(() => isDrillMode.value && (props.practiceMode === 'neural' || props.practiceMode === 'neural-wandering'));
+const isNeuralPractice = computed(() => isDrillMode.value && (props.practiceMode === 'neural' || props.practiceMode === 'neural-roam'));
 
 // 判断当前是否为主题模式（Topic Mode）
 const isTopicMode = computed(() => {
@@ -500,7 +500,7 @@ const practiceModeLabel = computed(() => {
   if (props.practiceMode === 'block') {
     return t('blockModeLabel', '块练习');
   }
-  if (props.practiceMode === 'neural' || props.practiceMode === 'neural-wandering') {
+  if (props.practiceMode === 'neural' || props.practiceMode === 'neural-roam') {
     return t('neuralModeLabel', '神经复习');
   }
   if (props.practiceMode === 'final-drill') {
@@ -535,7 +535,7 @@ const currentState = shallowRef<ReviewSessionState>(new StandardReviewState(stat
 
 watchEffect(() => {
   if (isNeuralPractice.value) {
-    currentState.value = new NeuralReviewState(stateCtx);
+    currentState.value = new NeuralRoamState(stateCtx);
     return;
   }
   if (isDrillMode.value) {
@@ -595,10 +595,14 @@ const currentWebpageCard = computed(() => {
 const countHTML = computed(() => {
   if (isStrategySession.value && showCountBar.value && queueStats.value) {
     if (queueUiConfig.value.statsType === 'queue-size') {
+      const label = String(queueStats.value.label || '');
+      const extra = String(queueStats.value.extra || '');
+      const suffix = [label, extra].filter(Boolean).join(' ');
       return `
         <span class="ariaLabel" aria-label="${t('practiceQueueCount', '队列数量')}">
           <span class="ft__primary">${queueStats.value.size}</span>
         </span>
+        ${suffix ? `<span class="fn__space"></span><span class="ft__secondary ft__smaller">${suffix}</span>` : ''}
       `;
     }
     if (queueUiConfig.value.statsType === 'riff-counts') {
@@ -606,6 +610,7 @@ const countHTML = computed(() => {
       const parts = label.split('/');
       const newC = Number(parts[0] || 0);
       const oldC = Number(parts[1] || 0);
+      const extra = String(queueStats.value.extra || '');
       return `
         <span class="ariaLabel" aria-label="${t('newCard', '新卡')}">
           <span class="ft__primary">${newC}</span>
@@ -614,6 +619,7 @@ const countHTML = computed(() => {
         <span class="ariaLabel" aria-label="${t('reviewCard', '复习卡')}">
           <span class="ft__success">${oldC}</span>
         </span>
+        ${extra ? `<span class="fn__space"></span><span class="ft__secondary ft__smaller">${extra}</span>` : ''}
       `;
     }
   }
@@ -2047,7 +2053,7 @@ function getReviewMode(): FsrsReviewMode {
   if (props.practiceMode === 'retrieval-practice') return 'retrieval-practice';
   if (props.practiceMode === 'final-drill') return 'final-drill';
   if (props.practiceMode === 'filter-group') return 'filter-group';
-  if (props.practiceMode === 'neural-wandering' || props.practiceMode === 'neural') return 'neural-wandering';
+  if (props.practiceMode === 'neural-roam' || props.practiceMode === 'neural') return 'neural-roam';
   if (props.practiceMode === 'leech') return 'leech';
   return 'queue';
 }

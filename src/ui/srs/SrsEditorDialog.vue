@@ -211,7 +211,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { Dialog } from 'siyuan';
 import { getBlockInfo, getBlockDOM } from '@/core/siyuan/api';
-import { getCardBlocksInDoc } from '@/core/siyuan/block';
+import { getCardBlockIds } from '@/core/siyuan/block';
 import { getRiffCardsByBlockIDs, resetRiffCards, batchSetRiffCardsDueTime, reviewRiffCard } from '@/core/siyuan/riff';
 import { DEFAULT_SETTINGS } from '@/types';
 import { createScheduler } from '@/core/scheduler';
@@ -373,7 +373,7 @@ async function loadSelection() {
       await loadMeta(props.card.blockID, props.card.cardID);
       return;
     }
-    const blocks = await getCardBlocksInDoc(rootId);
+    const blocks = await getCardBlockIds({ type: 'doc', value: rootId });
     selectedBlocks.value = blocks.length ? blocks : [props.card.blockID];
     const riffBlocks = await getRiffCardsByBlockIDs(selectedBlocks.value);
     // 优先从 riffCard 获取真正的卡片 ID
