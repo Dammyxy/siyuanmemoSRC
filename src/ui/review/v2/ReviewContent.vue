@@ -19,6 +19,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { getBlockDocInfo, getBlockDOM, getDocContent } from '@/core/siyuan/api';
+import * as siyuan from 'siyuan';
 import type { ReviewUIState } from './types';
 import { OVERLAY_REGISTRY } from './overlays/index';
 
@@ -27,6 +28,8 @@ const props = defineProps<{
   content: ReviewUIState['content'];
   overlay?: ReviewUIState['overlay'];
   i18n?: Record<string, string>;
+  hasHiddenContent?: boolean;
+  showAnswer?: boolean;
 }>();
 
 function t(key: string, fallback: string): string {
@@ -43,13 +46,23 @@ const overlayComponent = computed<any | null>(() => {
   return (OVERLAY_REGISTRY as any)[key] || null;
 });
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
 async function ensureEditor(): Promise<void> {
   if (editorRef.value) return;
   if (!hostRef.value) return;
   if (!props.app) return;
-  editorRef.value = new (globalThis as any).Protyle(props.app, hostRef.value, {
+  const ProtyleCtor = (siyuan as any).Protyle;
+  if (!ProtyleCtor) {
+    hostRef.value.innerHTML = `<div class="ft__error" style="padding: 16px; text-align: center;">${t('loadFailed', '加载失败')}</div>`;
+    return;
+  }
+  const cbGetAll = (siyuan as any).Constants?.CB_GET_ALL ?? 2;
+  editorRef.value = new ProtyleCtor(props.app, hostRef.value, {
     blockId: '',
-    action: [(globalThis as any).Constants?.CB_GET_ALL].filter(Boolean),
+    action: [cbGetAll].filter(Boolean),
     render: {
       background: false,
       gutter: true,
@@ -61,14 +74,33 @@ async function ensureEditor(): Promise<void> {
   });
 }
 
+async function waitForWysiwyg(seq: number): Promise<{ protyle: any; wysiwyg: HTMLElement } | null> {
+  for (let i = 0; i < 30; i++) {
+    if (seq !== renderSeq) return null;
+    const protyle = editorRef.value?.protyle;
+    const wysiwyg = protyle?.wysiwyg?.element as HTMLElement | undefined;
+    if (protyle && wysiwyg) return { protyle, wysiwyg };
+    await nextTick();
+    await sleep(16);
+  }
+  return null;
+}
+
 async function renderProtyle(blockID: string): Promise<void> {
   const seq = ++renderSeq;
   await ensureEditor();
   if (seq !== renderSeq) return;
 
-  const protyle = editorRef.value?.protyle;
-  const wysiwyg = protyle?.wysiwyg?.element as HTMLElement | undefined;
-  if (!protyle || !wysiwyg) return;
+  const ready = await waitForWysiwyg(seq);
+  if (!ready) {
+    if (seq !== renderSeq) return;
+    const host = hostRef.value;
+    if (host) {
+      host.innerHTML = `<div class="ft__error" style="padding: 16px; text-align: center;">${t('loadFailed', '加载失败')}</div>`;
+    }
+    return;
+  }
+  const { protyle, wysiwyg } = ready;
 
   try {
     const docInfo = await getBlockDocInfo(blockID);
@@ -77,14 +109,18 @@ async function renderProtyle(blockID: string): Promise<void> {
       protyle.wysiwyg?.renderCustom(ial);
     }
 
-    const docData = await getDocContent(blockID, 102400, 0);
-    const html = docData?.content;
-    if (html) {
-      wysiwyg.innerHTML = html;
-    } else {
+    let html = '';
+    try {
+      const docData = await getDocContent(blockID, 102400, 0);
+      html = String(docData?.content || '');
+    } catch {}
+
+    if (!html) {
       const domData = await getBlockDOM(blockID);
-      wysiwyg.innerHTML = domData?.dom || `<p>${t('blockLabel', '块')} ${blockID}</p>`;
+      html = String(domData?.dom || '');
     }
+
+    wysiwyg.innerHTML = html || `<p>${t('blockLabel', '块')} ${blockID}</p>`;
 
     await nextTick();
     protyle.block.id = blockID;
@@ -103,6 +139,39 @@ watch(
     void renderProtyle(blockID);
   },
   { immediate: true },
+);
+
+watch(
+  () => [props.hasHiddenContent, props.showAnswer],
+  ([hidden, show]) => {
+    const protyle = editorRef.value?.protyle;
+    if (!protyle || !protyle.wysiwyg) return;
+    const wysiwyg = protyle.wysiwyg.element;
+    if (!wysiwyg) return;
+
+    if (!hidden) {
+      wysiwyg.classList.remove(
+        'card__block--hidemark',
+        'card__block--hideli',
+        'card__block--hidesb',
+        'card__block--hideh'
+      );
+      return;
+    }
+
+    if (show) {
+      wysiwyg.classList.remove(
+        'card__block--hidemark',
+        'card__block--hideli',
+        'card__block--hidesb',
+        'card__block--hideh'
+      );
+    } else {
+      wysiwyg.classList.add('card__block--hideh');
+      // TODO: 根据 QueueUIConfig.hiddenContentTypes 添加其他类
+    }
+  },
+  { immediate: true, deep: true },
 );
 
 onMounted(() => {
@@ -168,4 +237,3 @@ const content = computed(() => props.content);
   inset: 0;
 }
 </style>
-

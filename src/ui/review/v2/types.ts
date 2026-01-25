@@ -8,12 +8,20 @@ export interface ReviewUIState {
       total: number;
       label: string;
       queueName: string;
+      newCards?: number;
+      reviewCards?: number;
     };
     breadcrumbs: Array<{
       icon: string;
       text: string;
       id?: string;
       action?: string;
+    }>;
+    toolbar?: Array<{
+      icon: string;
+      type: 'filter' | 'fullscreen' | 'more' | 'sticktab';
+      ariaLabel?: string;
+      disabled?: boolean;
     }>;
   };
 
@@ -36,6 +44,8 @@ export interface ReviewUIState {
       value: number;
       color: string;
       kb: string;
+      emoji?: string;
+      nextDue?: string;
     }>;
     menu: IQueueCommand<unknown>[];
     toolbar: Array<{
@@ -43,6 +53,16 @@ export interface ReviewUIState {
       label: string;
       command: string;
     }>;
+    cardMeta?: {
+      lapses?: number;
+      reps?: number;
+      state?: number;
+      lastReview?: number;
+      cardID?: string;
+      blockID?: string;
+      deckID?: string;
+      isReviewCard?: boolean;
+    };
   };
 
   meta: {
@@ -60,18 +80,12 @@ export interface ReviewUIState {
       isLocked: boolean;
       contextId: string;
     };
+    hasHiddenContent?: boolean;
+    canSkip?: boolean;
   };
 }
 
-export interface AdapterContext {
-  showAnswer: boolean;
-}
-
-export interface IAdapter<T = any> {
-  toUIState(queue: any, item: T | null, context: AdapterContext): Promise<ReviewUIState>;
-  fetchAuxiliaryData?(item: T | null): Promise<Partial<ReviewUIState>>;
-  cleanup?(): void;
-}
+export type { AdapterContext, IAdapter } from '@/core/extensions';
 
 export interface ReviewSessionHook {
   state: Ref<ReviewUIState>;
@@ -110,4 +124,3 @@ export function createEmptyReviewUIState(): ReviewUIState {
     },
   };
 }
-

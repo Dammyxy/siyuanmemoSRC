@@ -1,8 +1,8 @@
 <template>
   <div class="fsrs-review-v2">
-    <ReviewHeader :header="state.header" @action="hook.executeCommand" @context="emit('context', $event)" />
+    <ReviewHeader :header="state.header" :is-tab-mode="!!props.reviewUI" @toolbar-action="handleToolbarAction" @action="hook.executeCommand" @context="handleContext" />
 
-    <ReviewContent :app="app" :content="state.content" :overlay="state.overlay" :i18n="i18n" />
+    <ReviewContent :app="app" :content="state.content" :overlay="state.overlay" :has-hidden-content="state.meta.hasHiddenContent" :show-answer="state.actions.showAnswer" :i18n="i18n" />
 
     <ReviewActions
       :actions="state.actions"
@@ -34,26 +34,50 @@
 </template>
 
 <script setup lang="ts">
-import { Menu } from 'siyuan';
+import { Menu, openTab } from 'siyuan';
 import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
 import ReviewHeader from './ReviewHeader.vue';
 import { useReviewSession } from './useReviewSession';
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
+import { ProviderBackedQueueStrategy } from '@/core/extensions';
 
 const props = defineProps<{
   app: any;
   i18n?: Record<string, string>;
-  queue: any;
-  adapter: any;
+  queue?: any;
+  adapter?: any;
+  provider?: any;
+  reviewUI?: any;
 }>();
 
 const emit = defineEmits<{
-  (e: 'context', contextId: string): void;
   (e: 'openMenu', menu: IQueueCommand<unknown>[]): void;
 }>();
 
-const hook = useReviewSession(props.queue, props.adapter);
+const providerAdapter = props.reviewUI?.adapter;
+const providerAny = props.provider as any;
+const providerQueue = props.provider && providerAdapter
+  ? new ProviderBackedQueueStrategy(props.provider, {
+      providerOptions: props.reviewUI?.context?.queue || {},
+      uiConfig: props.reviewUI?.context?.uiConfig || { statsType: 'queue-size', showRatingButtons: true, allowSkip: true },
+      statsLabel: String(props.provider?.displayName || props.provider?.id || ''),
+      skipBehavior: providerAny?.skipBehavior === 'rotate' || String(props.provider?.id || '') === 'final-drill' ? 'rotate' : 'drop',
+      getProgress: typeof providerAny?.getProgress === 'function' ? () => providerAny.getProgress() : undefined,
+      getResumePrompt: typeof providerAny?.getResumePrompt === 'function' ? () => providerAny.getResumePrompt() : undefined,
+    })
+  : null;
+
+const bridgedAdapter = props.provider && providerAdapter
+  ? {
+      toUIState: (queue: any, item: any, context: any) => providerAdapter.toUIState(props.provider, item, context),
+      fetchAuxiliaryData: providerAdapter.fetchAuxiliaryData
+        ? (item: any) => providerAdapter.fetchAuxiliaryData(item)
+        : undefined,
+    }
+  : null;
+
+const hook = useReviewSession(providerQueue || props.queue, bridgedAdapter || props.adapter);
 const state = hook.state;
 const app = props.app;
 const i18n = props.i18n;
@@ -64,14 +88,21 @@ function t(key: string, fallback: string): string {
 
 function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) {
   const cmds = Array.isArray(menuCommands) ? menuCommands : [];
-  if (!cmds.length) return;
-
-  const target = ev.currentTarget as HTMLElement | null;
-  const rect = target ? target.getBoundingClientRect() : null;
-  const x = rect && rect.width ? rect.left : ev.clientX;
-  const y = rect && rect.height ? rect.bottom : ev.clientY;
+  const cardMeta = state.value.actions.cardMeta;
 
   const menu = new Menu();
+
+  // 添加卡片统计(只读项)
+  if (cardMeta) {
+    menu.addItem({
+      id: 'card-stats',
+      type: 'readonly',
+      labelHTML: buildCardStatsHTML(cardMeta),
+    });
+    menu.addSeparator();
+  }
+
+  // 标准菜单项
   for (const cmd of cmds) {
     const id = String((cmd as any)?.id || '');
     const label = String((cmd as any)?.label || '');
@@ -84,7 +115,70 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
       },
     });
   }
-  menu.open({ x, y });
+
+  const target = ev.currentTarget as HTMLElement;
+  if (target) {
+    const rect = target.getBoundingClientRect();
+    menu.open({ x: rect.left, y: rect.bottom });
+  }
+}
+
+function buildCardStatsHTML(meta: NonNullable<ReviewUIState['actions']['cardMeta']>): string {
+  const stateText = meta.isReviewCard
+    ? t('reviewCard', '复习卡')
+    : t('newCard', '新卡');
+
+  const lastReview = meta.lastReview && meta.lastReview > 0
+    ? new Date(meta.lastReview).toISOString().split('T')[0]
+    : '';
+
+  return `
+    <div class="fn__flex">
+      <div class="fn__flex-1 ft__breakword">${t('lapses', '遗忘次数')}</div>
+      <div class="fn__space"></div>
+      <div>${meta.lapses ?? 0}</div>
+    </div>
+    <div class="fn__flex">
+      <div class="fn__flex-1 ft__breakword">${t('reps', '复习次数')}</div>
+      <div class="fn__space"></div>
+      <div>${meta.reps ?? 0}</div>
+    </div>
+    <div class="fn__flex">
+      <div class="fn__flex-1 ft__breakword">${t('cardState', '卡片状态')}</div>
+      <div class="fn__space"></div>
+      <div class="${meta.isReviewCard ? 'ft__success' : 'ft__primary'}">
+        ${stateText}
+      </div>
+    </div>
+    <div class="fn__flex ${!lastReview ? 'fn__none' : ''}">
+      <div class="fn__flex-1 ft__breakword" style="width: 170px;">
+        ${t('lastReview', '上次复习')}
+      </div>
+      <div class="fn__space"></div>
+      <div>${lastReview}</div>
+    </div>
+  `;
+}
+
+function handleContext(payload: { id: string; openNewTab: boolean }) {
+  const id = String(payload?.id || '');
+  if (!id || !props.app) return;
+  void openTab({
+    app: props.app,
+    doc: { id },
+    openNewTab: Boolean(payload?.openNewTab),
+  });
+}
+
+function handleToolbarAction(actionType: string, ev: MouseEvent) {
+  if (actionType === 'fullscreen') {
+    const container = document.querySelector('.b3-dialog__container');
+    if (container) {
+      container.classList.toggle('b3-dialog--fullscreen');
+    }
+  } else if (actionType === 'more') {
+    handleOpenMenu(state.value.actions.menu, ev);
+  }
 }
 </script>
 
@@ -126,4 +220,3 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
   gap: 8px;
 }
 </style>
-

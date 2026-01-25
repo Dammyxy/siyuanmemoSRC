@@ -76,7 +76,6 @@ export class FinalDrillDataSource implements ICardDataSource {
     return [
       { id: 'open', label: 'Open', icon: 'iconOpen' },
       { id: 'remove-from-queue', label: 'Remove from Queue', icon: 'iconTrashcan' },
-      { id: 'dismiss', label: 'Dismiss', icon: 'iconTrashcan' },
       { id: 'insert-at', label: 'Insert at', icon: 'iconAlignLeft' },
       { id: 'set-priority', label: 'Set Priority', icon: 'iconMark' },
       { id: 'auto-sort', label: 'Auto Sort', icon: 'iconSort' },
@@ -94,7 +93,7 @@ export class FinalDrillDataSource implements ICardDataSource {
       priority: typeof r.priority === 'number' ? r.priority : 50,
     }));
 
-    if (actionId === 'remove-from-queue' || actionId === 'dismiss') {
+    if (actionId === 'remove-from-queue') {
       const trait = q.getRemovableTrait?.();
       if (trait) {
         const cmd = new RemoveItemsCommand<any>();

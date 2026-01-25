@@ -18,17 +18,17 @@ import { riff } from '@/core/siyuan';
 import { markBlockAsCard, unmarkBlockAsCard, ATTR_CARD_ID, getCardBlockIds } from '@/core/siyuan/block';
 import { getRiffCardsByBlockIDs } from '@/core/siyuan/riff';
 import { pushErrMsg, pushMsg, sql } from '@/core/siyuan/api';
-import { ReviewPanel } from '@/ui/review';
-import { FinalDrillAdapter, FinalDrillV2Session, NeuralRoamAdapter, RetrievalPracticeAdapter, ReviewView } from '@/ui/review/v2';
+import { FinalDrillAdapter, FinalDrillProvider, LeechAdapter, NeuralRoamAdapter, RetrievalPracticeAdapter, ReviewView, SubsetPracticeAdapter } from '@/ui/review/v2';
 import CardBrowser from '@/ui/browser/CardBrowser.vue';
 import { SettingsPanel } from '@/ui/settings';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import { createVueDialog } from '@/utils/dialog';
+import { FSRSRetrievalProvider } from '@/core/extensions';
 
 import { createDefaultCard } from '@/types';
 import '@/index.scss';
 import { ConsoleQueueMonitor, DEFAULT_PRIORITY, QueueContext, StorageFileJsonAdapter, type QueueItem } from '@/core/queue';
-import { ExtractionPracticeQueue, FilterGroupQueue, FinalDrillQueue, NeuralRoamQueue, RetrievalPracticeQueue, SubsetPracticeStrategy, LeechQueue } from '@/core/queue/strategies';
+import { ExtractionPracticeQueue, FilterGroupQueue, FinalDrillQueue, NeuralRoamQueue, SubsetPracticeStrategy, LeechQueue } from '@/core/queue/strategies';
 import { NeuralQueue, NeuralQueueStorage } from '@/core/queue/neural';
 
 type PracticeQueueFilter = { type: 'doc' | 'tree' | 'sql'; value: string };
@@ -201,6 +201,22 @@ export default class FSRSPlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      langKey: 'startReviewProviderV2',
+      hotkey: '',
+      callback: () => {
+        void this.openReviewProviderV2Dialog();
+      },
+    });
+
+    this.addCommand({
+      langKey: 'startDrillProviderV2',
+      hotkey: '',
+      callback: () => {
+        void this.openFinalDrillProviderV2Dialog();
+      },
+    });
+
 
 
     // 注册快捷键 - 打开卡片浏览器
@@ -287,7 +303,16 @@ export default class FSRSPlugin extends Plugin {
       label: this.i18n?.startQueuePractice || '开始刻意练习',
       accelerator: 'Alt+D',
       click: () => {
-        this.openDrillDialog();
+        this.openDeliberatePracticeDialog();
+      },
+    });
+
+    menu.addItem({
+      icon: 'iconCards',
+      label: (this.i18n as any)?.startFilterGroupPractice || '开始筛选复习',
+      accelerator: 'Alt+G',
+      click: () => {
+        this.openFilterGroupPracticeDialog();
       },
     });
 
@@ -476,63 +501,14 @@ export default class FSRSPlugin extends Plugin {
    * 打开复习面板（弹窗模式）- 使用思源 riff API
    */
   async openReviewDialog() {
-    // 如果已经打开，先关闭
-    if (this.reviewDialog) {
-      this.reviewDialog.destroy();
-    }
-
-    try {
-      // 创建复习对话框
-      const session = new RetrievalPracticeQueue({ deckID: riff.BUILTIN_DECK_ID });
-      this.reviewDialog = createVueDialog({
-        title: this.i18n?.reviewTitle || 'FSRS 复习',
-        component: ReviewPanel,
-        props: {
-          cards: [],
-          deckID: riff.BUILTIN_DECK_ID,
-          app: this.app,
-          i18n: this.i18n || {},
-          drillMode: true,
-          practiceMode: 'retrieval-practice',
-          queueSession: session as any,
-        },
-        events: {
-          close: () => {
-            this.reviewDialog?.destroy();
-          },
-        },
-        width: '80vw',  // 使用视窗百分比，响应式
-        height: '70vh',
-        onClose: () => {
-          this.reviewDialog = null;
-        },
-      });
-
-      // 设置对话框样式（与思源原生一致）
-      const dialogEl = this.reviewDialog.dialog.element;
-      const scrim = dialogEl.querySelector('.b3-dialog__scrim') as HTMLElement;
-      const container = dialogEl.querySelector('.b3-dialog__container') as HTMLElement;
-
-      if (scrim) {
-        scrim.style.backgroundColor = 'var(--b3-theme-surface)';
-      }
-      if (container) {
-        container.style.maxWidth = '1024px';
-      }
-
-      // 聚焦到筛选按钮
-      setTimeout(() => {
-        const focusEl = dialogEl.querySelector('.block__icon') as HTMLElement;
-        if (focusEl) {
-          focusEl.focus();
-        }
-      }, 100);
-    } catch (err) {
-      console.error('[FSRS] Failed to get due cards:', err);
-    }
+    await this.openReviewProviderV2Dialog();
   }
 
   async openReviewV2Dialog() {
+    await this.openReviewProviderV2Dialog();
+  }
+
+  async openReviewProviderV2Dialog() {
     if (!this.isInitialized) {
       await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
       return;
@@ -541,30 +517,39 @@ export default class FSRSPlugin extends Plugin {
       this.reviewDialog.destroy();
     }
     try {
-      const session = new RetrievalPracticeQueue({ deckID: riff.BUILTIN_DECK_ID });
+      const provider = new FSRSRetrievalProvider({
+        deckID: riff.BUILTIN_DECK_ID,
+        displayName: this.i18n?.reviewTitle || 'FSRS 复习',
+      });
       const adapter = new RetrievalPracticeAdapter({ i18n: this.i18n || {} });
       this.reviewDialog = createVueDialog({
-        title: this.i18n?.reviewTitle || 'FSRS 复习',
+        title: provider.displayName,
         component: ReviewView,
         props: {
           app: this.app,
           i18n: this.i18n || {},
-          queue: session as any,
-          adapter: adapter as any,
+          provider: provider as any,
+          reviewUI: {
+            component: ReviewView,
+            adapter: adapter as any,
+            context: {
+              uiConfig: { statsType: 'riff-counts', showRatingButtons: true, allowSkip: true },
+            },
+          },
         },
         events: {
           close: () => {
             this.reviewDialog?.destroy();
           },
         },
-        width: '80vw',
-        height: '70vh',
+        width: 'min(860px, 96vw)',
+        height: 'min(720px, 90vh)',
         onClose: () => {
           this.reviewDialog = null;
         },
       });
     } catch (err) {
-      console.error('[FSRS] Failed to open review v2 dialog:', err);
+      console.error('[FSRS] Failed to open review provider v2 dialog:', err);
       await pushErrMsg(this.i18n?.loadFailed || '加载失败');
     }
   }
@@ -584,23 +569,20 @@ export default class FSRSPlugin extends Plugin {
       });
       this.reviewDialog = createVueDialog({
         title: (this.i18n as any)?.startLeechPractice || '难点攻坚',
-        component: ReviewPanel,
+        component: ReviewView,
         props: {
-          cards: [],
-          deckID: riff.BUILTIN_DECK_ID,
           app: this.app,
           i18n: this.i18n || {},
-          drillMode: true,
-          practiceMode: 'leech',
-          queueSession: session as any,
+          queue: session as any,
+          adapter: new LeechAdapter({ i18n: this.i18n || {} }) as any,
         },
         events: {
           close: () => {
             this.reviewDialog?.destroy();
           },
         },
-        width: '80vw',
-        height: '70vh',
+        width: 'min(860px, 96vw)',
+        height: 'min(720px, 90vh)',
         onClose: () => {
           this.reviewDialog = null;
         },
@@ -618,10 +600,14 @@ export default class FSRSPlugin extends Plugin {
   }
 
   openFinalDrillDialog() {
-    this.openCardBrowser();
+    void this.openFinalDrillV2Dialog();
   }
 
   async openFinalDrillV2Dialog() {
+    await this.openFinalDrillProviderV2Dialog();
+  }
+
+  async openFinalDrillProviderV2Dialog() {
     if (!this.isInitialized) {
       await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
       return;
@@ -630,20 +616,63 @@ export default class FSRSPlugin extends Plugin {
       this.reviewDialog.destroy();
     }
     try {
-      const session = new FinalDrillV2Session({
+      const provider = new FinalDrillProvider({
         queue: this.finalDrillQueue as any,
         storage: this.storage,
         i18n: this.i18n || {},
       });
-      await session.init();
+      await provider.init();
       const adapter = new FinalDrillAdapter({ i18n: this.i18n || {} });
       this.reviewDialog = createVueDialog({
-        title: this.i18n?.queueDeliberate || '最终冲刺',
+        title: provider.displayName,
         component: ReviewView,
         props: {
           app: this.app,
           i18n: this.i18n || {},
-          queue: session as any,
+          provider: provider as any,
+          reviewUI: {
+            component: ReviewView,
+            adapter: adapter as any,
+            context: {
+              uiConfig: { statsType: 'queue-size', showRatingButtons: true, allowSkip: true },
+            },
+          },
+        },
+        events: {
+          close: () => {
+            this.reviewDialog?.destroy();
+          },
+        },
+        width: 'min(860px, 96vw)',
+        height: 'min(720px, 90vh)',
+        onClose: () => {
+          this.reviewDialog = null;
+        },
+      });
+    } catch (err) {
+      console.error('[FSRS] Failed to open final drill provider v2 dialog:', err);
+      await pushErrMsg(this.i18n?.drillFailed || '机械练习启动失败');
+    }
+  }
+
+  openDeliberatePracticeDialog() {
+    void this.openFinalDrillV2Dialog();
+  }
+
+  openFilterGroupPracticeDialog() {
+    if (this.reviewDialog) {
+      this.reviewDialog.destroy();
+    }
+    try {
+      const label = (this.i18n as any)?.queueFilterGroup || '筛选复习';
+      const adapter = new RetrievalPracticeAdapter({ i18n: this.i18n || {}, label, queueName: 'filter-group' });
+      this.reviewDialog = createVueDialog({
+        title: label,
+        component: ReviewView,
+        props: {
+          app: this.app,
+          i18n: this.i18n || {},
+          queue: this.filterGroupQueue as any,
           adapter: adapter as any,
         },
         events: {
@@ -651,69 +680,20 @@ export default class FSRSPlugin extends Plugin {
             this.reviewDialog?.destroy();
           },
         },
-        width: '80vw',
-        height: '70vh',
+        width: 'min(860px, 96vw)',
+        height: 'min(720px, 90vh)',
         onClose: () => {
           this.reviewDialog = null;
         },
       });
     } catch (err) {
-      console.error('[FSRS] Failed to open final drill v2 dialog:', err);
-      await pushErrMsg(this.i18n?.drillFailed || '机械练习启动失败');
+      console.error('[FSRS] Failed to open filter group practice dialog:', err);
+      void pushErrMsg((this.i18n as any)?.filterGroupFailed || '筛选复习启动失败');
     }
-  }
-
-  openDeliberatePracticeDialog() {
-    this.openFinalDrillDialog();
-  }
-
-  openFilterGroupPracticeDialog() {
-    this.openCardBrowser();
   }
 
   async openNeuralRoamDialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) {
-    if (!this.isInitialized) {
-      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
-      return;
-    }
-    if (this.reviewDialog) {
-      this.reviewDialog.destroy();
-    }
-
-    try {
-      const session = new NeuralRoamQueue({
-        deckID: riff.BUILTIN_DECK_ID,
-        i18n: this.i18n || {},
-        seedBlockId: options?.seedBlockId,
-        includeSeedAsFirst: options?.includeSeedAsFirst,
-      });
-      this.reviewDialog = createVueDialog({
-        title: this.i18n?.neuralReviewTitle || '神经复习',
-        component: ReviewPanel,
-        props: {
-          cards: [],
-          deckID: riff.BUILTIN_DECK_ID,
-          app: this.app,
-          i18n: this.i18n || {},
-          drillMode: true,
-          practiceMode: 'neural-roam',
-          queueSession: session as any,
-        },
-        events: {
-          close: () => {
-            this.reviewDialog?.destroy();
-          },
-        },
-        width: '80vw',
-        height: '70vh',
-        onClose: () => {
-          this.reviewDialog = null;
-        },
-      });
-    } catch (err) {
-      console.error('[FSRS] Failed to open neural review dialog:', err);
-      await pushErrMsg(this.i18n?.neuralReviewFailed || '神经复习启动失败');
-    }
+    await this.openNeuralRoamV2Dialog(options);
   }
 
   async openNeuralRoamV2Dialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) {
@@ -747,8 +727,8 @@ export default class FSRSPlugin extends Plugin {
             this.reviewDialog?.destroy();
           },
         },
-        width: '80vw',
-        height: '70vh',
+        width: 'min(860px, 96vw)',
+        height: 'min(720px, 90vh)',
         onClose: () => {
           this.reviewDialog = null;
         },
@@ -773,25 +753,24 @@ export default class FSRSPlugin extends Plugin {
       return;
     }
     const session = new SubsetPracticeStrategy({ blockIds: ids, deckID: riff.BUILTIN_DECK_ID });
+    const title = (this.i18n?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(ids.length));
+    const adapter = new SubsetPracticeAdapter({ i18n: this.i18n || {}, label: title, queueName: 'subset' });
     this.reviewDialog = createVueDialog({
-      title: (this.i18n?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(ids.length)),
-      component: ReviewPanel,
+      title,
+      component: ReviewView,
       props: {
-        cards: [],
-        deckID: riff.BUILTIN_DECK_ID,
         app: this.app,
         i18n: this.i18n || {},
-        drillMode: true,
-        practiceMode: 'retrieval-practice',
-        queueSession: session as any,
+        queue: session as any,
+        adapter: adapter as any,
       },
       events: {
         close: () => {
           this.reviewDialog?.destroy();
         },
       },
-      width: '80vw',
-      height: '70vh',
+      width: 'min(860px, 96vw)',
+      height: 'min(720px, 90vh)',
       onClose: () => {
         this.reviewDialog = null;
       },
@@ -802,23 +781,30 @@ export default class FSRSPlugin extends Plugin {
     if (this.reviewDialog) {
       this.reviewDialog.destroy();
     }
+    const ids = Array.from(new Set((cards || []).map((c) => String(c?.blockID || c?.blockId || '')).filter(Boolean)));
+    if (ids.length === 0) {
+      void pushMsg(this.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+      return;
+    }
     const modeLabel = practiceMode === 'block'
       ? (this.i18n?.blockModeLabel || '块练习')
       : (this.i18n?.queueModeLabel || '队列练习');
     const blockTitleTemplate = this.i18n?.blockPracticeTitleWithCount || '当前练习队列：{n}张闪卡';
     const blockTitle = blockTitleTemplate.replace('{n}', String(cards.length));
+    const title = practiceMode === 'block'
+      ? blockTitle
+      : (cards.length > 0 ? `${modeLabel} (${cards.length} 张)` : modeLabel);
+
+    const session = new SubsetPracticeStrategy({ blockIds: ids, deckID: riff.BUILTIN_DECK_ID });
+    const adapter = new SubsetPracticeAdapter({ i18n: this.i18n || {}, label: title, queueName: practiceMode });
     this.reviewDialog = createVueDialog({
-      title: practiceMode === 'block'
-        ? blockTitle
-        : (cards.length > 0 ? `${modeLabel} (${cards.length} 张)` : modeLabel),
-      component: ReviewPanel,
+      title,
+      component: ReviewView,
       props: {
-        cards: cards,
-        deckID: riff.BUILTIN_DECK_ID,
         app: this.app,
         i18n: this.i18n || {},
-        drillMode: true,
-        practiceMode,
+        queue: session as any,
+        adapter: adapter as any,
       },
       events: {
         close: () => {

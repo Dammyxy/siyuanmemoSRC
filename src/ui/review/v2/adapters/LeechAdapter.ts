@@ -1,17 +1,12 @@
 import type { AdapterContext, IAdapter, ReviewUIState } from '../types';
 import { getBlockBreadcrumb } from '../../../../core/siyuan/api.ts';
-import type { QueueItem, QueueUIConfig } from '../../../../core/queue/types.ts';
-
-function toSeconds(ms: number): number {
-  if (!Number.isFinite(ms)) return 0;
-  return Math.max(0, Math.floor(ms / 1000));
-}
+import type { QueueItem, QueueStats, QueueUIConfig } from '../../../../core/queue/types.ts';
 
 function t(i18n: Record<string, string> | undefined, key: string, fallback: string): string {
   return i18n?.[key] || fallback;
 }
 
-export class FinalDrillAdapter implements IAdapter<QueueItem> {
+export class LeechAdapter implements IAdapter<QueueItem> {
   private readonly i18n?: Record<string, string>;
 
   constructor(options?: { i18n?: Record<string, string> }) {
@@ -23,17 +18,16 @@ export class FinalDrillAdapter implements IAdapter<QueueItem> {
       ? queue.getUIConfig(item)
       : { statsType: 'queue-size', showRatingButtons: true, allowSkip: true };
 
-    const progress = typeof queue?.getProgress === 'function'
-      ? queue.getProgress()
-      : { answered: 0, correct: 0, total: 0, durationMs: 0 };
+    const stats: QueueStats = typeof queue?.getStats === 'function'
+      ? await queue.getStats()
+      : { size: 0, label: '' };
 
-    const total = Math.max(0, Number(progress.total) || 0);
-    const answered = Math.max(0, Number(progress.answered) || 0);
-    const current = item ? Math.min(total || answered + 1, answered + 1) : total;
-
-    const resume = typeof queue?.getResumePrompt === 'function'
-      ? queue.getResumePrompt()
-      : null;
+    const remaining = Math.max(0, Number(stats.size) || 0);
+    const initial = Number.isFinite(Number(context.session?.initialTotal)) ? Number(context.session?.initialTotal) : 0;
+    const total = Math.max(initial || 0, remaining);
+    const current = remaining;
+    const label = `${t(this.i18n, 'startLeechPractice', '难点攻坚')}${stats.label ? ` ${String(stats.label)}` : ''}`;
+    const queueName = 'leech';
 
     const grades = uiConfig.showRatingButtons ? [
       {
@@ -78,8 +72,8 @@ export class FinalDrillAdapter implements IAdapter<QueueItem> {
           stats: {
             current: 0,
             total: 0,
-            label: t(this.i18n, 'queueDeliberate', '最终冲刺'),
-            queueName: 'final-drill',
+            label,
+            queueName,
             newCards: 0,
             reviewCards: 0,
           },
@@ -103,26 +97,20 @@ export class FinalDrillAdapter implements IAdapter<QueueItem> {
         },
         meta: {
           transition: 'none',
-          resumePrompt: resume || undefined,
-          drillStats: {
-            correct: Math.max(0, Number(progress.correct) || 0),
-            total,
-            duration: toSeconds(Number(progress.durationMs) || 0),
-          },
-          canSkip: uiConfig.allowSkip,
         },
       };
     }
 
+    // Leech 仅针对复习卡，没有新卡
     return {
       header: {
         stats: {
           current,
           total,
-          label: t(this.i18n, 'queueDeliberate', '最终冲刺'),
-          queueName: 'final-drill',
-          newCards: total,
-          reviewCards: 0,
+          label,
+          queueName,
+          reviewCards: total,
+          newCards: 0,
         },
         breadcrumbs: [],
         toolbar: [
@@ -154,12 +142,6 @@ export class FinalDrillAdapter implements IAdapter<QueueItem> {
       },
       meta: {
         transition: 'none',
-        resumePrompt: resume || undefined,
-        drillStats: {
-          correct: Math.max(0, Number(progress.correct) || 0),
-          total,
-          duration: toSeconds(Number(progress.durationMs) || 0),
-        },
         canSkip: uiConfig.allowSkip,
         hasHiddenContent: Boolean(uiConfig.hiddenContentTypes?.length),
       },

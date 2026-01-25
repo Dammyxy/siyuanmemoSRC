@@ -1,6 +1,8 @@
 import type { QueueInterface, QueueItem } from '../types.ts';
 import type { PersistenceAdapter } from '../persistence.ts';
 import { DEFAULT_PRIORITY } from '../abstraction/IPriority.ts';
+import type { QueueStats, QueueUIConfig } from '../types.ts';
+import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy.ts';
 
 export interface FilterGroupConfig {
   id: string;
@@ -13,7 +15,7 @@ export interface FilterGroupSnapshot {
   schedule: string[];
 }
 
-export class FilterGroupQueue implements QueueInterface<QueueItem> {
+export class FilterGroupQueue implements QueueInterface<QueueItem>, IQueueStrategy<QueueItem> {
   private groups: Record<string, QueueItem[]> = {};
   private schedule: string[] = [];
   private cursor = 0;
@@ -90,6 +92,25 @@ export class FilterGroupQueue implements QueueInterface<QueueItem> {
       }
     }
     return null;
+  }
+
+  getUIConfig(_currentItem: QueueItem | null): QueueUIConfig {
+    return { statsType: 'queue-size', showRatingButtons: true, allowSkip: true };
+  }
+
+  async next(): Promise<QueueItem | null> {
+    return this.getNextItem();
+  }
+
+  async onFeedback(currentItem: QueueItem | null, feedback: QueueFeedback): Promise<void> {
+    if (!currentItem) return;
+    if (feedback.action === 'custom') return;
+    await this.removeItem(currentItem);
+    await this.advanceGroupCursor();
+  }
+
+  async getStats(): Promise<QueueStats> {
+    return { size: this.size(), label: '' };
   }
 
   async removeItem(item: QueueItem): Promise<boolean> {

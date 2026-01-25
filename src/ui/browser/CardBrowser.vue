@@ -219,6 +219,7 @@ import { parseQuery } from './browserService';
 import { type BrowserCard, CardState } from './types';
 import type { ICardDataSource } from './datasource/types';
 import { FinalDrillDataSource } from './datasource/FinalDrillDataSource';
+import { FilterGroupDataSource } from './datasource/FilterGroupDataSource';
 import { DeckDataSource } from './datasource/DeckDataSource';
 import { QueryDataSource } from './datasource/QueryDataSource';
 import { BlockIdsDataSource } from './datasource/BlockIdsDataSource';
@@ -496,6 +497,7 @@ async function ensureSqlModeConfirmed(): Promise<boolean> {
 
 // 筛选后的卡片
 const scopedRows = computed(() => {
+  if (activeDocId.value === '__lost__') return rows.value.filter((c) => !String((c as any)?.rootId || ''));
   if (activeDocId.value) return rows.value.filter((c) => c.rootId === activeDocId.value);
   return rows.value;
 });
@@ -540,6 +542,8 @@ async function loadData() {
       currentDataSource.value = new QueryDataSource(sqlStmt);
     } else if (activeQueueId.value === 'final-drill') {
       currentDataSource.value = new FinalDrillDataSource(props.plugin);
+    } else if (activeQueueId.value === 'filter-group') {
+      currentDataSource.value = new FilterGroupDataSource(props.plugin);
     } else if (activeQueueId.value) {
       const q = getQueueById(activeQueueId.value);
       const items = q?.getAllItems?.() || [];
@@ -1059,7 +1063,7 @@ function openPracticeMenu(ev: MouseEvent) {
     icon: 'iconRiffCard',
     label: t('practiceExtract', '提取练习'),
     click: () => {
-      void plugin.openRetrievalPracticeDialog?.();
+      void plugin.openReviewDialog?.();
     },
   });
 
@@ -1067,7 +1071,7 @@ function openPracticeMenu(ev: MouseEvent) {
     icon: 'iconFlag',
     label: t('practiceDeliberate', '刻意练习'),
     click: () => {
-      void plugin.openFinalDrillDialog?.();
+      void plugin.openDeliberatePracticeDialog?.();
     },
   });
 
@@ -1091,7 +1095,7 @@ function openPracticeMenu(ev: MouseEvent) {
     icon: 'iconBug',
     label: t('practiceLeech', '难点攻坚'),
     click: () => {
-      void plugin.openLeechPracticeDialog?.();
+      void plugin.openLeechReviewDialog?.();
     },
   });
 
@@ -1153,8 +1157,18 @@ async function handleSelectQueue(queueId: string) {
 }
 
 function handleSelectDoc(docId: string) {
-  activeDocId.value = docId;
+  const id = String(docId || '');
+  if (id === '__all__') {
+    currentPreset.value = 'all';
+    searchQuery.value = '';
+    activeDocId.value = null;
+    activeQueueId.value = null;
+    void loadData();
+    return;
+  }
   activeQueueId.value = null;
+  activeDocId.value = id;
+  void loadData();
 }
 
 function handleFilterDoc(docId: string) {

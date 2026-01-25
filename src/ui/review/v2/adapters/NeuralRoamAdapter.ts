@@ -52,10 +52,10 @@ export class NeuralRoamAdapter implements IAdapter<QueueItem> {
     })).filter((b: any) => b.label && b.command);
 
     const grades = uiConfig.showRatingButtons ? [
-      { label: t(this.i18n, 'again', '忘记'), value: 1, color: 'var(--b3-theme-error)', kb: '1' },
-      { label: t(this.i18n, 'hard', '困难'), value: 2, color: 'var(--b3-theme-warning)', kb: '2' },
-      { label: t(this.i18n, 'good', '一般'), value: 3, color: 'var(--b3-theme-primary)', kb: '3' },
-      { label: t(this.i18n, 'easy', '简单'), value: 4, color: 'var(--b3-theme-success)', kb: '4' },
+      { label: t(this.i18n, 'cardRatingAgain', '重来'), value: 1, color: 'var(--b3-theme-error)', kb: '1', emoji: '🙈', nextDue: (item as any)?.nextDues?.[1] || '' },
+      { label: t(this.i18n, 'cardRatingHard', '困难'), value: 2, color: 'var(--b3-theme-warning)', kb: '2', emoji: '😬', nextDue: (item as any)?.nextDues?.[2] || '' },
+      { label: t(this.i18n, 'cardRatingGood', '良好'), value: 3, color: 'var(--b3-theme-info)', kb: '3', emoji: '😊', nextDue: (item as any)?.nextDues?.[3] || '' },
+      { label: t(this.i18n, 'cardRatingEasy', '简单'), value: 4, color: 'var(--b3-theme-success)', kb: '4', emoji: '🌈', nextDue: (item as any)?.nextDues?.[4] || '' },
     ] : [];
 
     const overlay = (!isTopicMode && item)
@@ -73,6 +73,8 @@ export class NeuralRoamAdapter implements IAdapter<QueueItem> {
 
     const total = Math.max(0, Number(stats.size) || 0);
     const current = total;
+    const newCards = isTopicMode ? total : 0;
+    const reviewCards = isTopicMode ? 0 : total;
 
     if (!item) {
       return {
@@ -82,8 +84,15 @@ export class NeuralRoamAdapter implements IAdapter<QueueItem> {
             total,
             label: t(this.i18n, 'queueNeural', '神经漫游'),
             queueName: 'neural-roam',
+            newCards: 0,
+            reviewCards: 0,
           },
           breadcrumbs: [],
+          toolbar: [
+            { icon: '#iconFilter', type: 'filter', ariaLabel: t(this.i18n, 'filter', '筛选'), disabled: true },
+            { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', '全屏') },
+            { icon: '#iconMore', type: 'more', ariaLabel: t(this.i18n, 'more', '更多') },
+          ],
         },
         content: {
           type: 'html',
@@ -98,6 +107,7 @@ export class NeuralRoamAdapter implements IAdapter<QueueItem> {
         },
         meta: {
           transition: 'none',
+          canSkip: uiConfig.allowSkip,
         },
       };
     }
@@ -109,8 +119,15 @@ export class NeuralRoamAdapter implements IAdapter<QueueItem> {
           total,
           label: t(this.i18n, 'queueNeural', '神经漫游'),
           queueName: 'neural-roam',
+          newCards,
+          reviewCards,
         },
         breadcrumbs: [],
+        toolbar: [
+          { icon: '#iconFilter', type: 'filter', ariaLabel: t(this.i18n, 'filter', '筛选'), disabled: true },
+          { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', '全屏') },
+          { icon: '#iconMore', type: 'more', ariaLabel: t(this.i18n, 'more', '更多') },
+        ],
       },
       content: {
         type: 'protyle',
@@ -123,9 +140,21 @@ export class NeuralRoamAdapter implements IAdapter<QueueItem> {
         grades: uiConfig.showRatingButtons ? (context.showAnswer ? grades : []) : [],
         menu,
         toolbar,
+        cardMeta: {
+          lapses: item?.lapses,
+          reps: item?.reps,
+          state: item?.state,
+          lastReview: item?.lastReview,
+          cardID: item?.cardID,
+          blockID: item?.blockID,
+          deckID: item?.deckID,
+          isReviewCard: (item?.state ?? 0) !== 0,
+        },
       },
       meta: {
         transition: 'none',
+        canSkip: uiConfig.allowSkip,
+        hasHiddenContent: Boolean(uiConfig.hiddenContentTypes?.length),
       },
     };
   }

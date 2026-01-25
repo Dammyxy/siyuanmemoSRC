@@ -20,6 +20,7 @@ export interface QueueItem {
   state?: number;
   lapses?: number;
   reps?: number;
+  lastReview?: number;
   meta?: Record<string, unknown>;
 }
 
@@ -52,6 +53,7 @@ export type QueueUIConfig = {
   statsType: 'infinite' | 'queue-size' | 'riff-counts';
   showRatingButtons: boolean;
   allowSkip: boolean;
+  hiddenContentTypes?: string[];
   customButtons?: Array<{
     actionId: string;
     label: string;

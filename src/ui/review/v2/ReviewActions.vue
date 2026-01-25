@@ -1,64 +1,68 @@
 <template>
-  <div class="fsrs-review-v2-actions">
-    <div class="fsrs-review-v2-actions__toolbar">
-      <button
-        v-for="(b, idx) in actions.toolbar"
-        :key="`${idx}-${b.command}`"
-        class="b3-button b3-button--small b3-button--text"
-        type="button"
-        @click="emit('command', b.command)"
-      >
-        <span v-if="b.icon" :class="`b3-button__icon ${b.icon}`"></span>
-        <span class="b3-button__text">{{ b.label }}</span>
-      </button>
+  <!-- 阶段1: 答案隐藏 -->
+  <div v-if="actions.showAnswer" class="card__action fn__flex">
+    <button
+      class="b3-button b3-button--cancel"
+      disabled="disabled"
+      style="width: 25%; min-width: 86px; display: flex"
+      @click="emit('reveal')"
+    >
+      <svg><use xlink:href="#iconLeft"></use></svg>
+      (p / q)
+    </button>
+    <span class="fn__space"></span>
+    <button
+      data-type="-1"
+      class="b3-button fn__flex-1"
+      @click="emit('reveal')"
+    >
+      {{ t('showAnswer', '显示答案') }}
+      ({{ t('space', '空格') }} / {{ t('enterKey', '回车') }})
+    </button>
+  </div>
 
+  <!-- 阶段2: 答案显示 -->
+  <div v-else class="card__action fn__flex">
+    <!-- 左列: 后退 + 跳过 -->
+    <div>
       <button
-        v-if="actions.menu.length"
-        class="b3-button b3-button--small b3-button--text"
-        type="button"
-        @click="emit('openMenu', actions.menu, $event)"
+        class="b3-button b3-button--cancel"
+        disabled="disabled"
+        style="display: flex; margin-bottom: 8px; height: 28px; padding: 0;"
+        @click="emit('back')"
       >
-        <span class="b3-button__icon iconMore"></span>
-        <span class="b3-button__text">{{ t('more', '更多') }}</span>
+        <svg><use xlink:href="#iconLeft"></use></svg>
+        (p / q)
+      </button>
+      <button
+        data-type="-3"
+        aria-label="0 / x"
+        class="b3-button b3-button--cancel b3-tooltips__n b3-tooltips"
+        @click="emit('skip')"
+      >
+        <div class="card__icon">💤</div>
+        {{ t('skip', '跳过') }} (0)
       </button>
     </div>
 
-    <div class="fsrs-review-v2-actions__main">
+    <!-- 评分按钮列 -->
+    <div v-for="g in actions.grades" :key="g.value">
+      <span>{{ g.nextDue || '' }}</span>
       <button
-        v-if="actions.showAnswer"
-        class="b3-button b3-button--outline b3-button--big"
-        type="button"
-        @click="emit('reveal')"
+        :data-type="g.value"
+        :aria-label="`${g.value} / ${g.kb}`"
+        class="b3-button"
+        :class="getButtonVariant(g.value)"
+        @click="emit('grade', g.value)"
       >
-        {{ t('showAnswer', '显示答案') }}
-      </button>
-
-      <div v-else class="fsrs-review-v2-actions__grades">
-        <button
-          v-for="g in actions.grades"
-          :key="g.value"
-          class="b3-button b3-button--big"
-          type="button"
-          :style="{ background: g.color }"
-          @click="emit('grade', g.value)"
-        >
-          <span class="fsrs-review-v2-actions__grade-label">{{ g.label }}</span>
-          <span class="fn__space"></span>
-          <span class="ft__secondary fsrs-review-v2-actions__grade-kb">{{ g.kb }}</span>
-        </button>
-      </div>
-    </div>
-
-    <div class="fsrs-review-v2-actions__aux">
-      <button class="b3-button b3-button--text" type="button" @click="emit('skip')">
-        {{ t('skip', '跳过') }}
+        <div class="card__icon">{{ g.emoji }}</div>
+        {{ g.label }} ({{ g.kb }})
       </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import type { ReviewUIState } from './types';
 
 const props = defineProps<{
@@ -70,46 +74,57 @@ const emit = defineEmits<{
   (e: 'reveal'): void;
   (e: 'grade', rating: number): void;
   (e: 'skip'): void;
+  (e: 'back'): void;
   (e: 'command', cmdId: string): void;
-  (e: 'openMenu', menu: IQueueCommand<unknown>[], ev: MouseEvent): void;
+  (e: 'openMenu', menu: any[], ev: MouseEvent): void;
 }>();
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
+
+function getButtonVariant(value: number): string {
+  const variants = {
+    1: 'b3-button--error',
+    2: 'b3-button--warning',
+    3: 'b3-button--info',
+    4: 'b3-button--success',
+  };
+  return variants[value as keyof typeof variants] || 'b3-button--info';
+}
 </script>
 
 <style scoped>
-.fsrs-review-v2-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.card__action {
   padding: 8px;
-  border-top: 1px solid var(--b3-border-color);
+  user-select: none;
 }
 
-.fsrs-review-v2-actions__toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  justify-content: flex-end;
+.card__action > div {
+  flex: 1;
+  margin-right: 8px;
+
+  &:last-child {
+    margin-right: 0;
+  }
+
+  > span {
+    display: flex;
+    color: var(--b3-theme-on-surface);
+    text-align: center;
+    font-size: 12px;
+    margin-bottom: 8px;
+    height: 28px;
+    line-height: 14px;
+    justify-content: center;
+    align-items: center;
+  }
 }
 
-.fsrs-review-v2-actions__main {
-  display: flex;
-  justify-content: center;
-}
-
-.fsrs-review-v2-actions__grades {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
-.fsrs-review-v2-actions__aux {
-  display: flex;
-  justify-content: center;
+.card__icon {
+  font-size: 32px;
+  display: block;
+  line-height: 46px;
+  margin-bottom: 4px;
 }
 </style>
-

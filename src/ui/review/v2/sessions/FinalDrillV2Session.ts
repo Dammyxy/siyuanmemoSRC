@@ -72,6 +72,10 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     }
   }
 
+  getAllItems(): QueueItem[] {
+    return this.queue.getAllItems();
+  }
+
   getResumePrompt(): { message: string; data: unknown } | null {
     if (!this.resumePromptVisible) return null;
     return { message: this.t('resumeFinalDrillDesc', '检测到未完成的最终冲刺，是否继续？'), data: { updatedAt: this.progress.updatedAt } };

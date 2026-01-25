@@ -24,7 +24,7 @@
           :key="doc.id"
           class="b3-list-item"
           @click="emit('selectDoc', doc.id)"
-          @contextmenu.prevent="emit('filterDoc', doc.id)"
+          @contextmenu.prevent="doc.filterable ? emit('filterDoc', doc.id) : undefined"
         >
           <span class="b3-list-item__text">{{ doc.title }}</span>
           <span class="b3-list-item__meta">{{ doc.count }}</span>
@@ -64,7 +64,7 @@ const queueItems = computed(() => [
   { id: 'filter-group', label: t('queueFilterGroup', '筛选复习') },
 ]);
 
-const docs = ref<Array<{ id: string; title: string; count: number }>>([]);
+const docs = ref<Array<{ id: string; title: string; count: number; filterable: boolean }>>([]);
 let loadSeq = 0;
 
 watchEffect(() => {
@@ -80,7 +80,13 @@ watchEffect(() => {
   void (async () => {
     const nodes = await getDocTree(ids);
     if (current !== loadSeq) return;
-    docs.value = nodes.map((n) => ({ id: n.id, title: n.title, count: counts.get(n.id) || 0 }));
+    const total = cards.length;
+    const lost = cards.filter((c) => !String((c as any)?.rootId || '')).length;
+    docs.value = [
+      { id: '__all__', title: t('allFlashcards', '全部闪卡'), count: total, filterable: false },
+      { id: '__lost__', title: t('lostFlashcards', '丢失/关闭闪卡'), count: lost, filterable: false },
+      ...nodes.map((n) => ({ id: n.id, title: n.title, count: counts.get(n.id) || 0, filterable: true })),
+    ];
   })();
 });
 </script>

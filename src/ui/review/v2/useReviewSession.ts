@@ -17,7 +17,8 @@ export function useReviewSession<TItem>(
 ): ReviewSessionHook {
   const state = ref<ReviewUIState>(createEmptyReviewUIState());
   const currentItem = ref<TItem | null>(null);
-  const context = ref<AdapterContext>({ showAnswer: false });
+  const now = Date.now();
+  const context = ref<AdapterContext>({ showAnswer: false, session: { startTime: now, resumed: false } });
 
   const mergeAux = (base: ReviewUIState, aux: Partial<ReviewUIState>): ReviewUIState => {
     const merged: ReviewUIState = { ...base, ...aux } as any;
@@ -120,6 +121,13 @@ export function useReviewSession<TItem>(
   const mounted = (): void => {
     window.addEventListener('keydown', handleKeydown, { capture: true });
     void (async () => {
+      context.value.session = {
+        startTime: Date.now(),
+        resumed: false,
+        initialTotal: typeof (queue as any)?.getStats === 'function'
+          ? await (queue as any).getStats().then((s: any) => Math.max(0, Number(s?.size) || 0)).catch(() => undefined)
+          : undefined,
+      };
       currentItem.value = await queue.next();
       await updateState();
     })();
@@ -135,4 +143,3 @@ export function useReviewSession<TItem>(
 
   return { state, reveal, grade, skip, executeCommand, onMounted: mounted, onUnmounted: unmounted };
 }
-

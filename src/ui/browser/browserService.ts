@@ -148,7 +148,7 @@ function transformRiffBlock(block: any, customAttrs: Record<string, string>): Br
     }
 
     return {
-        id: realCardId,
+        id: realCardId || String(block.id || ''),
         fsrsCardId: customAttrs[ATTR_CARD_ID] || '',
         blockId: block.id,
         deckId: riffCard.deckID || BUILTIN_DECK_ID,
@@ -331,7 +331,12 @@ export async function loadCards(
 
         const parsed = parseQuery(queryText || '');
         cards = applyParsedQuery(cards, parsed);
-
+        cards.sort((a, b) => {
+            const da = a.due instanceof Date ? a.due.getTime() : 0;
+            const db = b.due instanceof Date ? b.due.getTime() : 0;
+            if (da !== db) return da - db;
+            return String(a.blockId).localeCompare(String(b.blockId));
+        });
         return cards;
     } catch (err) {
         console.error('[CardBrowser] Load cards error:', err);
@@ -404,7 +409,9 @@ export async function loadQueueCards(blockIds: string[], queryText?: string): Pr
 
         const parsed = parseQuery(queryText || '');
         cards = applyParsedQuery(cards, parsed);
-        return cards;
+        const byBlockId = new Map(cards.map((c) => [c.blockId, c]));
+        const ordered = ids.map((id) => byBlockId.get(id)).filter(Boolean) as BrowserCard[];
+        return ordered;
     } catch (err) {
         console.error('[CardBrowser] loadQueueCards error:', err);
         return [];
