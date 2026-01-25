@@ -1,3 +1,6 @@
+import type { IQueueCommand } from './abstraction/Command';
+import type { QueueCardRef } from './abstraction/QueueCardRef.ts';
+
 export type QueueId = 'extraction' | 'final-drill' | 'neural-roam' | 'filter-group';
 
 export interface QueueInterface<TItem> {
@@ -9,9 +12,10 @@ export interface QueueInterface<TItem> {
 }
 
 export interface QueueItem {
-  cardID: string;
-  blockID: string;
-  deckID: string;
+  cardID: QueueCardRef['cardID'];
+  blockID: QueueCardRef['blockID'];
+  deckID: QueueCardRef['deckID'];
+  priority: QueueCardRef['priority'];
   nextDues?: Record<1 | 2 | 3 | 4, string>;
   state?: number;
   lapses?: number;
@@ -49,10 +53,11 @@ export type QueueUIConfig = {
   showRatingButtons: boolean;
   allowSkip: boolean;
   customButtons?: Array<{
-    id: string;
+    actionId: string;
     label: string;
     icon?: string;
     danger?: boolean;
+    variant?: 'ghost' | 'info';
   }>;
-  menuCommands?: IQueueCommand<any>[]; // Context Menu Commands
+  menuCommands?: IQueueCommand<unknown>[];
 };

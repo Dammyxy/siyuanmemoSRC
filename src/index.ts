@@ -19,6 +19,7 @@ import { markBlockAsCard, unmarkBlockAsCard, ATTR_CARD_ID, getCardBlockIds } fro
 import { getRiffCardsByBlockIDs } from '@/core/siyuan/riff';
 import { pushErrMsg, pushMsg, sql } from '@/core/siyuan/api';
 import { ReviewPanel } from '@/ui/review';
+import { FinalDrillAdapter, FinalDrillV2Session, NeuralRoamAdapter, RetrievalPracticeAdapter, ReviewView } from '@/ui/review/v2';
 import CardBrowser from '@/ui/browser/CardBrowser.vue';
 import { SettingsPanel } from '@/ui/settings';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
@@ -26,7 +27,7 @@ import { createVueDialog } from '@/utils/dialog';
 
 import { createDefaultCard } from '@/types';
 import '@/index.scss';
-import { ConsoleQueueMonitor, QueueContext, StorageFileJsonAdapter, type QueueItem } from '@/core/queue';
+import { ConsoleQueueMonitor, DEFAULT_PRIORITY, QueueContext, StorageFileJsonAdapter, type QueueItem } from '@/core/queue';
 import { ExtractionPracticeQueue, FilterGroupQueue, FinalDrillQueue, NeuralRoamQueue, RetrievalPracticeQueue, SubsetPracticeStrategy, LeechQueue } from '@/core/queue/strategies';
 import { NeuralQueue, NeuralQueueStorage } from '@/core/queue/neural';
 
@@ -173,6 +174,30 @@ export default class FSRSPlugin extends Plugin {
       hotkey: 'Alt+D',
       callback: () => {
         this.openDrillDialog();
+      },
+    });
+
+    this.addCommand({
+      langKey: 'startDrillV2',
+      hotkey: '',
+      callback: () => {
+        void this.openFinalDrillV2Dialog();
+      },
+    });
+
+    this.addCommand({
+      langKey: 'startNeuralV2',
+      hotkey: '',
+      callback: () => {
+        void this.openNeuralRoamV2Dialog();
+      },
+    });
+
+    this.addCommand({
+      langKey: 'startReviewV2',
+      hotkey: '',
+      callback: () => {
+        void this.openReviewV2Dialog();
       },
     });
 
@@ -507,6 +532,43 @@ export default class FSRSPlugin extends Plugin {
     }
   }
 
+  async openReviewV2Dialog() {
+    if (!this.isInitialized) {
+      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
+      return;
+    }
+    if (this.reviewDialog) {
+      this.reviewDialog.destroy();
+    }
+    try {
+      const session = new RetrievalPracticeQueue({ deckID: riff.BUILTIN_DECK_ID });
+      const adapter = new RetrievalPracticeAdapter({ i18n: this.i18n || {} });
+      this.reviewDialog = createVueDialog({
+        title: this.i18n?.reviewTitle || 'FSRS 复习',
+        component: ReviewView,
+        props: {
+          app: this.app,
+          i18n: this.i18n || {},
+          queue: session as any,
+          adapter: adapter as any,
+        },
+        events: {
+          close: () => {
+            this.reviewDialog?.destroy();
+          },
+        },
+        width: '80vw',
+        height: '70vh',
+        onClose: () => {
+          this.reviewDialog = null;
+        },
+      });
+    } catch (err) {
+      console.error('[FSRS] Failed to open review v2 dialog:', err);
+      await pushErrMsg(this.i18n?.loadFailed || '加载失败');
+    }
+  }
+
   async openLeechReviewDialog() {
     if (this.reviewDialog) {
       this.reviewDialog.destroy();
@@ -559,6 +621,48 @@ export default class FSRSPlugin extends Plugin {
     this.openCardBrowser();
   }
 
+  async openFinalDrillV2Dialog() {
+    if (!this.isInitialized) {
+      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
+      return;
+    }
+    if (this.reviewDialog) {
+      this.reviewDialog.destroy();
+    }
+    try {
+      const session = new FinalDrillV2Session({
+        queue: this.finalDrillQueue as any,
+        storage: this.storage,
+        i18n: this.i18n || {},
+      });
+      await session.init();
+      const adapter = new FinalDrillAdapter({ i18n: this.i18n || {} });
+      this.reviewDialog = createVueDialog({
+        title: this.i18n?.queueDeliberate || '最终冲刺',
+        component: ReviewView,
+        props: {
+          app: this.app,
+          i18n: this.i18n || {},
+          queue: session as any,
+          adapter: adapter as any,
+        },
+        events: {
+          close: () => {
+            this.reviewDialog?.destroy();
+          },
+        },
+        width: '80vw',
+        height: '70vh',
+        onClose: () => {
+          this.reviewDialog = null;
+        },
+      });
+    } catch (err) {
+      console.error('[FSRS] Failed to open final drill v2 dialog:', err);
+      await pushErrMsg(this.i18n?.drillFailed || '机械练习启动失败');
+    }
+  }
+
   openDeliberatePracticeDialog() {
     this.openFinalDrillDialog();
   }
@@ -608,6 +712,49 @@ export default class FSRSPlugin extends Plugin {
       });
     } catch (err) {
       console.error('[FSRS] Failed to open neural review dialog:', err);
+      await pushErrMsg(this.i18n?.neuralReviewFailed || '神经复习启动失败');
+    }
+  }
+
+  async openNeuralRoamV2Dialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) {
+    if (!this.isInitialized) {
+      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
+      return;
+    }
+    if (this.reviewDialog) {
+      this.reviewDialog.destroy();
+    }
+
+    try {
+      const session = new NeuralRoamQueue({
+        deckID: riff.BUILTIN_DECK_ID,
+        i18n: this.i18n || {},
+        seedBlockId: options?.seedBlockId,
+        includeSeedAsFirst: options?.includeSeedAsFirst,
+      });
+      const adapter = new NeuralRoamAdapter({ i18n: this.i18n || {} });
+      this.reviewDialog = createVueDialog({
+        title: this.i18n?.neuralReviewTitle || '神经复习',
+        component: ReviewView,
+        props: {
+          app: this.app,
+          i18n: this.i18n || {},
+          queue: session as any,
+          adapter: adapter as any,
+        },
+        events: {
+          close: () => {
+            this.reviewDialog?.destroy();
+          },
+        },
+        width: '80vw',
+        height: '70vh',
+        onClose: () => {
+          this.reviewDialog = null;
+        },
+      });
+    } catch (err) {
+      console.error('[FSRS] Failed to open neural review v2 dialog:', err);
       await pushErrMsg(this.i18n?.neuralReviewFailed || '神经复习启动失败');
     }
   }
@@ -1049,6 +1196,7 @@ export default class FSRSPlugin extends Plugin {
         cardID,
         blockID,
         deckID: riff.BUILTIN_DECK_ID,
+        priority: DEFAULT_PRIORITY,
         nextDues: { 1: '', 2: '', 3: '', 4: '' },
         state: 0,
         lapses: 0,
@@ -1085,6 +1233,7 @@ export default class FSRSPlugin extends Plugin {
           cardID,
           blockID,
           deckID: riff.BUILTIN_DECK_ID,
+          priority: DEFAULT_PRIORITY,
           nextDues: { 1: '', 2: '', 3: '', 4: '' },
           state: 0,
           lapses: 0,

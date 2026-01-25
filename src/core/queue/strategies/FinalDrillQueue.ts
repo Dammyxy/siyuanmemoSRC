@@ -1,9 +1,10 @@
 import type { StorageManager } from '@/core/storage';
 import type { PersistenceAdapter } from '../persistence.ts';
 import { StorageFileJsonAdapter } from '../adapters/storageFile.ts';
-import type { QueueInterface, QueueItem } from '../types.ts';
+import type { QueueInterface, QueueItem, QueueStats, QueueUIConfig } from '../types.ts';
 import { ListSequencer } from '../sequencers/ListSequencer.ts';
 import type { IAutoSortableTrait, IMutableTrait, IPrioritizableTrait, IRemovableTrait } from '../abstraction/types.ts';
+import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy.ts';
 
 type FinalDrillItem = QueueItem & { priority: number };
 
@@ -12,7 +13,7 @@ type Snapshot = {
     lastAutoSortDay?: string;
 };
 
-export class FinalDrillQueue implements QueueInterface<QueueItem> {
+export class FinalDrillQueue implements QueueInterface<QueueItem>, IQueueStrategy<QueueItem> {
     private readonly adapter: PersistenceAdapter<Snapshot> | null;
     private readonly sequencer = new ListSequencer<FinalDrillItem>();
     private readonly mutableTrait: IMutableTrait<QueueItem>;
@@ -148,6 +149,21 @@ export class FinalDrillQueue implements QueueInterface<QueueItem> {
         if (!next) return null;
         await this.save();
         return next;
+    }
+
+    getUIConfig(_currentItem: QueueItem | null): QueueUIConfig {
+        return { statsType: 'queue-size', showRatingButtons: true, allowSkip: true };
+    }
+
+    async getStats(): Promise<QueueStats> {
+        return { size: this.size() };
+    }
+
+    async next(): Promise<QueueItem | null> {
+        return await this.getNextItem();
+    }
+
+    async onFeedback(_currentItem: QueueItem | null, _feedback: QueueFeedback): Promise<void> {
     }
 
     async removeItem(item: QueueItem): Promise<boolean> {

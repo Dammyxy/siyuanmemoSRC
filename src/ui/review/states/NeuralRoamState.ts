@@ -1,4 +1,5 @@
 import type { ReviewSessionState, ReviewSessionStateContext } from './types';
+import NeuralRoamTopArea from '../components/NeuralRoamTopArea.vue';
 
 export class NeuralRoamState implements ReviewSessionState {
   private readonly ctx: ReviewSessionStateContext;
@@ -12,7 +13,7 @@ export class NeuralRoamState implements ReviewSessionState {
   }
 
   getTopAreaComponent(): any {
-    return null;
+    return NeuralRoamTopArea;
   }
 
   getOverlayComponent(): any {
@@ -39,4 +40,3 @@ export class NeuralRoamState implements ReviewSessionState {
     await this.ctx.undoDrill();
   }
 }
-

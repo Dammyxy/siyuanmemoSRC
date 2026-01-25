@@ -5,9 +5,12 @@ import { WeightedWalkEngine } from '../neural/WeightedWalkEngine.ts';
 import { AssociationType, type NeuralContext, type NeuralQueueConfig } from '../neural/types.ts';
 import { GraphSequencer, type WeightedNeighbor as GraphWeightedNeighbor } from '../sequencers/GraphSequencer.ts';
 import type { QueueItem, QueueStats, QueueUIConfig } from '../types.ts';
-import { sql } from '../../siyuan/api.ts';
+import { pushMsg, setBlockAttrs, sql } from '../../siyuan/api.ts';
 import { ATTR_PRIORITY } from '../../siyuan/block.ts';
 import { clampPriority, DEFAULT_PRIORITY, priorityFactor } from '../abstraction/IPriority.ts';
+import type { IQueueCommand } from '../abstraction/Command.ts';
+import { normalizeRiffCardId } from '../abstraction/QueueCardRef.ts';
+import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy.ts';
 
 type RiffApi = {
   getRiffCardsByBlockIDs: typeof riff.getRiffCardsByBlockIDs;
@@ -35,11 +38,7 @@ function reasonFor(type: AssociationType): string {
   return '未知关联';
 }
 
-function normalizeRiffCardId(block: any): string {
-  return String(block?.riffCardID || block?.riffCardId || block?.riffCard?.id || '');
-}
-
-export class NeuralRoamQueue {
+export class NeuralRoamQueue implements IQueueStrategy<QueueItem> {
   private readonly deckID: string;
   private readonly i18n?: I18n;
   private readonly api: RiffApi;
@@ -56,7 +55,8 @@ export class NeuralRoamQueue {
   private readonly seedBlockId: string | null;
   private pendingSeed: string | null;
 
-  private readonly sequencer: GraphSequencer<string, QueueItem, EdgeMeta>;
+  private sequencer: GraphSequencer<string, QueueItem, EdgeMeta>;
+  private readonly menuCommands: Array<IQueueCommand<unknown>>;
 
   private steps = 0;
 
@@ -101,49 +101,48 @@ export class NeuralRoamQueue {
     this.includeSeedAsFirst = Boolean(options?.includeSeedAsFirst);
     this.pendingSeed = this.includeSeedAsFirst ? this.seedBlockId : null;
 
-    this.sequencer = new GraphSequencer<string, QueueItem, EdgeMeta>({
-      seed: this.seedBlockId || null,
-      getSeed: async () => {
-        if (this.seedBlockId) return this.seedBlockId;
-        return await this.queryEngine.fetchRandomCard();
+    this.sequencer = this.createSequencer(this.seedBlockId || null);
+    this.menuCommands = [
+      {
+        id: 'neural-pivot-here',
+        label: t(this.i18n, 'neuralPivotHere', '以此为主题'),
+        icon: 'iconRefresh',
+        execute: async () => {},
       },
-      getNodeKey: (node) => String(node || ''),
-      getNeighbors: async (node) => {
-        const neighbors = await this.queryEngine.fetchNeighbors(String(node || ''));
-        const ids = Array.from(new Set((neighbors || []).map((x) => String((x as any)?.id || '')).filter(Boolean)));
-        const priorityMap = await this.getPrioritiesByBlockIDs(ids).catch(() => new Map<string, number>());
-        for (const [k, v] of priorityMap.entries()) this.priorityCache.set(k, v);
-        const out: Array<GraphWeightedNeighbor<string, EdgeMeta>> = [];
-        for (const n of neighbors || []) {
-          const associationType = n.type as AssociationType;
-          const base = this.walkEngine.getWeight(associationType);
-          const p = clampPriority(this.priorityCache.get(String(n.id || '')), DEFAULT_PRIORITY);
-          const weight = base * priorityFactor(p);
-          out.push({
-            node: String(n.id || ''),
-            weight,
-            edge: { associationType, reason: reasonFor(associationType) },
-          });
-        }
-        return out;
+      {
+        id: 'neural-reset-history',
+        label: t(this.i18n, 'neuralResetHistory', '重置漫游历史'),
+        icon: 'iconTrashcan',
+        danger: true,
+        execute: async () => {},
       },
-      toItem: async (node, ctx) => {
-        return await this.nodeToItem(node, ctx.from, ctx.edge);
+      {
+        id: 'neural-priority-up',
+        label: t(this.i18n, 'neuralPriorityUp', '提高优先级'),
+        icon: 'iconMark',
+        execute: async () => {},
       },
-    });
+      {
+        id: 'neural-priority-down',
+        label: t(this.i18n, 'neuralPriorityDown', '降低优先级'),
+        icon: 'iconMark',
+        execute: async () => {},
+      },
+    ];
   }
 
-  getUIConfig(currentItem: any | null): QueueUIConfig {
+  getUIConfig(currentItem: QueueItem | null): QueueUIConfig {
     const isFlashcard = Boolean((currentItem as any)?.meta?.neuralContext?.isFlashcard);
     if (!isFlashcard) {
       return {
         statsType: 'queue-size',
         showRatingButtons: false,
         allowSkip: true,
-        customButtons: [{ id: 'continue', label: t(this.i18n, 'neuralContinue', '继续漫游') }],
+        customButtons: [{ actionId: 'continue', label: t(this.i18n, 'neuralContinue', '继续漫游') }],
+        menuCommands: this.menuCommands,
       };
     }
-    return { statsType: 'queue-size', showRatingButtons: true, allowSkip: true };
+    return { statsType: 'queue-size', showRatingButtons: true, allowSkip: true, menuCommands: this.menuCommands };
   }
 
   async getStats(): Promise<QueueStats> {
@@ -166,14 +165,39 @@ export class NeuralRoamQueue {
   }
 
   async onFeedback(
-    currentItem: any | null,
-    feedback: { action: 'rate' | 'skip' | 'custom'; rating?: 1 | 2 | 3 | 4; customActionId?: string; durationMs?: number },
+    currentItem: QueueItem | null,
+    feedback: QueueFeedback,
   ): Promise<void> {
     const isFlashcard = Boolean((currentItem as any)?.meta?.neuralContext?.isFlashcard);
-    const blockID = String(currentItem?.blockID || currentItem?.blockId || '');
+    const blockID = String((currentItem as any)?.blockID || (currentItem as any)?.blockId || '');
     if (!blockID) return;
 
     if (feedback.action === 'custom') {
+      const actionId = String(feedback.customActionId || '');
+      if (!actionId) return;
+      if (actionId === 'continue') {
+        return;
+      }
+      if (actionId === 'neural-pivot-here') {
+        this.resetSequencer(blockID);
+        return;
+      }
+      if (actionId === 'neural-reset-history') {
+        this.steps = 0;
+        this.pendingSeed = null;
+        this.resetSequencer(this.seedBlockId || null);
+        return;
+      }
+      if (actionId === 'neural-priority-up' || actionId === 'neural-priority-down') {
+        const step = 5;
+        const current = await this.getPriorityForBlock(blockID);
+        const next = actionId === 'neural-priority-up' ? current - step : current + step;
+        const clamped = clampPriority(next, DEFAULT_PRIORITY);
+        await setBlockAttrs(blockID, { [ATTR_PRIORITY]: String(clamped) } as any);
+        this.priorityCache.set(blockID, clamped);
+        await pushMsg(t(this.i18n, 'priorityUpdated', '优先级已更新'));
+        return;
+      }
       return;
     }
 
@@ -222,11 +246,13 @@ export class NeuralRoamQueue {
         deckID = info.deckID || deckID;
       }
     }
+    const priority = clampPriority(this.priorityCache.get(id), DEFAULT_PRIORITY);
 
     return {
       cardID,
       blockID: id,
       deckID,
+      priority,
       nextDues: { 1: '', 2: '', 3: '', 4: '' },
       meta: {
         neuralContext,
@@ -256,6 +282,55 @@ export class NeuralRoamQueue {
     if (!cardID1) return null;
     const v = { cardID: cardID1, deckID: deckID1 };
     this.cardIdCache.set(bid, v);
+    return v;
+  }
+
+  private createSequencer(seed: string | null): GraphSequencer<string, QueueItem, EdgeMeta> {
+    return new GraphSequencer<string, QueueItem, EdgeMeta>({
+      seed,
+      getSeed: async () => {
+        if (seed) return seed;
+        if (this.seedBlockId) return this.seedBlockId;
+        return await this.queryEngine.fetchRandomCard();
+      },
+      getNodeKey: (node) => String(node || ''),
+      getNeighbors: async (node) => {
+        const neighbors = await this.queryEngine.fetchNeighbors(String(node || ''));
+        const ids = Array.from(new Set((neighbors || []).map((x) => String((x as any)?.id || '')).filter(Boolean)));
+        const priorityMap = await this.getPrioritiesByBlockIDs(ids).catch(() => new Map<string, number>());
+        for (const [k, v] of priorityMap.entries()) this.priorityCache.set(k, v);
+        const out: Array<GraphWeightedNeighbor<string, EdgeMeta>> = [];
+        for (const n of neighbors || []) {
+          const associationType = n.type as AssociationType;
+          const base = this.walkEngine.getWeight(associationType);
+          const p = clampPriority(this.priorityCache.get(String(n.id || '')), DEFAULT_PRIORITY);
+          const weight = base * priorityFactor(p);
+          out.push({
+            node: String(n.id || ''),
+            weight,
+            edge: { associationType, reason: reasonFor(associationType) },
+          });
+        }
+        return out;
+      },
+      toItem: async (node, ctx) => {
+        return await this.nodeToItem(node, ctx.from, ctx.edge);
+      },
+    });
+  }
+
+  private resetSequencer(seed: string | null): void {
+    this.sequencer = this.createSequencer(seed);
+  }
+
+  private async getPriorityForBlock(blockID: string): Promise<number> {
+    const bid = String(blockID || '');
+    if (!bid) return DEFAULT_PRIORITY;
+    const cached = this.priorityCache.get(bid);
+    if (Number.isFinite(cached)) return clampPriority(cached, DEFAULT_PRIORITY);
+    const map = await this.getPrioritiesByBlockIDs([bid]).catch(() => new Map<string, number>());
+    const v = clampPriority(map.get(bid), DEFAULT_PRIORITY);
+    this.priorityCache.set(bid, v);
     return v;
   }
 }

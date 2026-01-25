@@ -1,4 +1,8 @@
 import { riff } from '@/core/siyuan';
+import { DEFAULT_PRIORITY } from '../abstraction/IPriority.ts';
+import { normalizeRiffCardId } from '../abstraction/QueueCardRef.ts';
+import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy.ts';
+import type { QueueItem } from '../types.ts';
 
 type SubsetQueueItem = {
   blockID: string;
@@ -6,7 +10,7 @@ type SubsetQueueItem = {
   deckID: string;
 };
 
-export class SubsetPracticeStrategy {
+export class SubsetPracticeStrategy implements IQueueStrategy<QueueItem> {
   private readonly deckID: string;
   private readonly queue: SubsetQueueItem[];
   private readonly resolveMap = new Map<string, Promise<string | null>>();
@@ -18,7 +22,7 @@ export class SubsetPracticeStrategy {
     void this.prefetch(ids);
   }
 
-  getUIConfig(_currentItem: any | null): { statsType: 'queue-size'; showRatingButtons: true; allowSkip: true } {
+  getUIConfig(_currentItem: QueueItem | null): { statsType: 'queue-size'; showRatingButtons: true; allowSkip: true } {
     return { statsType: 'queue-size', showRatingButtons: true, allowSkip: true };
   }
 
@@ -26,23 +30,24 @@ export class SubsetPracticeStrategy {
     return { size: this.queue.length };
   }
 
-  async next(): Promise<any | null> {
+  async next(): Promise<QueueItem | null> {
     const head = this.queue[0];
     if (!head) return null;
     return {
       cardID: head.cardID || '',
       blockID: head.blockID,
       deckID: head.deckID,
+      priority: DEFAULT_PRIORITY,
       nextDues: { 1: '', 2: '', 3: '', 4: '' },
       meta: { subset: true },
     };
   }
 
   async onFeedback(
-    currentItem: any | null,
-    feedback: { action: 'rate' | 'skip' | 'custom'; rating?: 1 | 2 | 3 | 4; customActionId?: string; durationMs?: number },
+    currentItem: QueueItem | null,
+    feedback: QueueFeedback,
   ): Promise<void> {
-    const blockID = String(currentItem?.blockID || currentItem?.blockId || '');
+    const blockID = String((currentItem as any)?.blockID || (currentItem as any)?.blockId || '');
     if (!blockID) return;
 
     const idx = this.queue.findIndex((it) => it.blockID === blockID);
@@ -78,7 +83,7 @@ export class SubsetPracticeStrategy {
         const idMap = new Map<string, string>();
         for (const b of blocks as any[]) {
           const bid = String(b?.id || '');
-          const cid = String(b?.riffCard?.id || '');
+          const cid = normalizeRiffCardId(b);
           if (bid && cid) idMap.set(bid, cid);
         }
         for (const it of this.queue) {
@@ -102,7 +107,7 @@ export class SubsetPracticeStrategy {
     if (existing) return existing;
 
     const blocks = await riff.getRiffCardsByBlockIDs([blockID]);
-    const cid = String((blocks as any[])?.[0]?.riffCard?.id || '');
+    const cid = normalizeRiffCardId((blocks as any[])?.[0]);
     if (cid) {
       const it = this.queue.find((x) => x.blockID === blockID);
       if (it) it.cardID = cid;
@@ -111,7 +116,7 @@ export class SubsetPracticeStrategy {
 
     await riff.addRiffCards(this.deckID, [blockID]);
     const blocks2 = await riff.getRiffCardsByBlockIDs([blockID]);
-    const cid2 = String((blocks2 as any[])?.[0]?.riffCard?.id || '');
+    const cid2 = normalizeRiffCardId((blocks2 as any[])?.[0]);
     if (cid2) {
       const it = this.queue.find((x) => x.blockID === blockID);
       if (it) it.cardID = cid2;

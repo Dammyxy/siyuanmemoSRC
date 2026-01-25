@@ -5,7 +5,7 @@ import { getRiffCardsByBlockIDs } from '@/core/siyuan/riff';
 import { riff } from '@/core/siyuan';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import { createVueDialog } from '@/utils/dialog';
-import type { QueueItem } from '@/core/queue';
+import { DEFAULT_PRIORITY, type QueueItem } from '@/core/queue';
 import { CardBuilderContext } from '@/core/card-builder';
 
 export class BlockMenuManager {
@@ -400,6 +400,7 @@ export class BlockMenuManager {
                 cardID,
                 blockID,
                 deckID: riff.BUILTIN_DECK_ID,
+                priority: DEFAULT_PRIORITY,
                 nextDues: { 1: '', 2: '', 3: '', 4: '' },
                 state: 0,
                 lapses: 0,
@@ -423,6 +424,7 @@ export class BlockMenuManager {
                 cardID,
                 blockID,
                 deckID: riff.BUILTIN_DECK_ID,
+                priority: DEFAULT_PRIORITY,
                 meta: groupId ? { groupId } : undefined,
             });
         }
@@ -456,6 +458,7 @@ export class BlockMenuManager {
                     cardID,
                     blockID,
                     deckID: riff.BUILTIN_DECK_ID,
+                    priority: DEFAULT_PRIORITY,
                     nextDues: { 1: '', 2: '', 3: '', 4: '' },
                     state: 0,
                     lapses: 0,

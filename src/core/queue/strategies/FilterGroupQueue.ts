@@ -1,5 +1,6 @@
 import type { QueueInterface, QueueItem } from '../types.ts';
 import type { PersistenceAdapter } from '../persistence.ts';
+import { DEFAULT_PRIORITY } from '../abstraction/IPriority.ts';
 
 export interface FilterGroupConfig {
   id: string;
@@ -34,7 +35,13 @@ export class FilterGroupQueue implements QueueInterface<QueueItem> {
   async init(): Promise<void> {
     const stored = await this.persistence?.load();
     if (!stored) return;
-    this.groups = stored.groups || this.groups;
+    const groups = stored.groups || this.groups;
+    for (const [gid, items] of Object.entries(groups)) {
+      this.groups[gid] = (items || []).map((it) => ({
+        ...(it as any),
+        priority: Number.isFinite(Number((it as any)?.priority)) ? Number((it as any).priority) : DEFAULT_PRIORITY,
+      })) as QueueItem[];
+    }
     this.cursor = stored.cursor || 0;
     this.schedule = stored.schedule?.length ? stored.schedule : this.schedule;
   }
@@ -43,6 +50,9 @@ export class FilterGroupQueue implements QueueInterface<QueueItem> {
     const groupId = String(item?.meta?.groupId || this.configs[0]?.id || 'default');
     if (!this.groups[groupId]) {
       this.groups[groupId] = [];
+    }
+    if (!Number.isFinite(Number((item as any)?.priority))) {
+      (item as any).priority = DEFAULT_PRIORITY;
     }
     if (this.groups[groupId].some((x) => x.cardID === item.cardID)) return;
     this.groups[groupId].push(item);

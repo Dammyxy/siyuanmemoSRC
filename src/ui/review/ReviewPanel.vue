@@ -175,6 +175,7 @@ import { getBlockDOM, getBlockDocInfo, getDocContent, riff } from '../../core/si
 import { Menu, Protyle, Constants, openTab, type App, type IProtyle } from 'siyuan';
 import { createVueDialog, inputDialog } from '../../utils/dialog';
 import { clearBlockPracticeProgress, readBlockPracticeProgress, writeBlockPracticeProgress } from '../../core/queue/adapters/blockPracticeProgress';
+import { CommandRegistry } from '../../core/queue/abstraction/Command';
 import type { NeuralContext } from '../../core/queue/neural/types';
 import type { FsrsEventBus, FsrsReviewMode } from '../../core/events';
 import type { QueueStats, QueueUIConfig } from '../../core/queue/types';
@@ -1924,45 +1925,69 @@ function handleMore(e: MouseEvent) {
   const x = rect && rect.width ? rect.left : e.clientX;
   const y = rect && rect.height ? rect.bottom : e.clientY;
   const menu = new Menu();
-  menu.addItem({
-    icon: 'iconClock',
-    label: t('setDueTime', '设置到期时间'),
-    click: async () => {
-      const daysStr = await inputDialog({ title: t('setDueDaysPrompt', '设置几天后到期？'), defaultValue: '1', confirmText: t('confirm', '确认'), cancelText: t('cancel', '取消') });
-      if (daysStr) {
-        const days = parseInt(daysStr);
-        const due = new Date();
-        due.setDate(due.getDate() + days);
-        const dueStr = due.toISOString().replace(/[-:]/g, '').replace('T', '').split('.')[0];
-        await riff.batchSetRiffCardsDueTime([{ id: card.cardID, due: dueStr }]);
-        handleSkip();
-      }
+
+  const menuCommands = Array.isArray(queueUiConfig.value.menuCommands) ? queueUiConfig.value.menuCommands : [];
+  const registry = new CommandRegistry<unknown>();
+  for (const cmd of menuCommands) {
+    registry.register(cmd as any);
+  }
+  const commands = registry.list();
+  if (isStrategySession.value && commands.length > 0) {
+    for (const cmd of commands) {
+      const id = String((cmd as any)?.id || '');
+      const label = String((cmd as any)?.label || '');
+      if (!id || !label) continue;
+      menu.addItem({
+        icon: (cmd as any)?.icon,
+        label,
+        click: () => {
+          void handleCustom(id);
+        },
+      });
     }
-  });
-  if (card.state !== 0) {
+  } else {
     menu.addItem({
-      icon: 'iconRefresh',
-      label: t('reset', '重置'),
+      icon: 'iconClock',
+      label: t('setDueTime', '设置到期时间'),
       click: async () => {
-        const type = filterCardType.value === 'doc' ? 'tree' : (filterCardType.value === 'notebook' ? 'notebook' : 'deck');
-        const id = filterCardType.value === 'all' ? (filterId.value || props.deckID) : filterId.value;
-        await riff.resetRiffCards(type, id, props.deckID, [card.blockID]);
-        loadEditor();
+        const daysStr = await inputDialog({ title: t('setDueDaysPrompt', '设置几天后到期？'), defaultValue: '1', confirmText: t('confirm', '确认'), cancelText: t('cancel', '取消') });
+        if (daysStr) {
+          const days = parseInt(daysStr);
+          const due = new Date();
+          due.setDate(due.getDate() + days);
+          const dueStr = due.toISOString().replace(/[-:]/g, '').replace('T', '').split('.')[0];
+          await riff.batchSetRiffCardsDueTime([{ id: card.cardID, due: dueStr }]);
+          handleSkip();
+        }
+      }
+    });
+    if (card.state !== 0) {
+      menu.addItem({
+        icon: 'iconRefresh',
+        label: t('reset', '重置'),
+        click: async () => {
+          const type = filterCardType.value === 'doc' ? 'tree' : (filterCardType.value === 'notebook' ? 'notebook' : 'deck');
+          const id = filterCardType.value === 'all' ? (filterId.value || props.deckID) : filterId.value;
+          await riff.resetRiffCards(type, id, props.deckID, [card.blockID]);
+          loadEditor();
+        }
+      });
+    }
+    menu.addItem({
+      icon: 'iconTrashcan',
+      label: t('removeCard', '移除闪卡'),
+      click: async () => {
+        await riff.removeRiffCards(props.deckID, [card.blockID]);
+        handleSkip();
       }
     });
   }
+
+  menu.addSeparator();
   menu.addItem({
     icon: 'iconEdit',
     label: t('editSrsData', '编辑SRS数据'),
     click: () => openSrsEditor(),
-  });
-  menu.addItem({
-    icon: 'iconTrashcan',
-    label: t('removeCard', '移除闪卡'),
-    click: async () => {
-      await riff.removeRiffCards(props.deckID, [card.blockID]);
-      handleSkip();
-    }
   });
   menu.addSeparator();
   menu.addItem({

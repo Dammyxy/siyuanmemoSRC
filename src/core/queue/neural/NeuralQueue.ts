@@ -8,6 +8,7 @@
  */
 
 import type { QueueInterface, QueueItem } from '../types.ts';
+import { DEFAULT_PRIORITY } from '../abstraction/IPriority.ts';
 import { HistoryFilter } from './HistoryFilter.ts';
 import { QueryEngine, CardData } from './QueryEngine.ts';
 import { WeightedWalkEngine } from './WeightedWalkEngine.ts';
@@ -175,6 +176,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
         cardID: cardData.id,
         blockID: cardData.id,
         deckID: 'neural-roaming', // 神经漫游使用特殊的 deck ID
+        priority: DEFAULT_PRIORITY,
         meta: {
           neuralContext: {
             previousCardId: this.previousCardId,

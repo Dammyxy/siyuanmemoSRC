@@ -103,7 +103,7 @@ export class QueueContext<TItem> implements QueueInterface<TItem> {
     for (const m of this.monitors) {
       try {
         m.onEvent(event);
-      } catch {}
+      } catch { }
     }
   }
 }

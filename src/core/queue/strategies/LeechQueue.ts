@@ -6,6 +6,8 @@ import { RiffScheduler } from '../schedulers/RiffScheduler.ts';
 import { PrioritySequencer } from '../sequencers/PrioritySequencer.ts';
 import type { QueueItem, QueueStats, QueueUIConfig } from '../types.ts';
 import { clampPriority, DEFAULT_PRIORITY } from '../abstraction/IPriority.ts';
+import { normalizeBlockId, normalizeDeckId, normalizeRiffCardId } from '../abstraction/QueueCardRef.ts';
+import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy.ts';
 
 type LeechAction = 'notify' | 'suspend' | 'tag';
 
@@ -48,13 +50,14 @@ function normalizeNextDues(input: any): Record<1 | 2 | 3 | 4, string> {
 }
 
 function normalizeDueCard(raw: any, fallbackDeckID: string): QueueItem {
-  const cardID = String(raw?.cardID || raw?.cardId || raw?.riffCardID || raw?.riffCardId || raw?.riffCard?.id || '');
-  const blockID = String(raw?.blockID || raw?.blockId || raw?.id || raw?.riffCard?.blockID || raw?.riffCard?.blockId || '');
-  const deckID = String(raw?.deckID || raw?.deckId || raw?.riffCard?.deckID || raw?.riffCard?.deckId || fallbackDeckID || '');
+  const cardID = normalizeRiffCardId(raw);
+  const blockID = normalizeBlockId(raw);
+  const deckID = normalizeDeckId(raw, fallbackDeckID);
   return {
     cardID,
     blockID,
     deckID,
+    priority: DEFAULT_PRIORITY,
     nextDues: normalizeNextDues(raw),
     state: Number.isFinite(Number(raw?.state)) ? Number(raw?.state) : undefined,
     lapses: Number.isFinite(Number(raw?.lapses)) ? Number(raw?.lapses) : undefined,
@@ -62,7 +65,7 @@ function normalizeDueCard(raw: any, fallbackDeckID: string): QueueItem {
   };
 }
 
-export class LeechQueue {
+export class LeechQueue implements IQueueStrategy<QueueItem> {
   private readonly deckID: string;
   private readonly threshold: number;
   private readonly action: LeechAction;
@@ -125,7 +128,7 @@ export class LeechQueue {
     });
   }
 
-  getUIConfig(_currentItem: any | null): QueueUIConfig {
+  getUIConfig(_currentItem: QueueItem | null): QueueUIConfig {
     return { statsType: 'queue-size', showRatingButtons: true, allowSkip: true };
   }
 
@@ -142,11 +145,11 @@ export class LeechQueue {
   }
 
   async onFeedback(
-    currentItem: any | null,
-    feedback: { action: 'rate' | 'skip' | 'custom'; rating?: 1 | 2 | 3 | 4; customActionId?: string; durationMs?: number },
+    currentItem: QueueItem | null,
+    feedback: QueueFeedback,
   ): Promise<void> {
-    const cardID = String(currentItem?.cardID || currentItem?.cardId || '');
-    const deckID = String(currentItem?.deckID || currentItem?.deckId || this.deckID);
+    const cardID = String((currentItem as any)?.cardID || (currentItem as any)?.cardId || '');
+    const deckID = String((currentItem as any)?.deckID || (currentItem as any)?.deckId || this.deckID);
     if (!cardID) return;
 
     if (feedback.action === 'skip') {
@@ -195,7 +198,7 @@ export class LeechQueue {
     }));
     paired.sort((a, b) => a.priority - b.priority);
     this.rawBuffer = paired.map((x) => x.raw);
-    this.buffer = paired.map((x) => ({ ...x.it, meta: { ...(x.it.meta || {}), priority: x.priority } }));
+    this.buffer = paired.map((x) => ({ ...x.it, priority: x.priority, meta: { ...(x.it.meta || {}), priority: x.priority } }));
   }
 }
 

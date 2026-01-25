@@ -191,6 +191,9 @@ export class StorageManager {
                 continue;
             }
             existing.add(card.cardID);
+            if (!Number.isFinite(Number(card?.priority))) {
+                card.priority = DEFAULT_PRIORITY;
+            }
             this.practiceQueue.push(card);
             added++;
         }
@@ -300,10 +303,17 @@ export class StorageManager {
             if (data) {
                 const parsed = JSON.parse(data);
                 if (Array.isArray(parsed)) {
-                    this.practiceQueue = parsed;
+                    this.practiceQueue = parsed.map((x) => ({
+                        ...(x as any),
+                        priority: Number.isFinite(Number((x as any)?.priority)) ? Number((x as any).priority) : DEFAULT_PRIORITY,
+                    }));
                     this.practiceQueueLastAutoSortDay = '';
                 } else if (parsed && typeof parsed === 'object') {
-                    this.practiceQueue = Array.isArray((parsed as any).items) ? (parsed as any).items : [];
+                    const items = Array.isArray((parsed as any).items) ? (parsed as any).items : [];
+                    this.practiceQueue = items.map((x: any) => ({
+                        ...(x as any),
+                        priority: Number.isFinite(Number((x as any)?.priority)) ? Number((x as any).priority) : DEFAULT_PRIORITY,
+                    }));
                     this.practiceQueueLastAutoSortDay = String((parsed as any).lastAutoSortDay || '');
                 } else {
                     this.practiceQueue = [];
@@ -341,6 +351,7 @@ export class StorageManager {
         const keyed = this.practiceQueue.map((it, idx) => {
             const bid = String((it as any)?.blockID || (it as any)?.blockId || '');
             const p = clampPriority(priMap.get(bid), DEFAULT_PRIORITY);
+            (it as any).priority = p;
             return { it, idx, p };
         });
         keyed.sort((a, b) => {
