@@ -68,6 +68,7 @@ export default class FSRSPlugin extends Plugin {
 
   // UI 状态
   private reviewDialog: { dialog: any; destroy: () => void } | null = null;
+  private cardBrowserDialog: { dialog: any; destroy: () => void } | null = null;
 
   async onload() {
     console.log('[FSRS] Plugin loading...');
@@ -276,8 +277,9 @@ export default class FSRSPlugin extends Plugin {
   onunload() {
     console.log('[FSRS] Plugin unloading...');
 
-    // 关闭复习对话框
+    // 关闭复习对话框和卡片浏览器
     this.reviewDialog?.destroy();
+    this.cardBrowserDialog?.destroy();
 
     try {
       if (this.topBarElement && this.topBarContextMenuHandler) {
@@ -468,9 +470,15 @@ export default class FSRSPlugin extends Plugin {
 
   /**
    * 打开卡片浏览器（Dialog 模式）
+   * 实现单例模式：避免重复打开多个浏览器窗口
    */
   openCardBrowser() {
-    const browserDialog = createVueDialog({
+    // 如果已有打开的浏览器，先销毁
+    if (this.cardBrowserDialog) {
+      this.cardBrowserDialog.destroy();
+    }
+
+    this.cardBrowserDialog = createVueDialog({
       title: this.i18n?.cardBrowser || '卡片浏览器',
       component: CardBrowser,
       props: {
@@ -482,12 +490,17 @@ export default class FSRSPlugin extends Plugin {
       events: {
         convertToTab: () => {
           // 关闭对话框并打开 Tab
-          browserDialog.destroy();
+          this.cardBrowserDialog?.destroy();
+          this.cardBrowserDialog = null;
           this.openCardBrowserTab();
         },
       },
       width: '90vw',
       height: '80vh',
+      onClose: () => {
+        // 对话框关闭时清理引用
+        this.cardBrowserDialog = null;
+      },
     });
   }
 

@@ -1,6 +1,6 @@
 <template>
   <div class="fsrs-review-v2">
-    <ReviewHeader :header="state.header" :is-tab-mode="!!props.reviewUI" @toolbar-action="handleToolbarAction" @action="hook.executeCommand" @context="handleContext" />
+    <ReviewHeader :header="state.header" :is-tab-mode="!!props.reviewUI" @toolbar-action="handleToolbarAction" @action="hook.executeCommand" @context="handleContext" @breadcrumb-click="handleBreadcrumbClick" />
 
     <ReviewContent :app="app" :content="state.content" :overlay="state.overlay" :has-hidden-content="state.meta.hasHiddenContent" :show-answer="state.actions.showAnswer" :i18n="i18n" />
 
@@ -41,6 +41,8 @@ import ReviewHeader from './ReviewHeader.vue';
 import { useReviewSession } from './useReviewSession';
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import { ProviderBackedQueueStrategy } from '@/core/extensions';
+import { createVueDialog } from '@/utils/dialog';
+import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 
 const props = defineProps<{
   app: any;
@@ -89,6 +91,7 @@ function t(key: string, fallback: string): string {
 function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) {
   const cmds = Array.isArray(menuCommands) ? menuCommands : [];
   const cardMeta = state.value.actions.cardMeta;
+  const currentCard = state.value.content.card;
 
   const menu = new Menu();
 
@@ -98,6 +101,44 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
       id: 'card-stats',
       type: 'readonly',
       labelHTML: buildCardStatsHTML(cardMeta),
+    });
+    menu.addSeparator();
+  }
+
+  // Part 5: 添加"打开"子菜单
+  if (currentCard?.blockId) {
+    menu.addItem({
+      icon: 'iconOpen',
+      label: t('openCard', '打开'),
+      submenu: [
+        {
+          icon: 'iconTab',
+          label: t('openInNewTab', '新标签页'),
+          click: () => openCardInTab(currentCard.blockId, false),
+        },
+        {
+          icon: 'iconLayoutRight',
+          label: t('openInRight', '右侧'),
+          click: () => openCardInTab(currentCard.blockId, true),
+        },
+        {
+          icon: 'iconExport',
+          label: t('openInNewWindow', '新窗口'),
+          click: () => openCardInNewWindow(currentCard.blockId),
+        },
+      ],
+    });
+    menu.addSeparator();
+  }
+
+  // Part 4: 添加"编辑 SRS 数据"菜单项
+  if (currentCard?.blockId) {
+    menu.addItem({
+      icon: 'iconEdit',
+      label: t('editSrsData', '编辑 SRS 数据'),
+      click: () => {
+        void openSrsEditorDialog(currentCard.blockId);
+      },
     });
     menu.addSeparator();
   }
@@ -178,6 +219,53 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
     }
   } else if (actionType === 'more') {
     handleOpenMenu(state.value.actions.menu, ev);
+  }
+}
+
+// Part 4: 打开 SRS 编辑器对话框
+function openSrsEditorDialog(blockId: string) {
+  if (!props.app) return;
+
+  createVueDialog({
+    title: t('editSrsData', '编辑 SRS 数据'),
+    component: SrsEditorDialog,
+    props: {
+      app: props.app,
+      blockId,
+      i18n: props.i18n || {},
+    },
+    width: 'min(700px, 90vw)',
+    height: 'min(600px, 80vh)',
+  });
+}
+
+// Part 5: 在标签页中打开卡片
+function openCardInTab(blockId: string, openInRight: boolean) {
+  if (!props.app) return;
+
+  openTab({
+    app: props.app,
+    doc: { id: blockId },
+    position: openInRight ? 'right' : undefined,
+  });
+}
+
+// Part 5: 在新窗口中打开卡片
+function openCardInNewWindow(blockId: string) {
+  if (!props.app) return;
+
+  openTab({
+    app: props.app,
+    doc: { id: blockId },
+    openInNewWindow: true,
+  });
+}
+
+// Part 6: 处理面包屑点击
+function handleBreadcrumbClick(crumb: { icon?: string; text: string; id?: string; action?: string }, index: number) {
+  const action = crumb.action || crumb.id;
+  if (action) {
+    void hook.executeCommand(action);
   }
 }
 </script>

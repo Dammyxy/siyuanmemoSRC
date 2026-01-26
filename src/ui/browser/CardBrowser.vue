@@ -577,7 +577,13 @@ async function loadData() {
       const ids = (items || []).map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
       currentDataSource.value = new BlockIdsDataSource({ id: activeQueueId.value, label: activeQueueId.value, blockIds: ids });
     } else {
-      currentDataSource.value = new DeckDataSource(props.plugin, { preset: currentPreset.value, currentDocId: props.currentDocId });
+      // 传递 activeDocId（用户选择的文档）而不是 props.currentDocId（插件初始化时的文档）
+      // 传递 searchQuery 以支持搜索查询筛选
+      currentDataSource.value = new DeckDataSource(props.plugin, {
+        preset: currentPreset.value,
+        currentDocId: activeDocId.value || props.currentDocId,
+        queryText: searchQuery.value,
+      });
     }
 
     if (!currentDataSource.value) {
@@ -1371,8 +1377,10 @@ function handleSelectDoc(docId: string) {
     void loadData();
     return;
   }
-  activeQueueId.value = null;
+  // 只在选择 'All' 时清除 activeQueueId，选择其他文档时保留队列状态
   activeDocId.value = id;
+  // 设置预设为 'current-doc' 以启用文档筛选
+  currentPreset.value = 'current-doc';
   void loadData();
 }
 

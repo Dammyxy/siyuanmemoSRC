@@ -5,6 +5,27 @@
       <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>
       <span>{{ header.stats.queueName || '闪卡' }}</span>
     </div>
+
+    <!-- Part 6: 面包屑导航 -->
+    <div v-if="header.breadcrumbs && header.breadcrumbs.length > 0" class="fsrs-review-breadcrumbs">
+      <template v-for="(crumb, index) in header.breadcrumbs" :key="index">
+        <span
+          v-if="crumb.action"
+          class="fsrs-review-breadcrumb__item ft__primary"
+          :data-action="crumb.action"
+          @click="$emit('breadcrumb-click', crumb, index)"
+        >
+          <svg v-if="crumb.icon" class="fsrs-review-breadcrumb__icon"><use :xlink:href="crumb.icon"></use></svg>
+          <span>{{ crumb.text }}</span>
+        </span>
+        <span v-else class="fsrs-review-breadcrumb__item ft__on-surface">
+          <svg v-if="crumb.icon" class="fsrs-review-breadcrumb__icon"><use :xlink:href="crumb.icon"></use></svg>
+          <span>{{ crumb.text }}</span>
+        </span>
+        <span v-if="index < header.breadcrumbs.length - 1" class="fsrs-review-breadcrumb__separator">/</span>
+      </template>
+    </div>
+
     <div class="fn__flex-1 resize__move" style="min-height: 100%"></div>
 
     <!-- 计数器: NO + 新卡 + 复习卡 -->
@@ -62,6 +83,7 @@ const emit = defineEmits<{
   (e: 'toolbar-action', actionType: string, event: MouseEvent): void;
   (e: 'action', actionId: string): void;
   (e: 'context', payload: { id: string; openNewTab: boolean }): void;
+  (e: 'breadcrumb-click', crumb: { icon?: string; text: string; id?: string; action?: string }, index: number): void;
 }>();
 
 function t(key: string, fallback: string): string {
@@ -109,5 +131,45 @@ const hasCards = computed(() => {
 .ariaLabel {
   display: flex;
   align-items: center;
+}
+
+/* Part 6: 面包屑导航样式 */
+.fsrs-review-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+  padding: 4px 8px;
+  background: var(--b3-theme-background);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.fsrs-review-breadcrumb__item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: default;
+  user-select: none;
+}
+
+.fsrs-review-breadcrumb__item.ft__primary {
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.fsrs-review-breadcrumb__item.ft__primary:hover {
+  opacity: 0.7;
+}
+
+.fsrs-review-breadcrumb__icon {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+.fsrs-review-breadcrumb__separator {
+  color: var(--b3-theme-surface-variant);
+  margin: 0 2px;
 }
 </style>

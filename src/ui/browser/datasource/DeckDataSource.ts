@@ -7,6 +7,7 @@ import { RescheduleService } from '@/core/scheduler/rescheduleService';
 type DeckDataSourceOptions = {
   preset: string;
   currentDocId?: string;
+  queryText?: string;  // 添加查询文本参数
 };
 
 type QueueLike = {
@@ -72,7 +73,8 @@ export class DeckDataSource implements ICardDataSource {
   }
 
   async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
-    const rows = await loadCards(this.options.preset, this.options.currentDocId);
+    // 传递 queryText 参数以支持搜索查询筛选
+    const rows = await loadCards(this.options.preset, this.options.currentDocId, this.options.queryText);
 
     // 【全部闪卡】模式下不设置 queueIndex，NO 列将显示数组索引
     // 只有在【复习队列】模式下，数据源才会设置 queueIndex
