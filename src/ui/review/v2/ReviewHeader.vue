@@ -7,26 +7,25 @@
     </div>
     <div class="fn__flex-1 resize__move" style="min-height: 100%"></div>
 
-    <!-- 计数器: 新卡 + 复习卡 -->
+    <!-- 计数器: NO + 新卡 + 复习卡 -->
     <div
       data-type="count"
       class="ft__on-surface ft__smaller fn__flex-center"
       v-if="hasCards"
     >
+      <!-- NO (当前卡片序号) -->
+      <span class="ariaLabel" style="font-weight: bold; margin-right: 8px;">
+        NO {{ header.stats.current || 0 }}
+      </span>
+      <span class="fn__space"></span>
       <!-- 新卡计数 -->
       <span class="ariaLabel" :aria-label="t('flashcardNewCard', '新卡')">
-        <span class="ft__error">{{ header.stats.current || 0 }}</span>
-        /
-        <span class="ariaLabel ft__primary" :aria-label="t('flashcardNewCard', '新卡')">
-          {{ header.stats.newCards || header.stats.total }}
-        </span>
+        <span class="ft__primary">{{ header.stats.newCards || 0 }}</span>
       </span>
       <span class="fn__space"></span>
       <span class="fn__space"></span>
       <!-- 复习卡计数 -->
       <span class="ariaLabel" :aria-label="t('flashcardReviewCard', '复习卡')">
-        <span class="ft__error">{{ header.stats.current || 0 }}</span>
-        /
         <span class="ft__success">{{ header.stats.reviewCards || 0 }}</span>
       </span>
     </div>
@@ -51,6 +50,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { ReviewUIState } from './types';
 
 const props = defineProps<{
@@ -70,9 +70,8 @@ function t(key: string, fallback: string): string {
 }
 
 const hasCards = computed(() => {
-  return (props.header.stats.current || 0) > 0 ||
-    (props.header.stats.newCards || 0) > 0 ||
-    (props.header.stats.reviewCards || 0) > 0;
+  // 始终显示计数器（即使没有卡片），确保 NO 始终可见
+  return true;
 });
 </script>
 

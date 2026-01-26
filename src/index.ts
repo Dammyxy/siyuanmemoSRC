@@ -19,6 +19,7 @@ import { markBlockAsCard, unmarkBlockAsCard, ATTR_CARD_ID, getCardBlockIds } fro
 import { getRiffCardsByBlockIDs } from '@/core/siyuan/riff';
 import { pushErrMsg, pushMsg, sql } from '@/core/siyuan/api';
 import { FinalDrillAdapter, FinalDrillProvider, LeechAdapter, NeuralRoamAdapter, RetrievalPracticeAdapter, ReviewView, SubsetPracticeAdapter } from '@/ui/review/v2';
+import { ExtractionPracticeProvider } from '@/ui/review/v2/providers/ExtractionPracticeProvider';
 import CardBrowser from '@/ui/browser/CardBrowser.vue';
 import { SettingsPanel } from '@/ui/settings';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
@@ -47,6 +48,15 @@ export default class FSRSPlugin extends Plugin {
   public neuralQueue!: NeuralQueue;
   public finalDrillQueue!: FinalDrillQueue;
   public filterGroupQueue!: FilterGroupQueue;
+
+  // 为兼容性提供的别名访问器
+  public get deliberateQueue(): FinalDrillQueue {
+    return this.finalDrillQueue;
+  }
+
+  public get neuralRoamQueue(): NeuralQueue {
+    return this.neuralQueue;
+  }
 
   private TAB_TYPE = 'plugin-fsrs-card-browser';
 
@@ -517,9 +527,10 @@ export default class FSRSPlugin extends Plugin {
       this.reviewDialog.destroy();
     }
     try {
-      const provider = new FSRSRetrievalProvider({
-        deckID: riff.BUILTIN_DECK_ID,
-        displayName: this.i18n?.reviewTitle || 'FSRS 复习',
+      // 使用 ExtractionPracticeProvider 包装 extractionQueue
+      const provider = new ExtractionPracticeProvider({
+        queue: this.extractionQueue as any,
+        i18n: this.i18n || {},
       });
       const adapter = new RetrievalPracticeAdapter({ i18n: this.i18n || {} });
       this.reviewDialog = createVueDialog({

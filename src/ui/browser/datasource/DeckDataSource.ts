@@ -9,10 +9,19 @@ type DeckDataSourceOptions = {
   currentDocId?: string;
 };
 
+type QueueLike = {
+  addItems?: (items: any[]) => Promise<number> | number;
+  addItem?: (item: any) => Promise<void> | void;
+};
+
 type FsrsPluginLike = {
   storage?: any;
   rescheduleService?: RescheduleService;
   openSubsetReviewDialog?: (blockIds: string[]) => Promise<void> | void;
+  extractionQueue?: QueueLike;
+  deliberateQueue?: QueueLike;
+  filterGroupQueue?: QueueLike;
+  // 注意：neuralRoamQueue 不支持 addItem，所以不在这里暴露
 };
 
 function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
@@ -64,6 +73,9 @@ export class DeckDataSource implements ICardDataSource {
 
   async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
     const rows = await loadCards(this.options.preset, this.options.currentDocId);
+
+    // 【全部闪卡】模式下不设置 queueIndex，NO 列将显示数组索引
+    // 只有在【复习队列】模式下，数据源才会设置 queueIndex
     const sorted = applySort(rows, params?.sortModel || []);
     return { rows: sorted, totalCount: sorted.length };
   }
@@ -71,21 +83,108 @@ export class DeckDataSource implements ICardDataSource {
   getSupportedActions(): CardBrowserAction[] {
     const actions: CardBrowserAction[] = [
       { id: 'open', label: 'Open', icon: 'iconOpen' },
+    ];
+
+    // 添加"加入队列"子菜单（对应顶栏的四种队列）
+    const queueActions: CardBrowserAction[] = [];
+
+    if (this.plugin?.extractionQueue) {
+      queueActions.push({
+        id: 'add-to-extraction-queue',
+        label: '提取练习',
+        icon: 'iconList',
+      });
+    }
+    if (this.plugin?.deliberateQueue) {
+      queueActions.push({
+        id: 'add-to-deliberate-queue',
+        label: '刻意练习',
+        icon: 'iconCards',
+      });
+    }
+    if (this.plugin?.filterGroupQueue) {
+      queueActions.push({
+        id: 'add-to-filter-group-queue',
+        label: '筛选复习',
+        icon: 'iconFilter',
+      });
+    }
+
+    if (queueActions.length > 0) {
+      actions.push({
+        id: 'add-to-queue',
+        label: '加入队列',
+        icon: 'iconDownload',
+        submenu: queueActions,
+      });
+    }
+
+    // 其他操作
+    actions.push(
       { id: 'set-priority', label: 'Set Priority', icon: 'iconMark' },
       { id: 'postpone', label: 'Postpone', icon: 'iconCalendar' },
       { id: 'advance', label: 'Advance', icon: 'iconCalendar' },
       { id: 'spread', label: 'Spread', icon: 'iconSort' },
       { id: 'reset', label: 'Reset', icon: 'iconRefresh', danger: true },
-      { id: 'suspend', label: 'Suspend', icon: 'iconPause' },
-    ];
+      { id: 'suspend', label: 'Suspend', icon: 'iconPause' }
+    );
+
     if (this.plugin?.openSubsetReviewDialog) {
       actions.unshift({ id: 'review-subset', label: 'Review Subset', icon: 'iconPlay' });
     }
+
     return actions;
   }
 
   async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<any> {
+    // 打开操作
     if (actionId === 'open') return;
+
+    // ========== 队列操作 ==========
+    if (actionId === 'add-to-extraction-queue') {
+      const items = selectedRows.map((r) => ({
+        cardID: r.fsrsCardId || r.id || r.blockId,
+        blockID: r.blockId,
+        deckID: r.deckId,
+        priority: typeof r.priority === 'number' ? r.priority : 50,
+      }));
+      if (this.plugin?.extractionQueue?.addItems) {
+        const added = await Promise.resolve(this.plugin.extractionQueue.addItems(items));
+        return { added, message: `已加入 ${added} 张卡片到提取练习队列` };
+      }
+      return;
+    }
+
+    if (actionId === 'add-to-deliberate-queue') {
+      const items = selectedRows.map((r) => ({
+        cardID: r.fsrsCardId || r.id || r.blockId,
+        blockID: r.blockId,
+        deckID: r.deckId,
+        priority: typeof r.priority === 'number' ? r.priority : 50,
+      }));
+      let added = 0;
+      for (const item of items) {
+        await Promise.resolve(this.plugin?.deliberateQueue?.addItem?.(item));
+        added++;
+      }
+      return { added, message: `已加入 ${added} 张卡片到刻意练习队列` };
+    }
+
+    if (actionId === 'add-to-filter-group-queue') {
+      const items = selectedRows.map((r) => ({
+        cardID: r.fsrsCardId || r.id || r.blockId,
+        blockID: r.blockId,
+        deckID: r.deckId,
+        priority: typeof r.priority === 'number' ? r.priority : 50,
+      }));
+      if (this.plugin?.filterGroupQueue?.addItems) {
+        const added = await Promise.resolve(this.plugin.filterGroupQueue.addItems(items));
+        return { added, message: `已加入 ${added} 张卡片到筛选复习队列` };
+      }
+      return;
+    }
+
+    // 现有操作
     if (actionId === 'review-subset') {
       const blockIds = (selectedRows || []).map((r) => String(r?.blockId || '')).filter(Boolean);
       if (blockIds.length === 0) return;

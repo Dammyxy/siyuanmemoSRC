@@ -219,6 +219,7 @@
     "queueStrategyTitle": "队列策略",
     "defaultQueue": "默认队列",
     "queueExtraction": "提取练习队列",
+    "queueExtract": "提取练习",
     "queueDeliberate": "刻意练习队列",
     "queueNeural": "神经漫游队列",
     "queueFilterGroup": "筛选复习队列",

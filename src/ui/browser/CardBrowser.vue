@@ -147,6 +147,7 @@
           :enableCellTextSelection="true"
           @grid-ready="onGridReady"
           @sort-changed="onSortChanged"
+          @column-everything-changed="onColumnEverythingChanged"
           @selection-changed="onSelectionChanged"
           @row-clicked="onRowClicked"
           @row-double-clicked="onRowDoubleClicked"
@@ -220,8 +221,8 @@
 import { ref, computed, onMounted, nextTick, onBeforeUnmount } from 'vue';
 import { AgGridVue } from 'ag-grid-vue3';
 import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
-import 'ag-grid-community/styles/ag-grid.css';
-import 'ag-grid-community/styles/ag-theme-balham.css'; // Fix: 引入主题 CSS 以修复复选框样式
+// AG Grid v35+ 使用 Theming API，无需引入 CSS 主题文件
+// 自定义主题通过 CSS 变量实现（见 style 部分）
 import type { GridApi, ColDef, CellContextMenuEvent } from 'ag-grid-community';
 import { type RowSelectionOptions } from 'ag-grid-community';
 import { openTab, Menu, Protyle, type App } from 'siyuan';
@@ -232,6 +233,7 @@ import { type BrowserCard, CardState } from './types';
 import type { ICardDataSource } from './datasource/types';
 import { FinalDrillDataSource } from './datasource/FinalDrillDataSource';
 import { FilterGroupDataSource } from './datasource/FilterGroupDataSource';
+import { ExtractionDataSource } from './datasource/ExtractionDataSource';
 import { DeckDataSource } from './datasource/DeckDataSource';
 import { QueryDataSource } from './datasource/QueryDataSource';
 import { BlockIdsDataSource } from './datasource/BlockIdsDataSource';
@@ -372,21 +374,24 @@ const STATE_COLORS: Record<string, string> = {
 // 列定义 - SuperMemo 风格
 const columnDefs = ref<ColDef[]>([
   // Sel - 选择
-  { 
-    headerCheckboxSelection: true,
-    checkboxSelection: true,
+  {
     headerName: 'Sel',
     width: 50,
     pinned: 'left',
     suppressSizeToFit: true,
     lockPosition: true,
+    // AG Grid v35+：复选框通过 rowSelection 配置，不需要在列定义中设置
   },
   // No - 行号
   {
+    colId: 'noColumn',
     headerName: 'No',
     width: 50,
     sortable: false,
-    valueGetter: (params: any) => params.data?.queueIndex ?? (params.node?.rowIndex != null ? params.node.rowIndex + 1 : ''),
+    valueGetter: (params: any) => {
+      if (params.node?.rowIndex != null) return params.node.rowIndex + 1;
+      return '';
+    },
   },
   // Title - 标题
   { 
@@ -483,6 +488,13 @@ const columnDefs = ref<ColDef[]>([
   },
 ]);
 
+// 判断是否为队列模式（队列模式启用客户端排序，Deck 模式禁用）
+const isQueueMode = computed(() => {
+  const qid = String(activeQueueId.value || '');
+  return qid === 'final-drill' || qid === 'extraction' || qid === 'filter-group' || qid === 'neural';
+});
+
+// 始终启用 sortable，通过 canApplySortToQueue 控制按钮显示
 const defaultColDef: ColDef = {
   resizable: true,
   sortable: true,
@@ -555,6 +567,8 @@ async function loadData() {
       currentDataSource.value = new QueryDataSource(sqlStmt);
     } else if (activeQueueId.value === 'final-drill') {
       currentDataSource.value = new FinalDrillDataSource(props.plugin);
+    } else if (activeQueueId.value === 'extraction') {
+      currentDataSource.value = new ExtractionDataSource(props.plugin);
     } else if (activeQueueId.value === 'filter-group') {
       currentDataSource.value = new FilterGroupDataSource(props.plugin);
     } else if (activeQueueId.value) {
@@ -599,18 +613,54 @@ function handleSearchInput() {
 // AG Grid 选择配置 (v35+)
 const rowSelection = ref<RowSelectionOptions>({
   mode: 'multiRow',
-  checkboxes: false, // 使用列定义中的 checkbox
-  headerCheckbox: false,
-  enableClickSelection: false, // 点击行不选择，只点击 checkbox 选择（可选，根据需求）
+  checkboxes: true,      // AG Grid v35+：启用复选框
+  headerCheckbox: true,  // AG Grid v35+：启用表头复选框
+  enableClickSelection: false, // 点击行不选择，只点击 checkbox 选择
 });
 
 // Grid 事件
 function onGridReady(params: any) {
   gridApi.value = params.api;
+  // 使用 gridApi.value 获取列信息（使用 nextTick 确保初始化完成）
+  nextTick(() => {
+    if (gridApi.value) {
+      const columns = gridApi.value.getColumns?.();
+      console.log('[CardBrowser] AG-Grid ready, columns:', columns?.map((c: any) => ({
+        colId: c.getColId(),
+        sortable: c.isSortable(),
+      })));
+    }
+  });
+}
+
+function onColumnEverythingChanged(params: any) {
+  console.log('[CardBrowser] Column everything changed');
 }
 
 function onSortChanged(params: any) {
   currentSortModel.value = params?.api?.getSortModel?.() || [];
+  const sortArray = Array.from(currentSortModel.value || []);
+
+  // 检查排序是否真的改变了
+  const api = params?.api || gridApi.value;
+  console.log('[CardBrowser] onSortChanged:', {
+    sortModel: currentSortModel.value,
+    sortModelLength: currentSortModel.value?.length,
+    sortModelArray: sortArray,
+    activeQueueId: activeQueueId.value,
+    canApply: canApplySortToQueue.value,
+    // 调试：检查 API 方法
+    hasGetSortModel: typeof api?.getSortModel === 'function',
+    hasGetDisplayedRowCount: typeof api?.getDisplayedRowCount === 'function',
+    hasGetColumnState: typeof api?.getColumnState === 'function',
+    // 尝试获取当前排序状态（只显示 priority 列）
+    columnState: api?.getColumnState?.()?.filter((c: any) => c.colId === 'priority') || [],
+  });
+
+  // 强制刷新 NO 列以更新行号（使用 colId）
+  if (api) {
+    api.refreshCells?.({ force: true, columns: ['noColumn'] });
+  }
 }
 
 function onSelectionChanged() {
@@ -969,11 +1019,25 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   const selected = selectedRows.value?.length ? selectedRows.value : [rowData];
 
   for (const action of actions) {
-    menu.addItem({
-      icon: (action as any)?.icon || 'iconMore',
-      label: getActionLabel({ id: action.id, label: action.label }),
-      click: () => void handleAction(action.id, selected, rowData),
-    });
+    if (action.submenu && action.submenu.length > 0) {
+      // 处理子菜单
+      menu.addItem({
+        icon: action.icon || 'iconMore',
+        label: getActionLabel({ id: action.id, label: action.label }),
+        submenu: action.submenu.map(sub => ({
+          icon: sub.icon || 'iconMore',
+          label: getActionLabel({ id: sub.id, label: sub.label }),
+          click: () => void handleAction(sub.id, selected, rowData),
+        })),
+      });
+    } else {
+      // 处理普通菜单项
+      menu.addItem({
+        icon: action.icon || 'iconMore',
+        label: getActionLabel({ id: action.id, label: action.label }),
+        click: () => void handleAction(action.id, selected, rowData),
+      });
+    }
   }
 
   const mouseEvent = event.event as MouseEvent;
@@ -997,9 +1061,31 @@ async function autoSortFinalDrillQueue() {
 
 const canApplySortToQueue = computed(() => {
   const qid = String(activeQueueId.value || '');
+  const sortArray = Array.from(currentSortModel.value || []);
+
+  // 使用 gridApi 获取列状态来检测是否有排序
+  let hasSort = sortArray.length > 0;
+  if (!hasSort && gridApi.value) {
+    try {
+      const columnState = gridApi.value.getColumnState?.() || [];
+      hasSort = columnState.some((col: any) => col.sort && col.sort !== 'undefined');
+    } catch (e) {
+      // Ignore errors
+    }
+  }
+
+  console.log('[CardBrowser] canApplySortToQueue check:', {
+    queueId: qid,
+    isValidQueue: qid === 'extraction' || qid === 'final-drill' || qid === 'filter-group',
+    hasSortModel: hasSort,
+    sortModel: sortArray,
+    sortModelLength: sortArray.length,
+    result: (qid === 'extraction' || qid === 'final-drill' || qid === 'filter-group') && hasSort
+  });
+
   if (!qid) return false;
-  if (qid !== 'final-drill' && qid !== 'filter-group') return false;
-  if (!currentSortModel.value?.length) return false;
+  if (qid !== 'extraction' && qid !== 'final-drill' && qid !== 'filter-group') return false;
+  if (!hasSort) return false;
   return true;
 });
 
@@ -1020,6 +1106,12 @@ async function handleApplySortToQueue() {
     return;
   }
 
+  // 首先从队列中获取当前所有项
+  const currentItems = q.getAllItems?.() || [];
+  const currentItemsByBlockId = new Map(
+    currentItems.map((item: any) => [String(item.blockID || ''), item] as const)
+  );
+
   const orderedCards: BrowserCard[] = [];
   const count = Number(gridApi.value.getDisplayedRowCount?.() ?? 0);
   for (let i = 0; i < count; i++) {
@@ -1033,15 +1125,49 @@ async function handleApplySortToQueue() {
     return;
   }
 
-  const queueItems = orderedCards.map((card: BrowserCard) => ({
-    cardID: card.fsrsCardId || card.id || card.blockId,
-    blockID: card.blockId,
-    deckID: card.deckId,
-    priority: typeof card.priority === 'number' ? card.priority : 50,
-  }));
+  // 使用 blockID 从队列中获取实际的项（避免使用过时的浏览器数据）
+  const queueItems: any[] = [];
+  const missingBlockIds: string[] = [];
+
+  for (const card of orderedCards) {
+    const blockId = String(card.blockId || '');
+    const item = currentItemsByBlockId.get(blockId);
+    if (item) {
+      queueItems.push(item);
+    } else {
+      missingBlockIds.push(blockId);
+    }
+  }
+
+  // 调试：打印卡片 ID 映射详情
+  console.log('[CardBrowser] Card ID mapping details:', {
+    orderedCardsCount: orderedCards.length,
+    currentItemsCount: currentItems.length,
+    matchedItemsCount: queueItems.length,
+    missingBlockIds,
+    allCardIDs: orderedCards.map((c) => ({
+      fsrsCardId: c.fsrsCardId,
+      id: c.id,
+      blockId: c.blockId,
+      deckId: c.deckId,
+    })),
+    allQueueItemIDs: queueItems.map((qi) => ({
+      cardID: qi.cardID,
+      blockID: qi.blockID,
+      deckID: qi.deckID,
+    })),
+  });
 
   try {
+    console.log('[CardBrowser] Applying sort to queue:', {
+      queueId: qid,
+      queueItemsCount: queueItems.length,
+      hasReorder: typeof q.reorder === 'function',
+    });
+
     const ok = await Promise.resolve(q.reorder(queueItems));
+    console.log('[CardBrowser] Queue reorder result:', { ok });
+
     if (!ok) {
       await pushErrMsg(t('sortApplyFailed', '应用排序失败'));
       return;
@@ -1209,6 +1335,7 @@ function openPracticeMenu(ev: MouseEvent) {
 }
 
 function getQueueById(id: string) {
+  if (id === 'extraction') return (props.plugin as any)?.extractionQueue;
   if (id === 'final-drill') return (props.plugin as any)?.finalDrillQueue;
   if (id === 'neural-roam') return props.plugin?.neuralQueue;
   if (id === 'filter-group') return props.plugin?.filterGroupQueue;
@@ -1216,10 +1343,12 @@ function getQueueById(id: string) {
 }
 
 async function refreshQueueCounts() {
+  const extraction = (props.plugin as any)?.extractionQueue?.size?.() ?? ((props.plugin as any)?.extractionQueue?.getAllItems?.()?.length ?? 0);
   const finalDrill = (props.plugin as any)?.finalDrillQueue?.size?.() ?? ((props.plugin as any)?.finalDrillQueue?.getAllItems?.()?.length ?? 0);
   const neural = props.plugin?.neuralQueue?.size?.() ?? (props.plugin?.neuralQueue?.getAllItems?.()?.length ?? 0);
   const filterGroup = props.plugin?.filterGroupQueue?.size?.() ?? (props.plugin?.filterGroupQueue?.getAllItems?.()?.length ?? 0);
   queueCounts.value = {
+    extraction: Number(extraction) || 0,
     'final-drill': Number(finalDrill) || 0,
     'neural-roam': Number(neural) || 0,
     'filter-group': Number(filterGroup) || 0,

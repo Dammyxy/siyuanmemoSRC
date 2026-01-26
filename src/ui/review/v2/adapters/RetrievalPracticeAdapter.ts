@@ -34,14 +34,36 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
       ? await queue.getStats()
       : { size: 0, label: '', extra: '' };
 
-    const remaining = Number.isFinite(Number((stats as any)?.size))
-      ? Math.max(0, Number((stats as any)?.size) || 0)
-      : Number.isFinite(Number((stats as any)?.remaining))
-        ? Math.max(0, Number((stats as any)?.remaining) || 0)
-        : Number.isFinite(Number((stats as any)?.total)) && Number.isFinite(Number((stats as any)?.current))
-          ? Math.max(0, (Number((stats as any)?.total) || 0) - (Number((stats as any)?.current) || 0))
-          : 0;
-    const current = remaining;
+    // 调试日志：查看 stats 的实际值
+    console.log('[RetrievalPracticeAdapter] stats:', stats);
+
+    // 从 label 解析新卡和复习卡数量（格式：'2/5' 表示 2 新卡，5 复习卡）
+    let statsNewCards = 0;
+    let statsReviewCards = 0;
+    if (stats.label && typeof stats.label === 'string') {
+      const parts = stats.label.split('/');
+      if (parts.length === 2) {
+        statsNewCards = Number(parts[0]) || 0;
+        statsReviewCards = Number(parts[1]) || 0;
+      }
+    }
+
+    // 获取当前剩余数量和已复习数量
+    const statsRemaining = Number((stats as any)?.remaining) || 0;
+    const statsTotal = Number((stats as any)?.total) || 0;
+    const statsReviewed = Number((stats as any)?.reviewed) || 0;
+
+    // 使用队列提供的 reviewed 字段
+    const reviewed = statsReviewed;
+
+    // 当前序号：已复习数量 + 1（从 1 开始）
+    const current = reviewed + 1;
+
+    const total = statsTotal;
+    const newCards = statsNewCards;
+    const reviewCards = statsReviewCards;
+
+    console.log('[RetrievalPracticeAdapter] statsTotal:', statsTotal, 'statsRemaining:', statsRemaining, 'statsNewCards:', statsNewCards, 'statsReviewCards:', statsReviewCards, 'reviewed:', reviewed, 'current:', current);
     const baseLabel = String(this.label || t(this.i18n, 'reviewTitle', 'FSRS 复习'));
     const label = toLabel(baseLabel, toLabel(String(stats.label || ''), String(stats.extra || '')));
     const queueName = String(this.queueName || 'retrieval-practice');
@@ -118,10 +140,6 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
         },
       };
     }
-
-    // 从 stats 获取新卡/复习卡计数
-    const newCards = (stats as any)?.newCards || 0;
-    const reviewCards = (stats as any)?.reviewCards || 0;
 
     return {
       header: {

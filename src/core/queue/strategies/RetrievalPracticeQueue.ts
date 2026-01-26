@@ -72,6 +72,10 @@ export class RetrievalPracticeQueue implements IQueueStrategy<QueueItem> {
   private unreviewedOld = 0;
   private unreviewedTotal = 0;
 
+  // 跟踪初始总数和已复习数量
+  private initialTotal = 0;
+  private reviewedCount = 0;
+
   constructor(options?: { deckID?: string; api?: Partial<RiffApi>; getPrioritiesByBlockIDs?: (blockIDs: string[]) => Promise<Map<string, number>> }) {
     this.deckID = String(options?.deckID || riff.BUILTIN_DECK_ID);
     this.api = {
@@ -115,7 +119,15 @@ export class RetrievalPracticeQueue implements IQueueStrategy<QueueItem> {
     await this.ensureLoaded();
     const size = Math.max(0, Number(this.unreviewedTotal) || 0);
     const label = `${Math.max(0, Number(this.unreviewedNew) || 0)}/${Math.max(0, Number(this.unreviewedOld) || 0)}`;
-    return { size, label, extra: this.protectionExtra };
+    return {
+      size,
+      label,
+      extra: this.protectionExtra,
+      total: this.initialTotal,
+      remaining: size,
+      reviewed: this.reviewedCount,
+      initialTotal: this.initialTotal,
+    } as any;
   }
 
   async next(): Promise<QueueItem | null> {
@@ -159,6 +171,8 @@ export class RetrievalPracticeQueue implements IQueueStrategy<QueueItem> {
     } else {
       this.unreviewedOld = Math.max(0, (Number(this.unreviewedOld) || 0) - 1);
     }
+    // 增加已复习数量
+    this.reviewedCount++;
   }
 
   private getReviewedCardsPayload(): any[] {
@@ -176,6 +190,10 @@ export class RetrievalPracticeQueue implements IQueueStrategy<QueueItem> {
     this.unreviewedTotal = Number((data as any)?.unreviewedCount) || cards.length || 0;
     this.unreviewedNew = Number((data as any)?.unreviewedNewCardCount) || 0;
     this.unreviewedOld = Number((data as any)?.unreviewedOldCardCount) || 0;
+
+    // 初始化初始总数
+    this.initialTotal = this.unreviewedTotal;
+    this.reviewedCount = 0;
 
     const rawOut: any[] = [];
     const itemOut: QueueItem[] = [];

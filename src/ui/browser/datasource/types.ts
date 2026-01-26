@@ -17,6 +17,7 @@ export interface CardBrowserAction {
     shortcut?: string;
     danger?: boolean; // Show in red or with confirm
     keepSelection?: boolean; // If true, don't clear selection after action
+    submenu?: CardBrowserAction[]; // 支持子菜单
 }
 
 /**

@@ -62,7 +62,6 @@ export class FinalDrillDataSource implements ICardDataSource {
       const bid = String(it?.blockID || '');
       const card = byBlockId.get(bid);
       if (!card) continue;
-      card.queueIndex = i + 1;
       const p = Number(it?.priority);
       if (Number.isFinite(p)) {
         (card as any).priority = p;
