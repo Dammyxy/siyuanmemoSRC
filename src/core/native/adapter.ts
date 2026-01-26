@@ -1,0 +1,130 @@
+/**
+ * 原生复习界面适配器
+ * 将队列数据转换为思源源生复习界面所需的 ICard 格式
+ */
+
+import type { ICard, ICardData } from '@/global';
+import { riff } from '@/core/siyuan';
+import type { QueueItem } from '@/core/queue';
+
+/**
+ * 队列项到原生卡片的转换接口
+ * 轻量级适配器：只负责数据转换，不包含业务逻辑
+ */
+export interface INativeReviewAdapter {
+  /**
+   * 将队列项转换为 ICard 格式
+   */
+  toNativeCards(items: QueueItem[]): ICard[];
+
+  /**
+   * 生成原生界面所需的卡片数据
+   */
+  getCardData(): Promise<ICardData>;
+
+  /**
+   * 获取队列名称（用于显示）
+   */
+  getQueueName(): string;
+
+  /**
+   * 获取队列类型（all/doc/notebook）
+   */
+  getCardType(): 'all' | 'doc' | 'notebook';
+}
+
+/**
+ * FSRS 数据转换为 nextDues 格式
+ */
+function calculateNextDues(item: QueueItem): ICard['nextDues'] {
+  // 默认间隔：1m, 5m, 10m, 1d (6天后)
+  const oneMinute = 1 * 60 * 1000;
+  const oneDay = 24 * 60 * 60 * 1000;
+
+  return {
+    1: `${oneMinute}ms`,        // 1 分钟
+    2: `${5 * oneMinute}ms`,    // 5 分钟
+    3: `${10 * oneMinute}ms`,   // 10 分钟
+    4: `${6 * oneDay}ms`,       // 6 天
+  } as any;
+}
+
+/**
+ * 提取练习队列的原生适配器
+ */
+export class ExtractionNativeAdapter implements INativeReviewAdapter {
+  constructor(private queue: { getAllItems: () => QueueItem[] }) {}
+
+  toNativeCards(items: QueueItem[]): ICard[] {
+    return items.map((item) => ({
+      deckID: item.deckID || riff.BUILTIN_DECK_ID,
+      cardID: item.cardID || item.blockID,
+      blockID: item.blockID,
+      nextDues: calculateNextDues(item),
+      lapses: 0,
+      lastReview: -62135596800000, // 1970年（表示从未复习）
+      reps: 0,
+      state: 0, // 0=新卡
+    }));
+  }
+
+  async getCardData(): Promise<ICardData> {
+    const items = this.queue.getAllItems();
+    const cards = this.toNativeCards(items);
+
+    return {
+      cards,
+      unreviewedCount: items.length,
+      unreviewedNewCardCount: items.length,
+      unreviewedOldCardCount: 0,
+    };
+  }
+
+  getQueueName(): string {
+    return '提取练习';
+  }
+
+  getCardType(): 'all' {
+    return 'all';
+  }
+}
+
+/**
+ * 刻意练习队列的原生适配器
+ */
+export class FinalDrillNativeAdapter implements INativeReviewAdapter {
+  constructor(private queue: { getAllItems: () => QueueItem[] }) {}
+
+  toNativeCards(items: QueueItem[]): ICard[] {
+    return items.map((item) => ({
+      deckID: item.deckID || riff.BUILTIN_DECK_ID,
+      cardID: item.cardID || item.blockID,
+      blockID: item.blockID,
+      nextDues: calculateNextDues(item),
+      lapses: 0,
+      lastReview: -62135596800000,
+      reps: 0,
+      state: 0,
+    }));
+  }
+
+  async getCardData(): Promise<ICardData> {
+    const items = this.queue.getAllItems();
+    const cards = this.toNativeCards(items);
+
+    return {
+      cards,
+      unreviewedCount: items.length,
+      unreviewedNewCardCount: items.length,
+      unreviewedOldCardCount: 0,
+    };
+  }
+
+  getQueueName(): string {
+    return '刻意练习';
+  }
+
+  getCardType(): 'all' {
+    return 'all';
+  }
+}

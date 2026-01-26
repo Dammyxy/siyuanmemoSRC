@@ -31,6 +31,8 @@ import '@/index.scss';
 import { ConsoleQueueMonitor, DEFAULT_PRIORITY, QueueContext, StorageFileJsonAdapter, type QueueItem } from '@/core/queue';
 import { ExtractionPracticeQueue, FilterGroupQueue, FinalDrillQueue, NeuralRoamQueue, SubsetPracticeStrategy, LeechQueue } from '@/core/queue/strategies';
 import { NeuralQueue, NeuralQueueStorage } from '@/core/queue/neural';
+import { ExtractionNativeAdapter, FinalDrillNativeAdapter } from '@/core/native/adapter';
+import { NativeReviewSession } from '@/core/native/session';
 
 type PracticeQueueFilter = { type: 'doc' | 'tree' | 'sql'; value: string };
 
@@ -236,6 +238,15 @@ export default class FSRSPlugin extends Plugin {
       hotkey: 'Alt+B',
       callback: () => {
         this.openCardBrowser();
+      },
+    });
+
+    // 注册快捷键 - 原生复习界面（提取练习）
+    this.addCommand({
+      langKey: 'startNativeReview',
+      hotkey: '',
+      callback: () => {
+        void this.openNativeReview('extraction');
       },
     });
 
@@ -518,6 +529,69 @@ export default class FSRSPlugin extends Plugin {
       },
       position: 'right',
     });
+  }
+
+  /**
+   * 打开原生复习界面（轻量级适配）
+   * 复制思源源生复习界面逻辑，提供原生体验
+   */
+  async openNativeReview(queueType: 'extraction' | 'final-drill' | 'filter-group') {
+    if (!this.isInitialized) {
+      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
+      return;
+    }
+
+    // 1. 获取对应的队列
+    let adapter: ExtractionNativeAdapter | FinalDrillNativeAdapter;
+    let queue: any;
+
+    if (queueType === 'extraction') {
+      adapter = new ExtractionNativeAdapter(this.extractionQueue);
+      queue = this.extractionQueue;
+    } else if (queueType === 'final-drill') {
+      adapter = new FinalDrillNativeAdapter(this.finalDrillQueue);
+      queue = this.finalDrillQueue;
+    } else {
+      await pushErrMsg('暂不支持该队列的原生复习界面');
+      return;
+    }
+
+    // 2. 转换为原生格式
+    const cardsData = await adapter.getCardData();
+    if (!cardsData.cards || cardsData.cards.length === 0) {
+      await pushMsg(adapter.getQueueName() + '队列中没有卡片');
+      return;
+    }
+
+    // 3. 创建原生复习会话
+    try {
+      const session = new NativeReviewSession(
+        this.app,
+        cardsData,
+        {
+          cardType: adapter.getCardType(),
+          id: queueType,
+          title: adapter.getQueueName(),
+          onRating: async (card, rating) => {
+            // 调用队列的反馈处理
+            const items = queue?.getAllItems?.() || [];
+            const item = items.find((x: any) =>
+              String(x.cardID || x.blockID) === String(card.cardID || card.blockID)
+            );
+            if (item) {
+              await queue?.onFeedback?.(item, { action: 'rate', rating });
+              // 从队列中移除已复习的卡片
+              await Promise.resolve(queue?.removeItem?.(item));
+            }
+          },
+        }
+      );
+
+      session.open();
+    } catch (err) {
+      console.error('[FSRS] Failed to open native review:', err);
+      await pushErrMsg('打开原生复习界面失败');
+    }
   }
 
   /**
