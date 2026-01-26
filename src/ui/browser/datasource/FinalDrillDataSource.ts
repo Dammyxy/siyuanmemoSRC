@@ -57,10 +57,12 @@ export class FinalDrillDataSource implements ICardDataSource {
     const byBlockId = new Map(cards.map((c) => [c.blockId, c]));
 
     const ordered: BrowserCard[] = [];
-    for (const it of items) {
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
       const bid = String(it?.blockID || '');
       const card = byBlockId.get(bid);
       if (!card) continue;
+      card.queueIndex = i + 1;
       const p = Number(it?.priority);
       if (Number.isFinite(p)) {
         (card as any).priority = p;

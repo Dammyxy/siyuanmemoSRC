@@ -69,6 +69,17 @@
           </button>
 
           <button
+            v-if="canApplySortToQueue"
+            class="b3-button b3-button--outline"
+            @click="handleApplySortToQueue"
+            :disabled="!props.plugin"
+            :title="t('applySortToQueue', '应用排序到队列')"
+          >
+            <svg><use xlink:href="#iconSort"></use></svg>
+            {{ t('applySortToQueue', '应用排序到队列') }}
+          </button>
+
+          <button
             class="b3-button b3-button--outline"
             @click="toggleViewMode"
             :title="viewMode === 'flat' ? t('hierarchyView', 'Hierarchy View') : t('flatView', 'Flat View')"
@@ -135,6 +146,7 @@
           :rowSelection="rowSelection"
           :enableCellTextSelection="true"
           @grid-ready="onGridReady"
+          @sort-changed="onSortChanged"
           @selection-changed="onSelectionChanged"
           @row-clicked="onRowClicked"
           @row-double-clicked="onRowDoubleClicked"
@@ -252,6 +264,7 @@ const currentDataSource = ref<ICardDataSource | null>(null);
 const currentPreset = ref('all');
 const selectedRows = ref<BrowserCard[]>([]);
 const gridApi = ref<GridApi | null>(null);
+const currentSortModel = ref<any[]>([]);
 const searchQuery = ref('');
 const viewMode = ref<'flat' | 'hierarchy'>('flat');
 const activeQueueId = ref<string | null>(null);
@@ -372,8 +385,8 @@ const columnDefs = ref<ColDef[]>([
   {
     headerName: 'No',
     width: 50,
-    sortable: true,
-    valueGetter: (params: any) => params.node?.rowIndex != null ? params.node.rowIndex + 1 : '',
+    sortable: false,
+    valueGetter: (params: any) => params.data?.queueIndex ?? (params.node?.rowIndex != null ? params.node.rowIndex + 1 : ''),
   },
   // Title - 标题
   { 
@@ -472,7 +485,7 @@ const columnDefs = ref<ColDef[]>([
 
 const defaultColDef: ColDef = {
   resizable: true,
-  sortable: false,
+  sortable: true,
 };
 
 function extractSqlStmt(input: string): string | null {
@@ -594,6 +607,10 @@ const rowSelection = ref<RowSelectionOptions>({
 // Grid 事件
 function onGridReady(params: any) {
   gridApi.value = params.api;
+}
+
+function onSortChanged(params: any) {
+  currentSortModel.value = params?.api?.getSortModel?.() || [];
 }
 
 function onSelectionChanged() {
@@ -975,6 +992,65 @@ async function autoSortFinalDrillQueue() {
     await loadData();
   } else {
     await refreshQueueCounts();
+  }
+}
+
+const canApplySortToQueue = computed(() => {
+  const qid = String(activeQueueId.value || '');
+  if (!qid) return false;
+  if (qid !== 'final-drill' && qid !== 'filter-group') return false;
+  if (!currentSortModel.value?.length) return false;
+  return true;
+});
+
+async function handleApplySortToQueue() {
+  const qid = String(activeQueueId.value || '');
+  if (!qid) return;
+  const q = getQueueById(qid);
+  if (!q) {
+    await pushErrMsg(t('queueNotFound', '队列未找到'));
+    return;
+  }
+  if (typeof q.reorder !== 'function') {
+    await pushErrMsg(t('queueNotSupportReorder', '当前队列不支持重排'));
+    return;
+  }
+  if (!gridApi.value) {
+    await pushErrMsg(t('initFailed', 'FSRS 插件初始化失败，请打开控制台查看错误'));
+    return;
+  }
+
+  const orderedCards: BrowserCard[] = [];
+  const count = Number(gridApi.value.getDisplayedRowCount?.() ?? 0);
+  for (let i = 0; i < count; i++) {
+    const node = gridApi.value.getDisplayedRowAtIndex?.(i);
+    const card = node?.data as BrowserCard | undefined;
+    if (!card) continue;
+    orderedCards.push(card);
+  }
+  if (!orderedCards.length) {
+    await pushErrMsg(t('noCards', '没有卡片'));
+    return;
+  }
+
+  const queueItems = orderedCards.map((card: BrowserCard) => ({
+    cardID: card.fsrsCardId || card.id || card.blockId,
+    blockID: card.blockId,
+    deckID: card.deckId,
+    priority: typeof card.priority === 'number' ? card.priority : 50,
+  }));
+
+  try {
+    const ok = await Promise.resolve(q.reorder(queueItems));
+    if (!ok) {
+      await pushErrMsg(t('sortApplyFailed', '应用排序失败'));
+      return;
+    }
+    await pushMsg(t('sortApplied', '队列已按当前排序重新排列'));
+    await loadData();
+  } catch (err: any) {
+    console.error('[CardBrowser] apply sort to queue failed:', err);
+    await pushErrMsg(err?.message || t('sortApplyFailed', '应用排序失败'));
   }
 }
 

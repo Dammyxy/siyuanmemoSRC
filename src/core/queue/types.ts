@@ -9,6 +9,7 @@ export interface QueueInterface<TItem> {
   removeItem(item: TItem): Promise<boolean> | boolean;
   size(): Promise<number> | number;
   isEmpty(): Promise<boolean> | boolean;
+  reorder?(orderedItems: TItem[]): Promise<boolean> | boolean;
 }
 
 export interface QueueItem {

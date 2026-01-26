@@ -4,6 +4,7 @@ export interface IScheduler<TCard, TGrade = number> {
 
 export interface ISequencer<TItem> {
   next(): Promise<TItem | null>;
+  reorder?(orderedItems: TItem[]): void;
 }
 
 export interface IQueueTrait {

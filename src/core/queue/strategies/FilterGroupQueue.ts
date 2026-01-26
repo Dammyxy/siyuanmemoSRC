@@ -143,6 +143,55 @@ export class FilterGroupQueue implements QueueInterface<QueueItem>, IQueueStrate
     return removed;
   }
 
+  async reorder(orderedItems: QueueItem[]): Promise<boolean> {
+    try {
+      const currentGroups = this.groups || {};
+      const groupIds = Object.keys(currentGroups);
+      const allCurrent: QueueItem[] = [];
+      for (const gid of groupIds) {
+        allCurrent.push(...(currentGroups[gid] || []));
+      }
+      if (orderedItems.length !== allCurrent.length) return false;
+
+      const byId = new Map(allCurrent.map((x) => [String((x as any)?.cardID || ''), x] as const));
+      const idToGroup = new Map<string, string>();
+      for (const gid of groupIds) {
+        for (const it of currentGroups[gid] || []) {
+          const id = String((it as any)?.cardID || '');
+          if (!id) continue;
+          idToGroup.set(id, gid);
+        }
+      }
+
+      const nextGroups: Record<string, QueueItem[]> = {};
+      for (const gid of groupIds) nextGroups[gid] = [];
+
+      const seen = new Set<string>();
+      for (const it of orderedItems) {
+        const id = String((it as any)?.cardID || '');
+        if (!id) return false;
+        if (seen.has(id)) return false;
+        seen.add(id);
+        const existing = byId.get(id);
+        if (!existing) return false;
+        const gid = idToGroup.get(id) || groupIds[0] || 'default';
+        if (!nextGroups[gid]) nextGroups[gid] = [];
+        nextGroups[gid].push(existing);
+      }
+
+      for (const gid of groupIds) {
+        if ((nextGroups[gid] || []).length !== (currentGroups[gid] || []).length) return false;
+      }
+
+      this.groups = nextGroups;
+      await this.persistence?.save(this.snapshot());
+      return true;
+    } catch (err) {
+      console.error('[FilterGroupQueue] reorder failed:', err);
+      return false;
+    }
+  }
+
   size(): number {
     return Object.values(this.groups).reduce((n, q) => n + q.length, 0);
   }

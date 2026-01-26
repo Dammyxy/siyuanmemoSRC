@@ -61,6 +61,7 @@ export interface BrowserCard {
     suspended: boolean;
     tags?: string[];
     note?: string;
+    queueIndex?: number;
 }
 
 /** 筛选预设 */

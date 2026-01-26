@@ -32,4 +32,32 @@ export class ListSequencer<TItem> implements ISequencer<TItem> {
     const clamped = Math.max(0, Math.min(Math.floor(Number(index || 0)), this.items.length));
     this.items.splice(clamped, 0, ...toInsert);
   }
+
+  reorder(orderedItems: TItem[]): void {
+    if (!Array.isArray(orderedItems)) {
+      throw new Error('Reorder failed: orderedItems is not an array');
+    }
+    if (orderedItems.length !== this.items.length) {
+      throw new Error(`Reorder failed: expected ${this.items.length} items, got ${orderedItems.length}`);
+    }
+
+    const currentIds = new Set(this.items.map((item) => this.getItemId(item)));
+    const orderedIds = new Set(orderedItems.map((item) => this.getItemId(item)));
+
+    for (const id of orderedIds) {
+      if (!currentIds.has(id)) {
+        throw new Error(`Reorder failed: item ${id} not found in current queue`);
+      }
+    }
+
+    if (currentIds.size !== orderedIds.size) {
+      throw new Error('Reorder failed: item count mismatch');
+    }
+
+    this.items = [...orderedItems];
+  }
+
+  private getItemId(item: TItem): string {
+    return String((item as any)?.cardID || (item as any)?.blockID || (item as any)?.id || '');
+  }
 }

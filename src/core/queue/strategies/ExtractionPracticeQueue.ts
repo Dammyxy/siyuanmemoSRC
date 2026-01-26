@@ -43,6 +43,39 @@ export class ExtractionPracticeQueue implements QueueInterface<QueueItem> {
     return true;
   }
 
+  async reorder(orderedItems: QueueItem[]): Promise<boolean> {
+    try {
+      const currentItems = this.getAllItems();
+      if (orderedItems.length !== currentItems.length) return false;
+
+      const currentIds = new Set(currentItems.map((it) => String((it as any)?.cardID || '')).filter(Boolean));
+      const orderedIds = new Set((orderedItems || []).map((it) => String((it as any)?.cardID || '')).filter(Boolean));
+      if (currentIds.size !== orderedIds.size) return false;
+      for (const id of orderedIds) {
+        if (!currentIds.has(id)) return false;
+      }
+
+      const byId = new Map(currentItems.map((it) => [String((it as any)?.cardID || ''), it] as const));
+      const next: QueueItem[] = [];
+      const seen = new Set<string>();
+      for (const it of orderedItems) {
+        const id = String((it as any)?.cardID || '');
+        if (!id) return false;
+        if (seen.has(id)) return false;
+        seen.add(id);
+        const existing = byId.get(id);
+        if (!existing) return false;
+        next.push(existing);
+      }
+
+      await this.storage.setPracticeQueue(next);
+      return true;
+    } catch (err) {
+      console.error('[ExtractionPracticeQueue] reorder failed:', err);
+      return false;
+    }
+  }
+
   size(): number {
     return this.getAllItems().length;
   }

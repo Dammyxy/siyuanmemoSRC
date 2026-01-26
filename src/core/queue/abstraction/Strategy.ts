@@ -12,5 +12,6 @@ export interface IQueueStrategy<TItem = any> {
   next(): Promise<TItem | null>;
   onFeedback(currentItem: TItem | null, feedback: QueueFeedback): Promise<void>;
   getStats?(): Promise<QueueStats>;
+  reorder?(orderedItems: TItem[]): Promise<boolean>;
 }
 

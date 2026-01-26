@@ -46,7 +46,23 @@ export class FilterGroupDataSource implements ICardDataSource {
     const items = q?.getAllItems?.() || [];
     const blockIds = (items || []).map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
     const cards = await loadQueueCards(blockIds);
-    const sorted = applySort(cards, params?.sortModel || []);
+    const byBlockId = new Map(cards.map((c) => [c.blockId, c]));
+
+    const ordered: BrowserCard[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const bid = String(it?.blockID || it?.blockId || '');
+      const card = byBlockId.get(bid);
+      if (!card) continue;
+      card.queueIndex = i + 1;
+      const p = Number(it?.priority);
+      if (Number.isFinite(p)) {
+        (card as any).priority = p;
+      }
+      ordered.push(card);
+    }
+
+    const sorted = applySort(ordered, params?.sortModel || []);
     return { rows: sorted, totalCount: sorted.length };
   }
 

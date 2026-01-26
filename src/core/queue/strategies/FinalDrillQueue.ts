@@ -135,6 +135,30 @@ export class FinalDrillQueue implements QueueInterface<QueueItem>, IQueueStrateg
         await this.save();
     }
 
+    async reorder(orderedItems: QueueItem[]): Promise<boolean> {
+        try {
+            const current = this.sequencer.getAll();
+            if (orderedItems.length !== current.length) return false;
+            const byId = new Map(current.map((x) => [String(x.cardID), x] as const));
+            const next: FinalDrillItem[] = [];
+            for (const it of orderedItems) {
+                const id = String((it as any)?.cardID || '');
+                if (!id) return false;
+                const existing = byId.get(id);
+                if (!existing) return false;
+                const p = Number((it as any)?.priority);
+                const priority = Number.isFinite(p) ? Math.max(0, Math.min(100, Math.floor(p))) : Number(existing.priority) || 50;
+                next.push({ ...existing, priority });
+            }
+            this.sequencer.reorder(next);
+            await this.save();
+            return true;
+        } catch (err) {
+            console.error('[FinalDrillQueue] reorder failed:', err);
+            return false;
+        }
+    }
+
     async clear(): Promise<void> {
         this.sequencer.setAll([]);
         await this.save();
