@@ -49,7 +49,8 @@ export default class FSRSPlugin extends Plugin {
   private extractionQueue!: ExtractionPracticeQueue;
   public neuralQueue!: NeuralQueue;
   public finalDrillQueue!: FinalDrillQueue;
-  public filterGroupQueue!: FilterGroupQueue;
+  public leechQueue!: LeechQueue;
+  private subsetQueue!: FilterGroupQueue; // 内部命名
 
   // 为兼容性提供的别名访问器
   public get deliberateQueue(): FinalDrillQueue {
@@ -58,6 +59,11 @@ export default class FSRSPlugin extends Plugin {
 
   public get neuralRoamQueue(): NeuralQueue {
     return this.neuralQueue;
+  }
+
+  // filterGroupQueue 别名 → subsetQueue（保持兼容性）
+  public get filterGroupQueue(): FilterGroupQueue {
+    return this.subsetQueue;
   }
 
   private TAB_TYPE = 'plugin-fsrs-srs-browser';
@@ -136,11 +142,15 @@ export default class FSRSPlugin extends Plugin {
         new StorageFileJsonAdapter(this.storage, 'queue-filter-group.json'),
       );
       await filterGroupQueue.init();
-      this.filterGroupQueue = filterGroupQueue;
-      this.queueContext.register('filter-group', this.filterGroupQueue);
+      this.subsetQueue = filterGroupQueue;
+      this.queueContext.register('filter-group', this.subsetQueue);
       this.finalDrillQueue = new FinalDrillQueue(this.storage);
       await this.finalDrillQueue.init();
       this.queueContext.register('final-drill', this.finalDrillQueue);
+
+      // 初始化难点攻坚队列
+      this.leechQueue = new LeechQueue();
+      this.queueContext.register('leech', this.leechQueue);
 
       // 初始化神经漫游队列
       const neuralConfig = NeuralQueueStorage.loadConfig();
@@ -186,47 +196,7 @@ export default class FSRSPlugin extends Plugin {
       langKey: 'startDrill',
       hotkey: 'Alt+D',
       callback: () => {
-        this.openDrillDialog();
-      },
-    });
-
-    this.addCommand({
-      langKey: 'startDrillV2',
-      hotkey: '',
-      callback: () => {
-        void this.openFinalDrillV2Dialog();
-      },
-    });
-
-    this.addCommand({
-      langKey: 'startNeuralV2',
-      hotkey: '',
-      callback: () => {
-        void this.openNeuralRoamV2Dialog();
-      },
-    });
-
-    this.addCommand({
-      langKey: 'startReviewV2',
-      hotkey: '',
-      callback: () => {
-        void this.openReviewV2Dialog();
-      },
-    });
-
-    this.addCommand({
-      langKey: 'startReviewProviderV2',
-      hotkey: '',
-      callback: () => {
-        void this.openReviewProviderV2Dialog();
-      },
-    });
-
-    this.addCommand({
-      langKey: 'startDrillProviderV2',
-      hotkey: '',
-      callback: () => {
-        void this.openFinalDrillProviderV2Dialog();
+        this.openFinalDrillDialog();
       },
     });
 
@@ -238,33 +208,6 @@ export default class FSRSPlugin extends Plugin {
       hotkey: 'Alt+B',
       callback: () => {
         this.openSRSBrowser();
-      },
-    });
-
-    // 注册快捷键 - 原生复习界面（提取练习）
-    this.addCommand({
-      langKey: 'startNativeReviewExtraction',
-      hotkey: '',
-      callback: () => {
-        void this.openNativeReview('extraction');
-      },
-    });
-
-    // 注册快捷键 - 原生复习界面（刻意练习）
-    this.addCommand({
-      langKey: 'startNativeReviewFinalDrill',
-      hotkey: '',
-      callback: () => {
-        void this.openNativeReview('final-drill');
-      },
-    });
-
-    // 注册快捷键 - 原生复习界面（筛选练习）
-    this.addCommand({
-      langKey: 'startNativeReviewFilterGroup',
-      hotkey: '',
-      callback: () => {
-        void this.openNativeReview('filter-group');
       },
     });
 
@@ -550,74 +493,11 @@ export default class FSRSPlugin extends Plugin {
   }
 
   /**
-   * 打开原生复习界面（轻量级适配）
-   * 复制思源源生复习界面逻辑，提供原生体验
-   */
-  async openNativeReview(queueType: 'extraction' | 'final-drill' | 'filter-group') {
-    if (!this.isInitialized) {
-      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
-      return;
-    }
-
-    // 1. 获取对应的队列
-    let adapter: ExtractionNativeAdapter | FinalDrillNativeAdapter | FilterGroupNativeAdapter;
-    let queue: any;
-
-    if (queueType === 'extraction') {
-      adapter = new ExtractionNativeAdapter(this.extractionQueue);
-      queue = this.extractionQueue;
-    } else if (queueType === 'final-drill') {
-      adapter = new FinalDrillNativeAdapter(this.finalDrillQueue);
-      queue = this.finalDrillQueue;
-    } else if (queueType === 'filter-group') {
-      adapter = new FilterGroupNativeAdapter(this.filterGroupQueue);
-      queue = this.filterGroupQueue;
-    }
-
-    // 2. 转换为原生格式
-    const cardsData = await adapter.getCardData();
-    if (!cardsData.cards || cardsData.cards.length === 0) {
-      await pushMsg(adapter.getQueueName() + '队列中没有卡片');
-      return;
-    }
-
-    // 3. 创建原生复习会话
-    try {
-      const session = new NativeReviewSession(
-        this.app,
-        cardsData,
-        {
-          cardType: adapter.getCardType(),
-          id: queueType,
-          title: adapter.getQueueName(),
-          onRating: async (card, rating) => {
-            // 调用队列的反馈处理
-            const items = queue?.getAllItems?.() || [];
-            const item = items.find((x: any) =>
-              String(x.cardID || x.blockID) === String(card.cardID || card.blockID)
-            );
-            if (item) {
-              await queue?.onFeedback?.(item, { action: 'rate', rating });
-              // 从队列中移除已复习的卡片
-              await Promise.resolve(queue?.removeItem?.(item));
-            }
-          },
-        }
-      );
-
-      session.open();
-    } catch (err) {
-      console.error('[FSRS] Failed to open native review:', err);
-      await pushErrMsg('打开原生复习界面失败');
-    }
-  }
-
-  /**
-   * 打开复习面板（弹窗模式）- 使用思源 riff API
+   * 打开复习面板（弹窗模式）- 使用 Vue UI 2.0
    */
   async openReviewDialog() {
-    // 使用原生复习界面（提取练习）
-    await this.openNativeReview('extraction');
+    // 使用 Vue UI 2.0（提取练习）
+    await this.openReviewProviderV2Dialog();
   }
 
   async openReviewV2Dialog() {
@@ -714,16 +594,6 @@ export default class FSRSPlugin extends Plugin {
     }
   }
 
-  async openDrillDialog() {
-    // 使用原生复习界面（刻意练习）
-    await this.openNativeReview('final-drill');
-  }
-
-  openFinalDrillDialog() {
-    // 使用原生复习界面（刻意练习）
-    void this.openNativeReview('final-drill');
-  }
-
   async openFinalDrillV2Dialog() {
     await this.openFinalDrillProviderV2Dialog();
   }
@@ -777,13 +647,95 @@ export default class FSRSPlugin extends Plugin {
     }
   }
 
-  openDeliberatePracticeDialog() {
-    void this.openNativeReview('final-drill');
+  async openFinalDrillDialog() {
+    // 使用 Vue UI 2.0（刻意练习）
+    await this.openFinalDrillProviderV2Dialog();
   }
 
-  openFilterGroupPracticeDialog() {
-    // 使用原生复习界面（筛选练习）
-    void this.openNativeReview('filter-group');
+  async openFilterGroupPracticeDialog() {
+    if (!this.isInitialized) {
+      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
+      return;
+    }
+    if (this.reviewDialog) {
+      this.reviewDialog.destroy();
+    }
+
+    try {
+      const title = this.i18n?.filterGroupPractice || '分组队列';
+      const adapter = new SubsetPracticeAdapter({
+        i18n: this.i18n || {},
+        label: title,
+        queueName: 'filter-group'
+      });
+
+      this.reviewDialog = createVueDialog({
+        title,
+        component: ReviewView,
+        dataKey: 'dialog-opencard',
+        props: {
+          app: this.app,
+          i18n: this.i18n || {},
+          queue: this.filterGroupQueue as any,
+          adapter: adapter as any,
+        },
+        events: {
+          close: () => {
+            this.reviewDialog?.destroy();
+          },
+        },
+        width: 'min(860px, 96vw)',
+        height: 'min(720px, 90vh)',
+        onClose: () => {
+          this.reviewDialog = null;
+        },
+      });
+    } catch (err) {
+      console.error('[FSRS] Failed to open filter group practice dialog:', err);
+      await pushErrMsg(this.i18n?.openFailed || '打开分组队列失败');
+    }
+  }
+
+  async openLeechPracticeDialog() {
+    if (!this.isInitialized) {
+      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
+      return;
+    }
+    if (this.reviewDialog) {
+      this.reviewDialog.destroy();
+    }
+
+    try {
+      const title = this.i18n?.leechPractice || '难点攻坚';
+      const adapter = new LeechAdapter({
+        i18n: this.i18n || {}
+      });
+
+      this.reviewDialog = createVueDialog({
+        title,
+        component: ReviewView,
+        dataKey: 'dialog-opencard',
+        props: {
+          app: this.app,
+          i18n: this.i18n || {},
+          queue: this.leechQueue as any,
+          adapter: adapter as any,
+        },
+        events: {
+          close: () => {
+            this.reviewDialog?.destroy();
+          },
+        },
+        width: 'min(860px, 96vw)',
+        height: 'min(720px, 90vh)',
+        onClose: () => {
+          this.reviewDialog = null;
+        },
+      });
+    } catch (err) {
+      console.error('[FSRS] Failed to open leech practice dialog:', err);
+      await pushErrMsg(this.i18n?.openFailed || '打开难点攻坚失败');
+    }
   }
 
   async openNeuralRoamDialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) {

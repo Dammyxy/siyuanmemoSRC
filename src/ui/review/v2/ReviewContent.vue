@@ -1,18 +1,22 @@
 <template>
   <div class="fsrs-review-v2-content">
-    <div v-if="content.type === 'empty'" class="fsrs-review-v2-content__empty ft__secondary">
-      {{ t('loadingContent', '内容加载中...') }}
-    </div>
+    <Transition :name="transitionName">
+      <div :key="contentKey" class="fsrs-review-v2-content__inner">
+        <div v-if="content.type === 'empty'" class="fsrs-review-v2-content__empty ft__secondary">
+          {{ t('loadingContent', '内容加载中...') }}
+        </div>
 
-    <div v-else-if="content.type === 'html'" class="fsrs-review-v2-content__html" v-html="content.data"></div>
+        <div v-else-if="content.type === 'html'" class="fsrs-review-v2-content__html" v-html="content.data"></div>
 
-    <div v-else class="fsrs-review-v2-content__protyle">
-      <div ref="hostRef" class="fsrs-review-v2-content__protyle-host"></div>
-    </div>
+        <div v-else class="fsrs-review-v2-content__protyle">
+          <div ref="hostRef" class="fsrs-review-v2-content__protyle-host"></div>
+        </div>
 
-    <div v-if="overlay && overlayComponent" class="fsrs-review-v2-content__overlay" :data-layout="overlay.layout">
-      <component :is="overlayComponent" v-bind="overlay.props"></component>
-    </div>
+        <div v-if="overlay && overlayComponent" class="fsrs-review-v2-content__overlay" :data-layout="overlay.layout">
+          <component :is="overlayComponent" v-bind="overlay.props"></component>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -30,11 +34,23 @@ const props = defineProps<{
   i18n?: Record<string, string>;
   hasHiddenContent?: boolean;
   showAnswer?: boolean;
+  meta?: ReviewUIState['meta'];
 }>();
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
+
+// 计算卡片切换动画名称
+const transitionName = computed(() => {
+  const transition = props.meta?.transition || 'none';
+  return `fsrs-review-transition-${transition}`;
+});
+
+// 计算内容 key，用于触发过渡动画
+const contentKey = computed(() => {
+  return `${props.content.type}-${props.content.id}-${props.content.data}`;
+});
 
 const hostRef = ref<HTMLDivElement | null>(null);
 const editorRef = ref<any>(null);
@@ -201,6 +217,11 @@ const content = computed(() => props.content);
   overflow: hidden;
 }
 
+.fsrs-review-v2-content__inner {
+  height: 100%;
+  width: 100%;
+}
+
 .fsrs-review-v2-content__empty {
   padding: 16px;
   text-align: center;
@@ -235,5 +256,48 @@ const content = computed(() => props.content);
 
 .fsrs-review-v2-content__overlay[data-layout='cover'] {
   inset: 0;
+}
+
+/* 卡片切换动画 - 淡入淡出 */
+.fsrs-review-transition-fade-enter-active,
+.fsrs-review-transition-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fsrs-review-transition-fade-enter-from,
+.fsrs-review-transition-fade-leave-to {
+  opacity: 0;
+}
+
+/* 卡片切换动画 - 左滑 */
+.fsrs-review-transition-slide-left-enter-active,
+.fsrs-review-transition-slide-left-leave-active {
+  transition: all 0.3s ease;
+}
+
+.fsrs-review-transition-slide-left-enter-from {
+  opacity: 0;
+  transform: translateX(30px);
+}
+
+.fsrs-review-transition-slide-left-leave-to {
+  opacity: 0;
+  transform: translateX(-30px);
+}
+
+/* 卡片切换动画 - 右滑 */
+.fsrs-review-transition-slide-right-enter-active,
+.fsrs-review-transition-slide-right-leave-active {
+  transition: all 0.3s ease;
+}
+
+.fsrs-review-transition-slide-right-enter-from {
+  opacity: 0;
+  transform: translateX(-30px);
+}
+
+.fsrs-review-transition-slide-right-leave-to {
+  opacity: 0;
+  transform: translateX(30px);
 }
 </style>

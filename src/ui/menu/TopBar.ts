@@ -93,15 +93,6 @@ export class TopBarManager {
         });
 
         menu.addItem({
-            icon: 'iconCards',
-            label: this.plugin.i18n?.startQueuePractice || '开始队列练习',
-            accelerator: 'Alt+D',
-            click: () => {
-                this.plugin.openDrillDialog();
-            },
-        });
-
-        menu.addItem({
             icon: 'iconRefresh',
             label: this.plugin.i18n?.startNeuralReview || '开始神经复习',
             accelerator: 'Alt+N',
@@ -112,15 +103,26 @@ export class TopBarManager {
 
         menu.addItem({
             icon: 'iconCards',
-            label: this.plugin.i18n?.startDeliberatePractice || '开始最终冲刺',
+            label: this.plugin.i18n?.startDeliberatePractice || '开始刻意练习',
+            accelerator: 'Alt+D',
             click: () => {
                 (this.plugin as any).openFinalDrillDialog();
             },
         });
 
         menu.addItem({
+            icon: 'iconHot',
+            label: this.plugin.i18n?.startLeechPractice || '开始难点攻坚',
+            accelerator: 'Alt+L',
+            click: () => {
+                (this.plugin as any).openLeechPracticeDialog();
+            },
+        });
+
+        menu.addItem({
             icon: 'iconList',
-            label: this.plugin.i18n?.startFilterGroupPractice || '开始分组队列',
+            label: this.plugin.i18n?.startFilterGroupPractice || '开始筛选复习',
+            accelerator: 'Alt+G',
             click: () => {
                 this.plugin.openFilterGroupPracticeDialog();
             },

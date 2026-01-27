@@ -69,6 +69,34 @@ export function createVueDialog<T extends Component>(options: {
     if (container) {
         app.mount(container);
         console.log('[FSRS] Vue component mounted to:', containerId);
+
+        // 如果设置了 dataKey，需要在 dialog.element.firstElementChild 上监听思源热键系统的 CustomEvent
+        // 并转发到 Vue 组件
+        if (options.dataKey && dialog.element.firstElementChild) {
+            const forwardEvent = (event: Event) => {
+                // 检查是否是来自思源热键系统的 CustomEvent
+                if ('detail' in event && typeof (event as any).detail === 'string') {
+                    console.log('[FSRS Dialog] Forwarding hotkey event to Vue component:', (event as any).detail);
+                    // 创建一个新的点击事件，detail 保持不变，让 Vue 组件处理
+                    const forwardedEvent = new MouseEvent('click', {
+                        bubbles: true,
+                        cancelable: true,
+                    });
+                    Object.defineProperty(forwardedEvent, 'detail', {
+                        value: (event as any).detail,
+                        writable: false,
+                    });
+                    // 转发到 Vue 组件根元素
+                    const vueRoot = container.firstElementChild as HTMLElement;
+                    if (vueRoot) {
+                        vueRoot.dispatchEvent(forwardedEvent);
+                    }
+                }
+            };
+
+            dialog.element.firstElementChild.addEventListener('click', forwardEvent);
+            console.log('[FSRS Dialog] Hotkey event listener attached to firstElementChild');
+        }
     } else {
         console.error('[FSRS] Container not found:', containerId);
     }

@@ -2,7 +2,7 @@
   <div ref="rootRef" class="fsrs-review-v2" data-key="dialog-opencard" @click="handleRootClick">
     <ReviewHeader :header="state.header" :is-tab-mode="!!props.reviewUI" @toolbar-action="handleToolbarAction" @action="hook.executeCommand" @context="handleContext" @breadcrumb-click="handleBreadcrumbClick" />
 
-    <ReviewContent :app="app" :content="state.content" :overlay="state.overlay" :has-hidden-content="state.meta.hasHiddenContent" :show-answer="state.actions.showAnswer" :i18n="i18n" />
+    <ReviewContent :app="app" :content="state.content" :overlay="state.overlay" :has-hidden-content="state.meta.hasHiddenContent" :show-answer="state.actions.showAnswer" :meta="state.meta" :i18n="i18n" />
 
     <ReviewActions
       :actions="state.actions"
@@ -117,10 +117,10 @@ function handleRootClick(e: MouseEvent) {
   if (typeof e.detail !== 'string') return;
 
   const key = e.detail.toLowerCase();
-  console.log('[FSRS ReviewView] Hotkey detected:', key);
+  console.log('[FSRS ReviewView] Hotkey detected:', key, 'showAnswer:', state.value.actions.showAnswer);
 
-  // 显示答案（空格/回车）
-  if ((key === ' ' || key === 'enter') && state.value.actions.showAnswer) {
+  // 显示答案（空格/回车） - 只在答案未显示时工作
+  if ((key === ' ' || key === 'enter') && !state.value.actions.showAnswer) {
     e.preventDefault();
     e.stopPropagation();
     console.log('[FSRS ReviewView] Revealing answer...');
@@ -128,20 +128,20 @@ function handleRootClick(e: MouseEvent) {
     return;
   }
 
-  // 评分（1/2/3/4）
+  // 评分（1/2/3/4） - 只在答案已显示后才能评分
   if (['1', '2', '3', '4'].includes(key)) {
-    if (!state.value.actions.showAnswer) {
+    if (state.value.actions.showAnswer) {
       e.preventDefault();
       e.stopPropagation();
       console.log('[FSRS ReviewView] Grading with rating:', key);
       void hook.grade(Number(key));
     } else {
-      console.log('[FSRS ReviewView] Rating key pressed but showAnswer is true, ignoring');
+      console.log('[FSRS ReviewView] Rating key pressed but answer not shown, ignoring');
     }
     return;
   }
 
-  // 跳过（S键）
+  // 跳过（S键） - 任何时候都能工作
   if (key === 's') {
     e.preventDefault();
     e.stopPropagation();
