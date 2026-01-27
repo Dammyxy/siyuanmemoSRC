@@ -30,7 +30,7 @@ export class TopBarManager {
                     pushMsg(this.plugin.i18n?.loading || '插件初始化中，请稍后...');
                     return;
                 }
-                this.plugin.openCardBrowser();
+                this.plugin.openSRSBrowser();
             },
         });
         this.element.classList.add('fsrs-topbar');
@@ -128,10 +128,10 @@ export class TopBarManager {
 
         menu.addItem({
             icon: 'iconLayoutRight',
-            label: this.plugin.i18n?.cardBrowser || '卡片浏览器',
+            label: this.plugin.i18n?.srsBrowser || 'SRS 浏览器',
             accelerator: 'Alt+B',
             click: () => {
-                this.plugin.openCardBrowser();
+                this.plugin.openSRSBrowser();
             },
         });
 

@@ -20,7 +20,7 @@ import { getRiffCardsByBlockIDs } from '@/core/siyuan/riff';
 import { pushErrMsg, pushMsg, sql } from '@/core/siyuan/api';
 import { FinalDrillAdapter, FinalDrillProvider, LeechAdapter, NeuralRoamAdapter, RetrievalPracticeAdapter, ReviewView, SubsetPracticeAdapter } from '@/ui/review/v2';
 import { ExtractionPracticeProvider } from '@/ui/review/v2/providers/ExtractionPracticeProvider';
-import CardBrowser from '@/ui/browser/CardBrowser.vue';
+import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
 import { SettingsPanel } from '@/ui/settings';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import { createVueDialog } from '@/utils/dialog';
@@ -60,7 +60,7 @@ export default class FSRSPlugin extends Plugin {
     return this.neuralQueue;
   }
 
-  private TAB_TYPE = 'plugin-fsrs-card-browser';
+  private TAB_TYPE = 'plugin-fsrs-srs-browser';
 
   private topBarElement: HTMLElement | null = null;
   private topBarContextMenuHandler: ((ev: MouseEvent) => void) | null = null;
@@ -70,7 +70,7 @@ export default class FSRSPlugin extends Plugin {
 
   // UI 状态
   private reviewDialog: { dialog: any; destroy: () => void } | null = null;
-  private cardBrowserDialog: { dialog: any; destroy: () => void } | null = null;
+  private srsBrowserDialog: { dialog: any; destroy: () => void } | null = null;
 
   async onload() {
     console.log('[FSRS] Plugin loading...');
@@ -92,7 +92,7 @@ export default class FSRSPlugin extends Plugin {
             pushMsg(this.i18n?.loading || '插件初始化中，请稍后...');
             return;
           }
-          this.openCardBrowser();
+          this.openSRSBrowser();
         },
       });
       this.topBarElement.classList.add('fsrs-topbar');
@@ -232,12 +232,12 @@ export default class FSRSPlugin extends Plugin {
 
 
 
-    // 注册快捷键 - 打开卡片浏览器
+    // 注册快捷键 - 打开 SRS 浏览器
     this.addCommand({
-      langKey: 'openCardBrowser',
+      langKey: 'openSrsBrowser',
       hotkey: 'Alt+B',
       callback: () => {
-        this.openCardBrowser();
+        this.openSRSBrowser();
       },
     });
 
@@ -273,7 +273,7 @@ export default class FSRSPlugin extends Plugin {
     this.addTab({
       type: this.TAB_TYPE,
       init() {
-        const app = createApp(CardBrowser, {
+        const app = createApp(SRSBrowser, {
           app: self.app,
           i18n: self.i18n || {},
           mode: 'tab',
@@ -306,9 +306,9 @@ export default class FSRSPlugin extends Plugin {
   onunload() {
     console.log('[FSRS] Plugin unloading...');
 
-    // 关闭复习对话框和卡片浏览器
+    // 关闭复习对话框和 SRS 浏览器
     this.reviewDialog?.destroy();
-    this.cardBrowserDialog?.destroy();
+    this.srsBrowserDialog?.destroy();
 
     try {
       if (this.topBarElement && this.topBarContextMenuHandler) {
@@ -377,10 +377,10 @@ export default class FSRSPlugin extends Plugin {
 
     menu.addItem({
       icon: 'iconLayoutRight',
-      label: this.i18n?.cardBrowser || '卡片浏览器',
+      label: this.i18n?.srsBrowser || 'SRS 浏览器',
       accelerator: 'Alt+B',
       click: () => {
-        this.openCardBrowser();
+        this.openSRSBrowser();
       },
     });
 
@@ -501,15 +501,15 @@ export default class FSRSPlugin extends Plugin {
    * 打开卡片浏览器（Dialog 模式）
    * 实现单例模式：避免重复打开多个浏览器窗口
    */
-  openCardBrowser() {
+  openSRSBrowser() {
     // 如果已有打开的浏览器，先销毁
-    if (this.cardBrowserDialog) {
-      this.cardBrowserDialog.destroy();
+    if (this.srsBrowserDialog) {
+      this.srsBrowserDialog.destroy();
     }
 
-    this.cardBrowserDialog = createVueDialog({
-      title: this.i18n?.cardBrowser || '卡片浏览器',
-      component: CardBrowser,
+    this.srsBrowserDialog = createVueDialog({
+      title: this.i18n?.srsBrowser || 'SRS 浏览器',
+      component: SRSBrowser,
       props: {
         app: this.app,
         i18n: this.i18n || {},
@@ -519,16 +519,16 @@ export default class FSRSPlugin extends Plugin {
       events: {
         convertToTab: () => {
           // 关闭对话框并打开 Tab
-          this.cardBrowserDialog?.destroy();
-          this.cardBrowserDialog = null;
-          this.openCardBrowserTab();
+          this.srsBrowserDialog?.destroy();
+          this.srsBrowserDialog = null;
+          this.openSRSBrowserTab();
         },
       },
       width: '90vw',
       height: '80vh',
       onClose: () => {
         // 对话框关闭时清理引用
-        this.cardBrowserDialog = null;
+        this.srsBrowserDialog = null;
       },
     });
   }
@@ -536,7 +536,7 @@ export default class FSRSPlugin extends Plugin {
   /**
    * 打开卡片浏览器（Tab 模式）
    */
-  openCardBrowserTab() {
+  openSRSBrowserTab() {
     openTab({
       app: this.app,
       custom: {
@@ -954,9 +954,9 @@ export default class FSRSPlugin extends Plugin {
               <svg class="b3-button__icon"><use xlink:href="#iconRiffCard"></use></svg>
               ${this.i18n?.startReview || '开始复习'}
             </button>
-            <button class="fsrs-dock-btn b3-button b3-button--outline" id="fsrs-card-browser">
+            <button class="fsrs-dock-btn b3-button b3-button--outline" id="fsrs-srs-browser">
               <svg class="b3-button__icon"><use xlink:href="#iconLayoutRight"></use></svg>
-              ${this.i18n?.cardBrowser || '卡片浏览器'}
+              ${this.i18n?.srsBrowser || 'SRS 浏览器'}
             </button>
           </div>
         </div>
@@ -968,8 +968,8 @@ export default class FSRSPlugin extends Plugin {
       this.openReviewDialog();
     });
 
-    element.querySelector('#fsrs-card-browser')?.addEventListener('click', () => {
-      this.openCardBrowser();
+    element.querySelector('#fsrs-srs-browser')?.addEventListener('click', () => {
+      this.openSRSBrowser();
     });
   }
 

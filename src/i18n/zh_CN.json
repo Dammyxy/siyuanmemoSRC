@@ -275,7 +275,8 @@
     "lostFlashcards": "丢失/关闭闪卡",
     "hierarchyHint": "右键文档：按 doc:xxx 挑选",
     "retrievalPracticeModeLabel": "提取练习",
-    "cardBrowser": "卡片浏览器",
+    "srsBrowser": "SRS 浏览器",
+    "openSrsBrowser": "打开 SRS 浏览器",
     "neural": {
         "seedCard": "种子卡片",
         "navigationBar": "神经导航",

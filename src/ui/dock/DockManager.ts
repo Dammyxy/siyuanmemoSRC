@@ -61,7 +61,7 @@ export class DockManager {
         });
 
         element.querySelector('#fsrs-card-browser')?.addEventListener('click', () => {
-            this.plugin.openCardBrowser();
+            this.plugin.openSRSBrowser();
         });
     }
 }

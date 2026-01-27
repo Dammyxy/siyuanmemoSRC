@@ -21,12 +21,12 @@ export class CommandManager {
             },
         });
 
-        // 注册快捷键 - 打开卡片浏览器
+        // 注册快捷键 - 打开 SRS 浏览器
         this.plugin.addCommand({
-            langKey: 'openCardBrowser',
+            langKey: 'openSrsBrowser',
             hotkey: 'Alt+B',
             callback: () => {
-                this.plugin.openCardBrowser();
+                this.plugin.openSRSBrowser();
             },
         });
     }
