@@ -6,6 +6,7 @@
 import type { ICard, ICardData } from '@/global';
 import { riff } from '@/core/siyuan';
 import type { QueueItem } from '@/core/queue';
+import { FilterGroupQueue } from '@/core/queue/strategies';
 
 /**
  * 队列项到原生卡片的转换接口
@@ -36,7 +37,7 @@ export interface INativeReviewAdapter {
 /**
  * FSRS 数据转换为 nextDues 格式
  */
-function calculateNextDues(item: QueueItem): ICard['nextDues'] {
+function calculateNextDues(_item: QueueItem): ICard['nextDues'] {
   // 默认间隔：1m, 5m, 10m, 1d (6天后)
   const oneMinute = 1 * 60 * 1000;
   const oneDay = 24 * 60 * 60 * 1000;
@@ -122,6 +123,46 @@ export class FinalDrillNativeAdapter implements INativeReviewAdapter {
 
   getQueueName(): string {
     return '刻意练习';
+  }
+
+  getCardType(): 'all' {
+    return 'all';
+  }
+}
+
+/**
+ * 筛选练习队列的原生适配器
+ */
+export class FilterGroupNativeAdapter implements INativeReviewAdapter {
+  constructor(private queue: FilterGroupQueue) {}
+
+  toNativeCards(items: QueueItem[]): ICard[] {
+    return items.map((item) => ({
+      deckID: item.deckID || riff.BUILTIN_DECK_ID,
+      cardID: item.cardID || item.blockID,
+      blockID: item.blockID,
+      nextDues: calculateNextDues(item),
+      lapses: 0,
+      lastReview: -62135596800000,
+      reps: 0,
+      state: 0,
+    }));
+  }
+
+  async getCardData(): Promise<ICardData> {
+    const items = this.queue.getAllItems();
+    const cards = this.toNativeCards(items);
+
+    return {
+      cards,
+      unreviewedCount: items.length,
+      unreviewedNewCardCount: items.length,
+      unreviewedOldCardCount: 0,
+    };
+  }
+
+  getQueueName(): string {
+    return '筛选练习';
   }
 
   getCardType(): 'all' {

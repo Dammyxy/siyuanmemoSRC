@@ -7,12 +7,15 @@
     <div class="card-browser__main">
       <div v-if="viewMode === 'hierarchy'" class="card-browser__hierarchy">
         <BrowserHierarchy
-          :cards="rows"
+          :cards="rowsForFocus"
           :queues="{ active: activeQueueId || '', counts: queueCounts }"
+          :focusedDocIds="focusedDocIds"
+          :globalStats="globalStats"
           :i18n="props.i18n"
           @selectQueue="handleSelectQueue"
           @selectDoc="handleSelectDoc"
           @filterDoc="handleFilterDoc"
+          @selectGlobal="handleSelectGlobal"
         />
       </div>
 
@@ -47,6 +50,17 @@
         </div>
         
         <div class="toolbar__right">
+          <!-- ✅ 退出聚焦按钮 -->
+          <button
+            v-if="shouldFocusDocList"
+            class="b3-button b3-button--outline"
+            @click="handleExitFocus"
+            :title="t('exitFocus', '退出聚焦')"
+          >
+            <svg><use xlink:href="#iconClose"></use></svg>
+            {{ t('exitFocus', '退出聚焦') }}
+          </button>
+
           <button
             class="b3-button b3-button--outline"
             @click.stop.prevent="openPracticeMenu"
@@ -228,7 +242,7 @@ import { type RowSelectionOptions } from 'ag-grid-community';
 import { openTab, Menu, Protyle, type App } from 'siyuan';
 import { pushErrMsg, pushMsg } from '@/core/siyuan/api';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
-import { parseQuery } from './browserService';
+import { parseQuery, loadCards, loadQueueCards } from './browserService';
 import { type BrowserCard, CardState } from './types';
 import type { ICardDataSource } from './datasource/types';
 import { FinalDrillDataSource } from './datasource/FinalDrillDataSource';
@@ -262,6 +276,7 @@ const emit = defineEmits<{
 // State
 const loading = ref(false);
 const rows = ref<BrowserCard[]>([]);
+const allRows = ref<BrowserCard[]>([]);  // ✅ 所有卡片的完整数据（不受筛选影响，用于【全部】区统计）
 const currentDataSource = ref<ICardDataSource | null>(null);
 const currentPreset = ref('all');
 const selectedRows = ref<BrowserCard[]>([]);
@@ -520,11 +535,42 @@ async function ensureSqlModeConfirmed(): Promise<boolean> {
   return ok;
 }
 
+// ✅ 四重筛选：聚焦标记（控制文档列表是否聚焦）
+const shouldFocusDocList = ref(false);
+
+// ✅ 四重筛选：用于计算聚焦文档的卡片（不包含文档筛选）
+const rowsForFocus = ref<BrowserCard[]>([]);
+
 // 筛选后的卡片
 const scopedRows = computed(() => {
   if (activeDocId.value === '__lost__') return rows.value.filter((c) => !String((c as any)?.rootId || ''));
-  if (activeDocId.value) return rows.value.filter((c) => c.rootId === activeDocId.value);
   return rows.value;
+});
+
+// ✅ 四重筛选：计算聚焦的文档 ID 列表（基于 rowsForFocus，不包含文档筛选）
+const focusedDocIds = computed(() => {
+  // 如果没有标记聚焦，返回 null（显示所有文档）
+  if (!shouldFocusDocList.value) {
+    return null;
+  }
+
+  // 提取 rowsForFocus 中所有的文档 ID（仅应用队列/搜索/preset 筛选，不包含文档筛选）
+  const docs = new Set<string>();
+  for (const card of rowsForFocus.value) {
+    if (card.rootId) {
+      docs.add(card.rootId);
+    }
+  }
+  return docs.size > 0 ? Array.from(docs) : null;
+});
+
+// ✅ 全局统计（【全部】区使用）- 基于所有卡片，不受筛选影响
+const globalStats = computed(() => {
+  const allCards = allRows.value || [];
+  return {
+    total: allCards.length,
+    lost: allCards.filter(c => !String((c as any)?.rootId || '')).length,
+  };
 });
 
 function matchesParsed(card: BrowserCard, parsed: ReturnType<typeof parseQuery>) {
@@ -562,19 +608,37 @@ async function loadData() {
     if (sqlStmt != null) {
       const ok = await ensureSqlModeConfirmed();
       if (!ok) return;
+      // ✅ SQL 模式独立运行，清除其他筛选状态（但不使用）
       activeQueueId.value = null;
       activeDocId.value = null;
+      shouldFocusDocList.value = false;  // SQL 模式不聚焦
       currentDataSource.value = new QueryDataSource(sqlStmt);
     } else if (activeQueueId.value === 'final-drill') {
-      currentDataSource.value = new FinalDrillDataSource(props.plugin);
+      // ✅ 四重筛选：传递所有筛选参数
+      currentDataSource.value = new FinalDrillDataSource(props.plugin, {
+        docId: activeDocId.value,
+        preset: currentPreset.value,
+        queryText: searchQuery.value,
+      });
     } else if (activeQueueId.value === 'extraction') {
-      currentDataSource.value = new ExtractionDataSource(props.plugin);
+      // ✅ 四重筛选：传递所有筛选参数
+      currentDataSource.value = new ExtractionDataSource(props.plugin, {
+        docId: activeDocId.value,
+        preset: currentPreset.value,
+        queryText: searchQuery.value,
+      });
     } else if (activeQueueId.value === 'filter-group') {
-      currentDataSource.value = new FilterGroupDataSource(props.plugin);
+      // ✅ 四重筛选：传递所有筛选参数
+      currentDataSource.value = new FilterGroupDataSource(props.plugin, {
+        docId: activeDocId.value,
+        preset: currentPreset.value,
+        queryText: searchQuery.value,
+      });
     } else if (activeQueueId.value) {
       const q = getQueueById(activeQueueId.value);
       const items = q?.getAllItems?.() || [];
       const ids = (items || []).map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
+      // ✅ 四重筛选：BlockIdsDataSource 不支持额外筛选（TODO）
       currentDataSource.value = new BlockIdsDataSource({ id: activeQueueId.value, label: activeQueueId.value, blockIds: ids });
     } else {
       // 传递 activeDocId（用户选择的文档）而不是 props.currentDocId（插件初始化时的文档）
@@ -588,11 +652,68 @@ async function loadData() {
 
     if (!currentDataSource.value) {
       rows.value = [];
+      rowsForFocus.value = [];
       return;
     }
 
-    const { rows: fetchedRows } = await currentDataSource.value.fetchRows({ sortModel: [], filterModel: {} });
+    // ✅ 四重筛选：获取显示数据（可能包含文档筛选）
+    const { rows: fetchedRows, totalCount } = await currentDataSource.value.fetchRows({ sortModel: [], filterModel: {} });
     rows.value = fetchedRows;
+
+    // ✅ 更新全局统计数据（获取所有卡片，不受筛选影响）
+    if (activeQueueId.value) {
+      // 队列模式：使用队列的所有卡片（不含文档筛选）
+      const queueAllCards = await loadQueueAllCards(activeQueueId.value);
+      allRows.value = queueAllCards;
+    } else {
+      // 全部卡片模式：获取所有 Riff 卡片
+      allRows.value = await loadCards('all', undefined, '');
+    }
+
+    // ✅ 四重筛选：如果开启了聚焦，额外获取不包含文档筛选的数据用于计算聚焦文档
+    if (shouldFocusDocList.value) {
+      let dataSourceForFocus: ICardDataSource | null = null;
+
+      // 队列模式：创建不含文档筛选的队列数据源
+      if (activeQueueId.value === 'final-drill') {
+        dataSourceForFocus = new FinalDrillDataSource(props.plugin, {
+          preset: currentPreset.value,  // ✅ 应用 preset 筛选（与显示数据一致）
+          queryText: searchQuery.value,  // ✅ 应用搜索筛选（与显示数据一致）
+        });
+      } else if (activeQueueId.value === 'extraction') {
+        dataSourceForFocus = new ExtractionDataSource(props.plugin, {
+          preset: currentPreset.value,  // ✅ 应用 preset 筛选（与显示数据一致）
+          queryText: searchQuery.value,  // ✅ 应用搜索筛选（与显示数据一致）
+        });
+      } else if (activeQueueId.value === 'filter-group') {
+        dataSourceForFocus = new FilterGroupDataSource(props.plugin, {
+          preset: currentPreset.value,  // ✅ 应用 preset 筛选（与显示数据一致）
+          queryText: searchQuery.value,  // ✅ 应用搜索筛选（与显示数据一致）
+        });
+      } else if (activeQueueId.value) {
+        // 神经漫游队列（BlockIdsDataSource 不支持筛选，使用全部数据）
+        const queue = getQueueById(activeQueueId.value);
+        const items = queue?.getAllItems?.() || [];
+        const ids = (items || []).map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
+        dataSourceForFocus = new BlockIdsDataSource({ id: activeQueueId.value, label: activeQueueId.value, blockIds: ids });
+      } else {
+        // ✅ 全部卡片模式：创建不含文档筛选的 DeckDataSource
+        dataSourceForFocus = new DeckDataSource(props.plugin, {
+          preset: currentPreset.value,
+          currentDocId: undefined,  // ✅ 不传文档 ID，获取所有文档的数据
+          queryText: searchQuery.value,  // ✅ 应用搜索筛选
+        });
+      }
+
+      if (dataSourceForFocus) {
+        const { rows: focusRows } = await dataSourceForFocus.fetchRows({ sortModel: [], filterModel: {} });
+        rowsForFocus.value = focusRows;
+      }
+    } else {
+      // 没有开启聚焦时，rowsForFocus 与 rows 相同
+      rowsForFocus.value = fetchedRows;
+    }
+
     await refreshQueueCounts();
   } catch (err) {
     console.error('[CardBrowser] Load data error:', err);
@@ -605,12 +726,19 @@ async function loadData() {
 // 搜索处理
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastSqlStmt: string | null = null;
+let lastSearchQuery: string = '';  // ✅ 记录上次搜索查询，支持普通搜索触发刷新
 function handleSearchInput() {
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
   searchDebounceTimer = setTimeout(() => {
     const current = extractSqlStmt(searchQuery.value);
-    if (current !== lastSqlStmt) {
+    // ✅ 修复：普通搜索也应该触发刷新（通过比较完整查询）
+    const queryChanged = searchQuery.value !== lastSearchQuery;
+    const sqlChanged = current !== lastSqlStmt;
+
+    if (queryChanged || sqlChanged) {
       lastSqlStmt = current;
+      lastSearchQuery = searchQuery.value;
+      shouldFocusDocList.value = true;  // ✅ 搜索后开启聚焦
       void loadData();
     }
   }, 150);
@@ -1220,13 +1348,16 @@ function showBatchMenu(event?: MouseEvent) {
 async function refreshData() {
   selectedRows.value = [];
   previewCard.value = null;
+  shouldFocusDocList.value = true;  // ✅ 刷新数据时开启聚焦
   await loadData();
 }
 
 // 切换预设
 function handlePresetChange() {
-  activeQueueId.value = null;
-  activeDocId.value = null;
+  // ✅ 四重筛选：不再清除其他筛选条件
+  // activeQueueId.value → 保留队列
+  // activeDocId.value → 保留文档
+  // searchQuery.value → 保留搜索
   void refreshData();
 }
 
@@ -1348,6 +1479,16 @@ function getQueueById(id: string) {
   return null;
 }
 
+// ✅ 加载队列的所有卡片（不含筛选）
+async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {
+  const queue = getQueueById(queueId);
+  if (!queue) return [];
+
+  const items = queue?.getAllItems?.() || [];
+  const blockIds = (items || []).map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
+  return await loadQueueCards(blockIds);
+}
+
 async function refreshQueueCounts() {
   const extraction = (props.plugin as any)?.extractionQueue?.size?.() ?? ((props.plugin as any)?.extractionQueue?.getAllItems?.()?.length ?? 0);
   const finalDrill = (props.plugin as any)?.finalDrillQueue?.size?.() ?? ((props.plugin as any)?.finalDrillQueue?.getAllItems?.()?.length ?? 0);
@@ -1363,30 +1504,44 @@ async function refreshQueueCounts() {
 
 async function handleSelectQueue(queueId: string) {
   activeQueueId.value = queueId;
-  activeDocId.value = null;
+  // ✅ 四重筛选：不再清除文档筛选
+  // activeDocId.value → 保留文档
+  // currentPreset.value → 保留 Preset
+  // searchQuery.value → 保留搜索
+  shouldFocusDocList.value = true;  // ✅ 选择队列后开启聚焦
   await loadData();
+}
+
+function handleSelectGlobal(type: '__all__' | '__lost__') {
+  // ✅ 点击【全部】区的项，完全重置到初始状态
+  activeQueueId.value = null;  // ✅ 清除队列筛选
+  activeDocId.value = null;    // ✅ 清除文档筛选
+  currentPreset.value = 'all'; // ✅ 清除 preset 筛选
+  searchQuery.value = '';      // ✅ 清除搜索筛选
+  shouldFocusDocList.value = false;  // ✅ 关闭聚焦
+  void loadData();
+}
+
+function handleExitFocus() {
+  // ✅ 退出聚焦模式 = 点击【全部闪卡】
+  handleSelectGlobal('__all__');
 }
 
 function handleSelectDoc(docId: string) {
   const id = String(docId || '');
-  if (id === '__all__') {
-    currentPreset.value = 'all';
-    searchQuery.value = '';
-    activeDocId.value = null;
-    activeQueueId.value = null;
-    void loadData();
-    return;
-  }
-  // 只在选择 'All' 时清除 activeQueueId，选择其他文档时保留队列状态
+  // ✅ 移除了 __all__ 的处理（已移至【全部】区）
+  // ✅ 四重筛选：设置文档筛选，保留其他条件
   activeDocId.value = id;
-  // 设置预设为 'current-doc' 以启用文档筛选
-  currentPreset.value = 'current-doc';
+  // ✅ 点击文档开启聚焦（显示退出聚焦按钮）
+  shouldFocusDocList.value = true;
   void loadData();
 }
 
 function handleFilterDoc(docId: string) {
   activeDocId.value = docId;
-  activeQueueId.value = null;
+  // ✅ 四重筛选：保留队列筛选
+  // activeQueueId.value → 保留队列
+  // searchQuery.value 将在下方设置为 `doc:${docId}`
   searchQuery.value = `doc:${docId}`;
 }
 </script>
@@ -1426,6 +1581,8 @@ function handleFilterDoc(docId: string) {
   max-width: 360px;
   height: 100%;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .card-browser__content {

@@ -24,14 +24,14 @@ import CardBrowser from '@/ui/browser/CardBrowser.vue';
 import { SettingsPanel } from '@/ui/settings';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import { createVueDialog } from '@/utils/dialog';
-import { FSRSRetrievalProvider } from '@/core/extensions';
+// import { FSRSRetrievalProvider } from '@/core/extensions'; // Reserved for future use
 
 import { createDefaultCard } from '@/types';
 import '@/index.scss';
 import { ConsoleQueueMonitor, DEFAULT_PRIORITY, QueueContext, StorageFileJsonAdapter, type QueueItem } from '@/core/queue';
 import { ExtractionPracticeQueue, FilterGroupQueue, FinalDrillQueue, NeuralRoamQueue, SubsetPracticeStrategy, LeechQueue } from '@/core/queue/strategies';
 import { NeuralQueue, NeuralQueueStorage } from '@/core/queue/neural';
-import { ExtractionNativeAdapter, FinalDrillNativeAdapter } from '@/core/native/adapter';
+import { ExtractionNativeAdapter, FinalDrillNativeAdapter, FilterGroupNativeAdapter } from '@/core/native/adapter';
 import { NativeReviewSession } from '@/core/native/session';
 
 type PracticeQueueFilter = { type: 'doc' | 'tree' | 'sql'; value: string };
@@ -85,14 +85,14 @@ export default class FSRSPlugin extends Plugin {
 </svg>`);
       this.topBarElement = this.addTopBar({
         icon: 'iconFSRS',
-        title: this.i18n?.topbarTitle || 'FSRS 闪卡 (左键制卡/右键菜单)',
+        title: this.i18n?.topbarTitle || 'FSRS 闪卡 (左键卡片浏览器/右键菜单)',
         position: 'right',
         callback: () => {
           if (!this.isInitialized) {
             pushMsg(this.i18n?.loading || '插件初始化中，请稍后...');
             return;
           }
-          pushMsg(this.i18n?.featureRemoved || '该功能已暂时移除');
+          this.openCardBrowser();
         },
       });
       this.topBarElement.classList.add('fsrs-topbar');
@@ -243,10 +243,28 @@ export default class FSRSPlugin extends Plugin {
 
     // 注册快捷键 - 原生复习界面（提取练习）
     this.addCommand({
-      langKey: 'startNativeReview',
+      langKey: 'startNativeReviewExtraction',
       hotkey: '',
       callback: () => {
         void this.openNativeReview('extraction');
+      },
+    });
+
+    // 注册快捷键 - 原生复习界面（刻意练习）
+    this.addCommand({
+      langKey: 'startNativeReviewFinalDrill',
+      hotkey: '',
+      callback: () => {
+        void this.openNativeReview('final-drill');
+      },
+    });
+
+    // 注册快捷键 - 原生复习界面（筛选练习）
+    this.addCommand({
+      langKey: 'startNativeReviewFilterGroup',
+      hotkey: '',
+      callback: () => {
+        void this.openNativeReview('filter-group');
       },
     });
 
@@ -542,7 +560,7 @@ export default class FSRSPlugin extends Plugin {
     }
 
     // 1. 获取对应的队列
-    let adapter: ExtractionNativeAdapter | FinalDrillNativeAdapter;
+    let adapter: ExtractionNativeAdapter | FinalDrillNativeAdapter | FilterGroupNativeAdapter;
     let queue: any;
 
     if (queueType === 'extraction') {
@@ -551,9 +569,9 @@ export default class FSRSPlugin extends Plugin {
     } else if (queueType === 'final-drill') {
       adapter = new FinalDrillNativeAdapter(this.finalDrillQueue);
       queue = this.finalDrillQueue;
-    } else {
-      await pushErrMsg('暂不支持该队列的原生复习界面');
-      return;
+    } else if (queueType === 'filter-group') {
+      adapter = new FilterGroupNativeAdapter(this.filterGroupQueue);
+      queue = this.filterGroupQueue;
     }
 
     // 2. 转换为原生格式
@@ -598,7 +616,8 @@ export default class FSRSPlugin extends Plugin {
    * 打开复习面板（弹窗模式）- 使用思源 riff API
    */
   async openReviewDialog() {
-    await this.openReviewProviderV2Dialog();
+    // 使用原生复习界面（提取练习）
+    await this.openNativeReview('extraction');
   }
 
   async openReviewV2Dialog() {
@@ -694,11 +713,13 @@ export default class FSRSPlugin extends Plugin {
   }
 
   async openDrillDialog() {
-    await this.startPracticeQueue();
+    // 使用原生复习界面（刻意练习）
+    await this.openNativeReview('final-drill');
   }
 
   openFinalDrillDialog() {
-    void this.openFinalDrillV2Dialog();
+    // 使用原生复习界面（刻意练习）
+    void this.openNativeReview('final-drill');
   }
 
   async openFinalDrillV2Dialog() {
@@ -754,40 +775,12 @@ export default class FSRSPlugin extends Plugin {
   }
 
   openDeliberatePracticeDialog() {
-    void this.openFinalDrillV2Dialog();
+    void this.openNativeReview('final-drill');
   }
 
   openFilterGroupPracticeDialog() {
-    if (this.reviewDialog) {
-      this.reviewDialog.destroy();
-    }
-    try {
-      const label = (this.i18n as any)?.queueFilterGroup || '筛选复习';
-      const adapter = new RetrievalPracticeAdapter({ i18n: this.i18n || {}, label, queueName: 'filter-group' });
-      this.reviewDialog = createVueDialog({
-        title: label,
-        component: ReviewView,
-        props: {
-          app: this.app,
-          i18n: this.i18n || {},
-          queue: this.filterGroupQueue as any,
-          adapter: adapter as any,
-        },
-        events: {
-          close: () => {
-            this.reviewDialog?.destroy();
-          },
-        },
-        width: 'min(860px, 96vw)',
-        height: 'min(720px, 90vh)',
-        onClose: () => {
-          this.reviewDialog = null;
-        },
-      });
-    } catch (err) {
-      console.error('[FSRS] Failed to open filter group practice dialog:', err);
-      void pushErrMsg((this.i18n as any)?.filterGroupFailed || '筛选复习启动失败');
-    }
+    // 使用原生复习界面（筛选练习）
+    void this.openNativeReview('filter-group');
   }
 
   async openNeuralRoamDialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) {

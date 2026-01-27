@@ -20,6 +20,13 @@ type FsrsPluginLike = {
   finalDrillQueue?: FinalDrillQueueLike;
 };
 
+// ✅ 四重筛选：支持的筛选参数
+export type FinalDrillDataSourceOptions = {
+  docId?: string;      // 文档筛选
+  preset?: string;     // Preset 筛选
+  queryText?: string;  // 搜索查询
+};
+
 function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
   if (!sortModel?.length) return rows;
   const [{ colId, sort }] = sortModel;
@@ -44,9 +51,11 @@ export class FinalDrillDataSource implements ICardDataSource {
   label = 'Final Drill';
 
   private readonly plugin?: FsrsPluginLike;
+  private readonly options: FinalDrillDataSourceOptions;
 
-  constructor(plugin: FsrsPluginLike | undefined) {
+  constructor(plugin: FsrsPluginLike | undefined, options?: FinalDrillDataSourceOptions) {
     this.plugin = plugin;
+    this.options = options || {};
   }
 
   async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
@@ -69,8 +78,55 @@ export class FinalDrillDataSource implements ICardDataSource {
       ordered.push(card);
     }
 
-    const sorted = applySort(ordered, params?.sortModel || []);
+    // ✅ 四重筛选：应用文档、Preset、搜索筛选
+    let filtered = this.applyFilters(ordered);
+
+    const sorted = applySort(filtered, params?.sortModel || []);
     return { rows: sorted, totalCount: sorted.length };
+  }
+
+  // ✅ 四重筛选：应用筛选条件
+  private applyFilters(cards: BrowserCard[]): BrowserCard[] {
+    let result = cards;
+
+    // 文档筛选（使用 rootId 而非 boxId）
+    if (this.options.docId) {
+      result = result.filter(c => c.rootId === this.options.docId);
+    }
+
+    // Preset 筛选
+    if (this.options.preset && this.options.preset !== 'all') {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+      result = result.filter(c => {
+        switch (this.options.preset) {
+          case 'due':
+            return c.due && new Date(c.due) <= today;
+          case 'overdue':
+            return c.due && new Date(c.due) < today;
+          case 'new':
+            return c.state === 0; // New
+          case 'leech':
+            return (c.lapses || 0) > 0;
+          default:
+            return true;
+        }
+      });
+    }
+
+    // 搜索筛选（简单关键词搜索）
+    if (this.options.queryText) {
+      const query = this.options.queryText.toLowerCase().trim();
+      if (query && !query.startsWith('tag:') && !query.startsWith('deck:') && !query.startsWith('state:') && !query.startsWith('doc:')) {
+        result = result.filter(c => {
+          return c.content?.toLowerCase().includes(query) ||
+                 (c as any).headline?.toLowerCase().includes(query);
+        });
+      }
+    }
+
+    return result;
   }
 
   getSupportedActions(): CardBrowserAction[] {

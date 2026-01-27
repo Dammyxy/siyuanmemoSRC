@@ -59,11 +59,10 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
     // 当前序号：已复习数量 + 1（从 1 开始）
     const current = reviewed + 1;
 
-    const total = statsTotal;
     const newCards = statsNewCards;
     const reviewCards = statsReviewCards;
 
-    console.log('[RetrievalPracticeAdapter] statsTotal:', statsTotal, 'statsRemaining:', statsRemaining, 'statsNewCards:', statsNewCards, 'statsReviewCards:', statsReviewCards, 'reviewed:', reviewed, 'current:', current);
+    console.log('[RetrievalPracticeAdapter] statsTotal:', statsTotal, 'statsRemaining:', statsRemaining, 'statsNewCards:', statsNewCards, 'statsReviewCards:', statsReviewCards, 'reviewed:', reviewed, 'current:', current, 'total:', statsTotal);
     const baseLabel = String(this.label || t(this.i18n, 'reviewTitle', 'FSRS 复习'));
     const label = toLabel(baseLabel, toLabel(String(stats.label || ''), String(stats.extra || '')));
     const queueName = String(this.queueName || 'retrieval-practice');

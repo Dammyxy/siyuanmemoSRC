@@ -16,9 +16,30 @@
       </div>
     </div>
 
+    <!-- ✅ 新增：【全部】区 -->
     <div class="fsrs-browser-hierarchy__section">
-      <div class="fsrs-browser-hierarchy__title">{{ t('documents', '文档') }}</div>
+      <div class="fsrs-browser-hierarchy__title">{{ t('all', '全部') }}</div>
       <div class="b3-list b3-list--background">
+        <div
+          class="b3-list-item"
+          @click="emit('selectGlobal', '__all__')"
+        >
+          <span class="b3-list-item__text">{{ t('allFlashcards', '全部闪卡') }}</span>
+          <span class="b3-list-item__meta">{{ globalStats.total }}</span>
+        </div>
+        <div
+          class="b3-list-item"
+          @click="emit('selectGlobal', '__lost__')"
+        >
+          <span class="b3-list-item__text">{{ t('lostFlashcards', '丢失/关闭闪卡') }}</span>
+          <span class="b3-list-item__meta">{{ globalStats.lost }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="fsrs-browser-hierarchy__section fsrs-browser-hierarchy__section--grow">
+      <div class="fsrs-browser-hierarchy__title">{{ t('documents', '文档') }}</div>
+      <div class="b3-list b3-list--background fsrs-browser-hierarchy__docs-list">
         <div
           v-for="doc in docs"
           :key="doc.id"
@@ -45,6 +66,8 @@ import { getDocTree } from './browserService';
 const props = defineProps<{
   cards: BrowserCard[];
   queues: { active: string; counts: Record<string, number> };
+  focusedDocIds?: string[] | null;  // ✅ 四重筛选：聚焦的文档 ID 列表
+  globalStats: { total: number; lost: number };  // ✅ 全局统计（【全部】区使用）
   i18n?: Record<string, string>;
 }>();
 
@@ -52,6 +75,7 @@ const emit = defineEmits<{
   (e: 'selectQueue', queueId: string): void;
   (e: 'selectDoc', docId: string): void;
   (e: 'filterDoc', docId: string): void;
+  (e: 'selectGlobal', type: '__all__' | '__lost__'): void;  // ✅ 新增：【全部】区事件
 }>();
 
 function t(key: string, fallback: string): string {
@@ -70,24 +94,34 @@ let loadSeq = 0;
 
 watchEffect(() => {
   const cards = props.cards || [];
+
+  // ✅ 四重筛选：队列聚焦文档
+  // 如果有聚焦的文档列表，只统计和加载这些文档
+  const focusedIds = props.focusedDocIds;
+  const filteredCards = focusedIds
+    ? cards.filter(c => focusedIds.includes((c as any)?.rootId || ''))
+    : cards;
+
+  // 计算文档统计
   const counts = new Map<string, number>();
-  for (const c of cards) {
+  for (const c of filteredCards) {
     const rid = String((c as any)?.rootId || '');
     if (!rid) continue;
     counts.set(rid, (counts.get(rid) || 0) + 1);
   }
   const ids = Array.from(counts.keys());
   const current = ++loadSeq;
+
   void (async () => {
     const nodes = await getDocTree(ids);
     if (current !== loadSeq) return;
-    const total = cards.length;
-    const lost = cards.filter((c) => !String((c as any)?.rootId || '')).length;
-    docs.value = [
-      { id: '__all__', title: t('allFlashcards', '全部闪卡'), count: total, filterable: false },
-      { id: '__lost__', title: t('lostFlashcards', '丢失/关闭闪卡'), count: lost, filterable: false },
-      ...nodes.map((n) => ({ id: n.id, title: n.title, count: counts.get(n.id) || 0, filterable: true })),
-    ];
+    // ✅ 只包含普通文档，"全部闪卡"和"丢失/关闭闪卡"已移至【全部】区
+    docs.value = nodes.map((n) => ({
+      id: n.id,
+      title: n.title,
+      count: counts.get(n.id) || 0,
+      filterable: true
+    }));
   })();
 });
 </script>
@@ -98,6 +132,9 @@ watchEffect(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .fsrs-browser-hierarchy__section {
@@ -106,11 +143,44 @@ watchEffect(() => {
   gap: 6px;
 }
 
+.fsrs-browser-hierarchy__section--grow {
+  flex: 1;
+  min-height: 0;  /* ✅ 允许 flex 子元素缩小 */
+  display: flex;
+  flex-direction: column;
+}
+
 .fsrs-browser-hierarchy__title {
   font-size: 12px;
   font-weight: 600;
   color: var(--b3-theme-on-surface);
   padding: 4px 6px;
+  flex-shrink: 0;  /* ✅ 防止标题被压缩 */
+}
+
+.fsrs-browser-hierarchy__docs-list {
+  overflow-y: auto;  /* ✅ 添加垂直滚动条 */
+  overflow-x: hidden;
+  flex: 1;  /* ✅ 填充剩余空间 */
+  min-height: 0;  /* ✅ 允许缩小 */
+}
+
+/* ✅ 自定义滚动条样式（Webkit 浏览器） */
+.fsrs-browser-hierarchy__docs-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.fsrs-browser-hierarchy__docs-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.fsrs-browser-hierarchy__docs-list::-webkit-scrollbar-thumb {
+  background: var(--b3-theme-surface-light);
+  border-radius: 3px;
+}
+
+.fsrs-browser-hierarchy__docs-list::-webkit-scrollbar-thumb:hover {
+  background: var(--b3-theme-surface);
 }
 
 .fsrs-browser-hierarchy__hint {

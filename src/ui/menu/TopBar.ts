@@ -21,16 +21,16 @@ export class TopBarManager {
 
         this.element = this.plugin.addTopBar({
             icon: 'iconFSRS',
-            title: this.plugin.i18n?.topbarTitle || 'FSRS 闪卡 (左键制卡/右键菜单)',
+            title: this.plugin.i18n?.topbarTitle || 'FSRS 闪卡 (左键卡片浏览器/右键菜单)',
             position: 'right',
             callback: () => {
-                // @ts-ignore - accessing private or checking init status via public method if available, 
+                // @ts-ignore - accessing private or checking init status via public method if available,
                 // but here relying on plugin.isInitialized which is public in current implementation
                 if (!this.plugin.isInitialized) {
                     pushMsg(this.plugin.i18n?.loading || '插件初始化中，请稍后...');
                     return;
                 }
-                pushMsg(this.plugin.i18n?.featureRemoved || '该功能已暂时移除');
+                this.plugin.openCardBrowser();
             },
         });
         this.element.classList.add('fsrs-topbar');

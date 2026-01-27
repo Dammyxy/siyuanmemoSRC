@@ -74,7 +74,12 @@ export class DeckDataSource implements ICardDataSource {
 
   async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
     // 传递 queryText 参数以支持搜索查询筛选
-    const rows = await loadCards(this.options.preset, this.options.currentDocId, this.options.queryText);
+    let rows = await loadCards(this.options.preset, this.options.currentDocId, this.options.queryText);
+
+    // ✅ 四重筛选：应用文档筛选（如果 preset 不是 'current-doc'，loadCards 不会应用 currentDocId）
+    if (this.options.currentDocId && this.options.preset !== 'current-doc') {
+      rows = rows.filter(c => c.rootId === this.options.currentDocId);
+    }
 
     // 【全部闪卡】模式下不设置 queueIndex，NO 列将显示数组索引
     // 只有在【复习队列】模式下，数据源才会设置 queueIndex

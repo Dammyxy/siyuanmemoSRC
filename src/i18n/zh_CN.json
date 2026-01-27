@@ -13,6 +13,9 @@
     "startReviewV2": "复习 (UI 2.0)",
     "startReviewProviderV2": "复习 (Provider)",
     "startDrillProviderV2": "最终冲刺 (Provider)",
+    "startNativeReviewExtraction": "提取练习（原生）",
+    "startNativeReviewFinalDrill": "刻意练习（原生）",
+    "startNativeReviewFilterGroup": "筛选练习（原生）",
     "quickMakeCard": "一键制卡",
     "makeCardFromSelection": "选中制卡",
     "clearCards": "清除页面闪卡",
@@ -272,6 +275,7 @@
     "lostFlashcards": "丢失/关闭闪卡",
     "hierarchyHint": "右键文档：按 doc:xxx 挑选",
     "retrievalPracticeModeLabel": "提取练习",
+    "cardBrowser": "卡片浏览器",
     "neural": {
         "seedCard": "种子卡片",
         "navigationBar": "神经导航",
