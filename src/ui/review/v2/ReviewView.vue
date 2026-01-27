@@ -1,5 +1,5 @@
 <template>
-  <div class="fsrs-review-v2">
+  <div ref="rootRef" class="fsrs-review-v2" data-key="dialog-opencard" @click="handleRootClick">
     <ReviewHeader :header="state.header" :is-tab-mode="!!props.reviewUI" @toolbar-action="handleToolbarAction" @action="hook.executeCommand" @context="handleContext" @breadcrumb-click="handleBreadcrumbClick" />
 
     <ReviewContent :app="app" :content="state.content" :overlay="state.overlay" :has-hidden-content="state.meta.hasHiddenContent" :show-answer="state.actions.showAnswer" :i18n="i18n" />
@@ -35,6 +35,7 @@
 
 <script setup lang="ts">
 import { Menu, openTab } from 'siyuan';
+import { onMounted, onUnmounted, ref } from 'vue';
 import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
 import ReviewHeader from './ReviewHeader.vue';
@@ -56,6 +57,21 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'openMenu', menu: IQueueCommand<unknown>[]): void;
 }>();
+
+const rootRef = ref<HTMLDivElement | null>(null);
+
+// 检查环境
+onMounted(() => {
+  console.log('[FSRS ReviewView] Component mounted');
+  console.log('[FSRS ReviewView] Checking environment:', {
+    hasRootRef: !!rootRef.value,
+    rootElement: rootRef.value,
+    rootDataKey: rootRef.value?.getAttribute('data-key'),
+    inDialog: !!document.querySelector('.b3-dialog__container'),
+    dialogElements: document.querySelectorAll('.b3-dialog__container').length,
+    ourDialog: document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]'),
+  });
+});
 
 const providerAdapter = props.reviewUI?.adapter;
 const providerAny = props.provider as any;
@@ -88,7 +104,60 @@ function t(key: string, fallback: string): string {
   return i18n?.[key] || fallback;
 }
 
+// 处理来自思源热键系统的 CustomEvent
+function handleRootClick(e: MouseEvent) {
+  console.log('[FSRS ReviewView] handleRootClick triggered:', {
+    detail: e.detail,
+    detailType: typeof e.detail,
+    target: e.target,
+    currentTarget: e.currentTarget,
+  });
+
+  // 只处理来自思源热键系统的 CustomEvent（event.detail 为字符串）
+  if (typeof e.detail !== 'string') return;
+
+  const key = e.detail.toLowerCase();
+  console.log('[FSRS ReviewView] Hotkey detected:', key);
+
+  // 显示答案（空格/回车）
+  if ((key === ' ' || key === 'enter') && state.value.actions.showAnswer) {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('[FSRS ReviewView] Revealing answer...');
+    hook.reveal();
+    return;
+  }
+
+  // 评分（1/2/3/4）
+  if (['1', '2', '3', '4'].includes(key)) {
+    if (!state.value.actions.showAnswer) {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('[FSRS ReviewView] Grading with rating:', key);
+      void hook.grade(Number(key));
+    } else {
+      console.log('[FSRS ReviewView] Rating key pressed but showAnswer is true, ignoring');
+    }
+    return;
+  }
+
+  // 跳过（S键）
+  if (key === 's') {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('[FSRS ReviewView] Skipping card...');
+    void hook.skip();
+  }
+}
+
 function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) {
+  console.log('[FSRS ReviewView] handleOpenMenu called:', {
+    currentTarget: ev.currentTarget,
+    clientX: ev.clientX,
+    clientY: ev.clientY,
+    target: ev.target,
+  });
+
   const cmds = Array.isArray(menuCommands) ? menuCommands : [];
   const cardMeta = state.value.actions.cardMeta;
   const currentCard = state.value.content.card;
@@ -157,11 +226,22 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
     });
   }
 
-  const target = (ev.currentTarget || ev.target) as HTMLElement;
-  if (!target) return;
-
-  const rect = target.getBoundingClientRect();
-  menu.open({ x: rect.left, y: rect.bottom });
+  // 使用按钮位置定位菜单（与思源原生闪卡一致）
+  const target = ev.currentTarget as HTMLElement;
+  if (target) {
+    const rect = target.getBoundingClientRect();
+    console.log('[FSRS ReviewView] Opening menu at button position:', {
+      rectLeft: rect.left,
+      rectBottom: rect.bottom,
+      rectTop: rect.top,
+      rectRight: rect.right,
+    });
+    menu.open({ x: rect.left, y: rect.bottom });
+  } else {
+    // 降级：使用鼠标位置
+    console.log('[FSRS ReviewView] currentTarget is null, using mouse position');
+    menu.open({ x: ev.clientX, y: ev.clientY });
+  }
 }
 
 function buildCardStatsHTML(meta: NonNullable<ReviewUIState['actions']['cardMeta']>): string {

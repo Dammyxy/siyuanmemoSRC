@@ -642,6 +642,7 @@ export default class FSRSPlugin extends Plugin {
       this.reviewDialog = createVueDialog({
         title: provider.displayName,
         component: ReviewView,
+        dataKey: 'dialog-opencard', // 让思源热键系统能够识别
         props: {
           app: this.app,
           i18n: this.i18n || {},
@@ -687,6 +688,7 @@ export default class FSRSPlugin extends Plugin {
       this.reviewDialog = createVueDialog({
         title: (this.i18n as any)?.startLeechPractice || '难点攻坚',
         component: ReviewView,
+        dataKey: 'dialog-opencard', // 让思源热键系统能够识别
         props: {
           app: this.app,
           i18n: this.i18n || {},
@@ -745,6 +747,7 @@ export default class FSRSPlugin extends Plugin {
       this.reviewDialog = createVueDialog({
         title: provider.displayName,
         component: ReviewView,
+        dataKey: 'dialog-opencard', // 让思源热键系统能够识别
         props: {
           app: this.app,
           i18n: this.i18n || {},
@@ -807,6 +810,7 @@ export default class FSRSPlugin extends Plugin {
       this.reviewDialog = createVueDialog({
         title: this.i18n?.neuralReviewTitle || '神经复习',
         component: ReviewView,
+        dataKey: 'dialog-opencard', // 让思源热键系统能够识别
         props: {
           app: this.app,
           i18n: this.i18n || {},
@@ -849,6 +853,7 @@ export default class FSRSPlugin extends Plugin {
     this.reviewDialog = createVueDialog({
       title,
       component: ReviewView,
+      dataKey: 'dialog-opencard', // 让思源热键系统能够识别
       props: {
         app: this.app,
         i18n: this.i18n || {},
@@ -891,6 +896,7 @@ export default class FSRSPlugin extends Plugin {
     this.reviewDialog = createVueDialog({
       title,
       component: ReviewView,
+      dataKey: 'dialog-opencard', // 让思源热键系统能够识别
       props: {
         app: this.app,
         i18n: this.i18n || {},

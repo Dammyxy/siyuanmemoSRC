@@ -181,6 +181,24 @@ export class NativeReviewSession {
       },
     });
 
+    // 设置 data-key 属性，让思源热键系统能够识别这个对话框
+    this.dialog.element.setAttribute('data-key', 'dialog-opencard');
+    console.log('[NativeReviewSession] Set data-key attribute on dialog');
+
+    // 调试：检查思源热键系统能否识别
+    setTimeout(() => {
+      console.log('[NativeReviewSession] Checking SiYuan hotkey system:', {
+        dialogElement: this.dialog?.element,
+        dataKey: this.dialog?.element.getAttribute('data-key'),
+        siyuanDialogs: (window as any).siyuan?.dialogs,
+        foundInDialogsArray: (window as any).siyuan?.dialogs?.find((item: any) =>
+          item.element?.getAttribute('data-key') === 'dialog-opencard'
+        ),
+        foundInDOM: document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]'),
+        foundInDOM2: document.querySelector('div[data-key="dialog-opencard"]'),
+      });
+    }, 100);
+
     // 设置最大宽度以匹配思源原生复习界面
     const container = this.dialog.element.querySelector('.b3-dialog__container') as HTMLElement;
     if (container) {
@@ -240,9 +258,134 @@ export class NativeReviewSession {
     const cardMain = element.querySelector('.card__main') as HTMLElement;
     if (!cardMain) return;
 
+    // 思源的热键系统会 dispatch CustomEvent 到对话框的 firstElementChild
+    // 我们需要在那里监听并转发到 cardMain
+    if (element.firstElementChild) {
+      element.firstElementChild.addEventListener('click', (event: MouseEvent) => {
+        console.log('[NativeReviewSession] Click on firstElementChild:', {
+          detail: event.detail,
+          detailType: typeof event.detail,
+        });
+
+        // 处理来自思源热键系统的 CustomEvent（event.detail 为字符串）
+        if (typeof event.detail === 'string') {
+          console.log('[NativeReviewSession] Hotkey CustomEvent received:', event.detail);
+          const key = event.detail.toLowerCase();
+
+          // 检查是否已显示答案（第二个 action div 是否隐藏）
+          const actionElements = this.dialog?.element.querySelectorAll('.card__action');
+          const isAnswerShown = actionElements && actionElements[1] && !actionElements[1].classList.contains('fn__none');
+
+          // 显示答案 (空格/enter) - 只在未显示答案时工作
+          if ([' ', 'enter'].includes(key)) {
+            if (!isAnswerShown) {
+              event.preventDefault();
+              event.stopPropagation();
+              this.showAnswer();
+            }
+            return;
+          }
+
+          // 评分按钮 (1/j/a = 1, 2/k/s = 2, 3/l/d = 3, 4/;/f = 4)
+          // 只在显示答案后才能评分
+          if (['1', 'j', 'a'].includes(key)) {
+            if (isAnswerShown) {
+              event.preventDefault();
+              event.stopPropagation();
+              void this.handleRating(1);
+            }
+            return;
+          } else if (['2', 'k', 's'].includes(key)) {
+            if (isAnswerShown) {
+              event.preventDefault();
+              event.stopPropagation();
+              void this.handleRating(2);
+            }
+            return;
+          } else if (['3', 'l', 'd'].includes(key)) {
+            if (isAnswerShown) {
+              event.preventDefault();
+              event.stopPropagation();
+              void this.handleRating(3);
+            }
+            return;
+          } else if (['4', ';', 'f'].includes(key)) {
+            if (isAnswerShown) {
+              event.preventDefault();
+              event.stopPropagation();
+              void this.handleRating(4);
+            }
+            return;
+          }
+          // 跳过 (0/x) - 任何时候都能工作
+          else if (['0', 'x'].includes(key)) {
+            event.preventDefault();
+            event.stopPropagation();
+            void this.handleSkip();
+            return;
+          }
+          // 上一张 (p/q)
+          else if (['p', 'q'].includes(key)) {
+            event.preventDefault();
+            event.stopPropagation();
+            void this.previousCard();
+            return;
+          }
+        }
+
+        // 其他点击事件，转发到 cardMain 处理（按钮点击等）
+        // 但不冒泡，避免重复处理
+        const forwardedEvent = new MouseEvent('click', {
+          bubbles: false,
+          cancelable: true,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        });
+        Object.defineProperty(forwardedEvent, 'target', { value: event.target, writable: false });
+        cardMain.dispatchEvent(forwardEvent);
+      });
+    }
+
     // 绑定按钮事件（绑定在 .card__main 上，而非整个 dialog）
     cardMain.addEventListener('click', async (event: MouseEvent) => {
       const target = event.target as HTMLElement;
+
+      // 处理来自思源热键系统的 CustomEvent（event.detail 为字符串）
+      if (typeof event.detail === 'string') {
+        console.log('[NativeReviewSession] Hotkey CustomEvent received:', event.detail);
+        const key = event.detail.toLowerCase();
+
+        // 评分按钮 (1/j/a = 1, 2/k/s = 2, 3/l/d = 3, 4/;/f = 4)
+        if (['1', 'j', 'a'].includes(key)) {
+          await this.handleRating(1);
+          return;
+        } else if (['2', 'k', 's'].includes(key)) {
+          await this.handleRating(2);
+          return;
+        } else if (['3', 'l', 'd'].includes(key)) {
+          await this.handleRating(3);
+          return;
+        } else if (['4', ';', 'f'].includes(key)) {
+          await this.handleRating(4);
+          return;
+        }
+        // 显示答案 (空格/回车)
+        else if ([' ', 'enter'].includes(key)) {
+          this.showAnswer();
+          return;
+        }
+        // 跳过 (0/x)
+        else if (['0', 'x'].includes(key)) {
+          await this.handleSkip();
+          return;
+        }
+        // 上一张 (p/q)
+        else if (['p', 'q'].includes(key)) {
+          await this.previousCard();
+          return;
+        }
+      }
+
       // 向上查找最近的带有 data-type 的元素
       let currentTarget: HTMLElement | null = target;
       let type: string | null = null;
@@ -282,14 +425,67 @@ export class NativeReviewSession {
       else if (type === 'more') {
         event.stopPropagation();
         event.preventDefault();
-        this.openMoreMenu(event);
+
+        // 找到"更多"按钮的实际元素（向上查找带有 data-type="more" 的元素）
+        let moreButton: HTMLElement | null = target;
+        while (moreButton && element !== moreButton) {
+          if (moreButton.getAttribute('data-type') === 'more') {
+            break;
+          }
+          moreButton = moreButton.parentElement as HTMLElement;
+        }
+
+        // 使用找到的按钮作为锚点定位菜单
+        const rect = moreButton?.getBoundingClientRect?.();
+        console.log('[NativeReviewSession] More button rect:', { rect, moreButton });
+
+        const languages = (window as any)?.siyuan?.languages || {};
+        const menu = new Menu();
+        menu.addItem({
+          icon: 'iconPause',
+          label: languages.skip || '跳过',
+          click: () => {
+            void this.handleSkip();
+          },
+        });
+        menu.addSeparator();
+        menu.addItem({
+          icon: 'iconFullscreen',
+          label: languages.fullscreen || '全屏',
+          click: () => {
+            this.toggleFullscreen();
+          },
+        });
+
+        if (rect) {
+          menu.open({
+            x: rect.left,
+            y: rect.bottom,
+            isLeft: true,
+          });
+        } else {
+          // 降级：使用鼠标位置
+          menu.open({
+            x: event.clientX,
+            y: event.clientY,
+            isLeft: true,
+          });
+        }
       }
     });
 
     // 键盘快捷键
     element.addEventListener('keydown', (event: KeyboardEvent) => {
+      console.log('[NativeReviewSession] Keydown event:', {
+        key: event.key,
+        code: event.code,
+        target: event.target,
+        currentTarget: event.currentTarget,
+      });
+
       if (['1', '2', '3', '4', ' ', 'Enter', '0', 'x', 'X'].includes(event.key)) {
         event.preventDefault();
+        console.log('[NativeReviewSession] Key matched, executing action');
         if (event.key === ' ' || event.key === 'Enter') {
           // 显示答案或跳到下一张
           const actionElements = element.querySelectorAll('.card__action');
@@ -501,6 +697,13 @@ export class NativeReviewSession {
    * 打开更多菜单
    */
   private openMoreMenu(event: MouseEvent) {
+    console.log('[NativeReviewSession] openMoreMenu called:', {
+      currentTarget: event.currentTarget,
+      target: event.target,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+
     const languages = (window as any)?.siyuan?.languages || {};
 
     const menu = new Menu();
@@ -522,10 +725,23 @@ export class NativeReviewSession {
 
     const anchor = (event.currentTarget || event.target) as HTMLElement | null;
     const rect = anchor?.getBoundingClientRect?.();
+
+    console.log('[NativeReviewSession] Menu positioning:', {
+      anchor,
+      rect,
+    });
+
     if (rect) {
       menu.open({
         x: rect.left,
         y: rect.bottom,
+        isLeft: true,
+      });
+    } else {
+      console.warn('[NativeReviewSession] Could not get anchor rect, using mouse position');
+      menu.open({
+        x: event.clientX,
+        y: event.clientY,
         isLeft: true,
       });
     }

@@ -17,6 +17,7 @@ export function createVueDialog<T extends Component>(options: {
     width?: string;
     height?: string;
     onClose?: () => void;
+    dataKey?: string; // 添加 dataKey 选项，用于思源热键系统识别
 }): { dialog: Dialog; destroy: () => void } {
     const containerId = `fsrs-dialog-${Date.now()}`;
 
@@ -51,6 +52,17 @@ export function createVueDialog<T extends Component>(options: {
             options.onClose?.();
         },
     });
+
+    // 设置 data-key 属性，让思源热键系统能够识别这个对话框
+    if (options.dataKey) {
+        dialog.element.setAttribute('data-key', options.dataKey);
+        console.log('[FSRS Dialog] Set data-key attribute:', {
+            dataKey: options.dataKey,
+            element: dialog.element,
+            hasAttribute: dialog.element.hasAttribute('data-key'),
+            attributeValue: dialog.element.getAttribute('data-key'),
+        });
+    }
 
     // 立即挂载 Vue 组件
     const container = dialog.element.querySelector(`#${containerId}`);

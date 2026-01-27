@@ -3,14 +3,6 @@ import type { IQueueStrategy, QueueFeedback } from '@/core/queue/abstraction/Str
 import type { AdapterContext, IAdapter, ReviewSessionHook, ReviewUIState } from './types';
 import { createEmptyReviewUIState } from './types';
 
-function isTypingTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  if (!el) return false;
-  const tag = String(el.tagName || '').toLowerCase();
-  if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
-  return Boolean((el as any).isContentEditable);
-}
-
 export function useReviewSession<TItem>(
   queue: IQueueStrategy<TItem>,
   adapter: IAdapter<TItem>,
@@ -94,32 +86,7 @@ export function useReviewSession<TItem>(
     await updateState();
   };
 
-  const handleKeydown = (e: KeyboardEvent): void => {
-    if (e.defaultPrevented) return;
-    if (isTypingTarget(e.target)) return;
-
-    const key = e.key;
-    if ((key === ' ' || key === 'Enter') && state.value.actions.showAnswer) {
-      e.preventDefault();
-      reveal();
-      return;
-    }
-
-    if (key === '1' || key === '2' || key === '3' || key === '4') {
-      if (state.value.actions.showAnswer) return;
-      e.preventDefault();
-      void grade(Number(key));
-      return;
-    }
-
-    if (key === 's' || key === 'S') {
-      e.preventDefault();
-      void skip();
-    }
-  };
-
   const mounted = (): void => {
-    window.addEventListener('keydown', handleKeydown, { capture: true });
     void (async () => {
       context.value.session = {
         startTime: Date.now(),
@@ -134,7 +101,6 @@ export function useReviewSession<TItem>(
   };
 
   const unmounted = (): void => {
-    window.removeEventListener('keydown', handleKeydown, { capture: true } as any);
     adapter.cleanup?.();
   };
 
