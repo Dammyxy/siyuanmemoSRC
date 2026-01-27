@@ -160,7 +160,14 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
 
       this.progress.answered += 1;
       if (rating >= 3) this.progress.correct += 1;
-      await this.removeFromQueue(currentItem);
+
+      // BUG 3 FIX: 只在评分 >= 4 时移除队列，评分 < 4 时旋转到队尾
+      if (rating >= 4) {
+        await this.removeFromQueue(currentItem);
+      } else {
+        await this.rotateToEnd(currentItem);
+      }
+
       if (this.queue.getAllItems().length === 0) {
         this.progress.inProgress = false;
       }

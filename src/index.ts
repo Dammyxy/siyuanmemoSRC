@@ -541,7 +541,7 @@ export default class FSRSPlugin extends Plugin {
       app: this.app,
       custom: {
         icon: 'iconCard',
-        title: this.i18n?.cardBrowser || '卡片浏览器',
+        title: this.i18n?.srsBrowser || 'SRS 浏览器',
         id: this.name + this.TAB_TYPE,
         data: {},
       },

@@ -157,11 +157,11 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
     });
   }
 
-  const target = ev.currentTarget as HTMLElement;
-  if (target) {
-    const rect = target.getBoundingClientRect();
-    menu.open({ x: rect.left, y: rect.bottom });
-  }
+  const target = (ev.currentTarget || ev.target) as HTMLElement;
+  if (!target) return;
+
+  const rect = target.getBoundingClientRect();
+  menu.open({ x: rect.left, y: rect.bottom });
 }
 
 function buildCardStatsHTML(meta: NonNullable<ReviewUIState['actions']['cardMeta']>): string {
