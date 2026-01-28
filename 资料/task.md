@@ -1,5 +1,38 @@
 # Project Task List
 
+## Phase 8.1: UI2.0 全屏与计数器修复 (Completed ✅)
+**完成日期**: 2026-01-28
+
+- [x] **Part 1: 全屏功能修复** (Priority 0)
+    - [x] 动态修改对话框容器的 maxWidth 样式
+    - [x] 进入全屏时移除 maxWidth 限制，退出时恢复
+    - [x] 在对话框容器和内容区域同时切换 fullscreen 类
+    - [x] 参考 SiYuan 原生实现 (`siyuan/app/src/assets/scss/main/_main.scss:28-56`)
+- [x] **Part 2: 提取练习计数器修复** (Priority 0)
+    - [x] 适配 RetrievalPracticeAdapter 处理无新卡/复习卡区分的模式
+    - [x] 检测 label 格式，非 '新卡/复习卡' 格式时使用 total 字段
+    - [x] 修复提取练习界面计数器显示为 0 的问题
+- [x] **Part 3: UI2.0 界面完善** (Priority 1)
+    - [x] 移除筛选按钮，添加"打开为"（sticktab）按钮
+    - [x] 添加"编辑SRS数据"按钮，替换"更多"按钮
+    - [x] 修复计数器横排显示（移除 ariaLabel 的 flex 样式）
+    - [x] 改进按钮点击事件处理（添加 stopPropagation）
+
+**备注**：
+- 全屏实现：通过动态修改内联样式的 maxWidth 实现真正的全屏效果
+- 计数器兼容：支持两种统计格式（'新卡/复习卡' 和纯数字）
+- 按钮功能：全屏、打开为（新标签/右侧/新窗口）、编辑SRS数据
+- 提交记录：
+  - `7495ddd`: fix: 修复 UI2.0 复习界面全屏和计数器显示问题
+
+**技术要点**：
+- ✅ 全屏样式：position: fixed + width/height 100vw/vh + z-index: 8
+- ✅ 内联样式优先级：需动态设置 maxWidth 为空字符串才能被 CSS 覆盖
+- ✅ 统计格式检测：label.includes('/') 判断是否为 '新卡/复习卡' 格式
+- ✅ 适配器扩展：RetrievalPracticeAdapter 支持多种队列类型
+
+---
+
 ## Phase 8: Vue UI 2.0 Unification & Refactoring (Completed ✅)
 **完成日期**: 2026-01-28
 

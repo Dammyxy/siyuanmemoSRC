@@ -787,5 +787,153 @@ if (key === 's') {
 ### 提交记录
 - `cd1d107`: refactor: unify to Vue UI 2.0 and cleanup queue architecture
 - `32580ee`: chore: remove unused i18n keys (native UI)
+- `7495ddd`: fix: 修复 UI2.0 复习界面全屏和计数器显示问题
 
+---
+
+## Phase 8.1: UI2.0 全屏与计数器修复 (2026-01-28)
+
+### 问题描述
+1. **全屏功能不完整**: 点击全屏按钮后，界面没有填满整个屏幕，宽度仍受限于对话框的 maxWidth
+2. **提取练习计数器显示为 0**: 提取练习界面的计数器没有正确显示剩余卡片数量
+
+### 解决方案
+
+#### 1. 全屏功能修复
+
+**问题根因**:
+- 内联样式 `maxWidth: 1024px` 的优先级太高
+- 即使 CSS 设置了 `width: 100vw !important`，也无法覆盖内联样式
+
+**实施步骤**:
+1. 在 `ReviewView.vue` 的 `handleToolbarAction` 函数中动态修改内联样式
+2. 进入全屏时：设置 `maxWidth` 为空字符串
+3. 退出全屏时：恢复 `maxWidth` 为 `1024px`
+
+**代码实现** ([ReviewView.vue:310-327](../siyuan-plugin-fsrs/src/ui/review/v2/ReviewView.vue)):
+```typescript
+if (isFullscreen) {
+  // 退出全屏：恢复 maxWidth
+  (dialogContainer as HTMLElement).style.maxWidth = '1024px';
+  dialogContainer.classList.remove('fullscreen');
+  contentMain.classList.remove('fullscreen');
+} else {
+  // 进入全屏：移除 maxWidth 限制
+  (dialogContainer as HTMLElement).style.maxWidth = '';
+  dialogContainer.classList.add('fullscreen');
+  contentMain.classList.add('fullscreen');
+}
+```
+
+**CSS 样式** ([ReviewView.vue:534-565](../siyuan-plugin-fsrs/src/ui/review/v2/ReviewView.vue)):
+```css
+.b3-dialog__container.fullscreen {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100vh !important;
+  z-index: 8 !important;
+  border-radius: 0 !important;
+
+  .block__icons {
+    padding-left: var(--b3-toolbar-left-mac);
+    height: 32px;
+    min-height: 32px;
+  }
+}
+```
+
+**参考实现**: SiYuan 原生全屏样式 (`siyuan/app/src/assets/scss/main/_main.scss:28-56`)
+
+#### 2. 提取练习计数器修复
+
+**问题根因**:
+- `RetrievalPracticeAdapter` 期望 `stats.label` 格式为 `'新卡/复习卡'`（如 `'2/5'`）
+- `ExtractionPracticeProvider.getStats()` 返回的 `label` 只是剩余数量（如 `'5'`）
+- 解析失败导致 `newCards` 和 `reviewCards` 都是 0
+
+**实施步骤**:
+1. 在 `RetrievalPracticeAdapter.toUIState()` 中检测 label 格式
+2. 如果 label 包含 `/`，按 `'新卡/复习卡'` 格式解析
+3. 如果不包含，使用 Provider 返回的 `total` 字段作为复习卡数量
+
+**代码实现** ([RetrievalPracticeAdapter.ts:37-69](../siyuan-plugin-fsrs/src/ui/review/v2/adapters/RetrievalPracticeAdapter.ts)):
+```typescript
+let statsNewCards = 0;
+let statsReviewCards = 0;
+let useParsedLabel = false;
+
+if (stats.label && typeof stats.label === 'string' && stats.label.includes('/')) {
+  const parts = stats.label.split('/');
+  if (parts.length === 2) {
+    statsNewCards = Number(parts[0]) || 0;
+    statsReviewCards = Number(parts[1]) || 0;
+    useParsedLabel = true;
+  }
+}
+
+let newCards = statsNewCards;
+let reviewCards = statsReviewCards;
+if (!useParsedLabel) {
+  // 提取练习等模式：没有新卡/复习卡区分，所有卡片都是复习卡
+  newCards = 0;
+  reviewCards = statsTotal || statsRemaining;
+}
+```
+
+**计算当前剩余数量** ([RetrievalPracticeAdapter.ts:141-144](../siyuan-plugin-fsrs/src/ui/review/v2/adapters/RetrievalPracticeAdapter.ts)):
+```typescript
+currentNewCards: useParsedLabel ? /* 新卡模式计算 */ : 0,
+currentReviewCards: useParsedLabel ? /* 新卡模式计算 */ : statsRemaining,
+```
+
+#### 3. UI2.0 界面完善
+
+**按钮功能优化**:
+- 移除筛选按钮（不符合工作流）
+- 添加"打开为"按钮（sticktab）- 支持新标签、右侧、新窗口
+- 将"更多"按钮替换为"编辑SRS数据"按钮
+
+**计数器显示修复**:
+- 移除 `.ariaLabel` 的 `display: flex` 样式
+- 让计数器横排显示，与原生界面一致
+
+**事件处理改进**:
+- 在 `handleToolbarClick` 中添加 `event.stopPropagation()`
+- 防止事件被其他处理器拦截
+
+### 技术要点
+
+1. **内联样式优先级**: 需要将属性设置为空字符串才能被 CSS 覆盖
+2. **全屏样式参考**: SiYuan 原生实现使用 `position: fixed` + `width/height: 100vw/vh`
+3. **统计格式兼容**: 支持两种格式（'新卡/复习卡' 和纯数字）
+4. **适配器扩展**: `RetrievalPracticeAdapter` 支持多种队列类型
+
+### 修改文件
+
+1. **[ReviewView.vue](../siyuan-plugin-fsrs/src/ui/review/v2/ReviewView.vue)** - 全屏功能实现
+2. **[RetrievalPracticeAdapter.ts](../siyuan-plugin-fsrs/src/ui/review/v2/adapters/RetrievalPracticeAdapter.ts)** - 计数器逻辑修复
+3. **[ReviewHeader.vue](../siyuan-plugin-fsrs/src/ui/review/v2/ReviewHeader.vue)** - 按钮更新和计数器显示
+4. **其他适配器** - FinalDrillAdapter, LeechAdapter, NeuralRoamAdapter, SubsetPracticeAdapter
+5. **[dialog.ts](../siyuan-plugin-fsrs/src/utils/dialog.ts)** - 圆角和遮罩层设置
+6. **支持文件** - types.ts, useReviewSession.ts, api.ts, index.ts
+
+### 测试验证
+
+- ✅ 全屏按钮能让复习界面填满整个屏幕
+- ✅ 提取练习计数器正确显示剩余卡片数量
+- ✅ 标题栏按钮功能完整（全屏、打开为、编辑SRS数据）
+- ✅ 计数器横排显示，与原生界面一致
+- ✅ `npm run build` 构建成功
+- ✅ `npx tsc` 类型检查通过
+
+### 后续优化
+
+1. **圆角问题**: 对话框圆角样式仍需进一步调试
+2. **性能优化**: 全屏切换时可以添加过渡动画
+3. **适配器统一**: 考虑为不同队列类型创建专门的适配器类
+
+---
 
