@@ -125,27 +125,36 @@ async function renderProtyle(blockID: string): Promise<void> {
       hideTitleOnZoom: true,
     },
     typewriterMode: false,
+    after: (protyle: any) => {
+      console.log('[FSRS ReviewContent] Protyle after callback called');
+      console.log('[FSRS ReviewContent] protyle.disable exists:', typeof protyle.disable);
+
+      // 使用 after 回调锁定编辑器（参考卡片浏览器实现）
+      if (typeof protyle.disable === 'function') {
+        console.log('[FSRS ReviewContent] Locking editor with protyle.disable()...');
+        protyle.disable();
+
+        // 添加双击解锁功能
+        const wysiwygElement = protyle.wysiwyg?.element;
+        if (wysiwygElement) {
+          const handleDoubleClick = () => {
+            console.log('[FSRS ReviewContent] Double-click detected, unlocking editor');
+            if (typeof protyle.enable === 'function') {
+              protyle.enable();
+              console.log('[FSRS ReviewContent] Editor unlocked');
+            }
+            wysiwygElement.removeEventListener('dblclick', handleDoubleClick);
+          };
+          wysiwygElement.addEventListener('dblclick', handleDoubleClick);
+          console.log('[FSRS ReviewContent] Added double-click listener for unlock');
+        }
+      } else {
+        console.warn('[FSRS ReviewContent] protyle.disable() not available in after callback');
+      }
+    },
   });
 
-  // Wait for initialization
-  setTimeout(() => {
-    if (seq !== renderSeq) {
-      console.log('[FSRS ReviewContent] Render cancelled during init check');
-      return;
-    }
-    console.log('[FSRS ReviewContent] Protyle instance created, checking initialization...');
-    const protyle = editorRef.value?.protyle;
-    if (protyle) {
-      console.log('[FSRS ReviewContent] Protyle initialized:', {
-        hasProtyle: !!protyle,
-        hasWysiwyg: !!protyle.wysiwyg,
-        hasElement: !!protyle.wysiwyg?.element,
-        innerHTML: protyle.wysiwyg?.element?.innerHTML?.substring(0, 100),
-      });
-    } else {
-      console.warn('[FSRS ReviewContent] Protyle not initialized after timeout');
-    }
-  }, 100);
+  console.log('[FSRS ReviewContent] Protyle instance created, waiting for after callback...');
 }
 
 watch(

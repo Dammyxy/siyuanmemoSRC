@@ -34,7 +34,7 @@
 </template>
 
 <script setup lang="ts">
-import { Menu, openTab } from 'siyuan';
+import { Menu, openTab, openWindow } from 'siyuan';
 import { onMounted, onUnmounted, ref } from 'vue';
 import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
@@ -58,6 +58,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'openMenu', menu: IQueueCommand<unknown>[]): void;
+  (e: 'close'): void; // 添加关闭事件
 }>();
 
 const rootRef = ref<HTMLDivElement | null>(null);
@@ -323,8 +324,8 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
         // 进入全屏
         contentMain.classList.add('fullscreen');
         dialogContainer.classList.add('fullscreen');
-        // 移除 maxWidth 限制，让 CSS 的 100vw 生效
-        (dialogContainer as HTMLElement).style.maxWidth = '';
+        // 设置为 100vw 以确保全屏效果(覆盖内联样式)
+        (dialogContainer as HTMLElement).style.maxWidth = '100vw';
         document.getElementById('drag')?.classList.add('fn__hidden');
         console.log('[FSRS ReviewView] Entered fullscreen');
       }
@@ -368,68 +369,75 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
 }
 
 function handleOpenAsMenu(ev: MouseEvent) {
-  const cardMeta = state.value.actions.cardMeta;
-  const blockId = cardMeta?.blockID || state.value.content.data;
-
-  if (!blockId) {
-    console.warn('[FSRS ReviewView] No block ID found for open-as menu');
-    return;
-  }
+  console.log('[FSRS ReviewView] handleOpenAsMenu called', ev);
 
   const menu = new Menu();
 
-  // 1. 在新标签页打开
-  menu.addItem({
-    id: 'openInNewTab',
-    icon: 'iconOpen',
-    label: '在新标签页中打开',
-    click() {
-      if (props.app) {
-        openTab({
-          app: props.app,
-          doc: { id: blockId },
-          openNewTab: true,
-        });
-      }
-    },
-  });
+  // 获取插件实例
+  const fsrsPlugin = (window as any).siyuanFsrsPlugin;
 
-  // 2. 在页签右侧打开
-  menu.addItem({
-    id: 'insertRight',
-    icon: 'iconLayoutRight',
-    label: '在页签右侧打开',
-    click() {
-      if (props.app) {
-        openTab({
-          app: props.app,
-          doc: { id: blockId },
-          openNewTab: false,
-          position: 'right',
-        });
-      }
-    },
-  });
+  if (!fsrsPlugin) {
+    console.error('[FSRS ReviewView] FSRS plugin instance not found');
+    // 降级方案：打开文档
+    const cardMeta = state.value.actions.cardMeta;
+    const blockId = cardMeta?.blockID || state.value.content.data;
 
-  // 3. 使用新窗口打开
+    if (blockId) {
+      menu.addItem({
+        id: 'openByNewWindow',
+        icon: 'iconOpenWindow',
+        label: '使用新窗口打开',
+        click() {
+          if (props.app) {
+            openWindow({
+              doc: { id: blockId },
+            });
+          }
+        },
+      });
+    }
+
+    const target = ev.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    menu.open({
+      x: rect.left,
+      y: rect.bottom,
+    });
+    return;
+  }
+
+  // 使用新窗口打开（打开独立窗口）
   menu.addItem({
     id: 'openByNewWindow',
     icon: 'iconOpenWindow',
     label: '使用新窗口打开',
     click() {
-      if (props.app) {
-        openTab({
-          app: props.app,
-          doc: { id: blockId },
-          openNewTab: true,
-          action: (typeof window !== 'undefined' && (window as any).siyuan?.config?.client?.isMac) ? 'Ctrl' : 'Alt',
+      console.log('[FSRS ReviewView] Opening review in new window');
+      try {
+        // 从 state 中获取当前卡片的 block ID
+        const blockId = state.value.content.data || state.value.actions.cardMeta?.blockID;
+
+        if (!blockId) {
+          console.error('[FSRS ReviewView] No block ID found in state');
+          return;
+        }
+
+        console.log('[FSRS ReviewView] Current block ID:', blockId);
+
+        // 在新窗口中打开复习界面（会打开文档 + 自动触发复习对话框）
+        fsrsPlugin.openReviewInNewWindow({
+          blockId: blockId,
+          providerId: props.provider?.id || 'extraction',
+          title: props.title,
         });
+      } catch (err) {
+        console.error('[FSRS ReviewView] Error opening review in new window:', err);
       }
     },
   });
 
   // 打开菜单
-  const target = ev.target as HTMLElement;
+  const target = ev.currentTarget as HTMLElement;
   const rect = target.getBoundingClientRect();
   menu.open({
     x: rect.left,

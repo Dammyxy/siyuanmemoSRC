@@ -20,6 +20,7 @@ export function createVueDialog<T extends Component>(options: {
     onClose?: () => void;
     dataKey?: string; // 添加 dataKey 选项，用于思源热键系统识别
     transparent?: boolean;  // 添加透明遮罩层选项
+    isReview?: boolean;  // 添加标识：是否为复习对话框（用于控制 maxWidth）
 }): { dialog: Dialog; destroy: () => void } {
     const containerId = `fsrs-dialog-${Date.now()}`;
 
@@ -57,12 +58,15 @@ export function createVueDialog<T extends Component>(options: {
         },
     });
 
-    // 设置对话框容器最大宽度，确保圆角样式生效
+    // 只为复习对话框设置最大宽度和圆角
     const dialogContainer = dialog.element.querySelector('.b3-dialog__container') as HTMLElement;
     if (dialogContainer) {
-        dialogContainer.style.maxWidth = '1024px';
-        // 强制设置圆角（使用具体像素值，不使用 CSS 变量）
-        dialogContainer.style.setProperty('border-radius', '12px', 'important');
+        if (options.isReview) {
+            // 复习界面：设置 maxWidth 以确保圆角样式生效
+            dialogContainer.style.maxWidth = '1024px';
+            // 强制设置圆角（使用具体像素值，不使用 CSS 变量）
+            dialogContainer.style.setProperty('border-radius', '12px', 'important');
+        }
 
         // 同时设置 data-key 到容器上，让圆角样式选择器能匹配
         if (options.dataKey) {
@@ -74,7 +78,11 @@ export function createVueDialog<T extends Component>(options: {
                 attributeValue: dialogContainer.getAttribute('data-key'),
             });
         }
-        console.log('[FSRS Dialog] Set container max-width to 1024px and border-radius to 12px');
+        console.log('[FSRS Dialog] Container setup:', {
+            isReview: options.isReview || false,
+            maxWidth: options.isReview ? '1024px' : 'none',
+            borderRadius: options.isReview ? '12px' : 'default'
+        });
     }
 
     // 设置遮罩层背景色（白色半透明）
