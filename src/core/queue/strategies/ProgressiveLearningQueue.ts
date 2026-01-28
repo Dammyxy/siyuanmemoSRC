@@ -16,6 +16,7 @@
 import * as riff from '@/core/siyuan/riff';
 import { TopicScheduler } from '@/core/scheduler/TopicScheduler';
 import { Rating, CardState } from '@/types';
+import { setBlockAttrs } from '@/core/siyuan/api';
 import type { QueueItem, QueueStats, QueueUIConfig } from '../types';
 import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy';
 
@@ -147,19 +148,13 @@ export class ProgressiveLearningQueue implements IQueueStrategy<ExtendedQueueIte
         const topicPriority = topicNext.priority ?? 50;
         const itemPriority = itemNext.priority ?? 50;
 
-        // 根据 Topic/Item 比例加权选择
-        const topicThreshold = this.config.topicRatio * 100;
-        const shouldPickTopic = Math.random() * 100 < topicThreshold;
+        // 优先级不同：返回优先级更高的（数值越小优先级越高）
+        if (topicPriority < itemPriority) return topicNext;
+        if (itemPriority < topicPriority) return itemNext;
 
-        if (topicPriority < itemPriority && shouldPickTopic) {
-            return topicNext;
-        } else if (itemPriority < topicPriority && !shouldPickTopic) {
-            return itemNext;
-        } else if (topicPriority < itemPriority) {
-            return topicNext;
-        } else {
-            return itemNext;
-        }
+        // 优先级相同：根据 topicRatio 加权随机选择
+        const shouldPickTopic = Math.random() * 100 < this.config.topicRatio * 100;
+        return shouldPickTopic ? topicNext : itemNext;
     }
 
     /**
@@ -271,7 +266,14 @@ export class ProgressiveLearningQueue implements IQueueStrategy<ExtendedQueueIte
         // 调用 TopicScheduler
         const updated = await this.topicScheduler.schedule(fsrsCard, rating);
 
-        // 更新卡片属性（TODO: 持久化到块属性）
+        // ✅ 持久化到块属性
+        await setBlockAttrs(card.blockID, {
+            'custom-fsrs-topic-due': updated.due.toString(),
+            'custom-fsrs-topic-interval': updated.interval.toString(),
+            'custom-fsrs-topic-reps': updated.reps.toString(),
+            'custom-fsrs-topic-state': updated.state.toString(),
+        });
+
         console.log('[ProgressiveLearningQueue] Topic reviewed:', {
             blockID: card.blockID,
             rating,

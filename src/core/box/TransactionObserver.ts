@@ -149,6 +149,25 @@ export class TransactionObserver {
                 await markBlockAsCard(blockId, card.id, card.priority);
             }
 
+            // 6.5. 标记卡片类型和初始化 A-Factor（新增）
+            const { detectCardType, initializeAFactor } = await import('@/core/card-builder');
+            const cardType = await detectCardType(blockId);
+
+            const cardTypeAttrs: Record<string, string> = {
+                'custom-fsrs-card-type': cardType,
+            };
+
+            // 如果是 Topic，初始化并存储 A-Factor
+            if (cardType === 'topic') {
+                const aFactor = initializeAFactor(card.priority || 50);
+                cardTypeAttrs['custom-fsrs-a-factor'] = aFactor.toString();
+                console.log(`[FSRS] Topic card created: blockID=${blockId}, aFactor=${aFactor}`);
+            } else {
+                console.log(`[FSRS] Item card created: blockID=${blockId}`);
+            }
+
+            await import('@/core/siyuan/api').setBlockAttrs(blockId, cardTypeAttrs);
+
             // 7. Save to Plugin Storage
             this.plugin.storage.setCard(card);
 

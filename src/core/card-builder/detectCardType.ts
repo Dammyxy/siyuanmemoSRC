@@ -10,68 +10,142 @@ import { getBlockText } from '@/core/siyuan/block';
 import { getBlockAttrs, getBlockInfo, sql } from '@/core/siyuan/api';
 
 /**
+ * 获取块类型（通过 SQL 查询）
+ *
+ * getBlockInfo() 可能不返回 type 属性，所以直接查询数据库
+ */
+async function getBlockType(blockId: string): Promise<string | null> {
+    try {
+        const result = await sql(`
+            SELECT type FROM blocks
+            WHERE id = '${blockId}'
+            LIMIT 1
+        `);
+        return result && result.length > 0 ? result[0].type : null;
+    } catch (err) {
+        console.error(`[FSRS] Failed to get block type:`, err);
+        return null;
+    }
+}
+
+/**
  * 检测块是否包含答案（Item 判断）
  *
- * Item 判断条件（满足任一即为 Item）：
- * 1. 内容包含 `::` 或 `?` 分隔符（QA 卡片）
- * 2. 列表块且有子块
- * 3. 标题块
- * 4. 超级块且有子块
- * 5. 已标记闪卡
+ * 优化原则：
+ * 1. 只识别 Item，非 Item 即 Topic
+ * 2. 列表项块（'i'）：必须有列表项或列表容器子级才是 Item（父子问答结构）
+ * 3. 超级块（'s'）：有任何子级就是 Item（不限制子级类型）
+ * 4. 只有 :: 分隔符才是 Item，? 标记的是 Topic
+ * 5. 列表项的段落子级不算，只有列表子级才算
+ *
+ * 注意：思源数据库中块类型使用单字母编码：
+ * - 'h' = NodeHeading（标题）
+ * - 'i' = NodeListItem（列表项）
+ * - 's' = NodeSuperBlock（超级块）
+ * - 'p' = NodeParagraph（段落）
+ * - 'l' = NodeList（列表容器）
  */
 export async function hasAnswerBlocks(blockId: string): Promise<boolean> {
     try {
-        // 1. 检查内容分隔符
+        // 1. 内容包含 :: 分隔符 → Item（明确的问答卡片）
+        // ❌ 移除问号判断：带 ? 的段落是 Topic
         const content = await getBlockText(blockId);
-        if (/(::|\?)/.test(content)) return true;
-
-        // 2. 获取块信息
-        const blockInfo = await getBlockInfo(blockId);
-        if (!blockInfo) return false;
-
-        const type = blockInfo.type; // 例如：NodeParagraph, NodeHeading, NodeList, NodeSuperBlock
-
-        // 3. 检查块类型
-        // 标题块 → Item（表示结构化知识）
-        if (type === 'NodeHeading') {
+        if (/::/.test(content)) {
+            console.log(`[FSRS] Block ${blockId}: Item (:: separator found)`);
             return true;
         }
 
-        // 4. 列表块且有子块 → Item
-        if (type === 'NodeList' || type === 'NodeListItem') {
-            // 使用 SQL 查询检查是否有子块
-            const childBlocks = await sql(`
-                SELECT id FROM blocks
-                WHERE parent_id = '${blockId}'
-                LIMIT 1
-            `);
-            if (childBlocks && childBlocks.length > 0) {
-                return true;
-            }
+        // 2. 获取块类型（通过 SQL 查询）
+        const type = await getBlockType(blockId);
+        if (!type) {
+            console.log(`[FSRS] Block ${blockId}: Topic (block not found)`);
+            return false;
         }
 
-        // 5. 超级块且有子块 → Item
-        if (type === 'NodeSuperBlock') {
-            const childBlocks = await sql(`
-                SELECT id FROM blocks
-                WHERE parent_id = '${blockId}'
-                LIMIT 1
-            `);
-            if (childBlocks && childBlocks.length > 0) {
-                return true;
-            }
+        // 3. 标题块（'h'）→ Item（结构化知识）
+        if (type === 'h') {
+            console.log(`[FSRS] Block ${blockId}: Item (type: h = NodeHeading)`);
+            return true;
         }
 
-        // 6. 检查是否有 Riff 标记
-        const attrs = await getBlockAttrs(blockId);
-        if (attrs['custom-riff-decks']) {
+        // 4. 列表项块（'i'）→ 必须有列表项或列表容器子级才是 Item
+        // 注意：不是列表容器（'l' = NodeList），而是列表项（'i' = NodeListItem）
+        // 只有列表子级才算（列表项或列表容器），段落子级忽略
+        if (type === 'i') {
+            const hasChildren = await checkHasChildren(blockId, ['i', 'l']);  // ← 检查列表项或列表容器
+            console.log(`[FSRS] Block ${blockId}: ${hasChildren ? 'Item' : 'Topic'} (type: i = NodeListItem, hasListChildren: ${hasChildren})`);
+            return hasChildren;
+        }
+
+        // 5. 超级块（'s'）→ 有任何子级就是 Item
+        // 不限制子级类型（段落、列表项、标题等都可以）
+        if (type === 's') {
+            const hasChildren = await checkHasChildren(blockId);  // ← 不传类型，检查任何子级
+            console.log(`[FSRS] Block ${blockId}: ${hasChildren ? 'Item' : 'Topic'} (type: s = NodeSuperBlock, hasAnyChildren: ${hasChildren})`);
+            return hasChildren;
+        }
+
+        // 6. 其他 → Topic（纯段落'p'、列表容器'l'、无子级的列表项/超级块等）
+        console.log(`[FSRS] Block ${blockId}: Topic (type: ${type}, no answer blocks)`);
+        return false;
+    } catch (err: any) {
+        const errorMsg = err?.message || String(err);
+
+        // 区分不同类型的错误
+        if (errorMsg.includes('tree not found') || errorMsg.includes('Not found entity')) {
+            console.warn(`[FSRS] Block ${blockId}: Topic (document tree deleted - "${errorMsg}")`);
+            return false; // 已删除的文档默认为 Topic
+        }
+
+        if (errorMsg.includes('正在进行数据索引') || errorMsg.includes('索引')) {
+            console.warn(`[FSRS] Block ${blockId}: Topic (indexing in progress - "${errorMsg}")`);
+            return false; // 正在索引的文档默认为 Topic
+        }
+
+        console.error(`[FSRS] Block ${blockId}: Detection error - ${errorMsg}`);
+        return false; // 其他错误也默认为 Topic
+    }
+}
+
+/**
+ * 检查块是否有特定类型的子级
+ *
+ * @param blockId 块 ID
+ * @param childTypes 需要检查的子级类型数组（如 ['i', 'l'] = 列表项或列表容器）
+ * @returns 是否有指定类型的子级
+ */
+async function checkHasChildren(blockId: string, childTypes?: string[]): Promise<boolean> {
+    try {
+        // ✅ 改进：排除删除的块，只查询可见块
+        let typeFilter = '';
+        let typeDesc = 'any';
+
+        if (childTypes && childTypes.length > 0) {
+            // 支持多个类型（如 'i', 'l'）
+            const typeList = childTypes.map(t => `'${t}'`).join(', ');
+            typeFilter = `AND type IN (${typeList})`;
+            typeDesc = childTypes.join(',');
+        }
+
+        const childBlocks = await sql(`
+            SELECT id, type, content
+            FROM blocks
+            WHERE parent_id = '${blockId}'
+            AND type != 'd'  -- 排除删除的块
+            ${typeFilter}    -- 可选：只检查特定类型的子级
+            LIMIT 5
+        `);
+
+        if (childBlocks && childBlocks.length > 0) {
+            // ✅ 显示子级信息（诊断）
+            const childInfo = childBlocks.map((b: any) => `${b.type}:${b.content?.substring(0, 20) || '(empty)'}`).join(', ');
+            console.log(`[FSRS] Block ${blockId} has ${childBlocks.length} children (type: ${typeDesc}): ${childInfo}`);
             return true;
         }
 
         return false;
     } catch (err) {
-        console.error('[FSRS] Failed to detect card type:', err);
-        return false; // 默认为 Topic
+        return false;
     }
 }
 

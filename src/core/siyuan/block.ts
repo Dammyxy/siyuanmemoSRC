@@ -17,6 +17,12 @@ export const ATTR_RIFF_DECKS = 'custom-riff-decks';
 export const ATTR_A_FACTOR = `${ATTR_PREFIX}a-factor`;      // A-Factor (Topic 卡片)
 export const ATTR_CARD_TYPE = `${ATTR_PREFIX}card-type`;    // 卡片类型 (topic/item)
 
+/** Topic 复习数据属性（持久化到块属性） */
+export const ATTR_TOPIC_DUE = `${ATTR_PREFIX}topic-due`;
+export const ATTR_TOPIC_INTERVAL = `${ATTR_PREFIX}topic-interval`;
+export const ATTR_TOPIC_REPS = `${ATTR_PREFIX}topic-reps`;
+export const ATTR_TOPIC_STATE = `${ATTR_PREFIX}topic-state`;
+
 /**
  * 将块标记为闪卡
  */

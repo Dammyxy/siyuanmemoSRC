@@ -12,7 +12,13 @@ import { PerformanceMonitor } from '@/utils/performance';
 
 const { BUILTIN_DECK_ID } = riff;
 import { sql, setBlockAttrs } from '@/core/siyuan/api';
-import { ATTR_CARD_ID } from '@/core/siyuan/block';
+import {
+    ATTR_CARD_ID,
+    ATTR_PRIORITY,
+    ATTR_SUSPENDED,
+    ATTR_CARD_TYPE,
+    ATTR_A_FACTOR
+} from '@/core/siyuan/block';
 import {
     type BrowserCard,
     CardState,
@@ -358,8 +364,8 @@ function transformRiffBlock(block: any, customAttrs: Record<string, string>): Br
         suspended: customAttrs[ATTR_SUSPENDED] === 'true',
 
         // ✅ Topic/Item 区分
-        cardType: (customAttrs['custom-fsrs-card-type'] as 'topic' | 'item' | undefined) || undefined,
-        aFactor: parseFloat(customAttrs['custom-fsrs-a-factor'] || '') || undefined,
+        cardType: (customAttrs[ATTR_CARD_TYPE] as 'topic' | 'item' | undefined) || undefined,
+        aFactor: parseFloat(customAttrs[ATTR_A_FACTOR] || '') || undefined,
     };
 }
 
@@ -475,10 +481,16 @@ async function fetchBlockInfoBatched(
         const [blocksResult, attrsResult] = await Promise.all([
             sql(`SELECT id, root_id, ial FROM blocks WHERE id IN (${inClause})`),
             sql(`
-                SELECT block_id, name, value 
-                FROM attributes 
+                SELECT block_id, name, value
+                FROM attributes
                 WHERE block_id IN (${inClause})
-                AND name IN ('${ATTR_CARD_ID}', '${ATTR_PRIORITY}', '${ATTR_SUSPENDED}')
+                AND name IN (
+                    '${ATTR_CARD_ID}',
+                    '${ATTR_PRIORITY}',
+                    '${ATTR_SUSPENDED}',
+                    '${ATTR_CARD_TYPE}',
+                    '${ATTR_A_FACTOR}'
+                )
             `)
         ]);
 

@@ -101,8 +101,8 @@
             <svg><use :xlink:href="viewMode === 'flat' ? '#iconFiles' : '#iconList'"></use></svg>
           </button>
 
-          <!-- 强制刷新按钮 -->
-          <button class="b3-button b3-button--outline" @click="forceRefreshData" :disabled="loading" :title="t('forceRefresh', '强制刷新数据（清除缓存）')">
+          <!-- 强制刷新按钮（含 Topic/Item 迁移） -->
+          <button class="b3-button b3-button--outline" @click="forceRefreshData" :disabled="loading" :title="t('forceRefreshWithMigration', '强制刷新数据（清除缓存 + 自动识别 Topic/Item 类型）')">
             <svg><use xlink:href="#iconRefresh"></use></svg>
           </button>
           
@@ -235,11 +235,13 @@ import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
 import type { GridApi, ColDef, CellContextMenuEvent } from 'ag-grid-community';
 import { type RowSelectionOptions } from 'ag-grid-community';
 import { openTab, Menu, Protyle, type App } from 'siyuan';
-import { pushErrMsg, pushMsg } from '@/core/siyuan/api';
+import { pushErrMsg, pushMsg, setBlockAttrs } from '@/core/siyuan/api';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
 import { parseQuery, loadCards, loadQueueCards, invalidateCardCache, getCacheStats } from './browserService';
 import { PerformanceMonitor } from '@/utils/performance';
 import { type BrowserCard, CardState } from './types';
+import { migrateExistingCards, checkMigrationNeeded } from '@/scripts/migrateToTopicItem';
+import { ATTR_CARD_TYPE } from '@/core/siyuan/block';
 import type { ICardDataSource } from './datasource/types';
 import { FinalDrillDataSource } from './datasource/FinalDrillDataSource';
 import { FilterGroupDataSource } from './datasource/FilterGroupDataSource';
@@ -1363,6 +1365,29 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   // 添加分隔线（排序菜单和现有操作之间）
   menu.addItem({ type: 'separator' });
 
+  // ========== 卡片类型菜单（Topic/Item）==========
+  const cardTypeMenu: any[] = [
+    {
+      icon: 'iconFile',
+      label: '标记为 Topic',
+      click: () => void markCardsAsTopic(selected),
+    },
+    {
+      icon: 'iconCheck',
+      label: '标记为 Item',
+      click: () => void markCardsAsItem(selected),
+    },
+  ];
+
+  menu.addItem({
+    icon: 'iconHR',
+    label: '卡片类型',
+    submenu: cardTypeMenu,
+  });
+
+  // 添加分隔线（卡片类型菜单和现有操作之间）
+  menu.addItem({ type: 'separator' });
+
   // ========== 原有的操作菜单 ==========
   for (const action of actions) {
     if (action.submenu && action.submenu.length > 0) {
@@ -1595,10 +1620,102 @@ function handlePresetChange() {
   void refreshData();
 }
 
-// 强制刷新数据（清除缓存）
+// ========== 卡片类型标记功能 ==========
+
+/**
+ * 标记卡片为 Topic
+ */
+async function markCardsAsTopic(cards: BrowserCard[]): Promise<void> {
+  if (!cards?.length) return;
+
+  const blockIds = cards.map(c => c.blockId);
+  console.log(`[CardBrowser] Marking ${blockIds.length} cards as Topic:`, blockIds);
+
+  try {
+    // 批量设置卡片类型为 topic
+    for (const blockId of blockIds) {
+      await setBlockAttrs(blockId, {
+        [ATTR_CARD_TYPE]: 'topic',
+      });
+    }
+
+    await pushMsg(`✅ 已将 ${blockIds.length} 张卡片标记为 Topic`, 3000);
+
+    // 清除缓存并刷新数据
+    invalidateCardCache();
+    await loadData();
+  } catch (err: any) {
+    console.error('[CardBrowser] Failed to mark cards as Topic:', err);
+    await pushErrMsg(`标记失败：${err?.message || '未知错误'}`, 3000);
+  }
+}
+
+/**
+ * 标记卡片为 Item
+ */
+async function markCardsAsItem(cards: BrowserCard[]): Promise<void> {
+  if (!cards?.length) return;
+
+  const blockIds = cards.map(c => c.blockId);
+  console.log(`[CardBrowser] Marking ${blockIds.length} cards as Item:`, blockIds);
+
+  try {
+    // 批量设置卡片类型为 item
+    for (const blockId of blockIds) {
+      await setBlockAttrs(blockId, {
+        [ATTR_CARD_TYPE]: 'item',
+      });
+    }
+
+    await pushMsg(`✅ 已将 ${blockIds.length} 张卡片标记为 Item`, 3000);
+
+    // 清除缓存并刷新数据
+    invalidateCardCache();
+    await loadData();
+  } catch (err: any) {
+    console.error('[CardBrowser] Failed to mark cards as Item:', err);
+    await pushErrMsg(`标记失败：${err?.message || '未知错误'}`, 3000);
+  }
+}
+
+// 强制刷新数据（清除缓存 + Topic/Item 迁移）
 async function forceRefreshData() {
-  await refreshData(true, true);  // forceRefresh=true, preserveFocusState=true
-  pushMsg('数据已强制刷新（缓存已清除）', 2000);
+  loading.value = true;
+
+  try {
+    // 1. 先清除缓存（确保数据源不会使用旧数据）
+    console.log('[CardBrowser] Clearing cache before migration...');
+    invalidateCardCache();
+
+    // 2. 强制重新识别所有卡片（覆盖之前的错误标记）
+    console.log('[CardBrowser] Starting forced Topic/Item re-migration...');
+    pushMsg('正在执行 Topic/Item 类型重新识别（覆盖旧标记）...', 3000);
+
+    // 执行迁移（强制重新识别，覆盖已有的标记）
+    const result = await migrateExistingCards(true);  // ← forceRemigrate=true
+
+    // 显示迁移结果
+    const msg = `✅ 迁移完成：${result.migrated}/${result.total} 张卡片已识别 (Topic: ${result.topics}, Item: ${result.items}, 耗时: ${Math.round(result.duration / 1000)}s)`;
+    console.log('[CardBrowser]', msg);
+    pushMsg(msg, 5000);
+
+    if (result.errors > 0) {
+      pushErrMsg(`⚠️ ${result.errors} 张卡片迁移失败，请查看控制台`, 5000);
+    }
+
+    // 3. 再次清除缓存（确保使用新的迁移数据）
+    console.log('[CardBrowser] Clearing cache after migration...');
+    invalidateCardCache();
+
+    // 4. 刷新数据
+    await refreshData(true, true);  // forceRefresh=true, preserveFocusState=true
+    pushMsg('✅ 数据已强制刷新（缓存已清除）', 2000);
+  } catch (err: any) {
+    console.error('[CardBrowser] Force refresh failed:', err);
+    pushErrMsg(`强制刷新失败：${err?.message || '未知错误'}`, 3000);
+  } finally {
+    loading.value = false;
+  }
 }
 
 // 显示性能报告

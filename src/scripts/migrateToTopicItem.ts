@@ -20,7 +20,8 @@
 
 import { getAllCardBlockIds, getCardBlocksInDoc, ATTR_CARD_TYPE, ATTR_A_FACTOR, ATTR_PRIORITY } from '@/core/siyuan/block';
 import { detectCardType, initializeAFactor } from '@/core/card-builder/detectCardType';
-import { getBlockAttrs, setBlockAttrs } from '@/core/siyuan/api';
+import { getBlockAttrs, setBlockAttrs, sql } from '@/core/siyuan/api';
+import { getRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 
 /**
  * 迁移结果统计
@@ -37,18 +38,36 @@ export interface MigrationResult {
 /**
  * 迁移所有现有卡片
  *
+ * @param forceRemigrate 是否强制重新识别（覆盖已有标记）
  * @returns 迁移结果统计
  */
-export async function migrateExistingCards(): Promise<MigrationResult> {
+export async function migrateExistingCards(forceRemigrate = false): Promise<MigrationResult> {
     const startTime = Date.now();
     console.log('[Migration] Starting Topic/Item migration for all cards...');
 
-    // 1. 获取所有带闪卡标记的块 ID
-    const blockIds = await getAllCardBlockIds();
-    console.log(`[Migration] Found ${blockIds.length} cards to migrate`);
+    // 1. 从 Riff 获取所有卡片（包括没有 fsrs 标记的）
+    // 分页获取所有卡片
+    let allBlocks: any[] = [];
+    let page = 1;
+    const pageSize = 100;
+
+    while (true) {
+        const response = await getRiffCards(BUILTIN_DECK_ID, page, pageSize);
+        allBlocks.push(...response.blocks);
+
+        // 如果获取的卡片数量少于 pageSize，说明已经是最后一页了
+        if (response.blocks.length < pageSize) {
+            break;
+        }
+
+        page++;
+    }
+
+    const blockIds = allBlocks.map((card: any) => card.id);
+    console.log(`[Migration] Found ${blockIds.length} cards in Riff to migrate`);
 
     // 2. 批量迁移
-    const result = await migrateCards(blockIds);
+    const result = await migrateCards(blockIds, forceRemigrate);
 
     const duration = Date.now() - startTime;
     console.log('[Migration] Migration completed:', {
@@ -89,9 +108,10 @@ export async function migrateCardsInDoc(docId: string): Promise<MigrationResult>
  * 批量迁移卡片（核心逻辑）
  *
  * @param blockIds 块 ID 列表
+ * @param forceRemigrate 是否强制重新识别（覆盖已有标记）
  * @returns 迁移结果统计
  */
-export async function migrateCards(blockIds: string[]): Promise<MigrationResult> {
+export async function migrateCards(blockIds: string[], forceRemigrate = false): Promise<MigrationResult> {
     let migrated = 0;
     let topics = 0;
     let items = 0;
@@ -104,7 +124,7 @@ export async function migrateCards(blockIds: string[]): Promise<MigrationResult>
 
         const results = await Promise.allSettled(
             batch.map(async (blockId) => {
-                return await migrateSingleCard(blockId);
+                return await migrateSingleCard(blockId, forceRemigrate);
             })
         );
 
@@ -146,7 +166,7 @@ export async function migrateCards(blockIds: string[]): Promise<MigrationResult>
  * @param blockId 块 ID
  * @returns 迁移结果
  */
-export async function migrateSingleCard(blockId: string): Promise<{
+export async function migrateSingleCard(blockId: string, forceRemigrate = false): Promise<{
     blockId: string;
     migrated: boolean;
     cardType?: 'topic' | 'item';
@@ -158,10 +178,10 @@ export async function migrateSingleCard(blockId: string): Promise<{
 
         // 2. 获取现有属性
         const attrs = await getBlockAttrs(blockId);
-        const existingType = attrs[ATTR_CARD_TYPE];
+        const existingType = attrs?.[ATTR_CARD_TYPE];  // ← 添加可选链操作符
 
-        // 如果已经有类型标记，跳过
-        if (existingType === 'topic' || existingType === 'item') {
+        // 如果已经有类型标记，跳过（除非强制重新识别）
+        if (!forceRemigrate && (existingType === 'topic' || existingType === 'item')) {
             return {
                 blockId,
                 migrated: false,
@@ -170,7 +190,7 @@ export async function migrateSingleCard(blockId: string): Promise<{
         }
 
         // 3. 获取优先级（用于初始化 A-Factor）
-        const priorityStr = attrs[ATTR_PRIORITY] || '50';
+        const priorityStr = attrs?.[ATTR_PRIORITY] || '50';
         const priority = parseInt(priorityStr, 10);
         const validPriority = isNaN(priority) ? 50 : Math.max(0, Math.min(100, priority));
 
@@ -202,8 +222,21 @@ export async function migrateSingleCard(blockId: string): Promise<{
             cardType,
             aFactor: cardType === 'topic' ? parseFloat(updates[ATTR_A_FACTOR]) : undefined,
         };
-    } catch (err) {
-        console.error(`[Migration] Failed to migrate card ${blockId}:`, err);
+    } catch (err: any) {
+        const errorMsg = err?.message || String(err);
+
+        // 区分不同类型的错误
+        if (errorMsg.includes('tree not found') || errorMsg.includes('Not found entity')) {
+            console.warn(`[Migration] Block ${blockId}: Skipped (document tree deleted)`);
+            return { blockId, migrated: false, cardType: undefined };
+        }
+
+        if (errorMsg.includes('正在进行数据索引') || errorMsg.includes('索引')) {
+            console.warn(`[Migration] Block ${blockId}: Skipped (indexing in progress)`);
+            return { blockId, migrated: false, cardType: undefined };
+        }
+
+        console.error(`[Migration] Failed to migrate card ${blockId}:`, errorMsg);
         throw err;
     }
 }
@@ -223,7 +256,7 @@ export async function checkMigrationNeeded(): Promise<boolean> {
 
         for (const blockId of sample) {
             const attrs = await getBlockAttrs(blockId);
-            const cardType = attrs[ATTR_CARD_TYPE];
+            const cardType = attrs?.[ATTR_CARD_TYPE];
 
             // 如果发现未标记类型的卡片，需要迁移
             if (!cardType || (cardType !== 'topic' && cardType !== 'item')) {
