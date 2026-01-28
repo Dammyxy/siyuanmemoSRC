@@ -89,9 +89,8 @@ export class NeuralRoamAdapter implements IAdapter<QueueItem> {
           },
           breadcrumbs: [],
           toolbar: [
-            { icon: '#iconFilter', type: 'filter', ariaLabel: t(this.i18n, 'filter', '筛选'), disabled: true },
             { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', '全屏') },
-            { icon: '#iconMore', type: 'more', ariaLabel: t(this.i18n, 'more', '更多') },
+            { icon: '#iconEdit', type: 'edit-srs', ariaLabel: t(this.i18n, 'editSrsData', '编辑SRS数据') },
           ],
         },
         content: {
@@ -124,9 +123,9 @@ export class NeuralRoamAdapter implements IAdapter<QueueItem> {
         },
         breadcrumbs: [],
         toolbar: [
-          { icon: '#iconFilter', type: 'filter', ariaLabel: t(this.i18n, 'filter', '筛选'), disabled: true },
           { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', '全屏') },
-          { icon: '#iconMore', type: 'more', ariaLabel: t(this.i18n, 'more', '更多') },
+          { icon: '#iconEdit', type: 'edit-srs', ariaLabel: t(this.i18n, 'editSrsData', '编辑SRS数据') },
+          { icon: '#iconOpen', type: 'sticktab', ariaLabel: t(this.i18n, 'openBy', '打开为') },
         ],
       },
       content: {

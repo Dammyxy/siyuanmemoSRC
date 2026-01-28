@@ -1,6 +1,6 @@
 <template>
   <div ref="rootRef" class="fsrs-review-v2" data-key="dialog-opencard" @click="handleRootClick">
-    <ReviewHeader :header="state.header" :is-tab-mode="!!props.reviewUI" @toolbar-action="handleToolbarAction" @action="hook.executeCommand" @context="handleContext" @breadcrumb-click="handleBreadcrumbClick" />
+    <ReviewHeader :header="state.header" :is-tab-mode="!!props.reviewUI" :title="props.title" @toolbar-action="handleToolbarAction" @action="hook.executeCommand" @context="handleContext" @breadcrumb-click="handleBreadcrumbClick" />
 
     <ReviewContent :app="app" :content="state.content" :overlay="state.overlay" :has-hidden-content="state.meta.hasHiddenContent" :show-answer="state.actions.showAnswer" :meta="state.meta" :i18n="i18n" />
 
@@ -44,6 +44,7 @@ import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import { ProviderBackedQueueStrategy } from '@/core/extensions';
 import { createVueDialog } from '@/utils/dialog';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
+import * as riff from '@/core/siyuan/riff';
 
 const props = defineProps<{
   app: any;
@@ -52,6 +53,7 @@ const props = defineProps<{
   adapter?: any;
   provider?: any;
   reviewUI?: any;
+  title?: string; // 队列标题（如"提取练习"）
 }>();
 
 const emit = defineEmits<{
@@ -117,10 +119,10 @@ function handleRootClick(e: MouseEvent) {
   if (typeof e.detail !== 'string') return;
 
   const key = e.detail.toLowerCase();
-  console.log('[FSRS ReviewView] Hotkey detected:', key, 'showAnswer:', state.value.actions.showAnswer);
+  console.log('[FSRS ReviewView] Hotkey detected:', key, 'answerShown:', hook.context.value.showAnswer);
 
   // 显示答案（空格/回车） - 只在答案未显示时工作
-  if ((key === ' ' || key === 'enter') && !state.value.actions.showAnswer) {
+  if ((key === ' ' || key === 'enter') && !hook.context.value.showAnswer) {
     e.preventDefault();
     e.stopPropagation();
     console.log('[FSRS ReviewView] Revealing answer...');
@@ -130,7 +132,7 @@ function handleRootClick(e: MouseEvent) {
 
   // 评分（1/2/3/4） - 只在答案已显示后才能评分
   if (['1', '2', '3', '4'].includes(key)) {
-    if (state.value.actions.showAnswer) {
+    if (hook.context.value.showAnswer) {
       e.preventDefault();
       e.stopPropagation();
       console.log('[FSRS ReviewView] Grading with rating:', key);
@@ -292,26 +294,173 @@ function handleContext(payload: { id: string; openNewTab: boolean }) {
 }
 
 function handleToolbarAction(actionType: string, ev: MouseEvent) {
+  console.log('[FSRS ReviewView] handleToolbarAction called:', actionType);
+
   if (actionType === 'fullscreen') {
-    const container = document.querySelector('.b3-dialog__container');
-    if (container) {
-      container.classList.toggle('b3-dialog--fullscreen');
+    // 实现全屏功能（参考思源原生实现）
+    console.log('[FSRS ReviewView] Fullscreen button clicked');
+
+    // 查找对话框容器
+    const dialogContainer = document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]');
+    // 使用自定义类名查找内容区域
+    const contentMain = rootRef.value?.querySelector('.fsrs-review-v2-content') || document.querySelector('.fsrs-review-v2-content');
+    console.log('[FSRS ReviewView] dialogContainer found:', !!dialogContainer);
+    console.log('[FSRS ReviewView] contentMain found:', !!contentMain);
+
+    if (contentMain && dialogContainer) {
+      const isFullscreen = contentMain.classList.contains('fullscreen');
+      console.log('[FSRS ReviewView] Current fullscreen state:', isFullscreen);
+
+      if (isFullscreen) {
+        // 退出全屏
+        contentMain.classList.remove('fullscreen');
+        dialogContainer.classList.remove('fullscreen');
+        // 恢复 maxWidth
+        (dialogContainer as HTMLElement).style.maxWidth = '1024px';
+        document.getElementById('drag')?.classList.remove('fn__hidden');
+        console.log('[FSRS ReviewView] Exited fullscreen');
+      } else {
+        // 进入全屏
+        contentMain.classList.add('fullscreen');
+        dialogContainer.classList.add('fullscreen');
+        // 移除 maxWidth 限制，让 CSS 的 100vw 生效
+        (dialogContainer as HTMLElement).style.maxWidth = '';
+        document.getElementById('drag')?.classList.add('fn__hidden');
+        console.log('[FSRS ReviewView] Entered fullscreen');
+      }
+
+      // 调整 protyle 尺寸
+      setTimeout(() => {
+        const protyleHost = contentMain.querySelector('.fsrs-review-v2-content__protyle-host');
+        console.log('[FSRS ReviewView] protyleHost:', protyleHost);
+
+        if (protyleHost) {
+          // 查找 protyle 实例
+          const protyle = (protyleHost as any)?.['__vnode__']?.['ctx']?.['protyle']
+                         || (protyleHost as any)?.['__vueParentComponent']?.['protyle'];
+          console.log('[FSRS ReviewView] protyle instance:', protyle);
+
+          if (protyle && typeof protyle.resize === 'function') {
+            protyle.resize();
+            console.log('[FSRS ReviewView] Protyle resized');
+          }
+        }
+      }, 0);
+    } else {
+      console.log('[FSRS ReviewView] ERROR: contentMain or dialogContainer not found!');
     }
-  } else if (actionType === 'more') {
-    handleOpenMenu(state.value.actions.menu, ev);
+  } else if (actionType === 'edit-srs') {
+    // 打开SRS编辑器
+    console.log('[FSRS ReviewView] Edit SRS button clicked');
+    const cardMeta = state.value.actions.cardMeta;
+    const blockId = cardMeta?.blockID || state.value.content.data;
+    console.log('[FSRS ReviewView] cardMeta:', cardMeta);
+    console.log('[FSRS ReviewView] blockId:', blockId);
+    if (blockId) {
+      openSrsEditorDialog(blockId);
+    } else {
+      console.error('[FSRS ReviewView] ERROR: blockId is undefined!');
+    }
+  } else if (actionType === 'sticktab') {
+    // 打开为菜单
+    handleOpenAsMenu(ev);
   }
+}
+
+function handleOpenAsMenu(ev: MouseEvent) {
+  const cardMeta = state.value.actions.cardMeta;
+  const blockId = cardMeta?.blockID || state.value.content.data;
+
+  if (!blockId) {
+    console.warn('[FSRS ReviewView] No block ID found for open-as menu');
+    return;
+  }
+
+  const menu = new Menu();
+
+  // 1. 在新标签页打开
+  menu.addItem({
+    id: 'openInNewTab',
+    icon: 'iconOpen',
+    label: '在新标签页中打开',
+    click() {
+      if (props.app) {
+        openTab({
+          app: props.app,
+          doc: { id: blockId },
+          openNewTab: true,
+        });
+      }
+    },
+  });
+
+  // 2. 在页签右侧打开
+  menu.addItem({
+    id: 'insertRight',
+    icon: 'iconLayoutRight',
+    label: '在页签右侧打开',
+    click() {
+      if (props.app) {
+        openTab({
+          app: props.app,
+          doc: { id: blockId },
+          openNewTab: false,
+          position: 'right',
+        });
+      }
+    },
+  });
+
+  // 3. 使用新窗口打开
+  menu.addItem({
+    id: 'openByNewWindow',
+    icon: 'iconOpenWindow',
+    label: '使用新窗口打开',
+    click() {
+      if (props.app) {
+        openTab({
+          app: props.app,
+          doc: { id: blockId },
+          openNewTab: true,
+          action: (typeof window !== 'undefined' && (window as any).siyuan?.config?.client?.isMac) ? 'Ctrl' : 'Alt',
+        });
+      }
+    },
+  });
+
+  // 打开菜单
+  const target = ev.target as HTMLElement;
+  const rect = target.getBoundingClientRect();
+  menu.open({
+    x: rect.left,
+    y: rect.bottom,
+  });
 }
 
 // Part 4: 打开 SRS 编辑器对话框
 function openSrsEditorDialog(blockId: string) {
-  if (!props.app) return;
+  console.log('[FSRS ReviewView] openSrsEditorDialog called with blockId:', blockId);
+
+  if (!props.app) {
+    console.error('[FSRS ReviewView] ERROR: props.app is undefined!');
+    return;
+  }
+
+  if (!blockId) {
+    console.error('[FSRS ReviewView] ERROR: blockId is required but got undefined!');
+    return;
+  }
 
   createVueDialog({
     title: t('editSrsData', '编辑 SRS 数据'),
     component: SrsEditorDialog,
     props: {
-      app: props.app,
-      blockId,
+      card: {
+        cardID: blockId,
+        blockID: blockId,
+        deckID: riff.BUILTIN_DECK_ID,
+      },
+      deckID: riff.BUILTIN_DECK_ID,
       i18n: props.i18n || {},
     },
     width: 'min(700px, 90vw)',
@@ -386,5 +535,53 @@ function handleBreadcrumbClick(crumb: { icon?: string; text: string; id?: string
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* 全屏样式 - 当对话框容器有 fullscreen 类时 */
+/* 参考思源原生实现：siyuan/app/src/assets/scss/main/_main.scss:28-56 */
+
+/* 1. 对话框容器全屏 */
+.b3-dialog__container.fullscreen {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100vh !important;
+  z-index: 8 !important;
+  border-radius: 0 !important;
+
+  /* 标题栏样式调整 */
+  .block__icons {
+    padding-left: var(--b3-toolbar-left-mac);
+    height: 32px;
+    min-height: 32px;
+  }
+
+  /* 拖拽区域样式 */
+  .block__icons > .fn__flex-1 {
+    -webkit-app-region: drag;
+    min-width: 32px;
+    height: 100%;
+    box-sizing: border-box;
+    border-radius: var(--b3-border-radius-b);
+
+    &:hover {
+      background-color: var(--b3-theme-surface-light);
+    }
+  }
+}
+
+/* 2. 内容区域全屏（填充父容器） */
+.fsrs-review-v2-content.fullscreen {
+  width: 100%;
+  height: 100%;
+}
+</style>
+
+<style>
+/* 确保对话框有圆角 */
+.b3-dialog__container[data-key="dialog-opencard"] {
+  border-radius: var(--b3-border-radius-b) !important;
 }
 </style>

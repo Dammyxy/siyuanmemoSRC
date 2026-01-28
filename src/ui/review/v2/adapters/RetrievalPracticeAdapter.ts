@@ -1,5 +1,5 @@
 import type { AdapterContext, IAdapter, ReviewUIState } from '../types';
-import { getBlockBreadcrumb } from '../../../../core/siyuan/api.ts';
+import { getBlockBreadcrumb, getIconByType } from '../../../../core/siyuan/api.ts';
 import type { QueueItem, QueueStats, QueueUIConfig } from '../../../../core/queue/types.ts';
 
 function t(i18n: Record<string, string> | undefined, key: string, fallback: string): string {
@@ -34,17 +34,17 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
       ? await queue.getStats()
       : { size: 0, label: '', extra: '' };
 
-    // 调试日志：查看 stats 的实际值
-    console.log('[RetrievalPracticeAdapter] stats:', stats);
-
     // 从 label 解析新卡和复习卡数量（格式：'2/5' 表示 2 新卡，5 复习卡）
     let statsNewCards = 0;
     let statsReviewCards = 0;
-    if (stats.label && typeof stats.label === 'string') {
+    let useParsedLabel = false;
+
+    if (stats.label && typeof stats.label === 'string' && stats.label.includes('/')) {
       const parts = stats.label.split('/');
       if (parts.length === 2) {
         statsNewCards = Number(parts[0]) || 0;
         statsReviewCards = Number(parts[1]) || 0;
+        useParsedLabel = true;
       }
     }
 
@@ -59,10 +59,14 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
     // 当前序号：已复习数量 + 1（从 1 开始）
     const current = reviewed + 1;
 
-    const newCards = statsNewCards;
-    const reviewCards = statsReviewCards;
-
-    console.log('[RetrievalPracticeAdapter] statsTotal:', statsTotal, 'statsRemaining:', statsRemaining, 'statsNewCards:', statsNewCards, 'statsReviewCards:', statsReviewCards, 'reviewed:', reviewed, 'current:', current, 'total:', statsTotal);
+    // 如果没有从 label 解析出新卡/复习卡数量，使用 total 作为复习卡数量
+    let newCards = statsNewCards;
+    let reviewCards = statsReviewCards;
+    if (!useParsedLabel) {
+      // 提取练习等模式：没有新卡/复习卡区分，所有卡片都是复习卡
+      newCards = 0;
+      reviewCards = statsTotal || statsRemaining;
+    }
     const baseLabel = String(this.label || t(this.i18n, 'reviewTitle', 'FSRS 复习'));
     const label = toLabel(baseLabel, toLabel(String(stats.label || ''), String(stats.extra || '')));
     const queueName = String(this.queueName || 'retrieval-practice');
@@ -117,9 +121,8 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
           },
           breadcrumbs: [],
           toolbar: [
-            { icon: '#iconFilter', type: 'filter', ariaLabel: t(this.i18n, 'filter', '筛选') },
             { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', '全屏') },
-            { icon: '#iconMore', type: 'more', ariaLabel: t(this.i18n, 'more', '更多') },
+            { icon: '#iconEdit', type: 'edit-srs', ariaLabel: t(this.i18n, 'editSrsData', '编辑SRS数据') },
           ],
         },
         content: {
@@ -144,6 +147,10 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
       header: {
         stats: {
           current,
+          currentNewCards: useParsedLabel ? newCards - Math.max(0, newCards - statsReviewed) : 0,
+          currentReviewCards: useParsedLabel
+            ? reviewCards - Math.max(0, reviewCards - Math.max(0, statsReviewed - newCards))
+            : statsRemaining,
           total: Math.max(newCards + reviewCards, 0),
           label,
           queueName,
@@ -152,9 +159,9 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
         },
         breadcrumbs: [],
         toolbar: [
-          { icon: '#iconFilter', type: 'filter', ariaLabel: t(this.i18n, 'filter', '筛选') },
           { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', '全屏') },
-          { icon: '#iconMore', type: 'more', ariaLabel: t(this.i18n, 'more', '更多') },
+          { icon: '#iconEdit', type: 'edit-srs', ariaLabel: t(this.i18n, 'editSrsData', '编辑SRS数据') },
+          { icon: '#iconOpen', type: 'sticktab', ariaLabel: t(this.i18n, 'openBy', '打开为') },
         ],
       },
       content: {
@@ -191,11 +198,14 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
     if (!blockID) return {};
     const bc = await getBlockBreadcrumb(blockID);
     const breadcrumbs = Array.isArray(bc)
-      ? bc.map((b: any) => ({
-          icon: 'iconFile',
-          text: String(b?.name || b?.title || b?.content || b?.hPath || ''),
-          id: String(b?.id || ''),
-        })).filter((b: any) => b.text)
+      ? bc.map((b: any) => {
+          const icon = getIconByType(b?.type, b?.subType);
+          return {
+            icon: `#${icon}`,
+            text: String(b?.name || b?.title || b?.content || b?.hPath || ''),
+            id: String(b?.id || ''),
+          };
+        }).filter((b: any) => b.text)
       : [];
     return { header: { breadcrumbs } as any };
   }

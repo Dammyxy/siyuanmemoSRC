@@ -22,7 +22,6 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import { getBlockDocInfo, getBlockDOM, getDocContent } from '@/core/siyuan/api';
 import * as siyuan from 'siyuan';
 import type { ReviewUIState } from './types';
 import { OVERLAY_REGISTRY } from './overlays/index';
@@ -66,92 +65,96 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }
 
-async function ensureEditor(): Promise<void> {
-  if (editorRef.value) return;
-  if (!hostRef.value) return;
-  if (!props.app) return;
-  const ProtyleCtor = (siyuan as any).Protyle;
-  if (!ProtyleCtor) {
-    hostRef.value.innerHTML = `<div class="ft__error" style="padding: 16px; text-align: center;">${t('loadFailed', '加载失败')}</div>`;
-    return;
-  }
-  const cbGetAll = (siyuan as any).Constants?.CB_GET_ALL ?? 2;
-  editorRef.value = new ProtyleCtor(props.app, hostRef.value, {
-    blockId: '',
-    action: [cbGetAll].filter(Boolean),
-    render: {
-      background: false,
-      gutter: true,
-      breadcrumbDocName: false,
-      breadcrumb: false,
-      title: false,
-    },
-    typewriterMode: false,
-  });
-}
-
-async function waitForWysiwyg(seq: number): Promise<{ protyle: any; wysiwyg: HTMLElement } | null> {
-  for (let i = 0; i < 30; i++) {
-    if (seq !== renderSeq) return null;
-    const protyle = editorRef.value?.protyle;
-    const wysiwyg = protyle?.wysiwyg?.element as HTMLElement | undefined;
-    if (protyle && wysiwyg) return { protyle, wysiwyg };
+// 等待 DOM 准备好
+async function ensureHostRef(): Promise<boolean> {
+  for (let i = 0; i < 20; i++) {
+    if (hostRef.value) return true;
     await nextTick();
-    await sleep(16);
+    await sleep(10);
   }
-  return null;
+  return false;
 }
 
 async function renderProtyle(blockID: string): Promise<void> {
   const seq = ++renderSeq;
-  await ensureEditor();
-  if (seq !== renderSeq) return;
 
-  const ready = await waitForWysiwyg(seq);
+  console.log('[FSRS ReviewContent] renderProtyle called:', { blockID, seq });
+
+  // 等待 DOM 准备
+  const ready = await ensureHostRef();
   if (!ready) {
-    if (seq !== renderSeq) return;
-    const host = hostRef.value;
-    if (host) {
-      host.innerHTML = `<div class="ft__error" style="padding: 16px; text-align: center;">${t('loadFailed', '加载失败')}</div>`;
-    }
+    console.log('[FSRS ReviewContent] hostRef not ready after waiting');
     return;
   }
-  const { protyle, wysiwyg } = ready;
 
-  try {
-    const docInfo = await getBlockDocInfo(blockID);
-    const ial = docInfo?.ial || docInfo?.data?.ial;
-    if (ial) {
-      protyle.wysiwyg?.renderCustom(ial);
-    }
-
-    let html = '';
-    try {
-      const docData = await getDocContent(blockID, 102400, 0);
-      html = String(docData?.content || '');
-    } catch {}
-
-    if (!html) {
-      const domData = await getBlockDOM(blockID);
-      html = String(domData?.dom || '');
-    }
-
-    wysiwyg.innerHTML = html || `<p>${t('blockLabel', '块')} ${blockID}</p>`;
-
-    await nextTick();
-    protyle.block.id = blockID;
-    protyle.block.showAll = true;
-  } catch {
-    wysiwyg.innerHTML = `<p class="ft__error">${t('loadFailed', '加载失败')}</p>`;
+  if (seq !== renderSeq) {
+    console.log('[FSRS ReviewContent] Render cancelled, newer render pending');
+    return;
   }
+
+  const ProtyleCtor = (siyuan as any).Protyle;
+  const Constants = (siyuan as any).Constants;
+  const cbGetAll = Constants?.CB_GET_ALL ?? 2;
+
+  if (!ProtyleCtor) {
+    hostRef.value.innerHTML = `<div class="ft__error" style="padding: 16px; text-align: center;">${t('loadFailed', '加载失败')}</div>`;
+    return;
+  }
+
+  console.log('[FSRS ReviewContent] Destroying old Protyle instance');
+
+  // Destroy old instance
+  try {
+    editorRef.value?.destroy?.();
+  } catch {}
+
+  // Clear host
+  hostRef.value.innerHTML = '';
+
+  console.log('[FSRS ReviewContent] Creating new Protyle with blockId:', blockID);
+
+  // Create new instance with blockId - Protyle will auto-load content
+  editorRef.value = new ProtyleCtor(props.app, hostRef.value, {
+    blockId: blockID,
+    action: [cbGetAll].filter(Boolean),
+    render: {
+      background: false,
+      gutter: true,
+      breadcrumbDocName: true,
+      title: true,
+      hideTitleOnZoom: true,
+    },
+    typewriterMode: false,
+  });
+
+  // Wait for initialization
+  setTimeout(() => {
+    if (seq !== renderSeq) {
+      console.log('[FSRS ReviewContent] Render cancelled during init check');
+      return;
+    }
+    console.log('[FSRS ReviewContent] Protyle instance created, checking initialization...');
+    const protyle = editorRef.value?.protyle;
+    if (protyle) {
+      console.log('[FSRS ReviewContent] Protyle initialized:', {
+        hasProtyle: !!protyle,
+        hasWysiwyg: !!protyle.wysiwyg,
+        hasElement: !!protyle.wysiwyg?.element,
+        innerHTML: protyle.wysiwyg?.element?.innerHTML?.substring(0, 100),
+      });
+    } else {
+      console.warn('[FSRS ReviewContent] Protyle not initialized after timeout');
+    }
+  }, 100);
 }
 
 watch(
-  () => [props.content.type, props.content.data, props.content.id] as const,
-  ([type, data]) => {
-    if (type !== 'protyle') return;
+  () => props.content.data,
+  (data) => {
+    if (props.content.type !== 'protyle') return;
     const blockID = String(data || '');
     if (!blockID) return;
+    console.log('[FSRS ReviewContent] Watch triggered, blockID:', blockID);
     void renderProtyle(blockID);
   },
   { immediate: true },

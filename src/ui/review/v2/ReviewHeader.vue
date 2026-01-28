@@ -1,52 +1,32 @@
 <template>
-  <div class="fsrs-review-v2-header block__icons">
+  <div class="block__icons">
     <!-- Logo + 队列名称 -->
     <div class="block__logo">
       <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>
-      <span>{{ header.stats.queueName || '闪卡' }}</span>
+      <span>{{ title || header.stats.queueName || '闪卡' }}</span>
     </div>
 
-    <!-- Part 6: 面包屑导航 -->
-    <div v-if="header.breadcrumbs && header.breadcrumbs.length > 0" class="fsrs-review-breadcrumbs">
-      <template v-for="(crumb, index) in header.breadcrumbs" :key="index">
-        <span
-          v-if="crumb.action"
-          class="fsrs-review-breadcrumb__item ft__primary"
-          :data-action="crumb.action"
-          @click="$emit('breadcrumb-click', crumb, index)"
-        >
-          <svg v-if="crumb.icon" class="fsrs-review-breadcrumb__icon"><use :xlink:href="crumb.icon"></use></svg>
-          <span>{{ crumb.text }}</span>
-        </span>
-        <span v-else class="fsrs-review-breadcrumb__item ft__on-surface">
-          <svg v-if="crumb.icon" class="fsrs-review-breadcrumb__icon"><use :xlink:href="crumb.icon"></use></svg>
-          <span>{{ crumb.text }}</span>
-        </span>
-        <span v-if="index < header.breadcrumbs.length - 1" class="fsrs-review-breadcrumb__separator">/</span>
-      </template>
-    </div>
+    <!-- 拖拽区域 -->
+    <span class="fn__flex-1 resize__move" style="min-height: 100%"></span>
 
-    <div class="fn__flex-1 resize__move" style="min-height: 100%"></div>
-
-    <!-- 计数器: NO + 新卡 + 复习卡 -->
+    <!-- 计数器: 新卡/总新卡 + 复习卡/总复习卡 (原生格式) -->
     <div
       data-type="count"
       class="ft__on-surface ft__smaller fn__flex-center"
-      v-if="hasCards"
     >
-      <!-- NO (当前卡片序号) -->
-      <span class="ariaLabel" style="font-weight: bold; margin-right: 8px;">
-        NO {{ header.stats.current || 0 }}
-      </span>
-      <span class="fn__space"></span>
       <!-- 新卡计数 -->
       <span class="ariaLabel" :aria-label="t('flashcardNewCard', '新卡')">
+        <span class="ft__error">{{ header.stats.currentNewCards || 0 }}</span>
+        <span> / </span>
         <span class="ft__primary">{{ header.stats.newCards || 0 }}</span>
       </span>
       <span class="fn__space"></span>
+      <span>+</span>
       <span class="fn__space"></span>
       <!-- 复习卡计数 -->
       <span class="ariaLabel" :aria-label="t('flashcardReviewCard', '复习卡')">
+        <span class="ft__error">{{ header.stats.currentReviewCards || 0 }}</span>
+        <span> / </span>
         <span class="ft__success">{{ header.stats.reviewCards || 0 }}</span>
       </span>
     </div>
@@ -55,28 +35,27 @@
 
     <!-- 头部工具栏 -->
     <template v-if="header.toolbar">
-      <div
-        v-for="btn in header.toolbar"
-        :key="btn.type"
-        :data-type="btn.type"
-        class="b3-tooltips b3-tooltips__sw block__icon block__icon--show"
-        :class="{ 'fn__none': btn.disabled }"
-        :aria-label="btn.ariaLabel"
-        @click="$emit('toolbar-action', btn.type, $event)"
-      >
-        <svg v-if="btn.icon"><use :xlink:href="btn.icon"></use></svg>
-      </div>
+      <template v-for="(btn, index) in header.toolbar" :key="btn.type">
+        <div v-if="index > 0" class="fn__space"></div>
+        <button v-if="!btn.disabled"
+                :data-type="btn.type"
+                class="b3-tooltips b3-tooltips__sw block__icon block__icon--show"
+                :aria-label="btn.ariaLabel"
+                @click="handleToolbarClick(btn, $event)">
+          <svg v-if="btn.icon"><use :xlink:href="btn.icon"></use></svg>
+        </button>
+      </template>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
 import type { ReviewUIState } from './types';
 
 const props = defineProps<{
   header: ReviewUIState['header'];
   isTabMode?: boolean;
+  title?: string; // 队列标题（如"提取练习"）
 }>();
 
 const emit = defineEmits<{
@@ -91,85 +70,111 @@ function t(key: string, fallback: string): string {
   return (i18n as any)?.[key] || fallback;
 }
 
-const hasCards = computed(() => {
-  // 始终显示计数器（即使没有卡片），确保 NO 始终可见
-  return true;
-});
+function handleToolbarClick(btn: { type: string; icon?: string; ariaLabel?: string; disabled?: boolean }, event: MouseEvent) {
+  if (btn.disabled) return;
+  event.stopPropagation(); // 阻止事件冒泡，防止被其他处理器拦截
+  emit('toolbar-action', btn.type, event);
+}
 </script>
 
-<style scoped>
+<style>
+/* 仅保留 Logo 样式，不使用 scoped，让思源全局样式生效 */
+.block__icons {
+  /* 添加标题栏背景色，与原生复习界面一致 */
+  background-color: var(--b3-theme-surface) !important;
+  border-bottom: 1px solid var(--b3-theme-background);
+}
+
 .block__logo {
   display: flex;
   align-items: center;
   gap: 4px;
+  font-weight: 500;
+}
+
+/* 移除 .ariaLabel 的 flex 样式，让计数器横排显示 */
+/* .ariaLabel { display: flex; align-items: center; } */
+
+
+/* Part 6: 面包屑导航样式 - 使用思原生样式 */
+.protyle-breadcrumb {
+  display: flex;
+  padding: 0 8px;
+  background-color: var(--b3-theme-background);
+  flex-shrink: 0;
+  box-sizing: border-box;
+  min-height: 30px;
+  z-index: 1;
   font-size: 14px;
-  color: var(--b3-theme-on-surface);
-}
-
-.block__logoicon {
-  width: 14px;
-  height: 14px;
-  fill: currentColor;
-}
-
-.block__icon {
-  width: 28px;
-  height: 28px;
-  padding: 4px;
+  margin-left: 12px;
   border-radius: 4px;
+}
+
+.protyle-breadcrumb__bar {
+  align-items: center;
+  flex-wrap: wrap;
+  display: flex;
+  transition: var(--b3-transition);
+  overflow: auto;
+  min-height: 30px;
+}
+
+.protyle-breadcrumb__arrow {
+  height: 10px;
+  width: 10px;
+  color: var(--b3-theme-on-surface-light);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.protyle-breadcrumb__text {
+  margin-left: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.protyle-breadcrumb__item {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  line-height: 24px;
+  height: 24px;
+  border-radius: var(--b3-border-radius);
+  margin: 3px 0;
   color: var(--b3-theme-on-surface);
+  border: 0;
+  background-color: transparent;
+  box-sizing: inherit;
+
+  svg {
+    height: 14px;
+    width: 14px;
+    flex-shrink: 0;
+    color: var(--b3-theme-on-surface);
+
+    &:hover {
+      color: var(--b3-theme-on-background);
+    }
+  }
 
   &:hover {
-    background: var(--b3-theme-background);
+    color: var(--b3-theme-on-background);
+    background-color: var(--b3-list-hover);
+  }
+
+  &.protyle-breadcrumb__item--active {
+    color: var(--b3-theme-on-background);
+    background-color: var(--b3-list-hover);
   }
 }
 
-.block__icon.fn__none {
-  display: none;
-}
-
-.ariaLabel {
-  display: flex;
-  align-items: center;
-}
-
-/* Part 6: 面包屑导航样式 */
-.fsrs-review-breadcrumbs {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: 12px;
-  padding: 4px 8px;
-  background: var(--b3-theme-background);
-  border-radius: 4px;
-  font-size: 12px;
-}
-
-.fsrs-review-breadcrumb__item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  cursor: default;
-  user-select: none;
-}
-
-.fsrs-review-breadcrumb__item.ft__primary {
+.popover__block {
   cursor: pointer;
-  transition: opacity 0.15s;
 }
 
-.fsrs-review-breadcrumb__item.ft__primary:hover {
-  opacity: 0.7;
-}
-
-.fsrs-review-breadcrumb__icon {
-  width: 14px;
-  height: 14px;
-  fill: currentColor;
-}
-
-.fsrs-review-breadcrumb__separator {
-  color: var(--b3-theme-surface-variant);
-  margin: 0 2px;
+.fn__grab {
+  cursor: grab;
 }
 </style>

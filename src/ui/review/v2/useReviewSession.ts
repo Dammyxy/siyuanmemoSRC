@@ -58,7 +58,7 @@ export function useReviewSession<TItem>(
   };
 
   const reveal = (): void => {
-    if (!state.value.actions.showAnswer) return;
+    if (context.value.showAnswer) return;
     context.value.showAnswer = true;
     void updateState();
   };
@@ -107,5 +107,5 @@ export function useReviewSession<TItem>(
   onMounted(mounted);
   onUnmounted(unmounted);
 
-  return { state, reveal, grade, skip, executeCommand, onMounted: mounted, onUnmounted: unmounted };
+  return { state, context, reveal, grade, skip, executeCommand, onMounted: mounted, onUnmounted: unmounted };
 }

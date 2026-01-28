@@ -56,6 +56,85 @@ export async function getBlockBreadcrumb(id: string): Promise<any[]> {
     return request('/block/getBlockBreadcrumb', { id });
 }
 
+/**
+ * 根据块类型获取图标名称
+ * 对应思源内核的 getIconByType 函数
+ */
+export function getIconByType(type: string, subType?: string): string {
+    let iconName = '';
+    switch (type) {
+        case 'NodeDocument':
+            iconName = 'iconFile';
+            break;
+        case 'NodeThematicBreak':
+            iconName = 'iconLine';
+            break;
+        case 'NodeParagraph':
+            iconName = 'iconParagraph';
+            break;
+        case 'NodeHeading':
+            if (subType) {
+                iconName = 'icon' + subType.toUpperCase();
+            } else {
+                iconName = 'iconHeadings';
+            }
+            break;
+        case 'NodeBlockquote':
+            iconName = 'iconQuote';
+            break;
+        case 'NodeCallout':
+            iconName = 'iconCallout';
+            break;
+        case 'NodeList':
+            if (subType === 't') {
+                iconName = 'iconCheck';
+            } else if (subType === 'o') {
+                iconName = 'iconOrderedList';
+            } else {
+                iconName = 'iconList';
+            }
+            break;
+        case 'NodeListItem':
+            iconName = 'iconListItem';
+            break;
+        case 'NodeCodeBlock':
+        case 'NodeYamlFrontMatter':
+            iconName = 'iconCode';
+            break;
+        case 'NodeTable':
+            iconName = 'iconTable';
+            break;
+        case 'NodeSuperBlock':
+            iconName = 'iconSuper';
+            break;
+        case 'NodeAttributeView':
+            iconName = 'iconDatabase';
+            break;
+        case 'NodeHTMLBlock':
+            iconName = 'iconHTML5';
+            break;
+        case 'NodeMathBlock':
+            iconName = 'iconMath';
+            break;
+        case 'NodeIFrame':
+            iconName = 'icon iframe';
+            break;
+        case 'NodeWidget':
+            iconName = 'iconWidget';
+            break;
+        case 'NodeAudio':
+            iconName = 'iconRecord';
+            break;
+        case 'NodeVideo':
+            iconName = 'iconVideo';
+            break;
+        default:
+            iconName = 'iconParagraph';
+            break;
+    }
+    return iconName;
+}
+
 export async function getBlockDocInfo(id: string): Promise<any> {
     return request('/block/getDocInfo', { id });
 }

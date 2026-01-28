@@ -287,7 +287,7 @@ export default class FSRSPlugin extends Plugin {
       label: this.i18n?.startQueuePractice || '开始刻意练习',
       accelerator: 'Alt+D',
       click: () => {
-        this.openDeliberatePracticeDialog();
+        this.openFinalDrillDialog();
       },
     });
 
@@ -520,12 +520,14 @@ export default class FSRSPlugin extends Plugin {
       });
       const adapter = new RetrievalPracticeAdapter({ i18n: this.i18n || {} });
       this.reviewDialog = createVueDialog({
-        title: provider.displayName,
+        hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
         component: ReviewView,
-        dataKey: 'dialog-opencard', // 让思源热键系统能够识别
+        dataKey: 'dialog-opencard',
+        transparent: true,
         props: {
           app: this.app,
           i18n: this.i18n || {},
+          title: provider.displayName,  // 传递 title 给组件显示在 logo 区域
           provider: provider as any,
           reviewUI: {
             component: ReviewView,
@@ -615,12 +617,14 @@ export default class FSRSPlugin extends Plugin {
       await provider.init();
       const adapter = new FinalDrillAdapter({ i18n: this.i18n || {} });
       this.reviewDialog = createVueDialog({
-        title: provider.displayName,
+        hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
         component: ReviewView,
         dataKey: 'dialog-opencard', // 让思源热键系统能够识别
+        transparent: true,
         props: {
           app: this.app,
           i18n: this.i18n || {},
+          title: provider.displayName,  // 传递给 Vue 组件显示
           provider: provider as any,
           reviewUI: {
             component: ReviewView,
@@ -670,12 +674,14 @@ export default class FSRSPlugin extends Plugin {
       });
 
       this.reviewDialog = createVueDialog({
-        title,
+        hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
         component: ReviewView,
         dataKey: 'dialog-opencard',
+        transparent: true,
         props: {
           app: this.app,
           i18n: this.i18n || {},
+          title,  // 传递给 Vue 组件显示
           queue: this.filterGroupQueue as any,
           adapter: adapter as any,
         },
@@ -712,12 +718,14 @@ export default class FSRSPlugin extends Plugin {
       });
 
       this.reviewDialog = createVueDialog({
-        title,
+        hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
         component: ReviewView,
         dataKey: 'dialog-opencard',
+        transparent: true,
         props: {
           app: this.app,
           i18n: this.i18n || {},
+          title,  // 传递给 Vue 组件显示
           queue: this.leechQueue as any,
           adapter: adapter as any,
         },
@@ -760,12 +768,14 @@ export default class FSRSPlugin extends Plugin {
       });
       const adapter = new NeuralRoamAdapter({ i18n: this.i18n || {} });
       this.reviewDialog = createVueDialog({
-        title: this.i18n?.neuralReviewTitle || '神经复习',
+        hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
         component: ReviewView,
         dataKey: 'dialog-opencard', // 让思源热键系统能够识别
+        transparent: true,
         props: {
           app: this.app,
           i18n: this.i18n || {},
+          title: this.i18n?.neuralReviewTitle || '神经复习',  // 传递给 Vue 组件显示
           queue: session as any,
           adapter: adapter as any,
         },
@@ -803,12 +813,14 @@ export default class FSRSPlugin extends Plugin {
     const title = (this.i18n?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(ids.length));
     const adapter = new SubsetPracticeAdapter({ i18n: this.i18n || {}, label: title, queueName: 'subset' });
     this.reviewDialog = createVueDialog({
-      title,
+      hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
       component: ReviewView,
       dataKey: 'dialog-opencard', // 让思源热键系统能够识别
+      transparent: true,
       props: {
         app: this.app,
         i18n: this.i18n || {},
+        title,  // 传递给 Vue 组件显示
         queue: session as any,
         adapter: adapter as any,
       },
@@ -846,12 +858,13 @@ export default class FSRSPlugin extends Plugin {
     const session = new SubsetPracticeStrategy({ blockIds: ids, deckID: riff.BUILTIN_DECK_ID });
     const adapter = new SubsetPracticeAdapter({ i18n: this.i18n || {}, label: title, queueName: practiceMode });
     this.reviewDialog = createVueDialog({
-      title,
+      hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
       component: ReviewView,
       dataKey: 'dialog-opencard', // 让思源热键系统能够识别
       props: {
         app: this.app,
         i18n: this.i18n || {},
+        title,  // 传递给 Vue 组件显示
         queue: session as any,
         adapter: adapter as any,
       },

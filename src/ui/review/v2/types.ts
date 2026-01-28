@@ -5,6 +5,8 @@ export interface ReviewUIState {
   header: {
     stats: {
       current: number;
+      currentNewCards?: number;
+      currentReviewCards?: number;
       total: number;
       label: string;
       queueName: string;
@@ -89,6 +91,7 @@ export type { AdapterContext, IAdapter } from '@/core/extensions';
 
 export interface ReviewSessionHook {
   state: Ref<ReviewUIState>;
+  context: Ref<AdapterContext>;
   reveal: () => void;
   grade: (rating: number) => Promise<void>;
   skip: () => Promise<void>;

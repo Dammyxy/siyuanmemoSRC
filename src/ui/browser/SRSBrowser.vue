@@ -1410,7 +1410,7 @@ function openPracticeMenu(ev: MouseEvent) {
     icon: 'iconFlag',
     label: t('practiceDeliberate', '刻意练习'),
     click: () => {
-      void plugin.openDeliberatePracticeDialog?.();
+      void plugin.openFinalDrillDialog?.();
     },
   });
 
