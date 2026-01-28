@@ -73,7 +73,7 @@ export class DeckDataSource implements ICardDataSource {
   }
 
   async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
-    // 传递 queryText 参数以支持搜索查询筛选
+    // 传递 queryText 参数以支持搜索查询筛选，使用缓存优化
     let rows = await loadCards(this.options.preset, this.options.currentDocId, this.options.queryText);
 
     // ✅ 四重筛选：应用文档筛选（如果 preset 不是 'current-doc'，loadCards 不会应用 currentDocId）

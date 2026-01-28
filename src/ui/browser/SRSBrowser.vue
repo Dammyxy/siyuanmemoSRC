@@ -101,21 +101,16 @@
             <svg><use :xlink:href="viewMode === 'flat' ? '#iconFiles' : '#iconList'"></use></svg>
           </button>
 
-          <!-- 刷新按钮 -->
-          <button class="b3-button b3-button--outline" @click="refreshData" :disabled="loading">
+          <!-- 强制刷新按钮 -->
+          <button class="b3-button b3-button--outline" @click="forceRefreshData" :disabled="loading" :title="t('forceRefresh', '强制刷新数据（清除缓存）')">
             <svg><use xlink:href="#iconRefresh"></use></svg>
           </button>
           
-          <!-- 批量编辑按钮 -->
-          <button 
-            v-if="selectedRows.length > 0"
-            class="b3-button b3-button--outline" 
-            @click="showBatchMenu($event)"
-          >
-            <svg><use xlink:href="#iconEdit"></use></svg>
-            ({{ selectedRows.length }})
+          <!-- 性能报告按钮 -->
+          <button class="b3-button b3-button--outline" @click="showPerformanceReport" :disabled="loading" :title="t('perfReport', '性能报告')">
+            <svg><use xlink:href="#iconInfo"></use></svg>
           </button>
-          
+
           <!-- 预览切换按钮 -->
           <button 
             class="b3-button b3-button--outline" 
@@ -161,7 +156,7 @@
           :enableCellTextSelection="true"
           @grid-ready="onGridReady"
           @sort-changed="onSortChanged"
-          @column-everything-changed="onColumnEverythingChanged"
+          @displayed-columns-changed="onDisplayedColumnsChanged"
           @selection-changed="onSelectionChanged"
           @row-clicked="onRowClicked"
           @row-double-clicked="onRowDoubleClicked"
@@ -242,7 +237,8 @@ import { type RowSelectionOptions } from 'ag-grid-community';
 import { openTab, Menu, Protyle, type App } from 'siyuan';
 import { pushErrMsg, pushMsg } from '@/core/siyuan/api';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
-import { parseQuery, loadCards, loadQueueCards } from './browserService';
+import { parseQuery, loadCards, loadQueueCards, invalidateCardCache, getCacheStats } from './browserService';
+import { PerformanceMonitor } from '@/utils/performance';
 import { type BrowserCard, CardState } from './types';
 import type { ICardDataSource } from './datasource/types';
 import { FinalDrillDataSource } from './datasource/FinalDrillDataSource';
@@ -282,6 +278,7 @@ const currentPreset = ref('all');
 const selectedRows = ref<BrowserCard[]>([]);
 const gridApi = ref<GridApi | null>(null);
 const currentSortModel = ref<any[]>([]);
+const hasRandomSort = ref(false);  // ✅ 标记是否进行了随机排序
 const searchQuery = ref('');
 const viewMode = ref<'flat' | 'hierarchy'>('flat');
 const activeQueueId = ref<string | null>(null);
@@ -388,16 +385,7 @@ const STATE_COLORS: Record<string, string> = {
 
 // 列定义 - SuperMemo 风格
 const columnDefs = ref<ColDef[]>([
-  // Sel - 选择
-  {
-    headerName: 'Sel',
-    width: 50,
-    pinned: 'left',
-    suppressSizeToFit: true,
-    lockPosition: true,
-    // AG Grid v35+：复选框通过 rowSelection 配置，不需要在列定义中设置
-  },
-  // No - 行号
+  // No - 行号（第一列，AG-Grid 会在其前自动添加复选框列）
   {
     colId: 'noColumn',
     headerName: 'No',
@@ -472,10 +460,11 @@ const columnDefs = ref<ColDef[]>([
     }),
   },
   // FirstRep - 首次复习
-  { 
-    field: 'firstReviewFormatted', 
-    headerName: 'FirstRep', 
+  {
+    field: 'firstReviewFormatted',
+    headerName: 'FirstRep',
     width: 110,
+    sortable: true,
   },
   // Dif - 难度
   { 
@@ -502,6 +491,28 @@ const columnDefs = ref<ColDef[]>([
     valueFormatter: (params) => params.value?.toFixed(1) || '-',
   },
 ]);
+
+// 排序字段配置
+interface SortFieldConfig {
+  colId: string;
+  label: string;
+  icon?: string;
+}
+
+const SORT_FIELDS: SortFieldConfig[] = [
+  // FSRS 参数
+  { colId: 'priority', label: '优先级', icon: 'iconStar' },
+  { colId: 'interval', label: '间隔', icon: 'iconHourGlass' },
+  { colId: 'reps', label: '复习次数', icon: 'iconRefresh' },
+  { colId: 'lapses', label: '遗忘次数', icon: 'iconWarn' },
+  { colId: 'difficulty', label: '难度', icon: 'iconGraph' },
+  { colId: 'retrievability', label: '可提取性', icon: 'iconEye' },
+  { colId: 'stability', label: '稳定性', icon: 'iconLock' },
+  // 时间字段
+  { colId: 'lastReviewFormatted', label: '上次复习', icon: 'iconHistory' },
+  { colId: 'dueFormatted', label: '下次复习', icon: 'iconCalendar' },
+  { colId: 'firstReviewFormatted', label: '首次复习', icon: 'iconClock' },
+];
 
 // 判断是否为队列模式（队列模式启用客户端排序，Deck 模式禁用）
 const isQueueMode = computed(() => {
@@ -598,8 +609,9 @@ const filteredCards = computed(() => {
 });
 
 // 加载数据 - 使用 browserService (riff API)
-async function loadData() {
+async function loadData(forceRefresh = false) {
   loading.value = true;
+  hasRandomSort.value = false;  // ✅ 重新加载数据时清除随机排序标志
   try {
     selectedRows.value = [];
     previewCard.value = null;
@@ -657,7 +669,7 @@ async function loadData() {
     }
 
     // ✅ 四重筛选：获取显示数据（可能包含文档筛选）
-    const { rows: fetchedRows, totalCount } = await currentDataSource.value.fetchRows({ sortModel: [], filterModel: {} });
+    const { rows: fetchedRows, totalCount } = await PerformanceMonitor.measure('fetchRows', () => currentDataSource.value!.fetchRows({ sortModel: [], filterModel: {} }));
     rows.value = fetchedRows;
 
     // ✅ 更新全局统计数据（获取所有卡片，不受筛选影响）
@@ -667,7 +679,7 @@ async function loadData() {
       allRows.value = queueAllCards;
     } else {
       // 全部卡片模式：获取所有 Riff 卡片
-      allRows.value = await loadCards('all', undefined, '');
+      allRows.value = await PerformanceMonitor.measure('loadAllCards', () => loadCards('all', undefined, '', forceRefresh));  // 传递 forceRefresh 参数
     }
 
     // ✅ 四重筛选：如果开启了聚焦，额外获取不包含文档筛选的数据用于计算聚焦文档
@@ -706,7 +718,7 @@ async function loadData() {
       }
 
       if (dataSourceForFocus) {
-        const { rows: focusRows } = await dataSourceForFocus.fetchRows({ sortModel: [], filterModel: {} });
+        const { rows: focusRows } = await PerformanceMonitor.measure('fetchRowsFocus', () => dataSourceForFocus!.fetchRows({ sortModel: [], filterModel: {} }));
         rowsForFocus.value = focusRows;
       }
     } else {
@@ -744,12 +756,12 @@ function handleSearchInput() {
   }, 150);
 }
 
-// AG Grid 选择配置 (v35+)
+// AG Grid 选择配置 (v35+ 新 API)
 const rowSelection = ref<RowSelectionOptions>({
   mode: 'multiRow',
-  checkboxes: true,      // AG Grid v35+：启用复选框
-  headerCheckbox: true,  // AG Grid v35+：启用表头复选框
-  enableClickSelection: false, // 点击行不选择，只点击 checkbox 选择
+  checkboxes: true,       // ✅ AG-Grid v35+：启用复选框（显示在第一列）
+  headerCheckbox: true,   // ✅ AG-Grid v35+：启用表头全选复选框
+  enableClickSelection: false,
 });
 
 // Grid 事件
@@ -767,13 +779,18 @@ function onGridReady(params: any) {
   });
 }
 
-function onColumnEverythingChanged(params: any) {
-  console.log('[CardBrowser] Column everything changed');
+function onDisplayedColumnsChanged(params: any) {
+  console.log('[CardBrowser] Displayed columns changed');
 }
 
 function onSortChanged(params: any) {
   currentSortModel.value = params?.api?.getSortModel?.() || [];
   const sortArray = Array.from(currentSortModel.value || []);
+
+  // ✅ 如果有列排序状态，清除随机排序标志
+  if (sortArray.length > 0) {
+    hasRandomSort.value = false;
+  }
 
   // 检查排序是否真的改变了
   const api = params?.api || gridApi.value;
@@ -1142,6 +1159,98 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   }
 }
 
+// ========== 排序功能 ==========
+
+// 应用排序
+function applySort(colId: string, sortDirection: 'asc' | 'desc') {
+  if (!gridApi.value) {
+    console.error('[CardBrowser] Grid API not ready');
+    return;
+  }
+
+  console.log('[CardBrowser] Applying sort:', { colId, sortDirection });
+
+  try {
+    // AG-Grid v35+ 直接使用 gridApi.applyColumnState
+    gridApi.value.applyColumnState({
+      state: [
+        {
+          colId: colId,
+          sort: sortDirection,
+        },
+      ],
+      defaultState: { sort: null }, // 清除其他列的排序
+    });
+
+    hasRandomSort.value = false;  // ✅ 列排序时清除随机排序标志
+
+    console.log('[CardBrowser] Sort applied successfully');
+  } catch (err) {
+    console.error('[CardBrowser] Apply sort failed:', err);
+  }
+}
+
+// 随机排序
+function applyRandomSort() {
+  if (!gridApi.value) {
+    console.error('[CardBrowser] Grid API not ready for random sort');
+    return;
+  }
+
+  try {
+    // 获取当前显示的所有行数据
+    const rowCount = gridApi.value.getDisplayedRowCount?.() ?? 0;
+    if (rowCount === 0) {
+      console.warn('[CardBrowser] No rows to shuffle');
+      return;
+    }
+
+    console.log('[CardBrowser] Shuffling', rowCount, 'rows');
+
+    // 收集所有行数据
+    const rows: any[] = [];
+    for (let i = 0; i < rowCount; i++) {
+      const node = gridApi.value.getDisplayedRowAtIndex?.(i);
+      if (node?.data) {
+        rows.push(node.data);
+      }
+    }
+
+    // Fisher-Yates 洗牌算法
+    for (let i = rows.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [rows[i], rows[j]] = [rows[j], rows[i]];
+    }
+
+    // 清除所有排序状态
+    gridApi.value.setColumnState?.({
+      state: [],
+      defaultState: { sort: null },
+    });
+
+    // ✅ 设置随机排序标志
+    hasRandomSort.value = true;
+
+    // ✅ 使用 AG-Grid v28+ 的 setGridOption API
+    // 先清空数据，强制 AG-Grid 重新创建行模型
+    gridApi.value.setGridOption?.('rowData', []);
+
+    // 同步更新 Vue 响应式数据
+    filteredCards.value = [];
+
+    // 在下一个 tick 设置新数据
+    nextTick(() => {
+      if (gridApi.value) {
+        gridApi.value.setGridOption?.('rowData', rows);
+        filteredCards.value = rows;
+        console.log('[CardBrowser] Shuffle completed via setGridOption');
+      }
+    });
+  } catch (err) {
+    console.error('[CardBrowser] Random sort failed:', err);
+  }
+}
+
 // 右键菜单
 function onCellContextMenu(event: CellContextMenuEvent) {
   event.event?.preventDefault();
@@ -1152,6 +1261,59 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   const rowData = event.data as BrowserCard;
   const selected = selectedRows.value?.length ? selectedRows.value : [rowData];
 
+  // ========== 添加排序菜单 ==========
+  const sortMenu: any[] = [];
+
+  // 添加每个排序字段的子菜单
+  for (const field of SORT_FIELDS) {
+    sortMenu.push({
+      icon: field.icon || 'iconSort',
+      label: field.label,
+      submenu: [
+        {
+          icon: 'iconUp',
+          label: '升序',
+          click: () => {
+            console.log('[CardBrowser] Menu clicked: Sort by', field.colId, 'ASC');
+            applySort(field.colId, 'asc');
+          },
+        },
+        {
+          icon: 'iconDown',
+          label: '降序',
+          click: () => {
+            console.log('[CardBrowser] Menu clicked: Sort by', field.colId, 'DESC');
+            applySort(field.colId, 'desc');
+          },
+        },
+      ],
+    });
+  }
+
+  // 添加分隔线
+  sortMenu.push({ type: 'separator' });
+
+  // 添加随机排序
+  sortMenu.push({
+    icon: 'iconRefresh',
+    label: '随机排序',
+    click: () => {
+      console.log('[CardBrowser] Menu clicked: Random sort');
+      applyRandomSort();
+    },
+  });
+
+  // 插入排序菜单
+  menu.addItem({
+    icon: 'iconSort',
+    label: '排序',
+    submenu: sortMenu,
+  });
+
+  // 添加分隔线（排序菜单和现有操作之间）
+  menu.addItem({ type: 'separator' });
+
+  // ========== 原有的操作菜单 ==========
   for (const action of actions) {
     if (action.submenu && action.submenu.length > 0) {
       // 处理子菜单
@@ -1208,10 +1370,16 @@ const canApplySortToQueue = computed(() => {
     }
   }
 
+  // ✅ 随机排序也算作排序
+  if (hasRandomSort.value) {
+    hasSort = true;
+  }
+
   console.log('[CardBrowser] canApplySortToQueue check:', {
     queueId: qid,
     isValidQueue: qid === 'extraction' || qid === 'final-drill' || qid === 'filter-group',
     hasSortModel: hasSort,
+    hasRandomSort: hasRandomSort.value,
     sortModel: sortArray,
     sortModelLength: sortArray.length,
     result: (qid === 'extraction' || qid === 'final-drill' || qid === 'filter-group') && hasSort
@@ -1307,6 +1475,7 @@ async function handleApplySortToQueue() {
       return;
     }
     await pushMsg(t('sortApplied', '队列已按当前排序重新排列'));
+    hasRandomSort.value = false;  // ✅ 重置随机排序标志
     await loadData();
   } catch (err: any) {
     console.error('[CardBrowser] apply sort to queue failed:', err);
@@ -1345,11 +1514,26 @@ function showBatchMenu(event?: MouseEvent) {
 }
 
 // 刷新数据
-async function refreshData() {
+async function refreshData(forceRefresh = false, preserveFocusState = false) {
   selectedRows.value = [];
   previewCard.value = null;
-  shouldFocusDocList.value = true;  // ✅ 刷新数据时开启聚焦
-  await loadData();
+
+  // 只有在不保留聚焦状态时才开启聚焦
+  if (!preserveFocusState) {
+    shouldFocusDocList.value = true;  // ✅ 刷新数据时开启聚焦
+  }
+  
+  // 性能提示：显示缓存状态
+  if (!forceRefresh) {
+    const cacheStats = getCacheStats();
+    if (cacheStats.valid) {
+      console.log(`[CardBrowser] 缓存有效，${cacheStats.count} 张卡片，年龄 ${Math.round(cacheStats.age / 1000)}s`);
+    } else {
+      console.log(`[CardBrowser] 缓存无效或过期，将重新加载数据`);
+    }
+  }
+  
+  await loadData(forceRefresh);
 }
 
 // 切换预设
@@ -1359,6 +1543,23 @@ function handlePresetChange() {
   // activeDocId.value → 保留文档
   // searchQuery.value → 保留搜索
   void refreshData();
+}
+
+// 强制刷新数据（清除缓存）
+async function forceRefreshData() {
+  await refreshData(true, true);  // forceRefresh=true, preserveFocusState=true
+  pushMsg('数据已强制刷新（缓存已清除）', 2000);
+}
+
+// 显示性能报告
+function showPerformanceReport() {
+  PerformanceMonitor.printReport();
+  
+  // 显示缓存统计
+  const cacheStats = getCacheStats();
+  console.log('📊 缓存统计:', cacheStats);
+  
+  pushMsg('性能报告已输出到控制台', 2000);
 }
 
 // 清理
@@ -1750,8 +1951,9 @@ function handleFilterDoc(docId: string) {
   --ag-checkbox-checked-color: var(--b3-theme-primary);
   --ag-checkbox-unchecked-color: var(--b3-theme-on-surface-light);
   --ag-checkbox-background-color: transparent;
-  
+
   font-family: inherit;
+  user-select: none; /* ✅ 禁止文本选择 */
 }
 
 /* 根容器 - 防止白屏 */
