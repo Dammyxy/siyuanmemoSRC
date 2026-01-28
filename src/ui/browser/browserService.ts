@@ -146,12 +146,28 @@ function extractTagsFromIal(ial: string | undefined): string[] {
     return Array.from(new Set(tags));
 }
 
+/** 数值比较条件 */
+export interface NumberCondition {
+    operator: '<' | '>' | '<=' | '>=' | '=' | '!=';
+    value: number;
+}
+
 export interface ParsedBrowserQuery {
     text: string;
     tags: string[];
     decks: string[];
     states: CardState[];
     docs: string[];
+    // ✅ 新增：FSRS 参数数值比较
+    conditions: {
+        priority?: NumberCondition[];
+        interval?: NumberCondition[];
+        reps?: NumberCondition[];
+        lapses?: NumberCondition[];
+        difficulty?: NumberCondition[];
+        retrievability?: NumberCondition[];
+        stability?: NumberCondition[];
+    };
 }
 
 export function parseQuery(input: string): ParsedBrowserQuery {
@@ -162,12 +178,61 @@ export function parseQuery(input: string): ParsedBrowserQuery {
     const states: CardState[] = [];
     const freeText: string[] = [];
 
+    // ✅ 新增：FSRS 参数数值比较条件
+    const conditions: ParsedBrowserQuery['conditions'] = {
+        priority: [],
+        interval: [],
+        reps: [],
+        lapses: [],
+        difficulty: [],
+        retrievability: [],
+        stability: [],
+    };
+
     const pushUnique = (arr: string[], v: string) => {
         if (!v) return;
         if (!arr.includes(v)) arr.push(v);
     };
 
+    // ✅ 字段名别名映射
+    const fieldAliases: Record<string, keyof ParsedBrowserQuery['conditions']> = {
+        'prior': 'priority',
+        'priority': 'priority',
+        'intrv': 'interval',
+        'interval': 'interval',
+        'reps': 'reps',
+        'lapses': 'lapses',
+        'dif': 'difficulty',
+        'difficulty': 'difficulty',
+        'fi': 'retrievability',
+        'retrievability': 'retrievability',
+        'af': 'stability',
+        'stability': 'stability',
+    };
+
+    // ✅ 解析数值比较表达式（如 prior<40, interval>7）
+    const parseNumberCondition = (token: string): boolean => {
+        // 匹配操作符：< > <= >= = !=
+        const match = token.match(/^([a-zA-Z_]+)(<=|>=|<|>|=|!=)(-?\d+(\.\d+)?)$/);
+        if (!match) return false;
+
+        const [, field, operator, valueStr] = match;
+        const fieldName = fieldAliases[field.toLowerCase()];
+        if (!fieldName) return false;
+
+        const value = parseFloat(valueStr);
+        if (isNaN(value)) return false;
+
+        conditions[fieldName]!.push({ operator: operator as NumberCondition['operator'], value });
+        return true;
+    };
+
     for (const token of tokens) {
+        // ✅ 优先尝试解析数值比较表达式
+        if (parseNumberCondition(token)) {
+            continue;
+        }
+
         const idx = token.indexOf(':');
         if (idx <= 0) {
             freeText.push(token);
@@ -211,6 +276,7 @@ export function parseQuery(input: string): ParsedBrowserQuery {
         decks,
         states: Array.from(new Set(states)),
         docs,
+        conditions,
     };
 }
 
@@ -293,6 +359,23 @@ function transformRiffBlock(block: any, customAttrs: Record<string, string>): Br
     };
 }
 
+/** 检查数值是否满足条件 */
+function checkNumberCondition(actualValue: number, conditions: NumberCondition[]): boolean {
+    if (conditions.length === 0) return true;
+
+    return conditions.every(cond => {
+        switch (cond.operator) {
+            case '<': return actualValue < cond.value;
+            case '>': return actualValue > cond.value;
+            case '<=': return actualValue <= cond.value;
+            case '>=': return actualValue >= cond.value;
+            case '=': return actualValue === cond.value;
+            case '!=': return actualValue !== cond.value;
+            default: return true;
+        }
+    });
+}
+
 function applyParsedQuery(cards: BrowserCard[], parsed: ParsedBrowserQuery): BrowserCard[] {
     let next = cards;
 
@@ -322,6 +405,19 @@ function applyParsedQuery(cards: BrowserCard[], parsed: ParsedBrowserQuery): Bro
         const q = parsed.text.toLowerCase();
         next = next.filter(c => (c.fullContent || c.content || '').toLowerCase().includes(q));
     }
+
+    // ✅ 新增：应用 FSRS 参数数值比较筛选
+    const conds = parsed.conditions;
+    next = next.filter(c => {
+        if (conds.priority && !checkNumberCondition(c.priority, conds.priority)) return false;
+        if (conds.interval && !checkNumberCondition(c.interval, conds.interval)) return false;
+        if (conds.reps && !checkNumberCondition(c.reps, conds.reps)) return false;
+        if (conds.lapses && !checkNumberCondition(c.lapses, conds.lapses)) return false;
+        if (conds.difficulty && !checkNumberCondition(c.difficulty, conds.difficulty)) return false;
+        if (conds.retrievability && !checkNumberCondition(c.retrievability, conds.retrievability)) return false;
+        if (conds.stability && !checkNumberCondition(c.stability, conds.stability)) return false;
+        return true;
+    });
 
     return next;
 }

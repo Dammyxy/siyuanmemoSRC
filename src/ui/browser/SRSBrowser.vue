@@ -584,6 +584,23 @@ const globalStats = computed(() => {
   };
 });
 
+/** ✅ 检查数值是否满足条件 */
+function checkNumberCondition(actualValue: number, conditions: any[]): boolean {
+  if (!conditions || conditions.length === 0) return true;
+
+  return conditions.every((cond: any) => {
+    switch (cond.operator) {
+      case '<': return actualValue < cond.value;
+      case '>': return actualValue > cond.value;
+      case '<=': return actualValue <= cond.value;
+      case '>=': return actualValue >= cond.value;
+      case '=': return actualValue === cond.value;
+      case '!=': return actualValue !== cond.value;
+      default: return true;
+    }
+  });
+}
+
 function matchesParsed(card: BrowserCard, parsed: ReturnType<typeof parseQuery>) {
   if (parsed.decks.length && !parsed.decks.includes(card.deckId)) return false;
   if (parsed.states.length && !parsed.states.includes(card.state as CardState)) return false;
@@ -599,6 +616,17 @@ function matchesParsed(card: BrowserCard, parsed: ReturnType<typeof parseQuery>)
     const hay = (card.fullContent || card.content || '').toLowerCase();
     if (!hay.includes(q)) return false;
   }
+
+  // ✅ 新增：应用 FSRS 参数数值比较筛选
+  const conds = parsed.conditions || {};
+  if (conds.priority && !checkNumberCondition(card.priority, conds.priority)) return false;
+  if (conds.interval && !checkNumberCondition(card.interval, conds.interval)) return false;
+  if (conds.reps && !checkNumberCondition(card.reps, conds.reps)) return false;
+  if (conds.lapses && !checkNumberCondition(card.lapses, conds.lapses)) return false;
+  if (conds.difficulty && !checkNumberCondition(card.difficulty, conds.difficulty)) return false;
+  if (conds.retrievability && !checkNumberCondition(card.retrievability, conds.retrievability)) return false;
+  if (conds.stability && !checkNumberCondition(card.stability, conds.stability)) return false;
+
   return true;
 }
 
