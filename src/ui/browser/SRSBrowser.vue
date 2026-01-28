@@ -450,14 +450,36 @@ const columnDefs = ref<ColDef[]>([
     sortable: true,
   },
   // Type - 状态
-  { 
-    field: 'stateLabel', 
-    headerName: 'Type', 
+  {
+    field: 'stateLabel',
+    headerName: 'Type',
     width: 65,
     cellStyle: (params) => ({
       color: STATE_COLORS[params.data.state] || '',
       fontWeight: 500,
     }),
+  },
+  // CardType - 卡片类型 (Topic/Item)
+  {
+    field: 'cardType',
+    headerName: 'CardType',
+    width: 70,
+    valueFormatter: (params) => {
+      const type = params.value;
+      if (type === 'topic') return '📄 Topic';
+      if (type === 'item') return '❓ Item';
+      return '-';
+    },
+    cellStyle: (params) => {
+      const type = params.value;
+      if (type === 'topic') {
+        return { color: 'var(--b3-theme-info)', fontWeight: 500 };
+      }
+      if (type === 'item') {
+        return { color: 'var(--b3-theme-success)', fontWeight: 500 };
+      }
+      return {};
+    },
   },
   // FirstRep - 首次复习
   {

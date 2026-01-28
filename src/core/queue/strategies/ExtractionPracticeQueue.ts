@@ -1,5 +1,7 @@
 import type { StorageManager } from '@/core/storage';
 import type { QueueInterface, QueueItem } from '../types.ts';
+import { ATTR_CARD_TYPE } from '@/core/siyuan/block';
+import { getBlockAttrs } from '@/core/siyuan/api';
 
 export class ExtractionPracticeQueue implements QueueInterface<QueueItem> {
   private readonly storage: StorageManager;
@@ -9,7 +11,48 @@ export class ExtractionPracticeQueue implements QueueInterface<QueueItem> {
   }
 
   async addItems(items: QueueItem[]): Promise<number> {
-    return this.storage.addPracticeQueue(items);
+    // ✅ 过滤掉 Topic 卡片（仅保留 Item 卡片）
+    const itemsOnly = await this._filterItemCards(items);
+    return this.storage.addPracticeQueue(itemsOnly);
+  }
+
+  /**
+   * 过滤出 Item 卡片（排除 Topic 卡片）
+   */
+  private async _filterItemCards(items: QueueItem[]): Promise<QueueItem[]> {
+    const filtered: QueueItem[] = [];
+
+    for (const item of items) {
+      const cardType = await this._getCardType(item.blockID);
+
+      if (cardType !== 'topic') {
+        filtered.push(item);
+      } else {
+        console.log('[ExtractionPracticeQueue] Filtered out Topic card:', {
+          blockID: item.blockID,
+        });
+      }
+    }
+
+    return filtered;
+  }
+
+  /**
+   * 获取卡片类型
+   */
+  private async _getCardType(blockId: string): Promise<'topic' | 'item' | undefined> {
+    try {
+      const attrs = await getBlockAttrs(blockId);
+      const cardType = attrs[ATTR_CARD_TYPE];
+
+      if (cardType === 'topic') return 'topic';
+      if (cardType === 'item') return 'item';
+
+      return undefined;
+    } catch (err) {
+      console.error('[ExtractionPracticeQueue] Failed to get card type:', err);
+      return undefined;
+    }
   }
 
   getAllItems(): QueueItem[] {

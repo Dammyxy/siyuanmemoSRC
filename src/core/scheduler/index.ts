@@ -2,10 +2,12 @@ import type { FSRSParameters, SchedulerEngine } from '@/types';
 import type { SchedulerEngineAdapter } from './types';
 import { SimpleFSRSScheduler } from './strategies/FSRSV5';
 import { SM2Scheduler } from './strategies/SM2';
+import { TopicScheduler } from './TopicScheduler';
 
 export * from './types';
 export * from './strategies/FSRSV5';
 export * from './strategies/SM2';
+export * from './TopicScheduler';
 export * from './rescheduleService';
 
 /**

@@ -62,6 +62,10 @@ export interface BrowserCard {
     tags?: string[];
     note?: string;
     queueIndex?: number;
+
+    // Topic/Item 区分
+    cardType?: 'topic' | 'item';  // 卡片类型
+    aFactor?: number;              // A-Factor (仅 Topic 卡片)
 }
 
 /** 筛选预设 */
@@ -82,6 +86,9 @@ export const FILTER_PRESETS: FilterPreset[] = [
     { key: 'leech', label: '难点卡片', icon: 'iconBug' },
     { key: 'suspended', label: '已暂停', icon: 'iconPause' },
     { key: 'current-doc', label: '当前文档', icon: 'iconFile' },
+    // Topic/Item 筛选
+    { key: 'topic-only', label: '仅主题', icon: 'iconFile' },
+    { key: 'item-only', label: '仅卡片', icon: 'iconCheck' },
 ];
 
 /** 批量操作类型 */

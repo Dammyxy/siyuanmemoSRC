@@ -35,6 +35,9 @@ import { NeuralQueue, NeuralQueueStorage } from '@/core/queue/neural';
 import { ExtractionNativeAdapter, FinalDrillNativeAdapter, FilterGroupNativeAdapter } from '@/core/native/adapter';
 import { NativeReviewSession } from '@/core/native/session';
 
+// Topic/Item 迁移
+import { checkMigrationNeeded, migrateExistingCards } from '@/scripts/migrateToTopicItem';
+
 type PracticeQueueFilter = { type: 'doc' | 'tree' | 'sql'; value: string };
 
 export default class FSRSPlugin extends Plugin {
@@ -173,6 +176,41 @@ export default class FSRSPlugin extends Plugin {
       this.scheduler = createScheduler(settings.fsrs, settings.schedulerEngine);
 
       this.isInitialized = true;
+
+      // 检查是否需要 Topic/Item 迁移
+      setTimeout(async () => {
+        try {
+          const needsMigration = await checkMigrationNeeded();
+          if (needsMigration) {
+            console.log('[FSRS] Topic/Item migration needed');
+            // 显示迁移提示对话框
+            const confirmed = confirm(
+              '检测到现有卡片需要识别 Topic/Item 类型。\n\n' +
+              'Topic（主题）= 纯阅读材料，使用 A-Factor 算法\n' +
+              'Item（卡片）= 问答卡片，使用 FSRS 算法\n\n' +
+              '是否立即自动识别？'
+            );
+
+            if (confirmed) {
+              pushMsg('正在识别卡片类型，请稍候...');
+              const result = await migrateExistingCards();
+              pushMsg(
+                `✅ 识别完成！\n` +
+                `总计：${result.total} 张卡片\n` +
+                `主题：${result.topics} 张\n` +
+                `卡片：${result.items} 张\n` +
+                `耗时：${result.duration}ms`
+              );
+            } else {
+              console.log('[FSRS] User cancelled Topic/Item migration');
+            }
+          } else {
+            console.log('[FSRS] No Topic/Item migration needed');
+          }
+        } catch (err) {
+          console.error('[FSRS] Topic/Item migration check failed:', err);
+        }
+      }, 2000); // 延迟 2 秒，避免影响启动速度
     } catch (err) {
       console.error('[FSRS] Plugin initialization failed:', err);
       try {
@@ -267,6 +305,15 @@ export default class FSRSPlugin extends Plugin {
       hotkey: 'Alt+D',
       callback: () => {
         this.openFinalDrillDialog();
+      },
+    });
+
+    // 渐进学习队列命令
+    this.addCommand({
+      langKey: 'startProgressiveLearning',
+      hotkey: '',
+      callback: async () => {
+        await this.openProgressiveLearningDialog();
       },
     });
 
@@ -729,6 +776,34 @@ export default class FSRSPlugin extends Plugin {
   async openFinalDrillDialog() {
     // 使用 Vue UI 2.0（刻意练习）
     await this.openFinalDrillProviderV2Dialog();
+  }
+
+  /**
+   * 打开渐进学习队列对话框
+   */
+  async openProgressiveLearningDialog() {
+    if (!this.isInitialized) {
+      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
+      return;
+    }
+
+    try {
+      // 检查是否有数据
+      const stats = await this.getQueueStats();
+
+      if (stats.total === 0) {
+        await pushMsg('暂无可用卡片，请先创建一些闪卡');
+        return;
+      }
+
+      // TODO: 实现完整的渐进学习队列对话框
+      // 暂时显示提示信息
+      await pushMsg('渐进学习队列功能即将推出！\n\n将支持混合 Topic 和 Item 卡片的复习。');
+      console.log('[FSRS] Progressive learning queue command triggered');
+    } catch (err) {
+      console.error('[FSRS] Failed to open progressive learning dialog:', err);
+      await pushErrMsg('打开渐进学习队列失败');
+    }
   }
 
   async openFilterGroupPracticeDialog() {

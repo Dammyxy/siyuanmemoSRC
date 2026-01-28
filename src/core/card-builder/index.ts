@@ -4,6 +4,9 @@ import { DefaultBuilderStrategy } from './strategies/DefaultStrategy';
 import { ClozeBuilderStrategy } from './strategies/ClozeStrategy';
 import { QABuilderStrategy } from './strategies/QAStrategy';
 
+// Topic/Item 检测
+export * from './detectCardType';
+
 export class CardBuilderContext {
     private strategies: CardBuilderStrategy[];
 

@@ -66,6 +66,9 @@ export interface FSRSCard {
     createdAt: number;    // 创建时间戳
     updatedAt: number;    // 更新时间戳
     meta?: any;           // 扩展元数据 (for CardBuilder strategies)
+
+    // === Topic/Item 区分 ===
+    aFactor?: number;     // A-Factor (仅 Topic 卡片，1.2-6.0)
 }
 
 /**

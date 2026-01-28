@@ -13,6 +13,10 @@ export const ATTR_PRIORITY = `${ATTR_PREFIX}priority`;
 export const ATTR_IS_FLASHCARD = `${ATTR_PREFIX}flashcard`;
 export const ATTR_RIFF_DECKS = 'custom-riff-decks';
 
+// Topic/Item 区分属性
+export const ATTR_A_FACTOR = `${ATTR_PREFIX}a-factor`;      // A-Factor (Topic 卡片)
+export const ATTR_CARD_TYPE = `${ATTR_PREFIX}card-type`;    // 卡片类型 (topic/item)
+
 /**
  * 将块标记为闪卡
  */

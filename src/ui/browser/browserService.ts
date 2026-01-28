@@ -356,6 +356,10 @@ function transformRiffBlock(block: any, customAttrs: Record<string, string>): Br
 
         priority: parseInt(customAttrs[ATTR_PRIORITY] || '50') || 50,
         suspended: customAttrs[ATTR_SUSPENDED] === 'true',
+
+        // ✅ Topic/Item 区分
+        cardType: (customAttrs['custom-fsrs-card-type'] as 'topic' | 'item' | undefined) || undefined,
+        aFactor: parseFloat(customAttrs['custom-fsrs-a-factor'] || '') || undefined,
     };
 }
 
@@ -592,6 +596,10 @@ function applyPresetFilter(cards: BrowserCard[], preset: string, currentDocId?: 
                 return cards.filter(c => c.rootId === currentDocId);
             }
             return cards;
+        case 'topic-only':
+            return cards.filter(c => c.cardType === 'topic' || (!c.cardType && c.content.indexOf('::') === -1 && c.content.indexOf('?') === -1));
+        case 'item-only':
+            return cards.filter(c => c.cardType === 'item' || (!c.cardType && (c.content.indexOf('::') !== -1 || c.content.indexOf('?') !== -1)));
         case 'all':
         default:
             return cards;
