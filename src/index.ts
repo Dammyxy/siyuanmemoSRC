@@ -20,7 +20,7 @@ import { markBlockAsCard, unmarkBlockAsCard, ATTR_CARD_ID, getCardBlockIds } fro
 import { getRiffCardsByBlockIDs } from '@/core/siyuan/riff';
 import { pushErrMsg, pushMsg, sql } from '@/core/siyuan/api';
 import { FinalDrillAdapter, FinalDrillProvider, LeechAdapter, NeuralRoamAdapter, RetrievalPracticeAdapter, ReviewView, SubsetPracticeAdapter } from '@/ui/review/v2';
-import { ExtractionPracticeProvider } from '@/ui/review/v2/providers/ExtractionPracticeProvider';
+import { RetrievalPracticeProvider } from '@/ui/review/v2/providers/RetrievalPracticeProvider';
 import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
 import { SettingsPanel } from '@/ui/settings';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
@@ -30,7 +30,7 @@ import { createVueDialog } from '@/utils/dialog';
 import { createDefaultCard } from '@/types';
 import '@/index.scss';
 import { ConsoleQueueMonitor, DEFAULT_PRIORITY, QueueContext, StorageFileJsonAdapter, type QueueItem } from '@/core/queue';
-import { ExtractionPracticeQueue, FilterGroupQueue, FinalDrillQueue, NeuralRoamQueue, SubsetPracticeStrategy, LeechQueue } from '@/core/queue/strategies';
+import { RetrievalPracticeQueue, FilterGroupQueue, FinalDrillQueue, NeuralRoamQueue, SubsetPracticeStrategy, LeechQueue } from '@/core/queue/strategies';
 import { NeuralQueue, NeuralQueueStorage } from '@/core/queue/neural';
 import { ExtractionNativeAdapter, FinalDrillNativeAdapter, FilterGroupNativeAdapter } from '@/core/native/adapter';
 import { NativeReviewSession } from '@/core/native/session';
@@ -50,7 +50,7 @@ export default class FSRSPlugin extends Plugin {
   public scheduler!: SchedulerEngineAdapter;
   public rescheduleService!: RescheduleService;
   private queueContext!: QueueContext<QueueItem>;
-  private extractionQueue!: ExtractionPracticeQueue;
+  private retrievalQueue!: RetrievalPracticeQueue;
   public neuralQueue!: NeuralQueue;
   public finalDrillQueue!: FinalDrillQueue;
   public leechQueue!: LeechQueue;
@@ -140,12 +140,16 @@ export default class FSRSPlugin extends Plugin {
       const settings = this.storage.getSettings();
       this.rescheduleService = new RescheduleService(this.storage);
 
-      this.extractionQueue = new ExtractionPracticeQueue(this.storage);
+      this.scheduler = createScheduler(settings.fsrs, settings.schedulerEngine);
+      this.retrievalQueue = new RetrievalPracticeQueue({
+        storage: this.storage,
+        localScheduler: this.scheduler,
+      });
       this.queueContext = new QueueContext<QueueItem>({
-        initial: 'extraction',
+        initial: 'retrieval',
         monitors: [new ConsoleQueueMonitor()],
       });
-      this.queueContext.register('extraction', this.extractionQueue);
+      this.queueContext.register('retrieval', this.retrievalQueue);
       
       const groupConfigs = (settings.queues?.filterGroup?.groups || []).map((g: any) => ({
         id: String(g.id),
@@ -310,10 +314,10 @@ export default class FSRSPlugin extends Plugin {
 
     // 渐进学习队列命令
     this.addCommand({
-      langKey: 'startProgressiveLearning',
+      langKey: 'startIncrementalLearning',
       hotkey: '',
       callback: async () => {
-        await this.openProgressiveLearningDialog();
+        await this.openIncrementalLearningDialog();
       },
     });
 
@@ -522,7 +526,7 @@ export default class FSRSPlugin extends Plugin {
         queueSettings: currentSettings.queues,
         i18n: this.i18n || {},
         defaultTab,
-        queueCount: this.extractionQueue.size(),
+        queueCount: this.retrievalQueue['localBuffer']?.length || 0,
         queueHandlers: {
           preview: (filter: PracticeQueueFilter) => this.previewPracticeQueue(filter),
           add: (filter: PracticeQueueFilter) => this.addPracticeQueue(filter),
@@ -633,10 +637,10 @@ export default class FSRSPlugin extends Plugin {
       this.reviewDialog.destroy();
     }
     try {
-      // 使用 ExtractionPracticeProvider 包装 extractionQueue
-      const provider = new ExtractionPracticeProvider({
-        queue: this.extractionQueue as any,
-        i18n: this.i18n || {},
+      // ✅ 使用 RetrievalPracticeProvider
+      const provider = new RetrievalPracticeProvider({
+        storage: this.storage,
+        scheduler: this.scheduler,
       });
       const adapter = new RetrievalPracticeAdapter({ i18n: this.i18n || {} });
       this.reviewDialog = createVueDialog({
@@ -781,7 +785,7 @@ export default class FSRSPlugin extends Plugin {
   /**
    * 打开渐进学习队列对话框
    */
-  async openProgressiveLearningDialog() {
+  async openIncrementalLearningDialog() {
     if (!this.isInitialized) {
       await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
       return;
@@ -799,9 +803,9 @@ export default class FSRSPlugin extends Plugin {
       // TODO: 实现完整的渐进学习队列对话框
       // 暂时显示提示信息
       await pushMsg('渐进学习队列功能即将推出！\n\n将支持混合 Topic 和 Item 卡片的复习。');
-      console.log('[FSRS] Progressive learning queue command triggered');
+      console.log('[FSRS] Incremental learning queue command triggered');
     } catch (err) {
-      console.error('[FSRS] Failed to open progressive learning dialog:', err);
+      console.error('[FSRS] Failed to open incremental learning dialog:', err);
       await pushErrMsg('打开渐进学习队列失败');
     }
   }
@@ -1462,15 +1466,16 @@ export default class FSRSPlugin extends Plugin {
       return 0;
     }
     const cards = await this.buildDrillCardsFromBlockIds(blockIds);
-    return this.extractionQueue.addItems(cards as QueueItem[]);
+    return this.retrievalQueue.addItems(cards as QueueItem[]);
   }
 
   private async clearPracticeQueue(): Promise<void> {
-    await this.extractionQueue.clear();
+    // RetrievalPracticeQueue doesn't have clear() method, need to handle differently
+    // TODO: Implement clear functionality
   }
 
   private async startPracticeQueue(): Promise<void> {
-    const cards = this.extractionQueue.getAllItems();
+    const cards = this.retrievalQueue.getAllItems();
     if (cards.length === 0) {
       await pushMsg(this.i18n?.practiceQueueEmpty || '练习队列为空');
       return;

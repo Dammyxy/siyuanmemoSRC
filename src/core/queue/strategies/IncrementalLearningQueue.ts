@@ -1,5 +1,5 @@
 /**
- * 渐进学习队列（Progressive Learning Queue）
+ * 渐进学习队列（Incremental Learning Queue）
  *
  * 混合 Topic 和 Item 卡片的队列策略：
  * - Topic 卡片：使用 A-Factor 算法调度（用于增量阅读）
@@ -7,7 +7,7 @@
  * - 选择策略：基于优先级比较两个队列头部
  *
  * @example
- * const queue = new ProgressiveLearningQueue({
+ * const queue = new IncrementalLearningQueue({
  *     topicRatio: 0.25,  // 25% Topic, 75% Item
  *     autoSort: true,
  * });
@@ -23,7 +23,7 @@ import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy';
 /**
  * 渐进学习队列配置
  */
-export interface ProgressiveLearningConfig {
+export interface IncrementalLearningConfig {
     /** Topic 卡片比例（0-1），默认 0.25（25%） */
     topicRatio?: number;
     /** 是否自动排序，默认 true */
@@ -49,8 +49,8 @@ interface ExtendedQueueItem extends QueueItem {
  * 3. onFeedback() 时根据卡片类型调用对应的调度器
  * 4. 自动排序时对两个子队列都进行排序
  */
-export class ProgressiveLearningQueue implements IQueueStrategy<ExtendedQueueItem> {
-    private readonly config: Required<ProgressiveLearningConfig>;
+export class IncrementalLearningQueue implements IQueueStrategy<ExtendedQueueItem> {
+    private readonly config: Required<IncrementalLearningConfig>;
     private readonly topicScheduler: TopicScheduler;
 
     // Topic 队列和 Item 队列
@@ -63,7 +63,7 @@ export class ProgressiveLearningQueue implements IQueueStrategy<ExtendedQueueIte
     private initialTopicCount = 0;
     private initialItemCount = 0;
 
-    constructor(config: ProgressiveLearningConfig = {}) {
+    constructor(config: IncrementalLearningConfig = {}) {
         this.config = {
             topicRatio: config.topicRatio ?? 0.25,
             autoSort: config.autoSort ?? true,
@@ -73,7 +73,7 @@ export class ProgressiveLearningQueue implements IQueueStrategy<ExtendedQueueIte
         // 初始化 Topic 调度器
         this.topicScheduler = new TopicScheduler();
 
-        console.log('[ProgressiveLearningQueue] Initialized with config:', this.config);
+        console.log('[IncrementalLearningQueue] Initialized with config:', this.config);
     }
 
     /**
@@ -120,7 +120,7 @@ export class ProgressiveLearningQueue implements IQueueStrategy<ExtendedQueueIte
             await this.sort();
         }
 
-        console.log('[ProgressiveLearningQueue] Added items:', {
+        console.log('[IncrementalLearningQueue] Added items:', {
             topics: topics.length,
             items: itemCards.length,
         });
@@ -240,7 +240,7 @@ export class ProgressiveLearningQueue implements IQueueStrategy<ExtendedQueueIte
         this.topicQueue.sort((a, b) => (a.priority ?? 50) - (b.priority ?? 50));
         this.itemQueue.sort((a, b) => (a.priority ?? 50) - (b.priority ?? 50));
 
-        console.log('[ProgressiveLearningQueue] Queues sorted:', {
+        console.log('[IncrementalLearningQueue] Queues sorted:', {
             topicQueue: this.topicQueue.length,
             itemQueue: this.itemQueue.length,
         });
@@ -274,7 +274,7 @@ export class ProgressiveLearningQueue implements IQueueStrategy<ExtendedQueueIte
             'custom-fsrs-topic-state': updated.state.toString(),
         });
 
-        console.log('[ProgressiveLearningQueue] Topic reviewed:', {
+        console.log('[IncrementalLearningQueue] Topic reviewed:', {
             blockID: card.blockID,
             rating,
             newInterval: updated.interval,
@@ -293,7 +293,7 @@ export class ProgressiveLearningQueue implements IQueueStrategy<ExtendedQueueIte
             rating
         );
 
-        console.log('[ProgressiveLearningQueue] Item reviewed:', {
+        console.log('[IncrementalLearningQueue] Item reviewed:', {
             cardID: card.cardID,
             rating,
         });

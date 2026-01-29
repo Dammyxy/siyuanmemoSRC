@@ -11,5 +11,5 @@ export * from './adapters/LeechAdapter';
 export * from './adapters/SubsetPracticeAdapter';
 export * from './sessions/FinalDrillV2Session';
 export * from './providers/FinalDrillProvider';
-export * from './providers/ExtractionPracticeProvider';
+export * from './providers/RetrievalPracticeProvider';
 

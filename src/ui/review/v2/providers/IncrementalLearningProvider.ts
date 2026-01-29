@@ -2,13 +2,13 @@
  * 渐进学习队列 Provider
  *
  * 实现 Extensions Layer 的 QueueProvider 接口
- * 封装 ProgressiveLearningQueue 为外部提供标准 API
+ * 封装 IncrementalLearningQueue 为外部提供标准 API
  */
 
 import * as riff from '@/core/siyuan/riff';
 import type { QueueProvider } from '@/core/extensions';
 import type { BrowserCard } from '@/ui/browser/browserService';
-import { ProgressiveLearningQueue, ProgressiveLearningConfig } from '@/core/queue/strategies/ProgressiveLearningQueue';
+import { IncrementalLearningQueue, IncrementalLearningConfig } from '@/core/queue/strategies/IncrementalLearningQueue';
 
 /**
  * 渐进学习队列 Provider
@@ -19,13 +19,13 @@ import { ProgressiveLearningQueue, ProgressiveLearningConfig } from '@/core/queu
  * - 跳过卡片
  * - 获取统计信息
  */
-export class ProgressiveLearningProvider implements QueueProvider<BrowserCard> {
-    private readonly queue: ProgressiveLearningQueue;
+export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
+    private readonly queue: IncrementalLearningQueue;
     private readonly deckId: string;
 
-    constructor(config?: ProgressiveLearningConfig) {
+    constructor(config?: IncrementalLearningConfig) {
         this.deckId = config?.deckID ?? riff.BUILTIN_DECK_ID;
-        this.queue = new ProgressiveLearningQueue({
+        this.queue = new IncrementalLearningQueue({
             topicRatio: 0.25, // 默认 25% Topic
             autoSort: true,
             deckID: this.deckId,
@@ -44,7 +44,7 @@ export class ProgressiveLearningProvider implements QueueProvider<BrowserCard> {
     }): Promise<BrowserCard[]> {
         // TODO: 从 Riff 系统获取到期卡片
         // 目前返回空数组，实际使用时需要实现
-        console.log('[ProgressiveLearningProvider] getDueCards called with options:', options);
+        console.log('[IncrementalLearningProvider] getDueCards called with options:', options);
         return [];
     }
 
@@ -65,7 +65,7 @@ export class ProgressiveLearningProvider implements QueueProvider<BrowserCard> {
             // 查找对应的卡片
             const card = reviewedCards?.find(c => c.blockId === cardId);
             if (!card) {
-                console.error('[ProgressiveLearningProvider] Card not found:', cardId);
+                console.error('[IncrementalLearningProvider] Card not found:', cardId);
                 return false;
             }
 
@@ -75,7 +75,7 @@ export class ProgressiveLearningProvider implements QueueProvider<BrowserCard> {
                 rating,
             });
 
-            console.log('[ProgressiveLearningProvider] Card reviewed:', {
+            console.log('[IncrementalLearningProvider] Card reviewed:', {
                 cardId,
                 rating,
                 cardType: card.cardType,
@@ -83,7 +83,7 @@ export class ProgressiveLearningProvider implements QueueProvider<BrowserCard> {
 
             return true;
         } catch (err) {
-            console.error('[ProgressiveLearningProvider] Review failed:', err);
+            console.error('[IncrementalLearningProvider] Review failed:', err);
             return false;
         }
     }
@@ -97,10 +97,10 @@ export class ProgressiveLearningProvider implements QueueProvider<BrowserCard> {
     async skipReviewCard(cardId: string): Promise<boolean> {
         try {
             // TODO: 实现跳过逻辑
-            console.log('[ProgressiveLearningProvider] Skip card:', cardId);
+            console.log('[IncrementalLearningProvider] Skip card:', cardId);
             return true;
         } catch (err) {
-            console.error('[ProgressiveLearningProvider] Skip failed:', err);
+            console.error('[IncrementalLearningProvider] Skip failed:', err);
             return false;
         }
     }
