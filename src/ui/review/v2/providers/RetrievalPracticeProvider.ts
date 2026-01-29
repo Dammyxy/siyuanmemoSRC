@@ -22,6 +22,8 @@ import type { SchedulerEngineAdapter } from '@/core/scheduler/types';
  * - 手动添加卡片
  */
 export class RetrievalPracticeProvider implements QueueProvider<BrowserCard> {
+  readonly id = 'retrieval';
+  readonly displayName = '提取练习';
   private readonly queue: RetrievalPracticeQueue;
   private readonly deckId: string;
   private reviewedCount = 0;
@@ -49,17 +51,32 @@ export class RetrievalPracticeProvider implements QueueProvider<BrowserCard> {
     limit?: number;
     deckId?: string;
   }): Promise<BrowserCard[]> {
+    console.log('[RetrievalPracticeProvider] getDueCards START', {
+      deckId: this.deckId,
+      options,
+      queueExists: !!this.queue,
+      queueType: this.queue?.constructor?.name,
+      queueNextType: typeof this.queue?.next,
+    });
+
     const items: BrowserCard[] = [];
 
     // 循环获取卡片（直到队列为空或达到 limit）
     while (true) {
+      console.log('[RetrievalPracticeProvider] About to call queue.next()');
       const item = await this.queue.next();
+      console.log('[RetrievalPracticeProvider] getDueCards loop iteration:', {
+        hasItem: !!item,
+        itemId: item ? (item as any).cardID : null,
+        itemsCount: items.length,
+        limit: options?.limit,
+      });
       if (!item) break;
       items.push(item as any);
       if (options?.limit && items.length >= options.limit) break;
     }
 
-    console.log('[RetrievalPracticeProvider] getDueCards called:', {
+    console.log('[RetrievalPracticeProvider] getDueCards DONE:', {
       options,
       count: items.length,
     });

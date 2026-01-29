@@ -1,7 +1,7 @@
 import type { IQueueCommand } from './abstraction/Command';
 import type { QueueCardRef } from './abstraction/QueueCardRef.ts';
 
-export type QueueId = 'extraction' | 'final-drill' | 'neural-roam' | 'filter-group';
+export type QueueId = 'retrieval' | 'final-drill' | 'neural-roam' | 'filter-group';
 
 export interface QueueInterface<TItem> {
   addItem(item: TItem): Promise<void> | void;

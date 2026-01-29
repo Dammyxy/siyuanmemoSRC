@@ -427,7 +427,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
         // 在新窗口中打开复习界面（会打开文档 + 自动触发复习对话框）
         fsrsPlugin.openReviewInNewWindow({
           blockId: blockId,
-          providerId: props.provider?.id || 'extraction',
+          providerId: props.provider?.id || 'retrieval',
           title: props.title,
         });
       } catch (err) {

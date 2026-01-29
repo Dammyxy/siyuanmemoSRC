@@ -83,7 +83,8 @@ function t(key: string, fallback: string): string {
 }
 
 const queueItems = computed(() => [
-  { id: 'extraction', label: t('queueExtract', '提取练习') },
+  { id: 'retrieval', label: t('queueExtract', '提取练习') },
+  { id: 'incremental-learning', label: t('queueIncremental', '渐进学习') },
   { id: 'final-drill', label: t('queueDeliberate', '刻意练习') },
   { id: 'neural-roam', label: t('queueNeural', '神经漫游') },
   { id: 'filter-group', label: t('queueFilterGroup', '筛选复习') },

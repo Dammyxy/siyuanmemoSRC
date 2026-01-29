@@ -12,7 +12,7 @@ import type { App } from 'siyuan';
 const props = defineProps<{
   app: App;
   data: {
-    reviewType: string; // 'extraction' | 'final-drill' | 'neural-roam' | 'leech' | 'subset' | 'filter-group'
+    reviewType: string; // 'retrieval' | 'final-drill' | 'neural-roam' | 'leech' | 'subset' | 'filter-group'
     seedBlockId?: string; // for neural-roam
     blockIds?: string[]; // for subset practice
   };
@@ -37,7 +37,7 @@ onMounted(async () => {
     const { reviewType, seedBlockId, blockIds } = props.data;
 
     switch (reviewType) {
-      case 'extraction':
+      case 'retrieval':
         fsrsPlugin.openReviewDialog();
         break;
       case 'final-drill':

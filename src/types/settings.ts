@@ -70,7 +70,7 @@ export interface FilterGroupDefinition {
 }
 
 export interface QueueSettings {
-    defaultQueue: 'extraction' | 'final-drill' | 'neural-roam' | 'filter-group';
+    defaultQueue: 'retrieval' | 'final-drill' | 'neural-roam' | 'filter-group';
     neuralWandering: {
         enabled: boolean;
         maxPool: number;
@@ -167,7 +167,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
         shuffleCards: true,
     },
     queues: {
-        defaultQueue: 'extraction',
+        defaultQueue: 'retrieval',
         neuralWandering: {
             enabled: false,
             maxPool: 200,

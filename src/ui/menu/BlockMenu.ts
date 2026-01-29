@@ -84,7 +84,7 @@ export class BlockMenuManager {
                 }
                 const items = this.buildQueueItemsFromElements(drillBlocks);
                 // @ts-ignore - access private
-                const added = await (this.plugin as any).extractionQueue.addItems(items);
+                const added = await (this.plugin as any).retrievalQueue.addItems(items);
                 if (added > 0) {
                     await pushMsg((this.plugin.i18n?.queueAdded || '已加入 {n} 张闪卡到队列练习').replace('{n}', String(added)));
                 } else {

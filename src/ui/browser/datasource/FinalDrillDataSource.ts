@@ -1,7 +1,13 @@
 import type { BrowserCard } from '../types';
 import { loadQueueCards } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
-import { AutoSortCommand, InsertAtCommand, RemoveItemsCommand, SetPriorityCommand } from '@/core/queue/commands';
+import {
+  buildQueueActions,
+  removeFromQueue,
+  insertAt,
+  setPriority,
+  autoSort,
+} from './MenuActions';
 
 type FinalDrillQueueLike = {
   getAllItems?: () => any[];
@@ -20,11 +26,12 @@ type FsrsPluginLike = {
   finalDrillQueue?: FinalDrillQueueLike;
 };
 
-// ✅ 四重筛选：支持的筛选参数
+// ✅ 五重筛选：支持的筛选参数
 export type FinalDrillDataSourceOptions = {
   docId?: string;      // 文档筛选
   preset?: string;     // Preset 筛选
   queryText?: string;  // 搜索查询
+  cardType?: 'all' | 'topic-only' | 'item-only';  // ✅ 卡片类型筛选
 };
 
 function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
@@ -130,80 +137,43 @@ export class FinalDrillDataSource implements ICardDataSource {
   }
 
   getSupportedActions(): CardBrowserAction[] {
-    return [
-      { id: 'open', label: 'Open', icon: 'iconOpen' },
-      { id: 'remove-from-queue', label: 'Remove from Queue', icon: 'iconTrashcan' },
-      { id: 'insert-at', label: 'Insert at', icon: 'iconAlignLeft' },
-      { id: 'set-priority', label: 'Set Priority', icon: 'iconMark' },
-      { id: 'auto-sort', label: 'Auto Sort', icon: 'iconSort' },
-    ];
+    return buildQueueActions({
+      withInsert: true,
+      withSort: true,
+      withPriority: true,
+      withTimeAdjust: false,
+    });
   }
 
   async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<void> {
     if (actionId === 'open') return;
+
     const q = this.plugin?.finalDrillQueue;
     if (!q) return;
-    const items = (selectedRows || []).map((r) => ({
-      cardID: r.fsrsCardId || r.id || r.blockId,
-      blockID: r.blockId,
-      deckID: r.deckId,
-      priority: typeof r.priority === 'number' ? r.priority : 50,
-    }));
 
-    if (actionId === 'remove-from-queue') {
-      const trait = q.getRemovableTrait?.();
-      if (trait) {
-        const cmd = new RemoveItemsCommand<any>();
-        await cmd.execute({ trait, items });
-        return;
-      }
-      if (q.removeItems) {
-        await Promise.resolve(q.removeItems(items));
-        return;
-      }
-      for (const it of items) await Promise.resolve(q.removeItem?.(it));
+    // 从队列移除
+    if (actionId === 'remove-from-current-queue') {
+      await removeFromQueue(q, selectedRows);
       return;
     }
 
+    // 插入到指定位置
     if (actionId === 'insert-at') {
-      const idx = Math.max(0, Math.floor(Number(context?.index ?? 0)));
-      const trait = q.getMutableTrait?.();
-      if (trait) {
-        const cmd = new InsertAtCommand<any>();
-        await cmd.execute({ trait, items, index: idx });
-        return;
-      }
-      await Promise.resolve(q.insertAt?.(items, idx));
+      const index = Math.max(0, Math.floor(Number(context?.index ?? 0)));
+      await insertAt(q, selectedRows, index);
       return;
     }
 
+    // 设置优先级
     if (actionId === 'set-priority') {
-      const p = Math.max(0, Math.min(100, Math.floor(Number(context?.priority))));
-      for (const r of selectedRows as any[]) {
-        r.priority = p;
-      }
-      const trait = q.getPrioritizableTrait?.();
-      if (trait) {
-        const cmd = new SetPriorityCommand<any>();
-        await cmd.execute({ trait, items, priority: p });
-        return;
-      }
-      for (const it of items) {
-        const id = String((it as any)?.cardID || '');
-        if (!id) continue;
-        await Promise.resolve(q.setPriority?.(id, p));
-      }
+      const priority = Math.max(0, Math.min(100, Math.floor(Number(context?.priority))));
+      await setPriority(q, selectedRows, priority);
       return;
     }
 
+    // 自动排序
     if (actionId === 'auto-sort') {
-      const trait = q.getAutoSortableTrait?.();
-      if (trait) {
-        const cmd = new AutoSortCommand();
-        await cmd.execute({ trait });
-        return;
-      }
-      await Promise.resolve(q.sort?.());
+      await autoSort(q);
       return;
     }
   }

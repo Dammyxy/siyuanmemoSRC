@@ -1,13 +1,21 @@
 import type { BrowserCard } from '../types';
 import { formatDate } from '../types';
-import { loadCards, batchReset, batchSuspend, batchSetPriority } from '../browserService';
+import { loadCards, batchReset, batchSuspend } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
+import {
+  BASE_ACTIONS,
+  buildAddToQueueAction,
+  batchSetBlockPriority,
+  adjustTime,
+  addToQueue,
+} from './MenuActions';
 import { RescheduleService } from '@/core/scheduler/rescheduleService';
 
 type DeckDataSourceOptions = {
   preset: string;
   currentDocId?: string;
   queryText?: string;  // 添加查询文本参数
+  cardType?: 'all' | 'topic-only' | 'item-only';  // ✅ 添加卡片类型筛选参数
 };
 
 type QueueLike = {
@@ -19,10 +27,11 @@ type FsrsPluginLike = {
   storage?: any;
   rescheduleService?: RescheduleService;
   openSubsetReviewDialog?: (blockIds: string[]) => Promise<void> | void;
-  extractionQueue?: QueueLike;
+  retrievalQueue?: QueueLike;
+  incrementalQueue?: QueueLike;  // ✅ 添加渐进学习队列
   deliberateQueue?: QueueLike;
   filterGroupQueue?: QueueLike;
-  // 注意：neuralRoamQueue 不支持 addItem，所以不在这里暴露
+  neuralQueue?: QueueLike;  // ✅ 添加神经漫游队列
 };
 
 function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
@@ -70,15 +79,43 @@ export class DeckDataSource implements ICardDataSource {
   constructor(plugin: FsrsPluginLike | undefined, options: DeckDataSourceOptions) {
     this.plugin = plugin;
     this.options = options;
+
+    console.log('[DeckDataSource] Constructor - Plugin keys:', {
+      hasPlugin: !!plugin,
+      keys: plugin ? Object.keys(plugin).filter(k => k.includes('Queue')).sort() : [],
+      incrementalQueueType: plugin?.incrementalQueue?.constructor?.name,
+    });
   }
 
   async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
-    // 传递 queryText 参数以支持搜索查询筛选，使用缓存优化
-    let rows = await loadCards(this.options.preset, this.options.currentDocId, this.options.queryText);
+    console.log('[DeckDataSource] fetchRows called with:', {
+      preset: this.options.preset,
+      currentDocId: this.options.currentDocId,
+      queryText: this.options.queryText,
+      cardType: this.options.cardType,  // ✅ 添加卡片类型参数到日志
+    });
 
-    // ✅ 四重筛选：应用文档筛选（如果 preset 不是 'current-doc'，loadCards 不会应用 currentDocId）
-    if (this.options.currentDocId && this.options.preset !== 'current-doc') {
-      rows = rows.filter(c => c.rootId === this.options.currentDocId);
+    // 传递 queryText 和 cardType 参数以支持筛选，使用缓存优化
+    let rows = await loadCards(this.options.preset, undefined, this.options.queryText, false, this.options.cardType);
+    console.log('[DeckDataSource] loadCards returned:', rows.length, 'cards');
+
+    // ✅ 四重筛选：应用文档筛选
+    if (this.options.currentDocId) {
+      // 特殊处理：丢失闪卡（rootId 为空的卡片）
+      if (this.options.currentDocId === '__lost__') {
+        console.log('[DeckDataSource] Filtering for lost cards (no rootId)');
+        const beforeCount = rows.length;
+        rows = rows.filter(c => !String((c as any)?.rootId || ''));
+        console.log('[DeckDataSource] Lost cards filter:', beforeCount, '->', rows.length);
+      }
+      // 当前文档筛选
+      else if (this.options.preset === 'current-doc') {
+        rows = rows.filter(c => c.rootId === this.options.currentDocId);
+      }
+      // 其他文档筛选
+      else {
+        rows = rows.filter(c => c.rootId === this.options.currentDocId);
+      }
     }
 
     // 【全部闪卡】模式下不设置 queueIndex，NO 列将显示数组索引
@@ -89,51 +126,40 @@ export class DeckDataSource implements ICardDataSource {
 
   getSupportedActions(): CardBrowserAction[] {
     const actions: CardBrowserAction[] = [
-      { id: 'open', label: 'Open', icon: 'iconOpen' },
+      BASE_ACTIONS.open,
     ];
 
-    // 添加"加入队列"子菜单（对应顶栏的四种队列）
-    const queueActions: CardBrowserAction[] = [];
+    // 调试日志
+    console.log('[DeckDataSource] Checking plugin queues:', {
+      hasPlugin: !!this.plugin,
+      hasRetrieval: !!this.plugin?.retrievalQueue,
+      hasIncremental: !!this.plugin?.incrementalQueue,
+      hasDeliberate: !!this.plugin?.deliberateQueue,
+      hasFilterGroup: !!this.plugin?.filterGroupQueue,
+      hasNeuralRoam: !!this.plugin?.neuralQueue,
+    });
 
-    if (this.plugin?.extractionQueue) {
-      queueActions.push({
-        id: 'add-to-extraction-queue',
-        label: '提取练习',
-        icon: 'iconList',
-      });
-    }
-    if (this.plugin?.deliberateQueue) {
-      queueActions.push({
-        id: 'add-to-deliberate-queue',
-        label: '刻意练习',
-        icon: 'iconCards',
-      });
-    }
-    if (this.plugin?.filterGroupQueue) {
-      queueActions.push({
-        id: 'add-to-filter-group-queue',
-        label: '筛选复习',
-        icon: 'iconFilter',
-      });
-    }
+    // 添加"加入队列"子菜单
+    const addToQueueAction = buildAddToQueueAction({
+      retrieval: !!this.plugin?.retrievalQueue,
+      incremental: !!this.plugin?.incrementalQueue,
+      deliberate: !!this.plugin?.deliberateQueue,
+      filterGroup: !!this.plugin?.filterGroupQueue,
+      neuralRoam: !!this.plugin?.neuralQueue,
+    });
 
-    if (queueActions.length > 0) {
-      actions.push({
-        id: 'add-to-queue',
-        label: '加入队列',
-        icon: 'iconDownload',
-        submenu: queueActions,
-      });
+    if (addToQueueAction) {
+      actions.push(addToQueueAction);
     }
 
     // 其他操作
     actions.push(
-      { id: 'set-priority', label: 'Set Priority', icon: 'iconMark' },
-      { id: 'postpone', label: 'Postpone', icon: 'iconCalendar' },
-      { id: 'advance', label: 'Advance', icon: 'iconCalendar' },
-      { id: 'spread', label: 'Spread', icon: 'iconSort' },
-      { id: 'reset', label: 'Reset', icon: 'iconRefresh', danger: true },
-      { id: 'suspend', label: 'Suspend', icon: 'iconPause' }
+      BASE_ACTIONS.setPriority,
+      BASE_ACTIONS.postpone,
+      BASE_ACTIONS.advance,
+      BASE_ACTIONS.spread,
+      BASE_ACTIONS.reset,
+      BASE_ACTIONS.suspend
     );
 
     if (this.plugin?.openSubsetReviewDialog) {
@@ -148,72 +174,65 @@ export class DeckDataSource implements ICardDataSource {
     if (actionId === 'open') return;
 
     // ========== 队列操作 ==========
-    if (actionId === 'add-to-extraction-queue') {
-      const items = selectedRows.map((r) => ({
-        cardID: r.fsrsCardId || r.id || r.blockId,
-        blockID: r.blockId,
-        deckID: r.deckId,
-        priority: typeof r.priority === 'number' ? r.priority : 50,
-      }));
-      if (this.plugin?.extractionQueue?.addItems) {
-        const added = await Promise.resolve(this.plugin.extractionQueue.addItems(items));
-        return { added, message: `已加入 ${added} 张卡片到提取练习队列` };
+
+    // 提取练习
+    if (actionId === 'add-to-retrieval-queue') {
+      if (this.plugin?.retrievalQueue) {
+        return await addToQueue(this.plugin.retrievalQueue, selectedRows, 'retrieval');
       }
       return;
     }
 
+    // 渐进学习
+    if (actionId === 'add-to-incremental-queue') {
+      console.log('[DeckDataSource] Adding to incremental learning queue');
+      if (this.plugin?.incrementalQueue) {
+        return await addToQueue(this.plugin.incrementalQueue, selectedRows, 'incremental');
+      }
+      console.error('[DeckDataSource] incrementalQueue not available!');
+      return;
+    }
+
+    // 刻意练习
     if (actionId === 'add-to-deliberate-queue') {
-      const items = selectedRows.map((r) => ({
-        cardID: r.fsrsCardId || r.id || r.blockId,
-        blockID: r.blockId,
-        deckID: r.deckId,
-        priority: typeof r.priority === 'number' ? r.priority : 50,
-      }));
-      let added = 0;
-      for (const item of items) {
-        await Promise.resolve(this.plugin?.deliberateQueue?.addItem?.(item));
-        added++;
-      }
-      return { added, message: `已加入 ${added} 张卡片到刻意练习队列` };
-    }
-
-    if (actionId === 'add-to-filter-group-queue') {
-      const items = selectedRows.map((r) => ({
-        cardID: r.fsrsCardId || r.id || r.blockId,
-        blockID: r.blockId,
-        deckID: r.deckId,
-        priority: typeof r.priority === 'number' ? r.priority : 50,
-      }));
-      if (this.plugin?.filterGroupQueue?.addItems) {
-        const added = await Promise.resolve(this.plugin.filterGroupQueue.addItems(items));
-        return { added, message: `已加入 ${added} 张卡片到筛选复习队列` };
+      if (this.plugin?.deliberateQueue) {
+        return await addToQueue(this.plugin.deliberateQueue, selectedRows, 'deliberate');
       }
       return;
     }
 
-    // 现有操作
+    // 筛选复习
+    if (actionId === 'add-to-filter-group-queue') {
+      if (this.plugin?.filterGroupQueue) {
+        return await addToQueue(this.plugin.filterGroupQueue, selectedRows, 'filter-group');
+      }
+      return;
+    }
+
+    // 神经漫游
+    if (actionId === 'add-to-neural-roam-queue') {
+      if (this.plugin?.neuralQueue) {
+        return await addToQueue(this.plugin.neuralQueue, selectedRows, 'neural-roam');
+      }
+      return;
+    }
+
+    // Review Subset
     if (actionId === 'review-subset') {
       const blockIds = (selectedRows || []).map((r) => String(r?.blockId || '')).filter(Boolean);
       if (blockIds.length === 0) return;
       await Promise.resolve(this.plugin?.openSubsetReviewDialog?.(blockIds));
       return;
     }
+
+    // ========== 优先级操作 ==========
+
     if (actionId === 'set-priority') {
-      const p = Math.max(0, Math.min(100, Math.floor(Number(context?.priority ?? 50))));
-      const blockIds = (selectedRows || []).map((r) => r.blockId).filter(Boolean);
-      if (blockIds.length === 0) return;
-      await batchSetPriority(blockIds, p);
-      for (const r of selectedRows || []) {
-        (r as any).priority = p;
-      }
+      await batchSetBlockPriority(selectedRows, Math.max(0, Math.min(100, Math.floor(Number(context?.priority ?? 50)))));
       return;
     }
 
-    const rows = (selectedRows || []).map((r) => ({
-      blockId: r.blockId,
-      cardId: r.id || undefined,
-      currentDue: r.due instanceof Date ? r.due : undefined,
-    }));
+    // ========== 卡片操作 ==========
 
     if (actionId === 'reset') {
       const blockIds = (selectedRows || []).map((r) => r.blockId).filter(Boolean);
@@ -227,66 +246,12 @@ export class DeckDataSource implements ICardDataSource {
       return;
     }
 
-    const service = this.plugin?.rescheduleService
-      ?? (this.plugin?.storage ? new RescheduleService(this.plugin.storage) : null);
+    // ========== 时间调整 ==========
 
-    if (!service) {
-      return;
+    if (actionId === 'postpone' || actionId === 'advance' || actionId === 'spread') {
+      return await adjustTime(this.plugin, selectedRows, actionId as any, context);
     }
 
-    const meta = { source: 'browser' };
-    if (actionId === 'advance') {
-      const maxDays = Math.max(1, Number(context?.maxDays || 0));
-      const res = await service.advance(rows, maxDays, meta);
-      for (const u of (res as any)?.updated || []) {
-        const d = parseSiyuanTime14(String(u?.newDue || ''));
-        const r = (selectedRows || []).find((x) => x.blockId === u?.blockId) as any;
-        if (r && d) {
-          r.due = d;
-          r.dueFormatted = formatDate(d);
-        }
-      }
-      return res;
-    }
-    if (actionId === 'postpone') {
-      const days = Math.max(1, Number(context?.days || 0));
-      const res = await service.postpone(rows, days, meta);
-      for (const u of (res as any)?.updated || []) {
-        const d = parseSiyuanTime14(String(u?.newDue || ''));
-        const r = (selectedRows || []).find((x) => x.blockId === u?.blockId) as any;
-        if (r && d) {
-          r.due = d;
-          r.dueFormatted = formatDate(d);
-        }
-      }
-      return res;
-    }
-    if (actionId === 'set-due') {
-      const d = context?.date instanceof Date ? context.date : new Date(String(context?.date || ''));
-      if (!d || Number.isNaN(d.getTime())) return;
-      const res = await service.rescheduleAbsolute(rows, d, meta);
-      for (const u of (res as any)?.updated || []) {
-        const nd = parseSiyuanTime14(String(u?.newDue || '')) || d;
-        const r = (selectedRows || []).find((x) => x.blockId === u?.blockId) as any;
-        if (r) {
-          r.due = nd;
-          r.dueFormatted = formatDate(nd);
-        }
-      }
-      return res;
-    }
-    if (actionId === 'spread') {
-      const maxDays = Math.max(1, Number(context?.maxDays || context?.days || 0));
-      const res = await (service as any).spread?.(rows, { maxDays }, meta);
-      for (const u of (res as any)?.updated || []) {
-        const d = parseSiyuanTime14(String(u?.newDue || ''));
-        const r = (selectedRows || []).find((x) => x.blockId === u?.blockId) as any;
-        if (r && d) {
-          r.due = d;
-          r.dueFormatted = formatDate(d);
-        }
-      }
-      return res;
-    }
+    console.warn('[DeckDataSource] Unknown action:', actionId);
   }
 }

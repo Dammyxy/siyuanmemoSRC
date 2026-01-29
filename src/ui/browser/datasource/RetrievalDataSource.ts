@@ -1,22 +1,30 @@
 import type { BrowserCard } from '../types';
 import { loadQueueCards } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
+import {
+  buildQueueActions,
+  removeFromQueue,
+  insertAt,
+  setPriority,
+  adjustTime,
+} from './MenuActions';
 
-type ExtractionQueueLike = {
+type RetrievalQueueLike = {
   getAllItems?: () => any[];
   removeItem?: (item: any) => Promise<boolean> | boolean;
   removeItems?: (items: any[]) => Promise<number> | number;
 };
 
 type FsrsPluginLike = {
-  extractionQueue?: ExtractionQueueLike;
+  retrievalQueue?: RetrievalQueueLike;
 };
 
-// ✅ 四重筛选：支持的筛选参数
-export type ExtractionDataSourceOptions = {
+// ✅ 五重筛选：支持的筛选参数
+export type RetrievalDataSourceOptions = {
   docId?: string;      // 文档筛选
   preset?: string;     // Preset 筛选
   queryText?: string;  // 搜索查询
+  cardType?: 'all' | 'topic-only' | 'item-only';  // ✅ 卡片类型筛选
 };
 
 function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
@@ -38,20 +46,20 @@ function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
   return copy;
 }
 
-export class ExtractionDataSource implements ICardDataSource {
-  id = 'extraction';
-  label = 'Extraction';
+export class RetrievalDataSource implements ICardDataSource {
+  id = 'retrieval';
+  label = 'Retrieval';
 
   private readonly plugin?: FsrsPluginLike;
-  private readonly options: ExtractionDataSourceOptions;
+  private readonly options: RetrievalDataSourceOptions;
 
-  constructor(plugin: FsrsPluginLike | undefined, options?: ExtractionDataSourceOptions) {
+  constructor(plugin: FsrsPluginLike | undefined, options?: RetrievalDataSourceOptions) {
     this.plugin = plugin;
     this.options = options || {};
   }
 
   async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
-    const q = (this.plugin as any)?.extractionQueue as ExtractionQueueLike | undefined;
+    const q = (this.plugin as any)?.retrievalQueue as RetrievalQueueLike | undefined;
     const items = q?.getAllItems?.() || [];
     const blockIds = (items || []).map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
     const cards = await loadQueueCards(blockIds);
@@ -122,31 +130,45 @@ export class ExtractionDataSource implements ICardDataSource {
   }
 
   getSupportedActions(): CardBrowserAction[] {
-    return [
-      { id: 'open', label: 'Open', icon: 'iconOpen' },
-      { id: 'remove-from-queue', label: 'Remove from Queue', icon: 'iconTrashcan' },
-    ];
+    return buildQueueActions({
+      withInsert: true,
+      withSort: false,
+      withPriority: true,
+      withTimeAdjust: true,
+    });
   }
 
   async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<void> {
     void context;
     if (actionId === 'open') return;
-    if (actionId !== 'remove-from-queue') return;
-    const q = (this.plugin as any)?.extractionQueue as ExtractionQueueLike | undefined;
+
+    const q = (this.plugin as any)?.retrievalQueue;
     if (!q) return;
-    const items = (selectedRows || []).map((r) => ({
-      cardID: r.id || r.fsrsCardId || r.blockId,  // 优先使用 id（Riff card ID），与队列存储保持一致
-      blockID: r.blockId,
-      deckID: r.deckId,
-      priority: typeof r.priority === 'number' ? r.priority : 50,
-    }));
-    if (q.removeItems) {
-      await Promise.resolve(q.removeItems(items));
+
+    // 从队列移除
+    if (actionId === 'remove-from-current-queue') {
+      await removeFromQueue(q, selectedRows);
       return;
     }
-    for (const it of items) {
-      await Promise.resolve(q.removeItem?.(it));
+
+    // 插入到指定位置
+    if (actionId === 'insert-at') {
+      const index = Math.max(0, Math.floor(Number(context?.index ?? 0)));
+      await insertAt(q, selectedRows, index);
+      return;
+    }
+
+    // 设置优先级
+    if (actionId === 'set-priority') {
+      const priority = Math.max(0, Math.min(100, Math.floor(Number(context?.priority))));
+      await setPriority(q, selectedRows, priority);
+      return;
+    }
+
+    // 时间调整
+    if (actionId === 'postpone' || actionId === 'advance' || actionId === 'spread') {
+      await adjustTime(this.plugin, selectedRows, actionId as any, context);
+      return;
     }
   }
 }
-

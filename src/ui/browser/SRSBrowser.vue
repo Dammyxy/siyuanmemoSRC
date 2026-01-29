@@ -43,6 +43,11 @@
             <option value="leech">{{ t('leech', 'Leech') }}</option>
             <option value="new">{{ t('new', 'New') }}</option>
           </select>
+          <select v-model="currentCardType" class="b3-select" @change="handleCardTypeChange">
+            <option value="all">{{ t('allTypes', 'All Types') }}</option>
+            <option value="topic-only">{{ t('topicOnly', 'Topic Only') }}</option>
+            <option value="item-only">{{ t('itemOnly', 'Item Only') }}</option>
+          </select>
         </div>
         
         <div class="toolbar__center">
@@ -50,9 +55,9 @@
         </div>
         
         <div class="toolbar__right">
-          <!-- ✅ 退出聚焦按钮 -->
+          <!-- ✅ 退出聚焦按钮：仅在【丢失/关闭闪卡】或聚焦模式下显示 -->
           <button
-            v-if="shouldFocusDocList"
+            v-if="activeDocId === '__lost__' || shouldFocusDocList"
             class="b3-button b3-button--outline"
             @click="handleExitFocus"
             :title="t('exitFocus', '退出聚焦')"
@@ -72,7 +77,7 @@
           </button>
 
           <button
-            v-if="activeQueueId === 'final-drill'"
+            v-if="false"
             class="b3-button b3-button--outline"
             @click="autoSortFinalDrillQueue"
             :disabled="!props.plugin"
@@ -101,11 +106,16 @@
             <svg><use :xlink:href="viewMode === 'flat' ? '#iconFiles' : '#iconList'"></use></svg>
           </button>
 
-          <!-- 强制刷新按钮（含 Topic/Item 迁移） -->
-          <button class="b3-button b3-button--outline" @click="forceRefreshData" :disabled="loading" :title="t('forceRefreshWithMigration', '强制刷新数据（清除缓存 + 自动识别 Topic/Item 类型）')">
+          <!-- 强制刷新按钮 -->
+          <button class="b3-button b3-button--outline" @click="forceRefreshData" :disabled="loading" :title="t('forceRefresh', '强制刷新数据（清除缓存）')">
             <svg><use xlink:href="#iconRefresh"></use></svg>
           </button>
-          
+
+          <!-- Topic/Item 迁移按钮 -->
+          <button class="b3-button b3-button--outline" @click="migrateTopicItem" :disabled="loading" :title="t('migrateTopicItem', '识别 Topic/Item 类型')">
+            <svg><use xlink:href="#iconTags"></use></svg>
+          </button>
+
           <!-- 性能报告按钮 -->
           <button class="b3-button b3-button--outline" @click="showPerformanceReport" :disabled="loading" :title="t('perfReport', '性能报告')">
             <svg><use xlink:href="#iconInfo"></use></svg>
@@ -245,7 +255,7 @@ import { ATTR_CARD_TYPE } from '@/core/siyuan/block';
 import type { ICardDataSource } from './datasource/types';
 import { FinalDrillDataSource } from './datasource/FinalDrillDataSource';
 import { FilterGroupDataSource } from './datasource/FilterGroupDataSource';
-import { ExtractionDataSource } from './datasource/ExtractionDataSource';
+import { RetrievalDataSource } from './datasource/RetrievalDataSource';
 import { DeckDataSource } from './datasource/DeckDataSource';
 import { QueryDataSource } from './datasource/QueryDataSource';
 import { BlockIdsDataSource } from './datasource/BlockIdsDataSource';
@@ -277,6 +287,7 @@ const rows = ref<BrowserCard[]>([]);
 const allRows = ref<BrowserCard[]>([]);  // ✅ 所有卡片的完整数据（不受筛选影响，用于【全部】区统计）
 const currentDataSource = ref<ICardDataSource | null>(null);
 const currentPreset = ref('all');
+const currentCardType = ref<'all' | 'topic-only' | 'item-only'>('all');  // ✅ 卡片类型筛选
 const selectedRows = ref<BrowserCard[]>([]);
 const gridApi = ref<GridApi | null>(null);
 const currentSortModel = ref<any[]>([]);
@@ -541,7 +552,7 @@ const SORT_FIELDS: SortFieldConfig[] = [
 // 判断是否为队列模式（队列模式启用客户端排序，Deck 模式禁用）
 const isQueueMode = computed(() => {
   const qid = String(activeQueueId.value || '');
-  return qid === 'final-drill' || qid === 'extraction' || qid === 'filter-group' || qid === 'neural';
+  return qid === 'final-drill' || qid === 'retrieval' || qid === 'filter-group' || qid === 'neural' || qid === 'incremental-learning';
 });
 
 // 始终启用 sortable，通过 canApplySortToQueue 控制按钮显示
@@ -678,39 +689,50 @@ async function loadData(forceRefresh = false) {
       shouldFocusDocList.value = false;  // SQL 模式不聚焦
       currentDataSource.value = new QueryDataSource(sqlStmt);
     } else if (activeQueueId.value === 'final-drill') {
-      // ✅ 四重筛选：传递所有筛选参数
+      // ✅ 五重筛选：传递所有筛选参数
       currentDataSource.value = new FinalDrillDataSource(props.plugin, {
         docId: activeDocId.value,
         preset: currentPreset.value,
         queryText: searchQuery.value,
+        cardType: currentCardType.value,
       });
-    } else if (activeQueueId.value === 'extraction') {
-      // ✅ 四重筛选：传递所有筛选参数
-      currentDataSource.value = new ExtractionDataSource(props.plugin, {
+    } else if (activeQueueId.value === 'retrieval') {
+      // ✅ 五重筛选：传递所有筛选参数
+      currentDataSource.value = new RetrievalDataSource(props.plugin, {
         docId: activeDocId.value,
         preset: currentPreset.value,
         queryText: searchQuery.value,
+        cardType: currentCardType.value,
       });
     } else if (activeQueueId.value === 'filter-group') {
-      // ✅ 四重筛选：传递所有筛选参数
+      // ✅ 五重筛选：传递所有筛选参数
       currentDataSource.value = new FilterGroupDataSource(props.plugin, {
         docId: activeDocId.value,
         preset: currentPreset.value,
         queryText: searchQuery.value,
+        cardType: currentCardType.value,
       });
     } else if (activeQueueId.value) {
       const q = getQueueById(activeQueueId.value);
       const items = q?.getAllItems?.() || [];
       const ids = (items || []).map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
       // ✅ 四重筛选：BlockIdsDataSource 不支持额外筛选（TODO）
-      currentDataSource.value = new BlockIdsDataSource({ id: activeQueueId.value, label: activeQueueId.value, blockIds: ids });
+      currentDataSource.value = new BlockIdsDataSource({
+        id: activeQueueId.value,
+        label: activeQueueId.value,
+        blockIds: ids,
+        plugin: props.plugin,
+        queueId: activeQueueId.value,
+      });
     } else {
       // 传递 activeDocId（用户选择的文档）而不是 props.currentDocId（插件初始化时的文档）
       // 传递 searchQuery 以支持搜索查询筛选
+      // ✅ 五重筛选：传递卡片类型筛选
       currentDataSource.value = new DeckDataSource(props.plugin, {
         preset: currentPreset.value,
         currentDocId: activeDocId.value || props.currentDocId,
         queryText: searchQuery.value,
+        cardType: currentCardType.value,
       });
     }
 
@@ -724,15 +746,8 @@ async function loadData(forceRefresh = false) {
     const { rows: fetchedRows, totalCount } = await PerformanceMonitor.measure('fetchRows', () => currentDataSource.value!.fetchRows({ sortModel: [], filterModel: {} }));
     rows.value = fetchedRows;
 
-    // ✅ 更新全局统计数据（获取所有卡片，不受筛选影响）
-    if (activeQueueId.value) {
-      // 队列模式：使用队列的所有卡片（不含文档筛选）
-      const queueAllCards = await loadQueueAllCards(activeQueueId.value);
-      allRows.value = queueAllCards;
-    } else {
-      // 全部卡片模式：获取所有 Riff 卡片
-      allRows.value = await PerformanceMonitor.measure('loadAllCards', () => loadCards('all', undefined, '', forceRefresh));  // 传递 forceRefresh 参数
-    }
+    // ✅ 更新全局统计数据（始终使用全部 Riff 卡片，不受队列/文档筛选影响）
+    allRows.value = await PerformanceMonitor.measure('loadAllCards', () => loadCards('all', undefined, '', forceRefresh));
 
     // ✅ 四重筛选：如果开启了聚焦，额外获取不包含文档筛选的数据用于计算聚焦文档
     if (shouldFocusDocList.value) {
@@ -743,29 +758,39 @@ async function loadData(forceRefresh = false) {
         dataSourceForFocus = new FinalDrillDataSource(props.plugin, {
           preset: currentPreset.value,  // ✅ 应用 preset 筛选（与显示数据一致）
           queryText: searchQuery.value,  // ✅ 应用搜索筛选（与显示数据一致）
+          cardType: currentCardType.value,  // ✅ 应用卡片类型筛选
         });
-      } else if (activeQueueId.value === 'extraction') {
-        dataSourceForFocus = new ExtractionDataSource(props.plugin, {
+      } else if (activeQueueId.value === 'retrieval') {
+        dataSourceForFocus = new RetrievalDataSource(props.plugin, {
           preset: currentPreset.value,  // ✅ 应用 preset 筛选（与显示数据一致）
           queryText: searchQuery.value,  // ✅ 应用搜索筛选（与显示数据一致）
+          cardType: currentCardType.value,  // ✅ 应用卡片类型筛选
         });
       } else if (activeQueueId.value === 'filter-group') {
         dataSourceForFocus = new FilterGroupDataSource(props.plugin, {
           preset: currentPreset.value,  // ✅ 应用 preset 筛选（与显示数据一致）
           queryText: searchQuery.value,  // ✅ 应用搜索筛选（与显示数据一致）
+          cardType: currentCardType.value,  // ✅ 应用卡片类型筛选
         });
       } else if (activeQueueId.value) {
         // 神经漫游队列（BlockIdsDataSource 不支持筛选，使用全部数据）
         const queue = getQueueById(activeQueueId.value);
         const items = queue?.getAllItems?.() || [];
         const ids = (items || []).map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
-        dataSourceForFocus = new BlockIdsDataSource({ id: activeQueueId.value, label: activeQueueId.value, blockIds: ids });
+        dataSourceForFocus = new BlockIdsDataSource({
+          id: activeQueueId.value,
+          label: activeQueueId.value,
+          blockIds: ids,
+          plugin: props.plugin,
+          queueId: activeQueueId.value,
+        });
       } else {
         // ✅ 全部卡片模式：创建不含文档筛选的 DeckDataSource
         dataSourceForFocus = new DeckDataSource(props.plugin, {
           preset: currentPreset.value,
           currentDocId: undefined,  // ✅ 不传文档 ID，获取所有文档的数据
           queryText: searchQuery.value,  // ✅ 应用搜索筛选
+          cardType: currentCardType.value,  // ✅ 应用卡片类型筛选
         });
       }
 
@@ -1172,7 +1197,7 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   }
 
   const builder = ACTION_PARAM_BUILDERS[actionId];
-  const ctx = builder ? await builder(targetCards) : undefined;
+  const ctx = builder ? await builder(targetCards) : { refresh: () => void loadData() };
   if (builder && ctx == null) return;
 
   try {
@@ -1193,6 +1218,7 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
 
     if (
       actionId === 'remove-from-queue'
+      || actionId === 'remove-from-current-queue'
       || actionId === 'dismiss'
       || actionId === 'insert-at'
       || actionId === 'auto-sort'
@@ -1438,10 +1464,16 @@ const canApplySortToQueue = computed(() => {
   let hasSort = sortArray.length > 0;
   if (!hasSort && gridApi.value) {
     try {
-      const columnState = gridApi.value.getColumnState?.() || [];
-      hasSort = columnState.some((col: any) => col.sort && col.sort !== 'undefined');
+      // ✅ 检查 grid 是否已被销毁
+      if (typeof gridApi.value.isDestroyed === 'function' && gridApi.value.isDestroyed()) {
+        hasSort = false;
+      } else {
+        const columnState = gridApi.value.getColumnState?.() || [];
+        hasSort = columnState.some((col: any) => col.sort && col.sort !== 'undefined');
+      }
     } catch (e) {
-      // Ignore errors
+      // Ignore errors (grid may be destroyed)
+      hasSort = false;
     }
   }
 
@@ -1452,16 +1484,16 @@ const canApplySortToQueue = computed(() => {
 
   console.log('[CardBrowser] canApplySortToQueue check:', {
     queueId: qid,
-    isValidQueue: qid === 'extraction' || qid === 'final-drill' || qid === 'filter-group',
+    isValidQueue: qid === 'retrieval' || qid === 'final-drill' || qid === 'filter-group' || qid === 'neural' || qid === 'incremental-learning',
     hasSortModel: hasSort,
     hasRandomSort: hasRandomSort.value,
     sortModel: sortArray,
     sortModelLength: sortArray.length,
-    result: (qid === 'extraction' || qid === 'final-drill' || qid === 'filter-group') && hasSort
+    result: (qid === 'retrieval' || qid === 'final-drill' || qid === 'filter-group' || qid === 'neural' || qid === 'incremental-learning') && hasSort
   });
 
   if (!qid) return false;
-  if (qid !== 'extraction' && qid !== 'final-drill' && qid !== 'filter-group') return false;
+  if (qid !== 'retrieval' && qid !== 'final-drill' && qid !== 'filter-group' && qid !== 'neural' && qid !== 'incremental-learning') return false;
   if (!hasSort) return false;
   return true;
 });
@@ -1620,6 +1652,17 @@ function handlePresetChange() {
   void refreshData();
 }
 
+// 切换卡片类型
+function handleCardTypeChange() {
+  // ✅ 五重筛选：不再清除其他筛选条件
+  // activeQueueId.value → 保留队列
+  // activeDocId.value → 保留文档
+  // currentPreset.value → 保留预设
+  // searchQuery.value → 保留搜索
+  // ✅ 强制刷新缓存，因为 cardType 筛选在 loadCards() 中应用
+  void refreshData(true);  // forceRefresh = true
+}
+
 // ========== 卡片类型标记功能 ==========
 
 /**
@@ -1678,41 +1721,110 @@ async function markCardsAsItem(cards: BrowserCard[]): Promise<void> {
   }
 }
 
-// 强制刷新数据（清除缓存 + Topic/Item 迁移）
+// 强制刷新数据（清除缓存）
 async function forceRefreshData() {
   loading.value = true;
 
   try {
-    // 1. 先清除缓存（确保数据源不会使用旧数据）
-    console.log('[CardBrowser] Clearing cache before migration...');
+    // 清除缓存
+    console.log('[CardBrowser] Clearing cache...');
     invalidateCardCache();
 
-    // 2. 强制重新识别所有卡片（覆盖之前的错误标记）
-    console.log('[CardBrowser] Starting forced Topic/Item re-migration...');
-    pushMsg('正在执行 Topic/Item 类型重新识别（覆盖旧标记）...', 3000);
-
-    // 执行迁移（强制重新识别，覆盖已有的标记）
-    const result = await migrateExistingCards(true);  // ← forceRemigrate=true
-
-    // 显示迁移结果
-    const msg = `✅ 迁移完成：${result.migrated}/${result.total} 张卡片已识别 (Topic: ${result.topics}, Item: ${result.items}, 耗时: ${Math.round(result.duration / 1000)}s)`;
-    console.log('[CardBrowser]', msg);
-    pushMsg(msg, 5000);
-
-    if (result.errors > 0) {
-      pushErrMsg(`⚠️ ${result.errors} 张卡片迁移失败，请查看控制台`, 5000);
-    }
-
-    // 3. 再次清除缓存（确保使用新的迁移数据）
-    console.log('[CardBrowser] Clearing cache after migration...');
-    invalidateCardCache();
-
-    // 4. 刷新数据
+    // 刷新数据
     await refreshData(true, true);  // forceRefresh=true, preserveFocusState=true
     pushMsg('✅ 数据已强制刷新（缓存已清除）', 2000);
   } catch (err: any) {
     console.error('[CardBrowser] Force refresh failed:', err);
     pushErrMsg(`强制刷新失败：${err?.message || '未知错误'}`, 3000);
+  } finally {
+    loading.value = false;
+  }
+}
+
+// Topic/Item 类型迁移（带确认弹窗）
+async function migrateTopicItem() {
+  // 显示确认弹窗
+  const confirmed = await new Promise<boolean>((resolve) => {
+    const dialog = document.createElement('div');
+    dialog.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;';
+
+    const content = document.createElement('div');
+    content.style.cssText = 'background: var(--b3-theme-background); padding: 24px; border-radius: 8px; max-width: 500px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);';
+
+    content.innerHTML = `
+      <h3 style="margin: 0 0 16px 0; font-size: 18px;">${t('migrateConfirmTitle', '识别 Topic/Item 类型')}</h3>
+      <p style="margin: 0 0 20px 0; color: var(--b3-theme-on-surface); line-height: 1.6; white-space: pre-line;">
+        ${t('migrateConfirmMessage', `此操作将自动识别所有卡片的类型：
+
+Topic（主题）= 纯阅读材料，使用 A-Factor 算法
+Item（卡片）= 问答卡片，使用 FSRS 算法
+
+是否继续？`)}
+      </p>
+      <div style="display: flex; gap: 12px; justify-content: flex-end;">
+        <button class="b3-button b3-button--outline" id="migrate-cancel">${t('cancel', '取消')}</button>
+        <button class="b3-button b3-button--primary" id="migrate-confirm">${t('confirm', '确认')}</button>
+      </div>
+    `;
+
+    dialog.appendChild(content);
+    document.body.appendChild(dialog);
+
+    const cancelBtn = content.querySelector('#migrate-cancel') as HTMLButtonElement;
+    const confirmBtn = content.querySelector('#migrate-confirm') as HTMLButtonElement;
+
+    const cleanup = () => {
+      document.body.removeChild(dialog);
+    };
+
+    cancelBtn.onclick = () => {
+      cleanup();
+      resolve(false);
+    };
+
+    confirmBtn.onclick = () => {
+      cleanup();
+      resolve(true);
+    };
+
+    // 点击背景关闭
+    dialog.onclick = (e) => {
+      if (e.target === dialog) {
+        cleanup();
+        resolve(false);
+      }
+    };
+  });
+
+  if (!confirmed) {
+    console.log('[CardBrowser] Migration cancelled by user');
+    return;
+  }
+
+  loading.value = true;
+
+  try {
+    console.log('[CardBrowser] Starting Topic/Item migration...');
+    pushMsg('正在执行 Topic/Item 类型识别...', 3000);
+
+    // 执行迁移
+    const result = await migrateExistingCards(true);  // forceRemigrate=true
+
+    // 显示迁移结果
+    const msg = `✅ 识别完成：${result.migrated}/${result.total} 张卡片 (Topic: ${result.topics}, Item: ${result.items}, 耗时: ${Math.round(result.duration / 1000)}s)`;
+    console.log('[CardBrowser]', msg);
+    pushMsg(msg, 5000);
+
+    if (result.errors > 0) {
+      pushErrMsg(`⚠️ ${result.errors} 张卡片识别失败，请查看控制台`, 5000);
+    }
+
+    // 清除缓存并刷新数据
+    invalidateCardCache();
+    await refreshData(true, true);
+  } catch (err: any) {
+    console.error('[CardBrowser] Migration failed:', err);
+    pushErrMsg(`识别失败：${err?.message || '未知错误'}`, 3000);
   } finally {
     loading.value = false;
   }
@@ -1840,10 +1952,11 @@ function openPracticeMenu(ev: MouseEvent) {
 }
 
 function getQueueById(id: string) {
-  if (id === 'extraction') return (props.plugin as any)?.extractionQueue;
+  if (id === 'retrieval') return (props.plugin as any)?.retrievalQueue;
   if (id === 'final-drill') return (props.plugin as any)?.finalDrillQueue;
   if (id === 'neural-roam') return props.plugin?.neuralQueue;
   if (id === 'filter-group') return props.plugin?.filterGroupQueue;
+  if (id === 'incremental-learning') return (props.plugin as any)?.incrementalQueue;
   return null;
 }
 
@@ -1853,20 +1966,36 @@ async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {
   if (!queue) return [];
 
   const items = queue?.getAllItems?.() || [];
+  console.log('[SRSBrowser] loadQueueAllCards:', {
+    queueId,
+    itemsCount: items.length,
+    items: items.map((it: any) => ({
+      cardID: it.cardID,
+      blockID: it.blockID,
+      deckID: it.deckID,
+    })),
+  });
+
   const blockIds = (items || []).map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
-  return await loadQueueCards(blockIds);
+  console.log('[SRSBrowser] Extracted blockIds:', blockIds);
+
+  const cards = await loadQueueCards(blockIds);
+  console.log('[SRSBrowser] Loaded cards:', cards.length);
+  return cards;
 }
 
 async function refreshQueueCounts() {
-  const extraction = (props.plugin as any)?.extractionQueue?.size?.() ?? ((props.plugin as any)?.extractionQueue?.getAllItems?.()?.length ?? 0);
+  const retrieval = (props.plugin as any)?.retrievalQueue?.size?.() ?? ((props.plugin as any)?.retrievalQueue?.getAllItems?.()?.length ?? 0);
   const finalDrill = (props.plugin as any)?.finalDrillQueue?.size?.() ?? ((props.plugin as any)?.finalDrillQueue?.getAllItems?.()?.length ?? 0);
   const neural = props.plugin?.neuralQueue?.size?.() ?? (props.plugin?.neuralQueue?.getAllItems?.()?.length ?? 0);
   const filterGroup = props.plugin?.filterGroupQueue?.size?.() ?? (props.plugin?.filterGroupQueue?.getAllItems?.()?.length ?? 0);
+  const incremental = (props.plugin as any)?.incrementalQueue?.getAllItems?.()?.length ?? 0;
   queueCounts.value = {
-    extraction: Number(extraction) || 0,
+    retrieval: Number(retrieval) || 0,
     'final-drill': Number(finalDrill) || 0,
     'neural-roam': Number(neural) || 0,
     'filter-group': Number(filterGroup) || 0,
+    'incremental-learning': Number(incremental) || 0,
   };
 }
 
@@ -1883,8 +2012,16 @@ async function handleSelectQueue(queueId: string) {
 function handleSelectGlobal(type: '__all__' | '__lost__') {
   // ✅ 点击【全部】区的项，完全重置到初始状态
   activeQueueId.value = null;  // ✅ 清除队列筛选
-  activeDocId.value = null;    // ✅ 清除文档筛选
+
+  // ✅ 根据类型设置 activeDocId
+  if (type === '__lost__') {
+    activeDocId.value = '__lost__';  // ✅ 丢失闪卡
+  } else {
+    activeDocId.value = null;           // ✅ 全部闪卡
+  }
+
   currentPreset.value = 'all'; // ✅ 清除 preset 筛选
+  currentCardType.value = 'all'; // ✅ 清除卡片类型筛选
   searchQuery.value = '';      // ✅ 清除搜索筛选
   shouldFocusDocList.value = false;  // ✅ 关闭聚焦
   void loadData();

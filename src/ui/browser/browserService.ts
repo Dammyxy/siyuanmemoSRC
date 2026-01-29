@@ -623,7 +623,8 @@ export async function loadCards(
     preset: string,
     currentDocId?: string,
     queryText?: string,
-    forceRefresh = false
+    forceRefresh = false,
+    cardType: 'all' | 'topic-only' | 'item-only' = 'all'  // ✅ 新增卡片类型参数
 ): Promise<BrowserCard[]> {
     return PerformanceMonitor.measure('loadCards', async () => {
         try {
@@ -635,6 +636,13 @@ export async function loadCards(
 
             // Step 2: 应用 preset 筛选（内存中快速过滤）
             let cards = applyPresetFilter(allCards, preset, currentDocId);
+
+            // Step 2.5: ✅ 应用 cardType 筛选
+            if (cardType === 'topic-only') {
+                cards = cards.filter(c => c.cardType === 'topic' || (!c.cardType && c.content.indexOf('::') === -1 && c.content.indexOf('?') === -1));
+            } else if (cardType === 'item-only') {
+                cards = cards.filter(c => c.cardType === 'item' || (!c.cardType && (c.content.indexOf('::') !== -1 || c.content.indexOf('?') !== -1)));
+            }
 
             // Step 3: 应用查询文本筛选
             const parsed = parseQuery(queryText || '');

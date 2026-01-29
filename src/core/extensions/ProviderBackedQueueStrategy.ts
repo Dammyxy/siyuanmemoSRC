@@ -54,9 +54,15 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
   }
 
   async getStats(): Promise<QueueStats> {
+    console.log('[ProviderBackedQueueStrategy] getStats called');
     await this.ensureLoaded();
+    console.log('[ProviderBackedQueueStrategy] getStats: after ensureLoaded', {
+      bufferLength: this.buffer.length,
+      hasGetStats: typeof (this.provider as any)?.getStats === 'function',
+    });
     if (typeof (this.provider as any)?.getStats === 'function') {
       const s = await (this.provider as any).getStats(this.providerOptions).catch(() => null);
+      console.log('[ProviderBackedQueueStrategy] getStats: provider stats result', s);
       const remaining = Number.isFinite(Number(s?.remaining))
         ? Math.max(0, Number(s?.remaining) || 0)
         : Number.isFinite(Number(s?.total)) && Number.isFinite(Number(s?.current))
@@ -71,13 +77,20 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
   }
 
   async next(): Promise<TItem | null> {
+    console.log('[ProviderBackedQueueStrategy] next called');
     await this.ensureLoaded();
+    console.log('[ProviderBackedQueueStrategy] next: buffer length', this.buffer.length);
     if (this.keepCurrentOnNext && this.current) {
       this.keepCurrentOnNext = false;
       return this.current;
     }
     const next = this.buffer.shift() || null;
     this.current = next;
+    console.log('[ProviderBackedQueueStrategy] next: returning item', {
+      hasItem: !!next,
+      itemId: next ? this.getCardId(next) : null,
+      remainingBuffer: this.buffer.length,
+    });
     return next;
   }
 
@@ -122,7 +135,15 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
   private async ensureLoaded(): Promise<void> {
     if (this.loaded) return;
     this.loaded = true;
+    console.log('[ProviderBackedQueueStrategy] Loading cards from provider:', {
+      providerId: (this.provider as any)?.id || (this.provider as any)?.displayName,
+      providerOptions: this.providerOptions,
+    });
     const items = await this.provider.getDueCards(this.providerOptions);
+    console.log('[ProviderBackedQueueStrategy] Cards loaded:', {
+      count: Array.isArray(items) ? items.length : 0,
+      items: Array.isArray(items) ? items.slice(0, 5) : items,
+    });
     this.buffer = Array.isArray(items) ? [...items] : [];
   }
 }

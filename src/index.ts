@@ -30,7 +30,24 @@ import { createVueDialog } from '@/utils/dialog';
 import { createDefaultCard } from '@/types';
 import '@/index.scss';
 import { ConsoleQueueMonitor, DEFAULT_PRIORITY, QueueContext, StorageFileJsonAdapter, type QueueItem } from '@/core/queue';
-import { RetrievalPracticeQueue, FilterGroupQueue, FinalDrillQueue, NeuralRoamQueue, SubsetPracticeStrategy, LeechQueue } from '@/core/queue/strategies';
+import {
+  RetrievalPracticeQueue,
+  FilterGroupQueue,
+  FinalDrillQueue,
+  NeuralRoamQueue,
+  SubsetPracticeStrategy,
+  LeechQueue
+} from '@/core/queue/strategies';
+// V2 队列导入（使用别名以区分 V1 和 V2）
+import {
+  RetrievalPracticeQueue as RetrievalPracticeQueueV2,
+  FilterGroupQueue as FilterGroupQueueV2,
+  FinalDrillQueue as FinalDrillQueueV2,
+  NeuralRoamQueue as NeuralRoamQueueV2,
+  LeechQueue as LeechQueueV2,
+} from '@/core/queue/strategies';
+// ✅ 直接导入 IncrementalLearningQueueV2，避免从 index.ts 导入旧版本
+import { IncrementalLearningQueueV2 } from '@/core/queue/strategies/IncrementalLearningQueueV2';
 import { NeuralQueue, NeuralQueueStorage } from '@/core/queue/neural';
 import { ExtractionNativeAdapter, FinalDrillNativeAdapter, FilterGroupNativeAdapter } from '@/core/native/adapter';
 import { NativeReviewSession } from '@/core/native/session';
@@ -54,6 +71,7 @@ export default class FSRSPlugin extends Plugin {
   public neuralQueue!: NeuralQueue;
   public finalDrillQueue!: FinalDrillQueue;
   public leechQueue!: LeechQueue;
+  public incrementalQueue!: IncrementalLearningQueueV2;
   private subsetQueue!: FilterGroupQueue; // 内部命名
 
   // 为兼容性提供的别名访问器
@@ -141,10 +159,13 @@ export default class FSRSPlugin extends Plugin {
       this.rescheduleService = new RescheduleService(this.storage);
 
       this.scheduler = createScheduler(settings.fsrs, settings.schedulerEngine);
-      this.retrievalQueue = new RetrievalPracticeQueue({
+
+      // ✅ 使用 V2 队列（复合架构）
+      this.retrievalQueue = new RetrievalPracticeQueueV2({
         storage: this.storage,
         localScheduler: this.scheduler,
       });
+
       this.queueContext = new QueueContext<QueueItem>({
         initial: 'retrieval',
         monitors: [new ConsoleQueueMonitor()],
@@ -156,25 +177,42 @@ export default class FSRSPlugin extends Plugin {
         weight: Number(g.weight) || 1,
       })).filter((g: any) => g.id);
       const configs = groupConfigs.length ? groupConfigs : [{ id: 'default', weight: 1 }];
-      const filterGroupQueue = new FilterGroupQueue(
+
+      // ✅ 使用 V2 队列（复合架构）
+      const filterGroupQueue = new FilterGroupQueueV2(
         configs,
         new StorageFileJsonAdapter(this.storage, 'queue-filter-group.json'),
       );
       await filterGroupQueue.init();
       this.subsetQueue = filterGroupQueue;
       this.queueContext.register('filter-group', this.subsetQueue);
-      this.finalDrillQueue = new FinalDrillQueue(this.storage);
+
+      // ✅ 使用 V2 队列（复合架构）
+      this.finalDrillQueue = new FinalDrillQueueV2(this.storage);
       await this.finalDrillQueue.init();
       this.queueContext.register('final-drill', this.finalDrillQueue);
 
-      // 初始化难点攻坚队列
-      this.leechQueue = new LeechQueue();
+      // 初始化难点攻坚队列（✅ 使用 V2）
+      this.leechQueue = new LeechQueueV2();
       this.queueContext.register('leech', this.leechQueue);
 
-      // 初始化神经漫游队列
+      // 初始化神经漫游队列（✅ 使用 V2）
       const neuralConfig = NeuralQueueStorage.loadConfig();
-      this.neuralQueue = new NeuralQueue(neuralConfig);
+      this.neuralQueue = new NeuralRoamQueueV2(neuralConfig);
       this.queueContext.register('neural-roam', this.neuralQueue);
+
+      // 初始化渐进学习队列（✅ 使用 V2 - Simplified）
+      this.incrementalQueue = new IncrementalLearningQueueV2({
+        storage: this.storage,
+        scheduler: this.scheduler,
+      });
+      this.queueContext.register('incremental-learning', this.incrementalQueue);
+
+      console.log('[FSRS] ✅ Incremental learning queue initialized:', {
+        hasQueue: !!this.incrementalQueue,
+        hasAddItems: typeof this.incrementalQueue.addItems === 'function',
+        queueName: this.incrementalQueue.constructor.name,
+      });
 
       // 初始化调度器
       this.scheduler = createScheduler(settings.fsrs, settings.schedulerEngine);
@@ -425,6 +463,15 @@ export default class FSRSPlugin extends Plugin {
     });
 
     menu.addItem({
+      icon: 'iconBook',
+      label: this.i18n?.startIncrementalLearning || '开始渐进学习',
+      accelerator: 'Alt+I',
+      click: () => {
+        this.openIncrementalLearningDialog();
+      },
+    });
+
+    menu.addItem({
       icon: 'iconRefresh',
       label: this.i18n?.startNeuralReview || '开始神经复习',
       accelerator: 'Alt+N',
@@ -637,7 +684,7 @@ export default class FSRSPlugin extends Plugin {
       this.reviewDialog.destroy();
     }
     try {
-      // ✅ 使用 RetrievalPracticeProvider
+      // ✅ 使用 RetrievalPracticeProvider，传递 storage 和 scheduler
       const provider = new RetrievalPracticeProvider({
         storage: this.storage,
         scheduler: this.scheduler,
@@ -686,7 +733,8 @@ export default class FSRSPlugin extends Plugin {
     try {
       const settings = this.storage?.getSettings?.();
       const leech = (settings as any)?.leech || {};
-      const session = new LeechQueue({
+      // ✅ 使用 V2 队列（复合架构）
+      const session = new LeechQueueV2({
         deckID: riff.BUILTIN_DECK_ID,
         threshold: Number(leech.threshold) || 8,
         action: (leech.action || 'notify') as any,
@@ -790,23 +838,45 @@ export default class FSRSPlugin extends Plugin {
       await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
       return;
     }
+    if (this.reviewDialog) {
+      this.reviewDialog.destroy();
+    }
 
     try {
-      // 检查是否有数据
-      const stats = await this.getQueueStats();
+      const title = this.i18n?.incrementalLearning || '渐进学习';
+      const adapter = new RetrievalPracticeAdapter({
+        i18n: this.i18n || {},
+        label: title,
+        queueName: 'incremental-learning'
+      });
 
-      if (stats.total === 0) {
-        await pushMsg('暂无可用卡片，请先创建一些闪卡');
-        return;
-      }
-
-      // TODO: 实现完整的渐进学习队列对话框
-      // 暂时显示提示信息
-      await pushMsg('渐进学习队列功能即将推出！\n\n将支持混合 Topic 和 Item 卡片的复习。');
-      console.log('[FSRS] Incremental learning queue command triggered');
+      this.reviewDialog = createVueDialog({
+        hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
+        component: ReviewView,
+        dataKey: 'dialog-incremental-learning',
+        transparent: true,
+        isReview: true,
+        props: {
+          app: this.app,
+          i18n: this.i18n || {},
+          title,  // 传递给 Vue 组件显示
+          queue: this.incrementalQueue as any,
+          adapter: adapter as any,
+        },
+        events: {
+          close: () => {
+            this.reviewDialog?.destroy();
+          },
+        },
+        width: 'min(860px, 96vw)',
+        height: 'min(720px, 90vh)',
+        onClose: () => {
+          this.reviewDialog = null;
+        },
+      });
     } catch (err) {
       console.error('[FSRS] Failed to open incremental learning dialog:', err);
-      await pushErrMsg('打开渐进学习队列失败');
+      await pushErrMsg(this.i18n?.openFailed || '打开渐进学习失败');
     }
   }
 
@@ -1583,7 +1653,7 @@ export default class FSRSPlugin extends Plugin {
     // 注意：这里我们重新开始复习，而不是严格恢复队列状态
     // 但对用户来说体验是一致的（复习相同的卡片）
     switch (savedMeta.providerId) {
-      case 'extraction':
+      case 'retrieval':
         this.openReviewDialog();
         break;
       case 'final-drill':

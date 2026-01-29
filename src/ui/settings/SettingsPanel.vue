@@ -270,7 +270,7 @@ const queueCount = ref(props.queueCount || 0);
 const queueConfigError = ref('');
 
 const queueSettings = ref<QueueSettings>({
-  defaultQueue: 'extraction',
+  defaultQueue: 'retrieval',
   neuralWandering: {
     enabled: false,
     maxPool: 200,

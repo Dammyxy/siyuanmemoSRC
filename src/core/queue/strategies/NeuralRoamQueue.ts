@@ -221,6 +221,28 @@ export class NeuralRoamQueue implements IQueueStrategy<QueueItem> {
     }
   }
 
+  /**
+   * 添加卡片到神经漫游队列
+   * 将第一个块设置为新的种子块，并重置队列
+   */
+  async addItems(items: QueueItem[]): Promise<number> {
+    if (!items || items.length === 0) return 0;
+
+    // 使用第一个块作为新的种子块
+    const firstItem = items[0];
+    const seedBlockId = String(firstItem?.blockID || firstItem?.blockId || '');
+
+    if (!seedBlockId) return 0;
+
+    // 重置队列，使用新的种子块
+    this.steps = 0;
+    this.pendingSeed = this.includeSeedAsFirst ? seedBlockId : null;
+    this.resetSequencer(seedBlockId);
+
+    console.log('[NeuralRoamQueue] Added items with new seed:', seedBlockId);
+    return 1;
+  }
+
   private async nodeToItem(nodeId: string, previousId: string | null, edge: EdgeMeta | null): Promise<QueueItem | null> {
     const id = String(nodeId || '');
     if (!id) return null;

@@ -5,10 +5,11 @@ import { RiffScheduler } from '../schedulers/RiffScheduler.ts';
 import { PrioritySequencer } from '../sequencers/PrioritySequencer.ts';
 import type { StorageManager } from '../../storage/StorageManager';
 import { SchedulerSortingStrategy } from '../../scheduling/SortingStrategy';
+import { CardStorage } from '../../scheduling/CardStorage';
 import type { SchedulerEngineAdapter } from '../../scheduler/types';
 import type { QueueItem, QueueStats, QueueUIConfig } from '../types.ts';
 import { computeProtectionStats, clampPriority, DEFAULT_PRIORITY } from '../abstraction/IPriority.ts';
-import type { IPrioritizableTrait, IMutableTrait } from '../abstraction/types.ts';
+import type { IPrioritizableTrait, IMutableTrait, IRemovableTrait } from '../abstraction/types.ts';
 import { normalizeBlockId, normalizeDeckId, normalizeRiffCardId } from '../abstraction/QueueCardRef.ts';
 import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy.ts';
 
@@ -60,6 +61,12 @@ function normalizeDueCard(raw: any, fallbackDeckID: string): QueueItem {
 /**
  * 统一的检索练习队列
  *
+ * SuperMemo Outstanding 队列模式：
+ * - 包含所有待复习卡片（新卡片 + 到期的旧卡片）
+ * - 评分后卡片从队列移除
+ * - 只返回到期的卡片（nextDues <= now）
+ * - 随时可以加入新卡片到队列
+ *
  * 支持：
  * 1. 从 Riff 获取到期卡片（使用 Riff API）
  * 2. 本地队列（手动添加，持久化）
@@ -73,6 +80,7 @@ export class RetrievalPracticeQueue implements IQueueStrategy<QueueItem> {
   private readonly scheduler: RiffScheduler<QueueItem, 1 | 2 | 3 | 4>;
   private readonly prioritizableTrait: IPrioritizableTrait<QueueItem>;
   private readonly mutableTrait: IMutableTrait<QueueItem>;
+  private readonly removableTrait: IMutableTrait<QueueItem> & IRemovableTrait<QueueItem>;
   private protectionExtra = '';
 
   // Riff 队列相关
@@ -133,11 +141,65 @@ export class RetrievalPracticeQueue implements IQueueStrategy<QueueItem> {
     this.mutableTrait = {
       id: 'mutable',
       insertAt: async (items, index) => {
-        // 本地队列插入
+        // 本地队列插入（规范化数据）
         const itemsOnly = await this._filterItemCards(items);
-        this.localBuffer.splice(index, 0, ...itemsOnly);
+        const normalizedItems = itemsOnly.map(item => ({
+          cardID: String(item?.cardID || item?.cardId || ''),
+          blockID: String(item?.blockID || item?.blockId || ''),
+          deckID: String(item?.deckID || item?.deckId || this.deckID),
+          priority: item?.priority ?? DEFAULT_PRIORITY,
+          nextDues: item?.nextDues || { 1: '', 2: '', 3: '', 4: '' },
+          state: item?.state,
+          lapses: item?.lapses,
+          reps: item?.reps,
+          lastReview: item?.lastReview,
+          meta: item?.meta || {},
+        }));
+        this.localBuffer.splice(index, 0, ...normalizedItems);
         await this._persistLocalQueue();
         return;
+      },
+    };
+
+    this.removableTrait = {
+      id: 'removable',
+      insertAt: async (items, index) => {
+        // 本地队列插入（规范化数据）
+        const itemsOnly = await this._filterItemCards(items);
+        const normalizedItems = itemsOnly.map(item => ({
+          cardID: String(item?.cardID || item?.cardId || ''),
+          blockID: String(item?.blockID || item?.blockId || ''),
+          deckID: String(item?.deckID || item?.deckId || this.deckID),
+          priority: item?.priority ?? DEFAULT_PRIORITY,
+          nextDues: item?.nextDues || { 1: '', 2: '', 3: '', 4: '' },
+          state: item?.state,
+          lapses: item?.lapses,
+          reps: item?.reps,
+          lastReview: item?.lastReview,
+          meta: item?.meta || {},
+        }));
+        this.localBuffer.splice(index, 0, ...normalizedItems);
+        await this._persistLocalQueue();
+        return;
+      },
+      removeItems: async (items) => {
+        let removedCount = 0;
+        for (const item of items) {
+          const cardID = String((item as any)?.cardID || item?.cardId || '');
+          if (!cardID) continue;
+
+          const index = this.localBuffer.findIndex(localItem => String(localItem.cardID) === cardID);
+          if (index !== -1) {
+            this.localBuffer.splice(index, 1);
+            removedCount++;
+          }
+        }
+
+        if (removedCount > 0) {
+          await this._persistLocalQueue();
+        }
+
+        return removedCount;
       },
     };
 
@@ -169,22 +231,80 @@ export class RetrievalPracticeQueue implements IQueueStrategy<QueueItem> {
   }
 
   async next(): Promise<QueueItem | null> {
+    console.log('[RetrievalPracticeQueue] next() ENTRY - Method called!');
     await this._ensureRiffLoaded();
+    console.log('[RetrievalPracticeQueue] next() after _ensureRiffLoaded');
 
-    // 合并本地和 Riff 队列（本地优先）
-    const allItems = [...this.localBuffer, ...this.riffBuffer];
+    // ✅ 只返回到期的本地卡片（Outstanding 模式）
+    const now = Date.now();
+    console.log('[RetrievalPracticeQueue] next() filtering local items:', {
+      localBufferLength: this.localBuffer.length,
+    });
 
-    if (allItems.length === 0) return null;
+    try {
+      const dueLocalItems = this.localBuffer.filter(item => {
+        const dueTime = CardStorage.getDueTime(item);
+        return dueTime <= now;
+      });
 
-    // 如果有调度器，使用算法排序
-    if (this.sortingStrategy) {
-      const sorted = this.sortingStrategy.sort(allItems);
-      return sorted[0] || null;
+      console.log('[RetrievalPracticeQueue] next() filter complete:', {
+        dueLocalItemsLength: dueLocalItems.length,
+      });
+
+      // 合并到期的本地卡片和 Riff 卡片
+      const allItems = [...dueLocalItems, ...this.riffBuffer];
+
+      console.log('[RetrievalPracticeQueue] next() called:', {
+        deckID: this.deckID,
+        localTotal: this.localBuffer.length,
+        localDue: dueLocalItems.length,
+        riffTotal: this.riffBuffer.length,
+        allItems: allItems.length,
+      });
+
+      if (allItems.length === 0) return null;
+
+      // 选择一张卡片
+      let selectedItem: QueueItem | null = null;
+
+      // 如果有调度器，使用算法排序
+      if (this.sortingStrategy) {
+        const sorted = this.sortingStrategy.sort(allItems);
+        selectedItem = sorted[0] || null;
+      } else {
+        // 否则按优先级排序
+        allItems.sort((a, b) => (a.priority ?? DEFAULT_PRIORITY) - (b.priority ?? DEFAULT_PRIORITY));
+        selectedItem = allItems[0];
+      }
+
+      if (!selectedItem) return null;
+
+      // ✅ 关键：从队列中移除已选择的卡片
+      const selectedCardID = String(selectedItem.cardID);
+
+      // 从本地队列移除
+      const localIndex = this.localBuffer.findIndex(item => String(item.cardID) === selectedCardID);
+      if (localIndex !== -1) {
+        this.localBuffer.splice(localIndex, 1);
+      } else {
+        // 从Riff队列移除
+        const riffIndex = this.riffBuffer.findIndex(item => String(item.cardID) === selectedCardID);
+        if (riffIndex !== -1) {
+          this.riffBuffer.splice(riffIndex, 1);
+        }
+      }
+
+      console.log('[RetrievalPracticeQueue] next() returning card:', {
+        cardID: selectedCardID,
+        remainingLocal: this.localBuffer.length,
+        remainingRiff: this.riffBuffer.length,
+      });
+
+      return selectedItem;
+    } catch (err) {
+      console.error('[RetrievalPracticeQueue] next() error:', err);
+      return null;
     }
-
-    // 否则按优先级排序
-    allItems.sort((a, b) => (a.priority ?? DEFAULT_PRIORITY) - (b.priority ?? DEFAULT_PRIORITY));
-    return allItems[0];
   }
 
   getPrioritizableTrait(): IPrioritizableTrait<QueueItem> {
@@ -193,6 +313,10 @@ export class RetrievalPracticeQueue implements IQueueStrategy<QueueItem> {
 
   getMutableTrait(): IMutableTrait<QueueItem> | undefined {
     return this.mutableTrait;
+  }
+
+  getRemovableTrait(): IMutableTrait<QueueItem> & IRemovableTrait<QueueItem> | undefined {
+    return this.removableTrait;
   }
 
   async onFeedback(
@@ -226,13 +350,12 @@ export class RetrievalPracticeQueue implements IQueueStrategy<QueueItem> {
       if (!rating) return;
 
       if (isLocal) {
-        // 本地卡片：使用本地调度器
+        // 本地卡片：使用本地调度器更新 nextDues
         if (this.sortingStrategy) {
           await this.sortingStrategy.review(currentItem, rating);
-          await this._persistLocalQueue();
         }
-        // 从本地队列移除
-        await this._removeFromLocal(cardID);
+        // ✅ 保留在队列中（Riff Outstanding 模式：评分后不删除，让 due 过滤自动处理）
+        await this._persistLocalQueue();
       } else {
         // Riff 卡片：使用 Riff API
         await this.scheduler.schedule({ ...(currentItem as any), deckID, cardID } as QueueItem, rating);
@@ -357,7 +480,25 @@ export class RetrievalPracticeQueue implements IQueueStrategy<QueueItem> {
    */
   private _loadLocalQueue(): void {
     if (!this.storage) return;
-    this.localBuffer = (this.storage.getPracticeQueue() || []) as QueueItem[];
+    const rawData = this.storage.getPracticeQueue() || [];
+    // 规范化卡片数据
+    this.localBuffer = rawData.map((item: any) => ({
+      cardID: String(item?.cardID || item?.cardId || ''),
+      blockID: String(item?.blockID || item?.blockId || ''),
+      deckID: String(item?.deckID || item?.deckId || this.deckID),
+      priority: item?.priority ?? DEFAULT_PRIORITY,
+      nextDues: item?.nextDues || { 1: '', 2: '', 3: '', 4: '' },
+      state: item?.state,
+      lapses: item?.lapses,
+      reps: item?.reps,
+      lastReview: item?.lastReview,
+      meta: item?.meta || {},
+    }));
+    console.log('[RetrievalPracticeQueue] Loaded local queue:', {
+      deckID: this.deckID,
+      localCount: this.localBuffer.length,
+      items: this.localBuffer.map(i => ({ cardID: i.cardID, blockID: i.blockID })),
+    });
   }
 
   /**
@@ -410,11 +551,20 @@ export class RetrievalPracticeQueue implements IQueueStrategy<QueueItem> {
   private async _ensureRiffLoaded(): Promise<void> {
     if (this.riffLoaded) return;
     this.riffLoaded = true;
+    console.log('[RetrievalPracticeQueue] Loading Riff cards for deck:', this.deckID);
     const data = await this.api.getRiffDueCards(this.deckID);
     const cards = Array.isArray((data as any)?.cards) ? (data as any).cards : [];
     this.riffUnreviewedTotal = Number((data as any)?.unreviewedCount) || cards.length || 0;
     this.riffUnreviewedNew = Number((data as any)?.unreviewedNewCardCount) || 0;
     this.riffUnreviewedOld = Number((data as any)?.unreviewedOldCardCount) || 0;
+
+    console.log('[RetrievalPracticeQueue] Riff cards loaded:', {
+      deckID: this.deckID,
+      total: this.riffUnreviewedTotal,
+      new: this.riffUnreviewedNew,
+      old: this.riffUnreviewedOld,
+      cardCount: cards.length,
+    });
 
     // 初始化初始总数
     this.initialTotal = this.riffUnreviewedTotal + this.localBuffer.length;

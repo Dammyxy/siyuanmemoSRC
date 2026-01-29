@@ -39,7 +39,7 @@ interface QueueRegistration {
  *
  * @example
  * const stateManager = QueueStateManager.getInstance();
- * stateManager.registerQueue('extraction-queue', blockIds);
+ * stateManager.registerQueue('retrieval-queue', blockIds);
  * stateManager.broadcastChange({
  *     blockId: 'abc-123',
  *     action: 'reviewed',

@@ -1,6 +1,13 @@
 import type { BrowserCard } from '../types';
 import { loadQueueCards } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
+import {
+  buildQueueActions,
+  removeFromQueue,
+  insertAt,
+  setPriority,
+  adjustTime,
+} from './MenuActions';
 
 type FilterGroupQueueLike = {
   getAllItems?: () => any[];
@@ -12,11 +19,12 @@ type FsrsPluginLike = {
   filterGroupQueue?: FilterGroupQueueLike;
 };
 
-// ✅ 四重筛选：支持的筛选参数
+// ✅ 五重筛选：支持的筛选参数
 export type FilterGroupDataSourceOptions = {
   docId?: string;      // 文档筛选
   preset?: string;     // Preset 筛选
   queryText?: string;  // 搜索查询
+  cardType?: 'all' | 'topic-only' | 'item-only';  // ✅ 卡片类型筛选
 };
 
 function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
@@ -123,30 +131,44 @@ export class FilterGroupDataSource implements ICardDataSource {
   }
 
   getSupportedActions(): CardBrowserAction[] {
-    return [
-      { id: 'open', label: 'Open', icon: 'iconOpen' },
-      { id: 'remove-from-queue', label: 'Remove from Queue', icon: 'iconTrashcan' },
-    ];
+    return buildQueueActions({
+      withInsert: true,
+      withSort: false,
+      withPriority: true,
+      withTimeAdjust: true,
+    });
   }
 
   async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<void> {
-    void context;
     if (actionId === 'open') return;
-    if (actionId !== 'remove-from-queue') return;
+
     const q = this.plugin?.filterGroupQueue;
     if (!q) return;
-    const items = (selectedRows || []).map((r) => ({
-      cardID: r.fsrsCardId || r.id || r.blockId,
-      blockID: r.blockId,
-      deckID: r.deckId,
-      priority: typeof r.priority === 'number' ? r.priority : 50,
-    }));
-    if (q.removeItems) {
-      await Promise.resolve(q.removeItems(items));
+
+    // 从队列移除
+    if (actionId === 'remove-from-current-queue') {
+      await removeFromQueue(q, selectedRows);
       return;
     }
-    for (const it of items) {
-      await Promise.resolve(q.removeItem?.(it));
+
+    // 插入到指定位置
+    if (actionId === 'insert-at') {
+      const index = Math.max(0, Math.floor(Number(context?.index ?? 0)));
+      await insertAt(q, selectedRows, index);
+      return;
+    }
+
+    // 设置优先级
+    if (actionId === 'set-priority') {
+      const priority = Math.max(0, Math.min(100, Math.floor(Number(context?.priority))));
+      await setPriority(q, selectedRows, priority);
+      return;
+    }
+
+    // 时间调整
+    if (actionId === 'postpone' || actionId === 'advance' || actionId === 'spread') {
+      await adjustTime(this.plugin, selectedRows, actionId as any, context);
+      return;
     }
   }
 }

@@ -16,6 +16,7 @@ const STORAGE_FILES = {
     SETTINGS: 'settings.json',
     LOGS_DIR: 'logs',
     PRACTICE_QUEUE: 'practice-queue.json',
+    INCREMENTAL_LEARNING_QUEUE: 'incremental-learning-queue.json',
 };
 
 /**
@@ -40,6 +41,7 @@ export class StorageManager {
         await this.loadSettings();
         await this.loadCards();
         await this.loadPracticeQueue();
+        await this.loadIncrementalLearningQueue();
     }
 
     // ==================== 设置 ====================
@@ -334,6 +336,38 @@ export class StorageManager {
     private async savePracticeQueue(): Promise<void> {
         const payload = { items: this.practiceQueue, lastAutoSortDay: this.practiceQueueLastAutoSortDay };
         await this.writePluginData(STORAGE_FILES.PRACTICE_QUEUE, JSON.stringify(payload, null, 2));
+    }
+
+    // ==================== 渐进学习队列 ====================
+
+    private incrementalLearningQueue: any[] = [];
+
+    getIncrementalLearningQueue(): any[] {
+        return this.incrementalLearningQueue;
+    }
+
+    async setIncrementalLearningQueue(queue: any[]): Promise<void> {
+        this.incrementalLearningQueue = queue;
+        await this.saveIncrementalLearningQueue();
+    }
+
+    private async loadIncrementalLearningQueue(): Promise<void> {
+        try {
+            const data = await this.readPluginData(STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE);
+            if (data) {
+                const parsed = JSON.parse(data);
+                this.incrementalLearningQueue = Array.isArray(parsed) ? parsed : [];
+            } else {
+                this.incrementalLearningQueue = [];
+            }
+        } catch (err) {
+            console.warn('[FSRS] Failed to load incremental learning queue:', err);
+            this.incrementalLearningQueue = [];
+        }
+    }
+
+    private async saveIncrementalLearningQueue(): Promise<void> {
+        await this.writePluginData(STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE, JSON.stringify(this.incrementalLearningQueue, null, 2));
     }
 
     private async autoSortPracticeQueueIfNeeded(): Promise<void> {
