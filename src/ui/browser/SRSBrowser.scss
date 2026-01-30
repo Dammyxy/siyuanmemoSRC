@@ -1,0 +1,330 @@
+/**
+ * SRSBrowser 组件样式
+ * 从 SRSBrowser.vue 提取
+ */
+
+/* 布局 - Dialog 模式（水平，预览在右） */
+.card-browser--dialog {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+}
+
+/* 布局 - Tab/Dock 模式（垂直，预览在下） */
+.card-browser--tab,
+.card-browser--dock {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+}
+
+.card-browser__main {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.card-browser__hierarchy {
+  width: 260px;
+  min-width: 220px;
+  max-width: 360px;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.card-browser__content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.card-browser__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-surface);
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.toolbar__left,
+.toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar__center {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.toolbar__search {
+  width: 160px;
+}
+
+.toolbar__search .b3-text-field {
+  width: 100%;
+}
+
+.card-browser__loading,
+.card-browser__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.card-browser__empty div {
+  font-size: 48px;
+}
+
+.card-browser__grid {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 拖拽分隔条 - Dialog 模式（垂直线） */
+.card-browser--dialog .card-browser__resizer {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.card-browser--dialog .card-browser__resizer:hover,
+.card-browser--dialog .card-browser__resizer--dragging {
+  background: var(--b3-theme-primary);
+}
+
+/* 拖拽分隔条 - Tab/Dock 模式（水平线） */
+.card-browser--tab .card-browser__resizer,
+.card-browser--dock .card-browser__resizer {
+  height: 4px;
+  cursor: row-resize;
+  background: transparent;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.card-browser--tab .card-browser__resizer:hover,
+.card-browser--tab .card-browser__resizer--dragging,
+.card-browser--dock .card-browser__resizer:hover,
+.card-browser--dock .card-browser__resizer--dragging {
+  background: var(--b3-theme-primary);
+}
+
+/* 预览面板 */
+.card-browser__preview {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-background);
+}
+
+.card-browser--tab .card-browser__preview,
+.card-browser--dock .card-browser__preview {
+  border-left: none;
+  border-top: 1px solid var(--b3-border-color);
+}
+
+.preview__content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.preview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-surface);
+}
+
+.preview__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--b3-theme-on-surface);
+}
+
+.preview__body {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+.preview__empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 13px;
+}
+
+/* AG-Grid 思源主题完整适配 */
+.card-browser-grid {
+  --ag-background-color: var(--b3-theme-background);
+  --ag-foreground-color: var(--b3-theme-on-background);
+  --ag-border-color: var(--b3-border-color);
+  --ag-header-background-color: var(--b3-theme-surface);
+  --ag-header-foreground-color: var(--b3-theme-on-surface);
+  --ag-odd-row-background-color: var(--b3-theme-background);
+  --ag-even-row-background-color: var(--b3-theme-background);
+  --ag-row-hover-color: var(--b3-list-hover);
+  --ag-selected-row-background-color: rgba(var(--b3-theme-primary-rgb), 0.15);
+  --ag-row-height: 32px;
+  --ag-header-height: 36px;
+  --ag-font-size: 12px;
+  --ag-cell-horizontal-padding: 8px;
+  --ag-header-column-resize-handle-color: var(--b3-theme-primary);
+  --ag-header-column-resize-handle-width: 2px;
+  --ag-checkbox-checked-color: var(--b3-theme-primary);
+  --ag-checkbox-unchecked-color: var(--b3-theme-on-surface-light);
+  --ag-checkbox-background-color: transparent;
+
+  font-family: inherit;
+  user-select: none; /* 禁止文本选择 */
+}
+
+/* 根容器 - 防止白屏 */
+.card-browser-grid :deep(.ag-root-wrapper) {
+  background: var(--b3-theme-background) !important;
+  border: none;
+}
+
+.card-browser-grid :deep(.ag-root),
+.card-browser-grid :deep(.ag-body-viewport),
+.card-browser-grid :deep(.ag-center-cols-viewport),
+.card-browser-grid :deep(.ag-center-cols-container),
+.card-browser-grid :deep(.ag-pinned-left-cols-container) {
+  background: var(--b3-theme-background) !important;
+}
+
+/* 表头样式 */
+.card-browser-grid :deep(.ag-header),
+.card-browser-grid :deep(.ag-header-viewport),
+.card-browser-grid :deep(.ag-pinned-left-header) {
+  background: var(--b3-theme-surface) !important;
+}
+
+.card-browser-grid :deep(.ag-header-cell) {
+  color: var(--b3-theme-on-surface);
+  font-weight: 600;
+  font-size: 11px;
+  background: var(--b3-theme-surface) !important;
+}
+
+/* 行样式 */
+.card-browser-grid :deep(.ag-row) {
+  background: var(--b3-theme-background) !important;
+  border-bottom: 1px solid var(--b3-border-color);
+}
+
+.card-browser-grid :deep(.ag-row:hover) {
+  background: var(--b3-list-hover) !important;
+}
+
+.card-browser-grid :deep(.ag-row-selected) {
+  background: rgba(var(--b3-theme-primary-rgb), 0.12) !important;
+}
+
+/* 单元格样式 */
+.card-browser-grid :deep(.ag-cell) {
+  line-height: 32px;
+  color: var(--b3-theme-on-background);
+  background: transparent !important;
+}
+
+/* 复选框样式 */
+.card-browser-grid :deep(.ag-checkbox-input-wrapper) {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 2px solid var(--b3-theme-on-surface-light);
+  background: transparent;
+}
+
+.card-browser-grid :deep(.ag-checkbox-input-wrapper.ag-checked) {
+  background: var(--b3-theme-primary);
+  border-color: var(--b3-theme-primary);
+}
+
+/* 分页器 */
+.card-browser-grid :deep(.ag-paging-panel) {
+  background: var(--b3-theme-surface);
+  border-top: 1px solid var(--b3-border-color);
+  height: 32px;
+}
+
+/* 垂直面包屑样式 */
+.preview__breadcrumb {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+  margin-bottom: 0;
+  /* 移除背景色和边框，使其融入背景 */
+  background: transparent;
+}
+
+.breadcrumb__item {
+  display: flex;
+  align-items: center;
+  padding: 2px 8px;
+  cursor: pointer;
+  color: var(--b3-theme-on-surface); /* 默认文字颜色，非蓝色 */
+  line-height: 1.6;
+  position: relative;
+  border-radius: 4px;
+}
+
+.breadcrumb__item:hover {
+  text-decoration: underline;
+  color: var(--b3-theme-primary); /* 悬浮时变蓝 */
+  background-color: var(--b3-list-hover); /* 悬浮时添加轻微背景 */
+}
+
+.breadcrumb__text {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--b3-font-family);
+  opacity: 0.86;
+  flex: 1;
+  min-width: 0;
+}
+
+.breadcrumb__icon {
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  opacity: 0.6;
+  fill: var(--b3-theme-on-surface);
+}
