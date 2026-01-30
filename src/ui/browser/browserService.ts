@@ -36,10 +36,32 @@ const ATTR_SUSPENDED = 'custom-fsrs-suspended';
 // 缓存层实现
 // ============================================================================
 
+type OnCacheUpdate = (cards: BrowserCard[], isComplete: boolean) => void;
+const listeners = new Set<OnCacheUpdate>();
+
+/**
+ * 订阅缓存更新事件（用于渐进式加载）
+ */
+export function subscribeCacheUpdate(callback: OnCacheUpdate) {
+    listeners.add(callback);
+    return () => listeners.delete(callback);
+}
+
+function notifyUpdate(cards: BrowserCard[], isComplete: boolean) {
+    listeners.forEach(cb => {
+        try {
+            cb(cards, isComplete);
+        } catch (e) {
+            console.error('[CardBrowser] Listener error:', e);
+        }
+    });
+}
+
 interface CacheEntry {
     cards: BrowserCard[];
     timestamp: number;
     blockIdSet: Set<string>;  // 用于快速查找
+    isComplete: boolean;      // 是否全量加载完成
 }
 
 /**
@@ -67,11 +89,12 @@ class CardCacheManager {
     /**
      * 设置缓存
      */
-    set(cards: BrowserCard[]): void {
+    set(cards: BrowserCard[], isComplete = true): void {
         this.cache = {
             cards,
             timestamp: Date.now(),
             blockIdSet: new Set(cards.map(c => c.blockId)),
+            isComplete
         };
     }
 
@@ -107,10 +130,10 @@ class CardCacheManager {
     }
 
     /**
-     * 检查缓存是否有效
+     * 检查缓存是否有效且完整
      */
     isValid(): boolean {
-        return this.cache !== null && (Date.now() - this.cache.timestamp <= this.TTL);
+        return this.cache !== null && this.cache.isComplete && (Date.now() - this.cache.timestamp <= this.TTL);
     }
 
     /**
@@ -544,36 +567,69 @@ async function loadAllCardsRaw(forceRefresh = false): Promise<BrowserCard[]> {
                 const allBlocks = await loadAllRiffBlocks();
                 if (allBlocks.length === 0) {
                     cardCache.set([]);
+                    notifyUpdate([], true);
                     return [];
                 }
 
                 const blockIds = allBlocks.map((b: any) => b.id).filter(Boolean);
-                console.log('[CardBrowser] 获取到', blockIds.length, '个块 ID');
+                console.log('[CardBrowser] 获取到', blockIds.length, '个块 ID，开始增量加载属性...');
 
-                // Step 2: 合并查询块信息和属性（优化：1 次并行查询代替 3 次串行查询）
-                const { attrsMap, rootIdMap, tagsMap } = await fetchBlockInfoBatched(blockIds);
-
-                // Step 3: 转换为浏览器卡片
-                const cards: BrowserCard[] = allBlocks.map((block: any) => {
-                    const customAttrs = attrsMap.get(block.id) || {};
-                    const card = transformRiffBlock(block, customAttrs);
-                    card.rootId = rootIdMap.get(block.id) || '';
-                    card.tags = tagsMap.get(block.id) || [];
-                    return card;
+                // Step 2: 分批加载属性并更新
+                const cards: BrowserCard[] = [];
+                const BATCH_SIZE = 500;
+                
+                // 为了让 UI 尽快看到数据，我们先 resolve 第一批
+                let firstBatchResolved = false;
+                let resolveFn: (value: BrowserCard[]) => void;
+                const returnPromise = new Promise<BrowserCard[]>((resolve) => {
+                    resolveFn = resolve;
                 });
 
-                // 存入缓存
-                cardCache.set(cards);
+                (async () => {
+                    try {
+                        for (let i = 0; i < blockIds.length; i += BATCH_SIZE) {
+                            const batchIds = blockIds.slice(i, i + BATCH_SIZE);
+                            const batchBlocks = allBlocks.slice(i, i + BATCH_SIZE);
+                            
+                            const { attrsMap, rootIdMap, tagsMap } = await fetchBlockInfoBatched(batchIds);
+                            
+                            const batchCards: BrowserCard[] = batchBlocks.map((block: any) => {
+                                const customAttrs = attrsMap.get(block.id) || {};
+                                const card = transformRiffBlock(block, customAttrs);
+                                card.rootId = rootIdMap.get(block.id) || '';
+                                card.tags = tagsMap.get(block.id) || [];
+                                return card;
+                            });
+                            
+                            cards.push(...batchCards);
+                            const isComplete = cards.length >= allBlocks.length;
+                            
+                            // 更新缓存
+                            cardCache.set(cards, isComplete);
+                            
+                            // 通知订阅者
+                            notifyUpdate(cards, isComplete);
+                            
+                            if (!firstBatchResolved) {
+                                firstBatchResolved = true;
+                                resolveFn(cards);
+                            }
+                        }
+                    } catch (e) {
+                        console.error('[CardBrowser] Progressive load error:', e);
+                        if (!firstBatchResolved) resolveFn(cards);
+                    } finally {
+                        cardCache.setLoadingPromise(null);
+                        const elapsed = Date.now() - startTime;
+                        console.log(`[CardBrowser] 全量加载结束，共 ${cards.length} 张卡片，累计耗时 ${elapsed}ms`);
+                    }
+                })();
 
-                const elapsed = Date.now() - startTime;
-                console.log(`[CardBrowser] 加载完成，共 ${cards.length} 张卡片，耗时 ${elapsed}ms`);
-
-                return cards;
+                return returnPromise;
             } catch (err) {
                 console.error('[CardBrowser] 加载卡片失败:', err);
-                return [];
-            } finally {
                 cardCache.setLoadingPromise(null);
+                return [];
             }
         })();
 

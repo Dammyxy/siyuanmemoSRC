@@ -247,7 +247,7 @@ import { type RowSelectionOptions } from 'ag-grid-community';
 import { openTab, Menu, Protyle, type App } from 'siyuan';
 import { pushErrMsg, pushMsg, setBlockAttrs } from '@/core/siyuan/api';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
-import { parseQuery, loadCards, loadQueueCards, invalidateCardCache, getCacheStats } from './browserService';
+import { parseQuery, loadCards, loadQueueCards, invalidateCardCache, getCacheStats, subscribeCacheUpdate } from './browserService';
 import { PerformanceMonitor } from '@/utils/performance';
 import { type BrowserCard, CardState } from './types';
 import { migrateExistingCards, checkMigrationNeeded } from '@/scripts/migrateToTopicItem';
@@ -529,36 +529,8 @@ async function loadData(forceRefresh = false) {
       return;
     }
 
-    // ✅ 四重筛选：获取显示数据（可能包含文档筛选）
-    const { rows: fetchedRows, totalCount } = await PerformanceMonitor.measure('fetchRows', () => currentDataSource.value!.fetchRows({ sortModel: [], filterModel: {} }));
-    rows.value = fetchedRows;
-
-    // ✅ 更新全局统计数据（始终使用全部 Riff 卡片，不受队列/文档筛选影响）
-    allRows.value = await PerformanceMonitor.measure('loadAllCards', () => loadCards('all', undefined, '', forceRefresh));
-
-    // ✅ 四重筛选：如果开启了聚焦，额外获取不包含文档筛选的数据用于计算聚焦文档
-    if (shouldFocusDocList.value) {
-      const focusOptions = {
-        preset: currentPreset.value,
-        queryText: searchQuery.value,
-        cardType: currentCardType.value as 'all' | 'topic-only' | 'item-only',
-      };
-
-      const dataSourceForFocus = createFocusDataSource(
-        activeQueueId.value,
-        props.plugin,
-        focusOptions,
-        () => getQueueById(activeQueueId.value)?.getAllItems?.() || []
-      );
-
-      if (dataSourceForFocus) {
-        const { rows: focusRows } = await PerformanceMonitor.measure('fetchRowsFocus', () => dataSourceForFocus!.fetchRows({ sortModel: [], filterModel: {} }));
-        rowsForFocus.value = focusRows;
-      }
-    } else {
-      // 没有开启聚焦时，rowsForFocus 与 rows 相同
-      rowsForFocus.value = fetchedRows;
-    }
+    // 执行数据加载
+    await executeFetchRows(forceRefresh);
 
     await refreshQueueCounts();
   } catch (err) {
@@ -566,6 +538,49 @@ async function loadData(forceRefresh = false) {
     rows.value = [];
   } finally {
     loading.value = false;
+  }
+}
+
+/**
+ * 执行实际的行数据获取
+ */
+async function executeFetchRows(forceRefresh = false) {
+  if (!currentDataSource.value) return;
+
+  // ✅ 四重筛选：获取显示数据（可能包含文档筛选）
+  const { rows: fetchedRows } = await PerformanceMonitor.measure('fetchRows', () => 
+    currentDataSource.value!.fetchRows({ sortModel: [], filterModel: {} })
+  );
+  rows.value = fetchedRows;
+
+  // ✅ 更新全量统计数据
+  allRows.value = await PerformanceMonitor.measure('loadAllCards', () => 
+    loadCards('all', undefined, '', forceRefresh)
+  );
+
+  // ✅ 四重筛选：如果开启了聚焦，额外获取不包含文档筛选的数据
+  if (shouldFocusDocList.value) {
+    const focusOptions = {
+      preset: currentPreset.value,
+      queryText: searchQuery.value,
+      cardType: currentCardType.value as 'all' | 'topic-only' | 'item-only',
+    };
+
+    const dataSourceForFocus = createFocusDataSource(
+      activeQueueId.value,
+      props.plugin,
+      focusOptions,
+      () => getQueueById(activeQueueId.value)?.getAllItems?.() || []
+    );
+
+    if (dataSourceForFocus) {
+      const { rows: focusRows } = await PerformanceMonitor.measure('fetchRowsFocus', () => 
+        dataSourceForFocus!.fetchRows({ sortModel: [], filterModel: {} })
+      );
+      rowsForFocus.value = focusRows;
+    }
+  } else {
+    rowsForFocus.value = fetchedRows;
   }
 }
 
@@ -1599,7 +1614,13 @@ function showPerformanceReport() {
 }
 
 // 清理
+let unsubscribe: (() => void) | null = null;
+
 onBeforeUnmount(() => {
+  if (unsubscribe) {
+    unsubscribe();
+    unsubscribe = null;
+  }
   if (currentProtyle) {
     currentProtyle.destroy();
     currentProtyle = null;
@@ -1614,6 +1635,19 @@ onMounted(() => {
       viewMode.value = stored;
     }
   } catch {}
+
+  // 订阅增量更新
+  unsubscribe = subscribeCacheUpdate((cards, isComplete) => {
+    allRows.value = cards;
+    
+    // 如果是 Deck 模式，且不是正在加载状态（避免并发干扰），则增量更新显示行
+    if (!activeQueueId.value && !loading.value) {
+      if (isComplete || (cards.length > 0 && cards.length % 500 === 0)) {
+        executeFetchRows(false);
+      }
+    }
+  });
+
   loadData();
 });
 
