@@ -21,127 +21,28 @@
 
       <div class="card-browser__content">
       <!-- 顶部工具栏 -->
-      <div class="card-browser__toolbar">
-        <div class="toolbar__left">
-          <!-- 搜索框 -->
-          <div class="b3-form__icon toolbar__search">
-            <svg class="b3-form__icon-icon"><use xlink:href="#iconSearch"></use></svg>
-            <input 
-              type="text" 
-              class="b3-text-field b3-form__icon-input"
-              v-model="searchQuery" 
-              :placeholder="t('searchPlaceholderAdvanced', '搜索：tag:xxx deck:xxx state:new/review doc:xxx 或关键字')"
-              @input="handleSearchInput"
-            />
-          </div>
-          
-          <!-- 筛选器 -->
-          <select v-model="currentPreset" class="b3-select" @change="handlePresetChange">
-            <option value="all">{{ t('allCards', 'All') }}</option>
-            <option value="due">{{ t('dueToday', 'Due Today') }}</option>
-            <option value="overdue">{{ t('overdue', 'Overdue') }}</option>
-            <option value="leech">{{ t('leech', 'Leech') }}</option>
-            <option value="new">{{ t('new', 'New') }}</option>
-          </select>
-          <select v-model="currentCardType" class="b3-select" @change="handleCardTypeChange">
-            <option value="all">{{ t('allTypes', 'All Types') }}</option>
-            <option value="topic-only">{{ t('topicOnly', 'Topic Only') }}</option>
-            <option value="item-only">{{ t('itemOnly', 'Item Only') }}</option>
-          </select>
-        </div>
-        
-        <div class="toolbar__center">
-          <span class="toolbar__count">{{ filteredCards.length }} {{ t('cards', '张卡片') }}</span>
-        </div>
-        
-        <div class="toolbar__right">
-          <!-- ✅ 退出聚焦按钮：仅在【丢失/关闭闪卡】或聚焦模式下显示 -->
-          <button
-            v-if="activeDocId === '__lost__' || shouldFocusDocList"
-            class="b3-button b3-button--outline"
-            @click="handleExitFocus"
-            :title="t('exitFocus', '退出聚焦')"
-          >
-            <svg><use xlink:href="#iconClose"></use></svg>
-            {{ t('exitFocus', '退出聚焦') }}
-          </button>
-
-          <button
-            class="b3-button b3-button--outline"
-            @click.stop.prevent="openPracticeMenu"
-            :disabled="!props.plugin"
-            :title="t('startPractice', '开始练习')"
-          >
-            <svg><use xlink:href="#iconPlay"></use></svg>
-            {{ t('startPractice', '开始练习') }}
-          </button>
-
-          <button
-            v-if="false"
-            class="b3-button b3-button--outline"
-            @click="autoSortFinalDrillQueue"
-            :disabled="!props.plugin"
-            :title="t('autoSortQueue', '按优先级重排队列')"
-          >
-            <svg><use xlink:href="#iconSort"></use></svg>
-            {{ t('autoSortQueue', '按优先级重排队列') }}
-          </button>
-
-          <button
-            v-if="canApplySortToQueue"
-            class="b3-button b3-button--outline"
-            @click="handleApplySortToQueue"
-            :disabled="!props.plugin"
-            :title="t('applySortToQueue', '应用排序到队列')"
-          >
-            <svg><use xlink:href="#iconSort"></use></svg>
-            {{ t('applySortToQueue', '应用排序到队列') }}
-          </button>
-
-          <button
-            class="b3-button b3-button--outline"
-            @click="toggleViewMode"
-            :title="viewMode === 'flat' ? t('hierarchyView', 'Hierarchy View') : t('flatView', 'Flat View')"
-          >
-            <svg><use :xlink:href="viewMode === 'flat' ? '#iconFiles' : '#iconList'"></use></svg>
-          </button>
-
-          <!-- 强制刷新按钮 -->
-          <button class="b3-button b3-button--outline" @click="forceRefreshData" :disabled="loading" :title="t('forceRefresh', '强制刷新数据（清除缓存）')">
-            <svg><use xlink:href="#iconRefresh"></use></svg>
-          </button>
-
-          <!-- Topic/Item 迁移按钮 -->
-          <button class="b3-button b3-button--outline" @click="migrateTopicItem" :disabled="loading" :title="t('migrateTopicItem', '识别 Topic/Item 类型')">
-            <svg><use xlink:href="#iconTags"></use></svg>
-          </button>
-
-          <!-- 性能报告按钮 -->
-          <button class="b3-button b3-button--outline" @click="showPerformanceReport" :disabled="loading" :title="t('perfReport', '性能报告')">
-            <svg><use xlink:href="#iconInfo"></use></svg>
-          </button>
-
-          <!-- 预览切换按钮 -->
-          <button 
-            class="b3-button b3-button--outline" 
-            :class="{ 'b3-button--text': showPreview }"
-            @click="showPreview = !showPreview"
-            :title="t('togglePreview', '切换预览')"
-          >
-            <svg><use xlink:href="#iconPreview"></use></svg>
-          </button>
-          
-          <!-- 转换为 Tab 按钮 -->
-          <button 
-            v-if="mode === 'dialog'"
-            class="b3-button b3-button--outline" 
-            @click="convertToTab"
-            :title="t('openInTab', '在 Tab 中打开')"
-          >
-            <svg><use xlink:href="#iconLayoutRight"></use></svg>
-          </button>
-        </div>
-      </div>
+      <BrowserToolbar
+        :i18n="props.i18n"
+        v-model:searchQuery="searchQuery"
+        v-model:currentPreset="currentPreset"
+        v-model:currentCardType="currentCardType"
+        v-model:showPreview="showPreview"
+        :cardCount="filteredCards.length"
+        :showExitFocus="activeDocId === '__lost__' || shouldFocusDocList"
+        :hasPlugin="!!props.plugin"
+        :canApplySortToQueue="canApplySortToQueue"
+        :viewMode="viewMode"
+        :loading="loading"
+        :mode="mode"
+        @exitFocus="handleExitFocus"
+        @openPracticeMenu="openPracticeMenu"
+        @applySortToQueue="handleApplySortToQueue"
+        @toggleViewMode="toggleViewMode"
+        @forceRefresh="forceRefreshData"
+        @migrateTopicItem="migrateTopicItem"
+        @showPerformanceReport="showPerformanceReport"
+        @convertToTab="convertToTab"
+      />
       
       <!-- 加载状态 -->
       <div v-if="loading" class="card-browser__loading">
@@ -224,6 +125,7 @@ import { BlockIdsDataSource } from './datasource/BlockIdsDataSource';
 import ActionParamsDialog from './ActionParamsDialog.vue';
 import BrowserHierarchy from './BrowserHierarchy.vue';
 import BrowserPreview from './BrowserPreview.vue';
+import BrowserToolbar from './BrowserToolbar.vue';
 // ✅ 导入配置模块
 import { createColumnDefs } from './config';
 import { 
