@@ -5,12 +5,12 @@ import { RescheduleService } from '@/core/scheduler/rescheduleService';
 import { riff } from '@/core/siyuan';
 import { QueueContext, type QueueItem, StorageFileJsonAdapter } from '@/core/queue';
 import { ConsoleQueueMonitor } from '@/core/queue/monitors';
-import { RetrievalPracticeQueueV2 } from '@/core/queue/strategies/RetrievalPracticeQueueV2';
-import { FilterGroupQueueV2 } from '@/core/queue/strategies/FilterGroupQueueV2';
-import { FinalDrillQueueV2 } from '@/core/queue/strategies/FinalDrillQueueV2';
-import { NeuralRoamQueueV2 } from '@/core/queue/strategies/NeuralRoamQueueV2';
-import { LeechQueueV2 } from '@/core/queue/strategies/LeechQueueV2';
-import { IncrementalLearningQueueV2 } from '@/core/queue/strategies/IncrementalLearningQueueV2';
+import { RetrievalPracticeQueue } from '@/core/queue/strategies/RetrievalPracticeQueue';
+import { FilterGroupQueue } from '@/core/queue/strategies/FilterGroupQueue';
+import { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
+import { NeuralRoamQueue } from '@/core/queue/strategies/NeuralRoamQueue';
+import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
+import { IncrementalLearningQueue } from '@/core/queue/strategies/IncrementalLearningQueue';
 import { NeuralQueueStorage } from '@/core/queue/neural';
 import { DialogService, MenuService } from '@/services';
 import { checkMigrationNeeded, migrateExistingCards } from '@/scripts/migrateToTopicItem';
@@ -39,8 +39,8 @@ export class LifecycleManager {
   }
 
   async initializeQueues() {
-    // 使用 V2 队列（复合架构）
-    this.plugin.retrievalQueue = new RetrievalPracticeQueueV2({
+    // 使用 队列（复合架构）
+    this.plugin.retrievalQueue = new RetrievalPracticeQueue({
       storage: this.plugin.storage,
       localScheduler: this.plugin.scheduler,      // 保留（向后兼容）
       schedulerRouter: this.plugin.schedulerRouter, // 新增
@@ -58,8 +58,8 @@ export class LifecycleManager {
     })).filter((g: any) => g.id);
     const configs = groupConfigs.length ? groupConfigs : [{ id: 'default', weight: 1 }];
 
-    // 使用 V2 队列（复合架构）
-    const filterGroupQueue = new FilterGroupQueueV2(
+    // 使用 队列（复合架构）
+    const filterGroupQueue = new FilterGroupQueue(
       configs,
       new StorageFileJsonAdapter(this.plugin.storage, 'queue-filter-group.json'),
     );
@@ -67,22 +67,22 @@ export class LifecycleManager {
     this.plugin.subsetQueue = filterGroupQueue;
     this.plugin.queueContext.register('filter-group', this.plugin.subsetQueue as any);
 
-    // 使用 V2 队列（复合架构）
-    this.plugin.finalDrillQueue = new FinalDrillQueueV2(this.plugin.storage);
+    // 使用 队列（复合架构）
+    this.plugin.finalDrillQueue = new FinalDrillQueue(this.plugin.storage);
     await this.plugin.finalDrillQueue.init();
     this.plugin.queueContext.register('final-drill', this.plugin.finalDrillQueue as any);
 
     // 初始化难点攻坚队列（使用 V2）
-    this.plugin.leechQueue = new LeechQueueV2();
+    this.plugin.leechQueue = new LeechQueue();
     this.plugin.queueContext.register('leech' as any, this.plugin.leechQueue as any);
 
     // 初始化神经漫游队列（使用 V2）
     const neuralConfig = NeuralQueueStorage.loadConfig();
-    this.plugin.neuralQueue = new NeuralRoamQueueV2({ config: neuralConfig });
+    this.plugin.neuralQueue = new NeuralRoamQueue({ config: neuralConfig });
     this.plugin.queueContext.register('neural-roam', this.plugin.neuralQueue as any);
 
     // 初始化渐进学习队列（使用 V2 - Simplified）
-    this.plugin.incrementalQueue = new IncrementalLearningQueueV2({
+    this.plugin.incrementalQueue = new IncrementalLearningQueue({
       storage: this.plugin.storage,
       scheduler: this.plugin.scheduler,
     });

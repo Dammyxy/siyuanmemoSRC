@@ -1,225 +1,152 @@
-import * as riff from '../../siyuan/riff.ts';
-import { pushMsg, setBlockAttrs, sql } from '../../siyuan/api.ts';
-import { ATTR_PRIORITY } from '../../siyuan/block.ts';
-import { LeechScheduler } from '../schedulers/LeechScheduler.ts';
-import { RiffScheduler } from '../schedulers/RiffScheduler.ts';
-import { PrioritySequencer } from '../sequencers/PrioritySequencer.ts';
-import type { QueueItem, QueueStats, QueueUIConfig } from '../types.ts';
-import { clampPriority, DEFAULT_PRIORITY } from '../abstraction/IPriority.ts';
-import { normalizeBlockId, normalizeDeckId, normalizeRiffCardId } from '../abstraction/QueueCardRef.ts';
-import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy.ts';
+/**
+ * Leech Queue (V2 - Composite Architecture)
+ *
+ * New implementation using BaseCompositeQueue pattern.
+ * Filters cards with high lapse count (difficult cards).
+ *
+ * Features:
+ * - Filters cards where lapses >= threshold (default: 8)
+ * - Three leech actions: notify, suspend, tag
+ * - Priority-based ordering
+ * - Uses LeechScheduler for special handling
+ */
+
+import * as riff from '../../siyuan/riff';
+import { pushMsg, setBlockAttrs } from '../../siyuan/api';
+import { ATTR_PRIORITY } from '../../siyuan/block';
+import { LeechScheduler } from '../schedulers/LeechScheduler';
+import { RiffScheduler } from '../schedulers/RiffScheduler';
+import { PrioritySequencer } from '../sequencers/PrioritySequencer';
+import { RiffDataSource } from '../datasource/RiffDataSource';
+import { BaseCompositeQueue } from '../composite/BaseCompositeQueue';
+import type { QueueItem, QueueStats, QueueUIConfig } from '../types';
+import { DEFAULT_PRIORITY } from '../abstraction/IPriority';
 
 type LeechAction = 'notify' | 'suspend' | 'tag';
-
-type RiffApi = {
-  getRiffDueCards: typeof riff.getRiffDueCards;
-  reviewRiffCard: typeof riff.reviewRiffCard;
-  skipReviewRiffCard: typeof riff.skipReviewRiffCard;
-};
-
-type Options = {
-  deckID?: string;
-  threshold?: number;
-  action?: LeechAction;
-  tagName?: string;
-  api?: Partial<RiffApi>;
-};
 
 const ATTR_SUSPENDED = 'custom-fsrs-suspended';
 const ATTR_LEECH_TAG = 'custom-fsrs-leech-tag';
 
-function normalizeNextDues(input: any): Record<1 | 2 | 3 | 4, string> {
-  const next = input?.nextDues;
-  if (!next) return { 1: '', 2: '', 3: '', 4: '' };
-  if (typeof next === 'object') {
-    const byNum = {
-      1: String((next as any)[1] ?? (next as any)['1'] ?? ''),
-      2: String((next as any)[2] ?? (next as any)['2'] ?? ''),
-      3: String((next as any)[3] ?? (next as any)['3'] ?? ''),
-      4: String((next as any)[4] ?? (next as any)['4'] ?? ''),
-    };
-    if (byNum[1] || byNum[2] || byNum[3] || byNum[4]) return byNum;
-    return {
-      1: String((next as any).again ?? ''),
-      2: String((next as any).hard ?? ''),
-      3: String((next as any).good ?? ''),
-      4: String((next as any).easy ?? ''),
-    };
-  }
-  return { 1: '', 2: '', 3: '', 4: '' };
+/**
+ * Leech Queue Configuration
+ */
+export interface LeechQueueConfig {
+  /** Deck ID (optional, defaults to built-in deck) */
+  deckID?: string;
+  /** Lapse threshold (default: 8) */
+  threshold?: number;
+  /** Action when leech detected (default: 'notify') */
+  action?: LeechAction;
+  /** Tag name for 'tag' action (default: 'leech') */
+  tagName?: string;
 }
 
-function normalizeDueCard(raw: any, fallbackDeckID: string): QueueItem {
-  const cardID = normalizeRiffCardId(raw);
-  const blockID = normalizeBlockId(raw);
-  const deckID = normalizeDeckId(raw, fallbackDeckID);
-  return {
-    cardID,
-    blockID,
-    deckID,
-    priority: DEFAULT_PRIORITY,
-    nextDues: normalizeNextDues(raw),
-    state: Number.isFinite(Number(raw?.state)) ? Number(raw?.state) : undefined,
-    lapses: Number.isFinite(Number(raw?.lapses)) ? Number(raw?.lapses) : undefined,
-    reps: Number.isFinite(Number(raw?.reps)) ? Number(raw?.reps) : undefined,
-  };
-}
-
-export class LeechQueue implements IQueueStrategy<QueueItem> {
+/**
+ * Leech Queue (V2)
+ *
+ * New implementation using composite architecture.
+ * Maintains full compatibility with V1 while using cleaner structure.
+ */
+export class LeechQueue extends BaseCompositeQueue<QueueItem> {
+  private readonly config: Required<LeechQueueConfig>;
   private readonly deckID: string;
-  private readonly threshold: number;
-  private readonly action: LeechAction;
-  private readonly tagName: string;
-  private readonly api: RiffApi;
-  private readonly getPrioritiesByBlockIDs: (blockIDs: string[]) => Promise<Map<string, number>>;
-  private readonly sequencer: PrioritySequencer<QueueItem>;
-  private readonly scheduler: LeechScheduler<QueueItem, 1 | 2 | 3 | 4>;
 
-  private loaded = false;
-  private buffer: QueueItem[] = [];
-  private rawBuffer: any[] = [];
-  private currentRaw: any | null = null;
-
-  constructor(options?: Options) {
-    this.deckID = String(options?.deckID || riff.BUILTIN_DECK_ID);
-    this.threshold = Math.max(1, Math.floor(Number(options?.threshold ?? 8)));
-    this.action = (options?.action || 'notify') as LeechAction;
-    this.tagName = String(options?.tagName || 'leech');
-    this.api = {
-      getRiffDueCards: options?.api?.getRiffDueCards || riff.getRiffDueCards,
-      reviewRiffCard: options?.api?.reviewRiffCard || riff.reviewRiffCard,
-      skipReviewRiffCard: options?.api?.skipReviewRiffCard || riff.skipReviewRiffCard,
+  constructor(config: LeechQueueConfig = {}) {
+    // ℹ️ Prepare config before using it (can't use 'this' yet)
+    const finalConfig: Required<LeechQueueConfig> = {
+      deckID: config.deckID || riff.BUILTIN_DECK_ID,
+      threshold: Math.max(1, Math.floor(Number(config.threshold ?? 8))),
+      action: (config.action || 'notify') as LeechAction,
+      tagName: String(config.tagName || 'leech'),
     };
-    this.getPrioritiesByBlockIDs = defaultGetPrioritiesByBlockIDs;
+    const deckID = finalConfig.deckID;
 
-    const base = new RiffScheduler<QueueItem, 1 | 2 | 3 | 4>(async (card, grade) => {
-      await this.api.reviewRiffCard(card.deckID || this.deckID, card.cardID, grade, this.getReviewedCardsPayload());
+    // Create data source with lapse filter
+    const dataSource = new RiffDataSource({
+      deckId: deckID,
+      filter: (item) => {
+        // Only include cards with lapses >= threshold
+        const lapses = Number(item.lapses) || 0;
+        return lapses >= finalConfig.threshold;
+      },
+    });
+
+    // Create base scheduler (Riff API)
+    const baseScheduler = new RiffScheduler<QueueItem, 1 | 2 | 3 | 4>(async (card, grade) => {
+      await riff.reviewRiffCard(card.deckID || deckID, card.cardID, grade);
       return card;
     });
-    this.scheduler = new LeechScheduler<QueueItem, 1 | 2 | 3 | 4>({
-      base,
-      isLeech: (c) => (Number((c as any)?.lapses) || 0) >= this.threshold,
+
+    // Create leech scheduler with action handling
+    const leechScheduler = new LeechScheduler<QueueItem, 1 | 2 | 3 | 4>({
+      base: baseScheduler,
+      isLeech: (c) => (Number((c as any).lapses) || 0) >= finalConfig.threshold,
       onLeech: async (c, grade) => {
-        const blockID = String((c as any)?.blockID || '');
-        if (this.action === 'notify') {
-          await pushMsg(`Leech: lapses>=${this.threshold}`);
-        } else if (this.action === 'suspend') {
+        const blockID = String((c as any).blockID || '');
+
+        // Execute leech action
+        if (finalConfig.action === 'notify') {
+          await pushMsg(`Leech: lapses>=${finalConfig.threshold}`);
+        } else if (finalConfig.action === 'suspend') {
           if (blockID) {
             await setBlockAttrs(blockID, { [ATTR_SUSPENDED]: 'true' } as any);
           }
           await pushMsg('Leech: suspended');
-        } else if (this.action === 'tag') {
+        } else if (finalConfig.action === 'tag') {
           if (blockID) {
-            await setBlockAttrs(blockID, { [ATTR_LEECH_TAG]: this.tagName } as any);
+            await setBlockAttrs(blockID, { [ATTR_LEECH_TAG]: finalConfig.tagName } as any);
           }
-          await pushMsg(`Leech: tagged ${this.tagName}`);
+          await pushMsg(`Leech: tagged ${finalConfig.tagName}`);
         }
-        return await base.schedule(c, grade);
+
+        // Still schedule through base scheduler
+        return await baseScheduler.schedule(c, grade);
       },
     });
 
-    this.sequencer = new PrioritySequencer(async () => {
-      await this.ensureLoaded();
-      const raw = this.rawBuffer.shift();
-      const next = this.buffer.shift();
-      if (!raw || !next) return null;
-      this.currentRaw = raw;
-      return next;
+    // Create priority sequencer
+    const sequencer = new PrioritySequencer<QueueItem>({
+      fetchAll: async () => {
+        const items = await dataSource.getAll();
+        // Sort by priority
+        return items.sort((a, b) => (a.priority ?? DEFAULT_PRIORITY) - (b.priority ?? DEFAULT_PRIORITY));
+      },
+      getDueMs: (item) => {
+        const nextDue = item.nextDues?.[3];
+        return nextDue ? Date.parse(nextDue) : Date.now();
+      },
+      getPriority: (item) => {
+        return item.priority ?? DEFAULT_PRIORITY;
+      },
     });
+
+    // ⚠️ MUST call super() FIRST before using 'this'
+    super({
+      scheduler: leechScheduler,
+      sequencer,
+      dataSource,
+      uiConfig: {
+        statsType: 'queue-size',
+        showRatingButtons: true,
+        allowSkip: true,
+      },
+      statsLabel: `L>=${finalConfig.threshold}`,
+    });
+
+    // Now safe to assign to 'this'
+    this.config = finalConfig;
+    this.deckID = deckID;
   }
 
-  getUIConfig(_currentItem: QueueItem | null): QueueUIConfig {
-    return { statsType: 'queue-size', showRatingButtons: true, allowSkip: true };
-  }
-
+  /**
+   * Override getStats to provide leech-specific statistics
+   */
   async getStats(): Promise<QueueStats> {
-    await this.ensureLoaded();
+    const stats = await super.getStats();
+
     return {
-      size: this.buffer.length,
-      label: `L>=${this.threshold}`,
+      ...stats,
+      label: `L>=${this.config.threshold}`,
     };
   }
-
-  async next(): Promise<QueueItem | null> {
-    return await this.sequencer.next();
-  }
-
-  async onFeedback(
-    currentItem: QueueItem | null,
-    feedback: QueueFeedback,
-  ): Promise<void> {
-    const cardID = String((currentItem as any)?.cardID || (currentItem as any)?.cardId || '');
-    const deckID = String((currentItem as any)?.deckID || (currentItem as any)?.deckId || this.deckID);
-    if (!cardID) return;
-
-    if (feedback.action === 'skip') {
-      await this.api.skipReviewRiffCard(deckID, cardID);
-      this.currentRaw = null;
-      return;
-    }
-    if (feedback.action === 'rate') {
-      const rating = feedback.rating;
-      if (!rating) return;
-      await this.scheduler.schedule({ ...(currentItem as any), deckID, cardID } as QueueItem, rating);
-      this.currentRaw = null;
-      return;
-    }
-  }
-
-  private getReviewedCardsPayload(): any[] {
-    const out: any[] = [];
-    if (this.currentRaw) out.push(this.currentRaw);
-    for (const raw of this.rawBuffer) out.push(raw);
-    return out;
-  }
-
-  private async ensureLoaded(): Promise<void> {
-    if (this.loaded) return;
-    this.loaded = true;
-    const data = await this.api.getRiffDueCards(this.deckID);
-    const cards = Array.isArray((data as any)?.cards) ? (data as any).cards : [];
-
-    const rawOut: any[] = [];
-    const itemOut: QueueItem[] = [];
-    for (const c of cards) {
-      const it = normalizeDueCard(c, this.deckID);
-      if (!it.cardID || !it.blockID) continue;
-      if ((Number(it.lapses) || 0) < this.threshold) continue;
-      rawOut.push(c);
-      itemOut.push(it);
-    }
-
-    const blockIds = itemOut.map((x) => String(x.blockID)).filter(Boolean);
-    const priorityMap = await this.getPrioritiesByBlockIDs(blockIds).catch(() => new Map<string, number>());
-    const paired = itemOut.map((it, i) => ({
-      it,
-      raw: rawOut[i],
-      priority: clampPriority(priorityMap.get(it.blockID), DEFAULT_PRIORITY),
-    }));
-    paired.sort((a, b) => a.priority - b.priority);
-    this.rawBuffer = paired.map((x) => x.raw);
-    this.buffer = paired.map((x) => ({ ...x.it, priority: x.priority, meta: { ...(x.it.meta || {}), priority: x.priority } }));
-  }
-}
-
-function escapeSql(value: string): string {
-  return String(value || '').replace(/'/g, "''");
-}
-
-async function defaultGetPrioritiesByBlockIDs(blockIDs: string[]): Promise<Map<string, number>> {
-  const ids = Array.from(new Set((blockIDs || []).map((x) => String(x || '')).filter(Boolean)));
-  const out = new Map<string, number>();
-  if (ids.length === 0) return out;
-  for (let i = 0; i < ids.length; i += 200) {
-    const batch = ids.slice(i, i + 200);
-    const inList = batch.map((id) => `'${escapeSql(id)}'`).join(',');
-    const stmt = `SELECT block_id, value FROM attributes WHERE name = '${ATTR_PRIORITY}' AND block_id IN (${inList})`;
-    const rows = await sql(stmt).catch(() => []);
-    for (const r of rows as any[]) {
-      const bid = String(r?.block_id || r?.blockId || '');
-      if (!bid) continue;
-      out.set(bid, clampPriority(r?.value, DEFAULT_PRIORITY));
-    }
-  }
-  return out;
 }

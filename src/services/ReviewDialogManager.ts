@@ -24,22 +24,22 @@ import { RetrievalPracticeProvider } from '@/ui/review/v2/providers/RetrievalPra
 
 // Queue strategies
 import { SubsetPracticeStrategy } from '@/core/queue/strategies';
-import { LeechQueueV2 } from '@/core/queue/strategies/LeechQueueV2';
-import { NeuralRoamQueueV2 } from '@/core/queue/strategies/NeuralRoamQueueV2';
+import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
+import { NeuralRoamQueue } from '@/core/queue/strategies/NeuralRoamQueue';
 
 // Types
-import type { FinalDrillQueueV2 } from '@/core/queue/strategies/FinalDrillQueueV2';
-import type { FilterGroupQueueV2 } from '@/core/queue/strategies/FilterGroupQueueV2';
-import type { IncrementalLearningQueueV2 } from '@/core/queue/strategies/IncrementalLearningQueueV2';
+import type { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
+import type { FilterGroupQueue } from '@/core/queue/strategies/FilterGroupQueue';
+import type { IncrementalLearningQueue } from '@/core/queue/strategies/IncrementalLearningQueue';
 
 export interface ReviewDialogManagerDeps {
   app: App;
   i18n: Record<string, string>;
   storage: StorageManager;
   scheduler: SchedulerEngineAdapter;
-  finalDrillQueue: FinalDrillQueueV2;
-  filterGroupQueue: FilterGroupQueueV2;
-  incrementalQueue: IncrementalLearningQueueV2;
+  finalDrillQueue: FinalDrillQueue;
+  filterGroupQueue: FilterGroupQueue;
+  incrementalQueue: IncrementalLearningQueue;
   isInitialized: () => boolean;
 }
 
@@ -148,7 +148,7 @@ export class ReviewDialogManager {
     try {
       const settings = this.deps.storage?.getSettings?.();
       const leech = (settings as any)?.leech || {};
-      const queue = new LeechQueueV2({
+      const queue = new LeechQueue({
         deckID: riff.BUILTIN_DECK_ID,
         threshold: Number(leech.threshold) || 8,
         action: (leech.action || 'notify') as any,
@@ -243,7 +243,7 @@ export class ReviewDialogManager {
     this.destroyCurrentDialog();
 
     try {
-      const queue = new NeuralRoamQueueV2({
+      const queue = new NeuralRoamQueue({
         deckID: riff.BUILTIN_DECK_ID,
         i18n: this.deps.i18n || {},
         seedBlockId: options?.seedBlockId,

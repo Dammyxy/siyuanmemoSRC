@@ -33,13 +33,13 @@ import { XiuyuanService, XiuyuanStorage, BUILTIN_TEMPLATES } from '@/core/xiuyua
 import { TemplateSelectDialog } from '@/ui/xiuyuan';
 import { ConsoleQueueMonitor, DEFAULT_PRIORITY, QueueContext, StorageFileJsonAdapter, type QueueItem } from '@/core/queue';
 import { SubsetPracticeStrategy } from '@/core/queue/strategies';
-// V2 队列导入（直接从V2文件导入）
-import { RetrievalPracticeQueueV2 } from '@/core/queue/strategies/RetrievalPracticeQueueV2';
-import { FilterGroupQueueV2 } from '@/core/queue/strategies/FilterGroupQueueV2';
-import { FinalDrillQueueV2 } from '@/core/queue/strategies/FinalDrillQueueV2';
-import { NeuralRoamQueueV2 } from '@/core/queue/strategies/NeuralRoamQueueV2';
-import { LeechQueueV2 } from '@/core/queue/strategies/LeechQueueV2';
-import { IncrementalLearningQueueV2 } from '@/core/queue/strategies/IncrementalLearningQueueV2';
+// 队列导入（直接从V2文件导入）
+import { RetrievalPracticeQueue } from '@/core/queue/strategies/RetrievalPracticeQueue';
+import { FilterGroupQueue } from '@/core/queue/strategies/FilterGroupQueue';
+import { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
+import { NeuralRoamQueue } from '@/core/queue/strategies/NeuralRoamQueue';
+import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
+import { IncrementalLearningQueue } from '@/core/queue/strategies/IncrementalLearningQueue';
 import { NeuralQueueStorage } from '@/core/queue/neural';
 import { ExtractionNativeAdapter, FinalDrillNativeAdapter } from '@/core/native/adapter';
 // Services
@@ -62,12 +62,12 @@ export default class FSRSPlugin extends Plugin {
   public schedulerRouter!: SchedulerRouter;
   public rescheduleService!: RescheduleService;
   private queueContext!: QueueContext<QueueItem>;
-  private retrievalQueue!: RetrievalPracticeQueueV2;
-  public neuralQueue!: NeuralRoamQueueV2;
-  public finalDrillQueue!: FinalDrillQueueV2;
-  public leechQueue!: LeechQueueV2;
-  public incrementalQueue!: IncrementalLearningQueueV2;
-  private subsetQueue!: FilterGroupQueueV2; // 内部命名
+  private retrievalQueue!: RetrievalPracticeQueue;
+  public neuralQueue!: NeuralRoamQueue;
+  public finalDrillQueue!: FinalDrillQueue;
+  public leechQueue!: LeechQueue;
+  public incrementalQueue!: IncrementalLearningQueue;
+  private subsetQueue!: FilterGroupQueue; // 内部命名
 
   // 🆕 Services
   private dialogService!: DialogService;
@@ -78,16 +78,16 @@ export default class FSRSPlugin extends Plugin {
   private blockMenuHandler!: BlockMenuHandler;
 
   // 为兼容性提供的别名访问器
-  public get deliberateQueue(): FinalDrillQueueV2 {
+  public get deliberateQueue(): FinalDrillQueue {
     return this.finalDrillQueue;
   }
 
-  public get neuralRoamQueue(): NeuralRoamQueueV2 {
+  public get neuralRoamQueue(): NeuralRoamQueue {
     return this.neuralQueue;
   }
 
   // filterGroupQueue 别名 → subsetQueue（保持兼容性）
-  public get filterGroupQueue(): FilterGroupQueueV2 {
+  public get filterGroupQueue(): FilterGroupQueue {
     return this.subsetQueue;
   }
 
@@ -171,8 +171,8 @@ export default class FSRSPlugin extends Plugin {
       // ✅ 保留旧调度器（向后兼容）
       this.scheduler = createScheduler(settings.fsrs, settings.schedulerEngine);
 
-      // ✅ 使用 V2 队列（复合架构）
-      this.retrievalQueue = new RetrievalPracticeQueueV2({
+      // ✅ 使用 队列（复合架构）
+      this.retrievalQueue = new RetrievalPracticeQueue({
         storage: this.storage,
         localScheduler: this.scheduler,      // 保留（向后兼容）
         schedulerRouter: this.schedulerRouter, // 🆕 新增
@@ -190,8 +190,8 @@ export default class FSRSPlugin extends Plugin {
       })).filter((g: any) => g.id);
       const configs = groupConfigs.length ? groupConfigs : [{ id: 'default', weight: 1 }];
 
-      // ✅ 使用 V2 队列（复合架构）
-      const filterGroupQueue = new FilterGroupQueueV2(
+      // ✅ 使用 队列（复合架构）
+      const filterGroupQueue = new FilterGroupQueue(
         configs,
         new StorageFileJsonAdapter(this.storage, 'queue-filter-group.json'),
       );
@@ -199,22 +199,22 @@ export default class FSRSPlugin extends Plugin {
       this.subsetQueue = filterGroupQueue;
       this.queueContext.register('filter-group', this.subsetQueue as any);
 
-      // ✅ 使用 V2 队列（复合架构）
-      this.finalDrillQueue = new FinalDrillQueueV2(this.storage);
+      // ✅ 使用 队列（复合架构）
+      this.finalDrillQueue = new FinalDrillQueue(this.storage);
       await this.finalDrillQueue.init();
       this.queueContext.register('final-drill', this.finalDrillQueue as any);
 
       // 初始化难点攻坚队列（✅ 使用 V2）
-      this.leechQueue = new LeechQueueV2();
+      this.leechQueue = new LeechQueue();
       this.queueContext.register('leech' as any, this.leechQueue as any);
 
       // 初始化神经漫游队列（✅ 使用 V2）
       const neuralConfig = NeuralQueueStorage.loadConfig();
-      this.neuralQueue = new NeuralRoamQueueV2({ config: neuralConfig });
+      this.neuralQueue = new NeuralRoamQueue({ config: neuralConfig });
       this.queueContext.register('neural-roam', this.neuralQueue as any);
 
       // 初始化渐进学习队列（✅ 使用 V2 - Simplified）
-      this.incrementalQueue = new IncrementalLearningQueueV2({
+      this.incrementalQueue = new IncrementalLearningQueue({
         storage: this.storage,
         scheduler: this.scheduler,
       });

@@ -1,50 +1,50 @@
 /**
- * Phase 1 验证测试 - V2 队列功能测试
+ * Phase 1 验证测试 - 队列功能测试
  * 
- * 验证 V2 队列是否正确工作
+ * 验证 队列是否正确工作
  */
 
 import { describe, test, expect } from 'vitest';
-import { RetrievalPracticeQueueV2 } from '@/core/queue/strategies/RetrievalPracticeQueueV2';
-import { FinalDrillQueueV2 } from '@/core/queue/strategies/FinalDrillQueueV2';
-import { LeechQueueV2 } from '@/core/queue/strategies/LeechQueueV2';
-import { NeuralRoamQueueV2 } from '@/core/queue/strategies/NeuralRoamQueueV2';
-import { IncrementalLearningQueueV2 } from '@/core/queue/strategies/IncrementalLearningQueueV2';
-import { FilterGroupQueueV2 } from '@/core/queue/strategies/FilterGroupQueueV2';
+import { RetrievalPracticeQueue } from '@/core/queue/strategies/RetrievalPracticeQueue';
+import { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
+import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
+import { NeuralRoamQueue } from '@/core/queue/strategies/NeuralRoamQueue';
+import { IncrementalLearningQueue } from '@/core/queue/strategies/IncrementalLearningQueue';
+import { FilterGroupQueue } from '@/core/queue/strategies/FilterGroupQueue';
 
 describe('Phase 1 - V2 Queues Validation', () => {
-  test('RetrievalPracticeQueueV2 可以实例化', () => {
-    const queue = new RetrievalPracticeQueueV2();
+  test('RetrievalPracticeQueue 可以实例化', () => {
+    const queue = new RetrievalPracticeQueue();
     expect(queue).toBeDefined();
     expect(queue.getAllItems).toBeDefined();
     expect(queue.addItems).toBeDefined(); // 新增方法
   });
 
-  test('FinalDrillQueueV2 可以实例化', () => {
-    const queue = new FinalDrillQueueV2();
+  test('FinalDrillQueue 可以实例化', () => {
+    const queue = new FinalDrillQueue();
     expect(queue).toBeDefined();
     expect(queue.getAllItems).toBeDefined();
   });
 
-  test('LeechQueueV2 可以实例化', () => {
-    const queue = new LeechQueueV2();
+  test('LeechQueue 可以实例化', () => {
+    const queue = new LeechQueue();
     expect(queue).toBeDefined();
   });
 
-  test('NeuralRoamQueueV2 可以实例化', () => {
-    const queue = new NeuralRoamQueueV2();
+  test('NeuralRoamQueue 可以实例化', () => {
+    const queue = new NeuralRoamQueue();
     expect(queue).toBeDefined();
   });
 
-  test('IncrementalLearningQueueV2 可以实例化', () => {
-    const queue = new IncrementalLearningQueueV2();
+  test('IncrementalLearningQueue 可以实例化', () => {
+    const queue = new IncrementalLearningQueue();
     expect(queue).toBeDefined();
     expect(queue.addItems).toBeDefined();
   });
 
-  test('FilterGroupQueueV2 可以实例化', () => {
+  test('FilterGroupQueue 可以实例化', () => {
     const configs = [{ id: 'test', weight: 1 }];
-    const queue = new FilterGroupQueueV2(configs);
+    const queue = new FilterGroupQueue(configs);
     expect(queue).toBeDefined();
   });
 
@@ -59,11 +59,11 @@ describe('Phase 1 - V2 Queues Validation', () => {
       FilterGroupQueue
     } = await import('@/core/queue/strategies');
 
-    expect(new RetrievalPracticeQueue()).toBeInstanceOf(RetrievalPracticeQueueV2);
-    expect(new FinalDrillQueue()).toBeInstanceOf(FinalDrillQueueV2);
-    expect(new LeechQueue()).toBeInstanceOf(LeechQueueV2);
-    expect(new NeuralRoamQueue()).toBeInstanceOf(NeuralRoamQueueV2);
-    expect(new IncrementalLearningQueue()).toBeInstanceOf(IncrementalLearningQueueV2);
-    expect(new FilterGroupQueue([{ id: 'test', weight: 1 }])).toBeInstanceOf(FilterGroupQueueV2);
+    expect(new RetrievalPracticeQueue()).toBeInstanceOf(RetrievalPracticeQueue);
+    expect(new FinalDrillQueue()).toBeInstanceOf(FinalDrillQueue);
+    expect(new LeechQueue()).toBeInstanceOf(LeechQueue);
+    expect(new NeuralRoamQueue()).toBeInstanceOf(NeuralRoamQueue);
+    expect(new IncrementalLearningQueue()).toBeInstanceOf(IncrementalLearningQueue);
+    expect(new FilterGroupQueue([{ id: 'test', weight: 1 }])).toBeInstanceOf(FilterGroupQueue);
   });
 });

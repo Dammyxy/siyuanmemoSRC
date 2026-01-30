@@ -1,62 +1,69 @@
-import * as riff from '../../siyuan/riff.ts';
-import { NeuralQueueStorage } from '../neural/NeuralQueueStorage.ts';
-import { QueryEngine } from '../neural/QueryEngine.ts';
-import { WeightedWalkEngine } from '../neural/WeightedWalkEngine.ts';
-import { AssociationType, type NeuralContext, type NeuralQueueConfig } from '../neural/types.ts';
-import { GraphSequencer, type WeightedNeighbor as GraphWeightedNeighbor } from '../sequencers/GraphSequencer.ts';
-import type { QueueItem, QueueStats, QueueUIConfig } from '../types.ts';
-import { pushMsg, setBlockAttrs, sql } from '../../siyuan/api.ts';
-import { ATTR_PRIORITY } from '../../siyuan/block.ts';
-import { clampPriority, DEFAULT_PRIORITY, priorityFactor } from '../abstraction/IPriority.ts';
-import type { IQueueCommand } from '../abstraction/Command.ts';
-import { normalizeRiffCardId } from '../abstraction/QueueCardRef.ts';
-import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy.ts';
+/**
+ * Neural Roam Queue (V2 - Composite Architecture)
+ *
+ * New implementation using BaseCompositeQueue pattern.
+ * Graph-based exploration with diffusion activation.
+ *
+ * Features:
+ * - Graph traversal through associations
+ * - Dynamic card creation
+ * - No algorithm (NullScheduler)
+ * - Supports both singleton and prototype modes
+ */
 
-type RiffApi = {
-  getRiffCardsByBlockIDs: typeof riff.getRiffCardsByBlockIDs;
-  addRiffCards: typeof riff.addRiffCards;
-  reviewRiffCard: typeof riff.reviewRiffCard;
-  skipReviewRiffCard: typeof riff.skipReviewRiffCard;
-};
+import * as riff from '../../siyuan/riff';
+import { NeuralQueueStorage } from '../neural/NeuralQueueStorage';
+import { QueryEngine } from '../neural/QueryEngine';
+import { WeightedWalkEngine } from '../neural/WeightedWalkEngine';
+import { AssociationType, type NeuralContext, type NeuralQueueConfig } from '../neural/types';
+import { GraphSequencer } from '../sequencers/GraphSequencer';
+import { NullScheduler } from '../schedulers/NullScheduler';
+import { BaseCompositeQueue } from '../composite/BaseCompositeQueue';
+import type { QueueItem, QueueStats, QueueUIConfig } from '../types';
+import { DEFAULT_PRIORITY } from '../abstraction/IPriority';
 
 type I18n = Record<string, string>;
 
-type EdgeMeta = {
-  associationType: AssociationType;
-  reason: string;
-};
+/**
+ * Simple Graph Data Source
+ *
+ * Wraps GraphSequencer for neural roam functionality.
+ */
+class GraphDataSource {
+  private sequencer: GraphSequencer<string, QueueItem, any>;
 
-function t(i18n: I18n | undefined, key: string, fallback: string): string {
-  return i18n?.[key] || fallback;
+  constructor(sequencer: GraphSequencer<string, QueueItem, any>) {
+    this.sequencer = sequencer;
+  }
+
+  async getAll(): Promise<QueueItem[]> {
+    // Return items visited by graph sequencer
+    const visited = this.sequencer.getVisited();
+    return Array.from(visited.values());
+  }
+
+  size(): number {
+    return this.sequencer.getVisited().size;
+  }
+
+  isEmpty(): boolean {
+    return this.sequencer.getVisited().size === 0;
+  }
 }
 
-function reasonFor(type: AssociationType): string {
-  if (type === AssociationType.REF_LINK) return '双向链接';
-  if (type === AssociationType.HIERARCHY) return '同文档';
-  if (type === AssociationType.TAG) return '标签关联';
-  if (type === AssociationType.SIBLING) return '兄弟块';
-  return '未知关联';
-}
-
-export class NeuralRoamQueue implements IQueueStrategy<QueueItem> {
+/**
+ * Neural Roam Queue (V2)
+ *
+ * Simplified wrapper around existing NeuralRoamQueue logic.
+ * Uses BaseCompositeQueue for consistency with other queues.
+ */
+export class NeuralRoamQueue extends BaseCompositeQueue<QueueItem> {
   private readonly deckID: string;
   private readonly i18n?: I18n;
-  private readonly api: RiffApi;
-  private readonly getPrioritiesByBlockIDs: (blockIDs: string[]) => Promise<Map<string, number>>;
-
   private readonly config: NeuralQueueConfig;
   private readonly queryEngine: QueryEngine;
   private readonly walkEngine: WeightedWalkEngine;
-
-  private readonly cardIdCache = new Map<string, { cardID: string; deckID: string }>();
-  private readonly priorityCache = new Map<string, number>();
-
-  private readonly includeSeedAsFirst: boolean;
-  private readonly seedBlockId: string | null;
-  private pendingSeed: string | null;
-
-  private sequencer: GraphSequencer<string, QueueItem, EdgeMeta>;
-  private readonly menuCommands: Array<IQueueCommand<unknown>>;
+  private readonly graphSequencer: GraphSequencer<string, QueueItem, any>;
 
   private steps = 0;
 
@@ -65,22 +72,15 @@ export class NeuralRoamQueue implements IQueueStrategy<QueueItem> {
     i18n?: I18n;
     seedBlockId?: string;
     includeSeedAsFirst?: boolean;
-    api?: Partial<RiffApi>;
-    getPrioritiesByBlockIDs?: (blockIDs: string[]) => Promise<Map<string, number>>;
     config?: Partial<NeuralQueueConfig>;
   }) {
-    this.deckID = String(options?.deckID || riff.BUILTIN_DECK_ID);
-    this.i18n = options?.i18n;
-    this.api = {
-      getRiffCardsByBlockIDs: options?.api?.getRiffCardsByBlockIDs || riff.getRiffCardsByBlockIDs,
-      addRiffCards: options?.api?.addRiffCards || riff.addRiffCards,
-      reviewRiffCard: options?.api?.reviewRiffCard || riff.reviewRiffCard,
-      skipReviewRiffCard: options?.api?.skipReviewRiffCard || riff.skipReviewRiffCard,
-    };
-    this.getPrioritiesByBlockIDs = options?.getPrioritiesByBlockIDs || defaultGetPrioritiesByBlockIDs;
+    // ℹ️ Prepare variables that DON'T need 'this'
+    const deckID = String(options?.deckID || riff.BUILTIN_DECK_ID);
+    const i18n = options?.i18n;
 
+    // Load saved config
     const saved = NeuralQueueStorage.loadConfig();
-    this.config = {
+    const config: NeuralQueueConfig = {
       ...saved,
       ...options?.config,
       weights: { ...saved.weights, ...(options?.config as any)?.weights },
@@ -89,292 +89,159 @@ export class NeuralRoamQueue implements IQueueStrategy<QueueItem> {
       topicMode: { ...(saved as any).topicMode, ...(options?.config as any)?.topicMode },
     } as NeuralQueueConfig;
 
-    this.queryEngine = new QueryEngine(this.config);
-    this.walkEngine = new WeightedWalkEngine({
-      [AssociationType.REF_LINK]: this.config.weights.refLink,
-      [AssociationType.HIERARCHY]: this.config.weights.hierarchy,
-      [AssociationType.TAG]: this.config.weights.tag,
-      [AssociationType.SIBLING]: this.config.weights.sibling,
+    const queryEngine = new QueryEngine(config);
+    const walkEngine = new WeightedWalkEngine({
+      [AssociationType.REF_LINK]: config.weights.refLink,
+      [AssociationType.HIERARCHY]: config.weights.hierarchy,
+      [AssociationType.TAG]: config.weights.tag,
+      [AssociationType.SIBLING]: config.weights.sibling,
     });
 
-    this.seedBlockId = options?.seedBlockId ? String(options.seedBlockId) : null;
-    this.includeSeedAsFirst = Boolean(options?.includeSeedAsFirst);
-    this.pendingSeed = this.includeSeedAsFirst ? this.seedBlockId : null;
+    // Create a placeholder sequencer for super()
+    // We'll create the real one after super() is called
+    const placeholderSequencer = new GraphSequencer<string, QueueItem, any>({
+      seed: undefined,
+      getNeighbors: async () => [],
+      toItem: async (nodeId) => ({
+        cardID: nodeId,
+        deckID: deckID,
+        priority: 50,
+      } as QueueItem),
+      getNodeKey: (nodeId) => nodeId,
+    });
 
-    this.sequencer = this.createSequencer(this.seedBlockId || null);
-    this.menuCommands = [
-      {
-        id: 'neural-pivot-here',
-        label: t(this.i18n, 'neuralPivotHere', '以此为主题'),
-        icon: 'iconRefresh',
-        execute: async () => {},
+    // Create graph data source
+    const dataSource = new GraphDataSource(placeholderSequencer);
+
+    // Create null scheduler (no algorithm for neural roam)
+    const scheduler = new NullScheduler<QueueItem>();
+
+    // ⚠️ MUST call super() FIRST before using 'this'
+    super({
+      scheduler,
+      sequencer: placeholderSequencer,
+      dataSource,
+      uiConfig: {
+        statsType: 'queue-size',
+        showRatingButtons: false,
+        allowSkip: true,
       },
-      {
-        id: 'neural-reset-history',
-        label: t(this.i18n, 'neuralResetHistory', '重置漫游历史'),
-        icon: 'iconTrashcan',
-        danger: true,
-        execute: async () => {},
-      },
-      {
-        id: 'neural-priority-up',
-        label: t(this.i18n, 'neuralPriorityUp', '提高优先级'),
-        icon: 'iconMark',
-        execute: async () => {},
-      },
-      {
-        id: 'neural-priority-down',
-        label: t(this.i18n, 'neuralPriorityDown', '降低优先级'),
-        icon: 'iconMark',
-        execute: async () => {},
-      },
-    ];
+      statsLabel: '神经漫游',
+    });
+
+    // Now safe to assign to 'this'
+    this.deckID = deckID;
+    this.i18n = i18n;
+    this.config = config;
+    this.queryEngine = queryEngine;
+    this.walkEngine = walkEngine;
+
+    // Now create the REAL sequencer (can use 'this')
+    this.graphSequencer = this.createSequencer(options?.seedBlockId || null);
+    
+    // Replace the placeholder in base class
+    (this as any).sequencer = this.graphSequencer;
+    (dataSource as any).sequencer = this.graphSequencer;
   }
 
+  /**
+   * Override getUIConfig for neural-specific UI
+   */
   getUIConfig(currentItem: QueueItem | null): QueueUIConfig {
     const isFlashcard = Boolean((currentItem as any)?.meta?.neuralContext?.isFlashcard);
+
     if (!isFlashcard) {
       return {
         statsType: 'queue-size',
         showRatingButtons: false,
         allowSkip: true,
-        customButtons: [{ actionId: 'continue', label: t(this.i18n, 'neuralContinue', '继续漫游') }],
-        menuCommands: this.menuCommands,
+        customButtons: [
+          {
+            actionId: 'continue',
+            label: this.t('neuralContinue', '继续漫游'),
+          },
+        ],
       };
     }
-    return { statsType: 'queue-size', showRatingButtons: true, allowSkip: true, menuCommands: this.menuCommands };
-  }
 
-  async getStats(): Promise<QueueStats> {
-    return { size: this.steps, label: '' };
-  }
-
-  async next(): Promise<QueueItem | null> {
-    if (this.pendingSeed) {
-      const seed = this.pendingSeed;
-      this.pendingSeed = null;
-      const it = await this.nodeToItem(seed, null, null);
-      if (it) {
-        this.steps++;
-        return it;
-      }
-    }
-    const it = await this.sequencer.next();
-    if (it) this.steps++;
-    return it;
-  }
-
-  async onFeedback(
-    currentItem: QueueItem | null,
-    feedback: QueueFeedback,
-  ): Promise<void> {
-    const isFlashcard = Boolean((currentItem as any)?.meta?.neuralContext?.isFlashcard);
-    const blockID = String((currentItem as any)?.blockID || (currentItem as any)?.blockId || '');
-    if (!blockID) return;
-
-    if (feedback.action === 'custom') {
-      const actionId = String(feedback.customActionId || '');
-      if (!actionId) return;
-      if (actionId === 'continue') {
-        return;
-      }
-      if (actionId === 'neural-pivot-here') {
-        this.resetSequencer(blockID);
-        return;
-      }
-      if (actionId === 'neural-reset-history') {
-        this.steps = 0;
-        this.pendingSeed = null;
-        this.resetSequencer(this.seedBlockId || null);
-        return;
-      }
-      if (actionId === 'neural-priority-up' || actionId === 'neural-priority-down') {
-        const step = 5;
-        const current = await this.getPriorityForBlock(blockID);
-        const next = actionId === 'neural-priority-up' ? current - step : current + step;
-        const clamped = clampPriority(next, DEFAULT_PRIORITY);
-        await setBlockAttrs(blockID, { [ATTR_PRIORITY]: String(clamped) } as any);
-        this.priorityCache.set(blockID, clamped);
-        await pushMsg(t(this.i18n, 'priorityUpdated', '优先级已更新'));
-        return;
-      }
-      return;
-    }
-
-    if (!isFlashcard) {
-      return;
-    }
-
-    const info = await this.ensureRiffCardId(blockID);
-    if (!info?.cardID) return;
-
-    if (feedback.action === 'skip') {
-      await this.api.skipReviewRiffCard(info.deckID || this.deckID, info.cardID);
-      return;
-    }
-
-    if (feedback.action === 'rate') {
-      const rating = feedback.rating;
-      if (!rating) return;
-      await this.api.reviewRiffCard(info.deckID || this.deckID, info.cardID, rating);
-      return;
-    }
+    return {
+      statsType: 'queue-size',
+      showRatingButtons: true,
+      allowSkip: true,
+    };
   }
 
   /**
-   * 添加卡片到神经漫游队列
-   * 将第一个块设置为新的种子块，并重置队列
+   * Override getStats to track steps
    */
-  async addItems(items: QueueItem[]): Promise<number> {
-    if (!items || items.length === 0) return 0;
-
-    // 使用第一个块作为新的种子块
-    const firstItem = items[0];
-    const seedBlockId = String(firstItem?.blockID || firstItem?.blockId || '');
-
-    if (!seedBlockId) return 0;
-
-    // 重置队列，使用新的种子块
-    this.steps = 0;
-    this.pendingSeed = this.includeSeedAsFirst ? seedBlockId : null;
-    this.resetSequencer(seedBlockId);
-
-    console.log('[NeuralRoamQueue] Added items with new seed:', seedBlockId);
-    return 1;
-  }
-
-  private async nodeToItem(nodeId: string, previousId: string | null, edge: EdgeMeta | null): Promise<QueueItem | null> {
-    const id = String(nodeId || '');
-    if (!id) return null;
-
-    const cardData = await this.queryEngine.fetchCardData(id);
-    if (!cardData) return null;
-
-    const isFlashcard = Boolean(cardData.hasFlashcard);
-    const neuralContext: NeuralContext = {
-      previousCardId: previousId,
-      associationType: edge?.associationType || AssociationType.HIERARCHY,
-      reason: edge?.reason || '',
-      blockType: cardData.blockType,
-      isFlashcard,
-    };
-
-    let cardID = '';
-    let deckID = this.deckID;
-    if (isFlashcard) {
-      const info = await this.ensureRiffCardId(id);
-      if (info) {
-        cardID = info.cardID;
-        deckID = info.deckID || deckID;
-      }
-    }
-    const priority = clampPriority(this.priorityCache.get(id), DEFAULT_PRIORITY);
-
+  async getStats(): Promise<QueueStats> {
     return {
-      cardID,
-      blockID: id,
-      deckID,
-      priority,
-      nextDues: { 1: '', 2: '', 3: '', 4: '' },
-      meta: {
-        neuralContext,
-      },
+      size: this.steps,
+      label: '',
     };
   }
 
-  private async ensureRiffCardId(blockID: string): Promise<{ cardID: string; deckID: string } | null> {
-    const bid = String(blockID || '');
-    if (!bid) return null;
-    const cached = this.cardIdCache.get(bid);
-    if (cached) return cached;
-
-    const blocks = await this.api.getRiffCardsByBlockIDs([bid]).catch(() => []);
-    const cardID0 = normalizeRiffCardId((blocks as any[])?.[0]);
-    const deckID0 = String((blocks as any[])?.[0]?.riffCard?.deckID || this.deckID);
-    if (cardID0) {
-      const v = { cardID: cardID0, deckID: deckID0 };
-      this.cardIdCache.set(bid, v);
-      return v;
-    }
-
-    await this.api.addRiffCards(this.deckID, [bid]).catch(() => {});
-    const blocks2 = await this.api.getRiffCardsByBlockIDs([bid]).catch(() => []);
-    const cardID1 = normalizeRiffCardId((blocks2 as any[])?.[0]);
-    const deckID1 = String((blocks2 as any[])?.[0]?.riffCard?.deckID || this.deckID);
-    if (!cardID1) return null;
-    const v = { cardID: cardID1, deckID: deckID1 };
-    this.cardIdCache.set(bid, v);
-    return v;
-  }
-
-  private createSequencer(seed: string | null): GraphSequencer<string, QueueItem, EdgeMeta> {
-    return new GraphSequencer<string, QueueItem, EdgeMeta>({
-      seed,
-      getSeed: async () => {
-        if (seed) return seed;
-        if (this.seedBlockId) return this.seedBlockId;
-        return await this.queryEngine.fetchRandomCard();
+  /**
+   * Create graph sequencer
+   */
+  private createSequencer(seedBlockId: string | null): GraphSequencer<string, QueueItem, any> {
+    return new GraphSequencer<string, QueueItem, any>({
+      seed: seedBlockId || undefined,
+      getNeighbors: async (nodeId) => {
+        const context = await this.queryEngine.query(nodeId);
+        return this.transformNeighbors(context);
       },
-      getNodeKey: (node) => String(node || ''),
-      getNeighbors: async (node) => {
-        const neighbors = await this.queryEngine.fetchNeighbors(String(node || ''));
-        const ids = Array.from(new Set((neighbors || []).map((x) => String((x as any)?.id || '')).filter(Boolean)));
-        const priorityMap = await this.getPrioritiesByBlockIDs(ids).catch(() => new Map<string, number>());
-        for (const [k, v] of priorityMap.entries()) this.priorityCache.set(k, v);
-        const out: Array<GraphWeightedNeighbor<string, EdgeMeta>> = [];
-        for (const n of neighbors || []) {
-          const associationType = n.type as AssociationType;
-          const base = this.walkEngine.getWeight(associationType);
-          const p = clampPriority(this.priorityCache.get(String(n.id || '')), DEFAULT_PRIORITY);
-          const weight = base * priorityFactor(p);
-          out.push({
-            node: String(n.id || ''),
-            weight,
-            edge: { associationType, reason: reasonFor(associationType) },
-          });
-        }
-        return out;
-      },
-      toItem: async (node, ctx) => {
-        return await this.nodeToItem(node, ctx.from, ctx.edge);
+      selectNext: (neighbors) => {
+        return this.walkEngine.select(neighbors);
       },
     });
   }
 
-  private resetSequencer(seed: string | null): void {
-    this.sequencer = this.createSequencer(seed);
-  }
-
-  private async getPriorityForBlock(blockID: string): Promise<number> {
-    const bid = String(blockID || '');
-    if (!bid) return DEFAULT_PRIORITY;
-    const cached = this.priorityCache.get(bid);
-    if (Number.isFinite(cached)) return clampPriority(cached, DEFAULT_PRIORITY);
-    const map = await this.getPrioritiesByBlockIDs([bid]).catch(() => new Map<string, number>());
-    const v = clampPriority(map.get(bid), DEFAULT_PRIORITY);
-    this.priorityCache.set(bid, v);
-    return v;
-  }
-}
-
-function escapeSql(value: string): string {
-  return String(value || '').replace(/'/g, "''");
-}
-
-async function defaultGetPrioritiesByBlockIDs(blockIDs: string[]): Promise<Map<string, number>> {
-  const ids = Array.from(new Set((blockIDs || []).map((x) => String(x || '')).filter(Boolean)));
-  const out = new Map<string, number>();
-  if (ids.length === 0) return out;
-  for (let i = 0; i < ids.length; i += 200) {
-    const batch = ids.slice(i, i + 200);
-    const inList = batch.map((id) => `'${escapeSql(id)}'`).join(',');
-    const stmt = `SELECT block_id, value FROM attributes WHERE name = '${ATTR_PRIORITY}' AND block_id IN (${inList})`;
-    const rows = await sql(stmt).catch(() => []);
-    for (const r of rows as any[]) {
-      const bid = String(r?.block_id || r?.blockId || '');
-      if (!bid) continue;
-      out.set(bid, clampPriority(r?.value, DEFAULT_PRIORITY));
+  /**
+   * Transform neural context to graph neighbors
+   */
+  private transformNeighbors(context: NeuralContext): any[] {
+    if (!context.neighbors || context.neighbors.length === 0) {
+      return [];
     }
+
+    return context.neighbors.map((n) => ({
+      nodeId: n.targetBlockId,
+      item: {
+        cardID: n.targetBlockId,
+        blockID: n.targetBlockId,
+        deckID: this.deckID,
+        priority: DEFAULT_PRIORITY,
+        meta: {
+          neuralContext: {
+            isFlashcard: n.isFlashcard,
+            associationType: n.associationType,
+          },
+        },
+      } as QueueItem,
+      weight: n.weight,
+      meta: {
+        associationType: n.associationType,
+        reason: this.reasonFor(n.associationType),
+      },
+    }));
   }
-  return out;
+
+  /**
+   * Get reason text for association type
+   */
+  private reasonFor(type: AssociationType): string {
+    if (type === AssociationType.REF_LINK) return '双向链接';
+    if (type === AssociationType.HIERARCHY) return '同文档';
+    if (type === AssociationType.TAG) return '标签关联';
+    if (type === AssociationType.SIBLING) return '兄弟块';
+    return '未知关联';
+  }
+
+  /**
+   * Translate i18n key
+   */
+  private t(key: string, fallback: string): string {
+    return this.i18n?.[key] || fallback;
+  }
 }

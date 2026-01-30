@@ -1,8 +1,24 @@
-import type { QueueInterface, QueueItem } from '../types.ts';
-import type { PersistenceAdapter } from '../persistence.ts';
-import { DEFAULT_PRIORITY } from '../abstraction/IPriority.ts';
-import type { QueueStats, QueueUIConfig } from '../types.ts';
-import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy.ts';
+/**
+ * Filter Group Queue (V2 - Composite Architecture)
+ *
+ * New implementation using BaseCompositeQueue pattern.
+ * Manages multiple filter groups with weighted scheduling.
+ *
+ * Features:
+ * - Multiple independent groups
+ * - Weighted schedule (groups appear multiple times based on weight)
+ * - Cursor tracking (advances after each item)
+ * - Persistence support
+ */
+
+import type { PersistenceAdapter } from '../persistence';
+import type { QueueItem, QueueStats, QueueUIConfig } from '../types';
+import { GroupDataSource } from '../datasource/GroupDataSource';
+import { GroupSequencer } from '../sequencers/GroupSequencer';
+import { NullScheduler } from '../schedulers/NullScheduler';
+import { BaseCompositeQueue } from '../composite/BaseCompositeQueue';
+import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy';
+import { DEFAULT_PRIORITY } from '../abstraction/IPriority';
 
 export interface FilterGroupConfig {
   id: string;
@@ -15,146 +31,161 @@ export interface FilterGroupSnapshot {
   schedule: string[];
 }
 
-export class FilterGroupQueue implements QueueInterface<QueueItem>, IQueueStrategy<QueueItem> {
-  private groups: Record<string, QueueItem[]> = {};
-  private schedule: string[] = [];
-  private cursor = 0;
+/**
+ * Filter Group Queue (V2)
+ *
+ * New implementation using composite architecture.
+ * Maintains full compatibility with V1.
+ */
+export class FilterGroupQueue extends BaseCompositeQueue<QueueItem>
+  implements IQueueStrategy<QueueItem>
+{
+  private readonly groupDataSource: GroupDataSource;
+  private readonly groupSequencer: GroupSequencer<QueueItem>;
   private readonly configs: FilterGroupConfig[];
-  private readonly persistence?: PersistenceAdapter<FilterGroupSnapshot>;
 
   constructor(
     configs: FilterGroupConfig[],
-    persistence?: PersistenceAdapter<FilterGroupSnapshot>,
+    persistence?: PersistenceAdapter<FilterGroupSnapshot>
   ) {
+    // Build schedule from configs
+    const schedule = FilterGroupQueue.buildSchedule(configs);
+    const groupIds = configs.map((c) => c.id);
+
+    // Create persistence adapter wrapper
+    const persistenceWrapper = persistence
+      ? {
+          save: async (data: Record<string, QueueItem[]>) => {
+            const snapshot: FilterGroupSnapshot = {
+              groups: data,
+              cursor: groupSequencer.getCursor(),
+              schedule: [...groupSequencer['schedule']],
+            };
+            await persistence.save(snapshot);
+          },
+          load: async () => {
+            const snap = await persistence.load();
+            if (!snap) return null;
+            return snap.groups;
+          },
+        }
+      : undefined;
+
+    // Create group data source
+    const groupDataSource = new GroupDataSource({
+      groupIds,
+      persistence: persistenceWrapper,
+    });
+
+    // Create group sequencer with cursor tracking
+    const groupSequencer = new GroupSequencer<QueueItem>({
+      getGroups: () => groupDataSource.getAllGroups(),
+      schedule,
+      advanceCursor: true,
+      onCursorAdvance: async (newCursor) => {
+        // Save when cursor advances
+        if (persistence) {
+          const snapshot: FilterGroupSnapshot = {
+            groups: groupDataSource.getAllGroups(),
+            cursor: newCursor,
+            schedule: [...schedule],
+          };
+          await persistence.save(snapshot);
+        }
+      },
+    });
+
+    // Create null scheduler (no algorithm)
+    const scheduler = new NullScheduler<QueueItem>();
+
+    // ⚠️ MUST call super() FIRST before using 'this'
+    super({
+      scheduler,
+      sequencer: groupSequencer,
+      dataSource: groupDataSource,
+      uiConfig: {
+        statsType: 'queue-size',
+        showRatingButtons: true,
+        allowSkip: true,
+      },
+      statsLabel: '筛选复习',
+    });
+
+    // Now safe to assign to 'this'
     this.configs = configs;
-    this.persistence = persistence;
-    this.schedule = this.buildSchedule(configs);
-    for (const cfg of configs) {
-      this.groups[cfg.id] = [];
-    }
+    this.groupDataSource = groupDataSource;
+    this.groupSequencer = groupSequencer;
   }
 
+  /**
+   * Initialize queue from storage
+   */
   async init(): Promise<void> {
-    const stored = await this.persistence?.load();
-    if (!stored) return;
-    const groups = stored.groups || this.groups;
-    for (const [gid, items] of Object.entries(groups)) {
-      this.groups[gid] = (items || []).map((it) => ({
-        ...(it as any),
-        priority: Number.isFinite(Number((it as any)?.priority)) ? Number((it as any).priority) : DEFAULT_PRIORITY,
-      })) as QueueItem[];
-    }
-    this.cursor = stored.cursor || 0;
-    this.schedule = stored.schedule?.length ? stored.schedule : this.schedule;
-  }
+    const stored = await this.groupDataSource['load']();
 
-  async addItem(item: QueueItem): Promise<void> {
-    const groupId = String(item?.meta?.groupId || this.configs[0]?.id || 'default');
-    if (!this.groups[groupId]) {
-      this.groups[groupId] = [];
-    }
-    if (!Number.isFinite(Number((item as any)?.priority))) {
-      (item as any).priority = DEFAULT_PRIORITY;
-    }
-    if (this.groups[groupId].some((x) => x.cardID === item.cardID)) return;
-    this.groups[groupId].push(item);
-    await this.persistence?.save(this.snapshot());
-  }
+    if (stored) {
+      // Groups are loaded by GroupDataSource
+      const snap = await (this.groupDataSource['persistence'] as any)?.load();
 
-  async addItems(items: QueueItem[]): Promise<number> {
-    let added = 0;
-    for (const it of items || []) {
-      const before = this.size();
-      await this.addItem(it);
-      if (this.size() !== before) {
-        added++;
+      if (snap) {
+        this.groupSequencer.setCursor(snap.cursor || 0);
       }
     }
-    return added;
   }
 
-  getAllItems(): QueueItem[] {
-    const result: QueueItem[] = [];
-    for (const q of Object.values(this.groups)) {
-      result.push(...q);
-    }
-    return result;
-  }
-
-  getNextItem(): QueueItem | null {
-    if (this.isEmpty()) return null;
-    for (let i = 0; i < this.schedule.length; i++) {
-      const idx = (this.cursor + i) % this.schedule.length;
-      const gid = this.schedule[idx];
-      const q = this.groups[gid];
-      if (q && q.length > 0) {
-        return q[0];
-      }
-    }
-    return null;
-  }
-
-  getUIConfig(_currentItem: QueueItem | null): QueueUIConfig {
-    return { statsType: 'queue-size', showRatingButtons: true, allowSkip: true };
-  }
-
-  async next(): Promise<QueueItem | null> {
-    return this.getNextItem();
-  }
-
+  /**
+   * Override onFeedback to advance cursor after review
+   */
   async onFeedback(currentItem: QueueItem | null, feedback: QueueFeedback): Promise<void> {
     if (!currentItem) return;
+
+    // Custom actions don't remove cards
     if (feedback.action === 'custom') return;
-    await this.removeItem(currentItem);
-    await this.advanceGroupCursor();
+
+    // Remove card and advance cursor
+    await this.groupDataSource.remove([currentItem]);
+    this.groupSequencer.advanceCursorToNext();
   }
 
+  /**
+   * Override getStats to provide queue statistics
+   */
   async getStats(): Promise<QueueStats> {
-    return { size: this.size(), label: '' };
+    return {
+      size: this.groupDataSource.size(),
+      label: '',
+    };
   }
 
-  async removeItem(item: QueueItem): Promise<boolean> {
-    let removed = false;
-    for (const gid of Object.keys(this.groups)) {
-      const q = this.groups[gid];
-      const before = q.length;
-      this.groups[gid] = q.filter((x) => x.cardID !== item.cardID);
-      if (this.groups[gid].length !== before) {
-        removed = true;
-      }
+  /**
+   * Get all items from all groups
+   */
+  getAllItems(): QueueItem[] {
+    const allItems: QueueItem[] = [];
+    for (const group of Object.values(this.groupDataSource.getAllGroups())) {
+      allItems.push(...group);
     }
-    if (removed) {
-      await this.persistence?.save(this.snapshot());
-    }
-    return removed;
+    return allItems;
   }
 
-  async removeItems(items: QueueItem[]): Promise<number> {
-    const set = new Set((items || []).map((x) => String((x as any)?.cardID || '')).filter(Boolean));
-    if (set.size === 0) return 0;
-    const before = this.size();
-    for (const gid of Object.keys(this.groups)) {
-      this.groups[gid] = (this.groups[gid] || []).filter((x) => !set.has(String(x.cardID)));
-    }
-    const removed = before - this.size();
-    if (removed > 0) {
-      await this.persistence?.save(this.snapshot());
-    }
-    return removed;
-  }
-
+  /**
+   * Reorder items within groups
+   */
   async reorder(orderedItems: QueueItem[]): Promise<boolean> {
     try {
-      const currentGroups = this.groups || {};
+      const currentGroups = this.groupDataSource.getAllGroups();
       const groupIds = Object.keys(currentGroups);
       const allCurrent: QueueItem[] = [];
+
       for (const gid of groupIds) {
         allCurrent.push(...(currentGroups[gid] || []));
       }
+
       if (orderedItems.length !== allCurrent.length) return false;
 
       const byId = new Map(allCurrent.map((x) => [String((x as any)?.cardID || ''), x] as const));
       const idToGroup = new Map<string, string>();
+
       for (const gid of groupIds) {
         for (const it of currentGroups[gid] || []) {
           const id = String((it as any)?.cardID || '');
@@ -172,19 +203,24 @@ export class FilterGroupQueue implements QueueInterface<QueueItem>, IQueueStrate
         if (!id) return false;
         if (seen.has(id)) return false;
         seen.add(id);
+
         const existing = byId.get(id);
         if (!existing) return false;
+
         const gid = idToGroup.get(id) || groupIds[0] || 'default';
         if (!nextGroups[gid]) nextGroups[gid] = [];
         nextGroups[gid].push(existing);
       }
 
       for (const gid of groupIds) {
-        if ((nextGroups[gid] || []).length !== (currentGroups[gid] || []).length) return false;
+        if ((nextGroups[gid] || []).length !== (currentGroups[gid] || []).length) {
+          return false;
+        }
       }
 
-      this.groups = nextGroups;
-      await this.persistence?.save(this.snapshot());
+      // Update groups in data source
+      Object.assign(currentGroups, nextGroups);
+
       return true;
     } catch (err) {
       console.error('[FilterGroupQueue] reorder failed:', err);
@@ -192,36 +228,19 @@ export class FilterGroupQueue implements QueueInterface<QueueItem>, IQueueStrate
     }
   }
 
-  size(): number {
-    return Object.values(this.groups).reduce((n, q) => n + q.length, 0);
-  }
-
-  isEmpty(): boolean {
-    return this.size() === 0;
-  }
-
-  async advanceGroupCursor(): Promise<void> {
-    if (this.schedule.length === 0) return;
-    this.cursor = (this.cursor + 1) % this.schedule.length;
-    await this.persistence?.save(this.snapshot());
-  }
-
-  snapshot(): FilterGroupSnapshot {
-    const groups: Record<string, QueueItem[]> = {};
-    for (const [k, v] of Object.entries(this.groups)) {
-      groups[k] = [...v];
-    }
-    return { groups, cursor: this.cursor, schedule: [...this.schedule] };
-  }
-
-  private buildSchedule(configs: FilterGroupConfig[]): string[] {
+  /**
+   * Build schedule from configs
+   */
+  private static buildSchedule(configs: FilterGroupConfig[]): string[] {
     const result: string[] = [];
+
     for (const cfg of configs) {
       const w = Math.max(1, Math.floor(cfg.weight || 1));
       for (let i = 0; i < w; i++) {
         result.push(cfg.id);
       }
     }
+
     return result.length ? result : ['default'];
   }
 }

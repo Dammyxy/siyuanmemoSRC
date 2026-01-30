@@ -6,7 +6,7 @@
 import type { ICard, ICardData } from '@/global';
 import { riff } from '@/core/siyuan';
 import type { QueueItem } from '@/core/queue';
-import { FilterGroupQueueV2 } from '@/core/queue/strategies/FilterGroupQueueV2';
+import { FilterGroupQueue } from '@/core/queue/strategies/FilterGroupQueue';
 
 /**
  * 队列项到原生卡片的转换接口
@@ -136,7 +136,7 @@ export class FinalDrillNativeAdapter implements INativeReviewAdapter {
  * 筛选练习队列的原生适配器
  */
 export class FilterGroupNativeAdapter implements INativeReviewAdapter {
-  constructor(private queue: FilterGroupQueueV2) {}
+  constructor(private queue: FilterGroupQueue) {}
 
   toNativeCards(items: QueueItem[]): ICard[] {
     return items.map((item) => ({

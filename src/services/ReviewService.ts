@@ -15,9 +15,9 @@ import { RetrievalPracticeProvider } from '@/ui/review/v2/providers/RetrievalPra
 import { FinalDrillProvider as ProviderFinalDrillProvider } from '@/ui/review/v2/providers/FinalDrillProvider';
 import { SubsetPracticeStrategy } from '@/core/queue/strategies';
 import { riff } from '@/core/siyuan';
-import { NeuralRoamQueueV2 } from '@/core/queue/strategies/NeuralRoamQueueV2';
-import { LeechQueueV2 } from '@/core/queue/strategies/LeechQueueV2';
-import { FinalDrillQueueV2 } from '@/core/queue/strategies/FinalDrillQueueV2';
+import { NeuralRoamQueue } from '@/core/queue/strategies/NeuralRoamQueue';
+import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
+import { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
 
 /**
  * 复习服务类
@@ -96,8 +96,8 @@ export class ReviewService {
     try {
       const settings = this.plugin.storage?.getSettings?.();
       const leech = (settings as any)?.leech || {};
-      // ✅ 使用 V2 队列（复合架构）
-      const session = new LeechQueueV2({
+      // ✅ 使用 队列（复合架构）
+      const session = new LeechQueue({
         deckID: riff.BUILTIN_DECK_ID,
         threshold: Number(leech.threshold) || 8,
         action: (leech.action || 'notify') as any,
@@ -349,7 +349,7 @@ export class ReviewService {
     }
 
     try {
-      const session = new NeuralRoamQueueV2({
+      const session = new NeuralRoamQueue({
         deckID: riff.BUILTIN_DECK_ID,
         i18n: this.plugin.i18n || {},
         seedBlockId: options?.seedBlockId,

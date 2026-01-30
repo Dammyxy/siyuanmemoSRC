@@ -18,7 +18,7 @@ src/
 ├── core/                    # 核心业务逻辑（与 UI 解耦）
 │   ├── scheduler/           # 调度器（FSRS、SM-15、Topic）
 │   ├── queue/               # 队列系统（策略、数据源、排序）
-│   │   ├── strategies/      # 各类队列实现（V1/V2 版本）
+│   │   ├── strategies/      # 各类队列实现
 │   │   ├── neural/          # 神经漫游引擎
 │   │   └── datasource/      # 队列数据源
 │   ├── storage/             # 持久化存储
@@ -211,9 +211,6 @@ npm run test     # 运行单元测试
 测试文件位于 `__tests__/` 目录。
 
 ## 8. 常见问题
-
-### Q1: 为什么有 V1 和 V2 两个版本的队列？
-A: V2 是重构版本，使用更清晰的抽象。目前两版共存，逐步迁移到 V2。
 
 ### Q2: Topic 和 Item 的区别？
 A: Topic 是纯阅读材料（使用 A-Factor 算法），Item 是问答卡片（使用 FSRS 算法）。

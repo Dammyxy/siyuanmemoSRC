@@ -11,11 +11,11 @@ import { pushErrMsg } from '@/core/siyuan/api';
 import { createVueDialog } from '@/utils/dialog';
 import { ReviewView, RetrievalPracticeAdapter, NeuralRoamAdapter } from '@/ui/review/v2';
 import { RetrievalPracticeProvider } from '@/ui/review/v2/providers/RetrievalPracticeProvider';
-import { LeechQueueV2 } from '@/core/queue/strategies/LeechQueueV2';
-import { FinalDrillQueueV2 } from '@/core/queue/strategies/FinalDrillQueueV2';
-import { NeuralRoamQueueV2 } from '@/core/queue/strategies/NeuralRoamQueueV2';
-import { IncrementalLearningQueueV2 } from '@/core/queue/strategies/IncrementalLearningQueueV2';
-import { FilterGroupQueueV2 } from '@/core/queue/strategies/FilterGroupQueueV2';
+import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
+import { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
+import { NeuralRoamQueue } from '@/core/queue/strategies/NeuralRoamQueue';
+import { IncrementalLearningQueue } from '@/core/queue/strategies/IncrementalLearningQueue';
+import { FilterGroupQueue } from '@/core/queue/strategies/FilterGroupQueue';
 import type { StorageManager } from '@/core/storage/manager';
 import type { SchedulerEngineAdapter } from '@/core/scheduler/types';
 
@@ -31,8 +31,8 @@ export interface DialogServiceDependencies {
   scheduler: SchedulerEngineAdapter;
   isInitialized: boolean;
   // 队列实例
-  finalDrillQueue: FinalDrillQueueV2;
-  incrementalQueue: IncrementalLearningQueueV2;
+  finalDrillQueue: FinalDrillQueue;
+  incrementalQueue: IncrementalLearningQueue;
 }
 
 /**
@@ -114,7 +114,7 @@ export class DialogService {
       const settings = this.deps.storage?.getSettings?.();
       const leech = (settings as any)?.leech || {};
       
-      const session = new LeechQueueV2({
+      const session = new LeechQueue({
         deckID: riff.BUILTIN_DECK_ID,
         threshold: Number(leech.threshold) || 8,
         action: (leech.action || 'notify') as any,
@@ -177,7 +177,7 @@ export class DialogService {
     this.destroyCurrentDialog();
 
     try {
-      const session = new NeuralRoamQueueV2({
+      const session = new NeuralRoamQueue({
         deckID: riff.BUILTIN_DECK_ID,
         i18n: this.deps.i18n || {},
         seedBlockId: options?.seedBlockId,
