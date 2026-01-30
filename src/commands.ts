@@ -17,7 +17,7 @@ export class CommandManager {
             langKey: 'startDrill',
             hotkey: 'Alt+D',
             callback: () => {
-                this.plugin.openDrillDialog();
+                this.plugin.openFinalDrillDialog();
             },
         });
 

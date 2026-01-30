@@ -177,3 +177,42 @@ export function truncateContent(text: string, maxLength = 100): string {
     if (cleaned.length <= maxLength) return cleaned;
     return cleaned.slice(0, maxLength) + '...';
 }
+
+// ==========================================================================
+// 🆕 Phase 3: 从 SRSBrowser.vue 提取的额外类型
+// ==========================================================================
+
+/** 面包屑项 */
+export interface IBreadcrumbItem {
+    id: string;
+    name: string;
+    type: string;
+    subType: string;
+    children: [];
+}
+
+/** 浏览器视图模式 */
+export type BrowserViewMode = 'flat' | 'hierarchy';
+
+/** 卡片类型筛选 */
+export type CardTypeFilter = 'all' | 'topic-only' | 'item-only';
+
+/** 浏览器模式 */
+export type BrowserMode = 'dialog' | 'tab' | 'dock';
+
+/** 全局统计信息 */
+export interface GlobalStats {
+    total: number;
+    new: number;
+    learning: number;
+    review: number;
+    due: number;
+    overdue: number;
+    suspended: number;
+}
+
+/** 队列统计信息 */
+export interface QueueStats {
+    active: string;  // 当前活跃队列 ID
+    counts: Record<string, number>;  // 各队列卡片数量
+}
