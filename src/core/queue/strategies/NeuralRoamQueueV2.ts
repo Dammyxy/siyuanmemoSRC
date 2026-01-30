@@ -74,12 +74,13 @@ export class NeuralRoamQueueV2 extends BaseCompositeQueue<QueueItem> {
     includeSeedAsFirst?: boolean;
     config?: Partial<NeuralQueueConfig>;
   }) {
-    this.deckID = String(options?.deckID || riff.BUILTIN_DECK_ID);
-    this.i18n = options?.i18n;
+    // ℹ️ Prepare variables that DON'T need 'this'
+    const deckID = String(options?.deckID || riff.BUILTIN_DECK_ID);
+    const i18n = options?.i18n;
 
     // Load saved config
     const saved = NeuralQueueStorage.loadConfig();
-    this.config = {
+    const config: NeuralQueueConfig = {
       ...saved,
       ...options?.config,
       weights: { ...saved.weights, ...(options?.config as any)?.weights },
@@ -88,27 +89,37 @@ export class NeuralRoamQueueV2 extends BaseCompositeQueue<QueueItem> {
       topicMode: { ...(saved as any).topicMode, ...(options?.config as any)?.topicMode },
     } as NeuralQueueConfig;
 
-    this.queryEngine = new QueryEngine(this.config);
-    this.walkEngine = new WeightedWalkEngine({
-      [AssociationType.REF_LINK]: this.config.weights.refLink,
-      [AssociationType.HIERARCHY]: this.config.weights.hierarchy,
-      [AssociationType.TAG]: this.config.weights.tag,
-      [AssociationType.SIBLING]: this.config.weights.sibling,
+    const queryEngine = new QueryEngine(config);
+    const walkEngine = new WeightedWalkEngine({
+      [AssociationType.REF_LINK]: config.weights.refLink,
+      [AssociationType.HIERARCHY]: config.weights.hierarchy,
+      [AssociationType.TAG]: config.weights.tag,
+      [AssociationType.SIBLING]: config.weights.sibling,
     });
 
-    // Create graph sequencer
-    this.graphSequencer = this.createSequencer(options?.seedBlockId || null);
+    // Create a placeholder sequencer for super()
+    // We'll create the real one after super() is called
+    const placeholderSequencer = new GraphSequencer<string, QueueItem, any>({
+      seed: undefined,
+      getNeighbors: async () => [],
+      toItem: async (nodeId) => ({
+        cardID: nodeId,
+        deckID: deckID,
+        priority: 50,
+      } as QueueItem),
+      getNodeKey: (nodeId) => nodeId,
+    });
 
     // Create graph data source
-    const dataSource = new GraphDataSource(this.graphSequencer);
+    const dataSource = new GraphDataSource(placeholderSequencer);
 
     // Create null scheduler (no algorithm for neural roam)
     const scheduler = new NullScheduler<QueueItem>();
 
-    // Initialize base class
+    // ⚠️ MUST call super() FIRST before using 'this'
     super({
       scheduler,
-      sequencer: this.graphSequencer,
+      sequencer: placeholderSequencer,
       dataSource,
       uiConfig: {
         statsType: 'queue-size',
@@ -117,6 +128,20 @@ export class NeuralRoamQueueV2 extends BaseCompositeQueue<QueueItem> {
       },
       statsLabel: '神经漫游',
     });
+
+    // Now safe to assign to 'this'
+    this.deckID = deckID;
+    this.i18n = i18n;
+    this.config = config;
+    this.queryEngine = queryEngine;
+    this.walkEngine = walkEngine;
+
+    // Now create the REAL sequencer (can use 'this')
+    this.graphSequencer = this.createSequencer(options?.seedBlockId || null);
+    
+    // Replace the placeholder in base class
+    (this as any).sequencer = this.graphSequencer;
+    (dataSource as any).sequencer = this.graphSequencer;
   }
 
   /**

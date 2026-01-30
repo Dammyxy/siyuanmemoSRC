@@ -37,7 +37,8 @@ type Snapshot = {
  */
 export class FinalDrillQueueV2 extends BaseCompositeQueue<FinalDrillItem> {
   private readonly adapter: PersistenceAdapter<Snapshot> | null;
-  private readonly sequencer: ListSequencer<FinalDrillItem>;
+  // ⚠️ sequencer is already in BaseCompositeQueue, don't redeclare as private
+  private readonly _localSequencer: ListSequencer<FinalDrillItem>;
   private lastAutoSortDay = '';
 
   constructor(storage?: StorageManager) {
@@ -59,7 +60,32 @@ export class FinalDrillQueueV2 extends BaseCompositeQueue<FinalDrillItem> {
       removeOnCondition: true,
     });
 
-    // Create traits
+    // ⚠️ MUST call super() FIRST before using 'this'
+    // We'll use a placeholder for traits and assign them after super()
+    super({
+      scheduler,
+      sequencer,
+      dataSource: {
+        getAll: async () => sequencer.getAll(),
+        add: async () => 0, // Placeholder
+        remove: async () => 0, // Placeholder
+        size: () => sequencer.size(),
+        isEmpty: () => sequencer.size() === 0,
+      },
+      traits: [], // Will be set after
+      uiConfig: {
+        statsType: 'queue-size',
+        showRatingButtons: true,
+        allowSkip: true,
+      },
+      statsLabel: '最终演练',
+    });
+
+    // Now safe to assign to 'this'
+    this.adapter = adapter;
+    this._localSequencer = sequencer;
+
+    // Now create traits that can use 'this'
     const mutableTrait: IMutableTrait<FinalDrillItem> = {
       id: 'mutable',
       insertAt: async (items, index) => {
@@ -91,35 +117,17 @@ export class FinalDrillQueueV2 extends BaseCompositeQueue<FinalDrillItem> {
       },
     };
 
-    // Create data source from sequencer (in-memory)
-    const dataSource = {
-      getAll: async () => sequencer.getAll(),
-      add: async (items: FinalDrillItem[]) => {
-        return await this.addItemsToSequencer(items);
-      },
-      remove: async (items: FinalDrillItem[]) => {
-        return await this.removeItemsFromSequencer(items);
-      },
-      size: () => sequencer.size(),
-      isEmpty: () => sequencer.size() === 0,
+    // Register traits
+    (this as any).traits = [mutableTrait, removableTrait, prioritizableTrait, autoSortableTrait];
+
+    // Update dataSource methods that need 'this'
+    const baseDataSource = (this as any).dataSource;
+    baseDataSource.add = async (items: FinalDrillItem[]) => {
+      return await this.addItemsToSequencer(items);
     };
-
-    // Initialize base class
-    super({
-      scheduler,
-      sequencer,
-      dataSource,
-      traits: [mutableTrait, removableTrait, prioritizableTrait, autoSortableTrait],
-      uiConfig: {
-        statsType: 'queue-size',
-        showRatingButtons: true,
-        allowSkip: true,
-      },
-      statsLabel: '最终演练',
-    });
-
-    this.adapter = adapter;
-    this.sequencer = sequencer;
+    baseDataSource.remove = async (items: FinalDrillItem[]) => {
+      return await this.removeItemsFromSequencer(items);
+    };
   }
 
   /**

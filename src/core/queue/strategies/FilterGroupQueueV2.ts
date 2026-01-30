@@ -48,8 +48,6 @@ export class FilterGroupQueueV2 extends BaseCompositeQueue<QueueItem>
     configs: FilterGroupConfig[],
     persistence?: PersistenceAdapter<FilterGroupSnapshot>
   ) {
-    this.configs = configs;
-
     // Build schedule from configs
     const schedule = FilterGroupQueueV2.buildSchedule(configs);
     const groupIds = configs.map((c) => c.id);
@@ -60,8 +58,8 @@ export class FilterGroupQueueV2 extends BaseCompositeQueue<QueueItem>
           save: async (data: Record<string, QueueItem[]>) => {
             const snapshot: FilterGroupSnapshot = {
               groups: data,
-              cursor: this.groupSequencer.getCursor(),
-              schedule: [...this.groupSequencer['schedule']],
+              cursor: groupSequencer.getCursor(),
+              schedule: [...groupSequencer['schedule']],
             };
             await persistence.save(snapshot);
           },
@@ -100,7 +98,7 @@ export class FilterGroupQueueV2 extends BaseCompositeQueue<QueueItem>
     // Create null scheduler (no algorithm)
     const scheduler = new NullScheduler<QueueItem>();
 
-    // Initialize base class
+    // ⚠️ MUST call super() FIRST before using 'this'
     super({
       scheduler,
       sequencer: groupSequencer,
@@ -113,6 +111,8 @@ export class FilterGroupQueueV2 extends BaseCompositeQueue<QueueItem>
       statsLabel: '筛选复习',
     });
 
+    // Now safe to assign to 'this'
+    this.configs = configs;
     this.groupDataSource = groupDataSource;
     this.groupSequencer = groupSequencer;
   }

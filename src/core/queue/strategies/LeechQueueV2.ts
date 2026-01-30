@@ -52,50 +52,51 @@ export class LeechQueueV2 extends BaseCompositeQueue<QueueItem> {
   private readonly deckID: string;
 
   constructor(config: LeechQueueConfig = {}) {
-    this.config = {
+    // ℹ️ Prepare config before using it (can't use 'this' yet)
+    const finalConfig: Required<LeechQueueConfig> = {
       deckID: config.deckID || riff.BUILTIN_DECK_ID,
       threshold: Math.max(1, Math.floor(Number(config.threshold ?? 8))),
       action: (config.action || 'notify') as LeechAction,
       tagName: String(config.tagName || 'leech'),
     };
-    this.deckID = this.config.deckID;
+    const deckID = finalConfig.deckID;
 
     // Create data source with lapse filter
     const dataSource = new RiffDataSource({
-      deckId: this.deckID,
+      deckId: deckID,
       filter: (item) => {
         // Only include cards with lapses >= threshold
         const lapses = Number(item.lapses) || 0;
-        return lapses >= this.config.threshold;
+        return lapses >= finalConfig.threshold;
       },
     });
 
     // Create base scheduler (Riff API)
     const baseScheduler = new RiffScheduler<QueueItem, 1 | 2 | 3 | 4>(async (card, grade) => {
-      await riff.reviewRiffCard(card.deckID || this.deckID, card.cardID, grade);
+      await riff.reviewRiffCard(card.deckID || deckID, card.cardID, grade);
       return card;
     });
 
     // Create leech scheduler with action handling
     const leechScheduler = new LeechScheduler<QueueItem, 1 | 2 | 3 | 4>({
       base: baseScheduler,
-      isLeech: (c) => (Number((c as any).lapses) || 0) >= this.config.threshold,
+      isLeech: (c) => (Number((c as any).lapses) || 0) >= finalConfig.threshold,
       onLeech: async (c, grade) => {
         const blockID = String((c as any).blockID || '');
 
         // Execute leech action
-        if (this.config.action === 'notify') {
-          await pushMsg(`Leech: lapses>=${this.config.threshold}`);
-        } else if (this.config.action === 'suspend') {
+        if (finalConfig.action === 'notify') {
+          await pushMsg(`Leech: lapses>=${finalConfig.threshold}`);
+        } else if (finalConfig.action === 'suspend') {
           if (blockID) {
             await setBlockAttrs(blockID, { [ATTR_SUSPENDED]: 'true' } as any);
           }
           await pushMsg('Leech: suspended');
-        } else if (this.config.action === 'tag') {
+        } else if (finalConfig.action === 'tag') {
           if (blockID) {
-            await setBlockAttrs(blockID, { [ATTR_LEECH_TAG]: this.config.tagName } as any);
+            await setBlockAttrs(blockID, { [ATTR_LEECH_TAG]: finalConfig.tagName } as any);
           }
-          await pushMsg(`Leech: tagged ${this.config.tagName}`);
+          await pushMsg(`Leech: tagged ${finalConfig.tagName}`);
         }
 
         // Still schedule through base scheduler
@@ -119,7 +120,7 @@ export class LeechQueueV2 extends BaseCompositeQueue<QueueItem> {
       },
     });
 
-    // Initialize base class
+    // ⚠️ MUST call super() FIRST before using 'this'
     super({
       scheduler: leechScheduler,
       sequencer,
@@ -129,8 +130,12 @@ export class LeechQueueV2 extends BaseCompositeQueue<QueueItem> {
         showRatingButtons: true,
         allowSkip: true,
       },
-      statsLabel: `L>=${this.config.threshold}`,
+      statsLabel: `L>=${finalConfig.threshold}`,
     });
+
+    // Now safe to assign to 'this'
+    this.config = finalConfig;
+    this.deckID = deckID;
   }
 
   /**
