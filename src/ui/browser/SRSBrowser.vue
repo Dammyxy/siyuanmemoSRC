@@ -148,6 +148,8 @@ import {
   createFocusDataSource,
   type DataSourceOptionsWithDoc,
 } from './utils/dataSourceFactory';
+import { useSorting } from './composables/useSorting';
+import { useCardActions } from './composables/useCardActions';
 
 // 注册 AG-Grid 模块
 ModuleRegistry.registerModules([AllCommunityModule]);
