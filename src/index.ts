@@ -440,8 +440,13 @@ export default class FSRSPlugin extends Plugin {
     this.ensureTopbarMounted();
   }
 
-  onunload() {
+  async onunload() {
     console.log('[FSRS] Plugin unloading...');
+
+    // 强制保存挂起的数据
+    if (this.storage) {
+      await this.storage.flush();
+    }
 
     // 关闭复习对话框和 SRS 浏览器
     this.reviewDialog?.destroy();
@@ -452,9 +457,6 @@ export default class FSRSPlugin extends Plugin {
         this.topBarElement.removeEventListener('contextmenu', this.topBarContextMenuHandler);
       }
     } catch {}
-
-    // 保存数据
-    this.storage?.saveCards?.();
 
     console.log('[FSRS] Plugin unloaded');
   }
