@@ -30,26 +30,18 @@ import { createVueDialog } from '@/utils/dialog';
 import { createDefaultCard } from '@/types';
 import '@/index.scss';
 import { ConsoleQueueMonitor, DEFAULT_PRIORITY, QueueContext, StorageFileJsonAdapter, type QueueItem } from '@/core/queue';
-import {
-  RetrievalPracticeQueue,
-  FilterGroupQueue,
-  FinalDrillQueue,
-  NeuralRoamQueue,
-  SubsetPracticeStrategy,
-  LeechQueue
-} from '@/core/queue/strategies';
-// V2 队列导入（使用别名以区分 V1 和 V2）
-import {
-  RetrievalPracticeQueue as RetrievalPracticeQueueV2,
-  FilterGroupQueue as FilterGroupQueueV2,
-  FinalDrillQueue as FinalDrillQueueV2,
-  NeuralRoamQueue as NeuralRoamQueueV2,
-  LeechQueue as LeechQueueV2,
-} from '@/core/queue/strategies';
-// ✅ 直接导入 IncrementalLearningQueueV2，避免从 index.ts 导入旧版本
+import { SubsetPracticeStrategy } from '@/core/queue/strategies';
+// V2 队列导入（直接从V2文件导入）
+import { RetrievalPracticeQueueV2 } from '@/core/queue/strategies/RetrievalPracticeQueueV2';
+import { FilterGroupQueueV2 } from '@/core/queue/strategies/FilterGroupQueueV2';
+import { FinalDrillQueueV2 } from '@/core/queue/strategies/FinalDrillQueueV2';
+import { NeuralRoamQueueV2 } from '@/core/queue/strategies/NeuralRoamQueueV2';
+import { LeechQueueV2 } from '@/core/queue/strategies/LeechQueueV2';
 import { IncrementalLearningQueueV2 } from '@/core/queue/strategies/IncrementalLearningQueueV2';
-import { NeuralQueue, NeuralQueueStorage } from '@/core/queue/neural';
-import { ExtractionNativeAdapter, FinalDrillNativeAdapter, FilterGroupNativeAdapter } from '@/core/native/adapter';
+import { NeuralQueueStorage } from '@/core/queue/neural';
+import { ExtractionNativeAdapter, FinalDrillNativeAdapter } from '@/core/native/adapter';
+// Services
+import { DialogService, MenuService } from '@/services';
 import { NativeReviewSession } from '@/core/native/session';
 
 // Topic/Item 迁移
@@ -68,24 +60,28 @@ export default class FSRSPlugin extends Plugin {
   public schedulerRouter!: SchedulerRouter;
   public rescheduleService!: RescheduleService;
   private queueContext!: QueueContext<QueueItem>;
-  private retrievalQueue!: RetrievalPracticeQueue;
-  public neuralQueue!: NeuralQueue;
-  public finalDrillQueue!: FinalDrillQueue;
-  public leechQueue!: LeechQueue;
+  private retrievalQueue!: RetrievalPracticeQueueV2;
+  public neuralQueue!: NeuralRoamQueueV2;
+  public finalDrillQueue!: FinalDrillQueueV2;
+  public leechQueue!: LeechQueueV2;
   public incrementalQueue!: IncrementalLearningQueueV2;
-  private subsetQueue!: FilterGroupQueue; // 内部命名
+  private subsetQueue!: FilterGroupQueueV2; // 内部命名
+
+  // 🆕 Services
+  private dialogService!: DialogService;
+  private menuService!: MenuService;
 
   // 为兼容性提供的别名访问器
-  public get deliberateQueue(): FinalDrillQueue {
+  public get deliberateQueue(): FinalDrillQueueV2 {
     return this.finalDrillQueue;
   }
 
-  public get neuralRoamQueue(): NeuralQueue {
+  public get neuralRoamQueue(): NeuralRoamQueueV2 {
     return this.neuralQueue;
   }
 
   // filterGroupQueue 别名 → subsetQueue（保持兼容性）
-  public get filterGroupQueue(): FilterGroupQueue {
+  public get filterGroupQueue(): FilterGroupQueueV2 {
     return this.subsetQueue;
   }
 
@@ -180,7 +176,7 @@ export default class FSRSPlugin extends Plugin {
         initial: 'retrieval',
         monitors: [new ConsoleQueueMonitor()],
       });
-      this.queueContext.register('retrieval', this.retrievalQueue);
+      this.queueContext.register('retrieval', this.retrievalQueue as any);
       
       const groupConfigs = (settings.queues?.filterGroup?.groups || []).map((g: any) => ({
         id: String(g.id),
@@ -195,29 +191,28 @@ export default class FSRSPlugin extends Plugin {
       );
       await filterGroupQueue.init();
       this.subsetQueue = filterGroupQueue;
-      this.queueContext.register('filter-group', this.subsetQueue);
+      this.queueContext.register('filter-group', this.subsetQueue as any);
 
       // ✅ 使用 V2 队列（复合架构）
       this.finalDrillQueue = new FinalDrillQueueV2(this.storage);
       await this.finalDrillQueue.init();
-      this.queueContext.register('final-drill', this.finalDrillQueue);
+      this.queueContext.register('final-drill', this.finalDrillQueue as any);
 
       // 初始化难点攻坚队列（✅ 使用 V2）
       this.leechQueue = new LeechQueueV2();
-      this.queueContext.register('leech', this.leechQueue);
+      this.queueContext.register('leech' as any, this.leechQueue as any);
 
       // 初始化神经漫游队列（✅ 使用 V2）
       const neuralConfig = NeuralQueueStorage.loadConfig();
-      this.neuralQueue = new NeuralRoamQueueV2(neuralConfig);
-      this.queueContext.register('neural-roam', this.neuralQueue);
+      this.neuralQueue = new NeuralRoamQueueV2({ config: neuralConfig });
+      this.queueContext.register('neural-roam', this.neuralQueue as any);
 
       // 初始化渐进学习队列（✅ 使用 V2 - Simplified）
       this.incrementalQueue = new IncrementalLearningQueueV2({
         storage: this.storage,
         scheduler: this.scheduler,
-        schedulerRouter: this.schedulerRouter, // 🆕 新增
       });
-      this.queueContext.register('incremental-learning', this.incrementalQueue);
+      this.queueContext.register('incremental-learning' as any, this.incrementalQueue as any);
 
       console.log('[FSRS] ✅ Incremental learning queue initialized:', {
         hasQueue: !!this.incrementalQueue,
@@ -226,6 +221,33 @@ export default class FSRSPlugin extends Plugin {
       });
 
       console.log('[FSRS] ✅ SchedulerRouter initialized');
+
+      // 🆕 初始化 Services
+      this.dialogService = new DialogService({
+        app: this.app,
+        i18n: this.i18n || {},
+        storage: this.storage,
+        scheduler: this.scheduler,
+        isInitialized: true,
+        finalDrillQueue: this.finalDrillQueue,
+        incrementalQueue: this.incrementalQueue,
+      });
+
+      this.menuService = new MenuService({
+        i18n: this.i18n || {},
+        storage: this.storage,
+        openReviewDialog: () => this.openReviewDialog(),
+        openFinalDrillDialog: () => this.openFinalDrillDialog(),
+        openFilterGroupPracticeDialog: () => this.openFilterGroupPracticeDialog(),
+        openIncrementalLearningDialog: () => this.openIncrementalLearningDialog(),
+        openNeuralRoamDialog: () => this.openNeuralRoamDialog(),
+        openLeechReviewDialog: () => this.openLeechReviewDialog(),
+        openSRSBrowser: () => this.openSRSBrowser(),
+        openSetting: () => this.openSetting(),
+        getDueCount: () => this.getDueCount(),
+      });
+
+      console.log('[FSRS] ✅ Services initialized');
 
       this.isInitialized = true;
 
@@ -442,105 +464,8 @@ export default class FSRSPlugin extends Plugin {
    */
   private openTopBarMenu(ev: MouseEvent) {
     this.ensureTopbarMounted();
-    const menu = new Menu('fsrs-topbar-menu');
-
-    // 添加菜单项
-    menu.addItem({
-      icon: 'iconCards',
-      label: this.i18n?.startReview || '开始提取练习',
-      accelerator: 'Alt+R',
-      click: () => {
-        this.openReviewDialog();
-      },
-    });
-
-    menu.addItem({
-      icon: 'iconCards',
-      label: this.i18n?.startQueuePractice || '开始刻意练习',
-      accelerator: 'Alt+D',
-      click: () => {
-        this.openFinalDrillDialog();
-      },
-    });
-
-    menu.addItem({
-      icon: 'iconCards',
-      label: (this.i18n as any)?.startFilterGroupPractice || '开始筛选复习',
-      accelerator: 'Alt+G',
-      click: () => {
-        this.openFilterGroupPracticeDialog();
-      },
-    });
-
-    menu.addItem({
-      icon: 'iconBook',
-      label: this.i18n?.startIncrementalLearning || '开始渐进学习',
-      accelerator: 'Alt+I',
-      click: () => {
-        this.openIncrementalLearningDialog();
-      },
-    });
-
-    menu.addItem({
-      icon: 'iconRefresh',
-      label: this.i18n?.startNeuralReview || '开始神经复习',
-      accelerator: 'Alt+N',
-      click: () => {
-        this.openNeuralRoamDialog();
-      },
-    });
-
-    menu.addItem({
-      icon: 'iconBug',
-      label: (this.i18n as any)?.startLeechPractice || '开始难点攻坚',
-      accelerator: 'Alt+L',
-      click: () => {
-        this.openLeechReviewDialog();
-      },
-    });
-
-    menu.addItem({
-      icon: 'iconLayoutRight',
-      label: this.i18n?.srsBrowser || 'SRS 浏览器',
-      accelerator: 'Alt+B',
-      click: () => {
-        this.openSRSBrowser();
-      },
-    });
-
-
-
-
-
-    menu.addSeparator();
-
-    menu.addItem({
-      icon: 'iconSettings',
-      label: this.i18n?.settings || '设置',
-      click: () => {
-        this.openSetting();
-      },
-    });
-
-    menu.addSeparator();
-
-    menu.addItem({
-      icon: 'iconInfo',
-      label: `${this.i18n?.dueCountLabel || '待复习'}: ${this.getDueCount()} / ${this.i18n?.totalCountLabel || '总卡片'}: ${this.storage.getAllCards().length}`,
-      type: 'readonly',
-    });
-
-    const anchor = (ev.currentTarget || ev.target) as HTMLElement | null;
-    const rect = anchor?.getBoundingClientRect?.();
-    if (rect) {
-      menu.open({
-        x: rect.right,
-        y: rect.bottom,
-        isLeft: true,
-      });
-    } else {
-      menu.open({ x: ev.clientX, y: ev.clientY, isLeft: true });
-    }
+    // 🆕 使用 MenuService
+    this.menuService.openTopBarMenu(ev);
   }
 
   private ensureTopbarMounted(): void {
@@ -1008,7 +933,7 @@ export default class FSRSPlugin extends Plugin {
     }
 
     try {
-      const session = new NeuralRoamQueue({
+      const session = new NeuralRoamQueueV2({
         deckID: riff.BUILTIN_DECK_ID,
         i18n: this.i18n || {},
         seedBlockId: options?.seedBlockId,
