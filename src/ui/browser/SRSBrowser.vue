@@ -180,7 +180,6 @@ const currentCardType = ref<'all' | 'topic-only' | 'item-only'>('all');  // ✅ 
 const selectedRows = ref<BrowserCard[]>([]);
 const gridApi = ref<GridApi | null>(null);
 const currentSortModel = ref<any[]>([]);
-const hasRandomSort = ref(false);  // ✅ 标记是否进行了随机排序
 const searchQuery = ref('');
 const viewMode = ref<'flat' | 'hierarchy'>('flat');
 const activeQueueId = ref<string | null>(null);
@@ -759,98 +758,6 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   }
 }
 
-// ========== 排序功能 ==========
-
-// 应用排序
-function applySort(colId: string, sortDirection: 'asc' | 'desc') {
-  if (!gridApi.value) {
-    console.error('[CardBrowser] Grid API not ready');
-    return;
-  }
-
-  console.log('[CardBrowser] Applying sort:', { colId, sortDirection });
-
-  try {
-    // AG-Grid v35+ 直接使用 gridApi.applyColumnState
-    gridApi.value.applyColumnState({
-      state: [
-        {
-          colId: colId,
-          sort: sortDirection,
-        },
-      ],
-      defaultState: { sort: null }, // 清除其他列的排序
-    });
-
-    hasRandomSort.value = false;  // ✅ 列排序时清除随机排序标志
-
-    console.log('[CardBrowser] Sort applied successfully');
-  } catch (err) {
-    console.error('[CardBrowser] Apply sort failed:', err);
-  }
-}
-
-// 随机排序
-function applyRandomSort() {
-  if (!gridApi.value) {
-    console.error('[CardBrowser] Grid API not ready for random sort');
-    return;
-  }
-
-  try {
-    // 获取当前显示的所有行数据
-    const rowCount = gridApi.value.getDisplayedRowCount?.() ?? 0;
-    if (rowCount === 0) {
-      console.warn('[CardBrowser] No rows to shuffle');
-      return;
-    }
-
-    console.log('[CardBrowser] Shuffling', rowCount, 'rows');
-
-    // 收集所有行数据
-    const rows: any[] = [];
-    for (let i = 0; i < rowCount; i++) {
-      const node = gridApi.value.getDisplayedRowAtIndex?.(i);
-      if (node?.data) {
-        rows.push(node.data);
-      }
-    }
-
-    // Fisher-Yates 洗牌算法
-    for (let i = rows.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [rows[i], rows[j]] = [rows[j], rows[i]];
-    }
-
-    // 清除所有排序状态
-    gridApi.value.setColumnState?.({
-      state: [],
-      defaultState: { sort: null },
-    });
-
-    // ✅ 设置随机排序标志
-    hasRandomSort.value = true;
-
-    // ✅ 使用 AG-Grid v28+ 的 setGridOption API
-    // 先清空数据，强制 AG-Grid 重新创建行模型
-    gridApi.value.setGridOption?.('rowData', []);
-
-    // 同步更新 Vue 响应式数据
-    filteredCards.value = [];
-
-    // 在下一个 tick 设置新数据
-    nextTick(() => {
-      if (gridApi.value) {
-        gridApi.value.setGridOption?.('rowData', rows);
-        filteredCards.value = rows;
-        console.log('[CardBrowser] Shuffle completed via setGridOption');
-      }
-    });
-  } catch (err) {
-    console.error('[CardBrowser] Random sort failed:', err);
-  }
-}
-
 // 右键菜单
 function onCellContextMenu(event: CellContextMenuEvent) {
   event.event?.preventDefault();
@@ -978,140 +885,6 @@ async function autoSortFinalDrillQueue() {
   }
 }
 
-const canApplySortToQueue = computed(() => {
-  const qid = String(activeQueueId.value || '');
-  const sortArray = Array.from(currentSortModel.value || []);
-
-  // 使用 gridApi 获取列状态来检测是否有排序
-  let hasSort = sortArray.length > 0;
-  if (!hasSort && gridApi.value) {
-    try {
-      // ✅ 检查 grid 是否已被销毁
-      if (typeof gridApi.value.isDestroyed === 'function' && gridApi.value.isDestroyed()) {
-        hasSort = false;
-      } else {
-        const columnState = gridApi.value.getColumnState?.() || [];
-        hasSort = columnState.some((col: any) => col.sort && col.sort !== 'undefined');
-      }
-    } catch (e) {
-      // Ignore errors (grid may be destroyed)
-      hasSort = false;
-    }
-  }
-
-  // ✅ 随机排序也算作排序
-  if (hasRandomSort.value) {
-    hasSort = true;
-  }
-
-  console.log('[CardBrowser] canApplySortToQueue check:', {
-    queueId: qid,
-    isValidQueue: qid === 'retrieval' || qid === 'final-drill' || qid === 'filter-group' || qid === 'neural' || qid === 'incremental-learning',
-    hasSortModel: hasSort,
-    hasRandomSort: hasRandomSort.value,
-    sortModel: sortArray,
-    sortModelLength: sortArray.length,
-    result: (qid === 'retrieval' || qid === 'final-drill' || qid === 'filter-group' || qid === 'neural' || qid === 'incremental-learning') && hasSort
-  });
-
-  if (!qid) return false;
-  if (qid !== 'retrieval' && qid !== 'final-drill' && qid !== 'filter-group' && qid !== 'neural' && qid !== 'incremental-learning') return false;
-  if (!hasSort) return false;
-  return true;
-});
-
-async function handleApplySortToQueue() {
-  const qid = String(activeQueueId.value || '');
-  if (!qid) return;
-  const q = getQueueById(qid);
-  if (!q) {
-    await pushErrMsg(t('queueNotFound', '队列未找到'));
-    return;
-  }
-  if (typeof q.reorder !== 'function') {
-    await pushErrMsg(t('queueNotSupportReorder', '当前队列不支持重排'));
-    return;
-  }
-  if (!gridApi.value) {
-    await pushErrMsg(t('initFailed', 'FSRS 插件初始化失败，请打开控制台查看错误'));
-    return;
-  }
-
-  // 首先从队列中获取当前所有项
-  const currentItems = q.getAllItems?.() || [];
-  const currentItemsByBlockId = new Map(
-    currentItems.map((item: any) => [String(item.blockID || ''), item] as const)
-  );
-
-  const orderedCards: BrowserCard[] = [];
-  const count = Number(gridApi.value.getDisplayedRowCount?.() ?? 0);
-  for (let i = 0; i < count; i++) {
-    const node = gridApi.value.getDisplayedRowAtIndex?.(i);
-    const card = node?.data as BrowserCard | undefined;
-    if (!card) continue;
-    orderedCards.push(card);
-  }
-  if (!orderedCards.length) {
-    await pushErrMsg(t('noCards', '没有卡片'));
-    return;
-  }
-
-  // 使用 blockID 从队列中获取实际的项（避免使用过时的浏览器数据）
-  const queueItems: any[] = [];
-  const missingBlockIds: string[] = [];
-
-  for (const card of orderedCards) {
-    const blockId = String(card.blockId || '');
-    const item = currentItemsByBlockId.get(blockId);
-    if (item) {
-      queueItems.push(item);
-    } else {
-      missingBlockIds.push(blockId);
-    }
-  }
-
-  // 调试：打印卡片 ID 映射详情
-  console.log('[CardBrowser] Card ID mapping details:', {
-    orderedCardsCount: orderedCards.length,
-    currentItemsCount: currentItems.length,
-    matchedItemsCount: queueItems.length,
-    missingBlockIds,
-    allCardIDs: orderedCards.map((c) => ({
-      fsrsCardId: c.fsrsCardId,
-      id: c.id,
-      blockId: c.blockId,
-      deckId: c.deckId,
-    })),
-    allQueueItemIDs: queueItems.map((qi) => ({
-      cardID: qi.cardID,
-      blockID: qi.blockID,
-      deckID: qi.deckID,
-    })),
-  });
-
-  try {
-    console.log('[CardBrowser] Applying sort to queue:', {
-      queueId: qid,
-      queueItemsCount: queueItems.length,
-      hasReorder: typeof q.reorder === 'function',
-    });
-
-    const ok = await Promise.resolve(q.reorder(queueItems));
-    console.log('[CardBrowser] Queue reorder result:', { ok });
-
-    if (!ok) {
-      await pushErrMsg(t('sortApplyFailed', '应用排序失败'));
-      return;
-    }
-    await pushMsg(t('sortApplied', '队列已按当前排序重新排列'));
-    hasRandomSort.value = false;  // ✅ 重置随机排序标志
-    await loadData();
-  } catch (err: any) {
-    console.error('[CardBrowser] apply sort to queue failed:', err);
-    await pushErrMsg(err?.message || t('sortApplyFailed', '应用排序失败'));
-  }
-}
-
 // 批量菜单
 function showBatchMenu(event?: MouseEvent) {
   const menu = new Menu('card-browser-batch');
@@ -1183,173 +956,6 @@ function handleCardTypeChange() {
   // searchQuery.value → 保留搜索
   // ✅ 强制刷新缓存，因为 cardType 筛选在 loadCards() 中应用
   void refreshData(true);  // forceRefresh = true
-}
-
-// ========== 卡片类型标记功能 ==========
-
-/**
- * 标记卡片为 Topic
- */
-async function markCardsAsTopic(cards: BrowserCard[]): Promise<void> {
-  if (!cards?.length) return;
-
-  const blockIds = cards.map(c => c.blockId);
-  console.log(`[CardBrowser] Marking ${blockIds.length} cards as Topic:`, blockIds);
-
-  try {
-    // 批量设置卡片类型为 topic
-    for (const blockId of blockIds) {
-      await setBlockAttrs(blockId, {
-        [ATTR_CARD_TYPE]: 'topic',
-      });
-    }
-
-    await pushMsg(`✅ 已将 ${blockIds.length} 张卡片标记为 Topic`, 3000);
-
-    // 清除缓存并刷新数据
-    invalidateCardCache();
-    await loadData();
-  } catch (err: any) {
-    console.error('[CardBrowser] Failed to mark cards as Topic:', err);
-    await pushErrMsg(`标记失败：${err?.message || '未知错误'}`, 3000);
-  }
-}
-
-/**
- * 标记卡片为 Item
- */
-async function markCardsAsItem(cards: BrowserCard[]): Promise<void> {
-  if (!cards?.length) return;
-
-  const blockIds = cards.map(c => c.blockId);
-  console.log(`[CardBrowser] Marking ${blockIds.length} cards as Item:`, blockIds);
-
-  try {
-    // 批量设置卡片类型为 item
-    for (const blockId of blockIds) {
-      await setBlockAttrs(blockId, {
-        [ATTR_CARD_TYPE]: 'item',
-      });
-    }
-
-    await pushMsg(`✅ 已将 ${blockIds.length} 张卡片标记为 Item`, 3000);
-
-    // 清除缓存并刷新数据
-    invalidateCardCache();
-    await loadData();
-  } catch (err: any) {
-    console.error('[CardBrowser] Failed to mark cards as Item:', err);
-    await pushErrMsg(`标记失败：${err?.message || '未知错误'}`, 3000);
-  }
-}
-
-// 强制刷新数据（清除缓存）
-async function forceRefreshData() {
-  loading.value = true;
-
-  try {
-    // 清除缓存
-    console.log('[CardBrowser] Clearing cache...');
-    invalidateCardCache();
-
-    // 刷新数据
-    await refreshData(true, true);  // forceRefresh=true, preserveFocusState=true
-    pushMsg('✅ 数据已强制刷新（缓存已清除）', 2000);
-  } catch (err: any) {
-    console.error('[CardBrowser] Force refresh failed:', err);
-    pushErrMsg(`强制刷新失败：${err?.message || '未知错误'}`, 3000);
-  } finally {
-    loading.value = false;
-  }
-}
-
-// Topic/Item 类型迁移（带确认弹窗）
-async function migrateTopicItem() {
-  // 显示确认弹窗
-  const confirmed = await new Promise<boolean>((resolve) => {
-    const dialog = document.createElement('div');
-    dialog.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;';
-
-    const content = document.createElement('div');
-    content.style.cssText = 'background: var(--b3-theme-background); padding: 24px; border-radius: 8px; max-width: 500px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);';
-
-    content.innerHTML = `
-      <h3 style="margin: 0 0 16px 0; font-size: 18px;">${t('migrateConfirmTitle', '识别 Topic/Item 类型')}</h3>
-      <p style="margin: 0 0 20px 0; color: var(--b3-theme-on-surface); line-height: 1.6; white-space: pre-line;">
-        ${t('migrateConfirmMessage', `此操作将自动识别所有卡片的类型：
-
-Topic（主题）= 纯阅读材料，使用 A-Factor 算法
-Item（卡片）= 问答卡片，使用 FSRS 算法
-
-是否继续？`)}
-      </p>
-      <div style="display: flex; gap: 12px; justify-content: flex-end;">
-        <button class="b3-button b3-button--outline" id="migrate-cancel">${t('cancel', '取消')}</button>
-        <button class="b3-button b3-button--primary" id="migrate-confirm">${t('confirm', '确认')}</button>
-      </div>
-    `;
-
-    dialog.appendChild(content);
-    document.body.appendChild(dialog);
-
-    const cancelBtn = content.querySelector('#migrate-cancel') as HTMLButtonElement;
-    const confirmBtn = content.querySelector('#migrate-confirm') as HTMLButtonElement;
-
-    const cleanup = () => {
-      document.body.removeChild(dialog);
-    };
-
-    cancelBtn.onclick = () => {
-      cleanup();
-      resolve(false);
-    };
-
-    confirmBtn.onclick = () => {
-      cleanup();
-      resolve(true);
-    };
-
-    // 点击背景关闭
-    dialog.onclick = (e) => {
-      if (e.target === dialog) {
-        cleanup();
-        resolve(false);
-      }
-    };
-  });
-
-  if (!confirmed) {
-    console.log('[CardBrowser] Migration cancelled by user');
-    return;
-  }
-
-  loading.value = true;
-
-  try {
-    console.log('[CardBrowser] Starting Topic/Item migration...');
-    pushMsg('正在执行 Topic/Item 类型识别...', 3000);
-
-    // 执行迁移
-    const result = await migrateExistingCards(true);  // forceRemigrate=true
-
-    // 显示迁移结果
-    const msg = `✅ 识别完成：${result.migrated}/${result.total} 张卡片 (Topic: ${result.topics}, Item: ${result.items}, 耗时: ${Math.round(result.duration / 1000)}s)`;
-    console.log('[CardBrowser]', msg);
-    pushMsg(msg, 5000);
-
-    if (result.errors > 0) {
-      pushErrMsg(`⚠️ ${result.errors} 张卡片识别失败，请查看控制台`, 5000);
-    }
-
-    // 清除缓存并刷新数据
-    invalidateCardCache();
-    await refreshData(true, true);
-  } catch (err: any) {
-    console.error('[CardBrowser] Migration failed:', err);
-    pushErrMsg(`识别失败：${err?.message || '未知错误'}`, 3000);
-  } finally {
-    loading.value = false;
-  }
 }
 
 // 显示性能报告
@@ -1497,6 +1103,39 @@ function getQueueById(id: string) {
   if (id === 'incremental-learning') return (props.plugin as any)?.incrementalQueue;
   return null;
 }
+
+// ========== Composables 初始化 ==========
+const {
+  hasRandomSort,
+  applySort,
+  applyRandomSort,
+  canApplySortToQueue,
+  handleApplySortToQueue,
+  buildSortSubmenu,
+} = useSorting({
+  gridApi,
+  currentSortModel,
+  getQueueById,
+  activeQueueId,
+  loadData,
+  t,
+  pushMsg: (msg, duration) => pushMsg(msg, duration),
+  pushErrMsg: (msg, duration) => pushErrMsg(msg, duration),
+});
+
+const {
+  markCardsAsTopic,
+  markCardsAsItem,
+  migrateTopicItem,
+  buildCardTypeSubmenu,
+} = useCardActions({
+  loading,
+  loadData,
+  refreshData,
+  t,
+  pushMsg: (msg, duration) => pushMsg(msg, duration),
+  pushErrMsg: (msg, duration) => pushErrMsg(msg, duration),
+});
 
 // ✅ 加载队列的所有卡片（不含筛选）
 async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {

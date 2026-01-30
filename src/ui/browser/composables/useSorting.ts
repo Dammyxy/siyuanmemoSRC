@@ -8,7 +8,6 @@ import { SORT_FIELD_CONFIGS } from '../constants';
 
 export interface UseSortingOptions {
   gridApi: Ref<GridApi | null>;
-  filteredCards: Ref<any[]>;
   currentSortModel: Ref<any[]>;
   getQueueById: (id: string) => any;
   activeQueueId: Ref<string | null>;
@@ -21,7 +20,6 @@ export interface UseSortingOptions {
 export function useSorting(options: UseSortingOptions) {
   const {
     gridApi,
-    filteredCards,
     currentSortModel,
     getQueueById,
     activeQueueId,
@@ -94,12 +92,10 @@ export function useSorting(options: UseSortingOptions) {
 
       // 使用 AG-Grid setGridOption API
       gridApi.value.setGridOption?.('rowData', []);
-      filteredCards.value = [];
 
       nextTick(() => {
         if (gridApi.value) {
           gridApi.value.setGridOption?.('rowData', rows);
-          filteredCards.value = rows;
           console.log('[useSorting] Shuffle completed via setGridOption');
         }
       });
