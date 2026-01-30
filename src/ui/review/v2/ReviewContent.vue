@@ -9,7 +9,14 @@
         <div v-else-if="content.type === 'html'" class="fsrs-review-v2-content__html" v-html="content.data"></div>
 
         <div v-else class="fsrs-review-v2-content__protyle">
+          <!-- 正面：问题块 -->
           <div ref="hostRef" class="fsrs-review-v2-content__protyle-host"></div>
+          
+          <!-- 背面：答案块（Xiuyuan 模板卡片，点击显示答案后显示） -->
+          <div v-if="showAnswer && answerBlockID" class="fsrs-review-v2-content__answer-divider">
+            <span>{{ t('answerDivider', '─── 答案 ───') }}</span>
+          </div>
+          <div v-if="showAnswer && answerBlockID" ref="answerHostRef" class="fsrs-review-v2-content__protyle-host fsrs-review-v2-content__answer"></div>
         </div>
 
         <div v-if="overlay && overlayComponent" class="fsrs-review-v2-content__overlay" :data-layout="overlay.layout">
@@ -52,8 +59,14 @@ const contentKey = computed(() => {
 });
 
 const hostRef = ref<HTMLDivElement | null>(null);
+const answerHostRef = ref<HTMLDivElement | null>(null);
 const editorRef = ref<any>(null);
+const answerEditorRef = ref<any>(null);
 let renderSeq = 0;
+let answerRenderSeq = 0;
+
+// 计算答案块 ID（Xiuyuan 模板卡片）
+const answerBlockID = computed(() => props.content.answerBlockID || '');
 
 const overlayComponent = computed<any | null>(() => {
   const key = String(props.overlay?.component || '');
@@ -157,6 +170,72 @@ async function renderProtyle(blockID: string): Promise<void> {
   console.log('[FSRS ReviewContent] Protyle instance created, waiting for after callback...');
 }
 
+// 渲染答案块（Xiuyuan 模板卡片）
+async function renderAnswerProtyle(blockID: string): Promise<void> {
+  const seq = ++answerRenderSeq;
+
+  console.log('[FSRS ReviewContent] renderAnswerProtyle called:', { blockID, seq });
+
+  // 等待 DOM 准备
+  for (let i = 0; i < 20; i++) {
+    if (answerHostRef.value) break;
+    await nextTick();
+    await sleep(10);
+  }
+
+  if (!answerHostRef.value) {
+    console.log('[FSRS ReviewContent] answerHostRef not ready after waiting');
+    return;
+  }
+
+  if (seq !== answerRenderSeq) {
+    console.log('[FSRS ReviewContent] Answer render cancelled, newer render pending');
+    return;
+  }
+
+  const ProtyleCtor = (siyuan as any).Protyle;
+  const Constants = (siyuan as any).Constants;
+  const cbGetAll = Constants?.CB_GET_ALL ?? 2;
+
+  if (!ProtyleCtor) {
+    answerHostRef.value.innerHTML = `<div class="ft__error" style="padding: 16px; text-align: center;">${t('loadFailed', '加载失败')}</div>`;
+    return;
+  }
+
+  console.log('[FSRS ReviewContent] Destroying old Answer Protyle instance');
+
+  // Destroy old instance
+  try {
+    answerEditorRef.value?.destroy?.();
+  } catch {}
+
+  // Clear host
+  answerHostRef.value.innerHTML = '';
+
+  console.log('[FSRS ReviewContent] Creating new Answer Protyle with blockId:', blockID);
+
+  // Create new instance with blockId
+  answerEditorRef.value = new ProtyleCtor(props.app, answerHostRef.value, {
+    blockId: blockID,
+    action: [cbGetAll].filter(Boolean),
+    render: {
+      background: false,
+      gutter: true,
+      breadcrumbDocName: false,
+      title: false,
+    },
+    typewriterMode: false,
+    after: (protyle: any) => {
+      console.log('[FSRS ReviewContent] Answer Protyle after callback called');
+      if (typeof protyle.disable === 'function') {
+        protyle.disable();
+      }
+    },
+  });
+
+  console.log('[FSRS ReviewContent] Answer Protyle instance created');
+}
+
 watch(
   () => props.content.data,
   (data) => {
@@ -221,6 +300,26 @@ watch(
   { immediate: true, deep: true },
 );
 
+// Xiuyuan 模板卡片：监听 showAnswer 变化，渲染答案块
+watch(
+  () => [props.showAnswer, answerBlockID.value],
+  ([show, ansBlockID]) => {
+    console.log('[FSRS ReviewContent] Answer watch triggered:', { show, ansBlockID });
+    
+    if (show && ansBlockID) {
+      console.log('[FSRS ReviewContent] Rendering answer block:', ansBlockID);
+      void renderAnswerProtyle(ansBlockID as string);
+    } else {
+      // 隐藏答案时，销毁答案 Protyle
+      try {
+        answerEditorRef.value?.destroy?.();
+        answerEditorRef.value = null;
+      } catch {}
+    }
+  },
+  { immediate: true },
+);
+
 onMounted(() => {
   const { type, data } = props.content;
   if (type !== 'protyle') return;
@@ -234,6 +333,12 @@ onUnmounted(() => {
     editorRef.value?.destroy?.();
   } catch {}
   editorRef.value = null;
+  
+  // 清理答案 Protyle
+  try {
+    answerEditorRef.value?.destroy?.();
+  } catch {}
+  answerEditorRef.value = null;
 });
 
 const overlay = computed(() => props.overlay);
@@ -269,6 +374,28 @@ const content = computed(() => props.content);
 
 .fsrs-review-v2-content__protyle-host {
   padding: 0;
+}
+
+/* Xiuyuan 模板卡片答案分隔线 */
+.fsrs-review-v2-content__answer-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+}
+
+.fsrs-review-v2-content__answer-divider span {
+  background: var(--b3-theme-background);
+  padding: 0 12px;
+}
+
+/* 答案块样式 */
+.fsrs-review-v2-content__answer {
+  border-top: 1px dashed var(--b3-border-color);
+  margin-top: 8px;
+  padding-top: 8px;
 }
 
 .fsrs-review-v2-content__overlay {

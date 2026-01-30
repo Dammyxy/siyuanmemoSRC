@@ -31,29 +31,9 @@ export class StorageManager {
     private isDirty: boolean = false;
     private practiceQueue: any[] = [];
     private practiceQueueLastAutoSortDay = '';
-    
-    /** 防抖计时器 */
-    private saveTimers: Map<string, any> = new Map();
-    /** 保存延迟 (ms) */
-    private SAVE_DELAY = 2000;
 
     constructor(pluginName: string) {
         this.basePath = siyuanApi.getPluginDataPath(pluginName);
-    }
-
-    /**
-     * 强制保存所有挂起的任务
-     */
-    async flush(): Promise<void> {
-        const promises = [];
-        for (const [key, timer] of this.saveTimers.entries()) {
-            clearTimeout(timer);
-            if (key === STORAGE_FILES.PRACTICE_QUEUE) promises.push(this.doSavePracticeQueue());
-            if (key === STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE) promises.push(this.doSaveIncrementalLearningQueue());
-            if (key === STORAGE_FILES.CARDS) promises.push(this.doSaveCards());
-        }
-        this.saveTimers.clear();
-        await Promise.all(promises);
     }
 
     /**
@@ -187,26 +167,11 @@ export class StorageManager {
     }
 
     /**
-     * 保存卡片（批量，带防抖）
+     * 保存卡片（批量）
      */
     async saveCards(): Promise<void> {
         if (!this.isDirty) return;
 
-        if (this.saveTimers.has(STORAGE_FILES.CARDS)) {
-            clearTimeout(this.saveTimers.get(STORAGE_FILES.CARDS));
-        }
-
-        const timer = setTimeout(() => {
-            this.doSaveCards();
-            this.saveTimers.delete(STORAGE_FILES.CARDS);
-        }, this.SAVE_DELAY);
-
-        this.saveTimers.set(STORAGE_FILES.CARDS, timer);
-    }
-
-    private async doSaveCards(): Promise<void> {
-        if (!this.isDirty) return;
-        
         const cards = this.getAllCards();
         await this.writePluginData(STORAGE_FILES.CARDS, JSON.stringify(cards, null, 2));
         this.isDirty = false;
@@ -432,19 +397,6 @@ export class StorageManager {
     }
 
     private async savePracticeQueue(): Promise<void> {
-        if (this.saveTimers.has(STORAGE_FILES.PRACTICE_QUEUE)) {
-            clearTimeout(this.saveTimers.get(STORAGE_FILES.PRACTICE_QUEUE));
-        }
-        
-        const timer = setTimeout(() => {
-            this.doSavePracticeQueue();
-            this.saveTimers.delete(STORAGE_FILES.PRACTICE_QUEUE);
-        }, this.SAVE_DELAY);
-        
-        this.saveTimers.set(STORAGE_FILES.PRACTICE_QUEUE, timer);
-    }
-
-    private async doSavePracticeQueue(): Promise<void> {
         const payload = { items: this.practiceQueue, lastAutoSortDay: this.practiceQueueLastAutoSortDay };
         await this.writePluginData(STORAGE_FILES.PRACTICE_QUEUE, JSON.stringify(payload, null, 2));
     }
@@ -478,19 +430,6 @@ export class StorageManager {
     }
 
     private async saveIncrementalLearningQueue(): Promise<void> {
-        if (this.saveTimers.has(STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE)) {
-            clearTimeout(this.saveTimers.get(STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE));
-        }
-
-        const timer = setTimeout(() => {
-            this.doSaveIncrementalLearningQueue();
-            this.saveTimers.delete(STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE);
-        }, this.SAVE_DELAY);
-
-        this.saveTimers.set(STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE, timer);
-    }
-
-    private async doSaveIncrementalLearningQueue(): Promise<void> {
         await this.writePluginData(STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE, JSON.stringify(this.incrementalLearningQueue, null, 2));
     }
 

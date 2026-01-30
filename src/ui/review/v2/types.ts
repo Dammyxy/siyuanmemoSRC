@@ -31,6 +31,10 @@ export interface ReviewUIState {
     type: 'protyle' | 'html' | 'empty';
     data: string;
     id: string;
+    /** Xiuyuan 模板卡片的答案块 ID（点击显示答案后渲染） */
+    answerBlockID?: string;
+    /** 当前渲染的卡片对象（含 meta 等信息） */
+    card?: Record<string, unknown>;
   };
 
   overlay?: {

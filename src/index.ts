@@ -29,6 +29,8 @@ import { createVueDialog } from '@/utils/dialog';
 
 import { createDefaultCard } from '@/types';
 import '@/index.scss';
+import { XiuyuanService, XiuyuanStorage, BUILTIN_TEMPLATES } from '@/core/xiuyuan';
+import { TemplateSelectDialog } from '@/ui/xiuyuan';
 import { ConsoleQueueMonitor, DEFAULT_PRIORITY, QueueContext, StorageFileJsonAdapter, type QueueItem } from '@/core/queue';
 import { SubsetPracticeStrategy } from '@/core/queue/strategies';
 // V2 队列导入（直接从V2文件导入）
@@ -41,7 +43,7 @@ import { IncrementalLearningQueueV2 } from '@/core/queue/strategies/IncrementalL
 import { NeuralQueueStorage } from '@/core/queue/neural';
 import { ExtractionNativeAdapter, FinalDrillNativeAdapter } from '@/core/native/adapter';
 // Services
-import { DialogService, MenuService } from '@/services';
+import { DialogService, MenuService, ReviewDialogManager, BlockMenuHandler, createQueueHandlers } from '@/services';
 import { NativeReviewSession } from '@/core/native/session';
 
 // Topic/Item 迁移
@@ -70,6 +72,10 @@ export default class FSRSPlugin extends Plugin {
   // 🆕 Services
   private dialogService!: DialogService;
   private menuService!: MenuService;
+  private xiuyuanService!: XiuyuanService;
+  private xiuyuanStorage!: XiuyuanStorage;
+  private reviewDialogManager!: ReviewDialogManager;
+  private blockMenuHandler!: BlockMenuHandler;
 
   // 为兼容性提供的别名访问器
   public get deliberateQueue(): FinalDrillQueueV2 {
@@ -248,6 +254,46 @@ export default class FSRSPlugin extends Plugin {
       });
 
       console.log('[FSRS] ✅ Services initialized');
+
+      // 🆕 初始化 ReviewDialogManager
+      this.reviewDialogManager = new ReviewDialogManager({
+        app: this.app,
+        i18n: this.i18n || {},
+        storage: this.storage,
+        scheduler: this.scheduler,
+        finalDrillQueue: this.finalDrillQueue,
+        filterGroupQueue: this.subsetQueue,
+        incrementalQueue: this.incrementalQueue,
+        isInitialized: () => this.isInitialized,
+      });
+
+      // 🆕 初始化 BlockMenuHandler
+      this.blockMenuHandler = new BlockMenuHandler({
+        app: this.app,
+        i18n: this.i18n || {},
+        storage: this.storage,
+        reviewDialogManager: this.reviewDialogManager,
+        xiuyuanService: null as any, // 会在 xiuyuanService 初始化后更新
+        openCreateTemplateCardDialog: (blockIds) => this.openCreateTemplateCardDialogWithBlockIds(blockIds),
+        openNeuralReviewDialog: (options) => this.reviewDialogManager.openNeuralRoam(options),
+      });
+
+      console.log('[FSRS] ✅ ReviewDialogManager & BlockMenuHandler initialized');
+
+      // 🆕 初始化 XiuyuanService（修缘卡片来源抽象层）
+      this.xiuyuanStorage = new XiuyuanStorage(this.name);
+      await this.xiuyuanStorage.load();
+      this.xiuyuanService = new XiuyuanService(this.xiuyuanStorage, this.storage);
+
+      // 🆕 初始化内置模板
+      for (const template of BUILTIN_TEMPLATES) {
+        const existing = this.xiuyuanService.getTemplate(template.id);
+        if (!existing) {
+          this.xiuyuanService.createTemplate(template);
+        }
+      }
+      await this.xiuyuanStorage.save();
+      console.log('[FSRS] ✅ XiuyuanService initialized with', BUILTIN_TEMPLATES.length, 'builtin templates');
 
       this.isInitialized = true;
 
@@ -440,13 +486,8 @@ export default class FSRSPlugin extends Plugin {
     this.ensureTopbarMounted();
   }
 
-  async onunload() {
+  onunload() {
     console.log('[FSRS] Plugin unloading...');
-
-    // 强制保存挂起的数据
-    if (this.storage) {
-      await this.storage.flush();
-    }
 
     // 关闭复习对话框和 SRS 浏览器
     this.reviewDialog?.destroy();
@@ -457,6 +498,9 @@ export default class FSRSPlugin extends Plugin {
         this.topBarElement.removeEventListener('contextmenu', this.topBarContextMenuHandler);
       }
     } catch {}
+
+    // 保存数据
+    this.storage?.saveCards?.();
 
     console.log('[FSRS] Plugin unloaded');
   }
@@ -616,462 +660,66 @@ export default class FSRSPlugin extends Plugin {
    * 打开复习面板（弹窗模式）- 使用 Vue UI 2.0
    */
   async openReviewDialog() {
-    // 使用 Vue UI 2.0（提取练习）
-    await this.openReviewProviderV2Dialog();
+    await this.reviewDialogManager.openRetrievalPractice();
   }
 
   async openReviewV2Dialog() {
-    await this.openReviewProviderV2Dialog();
+    await this.reviewDialogManager.openRetrievalPractice();
   }
 
   async openReviewProviderV2Dialog() {
-    if (!this.isInitialized) {
-      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
-      return;
-    }
-    if (this.reviewDialog) {
-      this.reviewDialog.destroy();
-    }
-    try {
-      // ✅ 使用 RetrievalPracticeProvider，传递 storage 和 scheduler
-      const provider = new RetrievalPracticeProvider({
-        storage: this.storage,
-        scheduler: this.scheduler,
-      });
-      const adapter = new RetrievalPracticeAdapter({ i18n: this.i18n || {} });
-      this.reviewDialog = createVueDialog({
-        hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
-        component: ReviewView,
-        dataKey: 'dialog-opencard',
-        transparent: true,
-        isReview: true,
-        props: {
-          app: this.app,
-          i18n: this.i18n || {},
-          title: provider.displayName,  // 传递 title 给组件显示在 logo 区域
-          provider: provider as any,
-          reviewUI: {
-            component: ReviewView,
-            adapter: adapter as any,
-            context: {
-              uiConfig: { statsType: 'riff-counts', showRatingButtons: true, allowSkip: true },
-            },
-          },
-        },
-        events: {
-          close: () => {
-            this.reviewDialog?.destroy();
-          },
-        },
-        width: 'min(860px, 96vw)',
-        height: 'min(720px, 90vh)',
-        onClose: () => {
-          this.reviewDialog = null;
-        },
-      });
-    } catch (err) {
-      console.error('[FSRS] Failed to open review provider v2 dialog:', err);
-      await pushErrMsg(this.i18n?.loadFailed || '加载失败');
-    }
+    await this.reviewDialogManager.openRetrievalPractice();
   }
 
   async openLeechReviewDialog() {
-    if (this.reviewDialog) {
-      this.reviewDialog.destroy();
-    }
-    try {
-      const settings = this.storage?.getSettings?.();
-      const leech = (settings as any)?.leech || {};
-      // ✅ 使用 V2 队列（复合架构）
-      const session = new LeechQueueV2({
-        deckID: riff.BUILTIN_DECK_ID,
-        threshold: Number(leech.threshold) || 8,
-        action: (leech.action || 'notify') as any,
-        tagName: String(leech.tagName || ''),
-      });
-      this.reviewDialog = createVueDialog({
-        title: (this.i18n as any)?.startLeechPractice || '难点攻坚',
-        component: ReviewView,
-        dataKey: 'dialog-opencard', // 让思源热键系统能够识别
-        isReview: true,
-        props: {
-          app: this.app,
-          i18n: this.i18n || {},
-          queue: session as any,
-          adapter: new LeechAdapter({ i18n: this.i18n || {} }) as any,
-        },
-        events: {
-          close: () => {
-            this.reviewDialog?.destroy();
-          },
-        },
-        width: 'min(860px, 96vw)',
-        height: 'min(720px, 90vh)',
-        onClose: () => {
-          this.reviewDialog = null;
-        },
-      });
-    } catch (err) {
-      console.error('[FSRS] Failed to open leech review dialog:', err);
-      try {
-        await pushErrMsg('难点攻坚启动失败');
-      } catch {}
-    }
+    await this.reviewDialogManager.openLeechReview();
   }
 
   async openFinalDrillV2Dialog() {
-    await this.openFinalDrillProviderV2Dialog();
+    await this.reviewDialogManager.openFinalDrill();
   }
 
   async openFinalDrillProviderV2Dialog() {
-    if (!this.isInitialized) {
-      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
-      return;
-    }
-    if (this.reviewDialog) {
-      this.reviewDialog.destroy();
-    }
-    try {
-      const provider = new FinalDrillProvider({
-        queue: this.finalDrillQueue as any,
-        storage: this.storage,
-        i18n: this.i18n || {},
-      });
-      await provider.init();
-      const adapter = new FinalDrillAdapter({ i18n: this.i18n || {} });
-      this.reviewDialog = createVueDialog({
-        hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
-        component: ReviewView,
-        dataKey: 'dialog-opencard', // 让思源热键系统能够识别
-        transparent: true,
-        props: {
-          app: this.app,
-          i18n: this.i18n || {},
-          title: provider.displayName,  // 传递给 Vue 组件显示
-          provider: provider as any,
-          reviewUI: {
-            component: ReviewView,
-            adapter: adapter as any,
-            context: {
-              uiConfig: { statsType: 'queue-size', showRatingButtons: true, allowSkip: true },
-            },
-          },
-        },
-        events: {
-          close: () => {
-            this.reviewDialog?.destroy();
-          },
-        },
-        width: 'min(860px, 96vw)',
-        height: 'min(720px, 90vh)',
-        onClose: () => {
-          this.reviewDialog = null;
-        },
-      });
-    } catch (err) {
-      console.error('[FSRS] Failed to open final drill provider v2 dialog:', err);
-      await pushErrMsg(this.i18n?.drillFailed || '机械练习启动失败');
-    }
+    await this.reviewDialogManager.openFinalDrill();
   }
 
   async openFinalDrillDialog() {
-    // 使用 Vue UI 2.0（刻意练习）
-    await this.openFinalDrillProviderV2Dialog();
+    await this.reviewDialogManager.openFinalDrill();
   }
 
   /**
    * 打开渐进学习队列对话框
    */
   async openIncrementalLearningDialog() {
-    if (!this.isInitialized) {
-      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
-      return;
-    }
-    if (this.reviewDialog) {
-      this.reviewDialog.destroy();
-    }
-
-    try {
-      const title = this.i18n?.incrementalLearning || '渐进学习';
-      const adapter = new RetrievalPracticeAdapter({
-        i18n: this.i18n || {},
-        label: title,
-        queueName: 'incremental-learning'
-      });
-
-      this.reviewDialog = createVueDialog({
-        hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
-        component: ReviewView,
-        dataKey: 'dialog-incremental-learning',
-        transparent: true,
-        isReview: true,
-        props: {
-          app: this.app,
-          i18n: this.i18n || {},
-          title,  // 传递给 Vue 组件显示
-          queue: this.incrementalQueue as any,
-          adapter: adapter as any,
-        },
-        events: {
-          close: () => {
-            this.reviewDialog?.destroy();
-          },
-        },
-        width: 'min(860px, 96vw)',
-        height: 'min(720px, 90vh)',
-        onClose: () => {
-          this.reviewDialog = null;
-        },
-      });
-    } catch (err) {
-      console.error('[FSRS] Failed to open incremental learning dialog:', err);
-      await pushErrMsg(this.i18n?.openFailed || '打开渐进学习失败');
-    }
+    await this.reviewDialogManager.openIncrementalLearning();
   }
 
   async openFilterGroupPracticeDialog() {
-    if (!this.isInitialized) {
-      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
-      return;
-    }
-    if (this.reviewDialog) {
-      this.reviewDialog.destroy();
-    }
-
-    try {
-      const title = this.i18n?.filterGroupPractice || '分组队列';
-      const adapter = new SubsetPracticeAdapter({
-        i18n: this.i18n || {},
-        label: title,
-        queueName: 'filter-group'
-      });
-
-      this.reviewDialog = createVueDialog({
-        hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
-        component: ReviewView,
-        dataKey: 'dialog-opencard',
-        transparent: true,
-        isReview: true,
-        props: {
-          app: this.app,
-          i18n: this.i18n || {},
-          title,  // 传递给 Vue 组件显示
-          queue: this.filterGroupQueue as any,
-          adapter: adapter as any,
-        },
-        events: {
-          close: () => {
-            this.reviewDialog?.destroy();
-          },
-        },
-        width: 'min(860px, 96vw)',
-        height: 'min(720px, 90vh)',
-        onClose: () => {
-          this.reviewDialog = null;
-        },
-      });
-    } catch (err) {
-      console.error('[FSRS] Failed to open filter group practice dialog:', err);
-      await pushErrMsg(this.i18n?.openFailed || '打开分组队列失败');
-    }
+    await this.reviewDialogManager.openFilterGroupPractice();
   }
 
   async openLeechPracticeDialog() {
-    if (!this.isInitialized) {
-      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
-      return;
-    }
-    if (this.reviewDialog) {
-      this.reviewDialog.destroy();
-    }
-
-    try {
-      const title = this.i18n?.leechPractice || '难点攻坚';
-      const adapter = new LeechAdapter({
-        i18n: this.i18n || {}
-      });
-
-      this.reviewDialog = createVueDialog({
-        hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
-        component: ReviewView,
-        dataKey: 'dialog-opencard',
-        transparent: true,
-        isReview: true,
-        props: {
-          app: this.app,
-          i18n: this.i18n || {},
-          title,  // 传递给 Vue 组件显示
-          queue: this.leechQueue as any,
-          adapter: adapter as any,
-        },
-        events: {
-          close: () => {
-            this.reviewDialog?.destroy();
-          },
-        },
-        width: 'min(860px, 96vw)',
-        height: 'min(720px, 90vh)',
-        onClose: () => {
-          this.reviewDialog = null;
-        },
-      });
-    } catch (err) {
-      console.error('[FSRS] Failed to open leech practice dialog:', err);
-      await pushErrMsg(this.i18n?.openFailed || '打开难点攻坚失败');
-    }
+    await this.reviewDialogManager.openLeechReview();
   }
 
   async openNeuralRoamDialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) {
-    await this.openNeuralRoamV2Dialog(options);
+    await this.reviewDialogManager.openNeuralRoam(options);
   }
 
   async openNeuralRoamV2Dialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) {
-    if (!this.isInitialized) {
-      await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
-      return;
-    }
-    if (this.reviewDialog) {
-      this.reviewDialog.destroy();
-    }
-
-    try {
-      const session = new NeuralRoamQueueV2({
-        deckID: riff.BUILTIN_DECK_ID,
-        i18n: this.i18n || {},
-        seedBlockId: options?.seedBlockId,
-        includeSeedAsFirst: options?.includeSeedAsFirst,
-      });
-      const adapter = new NeuralRoamAdapter({ i18n: this.i18n || {} });
-      this.reviewDialog = createVueDialog({
-        hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
-        component: ReviewView,
-        dataKey: 'dialog-opencard', // 让思源热键系统能够识别
-        transparent: true,
-        props: {
-          app: this.app,
-          i18n: this.i18n || {},
-          title: this.i18n?.neuralReviewTitle || '神经复习',  // 传递给 Vue 组件显示
-          queue: session as any,
-          adapter: adapter as any,
-        },
-        events: {
-          close: () => {
-            this.reviewDialog?.destroy();
-          },
-        },
-        width: 'min(860px, 96vw)',
-        height: 'min(720px, 90vh)',
-        onClose: () => {
-          this.reviewDialog = null;
-        },
-      });
-    } catch (err) {
-      console.error('[FSRS] Failed to open neural review v2 dialog:', err);
-      await pushErrMsg(this.i18n?.neuralReviewFailed || '神经复习启动失败');
-    }
+    await this.reviewDialogManager.openNeuralRoam(options);
   }
 
   async openNeuralReviewDialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) {
-    await this.openNeuralRoamDialog(options);
+    await this.reviewDialogManager.openNeuralRoam(options);
   }
 
   async openSubsetReviewDialog(blockIds: string[]) {
-    if (this.reviewDialog) {
-      this.reviewDialog.destroy();
-    }
-    const ids = Array.from(new Set((blockIds || []).map((x) => String(x || '')).filter(Boolean)));
-    if (ids.length === 0) {
-      await pushMsg(this.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
-      return;
-    }
-    const session = new SubsetPracticeStrategy({ blockIds: ids, deckID: riff.BUILTIN_DECK_ID });
-    const title = (this.i18n?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(ids.length));
-    const adapter = new SubsetPracticeAdapter({ i18n: this.i18n || {}, label: title, queueName: 'subset' });
-    this.reviewDialog = createVueDialog({
-      hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
-      component: ReviewView,
-      dataKey: 'dialog-opencard', // 让思源热键系统能够识别
-      transparent: true,
-      props: {
-        app: this.app,
-        i18n: this.i18n || {},
-        title,  // 传递给 Vue 组件显示
-        queue: session as any,
-        adapter: adapter as any,
-      },
-      events: {
-        close: () => {
-          this.reviewDialog?.destroy();
-        },
-      },
-      width: 'min(860px, 96vw)',
-      height: 'min(720px, 90vh)',
-      onClose: () => {
-        this.reviewDialog = null;
-      },
-    });
+    await this.reviewDialogManager.openSubsetReview(blockIds);
   }
 
   private openDrillDialogWithCards(cards: any[], practiceMode: 'queue' | 'block' = 'queue') {
-    if (this.reviewDialog) {
-      this.reviewDialog.destroy();
-    }
-    const ids = Array.from(new Set((cards || []).map((c) => String(c?.blockID || c?.blockId || '')).filter(Boolean)));
-    if (ids.length === 0) {
-      void pushMsg(this.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
-      return;
-    }
-    const modeLabel = practiceMode === 'block'
-      ? (this.i18n?.blockModeLabel || '块练习')
-      : (this.i18n?.queueModeLabel || '队列练习');
-    const blockTitleTemplate = this.i18n?.blockPracticeTitleWithCount || '当前练习队列：{n}张闪卡';
-    const blockTitle = blockTitleTemplate.replace('{n}', String(cards.length));
-    const title = practiceMode === 'block'
-      ? blockTitle
-      : (cards.length > 0 ? `${modeLabel} (${cards.length} 张)` : modeLabel);
-
-    const session = new SubsetPracticeStrategy({ blockIds: ids, deckID: riff.BUILTIN_DECK_ID });
-    const adapter = new SubsetPracticeAdapter({ i18n: this.i18n || {}, label: title, queueName: practiceMode });
-    this.reviewDialog = createVueDialog({
-      hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
-      component: ReviewView,
-      dataKey: 'dialog-opencard', // 让思源热键系统能够识别
-      props: {
-        app: this.app,
-        i18n: this.i18n || {},
-        title,  // 传递给 Vue 组件显示
-        queue: session as any,
-        adapter: adapter as any,
-      },
-      events: {
-        close: () => {
-          this.reviewDialog?.destroy();
-        },
-      },
-      width: '80vw',
-      height: '70vh',
-      onClose: () => {
-        this.reviewDialog = null;
-      },
-    });
-
-    const dialogEl = this.reviewDialog.dialog.element;
-    const scrim = dialogEl.querySelector('.b3-dialog__scrim') as HTMLElement;
-    const container = dialogEl.querySelector('.b3-dialog__container') as HTMLElement;
-
-    if (scrim) {
-      scrim.style.backgroundColor = 'var(--b3-theme-surface)';
-    }
-    if (container) {
-      container.style.maxWidth = '1024px';
-    }
-
-    setTimeout(() => {
-      const focusEl = dialogEl.querySelector('.block__icon') as HTMLElement;
-      if (focusEl) {
-        focusEl.focus();
-      }
-    }, 100);
+    this.reviewDialogManager.openDrillWithCards(cards, practiceMode);
   }
 
   /**
@@ -1134,343 +782,34 @@ export default class FSRSPlugin extends Plugin {
    * 处理块图标点击（添加闪卡菜单）
    */
   private handleBlockIconClick(e: any) {
-    const detail = e?.detail ?? e;
-    const menu = detail?.menu;
-    const blockElements: HTMLElement[] = detail?.blockElements || [];
-
-    if (!menu || blockElements.length === 0) {
-      return;
-    }
-
-    const blockIds = blockElements
-      .map(el => el.getAttribute('data-node-id'))
-      .filter((id): id is string => Boolean(id));
-
-    if (blockIds.length === 0) {
-      return;
-    }
-
-    const hasUncarded = blockElements.some(el => !el.hasAttribute(ATTR_CARD_ID));
-    const hasCarded = blockElements.some(el => el.hasAttribute(ATTR_CARD_ID));
-    const drillBlocks = this.getDrillBlockElements(blockElements);
-    const drillCount = drillBlocks.length;
-    const drillLabel = `<span title="${this.i18n?.drillHint || '将当前块及子块中的闪卡加入机械练习队列'}">${this.i18n?.blockModeLabel || '块练习'}</span> <span class="ft__secondary">(${drillCount})</span>`;
-
-    menu.addItem({
-      icon: 'iconRiffCard',
-      label: drillLabel,
-      click: async () => {
-        if (drillCount === 0) {
-          await pushMsg(this.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
-          return;
-        }
-        try {
-          const cards = this.buildDrillCardsFromElements(drillBlocks);
-          if (cards.length === 0) {
-            await pushMsg(this.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
-            return;
-          }
-          // await pushMsg((this.i18n?.drillAdded || '已加入 {n} 张闪卡').replace('{n}', String(cards.length)));
-          this.openDrillDialogWithCards(cards, 'block');
-        } catch (err) {
-          console.error('[FSRS] Failed to open drill from blocks:', err);
-          await pushErrMsg(this.i18n?.drillFailed || '机械练习启动失败');
-        }
-      },
-    });
-
-    menu.addItem({
-      icon: 'iconRefresh',
-      label: this.i18n?.startNeuralReviewFromHere || '从此处开始神经复习',
-      click: async () => {
-        const seedBlockId = blockIds[0];
-        const includeSeedAsFirst = Boolean(blockElements[0]?.hasAttribute?.(ATTR_CARD_ID));
-        try {
-          await this.openNeuralReviewDialog({ seedBlockId, includeSeedAsFirst, resetHistory: true });
-        } catch (err) {
-          console.error('[FSRS] Failed to open neural review from block:', err);
-          await pushErrMsg(this.i18n?.neuralReviewFailed || '神经复习启动失败');
-        }
-      },
-    });
-
-    // 编辑 SRS 数据 - 支持新卡（有 ATTR_CARD_ID）和老 riff 卡（只在 riff 数据库中）
-    menu.addItem({
-      icon: 'iconEdit',
-      label: this.i18n?.editSrsData || '编辑SRS数据',
-      click: async () => {
-        // 优先查找有 ATTR_CARD_ID 的新卡
-        let target = blockElements.find(el => el.hasAttribute(ATTR_CARD_ID));
-        let blockID = target?.getAttribute('data-node-id');
-        let cardID = target?.getAttribute(ATTR_CARD_ID);
-
-        // 如果没找到，尝试从 riff API 查询老卡
-        if (!cardID && blockIds.length > 0) {
-          try {
-            console.log('[FSRS] Querying riff cards for blockIds:', blockIds);
-            const riffBlocks = await getRiffCardsByBlockIDs(blockIds);
-            console.log('[FSRS] Riff API response:', riffBlocks);
-
-            if (riffBlocks.length > 0) {
-              const riffBlock = riffBlocks[0];
-              blockID = riffBlock.id || blockIds[0];
-
-              // 尝试从多个位置获取卡片 ID
-              // 1. 从 riffCard 子对象（新版本格式）
-              // 2. 从 ial 属性中的 custom-riff-decks（老版本格式）
-              // 3. 如果都没有，使用块 ID 作为标识（SrsEditorDialog 会自己查询）
-              cardID = riffBlock.riffCard?.id
-                || riffBlock.ial?.['custom-riff-decks']?.split(',')[0]
-                || blockID; // 使用 blockID 作为后备
-
-              console.log('[FSRS] Resolved blockID:', blockID, 'cardID:', cardID);
-            }
-          } catch (err) {
-            console.warn('[FSRS] Failed to query riff cards:', err);
-          }
-        }
-
-        if (!blockID || !cardID) {
-          pushErrMsg(this.i18n?.msg_no_flashcard || '未找到闪卡，请先将块制为闪卡');
-          return;
-        }
-        createVueDialog({
-          title: this.i18n?.editSrsData || '编辑SRS数据',
-          component: SrsEditorDialog,
-          props: {
-            card: {
-              cardID,
-              blockID,
-              deckID: riff.BUILTIN_DECK_ID,
-            },
-            deckID: riff.BUILTIN_DECK_ID,
-            i18n: this.i18n || {},
-          },
-          width: '760px',
-          height: '70vh',
-        });
-      },
-    });
-
-    if (hasUncarded) {
-      menu.addItem({
-        icon: 'iconAdd',
-        label: this.i18n?.makeCardFromSelection || '选中制卡',
-        click: async () => {
-          let createdCount = 0;
-
-          for (const element of blockElements) {
-            if (element.hasAttribute(ATTR_CARD_ID)) {
-              continue;
-            }
-            const blockId = element.getAttribute('data-node-id');
-            if (!blockId) {
-              continue;
-            }
-            try {
-              const card = createDefaultCard(blockId);
-              await markBlockAsCard(blockId, card.id, card.priority);
-              this.storage.setCard(card);
-              createdCount++;
-            } catch (err) {
-              console.error('[FSRS] Failed to create card from block:', blockId, err);
-            }
-          }
-
-          if (createdCount > 0) {
-            await this.storage.saveCards();
-            await pushMsg((this.i18n?.msg_created || '已创建 {n} 张闪卡').replace('{n}', String(createdCount)));
-          } else {
-            await pushMsg(this.i18n?.msg_already_cards || '选中的块已经是闪卡');
-          }
-        },
-      });
-    }
-
-    if (hasCarded) {
-      menu.addItem({
-        icon: 'iconTrashcan',
-        label: '取消闪卡',
-        click: async () => {
-          let removedCount = 0;
-
-          for (const element of blockElements) {
-            if (!element.hasAttribute(ATTR_CARD_ID)) {
-              continue;
-            }
-            const blockId = element.getAttribute('data-node-id');
-            const cardId = element.getAttribute(ATTR_CARD_ID);
-            if (!blockId || !cardId) {
-              continue;
-            }
-            try {
-              await unmarkBlockAsCard(blockId);
-              this.storage.removeCard(cardId);
-              removedCount++;
-            } catch (err) {
-              console.error('[FSRS] Failed to remove card from block:', blockId, err);
-            }
-          }
-
-          if (removedCount > 0) {
-            await this.storage.saveCards();
-            await pushMsg((this.i18n?.msg_unmarked || '已取消 {n} 张闪卡').replace('{n}', String(removedCount)));
-          } else {
-            await pushMsg(this.i18n?.msg_no_removable || '未找到可取消的闪卡');
-          }
-        },
-      });
-    }
-
-    if (!hasUncarded && !hasCarded) {
-      pushErrMsg(this.i18n?.msg_no_operable_blocks || '未找到可操作的块');
-    }
+    this.blockMenuHandler.handleBlockIconClick(e);
   }
 
   private async handleEditorTitleIconClick(e: any) {
-    const detail = e?.detail ?? e;
-    const menu = detail?.menu;
-    const docInfo = detail?.data;
-    const docId = docInfo?.rootID || docInfo?.id;
-    if (!menu || !docId) {
-      return;
-    }
-    const drillLabel = this.i18n?.blockModeLabel || '块练习';
-    menu.addItem({
-      icon: 'iconRiffCard',
-      label: drillLabel,
-      click: async () => {
-        try {
-          const cards = await this.getDrillCardsFromDocTree(docId);
-          if (cards.length === 0) {
-            await pushMsg(this.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
-            return;
-          }
-          // await pushMsg((this.i18n?.drillAdded || '已加入 {n} 张闪卡').replace('{n}', String(cards.length)));
-          this.openDrillDialogWithCards(cards, 'block');
-        } catch (err) {
-          console.error('[FSRS] Failed to open drill from doc menu:', err);
-          await pushErrMsg(this.i18n?.drillFailed || '机械练习启动失败');
-        }
-      }
-    });
+    await this.blockMenuHandler.handleEditorTitleIconClick(e);
   }
 
   private async handleBreadcrumbMore(e: any) {
-    const detail = e?.detail ?? e;
-    const menu = detail?.menu;
-    const protyle = detail?.protyle;
-    const docId = protyle?.block?.rootID || protyle?.block?.id;
-    if (!menu || !docId) {
-      return;
-    }
-    const drillLabel = this.i18n?.blockModeLabel || '块练习';
-    menu.addItem({
-      icon: 'iconRiffCard',
-      label: drillLabel,
-      click: async () => {
-        try {
-          const cards = await this.getDrillCardsFromDocTree(docId);
-          if (cards.length === 0) {
-            await pushMsg(this.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
-            return;
-          }
-          // await pushMsg((this.i18n?.drillAdded || '已加入 {n} 张闪卡').replace('{n}', String(cards.length)));
-          this.openDrillDialogWithCards(cards, 'block');
-        } catch (err) {
-          console.error('[FSRS] Failed to open drill from breadcrumb menu:', err);
-          await pushErrMsg(this.i18n?.drillFailed || '机械练习启动失败');
-        }
-      }
-    });
+    await this.blockMenuHandler.handleBreadcrumbMore(e);
   }
 
   private getDrillBlockElements(blockElements: HTMLElement[]): HTMLElement[] {
-    const seen = new Set<string>();
-    const result: HTMLElement[] = [];
-    const roots = blockElements.map(el => (el.closest('[data-node-id]') as HTMLElement) || el);
-    for (const root of roots) {
-      const nodes = [root, ...Array.from(root.querySelectorAll<HTMLElement>('[data-node-id]'))];
-      for (const node of nodes) {
-        const id = node.getAttribute('data-node-id');
-        if (!id || seen.has(id)) {
-          continue;
-        }
-        seen.add(id);
-        if (node.hasAttribute(ATTR_CARD_ID)) {
-          result.push(node);
-        }
-      }
-    }
-    return result;
+    return this.blockMenuHandler.getDrillBlockElements(blockElements);
   }
 
   private buildDrillCardsFromElements(elements: HTMLElement[]) {
-    const result: any[] = [];
-    const seen = new Set<string>();
-    for (const el of elements) {
-      const blockID = el.getAttribute('data-node-id');
-      const cardID = el.getAttribute(ATTR_CARD_ID);
-      if (!blockID || !cardID || seen.has(cardID)) {
-        continue;
-      }
-      seen.add(cardID);
-      result.push({
-        cardID,
-        blockID,
-        deckID: riff.BUILTIN_DECK_ID,
-        priority: DEFAULT_PRIORITY,
-        nextDues: { 1: '', 2: '', 3: '', 4: '' },
-        state: 0,
-        lapses: 0,
-        reps: 0,
-      });
-    }
-    return result;
+    return this.blockMenuHandler.buildDrillCardsFromElements(elements);
   }
 
   private async getDrillCardsFromDocTree(docId: string) {
-    const blockIds = await getCardBlockIds({ type: 'tree', value: docId });
-    return this.buildDrillCardsFromBlockIds(blockIds);
+    return this.blockMenuHandler.getDrillCardsFromDocTree(docId);
   }
 
   private async buildDrillCardsFromBlockIds(blockIds: string[]) {
-    const uniqueIds = Array.from(new Set(blockIds));
-    if (uniqueIds.length === 0) {
-      return [];
-    }
-    const result: any[] = [];
-    const seen = new Set<string>();
-    for (let i = 0; i < uniqueIds.length; i += 200) {
-      const batch = uniqueIds.slice(i, i + 200);
-      const idsStr = batch.map(id => `'${id}'`).join(',');
-      const rows = await sql(`SELECT block_id, value FROM attributes WHERE name = '${ATTR_CARD_ID}' AND block_id IN (${idsStr}) AND value != ''`);
-      for (const row of rows) {
-        const blockID = row.block_id || row.blockID;
-        const cardID = row.value || row.card_id || row.cardID;
-        if (!blockID || !cardID || seen.has(cardID)) {
-          continue;
-        }
-        seen.add(cardID);
-        result.push({
-          cardID,
-          blockID,
-          deckID: riff.BUILTIN_DECK_ID,
-          priority: DEFAULT_PRIORITY,
-          nextDues: { 1: '', 2: '', 3: '', 4: '' },
-          state: 0,
-          lapses: 0,
-          reps: 0,
-        });
-      }
-    }
-    return result;
+    return this.blockMenuHandler.buildDrillCardsFromBlockIds(blockIds);
   }
 
   private async getPracticeQueueBlockIds(filter: PracticeQueueFilter): Promise<string[]> {
-    if (!filter.value) {
-      return [];
-    }
     return getCardBlockIds({ type: filter.type, value: filter.value });
   }
 
@@ -1481,15 +820,12 @@ export default class FSRSPlugin extends Plugin {
 
   private async addPracticeQueue(filter: PracticeQueueFilter): Promise<number> {
     const blockIds = await this.getPracticeQueueBlockIds(filter);
-    if (blockIds.length === 0) {
-      return 0;
-    }
-    const cards = await this.buildDrillCardsFromBlockIds(blockIds);
+    if (blockIds.length === 0) return 0;
+    const cards = await this.blockMenuHandler.buildDrillCardsFromBlockIds(blockIds);
     return this.retrievalQueue.addItems(cards as QueueItem[]);
   }
 
   private async clearPracticeQueue(): Promise<void> {
-    // RetrievalPracticeQueue doesn't have clear() method, need to handle differently
     // TODO: Implement clear functionality
   }
 
@@ -1620,6 +956,81 @@ export default class FSRSPlugin extends Plugin {
       default:
         console.log('[FSRS] Unknown provider ID, opening default review:', savedMeta.providerId);
         this.openReviewDialog();
+    }
+  }
+
+
+  /**
+   * 🆕 打开创建模板卡片对话框（Xiuyuan）- 带块 ID 列表
+   */
+  async openCreateTemplateCardDialogWithBlockIds(blockIds: string[]) {
+    try {
+      if (!blockIds || blockIds.length === 0) {
+        pushMsg('未找到选中的块');
+        return;
+      }
+
+      // 获取所有可用模板
+      const templates = this.xiuyuanService.getAllTemplates();
+      if (templates.length === 0) {
+        pushMsg('暂无可用模板，请先创建模板');
+        return;
+      }
+
+      // 显示模板选择对话框
+      const templateSelectDialog = createVueDialog({
+        title: '选择卡片模板',
+        component: TemplateSelectDialog,
+        props: {
+          templates,
+          blockCount: blockIds.length,
+        },
+        width: '640px',
+        height: '650px',
+        events: {
+          confirm: async (templateId: string) => {
+            const template = this.xiuyuanService.getTemplate(templateId);
+            if (!template) return;
+
+            // 自动字段映射：按顺序映射块到字段
+            const fieldMapping: Record<string, string> = {};
+            template.fields.forEach((field, index) => {
+              if (index < blockIds.length) {
+                fieldMapping[field.name] = blockIds[index];
+              }
+            });
+
+            // 创建 Xiuyuan 和卡片
+            try {
+              const { xiuyuan, cards } = await this.xiuyuanService.createFromBlocks(
+                blockIds,
+                templateId,
+                fieldMapping,
+                riff.BUILTIN_DECK_ID
+              );
+
+              console.log('[FSRS] Xiuyuan created:', { xiuyuan, cards });
+
+              pushMsg(
+                `✅ 模板卡片创建成功！\n` +
+                `模板：${template.name}\n` +
+                `生成卡片：${cards.length} 张`
+              );
+            } catch (err) {
+              console.error('[FSRS] Failed to create template card:', err);
+              pushErrMsg(`创建失败：${(err as Error).message}`);
+            }
+
+            templateSelectDialog.destroy();
+          },
+          cancel: () => {
+            templateSelectDialog.destroy();
+          },
+        },
+      });
+    } catch (err) {
+      console.error('[FSRS] Failed to open create template card dialog:', err);
+      pushErrMsg(`打开对话框失败：${(err as Error).message}`);
     }
   }
 

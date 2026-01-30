@@ -138,7 +138,9 @@ function genCardHTML(options: {
 export class NativeReviewSession {
   private dialog: Dialog | null = null;
   private protyle: Protyle | null = null;
+  private answerProtyle: Protyle | null = null;
   private currentIndex: number = 0;
+  private currentAnswerBlockID: string | null = null;
   private cardsData: ICardData;
 
   constructor(
@@ -515,15 +517,23 @@ export class NativeReviewSession {
     this.currentIndex = index;
     const card = this.cardsData.cards[index];
 
+    // 保存当前卡片的答案块 ID（从 meta 中获取，Xiuyuan 模板卡片）
+    this.currentAnswerBlockID = (card as any).meta?.answerBlockID || null;
+
     if (this.protyle && card.blockID) {
       // 方法：重新创建 Protyle 实例，传入正确的 blockId
       // 这样 Protyle 会自动加载并渲染内容，无需手动调用渲染函数
 
-      console.log('[NativeReviewSession] Loading card:', card.blockID);
+      console.log('[NativeReviewSession] Loading card:', card.blockID, 'answerBlock:', this.currentAnswerBlockID);
 
       // 销毁旧实例
       if (this.protyle) {
         this.protyle.destroy();
+      }
+      // 销毁答案 Protyle
+      if (this.answerProtyle) {
+        this.answerProtyle.destroy();
+        this.answerProtyle = null;
       }
 
       // 获取渲染容器
@@ -531,6 +541,12 @@ export class NativeReviewSession {
       if (!renderElement) {
         console.error('[NativeReviewSession] Render element not found');
         return;
+      }
+
+      // 清理答案容器（如果存在）
+      const existingAnswerContainer = renderElement.querySelector('.xiuyuan-answer-container');
+      if (existingAnswerContainer) {
+        existingAnswerContainer.remove();
       }
 
       // 创建新的 Protyle 实例，传入 blockId
@@ -608,6 +624,37 @@ export class NativeReviewSession {
 
       // 显示第二个 action div（评分按钮）
       actionElements[1].classList.remove('fn__none');
+    }
+
+    // 🆕 如果有答案块 ID（Xiuyuan 模板卡片），渲染答案块
+    if (this.currentAnswerBlockID) {
+      const renderElement = this.dialog?.element.querySelector('[data-type="render"]') as HTMLElement;
+      if (renderElement) {
+        // 创建答案容器
+        let answerContainer = renderElement.querySelector('.xiuyuan-answer-container') as HTMLElement;
+        if (!answerContainer) {
+          answerContainer = document.createElement('div');
+          answerContainer.className = 'xiuyuan-answer-container';
+          answerContainer.style.cssText = 'margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--b3-border-color);';
+          renderElement.appendChild(answerContainer);
+        }
+
+        // 渲染答案块
+        if (this.answerProtyle) {
+          this.answerProtyle.destroy();
+        }
+        this.answerProtyle = new Protyle(this.app, answerContainer, {
+          blockId: this.currentAnswerBlockID,
+          action: [Constants.CB_GET_ALL],
+          render: {
+            background: false,
+            gutter: true,
+            breadcrumbDocName: false,
+            title: false,
+          },
+        });
+        console.log('[NativeReviewSession] Answer block rendered:', this.currentAnswerBlockID);
+      }
     }
   }
 
@@ -787,5 +834,6 @@ export class NativeReviewSession {
     this.dialog?.destroy();
     this.dialog = null;
     this.protyle = null;
+    this.answerProtyle = null;
   }
 }

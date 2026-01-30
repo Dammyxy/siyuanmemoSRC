@@ -66,7 +66,8 @@ export class ExtractionNativeAdapter implements INativeReviewAdapter {
       lastReview: -62135596800000, // 1970年（表示从未复习）
       reps: 0,
       state: 0, // 0=新卡
-    }));
+      meta: item.meta, // 🆕 传递 meta（包含 answerBlockID 等）
+    } as ICard & { meta?: Record<string, unknown> }));
   }
 
   async getCardData(): Promise<ICardData> {
@@ -106,7 +107,8 @@ export class FinalDrillNativeAdapter implements INativeReviewAdapter {
       lastReview: -62135596800000,
       reps: 0,
       state: 0,
-    }));
+      meta: item.meta, // 🆕 传递 meta
+    } as ICard & { meta?: Record<string, unknown> }));
   }
 
   async getCardData(): Promise<ICardData> {
@@ -146,7 +148,8 @@ export class FilterGroupNativeAdapter implements INativeReviewAdapter {
       lastReview: -62135596800000,
       reps: 0,
       state: 0,
-    }));
+      meta: item.meta, // 🆕 传递 meta
+    } as ICard & { meta?: Record<string, unknown> }));
   }
 
   async getCardData(): Promise<ICardData> {
