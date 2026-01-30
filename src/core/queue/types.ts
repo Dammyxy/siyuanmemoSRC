@@ -12,16 +12,33 @@ export interface QueueInterface<TItem> {
   reorder?(orderedItems: TItem[]): Promise<boolean> | boolean;
 }
 
+/**
+ * 队列项接口
+ * 
+ * 轻量级数据结构，包含队列操作和 FSRS 调度所需的核心字段
+ */
 export interface QueueItem {
+  // === 标识字段 ===
   cardID: QueueCardRef['cardID'];
   blockID: QueueCardRef['blockID'];
   deckID: QueueCardRef['deckID'];
   priority: QueueCardRef['priority'];
+  
+  // === Riff 原生字段 ===
   nextDues?: Record<1 | 2 | 3 | 4, string>;
-  state?: number;
-  lapses?: number;
-  reps?: number;
-  lastReview?: number;
+  
+  // === FSRS 调度字段 ===
+  state?: number;           // CardState: 0=New, 1=Learning, 2=Review, 3=Relearning
+  stability?: number;       // 稳定性 (S)
+  difficulty?: number;      // 难度 (D) 1-10
+  reps?: number;            // 复习次数
+  lapses?: number;          // 遗忘次数
+  lastReview?: number;      // 上次复习时间戳 (ms)
+  elapsedDays?: number;     // 距上次复习经过的天数
+  scheduledDays?: number;   // 预定的间隔天数
+  
+  // === 扩展字段 ===
+  updatedAt?: number;       // 更新时间戳
   meta?: Record<string, unknown>;
 }
 
