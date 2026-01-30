@@ -246,3 +246,25 @@ export const DECIMAL_PLACES = {
   RETRIEVABILITY: 0,
   A_FACTOR: 2,
 } as const;
+
+/** 排序字段配置（用于 UI 显示） */
+export interface SortFieldConfig {
+  colId: string;
+  label: string;
+  icon?: string;
+}
+
+export const SORT_FIELD_CONFIGS: SortFieldConfig[] = [
+  // FSRS 参数
+  { colId: 'priority', label: '优先级', icon: 'iconStar' },
+  { colId: 'interval', label: '间隔', icon: 'iconHourGlass' },
+  { colId: 'reps', label: '复习次数', icon: 'iconRefresh' },
+  { colId: 'lapses', label: '遗忘次数', icon: 'iconWarn' },
+  { colId: 'difficulty', label: '难度', icon: 'iconGraph' },
+  { colId: 'retrievability', label: '可提取性', icon: 'iconEye' },
+  { colId: 'stability', label: '稳定性', icon: 'iconLock' },
+  // 时间字段
+  { colId: 'lastReviewFormatted', label: '上次复习', icon: 'iconHistory' },
+  { colId: 'dueFormatted', label: '下次复习', icon: 'iconCalendar' },
+  { colId: 'firstReviewFormatted', label: '首次复习', icon: 'iconClock' },
+];

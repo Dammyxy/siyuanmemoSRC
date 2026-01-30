@@ -261,6 +261,17 @@ import { QueryDataSource } from './datasource/QueryDataSource';
 import { BlockIdsDataSource } from './datasource/BlockIdsDataSource';
 import ActionParamsDialog from './ActionParamsDialog.vue';
 import BrowserHierarchy from './BrowserHierarchy.vue';
+// ✅ 导入配置模块
+import { createColumnDefs } from './config';
+import { 
+  CARD_STATE_COLORS, 
+  DEFAULT_PRIORITY, 
+  SORT_FIELD_CONFIGS, 
+  type SortFieldConfig,
+  PREVIEW_SIZE_MIN,
+  PREVIEW_SIZE_MAX,
+  DEFAULT_PREVIEW_SIZE,
+} from './constants';
 
 // 注册 AG-Grid 模块
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -371,9 +382,7 @@ async function fetchBreadcrumbs(blockId: string) {
 
 // 拖拽调整状态
 const isResizing = ref(false);
-const previewSize = ref(mode.value === 'dialog' ? 500 : 300); // Increased default width
-const MIN_PREVIEW_SIZE = 150;
-const MAX_PREVIEW_SIZE = 800; // Increased max width
+const previewSize = ref(mode.value === 'dialog' ? DEFAULT_PREVIEW_SIZE.dialog : DEFAULT_PREVIEW_SIZE.tab);
 
 // 预览区域样式
 const previewStyle = computed(() => {
@@ -389,165 +398,8 @@ function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
-// 状态颜色
-const STATE_COLORS: Record<string, string> = {
-  'New': 'var(--b3-card-info-color)',
-  'Learning': 'var(--b3-card-warning-color)',
-  'Review': 'var(--b3-card-success-color)',
-};
-
-// 列定义 - SuperMemo 风格
-const columnDefs = ref<ColDef[]>([
-  // No - 行号（第一列，AG-Grid 会在其前自动添加复选框列）
-  {
-    colId: 'noColumn',
-    headerName: 'No',
-    width: 50,
-    sortable: false,
-    valueGetter: (params: any) => {
-      if (params.node?.rowIndex != null) return params.node.rowIndex + 1;
-      return '';
-    },
-  },
-  // Title - 标题
-  { 
-    field: 'content', 
-    headerName: 'Title', 
-    flex: 1,
-    minWidth: 100,
-    suppressSizeToFit: false,
-    tooltipField: 'fullContent',
-  },
-  // Prior - 优先级
-  { 
-    field: 'priority', 
-    headerName: 'Prior', 
-    width: 55,
-    sortable: true,
-    valueFormatter: (params) => `${params.value || 50}%`,
-  },
-  // Intrv - 间隔
-  { 
-    field: 'interval', 
-    headerName: 'Intrv', 
-    width: 55,
-    sortable: true,
-    valueFormatter: (params) => params.value > 0 ? `${params.value}d` : '-',
-  },
-  // LastRep - 上次复习
-  { 
-    field: 'lastReviewFormatted', 
-    headerName: 'LastRep', 
-    width: 110,
-    sortable: true,
-  },
-  // NextRep - 下次复习
-  { 
-    field: 'dueFormatted', 
-    headerName: 'NextRep', 
-    width: 110,
-    sortable: true,
-  },
-  // Reps - 复习次数
-  { 
-    field: 'reps', 
-    headerName: 'Reps', 
-    width: 50,
-    sortable: true,
-  },
-  // Laps - 遗忘次数
-  { 
-    field: 'lapses', 
-    headerName: 'Laps', 
-    width: 50,
-    sortable: true,
-  },
-  // Type - 状态
-  {
-    field: 'stateLabel',
-    headerName: 'Type',
-    width: 65,
-    cellStyle: (params) => ({
-      color: STATE_COLORS[params.data.state] || '',
-      fontWeight: 500,
-    }),
-  },
-  // CardType - 卡片类型 (Topic/Item)
-  {
-    field: 'cardType',
-    headerName: 'CardType',
-    width: 70,
-    valueFormatter: (params) => {
-      const type = params.value;
-      if (type === 'topic') return '📄 Topic';
-      if (type === 'item') return '❓ Item';
-      return '-';
-    },
-    cellStyle: (params) => {
-      const type = params.value;
-      if (type === 'topic') {
-        return { color: 'var(--b3-theme-info)', fontWeight: 500 };
-      }
-      if (type === 'item') {
-        return { color: 'var(--b3-theme-success)', fontWeight: 500 };
-      }
-      return {};
-    },
-  },
-  // FirstRep - 首次复习
-  {
-    field: 'firstReviewFormatted',
-    headerName: 'FirstRep',
-    width: 110,
-    sortable: true,
-  },
-  // Dif - 难度
-  { 
-    field: 'difficulty', 
-    headerName: 'Dif', 
-    width: 50,
-    sortable: true,
-    valueFormatter: (params) => `${((params.value || 0) * 100).toFixed(0)}%`,
-  },
-  // FI - 遗忘指数 (retrievability)
-  { 
-    field: 'retrievability', 
-    headerName: 'FI', 
-    width: 45,
-    sortable: true,
-    valueFormatter: (params) => `${((params.value || 0) * 100).toFixed(0)}%`,
-  },
-  // AF - A-Factor (stability)
-  { 
-    field: 'stability', 
-    headerName: 'AF', 
-    width: 50,
-    sortable: true,
-    valueFormatter: (params) => params.value?.toFixed(1) || '-',
-  },
-]);
-
-// 排序字段配置
-interface SortFieldConfig {
-  colId: string;
-  label: string;
-  icon?: string;
-}
-
-const SORT_FIELDS: SortFieldConfig[] = [
-  // FSRS 参数
-  { colId: 'priority', label: '优先级', icon: 'iconStar' },
-  { colId: 'interval', label: '间隔', icon: 'iconHourGlass' },
-  { colId: 'reps', label: '复习次数', icon: 'iconRefresh' },
-  { colId: 'lapses', label: '遗忘次数', icon: 'iconWarn' },
-  { colId: 'difficulty', label: '难度', icon: 'iconGraph' },
-  { colId: 'retrievability', label: '可提取性', icon: 'iconEye' },
-  { colId: 'stability', label: '稳定性', icon: 'iconLock' },
-  // 时间字段
-  { colId: 'lastReviewFormatted', label: '上次复习', icon: 'iconHistory' },
-  { colId: 'dueFormatted', label: '下次复习', icon: 'iconCalendar' },
-  { colId: 'firstReviewFormatted', label: '首次复习', icon: 'iconClock' },
-];
+// ✅ 使用导入的配置
+const columnDefs = ref<ColDef[]>(createColumnDefs());
 
 // 判断是否为队列模式（队列模式启用客户端排序，Deck 模式禁用）
 const isQueueMode = computed(() => {
@@ -992,7 +844,7 @@ function startResize(e: MouseEvent) {
     const currentPos = mode.value === 'dialog' ? moveEvent.clientX : moveEvent.clientY;
     // Dialog 模式：向左拖增大，Tab/Dock 模式：向上拖增大
     const delta = startPos - currentPos;
-    const newSize = Math.min(MAX_PREVIEW_SIZE, Math.max(MIN_PREVIEW_SIZE, startSize + delta));
+    const newSize = Math.min(PREVIEW_SIZE_MAX, Math.max(PREVIEW_SIZE_MIN, startSize + delta));
     previewSize.value = newSize;
   };
   
@@ -1343,7 +1195,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   const sortMenu: any[] = [];
 
   // 添加每个排序字段的子菜单
-  for (const field of SORT_FIELDS) {
+  for (const field of SORT_FIELD_CONFIGS) {
     sortMenu.push({
       icon: field.icon || 'iconSort',
       label: field.label,
