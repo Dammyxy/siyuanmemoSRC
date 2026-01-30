@@ -7,7 +7,7 @@
 
 import type { QueueProvider } from '@/core/extensions';
 import type { BrowserCard } from '@/ui/browser/browserService';
-import { RetrievalPracticeQueue } from '@/core/queue/strategies/RetrievalPracticeQueue';
+import { RetrievalPracticeQueueV2 } from '@/core/queue/strategies/RetrievalPracticeQueueV2';
 import type { StorageManager } from '@/core/storage/StorageManager';
 import type { SchedulerEngineAdapter } from '@/core/scheduler/types';
 
@@ -24,7 +24,7 @@ import type { SchedulerEngineAdapter } from '@/core/scheduler/types';
 export class RetrievalPracticeProvider implements QueueProvider<BrowserCard> {
   readonly id = 'retrieval';
   readonly displayName = '提取练习';
-  private readonly queue: RetrievalPracticeQueue;
+  private readonly queue: RetrievalPracticeQueueV2;
   private readonly deckId: string;
   private reviewedCount = 0;
 
@@ -34,7 +34,7 @@ export class RetrievalPracticeProvider implements QueueProvider<BrowserCard> {
     scheduler?: SchedulerEngineAdapter;
   }) {
     this.deckId = options?.deckId || '';
-    this.queue = new RetrievalPracticeQueue({
+    this.queue = new RetrievalPracticeQueueV2({
       deckID: options?.deckId,
       storage: options?.storage,
       localScheduler: options?.scheduler,

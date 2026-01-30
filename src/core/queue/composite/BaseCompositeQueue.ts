@@ -193,7 +193,8 @@ export class BaseCompositeQueue<TItem = any> implements IQueueStrategy<TItem> {
   protected async getSize(): Promise<number> {
     if (this.dataSource.size) {
       const size = this.dataSource.size;
-      return typeof size === 'function' ? await size() : size;
+      // ✅ 保持 this 上下文
+      return typeof size === 'function' ? await size.call(this.dataSource) : size;
     }
 
     // Fallback: get all items and count

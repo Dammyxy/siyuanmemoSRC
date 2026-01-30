@@ -8,7 +8,7 @@
 import * as riff from '@/core/siyuan/riff';
 import type { QueueProvider } from '@/core/extensions';
 import type { BrowserCard } from '@/ui/browser/browserService';
-import { IncrementalLearningQueue, IncrementalLearningConfig } from '@/core/queue/strategies/IncrementalLearningQueue';
+import { IncrementalLearningQueueV2 } from '@/core/queue/strategies/IncrementalLearningQueueV2';
 
 /**
  * 渐进学习队列 Provider
@@ -20,14 +20,12 @@ import { IncrementalLearningQueue, IncrementalLearningConfig } from '@/core/queu
  * - 获取统计信息
  */
 export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
-    private readonly queue: IncrementalLearningQueue;
+    private readonly queue: IncrementalLearningQueueV2;
     private readonly deckId: string;
 
-    constructor(config?: IncrementalLearningConfig) {
+    constructor(config?: { deckID?: string }) {
         this.deckId = config?.deckID ?? riff.BUILTIN_DECK_ID;
-        this.queue = new IncrementalLearningQueue({
-            topicRatio: 0.25, // 默认 25% Topic
-            autoSort: true,
+        this.queue = new IncrementalLearningQueueV2({
             deckID: this.deckId,
         });
     }
