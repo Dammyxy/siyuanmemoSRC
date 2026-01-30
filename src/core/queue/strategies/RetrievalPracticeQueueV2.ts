@@ -25,6 +25,8 @@ import type { StorageManager } from '../../storage/StorageManager';
 import { SchedulerSortingStrategy } from '../../scheduling/SortingStrategy';
 import { CardStorage } from '../../scheduling/CardStorage';
 import type { SchedulerEngineAdapter } from '../../scheduler/types';
+import type { SchedulerRouter } from '../../scheduler/SchedulerRouter';
+import type { FSRSCard } from '@/types';
 import type { QueueItem, QueueStats, QueueUIConfig } from '../types.ts';
 import { clampPriority, DEFAULT_PRIORITY } from '../abstraction/IPriority.ts';
 import type { IPrioritizableTrait, IMutableTrait, IRemovableTrait } from '../abstraction/types.ts';
@@ -192,6 +194,7 @@ export class RetrievalPracticeQueueV2 extends BaseCompositeQueue<QueueItem> {
   private readonly api: RiffApi;
   private readonly storage?: StorageManager;
   private readonly sortingStrategy?: SchedulerSortingStrategy;
+  private readonly schedulerRouter?: SchedulerRouter;  // 🆕 新增
   private reviewedCount = 0;
   private riffUnreviewedNew = 0;
   private riffUnreviewedOld = 0;
@@ -201,6 +204,7 @@ export class RetrievalPracticeQueueV2 extends BaseCompositeQueue<QueueItem> {
     api?: Partial<RiffApi>;
     storage?: StorageManager;
     localScheduler?: SchedulerEngineAdapter;
+    schedulerRouter?: SchedulerRouter;  // 🆕 新增
   }) {
     const deckID = String(options?.deckID || riff.BUILTIN_DECK_ID);
     const api: RiffApi = {
@@ -241,7 +245,35 @@ export class RetrievalPracticeQueueV2 extends BaseCompositeQueue<QueueItem> {
 
     // Create scheduler for review feedback
     const scheduler = new RiffScheduler<QueueItem, 1 | 2 | 3 | 4>(async (card, grade) => {
-      await api.reviewRiffCard(card.deckID || deckID, card.cardID, grade);
+      // 🆕 如果有 SchedulerRouter 和 Storage，使用路由器
+      const storage = options?.storage;
+      const router = options?.schedulerRouter;
+
+      if (router && storage) {
+        // 1. QueueItem 转 FSRSCard
+        const fsrsCard = storage.getCard(String(card.cardID));
+        if (fsrsCard) {
+          // 2. 使用 SchedulerRouter 进行复习
+          const updatedCard = await router.route(fsrsCard, grade);
+
+          // 3. SchedulerRouter 已经保存了卡片（route() 方法包含保存逻辑）
+          // 但仍需调用 Riff API 以同步 Riff 数据
+          await api.reviewRiffCard(card.deckID || deckID, card.cardID, grade);
+
+          console.log('[RetrievalPracticeQueue] ✅ Used SchedulerRouter:', {
+            cardID: card.cardID,
+            cardType: updatedCard.type,
+            schedulerType: updatedCard.schedulerType,
+          });
+        } else {
+          // 本地没有卡片数据，直接调用 Riff API
+          await api.reviewRiffCard(card.deckID || deckID, card.cardID, grade);
+        }
+      } else {
+        // 后备方案：直接调用 Riff API
+        await api.reviewRiffCard(card.deckID || deckID, card.cardID, grade);
+      }
+
       return card;
     });
 
@@ -284,6 +316,7 @@ export class RetrievalPracticeQueueV2 extends BaseCompositeQueue<QueueItem> {
         statsType: 'riff-counts',
         showRatingButtons: true,
         allowSkip: true,
+        hiddenContentTypes: ['heading', 'mark', 'list', 'superBlock'], // 🆕 添加隐藏内容类型
       },
       statsLabel: '提取练习',
     });
@@ -293,6 +326,7 @@ export class RetrievalPracticeQueueV2 extends BaseCompositeQueue<QueueItem> {
     this.api = api;
     this.storage = options?.storage;
     this.sortingStrategy = sortingStrategy;
+    this.schedulerRouter = options?.schedulerRouter;  // 🆕 新增
   }
 
   /**

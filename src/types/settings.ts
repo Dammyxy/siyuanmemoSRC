@@ -12,7 +12,22 @@ export interface FSRSParameters {
     enableShortTerm: boolean;  // 启用短期调度器
 }
 
-export type SchedulerEngine = 'simple-fsrs' | 'sm2';
+export type SchedulerEngine = 'simple-fsrs' | 'sm2' | 'sm15' | 'a-factor-v2';
+
+/** 🆕 调度器配置 */
+export interface SchedulerConfig {
+    defaultScheduler: 'fsrs-v5' | 'sm2' | 'sm15' | 'a-factor-v2';
+    enableRiffSync: boolean;
+
+    // 按卡片类型配置（可选）
+    topicScheduler?: 'a-factor' | 'a-factor-v2';
+    itemScheduler?: 'fsrs-v5' | 'sm2' | 'sm15';
+
+    sm15?: {
+        requestedFI: number;     // 遗忘指数 (0-100)
+        intervalBase: number;    // 基础间隔（天）
+    };
+}
 
 /** 复习筛选器类型 */
 export type ReviewFilterType = 'all' | 'document' | 'sql' | 'backlink';
@@ -99,6 +114,9 @@ export interface PluginSettings {
     fsrs: FSRSParameters;
     schedulerEngine: SchedulerEngine;
 
+    // 🆕 调度器配置
+    scheduler?: SchedulerConfig;
+
     // 复习队列
     newCardsPerDay: number;    // 每日新卡上限
     reviewsPerDay: number;     // 每日复习上限（0=无限制）
@@ -137,6 +155,16 @@ export const DEFAULT_SETTINGS: PluginSettings = {
         enableShortTerm: true,
     },
     schedulerEngine: 'simple-fsrs',
+    scheduler: {
+        defaultScheduler: 'fsrs-v5',
+        enableRiffSync: false,
+        topicScheduler: 'a-factor-v2',
+        itemScheduler: 'fsrs-v5',
+        sm15: {
+            requestedFI: 10,
+            intervalBase: 1,
+        },
+    },
     newCardsPerDay: 20,
     reviewsPerDay: 0,
     defaultPriority: 50,

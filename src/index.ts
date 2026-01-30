@@ -13,7 +13,7 @@ import {
 import { createApp } from 'vue';
 
 import { StorageManager } from '@/core/storage';
-import { createScheduler, type SchedulerEngineAdapter } from '@/core/scheduler';
+import { createScheduler, type SchedulerEngineAdapter, SchedulerRouter } from '@/core/scheduler';
 import { RescheduleService } from '@/core/scheduler/rescheduleService';
 import { riff } from '@/core/siyuan';
 import { markBlockAsCard, unmarkBlockAsCard, ATTR_CARD_ID, getCardBlockIds } from '@/core/siyuan/block';
@@ -65,6 +65,7 @@ export default class FSRSPlugin extends Plugin {
   // 核心模块
   public storage!: StorageManager;
   public scheduler!: SchedulerEngineAdapter;
+  public schedulerRouter!: SchedulerRouter;
   public rescheduleService!: RescheduleService;
   private queueContext!: QueueContext<QueueItem>;
   private retrievalQueue!: RetrievalPracticeQueue;
@@ -158,12 +159,21 @@ export default class FSRSPlugin extends Plugin {
       const settings = this.storage.getSettings();
       this.rescheduleService = new RescheduleService(this.storage);
 
+      // 🆕 创建 SchedulerRouter（根据卡片类型自动选择调度器）
+      this.schedulerRouter = new SchedulerRouter({
+        defaultScheduler: settings.scheduler?.defaultScheduler || 'fsrs-v5',
+        enableRiffSync: settings.scheduler?.enableRiffSync || false,
+        fsrsParams: settings.fsrs,
+      }, this.storage);
+
+      // ✅ 保留旧调度器（向后兼容）
       this.scheduler = createScheduler(settings.fsrs, settings.schedulerEngine);
 
       // ✅ 使用 V2 队列（复合架构）
       this.retrievalQueue = new RetrievalPracticeQueueV2({
         storage: this.storage,
-        localScheduler: this.scheduler,
+        localScheduler: this.scheduler,      // 保留（向后兼容）
+        schedulerRouter: this.schedulerRouter, // 🆕 新增
       });
 
       this.queueContext = new QueueContext<QueueItem>({
@@ -205,6 +215,7 @@ export default class FSRSPlugin extends Plugin {
       this.incrementalQueue = new IncrementalLearningQueueV2({
         storage: this.storage,
         scheduler: this.scheduler,
+        schedulerRouter: this.schedulerRouter, // 🆕 新增
       });
       this.queueContext.register('incremental-learning', this.incrementalQueue);
 
@@ -214,8 +225,7 @@ export default class FSRSPlugin extends Plugin {
         queueName: this.incrementalQueue.constructor.name,
       });
 
-      // 初始化调度器
-      this.scheduler = createScheduler(settings.fsrs, settings.schedulerEngine);
+      console.log('[FSRS] ✅ SchedulerRouter initialized');
 
       this.isInitialized = true;
 
@@ -571,6 +581,7 @@ export default class FSRSPlugin extends Plugin {
       props: {
         fsrsSettings: currentSettings.fsrs,
         queueSettings: currentSettings.queues,
+        schedulerSettings: currentSettings.scheduler,  // 🆕 新增
         i18n: this.i18n || {},
         defaultTab,
         queueCount: this.retrievalQueue['localBuffer']?.length || 0,
@@ -593,9 +604,20 @@ export default class FSRSPlugin extends Plugin {
               weights: settings.params,
             },
             queues: settings.queues || currentSettings.queues,
+            scheduler: settings.scheduler || currentSettings.scheduler,  // 🆕 保存调度器配置
           };
           await this.storage.updateSettings(updatedSettings);
           this.scheduler.updateParams(updatedSettings.fsrs);
+
+          // 🆕 更新 SchedulerRouter 配置
+          if (this.schedulerRouter && settings.scheduler) {
+            this.schedulerRouter.updateConfig({
+              defaultScheduler: settings.scheduler.defaultScheduler,
+              enableRiffSync: settings.scheduler.enableRiffSync,
+              fsrsParams: updatedSettings.fsrs,
+            });
+            console.log('[FSRS] ✅ SchedulerRouter config updated');
+          }
         },
         close: () => {
           settingsDialog.destroy();

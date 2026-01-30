@@ -18,3 +18,41 @@
   min-width: 28px;
   min-height: 28px;
 }
+
+// ==================== 卡片正反面隐藏样式 ====================
+// 参考思源原生实现：siyuan/app/src/card/openCard.ts
+
+// 隐藏超级块
+.card__block--hidesb {
+  .sb {
+    display: none;
+  }
+}
+
+// 隐藏标题
+.card__block--hideh {
+  [data-type="NodeHeading"] {
+    display: none;
+  }
+}
+
+// 隐藏列表
+.card__block--hideli {
+  .list,
+  .li {
+    display: none;
+  }
+}
+
+// 隐藏标记（悬停时显示）
+.card__block--hidemark {
+  span[data-type~="mark"] {
+    color: transparent !important;
+    background-color: transparent !important;
+    
+    &:hover {
+      color: var(--b3-theme-on-background) !important;
+      background-color: var(--b3-card-info-background) !important;
+    }
+  }
+}

@@ -9,6 +9,7 @@ import { DEFAULT_SETTINGS } from '@/types';
 import * as siyuanApi from '@/core/siyuan/api';
 import { ATTR_PRIORITY } from '@/core/siyuan/block';
 import { clampPriority, DEFAULT_PRIORITY } from '@/core/queue/abstraction/IPriority';
+import type { QueueData } from '@/core/queue/strategies/QueueMigrationManager';
 
 /** 存储文件名 */
 const STORAGE_FILES = {
@@ -16,6 +17,7 @@ const STORAGE_FILES = {
     SETTINGS: 'settings.json',
     LOGS_DIR: 'logs',
     PRACTICE_QUEUE: 'practice-queue.json',
+    PRACTICE_QUEUE_BACKUP: 'practice-queue-backup.json', // 🆕 Phase 2d.4: 备份文件
     INCREMENTAL_LEARNING_QUEUE: 'incremental-learning-queue.json',
 };
 
@@ -208,6 +210,67 @@ export class StorageManager {
     async clearPracticeQueue(): Promise<void> {
         this.practiceQueue = [];
         await this.savePracticeQueue();
+    }
+
+    // ==================== Phase 2d.2: 版本化队列数据 ====================
+
+    /**
+     * 获取队列数据（版本化格式）
+     */
+    getQueueData(): QueueData | null {
+        return {
+            version: 2,
+            items: this.practiceQueue,
+            metadata: {
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                totalReviewed: 0,
+                initialTotal: this.practiceQueue.length,
+            },
+        };
+    }
+
+    /**
+     * 设置队列数据（版本化格式）
+     */
+    async setQueueData(data: QueueData): Promise<void> {
+        this.practiceQueue = data.items;
+        await this.savePracticeQueueV2(data);
+    }
+
+    // ==================== Phase 2d.4: 数据备份 ====================
+
+    /**
+     * 获取队列备份数据
+     */
+    async getQueueBackup(): Promise<QueueData | null> {
+        try {
+            const data = await this.readPluginData(STORAGE_FILES.PRACTICE_QUEUE_BACKUP);
+            if (data) {
+                return JSON.parse(data) as QueueData;
+            }
+        } catch (error) {
+            console.warn('[StorageManager] Failed to load queue backup:', error);
+        }
+        return null;
+    }
+
+    /**
+     * 保存队列备份数据
+     */
+    async setQueueBackup(data: QueueData): Promise<void> {
+        await this.writePluginData(
+            STORAGE_FILES.PRACTICE_QUEUE_BACKUP,
+            JSON.stringify(data, null, 2)
+        );
+        console.debug('[StorageManager] Queue backup saved');
+    }
+
+    /**
+     * 保存队列数据（版本 2 格式）
+     */
+    private async savePracticeQueueV2(data: QueueData): Promise<void> {
+        await this.writePluginData(STORAGE_FILES.PRACTICE_QUEUE, JSON.stringify(data, null, 2));
     }
 
     async readPluginFile(fileName: string): Promise<string | null> {

@@ -89,6 +89,84 @@
 
 
 
+      <!-- 🆕 调度器设置 -->
+      <div v-show="activeTab === 'scheduler'" class="settings-section">
+        <h3>{{ t('schedulerSettingsTitle', '调度器设置') }}</h3>
+
+        <!-- 默认调度器 -->
+        <div class="form-item">
+          <label>{{ t('defaultScheduler', '默认调度器') }}</label>
+          <div class="form-control">
+            <select v-model="schedulerConfig.defaultScheduler" class="scheduler-select">
+              <option value="fsrs-v5">{{ t('schedulerFsrsV5', 'FSRS v5 (推荐)') }}</option>
+              <option value="sm2">{{ t('schedulerSm2', 'SM-2') }}</option>
+              <option value="sm15">{{ t('schedulerSm15', 'SM-15') }}</option>
+              <option value="a-factor-v2">{{ t('schedulerAFactorV2', 'A-Factor v2') }}</option>
+            </select>
+          </div>
+          <p class="form-hint">
+            💡 {{ schedulerDescriptions[schedulerConfig.defaultScheduler] }}
+          </p>
+        </div>
+
+        <div class="fn__hr"></div>
+
+        <h4>{{ t('schedulerByCardType', '按卡片类型配置') }}</h4>
+
+        <!-- Topic 调度器 -->
+        <div class="form-item">
+          <label>{{ t('topicScheduler', 'Topic 卡片调度器') }}</label>
+          <div class="form-control">
+            <select v-model="schedulerConfig.topicScheduler" class="scheduler-select">
+              <option value="a-factor">{{ t('schedulerAFactor', 'A-Factor (原始)') }}</option>
+              <option value="a-factor-v2">{{ t('schedulerAFactorV2Recommended', 'A-Factor v2 (推荐)') }}</option>
+            </select>
+          </div>
+          <p class="form-hint">
+            💡 {{ t('topicSchedulerHint', '适合阅读材料，动态调整难度因子') }}
+          </p>
+        </div>
+
+        <!-- Item 调度器 -->
+        <div class="form-item">
+          <label>{{ t('itemScheduler', 'Item 卡片调度器') }}</label>
+          <div class="form-control">
+            <select v-model="schedulerConfig.itemScheduler" class="scheduler-select">
+              <option value="fsrs-v5">{{ t('schedulerFsrsV5Recommended', 'FSRS v5 (推荐)') }}</option>
+              <option value="sm2">{{ t('schedulerSm2', 'SM-2') }}</option>
+              <option value="sm15">{{ t('schedulerSm15', 'SM-15') }}</option>
+            </select>
+          </div>
+          <p class="form-hint">
+            💡 {{ t('itemSchedulerHint', '适合问答卡片，精确间隔计算') }}
+          </p>
+        </div>
+
+        <div class="fn__hr"></div>
+
+        <h4>{{ t('advancedOptions', '高级选项') }}</h4>
+
+        <!-- Riff 同步 -->
+        <div class="form-item">
+          <label>{{ t('riffSync', 'Riff 同步') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="schedulerConfig.enableRiffSync">
+            <span>{{ t('enableRiffSync', '启用 Riff 同步') }}</span>
+          </div>
+          <p class="form-hint form-hint--warning">
+            ⚠️ {{ t('riffSyncWarning', '启用后会将卡片数据同步到 Riff 数据库') }}
+          </p>
+        </div>
+
+        <!-- 保存按钮 -->
+        <div class="form-actions">
+          <button class="btn-primary" @click="saveSettings">{{ t('saveSettings', '保存设置') }}</button>
+          <button class="btn-secondary" @click="resetSchedulerSettings">{{ t('resetDefault', '重置默认') }}</button>
+        </div>
+      </div>
+
+
+
       <!-- 关于 -->
       <div v-show="activeTab === 'about'" class="settings-section">
         <h3>{{ t('aboutFsrsTitle', '关于 FSRS') }}</h3>
@@ -220,7 +298,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import type { FilterGroupDefinition, FSRSParameters, QueueSettings } from '../../types';
+import type { FilterGroupDefinition, FSRSParameters, QueueSettings, SchedulerConfig } from '../../types';
 
 // FSRS-5 默认权重参数
 const DEFAULT_PARAMS = [
@@ -240,6 +318,7 @@ const emit = defineEmits<{
 const props = defineProps<{
   fsrsSettings?: FSRSParameters;
   queueSettings?: QueueSettings;
+  schedulerSettings?: SchedulerConfig;  // 🆕 新增
   incrementalSettings?: { autoCardEnabled: boolean };
   i18n?: Record<string, string>;
   defaultTab?: string;
@@ -258,6 +337,7 @@ function t(key: string, fallback: string): string {
 
 const tabs = computed(() => [
   { key: 'params', label: t('settingsParamsTab', '参数设置'), icon: '#iconSettings' },
+  { key: 'scheduler', label: t('schedulerTab', '调度器'), icon: '#iconAlgorithm' },  // 🆕 新增
   { key: 'practice', label: t('practiceTab', '练习模式'), icon: '#iconPlay' },
   { key: 'about', label: t('settingsAboutTab', '关于'), icon: '#iconInfo' },
 ]);
@@ -303,6 +383,23 @@ const settings = ref<Settings>({
   autoCardEnabled: false,
 });
 
+// 🆕 调度器配置
+const schedulerConfig = ref<SchedulerConfig>({
+  defaultScheduler: 'fsrs-v5',
+  enableRiffSync: false,
+  topicScheduler: 'a-factor-v2',
+  itemScheduler: 'fsrs-v5',
+});
+
+// 🆕 调度器说明
+const schedulerDescriptions: Record<string, string> = {
+  'fsrs-v5': '现代算法，准确预测遗忘曲线，自动优化参数',
+  'sm2': '经典算法，简单稳定，广泛使用',
+  'sm15': 'SuperMemo 15 算法，完整的遗忘曲线系统',
+  'a-factor-v2': '改进的 A-Factor，动态调整难度',
+  'a-factor': '固定难度因子，简单稳定',
+};
+
 // 参数预览
 const paramsPreview = computed(() => {
   return settings.value.params.map(p => p.toFixed(4)).join(', ');
@@ -339,6 +436,16 @@ function loadSettings() {
     };
   }
   filterGroupsJson.value = JSON.stringify(queueSettings.value.filterGroup.groups || [], null, 2);
+
+  // 🆕 加载调度器配置
+  if (props.schedulerSettings) {
+    schedulerConfig.value = {
+      defaultScheduler: props.schedulerSettings.defaultScheduler || 'fsrs-v5',
+      enableRiffSync: props.schedulerSettings.enableRiffSync || false,
+      topicScheduler: props.schedulerSettings.topicScheduler || 'a-factor-v2',
+      itemScheduler: props.schedulerSettings.itemScheduler || 'fsrs-v5',
+    };
+  }
 }
 
 // 保存设置
@@ -362,12 +469,19 @@ function saveSettings() {
       groups,
     },
   };
-  emit('save', { 
-    ...settings.value, 
+  emit('save', {
+    ...settings.value,
     queues,
     incremental: {
       autoCardEnabled: settings.value.autoCardEnabled
-    }
+    },
+    // 🆕 保存调度器配置
+    scheduler: {
+      defaultScheduler: schedulerConfig.value.defaultScheduler,
+      enableRiffSync: schedulerConfig.value.enableRiffSync,
+      topicScheduler: schedulerConfig.value.topicScheduler,
+      itemScheduler: schedulerConfig.value.itemScheduler,
+    },
   });
 }
 
@@ -378,6 +492,16 @@ function resetSettings() {
     maximumInterval: 365,
     enableShortTerm: true,
     params: [...DEFAULT_PARAMS],
+  };
+}
+
+// 🆕 重置调度器设置
+function resetSchedulerSettings() {
+  schedulerConfig.value = {
+    defaultScheduler: 'fsrs-v5',
+    enableRiffSync: false,
+    topicScheduler: 'a-factor-v2',
+    itemScheduler: 'fsrs-v5',
   };
 }
 
@@ -661,5 +785,16 @@ async function handleQueueClear() {
 .practice-guide__text {
   font-size: 12px;
   color: var(--b3-theme-on-surface-light);
+}
+
+/* 🆕 调度器选择器样式 */
+.scheduler-select {
+  width: 100%;
+  max-width: 300px;
+}
+
+.form-hint--warning {
+  color: var(--b3-theme-error);
+  font-weight: 500;
 }
 </style>

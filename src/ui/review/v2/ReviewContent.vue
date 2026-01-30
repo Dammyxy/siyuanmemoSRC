@@ -172,13 +172,26 @@ watch(
 watch(
   () => [props.hasHiddenContent, props.showAnswer],
   ([hidden, show]) => {
+    console.log('[FSRS ReviewContent] Watch triggered:', { hidden, show });
+    
     const protyle = editorRef.value?.protyle;
-    if (!protyle || !protyle.wysiwyg) return;
-    const wysiwyg = protyle.wysiwyg.element;
-    if (!wysiwyg) return;
+    if (!protyle) {
+      console.log('[FSRS ReviewContent] No protyle instance');
+      return;
+    }
+    
+    // 🔧 修复：应该操作 protyle.element，不是 wysiwyg.element
+    const element = protyle.element;
+    if (!element) {
+      console.log('[FSRS ReviewContent] No protyle.element');
+      return;
+    }
+
+    console.log('[FSRS ReviewContent] Applying styles to protyle.element');
 
     if (!hidden) {
-      wysiwyg.classList.remove(
+      console.log('[FSRS ReviewContent] No hidden content, removing all hide classes');
+      element.classList.remove(
         'card__block--hidemark',
         'card__block--hideli',
         'card__block--hidesb',
@@ -188,15 +201,21 @@ watch(
     }
 
     if (show) {
-      wysiwyg.classList.remove(
+      console.log('[FSRS ReviewContent] Showing answer, removing all hide classes');
+      element.classList.remove(
         'card__block--hidemark',
         'card__block--hideli',
         'card__block--hidesb',
         'card__block--hideh'
       );
     } else {
-      wysiwyg.classList.add('card__block--hideh');
-      // TODO: 根据 QueueUIConfig.hiddenContentTypes 添加其他类
+      console.log('[FSRS ReviewContent] Hiding answer, adding hide classes');
+      // 🔧 添加所有隐藏类型（参考思源原生实现）
+      element.classList.add('card__block--hideh');
+      element.classList.add('card__block--hidemark');
+      element.classList.add('card__block--hideli');
+      element.classList.add('card__block--hidesb');
+      console.log('[FSRS ReviewContent] Classes added:', element.className);
     }
   },
   { immediate: true, deep: true },

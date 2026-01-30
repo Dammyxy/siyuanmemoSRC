@@ -69,6 +69,23 @@ export interface FSRSCard {
 
     // === Topic/Item 区分 ===
     aFactor?: number;     // A-Factor (仅 Topic 卡片，1.2-6.0)
+
+    // === 🆕 调度器相关字段 ===
+    schedulerType?: 'fsrs-v5' | 'sm2' | 'sm15' | 'a-factor' | 'a-factor-v2' | 'riff';
+    syncToRiff?: boolean;     // 是否同步到 Riff
+    riffCardId?: string;      // Riff 卡片 ID
+    schedulerMeta?: {
+        sm15?: {
+            of: number;              // O-Factor
+            optimumInterval: number;  // 最优间隔（天）
+            afs: number[];           // A-Factor 历史
+        };
+        topic?: {
+            afs: number[];           // A-Factor 历史（ImprovedTopicScheduler）
+            of: number;              // O-Factor
+            optimalInterval: number; // 最优间隔
+        };
+    };
 }
 
 /**
