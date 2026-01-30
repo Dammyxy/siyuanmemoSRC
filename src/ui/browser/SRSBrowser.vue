@@ -274,6 +274,7 @@ import {
 } from './constants';
 // ✅ 导入工具函数
 import { matchesParsedQuery, extractSqlStatement } from './utils/cardFilters';
+import { extractBlockIds } from './utils/helpers';
 
 // 注册 AG-Grid 模块
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -516,7 +517,7 @@ async function loadData(forceRefresh = false) {
     } else if (activeQueueId.value) {
       const q = getQueueById(activeQueueId.value);
       const items = q?.getAllItems?.() || [];
-      const ids = (items || []).map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
+      const ids = extractBlockIds(items);
       // ✅ 四重筛选：BlockIdsDataSource 不支持额外筛选（TODO）
       currentDataSource.value = new BlockIdsDataSource({
         id: activeQueueId.value,
@@ -577,7 +578,7 @@ async function loadData(forceRefresh = false) {
         // 神经漫游队列（BlockIdsDataSource 不支持筛选，使用全部数据）
         const queue = getQueueById(activeQueueId.value);
         const items = queue?.getAllItems?.() || [];
-        const ids = (items || []).map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
+        const ids = extractBlockIds(items);
         dataSourceForFocus = new BlockIdsDataSource({
           id: activeQueueId.value,
           label: activeQueueId.value,
@@ -1777,7 +1778,7 @@ async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {
     })),
   });
 
-  const blockIds = (items || []).map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
+  const blockIds = extractBlockIds(items);
   console.log('[SRSBrowser] Extracted blockIds:', blockIds);
 
   const cards = await loadQueueCards(blockIds);

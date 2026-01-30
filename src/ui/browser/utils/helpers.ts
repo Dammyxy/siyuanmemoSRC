@@ -297,3 +297,17 @@ export function deduplicateCards(cards: BrowserCard[]): BrowserCard[] {
 
   return result;
 }
+
+/**
+ * 提取 blockId（兼容多种字段名）
+ */
+export function extractBlockId(item: any): string {
+  return String(item?.blockID || item?.blockId || item?.block_id || '');
+}
+
+/**
+ * 批量提取 blockIds
+ */
+export function extractBlockIds(items: any[]): string[] {
+  return items.map(extractBlockId).filter(Boolean);
+}
