@@ -275,6 +275,14 @@ import {
 // ✅ 导入工具函数
 import { matchesParsedQuery, extractSqlStatement } from './utils/cardFilters';
 import { extractBlockIds } from './utils/helpers';
+import {
+  createQueueDataSource,
+  createBlockIdsDataSource,
+  createDeckDataSource,
+  createQueryDataSource,
+  createFocusDataSource,
+  type DataSourceOptionsWithDoc,
+} from './utils/dataSourceFactory';
 
 // 注册 AG-Grid 模块
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -489,53 +497,30 @@ async function loadData(forceRefresh = false) {
       activeQueueId.value = null;
       activeDocId.value = null;
       shouldFocusDocList.value = false;  // SQL 模式不聚焦
-      currentDataSource.value = new QueryDataSource(sqlStmt);
-    } else if (activeQueueId.value === 'final-drill') {
-      // ✅ 五重筛选：传递所有筛选参数
-      currentDataSource.value = new FinalDrillDataSource(props.plugin, {
-        docId: activeDocId.value,
-        preset: currentPreset.value,
-        queryText: searchQuery.value,
-        cardType: currentCardType.value,
-      });
-    } else if (activeQueueId.value === 'retrieval') {
-      // ✅ 五重筛选：传递所有筛选参数
-      currentDataSource.value = new RetrievalDataSource(props.plugin, {
-        docId: activeDocId.value,
-        preset: currentPreset.value,
-        queryText: searchQuery.value,
-        cardType: currentCardType.value,
-      });
-    } else if (activeQueueId.value === 'filter-group') {
-      // ✅ 五重筛选：传递所有筛选参数
-      currentDataSource.value = new FilterGroupDataSource(props.plugin, {
-        docId: activeDocId.value,
-        preset: currentPreset.value,
-        queryText: searchQuery.value,
-        cardType: currentCardType.value,
-      });
-    } else if (activeQueueId.value) {
-      const q = getQueueById(activeQueueId.value);
-      const items = q?.getAllItems?.() || [];
-      const ids = extractBlockIds(items);
-      // ✅ 四重筛选：BlockIdsDataSource 不支持额外筛选（TODO）
-      currentDataSource.value = new BlockIdsDataSource({
-        id: activeQueueId.value,
-        label: activeQueueId.value,
-        blockIds: ids,
-        plugin: props.plugin,
-        queueId: activeQueueId.value,
-      });
+      currentDataSource.value = createQueryDataSource(sqlStmt);
     } else {
-      // 传递 activeDocId（用户选择的文档）而不是 props.currentDocId（插件初始化时的文档）
-      // 传递 searchQuery 以支持搜索查询筛选
-      // ✅ 五重筛选：传递卡片类型筛选
-      currentDataSource.value = new DeckDataSource(props.plugin, {
+      // 筛选选项
+      const options: DataSourceOptionsWithDoc = {
+        docId: activeDocId.value,
         preset: currentPreset.value,
-        currentDocId: activeDocId.value || props.currentDocId,
         queryText: searchQuery.value,
-        cardType: currentCardType.value,
-      });
+        cardType: currentCardType.value as 'all' | 'topic-only' | 'item-only',
+      };
+
+      // 创建数据源
+      if (activeQueueId.value && ['final-drill', 'retrieval', 'filter-group'].includes(activeQueueId.value)) {
+        // 队列模式（五重筛选）
+        currentDataSource.value = createQueueDataSource(activeQueueId.value, props.plugin, options);
+      } else if (activeQueueId.value) {
+        // 神经漫游队列（BlockIds）
+        const q = getQueueById(activeQueueId.value);
+        const items = q?.getAllItems?.() || [];
+        const ids = extractBlockIds(items);
+        currentDataSource.value = createBlockIdsDataSource(activeQueueId.value, ids, props.plugin);
+      } else {
+        // 全部卡片模式（五重筛选）
+        currentDataSource.value = createDeckDataSource(props.plugin, options, props.currentDocId);
+      }
     }
 
     if (!currentDataSource.value) {
@@ -553,48 +538,18 @@ async function loadData(forceRefresh = false) {
 
     // ✅ 四重筛选：如果开启了聚焦，额外获取不包含文档筛选的数据用于计算聚焦文档
     if (shouldFocusDocList.value) {
-      let dataSourceForFocus: ICardDataSource | null = null;
+      const focusOptions = {
+        preset: currentPreset.value,
+        queryText: searchQuery.value,
+        cardType: currentCardType.value as 'all' | 'topic-only' | 'item-only',
+      };
 
-      // 队列模式：创建不含文档筛选的队列数据源
-      if (activeQueueId.value === 'final-drill') {
-        dataSourceForFocus = new FinalDrillDataSource(props.plugin, {
-          preset: currentPreset.value,  // ✅ 应用 preset 筛选（与显示数据一致）
-          queryText: searchQuery.value,  // ✅ 应用搜索筛选（与显示数据一致）
-          cardType: currentCardType.value,  // ✅ 应用卡片类型筛选
-        });
-      } else if (activeQueueId.value === 'retrieval') {
-        dataSourceForFocus = new RetrievalDataSource(props.plugin, {
-          preset: currentPreset.value,  // ✅ 应用 preset 筛选（与显示数据一致）
-          queryText: searchQuery.value,  // ✅ 应用搜索筛选（与显示数据一致）
-          cardType: currentCardType.value,  // ✅ 应用卡片类型筛选
-        });
-      } else if (activeQueueId.value === 'filter-group') {
-        dataSourceForFocus = new FilterGroupDataSource(props.plugin, {
-          preset: currentPreset.value,  // ✅ 应用 preset 筛选（与显示数据一致）
-          queryText: searchQuery.value,  // ✅ 应用搜索筛选（与显示数据一致）
-          cardType: currentCardType.value,  // ✅ 应用卡片类型筛选
-        });
-      } else if (activeQueueId.value) {
-        // 神经漫游队列（BlockIdsDataSource 不支持筛选，使用全部数据）
-        const queue = getQueueById(activeQueueId.value);
-        const items = queue?.getAllItems?.() || [];
-        const ids = extractBlockIds(items);
-        dataSourceForFocus = new BlockIdsDataSource({
-          id: activeQueueId.value,
-          label: activeQueueId.value,
-          blockIds: ids,
-          plugin: props.plugin,
-          queueId: activeQueueId.value,
-        });
-      } else {
-        // ✅ 全部卡片模式：创建不含文档筛选的 DeckDataSource
-        dataSourceForFocus = new DeckDataSource(props.plugin, {
-          preset: currentPreset.value,
-          currentDocId: undefined,  // ✅ 不传文档 ID，获取所有文档的数据
-          queryText: searchQuery.value,  // ✅ 应用搜索筛选
-          cardType: currentCardType.value,  // ✅ 应用卡片类型筛选
-        });
-      }
+      const dataSourceForFocus = createFocusDataSource(
+        activeQueueId.value,
+        props.plugin,
+        focusOptions,
+        () => getQueueById(activeQueueId.value)?.getAllItems?.() || []
+      );
 
       if (dataSourceForFocus) {
         const { rows: focusRows } = await PerformanceMonitor.measure('fetchRowsFocus', () => dataSourceForFocus!.fetchRows({ sortModel: [], filterModel: {} }));
