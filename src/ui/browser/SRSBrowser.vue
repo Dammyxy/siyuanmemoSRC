@@ -272,6 +272,8 @@ import {
   PREVIEW_SIZE_MAX,
   DEFAULT_PREVIEW_SIZE,
 } from './constants';
+// ✅ 导入工具函数
+import { matchesParsedQuery, extractSqlStatement } from './utils/cardFilters';
 
 // 注册 AG-Grid 模块
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -413,13 +415,6 @@ const defaultColDef: ColDef = {
   sortable: true,
 };
 
-function extractSqlStmt(input: string): string | null {
-  const raw = String(input || '');
-  const idx = raw.toLowerCase().indexOf('sql:');
-  if (idx !== 0) return null;
-  return raw.slice(4).trim();
-}
-
 const hasConfirmedSqlMode = ref(false);
 async function ensureSqlModeConfirmed(): Promise<boolean> {
   if (hasConfirmedSqlMode.value) return true;
@@ -471,56 +466,10 @@ const globalStats = computed(() => {
   };
 });
 
-/** ✅ 检查数值是否满足条件 */
-function checkNumberCondition(actualValue: number, conditions: any[]): boolean {
-  if (!conditions || conditions.length === 0) return true;
-
-  return conditions.every((cond: any) => {
-    switch (cond.operator) {
-      case '<': return actualValue < cond.value;
-      case '>': return actualValue > cond.value;
-      case '<=': return actualValue <= cond.value;
-      case '>=': return actualValue >= cond.value;
-      case '=': return actualValue === cond.value;
-      case '!=': return actualValue !== cond.value;
-      default: return true;
-    }
-  });
-}
-
-function matchesParsed(card: BrowserCard, parsed: ReturnType<typeof parseQuery>) {
-  if (parsed.decks.length && !parsed.decks.includes(card.deckId)) return false;
-  if (parsed.states.length && !parsed.states.includes(card.state as CardState)) return false;
-  if (parsed.docs.length && (!card.rootId || !parsed.docs.includes(card.rootId))) return false;
-  if (parsed.tags.length) {
-    const tags = card.tags || [];
-    for (const t of parsed.tags) {
-      if (!tags.includes(t)) return false;
-    }
-  }
-  if (parsed.text) {
-    const q = parsed.text.toLowerCase();
-    const hay = (card.fullContent || card.content || '').toLowerCase();
-    if (!hay.includes(q)) return false;
-  }
-
-  // ✅ 新增：应用 FSRS 参数数值比较筛选
-  const conds = parsed.conditions || {};
-  if (conds.priority && !checkNumberCondition(card.priority, conds.priority)) return false;
-  if (conds.interval && !checkNumberCondition(card.interval, conds.interval)) return false;
-  if (conds.reps && !checkNumberCondition(card.reps, conds.reps)) return false;
-  if (conds.lapses && !checkNumberCondition(card.lapses, conds.lapses)) return false;
-  if (conds.difficulty && !checkNumberCondition(card.difficulty, conds.difficulty)) return false;
-  if (conds.retrievability && !checkNumberCondition(card.retrievability, conds.retrievability)) return false;
-  if (conds.stability && !checkNumberCondition(card.stability, conds.stability)) return false;
-
-  return true;
-}
-
 const filteredCards = computed(() => {
-  if (extractSqlStmt(searchQuery.value) != null) return scopedRows.value;
+  if (extractSqlStatement(searchQuery.value) != null) return scopedRows.value;
   const parsed = parseQuery(searchQuery.value || '');
-  return scopedRows.value.filter((c) => matchesParsed(c, parsed));
+  return scopedRows.value.filter((c) => matchesParsedQuery(c, parsed));
 });
 
 // 加载数据 - 使用 browserService (riff API)
@@ -531,7 +480,7 @@ async function loadData(forceRefresh = false) {
     selectedRows.value = [];
     previewCard.value = null;
 
-    const sqlStmt = extractSqlStmt(searchQuery.value);
+    const sqlStmt = extractSqlStatement(searchQuery.value);
     if (sqlStmt != null) {
       const ok = await ensureSqlModeConfirmed();
       if (!ok) return;
@@ -671,7 +620,7 @@ let lastSearchQuery: string = '';  // ✅ 记录上次搜索查询，支持普�
 function handleSearchInput() {
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
   searchDebounceTimer = setTimeout(() => {
-    const current = extractSqlStmt(searchQuery.value);
+    const current = extractSqlStatement(searchQuery.value);
     // ✅ 修复：普通搜索也应该触发刷新（通过比较完整查询）
     const queryChanged = searchQuery.value !== lastSearchQuery;
     const sqlChanged = current !== lastSqlStmt;
