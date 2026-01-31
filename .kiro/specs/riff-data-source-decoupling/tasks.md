@@ -3,23 +3,23 @@
 ## Phase 1: 基础设施（1-2 天）
 
 ### 1.0 迁移到 msgpack 存储格式
-- [ ] 1.0.1 安装 `@msgpack/msgpack` 依赖
-- [ ] 1.0.2 修改 `saveData()` 方法使用 msgpack 编码
-- [ ] 1.0.3 修改 `loadData()` 方法使用 msgpack 解码
-- [ ] 1.0.4 更新 `STORAGE_FILES` 常量（.msgpack 扩展名）
-- [ ] 1.0.5 实现 `migrateToMsgpack()` 数据迁移方法
-- [ ] 1.0.6 在 `init()` 中调用迁移方法（首次运行）
-- [ ] 1.0.7 测试 msgpack 读写性能
+- [x] 1.0.1 安装 `@msgpack/msgpack` 依赖
+- [x] 1.0.2 修改 `saveData()` 方法使用 msgpack 编码
+- [x] 1.0.3 修改 `loadData()` 方法使用 msgpack 解码
+- [x] 1.0.4 更新 `STORAGE_FILES` 常量（.msgpack 扩展名）
+- [x] 1.0.5 实现 `migrateToMsgpack()` 数据迁移方法
+- [x] 1.0.6 在 `init()` 中调用迁移方法（首次运行）
+- [x] 1.0.7 测试 msgpack 读写性能
 
 ### 1.1 StorageManager 添加黑名单管理
-- [ ] 1.1.1 添加 `riffBlacklist` 属性
-- [ ] 1.1.2 实现 `getRiffBlacklist()` 方法
-- [ ] 1.1.3 实现 `addToRiffBlacklist()` 方法
-- [ ] 1.1.4 实现 `removeFromRiffBlacklist()` 方法
-- [ ] 1.1.5 实现 `clearRiffBlacklist()` 方法
-- [ ] 1.1.6 实现 `_persistRiffBlacklist()` 方法（msgpack 格式）
-- [ ] 1.1.7 实现 `_loadRiffBlacklist()` 方法（msgpack 格式）
-- [ ] 1.1.8 在 `init()` 中调用 `_loadRiffBlacklist()`
+- [x] 1.1.1 添加 `riffBlacklist` 属性
+- [x] 1.1.2 实现 `getRiffBlacklist()` 方法
+- [x] 1.1.3 实现 `addToRiffBlacklist()` 方法
+- [x] 1.1.4 实现 `removeFromRiffBlacklist()` 方法
+- [x] 1.1.5 实现 `clearRiffBlacklist()` 方法
+- [x] 1.1.6 实现 `_persistRiffBlacklist()` 方法（msgpack 格式）
+- [x] 1.1.7 实现 `_loadRiffBlacklist()` 方法（msgpack 格式）
+- [x] 1.1.8 在 `init()` 中调用 `_loadRiffBlacklist()`
 
 ### 1.2 RiffDataSource 添加 storage 参数
 - [x] 1.2.1 修改 `RiffDataSourceOptions` 类型定义
