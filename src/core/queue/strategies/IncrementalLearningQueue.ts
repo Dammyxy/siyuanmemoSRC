@@ -604,5 +604,60 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
       ...item,
       priority: DEFAULT_PRIORITY,
     }));
+
+    // 🆕 Phase 1.3: 使用 SchedulerRouter 重新计算 nextDues
+    if (this.schedulerRouter && this.storage) {
+      await this._recalculateNextDues();
+    }
+  }
+
+  /**
+   * 🆕 Phase 1.3: 使用 SchedulerRouter 重新计算 nextDues
+   * 
+   * 从本地数据库加载卡片状态，使用 SchedulerRouter.preview() 预测四个选项的时间
+   */
+  private async _recalculateNextDues(): Promise<void> {
+    if (!this.schedulerRouter || !this.storage) return;
+
+    try {
+      let recalculatedCount = 0;
+
+      for (let i = 0; i < this.riffBuffer.length; i++) {
+        const item = this.riffBuffer[i];
+        const cardID = item.cardID;
+
+        // 从本地数据库加载卡片
+        const localCard = this.storage.getCard(cardID);
+        if (!localCard) continue;
+
+        // 使用 SchedulerRouter 预测四个选项的时间
+        try {
+          const previews = this.schedulerRouter.preview(localCard);
+
+          const againCard = previews.get(1);
+          const hardCard = previews.get(2);
+          const goodCard = previews.get(3);
+          const easyCard = previews.get(4);
+
+          // 更新 nextDues
+          item.nextDues = {
+            1: againCard ? new Date(againCard.due).toISOString() : new Date().toISOString(),
+            2: hardCard ? new Date(hardCard.due).toISOString() : new Date().toISOString(),
+            3: goodCard ? new Date(goodCard.due).toISOString() : new Date().toISOString(),
+            4: easyCard ? new Date(easyCard.due).toISOString() : new Date().toISOString(),
+          };
+
+          recalculatedCount++;
+        } catch (error) {
+          console.error('[IncrementalLearningQueue] Failed to preview card:', cardID, error);
+        }
+      }
+
+      if (recalculatedCount > 0) {
+        console.log('[IncrementalLearningQueue] ✅ Recalculated nextDues for', recalculatedCount, 'cards');
+      }
+    } catch (error) {
+      console.error('[IncrementalLearningQueue] Failed to recalculate nextDues:', error);
+    }
   }
 }
