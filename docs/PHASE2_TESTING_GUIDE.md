@@ -113,11 +113,22 @@
 
 ### Q2: 四个评分选项时间都一样
 
-**这是正常的**！
+**这个问题已经修复！**
 
-IncrementalLearningQueue 不显示预测时间（不像 Riff 队列）。`nextDues` 只是用于内部排序，不会显示给用户。
+现在 RiffDataSource 使用 `SchedulerRouter.preview()` 来预测四个选项的时间：
+- Topic 卡片使用 A因子V2 算法
+- Item 卡片使用 SM-15 算法（或你设置的调度器）
+- 每个评分选项会有不同的预测时间
 
-如果你想看到不同的预测时间，应该使用 RetrievalPracticeQueue（提取练习队列）。
+如果你仍然看到四个选项时间都一样，可能的原因：
+1. **卡片不在 storage 中**：需要先复习一次卡片，让它进入本地数据库
+2. **schedulerRouter 未传入**：检查初始化日志，确认 `hasSchedulerRouter: true`
+3. **卡片是新卡片**：新卡片可能还没有足够的数据来预测不同的时间
+
+**解决方案**：
+1. 重新加载插件
+2. 复习几张卡片，让它们进入本地数据库
+3. 再次查看，应该会看到不同的预测时间
 
 ### Q3: enableRiffSync 是什么？
 
