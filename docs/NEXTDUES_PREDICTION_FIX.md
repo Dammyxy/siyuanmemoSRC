@@ -171,3 +171,115 @@ f59d856 fix(queue): Fix nextDues prediction showing same time for all ratings
 **状态**：✅ 已修复
 **优先级**：P0（关键功能）
 **影响范围**：渐进学习队列的时间预测
+
+
+---
+
+## 更新：IncrementalLearningQueue 的特殊处理
+
+### 问题发现
+
+经过进一步调查，发现 `IncrementalLearningQueue` 和 `RetrievalPracticeQueue` 的实现方式不同：
+
+- **RetrievalPracticeQueue**：使用 `RiffDataSource` 加载卡片，`RiffDataSource` 会调用 `SchedulerRouter.preview()` 计算 nextDues
+- **IncrementalLearningQueue**：直接调用 Riff API 加载卡片，使用 Riff API 返回的 nextDues
+
+### 根本原因
+
+Riff API 返回的 `nextDues` 是由 Riff 系统内部算法计算的，不是由我们的 `SchedulerRouter` 计算的。因此：
+
+1. Riff 可能使用简单的算法（如 SM-2）
+2. Riff 不知道我们的 Topic/Item 卡片类型
+3. Riff 不使用 SM-15 或 A因子V2 算法
+
+### 解决方案
+
+在 `IncrementalLearningQueue._ensureRiffLoaded()` 方法中，加载卡片后：
+
+1. 从本地数据库加载每张卡片的状态
+2. 使用 `SchedulerRouter.preview()` 重新计算 nextDues
+3. 更新 `riffBuffer` 中的 nextDues
+
+```typescript
+/**
+ * 🆕 Phase 1.3: 使用 SchedulerRouter 重新计算 nextDues
+ */
+private async _recalculateNextDues(): Promise<void> {
+  if (!this.schedulerRouter || !this.storage) return;
+
+  let recalculatedCount = 0;
+
+  for (let i = 0; i < this.riffBuffer.length; i++) {
+    const item = this.riffBuffer[i];
+    const cardID = item.cardID;
+
+    // 从本地数据库加载卡片
+    const localCard = this.storage.getCard(cardID);
+    if (!localCard) continue;
+
+    // 使用 SchedulerRouter 预测四个选项的时间
+    const previews = this.schedulerRouter.preview(localCard);
+
+    const againCard = previews.get(1);
+    const hardCard = previews.get(2);
+    const goodCard = previews.get(3);
+    const easyCard = previews.get(4);
+
+    // 更新 nextDues
+    item.nextDues = {
+      1: againCard ? new Date(againCard.due).toISOString() : new Date().toISOString(),
+      2: hardCard ? new Date(hardCard.due).toISOString() : new Date().toISOString(),
+      3: goodCard ? new Date(goodCard.due).toISOString() : new Date().toISOString(),
+      4: easyCard ? new Date(easyCard.due).toISOString() : new Date().toISOString(),
+    };
+
+    recalculatedCount++;
+  }
+
+  console.log('[IncrementalLearningQueue] ✅ Recalculated nextDues for', recalculatedCount, 'cards');
+}
+```
+
+### 调用时机
+
+在 `_ensureRiffLoaded()` 方法的最后调用：
+
+```typescript
+private async _ensureRiffLoaded(): Promise<void> {
+  // ... 加载 Riff 卡片 ...
+
+  this.riffBuffer = itemOut.map(item => ({
+    ...item,
+    priority: DEFAULT_PRIORITY,
+  }));
+
+  // 🆕 Phase 1.3: 使用 SchedulerRouter 重新计算 nextDues
+  if (this.schedulerRouter && this.storage) {
+    await this._recalculateNextDues();
+  }
+}
+```
+
+### 测试验证
+
+重新加载插件后，打开渐进学习队列，应该看到：
+
+```
+[IncrementalLearningQueue] Riff cards loaded: { ... }
+[IncrementalLearningQueue] ✅ Recalculated nextDues for X cards
+```
+
+然后四个选项应该显示不同的时间。
+
+### Git 提交
+
+```bash
+git log --oneline -1
+2b6c51b fix(queue): Recalculate nextDues using SchedulerRouter in IncrementalLearningQueue
+```
+
+---
+
+**最后更新**：2026-02-01
+**状态**：✅ 完全修复（包括 IncrementalLearningQueue）
+**优先级**：P0（关键功能）
