@@ -637,7 +637,12 @@ export class StorageManager {
             // 使用 msgpack 解码
             return decode(bytes);
         } catch (error) {
-            console.error(`[StorageManager] Failed to load msgpack ${filename}:`, error);
+            // 特别处理 Base64 解码错误（文件损坏）
+            if (error instanceof DOMException && error.name === 'InvalidCharacterError') {
+                console.warn(`[StorageManager] Corrupted msgpack file (invalid Base64): ${filename}`);
+            } else {
+                console.error(`[StorageManager] Failed to load msgpack ${filename}:`, error);
+            }
             return null;
         }
     }
@@ -693,7 +698,6 @@ export class StorageManager {
                     } catch (error) {
                         // 文件损坏，删除并重新迁移
                         console.warn(`[StorageManager] ⚠️ Corrupted msgpack file detected: ${to}, will re-migrate`);
-                        // 注意：我们不删除文件，只是让它被覆盖
                         cleanedCount++;
                     }
                 }
@@ -701,8 +705,15 @@ export class StorageManager {
                 // 读取 JSON 文件
                 const jsonContent = await this.readPluginData(from);
                 if (!jsonContent) {
-                    console.log(`[StorageManager] No JSON file found for ${name}, skipping migration`);
-                    continue; // JSON 文件不存在，跳过
+                    // JSON 文件不存在
+                    if (msgpackContent) {
+                        // msgpack 损坏但 JSON 不存在，删除损坏的 msgpack 文件
+                        console.warn(`[StorageManager] ⚠️ No JSON backup found for corrupted ${to}, will start fresh`);
+                        // 注意：我们不主动删除文件，只是让它在下次保存时被覆盖
+                    } else {
+                        console.log(`[StorageManager] No data files found for ${name}, will create on first save`);
+                    }
+                    continue;
                 }
 
                 const data = JSON.parse(jsonContent);
