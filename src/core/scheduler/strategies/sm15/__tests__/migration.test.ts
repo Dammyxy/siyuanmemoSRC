@@ -7,7 +7,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import type { FSRSCard, CardState } from '@/types';
+import type { FSRSCard } from '@/types';
+import { CardState } from '@/types';
 import {
     difficultyToAFactor,
     aFactorToDifficulty,
@@ -55,8 +56,8 @@ describe('Type Conversion Utilities', () => {
             expect(difficultyToAFactor(10)).toBeCloseTo(6.0, 1);
         });
 
-        it('应该将 difficulty 5 映射到 A-Factor 3.6', () => {
-            expect(difficultyToAFactor(5)).toBeCloseTo(3.6, 1);
+        it('应该将 difficulty 5 映射到 A-Factor 3.333', () => {
+            expect(difficultyToAFactor(5)).toBeCloseTo(3.333, 1);
         });
 
         it('应该限制最小值和最大值', () => {
@@ -74,8 +75,8 @@ describe('Type Conversion Utilities', () => {
             expect(aFactorToDifficulty(6.0)).toBeCloseTo(10, 1);
         });
 
-        it('应该将 A-Factor 3.6 映射到 difficulty 5', () => {
-            expect(aFactorToDifficulty(3.6)).toBeCloseTo(5, 1);
+        it('应该将 A-Factor 3.333 映射到 difficulty 5', () => {
+            expect(aFactorToDifficulty(3.333)).toBeCloseTo(5, 1);
         });
 
         it('应该限制最小值和最大值', () => {

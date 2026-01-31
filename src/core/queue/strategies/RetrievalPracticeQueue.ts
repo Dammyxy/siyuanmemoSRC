@@ -18,7 +18,7 @@ import { ATTR_PRIORITY } from '../../siyuan/block.ts';
 import { RiffScheduler } from '../schedulers/RiffScheduler.ts';
 import { PrioritySequencer } from '../sequencers/PrioritySequencer.ts';
 import { HybridDataSource } from '../datasource/HybridDataSource.ts';
-import { RiffDataSource } from '../datasource/RiffDataSource.ts';
+import { RiffDataSource, type RiffApi } from '../datasource/RiffDataSource.ts';
 import { StorageDataSource } from '../datasource/StorageDataSource.ts';
 import { BaseCompositeQueue } from '../composite/BaseCompositeQueue.ts';
 import type { StorageManager } from '../../storage/StorageManager';
@@ -32,11 +32,8 @@ import { clampPriority, DEFAULT_PRIORITY } from '../abstraction/IPriority.ts';
 import type { IPrioritizableTrait, IMutableTrait, IRemovableTrait } from '../abstraction/types.ts';
 import { normalizeBlockId, normalizeDeckId, normalizeRiffCardId } from '../abstraction/QueueCardRef.ts';
 
-type RiffApi = {
-  getRiffDueCards: typeof riff.getRiffDueCards;
-  reviewRiffCard: typeof riff.reviewRiffCard;
-  skipReviewRiffCard: typeof riff.skipReviewRiffCard;
-};
+// 🆕 导出 RiffApi 类型供外部使用
+export type { RiffApi };
 
 /**
  * Custom Hybrid DataSource for Retrieval Practice
@@ -54,7 +51,7 @@ class RetrievalHybridDataSource extends HybridDataSource {
     deckID: string,
     api: RiffApi,
     storage?: StorageManager,
-    options?: { notebook?: string; rootID?: string }
+    options?: { notebook?: string; rootID?: string; schedulerRouter?: SchedulerRouter }
   ) {
     // ⚠️ MUST create sources BEFORE calling super()
     const riffSource = new RiffDataSource({
@@ -64,6 +61,7 @@ class RetrievalHybridDataSource extends HybridDataSource {
       blacklistProvider: storage ? () => storage.getRiffBlacklist() : undefined,
       storage: storage,  // 🆕 Phase 1.2: 传入 storage 参数
       schedulerRouter: options?.schedulerRouter,  // 🆕 传入 schedulerRouter 用于预测 nextDues
+      api: api,  // 🆕 传入 api 参数（用于测试）
     });
     
     const localSource = new StorageDataSource({
@@ -404,6 +402,9 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
    * Override getStats to provide Riff-specific statistics
    */
   async getStats(): Promise<QueueStats> {
+    // 🆕 确保缓冲区已填充
+    await this.hybridSource.getAll();
+    
     const stats = await super.getStats();
 
     // Add Riff-specific counts

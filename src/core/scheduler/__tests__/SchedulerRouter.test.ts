@@ -84,8 +84,8 @@ describe('SchedulerRouter', () => {
             const card = createTestCard({ type: CardType.Topic });
             const schedulerType = router.getSchedulerType(card);
 
-            // TopicScheduler 存在，应该返回 a-factor
-            expect(schedulerType).toBe('a-factor');
+            // TopicScheduler v2 存在，应该返回 a-factor-v2
+            expect(schedulerType).toBe('a-factor-v2');
         });
 
         it('Item 卡片应该返回默认调度器', () => {
@@ -108,11 +108,11 @@ describe('SchedulerRouter', () => {
         it('如果 schedulerType 不存在，应该回退到默认调度器', () => {
             const card = createTestCard({
                 type: CardType.Item,
-                schedulerType: 'sm15' as any, // sm15 尚未实现
+                schedulerType: 'unknown-scheduler' as any, // 不存在的调度器
             });
             const schedulerType = router.getSchedulerType(card);
 
-            // sm15 不存在，应该回退到默认
+            // 不存在的调度器，应该回退到默认
             expect(schedulerType).toBe('fsrs-v5');
         });
 
@@ -146,13 +146,13 @@ describe('SchedulerRouter', () => {
             expect(mockStorage.saveCards).toHaveBeenCalled();
         });
 
-        it('应该成功路由 Topic 卡片到 A-Factor', async () => {
+        it('应该成功路由 Topic 卡片到 A-Factor-v2', async () => {
             const card = createTestCard({ type: CardType.Topic });
 
             const updatedCard = await router.route(card, 3); // Good rating
 
             expect(updatedCard).toBeDefined();
-            expect(updatedCard.schedulerType).toBe('a-factor');
+            expect(updatedCard.schedulerType).toBe('a-factor-v2');
             expect(mockStorage.setCard).toHaveBeenCalledWith(updatedCard);
             expect(mockStorage.saveCards).toHaveBeenCalled();
         });
@@ -203,7 +203,7 @@ describe('SchedulerRouter', () => {
                 schedulerType: 'fsrs-v5',
             });
 
-            const success = await router.switchScheduler(card, 'sm15' as any);
+            const success = await router.switchScheduler(card, 'unknown-scheduler' as any);
 
             expect(success).toBe(false);
             expect(mockStorage.setCard).not.toHaveBeenCalled();
@@ -211,12 +211,12 @@ describe('SchedulerRouter', () => {
 
         it('应该正确转换 A-Factor 到 FSRS difficulty', async () => {
             const card = createTestCard({
-                type: CardType.Topic,
+                type: CardType.Item, // 改为 Item 类型，这样才能切换到 fsrs-v5
                 schedulerType: 'a-factor',
                 aFactor: 3.0, // 中等难度
             });
 
-            const success = await router.switchScheduler(card, 'a-factor'); // Topic 卡片允许切换到 a-factor
+            const success = await router.switchScheduler(card, 'fsrs-v5');
 
             expect(success).toBe(true);
             // 验证转换逻辑
@@ -225,7 +225,7 @@ describe('SchedulerRouter', () => {
                 aFactor: 3.0,
             });
             const converted = router['_convertCardState'](updatedCard, 'a-factor', 'fsrs-v5');
-            expect(converted.difficulty).toBeCloseTo(4.75, 1); // (3.0 - 1.2) / 4.8 * 9 + 1 ≈ 4.75
+            expect(converted.difficulty).toBeCloseTo(4.375, 1); // (3.0 - 1.2) / 4.8 * 9 + 1 = 4.375
         });
     });
 
@@ -301,18 +301,21 @@ describe('SchedulerRouter', () => {
 
             const converted = router['_convertCardState'](card, 'fsrs-v5', 'a-factor');
 
-            expect(converted.aFactor).toBeCloseTo(3.6, 1); // 1.2 + ((5 - 1) / 9) * 4.8 ≈ 3.6
+            expect(converted.aFactor).toBeCloseTo(3.333, 1); // 1.2 + ((5 - 1) / 9) * 4.8 = 3.333
         });
 
-        it('相同调度器之间不应该转换', () => {
+        it('A-Factor 到 A-Factor-v2 应该保留 aFactor 值', () => {
             const card = createTestCard({
                 aFactor: 2.5,
+                schedulerType: 'a-factor',
             });
 
             const converted = router['_convertCardState'](card, 'a-factor', 'a-factor-v2');
 
-            // a-factor 到 a-factor-v2 不需要转换，保持原值
+            // a-factor 到 a-factor-v2 应该保留 aFactor 值
             expect(converted.aFactor).toBe(2.5);
+            // 但会添加 topic 元数据
+            expect(converted.schedulerMeta?.topic).toBeDefined();
         });
     });
 });

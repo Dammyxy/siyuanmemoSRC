@@ -11,8 +11,15 @@ import type { QueueItem } from '../types';
 import type { StorageManager } from '../../storage/manager';
 import type { SchedulerRouter } from '../../scheduler/SchedulerRouter';
 import type { FSRSCard } from '@/types';
-import { getRiffDueCards } from '../../siyuan/riff';
+import { getRiffDueCards, reviewRiffCard, skipReviewRiffCard } from '../../siyuan/riff';
 import { sql } from '../../siyuan/api';
+
+// 🆕 定义 Riff API 接口
+export type RiffApi = {
+  getRiffDueCards: typeof getRiffDueCards;
+  reviewRiffCard?: typeof reviewRiffCard;
+  skipReviewRiffCard?: typeof skipReviewRiffCard;
+};
 
 export type RiffDataSourceOptions = DataSourceOptions<QueueItem> & {
   deckId: string;
@@ -21,6 +28,7 @@ export type RiffDataSourceOptions = DataSourceOptions<QueueItem> & {
   blacklistProvider?: () => Set<string>;
   storage?: StorageManager;  // 🆕 添加 storage 参数
   schedulerRouter?: SchedulerRouter;  // 🆕 添加 schedulerRouter 参数
+  api?: RiffApi;  // 🆕 添加 api 参数（可选，用于测试）
 };
 
 /**
@@ -35,6 +43,7 @@ export class RiffDataSource implements IDataSource<QueueItem> {
   private readonly blacklistProvider?: () => Set<string>;
   private readonly storage?: StorageManager;  // 🆕 添加 storage 属性
   private readonly schedulerRouter?: SchedulerRouter;  // 🆕 添加 schedulerRouter 属性
+  private readonly api: RiffApi;  // 🆕 添加 api 属性
   private cache: QueueItem[] = [];
 
   constructor(options: RiffDataSourceOptions) {
@@ -46,6 +55,8 @@ export class RiffDataSource implements IDataSource<QueueItem> {
     this.blacklistProvider = options.blacklistProvider;
     this.storage = options.storage;  // 🆕 保存 storage
     this.schedulerRouter = options.schedulerRouter;  // 🆕 保存 schedulerRouter
+    // 🆕 使用传入的 api 或默认的 getRiffDueCards
+    this.api = options.api || { getRiffDueCards };
   }
 
   /**
@@ -174,7 +185,12 @@ export class RiffDataSource implements IDataSource<QueueItem> {
             state: localCard.state,
             lapses: localCard.lapses,
             reps: localCard.reps,
-            lastReview: localCard.lastReview?.getTime(),
+            // 🆕 修复：lastReview 可能是 number 或 Date，统一转换为 number
+            lastReview: typeof localCard.lastReview === 'number' 
+              ? localCard.lastReview 
+              : localCard.lastReview?.getTime?.() || undefined,
+            // 🆕 合并 priority 字段
+            priority: localCard.priority ?? item.priority,
           };
         }
 
@@ -240,7 +256,8 @@ export class RiffDataSource implements IDataSource<QueueItem> {
 
   async getAll(): Promise<QueueItem[]> {
     try {
-      const data = await getRiffDueCards(this.deckId, this.notebook, this.rootID);
+      // 🆕 使用 this.api 而不是直接调用 getRiffDueCards
+      const data = await this.api.getRiffDueCards(this.deckId, this.notebook, this.rootID);
 
       if (!data || !data.cards || data.cards.length === 0) {
         return [];
