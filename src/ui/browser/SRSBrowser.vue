@@ -44,13 +44,13 @@
         @convertToTab="convertToTab"
       />
 
-      <!-- 检测状态提示 -->
-      <div
+      <!-- 检测状态提示（已禁用） -->
+      <!-- <div
         v-if="cardTypeDetection.isDetecting"
         class="card-browser__detection-status"
       >
         🔍 正在识别卡片类型... ({{ cardTypeDetection.unidentifiedCount }})
-      </div>
+      </div> -->
 
       <!-- 加载状态 -->
       <div v-if="loading" class="card-browser__loading">
@@ -195,6 +195,9 @@ const activeQueueId = ref<string | null>(null);
 const activeDocId = ref<string | null>(null);
 const queueCounts = ref<Record<string, number>>({});
 
+// ✅ 检测触发标志（防止同一个 loading 周期内重复触发）
+let detectionTriggered = false;
+
 // 预览状态
 const showPreview = ref(true);
 const previewCard = ref<BrowserCard | null>(null);
@@ -316,7 +319,7 @@ async function loadData(forceRefresh = false) {
       };
 
       // 创建数据源
-      if (activeQueueId.value && ['final-drill', 'retrieval', 'filter-group'].includes(activeQueueId.value)) {
+      if (activeQueueId.value && ['final-drill', 'retrieval', 'filter-group', 'incremental-learning'].includes(activeQueueId.value)) {
         // 队列模式（五重筛选）
         currentDataSource.value = createQueueDataSource(activeQueueId.value, props.plugin, options);
       } else if (activeQueueId.value) {
@@ -422,29 +425,41 @@ watch(currentCardType, () => {
   void refreshData(true);  // cardType 需要强制刷新缓存
 });
 
-// ✅ 自动检测未识别的卡片（加载完成后）
+// ✅ 自动检测未识别的卡片（加载完成后）- 已禁用
+/*
 watch(() => loading.value, async (isLoading) => {
-  if (!isLoading && cardTypeDetection.unidentifiedCount.value > 0) {
+  // 重置标志（loading 开始时重置，结束时使用）
+  if (isLoading) {
+    detectionTriggered = false;
+  }
+
+  if (!isLoading && !detectionTriggered && !cardTypeDetection.isDetecting.value && cardTypeDetection.unidentifiedCount.value > 0) {
+    detectionTriggered = true; // 标记已触发
+
     console.log('[SRSBrowser] 🔄 Auto-detecting unidentified cards...');
 
     // 获取未识别的卡片列表（检测前）
     const unidentified = cardTypeDetection.getUnidentifiedCards();
     const blockIds = unidentified.map(c => c.blockId);
 
+    // 二次确认：检查是否真的有卡片需要检测
+    if (blockIds.length === 0) {
+      console.log('[SRSBrowser] No cards to detect (race condition detected)');
+      return;
+    }
+
     // 执行检测
     await cardTypeDetection.detect();
 
     // 重新获取这些卡片的属性（同步更新 rows.value）
-    if (blockIds.length > 0) {
-      const updatedCards = await loadQueueCards(blockIds);
-      const updatedMap = new Map(updatedCards.map(c => [c.blockId, c]));
+    const updatedCards = await loadQueueCards(blockIds);
+    const updatedMap = new Map(updatedCards.map(c => [c.blockId, c]));
 
-      // 更新 rows.value 中对应的卡片
-      for (const card of rows.value) {
-        const updated = updatedMap.get(card.blockId);
-        if (updated) {
-          Object.assign(card, updated);
-        }
+    // 更新 rows.value 中对应的卡片
+    for (const card of rows.value) {
+      const updated = updatedMap.get(card.blockId);
+      if (updated) {
+        Object.assign(card, updated);
       }
     }
 
@@ -454,6 +469,7 @@ watch(() => loading.value, async (isLoading) => {
     }
   }
 });
+*/
 
 // AG Grid 选择配置 (v35+ 新 API)
 const rowSelection = ref<RowSelectionOptions>({

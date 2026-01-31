@@ -2,6 +2,8 @@
  * Storage Manager
  * 统一管理插件数据的存储和读取
  * 采用混合方案：块属性 + 独立存储
+ * 
+ * 🆕 使用 msgpack 格式存储（性能更好，避免同步问题）
  */
 
 import type { FSRSCard, ReviewLog, PluginSettings, RescheduleLog } from '@/types';
@@ -10,16 +12,21 @@ import * as siyuanApi from '@/core/siyuan/api';
 import { ATTR_PRIORITY } from '@/core/siyuan/block';
 import { clampPriority, DEFAULT_PRIORITY } from '@/core/queue/abstraction/IPriority';
 import type { QueueData } from '@/core/queue/strategies/QueueMigrationManager';
+import { encode, decode } from '@msgpack/msgpack';
 
 /** 存储文件名 */
 const STORAGE_FILES = {
-    CARDS: 'cards.json',
-    SETTINGS: 'settings.json',
+    CARDS: 'cards.msgpack',                      // 🆕 使用 msgpack 格式
+    CARDS_JSON: 'cards.json',                    // 旧格式（用于迁移）
+    SETTINGS: 'settings.json',                   // 保持 JSON（便于手动编辑）
     LOGS_DIR: 'logs',
-    PRACTICE_QUEUE: 'practice-queue.json',
-    PRACTICE_QUEUE_BACKUP: 'practice-queue-backup.json', // 🆕 Phase 2d.4: 备份文件
-    INCREMENTAL_LEARNING_QUEUE: 'incremental-learning-queue.json',
-    RIFF_BLACKLIST: 'riff-blacklist.json', // 🆕 Riff 黑名单
+    PRACTICE_QUEUE: 'practice-queue.msgpack',    // 🆕 使用 msgpack 格式
+    PRACTICE_QUEUE_JSON: 'practice-queue.json',  // 旧格式（用于迁移）
+    PRACTICE_QUEUE_BACKUP: 'practice-queue-backup.msgpack',
+    INCREMENTAL_LEARNING_QUEUE: 'incremental-learning-queue.msgpack',
+    INCREMENTAL_LEARNING_QUEUE_JSON: 'incremental-learning-queue.json',
+    RIFF_BLACKLIST: 'riff-blacklist.msgpack',
+    RIFF_BLACKLIST_JSON: 'riff-blacklist.json',
 };
 
 /**
@@ -42,6 +49,9 @@ export class StorageManager {
      * 初始化存储，加载数据到内存
      */
     async init(): Promise<void> {
+        // 🆕 首次运行时迁移 JSON 数据到 msgpack
+        await this.migrateToMsgpack();
+        
         await this.loadSettings();
         await this.loadCards();
         await this.loadPracticeQueue();
@@ -156,14 +166,27 @@ export class StorageManager {
      */
     private async loadCards(): Promise<void> {
         try {
-            const data = await this.readPluginData(STORAGE_FILES.CARDS);
+            // 🆕 优先加载 msgpack 格式
+            const data = await this.loadMsgpackData(STORAGE_FILES.CARDS);
             if (data) {
-                const cards: FSRSCard[] = JSON.parse(data);
+                const cards: FSRSCard[] = Array.isArray(data) ? data : [];
                 this.cardsCache.clear();
                 for (const card of cards) {
                     this.cardsCache.set(card.id, card);
                 }
-                console.log(`[FSRS] Loaded ${cards.length} cards`);
+                console.log(`[FSRS] Loaded ${cards.length} cards (msgpack)`);
+                return;
+            }
+
+            // 后备：尝试加载 JSON 格式（向后兼容）
+            const jsonData = await this.readPluginData(STORAGE_FILES.CARDS_JSON);
+            if (jsonData) {
+                const cards: FSRSCard[] = JSON.parse(jsonData);
+                this.cardsCache.clear();
+                for (const card of cards) {
+                    this.cardsCache.set(card.id, card);
+                }
+                console.log(`[FSRS] Loaded ${cards.length} cards (JSON, will migrate to msgpack)`);
             }
         } catch (err) {
             console.warn('[FSRS] Failed to load cards:', err);
@@ -177,9 +200,10 @@ export class StorageManager {
         if (!this.isDirty) return;
 
         const cards = this.getAllCards();
-        await this.writePluginData(STORAGE_FILES.CARDS, JSON.stringify(cards, null, 2));
+        // 🆕 使用 msgpack 格式保存
+        await this.saveMsgpackData(STORAGE_FILES.CARDS, cards);
         this.isDirty = false;
-        console.log(`[FSRS] Saved ${cards.length} cards`);
+        console.log(`[FSRS] Saved ${cards.length} cards (msgpack)`);
     }
 
     getPracticeQueue(): any[] {
@@ -249,9 +273,10 @@ export class StorageManager {
      */
     async getQueueBackup(): Promise<QueueData | null> {
         try {
-            const data = await this.readPluginData(STORAGE_FILES.PRACTICE_QUEUE_BACKUP);
+            // 🆕 使用 msgpack 格式加载
+            const data = await this.loadMsgpackData(STORAGE_FILES.PRACTICE_QUEUE_BACKUP);
             if (data) {
-                return JSON.parse(data) as QueueData;
+                return data as QueueData;
             }
         } catch (error) {
             console.warn('[StorageManager] Failed to load queue backup:', error);
@@ -263,18 +288,17 @@ export class StorageManager {
      * 保存队列备份数据
      */
     async setQueueBackup(data: QueueData): Promise<void> {
-        await this.writePluginData(
-            STORAGE_FILES.PRACTICE_QUEUE_BACKUP,
-            JSON.stringify(data, null, 2)
-        );
-        console.debug('[StorageManager] Queue backup saved');
+        // 🆕 使用 msgpack 格式保存
+        await this.saveMsgpackData(STORAGE_FILES.PRACTICE_QUEUE_BACKUP, data);
+        console.debug('[StorageManager] Queue backup saved (msgpack)');
     }
 
     /**
      * 保存队列数据（版本 2 格式）
      */
     private async savePracticeQueueV2(data: QueueData): Promise<void> {
-        await this.writePluginData(STORAGE_FILES.PRACTICE_QUEUE, JSON.stringify(data, null, 2));
+        // 🆕 使用 msgpack 格式保存
+        await this.saveMsgpackData(STORAGE_FILES.PRACTICE_QUEUE, data);
     }
 
     async readPluginFile(fileName: string): Promise<string | null> {
@@ -390,9 +414,35 @@ export class StorageManager {
 
     private async loadPracticeQueue(): Promise<void> {
         try {
-            const data = await this.readPluginData(STORAGE_FILES.PRACTICE_QUEUE);
+            // 🆕 优先加载 msgpack 格式
+            const data = await this.loadMsgpackData(STORAGE_FILES.PRACTICE_QUEUE);
             if (data) {
-                const parsed = JSON.parse(data);
+                if (Array.isArray(data)) {
+                    this.practiceQueue = data.map((x) => ({
+                        ...(x as any),
+                        priority: Number.isFinite(Number((x as any)?.priority)) ? Number((x as any).priority) : DEFAULT_PRIORITY,
+                    }));
+                    this.practiceQueueLastAutoSortDay = '';
+                } else if (data && typeof data === 'object') {
+                    const items = Array.isArray((data as any).items) ? (data as any).items : [];
+                    this.practiceQueue = items.map((x: any) => ({
+                        ...(x as any),
+                        priority: Number.isFinite(Number((x as any)?.priority)) ? Number((x as any).priority) : DEFAULT_PRIORITY,
+                    }));
+                    this.practiceQueueLastAutoSortDay = String((data as any).lastAutoSortDay || '');
+                } else {
+                    this.practiceQueue = [];
+                    this.practiceQueueLastAutoSortDay = '';
+                }
+                console.log(`[FSRS] Loaded practice queue (msgpack): ${this.practiceQueue.length} items`);
+                await this.autoSortPracticeQueueIfNeeded();
+                return;
+            }
+
+            // 后备：尝试加载 JSON 格式
+            const jsonData = await this.readPluginData(STORAGE_FILES.PRACTICE_QUEUE_JSON);
+            if (jsonData) {
+                const parsed = JSON.parse(jsonData);
                 if (Array.isArray(parsed)) {
                     this.practiceQueue = parsed.map((x) => ({
                         ...(x as any),
@@ -410,6 +460,7 @@ export class StorageManager {
                     this.practiceQueue = [];
                     this.practiceQueueLastAutoSortDay = '';
                 }
+                console.log(`[FSRS] Loaded practice queue (JSON, will migrate): ${this.practiceQueue.length} items`);
             } else {
                 this.practiceQueue = [];
                 this.practiceQueueLastAutoSortDay = '';
@@ -424,7 +475,8 @@ export class StorageManager {
 
     private async savePracticeQueue(): Promise<void> {
         const payload = { items: this.practiceQueue, lastAutoSortDay: this.practiceQueueLastAutoSortDay };
-        await this.writePluginData(STORAGE_FILES.PRACTICE_QUEUE, JSON.stringify(payload, null, 2));
+        // 🆕 使用 msgpack 格式保存
+        await this.saveMsgpackData(STORAGE_FILES.PRACTICE_QUEUE, payload);
     }
 
     // ==================== 渐进学习队列 ====================
@@ -442,10 +494,20 @@ export class StorageManager {
 
     private async loadIncrementalLearningQueue(): Promise<void> {
         try {
-            const data = await this.readPluginData(STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE);
+            // 🆕 优先加载 msgpack 格式
+            const data = await this.loadMsgpackData(STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE);
             if (data) {
-                const parsed = JSON.parse(data);
+                this.incrementalLearningQueue = Array.isArray(data) ? data : [];
+                console.log(`[FSRS] Loaded incremental learning queue (msgpack): ${this.incrementalLearningQueue.length} items`);
+                return;
+            }
+
+            // 后备：尝试加载 JSON 格式
+            const jsonData = await this.readPluginData(STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE_JSON);
+            if (jsonData) {
+                const parsed = JSON.parse(jsonData);
                 this.incrementalLearningQueue = Array.isArray(parsed) ? parsed : [];
+                console.log(`[FSRS] Loaded incremental learning queue (JSON, will migrate): ${this.incrementalLearningQueue.length} items`);
             } else {
                 this.incrementalLearningQueue = [];
             }
@@ -456,7 +518,8 @@ export class StorageManager {
     }
 
     private async saveIncrementalLearningQueue(): Promise<void> {
-        await this.writePluginData(STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE, JSON.stringify(this.incrementalLearningQueue, null, 2));
+        // 🆕 使用 msgpack 格式保存
+        await this.saveMsgpackData(STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE, this.incrementalLearningQueue);
     }
 
     private async autoSortPracticeQueueIfNeeded(): Promise<void> {
@@ -554,6 +617,96 @@ export class StorageManager {
         }
     }
 
+    // ==================== msgpack 存储方法 🆕 ====================
+
+    /**
+     * 加载 msgpack 数据
+     */
+    async loadMsgpackData(filename: string): Promise<any> {
+        try {
+            const content = await this.readPluginData(filename);
+            if (!content) return null;
+
+            // 将字符串转换为 Uint8Array
+            const encoder = new TextEncoder();
+            const buffer = encoder.encode(content);
+            
+            // 使用 msgpack 解码
+            return decode(buffer);
+        } catch (error) {
+            console.error(`[StorageManager] Failed to load msgpack ${filename}:`, error);
+            return null;
+        }
+    }
+
+    /**
+     * 保存 msgpack 数据
+     */
+    async saveMsgpackData(filename: string, data: any): Promise<void> {
+        try {
+            // 使用 msgpack 编码
+            const buffer = encode(data);
+            
+            // 将 Uint8Array 转换为字符串（Base64）
+            const decoder = new TextDecoder();
+            const content = decoder.decode(buffer);
+            
+            await this.writePluginData(filename, content);
+        } catch (error) {
+            console.error(`[StorageManager] Failed to save msgpack ${filename}:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * 迁移 JSON 数据到 msgpack 格式
+     * 
+     * 🆕 Phase 1.0.5: 数据迁移
+     */
+    async migrateToMsgpack(): Promise<void> {
+        const migrations = [
+            { from: STORAGE_FILES.CARDS_JSON, to: STORAGE_FILES.CARDS, name: 'cards' },
+            { from: STORAGE_FILES.PRACTICE_QUEUE_JSON, to: STORAGE_FILES.PRACTICE_QUEUE, name: 'practice-queue' },
+            { from: STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE_JSON, to: STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE, name: 'incremental-learning-queue' },
+            { from: STORAGE_FILES.RIFF_BLACKLIST_JSON, to: STORAGE_FILES.RIFF_BLACKLIST, name: 'riff-blacklist' },
+        ];
+
+        let migratedCount = 0;
+
+        for (const { from, to, name } of migrations) {
+            try {
+                // 检查是否已经迁移（msgpack 文件存在）
+                const msgpackExists = await this.readPluginData(to);
+                if (msgpackExists) {
+                    continue; // 已迁移，跳过
+                }
+
+                // 读取 JSON 文件
+                const jsonContent = await this.readPluginData(from);
+                if (!jsonContent) {
+                    continue; // JSON 文件不存在，跳过
+                }
+
+                const data = JSON.parse(jsonContent);
+
+                // 保存为 msgpack
+                await this.saveMsgpackData(to, data);
+
+                migratedCount++;
+                console.log(`[StorageManager] ✅ Migrated ${name}: ${from} → ${to}`);
+
+                // 可选：删除旧文件（暂时保留，以便回滚）
+                // await siyuanApi.removeFile(`${this.basePath}/${from}`);
+            } catch (error) {
+                console.error(`[StorageManager] ❌ Failed to migrate ${name}:`, error);
+            }
+        }
+
+        if (migratedCount > 0) {
+            console.log(`[StorageManager] 🎉 Migrated ${migratedCount} files to msgpack format`);
+        }
+    }
+
     // ==================== Riff Blacklist ====================
 
     /**
@@ -599,11 +752,20 @@ export class StorageManager {
      */
     private async loadRiffBlacklist(): Promise<void> {
         try {
-            const data = await this.readPluginData(STORAGE_FILES.RIFF_BLACKLIST);
+            // 🆕 优先加载 msgpack 格式
+            const data = await this.loadMsgpackData(STORAGE_FILES.RIFF_BLACKLIST);
             if (data) {
-                const parsed = JSON.parse(data);
+                this.riffBlacklist = new Set(Array.isArray(data) ? data : []);
+                console.log('[StorageManager] Loaded Riff blacklist (msgpack):', this.riffBlacklist.size);
+                return;
+            }
+
+            // 后备：尝试加载 JSON 格式
+            const jsonData = await this.readPluginData(STORAGE_FILES.RIFF_BLACKLIST_JSON);
+            if (jsonData) {
+                const parsed = JSON.parse(jsonData);
                 this.riffBlacklist = new Set(Array.isArray(parsed) ? parsed : []);
-                console.log('[StorageManager] Loaded Riff blacklist:', this.riffBlacklist.size);
+                console.log('[StorageManager] Loaded Riff blacklist (JSON, will migrate):', this.riffBlacklist.size);
             } else {
                 this.riffBlacklist = new Set();
             }
@@ -619,8 +781,9 @@ export class StorageManager {
     private async saveRiffBlacklist(): Promise<void> {
         try {
             const data = Array.from(this.riffBlacklist);
-            await this.writePluginData(STORAGE_FILES.RIFF_BLACKLIST, JSON.stringify(data, null, 2));
-            console.log('[StorageManager] Saved Riff blacklist:', data.length);
+            // 🆕 使用 msgpack 格式保存
+            await this.saveMsgpackData(STORAGE_FILES.RIFF_BLACKLIST, data);
+            console.log('[StorageManager] Saved Riff blacklist (msgpack):', data.length);
         } catch (err) {
             console.error('[StorageManager] Failed to save Riff blacklist:', err);
         }

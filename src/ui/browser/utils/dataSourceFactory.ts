@@ -11,6 +11,7 @@ import { RetrievalDataSource } from '../datasource/RetrievalDataSource';
 import { DeckDataSource } from '../datasource/DeckDataSource';
 import { QueryDataSource } from '../datasource/QueryDataSource';
 import { BlockIdsDataSource } from '../datasource/BlockIdsDataSource';
+import { IncrementalLearningDataSource } from '../datasource/IncrementalLearningDataSource';
 
 /**
  * 数据源创建选项（基础）
@@ -62,6 +63,14 @@ export function createQueueDataSource(
 
     case 'filter-group':
       return new FilterGroupDataSource(plugin, {
+        docId,
+        preset,
+        queryText,
+        cardType,
+      });
+
+    case 'incremental-learning':
+      return new IncrementalLearningDataSource(plugin, {
         docId,
         preset,
         queryText,
@@ -164,6 +173,15 @@ export function createFocusDataSource(
 
   if (queueId === 'filter-group') {
     return new FilterGroupDataSource(plugin, {
+      preset,
+      queryText,
+      cardType,
+    });
+  }
+
+  // ✅ 新增：渐进学习队列
+  if (queueId === 'incremental-learning') {
+    return new IncrementalLearningDataSource(plugin, {
       preset,
       queryText,
       cardType,

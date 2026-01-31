@@ -366,6 +366,19 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
   }
 
   /**
+   * 获取所有卡片（本地 + Riff）- 供 Card Browser 使用
+   *
+   * @returns Promise<QueueItem[]> 所有卡片的数组
+   */
+  async getAllCards(): Promise<QueueItem[]> {
+    // 确保 Riff 卡片已加载
+    await this._ensureRiffLoaded();
+
+    // 返回本地 + Riff 卡片
+    return [...this.localBuffer, ...this.riffBuffer];
+  }
+
+  /**
    * 获取所有卡片（本地 + Riff）
    */
   getAllItems(): QueueItem[] {

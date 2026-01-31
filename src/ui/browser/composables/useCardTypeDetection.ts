@@ -103,10 +103,10 @@ export function useCardTypeDetection(cards: () => BrowserCard[]) {
    * 执行类型检测
    */
   async function detect(): Promise<void> {
-    // 防抖：已在检测中
+    // ✅ 强制重置状态（防止上次异常导致的卡住）
     if (isDetecting.value) {
-      console.log('[CardTypeDetection] ⏸️ Detection already in progress, skipping...');
-      return;
+      console.warn('[CardTypeDetection] ⚠️ isDetecting was true, forcing reset');
+      isDetecting.value = false;
     }
 
     const unidentified = getUnidentifiedCards();
@@ -118,9 +118,20 @@ export function useCardTypeDetection(cards: () => BrowserCard[]) {
     console.log(`[CardTypeDetection] 🔍 Detecting ${unidentified.length} unidentified cards...`);
     isDetecting.value = true;
 
+    const startTime = Date.now();
+    const MIN_DISPLAY_TIME = 500; // 最小显示 500ms，避免闪烁
+
     try {
-      // 调用 Service 层
-      const result = await batchDetectCardTypes(unidentified);
+      // ✅ 创建超时 Promise（30秒超时保护）
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Detection timeout after 30s')), 30000);
+      });
+
+      // 执行检测，设置超时
+      const result = await Promise.race([
+        batchDetectCardTypes(unidentified),
+        timeoutPromise,
+      ]);
 
       stats.value = result;
       console.log('[CardTypeDetection] ✅ Detection complete:', result);
@@ -133,9 +144,26 @@ export function useCardTypeDetection(cards: () => BrowserCard[]) {
 
     } catch (err) {
       console.error('[CardTypeDetection] ❌ Detection failed:', err);
+
+      // ✅ 异常时也要更新历史（标记这些卡片为已检测，避免重复失败）
+      for (const card of unidentified) {
+        detectionHistory.value.add(card.blockId);
+      }
+      saveHistory();
+
       stats.value = { detected: 0, updated: 0, failed: unidentified.length };
     } finally {
+      // ✅ 延迟重置状态，确保 UI 有时间渲染
+      const elapsed = Date.now() - startTime;
+      const remainingTime = Math.max(0, MIN_DISPLAY_TIME - elapsed);
+
+      if (remainingTime > 0) {
+        console.log(`[CardTypeDetection] ⏳ Waiting ${remainingTime}ms before resetting state...`);
+        await new Promise(resolve => setTimeout(resolve, remainingTime));
+      }
+
       isDetecting.value = false;
+      console.log('[CardTypeDetection] ✅ State reset complete');
     }
   }
 
@@ -143,6 +171,12 @@ export function useCardTypeDetection(cards: () => BrowserCard[]) {
 
   onMounted(() => {
     loadHistory();
+
+    // ✅ 强制重置状态（防止从上次继承）
+    if (isDetecting.value) {
+      console.warn('[CardTypeDetection] ⚠️ Detected stale isDetecting state on mount, resetting...');
+      isDetecting.value = false;
+    }
   });
 
   // ========== 返回接口 ==========
