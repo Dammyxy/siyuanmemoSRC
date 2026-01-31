@@ -60,8 +60,18 @@ export class RetrievalDataSource implements ICardDataSource {
 
   async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
     const q = (this.plugin as any)?.retrievalQueue as RetrievalQueueLike | undefined;
-    const items = q?.getAllItems?.() || [];
-    const blockIds = (items || []).map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
+
+    // ✅ 优先使用混合数据源（Riff + 本地）
+    let items: any[] = [];
+    if (q && typeof (q as any).getAllCards === 'function') {
+      // 使用新的 getAllCards() 方法（包含 Riff 卡片）
+      items = await (q as any).getAllCards();
+    } else {
+      // 回退到旧方法（向后兼容）
+      items = q?.getAllItems?.() || [];
+    }
+
+    const blockIds = items.map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
     const cards = await loadQueueCards(blockIds);
     const byBlockId = new Map(cards.map((c) => [c.blockId, c]));
 

@@ -328,3 +328,15 @@
   opacity: 0.6;
   fill: var(--b3-theme-on-surface);
 }
+
+// ✅ 类型检测状态
+.card-browser__detection-status {
+  padding: 8px 16px;
+  background: var(--b3-theme-surface);
+  border: 1px solid var(--b3-theme-border);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--b3-theme-text);
+  text-align: center;
+  margin-bottom: 8px;
+}

@@ -68,7 +68,7 @@ interface CacheEntry {
  */
 class CardCacheManager {
     private cache: CacheEntry | null = null;
-    private readonly TTL = 60 * 1000;  // 60秒缓存
+    private readonly TTL = 0;  // 禁用缓存，数据始终最新
     private loading: Promise<BrowserCard[]> | null = null;  // 防止并发加载
 
     /**
@@ -947,13 +947,100 @@ export async function batchDelete(blockIds: string[]): Promise<number> {
 
     try {
         await riff.removeRiffCards(BUILTIN_DECK_ID, blockIds);
-        
+
         // 增量更新缓存：移除卡片
         cardCache.removeCards(blockIds);
-        
+
         return blockIds.length;
     } catch (err) {
         console.error('[CardBrowser] Delete error:', err);
         return 0;
+    }
+}
+
+/**
+ * 批量检测卡片类型并应用到块属性
+ *
+ * 功能：
+ * - 批量调用 detectCardType 检测类型
+ * - 自动初始化 Topic 卡片的 A-Factor
+ * - 批量更新块属性（每批 50 张）
+ *
+ * @param cards 需要检测的卡片列表
+ * @returns 检测结果统计
+ */
+export async function batchDetectCardTypes(
+    cards: BrowserCard[]
+): Promise<{
+    detected: number;      // 成功检测数量
+    updated: number;       // 成功更新数量
+    failed: number;        // 失败数量
+}> {
+    if (cards.length === 0) {
+        return { detected: 0, updated: 0, failed: 0 };
+    }
+
+    try {
+        // 1. 批量检测类型
+        const { batchDetectCardType } = await import('@/core/card-builder');
+        const blockIds = cards.map(c => c.blockId);
+        const typeMap = await batchDetectCardType(blockIds);
+
+        // 2. 准备批量更新
+        const { setBlockAttrs } = await import('@/core/siyuan/api');
+        const { ATTR_CARD_TYPE, ATTR_A_FACTOR } = await import('@/core/siyuan/block');
+        const { initializeAFactor } = await import('@/core/card-builder');
+
+        let updated = 0;
+        let failed = 0;
+
+        // 3. 批量处理（每批 50 张，避免阻塞 UI）
+        const BATCH_SIZE = 50;
+        for (let i = 0; i < cards.length; i += BATCH_SIZE) {
+            const batch = cards.slice(i, i + BATCH_SIZE);
+
+            await Promise.all(batch.map(async (card) => {
+                try {
+                    const cardType = typeMap.get(card.blockId);
+                    if (!cardType) {
+                        failed++;
+                        return;
+                    }
+
+                    const attrs: Record<string, string> = {
+                        [ATTR_CARD_TYPE]: cardType,
+                    };
+
+                    // Topic 卡片初始化 A-Factor
+                    let aFactor: number | undefined;
+                    if (cardType === 'topic') {
+                        aFactor = initializeAFactor(card.priority);
+                        attrs[ATTR_A_FACTOR] = aFactor.toString();
+                    }
+
+                    await setBlockAttrs(card.blockId, attrs);
+
+                    // ✅ 增量更新缓存
+                    const cacheUpdates: Partial<BrowserCard> = { cardType };
+                    if (aFactor !== undefined) {
+                        cacheUpdates.aFactor = aFactor;
+                    }
+                    cardCache.updateCard(card.blockId, cacheUpdates);
+                    updated++;
+                } catch (err) {
+                    console.error(`[CardBrowser] Failed to update card type for ${card.blockId}:`, err);
+                    failed++;
+                }
+            }));
+        }
+
+        return {
+            detected: cards.length,
+            updated,
+            failed,
+        };
+    } catch (err) {
+        console.error('[CardBrowser] batchDetectCardTypes error:', err);
+        return { detected: 0, updated: 0, failed: cards.length };
     }
 }

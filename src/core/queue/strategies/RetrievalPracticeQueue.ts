@@ -449,4 +449,18 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
     console.log('[RetrievalPracticeQueue] Cleared', count, 'items from local queue');
     return count;
   }
+
+  /**
+   * 获取所有卡片（包括 Riff + 本地）
+   * 供 Card Browser 等外部组件使用
+   *
+   * 返回完整的卡片数据，包括：
+   * - Riff API 的到期卡片（已自动过滤 Topic 卡片）
+   * - 本地存储的到期卡片
+   *
+   * @returns 所有卡片的数组
+   */
+  async getAllCards(): Promise<QueueItem[]> {
+    return await this.hybridSource.getAll();
+  }
 }

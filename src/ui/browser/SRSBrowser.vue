@@ -43,7 +43,15 @@
         @showPerformanceReport="showPerformanceReport"
         @convertToTab="convertToTab"
       />
-      
+
+      <!-- 检测状态提示 -->
+      <div
+        v-if="cardTypeDetection.isDetecting"
+        class="card-browser__detection-status"
+      >
+        🔍 正在识别卡片类型... ({{ cardTypeDetection.unidentifiedCount }})
+      </div>
+
       <!-- 加载状态 -->
       <div v-if="loading" class="card-browser__loading">
         <div class="fn__loading"></div>
@@ -126,6 +134,7 @@ import ActionParamsDialog from './ActionParamsDialog.vue';
 import BrowserHierarchy from './BrowserHierarchy.vue';
 import BrowserPreview from './BrowserPreview.vue';
 import BrowserToolbar from './BrowserToolbar.vue';
+import { useCardTypeDetection } from './composables/useCardTypeDetection';
 // ✅ 导入配置模块
 import { createColumnDefs } from './config';
 import { 
@@ -411,6 +420,39 @@ watch(currentPreset, () => {
 
 watch(currentCardType, () => {
   void refreshData(true);  // cardType 需要强制刷新缓存
+});
+
+// ✅ 自动检测未识别的卡片（加载完成后）
+watch(() => loading.value, async (isLoading) => {
+  if (!isLoading && cardTypeDetection.unidentifiedCount.value > 0) {
+    console.log('[SRSBrowser] 🔄 Auto-detecting unidentified cards...');
+
+    // 获取未识别的卡片列表（检测前）
+    const unidentified = cardTypeDetection.getUnidentifiedCards();
+    const blockIds = unidentified.map(c => c.blockId);
+
+    // 执行检测
+    await cardTypeDetection.detect();
+
+    // 重新获取这些卡片的属性（同步更新 rows.value）
+    if (blockIds.length > 0) {
+      const updatedCards = await loadQueueCards(blockIds);
+      const updatedMap = new Map(updatedCards.map(c => [c.blockId, c]));
+
+      // 更新 rows.value 中对应的卡片
+      for (const card of rows.value) {
+        const updated = updatedMap.get(card.blockId);
+        if (updated) {
+          Object.assign(card, updated);
+        }
+      }
+    }
+
+    // 刷新单元格显示
+    if (gridApi.value) {
+      gridApi.value.refreshCells();
+    }
+  }
 });
 
 // AG Grid 选择配置 (v35+ 新 API)
@@ -1208,6 +1250,9 @@ const {
   pushMsg: (msg, duration) => pushMsg(msg, duration),
   pushErrMsg: (msg, duration) => pushErrMsg(msg, duration),
 });
+
+// ✅ 类型检测
+const cardTypeDetection = useCardTypeDetection(() => rows.value);
 
 // ✅ 加载队列的所有卡片（不含筛选）
 async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {
