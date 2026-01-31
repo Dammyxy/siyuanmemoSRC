@@ -204,11 +204,18 @@ export class RiffDataSource implements IDataSource<QueueItem> {
       try {
         const previews = this.schedulerRouter.preview(card);
         
+        // previews 是 Map<Rating, FSRSCard>
+        // FSRSCard.due 是 number (时间戳)
+        const againCard = previews.get(1);
+        const hardCard = previews.get(2);
+        const goodCard = previews.get(3);
+        const easyCard = previews.get(4);
+        
         return {
-          1: previews.get(1)?.due?.toISOString() || new Date().toISOString(),  // Again
-          2: previews.get(2)?.due?.toISOString() || new Date().toISOString(),  // Hard
-          3: previews.get(3)?.due?.toISOString() || new Date().toISOString(),  // Good
-          4: previews.get(4)?.due?.toISOString() || new Date().toISOString(),  // Easy
+          1: againCard ? new Date(againCard.due).toISOString() : new Date().toISOString(),  // Again
+          2: hardCard ? new Date(hardCard.due).toISOString() : new Date().toISOString(),    // Hard
+          3: goodCard ? new Date(goodCard.due).toISOString() : new Date().toISOString(),    // Good
+          4: easyCard ? new Date(easyCard.due).toISOString() : new Date().toISOString(),    // Easy
         };
       } catch (error) {
         console.error('[RiffDataSource] Failed to preview card:', error);
@@ -218,8 +225,7 @@ export class RiffDataSource implements IDataSource<QueueItem> {
 
     // 后备方案：如果卡片有 due 时间，使用当前 due
     if (card.due) {
-      const dueTime = card.due.getTime ? card.due.getTime() : new Date(card.due).getTime();
-      const dueISO = new Date(dueTime).toISOString();
+      const dueISO = new Date(card.due).toISOString();
       
       return {
         1: dueISO,  // Again
