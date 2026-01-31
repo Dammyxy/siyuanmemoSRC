@@ -19,6 +19,7 @@ const STORAGE_FILES = {
     PRACTICE_QUEUE: 'practice-queue.json',
     PRACTICE_QUEUE_BACKUP: 'practice-queue-backup.json', // 🆕 Phase 2d.4: 备份文件
     INCREMENTAL_LEARNING_QUEUE: 'incremental-learning-queue.json',
+    RIFF_BLACKLIST: 'riff-blacklist.json', // 🆕 Riff 黑名单
 };
 
 /**
@@ -31,6 +32,7 @@ export class StorageManager {
     private isDirty: boolean = false;
     private practiceQueue: any[] = [];
     private practiceQueueLastAutoSortDay = '';
+    private riffBlacklist: Set<string> = new Set();
 
     constructor(pluginName: string) {
         this.basePath = siyuanApi.getPluginDataPath(pluginName);
@@ -44,6 +46,7 @@ export class StorageManager {
         await this.loadCards();
         await this.loadPracticeQueue();
         await this.loadIncrementalLearningQueue();
+        await this.loadRiffBlacklist();
     }
 
     // ==================== 设置 ====================
@@ -71,6 +74,7 @@ export class StorageManager {
             const data = await this.readPluginData(STORAGE_FILES.SETTINGS);
             if (data) {
                 this.settings = { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
+                // ✅ 向后兼容：自动迁移旧的队列名称
                 const dq = (this.settings as any)?.queues?.defaultQueue;
                 if (dq === 'deliberate') (this.settings as any).queues.defaultQueue = 'final-drill';
                 if (dq === 'neural-wandering') (this.settings as any).queues.defaultQueue = 'neural-roam';
@@ -346,19 +350,41 @@ export class StorageManager {
 
     /**
      * 获取所有复习日志（用于参数优化）
+     * 遍历所有历史月份文件，直到找不到更多日志为止
      */
     async getAllReviewLogs(): Promise<ReviewLog[]> {
-        // TODO: 遍历所有月份文件
         const allLogs: ReviewLog[] = [];
         const now = new Date();
+        let consecutiveEmptyMonths = 0;
+        const MAX_EMPTY_MONTHS = 3; // 连续 3 个月没有日志就停止
 
-        // 获取最近 12 个月的日志
-        for (let i = 0; i < 12; i++) {
+        // 从当前月份开始，向前遍历所有月份
+        for (let i = 0; ; i++) {
             const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
             const logs = await this.getReviewLogs(date.getFullYear(), date.getMonth() + 1);
-            allLogs.push(...logs);
+
+            if (logs.length > 0) {
+                allLogs.push(...logs);
+                consecutiveEmptyMonths = 0;
+            } else {
+                consecutiveEmptyMonths++;
+                // 如果连续几个月都没有日志，就停止遍历
+                if (consecutiveEmptyMonths >= MAX_EMPTY_MONTHS) {
+                    break;
+                }
+            }
+
+            // 安全限制：最多遍历 120 个月（10年）
+            if (i >= 120) {
+                console.warn('[StorageManager] Reached maximum month limit (120) for review logs');
+                break;
+            }
         }
 
+        // 按时间排序（最新的在前）
+        allLogs.sort((a, b) => b.review - a.review);
+
+        console.log('[StorageManager] Loaded', allLogs.length, 'review logs from', Math.floor((now.getTime() - Date.UTC(now.getFullYear() - 10, 0, 1)) / (30 * 24 * 60 * 60 * 1000)), 'months');
         return allLogs;
     }
 
@@ -498,5 +524,105 @@ export class StorageManager {
     private async writePluginData(fileName: string, content: string): Promise<void> {
         const path = `${this.basePath}/${fileName}`;
         await siyuanApi.putFile(path, content);
+    }
+
+    /**
+     * 加载 JSON 数据
+     */
+    async loadData(filename: string): Promise<any> {
+        try {
+            const content = await this.readPluginData(filename);
+            if (!content) return null;
+
+            return JSON.parse(content);
+        } catch (error) {
+            console.error(`[StorageManager] Failed to load ${filename}:`, error);
+            return null;
+        }
+    }
+
+    /**
+     * 保存 JSON 数据
+     */
+    async saveData(filename: string, data: any): Promise<void> {
+        try {
+            const content = JSON.stringify(data, null, 2);
+            await this.writePluginData(filename, content);
+        } catch (error) {
+            console.error(`[StorageManager] Failed to save ${filename}:`, error);
+            throw error;
+        }
+    }
+
+    // ==================== Riff Blacklist ====================
+
+    /**
+     * Add block ID to Riff blacklist
+     */
+    addToRiffBlacklist(blockID: string): void {
+        this.riffBlacklist.add(blockID);
+        void this.saveRiffBlacklist();
+    }
+
+    /**
+     * Remove block ID from Riff blacklist
+     */
+    removeFromRiffBlacklist(blockID: string): void {
+        this.riffBlacklist.delete(blockID);
+        void this.saveRiffBlacklist();
+    }
+
+    /**
+     * Check if block ID is in blacklist
+     */
+    isInRiffBlacklist(blockID: string): boolean {
+        return this.riffBlacklist.has(blockID);
+    }
+
+    /**
+     * Get blacklist (returns a copy)
+     */
+    getRiffBlacklist(): Set<string> {
+        return new Set(this.riffBlacklist);
+    }
+
+    /**
+     * Clear blacklist
+     */
+    async clearRiffBlacklist(): Promise<void> {
+        this.riffBlacklist.clear();
+        await this.saveRiffBlacklist();
+    }
+
+    /**
+     * Load blacklist from file
+     */
+    private async loadRiffBlacklist(): Promise<void> {
+        try {
+            const data = await this.readPluginData(STORAGE_FILES.RIFF_BLACKLIST);
+            if (data) {
+                const parsed = JSON.parse(data);
+                this.riffBlacklist = new Set(Array.isArray(parsed) ? parsed : []);
+                console.log('[StorageManager] Loaded Riff blacklist:', this.riffBlacklist.size);
+            } else {
+                this.riffBlacklist = new Set();
+            }
+        } catch (err) {
+            console.warn('[StorageManager] Failed to load Riff blacklist:', err);
+            this.riffBlacklist = new Set();
+        }
+    }
+
+    /**
+     * Save blacklist to file
+     */
+    private async saveRiffBlacklist(): Promise<void> {
+        try {
+            const data = Array.from(this.riffBlacklist);
+            await this.writePluginData(STORAGE_FILES.RIFF_BLACKLIST, JSON.stringify(data, null, 2));
+            console.log('[StorageManager] Saved Riff blacklist:', data.length);
+        } catch (err) {
+            console.error('[StorageManager] Failed to save Riff blacklist:', err);
+        }
     }
 }

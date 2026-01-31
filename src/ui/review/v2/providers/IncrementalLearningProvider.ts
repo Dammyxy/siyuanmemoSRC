@@ -40,10 +40,28 @@ export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
         limit?: number;
         deckId?: string;
     }): Promise<BrowserCard[]> {
-        // TODO: 从 Riff 系统获取到期卡片
-        // 目前返回空数组，实际使用时需要实现
-        console.log('[IncrementalLearningProvider] getDueCards called with options:', options);
-        return [];
+        try {
+            // 从队列获取所有项目
+            const items = await this.queue.getAllItems();
+
+            // 转换为 BrowserCard 格式
+            const cards: BrowserCard[] = items.map(item => ({
+                id: item.cardID,
+                blockId: item.blockID || item.cardID,
+                content: '', // 内容会在渲染时加载
+                due: item.due || Date.now(),
+                reps: item.reps || 0,
+                lapses: item.lapses || 0,
+                state: item.state || 0,
+                type: item.type || 'item',
+            }));
+
+            console.log('[IncrementalLearningProvider] Loaded', cards.length, 'due cards');
+            return cards;
+        } catch (error) {
+            console.error('[IncrementalLearningProvider] Failed to get due cards:', error);
+            return [];
+        }
     }
 
     /**
@@ -94,8 +112,19 @@ export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
      */
     async skipReviewCard(cardId: string): Promise<boolean> {
         try {
-            // TODO: 实现跳过逻辑
-            console.log('[IncrementalLearningProvider] Skip card:', cardId);
+            // 从队列中找到对应的项目
+            const items = await this.queue.getAllItems();
+            const item = items.find(i => i.cardID === cardId);
+
+            if (!item) {
+                console.warn('[IncrementalLearningProvider] Card not found:', cardId);
+                return false;
+            }
+
+            // 使用 onFeedback 处理 skip 操作
+            await this.queue.onFeedback(item, { action: 'skip' });
+
+            console.log('[IncrementalLearningProvider] Skipped card:', cardId);
             return true;
         } catch (err) {
             console.error('[IncrementalLearningProvider] Skip failed:', err);

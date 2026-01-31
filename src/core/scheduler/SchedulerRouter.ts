@@ -15,6 +15,7 @@ import { ImprovedTopicScheduler } from './strategies/ImprovedTopicScheduler';
 import { TopicScheduler } from './TopicScheduler';
 import { createScheduler } from './index';
 import { migrateCard } from './strategies/sm15/migration';
+import { RiffSchedulerAdapter } from './adapters/RiffSchedulerAdapter';
 
 /** 调度器类型 */
 export type SchedulerType = 'fsrs-v5' | 'sm2' | 'sm15' | 'a-factor' | 'a-factor-v2' | 'riff';
@@ -66,8 +67,8 @@ export class SchedulerRouter {
         // A-Factor v2 (ImprovedTopicScheduler)
         this.schedulers.set('a-factor-v2', new ImprovedTopicScheduler(params));
 
-        // TODO: Riff 调度器适配器
-        // this.schedulers.set('riff', new RiffSchedulerAdapter(...));
+        // Riff 调度器
+        this.schedulers.set('riff', new RiffSchedulerAdapter(params));
     }
 
     /**

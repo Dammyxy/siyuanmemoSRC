@@ -10,6 +10,7 @@ import { buildCardBlockIdStmt } from './cardBlockSql.ts';
 export const ATTR_PREFIX = 'custom-fsrs-';
 export const ATTR_CARD_ID = `${ATTR_PREFIX}card-id`;
 export const ATTR_PRIORITY = `${ATTR_PREFIX}priority`;
+export const ATTR_SUSPENDED = `${ATTR_PREFIX}suspended`;
 export const ATTR_IS_FLASHCARD = `${ATTR_PREFIX}flashcard`;
 export const ATTR_RIFF_DECKS = 'custom-riff-decks';
 

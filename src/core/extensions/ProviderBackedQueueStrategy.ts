@@ -128,6 +128,15 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
       const reviewed = this.includeReviewedCards ? [item, ...this.buffer] : undefined;
       await this.provider.reviewCard(cardId, rating, reviewed);
       this.current = null;
+
+      // 🔧 FIX: Reload buffer after review to sync with underlying queue changes
+      // This is needed when the provider's underlying queue modifies items (e.g., FinalDrill rotateToEnd)
+      console.log('[ProviderBackedQueueStrategy] Reloading buffer after review');
+      this.loaded = false;
+      await this.ensureLoaded();
+      console.log('[ProviderBackedQueueStrategy] Buffer reloaded:', {
+        newBufferLength: this.buffer.length,
+      });
       return;
     }
   }

@@ -28,10 +28,6 @@ import {
     truncateContent
 } from './types';
 
-/** 自定义属性名 */
-const ATTR_PRIORITY = 'custom-fsrs-priority';
-const ATTR_SUSPENDED = 'custom-fsrs-suspended';
-
 // ============================================================================
 // 缓存层实现
 // ============================================================================

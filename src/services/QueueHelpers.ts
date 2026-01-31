@@ -4,6 +4,7 @@
  */
 
 import { getCardBlockIds } from '@/core/siyuan/block';
+import { pushMsg, pushErrMsg } from '@/core/siyuan/api';
 import type { QueueItem } from '@/core/queue';
 import type { BlockMenuHandler } from './BlockMenuHandler';
 
@@ -51,10 +52,22 @@ export async function addPracticeQueue(
 
 /**
  * 清空练习队列
- * 注意：RetrievalPracticeQueue 可能没有 clear() 方法
  */
-export async function clearPracticeQueue(): Promise<void> {
-  // TODO: Implement clear functionality if needed
+export async function clearPracticeQueue(config: QueueHelpersConfig): Promise<void> {
+  try {
+    // 确认对话框
+    const confirmed = confirm('确定要清空练习队列吗？此操作不可撤销。');
+    if (!confirmed) return;
+
+    // 清空队列
+    const count = await (config.retrievalQueue as any).clear();
+
+    // 显示成功消息
+    await pushMsg(`✅ 已清空 ${count} 张卡片`);
+  } catch (error) {
+    console.error('[QueueHelpers] Failed to clear queue:', error);
+    await pushErrMsg('清空队列失败，请查看控制台');
+  }
 }
 
 /**
@@ -65,7 +78,7 @@ export function createQueueHandlers(config: QueueHelpersConfig) {
     preview: (filter: PracticeQueueFilter) => previewPracticeQueue(filter),
     add: (filter: PracticeQueueFilter) => addPracticeQueue(filter, config),
     start: () => startPracticeQueue(config),
-    clear: () => clearPracticeQueue(),
+    clear: () => clearPracticeQueue(config),
   };
 }
 

@@ -127,15 +127,24 @@ export class TransactionObserver {
 
             console.log(`[FSRS] Card Status for ${blockId}: RiffDB=${isRiffInDb}, RiffAttr=${hasRiffAttr}, FSRSAttr=${isFsrsAttr}`);
 
-            if (isRiffInDb && hasRiffAttr && isFsrsAttr) {
-                // Completely done and synced
+            // 检查卡片类型是否已标记
+            const { getBlockAttrs } = await import('@/core/siyuan/api');
+            const attrs = await getBlockAttrs(blockId);
+            const hasCardType = attrs && (attrs['custom-fsrs-card-type'] === 'topic' || attrs['custom-fsrs-card-type'] === 'item');
+
+            if (isRiffInDb && hasRiffAttr && isFsrsAttr && hasCardType) {
+                // Completely done and synced (including card type)
+                console.log(`[FSRS] Card ${blockId} already fully synced with type: ${attrs['custom-fsrs-card-type']}`);
                 return;
             }
 
-            console.log(`[FSRS] Syncing card for block ${blockId}...`);
+            console.log(`[FSRS] Syncing card for block ${blockId}... (hasCardType: ${hasCardType})`);
 
-            // 4. Build card object (generate metadata)
-            const card = await strategy.build(blockId, kramdown);
+            // 4. Build card object (generate metadata) - only if needed
+            let card;
+            if (!isRiffInDb || !hasRiffAttr || !isFsrsAttr) {
+                card = await strategy.build(blockId, kramdown);
+            }
 
             // 5. Add to Siyuan Riff Deck (Native) if not in DB OR missing attribute (repair UI)
             if (!isRiffInDb || !hasRiffAttr) {
@@ -145,31 +154,38 @@ export class TransactionObserver {
             }
 
             // 6. Mark block with FSRS attributes (Plugin UI support) if not exists
-            if (!isFsrsAttr) {
+            if (!isFsrsAttr && card) {
                 await markBlockAsCard(blockId, card.id, card.priority);
             }
 
-            // 6.5. 标记卡片类型和初始化 A-Factor（新增）
-            const { detectCardType, initializeAFactor } = await import('@/core/card-builder');
-            const cardType = await detectCardType(blockId);
+            // 6.5. 标记卡片类型和初始化 A-Factor（总是执行，除非已有类型）
+            if (!hasCardType) {
+                const { detectCardType, initializeAFactor } = await import('@/core/card-builder');
+                const cardType = await detectCardType(blockId);
 
-            const cardTypeAttrs: Record<string, string> = {
-                'custom-fsrs-card-type': cardType,
-            };
+                const cardTypeAttrs: Record<string, string> = {
+                    'custom-fsrs-card-type': cardType,
+                };
 
-            // 如果是 Topic，初始化并存储 A-Factor
-            if (cardType === 'topic') {
-                const aFactor = initializeAFactor(card.priority || 50);
-                cardTypeAttrs['custom-fsrs-a-factor'] = aFactor.toString();
-                console.log(`[FSRS] Topic card created: blockID=${blockId}, aFactor=${aFactor}`);
-            } else {
-                console.log(`[FSRS] Item card created: blockID=${blockId}`);
+                // 如果是 Topic，初始化并存储 A-Factor
+                if (cardType === 'topic') {
+                    // 获取优先级（从已有卡片或默认值）
+                    const priority = card?.priority || parseInt(attrs?.['custom-fsrs-priority'] || '50', 10);
+                    const aFactor = initializeAFactor(priority);
+                    cardTypeAttrs['custom-fsrs-a-factor'] = aFactor.toString();
+                    console.log(`[FSRS] Topic card detected: blockID=${blockId}, aFactor=${aFactor}`);
+                } else {
+                    console.log(`[FSRS] Item card detected: blockID=${blockId}`);
+                }
+
+                const { setBlockAttrs } = await import('@/core/siyuan/api');
+                await setBlockAttrs(blockId, cardTypeAttrs);
             }
 
-            await import('@/core/siyuan/api').setBlockAttrs(blockId, cardTypeAttrs);
-
-            // 7. Save to Plugin Storage
-            this.plugin.storage.setCard(card);
+            // 7. Save to Plugin Storage (only if card was created)
+            if (card) {
+                this.plugin.storage.setCard(card);
+            }
 
         } catch (err) {
             console.error(`[FSRS] Failed to auto-create card for ${blockId}:`, err);

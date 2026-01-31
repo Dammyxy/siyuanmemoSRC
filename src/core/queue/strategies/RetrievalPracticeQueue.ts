@@ -61,6 +61,7 @@ class RetrievalHybridDataSource extends HybridDataSource {
       deckId: deckID,
       notebook: options?.notebook,
       rootID: options?.rootID,
+      blacklistProvider: storage ? () => storage.getRiffBlacklist() : undefined,
     });
     
     const localSource = new StorageDataSource({
@@ -126,7 +127,12 @@ class RetrievalHybridDataSource extends HybridDataSource {
       if (riffIndex !== -1) {
         this.riffBuffer.splice(riffIndex, 1);
         removedCount++;
-        // Riff cards are removed via API during review, no persistence needed
+
+        // Add to blacklist
+        if (this.storage) {
+          this.storage.addToRiffBlacklist(item.blockID);
+          console.log('[RetrievalHybridDataSource] Added to blacklist:', item.blockID);
+        }
       }
     }
 
@@ -180,36 +186,47 @@ class RetrievalHybridDataSource extends HybridDataSource {
 
   /**
    * Load local queue from storage
-   * 
-   * Note: StorageManager doesn't have loadQueue method
-   * Local buffer is managed in-memory and persisted via other mechanisms
    */
   private async _loadLocalQueue(): Promise<void> {
     if (!this.storage) return;
 
     try {
-      // TODO: If persistence is needed, implement proper storage mechanism
-      // For now, local buffer starts empty
-      this.localBuffer = [];
-      console.log('[RetrievalHybridDataSource] Local queue initialized (in-memory only)');
+      // 从 storage 加载队列数据
+      const data = await this.storage.loadData('queue-retrieval-practice.json');
+
+      if (data && Array.isArray(data.items)) {
+        this.localBuffer = data.items;
+        console.log('[RetrievalHybridDataSource] Loaded', this.localBuffer.length, 'items from storage');
+      } else {
+        this.localBuffer = [];
+        console.log('[RetrievalHybridDataSource] No saved queue found, starting empty');
+      }
     } catch (error) {
       console.error('[RetrievalHybridDataSource] Failed to load local queue:', error);
+      this.localBuffer = [];
     }
   }
 
   /**
    * Persist local queue to storage
-   * 
-   * Note: StorageManager doesn't have saveQueue method
-   * Persistence is handled elsewhere or not needed for in-memory buffer
    */
   private async _persistLocalQueue(): Promise<void> {
     if (!this.storage) return;
 
     try {
-      // TODO: If persistence is needed, implement proper storage mechanism
-      // For now, skip persistence (in-memory only)
-      console.log('[RetrievalHybridDataSource] Skipping queue persistence (not implemented)');
+      // 构建持久化数据
+      const data = {
+        version: 1,
+        items: this.localBuffer,
+        metadata: {
+          savedAt: Date.now(),
+          count: this.localBuffer.length,
+        },
+      };
+
+      // 保存到 storage
+      await this.storage.saveData('queue-retrieval-practice.json', data);
+      console.log('[RetrievalHybridDataSource] Saved', this.localBuffer.length, 'items to storage');
     } catch (error) {
       console.error('[RetrievalHybridDataSource] Failed to persist local queue:', error);
     }
@@ -415,5 +432,21 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
     if (!items || items.length === 0) return 0;
     await this.hybridSource.insertAt(items, 0);
     return items.length;
+  }
+
+  /**
+   * 清空本地队列
+   */
+  async clear(): Promise<number> {
+    const count = this.hybridSource['localBuffer'].length;
+
+    // 清空本地缓冲区
+    this.hybridSource['localBuffer'] = [];
+
+    // 持久化（删除持久化文件）
+    await this.hybridSource['_persistLocalQueue']();
+
+    console.log('[RetrievalPracticeQueue] Cleared', count, 'items from local queue');
+    return count;
   }
 }

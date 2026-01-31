@@ -27,9 +27,12 @@ export class FinalDrillAdapter implements IAdapter<QueueItem> {
       ? queue.getProgress()
       : { answered: 0, correct: 0, total: 0, durationMs: 0 };
 
-    const total = Math.max(0, Number(progress.total) || 0);
+    // ✅ 修复：使用实时剩余卡片数量，而不是 total
+    const remaining = typeof queue?.getAllItems === 'function'
+      ? queue.getAllItems().length
+      : 0;
     const answered = Math.max(0, Number(progress.answered) || 0);
-    const current = item ? Math.min(total || answered + 1, answered + 1) : total;
+    const current = item ? answered + 1 : answered;
 
     const resume = typeof queue?.getResumePrompt === 'function'
       ? queue.getResumePrompt()
@@ -77,7 +80,7 @@ export class FinalDrillAdapter implements IAdapter<QueueItem> {
         header: {
           stats: {
             current: 0,
-            total: 0,
+            total: 0,  // ✅ 完成时显示 0/0
             label: t(this.i18n, 'queueDeliberate', '最终冲刺'),
             queueName: 'final-drill',
             newCards: 0,
@@ -105,7 +108,7 @@ export class FinalDrillAdapter implements IAdapter<QueueItem> {
           resumePrompt: resume || undefined,
           drillStats: {
             correct: Math.max(0, Number(progress.correct) || 0),
-            total,
+            total: Math.max(0, Number(progress.total) || 0),  // ✅ 使用 progress.total（初始总数）
             duration: toSeconds(Number(progress.durationMs) || 0),
           },
           canSkip: uiConfig.allowSkip,
@@ -117,10 +120,10 @@ export class FinalDrillAdapter implements IAdapter<QueueItem> {
       header: {
         stats: {
           current,
-          total,
+          total: remaining,  // ✅ 修复：显示剩余卡片数量
           label: t(this.i18n, 'queueDeliberate', '最终冲刺'),
           queueName: 'final-drill',
-          newCards: total,
+          newCards: remaining,  // ✅ 修复：显示剩余卡片数量
           reviewCards: 0,
         },
         breadcrumbs: [],
@@ -156,7 +159,7 @@ export class FinalDrillAdapter implements IAdapter<QueueItem> {
         resumePrompt: resume || undefined,
         drillStats: {
           correct: Math.max(0, Number(progress.correct) || 0),
-          total,
+          total: Math.max(0, Number(progress.total) || 0),  // ✅ 使用 progress.total（初始总数）
           duration: toSeconds(Number(progress.durationMs) || 0),
         },
         canSkip: uiConfig.allowSkip,

@@ -41,13 +41,16 @@ export const BASE_ACTIONS = {
 export function buildAddToQueueAction(hasQueues: {
   retrieval?: boolean;
   incremental?: boolean;
-  deliberate?: boolean;
+  finalDrill?: boolean;  // ✅ 改名：deliberate → finalDrill
   filterGroup?: boolean;
   neuralRoam?: boolean;
 }): CardBrowserAction | null {
+  console.log('[MenuActions] buildAddToQueueAction 被调用，参数:', hasQueues);
+  
   const queueActions: CardBrowserAction[] = [];
 
   if (hasQueues.retrieval) {
+    console.log('[MenuActions] ✅ 添加提取练习');
     queueActions.push({
       id: 'add-to-retrieval-queue',
       label: '提取练习',
@@ -55,20 +58,25 @@ export function buildAddToQueueAction(hasQueues: {
     });
   }
   if (hasQueues.incremental) {
+    console.log('[MenuActions] ✅ 添加渐进学习');
     queueActions.push({
       id: 'add-to-incremental-queue',
       label: '渐进学习',
       icon: 'iconBook',
     });
   }
-  if (hasQueues.deliberate) {
+  if (hasQueues.finalDrill) {  // ✅ 改名：deliberate → finalDrill
+    console.log('[MenuActions] ✅ 添加刻意练习');
     queueActions.push({
-      id: 'add-to-deliberate-queue',
+      id: 'add-to-final-drill-queue',  // ✅ 改名：add-to-deliberate-queue → add-to-final-drill-queue
       label: '刻意练习',
       icon: 'iconCards',
     });
+  } else {
+    console.log('[MenuActions] ❌ 没有添加刻意练习（hasQueues.finalDrill =', hasQueues.finalDrill, ')');
   }
   if (hasQueues.filterGroup) {
+    console.log('[MenuActions] ✅ 添加筛选复习');
     queueActions.push({
       id: 'add-to-filter-group-queue',
       label: '筛选复习',
@@ -76,6 +84,7 @@ export function buildAddToQueueAction(hasQueues: {
     });
   }
   if (hasQueues.neuralRoam) {
+    console.log('[MenuActions] ✅ 添加神经漫游');
     queueActions.push({
       id: 'add-to-neural-roam-queue',
       label: '神经漫游',
@@ -83,9 +92,16 @@ export function buildAddToQueueAction(hasQueues: {
     });
   }
 
-  return queueActions.length > 0
+  console.log('[MenuActions] queueActions 数组:', queueActions);
+  console.log('[MenuActions] queueActions.length:', queueActions.length);
+
+  const result = queueActions.length > 0
     ? { id: 'add-to-queue', label: '加入队列', icon: 'iconDownload', submenu: queueActions }
     : null;
+    
+  console.log('[MenuActions] buildAddToQueueAction 返回值:', result);
+  
+  return result;
 }
 
 /**
@@ -375,8 +391,14 @@ export async function adjustTime(
 export async function addToQueue(
   queue: any,
   selectedRows: BrowserCard[],
-  queueType: 'retrieval' | 'incremental' | 'deliberate' | 'filter-group' | 'neural-roam'
+  queueType: 'retrieval' | 'incremental' | 'final-drill' | 'filter-group' | 'neural-roam'  // ✅ 改名：'deliberate' → 'final-drill'
 ): Promise<{ added: number; message: string }> {
+  console.log('[MenuActions] ========== addToQueue 被调用 ==========');
+  console.log('[MenuActions] queueType:', queueType);
+  console.log('[MenuActions] selectedRows 数量:', selectedRows?.length);
+  console.log('[MenuActions] queue:', queue);
+  console.log('[MenuActions] queue 类型:', queue?.constructor?.name);
+  
   const items = selectedRows.map((r) => {
     const base = {
       cardID: r.fsrsCardId || r.id || r.blockId,
@@ -401,9 +423,12 @@ export async function addToQueue(
 
     return base;
   });
+  
+  console.log('[MenuActions] 转换后的 items:', items);
 
   // 神经漫游：使用 addItems（批量）
   if (queueType === 'neural-roam') {
+    console.log('[MenuActions] 处理神经漫游队列');
     if (queue?.addItems) {
       const added = await Promise.resolve(queue.addItems(items));
       return { added, message: `已将卡片设置为神经漫游种子块` };
@@ -413,33 +438,94 @@ export async function addToQueue(
 
   // 渐进学习和筛选复习使用 addItems（批量）
   if (queueType === 'incremental' || queueType === 'filter-group') {
+    console.log('[MenuActions] 处理渐进学习/筛选复习队列');
+    console.log('[MenuActions] queue.addItems 存在:', typeof queue?.addItems === 'function');
+    
     if (queue?.addItems) {
+      console.log('[MenuActions] ✅ 调用 queue.addItems（批量添加）');
       const added = await Promise.resolve(queue.addItems(items));
       const queueNames = {
         incremental: '渐进学习',
         'filter-group': '筛选复习',
       };
+      console.log('[MenuActions] 队列添加完成，共添加:', added);
       return { added, message: `已加入 ${added} 张卡片到${queueNames[queueType]}队列` };
+    } else {
+      console.error('[MenuActions] ❌ queue.addItems 方法不存在');
+      return { added: 0, message: `${queueType === 'incremental' ? '渐进学习' : '筛选复习'}队列不可用` };
     }
   }
 
-  // 刻意练习使用 addItem（逐个）
-  if (queueType === 'deliberate') {
-    let added = 0;
-    for (const item of items) {
-      await Promise.resolve(queue?.addItem?.(item));
-      added++;
+  // 刻意练习使用 addItems（批量）
+  if (queueType === 'final-drill') {  // ✅ 改名：'deliberate' → 'final-drill'
+    console.log('[MenuActions] 处理刻意练习队列');
+    console.log('[MenuActions] queue.addItems 存在:', typeof queue?.addItems === 'function');
+    
+    // 🆕 过滤 Topic 卡片：刻意练习只接受 Item 卡片
+    const filteredItems = items.filter((item) => {
+      const row = selectedRows.find((r) => (r.fsrsCardId || r.id || r.blockId) === item.cardID);
+      const cardType = (row as any)?.cardType;
+      
+      if (cardType === 'topic') {
+        console.log(`[MenuActions] 过滤 Topic 卡片: ${item.blockID}`);
+        return false;
+      }
+      return true;
+    });
+    
+    console.log(`[MenuActions] 过滤后：${filteredItems.length}/${items.length} 张卡片`);
+    
+    if (filteredItems.length === 0) {
+      return { added: 0, message: 'Topic 卡片不能加入刻意练习队列' };
     }
-    return { added, message: `已加入 ${added} 张卡片到刻意练习队列` };
+    
+    if (queue?.addItems) {
+      console.log('[MenuActions] ✅ 调用 queue.addItems（批量添加）');
+      const added = await Promise.resolve(queue.addItems(filteredItems));
+      console.log('[MenuActions] 刻意练习队列添加完成，共添加:', added);
+      const skipped = items.length - filteredItems.length;
+      const message = skipped > 0
+        ? `已加入 ${added} 张卡片到刻意练习队列（过滤了 ${skipped} 张 Topic 卡片）`
+        : `已加入 ${added} 张卡片到刻意练习队列`;
+      return { added, message };
+    } else {
+      console.error('[MenuActions] ❌ queue.addItems 方法不存在');
+      return { added: 0, message: '刻意练习队列不可用' };
+    }
   }
 
   // 提取练习使用 addItems（批量）
   if (queueType === 'retrieval') {
+    console.log('[MenuActions] 处理提取练习队列');
+    
+    // 🆕 过滤 Topic 卡片：提取练习只接受 Item 卡片
+    const filteredItems = items.filter((item) => {
+      const row = selectedRows.find((r) => (r.fsrsCardId || r.id || r.blockId) === item.cardID);
+      const cardType = (row as any)?.cardType;
+      
+      if (cardType === 'topic') {
+        console.log(`[MenuActions] 过滤 Topic 卡片: ${item.blockID}`);
+        return false;
+      }
+      return true;
+    });
+    
+    console.log(`[MenuActions] 过滤后：${filteredItems.length}/${items.length} 张卡片`);
+    
+    if (filteredItems.length === 0) {
+      return { added: 0, message: 'Topic 卡片不能加入提取练习队列' };
+    }
+    
     if (queue?.addItems) {
-      const added = await Promise.resolve(queue.addItems(items));
-      return { added, message: `已加入 ${added} 张卡片到提取练习队列` };
+      const added = await Promise.resolve(queue.addItems(filteredItems));
+      const skipped = items.length - filteredItems.length;
+      const message = skipped > 0
+        ? `已加入 ${added} 张卡片到提取练习队列（过滤了 ${skipped} 张 Topic 卡片）`
+        : `已加入 ${added} 张卡片到提取练习队列`;
+      return { added, message };
     }
   }
 
+  console.log('[MenuActions] ❌ 没有匹配的队列类型或队列方法不可用');
   return { added: 0, message: '加入队列失败' };
 }

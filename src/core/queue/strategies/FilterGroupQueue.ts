@@ -169,6 +169,13 @@ export class FilterGroupQueue extends BaseCompositeQueue<QueueItem>
   }
 
   /**
+   * Add items to queue (delegates to GroupDataSource)
+   */
+  async addItems(items: QueueItem[]): Promise<number> {
+    return await this.groupDataSource.add(items);
+  }
+
+  /**
    * Reorder items within groups
    */
   async reorder(orderedItems: QueueItem[]): Promise<boolean> {

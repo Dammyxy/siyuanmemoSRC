@@ -102,14 +102,12 @@ export class BlockMenuManager {
                     return;
                 }
                 const items = this.buildQueueItemsFromElements(drillBlocks);
-                // @ts-ignore
-                const before = (this.plugin as any).deliberateQueue?.size?.() ?? 0;
+                // ✅ 使用 finalDrillQueue（通过 deliberateQueue getter 访问以保持兼容）
+                const before = (this.plugin as any).finalDrillQueue?.size?.() ?? 0;
                 for (const item of items) {
-                    // @ts-ignore
-                    await (this.plugin as any).deliberateQueue.addItem(item);
+                    await (this.plugin as any).finalDrillQueue.addItem(item);
                 }
-                // @ts-ignore
-                const after = (this.plugin as any).deliberateQueue?.size?.() ?? before;
+                const after = (this.plugin as any).finalDrillQueue?.size?.() ?? before;
                 const added = Math.max(0, after - before);
                 if (added > 0) {
                     await pushMsg((this.plugin.i18n?.deliberateAdded || '已加入 {n} 张闪卡到刻意队列').replace('{n}', String(added)));

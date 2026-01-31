@@ -15,7 +15,7 @@ import type { StorageManager } from '../../storage/StorageManager';
 import type { PersistenceAdapter } from '../persistence';
 import { StorageFileJsonAdapter } from '../adapters/storageFile';
 import type { QueueItem, QueueStats, QueueUIConfig } from '../types';
-import { ListSequencer } from '../sequencers/ListSequencer';
+import { FinalDrillSequencer } from '../sequencers/FinalDrillSequencer';
 import { ConditionalScheduler } from '../schedulers/ConditionalScheduler';
 import { NullScheduler } from '../schedulers/NullScheduler';
 import { BaseCompositeQueue } from '../composite/BaseCompositeQueue';
@@ -38,15 +38,19 @@ type Snapshot = {
 export class FinalDrillQueue extends BaseCompositeQueue<FinalDrillItem> {
   private readonly adapter: PersistenceAdapter<Snapshot> | null;
   // ⚠️ sequencer is already in BaseCompositeQueue, don't redeclare as private
-  private readonly _localSequencer: ListSequencer<FinalDrillItem>;
+  private readonly _localSequencer: FinalDrillSequencer<FinalDrillItem>;
   private lastAutoSortDay = '';
 
   constructor(storage?: StorageManager) {
     // Create persistence adapter
     const adapter = storage ? new StorageFileJsonAdapter<Snapshot>(storage, 'queue-final-drill.json') : null;
 
-    // Create list sequencer
-    const sequencer = new ListSequencer<FinalDrillItem>();
+    // Create Final Drill sequencer with SuperMemo's FlipElement(5, 3, 6) algorithm
+    const sequencer = new FinalDrillSequencer<FinalDrillItem>(undefined, {
+      lowestPick: 5,
+      lowestInsert: 3,
+      highestInsert: 6,
+    });
 
     // Create conditional scheduler (remove card when rating = 4)
     const scheduler = new ConditionalScheduler<FinalDrillItem, 1 | 2 | 3 | 4>({
@@ -117,8 +121,11 @@ export class FinalDrillQueue extends BaseCompositeQueue<FinalDrillItem> {
       },
     };
 
-    // Register traits
-    (this as any).traits = [mutableTrait, removableTrait, prioritizableTrait, autoSortableTrait];
+    // Register traits - must be a Map, not an array
+    (this as any).traits.set('mutable', mutableTrait);
+    (this as any).traits.set('removable', removableTrait);
+    (this as any).traits.set('prioritizable', prioritizableTrait);
+    (this as any).traits.set('auto-sortable', autoSortableTrait);
 
     // Update dataSource methods that need 'this'
     const baseDataSource = (this as any).dataSource;

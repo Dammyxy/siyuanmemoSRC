@@ -47,9 +47,25 @@ async function getBlockType(blockId: string): Promise<string | null> {
  */
 export async function hasAnswerBlocks(blockId: string): Promise<boolean> {
     try {
-        // 1. 内容包含 :: 分隔符 → Item（明确的问答卡片）
-        // ❌ 移除问号判断：带 ? 的段落是 Topic
-        const content = await getBlockText(blockId);
+        // 0. 获取块的原始内容（包含 markdown 标记）
+        // 使用 SQL 查询获取 markdown 字段，而不是 getBlockText（会去除标记）
+        const blockData = await sql(`
+            SELECT markdown, content FROM blocks
+            WHERE id = '${blockId}'
+            LIMIT 1
+        `);
+        
+        const markdown = blockData && blockData.length > 0 ? blockData[0].markdown : '';
+        const content = blockData && blockData.length > 0 ? blockData[0].content : '';
+        
+        // 1. 内容包含标记语法（==文本==）→ Item
+        // 标记通常用于强调答案或重要内容，是 Item 的特征
+        if (/==([^=]+)==/.test(markdown) || /==([^=]+)==/.test(content)) {
+            console.log(`[FSRS] Block ${blockId}: Item (mark syntax == found)`);
+            return true;
+        }
+        
+        // 2. 内容包含 :: 分隔符 → Item（明确的问答卡片）
         if (/::/.test(content)) {
             console.log(`[FSRS] Block ${blockId}: Item (:: separator found)`);
             return true;

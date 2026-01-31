@@ -18,6 +18,7 @@ type ProgressSnapshot = {
   startedAt: number;
   durationMs: number;
   updatedAt: number;
+  initialTotal: number;  // ✅ 新增：记录初始队列大小
 };
 
 export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
@@ -27,6 +28,7 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     reviewRiffCard: typeof riff.reviewRiffCard;
     skipReviewRiffCard: typeof riff.skipReviewRiffCard;
   };
+  private readonly storage?: StorageManager;
   private readonly progressAdapter: StorageFileJsonAdapter<ProgressSnapshot> | null;
 
   private progress: ProgressSnapshot = {
@@ -36,6 +38,7 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     startedAt: 0,
     durationMs: 0,
     updatedAt: 0,
+    initialTotal: 0,  // ✅ 新增
   };
 
   private resumePromptVisible = false;
@@ -48,6 +51,7 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     api?: Partial<FinalDrillV2Session['api']>;
   }) {
     this.queue = options.queue;
+    this.storage = options.storage;
     this.i18n = options.i18n;
     this.api = {
       reviewRiffCard: options.api?.reviewRiffCard || riff.reviewRiffCard,
@@ -66,7 +70,8 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     const startedAt = Math.max(0, Math.floor(Number((snap as any).startedAt) || 0));
     const durationMs = Math.max(0, Math.floor(Number((snap as any).durationMs) || 0));
     const updatedAt = Math.max(0, Math.floor(Number((snap as any).updatedAt) || 0));
-    this.progress = { inProgress, answered, correct, startedAt, durationMs, updatedAt };
+    const initialTotal = Math.max(0, Math.floor(Number((snap as any).initialTotal) || 0));  // ✅ 新增
+    this.progress = { inProgress, answered, correct, startedAt, durationMs, updatedAt, initialTotal };
     if (inProgress && this.queue.getAllItems().length > 0) {
       this.resumePromptVisible = true;
     }
@@ -83,7 +88,9 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
 
   getProgress(): { answered: number; correct: number; total: number; durationMs: number } {
     const remaining = this.queue.getAllItems().length;
-    const total = this.progress.answered + remaining;
+    // ✅ 修复：使用 initialTotal 作为总数
+    // 刻意练习中，评分 < 4 的卡片会旋转到队尾，所以 total 应该是初始队列大小
+    const total = this.progress.initialTotal || (this.progress.answered + remaining);
     return { answered: this.progress.answered, correct: this.progress.correct, total, durationMs: this.progress.durationMs };
   }
 
@@ -106,11 +113,16 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
         this.resumePromptVisible = false;
         this.ensureStarted();
         this.progress.inProgress = true;
+        // ✅ 如果 initialTotal 为 0，说明是第一次开始，记录初始队列大小
+        if (this.progress.initialTotal === 0) {
+          this.progress.initialTotal = this.progress.answered + this.queue.getAllItems().length;
+        }
         await this.saveProgress();
         return;
       }
       if (id === 'resume-start-over') {
         this.resumePromptVisible = false;
+        const currentQueueSize = this.queue.getAllItems().length;
         this.progress = {
           inProgress: true,
           answered: 0,
@@ -118,6 +130,7 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
           startedAt: Date.now(),
           durationMs: 0,
           updatedAt: Date.now(),
+          initialTotal: currentQueueSize,  // ✅ 记录初始队列大小
         };
         this.lastTickAt = Date.now();
         await this.saveProgress();
@@ -154,6 +167,12 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
 
       this.ensureStarted();
       this.progress.inProgress = true;
+
+      // ✅ 如果 initialTotal 为 0，说明是第一次开始，记录初始队列大小
+      if (this.progress.initialTotal === 0) {
+        this.progress.initialTotal = this.progress.answered + this.queue.getAllItems().length;
+      }
+
       await this.api.reviewRiffCard(deckID, cardID, rating).catch(async () => {
         await pushErrMsg(this.t('drillFailed', '机械练习启动失败'));
       });
@@ -184,13 +203,46 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
   }
 
   private async rotateToEnd(item: QueueItem): Promise<void> {
+    console.log('[FinalDrillV2Session] rotateToEnd called:', {
+      cardID: (item as any)?.cardID,
+      currentQueueSize: this.queue.getAllItems().length,
+    });
+
     const trait = this.queue.getMutableTrait?.();
     const removable = this.queue.getRemovableTrait?.();
-    if (!trait || !removable) return;
+
+    console.log('[FinalDrillV2Session] Traits:', {
+      hasMutableTrait: !!trait,
+      hasRemovableTrait: !!removable,
+    });
+
+    if (!trait || !removable) {
+      console.error('[FinalDrillV2Session] Missing traits!');
+      return;
+    }
+
     const removed = await removable.removeItems([item]);
-    if (removed <= 0) return;
+    console.log('[FinalDrillV2Session] Removed from queue:', {
+      removed,
+      queueSizeAfterRemove: this.queue.getAllItems().length,
+    });
+
+    if (removed <= 0) {
+      console.error('[FinalDrillV2Session] Failed to remove item');
+      return;
+    }
+
     const end = this.queue.getAllItems().length;
+    console.log('[FinalDrillV2Session] Inserting at end:', {
+      insertIndex: end,
+      cardID: (item as any)?.cardID,
+    });
+
     await trait.insertAt([item], end);
+
+    console.log('[FinalDrillV2Session] After insertAt:', {
+      queueSize: this.queue.getAllItems().length,
+    });
   }
 
   private async removeFromQueue(item: QueueItem): Promise<void> {

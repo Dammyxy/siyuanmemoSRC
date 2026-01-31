@@ -29,7 +29,8 @@ type FsrsPluginLike = {
   openSubsetReviewDialog?: (blockIds: string[]) => Promise<void> | void;
   retrievalQueue?: QueueLike;
   incrementalQueue?: QueueLike;  // ✅ 添加渐进学习队列
-  deliberateQueue?: QueueLike;
+  finalDrillQueue?: QueueLike;  // ✅ 刻意练习队列（主属性名）
+  deliberateQueue?: QueueLike;  // ⚠️ 向后兼容别名，指向 finalDrillQueue
   filterGroupQueue?: QueueLike;
   neuralQueue?: QueueLike;  // ✅ 添加神经漫游队列
 };
@@ -129,28 +130,48 @@ export class DeckDataSource implements ICardDataSource {
       BASE_ACTIONS.open,
     ];
 
-    // 调试日志
-    console.log('[DeckDataSource] Checking plugin queues:', {
+    // 🔍 详细调试日志
+    console.log('[DeckDataSource] ========== getSupportedActions 调试 ==========');
+    console.log('[DeckDataSource] Plugin 对象:', this.plugin);
+    console.log('[DeckDataSource] Plugin 类型:', this.plugin?.constructor?.name);
+    console.log('[DeckDataSource] Plugin 所有属性:', this.plugin ? Object.keys(this.plugin) : []);
+    console.log('[DeckDataSource] Plugin 所有属性（包括原型链）:', this.plugin ? Object.getOwnPropertyNames(Object.getPrototypeOf(this.plugin)) : []);
+    
+    console.log('[DeckDataSource] 队列检测结果:', {
       hasPlugin: !!this.plugin,
       hasRetrieval: !!this.plugin?.retrievalQueue,
       hasIncremental: !!this.plugin?.incrementalQueue,
-      hasDeliberate: !!this.plugin?.deliberateQueue,
+      hasFinalDrill: !!(this.plugin as any)?.finalDrillQueue,
       hasFilterGroup: !!this.plugin?.filterGroupQueue,
       hasNeuralRoam: !!this.plugin?.neuralQueue,
     });
 
+    // 尝试直接访问队列
+    console.log('[DeckDataSource] 直接访问 finalDrillQueue:', (this.plugin as any)?.finalDrillQueue);
+
     // 添加"加入队列"子菜单
-    const addToQueueAction = buildAddToQueueAction({
+    const hasQueues = {
       retrieval: !!this.plugin?.retrievalQueue,
       incremental: !!this.plugin?.incrementalQueue,
-      deliberate: !!this.plugin?.deliberateQueue,
+      finalDrill: !!(this.plugin as any)?.finalDrillQueue,  // ✅ 使用 finalDrillQueue
       filterGroup: !!this.plugin?.filterGroupQueue,
       neuralRoam: !!this.plugin?.neuralQueue,
-    });
+    };
+    
+    console.log('[DeckDataSource] buildAddToQueueAction 参数:', hasQueues);
+    
+    const addToQueueAction = buildAddToQueueAction(hasQueues);
+    
+    console.log('[DeckDataSource] buildAddToQueueAction 返回值:', addToQueueAction);
 
     if (addToQueueAction) {
       actions.push(addToQueueAction);
+      console.log('[DeckDataSource] ✅ 已添加"加入队列"菜单');
+    } else {
+      console.log('[DeckDataSource] ❌ 没有添加"加入队列"菜单（返回值为 null）');
     }
+    
+    console.log('[DeckDataSource] ========== 调试结束 ==========');
 
     // 其他操作
     actions.push(
@@ -170,6 +191,11 @@ export class DeckDataSource implements ICardDataSource {
   }
 
   async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<any> {
+    console.log('[DeckDataSource] ========== performAction 被调用 ==========');
+    console.log('[DeckDataSource] actionId:', actionId);
+    console.log('[DeckDataSource] selectedRows 数量:', selectedRows?.length);
+    console.log('[DeckDataSource] context:', context);
+    
     // 打开操作
     if (actionId === 'open') return;
 
@@ -177,6 +203,7 @@ export class DeckDataSource implements ICardDataSource {
 
     // 提取练习
     if (actionId === 'add-to-retrieval-queue') {
+      console.log('[DeckDataSource] 处理：加入提取练习队列');
       if (this.plugin?.retrievalQueue) {
         return await addToQueue(this.plugin.retrievalQueue, selectedRows, 'retrieval');
       }
@@ -185,7 +212,7 @@ export class DeckDataSource implements ICardDataSource {
 
     // 渐进学习
     if (actionId === 'add-to-incremental-queue') {
-      console.log('[DeckDataSource] Adding to incremental learning queue');
+      console.log('[DeckDataSource] 处理：加入渐进学习队列');
       if (this.plugin?.incrementalQueue) {
         return await addToQueue(this.plugin.incrementalQueue, selectedRows, 'incremental');
       }
@@ -193,19 +220,48 @@ export class DeckDataSource implements ICardDataSource {
       return;
     }
 
-    // 刻意练习
-    if (actionId === 'add-to-deliberate-queue') {
-      if (this.plugin?.deliberateQueue) {
-        return await addToQueue(this.plugin.deliberateQueue, selectedRows, 'deliberate');
+    // 刻意练习（支持新旧两种 action ID）
+    if (actionId === 'add-to-deliberate-queue' || actionId === 'add-to-final-drill-queue') {
+      console.log('[DeckDataSource] 处理：加入刻意练习队列');
+      console.log('[DeckDataSource] 检查队列:', {
+        hasFinalDrill: !!(this.plugin as any)?.finalDrillQueue,
+      });
+      
+      // ✅ 使用 finalDrillQueue
+      const queue = (this.plugin as any)?.finalDrillQueue;
+      console.log('[DeckDataSource] 获取到的队列:', queue);
+      console.log('[DeckDataSource] 队列类型:', queue?.constructor?.name);
+      console.log('[DeckDataSource] 队列有 addItems 方法:', typeof queue?.addItems === 'function');
+      
+      if (queue) {
+        console.log('[DeckDataSource] ✅ 调用 addToQueue');
+        const result = await addToQueue(queue, selectedRows, 'final-drill');
+        console.log('[DeckDataSource] addToQueue 返回结果:', result);
+        return result;
       }
+      console.error('[DeckDataSource] ❌ finalDrillQueue not available!');
       return;
     }
 
     // 筛选复习
     if (actionId === 'add-to-filter-group-queue') {
-      if (this.plugin?.filterGroupQueue) {
-        return await addToQueue(this.plugin.filterGroupQueue, selectedRows, 'filter-group');
+      console.log('[DeckDataSource] 处理：加入筛选复习队列');
+      console.log('[DeckDataSource] 检查队列:', {
+        hasFilterGroup: !!this.plugin?.filterGroupQueue,
+      });
+      
+      const queue = this.plugin?.filterGroupQueue;
+      console.log('[DeckDataSource] 获取到的队列:', queue);
+      console.log('[DeckDataSource] 队列类型:', queue?.constructor?.name);
+      console.log('[DeckDataSource] 队列有 addItems 方法:', typeof queue?.addItems === 'function');
+      
+      if (queue) {
+        console.log('[DeckDataSource] ✅ 调用 addToQueue');
+        const result = await addToQueue(queue, selectedRows, 'filter-group');
+        console.log('[DeckDataSource] addToQueue 返回结果:', result);
+        return result;
       }
+      console.error('[DeckDataSource] ❌ filterGroupQueue not available!');
       return;
     }
 

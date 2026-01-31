@@ -72,6 +72,15 @@
           <p class="form-hint">{{ t('autoCardEnabledHint', '监听编辑操作，当输入特定内容（如高亮、问答）时自动创建闪卡') }}</p>
         </div>
 
+        <!-- 🆕 启用调试日志 -->
+        <div class="form-item">
+          <label>{{ t('enableDebugLogs', '启用调试日志') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="uiSettings.enableDebugLogs" @change="handleDebugLogsChange">
+          </div>
+          <p class="form-hint">{{ t('enableDebugLogsHint', '在浏览器控制台显示详细的调试信息（开发用，关闭可提升性能）') }}</p>
+        </div>
+
         <!-- 当前参数展示 -->
         <div class="form-item">
           <label>{{ t('modelParams', '模型参数 (19)') }}</label>
@@ -99,6 +108,7 @@
           <div class="form-control">
             <select v-model="schedulerConfig.defaultScheduler" class="scheduler-select">
               <option value="fsrs-v5">{{ t('schedulerFsrsV5', 'FSRS v5 (推荐)') }}</option>
+              <option value="riff">{{ t('schedulerRiff', 'Riff (思源原生)') }}</option>
               <option value="sm2">{{ t('schedulerSm2', 'SM-2') }}</option>
               <option value="sm15">{{ t('schedulerSm15', 'SM-15') }}</option>
               <option value="a-factor-v2">{{ t('schedulerAFactorV2', 'A-Factor v2') }}</option>
@@ -133,6 +143,7 @@
           <div class="form-control">
             <select v-model="schedulerConfig.itemScheduler" class="scheduler-select">
               <option value="fsrs-v5">{{ t('schedulerFsrsV5Recommended', 'FSRS v5 (推荐)') }}</option>
+              <option value="riff">{{ t('schedulerRiff', 'Riff (思源原生)') }}</option>
               <option value="sm2">{{ t('schedulerSm2', 'SM-2') }}</option>
               <option value="sm15">{{ t('schedulerSm15', 'SM-15') }}</option>
             </select>
@@ -320,6 +331,7 @@ const props = defineProps<{
   queueSettings?: QueueSettings;
   schedulerSettings?: SchedulerConfig;  // 🆕 新增
   incrementalSettings?: { autoCardEnabled: boolean };
+  uiSettings?: { enableDebugLogs: boolean };  // 🆕 新增
   i18n?: Record<string, string>;
   defaultTab?: string;
   queueCount?: number;
@@ -383,6 +395,11 @@ const settings = ref<Settings>({
   autoCardEnabled: false,
 });
 
+// 🆕 UI 设置
+const uiSettings = ref({
+  enableDebugLogs: false,
+});
+
 // 🆕 调度器配置
 const schedulerConfig = ref<SchedulerConfig>({
   defaultScheduler: 'fsrs-v5',
@@ -394,6 +411,7 @@ const schedulerConfig = ref<SchedulerConfig>({
 // 🆕 调度器说明
 const schedulerDescriptions: Record<string, string> = {
   'fsrs-v5': '现代算法，准确预测遗忘曲线，自动优化参数',
+  'riff': '思源笔记原生调度器，与系统深度集成',
   'sm2': '经典算法，简单稳定，广泛使用',
   'sm15': 'SuperMemo 15 算法，完整的遗忘曲线系统',
   'a-factor-v2': '改进的 A-Factor，动态调整难度',
@@ -416,6 +434,14 @@ function loadSettings() {
       autoCardEnabled: props.incrementalSettings?.autoCardEnabled ?? false,
     };
   }
+  
+  // 🆕 加载 UI 设置
+  if (props.uiSettings) {
+    uiSettings.value = {
+      enableDebugLogs: props.uiSettings.enableDebugLogs ?? false,
+    };
+  }
+  
   if (props.queueSettings) {
     const incoming = JSON.parse(JSON.stringify(props.queueSettings));
     queueSettings.value = {
@@ -482,6 +508,10 @@ function saveSettings() {
       topicScheduler: schedulerConfig.value.topicScheduler,
       itemScheduler: schedulerConfig.value.itemScheduler,
     },
+    // 🆕 保存 UI 设置
+    ui: {
+      enableDebugLogs: uiSettings.value.enableDebugLogs,
+    },
   });
 }
 
@@ -503,6 +533,26 @@ function resetSchedulerSettings() {
     topicScheduler: 'a-factor-v2',
     itemScheduler: 'fsrs-v5',
   };
+}
+
+// 🆕 处理调试日志开关变化
+function handleDebugLogsChange() {
+  // 立即应用日志设置
+  if (typeof window !== 'undefined') {
+    (window as any).FSRS_DISABLE_LOGS = !uiSettings.value.enableDebugLogs;
+    
+    // 提示用户
+    const message = uiSettings.value.enableDebugLogs 
+      ? '调试日志已启用，刷新页面后生效'
+      : '调试日志已禁用，刷新页面后生效';
+    
+    console.log(`[FSRS] ${message}`);
+    
+    // 如果有 showMessage 方法，显示提示
+    if (props.i18n) {
+      // 可以在这里添加 toast 提示
+    }
+  }
 }
 
 

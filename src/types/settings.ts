@@ -16,12 +16,12 @@ export type SchedulerEngine = 'simple-fsrs' | 'sm2' | 'sm15' | 'a-factor-v2';
 
 /** 🆕 调度器配置 */
 export interface SchedulerConfig {
-    defaultScheduler: 'fsrs-v5' | 'sm2' | 'sm15' | 'a-factor-v2';
+    defaultScheduler: 'fsrs-v5' | 'riff' | 'sm2' | 'sm15' | 'a-factor-v2';
     enableRiffSync: boolean;
 
     // 按卡片类型配置（可选）
     topicScheduler?: 'a-factor' | 'a-factor-v2';
-    itemScheduler?: 'fsrs-v5' | 'sm2' | 'sm15';
+    itemScheduler?: 'fsrs-v5' | 'riff' | 'sm2' | 'sm15';
 
     sm15?: {
         requestedFI: number;     // 遗忘指数 (0-100)
@@ -58,6 +58,7 @@ export interface UISettings {
     showStats: boolean;        // 显示本次统计
     autoAdvance: boolean;      // 自动翻到下一张
     autoAdvanceDelay: number;  // 自动翻卡延迟（秒）
+    enableDebugLogs: boolean;  // 启用调试日志（开发用）
 }
 
 /** 增量阅读设置 */
@@ -181,6 +182,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
         showStats: true,
         autoAdvance: false,
         autoAdvanceDelay: 0.5,
+        enableDebugLogs: false,  // 默认关闭调试日志
     },
     incremental: {
         enabled: true,

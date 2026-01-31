@@ -3,6 +3,7 @@ import { setBlockAttrs, sql } from '../../siyuan/api.ts';
 import { ATTR_PRIORITY } from '../../siyuan/block.ts';
 import { computeProtectionStats, clampPriority, DEFAULT_PRIORITY } from '../../queue/abstraction/IPriority.ts';
 import { normalizeBlockId, normalizeDeckId, normalizeRiffCardId } from '../../queue/abstraction/QueueCardRef.ts';
+import type { StorageManager } from '../../storage/manager.ts';
 import type { QueueItem } from '../../queue/types.ts';
 import type { QueueProvider } from '../QueueProvider.ts';
 import type { QueueStats } from '../types.ts';
@@ -57,6 +58,7 @@ export class FSRSRetrievalProvider implements QueueProvider<QueueItem> {
 
   private readonly deckID: string;
   private readonly api: RiffApi;
+  private readonly storage?: StorageManager;
   private loaded = false;
 
   private items: QueueItem[] = [];
@@ -69,9 +71,10 @@ export class FSRSRetrievalProvider implements QueueProvider<QueueItem> {
   private unreviewedTotal = 0;
   private protectionExtra = '';
 
-  constructor(options?: { deckID?: string; displayName?: string; api?: Partial<RiffApi> }) {
+  constructor(options?: { deckID?: string; displayName?: string; api?: Partial<RiffApi>; storage?: StorageManager }) {
     this.deckID = String(options?.deckID || riff.BUILTIN_DECK_ID);
     this.displayName = String(options?.displayName || 'FSRS 复习');
+    this.storage = options?.storage;
     this.api = {
       getRiffDueCards: options?.api?.getRiffDueCards || riff.getRiffDueCards,
       reviewRiffCard: options?.api?.reviewRiffCard || riff.reviewRiffCard,
@@ -104,7 +107,32 @@ export class FSRSRetrievalProvider implements QueueProvider<QueueItem> {
     if (!id) return;
     const deckID = this.itemByCardId.get(id)?.deckID || this.deckID;
     const payload = this.buildReviewedPayload(reviewedCards);
+    const reviewTime = Date.now();
+
     await this.api.reviewRiffCard(deckID, id, Math.max(1, Math.min(4, Math.floor(rating))) as 1 | 2 | 3 | 4, payload);
+
+    // 记录复习日志
+    if (this.storage) {
+      try {
+        const item = this.itemByCardId.get(id);
+        await this.storage.addReviewLog({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          cardId: id,
+          rating: rating as 1 | 2 | 3 | 4,
+          state: item?.state || 0,
+          scheduledDays: 0, // Riff API 不提供这个信息
+          elapsedDays: 0,   // Riff API 不提供这个信息
+          review: reviewTime,
+          reviewTime: 0,
+          isDrill: false,
+          stability: 0,     // Riff API 不提供这个信息
+          difficulty: 0,    // Riff API 不提供这个信息
+        });
+      } catch (error) {
+        console.error('[FSRSRetrievalProvider] Failed to add review log:', error);
+      }
+    }
+
     this.afterConsumed(id);
   }
 

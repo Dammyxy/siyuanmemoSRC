@@ -26,6 +26,7 @@ export class RetrievalPracticeProvider implements QueueProvider<BrowserCard> {
   readonly displayName = '提取练习';
   private readonly queue: RetrievalPracticeQueue;
   private readonly deckId: string;
+  private readonly storage?: StorageManager;
   private reviewedCount = 0;
 
   constructor(options?: {
@@ -34,6 +35,7 @@ export class RetrievalPracticeProvider implements QueueProvider<BrowserCard> {
     scheduler?: SchedulerEngineAdapter;
   }) {
     this.deckId = options?.deckId || '';
+    this.storage = options?.storage;
     this.queue = new RetrievalPracticeQueue({
       deckID: options?.deckId,
       storage: options?.storage,
@@ -97,6 +99,13 @@ export class RetrievalPracticeProvider implements QueueProvider<BrowserCard> {
     rating: 1 | 2 | 3 | 4,
     reviewedCards?: BrowserCard[]
   ): Promise<boolean> {
+    console.log('[RetrievalPracticeProvider] reviewCard called:', {
+      cardId,
+      rating,
+      hasStorage: !!this.storage,
+      reviewedCardsCount: reviewedCards?.length,
+    });
+
     try {
       // 查找对应的卡片
       const card = reviewedCards?.find(c => (c as any).cardID === cardId || (c as any).cardId === cardId);
@@ -105,11 +114,44 @@ export class RetrievalPracticeProvider implements QueueProvider<BrowserCard> {
         return false;
       }
 
+      console.log('[RetrievalPracticeProvider] Card found:', card);
+
+      // 记录复习时间
+      const reviewTime = Date.now();
+
       // 提交反馈
       await this.queue.onFeedback(card as any, {
         action: 'rate',
         rating,
       });
+
+      console.log('[RetrievalPracticeProvider] Feedback submitted, now recording log...');
+
+      // 记录复习日志
+      if (this.storage) {
+        try {
+          const logData = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            cardId: cardId,
+            rating: rating as 1 | 2 | 3 | 4,
+            state: (card as any)?.state || 0,
+            scheduledDays: (card as any)?.scheduledDays || 0,
+            elapsedDays: (card as any)?.elapsedDays || 0,
+            review: reviewTime,
+            reviewTime: 0,
+            isDrill: false,
+            stability: (card as any)?.stability || 0,
+            difficulty: (card as any)?.difficulty || 0,
+          };
+          console.log('[RetrievalPracticeProvider] Adding review log:', logData);
+          await this.storage.addReviewLog(logData);
+          console.log('[RetrievalPracticeProvider] Review log added successfully');
+        } catch (error) {
+          console.error('[RetrievalPracticeProvider] Failed to add review log:', error);
+        }
+      } else {
+        console.warn('[RetrievalPracticeProvider] No storage available, cannot record log');
+      }
 
       console.log('[RetrievalPracticeProvider] Card reviewed:', {
         cardId,

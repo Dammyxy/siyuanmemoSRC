@@ -99,7 +99,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, onBeforeUnmount } from 'vue';
+import { ref, computed, onMounted, nextTick, onBeforeUnmount, watch } from 'vue';
 import { AgGridVue } from 'ag-grid-vue3';
 import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
 // AG Grid v35+ 使用 Theming API，无需引入 CSS 主题文件
@@ -404,6 +404,15 @@ function handleSearchInput() {
   }, 150);
 }
 
+// 监听 preset 和 cardType 变化
+watch(currentPreset, () => {
+  void refreshData();
+});
+
+watch(currentCardType, () => {
+  void refreshData(true);  // cardType 需要强制刷新缓存
+});
+
 // AG Grid 选择配置 (v35+ 新 API)
 const rowSelection = ref<RowSelectionOptions>({
   mode: 'multiRow',
@@ -692,7 +701,15 @@ function getActionLabel(action: { id: string; label: string }): string {
 }
 
 async function handleAction(actionId: string, targetCards: BrowserCard[], anchorRow?: BrowserCard) {
-  if (!targetCards?.length) return;
+  console.log('[CardBrowser] ========== handleAction 被调用 ==========');
+  console.log('[CardBrowser] actionId:', actionId);
+  console.log('[CardBrowser] targetCards 数量:', targetCards?.length);
+  console.log('[CardBrowser] 卡片 IDs:', targetCards?.map(c => c.blockId));
+  
+  if (!targetCards?.length) {
+    console.log('[CardBrowser] ❌ 没有选中的卡片，退出');
+    return;
+  }
 
   if (actionId === 'open') {
     const blockId = String(anchorRow?.blockId || targetCards[0]?.blockId || '');
@@ -705,7 +722,12 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   }
 
   const ds = currentDataSource.value;
-  if (!ds) return;
+  console.log('[CardBrowser] 当前数据源:', ds?.constructor?.name, ds);
+  
+  if (!ds) {
+    console.log('[CardBrowser] ❌ 没有数据源，退出');
+    return;
+  }
 
   if (actionId === 'reset') {
     const ok = await confirmDialog({
@@ -718,11 +740,18 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   }
 
   const builder = ACTION_PARAM_BUILDERS[actionId];
+  console.log('[CardBrowser] 参数构建器:', builder ? '存在' : '不存在');
+  
   const ctx = builder ? await builder(targetCards) : { refresh: () => void loadData() };
-  if (builder && ctx == null) return;
+  if (builder && ctx == null) {
+    console.log('[CardBrowser] ❌ 参数构建器返回 null，用户取消操作');
+    return;
+  }
 
   try {
+    console.log('[CardBrowser] 调用 ds.performAction:', actionId);
     const res = await (ds.performAction(actionId, targetCards as any, ctx) as any);
+    console.log('[CardBrowser] performAction 返回结果:', res);
     const updated = Number(res?.updated?.length || 0);
     const skipped = Number(res?.skipped?.length || 0);
     if (updated <= 0 && skipped > 0) {
@@ -762,8 +791,25 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
 function onCellContextMenu(event: CellContextMenuEvent) {
   event.event?.preventDefault();
 
+  console.log('[CardBrowser] ========== 右键菜单调试 ==========');
+  
   const ds = currentDataSource.value;
+  console.log('[CardBrowser] 当前数据源:', ds);
+  console.log('[CardBrowser] 数据源类型:', ds?.constructor?.name);
+  console.log('[CardBrowser] 数据源 ID:', (ds as any)?.id);
+  
   const actions = ds?.getSupportedActions?.() || [];
+  console.log('[CardBrowser] getSupportedActions 返回的动作数量:', actions.length);
+  console.log('[CardBrowser] 所有动作:', actions.map(a => ({ id: a.id, label: a.label, hasSubmenu: !!a.submenu })));
+  
+  const addToQueueAction = actions.find(a => a.id === 'add-to-queue');
+  console.log('[CardBrowser] 找到"加入队列"动作:', addToQueueAction);
+  if (addToQueueAction && addToQueueAction.submenu) {
+    console.log('[CardBrowser] "加入队列"子菜单:', addToQueueAction.submenu.map(s => ({ id: s.id, label: s.label })));
+  }
+  
+  console.log('[CardBrowser] ========== 调试结束 ==========');
+  
   const menu = new Menu('card-browser-context');
   const rowData = event.data as BrowserCard;
   const selected = selectedRows.value?.length ? selectedRows.value : [rowData];
@@ -844,18 +890,34 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   menu.addItem({ type: 'separator' });
 
   // ========== 原有的操作菜单 ==========
+  console.log('[CardBrowser] 开始渲染操作菜单，共', actions.length, '个动作');
+  
   for (const action of actions) {
+    console.log('[CardBrowser] 渲染动作:', action.id, action.label, '有子菜单:', !!action.submenu);
+    
     if (action.submenu && action.submenu.length > 0) {
       // 处理子菜单
+      console.log('[CardBrowser] 渲染子菜单，共', action.submenu.length, '项');
+      
+      const submenuItems = action.submenu.map(sub => {
+        console.log('[CardBrowser] 子菜单项:', sub.id, sub.label);
+        return {
+          icon: sub.icon || 'iconMore',
+          label: getActionLabel({ id: sub.id, label: sub.label }),
+          click: () => {
+            console.log('[CardBrowser] 子菜单项被点击:', sub.id, sub.label);
+            void handleAction(sub.id, selected, rowData);
+          },
+        };
+      });
+      
       menu.addItem({
         icon: action.icon || 'iconMore',
         label: getActionLabel({ id: action.id, label: action.label }),
-        submenu: action.submenu.map(sub => ({
-          icon: sub.icon || 'iconMore',
-          label: getActionLabel({ id: sub.id, label: sub.label }),
-          click: () => void handleAction(sub.id, selected, rowData),
-        })),
+        submenu: submenuItems,
       });
+      
+      console.log('[CardBrowser] ✅ 已添加子菜单:', action.label);
     } else {
       // 处理普通菜单项
       menu.addItem({
@@ -863,8 +925,12 @@ function onCellContextMenu(event: CellContextMenuEvent) {
         label: getActionLabel({ id: action.id, label: action.label }),
         click: () => void handleAction(action.id, selected, rowData),
       });
+      
+      console.log('[CardBrowser] ✅ 已添加普通菜单项:', action.label);
     }
   }
+  
+  console.log('[CardBrowser] 菜单渲染完成，准备打开菜单');
 
   const mouseEvent = event.event as MouseEvent;
   menu.open({ x: mouseEvent.clientX, y: mouseEvent.clientY });
@@ -956,6 +1022,12 @@ function handleCardTypeChange() {
   // searchQuery.value → 保留搜索
   // ✅ 强制刷新缓存，因为 cardType 筛选在 loadCards() 中应用
   void refreshData(true);  // forceRefresh = true
+}
+
+// 强制刷新数据（清除缓存）
+function forceRefreshData() {
+  invalidateCardCache();
+  void refreshData(true);
 }
 
 // 显示性能报告

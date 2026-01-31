@@ -375,16 +375,36 @@ export class BlockMenuHandler {
     for (let i = 0; i < uniqueIds.length; i += 200) {
       const batch = uniqueIds.slice(i, i + 200);
       const idsStr = batch.map((id) => `'${id}'`).join(',');
-      const rows = await sql(
-        `SELECT block_id, value FROM attributes WHERE name = '${ATTR_CARD_ID}' AND block_id IN (${idsStr}) AND value != ''`
-      );
+      
+      // 🆕 查询卡片属性，包括卡片类型
+      const rows = await sql(`
+        SELECT 
+          a1.block_id, 
+          a1.value as card_id,
+          a2.value as card_type
+        FROM attributes a1
+        LEFT JOIN attributes a2 ON a1.block_id = a2.block_id AND a2.name = 'custom-fsrs-card-type'
+        WHERE a1.name = '${ATTR_CARD_ID}' 
+          AND a1.block_id IN (${idsStr}) 
+          AND a1.value != ''
+      `);
 
       for (const row of rows) {
         const blockID = row.block_id || row.blockID;
-        const cardID = row.value || row.card_id || row.cardID;
+        const cardID = row.card_id || row.value || row.cardID;
+        const cardType = row.card_type;
+        
         if (!blockID || !cardID || seen.has(cardID)) {
           continue;
         }
+        
+        // 🆕 过滤：只接受 Item 类型的卡片（或未标记类型的卡片）
+        // Topic 卡片不应该加入提取练习队列
+        if (cardType === 'topic') {
+          console.log(`[BlockMenuHandler] Skipping Topic card: ${blockID}`);
+          continue;
+        }
+        
         seen.add(cardID);
         result.push({
           cardID,
@@ -398,6 +418,8 @@ export class BlockMenuHandler {
         });
       }
     }
+    
+    console.log(`[BlockMenuHandler] Built ${result.length} Item cards from ${uniqueIds.length} blocks`);
     return result;
   }
 }

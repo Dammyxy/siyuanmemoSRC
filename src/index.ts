@@ -3,6 +3,9 @@
  * 插件入口文件
  */
 
+// 🆕 快速禁用调试日志（在所有导入之前）
+import '@/utils/disableLogs';
+
 import {
   Plugin,
   getFrontend,
@@ -31,8 +34,15 @@ import { createDefaultCard } from '@/types';
 import '@/index.scss';
 import { XiuyuanService, XiuyuanStorage, BUILTIN_TEMPLATES } from '@/core/xiuyuan';
 import { TemplateSelectDialog } from '@/ui/xiuyuan';
+
+// 🆕 Debug tools (only in development)
+if (process.env.NODE_ENV === 'development') {
+  import('@/debug/fsrs-debug');
+}
+
 import { ConsoleQueueMonitor, DEFAULT_PRIORITY, QueueContext, StorageFileJsonAdapter, type QueueItem } from '@/core/queue';
 import { SubsetPracticeStrategy } from '@/core/queue/strategies';
+import { TransactionObserver } from '@/core/box/TransactionObserver';
 // 队列导入（直接从V2文件导入）
 import { RetrievalPracticeQueue } from '@/core/queue/strategies/RetrievalPracticeQueue';
 import { FilterGroupQueue } from '@/core/queue/strategies/FilterGroupQueue';
@@ -43,7 +53,7 @@ import { IncrementalLearningQueue } from '@/core/queue/strategies/IncrementalLea
 import { NeuralQueueStorage } from '@/core/queue/neural';
 import { ExtractionNativeAdapter, FinalDrillNativeAdapter } from '@/core/native/adapter';
 // Services
-import { DialogService, MenuService, ReviewDialogManager, BlockMenuHandler, createQueueHandlers } from '@/services';
+import { DialogService, MenuService, ReviewDialogManager, BlockMenuHandler, createQueueHandlers, clearPracticeQueue } from '@/services';
 import { NativeReviewSession } from '@/core/native/session';
 
 // Topic/Item 迁移
@@ -76,6 +86,7 @@ export default class FSRSPlugin extends Plugin {
   private xiuyuanStorage!: XiuyuanStorage;
   private reviewDialogManager!: ReviewDialogManager;
   private blockMenuHandler!: BlockMenuHandler;
+  private transactionObserver!: TransactionObserver;
 
   // 为兼容性提供的别名访问器
   public get deliberateQueue(): FinalDrillQueue {
@@ -295,6 +306,15 @@ export default class FSRSPlugin extends Plugin {
       await this.xiuyuanStorage.save();
       console.log('[FSRS] ✅ XiuyuanService initialized with', BUILTIN_TEMPLATES.length, 'builtin templates');
 
+      // 🆕 初始化 TransactionObserver（自动制卡）
+      this.transactionObserver = new TransactionObserver(this);
+      this.transactionObserver.init();
+      
+      // 根据设置启用/禁用自动制卡
+      const autoCardEnabled = settings.incremental?.autoCardEnabled || false;
+      this.transactionObserver.setEnabled(autoCardEnabled);
+      console.log('[FSRS] ✅ TransactionObserver initialized, autoCardEnabled:', autoCardEnabled);
+
       this.isInitialized = true;
 
       // 检查是否需要 Topic/Item 迁移
@@ -493,6 +513,11 @@ export default class FSRSPlugin extends Plugin {
     this.reviewDialog?.destroy();
     this.srsBrowserDialog?.destroy();
 
+    // 卸载 TransactionObserver
+    if (this.transactionObserver) {
+      this.transactionObserver.unload();
+    }
+
     try {
       if (this.topBarElement && this.topBarContextMenuHandler) {
         this.topBarElement.removeEventListener('contextmenu', this.topBarContextMenuHandler);
@@ -553,6 +578,7 @@ export default class FSRSPlugin extends Plugin {
         fsrsSettings: currentSettings.fsrs,
         queueSettings: currentSettings.queues,
         schedulerSettings: currentSettings.scheduler,  // 🆕 新增
+        incrementalSettings: currentSettings.incremental,  // 🆕 新增
         i18n: this.i18n || {},
         defaultTab,
         queueCount: this.retrievalQueue['localBuffer']?.length || 0,
@@ -576,6 +602,7 @@ export default class FSRSPlugin extends Plugin {
             },
             queues: settings.queues || currentSettings.queues,
             scheduler: settings.scheduler || currentSettings.scheduler,  // 🆕 保存调度器配置
+            incremental: settings.incremental || currentSettings.incremental,  // 🆕 保存增量阅读配置
           };
           await this.storage.updateSettings(updatedSettings);
           this.scheduler.updateParams(updatedSettings.fsrs);
@@ -588,6 +615,13 @@ export default class FSRSPlugin extends Plugin {
               fsrsParams: updatedSettings.fsrs,
             });
             console.log('[FSRS] ✅ SchedulerRouter config updated');
+          }
+
+          // 🆕 更新 TransactionObserver 启用状态
+          if (this.transactionObserver && settings.incremental) {
+            const autoCardEnabled = settings.incremental.autoCardEnabled || false;
+            this.transactionObserver.setEnabled(autoCardEnabled);
+            console.log('[FSRS] ✅ TransactionObserver enabled:', autoCardEnabled);
           }
         },
         close: () => {
@@ -826,7 +860,10 @@ export default class FSRSPlugin extends Plugin {
   }
 
   private async clearPracticeQueue(): Promise<void> {
-    // TODO: Implement clear functionality
+    await clearPracticeQueue({
+      blockMenuHandler: this.blockMenuHandler,
+      retrievalQueue: this.retrievalQueue,
+    });
   }
 
   private async startPracticeQueue(): Promise<void> {

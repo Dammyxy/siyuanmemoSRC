@@ -26,6 +26,40 @@ function mse(y: (x: number) => number, points: Point[]): number {
 }
 
 /**
+ * 计算 R² (决定系数)
+ *
+ * @param points 数据点
+ * @param predictFn 预测函数
+ * @returns R² 值 (0-1)
+ */
+function calculateR2(
+    points: Point[],
+    predictFn: (x: number) => number
+): number {
+    if (points.length === 0) return 0;
+
+    // 计算 y 的平均值
+    const yMean = sum(points.map(([, y]) => y)) / points.length;
+
+    // 计算 SS_tot (总平方和)
+    const ssTot = sum(points.map(([, y]) => {
+        const diff = y - yMean;
+        return diff * diff;
+    }));
+
+    // 计算 SS_res (残差平方和)
+    const ssRes = sum(points.map(([x, y]) => {
+        const predicted = predictFn(x);
+        const diff = y - predicted;
+        return diff * diff;
+    }));
+
+    // 计算 R²
+    if (ssTot === 0) return 0;
+    return 1 - (ssRes / ssTot);
+}
+
+/**
  * 指数回归
  *
  * 拟合模型: y = a * e^(bx)
@@ -52,7 +86,7 @@ export function exponentialRegression(points: Point[]): RegressionResult {
     return {
         x: (y: number) => (-a_exp + Math.log(y)) / b,
         y: y_func,
-        r2: 0, // TODO: 计算 R²
+        r2: calculateR2(points, y_func),
         a: Math.exp(a_exp),
         b: b,
         mse: () => mse(y_func, points),
@@ -83,7 +117,7 @@ export function linearRegression(points: Point[]): RegressionResult {
     return {
         x: (y: number) => (y - a) / b,
         y: y_func,
-        r2: 0, // TODO: 计算 R²
+        r2: calculateR2(points, y_func),
         a: a,
         b: b,
         mse: () => mse(y_func, points),
@@ -128,7 +162,7 @@ export function powerLawRegression(points: Point[]): RegressionResult {
 
     return {
         ...model,
-        r2: 0, // TODO: 计算 R²
+        r2: calculateR2(points, model.y),
         a: Math.exp(a_exp),
         b: b,
         mse: () => mse(model.y, points),

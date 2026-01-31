@@ -86,29 +86,52 @@ export class GroupDataSource implements IDataSource<QueueItem> {
    * Add items to appropriate groups
    */
   async add(items: QueueItem[]): Promise<number> {
+    console.log('[GroupDataSource] ========== add 被调用 ==========');
+    console.log('[GroupDataSource] items 数量:', items?.length);
+    console.log('[GroupDataSource] loaded:', this.loaded);
+    console.log('[GroupDataSource] groupIds:', this.groupIds);
+    console.log('[GroupDataSource] 当前 groups:', Object.keys(this.groups));
+    
     if (!this.loaded) {
+      console.log('[GroupDataSource] 首次加载，调用 load()');
       await this.load();
     }
 
     let addedCount = 0;
 
     for (const item of items || []) {
-      const groupId = String((item as any).meta?.groupId || this.groupIds[0] || 'default');
+      const metaGroupId = (item as any).meta?.groupId;
+      const fallbackGroupId = this.groupIds[0] || 'default';
+      const groupId = String(metaGroupId || fallbackGroupId);
+      
+      console.log('[GroupDataSource] 处理 item:', {
+        cardID: item.cardID,
+        metaGroupId,
+        fallbackGroupId,
+        finalGroupId: groupId,
+      });
 
       if (!this.groups[groupId]) {
+        console.log('[GroupDataSource] ⚠️ 组不存在，创建新组:', groupId);
         this.groups[groupId] = [];
       }
 
       // Check for duplicates
       if (this.groups[groupId].some((x) => x.cardID === item.cardID)) {
+        console.log('[GroupDataSource] ❌ 卡片已存在，跳过:', item.cardID);
         continue;
       }
 
       this.groups[groupId].push(item);
       addedCount++;
+      console.log('[GroupDataSource] ✅ 成功添加到组:', groupId, '当前组大小:', this.groups[groupId].length);
     }
 
+    console.log('[GroupDataSource] 添加完成，共添加:', addedCount);
+    console.log('[GroupDataSource] 所有组大小:', Object.entries(this.groups).map(([id, items]) => `${id}: ${items.length}`));
+
     if (addedCount > 0) {
+      console.log('[GroupDataSource] 保存到持久化存储');
       await this.save();
     }
 
