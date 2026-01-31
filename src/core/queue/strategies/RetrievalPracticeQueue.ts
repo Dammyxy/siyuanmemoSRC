@@ -62,6 +62,7 @@ class RetrievalHybridDataSource extends HybridDataSource {
       notebook: options?.notebook,
       rootID: options?.rootID,
       blacklistProvider: storage ? () => storage.getRiffBlacklist() : undefined,
+      storage: storage,  // 🆕 Phase 1.2: 传入 storage 参数
     });
     
     const localSource = new StorageDataSource({

@@ -2,10 +2,14 @@
  * Riff API Data Source
  *
  * Retrieves queue items from SiYuan's built-in Riff flashcard system.
+ * 
+ * 🆕 Phase 1.2-1.3: 优先使用本地 nextDues
  */
 
 import type { IDataSource, DataSourceOptions } from './IDataSource';
 import type { QueueItem } from '../types';
+import type { StorageManager } from '../../storage/manager';
+import type { FSRSCard } from '@/types';
 import { getRiffDueCards } from '../../siyuan/riff';
 import { sql } from '../../siyuan/api';
 
@@ -14,6 +18,7 @@ export type RiffDataSourceOptions = DataSourceOptions<QueueItem> & {
   notebook?: string;
   rootID?: string;
   blacklistProvider?: () => Set<string>;
+  storage?: StorageManager;  // 🆕 添加 storage 参数
 };
 
 /**
@@ -26,6 +31,7 @@ export class RiffDataSource implements IDataSource<QueueItem> {
   private readonly filterFn?: (item: QueueItem) => boolean;
   private readonly limit?: number;
   private readonly blacklistProvider?: () => Set<string>;
+  private readonly storage?: StorageManager;  // 🆕 添加 storage 属性
   private cache: QueueItem[] = [];
 
   constructor(options: RiffDataSourceOptions) {
@@ -35,6 +41,7 @@ export class RiffDataSource implements IDataSource<QueueItem> {
     this.filterFn = options.filter;
     this.limit = options.limit;
     this.blacklistProvider = options.blacklistProvider;
+    this.storage = options.storage;  // 🆕 保存 storage
   }
 
   /**
@@ -121,6 +128,88 @@ export class RiffDataSource implements IDataSource<QueueItem> {
     return String(value || '').replace(/'/g, "''");
   }
 
+  /**
+   * 批量查询本地数据库，合并 nextDues
+   * 
+   * 🆕 Phase 1.3: 优先级：本地数据 > Riff 数据
+   */
+  private async mergeLocalNextDues(items: QueueItem[]): Promise<QueueItem[]> {
+    if (!this.storage || items.length === 0) return items;
+
+    try {
+      // 批量查询本地卡片
+      const cardIds = items.map(item => item.cardID);
+      const localCards = new Map<string, FSRSCard>();
+
+      for (const cardId of cardIds) {
+        const card = this.storage.getCard(cardId);
+        if (card) {
+          localCards.set(cardId, card);
+        }
+      }
+
+      console.log('[RiffDataSource] Merge local nextDues:', {
+        total: items.length,
+        localFound: localCards.size,
+      });
+
+      // 合并数据
+      let mergedCount = 0;
+      const result = items.map(item => {
+        const localCard = localCards.get(item.cardID);
+        if (!localCard) return item;
+
+        // 🆕 优先使用本地的 nextDues
+        const localNextDues = this.extractNextDues(localCard);
+        if (localNextDues) {
+          mergedCount++;
+          return {
+            ...item,
+            nextDues: localNextDues,
+            // 同时更新其他字段
+            state: localCard.state,
+            lapses: localCard.lapses,
+            reps: localCard.reps,
+            lastReview: localCard.lastReview?.getTime(),
+          };
+        }
+
+        return item;
+      });
+
+      if (mergedCount > 0) {
+        console.log('[RiffDataSource] ✅ Merged', mergedCount, 'cards with local nextDues');
+      }
+
+      return result;
+    } catch (error) {
+      console.error('[RiffDataSource] Failed to merge local nextDues:', error);
+      return items;
+    }
+  }
+
+  /**
+   * 从 FSRSCard 提取 nextDues
+   * 
+   * 🆕 Phase 1.3: 将 FSRSCard.due 转换为 QueueItem.nextDues 格式
+   */
+  private extractNextDues(card: FSRSCard): Record<1 | 2 | 3 | 4, string> | null {
+    // 如果卡片有 due 时间，计算 nextDues
+    if (card.due) {
+      const dueTime = card.due.getTime ? card.due.getTime() : new Date(card.due).getTime();
+      const dueISO = new Date(dueTime).toISOString();
+      
+      return {
+        1: dueISO,  // Again
+        2: dueISO,  // Hard
+        3: dueISO,  // Good
+        4: dueISO,  // Easy
+      };
+    }
+
+    return null;
+  }
+
   async getAll(): Promise<QueueItem[]> {
     try {
       const data = await getRiffDueCards(this.deckId, this.notebook, this.rootID);
@@ -140,6 +229,11 @@ export class RiffDataSource implements IDataSource<QueueItem> {
         reps: card.reps,
         lastReview: card.lastReview ? new Date(card.lastReview).getTime() : undefined,
       }));
+
+      // 🆕 Phase 1.3: 批量查询本地数据库，优先使用本地 nextDues
+      if (this.storage) {
+        items = await this.mergeLocalNextDues(items);
+      }
 
       // Filter Topic cards
       items = await this.filterTopicCards(items);
