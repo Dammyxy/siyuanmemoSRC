@@ -484,4 +484,37 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
   async getAllCards(): Promise<QueueItem[]> {
     return await this.hybridSource.getAll();
   }
+
+  /**
+   * Override rotateToEnd to use the Mutable trait for proper persistence
+   * 
+   * The base implementation pushes to the array returned by getAll(),
+   * but RetrievalHybridDataSource returns a new array, so the push doesn't persist.
+   * This override uses the Mutable trait's insertAt method to properly persist the rotation.
+   * 
+   * @param item - The item to rotate to the end
+   * @protected
+   */
+  protected async rotateToEnd(item: QueueItem): Promise<void> {
+    console.log('[RetrievalPracticeQueue] Rotating item to end of queue');
+    
+    // Get the mutable trait to insert at the end
+    const mutableTrait = this.getMutableTrait();
+    if (!mutableTrait) {
+      console.warn('[RetrievalPracticeQueue] Mutable trait not available, cannot rotate item');
+      return;
+    }
+    
+    // Remove the item from the queue first
+    const removed = await this.hybridSource.remove([item]);
+    console.log(`[RetrievalPracticeQueue] Removed ${removed} item(s) from queue`);
+
+    // Get current queue size AFTER removing to determine insertion index
+    const allItemsAfter = await this.hybridSource.getAll();
+    const insertIndex = allItemsAfter.length; // Insert at the end (after removal, this is the correct index)
+
+    // Insert the item at the end using the trait
+    await mutableTrait.insertAt([item], insertIndex);
+    console.log(`[RetrievalPracticeQueue] Item rotated to end, new queue size: ${insertIndex + 1}`);
+  }
 }

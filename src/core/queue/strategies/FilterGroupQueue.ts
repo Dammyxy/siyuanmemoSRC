@@ -134,7 +134,31 @@ export class FilterGroupQueue extends BaseCompositeQueue<QueueItem>
   }
 
   /**
-   * Override onFeedback to advance cursor after review
+   * Override rotateToEnd to work with GroupDataSource
+   * 
+   * GroupDataSource.getAll() returns a new array, so we need to use
+   * the add() method to properly persist the rotated item.
+   */
+  protected async rotateToEnd(item: QueueItem): Promise<void> {
+    console.log('[FilterGroupQueue] Rotating item to end of queue');
+    
+    // Remove the item from the queue
+    const removed = await this.groupDataSource.remove([item]);
+    console.log(`[FilterGroupQueue] Removed ${removed} item(s) from queue`);
+
+    // Add the item back (it will go to the end of its group)
+    const added = await this.groupDataSource.add([item]);
+    console.log(`[FilterGroupQueue] Added ${added} item(s) back to queue`);
+  }
+
+  /**
+   * Override onFeedback to use base class rating logic and advance cursor
+   * 
+   * This implementation:
+   * 1. Delegates to BaseCompositeQueue for rating-based logic (rating < 3 rotates, >= 3 removes)
+   * 2. Advances cursor after feedback (FilterGroupQueue-specific behavior)
+   * 
+   * Note: We don't call super.onFeedback() for custom actions to preserve original behavior
    */
   async onFeedback(currentItem: QueueItem | null, feedback: QueueFeedback): Promise<void> {
     if (!currentItem) return;
@@ -142,8 +166,10 @@ export class FilterGroupQueue extends BaseCompositeQueue<QueueItem>
     // Custom actions don't remove cards
     if (feedback.action === 'custom') return;
 
-    // Remove card and advance cursor
-    await this.groupDataSource.remove([currentItem]);
+    // Use base class rating logic (rating < 3 rotates, >= 3 removes)
+    await super.onFeedback(currentItem, feedback);
+
+    // Advance cursor after feedback (FilterGroupQueue-specific behavior)
     this.groupSequencer.advanceCursorToNext();
   }
 

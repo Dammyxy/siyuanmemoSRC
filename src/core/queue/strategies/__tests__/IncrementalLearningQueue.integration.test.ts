@@ -1,30 +1,31 @@
 /**
- * RetrievalPracticeQueue 单元测试
+ * IncrementalLearningQueue 集成测试
  * 
- * 测试新的 Composite Architecture 实现的公共 API
+ * 测试完整的评分流程，验证评分 1-2 的卡片旋转到队尾，评分 3-4 的卡片从队列移除
+ * Feature: retrieval-practice-rating-fix
+ * Task: 4.2 编写 IncrementalLearningQueue 的集成测试
+ * **Validates: Requirements 6.4**
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { RetrievalPracticeQueue } from '@/core/queue/strategies/RetrievalPracticeQueue';
+import { IncrementalLearningQueue } from '../IncrementalLearningQueue';
 import type { StorageManager } from '@/core/storage/manager';
-import { SimpleFSRSScheduler } from '@/core/scheduler/strategies/FSRSV5';
 import type { QueueItem } from '@/core/queue/types';
 import { DEFAULT_PRIORITY } from '@/core/queue/abstraction/IPriority';
 
 // Mock StorageManager
 const createMockStorage = (): StorageManager => {
+  const localQueue: QueueItem[] = [];
+  
   const storage = {
-    getPracticeQueue: vi.fn(() => []),
-    setPracticeQueue: vi.fn().mockResolvedValue(undefined),
-    getQueueData: vi.fn(() => null),
-    setQueueData: vi.fn().mockResolvedValue(undefined),
-    getQueueBackup: vi.fn().mockResolvedValue(null),
-    setQueueBackup: vi.fn().mockResolvedValue(undefined),
+    getIncrementalLearningQueue: vi.fn(() => localQueue),
+    setIncrementalLearningQueue: vi.fn(async (items: QueueItem[]) => {
+      localQueue.length = 0;
+      localQueue.push(...items);
+    }),
     getCard: vi.fn(),
     setCard: vi.fn(),
     saveCards: vi.fn().mockResolvedValue(undefined),
-    saveData: vi.fn().mockResolvedValue(undefined),
-    loadData: vi.fn().mockResolvedValue(null),
     getRiffBlacklist: vi.fn(() => []),
     addToRiffBlacklist: vi.fn(),
   } as unknown as StorageManager;
@@ -53,7 +54,7 @@ function createTestQueueItem(overrides?: Partial<QueueItem>): QueueItem {
     deckID: 'deck-test',
     priority: DEFAULT_PRIORITY,
     nextDues: {
-      1: new Date(now - 1000).toISOString(), // Past date - card is due
+      1: new Date(now - 1000).toISOString(),
       2: new Date(now - 2000).toISOString(),
       3: new Date(now - 3000).toISOString(),
       4: new Date(now - 4000).toISOString(),
@@ -67,177 +68,8 @@ function createTestQueueItem(overrides?: Partial<QueueItem>): QueueItem {
   };
 }
 
-// FSRS 参数
-const mockFSRSParams = {
-  requestRetention: 0.9,
-  maximumInterval: 36500,
-  weights: new Array(19).fill(0.5),
-  enableFuzz: false,
-  enableShortTerm: true,
-};
-
-describe('RetrievalPracticeQueue - 公共 API 测试', () => {
-  let queue: RetrievalPracticeQueue;
-  let mockStorage: StorageManager;
-
-  beforeEach(async () => {
-    vi.clearAllMocks();
-    mockStorage = createMockStorage();
-    queue = new RetrievalPracticeQueue({
-      deckID: 'test-deck',
-      api: mockRiffApi,
-      storage: mockStorage,
-      localScheduler: new SimpleFSRSScheduler(mockFSRSParams),
-    });
-
-    // 等待队列加载完成
-    await new Promise(resolve => setTimeout(resolve, 10));
-  });
-
-  describe('addItems()', () => {
-    it('应该成功添加卡片到队列', async () => {
-      const items = [
-        createTestQueueItem({ cardID: 'card-1' }),
-        createTestQueueItem({ cardID: 'card-2' }),
-        createTestQueueItem({ cardID: 'card-3' }),
-      ];
-
-      const count = await queue.addItems(items);
-
-      expect(count).toBe(3);
-      expect(queue.getAllItems()).toHaveLength(3);
-    });
-
-    it('应该返回添加的卡片数量', async () => {
-      const items = [
-        createTestQueueItem({ cardID: 'card-1' }),
-        createTestQueueItem({ cardID: 'card-2' }),
-      ];
-
-      const count = await queue.addItems(items);
-
-      expect(count).toBe(2);
-    });
-
-    it('空数组应该返回 0', async () => {
-      const count = await queue.addItems([]);
-
-      expect(count).toBe(0);
-    });
-  });
-
-  describe('getAllItems()', () => {
-    it('应该返回所有卡片', async () => {
-      const items = [
-        createTestQueueItem({ cardID: 'card-1' }),
-        createTestQueueItem({ cardID: 'card-2' }),
-      ];
-
-      await queue.addItems(items);
-
-      const allItems = queue.getAllItems();
-
-      expect(allItems).toHaveLength(2);
-      expect(allItems[0].cardID).toBe('card-1');
-      expect(allItems[1].cardID).toBe('card-2');
-    });
-
-    it('空队列应该返回空数组', () => {
-      const allItems = queue.getAllItems();
-
-      expect(allItems).toEqual([]);
-    });
-  });
-
-  describe('clear()', () => {
-    it('应该清空本地队列', async () => {
-      const items = [
-        createTestQueueItem({ cardID: 'card-1' }),
-        createTestQueueItem({ cardID: 'card-2' }),
-      ];
-
-      await queue.addItems(items);
-      expect(queue.getAllItems()).toHaveLength(2);
-
-      const count = await queue.clear();
-
-      expect(count).toBe(2);
-      expect(queue.getAllItems()).toHaveLength(0);
-    });
-
-    it('清空空队列应该返回 0', async () => {
-      const count = await queue.clear();
-
-      expect(count).toBe(0);
-    });
-  });
-
-  describe('getAllCards()', () => {
-    it('应该返回所有到期卡片', async () => {
-      const now = Date.now();
-      const items = [
-        createTestQueueItem({
-          cardID: 'card-1',
-          nextDues: {
-            1: new Date(now - 1000).toISOString(), // 已过期
-            2: '',
-            3: '',
-            4: '',
-          },
-        }),
-        createTestQueueItem({
-          cardID: 'card-2',
-          nextDues: {
-            1: new Date(now - 2000).toISOString(), // 已过期
-            2: '',
-            3: '',
-            4: '',
-          },
-        }),
-      ];
-
-      await queue.addItems(items);
-
-      const allCards = await queue.getAllCards();
-
-      expect(allCards).toHaveLength(2);
-    });
-  });
-
-  describe('Traits', () => {
-    it('应该有 prioritizable trait', () => {
-      const trait = queue.getPrioritizableTrait();
-
-      expect(trait).toBeDefined();
-      expect(trait.id).toBe('prioritizable');
-    });
-
-    it('应该有 mutable trait', () => {
-      const trait = queue.getMutableTrait();
-
-      expect(trait).toBeDefined();
-      expect(trait?.id).toBe('mutable');
-    });
-
-    it('应该有 removable trait', () => {
-      const trait = queue.getRemovableTrait();
-
-      expect(trait).toBeDefined();
-      expect(trait?.id).toBe('removable');
-    });
-  });
-});
-
-/**
- * RetrievalPracticeQueue 集成测试
- * 
- * 测试完整的评分流程，验证评分 1-2 的卡片旋转到队尾，评分 3-4 的卡片从队列移除
- * Feature: retrieval-practice-rating-fix
- * Task: 4.1 编写 RetrievalPracticeQueue 的集成测试
- * **Validates: Requirements 1.1, 1.2, 2.1, 2.2, 3.1, 3.2, 6.4**
- */
-describe('RetrievalPracticeQueue - 集成测试：评分操作', () => {
-  let queue: RetrievalPracticeQueue;
+describe('IncrementalLearningQueue - 集成测试：评分操作', () => {
+  let queue: IncrementalLearningQueue;
   let mockStorage: StorageManager;
 
   beforeEach(async () => {
@@ -252,11 +84,10 @@ describe('RetrievalPracticeQueue - 集成测试：评分操作', () => {
       unreviewedOldCardCount: 0,
     });
     
-    queue = new RetrievalPracticeQueue({
+    queue = new IncrementalLearningQueue({
       deckID: 'test-deck',
       api: mockRiffApi,
       storage: mockStorage,
-      localScheduler: new SimpleFSRSScheduler(mockFSRSParams),
     });
 
     // 等待队列加载完成

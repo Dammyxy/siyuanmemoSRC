@@ -123,14 +123,27 @@ export class BaseCompositeQueue<TItem = any> implements IQueueStrategy<TItem> {
 
     if (feedback.action === 'rate') {
       const rating = feedback.rating;
-      if (rating && this.scheduler) {
-        // Apply scheduling algorithm
-        await this.scheduler.schedule(item, rating);
+      if (!rating || !this.scheduler) {
+        return;
       }
 
-      // Remove from data source (if supported)
-      if (this.dataSource.remove) {
-        await this.dataSource.remove([item]);
+      // Apply scheduling algorithm with error handling
+      try {
+        await this.scheduler.schedule(item, rating);
+      } catch (error) {
+        console.error('[BaseCompositeQueue] Scheduler failed:', error);
+        // Continue with queue operations even if scheduler fails
+      }
+
+      // Handle based on rating value
+      if (rating >= 3) {
+        // Rating 3-4: Remove from queue
+        if (this.dataSource.remove) {
+          await this.dataSource.remove([item]);
+        }
+      } else {
+        // Rating 1-2: Rotate to end of queue
+        await this.rotateToEnd(item);
       }
 
       this.currentItem = null;
@@ -200,5 +213,39 @@ export class BaseCompositeQueue<TItem = any> implements IQueueStrategy<TItem> {
     // Fallback: get all items and count
     const items = await this.dataSource.getAll();
     return items.length;
+  }
+
+  /**
+   * Rotate an item to the end of the queue
+   * 
+   * This method removes the item from the queue and re-adds it at the end.
+   * Used for items that need to be reviewed again (e.g., rating < 3).
+   * 
+   * Note: This method relies on the DataSource's internal implementation
+   * to persist changes. The DataSource should automatically save the
+   * modified queue state after getAll() returns.
+   * 
+   * @param item - The item to rotate to the end
+   * @protected
+   */
+  protected async rotateToEnd(item: TItem): Promise<void> {
+    console.log('[BaseCompositeQueue] Rotating item to end of queue');
+    
+    // Remove the item from the queue
+    if (this.dataSource.remove) {
+      const removed = await this.dataSource.remove([item]);
+      console.log(`[BaseCompositeQueue] Removed ${removed} item(s) from queue`);
+    } else {
+      console.warn('[BaseCompositeQueue] DataSource does not support remove operation');
+      return;
+    }
+
+    // Get all items (this returns a reference to the internal array)
+    const allItems = await this.dataSource.getAll();
+    console.log(`[BaseCompositeQueue] Current queue size: ${allItems.length}`);
+
+    // Add the item to the end
+    allItems.push(item);
+    console.log(`[BaseCompositeQueue] Item rotated to end, new queue size: ${allItems.length}`);
   }
 }

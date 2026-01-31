@@ -340,6 +340,26 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
       const rating = feedback.rating;
       if (!rating) return;
 
+      // 判断卡片是否还在队列中（可能已被 next() 移除）
+      const isStillInQueue = isLocal 
+        ? this.localBuffer.some(item => String(item.cardID) === cardID)
+        : this.riffBuffer.some(item => String(item.cardID) === cardID);
+
+      // 如果卡片还在队列中，先移除
+      if (isStillInQueue) {
+        if (isLocal) {
+          const index = this.localBuffer.findIndex(item => String(item.cardID) === cardID);
+          if (index !== -1) {
+            this.localBuffer.splice(index, 1);
+          }
+        } else {
+          const index = this.riffBuffer.findIndex(item => String(item.cardID) === cardID);
+          if (index !== -1) {
+            this.riffBuffer.splice(index, 1);
+          }
+        }
+      }
+
       // 🆕 Phase 2.2.1-2.2.3: 统一使用 SchedulerRouter
       if (this.schedulerRouter && this.storage) {
         // 🆕 Phase 2.2.2: QueueItem 转 FSRSCard
@@ -377,10 +397,30 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
         }
       }
 
-      if (!isLocal) {
-        this._afterRiffConsumed(currentItem);
-        this.riffCurrentRaw = null;
+      // 🆕 retrieval-practice-rating-fix: 根据评分决定是否重新进入队列
+      // Rating < 3 (1-2): 重新进入队列末尾
+      // Rating >= 3 (3-4): 从队列移除（已移除，无需操作）
+      if (rating < 3) {
+        if (isLocal) {
+          // 本地卡片：重新添加到队列末尾
+          this.localBuffer.push(currentItem);
+          await this._persistLocalQueue();
+          console.log('[IncrementalLearningQueue] ✅ Rotated local card to end:', cardID);
+        } else {
+          // Riff 卡片：重新添加到 Riff 队列末尾
+          this.riffBuffer.push(currentItem);
+          console.log('[IncrementalLearningQueue] ✅ Rotated Riff card to end:', cardID);
+          // 不调用 _afterRiffConsumed，因为卡片重新进入队列
+        }
+      } else {
+        // Rating >= 3: 卡片已移除，更新统计
+        if (!isLocal) {
+          this._afterRiffConsumed(currentItem);
+          this.riffCurrentRaw = null;
+        }
+        console.log('[IncrementalLearningQueue] ✅ Card removed from queue (rating >= 3):', cardID);
       }
+
       this.reviewedCount++;
       return;
     }
