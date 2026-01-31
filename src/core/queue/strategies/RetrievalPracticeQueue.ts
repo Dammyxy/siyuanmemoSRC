@@ -109,9 +109,11 @@ class RetrievalHybridDataSource extends HybridDataSource {
    */
   async remove(items: QueueItem[]): Promise<number> {
     let removedCount = 0;
+    const riffBlockIds: string[] = [];  // 🆕 Phase 2.4.1: 收集需要从 Riff 删除的卡片
 
     for (const item of items) {
       const cardID = String((item as any)?.cardID || item?.cardId || '');
+      const blockID = String(item?.blockID || item?.blockId || '');
       if (!cardID) continue;
 
       // Try to remove from local buffer
@@ -129,10 +131,26 @@ class RetrievalHybridDataSource extends HybridDataSource {
         this.riffBuffer.splice(riffIndex, 1);
         removedCount++;
 
-        // Add to blacklist
+        // 🆕 Phase 2.4.1: 收集 blockID 用于批量删除
+        if (blockID) {
+          riffBlockIds.push(blockID);
+        }
+      }
+    }
+
+    // 🆕 Phase 2.4.1: 批量调用 Riff API 删除卡片
+    if (riffBlockIds.length > 0) {
+      try {
+        await riff.removeRiffCards(this.deckID, riffBlockIds);
+        console.log('[RetrievalHybridDataSource] ✅ Removed from Riff:', riffBlockIds.length);
+      } catch (error) {
+        // 🆕 Phase 2.4.2-2.4.3: 错误处理 - 添加到黑名单
+        console.error('[RetrievalHybridDataSource] Failed to remove from Riff:', error);
         if (this.storage) {
-          this.storage.addToRiffBlacklist(item.blockID);
-          console.log('[RetrievalHybridDataSource] Added to blacklist:', item.blockID);
+          for (const blockID of riffBlockIds) {
+            this.storage.addToRiffBlacklist(blockID);
+          }
+          console.log('[RetrievalHybridDataSource] ✅ Added to blacklist (remove failed):', riffBlockIds.length);
         }
       }
     }

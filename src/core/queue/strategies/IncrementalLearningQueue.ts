@@ -17,6 +17,7 @@ import { RiffScheduler } from '../schedulers/RiffScheduler';
 import type { StorageManager } from '../../storage/StorageManager';
 import { SchedulerSortingStrategy } from '../../scheduling/SortingStrategy';
 import type { SchedulerEngineAdapter } from '../../scheduler/types';
+import type { SchedulerRouter } from '../../scheduler/SchedulerRouter';
 import type { QueueItem, QueueStats, QueueUIConfig } from '../types';
 import { DEFAULT_PRIORITY } from '../abstraction/IPriority';
 import type { IPrioritizableTrait, IMutableTrait, IRemovableTrait } from '../abstraction/types';
@@ -94,6 +95,8 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
   private readonly storage?: StorageManager;
   private localBuffer: QueueItem[] = [];
   private sortingStrategy?: SchedulerSortingStrategy;
+  private readonly schedulerRouter?: SchedulerRouter;  // 🆕 Phase 2.1.2
+  private readonly config?: { enableRiffSync?: boolean };  // 🆕 Phase 2.1.3
 
   // 统计信息
   private riffUnreviewedNew = 0;
@@ -107,6 +110,8 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
     api?: Partial<RiffApi>;
     storage?: StorageManager;
     scheduler?: SchedulerEngineAdapter;
+    schedulerRouter?: SchedulerRouter;  // 🆕 Phase 2.1.1
+    config?: { enableRiffSync?: boolean };  // 🆕 Phase 2.1.1
   }) {
     this.deckID = String(options?.deckID || riff.BUILTIN_DECK_ID);
     this.api = {
@@ -115,6 +120,8 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
       skipReviewRiffCard: options?.api?.skipReviewRiffCard || riff.skipReviewRiffCard,
     };
     this.storage = options?.storage;
+    this.schedulerRouter = options?.schedulerRouter;  // 🆕 Phase 2.1.2
+    this.config = options?.config;  // 🆕 Phase 2.1.3
 
     // 初始化本地调度器（如果提供）
     if (options?.scheduler) {
@@ -154,20 +161,57 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
       },
       removeItems: async (items) => {
         let removedCount = 0;
+        const riffBlockIds: string[] = [];  // 🆕 Phase 2.3.1: 收集需要从 Riff 删除的卡片
+
         for (const item of items) {
           const cardID = String(item?.cardID || '');
+          const blockID = String(item?.blockID || '');
           if (!cardID) continue;
 
-          const index = this.localBuffer.findIndex(localItem => String(localItem.cardID) === cardID);
-          if (index !== -1) {
-            this.localBuffer.splice(index, 1);
+          // 尝试从本地队列移除
+          const localIndex = this.localBuffer.findIndex(localItem => String(localItem.cardID) === cardID);
+          if (localIndex !== -1) {
+            this.localBuffer.splice(localIndex, 1);
             removedCount++;
+            console.log('[IncrementalLearningQueue] Removed from local buffer:', cardID);
+          } else {
+            // 🆕 Phase 2.3.1: 如果不在本地队列，说明是 Riff 卡片
+            if (blockID) {
+              riffBlockIds.push(blockID);
+            }
           }
         }
 
+        // 🆕 Phase 2.3.1: 批量调用 Riff API 删除卡片
+        if (riffBlockIds.length > 0) {
+          try {
+            await riff.removeRiffCards(this.deckID, riffBlockIds);
+            removedCount += riffBlockIds.length;
+            console.log('[IncrementalLearningQueue] ✅ Removed from Riff:', riffBlockIds.length);
+          } catch (error) {
+            // 🆕 Phase 2.3.2: 错误处理 - 添加到黑名单
+            console.error('[IncrementalLearningQueue] Failed to remove from Riff:', error);
+            if (this.storage) {
+              for (const blockID of riffBlockIds) {
+                this.storage.addToRiffBlacklist(blockID);
+              }
+              console.log('[IncrementalLearningQueue] ✅ Added to blacklist (remove failed):', riffBlockIds.length);
+            }
+          }
+        }
+
+        // 🆕 Phase 2.3.4: 持久化本地队列
         if (removedCount > 0) {
           await this._persistLocalQueue();
         }
+
+        // 🆕 Phase 2.3.3: 添加日志输出
+        console.log('[IncrementalLearningQueue] removeItems result:', {
+          total: items.length,
+          removed: removedCount,
+          local: removedCount - riffBlockIds.length,
+          riff: riffBlockIds.length,
+        });
 
         return removedCount;
       },
@@ -281,8 +325,11 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
         // 本地卡片：移到队列末尾
         await this._moveLocalToEnd(cardID);
       } else {
-        // Riff 卡片：调用 Riff API
-        await this.api.skipReviewRiffCard(deckID, cardID);
+        // 🆕 Phase 2.2.4: Riff 卡片：添加到黑名单（不调用 Riff API）
+        if (this.storage) {
+          this.storage.addToRiffBlacklist(currentItem.blockID);
+          console.log('[IncrementalLearningQueue] ✅ Added to blacklist (skip):', currentItem.blockID);
+        }
         this._afterRiffConsumed(currentItem);
         this.riffCurrentRaw = null;
       }
@@ -293,15 +340,44 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
       const rating = feedback.rating;
       if (!rating) return;
 
-      if (isLocal) {
-        // 本地卡片：使用本地调度器更新 nextDues
-        if (this.sortingStrategy) {
-          await this.sortingStrategy.review(currentItem, rating);
+      // 🆕 Phase 2.2.1-2.2.3: 统一使用 SchedulerRouter
+      if (this.schedulerRouter && this.storage) {
+        // 🆕 Phase 2.2.2: QueueItem 转 FSRSCard
+        const fsrsCard = this.storage.getCard(cardID);
+        if (fsrsCard) {
+          // 🆕 Phase 2.2.1: 使用 SchedulerRouter 进行复习
+          const updatedCard = await this.schedulerRouter.route(fsrsCard, rating);
+
+          // 🆕 Phase 2.2.3: 如果是 Riff 卡片，可选同步到 Riff
+          if (!isLocal && this.config?.enableRiffSync) {
+            await this.api.reviewRiffCard(deckID, cardID, rating);
+            console.log('[IncrementalLearningQueue] ✅ Synced to Riff:', cardID);
+          }
+
+          // 🆕 Phase 2.2.6: 添加详细日志
+          console.log('[IncrementalLearningQueue] ✅ Used SchedulerRouter:', {
+            cardID,
+            isLocal,
+            cardType: updatedCard.type,
+            schedulerType: updatedCard.schedulerType,
+            syncedToRiff: !isLocal && this.config?.enableRiffSync,
+          });
+        } else {
+          // 🆕 Phase 2.2.5: 后备方案：直接调用 Riff API
+          console.warn('[IncrementalLearningQueue] Card not found in storage, using Riff API:', cardID);
+          await this.api.reviewRiffCard(deckID, cardID, rating);
         }
-        await this._persistLocalQueue();
       } else {
-        // Riff 卡片：使用 Riff API
-        await this.scheduler.schedule({ ...currentItem, deckID, cardID } as QueueItem, rating);
+        // 🆕 Phase 2.2.5: 后备方案：使用原有逻辑
+        if (isLocal && this.sortingStrategy) {
+          await this.sortingStrategy.review(currentItem, rating);
+          await this._persistLocalQueue();
+        } else {
+          await this.scheduler.schedule({ ...currentItem, deckID, cardID } as QueueItem, rating);
+        }
+      }
+
+      if (!isLocal) {
         this._afterRiffConsumed(currentItem);
         this.riffCurrentRaw = null;
       }
