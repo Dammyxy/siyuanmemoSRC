@@ -85,6 +85,10 @@ export class LifecycleManager {
     this.plugin.incrementalQueue = new IncrementalLearningQueue({
       storage: this.plugin.storage,
       scheduler: this.plugin.scheduler,
+      schedulerRouter: this.plugin.schedulerRouter, // 🆕 Phase 2.1: 传入 schedulerRouter
+      config: {
+        enableRiffSync: this.plugin.settings?.scheduler?.enableRiffSync || false, // 🆕 Phase 2.1: 传入配置
+      },
     });
     this.plugin.queueContext.register('incremental-learning' as any, this.plugin.incrementalQueue as any);
 
@@ -92,6 +96,8 @@ export class LifecycleManager {
       hasQueue: !!this.plugin.incrementalQueue,
       hasAddItems: typeof this.plugin.incrementalQueue.addItems === 'function',
       queueName: this.plugin.incrementalQueue.constructor.name,
+      hasSchedulerRouter: !!this.plugin.schedulerRouter,
+      enableRiffSync: this.plugin.settings?.scheduler?.enableRiffSync || false,
     });
 
     console.log('[FSRS] ✅ SchedulerRouter initialized');

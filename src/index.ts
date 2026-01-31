@@ -228,6 +228,10 @@ export default class FSRSPlugin extends Plugin {
       this.incrementalQueue = new IncrementalLearningQueue({
         storage: this.storage,
         scheduler: this.scheduler,
+        schedulerRouter: this.schedulerRouter, // 🆕 Phase 2.1: 传入 schedulerRouter
+        config: {
+          enableRiffSync: settings.scheduler?.enableRiffSync || false, // 🆕 Phase 2.1: 传入配置
+        },
       });
       this.queueContext.register('incremental-learning' as any, this.incrementalQueue as any);
 
@@ -235,6 +239,8 @@ export default class FSRSPlugin extends Plugin {
         hasQueue: !!this.incrementalQueue,
         hasAddItems: typeof this.incrementalQueue.addItems === 'function',
         queueName: this.incrementalQueue.constructor.name,
+        hasSchedulerRouter: !!this.schedulerRouter,
+        enableRiffSync: settings.scheduler?.enableRiffSync || false,
       });
 
       console.log('[FSRS] ✅ SchedulerRouter initialized');
