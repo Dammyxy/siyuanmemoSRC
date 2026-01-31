@@ -22,15 +22,15 @@
 - [ ] 1.1.8 在 `init()` 中调用 `_loadRiffBlacklist()`
 
 ### 1.2 RiffDataSource 添加 storage 参数
-- [ ] 1.2.1 修改 `RiffDataSourceOptions` 类型定义
-- [ ] 1.2.2 在构造函数中接受 `storage` 参数
-- [ ] 1.2.3 添加 `storage` 属性
+- [x] 1.2.1 修改 `RiffDataSourceOptions` 类型定义
+- [x] 1.2.2 在构造函数中接受 `storage` 参数
+- [x] 1.2.3 添加 `storage` 属性
 
 ### 1.3 RiffDataSource 实现 mergeLocalNextDues()
-- [ ] 1.3.1 实现 `mergeLocalNextDues()` 方法
-- [ ] 1.3.2 实现 `extractNextDues()` 辅助方法
-- [ ] 1.3.3 在 `getAll()` 方法中调用 `mergeLocalNextDues()`
-- [ ] 1.3.4 添加日志输出
+- [x] 1.3.1 实现 `mergeLocalNextDues()` 方法
+- [x] 1.3.2 实现 `extractNextDues()` 辅助方法
+- [x] 1.3.3 在 `getAll()` 方法中调用 `mergeLocalNextDues()`
+- [x] 1.3.4 添加日志输出
 
 ### 1.4 单元测试（Phase 1）
 - [ ] 1.4.1 测试 msgpack 编码/解码
