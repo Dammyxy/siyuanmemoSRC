@@ -9,6 +9,7 @@
 import type { IDataSource, DataSourceOptions } from './IDataSource';
 import type { QueueItem } from '../types';
 import type { StorageManager } from '../../storage/manager';
+import type { SchedulerRouter } from '../../scheduler/SchedulerRouter';
 import type { FSRSCard } from '@/types';
 import { getRiffDueCards } from '../../siyuan/riff';
 import { sql } from '../../siyuan/api';
@@ -19,6 +20,7 @@ export type RiffDataSourceOptions = DataSourceOptions<QueueItem> & {
   rootID?: string;
   blacklistProvider?: () => Set<string>;
   storage?: StorageManager;  // 🆕 添加 storage 参数
+  schedulerRouter?: SchedulerRouter;  // 🆕 添加 schedulerRouter 参数
 };
 
 /**
@@ -32,6 +34,7 @@ export class RiffDataSource implements IDataSource<QueueItem> {
   private readonly limit?: number;
   private readonly blacklistProvider?: () => Set<string>;
   private readonly storage?: StorageManager;  // 🆕 添加 storage 属性
+  private readonly schedulerRouter?: SchedulerRouter;  // 🆕 添加 schedulerRouter 属性
   private cache: QueueItem[] = [];
 
   constructor(options: RiffDataSourceOptions) {
@@ -42,6 +45,7 @@ export class RiffDataSource implements IDataSource<QueueItem> {
     this.limit = options.limit;
     this.blacklistProvider = options.blacklistProvider;
     this.storage = options.storage;  // 🆕 保存 storage
+    this.schedulerRouter = options.schedulerRouter;  // 🆕 保存 schedulerRouter
   }
 
   /**
@@ -192,9 +196,27 @@ export class RiffDataSource implements IDataSource<QueueItem> {
    * 从 FSRSCard 提取 nextDues
    * 
    * 🆕 Phase 1.3: 将 FSRSCard.due 转换为 QueueItem.nextDues 格式
+   * 🆕 使用 SchedulerRouter.preview() 预测四个选项的时间
    */
   private extractNextDues(card: FSRSCard): Record<1 | 2 | 3 | 4, string> | null {
-    // 如果卡片有 due 时间，计算 nextDues
+    // 🆕 如果有 SchedulerRouter，使用它来预测四个选项的时间
+    if (this.schedulerRouter) {
+      try {
+        const previews = this.schedulerRouter.preview(card);
+        
+        return {
+          1: previews.get(1)?.due?.toISOString() || new Date().toISOString(),  // Again
+          2: previews.get(2)?.due?.toISOString() || new Date().toISOString(),  // Hard
+          3: previews.get(3)?.due?.toISOString() || new Date().toISOString(),  // Good
+          4: previews.get(4)?.due?.toISOString() || new Date().toISOString(),  // Easy
+        };
+      } catch (error) {
+        console.error('[RiffDataSource] Failed to preview card:', error);
+        // 降级到使用当前 due 时间
+      }
+    }
+
+    // 后备方案：如果卡片有 due 时间，使用当前 due
     if (card.due) {
       const dueTime = card.due.getTime ? card.due.getTime() : new Date(card.due).getTime();
       const dueISO = new Date(dueTime).toISOString();
