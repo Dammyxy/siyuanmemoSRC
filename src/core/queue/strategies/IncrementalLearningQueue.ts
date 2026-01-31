@@ -615,20 +615,54 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
    * 🆕 Phase 1.3: 使用 SchedulerRouter 重新计算 nextDues
    * 
    * 从本地数据库加载卡片状态，使用 SchedulerRouter.preview() 预测四个选项的时间
+   * 如果卡片不存在于本地存储，创建默认的 FSRSCard
    */
   private async _recalculateNextDues(): Promise<void> {
     if (!this.schedulerRouter || !this.storage) return;
 
     try {
       let recalculatedCount = 0;
+      let createdCount = 0;
 
       for (let i = 0; i < this.riffBuffer.length; i++) {
         const item = this.riffBuffer[i];
         const cardID = item.cardID;
+        const blockID = item.blockID;
 
         // 从本地数据库加载卡片
-        const localCard = this.storage.getCard(cardID);
-        if (!localCard) continue;
+        let localCard = this.storage.getCard(cardID);
+        
+        // 🆕 如果卡片不存在，创建默认的 FSRSCard
+        if (!localCard) {
+          const now = Date.now();
+          localCard = {
+            id: cardID,
+            blockId: blockID,
+            due: now,
+            stability: 0,
+            difficulty: 5,
+            reps: item.reps ?? 0,
+            lapses: item.lapses ?? 0,
+            state: item.state ?? 0,
+            lastReview: item.lastReview ?? 0,
+            elapsedDays: 0,
+            scheduledDays: 0,
+            priority: item.priority ?? 50,
+            type: 'item', // 默认为 item，后续可以通过 detectCardType 更新
+            tags: [],
+            leechCount: 0,
+            isLeech: false,
+            skipped: false,
+            createdAt: now,
+            updatedAt: now,
+          };
+          
+          // 保存到本地存储
+          this.storage.setCard(localCard);
+          createdCount++;
+          
+          console.log('[IncrementalLearningQueue] Created default card for:', cardID);
+        }
 
         // 使用 SchedulerRouter 预测四个选项的时间
         try {
@@ -651,6 +685,12 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
         } catch (error) {
           console.error('[IncrementalLearningQueue] Failed to preview card:', cardID, error);
         }
+      }
+
+      // 如果创建了新卡片，保存到存储
+      if (createdCount > 0) {
+        await this.storage.saveCards();
+        console.log('[IncrementalLearningQueue] ✅ Created', createdCount, 'default cards');
       }
 
       if (recalculatedCount > 0) {
