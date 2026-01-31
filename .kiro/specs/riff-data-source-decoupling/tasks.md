@@ -45,28 +45,28 @@
 ## Phase 2: IncrementalLearningQueue 集成（2-3 天）
 
 ### 2.1 添加 schedulerRouter 参数
-- [ ] 2.1.1 修改构造函数签名
-- [ ] 2.1.2 添加 `schedulerRouter` 属性
-- [ ] 2.1.3 添加 `config` 属性（包含 enableRiffSync）
+- [x] 2.1.1 修改构造函数签名
+- [x] 2.1.2 添加 `schedulerRouter` 属性
+- [x] 2.1.3 添加 `config` 属性（包含 enableRiffSync）
 
 ### 2.2 修改 onFeedback() 方法
-- [ ] 2.2.1 添加 SchedulerRouter 调用逻辑
-- [ ] 2.2.2 实现 QueueItem → FSRSCard 转换
-- [ ] 2.2.3 实现 Riff 同步逻辑（可选）
-- [ ] 2.2.4 修改 skip 逻辑（添加黑名单）
-- [ ] 2.2.5 添加后备方案（兼容旧逻辑）
-- [ ] 2.2.6 添加详细日志
+- [x] 2.2.1 添加 SchedulerRouter 调用逻辑
+- [x] 2.2.2 实现 QueueItem → FSRSCard 转换
+- [x] 2.2.3 实现 Riff 同步逻辑（可选）
+- [x] 2.2.4 修改 skip 逻辑（添加黑名单）
+- [x] 2.2.5 添加后备方案（兼容旧逻辑）
+- [x] 2.2.6 添加详细日志
 
 ### 2.3 修改 removeItems() 方法
-- [ ] 2.3.1 添加 Riff API 删除调用
-- [ ] 2.3.2 实现错误处理（添加黑名单）
-- [ ] 2.3.3 添加日志输出
-- [ ] 2.3.4 保持本地队列持久化
+- [x] 2.3.1 添加 Riff API 删除调用
+- [x] 2.3.2 实现错误处理（添加黑名单）
+- [x] 2.3.3 添加日志输出
+- [x] 2.3.4 保持本地队列持久化
 
 ### 2.4 更新 RetrievalHybridDataSource
-- [ ] 2.4.1 在 `remove()` 方法中添加 Riff API 调用
-- [ ] 2.4.2 实现黑名单添加逻辑
-- [ ] 2.4.3 添加错误处理
+- [x] 2.4.1 在 `remove()` 方法中添加 Riff API 调用
+- [x] 2.4.2 实现黑名单添加逻辑
+- [x] 2.4.3 添加错误处理
 
 ### 2.5 单元测试（Phase 2）
 - [ ] 2.5.1 测试 IncrementalLearningQueue 使用 SchedulerRouter
