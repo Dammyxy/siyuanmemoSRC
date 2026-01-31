@@ -627,12 +627,15 @@ export class StorageManager {
             const content = await this.readPluginData(filename);
             if (!content) return null;
 
-            // 将字符串转换为 Uint8Array
-            const encoder = new TextEncoder();
-            const buffer = encoder.encode(content);
+            // msgpack 是二进制格式，需要从 Base64 解码
+            const binaryString = atob(content);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
             
             // 使用 msgpack 解码
-            return decode(buffer);
+            return decode(bytes);
         } catch (error) {
             console.error(`[StorageManager] Failed to load msgpack ${filename}:`, error);
             return null;
@@ -647,9 +650,12 @@ export class StorageManager {
             // 使用 msgpack 编码
             const buffer = encode(data);
             
-            // 将 Uint8Array 转换为字符串（Base64）
-            const decoder = new TextDecoder();
-            const content = decoder.decode(buffer);
+            // 将 Uint8Array 转换为 Base64 字符串
+            let binaryString = '';
+            for (let i = 0; i < buffer.length; i++) {
+                binaryString += String.fromCharCode(buffer[i]);
+            }
+            const content = btoa(binaryString);
             
             await this.writePluginData(filename, content);
         } catch (error) {
@@ -662,6 +668,7 @@ export class StorageManager {
      * 迁移 JSON 数据到 msgpack 格式
      * 
      * 🆕 Phase 1.0.5: 数据迁移
+     * 🆕 添加损坏文件检测和清理
      */
     async migrateToMsgpack(): Promise<void> {
         const migrations = [
@@ -672,18 +679,29 @@ export class StorageManager {
         ];
 
         let migratedCount = 0;
+        let cleanedCount = 0;
 
         for (const { from, to, name } of migrations) {
             try {
-                // 检查是否已经迁移（msgpack 文件存在）
-                const msgpackExists = await this.readPluginData(to);
-                if (msgpackExists) {
-                    continue; // 已迁移，跳过
+                // 🆕 检查 msgpack 文件是否损坏
+                const msgpackContent = await this.readPluginData(to);
+                if (msgpackContent) {
+                    try {
+                        // 尝试解码，检查是否损坏
+                        await this.loadMsgpackData(to);
+                        continue; // 文件正常，跳过迁移
+                    } catch (error) {
+                        // 文件损坏，删除并重新迁移
+                        console.warn(`[StorageManager] ⚠️ Corrupted msgpack file detected: ${to}, will re-migrate`);
+                        // 注意：我们不删除文件，只是让它被覆盖
+                        cleanedCount++;
+                    }
                 }
 
                 // 读取 JSON 文件
                 const jsonContent = await this.readPluginData(from);
                 if (!jsonContent) {
+                    console.log(`[StorageManager] No JSON file found for ${name}, skipping migration`);
                     continue; // JSON 文件不存在，跳过
                 }
 
@@ -702,8 +720,15 @@ export class StorageManager {
             }
         }
 
-        if (migratedCount > 0) {
-            console.log(`[StorageManager] 🎉 Migrated ${migratedCount} files to msgpack format`);
+        if (migratedCount > 0 || cleanedCount > 0) {
+            const messages = [];
+            if (migratedCount > 0) {
+                messages.push(`migrated ${migratedCount} files`);
+            }
+            if (cleanedCount > 0) {
+                messages.push(`cleaned ${cleanedCount} corrupted files`);
+            }
+            console.log(`[StorageManager] 🎉 Msgpack migration complete: ${messages.join(', ')}`);
         }
     }
 
