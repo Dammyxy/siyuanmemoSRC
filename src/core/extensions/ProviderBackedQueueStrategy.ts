@@ -129,8 +129,9 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
       await this.provider.reviewCard(cardId, rating, reviewed);
       this.current = null;
 
-      // 🔧 FIX: Reload buffer after review to sync with underlying queue changes
-      // This is needed when the provider's underlying queue modifies items (e.g., FinalDrill rotateToEnd)
+      // 🔧 Reload buffer after review to sync with provider's state
+      // For retrieval practice, this will get the updated SessionManager state
+      // For other providers, this will reload from the underlying queue
       console.log('[ProviderBackedQueueStrategy] Reloading buffer after review');
       this.loaded = false;
       await this.ensureLoaded();

@@ -141,6 +141,13 @@ export class BaseCompositeQueue<TItem = any> implements IQueueStrategy<TItem> {
         if (this.dataSource.remove) {
           await this.dataSource.remove([item]);
         }
+        
+        // CRITICAL: Reset sequencer after removing item
+        // The sequencer caches items, so we need to force reload on next call to next()
+        if (this.sequencer && typeof (this.sequencer as any).reset === 'function') {
+          (this.sequencer as any).reset();
+          console.log('[BaseCompositeQueue] Sequencer reset after remove');
+        }
       } else {
         // Rating 1-2: Rotate to end of queue
         await this.rotateToEnd(item);

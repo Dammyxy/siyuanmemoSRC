@@ -26,15 +26,37 @@ export class PrioritySequencer<TItem> implements ISequencer<TItem> {
     this.getPriority = fetchNextOrOptions.getPriority;
   }
 
+  /**
+   * Reset the sequencer state
+   * 
+   * This forces the sequencer to reload items on the next call to next().
+   * Useful when the underlying data source has changed (e.g., after rotateToEnd).
+   */
+  reset(): void {
+    this.loaded = false;
+    this.items.length = 0;
+  }
+
   async next(): Promise<TItem | null> {
+    console.log('[PrioritySequencer] next() called, loaded:', this.loaded, 'items.length:', this.items.length);
+    
     if (this.fetchNext) {
       return await this.fetchNext();
     }
     if (!this.fetchAll || !this.getDueMs || !this.getPriority) return null;
     if (!this.loaded) {
       this.loaded = true;
+      console.log('[PrioritySequencer] Loading items via fetchAll()...');
       const fetched = await this.fetchAll();
+      console.log('[PrioritySequencer] fetchAll() returned:', {
+        count: fetched?.length || 0,
+        items: fetched?.slice(0, 3).map((it: any) => ({
+          cardID: it?.cardID,
+          nextDues: it?.nextDues,
+        })),
+      });
       if (!fetched || fetched.length === 0) {
+        console.log('[PrioritySequencer] No items fetched, items array remains empty');
       } else {
         this.items.push(...fetched);
         this.items.sort((a, b) => {
@@ -48,10 +70,19 @@ export class PrioritySequencer<TItem> implements ISequencer<TItem> {
           if (pa !== pb) return pa - pb;
           return da - db;
         });
+        console.log('[PrioritySequencer] Items sorted, count:', this.items.length);
       }
     }
-    if (this.items.length === 0) return null;
-    return this.items.shift() || null;
+    if (this.items.length === 0) {
+      console.log('[PrioritySequencer] No items available, returning null');
+      return null;
+    }
+    const nextItem = this.items.shift() || null;
+    console.log('[PrioritySequencer] Returning item:', {
+      cardID: (nextItem as any)?.cardID,
+      remainingCount: this.items.length,
+    });
+    return nextItem;
   }
 }
 

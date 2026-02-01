@@ -82,8 +82,24 @@ export class FSRSRetrievalProvider implements QueueProvider<QueueItem> {
     };
   }
 
-  async getDueCards(_options: Record<string, unknown>): Promise<QueueItem[]> {
+  async getDueCards(options?: {
+    forceReload?: boolean;  // 🆕 支持强制重载
+  }): Promise<QueueItem[]> {
+    console.log('[FSRSRetrievalProvider] getDueCards START', {
+      loaded: this.loaded,
+      itemsCount: this.items.length,
+      forceReload: options?.forceReload,
+    });
+
+    // 如果需要强制重新加载，清空状态
+    if (options?.forceReload) {
+      console.log('[FSRSRetrievalProvider] Force reload requested');
+      this.loaded = false;
+    }
+
     await this.ensureLoaded();
+    
+    console.log('[FSRSRetrievalProvider] getDueCards DONE:', this.items.length);
     return [...this.items];
   }
 
@@ -102,47 +118,80 @@ export class FSRSRetrievalProvider implements QueueProvider<QueueItem> {
   }
 
   async reviewCard(cardId: string, rating: number, reviewedCards?: QueueItem[]): Promise<void> {
+    console.log('[FSRSRetrievalProvider] reviewCard called:', {
+      cardId,
+      rating,
+      itemsCount: this.items.length,
+    });
+
     await this.ensureLoaded();
     const id = String(cardId || '');
     if (!id) return;
-    const deckID = this.itemByCardId.get(id)?.deckID || this.deckID;
+
+    // 🆕 找到卡片在列表中的位置
+    const index = this.items.findIndex(item => String(item.cardID) === id);
+    if (index === -1) {
+      console.error('[FSRSRetrievalProvider] Card not found in list:', id);
+      return;
+    }
+
+    const item = this.items[index];
+    const deckID = item.deckID || this.deckID;
     const payload = this.buildReviewedPayload(reviewedCards);
     const reviewTime = Date.now();
 
+    // 调用 Riff API
     await this.api.reviewRiffCard(deckID, id, Math.max(1, Math.min(4, Math.floor(rating))) as 1 | 2 | 3 | 4, payload);
 
     // 记录复习日志
     if (this.storage) {
       try {
-        const item = this.itemByCardId.get(id);
         await this.storage.addReviewLog({
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
           cardId: id,
           rating: rating as 1 | 2 | 3 | 4,
           state: item?.state || 0,
-          scheduledDays: 0, // Riff API 不提供这个信息
-          elapsedDays: 0,   // Riff API 不提供这个信息
+          scheduledDays: 0,
+          elapsedDays: 0,
           review: reviewTime,
           reviewTime: 0,
           isDrill: false,
-          stability: 0,     // Riff API 不提供这个信息
-          difficulty: 0,    // Riff API 不提供这个信息
+          stability: 0,
+          difficulty: 0,
         });
       } catch (error) {
         console.error('[FSRSRetrievalProvider] Failed to add review log:', error);
       }
     }
 
+    // 🆕 更新内部状态（删除已复习的卡片）
     this.afterConsumed(id);
+    console.log('[FSRSRetrievalProvider] Card reviewed, remaining:', this.items.length);
   }
 
   async skipReviewCard(cardId: string): Promise<void> {
+    console.log('[FSRSRetrievalProvider] skipReviewCard called:', cardId);
+
     await this.ensureLoaded();
     const id = String(cardId || '');
     if (!id) return;
-    const deckID = this.itemByCardId.get(id)?.deckID || this.deckID;
+
+    // 🆕 找到卡片在列表中的位置
+    const index = this.items.findIndex(item => String(item.cardID) === id);
+    if (index === -1) {
+      console.error('[FSRSRetrievalProvider] Card not found in list:', id);
+      return;
+    }
+
+    const item = this.items[index];
+    const deckID = item.deckID || this.deckID;
+
+    // 调用 Riff API
     await this.api.skipReviewRiffCard(deckID, id);
+
+    // 🆕 更新内部状态（删除已跳过的卡片）
     this.afterConsumed(id);
+    console.log('[FSRSRetrievalProvider] Card skipped, remaining:', this.items.length);
   }
 
   async setPriority(cardId: string, priority: number): Promise<void> {

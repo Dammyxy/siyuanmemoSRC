@@ -22,6 +22,10 @@ import { IncrementalLearningQueue } from '@/core/queue/strategies/IncrementalLea
 export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
     private readonly queue: IncrementalLearningQueue;
     private readonly deckId: string;
+    
+    // 🆕 Provider 自己管理会话状态
+    private cards: BrowserCard[] = [];  // 当前会话的卡片列表
+    private loaded = false;              // 是否已加载
 
     constructor(config?: { deckID?: string }) {
         this.deckId = config?.deckID ?? riff.BUILTIN_DECK_ID;
@@ -33,39 +37,76 @@ export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
     /**
      * 获取到期卡片
      *
+     * 🆕 改进：Provider 自己管理卡片列表，只在第一次或强制重载时从 Queue 加载
+     *
      * @param options 可选参数
      * @returns 到期卡片列表
      */
     async getDueCards(options?: {
         limit?: number;
         deckId?: string;
+        forceReload?: boolean;  // 🆕 强制重新加载
     }): Promise<BrowserCard[]> {
-        try {
-            // 从队列获取所有项目
-            const items = await this.queue.getAllItems();
+        console.log('[IncrementalLearningProvider] getDueCards START', {
+            deckId: this.deckId,
+            options,
+            loaded: this.loaded,
+            cardsCount: this.cards.length,
+        });
 
-            // 转换为 BrowserCard 格式
-            const cards: BrowserCard[] = items.map(item => ({
-                id: item.cardID,
-                blockId: item.blockID || item.cardID,
-                content: '', // 内容会在渲染时加载
-                due: item.due || Date.now(),
-                reps: item.reps || 0,
-                lapses: item.lapses || 0,
-                state: item.state || 0,
-                type: item.type || 'item',
-            }));
-
-            console.log('[IncrementalLearningProvider] Loaded', cards.length, 'due cards');
-            return cards;
-        } catch (error) {
-            console.error('[IncrementalLearningProvider] Failed to get due cards:', error);
-            return [];
+        // 如果需要强制重新加载，清空状态
+        if (options?.forceReload) {
+            console.log('[IncrementalLearningProvider] Force reload requested');
+            this.loaded = false;
+            this.cards = [];
         }
+
+        // 只在第一次或强制重载时加载
+        if (!this.loaded) {
+            try {
+                console.log('[IncrementalLearningProvider] Loading cards from queue...');
+                // 从队列获取所有项目
+                const items = await this.queue.getAllItems();
+
+                // 转换为 BrowserCard 格式
+                this.cards = items.map(item => ({
+                    id: item.cardID,
+                    blockId: item.blockID || item.cardID,
+                    content: '', // 内容会在渲染时加载
+                    due: item.due || Date.now(),
+                    reps: item.reps || 0,
+                    lapses: item.lapses || 0,
+                    state: item.state || 0,
+                    type: item.type || 'item',
+                }));
+
+                this.loaded = true;
+                console.log('[IncrementalLearningProvider] Loaded cards:', this.cards.length);
+            } catch (error) {
+                console.error('[IncrementalLearningProvider] Failed to load cards:', error);
+                this.cards = [];
+            }
+        }
+
+        // 返回当前列表（可能已经被 reviewCard 修改过）
+        const result = options?.limit 
+            ? this.cards.slice(0, options.limit) 
+            : [...this.cards];
+
+        console.log('[IncrementalLearningProvider] getDueCards DONE:', {
+            options,
+            count: result.length,
+        });
+
+        return result;
     }
 
     /**
      * 提交复习评分
+     *
+     * 🆕 改进：直接操作 Provider 的 cards 数组，然后同步到 Queue
+     * - 评分 < 3：移到末尾（SM-15 的 THRESHOLD_RECALL = 3）
+     * - 评分 >= 3：删除
      *
      * @param cardId 卡片 ID
      * @param rating 评分（1=重来, 2=困难, 3=一般, 4=简单）
@@ -77,15 +118,41 @@ export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
         rating: 1 | 2 | 3 | 4,
         reviewedCards?: BrowserCard[]
     ): Promise<boolean> {
+        console.log('[IncrementalLearningProvider] reviewCard called:', {
+            cardId,
+            rating,
+            cardsCount: this.cards.length,
+        });
+
         try {
-            // 查找对应的卡片
-            const card = reviewedCards?.find(c => c.blockId === cardId);
-            if (!card) {
-                console.error('[IncrementalLearningProvider] Card not found:', cardId);
+            // 找到卡片在列表中的位置
+            const index = this.cards.findIndex(
+                c => c.blockId === cardId || c.id === cardId
+            );
+
+            if (index === -1) {
+                console.error('[IncrementalLearningProvider] Card not found in list:', cardId);
                 return false;
             }
 
-            // 提交反馈
+            const card = this.cards[index];
+            console.log('[IncrementalLearningProvider] Card found at index:', index);
+
+            // 根据评分修改列表
+            if (rating < 3) {
+                // 评分 1-2：移到末尾（SM-15 的 THRESHOLD_RECALL = 3）
+                console.log('[IncrementalLearningProvider] Rating < 3, rotating to end:', cardId);
+                this.cards.splice(index, 1);
+                this.cards.push(card);
+            } else {
+                // 评分 3-4：删除
+                console.log('[IncrementalLearningProvider] Rating >= 3, removing:', cardId);
+                this.cards.splice(index, 1);
+            }
+
+            console.log('[IncrementalLearningProvider] Cards remaining:', this.cards.length);
+
+            // 同步到底层 Queue（用于持久化）
             await this.queue.onFeedback(card as any, {
                 action: 'rate',
                 rating,
@@ -94,7 +161,7 @@ export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
             console.log('[IncrementalLearningProvider] Card reviewed:', {
                 cardId,
                 rating,
-                cardType: card.cardType,
+                cardType: card.type,
             });
 
             return true;
@@ -107,22 +174,32 @@ export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
     /**
      * 跳过卡片
      *
+     * 🆕 改进：直接操作 Provider 的 cards 数组，移到末尾
+     *
      * @param cardId 卡片 ID
      * @returns 是否成功
      */
     async skipReviewCard(cardId: string): Promise<boolean> {
         try {
-            // 从队列中找到对应的项目
-            const items = await this.queue.getAllItems();
-            const item = items.find(i => i.cardID === cardId);
+            // 找到卡片在列表中的位置
+            const index = this.cards.findIndex(
+                c => c.blockId === cardId || c.id === cardId
+            );
 
-            if (!item) {
+            if (index === -1) {
                 console.warn('[IncrementalLearningProvider] Card not found:', cardId);
                 return false;
             }
 
-            // 使用 onFeedback 处理 skip 操作
-            await this.queue.onFeedback(item, { action: 'skip' });
+            const card = this.cards[index];
+
+            // 跳过：移到末尾
+            console.log('[IncrementalLearningProvider] Skipping card, moving to end:', cardId);
+            this.cards.splice(index, 1);
+            this.cards.push(card);
+
+            // 同步到底层 Queue
+            await this.queue.onFeedback(card as any, { action: 'skip' });
 
             console.log('[IncrementalLearningProvider] Skipped card:', cardId);
             return true;

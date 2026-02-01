@@ -120,7 +120,7 @@ export class ReviewDialogManager {
     this.destroyCurrentDialog();
 
     try {
-      const provider = new RetrievalPracticeProvider({ storage: this.deps.storage, scheduler: this.deps.scheduler });
+      const provider = await RetrievalPracticeProvider.create({ storage: this.deps.storage, scheduler: this.deps.scheduler });
       const adapter = new RetrievalPracticeAdapter({ i18n: this.deps.i18n || {} });
 
       this.createDialog({

@@ -16,21 +16,19 @@ import * as riff from '../../siyuan/riff.ts';
 import { setBlockAttrs } from '../../siyuan/api.ts';
 import { ATTR_PRIORITY } from '../../siyuan/block.ts';
 import { RiffScheduler } from '../schedulers/RiffScheduler.ts';
-import { PrioritySequencer } from '../sequencers/PrioritySequencer.ts';
+import { SortedSequencer } from '../sequencers/SortedSequencer.ts';
 import { HybridDataSource } from '../datasource/HybridDataSource.ts';
 import { RiffDataSource, type RiffApi } from '../datasource/RiffDataSource.ts';
 import { StorageDataSource } from '../datasource/StorageDataSource.ts';
 import { BaseCompositeQueue } from '../composite/BaseCompositeQueue.ts';
-import type { StorageManager } from '../../storage/StorageManager';
+import type { StorageManager } from '../../storage/manager';
 import { SchedulerSortingStrategy } from '../../scheduling/SortingStrategy';
 import { CardStorage } from '../../scheduling/CardStorage';
 import type { SchedulerEngineAdapter } from '../../scheduler/types';
 import type { SchedulerRouter } from '../../scheduler/SchedulerRouter';
-import type { FSRSCard } from '@/types';
-import type { QueueItem, QueueStats, QueueUIConfig } from '../types.ts';
+import type { QueueItem, QueueStats } from '../types.ts';
 import { clampPriority, DEFAULT_PRIORITY } from '../abstraction/IPriority.ts';
 import type { IPrioritizableTrait, IMutableTrait, IRemovableTrait } from '../abstraction/types.ts';
-import { normalizeBlockId, normalizeDeckId, normalizeRiffCardId } from '../abstraction/QueueCardRef.ts';
 
 // 🆕 导出 RiffApi 类型供外部使用
 export type { RiffApi };
@@ -94,9 +92,32 @@ class RetrievalHybridDataSource extends HybridDataSource {
 
     // Filter local buffer for due cards only
     const now = Date.now();
+    console.log('[RetrievalHybridDataSource] getAll: filtering local buffer', {
+      totalLocal: this.localBuffer.length,
+      localBufferCards: this.localBuffer.map(it => ({
+        cardID: it.cardID,
+        nextDues: it.nextDues,
+      })),
+      now,
+    });
+    
     const dueLocalItems = this.localBuffer.filter(item => {
       const dueTime = CardStorage.getDueTime(item);
-      return dueTime <= now;
+      const isDue = dueTime <= now;
+      console.log('[RetrievalHybridDataSource] Checking local item:', {
+        cardID: item.cardID,
+        dueTime,
+        now,
+        isDue,
+        nextDues: item.nextDues,
+      });
+      return isDue;
+    });
+
+    console.log('[RetrievalHybridDataSource] getAll result:', {
+      riffCount: this.riffBuffer.length,
+      dueLocalCount: dueLocalItems.length,
+      totalDue: this.riffBuffer.length + dueLocalItems.length,
     });
 
     // Merge Riff + due local cards
@@ -111,8 +132,8 @@ class RetrievalHybridDataSource extends HybridDataSource {
     const riffBlockIds: string[] = [];  // 🆕 Phase 2.4.1: 收集需要从 Riff 删除的卡片
 
     for (const item of items) {
-      const cardID = String((item as any)?.cardID || item?.cardId || '');
-      const blockID = String(item?.blockID || item?.blockId || '');
+      const cardID = String(item?.cardID || '');
+      const blockID = String(item?.blockID || '');
       if (!cardID) continue;
 
       // Try to remove from local buffer
@@ -161,6 +182,14 @@ class RetrievalHybridDataSource extends HybridDataSource {
    * Add items to local buffer
    */
   async insertAt(items: QueueItem[], index: number): Promise<void> {
+    console.log('[RetrievalHybridDataSource] insertAt called:', {
+      itemCount: items.length,
+      index,
+      items: items.map(it => ({
+        cardID: it.cardID,
+        nextDues: it.nextDues,
+      })),
+    });
     this.localBuffer.splice(index, 0, ...items);
     await this._persistLocalQueue();
   }
@@ -256,6 +285,8 @@ class RetrievalHybridDataSource extends HybridDataSource {
  *
  * New implementation using composite architecture.
  * Maintains full compatibility with V1 while using cleaner code structure.
+ * 
+ * Now uses SortedSequencer (SM-15 style) for efficient binary search insertion.
  */
 export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
   private readonly hybridSource: RetrievalHybridDataSource;
@@ -268,13 +299,58 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
   private riffUnreviewedNew = 0;
   private riffUnreviewedOld = 0;
 
-  constructor(options?: {
+  /**
+   * Private constructor - use create() factory method instead
+   */
+  private constructor(
+    hybridSource: RetrievalHybridDataSource,
+    sequencer: SortedSequencer<QueueItem>,
+    scheduler: RiffScheduler<QueueItem, 1 | 2 | 3 | 4>,
+    traits: any[],
+    options: {
+      deckID: string;
+      api: RiffApi;
+      storage?: StorageManager;
+      sortingStrategy?: SchedulerSortingStrategy;
+      schedulerRouter?: SchedulerRouter;
+    }
+  ) {
+    // Initialize base class
+    super({
+      scheduler,
+      sequencer,
+      dataSource: hybridSource,
+      traits,
+      uiConfig: {
+        statsType: 'riff-counts',
+        showRatingButtons: true,
+        allowSkip: true,
+        hiddenContentTypes: ['heading', 'mark', 'list', 'superBlock'],
+      },
+      statsLabel: '提取练习',
+    });
+
+    this.hybridSource = hybridSource;
+    this.deckID = options.deckID;
+    this.api = options.api;
+    this.storage = options.storage;
+    this.sortingStrategy = options.sortingStrategy;
+    this.schedulerRouter = options.schedulerRouter;
+  }
+
+  /**
+   * Factory method to create RetrievalPracticeQueue
+   * 
+   * This is necessary because we need to load initial items asynchronously
+   * before creating the SortedSequencer.
+   */
+  static async create(options?: {
     deckID?: string;
     api?: Partial<RiffApi>;
     storage?: StorageManager;
     localScheduler?: SchedulerEngineAdapter;
-    schedulerRouter?: SchedulerRouter;  // 🆕 新增
-  }) {
+    schedulerRouter?: SchedulerRouter;
+  }): Promise<RetrievalPracticeQueue> {
     const deckID = String(options?.deckID || riff.BUILTIN_DECK_ID);
     const api: RiffApi = {
       getRiffDueCards: options?.api?.getRiffDueCards || riff.getRiffDueCards,
@@ -290,19 +366,10 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
       ? new SchedulerSortingStrategy(options.localScheduler)
       : undefined;
 
-    // Create sequencer with algorithmic sorting
-    const sequencer = new PrioritySequencer<QueueItem>({
-      fetchAll: async () => {
-        const allItems = await hybridSource.getAll();
-
-        // Apply sorting strategy if available
-        if (sortingStrategy) {
-          return sortingStrategy.sort(allItems);
-        }
-
-        // Otherwise sort by priority
-        return allItems.sort((a, b) => (a.priority ?? DEFAULT_PRIORITY) - (b.priority ?? DEFAULT_PRIORITY));
-      },
+    // Create sequencer with SM-15 style sorted insertion
+    // Load initial items from data source
+    const initialItems = await hybridSource.getAll();
+    const sequencer = new SortedSequencer<QueueItem>({
       getDueMs: (item) => {
         // Get due time for sorting
         return CardStorage.getDueTime(item);
@@ -310,6 +377,7 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
       getPriority: (item) => {
         return item.priority ?? DEFAULT_PRIORITY;
       },
+      initialItems: sortingStrategy ? sortingStrategy.sort(initialItems) : initialItems,
     });
 
     // Create scheduler for review feedback
@@ -348,7 +416,7 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
 
     // Create traits
     const prioritizableTrait: IPrioritizableTrait<QueueItem> = {
-      id: 'prioritizable',
+      id: 'prioritizable' as const,
       setPriority: async (item, priority) => {
         const blockID = String((item as any)?.blockID || '');
         if (!blockID) return false;
@@ -359,44 +427,35 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
     };
 
     const mutableTrait: IMutableTrait<QueueItem> = {
-      id: 'mutable',
+      id: 'mutable' as const,
       insertAt: async (items, index) => {
         await hybridSource.insertAt(items, index);
       },
     };
 
-    const removableTrait: IRemovableTrait<QueueItem> & IMutableTrait<QueueItem> = {
-      id: 'removable',
-      insertAt: async (items, index) => {
-        await hybridSource.insertAt(items, index);
-      },
+    const removableTrait: IRemovableTrait<QueueItem> = {
+      id: 'removable' as const,
       removeItems: async (items) => {
         return await hybridSource.remove(items);
       },
     };
 
-    // Initialize base class
-    super({
-      scheduler,
+    return new RetrievalPracticeQueue(
+      hybridSource,
       sequencer,
-      dataSource: hybridSource,
-      traits: [prioritizableTrait, mutableTrait, removableTrait],
-      uiConfig: {
-        statsType: 'riff-counts',
-        showRatingButtons: true,
-        allowSkip: true,
-        hiddenContentTypes: ['heading', 'mark', 'list', 'superBlock'], // 🆕 添加隐藏内容类型
-      },
-      statsLabel: '提取练习',
-    });
-
-    this.hybridSource = hybridSource;
-    this.deckID = deckID;
-    this.api = api;
-    this.storage = options?.storage;
-    this.sortingStrategy = sortingStrategy;
-    this.schedulerRouter = options?.schedulerRouter;  // 🆕 新增
+      scheduler,
+      [prioritizableTrait, mutableTrait, removableTrait],
+      {
+        deckID,
+        api,
+        storage: options?.storage,
+        sortingStrategy,
+        schedulerRouter: options?.schedulerRouter,
+      }
+    );
   }
+
+
 
   /**
    * Override getStats to provide Riff-specific statistics
@@ -451,7 +510,13 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
    */
   async addItems(items: QueueItem[]): Promise<number> {
     if (!items || items.length === 0) return 0;
+    
+    // Add to data source (for persistence)
     await this.hybridSource.insertAt(items, 0);
+    
+    // Add to sequencer (for immediate availability)
+    (this.sequencer as SortedSequencer<QueueItem>).insertMany(items);
+    
     return items.length;
   }
 
@@ -486,35 +551,64 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
   }
 
   /**
-   * Override rotateToEnd to use the Mutable trait for proper persistence
+   * Override rotateToEnd to use SortedSequencer's insert method
    * 
-   * The base implementation pushes to the array returned by getAll(),
-   * but RetrievalHybridDataSource returns a new array, so the push doesn't persist.
-   * This override uses the Mutable trait's insertAt method to properly persist the rotation.
+   * This implementation follows SM-15's approach:
+   * 1. Remove the item from the queue
+   * 2. Update the item's dueTime to current time
+   * 3. Re-insert using binary search (SM-15 style)
+   * 
+   * Key difference from base implementation:
+   * - Uses SortedSequencer.insert() which maintains sorted order
+   * - No need to call reset() - queue is always up-to-date
+   * - Matches SM-15's discard() + splice(_findIndexToInsert()) pattern
    * 
    * @param item - The item to rotate to the end
    * @protected
    */
   protected async rotateToEnd(item: QueueItem): Promise<void> {
-    console.log('[RetrievalPracticeQueue] Rotating item to end of queue');
+    console.log('[RetrievalPracticeQueue] ========== rotateToEnd START ==========');
+    console.log('[RetrievalPracticeQueue] Item to rotate:', {
+      cardID: item.cardID,
+      currentNextDues: item.nextDues,
+    });
     
-    // Get the mutable trait to insert at the end
-    const mutableTrait = this.getMutableTrait();
-    if (!mutableTrait) {
-      console.warn('[RetrievalPracticeQueue] Mutable trait not available, cannot rotate item');
-      return;
-    }
-    
-    // Remove the item from the queue first
+    // Step 1: Remove the item from the data source
     const removed = await this.hybridSource.remove([item]);
-    console.log(`[RetrievalPracticeQueue] Removed ${removed} item(s) from queue`);
+    console.log(`[RetrievalPracticeQueue] Removed ${removed} item(s) from data source`);
 
-    // Get current queue size AFTER removing to determine insertion index
-    const allItemsAfter = await this.hybridSource.getAll();
-    const insertIndex = allItemsAfter.length; // Insert at the end (after removal, this is the correct index)
+    // Step 2: Set nextDues to current time (SM-15 style: dueDate = now)
+    // This ensures the card is "immediately available" but doesn't always sort first
+    const now = Date.now();
+    const dueTimeISO = new Date(now).toISOString();
+    item.nextDues = {
+      1: dueTimeISO,
+      2: dueTimeISO,
+      3: dueTimeISO,
+      4: dueTimeISO,
+    };
+    console.log(`[RetrievalPracticeQueue] Set nextDues to current time (SM-15 style)`, {
+      cardID: item.cardID,
+      nextDues: item.nextDues,
+      now,
+      dueTimeISO,
+    });
 
-    // Insert the item at the end using the trait
-    await mutableTrait.insertAt([item], insertIndex);
-    console.log(`[RetrievalPracticeQueue] Item rotated to end, new queue size: ${insertIndex + 1}`);
+    // Step 3: Save the updated nextDues to Storage if available
+    // Note: FSRSCard doesn't have nextDues field, so we don't update it in storage
+    // The nextDues is only used by Riff and is stored in the queue data source
+    console.log(`[RetrievalPracticeQueue] ⚠️ nextDues is a Riff-specific field, not saved to FSRSCard storage`);
+
+    // Step 4: Re-insert into data source (for persistence)
+    await this.hybridSource.insertAt([item], Number.MAX_SAFE_INTEGER);
+    console.log(`[RetrievalPracticeQueue] Re-inserted item into data source`);
+
+    // Step 5: Insert into sequencer using binary search (SM-15 style)
+    // This is the key difference: SortedSequencer.insert() uses binary search
+    // to find the correct position, just like SM-15's _findIndexToInsert()
+    (this.sequencer as SortedSequencer<QueueItem>).insert(item);
+    console.log(`[RetrievalPracticeQueue] Inserted item into sequencer using binary search`);
+    
+    console.log('[RetrievalPracticeQueue] ========== rotateToEnd END ==========');
   }
 }
