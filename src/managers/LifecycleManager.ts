@@ -40,7 +40,7 @@ export class LifecycleManager {
 
   async initializeQueues() {
     // 使用 队列（复合架构）
-    this.plugin.retrievalQueue = new RetrievalPracticeQueue({
+    this.plugin.retrievalQueue = await RetrievalPracticeQueue.create({
       storage: this.plugin.storage,
       localScheduler: this.plugin.scheduler,      // 保留（向后兼容）
       schedulerRouter: this.plugin.schedulerRouter, // 新增

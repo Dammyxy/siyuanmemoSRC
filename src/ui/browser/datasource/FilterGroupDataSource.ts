@@ -11,7 +11,7 @@ import {
 
 type FilterGroupQueueLike = {
   getAllItems?: () => any[];
-  removeItems?: (items: any[]) => Promise<number> | number;
+  remove?: (items: any[]) => Promise<number> | number;
   removeItem?: (item: any) => Promise<boolean> | boolean;
 };
 

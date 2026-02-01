@@ -12,6 +12,7 @@ import { pushErrMsg, pushMsg, sql } from '@/core/siyuan/api';
 import { createVueDialog } from '@/utils/dialog';
 import { createDefaultCard } from '@/types';
 import { DEFAULT_PRIORITY } from '@/core/queue';
+import type { CardAttributeRow } from '@/core/queue/types';
 
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import type { ReviewDialogManager } from './ReviewDialogManager';
@@ -372,6 +373,11 @@ export class BlockMenuHandler {
     const result: any[] = [];
     const seen = new Set<string>();
 
+    // Extended interface for this specific query that includes card_type
+    interface CardAttributeWithTypeRow extends CardAttributeRow {
+      card_type?: string;
+    }
+
     for (let i = 0; i < uniqueIds.length; i += 200) {
       const batch = uniqueIds.slice(i, i + 200);
       const idsStr = batch.map((id) => `'${id}'`).join(',');
@@ -387,11 +393,11 @@ export class BlockMenuHandler {
         WHERE a1.name = '${ATTR_CARD_ID}' 
           AND a1.block_id IN (${idsStr}) 
           AND a1.value != ''
-      `);
+      `) as CardAttributeWithTypeRow[];
 
       for (const row of rows) {
         const blockID = row.block_id || row.blockID;
-        const cardID = row.card_id || row.value || row.cardID;
+        const cardID = row.value;
         const cardType = row.card_type;
         
         if (!blockID || !cardID || seen.has(cardID)) {

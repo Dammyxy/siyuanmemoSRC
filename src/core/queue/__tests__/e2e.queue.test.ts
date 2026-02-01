@@ -227,15 +227,12 @@ describe('E2E: 完整复习流程', () => {
       });
 
       // 2. 创建队列
-      const queue = new RetrievalPracticeQueue({
+      const queue = await RetrievalPracticeQueue.create({
         deckID: 'test-deck',
         api: mockRiffAPI as any,
         storage,
         schedulerRouter: router,
       });
-
-      // 等待队列初始化完成
-      await new Promise(resolve => setTimeout(resolve, 100));
 
       // 3. 获取统计信息
       const stats = await queue.getStats();
@@ -284,15 +281,12 @@ describe('E2E: 完整复习流程', () => {
       });
 
       // 2. 创建队列
-      const queue = new RetrievalPracticeQueue({
+      const queue = await RetrievalPracticeQueue.create({
         deckID: 'test-deck',
         api: mockRiffAPI as any,
         storage,
         schedulerRouter: router,
       });
-
-      // 等待队列初始化完成
-      await new Promise(resolve => setTimeout(resolve, 100));
 
       // 3. 复习卡片
       const firstCard = await queue.next();
@@ -332,7 +326,7 @@ describe('E2E: 完整复习流程', () => {
       });
 
       // 3. 创建队列
-      const queue = new RetrievalPracticeQueue({
+      const queue = await RetrievalPracticeQueue.create({
         deckID: 'test-deck',
         api: mockRiffAPI as any,
         storage,
@@ -421,8 +415,8 @@ describe('E2E: 完整复习流程', () => {
       // 使用类型断言来绕过类型检查问题
       if (removableTrait) {
         const trait = removableTrait as any;
-        if (trait.removeItems) {
-          const removedCount = await trait.removeItems([{
+        if (trait.remove) {
+          const removedCount = await trait.remove([{
             cardID: 'delete-me',
             blockID: 'block-del',
             deckID: 'test-deck',
@@ -465,8 +459,8 @@ describe('E2E: 完整复习流程', () => {
       const removableTrait = queue.getRemovableTrait();
       if (removableTrait) {
         const trait = removableTrait as any;
-        if (trait.removeItems) {
-          await trait.removeItems([{
+        if (trait.remove) {
+          await trait.remove([{
             cardID: 'riff-delete',
             blockID: 'block-riff-del',
             deckID: 'test-deck',
@@ -512,7 +506,7 @@ describe('E2E: 完整复习流程', () => {
         nextDues: { again: '', hard: '', good: '', easy: '' },
       });
 
-      const queue = new RetrievalPracticeQueue({
+      const queue = await RetrievalPracticeQueue.create({
         deckID: 'test-deck',
         api: mockRiffAPI as any,
         storage,
@@ -580,7 +574,7 @@ describe('E2E: 完整复习流程', () => {
       });
 
       // 2. 创建队列（使用 SchedulerSortingStrategy）
-      const queue = new RetrievalPracticeQueue({
+      const queue = await RetrievalPracticeQueue.create({
         deckID: 'test-deck',
         api: mockRiffAPI as any,
         storage,
@@ -608,7 +602,7 @@ describe('E2E: 完整复习流程', () => {
         nextDues: { again: '', hard: '', good: '', easy: '' },
       });
 
-      const queue = new RetrievalPracticeQueue({
+      const queue = await RetrievalPracticeQueue.create({
         deckID: 'test-deck',
         api: mockRiffAPI as any,
         storage,
@@ -660,7 +654,7 @@ describe('E2E: 完整复习流程', () => {
       // 2. 启用 Riff 同步
       router.updateConfig({ enableRiffSync: true });
 
-      const queue = new RetrievalPracticeQueue({
+      const queue = await RetrievalPracticeQueue.create({
         deckID: 'test-deck',
         api: failingRiffAPI as any,
         storage,
@@ -749,8 +743,8 @@ describe('E2E: 完整复习流程', () => {
       const removableTrait = queue.getRemovableTrait();
       if (removableTrait) {
         const trait = removableTrait as any;
-        if (trait.removeItems) {
-          await trait.removeItems([{
+        if (trait.remove) {
+          await trait.remove([{
             cardID: 'delete-fail',
             blockID: 'block-delete-fail',
             deckID: 'test-deck',

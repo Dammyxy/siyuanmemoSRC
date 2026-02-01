@@ -10,7 +10,7 @@ import type { BrowserCard } from '../../browser/types';
 import { batchSetPriority } from '../../browser/browserService';
 import { RescheduleService } from '@/core/scheduler/rescheduleService';
 import type { StorageManager } from '@/core/storage/StorageManager';
-import { InsertAtCommand, RemoveItemsCommand, SetPriorityCommand, AutoSortCommand } from '@/core/queue/commands';
+import { InsertAtCommand, RemoveCommand, SetPriorityCommand, AutoSortCommand } from '@/core/queue/commands';
 
 // ========== 动作定义 ==========
 
@@ -146,7 +146,7 @@ export type QueueTraitLike = {
   getRemovableTrait?: () => any;
   getPrioritizableTrait?: () => any;
   getAutoSortableTrait?: () => any;
-  removeItems?: (items: any[]) => Promise<number> | number;
+  remove?: (items: any[]) => Promise<number> | number;
   insertAt?: (items: any[], index: number) => Promise<void> | void;
   setPriority?: (cardID: string, priority: number) => Promise<boolean> | boolean;
   sort?: () => Promise<void> | void;
@@ -192,17 +192,17 @@ export async function removeFromQueue(
   // 优先使用 Trait 模式
   const trait = queue.getRemovableTrait?.();
   if (trait) {
-    const cmd = new RemoveItemsCommand<any>();
+    const cmd = new RemoveCommand<any>();
     const result = await cmd.execute({ trait, items });
     return result?.removedCount ?? 0;
   }
 
   // 降级到直接调用
-  if (queue.removeItems) {
-    return await Promise.resolve(queue.removeItems(items));
+  if (queue.remove) {
+    return await Promise.resolve(queue.remove(items));
   }
 
-  console.warn('[MenuActions] No removeItems method found on queue');
+  console.warn('[MenuActions] No remove method found on queue');
   return 0;
 }
 

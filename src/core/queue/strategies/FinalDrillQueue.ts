@@ -100,7 +100,7 @@ export class FinalDrillQueue extends BaseCompositeQueue<FinalDrillItem> {
 
     const removableTrait: IRemovableTrait<FinalDrillItem> = {
       id: 'removable',
-      removeItems: async (items) => {
+      remove: async (items) => {
         return await this.removeItems(items);
       },
     };

@@ -380,6 +380,11 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
       initialItems: sortingStrategy ? sortingStrategy.sort(initialItems) : initialItems,
     });
 
+    // 🆕 Task 1.5: Register sequencer as observer of data source
+    // This ensures the sequencer's cache is automatically invalidated when data changes
+    hybridSource.addObserver(sequencer);
+    console.log('[RetrievalPracticeQueue] ✅ Registered sequencer as observer of data source');
+
     // Create scheduler for review feedback
     const scheduler = new RiffScheduler<QueueItem, 1 | 2 | 3 | 4>(async (card, grade) => {
       // 🆕 如果有 SchedulerRouter 和 Storage，使用路由器
@@ -435,7 +440,7 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
 
     const removableTrait: IRemovableTrait<QueueItem> = {
       id: 'removable' as const,
-      removeItems: async (items) => {
+      remove: async (items) => {
         return await hybridSource.remove(items);
       },
     };

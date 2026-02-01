@@ -201,21 +201,26 @@ export function initializeAFactor(priority: number): number {
 export async function batchDetectCardType(
     blockIds: string[]
 ): Promise<Map<string, 'topic' | 'item'>> {
-    const result = new Map<string, 'topic' | 'item'>();
+    const result = new Map<string, 'topic' | 'item'>()
 
-    // 批量处理（避免并发过多）
-    const batchSize = 10;
-    for (let i = 0; i < blockIds.length; i += batchSize) {
-        const batch = blockIds.slice(i, i + batchSize);
-        const promises = batch.map(async (blockId) => {
-            const type = await detectCardType(blockId);
-            return { blockId, type };
-        });
-        const batchResults = await Promise.all(promises);
-        batchResults.forEach(({ blockId, type }) => {
-            result.set(blockId, type);
-        });
-    }
+    // 使用优化的批量查询（批量大小 200，最大并发 3）
+    const { batchQueryWithConcurrency } = await import('../../utils/batchQuery')
+    
+    const results = await batchQueryWithConcurrency(
+        blockIds,
+        { batchSize: 200, maxConcurrency: 3 },
+        async (batch) => {
+            const promises = batch.map(async (blockId) => {
+                const type = await detectCardType(blockId)
+                return { blockId, type }
+            })
+            return await Promise.all(promises)
+        },
+    )
 
-    return result;
+    results.forEach(({ blockId, type }) => {
+        result.set(blockId, type)
+    })
+
+    return result
 }

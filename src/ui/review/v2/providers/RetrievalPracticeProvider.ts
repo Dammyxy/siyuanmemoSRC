@@ -57,7 +57,8 @@ export class RetrievalPracticeProvider implements QueueProvider<BrowserCard> {
       getDueMs: (card) => {
         // 使用 due 字段作为排序键
         // 评分 1-2 的卡片会设置未来的 due 时间，自然排在末尾
-        return (card as any).due || Date.now();
+        const browserCard = card as BrowserCard;
+        return browserCard.due ? browserCard.due.getTime() : Date.now();
       },
       // 不使用 priority 排序，只按 dueTime 排序
       // 这样评分 1-2 的卡片（due 时间在未来）会排在末尾
@@ -115,7 +116,7 @@ export class RetrievalPracticeProvider implements QueueProvider<BrowserCard> {
     // 只在第一次或强制重载时从 Queue 加载
     if (!this.session.isLoaded() || options?.forceReload) {
       console.log('[RetrievalPracticeProvider] Loading cards from queue...');
-      const cards = await this.queue.getAllCards() as any;
+      const cards: BrowserCard[] = await this.queue.getAllCards();
       
       // 🔑 保留原始的 dueTime，不统一
       // 这样可以保持"越早到期 = 越优先"的语义
@@ -171,7 +172,10 @@ export class RetrievalPracticeProvider implements QueueProvider<BrowserCard> {
     try {
       // 找到卡片
       const card = this.session.find(
-        c => (c as any).cardID === cardId || (c as any).cardId === cardId
+        c => {
+          const card = c as BrowserCard;
+          return card.id === cardId || (card as any).cardID === cardId || (card as any).cardId === cardId;
+        }
       );
 
       if (!card) {
@@ -183,7 +187,10 @@ export class RetrievalPracticeProvider implements QueueProvider<BrowserCard> {
 
       // 从 session 中移除
       const removed = this.session.remove(
-        c => (c as any).cardID === cardId || (c as any).cardId === cardId
+        c => {
+          const card = c as BrowserCard;
+          return card.id === cardId || (card as any).cardID === cardId || (card as any).cardId === cardId;
+        }
       );
 
       if (!removed) {
@@ -197,18 +204,19 @@ export class RetrievalPracticeProvider implements QueueProvider<BrowserCard> {
         console.log('[RetrievalPracticeProvider] Rating < 3, rotating with SM-15 style:', cardId);
         
         // 增加失败次数
-        (card as any).lapses = ((card as any).lapses || 0) + 1;
+        const browserCard = card as BrowserCard;
+        browserCard.lapses = (browserCard.lapses || 0) + 1;
         
         // 🔑 SM-15 风格：设置 due = now（当前时间）
         // 这样会通过二分插入找到正确的位置：
         // - 排在过去到期的卡片之后
         // - 排在未来到期的卡片之前
         const now = Date.now();
-        (card as any).due = now;
+        browserCard.due = new Date(now);
         
         console.log('[RetrievalPracticeProvider] Set due to now (SM-15 style):', {
           cardId,
-          lapses: (card as any).lapses,
+          lapses: browserCard.lapses,
           due: now,
           dueTimeISO: new Date(now).toISOString(),
         });
@@ -240,18 +248,19 @@ export class RetrievalPracticeProvider implements QueueProvider<BrowserCard> {
       // 记录复习日志
       if (this.storage) {
         try {
+          const browserCard = card as BrowserCard;
           const logData = {
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
             cardId: cardId,
             rating: rating as 1 | 2 | 3 | 4,
-            state: (card as any)?.state || 0,
-            scheduledDays: (card as any)?.scheduledDays || 0,
-            elapsedDays: (card as any)?.elapsedDays || 0,
+            state: browserCard.state || 0,
+            scheduledDays: browserCard.scheduledDays || 0,
+            elapsedDays: browserCard.elapsedDays || 0,
             review: reviewTime,
             reviewTime: 0,
             isDrill: false,
-            stability: (card as any)?.stability || 0,
-            difficulty: (card as any)?.difficulty || 0,
+            stability: browserCard.stability || 0,
+            difficulty: browserCard.difficulty || 0,
           };
           console.log('[RetrievalPracticeProvider] Adding review log:', logData);
           await this.storage.addReviewLog(logData);
@@ -288,7 +297,10 @@ export class RetrievalPracticeProvider implements QueueProvider<BrowserCard> {
     try {
       // 找到卡片
       const card = this.session.find(
-        c => (c as any).cardID === cardId || (c as any).cardId === cardId
+        c => {
+          const card = c as BrowserCard;
+          return card.id === cardId || (card as any).cardID === cardId || (card as any).cardId === cardId;
+        }
       );
 
       if (!card) {
@@ -298,7 +310,10 @@ export class RetrievalPracticeProvider implements QueueProvider<BrowserCard> {
 
       // 从 session 中移除
       const removed = this.session.remove(
-        c => (c as any).cardID === cardId || (c as any).cardId === cardId
+        c => {
+          const card = c as BrowserCard;
+          return card.id === cardId || (card as any).cardID === cardId || (card as any).cardId === cardId;
+        }
       );
 
       if (!removed) {

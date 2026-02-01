@@ -11,11 +11,12 @@
  * - Traits: Optional capabilities (Mutable, Removable, Prioritizable, etc.)
  */
 
-import type { IQueueStrategy, QueueFeedback, QueueStats, QueueUIConfig } from '../types';
+import type { QueueStats, QueueUIConfig, QueueItem } from '../types';
+import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy';
 import type { IScheduler, ISequencer, IQueueTrait } from '../abstraction/types';
 import type { IDataSource } from '../datasource/IDataSource';
 
-export type CompositeQueueConfig<TItem> = {
+export type CompositeQueueConfig<TItem extends QueueItem> = {
   /**
    * Scheduler for algorithm logic (FSRS, SM2, A-Factor, etc.)
    * Optional - queues without scheduling (e.g., neural roam) can omit
@@ -61,8 +62,15 @@ export type CompositeQueueConfig<TItem> = {
  * - Sequencer: Determines next item order
  * - DataSource: Manages item storage
  * - Traits: Adds optional capabilities
+ * 
+ * **Type Constraint**: TItem must extend QueueItem to ensure all items have
+ * the required blockID field for proper identification and tracking.
+ * 
+ * @template TItem - The item type managed by this queue (must extend QueueItem, defaults to QueueItem)
+ * 
+ * @see Requirement 6.2 - Generic type constraints for IQueue interface
  */
-export class BaseCompositeQueue<TItem = any> implements IQueueStrategy<TItem> {
+export class BaseCompositeQueue<TItem extends QueueItem = QueueItem> implements IQueueStrategy<TItem> {
   protected readonly scheduler?: IScheduler<TItem, number>;
   protected readonly sequencer: ISequencer<TItem>;
   protected readonly dataSource: IDataSource<TItem>;
@@ -139,15 +147,16 @@ export class BaseCompositeQueue<TItem = any> implements IQueueStrategy<TItem> {
       if (rating >= 3) {
         // Rating 3-4: Remove from queue
         if (this.dataSource.remove) {
-          await this.dataSource.remove([item]);
+          const removeResult = await this.dataSource.remove([item]);
+          if (!removeResult.ok) {
+            console.error('[BaseCompositeQueue] Failed to remove item:', removeResult.error);
+            // Continue anyway - item is already scheduled
+          }
         }
         
-        // CRITICAL: Reset sequencer after removing item
-        // The sequencer caches items, so we need to force reload on next call to next()
-        if (this.sequencer && typeof (this.sequencer as any).reset === 'function') {
-          (this.sequencer as any).reset();
-          console.log('[BaseCompositeQueue] Sequencer reset after remove');
-        }
+        // Note: No manual reset() needed - the DataSource automatically notifies
+        // observers (Sequencers) via the Observer pattern, which invalidates their caches.
+        // See ADR-002: Observer Pattern for Cache Invalidation
       } else {
         // Rating 1-2: Rotate to end of queue
         await this.rotateToEnd(item);
@@ -157,7 +166,11 @@ export class BaseCompositeQueue<TItem = any> implements IQueueStrategy<TItem> {
     } else if (feedback.action === 'skip') {
       // Skip: remove from data source without scheduling
       if (this.dataSource.remove) {
-        await this.dataSource.remove([item]);
+        const removeResult = await this.dataSource.remove([item]);
+        if (!removeResult.ok) {
+          console.error('[BaseCompositeQueue] Failed to remove skipped item:', removeResult.error);
+          // Continue anyway - user has skipped the item
+        }
       }
 
       this.currentItem = null;
@@ -208,6 +221,47 @@ export class BaseCompositeQueue<TItem = any> implements IQueueStrategy<TItem> {
   }
 
   /**
+   * Get all cards from the queue
+   * 
+   * **Purpose:**
+   * Retrieves all items currently in the queue, regardless of their state or position.
+   * This is useful for operations that need to inspect or manipulate the entire queue,
+   * such as card browsers, bulk operations, or queue analysis.
+   * 
+   * **Default Implementation:**
+   * The base implementation simply delegates to `dataSource.getAll()`, which returns
+   * all items from the underlying data source. This works for most queue types.
+   * 
+   * **Subclass Override:**
+   * Subclasses can override this method if they need custom behavior, such as:
+   * - Merging items from multiple sources (e.g., Riff + local storage)
+   * - Filtering items based on queue-specific criteria
+   * - Transforming items before returning
+   * 
+   * **Usage Example:**
+   * ```typescript
+   * // Get all cards for display in a card browser
+   * const allCards = await queue.getAllCards();
+   * console.log(`Queue contains ${allCards.length} cards`);
+   * ```
+   * 
+   * **Performance Note:**
+   * This method may be expensive for large queues as it loads all items into memory.
+   * Consider using pagination or streaming for very large datasets.
+   * 
+   * @returns A promise that resolves to an array of all queue items
+   * @public
+   * 
+   * @see {@link IDataSource.getAll} - The underlying data source method
+   * @see Requirement 14.1 - Extract common implementations to base class
+   * @see Requirement 14.2 - Use Promise.all() for concurrent operations
+   */
+  async getAllCards(): Promise<TItem[]> {
+    // Default implementation: delegate to data source
+    return await this.dataSource.getAll();
+  }
+
+  /**
    * Helper: Get the size of the queue
    */
   protected async getSize(): Promise<number> {
@@ -225,23 +279,65 @@ export class BaseCompositeQueue<TItem = any> implements IQueueStrategy<TItem> {
   /**
    * Rotate an item to the end of the queue
    * 
-   * This method removes the item from the queue and re-adds it at the end.
-   * Used for items that need to be reviewed again (e.g., rating < 3).
+   * **Purpose:**
+   * This method handles cards that received low ratings (1-2) by moving them to the end
+   * of the queue for later review. This implements spaced repetition principles where
+   * difficult cards are reviewed again in the same session but after other cards.
    * 
-   * Note: This method relies on the DataSource's internal implementation
-   * to persist changes. The DataSource should automatically save the
-   * modified queue state after getAll() returns.
+   * **How it works:**
+   * 1. Removes the item from the queue using `dataSource.remove()`
+   * 2. Retrieves all remaining items via `dataSource.getAll()`
+   * 3. Appends the item to the end of the returned array
+   * 4. The DataSource persists changes automatically (implementation-dependent)
    * 
-   * @param item - The item to rotate to the end
+   * **Important Design Notes:**
+   * - This method does NOT manually call `sequencer.reset()` or invalidate caches
+   * - Cache invalidation happens automatically via the Observer Pattern (see ADR-002)
+   * - When `dataSource.remove()` is called, it notifies all registered observers
+   * - The Sequencer (as an observer) automatically invalidates its cache on notification
+   * - On the next `next()` call, the Sequencer reloads data with the rotated item at the end
+   * 
+   * **DataSource Contract:**
+   * This method relies on the DataSource's behavior:
+   * - `getAll()` must return a reference to the internal array (not a copy)
+   * - Modifications to the returned array must be persisted by the DataSource
+   * - `remove()` must trigger observer notifications for cache invalidation
+   * 
+   * **Usage Example:**
+   * ```typescript
+   * // In onFeedback() when user rates a card 1 or 2
+   * if (rating < 3) {
+   *   await this.rotateToEnd(currentItem);
+   *   // Card will appear again later in the session
+   * }
+   * ```
+   * 
+   * **Edge Cases:**
+   * - If DataSource doesn't support `remove()`, logs a warning and returns early
+   * - If the queue is empty after removal, the item becomes the only item
+   * - Thread-safe: Observer pattern ensures cache consistency across concurrent operations
+   * 
+   * @param item - The queue item to rotate to the end (typically a card with rating 1-2)
+   * @returns A promise that resolves when the rotation is complete
    * @protected
+   * 
+   * @see {@link onFeedback} - Calls this method for ratings 1-2
+   * @see ADR-002 - Observer Pattern for Cache Invalidation
+   * @see {@link IDataSource.remove} - Triggers observer notifications
+   * @see {@link IDataSourceObserver.onDataChanged} - Sequencer cache invalidation
    */
   protected async rotateToEnd(item: TItem): Promise<void> {
     console.log('[BaseCompositeQueue] Rotating item to end of queue');
     
     // Remove the item from the queue
     if (this.dataSource.remove) {
-      const removed = await this.dataSource.remove([item]);
-      console.log(`[BaseCompositeQueue] Removed ${removed} item(s) from queue`);
+      const removeResult = await this.dataSource.remove([item]);
+      if (removeResult.ok) {
+        console.log(`[BaseCompositeQueue] Removed ${removeResult.value} item(s) from queue`);
+      } else {
+        console.error('[BaseCompositeQueue] Failed to remove item for rotation:', removeResult.error);
+        // Continue anyway - we'll try to add it back
+      }
     } else {
       console.warn('[BaseCompositeQueue] DataSource does not support remove operation');
       return;

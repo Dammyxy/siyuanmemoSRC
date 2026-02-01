@@ -11,7 +11,7 @@ import {
 
 type FinalDrillQueueLike = {
   getAllItems?: () => any[];
-  removeItems?: (items: any[]) => Promise<number> | number;
+  remove?: (items: any[]) => Promise<number> | number;
   removeItem?: (item: any) => Promise<boolean> | boolean;
   setPriority?: (cardID: string, priority: number) => Promise<boolean> | boolean;
   sort?: () => Promise<void> | void;

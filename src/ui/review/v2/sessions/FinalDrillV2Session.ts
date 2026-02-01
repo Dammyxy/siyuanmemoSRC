@@ -7,7 +7,7 @@ import type { IQueueStrategy, QueueFeedback } from '../../../../core/queue/abstr
 
 type FinalDrillQueueLike = {
   getAllItems: () => QueueItem[];
-  getRemovableTrait?: () => { removeItems: (items: QueueItem[]) => Promise<number> };
+  getRemovableTrait?: () => { remove: (items: QueueItem[]) => Promise<number> };
   getMutableTrait?: () => { insertAt: (items: QueueItem[], index: number) => Promise<void> };
 };
 
@@ -211,7 +211,7 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
       return;
     }
 
-    const removed = await removable.removeItems([item]);
+    const removed = await removable.remove([item]);
 
     if (removed <= 0) {
       console.error('[FinalDrillV2Session] Failed to remove item');
@@ -226,7 +226,7 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
   private async removeFromQueue(item: QueueItem): Promise<void> {
     const removable = this.queue.getRemovableTrait?.();
     if (!removable) return;
-    await removable.removeItems([item]);
+    await removable.remove([item]);
   }
 
   private ensureStarted(): void {

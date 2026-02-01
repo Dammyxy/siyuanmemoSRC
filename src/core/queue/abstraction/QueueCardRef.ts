@@ -1,9 +1,11 @@
+import type { BlockID, CardID } from '../../../types/branded';
+import { createBlockID, createCardID } from '../../../types/branded';
 
 export interface QueueCardRef {
   /** Map to RiffCard.id or raw card ID */
-  cardID: string;
+  cardID: CardID;
   /** Map to RiffCard.blockID or raw block ID */
-  blockID: string;
+  blockID: BlockID;
   /** Map to RiffCard.deckID or raw deck ID */
   deckID: string;
   /**
@@ -19,19 +21,19 @@ export interface QueueCardRef {
   originalRef?: unknown;
 }
 
-export function normalizeRiffCardId(raw: any): string {
+export function normalizeRiffCardId(raw: any): CardID {
   const v = raw?.riffCardID
     ?? raw?.riffCardId
     ?? raw?.cardID
     ?? raw?.cardId
     ?? raw?.riffCard?.id
     ?? raw?.riffCard?.ID;
-  return v ? String(v) : '';
+  return createCardID(v ? String(v) : '');
 }
 
-export function normalizeBlockId(raw: any): string {
+export function normalizeBlockId(raw: any): BlockID {
   const v = raw?.blockID ?? raw?.blockId ?? raw?.block_id ?? raw?.id;
-  return v ? String(v) : '';
+  return createBlockID(v ? String(v) : '');
 }
 
 export function normalizeDeckId(raw: any, fallbackDeckID = ''): string {

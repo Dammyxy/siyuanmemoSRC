@@ -76,15 +76,12 @@ describe('Performance Benchmarks - RetrievalPracticeQueue', () => {
 
   beforeEach(async () => {
     mockStorage = createMockStorage();
-    queue = new RetrievalPracticeQueue({
+    queue = await RetrievalPracticeQueue.create({
       deckID: 'test-deck',
       api: mockRiffApi,
       storage: mockStorage,
       localScheduler: new SimpleFSRSScheduler(mockFSRSParams),
     });
-
-    // 等待队列加载完成
-    await new Promise(resolve => setTimeout(resolve, 10));
   });
 
   describe('插入性能', () => {
@@ -185,14 +182,12 @@ describe('Performance Benchmarks - RetrievalPracticeQueue', () => {
 describe('Memory Leak Tests - RetrievalPracticeQueue', () => {
   it('不应该有内存泄漏', async () => {
     const mockStorage = createMockStorage();
-    const queue = new RetrievalPracticeQueue({
+    const queue = await RetrievalPracticeQueue.create({
       deckID: 'test-deck',
       api: mockRiffApi,
       storage: mockStorage,
       localScheduler: new SimpleFSRSScheduler(mockFSRSParams),
     });
-
-    await new Promise(resolve => setTimeout(resolve, 10));
 
     // 添加大量卡片
     for (let i = 0; i < 100; i++) {

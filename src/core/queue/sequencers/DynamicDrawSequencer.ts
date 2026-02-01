@@ -11,10 +11,11 @@
  */
 
 import type { ISequencer } from '../abstraction/types';
+import type { QueueItem } from '../types';
 
 export type DrawStrategy = 'random' | 'random-weighted' | 'round-robin';
 
-export type DynamicDrawSequencerConfig<TItem> = {
+export type DynamicDrawSequencerConfig<TItem extends QueueItem> = {
   /**
    * Function to get all items
    */
@@ -44,7 +45,7 @@ export type DynamicDrawSequencerConfig<TItem> = {
 /**
  * Sequencer that uses dynamic draw algorithms
  */
-export class DynamicDrawSequencer<TItem = any> implements ISequencer<TItem> {
+export class DynamicDrawSequencer<TItem extends QueueItem> implements ISequencer<TItem> {
   private readonly getAllFn: () => Promise<TItem[]> | TItem[];
   private readonly getWeight?: (item: TItem) => number;
   private readonly strategy: DrawStrategy;

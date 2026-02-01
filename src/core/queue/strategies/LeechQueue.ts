@@ -120,6 +120,11 @@ export class LeechQueue extends BaseCompositeQueue<QueueItem> {
       },
     });
 
+    // 🆕 Task 1.5: Register sequencer as observer of data source
+    // This ensures the sequencer's cache is automatically invalidated when data changes
+    dataSource.addObserver(sequencer);
+    console.log('[LeechQueue] ✅ Registered sequencer as observer of data source');
+
     // ⚠️ MUST call super() FIRST before using 'this'
     super({
       scheduler: leechScheduler,

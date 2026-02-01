@@ -1,8 +1,16 @@
 /**
- * BaseCompositeQueue 单元测试
+ * BaseCompositeQueue Unit Tests
  * 
- * 测试 rotateToEnd 方法的功能
+ * Tests the rotateToEnd method functionality and feedback operations
+ * 
  * Feature: retrieval-practice-rating-fix
+ * Task: 17.2 - Refactor tests to BDD style with Given-When-Then structure
+ * 
+ * Test Structure:
+ * - Uses descriptive test names that explain the scenario
+ * - Organizes tests in describe blocks by feature
+ * - Uses Given-When-Then comments for clarity
+ * - Uses test helper functions for common operations
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -10,6 +18,12 @@ import * as fc from 'fast-check';
 import { BaseCompositeQueue } from './BaseCompositeQueue';
 import type { IDataSource } from '../datasource/IDataSource';
 import type { ISequencer } from '../abstraction/types';
+import type { Result } from '../../../types/result';
+
+// Local helper functions to create Result objects
+// (避免导入问题)
+const ok = <T>(value: T): Result<T> => ({ ok: true, value });
+const err = <E = Error>(error: E): Result<never, E> => ({ ok: false, error });
 
 // Mock DataSource
 const createMockDataSource = <TItem>(): IDataSource<TItem> => {
@@ -17,7 +31,7 @@ const createMockDataSource = <TItem>(): IDataSource<TItem> => {
   
   return {
     getAll: vi.fn(async () => items),
-    remove: vi.fn(async (itemsToRemove: TItem[]) => {
+    remove: vi.fn(async (itemsToRemove: TItem[]): Promise<Result<number>> => {
       const initialLength = items.length;
       itemsToRemove.forEach(item => {
         const index = items.indexOf(item);
@@ -25,7 +39,7 @@ const createMockDataSource = <TItem>(): IDataSource<TItem> => {
           items.splice(index, 1);
         }
       });
-      return initialLength - items.length;
+      return ok(initialLength - items.length);
     }),
     size: async () => items.length,
   } as IDataSource<TItem>;
@@ -44,7 +58,7 @@ type TestItem = {
   value: string;
 };
 
-describe('BaseCompositeQueue - rotateToEnd 方法测试', () => {
+describe('BaseCompositeQueue - rotateToEnd Method', () => {
   let queue: BaseCompositeQueue<TestItem>;
   let mockDataSource: IDataSource<TestItem>;
   let mockSequencer: ISequencer<TestItem>;
@@ -59,16 +73,15 @@ describe('BaseCompositeQueue - rotateToEnd 方法测试', () => {
     });
   });
 
-  describe('正常情况', () => {
-    it('应该成功将卡片旋转到队尾', async () => {
-      // Arrange: 设置初始队列状态
+  describe('Normal Operations', () => {
+    it('should successfully rotate a card to the end of the queue', async () => {
+      // Given: A queue with three cards
       const items: TestItem[] = [
         { id: '1', value: 'first' },
         { id: '2', value: 'second' },
         { id: '3', value: 'third' },
       ];
       
-      // 模拟 DataSource 的内部状态
       const dataSourceItems = [...items];
       mockDataSource.getAll = vi.fn(async () => dataSourceItems);
       mockDataSource.remove = vi.fn(async (itemsToRemove: TestItem[]) => {
@@ -78,30 +91,30 @@ describe('BaseCompositeQueue - rotateToEnd 方法测试', () => {
             dataSourceItems.splice(index, 1);
           }
         });
-        return itemsToRemove.length;
+        return ok(itemsToRemove.length);
       });
 
       const itemToRotate = items[0]; // 'first'
 
-      // Act: 调用 rotateToEnd
+      // When: We rotate the first card to the end
       await (queue as any).rotateToEnd(itemToRotate);
 
-      // Assert: 验证卡片被移除
+      // Then: The card should be removed from its current position
       expect(mockDataSource.remove).toHaveBeenCalledWith([itemToRotate]);
       expect(mockDataSource.remove).toHaveBeenCalledTimes(1);
 
-      // Assert: 验证 getAll 被调用
+      // Then: The data source should be queried for all cards
       expect(mockDataSource.getAll).toHaveBeenCalledTimes(1);
 
-      // Assert: 验证卡片被添加到末尾
+      // Then: The card should appear at the end of the queue
       expect(dataSourceItems).toHaveLength(3);
       expect(dataSourceItems[0]).toEqual({ id: '2', value: 'second' });
       expect(dataSourceItems[1]).toEqual({ id: '3', value: 'third' });
       expect(dataSourceItems[2]).toEqual({ id: '1', value: 'first' });
     });
 
-    it('应该记录详细的日志', async () => {
-      // Arrange
+    it('should log detailed information during rotation', async () => {
+      // Given: A queue with two cards and console logging enabled
       const consoleSpy = vi.spyOn(console, 'log');
       const items: TestItem[] = [
         { id: '1', value: 'first' },
@@ -117,15 +130,15 @@ describe('BaseCompositeQueue - rotateToEnd 方法测试', () => {
             dataSourceItems.splice(index, 1);
           }
         });
-        return itemsToRemove.length;
+        return ok(itemsToRemove.length);
       });
 
       const itemToRotate = items[0];
 
-      // Act
+      // When: We rotate a card
       await (queue as any).rotateToEnd(itemToRotate);
 
-      // Assert: 验证日志被记录
+      // Then: Detailed logs should be recorded
       expect(consoleSpy).toHaveBeenCalledWith('[BaseCompositeQueue] Rotating item to end of queue');
       expect(consoleSpy).toHaveBeenCalledWith('[BaseCompositeQueue] Removed 1 item(s) from queue');
       expect(consoleSpy).toHaveBeenCalledWith('[BaseCompositeQueue] Current queue size: 1');
@@ -135,25 +148,25 @@ describe('BaseCompositeQueue - rotateToEnd 方法测试', () => {
     });
   });
 
-  describe('边缘情况', () => {
-    it('应该处理空队列的情况', async () => {
-      // Arrange: 空队列
+  describe('Edge Cases', () => {
+    it('should handle rotating a card into an empty queue', async () => {
+      // Given: An empty queue
       const dataSourceItems: TestItem[] = [];
       mockDataSource.getAll = vi.fn(async () => dataSourceItems);
-      mockDataSource.remove = vi.fn(async () => 0); // 没有移除任何项
+      mockDataSource.remove = vi.fn(async (): Promise<Result<number>> => ok(0));
 
       const itemToRotate: TestItem = { id: '1', value: 'only' };
 
-      // Act
+      // When: We rotate a card into the empty queue
       await (queue as any).rotateToEnd(itemToRotate);
 
-      // Assert: 验证卡片被添加到空队列
+      // Then: The card should be added to the queue
       expect(dataSourceItems).toHaveLength(1);
       expect(dataSourceItems[0]).toEqual(itemToRotate);
     });
 
-    it('应该处理单卡片队列的情况', async () => {
-      // Arrange: 单卡片队列
+    it('should handle rotating the only card in a single-card queue', async () => {
+      // Given: A queue with only one card
       const item: TestItem = { id: '1', value: 'only' };
       const dataSourceItems: TestItem[] = [item];
       
@@ -165,40 +178,40 @@ describe('BaseCompositeQueue - rotateToEnd 方法测试', () => {
             dataSourceItems.splice(index, 1);
           }
         });
-        return itemsToRemove.length;
+        return ok(itemsToRemove.length);
       });
 
-      // Act: 旋转唯一的卡片
+      // When: We rotate the only card
       await (queue as any).rotateToEnd(item);
 
-      // Assert: 队列大小保持为 1，卡片仍在队列中
+      // Then: The queue should still contain the card
       expect(dataSourceItems).toHaveLength(1);
       expect(dataSourceItems[0]).toEqual(item);
     });
 
-    it('应该在 DataSource 不支持 remove 时记录警告并返回', async () => {
-      // Arrange: DataSource 没有 remove 方法
+    it('should log a warning and return early when DataSource does not support remove', async () => {
+      // Given: A DataSource without remove method
       const consoleWarnSpy = vi.spyOn(console, 'warn');
       mockDataSource.remove = undefined as any;
 
       const itemToRotate: TestItem = { id: '1', value: 'test' };
 
-      // Act
+      // When: We attempt to rotate a card
       await (queue as any).rotateToEnd(itemToRotate);
 
-      // Assert: 验证警告被记录
+      // Then: A warning should be logged
       expect(consoleWarnSpy).toHaveBeenCalledWith('[BaseCompositeQueue] DataSource does not support remove operation');
       
-      // Assert: getAll 不应该被调用
+      // Then: getAll should not be called
       expect(mockDataSource.getAll).not.toHaveBeenCalled();
 
       consoleWarnSpy.mockRestore();
     });
   });
 
-  describe('DataSource 交互', () => {
-    it('应该正确调用 DataSource 的 remove 方法', async () => {
-      // Arrange
+  describe('DataSource Interactions', () => {
+    it('should correctly call DataSource.remove() with the card to rotate', async () => {
+      // Given: A queue with multiple cards
       const items: TestItem[] = [
         { id: '1', value: 'first' },
         { id: '2', value: 'second' },
@@ -213,21 +226,21 @@ describe('BaseCompositeQueue - rotateToEnd 方法测试', () => {
             dataSourceItems.splice(index, 1);
           }
         });
-        return itemsToRemove.length;
+        return ok(itemsToRemove.length);
       });
 
       const itemToRotate = items[0];
 
-      // Act
+      // When: We rotate a card
       await (queue as any).rotateToEnd(itemToRotate);
 
-      // Assert: 验证 remove 被正确调用
+      // Then: remove should be called with the correct card
       expect(mockDataSource.remove).toHaveBeenCalledWith([itemToRotate]);
       expect(mockDataSource.remove).toHaveBeenCalledTimes(1);
     });
 
-    it('应该正确调用 DataSource 的 getAll 方法', async () => {
-      // Arrange
+    it('should correctly call DataSource.getAll() after removing the card', async () => {
+      // Given: A queue with multiple cards
       const items: TestItem[] = [
         { id: '1', value: 'first' },
         { id: '2', value: 'second' },
@@ -242,15 +255,15 @@ describe('BaseCompositeQueue - rotateToEnd 方法测试', () => {
             dataSourceItems.splice(index, 1);
           }
         });
-        return itemsToRemove.length;
+        return ok(itemsToRemove.length);
       });
 
       const itemToRotate = items[0];
 
-      // Act
+      // When: We rotate a card
       await (queue as any).rotateToEnd(itemToRotate);
 
-      // Assert: 验证 getAll 被调用
+      // Then: getAll should be called to retrieve the updated queue
       expect(mockDataSource.getAll).toHaveBeenCalledTimes(1);
     });
   });
@@ -286,7 +299,7 @@ describe('BaseCompositeQueue - onFeedback rate 操作测试', () => {
             dataSourceItems.splice(index, 1);
           }
         });
-        return itemsToRemove.length;
+        return ok(itemsToRemove.length);
       });
 
       queue = new BaseCompositeQueue({
@@ -297,7 +310,7 @@ describe('BaseCompositeQueue - onFeedback rate 操作测试', () => {
 
       const itemToRate = items[0];
 
-      // Act: 评分为 3
+      // Act: 评分为3
       await queue.onFeedback(itemToRate, { action: 'rate', rating: 3 });
 
       // Assert: 验证 scheduler 被调用
@@ -326,7 +339,7 @@ describe('BaseCompositeQueue - onFeedback rate 操作测试', () => {
             dataSourceItems.splice(index, 1);
           }
         });
-        return itemsToRemove.length;
+        return ok(itemsToRemove.length);
       });
 
       queue = new BaseCompositeQueue({
@@ -337,7 +350,7 @@ describe('BaseCompositeQueue - onFeedback rate 操作测试', () => {
 
       const itemToRate = items[0];
 
-      // Act: 评分为 4
+      // Act: 评分为4
       await queue.onFeedback(itemToRate, { action: 'rate', rating: 4 });
 
       // Assert: 验证 scheduler 被调用
@@ -370,7 +383,7 @@ describe('BaseCompositeQueue - onFeedback rate 操作测试', () => {
             dataSourceItems.splice(index, 1);
           }
         });
-        return itemsToRemove.length;
+        return ok(itemsToRemove.length);
       });
 
       queue = new BaseCompositeQueue({
@@ -381,7 +394,7 @@ describe('BaseCompositeQueue - onFeedback rate 操作测试', () => {
 
       const itemToRate = items[0];
 
-      // Act: 评分为 1
+      // Act: 评分为1
       await queue.onFeedback(itemToRate, { action: 'rate', rating: 1 });
 
       // Assert: 验证 scheduler 被调用
@@ -415,7 +428,7 @@ describe('BaseCompositeQueue - onFeedback rate 操作测试', () => {
             dataSourceItems.splice(index, 1);
           }
         });
-        return itemsToRemove.length;
+        return ok(itemsToRemove.length);
       });
 
       queue = new BaseCompositeQueue({
@@ -426,7 +439,7 @@ describe('BaseCompositeQueue - onFeedback rate 操作测试', () => {
 
       const itemToRate = items[0];
 
-      // Act: 评分为 2
+      // Act: 评分为2
       await queue.onFeedback(itemToRate, { action: 'rate', rating: 2 });
 
       // Assert: 验证 scheduler 被调用
@@ -466,7 +479,7 @@ describe('BaseCompositeQueue - onFeedback rate 操作测试', () => {
             dataSourceItems.splice(index, 1);
           }
         });
-        return itemsToRemove.length;
+        return ok(itemsToRemove.length);
       });
 
       queue = new BaseCompositeQueue({
@@ -477,7 +490,7 @@ describe('BaseCompositeQueue - onFeedback rate 操作测试', () => {
 
       const itemToRate = items[0];
 
-      // Act: 评分为 3，scheduler 会失败
+      // Act: 评分为3，scheduler 会失败
       await queue.onFeedback(itemToRate, { action: 'rate', rating: 3 });
 
       // Assert: 验证错误被记录
@@ -512,7 +525,7 @@ describe('BaseCompositeQueue - onFeedback rate 操作测试', () => {
             dataSourceItems.splice(index, 1);
           }
         });
-        return itemsToRemove.length;
+        return ok(itemsToRemove.length);
       });
 
       queue = new BaseCompositeQueue({
@@ -523,7 +536,7 @@ describe('BaseCompositeQueue - onFeedback rate 操作测试', () => {
 
       const itemToRate = items[0];
 
-      // Act: 评分为 1，scheduler 会失败
+      // Act: 评分为1，scheduler 会失败
       await queue.onFeedback(itemToRate, { action: 'rate', rating: 1 });
 
       // Assert: 验证错误被记录
@@ -551,10 +564,10 @@ describe('BaseCompositeQueue - onFeedback rate 操作测试', () => {
       (queue as any).currentItem = null;
       mockDataSource.remove = vi.fn();
 
-      // Act: 没有传入 currentItem，内部 currentItem 也为 null
+      // Act: 没有传入 currentItem，内�?currentItem 也为 null
       await queue.onFeedback(null, { action: 'rate', rating: 3 });
 
-      // Assert: 验证 scheduler 和 remove 都没有被调用
+      // Assert: 验证 scheduler �?remove 都没有被调用
       expect(mockScheduler.schedule).not.toHaveBeenCalled();
       expect(mockDataSource.remove).not.toHaveBeenCalled();
     });
@@ -610,7 +623,7 @@ describe('BaseCompositeQueue - onFeedback rate 操作测试', () => {
             dataSourceItems.splice(index, 1);
           }
         });
-        return itemsToRemove.length;
+        return ok(itemsToRemove.length);
       });
 
       queue = new BaseCompositeQueue({
@@ -622,7 +635,7 @@ describe('BaseCompositeQueue - onFeedback rate 操作测试', () => {
       // 设置 currentItem
       (queue as any).currentItem = item;
 
-      // Act: 评分为 3
+      // Act: 评分为3
       await queue.onFeedback(null, { action: 'rate', rating: 3 });
 
       // Assert: 验证 currentItem 被清空
@@ -642,7 +655,7 @@ describe('BaseCompositeQueue - onFeedback rate 操作测试', () => {
             dataSourceItems.splice(index, 1);
           }
         });
-        return itemsToRemove.length;
+        return ok(itemsToRemove.length);
       });
 
       queue = new BaseCompositeQueue({
@@ -698,7 +711,7 @@ describe('BaseCompositeQueue - onFeedback skip 操作测试', () => {
             dataSourceItems.splice(index, 1);
           }
         });
-        return itemsToRemove.length;
+        return ok(itemsToRemove.length);
       });
 
       const itemToSkip = items[0];
@@ -718,7 +731,7 @@ describe('BaseCompositeQueue - onFeedback skip 操作测试', () => {
     it('应该清空 currentItem', async () => {
       // Arrange
       const item: TestItem = { id: '1', value: 'test' };
-      mockDataSource.remove = vi.fn(async () => 1);
+      mockDataSource.remove = vi.fn(async (): Promise<Result<number>> => ok(1));
 
       // 设置 currentItem
       (queue as any).currentItem = item;
@@ -743,7 +756,7 @@ describe('BaseCompositeQueue - onFeedback skip 操作测试', () => {
     });
 
     it('应该不调用 scheduler（skip 不需要调度）', async () => {
-      // Arrange: 创建带 scheduler 的队列
+      // Arrange: 创建�?scheduler 的队�?
       const mockScheduler = {
         schedule: vi.fn(async (item: TestItem) => item),
       };
@@ -755,7 +768,7 @@ describe('BaseCompositeQueue - onFeedback skip 操作测试', () => {
       });
 
       const item: TestItem = { id: '1', value: 'test' };
-      mockDataSource.remove = vi.fn(async () => 1);
+      mockDataSource.remove = vi.fn(async (): Promise<Result<number>> => ok(1));
 
       // Act: 执行 skip 操作
       await queueWithScheduler.onFeedback(item, { action: 'skip' });
@@ -779,17 +792,17 @@ describe('BaseCompositeQueue - onFeedback skip 操作测试', () => {
             dataSourceItems.splice(index, 1);
           }
         });
-        return itemsToRemove.length;
+        return ok(itemsToRemove.length);
       });
       mockDataSource.getAll = vi.fn(async () => dataSourceItems);
 
       // Act: 执行 skip 操作
       await queue.onFeedback(item, { action: 'skip' });
 
-      // Assert: 验证 getAll 没有被调用（rotateToEnd 会调用 getAll）
+      // Assert: 验证 getAll 没有被调用（rotateToEnd 会调�?getAll�?
       expect(mockDataSource.getAll).not.toHaveBeenCalled();
 
-      // Assert: 验证卡片被移除
+      // Assert: 验证卡片被移�?
       expect(dataSourceItems).toHaveLength(0);
     });
   });
@@ -843,7 +856,7 @@ describe('BaseCompositeQueue - Property-Based Tests', () => {
                   dataSourceItems.splice(index, 1);
                 }
               });
-              return itemsToRemove.length;
+              return ok(itemsToRemove.length);
             }),
             size: async () => dataSourceItems.length,
           } as IDataSource<TestItem>;
@@ -925,7 +938,7 @@ describe('BaseCompositeQueue - Property-Based Tests', () => {
                   dataSourceItems.splice(index, 1);
                 }
               });
-              return itemsToRemove.length;
+              return ok(itemsToRemove.length);
             }),
             size: async () => dataSourceItems.length,
           } as IDataSource<TestItem>;
@@ -1006,7 +1019,7 @@ describe('BaseCompositeQueue - Property-Based Tests', () => {
                   dataSourceItems.splice(index, 1);
                 }
               });
-              return itemsToRemove.length;
+              return ok(itemsToRemove.length);
             }),
             size: async () => dataSourceItems.length,
           } as IDataSource<TestItem>;
@@ -1051,14 +1064,14 @@ describe('BaseCompositeQueue - Property-Based Tests', () => {
   });
 
   /**
-   * Property 4: 评分 >= 3 时队列大小减少
-   * Feature: retrieval-practice-rating-fix, Property 4: 评分 >= 3 时队列大小减少
+   * Property 4: 评分 >= 3 时队列大小减1
+   * Feature: retrieval-practice-rating-fix, Property 4: 评分 >= 3 时队列大小减1
    * **Validates: Requirements 2.4, 5.2**
    * 
    * For any queue state and any card, when the user rates with 3 or 4,
    * the queue size should decrease by 1.
    */
-  it('Property 4: 评分 >= 3 时队列大小减少', async () => {
+  it('Property 4: 评分 >= 3 时队列大小减1', async () => {
     await fc.assert(
       fc.asyncProperty(
         // Generator 1: Random queue state (1-10 items, at least 1 to ensure we have a card to rate)
@@ -1087,7 +1100,7 @@ describe('BaseCompositeQueue - Property-Based Tests', () => {
                   dataSourceItems.splice(index, 1);
                 }
               });
-              return itemsToRemove.length;
+              return ok(itemsToRemove.length);
             }),
             size: async () => dataSourceItems.length,
           } as IDataSource<TestItem>;
@@ -1156,7 +1169,7 @@ describe('BaseCompositeQueue - Property-Based Tests', () => {
                   dataSourceItems.splice(index, 1);
                 }
               });
-              return itemsToRemove.length;
+              return ok(itemsToRemove.length);
             }),
             size: async () => dataSourceItems.length,
           } as IDataSource<TestItem>;
@@ -1222,7 +1235,7 @@ describe('BaseCompositeQueue - Property-Based Tests', () => {
                   dataSourceItems.splice(index, 1);
                 }
               });
-              return itemsToRemove.length;
+              return ok(itemsToRemove.length);
             }),
             size: async () => dataSourceItems.length,
           } as IDataSource<TestItem>;
@@ -1286,7 +1299,7 @@ describe('BaseCompositeQueue - Property-Based Tests', () => {
                   dataSourceItems.splice(index, 1);
                 }
               });
-              return itemsToRemove.length;
+              return ok(itemsToRemove.length);
             }),
             size: async () => dataSourceItems.length,
           } as IDataSource<TestItem>;
@@ -1358,7 +1371,7 @@ describe('BaseCompositeQueue - Mixed Rating Scenarios', () => {
             dataSourceItems.splice(index, 1);
           }
         });
-        return itemsToRemove.length;
+        return ok(itemsToRemove.length);
       }),
       size: async () => dataSourceItems.length,
     } as IDataSource<TestItem>;
@@ -1587,3 +1600,4 @@ describe('BaseCompositeQueue - Mixed Rating Scenarios', () => {
     expect(dataSourceItems).not.toContainEqual(cards[5]); // rating 4
   });
 });
+

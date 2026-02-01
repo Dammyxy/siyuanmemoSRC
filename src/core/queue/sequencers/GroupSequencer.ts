@@ -11,8 +11,9 @@
  */
 
 import type { ISequencer } from '../abstraction/types';
+import type { QueueItem } from '../types';
 
-export type GroupSequencerConfig<TItem> = {
+export type GroupSequencerConfig<TItem extends QueueItem> = {
   /**
    * Function to get all groups
    */
@@ -43,7 +44,7 @@ export type GroupSequencerConfig<TItem> = {
  * - Schedule: ['group1', 'group1', 'group2']
  * - Visit order: group1 → group1 → group2 → group1 → ...
  */
-export class GroupSequencer<TItem = any> implements ISequencer<TItem> {
+export class GroupSequencer<TItem extends QueueItem> implements ISequencer<TItem> {
   private readonly getGroups: () => Record<string, TItem[]>;
   private readonly schedule: string[];
   private readonly advanceCursor: boolean;

@@ -83,15 +83,12 @@ describe('RetrievalPracticeQueue - 公共 API 测试', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     mockStorage = createMockStorage();
-    queue = new RetrievalPracticeQueue({
+    queue = await RetrievalPracticeQueue.create({
       deckID: 'test-deck',
       api: mockRiffApi,
       storage: mockStorage,
       localScheduler: new SimpleFSRSScheduler(mockFSRSParams),
     });
-
-    // 等待队列加载完成
-    await new Promise(resolve => setTimeout(resolve, 10));
   });
 
   describe('addItems()', () => {
@@ -252,15 +249,12 @@ describe('RetrievalPracticeQueue - 集成测试：评分操作', () => {
       unreviewedOldCardCount: 0,
     });
     
-    queue = new RetrievalPracticeQueue({
+    queue = await RetrievalPracticeQueue.create({
       deckID: 'test-deck',
       api: mockRiffApi,
       storage: mockStorage,
       localScheduler: new SimpleFSRSScheduler(mockFSRSParams),
     });
-
-    // 等待队列加载完成
-    await new Promise(resolve => setTimeout(resolve, 10));
   });
 
   describe('评分 1 - 重来', () => {

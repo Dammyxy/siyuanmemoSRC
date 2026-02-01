@@ -1,4 +1,5 @@
 import type { ISequencer } from '../abstraction/types';
+import type { QueueItem } from '../types';
 
 export type WeightedNeighbor<TNode, TEdge = unknown> = {
   node: TNode;
@@ -6,7 +7,7 @@ export type WeightedNeighbor<TNode, TEdge = unknown> = {
   edge?: TEdge;
 };
 
-export class GraphSequencer<TNode, TItem, TEdge = unknown> implements ISequencer<TItem> {
+export class GraphSequencer<TNode, TItem extends QueueItem, TEdge = unknown> implements ISequencer<TItem> {
   private readonly getNeighbors: (node: TNode) => Promise<Array<WeightedNeighbor<TNode, TEdge>>>;
   private readonly toItem: (node: TNode, ctx: { from: TNode | null; edge: TEdge | null }) => Promise<TItem | null>;
   private readonly getNodeKey: (node: TNode) => string;

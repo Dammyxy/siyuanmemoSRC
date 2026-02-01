@@ -163,6 +163,159 @@ src/
 - 适配器：`XxxAdapter.ts`
 - 提供者：`XxxProvider.ts`
 
+### 5.4 架构模式
+
+#### 5.4.1 观察者模式 (Observer Pattern)
+
+**用途**：自动同步数据源和缓存状态，消除手动 reset() 调用。
+
+**实现**：
+```typescript
+// 数据源实现 IObservableDataSource
+class RiffDataSource extends ObservableDataSource<ReviewCard> {
+  async remove(items: ReviewCard[]): Promise<Result<number>> {
+    const result = await this.doRemove(items);
+    if (result.ok) {
+      this.notifyObservers(); // 自动通知观察者
+    }
+    return result;
+  }
+}
+
+// Sequencer 实现 IDataSourceObserver
+class PrioritySequencer implements IDataSourceObserver {
+  onDataChanged(): void {
+    this.loaded = false; // 自动失效缓存
+    this.items.length = 0;
+  }
+}
+```
+
+**优势**：
+- 消除手动缓存管理
+- 数据变化自动传播
+- 降低耦合度
+
+**参考**：`docs/adr/ADR-002-observer-pattern.md`
+
+#### 5.4.2 Result 类型模式
+
+**用途**：统一错误处理，强制调用者显式处理成功和失败情况。
+
+**定义**：
+```typescript
+type Result<T, E = Error> = 
+  | { ok: true; value: T }
+  | { ok: false; error: E };
+```
+
+**使用示例**：
+```typescript
+// 返回 Result
+async function removeCards(items: ReviewCard[]): Promise<Result<number>> {
+  try {
+    const count = await dataSource.remove(items);
+    return { ok: true, value: count };
+  } catch (error) {
+    return { ok: false, error: error as Error };
+  }
+}
+
+// 调用方必须处理两种情况
+const result = await removeCards(selectedCards);
+if (result.ok) {
+  showNotice(`成功删除 ${result.value} 张卡片`);
+} else {
+  showNotice(`删除失败: ${result.error.message}`);
+  errorReporter.report(result.error);
+}
+```
+
+**优势**：
+- 消除静默失败
+- 类型安全的错误处理
+- 强制错误处理
+
+#### 5.4.3 Branded Types（品牌类型）
+
+**用途**：防止不同类型的 ID 混淆，提供编译时类型安全。
+
+**定义**：
+```typescript
+type BlockID = string & { readonly __brand: 'BlockID' };
+type CardID = string & { readonly __brand: 'CardID' };
+type XiuyuanID = string & { readonly __brand: 'XiuyuanID' };
+
+// 工厂函数
+function createBlockID(id: string): BlockID {
+  return id as BlockID;
+}
+```
+
+**使用示例**：
+```typescript
+interface ReviewCard {
+  blockID: BlockID;  // 不能传入 CardID
+  cardID: CardID;    // 不能传入 BlockID
+}
+
+// 编译时错误检查
+const blockId = createBlockID('123');
+const cardId = createCardID('456');
+
+function processCard(blockID: BlockID) { /* ... */ }
+
+processCard(blockId);  // ✅ 正确
+processCard(cardId);   // ❌ 编译错误
+```
+
+**优势**：
+- 编译时类型检查
+- 防止参数传递错误
+- 零运行时开销
+
+#### 5.4.4 操作日志系统
+
+**用途**：记录队列操作历史，用于调试和性能分析。
+
+**实现**：
+```typescript
+interface QueueOperation {
+  type: 'next' | 'insert' | 'remove' | 'rotate' | 'reset';
+  timestamp: number;
+  duration?: number;
+  details: Record<string, any>;
+}
+
+class LoggableQueue<TItem> implements ILoggableQueue<TItem> {
+  private operationLog: QueueOperation[] = [];
+  private readonly MAX_LOG_SIZE = 1000;
+
+  async next(): Promise<TItem | null> {
+    const start = performance.now();
+    const result = await this.wrappedQueue.next();
+    
+    this.logOperation({
+      type: 'next',
+      timestamp: Date.now(),
+      duration: performance.now() - start,
+      details: { hasResult: result !== null }
+    });
+    
+    return result;
+  }
+
+  getOperationLog(limit?: number): QueueOperation[] {
+    return this.operationLog.slice(-(limit || 100));
+  }
+}
+```
+
+**优势**：
+- 调试复杂队列行为
+- 性能分析
+- 用户行为追踪
+
 ## 6. 重构状态
 
 ### 已完成的重构
@@ -212,13 +365,25 @@ npm run test     # 运行单元测试
 
 ## 8. 常见问题
 
+### Q1: 为什么使用观察者模式而不是手动 reset()？
+A: 观察者模式实现了自动缓存失效，消除了手动调用 reset() 的需要。当数据源修改数据时，所有注册的 Sequencer 会自动收到通知并失效缓存，避免了缓存不一致的问题。参考 `docs/adr/ADR-002-observer-pattern.md`。
+
 ### Q2: Topic 和 Item 的区别？
 A: Topic 是纯阅读材料（使用 A-Factor 算法），Item 是问答卡片（使用 FSRS 算法）。
 
 ### Q3: 神经漫游是什么？
 A: 基于知识图谱的随机游走复习模式，模拟大脑联想记忆。
 
+### Q4: 为什么使用 Result 类型而不是抛出异常？
+A: Result 类型提供了类型安全的错误处理，强制调用者显式处理成功和失败情况，避免了静默失败。这种模式在 Rust 等语言中被广泛采用，提供了更好的错误处理体验。
+
+### Q5: Branded Types 有什么用？
+A: Branded Types 在编译时防止不同类型的 ID 混淆（如 BlockID 和 CardID），提供零运行时开销的类型安全。这避免了将错误的 ID 类型传递给函数的常见错误。
+
+### Q6: 如何查看队列操作历史？
+A: 使用 `LoggableQueue` 装饰器包装队列，然后调用 `getOperationLog()` 方法获取操作历史。日志包含操作类型、时间戳、耗时和详细信息，用于调试和性能分析。
+
 ---
 
-*文档更新时间: 2026-01-30*
-*最后编辑: AI 重构会话*
+*文档更新时间: 2026-02-01*
+*最后编辑: AI 架构优化会话*

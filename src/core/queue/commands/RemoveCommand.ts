@@ -1,20 +1,20 @@
 import type { IQueueCommand } from '../abstraction/Command';
 import type { IRemovableTrait } from '../abstraction/types';
 
-export type RemoveItemsCommandContext<TItem> = {
+export type RemoveCommandContext<TItem> = {
   trait: IRemovableTrait<TItem>;
   items: TItem[];
 };
 
-export class RemoveItemsCommand<TItem> implements IQueueCommand<RemoveItemsCommandContext<TItem>> {
-  id = 'remove-items';
+export class RemoveCommand<TItem> implements IQueueCommand<RemoveCommandContext<TItem>> {
+  id = 'remove';
   label = 'Remove';
   icon = 'iconTrashcan';
   danger = true;
 
-  async execute(context: RemoveItemsCommandContext<TItem>): Promise<void> {
+  async execute(context: RemoveCommandContext<TItem>): Promise<void> {
     const items = Array.isArray(context?.items) ? context.items : [];
-    await context.trait.removeItems(items);
+    await context.trait.remove(items);
   }
 }
 

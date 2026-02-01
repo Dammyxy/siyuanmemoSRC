@@ -7,3 +7,6 @@ export * from './card';
 export * from './review';
 export * from './settings';
 export * from './scheduler';
+export * from './result';
+export * from './branded';
+export * from './logging';

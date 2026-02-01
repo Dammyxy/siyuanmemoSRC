@@ -12,7 +12,7 @@ import {
 type RetrievalQueueLike = {
   getAllItems?: () => any[];
   removeItem?: (item: any) => Promise<boolean> | boolean;
-  removeItems?: (items: any[]) => Promise<number> | number;
+  remove?: (items: any[]) => Promise<number> | number;
 };
 
 type FsrsPluginLike = {

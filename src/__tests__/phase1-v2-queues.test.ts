@@ -13,8 +13,8 @@ import { IncrementalLearningQueue } from '@/core/queue/strategies/IncrementalLea
 import { FilterGroupQueue } from '@/core/queue/strategies/FilterGroupQueue';
 
 describe('Phase 1 - V2 Queues Validation', () => {
-  test('RetrievalPracticeQueue 可以实例化', () => {
-    const queue = new RetrievalPracticeQueue();
+  test('RetrievalPracticeQueue 可以实例化', async () => {
+    const queue = await RetrievalPracticeQueue.create();
     expect(queue).toBeDefined();
     expect(queue.getAllItems).toBeDefined();
     expect(queue.addItems).toBeDefined(); // 新增方法
@@ -59,7 +59,7 @@ describe('Phase 1 - V2 Queues Validation', () => {
       FilterGroupQueue
     } = await import('@/core/queue/strategies');
 
-    expect(new RetrievalPracticeQueue()).toBeInstanceOf(RetrievalPracticeQueue);
+    expect(await RetrievalPracticeQueue.create()).toBeInstanceOf(RetrievalPracticeQueue);
     expect(new FinalDrillQueue()).toBeInstanceOf(FinalDrillQueue);
     expect(new LeechQueue()).toBeInstanceOf(LeechQueue);
     expect(new NeuralRoamQueue()).toBeInstanceOf(NeuralRoamQueue);

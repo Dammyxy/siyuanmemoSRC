@@ -3,8 +3,16 @@
  *
  * Combines multiple data sources into a single unified source.
  * Useful for queues that need to merge Riff + Local storage, or multiple decks.
+ * 
+ * Extends ObservableDataSource to support automatic cache invalidation.
+ * When data is modified (via add/remove operations), all registered observers
+ * (typically Sequencers) are automatically notified and invalidate their caches.
+ * 
+ * @see ObservableDataSource
+ * @see ADR-002: Observer Pattern for Cache Invalidation
  */
 
+import { ObservableDataSource } from './ObservableDataSource';
 import type { IDataSource, IHybridDataSource, DataSourceOptions } from './IDataSource';
 import type { QueueItem } from '../types';
 
@@ -21,14 +29,17 @@ export type HybridDataSourceOptions = DataSourceOptions<QueueItem> & {
  * Data source that combines multiple sources
  *
  * Merges items from all sources, with optional priority ordering.
+ * 
+ * Extends ObservableDataSource to automatically notify observers when data changes.
  */
-export class HybridDataSource implements IHybridDataSource<QueueItem> {
+export class HybridDataSource extends ObservableDataSource<QueueItem> implements IHybridDataSource<QueueItem> {
   private readonly sources: HybridDataSourceConfig;
   private readonly priority: string[];
   private readonly filterFn?: (item: QueueItem) => boolean;
   private readonly limit?: number;
 
   constructor(options: HybridDataSourceOptions) {
+    super(); // Initialize ObservableDataSource
     this.sources = options.sources;
     this.priority = options.priority || Object.keys(options.sources);
     this.filterFn = options.filter;
@@ -87,6 +98,12 @@ export class HybridDataSource implements IHybridDataSource<QueueItem> {
     }
 
     console.log('[HybridDataSource] Total added:', addedCount, 'items');
+    
+    // Notify observers if items were added
+    if (addedCount > 0) {
+      this.notifyObservers();
+    }
+    
     return addedCount;
   }
 
@@ -100,6 +117,11 @@ export class HybridDataSource implements IHybridDataSource<QueueItem> {
 
       const count = await source.remove(items);
       removedCount += count;
+    }
+
+    // Notify observers if items were removed
+    if (removedCount > 0) {
+      this.notifyObservers();
     }
 
     return removedCount;

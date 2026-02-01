@@ -5,6 +5,7 @@
  */
 
 export * from './IDataSource';
+export * from './ObservableDataSource';
 export * from './StorageDataSource';
 export * from './RiffDataSource';
 export * from './HybridDataSource';

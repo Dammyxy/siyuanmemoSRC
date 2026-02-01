@@ -159,7 +159,7 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
         await this._persistLocalQueue();
         return;
       },
-      removeItems: async (items) => {
+      remove: async (items) => {
         let removedCount = 0;
         const riffBlockIds: string[] = [];  // 🆕 Phase 2.3.1: 收集需要从 Riff 删除的卡片
 
@@ -206,7 +206,7 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
         }
 
         // 🆕 Phase 2.3.3: 添加日志输出
-        console.log('[IncrementalLearningQueue] removeItems result:', {
+        console.log('[IncrementalLearningQueue] remove result:', {
           total: items.length,
           removed: removedCount,
           local: removedCount - riffBlockIds.length,

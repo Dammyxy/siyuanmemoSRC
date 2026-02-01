@@ -13,6 +13,7 @@
  */
 
 import type { ISequencer } from '../abstraction/types';
+import type { QueueItem } from '../types';
 
 export type FinalDrillSequencerConfig = {
   /**
@@ -39,7 +40,7 @@ export type FinalDrillSequencerConfig = {
  * Each time next() is called, it performs a FlipElement operation before
  * returning the first item.
  */
-export class FinalDrillSequencer<TItem> implements ISequencer<TItem> {
+export class FinalDrillSequencer<TItem extends QueueItem> implements ISequencer<TItem> {
   private items: TItem[];
   private readonly lowestPick: number;
   private readonly lowestInsert: number;

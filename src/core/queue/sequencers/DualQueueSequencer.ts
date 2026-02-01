@@ -10,8 +10,9 @@
  */
 
 import type { ISequencer } from '../abstraction/types';
+import type { QueueItem } from '../types';
 
-export type DualQueueSequencerConfig<TItem> = {
+export type DualQueueSequencerConfig<TItem extends QueueItem> = {
   /**
    * First queue (e.g., Topic queue)
    */
@@ -39,7 +40,7 @@ export type DualQueueSequencerConfig<TItem> = {
 /**
  * Sequencer that merges two queues with configurable ratio
  */
-export class DualQueueSequencer<TItem = any> implements ISequencer<TItem> {
+export class DualQueueSequencer<TItem extends QueueItem> implements ISequencer<TItem> {
   private readonly queue1: ISequencer<TItem>;
   private readonly queue2: ISequencer<TItem>;
   private readonly queue1Ratio: number;

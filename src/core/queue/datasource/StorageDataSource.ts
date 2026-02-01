@@ -9,6 +9,7 @@ import type { QueueItem } from '../types';
 import type { StorageManager } from '../../storage/StorageManager';
 import type { FSRSCard } from '@/types/card';
 import { CardType } from '@/types/card';
+import { ok, err, type Result } from '@/types/result';
 
 export type StorageDataSourceOptions = DataSourceOptions<QueueItem> & {
   storage?: StorageManager;
@@ -94,10 +95,10 @@ export class StorageDataSource implements IDataSource<QueueItem> {
     }
   }
 
-  async add(items: QueueItem[]): Promise<number> {
+  async add(items: QueueItem[]): Promise<Result<number>> {
     if (!this.storage) {
       console.warn('[StorageDataSource] No storage configured');
-      return 0;
+      return ok(0);
     }
 
     console.log('[StorageDataSource] Adding items:', {
@@ -166,26 +167,26 @@ export class StorageDataSource implements IDataSource<QueueItem> {
       }
 
       console.log('[StorageDataSource] Successfully added:', addedCount, 'items');
-      return addedCount;
+      return ok(addedCount);
     } catch (error) {
       console.error('[StorageDataSource] Failed to add items:', error);
-      return 0;
+      return err(error as Error);
     }
   }
 
-  async remove(items: QueueItem[]): Promise<number> {
+  async remove(items: QueueItem[]): Promise<Result<number>> {
     if (!this.storage) {
       console.warn('[StorageDataSource] No storage configured');
-      return 0;
+      return ok(0);
     }
 
     try {
       // Storage doesn't support deletion, but we can mark as reviewed
       // This is a no-op for storage-based queues
-      return items.length;
+      return ok(items.length);
     } catch (error) {
       console.error('[StorageDataSource] Failed to remove items:', error);
-      return 0;
+      return err(error as Error);
     }
   }
 }

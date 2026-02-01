@@ -4,6 +4,7 @@ export * from './monitors';
 export * from './persistence';
 export * from './strategies';
 export * from './abstraction';
+export * from './datasource';
 export * from './sequencers';
 export * from './schedulers';
 export * from './commands';
