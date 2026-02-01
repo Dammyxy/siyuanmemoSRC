@@ -71,18 +71,7 @@ export function createVueDialog<T extends Component>(options: {
         // 同时设置 data-key 到容器上，让圆角样式选择器能匹配
         if (options.dataKey) {
             dialogContainer.setAttribute('data-key', options.dataKey);
-            console.log('[FSRS Dialog] Set data-key on container:', {
-                dataKey: options.dataKey,
-                element: dialogContainer,
-                hasAttribute: dialogContainer.hasAttribute('data-key'),
-                attributeValue: dialogContainer.getAttribute('data-key'),
-            });
         }
-        console.log('[FSRS Dialog] Container setup:', {
-            isReview: options.isReview || false,
-            maxWidth: options.isReview ? '1024px' : 'none',
-            borderRadius: options.isReview ? '12px' : 'default'
-        });
     }
 
     // 设置遮罩层背景色（白色半透明）
@@ -90,7 +79,6 @@ export function createVueDialog<T extends Component>(options: {
         const scrim = dialog.element.querySelector('.b3-dialog__scrim') as HTMLElement;
         if (scrim) {
             scrim.style.backgroundColor = 'var(--b3-theme-surface)';
-            console.log('[FSRS Dialog] Set scrim background to transparent with theme surface');
         }
     }
 
@@ -98,7 +86,6 @@ export function createVueDialog<T extends Component>(options: {
     const container = dialog.element.querySelector(`#${containerId}`);
     if (container) {
         app.mount(container);
-        console.log('[FSRS] Vue component mounted to:', containerId);
 
         // 聚焦对话框内容，像思原生一样遮挡思源编辑器
         setTimeout(() => {
@@ -119,11 +106,9 @@ export function createVueDialog<T extends Component>(options: {
                 } catch (e) {
                     console.warn('[FSRS Dialog] Range selection error:', e);
                 }
-                console.log('[FSRS Dialog] Focused on toolbar button');
             } else {
                 // 如果没有按钮，聚焦到容器
                 container.focus({ preventScroll: true });
-                console.log('[FSRS Dialog] Focused on dialog container');
             }
         }, 100);
 
@@ -133,8 +118,6 @@ export function createVueDialog<T extends Component>(options: {
             const forwardEvent = (event: Event) => {
                 // 检查是否是来自思源热键系统的 CustomEvent
                 if ('detail' in event && typeof (event as any).detail === 'string') {
-                    console.log('[FSRS Dialog] Forwarding hotkey event to Vue component:', (event as any).detail);
-
                     // 防止无限递归：如果事件已经是我们转发的，不再处理
                     if ((event as any)._fsrsForwarded) {
                         return;
@@ -163,7 +146,6 @@ export function createVueDialog<T extends Component>(options: {
             };
 
             dialog.element.firstElementChild.addEventListener('click', forwardEvent);
-            console.log('[FSRS Dialog] Hotkey event listener attached to firstElementChild');
         }
     } else {
         console.error('[FSRS] Container not found:', containerId);

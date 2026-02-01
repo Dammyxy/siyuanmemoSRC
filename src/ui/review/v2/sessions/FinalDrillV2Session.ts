@@ -203,18 +203,8 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
   }
 
   private async rotateToEnd(item: QueueItem): Promise<void> {
-    console.log('[FinalDrillV2Session] rotateToEnd called:', {
-      cardID: (item as any)?.cardID,
-      currentQueueSize: this.queue.getAllItems().length,
-    });
-
     const trait = this.queue.getMutableTrait?.();
     const removable = this.queue.getRemovableTrait?.();
-
-    console.log('[FinalDrillV2Session] Traits:', {
-      hasMutableTrait: !!trait,
-      hasRemovableTrait: !!removable,
-    });
 
     if (!trait || !removable) {
       console.error('[FinalDrillV2Session] Missing traits!');
@@ -222,10 +212,6 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     }
 
     const removed = await removable.removeItems([item]);
-    console.log('[FinalDrillV2Session] Removed from queue:', {
-      removed,
-      queueSizeAfterRemove: this.queue.getAllItems().length,
-    });
 
     if (removed <= 0) {
       console.error('[FinalDrillV2Session] Failed to remove item');
@@ -233,16 +219,8 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     }
 
     const end = this.queue.getAllItems().length;
-    console.log('[FinalDrillV2Session] Inserting at end:', {
-      insertIndex: end,
-      cardID: (item as any)?.cardID,
-    });
 
     await trait.insertAt([item], end);
-
-    console.log('[FinalDrillV2Session] After insertAt:', {
-      queueSize: this.queue.getAllItems().length,
-    });
   }
 
   private async removeFromQueue(item: QueueItem): Promise<void> {

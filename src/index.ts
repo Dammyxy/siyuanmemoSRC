@@ -28,7 +28,6 @@ import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
 import { SettingsPanel } from '@/ui/settings';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import { createVueDialog } from '@/utils/dialog';
-// import { FSRSRetrievalProvider } from '@/core/extensions'; // Reserved for future use
 
 import { createDefaultCard } from '@/types';
 import '@/index.scss';
@@ -183,7 +182,7 @@ export default class FSRSPlugin extends Plugin {
       this.scheduler = createScheduler(settings.fsrs, settings.schedulerEngine);
 
       // ✅ 使用 队列（复合架构）
-      this.retrievalQueue = new RetrievalPracticeQueue({
+      this.retrievalQueue = await RetrievalPracticeQueue.create({
         storage: this.storage,
         localScheduler: this.scheduler,      // 保留（向后兼容）
         schedulerRouter: this.schedulerRouter, // 🆕 新增
