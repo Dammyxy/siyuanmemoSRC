@@ -24,15 +24,22 @@ export function createVueDialog<T extends Component>(options: {
 }): { dialog: Dialog; destroy: () => void } {
     const containerId = `fsrs-dialog-${Date.now()}`;
 
+    console.log('[Dialog] Creating dialog with events:', options.events ? Object.keys(options.events) : 'none');
+
     // 将 events 转换为 onXxx 格式的 props
     const eventProps: Record<string, any> = {};
     if (options.events) {
         for (const [key, handler] of Object.entries(options.events)) {
-            // Vue 3 的 emit 会自动将 'save' 转换为 'onSave'
-            const propKey = `on${key.charAt(0).toUpperCase()}${key.slice(1)}`;
+            // 将 kebab-case 转换为 camelCase，然后加上 'on' 前缀
+            // 例如: 'convert-to-tab' -> 'convertToTab' -> 'onConvertToTab'
+            const camelCase = key.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+            const propKey = `on${camelCase.charAt(0).toUpperCase()}${camelCase.slice(1)}`;
             eventProps[propKey] = handler;
+            console.log(`[Dialog] Event mapping: ${key} -> ${propKey}`);
         }
     }
+
+    console.log('[Dialog] Final eventProps:', Object.keys(eventProps));
 
     // 创建 Vue 应用
     const app = createApp(options.component, {

@@ -34,8 +34,8 @@
     <div class="fn__space"></div>
 
     <!-- 头部工具栏 -->
-    <template v-if="header.toolbar">
-      <template v-for="(btn, index) in header.toolbar" :key="btn.type">
+    <template v-if="filteredToolbar.length > 0">
+      <template v-for="(btn, index) in filteredToolbar" :key="btn.type">
         <div v-if="index > 0" class="fn__space"></div>
         <button v-if="!btn.disabled"
                 :data-type="btn.type"
@@ -50,12 +50,14 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { ReviewUIState } from './types';
 
 const props = defineProps<{
   header: ReviewUIState['header'];
   isTabMode?: boolean;
   title?: string; // 队列标题（如"提取练习"）
+  mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
 }>();
 
 const emit = defineEmits<{
@@ -64,6 +66,16 @@ const emit = defineEmits<{
   (e: 'context', payload: { id: string; openNewTab: boolean }): void;
   (e: 'breadcrumb-click', crumb: { icon?: string; text: string; id?: string; action?: string }, index: number): void;
 }>();
+
+// 🆕 根据 mode 过滤工具栏按钮
+const filteredToolbar = computed(() => {
+  const toolbar = props.header?.toolbar || [];
+  if (props.mode === 'tab') {
+    // Tab 模式：移除 sticktab 按钮（已经在 Tab 中了，不需要"在 Tab 中打开"按钮）
+    return toolbar.filter(btn => btn.type !== 'sticktab');
+  }
+  return toolbar;
+});
 
 function t(key: string, fallback: string): string {
   const i18n = (window as any)?.siyuan?.languages?.flashcard || {};

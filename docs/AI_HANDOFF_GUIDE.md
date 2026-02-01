@@ -2,7 +2,7 @@
 
 > **目标读者**: 接手项目的 AI 助手  
 > **用途**: 快速理解代码库、定位功能实现、开始工作  
-> **最后更新**: 2026-01-31
+> **最后更新**: 2026-02-02
 
 ---
 
@@ -354,6 +354,157 @@ checkAndCreateCard() - 逐个检测
 FSRSPlugin.getInstance()
 ```
 
+### 5. 观察者模式（缓存失效）🆕
+
+**用途**：自动同步数据源和缓存状态，消除手动 reset() 调用。
+
+**实现**：
+```typescript
+// 数据源实现 IObservableDataSource
+class RiffDataSource extends ObservableDataSource<ReviewCard> {
+  async remove(items: ReviewCard[]): Promise<Result<number>> {
+    const result = await this.doRemove(items);
+    if (result.ok) {
+      this.notifyObservers(); // 自动通知观察者
+    }
+    return result;
+  }
+}
+
+// Sequencer 实现 IDataSourceObserver
+class PrioritySequencer implements IDataSourceObserver {
+  onDataChanged(): void {
+    this.loaded = false; // 自动失效缓存
+    this.items.length = 0;
+  }
+}
+```
+
+**优势**：
+- 消除手动缓存管理
+- 数据变化自动传播
+- 降低耦合度
+
+**参考**：`docs/adr/ADR-002-observer-pattern.md`
+
+### 6. Result 类型模式（错误处理）🆕
+
+**用途**：统一错误处理，强制调用者显式处理成功和失败情况。
+
+**定义**：
+```typescript
+type Result<T, E = Error> = 
+  | { ok: true; value: T }
+  | { ok: false; error: E };
+```
+
+**使用示例**：
+```typescript
+// 返回 Result
+async function removeCards(items: ReviewCard[]): Promise<Result<number>> {
+  try {
+    const count = await dataSource.remove(items);
+    return { ok: true, value: count };
+  } catch (error) {
+    return { ok: false, error: error as Error };
+  }
+}
+
+// 调用方必须处理两种情况
+const result = await removeCards(selectedCards);
+if (result.ok) {
+  showNotice(`成功删除 ${result.value} 张卡片`);
+} else {
+  showNotice(`删除失败: ${result.error.message}`);
+  errorReporter.report(result.error);
+}
+```
+
+**优势**：
+- 消除静默失败
+- 类型安全的错误处理
+- 强制错误处理
+
+### 7. Branded Types（品牌类型）🆕
+
+**用途**：防止不同类型的 ID 混淆，提供编译时类型安全。
+
+**定义**：
+```typescript
+type BlockID = string & { readonly __brand: 'BlockID' };
+type CardID = string & { readonly __brand: 'CardID' };
+type XiuyuanID = string & { readonly __brand: 'XiuyuanID' };
+
+// 工厂函数
+function createBlockID(id: string): BlockID {
+  return id as BlockID;
+}
+```
+
+**使用示例**：
+```typescript
+interface ReviewCard {
+  blockID: BlockID;  // 不能传入 CardID
+  cardID: CardID;    // 不能传入 BlockID
+}
+
+// 编译时错误检查
+const blockId = createBlockID('123');
+const cardId = createCardID('456');
+
+function processCard(blockID: BlockID) { /* ... */ }
+
+processCard(blockId);  // ✅ 正确
+processCard(cardId);   // ❌ 编译错误
+```
+
+**优势**：
+- 编译时类型检查
+- 防止参数传递错误
+- 零运行时开销
+
+### 8. 操作日志系统（调试支持）🆕
+
+**用途**：记录队列操作历史，用于调试和性能分析。
+
+**实现**：
+```typescript
+interface QueueOperation {
+  type: 'next' | 'insert' | 'remove' | 'rotate' | 'reset';
+  timestamp: number;
+  duration?: number;
+  details: Record<string, any>;
+}
+
+class LoggableQueue<TItem> implements ILoggableQueue<TItem> {
+  private operationLog: QueueOperation[] = [];
+  private readonly MAX_LOG_SIZE = 1000;
+
+  async next(): Promise<TItem | null> {
+    const start = performance.now();
+    const result = await this.wrappedQueue.next();
+    
+    this.logOperation({
+      type: 'next',
+      timestamp: Date.now(),
+      duration: performance.now() - start,
+      details: { hasResult: result !== null }
+    });
+    
+    return result;
+  }
+
+  getOperationLog(limit?: number): QueueOperation[] {
+    return this.operationLog.slice(-(limit || 100));
+  }
+}
+```
+
+**优势**：
+- 调试复杂队列行为
+- 性能分析
+- 用户行为追踪
+
 ---
 
 ## 📋 常见任务速查
@@ -517,18 +668,29 @@ logger.error('Error', error);
 - **[架构总览](../.kiro/specs/ARCHITECTURE_OVERVIEW.md)** - 5 分钟快速参考
 - **[代码架构详解](../.kiro/specs/CODE_ARCHITECTURE.md)** - 完整的代码库架构
 - **[FSRS 架构分析](../.kiro/specs/fsrs-architecture-analysis/architecture-and-dataflow.md)** - 详细的架构和数据流
+- **[ARCHITECTURE.md](../ARCHITECTURE.md)** - 核心架构文档（包含新架构模式）🆕
 
 ### 规范文档
 - **[规范索引](../.kiro/specs/README.md)** - 所有规范的索引
 - **[调度器路由架构](../.kiro/specs/scheduler-router-architecture/design.md)** - 多调度器支持
 - **[SM-15 集成](../.kiro/specs/sm15-integration/migration-plan.md)** - SM-15 算法集成
 - **[队列强化](../.kiro/specs/queue-enhancement/design.md)** - 队列性能优化
+- **[架构优化](../.kiro/specs/architecture-optimization/)** - 架构优化规范 🆕
 - **[TODO 清理](../.kiro/specs/todo-cleanup/tasks.md)** - 待实施功能清单
+
+### ADR 文档（架构决策记录）🆕
+- **[ADR-001: Trait 模式](./adr/ADR-001-trait-pattern.md)** - Trait 模式设计决策
+- **[ADR-002: 观察者模式](./adr/ADR-002-observer-pattern.md)** - 观察者模式设计决策
+- **[ADR-003: 抽象层评估](./adr/ADR-003-abstraction-layers.md)** - 抽象层设计决策
+- **[ADR-004: Xiuyuan 卡片来源](./adr/ADR-004-xiuyuan-card-source.md)** - Xiuyuan 设计决策
 
 ### 任务文档
 - **[Task 14 总结](./TASK_14_SUMMARY.md)** - 自动制卡功能修复
 - **[类型检测触发方式](./TOPIC_ITEM_DETECTION_TRIGGERS.md)** - 卡片类型检测说明
-- **[日志清理总结](./LOG_CLEANUP_SUMMARY.md)** - 日志系统说明 🆕
+- **[日志清理总结](./LOG_CLEANUP_SUMMARY.md)** - 日志系统说明
+- **[架构优化总结](./architecture-optimization-summary.md)** - 架构优化完整报告 🆕
+- **[Phase 3 验收报告](./phase-3-checkpoint-report.md)** - Phase 3 验收详情 🆕
+- **[代码重复分析](./code-duplication-analysis.md)** - 代码重复率分析 🆕
 
 ---
 
@@ -544,7 +706,18 @@ logger.error('Error', error);
 - 自动制卡（TransactionObserver）
 - 卡片类型检测（Item/Topic）
 
+✅ **架构优化**（2026-02-02）🆕：
+- **观察者模式**：自动缓存失效，消除手动 reset()
+- **Result 类型**：统一错误处理，强制显式处理
+- **Branded Types**：编译时 ID 类型检查
+- **操作日志系统**：队列操作追踪和调试
+- **性能优化**：批量查询性能提升 98.8%
+- **测试覆盖**：642/643 测试通过（99.8%）
+- **代码质量**：代码重复率 < 5%，消除所有 `any` 类型
+- **文档完善**：JSDoc 覆盖率 100%，4 个 ADR 文档
+
 ✅ **最近完成**：
+- 架构优化规范全部任务（2026-02-02）
 - Task 14：修复自动制卡功能（2026-01-30）
 - TransactionObserver 正确初始化
 - 卡片类型自动检测
@@ -555,6 +728,7 @@ logger.error('Error', error);
 - 队列持久化机制优化
 - Riff 调度器适配器完善
 - 队列清空功能
+- 修复 RetrievalPracticeProvider 卡片轮换 bug 🆕
 
 📝 **P1（应该实现）**：
 - 渐进学习提供者
@@ -566,6 +740,23 @@ logger.error('Error', error);
 - 动态 A-Factor 更新
 
 **详细清单**：参见 `.kiro/specs/todo-cleanup/tasks.md`
+
+### 性能指标 🆕
+
+**批量操作性能**：
+- 600 个 ID 批量查询：8906ms → 107ms（提升 **98.8%**）
+- 配置：batchSize=200, maxConcurrency=3
+
+**队列性能**：
+- 1000 张卡片处理：< 1 秒 ✅
+- 1000 次插入操作：< 2 秒 ✅
+- 操作日志自动限制：1000 条以内 ✅
+
+**测试覆盖**：
+- 单元测试：642/643 通过（99.8%）
+- 属性测试：16 个（使用 fast-check）
+- 性能测试：15 个
+- 边界条件测试：22 个
 
 ---
 

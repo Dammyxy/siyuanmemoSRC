@@ -169,7 +169,17 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
         data: String((item as any)?.blockID || ''),
         id: String((item as any)?.blockID || (item as any)?.cardID || 'card'),
         // Xiuyuan 模板卡片：从 meta 中获取答案块 ID
-        answerBlockID: String((item as any)?.meta?.answerBlockID || ''),
+        answerBlockID: (() => {
+          const answerBlockID = String((item as any)?.meta?.answerBlockID || '');
+          console.log('[RetrievalPracticeAdapter] toUIState - answerBlockID:', {
+            itemBlockID: (item as any)?.blockID,
+            itemCardID: (item as any)?.cardID,
+            hasMeta: !!(item as any)?.meta,
+            meta: (item as any)?.meta,
+            answerBlockID,
+          });
+          return answerBlockID;
+        })(),
         card: item as any,
       },
       actions: {

@@ -99,6 +99,19 @@ export class SubsetPracticeAdapter implements IAdapter<QueueItem> {
         type: 'protyle',
         data: String((item as any)?.blockID || ''),
         id: String((item as any)?.blockID || (item as any)?.cardID || 'card'),
+        // Xiuyuan 模板卡片：从 meta 中获取答案块 ID
+        answerBlockID: (() => {
+          const answerBlockID = String((item as any)?.meta?.answerBlockID || '');
+          console.log('[SubsetPracticeAdapter] toUIState - answerBlockID:', {
+            itemBlockID: (item as any)?.blockID,
+            itemCardID: (item as any)?.cardID,
+            hasMeta: !!(item as any)?.meta,
+            meta: (item as any)?.meta,
+            answerBlockID,
+          });
+          return answerBlockID;
+        })(),
+        card: item as any,
       },
       actions: {
         showAnswer: uiConfig.showRatingButtons ? !context.showAnswer : false,

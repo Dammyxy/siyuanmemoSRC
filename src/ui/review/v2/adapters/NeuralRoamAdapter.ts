@@ -132,6 +132,9 @@ export class NeuralRoamAdapter implements IAdapter<QueueItem> {
         type: 'protyle',
         data: String((item as any)?.blockID || ''),
         id: String((item as any)?.blockID || (item as any)?.cardID || 'block'),
+        // Xiuyuan 模板卡片：从 meta 中获取答案块 ID
+        answerBlockID: String((item as any)?.meta?.answerBlockID || ''),
+        card: item as any,
       },
       overlay,
       actions: {

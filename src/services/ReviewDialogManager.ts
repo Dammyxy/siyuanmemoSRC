@@ -41,6 +41,12 @@ export interface ReviewDialogManagerDeps {
   filterGroupQueue: FilterGroupQueue;
   incrementalQueue: IncrementalLearningQueue;
   isInitialized: () => boolean;
+  openReviewTab?: (options: {
+    provider?: any;
+    queue?: any;
+    adapter: any;
+    title: string;
+  }) => void;
 }
 
 /** 标准对话框尺寸 */
@@ -95,7 +101,31 @@ export class ReviewDialogManager {
         ...(adapter && { adapter }),
         ...(reviewUI && { reviewUI }),
       },
-      events: { close: () => this.destroyCurrentDialog() },
+      events: { 
+        close: () => this.destroyCurrentDialog(),
+        'convert-to-tab': () => {
+          // 保存当前状态
+          const currentProvider = provider;
+          const currentQueue = queue;
+          const currentAdapter = adapter;
+          const currentTitle = title;
+          
+          // 关闭对话框
+          this.destroyCurrentDialog();
+          
+          // 在 Tab 中打开
+          if (this.deps.openReviewTab) {
+            this.deps.openReviewTab({
+              provider: currentProvider,
+              queue: currentQueue,
+              adapter: currentAdapter,
+              title: currentTitle,
+            });
+          } else {
+            console.warn('[ReviewDialogManager] openReviewTab callback not provided');
+          }
+        },
+      },
       ...size,
       onClose: () => { this.reviewDialog = null; },
     });
@@ -276,7 +306,7 @@ export class ReviewDialogManager {
     const title = (this.deps.i18n?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(ids.length));
     this.createDialog({
       title,
-      queue: new SubsetPracticeStrategy({ blockIds: ids, deckID: riff.BUILTIN_DECK_ID }) as any,
+      queue: new SubsetPracticeStrategy({ blockIds: ids, deckID: riff.BUILTIN_DECK_ID, storage: this.deps.storage }) as any,
       adapter: new SubsetPracticeAdapter({ i18n: this.deps.i18n || {}, label: title, queueName: 'subset' }) as any,
     });
   }
@@ -302,7 +332,7 @@ export class ReviewDialogManager {
       ? blockTitle
       : (cards.length > 0 ? `${modeLabel} (${cards.length} 张)` : modeLabel);
 
-    const session = new SubsetPracticeStrategy({ blockIds: ids, deckID: riff.BUILTIN_DECK_ID });
+    const session = new SubsetPracticeStrategy({ blockIds: ids, deckID: riff.BUILTIN_DECK_ID, storage: this.deps.storage });
     const adapter = new SubsetPracticeAdapter({ i18n: this.deps.i18n || {}, label: title, queueName: practiceMode });
 
     this.reviewDialog = createVueDialog({

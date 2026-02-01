@@ -365,6 +365,14 @@ export class XiuyuanService {
           templateID,
         } : undefined,
       };
+      
+      console.log('[Xiuyuan] Created FSRSCard with meta:', {
+        cardID: fsrsCard.id,
+        blockIDs,
+        answerBlockID,
+        meta: fsrsCard.meta,
+      });
+      
       this.storageManager.setCard(fsrsCard);
 
       // 6. 标记块属性

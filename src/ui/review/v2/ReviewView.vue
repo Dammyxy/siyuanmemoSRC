@@ -1,6 +1,6 @@
 <template>
   <div ref="rootRef" class="fsrs-review-v2" data-key="dialog-opencard" @click="handleRootClick">
-    <ReviewHeader :header="state.header" :is-tab-mode="!!props.reviewUI" :title="props.title" @toolbar-action="handleToolbarAction" @action="hook.executeCommand" @context="handleContext" @breadcrumb-click="handleBreadcrumbClick" />
+    <ReviewHeader :header="state.header" :is-tab-mode="!!props.reviewUI" :title="props.title" :mode="props.mode" @toolbar-action="handleToolbarAction" @action="hook.executeCommand" @context="handleContext" @breadcrumb-click="handleBreadcrumbClick" />
 
     <ReviewContent :app="app" :content="state.content" :overlay="state.overlay" :has-hidden-content="state.meta.hasHiddenContent" :show-answer="state.actions.showAnswer" :meta="state.meta" :i18n="i18n" />
 
@@ -54,11 +54,13 @@ const props = defineProps<{
   provider?: any;
   reviewUI?: any;
   title?: string; // 队列标题（如"提取练习"）
+  mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
 }>();
 
 const emit = defineEmits<{
   (e: 'openMenu', menu: IQueueCommand<unknown>[]): void;
   (e: 'close'): void; // 添加关闭事件
+  (e: 'convert-to-tab'): void; // 🆕 转换为 Tab 模式（kebab-case）
 }>();
 
 const rootRef = ref<HTMLDivElement | null>(null);
@@ -406,7 +408,19 @@ function handleOpenAsMenu(ev: MouseEvent) {
     return;
   }
 
+  // 🆕 在 Tab 中打开
+  menu.addItem({
+    id: 'openByTab',
+    icon: 'iconLayoutRight',
+    label: '在 Tab 中打开',
+    click() {
+      console.log('[FSRS ReviewView] Emitting convert-to-tab event');
+      emit('convert-to-tab');
+    },
+  });
+
   // 使用新窗口打开（打开独立窗口）
+  /// #if !BROWSER
   menu.addItem({
     id: 'openByNewWindow',
     icon: 'iconOpenWindow',
@@ -414,27 +428,29 @@ function handleOpenAsMenu(ev: MouseEvent) {
     click() {
       console.log('[FSRS ReviewView] Opening review in new window');
       try {
-        // 从 state 中获取当前卡片的 block ID
-        const blockId = state.value.content.data || state.value.actions.cardMeta?.blockID;
-
-        if (!blockId) {
-          console.error('[FSRS ReviewView] No block ID found in state');
+        // 获取插件实例
+        const fsrsPlugin = (window as any).siyuanFsrsPlugin;
+        if (!fsrsPlugin) {
+          console.error('[FSRS ReviewView] Plugin instance not found');
           return;
         }
 
-        console.log('[FSRS ReviewView] Current block ID:', blockId);
-
-        // 在新窗口中打开复习界面（会打开文档 + 自动触发复习对话框）
+        // 调用优雅的新窗口打开方法
         fsrsPlugin.openReviewInNewWindow({
-          blockId: blockId,
-          providerId: props.provider?.id || 'retrieval',
-          title: props.title,
+          provider: props.provider,
+          queue: props.queue,
+          adapter: props.adapter,
+          title: props.title || '复习',
         });
+
+        // 关闭当前对话框
+        emit('close');
       } catch (err) {
         console.error('[FSRS ReviewView] Error opening review in new window:', err);
       }
     },
   });
+  /// #endif
 
   // 打开菜单
   const target = ev.currentTarget as HTMLElement;

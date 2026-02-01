@@ -220,6 +220,26 @@ export class UIManager {
   }
 
   /**
+   * 🆕 打开复习界面（Tab 模式）
+   */
+  openReviewTab(provider: any, title: string, providerId?: string) {
+    this.plugin.openTab({
+      app: this.plugin.app,
+      custom: {
+        icon: 'iconRiffCard',
+        title: title,
+        id: this.plugin.name + this.plugin.REVIEW_TAB_TYPE,
+        data: {
+          provider: provider,
+          title: title,
+          providerId: providerId || provider?.id || 'retrieval',
+        },
+      },
+      position: 'right',
+    });
+  }
+
+  /**
    * 打开复习面板（弹窗模式）- 使用 Vue UI 2.0
    */
   async openReviewDialog() {
@@ -255,6 +275,7 @@ export class UIManager {
         props: {
           app: this.plugin.app,
           i18n: this.plugin.i18n || {},
+          mode: 'dialog',  // 🆕 明确指定 Dialog 模式
           title: provider.displayName,  // 传递 title 给组件显示在 logo 区域
           provider: provider as any,
           reviewUI: {
@@ -268,6 +289,21 @@ export class UIManager {
         events: {
           close: () => {
             this.plugin.reviewDialog?.destroy();
+          },
+          // 🆕 新增：转换为 Tab
+          'convert-to-tab': () => {
+            console.log('[UIManager] convert-to-tab event received!');
+            // 保存当前 provider 和 title
+            const currentProvider = provider;
+            const currentTitle = provider.displayName;
+            const providerId = provider.id || 'retrieval';
+
+            // 关闭对话框
+            this.plugin.reviewDialog?.destroy();
+            this.plugin.reviewDialog = null;
+
+            // 打开 Tab
+            this.openReviewTab(currentProvider, currentTitle, providerId);
           },
         },
         width: 'min(860px, 96vw)',
@@ -304,12 +340,28 @@ export class UIManager {
         props: {
           app: this.plugin.app,
           i18n: this.plugin.i18n || {},
+          mode: 'dialog',  // 🆕 明确指定 Dialog 模式
+          title: (this.plugin.i18n as any)?.startLeechPractice || '难点攻坚',
           queue: session as any,
           adapter: new LeechAdapter({ i18n: this.plugin.i18n || {} }) as any,
         },
         events: {
           close: () => {
             this.plugin.reviewDialog?.destroy();
+          },
+          // 🆕 新增：转换为 Tab
+          convertToTab: () => {
+            const currentTitle = (this.plugin.i18n as any)?.startLeechPractice || '难点攻坚';
+            const provider = {
+              id: 'leech',
+              displayName: currentTitle,
+              getDueCards: () => session?.getDueCards?.() || [],
+            };
+
+            this.plugin.reviewDialog?.destroy();
+            this.plugin.reviewDialog = null;
+
+            this.openReviewTab(provider, currentTitle, 'leech');
           },
         },
         width: 'min(860px, 96vw)',
@@ -354,6 +406,7 @@ export class UIManager {
         props: {
           app: this.plugin.app,
           i18n: this.plugin.i18n || {},
+          mode: 'dialog',  // 🆕 明确指定 Dialog 模式
           title: provider.displayName,  // 传递给 Vue 组件显示
           provider: provider as any,
           reviewUI: {
@@ -367,6 +420,17 @@ export class UIManager {
         events: {
           close: () => {
             this.plugin.reviewDialog?.destroy();
+          },
+          // 🆕 新增：转换为 Tab
+          convertToTab: () => {
+            const currentProvider = provider;
+            const currentTitle = provider.displayName;
+            const providerId = 'final-drill';
+
+            this.plugin.reviewDialog?.destroy();
+            this.plugin.reviewDialog = null;
+
+            this.openReviewTab(currentProvider, currentTitle, providerId);
           },
         },
         width: 'min(860px, 96vw)',
@@ -415,6 +479,7 @@ export class UIManager {
         props: {
           app: this.plugin.app,
           i18n: this.plugin.i18n || {},
+          mode: 'dialog',  // 🆕 明确指定 Dialog 模式
           title,  // 传递给 Vue 组件显示
           queue: this.plugin.incrementalQueue as any,
           adapter: adapter as any,
@@ -422,6 +487,19 @@ export class UIManager {
         events: {
           close: () => {
             this.plugin.reviewDialog?.destroy();
+          },
+          // 🆕 新增：转换为 Tab
+          convertToTab: () => {
+            const provider = {
+              id: 'incremental-learning',
+              displayName: title,
+              getDueCards: () => this.plugin.incrementalQueue?.getDueCards?.() || [],
+            };
+
+            this.plugin.reviewDialog?.destroy();
+            this.plugin.reviewDialog = null;
+
+            this.openReviewTab(provider, title, 'incremental-learning');
           },
         },
         width: 'min(860px, 96vw)',
@@ -462,6 +540,7 @@ export class UIManager {
         props: {
           app: this.plugin.app,
           i18n: this.plugin.i18n || {},
+          mode: 'dialog',  // 🆕 明确指定 Dialog 模式
           title,  // 传递给 Vue 组件显示
           queue: this.plugin.filterGroupQueue as any,
           adapter: adapter as any,
@@ -469,6 +548,19 @@ export class UIManager {
         events: {
           close: () => {
             this.plugin.reviewDialog?.destroy();
+          },
+          // 🆕 新增：转换为 Tab
+          convertToTab: () => {
+            const provider = {
+              id: 'filter-group',
+              displayName: title,
+              getDueCards: () => this.plugin.filterGroupQueue?.getDueCards?.() || [],
+            };
+
+            this.plugin.reviewDialog?.destroy();
+            this.plugin.reviewDialog = null;
+
+            this.openReviewTab(provider, title, 'filter-group');
           },
         },
         width: 'min(860px, 96vw)',

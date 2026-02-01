@@ -12,7 +12,11 @@ import {
   Menu,
   openTab,
   openWindow,
+  Constants,
 } from 'siyuan';
+/// #if !BROWSER
+import { ipcRenderer } from 'electron';
+/// #endif
 import { createApp } from 'vue';
 
 import { StorageManager } from '@/core/storage';
@@ -102,6 +106,7 @@ export default class FSRSPlugin extends Plugin {
   }
 
   private TAB_TYPE = 'plugin-fsrs-srs-browser';
+  private REVIEW_TAB_TYPE = 'plugin-fsrs-review';  // 🆕 复习界面 Tab 类型
 
   private topBarElement: HTMLElement | null = null;
   private topBarContextMenuHandler: ((ev: MouseEvent) => void) | null = null;
@@ -113,15 +118,8 @@ export default class FSRSPlugin extends Plugin {
   private reviewDialog: { dialog: any; destroy: () => void } | null = null;
   private srsBrowserDialog: { dialog: any; destroy: () => void } | null = null;
 
-  // 自定义 Tab
-  static readonly REVIEW_TAB_TYPE = "-review-tab";
-  readonly REVIEW_TAB_ID: string;
-  private reviewTab: any;
-
   constructor(options: any) {
     super(options);
-    // 初始化 Tab ID
-    this.REVIEW_TAB_ID = `${this.name}${FSRSPlugin.REVIEW_TAB_TYPE}`;
   }
 
   async onload() {
@@ -281,6 +279,7 @@ export default class FSRSPlugin extends Plugin {
         filterGroupQueue: this.subsetQueue,
         incrementalQueue: this.incrementalQueue,
         isInitialized: () => this.isInitialized,
+        openReviewTab: (options) => this.openReviewTab(options),
       });
 
       // 🆕 初始化 BlockMenuHandler
@@ -363,64 +362,6 @@ export default class FSRSPlugin extends Plugin {
       } catch {}
     }
 
-    // 注册复习 Tab
-    try {
-      this.reviewTab = this.addTab({
-        type: FSRSPlugin.REVIEW_TAB_TYPE,
-        init() {
-          console.log('[FSRS Review Tab] Init called with data:', this.data);
-          const tab = this as any;
-
-          // 显示复习准备界面
-          tab.element.innerHTML = `
-            <div style="
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              justify-content: center;
-              height: 100%;
-              padding: 20px;
-              text-align: center;
-            ">
-              <div style="font-size: 48px; margin-bottom: 20px;">📚</div>
-              <h2 style="margin-bottom: 10px;">从这里复习</h2>
-              <p style="color: var(--b3-theme-on-surface); margin-bottom: 20px;">
-                在新窗口中继续复习
-              </p>
-              <button id="start-review-btn" class="b3-button b3-button--primary" style="margin-top: 20px;">
-                开始复习
-              </button>
-            </div>
-          `;
-
-          // 绑定按钮事件
-          const startBtn = tab.element.querySelector('#start-review-btn');
-          if (startBtn) {
-            startBtn.addEventListener('click', () => {
-              console.log('[FSRS Review Tab] Start review button clicked');
-              // 通过全局变量获取插件实例
-              const plugin = (window as any).siyuanFsrsPlugin;
-              if (plugin && typeof plugin.openReviewDialogFromSavedState === 'function') {
-                plugin.openReviewDialogFromSavedState();
-              } else {
-                console.error('[FSRS Review Tab] Plugin instance or method not found');
-              }
-            });
-          }
-        },
-        destroy() {
-          const tab = this as any;
-          if (tab.vueApp) {
-            tab.vueApp.unmount();
-            tab.vueApp = undefined;
-          }
-        },
-      });
-      console.log('[FSRS] Review tab registered:', this.REVIEW_TAB_ID);
-    } catch (err) {
-      console.error('[FSRS] Failed to register review tab:', err);
-    }
-
     // 注册 Dock 面板
     this.addDock({
       config: {
@@ -494,7 +435,122 @@ export default class FSRSPlugin extends Plugin {
       },
     });
 
+    // 🆕 注册复习界面 Tab
+    this.addTab({
+      type: this.REVIEW_TAB_TYPE,
+      init() {
+        const plugin = (window as any).siyuanFsrsPlugin;
+        if (!plugin) {
+          console.error('[FSRS] Plugin instance not found');
+          return;
+        }
 
+        // 从 Tab data 恢复状态
+        const savedProvider = (this as any).data?.provider;
+        const savedQueue = (this as any).data?.queue;
+        const savedAdapter = (this as any).data?.adapter;
+        const savedTitle = (this as any).data?.title;
+        const savedProviderId = (this as any).data?.providerId || 'retrieval';
+
+        console.log('[FSRS Review Tab] Restoring state:', {
+          hasProvider: !!savedProvider,
+          hasQueue: !!savedQueue,
+          hasAdapter: !!savedAdapter,
+          title: savedTitle,
+          providerId: savedProviderId,
+        });
+
+        // 如果有 savedQueue，使用 queue + adapter 模式
+        if (savedQueue && savedAdapter) {
+          console.log('[FSRS Review Tab] Using queue + adapter mode');
+          const app = createApp(ReviewView, {
+            app: plugin.app,
+            i18n: plugin.i18n || {},
+            mode: 'tab',
+            title: savedTitle,
+            queue: savedQueue,
+            adapter: savedAdapter,
+          });
+          app.mount(this.element);
+          (this as any).vueApp = app;
+          return;
+        }
+
+        // 否则使用 provider + reviewUI 模式
+        let provider = savedProvider;
+        let adapter = savedAdapter;
+
+        if (!provider) {
+          console.log('[FSRS Review Tab] No saved provider, creating new one for:', savedProviderId);
+          // 根据 providerId 创建对应的 provider
+          if (savedProviderId === 'final-drill') {
+            provider = new FinalDrillProvider({
+              queue: plugin.finalDrillQueue,
+              storage: plugin.storage,
+            });
+            adapter = new FinalDrillAdapter({ i18n: plugin.i18n || {} });
+          } else if (savedProviderId === 'leech') {
+            provider = {
+              id: 'leech',
+              displayName: plugin.i18n?.leechReview || '难记卡片',
+              getDueCards: () => plugin.leechQueue?.getDueCards?.() || [],
+            };
+            adapter = new LeechAdapter({ i18n: plugin.i18n || {} });
+          } else if (savedProviderId === 'neural-roam') {
+            provider = {
+              id: 'neural-roam',
+              displayName: plugin.i18n?.neuralRoam || '神经漫游',
+              getDueCards: () => plugin.neuralRoamQueue?.getDueCards?.() || [],
+            };
+            adapter = new NeuralRoamAdapter({ i18n: plugin.i18n || {} });
+          } else {
+            // 默认：提取练习
+            provider = new RetrievalPracticeProvider({
+              storage: plugin.storage,
+              scheduler: plugin.scheduler,
+            });
+            adapter = new RetrievalPracticeAdapter({ i18n: plugin.i18n || {} });
+          }
+        } else {
+          console.log('[FSRS Review Tab] Using saved provider:', provider.id);
+          // 如果有保存的 provider 但没有 adapter，根据 provider.id 创建 adapter
+          if (!adapter) {
+            const providerId = provider.id || 'retrieval';
+            if (providerId === 'final-drill') {
+              adapter = new FinalDrillAdapter({ i18n: plugin.i18n || {} });
+            } else if (providerId === 'leech') {
+              adapter = new LeechAdapter({ i18n: plugin.i18n || {} });
+            } else if (providerId === 'neural-roam') {
+              adapter = new NeuralRoamAdapter({ i18n: plugin.i18n || {} });
+            } else {
+              adapter = new RetrievalPracticeAdapter({ i18n: plugin.i18n || {} });
+            }
+          }
+        }
+
+        const app = createApp(ReviewView, {
+          app: plugin.app,
+          i18n: plugin.i18n || {},
+          mode: 'tab',  // 🔑 关键：Tab 模式
+          title: savedTitle || provider.displayName,
+          provider: provider,
+          reviewUI: {
+            component: ReviewView,
+            adapter: adapter,
+            context: {
+              uiConfig: { statsType: 'riff-counts', showRatingButtons: true, allowSkip: true },
+            },
+          },
+        });
+        app.mount(this.element);
+        (this as any).vueApp = app;
+      },
+      destroy() {
+        if ((this as any).vueApp) {
+          (this as any).vueApp.unmount();
+        }
+      },
+    });
 
     // 注册块菜单
     this.eventBus.on('click-blockicon', this.handleBlockIconClick.bind(this));
@@ -696,6 +752,40 @@ export default class FSRSPlugin extends Plugin {
   }
 
   /**
+   * 打开复习界面（Tab 模式）
+   */
+  openReviewTab(options: {
+    provider?: any;
+    queue?: any;
+    adapter: any;
+    title: string;
+  }): void {
+    try {
+      const providerId = options.provider?.id || (options.queue ? 'queue-based' : 'retrieval');
+      
+      openTab({
+        app: this.app,
+        custom: {
+          icon: 'iconFSRS',
+          title: options.title,
+          id: this.name + this.REVIEW_TAB_TYPE,
+          data: {
+            provider: options.provider,
+            queue: options.queue,
+            adapter: options.adapter,
+            title: options.title,
+            providerId: providerId,
+          },
+        },
+        position: 'right',
+      });
+    } catch (err) {
+      console.error('[FSRS] Failed to open review tab:', err);
+      void pushErrMsg(this.i18n?.openFailed || '打开标签页失败');
+    }
+  }
+
+  /**
    * 打开复习面板（弹窗模式）- 使用 Vue UI 2.0
    */
   async openReviewDialog() {
@@ -885,122 +975,52 @@ export default class FSRSPlugin extends Plugin {
 
 
   /**
-   * 在新窗口中打开复习界面（使用 Tab + 手动触发）
+   * 在新窗口中打开复习界面（优雅实现 - 参考思源原生）
    */
-  async openReviewInNewWindow(options: {
-    blockId: string;
-    providerId: string;
-    title?: string;
-  }) {
-    const { blockId, providerId, title } = options;
-
-    console.log('[FSRS] Opening review in new window for block:', blockId);
-
-    // 保存复习类型到 localStorage（跨窗口共享）
+  openReviewInNewWindow(options: {
+    provider?: any;
+    queue?: any;
+    adapter: any;
+    title: string;
+  }): void {
+    /// #if !BROWSER
     try {
-      const reviewMeta = {
-        providerId,
-        title: title || '复习',
-        timestamp: Date.now(),
-      };
-      localStorage.setItem('siyuanFsrsReviewMeta', JSON.stringify(reviewMeta));
-      console.log('[FSRS] Saved review meta to localStorage:', reviewMeta);
-    } catch (err) {
-      console.error('[FSRS] Failed to save review meta:', err);
-    }
-
-    // 打开自定义 Tab，然后在新窗口中打开
-    const tab = await openTab({
-      app: this.app,
-      custom: {
-        icon: 'iconFSRS',
-        title: title || '复习',
-        id: this.REVIEW_TAB_ID,
-        data: {
-          // 不需要传递队列对象，只传递元数据
-          blockId,
-          providerId,
-          title,
-        },
-      },
-    });
-
-    // 在新窗口中打开这个 tab
-    if (tab) {
-      openWindow({
-        tab,
-      });
-    }
-
-    // 关闭当前对话框
-    const dialogContainer = document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]');
-    if (dialogContainer) {
-      const dialogs = (window as any).siyuan.dialogs || [];
-      for (const dialog of dialogs) {
-        if (dialog.element.contains(dialogContainer) || dialog.element === dialogContainer) {
-          dialog.destroy();
-          break;
+      const providerId = options.provider?.id || (options.queue ? 'queue-based' : 'retrieval');
+      
+      // 构建 JSON 数据（参考思源原生 openCard.ts）
+      const json = [{
+        "title": options.title,
+        "icon": "iconFSRS",
+        "instance": "Tab",
+        "children": {
+          "instance": "Custom",
+          "customModelType": this.REVIEW_TAB_TYPE, // 使用实际注册的 Tab type
+          "customModelData": {
+            "provider": options.provider,
+            "queue": options.queue,
+            "adapter": options.adapter,
+            "title": options.title,
+            "providerId": providerId,
+          }
         }
-      }
-    }
-  }
-
-  /**
-   * 从保存的元数据恢复复习界面（供新窗口调用）
-   */
-  openReviewDialogFromSavedState() {
-    let savedMeta: any;
-
-    // 从 localStorage 读取复习元数据
-    try {
-      const metaStr = localStorage.getItem('siyuanFsrsReviewMeta');
-      if (!metaStr) {
-        console.warn('[FSRS] No saved review meta found');
-        return;
-      }
-      savedMeta = JSON.parse(metaStr);
-
-      // 检查状态是否过期（5 分钟）
-      if (Date.now() - savedMeta.timestamp > 5 * 60 * 1000) {
-        console.warn('[FSRS] Saved review meta is expired');
-        localStorage.removeItem('siyuanFsrsReviewMeta');
-        return;
-      }
-
-      console.log('[FSRS] Restoring review dialog from saved meta:', savedMeta);
+      }];
+      
+      // 发送到主进程（参考思源原生实现）
+      ipcRenderer.send(Constants.SIYUAN_OPEN_WINDOW, {
+        url: `${window.location.protocol}//${window.location.host}/stage/build/app/window.html?v=${Constants.SIYUAN_VERSION}&json=${encodeURIComponent(JSON.stringify(json))}`
+      });
+      
+      console.log('[FSRS] Opened review in new window (elegant implementation)');
     } catch (err) {
-      console.error('[FSRS] Failed to parse saved review meta:', err);
-      return;
+      console.error('[FSRS] Failed to open review in new window:', err);
+      void pushErrMsg(this.i18n?.openFailed || '打开新窗口失败');
     }
-
-    // 清理保存的元数据
-    localStorage.removeItem('siyuanFsrsReviewMeta');
-
-    // 根据 provider ID 打开对应的复习对话框
-    // 注意：这里我们重新开始复习，而不是严格恢复队列状态
-    // 但对用户来说体验是一致的（复习相同的卡片）
-    switch (savedMeta.providerId) {
-      case 'retrieval':
-        this.openReviewDialog();
-        break;
-      case 'final-drill':
-        this.openFinalDrillDialog();
-        break;
-      case 'neural-roam':
-        this.openNeuralRoamDialog();
-        break;
-      case 'leech':
-        this.openLeechPracticeDialog();
-        break;
-      case 'filter-group':
-        this.openFilterGroupPracticeDialog();
-        break;
-      default:
-        console.log('[FSRS] Unknown provider ID, opening default review:', savedMeta.providerId);
-        this.openReviewDialog();
-    }
+    /// #else
+    // 浏览器环境降级：使用 Tab 模式
+    console.warn('[FSRS] New window not supported in browser, using tab instead');
+    this.openReviewTab(options);
+    /// #endif
   }
-
 
   /**
    * 🆕 打开创建模板卡片对话框（Xiuyuan）- 带块 ID 列表
@@ -1044,13 +1064,21 @@ export default class FSRSPlugin extends Plugin {
 
             // 创建 Xiuyuan 和卡片
             try {
-              const { xiuyuan, cards } = await this.xiuyuanService.createFromBlocks(
+              const result = await this.xiuyuanService.createFromBlocks(
                 blockIds,
                 templateId,
                 fieldMapping,
                 riff.BUILTIN_DECK_ID
               );
 
+              if (!result.ok) {
+                console.error('[FSRS] Failed to create template card:', result.error);
+                pushErrMsg(`创建失败：${result.error.message}`);
+                templateSelectDialog.destroy();
+                return;
+              }
+
+              const { xiuyuan, cards } = result.value;
               console.log('[FSRS] Xiuyuan created:', { xiuyuan, cards });
 
               pushMsg(
