@@ -1,6 +1,6 @@
 import type FSRSPlugin from '@/index';
-import { CardBuilderContext } from '@/core/card-builder';
-import { getBlockKramdown } from '@/core/siyuan/api';
+import { CardBuilderContext, detectCardType, initializeAFactor } from '@/core/card-builder';
+import { getBlockKramdown, getBlockAttrs, setBlockAttrs } from '@/core/siyuan/api';
 import { getRiffCardsByBlockIDs, addRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 import { isFlashcardBlock, markBlockAsCard, hasRiffAttribute } from '@/core/siyuan/block';
 
@@ -128,7 +128,6 @@ export class TransactionObserver {
             console.log(`[FSRS] Card Status for ${blockId}: RiffDB=${isRiffInDb}, RiffAttr=${hasRiffAttr}, FSRSAttr=${isFsrsAttr}`);
 
             // 检查卡片类型是否已标记
-            const { getBlockAttrs } = await import('@/core/siyuan/api');
             const attrs = await getBlockAttrs(blockId);
             const hasCardType = attrs && (attrs['custom-fsrs-card-type'] === 'topic' || attrs['custom-fsrs-card-type'] === 'item');
 
@@ -160,7 +159,6 @@ export class TransactionObserver {
 
             // 6.5. 标记卡片类型和初始化 A-Factor（总是执行，除非已有类型）
             if (!hasCardType) {
-                const { detectCardType, initializeAFactor } = await import('@/core/card-builder');
                 const cardType = await detectCardType(blockId);
 
                 const cardTypeAttrs: Record<string, string> = {
@@ -178,7 +176,6 @@ export class TransactionObserver {
                     console.log(`[FSRS] Item card detected: blockID=${blockId}`);
                 }
 
-                const { setBlockAttrs } = await import('@/core/siyuan/api');
                 await setBlockAttrs(blockId, cardTypeAttrs);
             }
 

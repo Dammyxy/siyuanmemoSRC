@@ -22,6 +22,7 @@ import type { QueueItem, QueueStats, QueueUIConfig } from '../types';
 import { DEFAULT_PRIORITY } from '../abstraction/IPriority';
 import type { IPrioritizableTrait, IMutableTrait, IRemovableTrait } from '../abstraction/types';
 import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy';
+import { getHiddenContentTypes } from '../utils/hiddenContentTypes';
 
 type RiffApi = {
   getRiffDueCards: typeof riff.getRiffDueCards;
@@ -222,7 +223,12 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
   }
 
   getUIConfig(_currentItem: QueueItem | null): QueueUIConfig {
-    return { statsType: 'queue-size', showRatingButtons: true, allowSkip: true };
+    return { 
+      statsType: 'queue-size', 
+      showRatingButtons: true, 
+      allowSkip: true,
+      hiddenContentTypes: getHiddenContentTypes(),
+    };
   }
 
   async getStats(): Promise<QueueStats> {

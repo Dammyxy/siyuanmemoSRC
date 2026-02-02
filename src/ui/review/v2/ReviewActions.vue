@@ -1,5 +1,5 @@
 <template>
-  <!-- 阶段1: 答案隐藏 -->
+  <!-- 阶段1: 答案隐藏 - showAnswer 为 true 时显示"显示答案"按钮 -->
   <div v-if="actions.showAnswer" class="card__action fn__flex">
     <button
       class="b3-button b3-button--cancel"
@@ -21,7 +21,7 @@
     </button>
   </div>
 
-  <!-- 阶段2: 答案显示 -->
+  <!-- 阶段2: 答案显示 - showAnswer 为 false 时显示评分按钮 -->
   <div v-else class="card__action fn__flex">
     <!-- 左列: 后退 + 跳过 -->
     <div>

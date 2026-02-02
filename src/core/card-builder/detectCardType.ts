@@ -8,6 +8,7 @@
 
 import { getBlockText } from '@/core/siyuan/block';
 import { getBlockAttrs, getBlockInfo, sql } from '@/core/siyuan/api';
+import { batchQueryWithConcurrency } from '../../utils/batchQuery';
 
 /**
  * 获取块类型（通过 SQL 查询）
@@ -204,8 +205,6 @@ export async function batchDetectCardType(
     const result = new Map<string, 'topic' | 'item'>()
 
     // 使用优化的批量查询（批量大小 200，最大并发 3）
-    const { batchQueryWithConcurrency } = await import('../../utils/batchQuery')
-    
     const results = await batchQueryWithConcurrency(
         blockIds,
         { batchSize: 200, maxConcurrency: 3 },

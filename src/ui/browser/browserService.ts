@@ -19,6 +19,7 @@ import {
     ATTR_CARD_TYPE,
     ATTR_A_FACTOR
 } from '@/core/siyuan/block';
+import { batchDetectCardType, initializeAFactor } from '@/core/card-builder';
 import {
     type BrowserCard,
     CardState,
@@ -982,15 +983,10 @@ export async function batchDetectCardTypes(
 
     try {
         // 1. 批量检测类型
-        const { batchDetectCardType } = await import('@/core/card-builder');
         const blockIds = cards.map(c => c.blockId);
         const typeMap = await batchDetectCardType(blockIds);
 
         // 2. 准备批量更新
-        const { setBlockAttrs } = await import('@/core/siyuan/api');
-        const { ATTR_CARD_TYPE, ATTR_A_FACTOR } = await import('@/core/siyuan/block');
-        const { initializeAFactor } = await import('@/core/card-builder');
-
         let updated = 0;
         let failed = 0;
 

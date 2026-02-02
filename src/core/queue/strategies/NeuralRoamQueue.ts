@@ -21,6 +21,7 @@ import { NullScheduler } from '../schedulers/NullScheduler';
 import { BaseCompositeQueue } from '../composite/BaseCompositeQueue';
 import type { QueueItem, QueueStats, QueueUIConfig } from '../types';
 import { DEFAULT_PRIORITY } from '../abstraction/IPriority';
+import { getHiddenContentTypes } from '../utils/hiddenContentTypes';
 
 type I18n = Record<string, string>;
 
@@ -149,12 +150,14 @@ export class NeuralRoamQueue extends BaseCompositeQueue<QueueItem> {
    */
   getUIConfig(currentItem: QueueItem | null): QueueUIConfig {
     const isFlashcard = Boolean((currentItem as any)?.meta?.neuralContext?.isFlashcard);
+    const hiddenContentTypes = getHiddenContentTypes();
 
     if (!isFlashcard) {
       return {
         statsType: 'queue-size',
         showRatingButtons: false,
         allowSkip: true,
+        hiddenContentTypes,
         customButtons: [
           {
             actionId: 'continue',
@@ -168,6 +171,7 @@ export class NeuralRoamQueue extends BaseCompositeQueue<QueueItem> {
       statsType: 'queue-size',
       showRatingButtons: true,
       allowSkip: true,
+      hiddenContentTypes,
     };
   }
 

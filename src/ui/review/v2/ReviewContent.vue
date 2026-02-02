@@ -13,10 +13,11 @@
           <div ref="hostRef" class="fsrs-review-v2-content__protyle-host"></div>
           
           <!-- 背面：答案块（Xiuyuan 模板卡片，点击显示答案后显示） -->
-          <div v-if="showAnswer && answerBlockID" class="fsrs-review-v2-content__answer-divider">
+          <!-- 注意：showAnswer 语义已反转，showAnswer=false 表示答案已显示 -->
+          <div v-if="!showAnswer && answerBlockID" class="fsrs-review-v2-content__answer-divider">
             <span>{{ t('answerDivider', '─── 答案 ───') }}</span>
           </div>
-          <div v-if="showAnswer && answerBlockID" ref="answerHostRef" class="fsrs-review-v2-content__protyle-host fsrs-review-v2-content__answer"></div>
+          <div v-if="!showAnswer && answerBlockID" ref="answerHostRef" class="fsrs-review-v2-content__protyle-host fsrs-review-v2-content__answer"></div>
         </div>
 
         <div v-if="overlay && overlayComponent" class="fsrs-review-v2-content__overlay" :data-layout="overlay.layout">
@@ -64,6 +65,7 @@ const editorRef = ref<any>(null);
 const answerEditorRef = ref<any>(null);
 let renderSeq = 0;
 let answerRenderSeq = 0;
+let protyleInitialized = false;  // 🆕 跟踪 Protyle 是否已初始化
 
 // 计算答案块 ID（Xiuyuan 模板卡片）
 const answerBlockID = computed(() => props.content.answerBlockID || '');
@@ -86,6 +88,66 @@ async function ensureHostRef(): Promise<boolean> {
     await sleep(10);
   }
   return false;
+}
+
+/**
+ * 应用答案显示/隐藏逻辑
+ * 根据 hasHiddenContent 和 showAnswer 状态，在 hostRef.value 上添加或移除 CSS 类
+ * 
+ * 注意：props.showAnswer 的语义已经被 Adapter 反转了！
+ * - Adapter: showAnswer = !context.showAnswer
+ * - context.showAnswer = false (初始状态，答案未显示) → props.showAnswer = true
+ * - context.showAnswer = true (用户点击后，答案已显示) → props.showAnswer = false
+ * 
+ * 所以在这个函数中：
+ * - props.showAnswer = true → 显示"显示答案"按钮 → 答案应该被隐藏
+ * - props.showAnswer = false → 不显示"显示答案"按钮 → 答案应该显示
+ */
+function applyAnswerVisibility(): void {
+  const element = hostRef.value;
+  if (!element) {
+    console.warn('[FSRS ReviewContent] Cannot apply answer visibility: hostRef.value is null');
+    return;
+  }
+  
+  const hasHidden = props.hasHiddenContent;
+  const showAnswerButton = props.showAnswer;  // 重命名以明确语义：是否显示"显示答案"按钮
+  
+  console.log('[FSRS ReviewContent] applyAnswerVisibility called:', { hasHidden, showAnswerButton });
+  
+  if (!hasHidden) {
+    // 没有隐藏内容，移除所有隐藏类
+    console.log('[FSRS ReviewContent] No hidden content, removing all hide classes');
+    element.classList.remove(
+      'card__block--hidemark',
+      'card__block--hideli',
+      'card__block--hidesb',
+      'card__block--hideh'
+    );
+    return;
+  }
+  
+  // showAnswerButton = true → 显示"显示答案"按钮 → 答案应该被隐藏
+  // showAnswerButton = false → 不显示"显示答案"按钮 → 答案应该显示
+  if (showAnswerButton) {
+    // 显示"显示答案"按钮 → 隐藏答案
+    console.log('[FSRS ReviewContent] Hiding answer (showAnswerButton=true), adding hide classes');
+    element.classList.add(
+      'card__block--hidemark',
+      'card__block--hideli',
+      'card__block--hidesb',
+      'card__block--hideh'
+    );
+  } else {
+    // 不显示"显示答案"按钮 → 显示答案
+    console.log('[FSRS ReviewContent] Showing answer (showAnswerButton=false), removing all hide classes');
+    element.classList.remove(
+      'card__block--hidemark',
+      'card__block--hideli',
+      'card__block--hidesb',
+      'card__block--hideh'
+    );
+  }
 }
 
 async function renderProtyle(blockID: string): Promise<void> {
@@ -123,6 +185,29 @@ async function renderProtyle(blockID: string): Promise<void> {
 
   // Clear host
   hostRef.value.innerHTML = '';
+  
+  // 🆕 重置 Protyle 初始化标志
+  protyleInitialized = false;
+  
+  // 🆕 预先应用隐藏类，避免闪烁
+  // 如果有隐藏内容且需要显示"显示答案"按钮，立即添加隐藏类
+  if (props.hasHiddenContent && props.showAnswer) {
+    console.log('[FSRS ReviewContent] Pre-applying hide classes to prevent flash');
+    hostRef.value.classList.add(
+      'card__block--hidemark',
+      'card__block--hideli',
+      'card__block--hidesb',
+      'card__block--hideh'
+    );
+  } else {
+    // 确保移除所有隐藏类
+    hostRef.value.classList.remove(
+      'card__block--hidemark',
+      'card__block--hideli',
+      'card__block--hidesb',
+      'card__block--hideh'
+    );
+  }
 
   console.log('[FSRS ReviewContent] Creating new Protyle with blockId:', blockID);
 
@@ -164,6 +249,56 @@ async function renderProtyle(blockID: string): Promise<void> {
       } else {
         console.warn('[FSRS ReviewContent] protyle.disable() not available in after callback');
       }
+      
+      // 🆕 标记 Protyle 已初始化，延迟更长时间确保 protyle.element 完全初始化
+      nextTick(() => {
+        setTimeout(() => {
+          protyleInitialized = true;
+          console.log('[FSRS ReviewContent] Protyle initialized, applying answer visibility');
+          console.log('[FSRS ReviewContent] protyle object:', protyle);
+          console.log('[FSRS ReviewContent] protyle.element:', protyle?.element);
+          console.log('[FSRS ReviewContent] hostRef.value:', hostRef.value);
+          
+          // 🆕 使用 hostRef.value 而不是 protyle.element
+          // 因为 protyle.element 在 after 回调中可能还未设置
+          const element = hostRef.value;
+          if (!element) {
+            console.warn('[FSRS ReviewContent] hostRef.value is null');
+            return;
+          }
+          
+          // 直接在这里应用 CSS 类，而不是调用 applyAnswerVisibility
+          const hasHidden = props.hasHiddenContent;
+          const showAnswerButton = props.showAnswer;
+          
+          console.log('[FSRS ReviewContent] Applying CSS classes:', { hasHidden, showAnswerButton });
+          
+          if (!hasHidden) {
+            element.classList.remove(
+              'card__block--hidemark',
+              'card__block--hideli',
+              'card__block--hidesb',
+              'card__block--hideh'
+            );
+          } else if (showAnswerButton) {
+            // 显示"显示答案"按钮 → 隐藏答案
+            element.classList.add(
+              'card__block--hidemark',
+              'card__block--hideli',
+              'card__block--hidesb',
+              'card__block--hideh'
+            );
+          } else {
+            // 不显示"显示答案"按钮 → 显示答案
+            element.classList.remove(
+              'card__block--hidemark',
+              'card__block--hideli',
+              'card__block--hidesb',
+              'card__block--hideh'
+            );
+          }
+        }, 100);  // 增加延迟到 100ms
+      });
     },
   });
 
@@ -251,66 +386,39 @@ watch(
 watch(
   () => [props.hasHiddenContent, props.showAnswer],
   ([hidden, show]) => {
-    console.log('[FSRS ReviewContent] Watch triggered:', { hidden, show });
+    console.log('[FSRS ReviewContent] Watch triggered:', { hidden, show, protyleInitialized });
     
-    const protyle = editorRef.value?.protyle;
-    if (!protyle) {
-      console.log('[FSRS ReviewContent] No protyle instance');
+    // 🆕 只有在 Protyle 初始化后才应用 CSS 类
+    if (!protyleInitialized) {
+      console.log('[FSRS ReviewContent] Protyle not initialized yet, skipping');
       return;
     }
     
-    // 🔧 修复：应该操作 protyle.element，不是 wysiwyg.element
-    const element = protyle.element;
-    if (!element) {
-      console.log('[FSRS ReviewContent] No protyle.element');
+    if (!hostRef.value) {
+      console.log('[FSRS ReviewContent] No hostRef.value');
       return;
     }
-
-    console.log('[FSRS ReviewContent] Applying styles to protyle.element');
-
-    if (!hidden) {
-      console.log('[FSRS ReviewContent] No hidden content, removing all hide classes');
-      element.classList.remove(
-        'card__block--hidemark',
-        'card__block--hideli',
-        'card__block--hidesb',
-        'card__block--hideh'
-      );
-      return;
-    }
-
-    if (show) {
-      console.log('[FSRS ReviewContent] Showing answer, removing all hide classes');
-      element.classList.remove(
-        'card__block--hidemark',
-        'card__block--hideli',
-        'card__block--hidesb',
-        'card__block--hideh'
-      );
-    } else {
-      console.log('[FSRS ReviewContent] Hiding answer, adding hide classes');
-      // 🔧 添加所有隐藏类型（参考思源原生实现）
-      element.classList.add('card__block--hideh');
-      element.classList.add('card__block--hidemark');
-      element.classList.add('card__block--hideli');
-      element.classList.add('card__block--hidesb');
-      console.log('[FSRS ReviewContent] Classes added:', element.className);
-    }
+    
+    console.log('[FSRS ReviewContent] Applying answer visibility from watch');
+    // 调用统一的答案显示/隐藏逻辑
+    applyAnswerVisibility();
   },
-  { immediate: true, deep: true },
+  { immediate: false, deep: true },  // 🆕 改为 immediate: false，因为初始化时在 after 回调中处理
 );
 
 // Xiuyuan 模板卡片：监听 showAnswer 变化，渲染答案块
+// 注意：showAnswer 语义已反转，showAnswer=false 表示答案已显示
 watch(
   () => [props.showAnswer, answerBlockID.value],
   ([show, ansBlockID]) => {
     console.log('[FSRS ReviewContent] Answer watch triggered:', { show, ansBlockID });
     
-    if (show && ansBlockID) {
+    // showAnswer=false 表示答案已显示，此时渲染答案块
+    if (!show && ansBlockID) {
       console.log('[FSRS ReviewContent] Rendering answer block:', ansBlockID);
       void renderAnswerProtyle(ansBlockID as string);
     } else {
-      // 隐藏答案时，销毁答案 Protyle
+      // showAnswer=true 表示答案未显示，销毁答案 Protyle
       try {
         answerEditorRef.value?.destroy?.();
         answerEditorRef.value = null;

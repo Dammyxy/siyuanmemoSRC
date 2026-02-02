@@ -4,6 +4,7 @@ import { normalizeRiffCardId } from '../abstraction/QueueCardRef.ts';
 import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy.ts';
 import type { QueueItem } from '../types.ts';
 import type { StorageManager } from '@/core/storage/manager';
+import { getHiddenContentTypes } from '../utils/hiddenContentTypes.ts';
 
 type SubsetQueueItem = {
   blockID: string;
@@ -25,8 +26,13 @@ export class SubsetPracticeStrategy implements IQueueStrategy<QueueItem> {
     void this.prefetch(ids);
   }
 
-  getUIConfig(_currentItem: QueueItem | null): { statsType: 'queue-size'; showRatingButtons: true; allowSkip: true } {
-    return { statsType: 'queue-size', showRatingButtons: true, allowSkip: true };
+  getUIConfig(_currentItem: QueueItem | null): { statsType: 'queue-size'; showRatingButtons: true; allowSkip: true; hiddenContentTypes: string[] } {
+    return { 
+      statsType: 'queue-size', 
+      showRatingButtons: true, 
+      allowSkip: true,
+      hiddenContentTypes: getHiddenContentTypes(),
+    };
   }
 
   async getStats(): Promise<{ size: number; label?: string }> {

@@ -10,6 +10,7 @@ import { invalidateCardCache } from '../browserService';
 import { extractBlockIds } from '../utils/helpers';
 import { CardDataOptions } from './useCardData';
 import { GridInteractionsOptions } from './useGridInteractions';
+import ActionParamsDialog from '../ActionParamsDialog.vue';
 
 export interface ContextMenuOptions {
   plugin?: any;
@@ -452,7 +453,7 @@ export function useContextMenu(options: ContextMenuOptions) {
     return new Promise((resolve) => {
       const dlg = createVueDialog({
         title: options.title,
-        component: () => import('../ActionParamsDialog.vue'), // 动态导入
+        component: ActionParamsDialog,
         props: {
           label: options.label,
           description: options.description,
