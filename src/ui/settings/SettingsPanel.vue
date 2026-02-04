@@ -303,6 +303,143 @@
           <p v-else class="form-hint">{{ t('filterGroupHint', 'JSON 数组，每项包含 id/name/type/value/weight') }}</p>
         </div>
       </div>
+
+      <!-- 🆕 Riff 集成配置 -->
+      <div v-show="activeTab === 'riff'" class="settings-section">
+        <h3>{{ t('riffIntegrationTitle', 'Riff 集成配置') }}</h3>
+        
+        <!-- 模式选择 -->
+        <div class="mode-selection">
+          <label class="mode-card-wrapper">
+            <input type="radio" v-model="riffIntegrationConfig.mode" value="advanced" />
+            <div class="mode-card" :class="{ 'mode-card--active': riffIntegrationConfig.mode === 'advanced' }">
+              <h4>{{ t('advancedMode', '高阶模式 (Advanced Mode)') }}</h4>
+              <p>{{ t('advancedModeDesc', '使用本地调度器（FSRS/SM-15/A-Factor）') }}</p>
+              <p>{{ t('advancedModeDesc2', '通过混合同步方案与 Riff 保持数据一致性') }}</p>
+              <ul>
+                <li>✓ {{ t('incrementalSyncFeature', '增量同步：快速获取新卡片') }}</li>
+                <li>✓ {{ t('fullSyncFeature', '全量同步：每24小时检测双向删除') }}</li>
+                <li>✓ {{ t('deleteSyncFeature', '双向删除：插件和 Riff 保持一致') }}</li>
+              </ul>
+            </div>
+          </label>
+          
+          <label class="mode-card-wrapper">
+            <input type="radio" v-model="riffIntegrationConfig.mode" value="simple" />
+            <div class="mode-card" :class="{ 'mode-card--active': riffIntegrationConfig.mode === 'simple' }">
+              <h4>{{ t('simpleMode', '简单模式 (Simple Mode)') }}</h4>
+              <p>{{ t('simpleModeDesc', '直接使用 Riff 调度器，开箱即用') }}</p>
+            </div>
+          </label>
+        </div>
+
+        <!-- 高阶模式详细配置 -->
+        <div v-if="riffIntegrationConfig.mode === 'advanced'" class="advanced-config">
+          <div class="fn__hr"></div>
+          
+          <h4>{{ t('incrementalSyncConfig', '增量同步配置') }}</h4>
+          <div class="form-item">
+            <label>
+              <input type="checkbox" v-model="riffIntegrationConfig.incrementalSync.enabled" />
+              {{ t('enableIncrementalSync', '启用增量同步') }}
+            </label>
+          </div>
+          
+          <div v-if="riffIntegrationConfig.incrementalSync.enabled" class="sub-config">
+            <div class="form-item">
+              <label>{{ t('syncTriggers', '触发时机') }}</label>
+              <div class="form-control" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                <label>
+                  <input type="checkbox" v-model="triggers.pluginStart" />
+                  {{ t('triggerPluginStart', '插件启动时') }}
+                </label>
+                <label>
+                  <input type="checkbox" v-model="triggers.browserOpen" />
+                  {{ t('triggerBrowserOpen', 'SRS 浏览器打开时') }}
+                </label>
+                <label>
+                  <input type="checkbox" v-model="triggers.reviewOpen" />
+                  {{ t('triggerReviewOpen', '复习界面打开时') }}
+                </label>
+              </div>
+            </div>
+            
+            <div class="form-item">
+              <label>
+                <input type="checkbox" v-model="riffIntegrationConfig.incrementalSync.useBlacklist" />
+                {{ t('useBlacklist', '使用黑名单过滤已删除卡片') }}
+              </label>
+              <p class="form-hint">{{ t('useBlacklistHint', '黑名单会记录本地删除的卡片，避免重复同步') }}</p>
+            </div>
+
+            <div class="form-item">
+              <label>
+                <input type="checkbox" v-model="riffIntegrationConfig.incrementalSync.autoDetectCardType" />
+                {{ t('autoDetectCardType', '自动检测卡片类型') }}
+              </label>
+              <p class="form-hint">{{ t('autoDetectCardTypeHint', '自动识别 Topic（主题）和 Item（卡片）类型') }}</p>
+            </div>
+          </div>
+
+          <div class="fn__hr"></div>
+          
+          <h4>{{ t('fullSyncConfig', '全量同步配置') }}</h4>
+          <div class="form-item">
+            <label>
+              <input type="checkbox" v-model="riffIntegrationConfig.fullSync.enabled" />
+              {{ t('enableFullSync', '启用全量同步') }}
+            </label>
+          </div>
+          
+          <div v-if="riffIntegrationConfig.fullSync.enabled" class="sub-config">
+            <div class="form-item">
+              <label>{{ t('syncInterval', '同步间隔') }}</label>
+              <div class="form-control">
+                <select v-model.number="riffIntegrationConfig.fullSync.interval">
+                  <option :value="43200000">{{ t('interval12h', '12小时') }}</option>
+                  <option :value="86400000">{{ t('interval24h', '24小时') }}</option>
+                  <option :value="172800000">{{ t('interval48h', '48小时') }}</option>
+                  <option :value="604800000">{{ t('interval7d', '7天') }}</option>
+                </select>
+              </div>
+              <p class="form-hint">{{ t('syncIntervalHint', '全量同步会对比本地和 Riff 的所有卡片，检测双向删除') }}</p>
+            </div>
+            
+            <div class="form-item">
+              <label>
+                <input type="checkbox" v-model="riffIntegrationConfig.fullSync.cleanupBlacklist" />
+                {{ t('cleanupBlacklist', '全量同步后清理黑名单') }}
+              </label>
+              <p class="form-hint">{{ t('cleanupBlacklistHint', '清理黑名单中 Riff 已不存在的卡片 ID') }}</p>
+            </div>
+          </div>
+
+          <div class="fn__hr"></div>
+          
+          <h4>{{ t('deleteSyncConfig', '删除同步配置') }}</h4>
+          <div class="form-item">
+            <label>
+              <input type="checkbox" v-model="riffIntegrationConfig.deleteSync.enabled" />
+              {{ t('enableDeleteSync', '启用双向删除同步') }}
+            </label>
+            <p class="form-hint">{{ t('enableDeleteSyncHint', '在插件中删除卡片时，同步删除 Riff 中的对应卡片') }}</p>
+          </div>
+          
+          <div v-if="riffIntegrationConfig.deleteSync.enabled" class="sub-config">
+            <div class="form-item">
+              <label>
+                <input type="checkbox" v-model="riffIntegrationConfig.deleteSync.useBlacklistFallback" />
+                {{ t('useBlacklistFallback', '删除失败时使用黑名单作为后备') }}
+              </label>
+              <p class="form-hint">{{ t('useBlacklistFallbackHint', '如果删除 Riff 卡片失败（如网络问题），将卡片加入黑名单') }}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn-primary" @click="saveSettings">{{ t('saveSettings', '保存设置') }}</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -330,6 +467,7 @@ const props = defineProps<{
   fsrsSettings?: FSRSParameters;
   queueSettings?: QueueSettings;
   schedulerSettings?: SchedulerConfig;  // 🆕 新增
+  riffIntegrationSettings?: any;  // 🆕 Riff 集成配置
   incrementalSettings?: { autoCardEnabled: boolean };
   uiSettings?: { enableDebugLogs: boolean };  // 🆕 新增
   i18n?: Record<string, string>;
@@ -350,6 +488,7 @@ function t(key: string, fallback: string): string {
 const tabs = computed(() => [
   { key: 'params', label: t('settingsParamsTab', '参数设置'), icon: '#iconSettings' },
   { key: 'scheduler', label: t('schedulerTab', '调度器'), icon: '#iconAlgorithm' },  // 🆕 新增
+  { key: 'riff', label: t('riffTab', 'Riff 集成'), icon: '#iconCloud' },  // 🆕 Riff 集成
   { key: 'practice', label: t('practiceTab', '练习模式'), icon: '#iconPlay' },
   { key: 'about', label: t('settingsAboutTab', '关于'), icon: '#iconInfo' },
 ]);
@@ -406,6 +545,34 @@ const schedulerConfig = ref<SchedulerConfig>({
   enableRiffSync: false,
   topicScheduler: 'a-factor-v2',
   itemScheduler: 'fsrs-v5',
+});
+
+// 🆕 Riff 集成配置
+const riffIntegrationConfig = ref({
+  mode: 'advanced' as 'advanced' | 'simple',
+  useLocalScheduler: true,
+  incrementalSync: {
+    enabled: true,
+    triggers: ['plugin-start', 'browser-open', 'review-open'] as Array<'plugin-start' | 'browser-open' | 'review-open'>,
+    useBlacklist: true,
+    autoDetectCardType: true,
+  },
+  fullSync: {
+    enabled: true,
+    interval: 86400000,  // 24小时
+    cleanupBlacklist: true,
+  },
+  deleteSync: {
+    enabled: true,
+    useBlacklistFallback: true,
+  },
+});
+
+// 🆕 触发器复选框状态（用于 UI 绑定）
+const triggers = ref({
+  pluginStart: true,
+  browserOpen: true,
+  reviewOpen: true,
 });
 
 // 🆕 调度器说明
@@ -472,6 +639,37 @@ function loadSettings() {
       itemScheduler: props.schedulerSettings.itemScheduler || 'fsrs-v5',
     };
   }
+
+  // 🆕 加载 Riff 集成配置
+  if (props.riffIntegrationSettings) {
+    riffIntegrationConfig.value = {
+      mode: props.riffIntegrationSettings.mode || 'advanced',
+      useLocalScheduler: props.riffIntegrationSettings.useLocalScheduler ?? true,
+      incrementalSync: {
+        enabled: props.riffIntegrationSettings.incrementalSync?.enabled ?? true,
+        triggers: props.riffIntegrationSettings.incrementalSync?.triggers || ['plugin-start', 'browser-open', 'review-open'],
+        useBlacklist: props.riffIntegrationSettings.incrementalSync?.useBlacklist ?? true,
+        autoDetectCardType: props.riffIntegrationSettings.incrementalSync?.autoDetectCardType ?? true,
+      },
+      fullSync: {
+        enabled: props.riffIntegrationSettings.fullSync?.enabled ?? true,
+        interval: props.riffIntegrationSettings.fullSync?.interval || 86400000,
+        cleanupBlacklist: props.riffIntegrationSettings.fullSync?.cleanupBlacklist ?? true,
+      },
+      deleteSync: {
+        enabled: props.riffIntegrationSettings.deleteSync?.enabled ?? true,
+        useBlacklistFallback: props.riffIntegrationSettings.deleteSync?.useBlacklistFallback ?? true,
+      },
+    };
+
+    // 更新触发器复选框状态
+    const triggersList = riffIntegrationConfig.value.incrementalSync.triggers;
+    triggers.value = {
+      pluginStart: triggersList.includes('plugin-start'),
+      browserOpen: triggersList.includes('browser-open'),
+      reviewOpen: triggersList.includes('review-open'),
+    };
+  }
 }
 
 // 保存设置
@@ -495,6 +693,13 @@ function saveSettings() {
       groups,
     },
   };
+
+  // 🆕 从复选框状态构建 triggers 数组
+  const triggersArray: Array<'plugin-start' | 'browser-open' | 'review-open'> = [];
+  if (triggers.value.pluginStart) triggersArray.push('plugin-start');
+  if (triggers.value.browserOpen) triggersArray.push('browser-open');
+  if (triggers.value.reviewOpen) triggersArray.push('review-open');
+
   emit('save', {
     ...settings.value,
     queues,
@@ -511,6 +716,17 @@ function saveSettings() {
     // 🆕 保存 UI 设置
     ui: {
       enableDebugLogs: uiSettings.value.enableDebugLogs,
+    },
+    // 🆕 保存 Riff 集成配置
+    riffIntegration: {
+      mode: riffIntegrationConfig.value.mode,
+      useLocalScheduler: riffIntegrationConfig.value.useLocalScheduler,
+      incrementalSync: {
+        ...riffIntegrationConfig.value.incrementalSync,
+        triggers: triggersArray,
+      },
+      fullSync: riffIntegrationConfig.value.fullSync,
+      deleteSync: riffIntegrationConfig.value.deleteSync,
     },
   });
 }
@@ -846,5 +1062,75 @@ async function handleQueueClear() {
 .form-hint--warning {
   color: var(--b3-theme-error);
   font-weight: 500;
+}
+
+/* 🆕 Riff 集成模式选择样式 */
+.mode-selection {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.mode-card-wrapper {
+  display: block;
+  cursor: pointer;
+}
+
+.mode-card-wrapper input[type="radio"] {
+  display: none;
+}
+
+.mode-card {
+  padding: 16px;
+  border: 2px solid var(--b3-border-color);
+  border-radius: 8px;
+  background: var(--b3-theme-surface);
+  transition: all 0.2s;
+}
+
+.mode-card:hover {
+  border-color: var(--b3-theme-primary-light);
+  background: var(--b3-list-hover);
+}
+
+.mode-card--active {
+  border-color: var(--b3-theme-primary);
+  background: var(--b3-theme-primary-lightest);
+}
+
+.mode-card h4 {
+  margin: 0 0 8px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--b3-theme-on-background);
+}
+
+.mode-card p {
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.mode-card ul {
+  margin: 12px 0 0 0;
+  padding-left: 20px;
+  list-style: none;
+}
+
+.mode-card ul li {
+  margin: 6px 0;
+  font-size: 13px;
+  color: var(--b3-theme-on-surface);
+}
+
+.advanced-config {
+  margin-top: 16px;
+}
+
+.sub-config {
+  margin-left: 24px;
+  padding-left: 16px;
+  border-left: 2px solid var(--b3-border-color);
 }
 </style>

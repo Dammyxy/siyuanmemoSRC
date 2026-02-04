@@ -44,6 +44,14 @@
         @convertToTab="convertToTab"
       />
 
+      <!-- 🆕 同步状态指示器（仅在 advanced 模式显示） -->
+      <SyncStatusIndicator
+        v-if="showSyncIndicator"
+        :hybridSyncService="hybridSyncService"
+        :i18n="props.i18n"
+        @sync="handleSyncComplete"
+      />
+
       <!-- 检测状态提示（已禁用） -->
       <!-- <div
         v-if="cardTypeDetection.isDetecting"
@@ -134,6 +142,7 @@ import ActionParamsDialog from './ActionParamsDialog.vue';
 import BrowserHierarchy from './BrowserHierarchy.vue';
 import BrowserPreview from './BrowserPreview.vue';
 import BrowserToolbar from './BrowserToolbar.vue';
+import SyncStatusIndicator from '../components/SyncStatusIndicator.vue';  // 🆕 导入同步状态指示器
 import { useCardTypeDetection } from './composables/useCardTypeDetection';
 // ✅ 导入配置模块
 import { createColumnDefs } from './config';
@@ -173,6 +182,16 @@ const props = defineProps<{
 }>();
 
 const mode = computed(() => props.mode || 'dialog');
+
+// 🆕 同步状态指示器相关
+const hybridSyncService = computed(() => (props.plugin as any)?.hybridSyncService);
+const showSyncIndicator = computed(() => {
+  const plugin = props.plugin as any;
+  if (!plugin?.storage) return false;
+  
+  const riffConfig = plugin.storage.getSettings?.()?.riffIntegration;
+  return riffConfig?.mode === 'advanced' && !!hybridSyncService.value;
+});
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -1088,6 +1107,13 @@ function forceRefreshData() {
   void refreshData(true);
 }
 
+// 🆕 处理同步完成事件
+function handleSyncComplete(type: 'incremental' | 'full') {
+  console.log('[SRSBrowser] Sync completed:', type);
+  // 同步完成后刷新数据
+  forceRefreshData();
+}
+
 // 显示性能报告
 function showPerformanceReport() {
   PerformanceMonitor.printReport();
@@ -1130,6 +1156,20 @@ onMounted(() => {
       }
     }
   });
+
+  // 🆕 触发增量同步（如果启用）
+  const plugin = props.plugin as any;
+  if (plugin?.hybridSyncService) {
+    const riffConfig = plugin.storage?.getSettings?.()?.riffIntegration;
+    if (riffConfig?.mode === 'advanced' && 
+        riffConfig?.incrementalSync?.enabled &&
+        riffConfig?.incrementalSync?.triggers?.includes('browser-open')) {
+      // 后台执行增量同步，不阻塞 UI
+      void plugin.hybridSyncService.incrementalSync().catch((err: Error) => {
+        console.error('[SRSBrowser] Incremental sync failed:', err);
+      });
+    }
+  }
 
   loadData();
 });

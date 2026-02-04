@@ -56,8 +56,9 @@ import { IncrementalLearningQueue } from '@/core/queue/strategies/IncrementalLea
 import { NeuralQueueStorage } from '@/core/queue/neural';
 import { ExtractionNativeAdapter, FinalDrillNativeAdapter } from '@/core/native/adapter';
 // Services
-import { DialogService, MenuService, ReviewDialogManager, BlockMenuHandler, createQueueHandlers, clearPracticeQueue } from '@/services';
+import { DialogService, MenuService, ReviewDialogManager, BlockMenuHandler, createQueueHandlers, clearPracticeQueue, HybridSyncService } from '@/services';
 import { NativeReviewSession } from '@/core/native/session';
+import { ConfigMigrator } from '@/utils/configMigrator';
 
 // Topic/Item 迁移
 import { checkMigrationNeeded, migrateExistingCards } from '@/scripts/migrateToTopicItem';
@@ -90,6 +91,7 @@ export default class FSRSPlugin extends Plugin {
   private reviewDialogManager!: ReviewDialogManager;
   private blockMenuHandler!: BlockMenuHandler;
   private transactionObserver!: TransactionObserver;
+  private hybridSyncService?: HybridSyncService;
 
   // 为兼容性提供的别名访问器
   public get deliberateQueue(): FinalDrillQueue {
@@ -279,6 +281,7 @@ export default class FSRSPlugin extends Plugin {
         filterGroupQueue: this.subsetQueue,
         incrementalQueue: this.incrementalQueue,
         isInitialized: () => this.isInitialized,
+        plugin: this,  // 🆕 传递 plugin 引用
         openReviewTab: (options) => this.openReviewTab(options),
       });
 
@@ -291,6 +294,7 @@ export default class FSRSPlugin extends Plugin {
         xiuyuanService: null as any, // 会在 xiuyuanService 初始化后更新
         openCreateTemplateCardDialog: (blockIds) => this.openCreateTemplateCardDialogWithBlockIds(blockIds),
         openNeuralReviewDialog: (options) => this.reviewDialogManager.openNeuralRoam(options),
+        plugin: this,  // 🆕 传入 plugin 引用，用于访问 hybridSyncService
       });
 
       console.log('[FSRS] ✅ ReviewDialogManager & BlockMenuHandler initialized');
@@ -318,6 +322,48 @@ export default class FSRSPlugin extends Plugin {
       const autoCardEnabled = settings.incremental?.autoCardEnabled || false;
       this.transactionObserver.setEnabled(autoCardEnabled);
       console.log('[FSRS] ✅ TransactionObserver initialized, autoCardEnabled:', autoCardEnabled);
+
+      // 🆕 检测并执行配置迁移
+      const riffConfig = settings.riffIntegration;
+      if (riffConfig && ConfigMigrator.needsMigration(riffConfig)) {
+        console.log('[FSRS] Riff config migration needed');
+        const migratedConfig = ConfigMigrator.migrate(riffConfig as any);
+        const message = ConfigMigrator.getMigrationMessage((riffConfig as any).mode);
+        
+        // 保存新配置
+        await this.storage.updateSettings({
+          ...settings,
+          riffIntegration: migratedConfig
+        });
+        
+        // 显示迁移提示
+        setTimeout(() => {
+          pushMsg(message);
+        }, 1000);
+        
+        console.log('[FSRS] ✅ Riff config migrated');
+      }
+
+      // 🆕 初始化 HybridSyncService（仅在 advanced 模式）
+      const currentRiffConfig = this.storage.getSettings().riffIntegration;
+      if (currentRiffConfig?.mode === 'advanced') {
+        this.hybridSyncService = new HybridSyncService({
+          deckId: riff.BUILTIN_DECK_ID,
+          storage: this.storage,
+          incrementalSync: {
+            ...currentRiffConfig.incrementalSync,
+            autoDetectCardType: true  // 启用自动检测卡片类型
+          },
+          fullSync: currentRiffConfig.fullSync,
+          deleteSync: currentRiffConfig.deleteSync
+        });
+        
+        // 启动同步服务
+        await this.hybridSyncService.start();
+        console.log('[FSRS] ✅ HybridSyncService initialized and started');
+      } else {
+        console.log('[FSRS] HybridSyncService not initialized (mode:', currentRiffConfig?.mode, ')');
+      }
 
       this.isInitialized = true;
 
@@ -579,6 +625,12 @@ export default class FSRSPlugin extends Plugin {
       this.transactionObserver.unload();
     }
 
+    // 🆕 停止 HybridSyncService
+    if (this.hybridSyncService) {
+      this.hybridSyncService.stop();
+      console.log('[FSRS] ✅ HybridSyncService stopped');
+    }
+
     try {
       if (this.topBarElement && this.topBarContextMenuHandler) {
         this.topBarElement.removeEventListener('contextmenu', this.topBarContextMenuHandler);
@@ -639,7 +691,9 @@ export default class FSRSPlugin extends Plugin {
         fsrsSettings: currentSettings.fsrs,
         queueSettings: currentSettings.queues,
         schedulerSettings: currentSettings.scheduler,  // 🆕 新增
+        riffIntegrationSettings: currentSettings.riffIntegration,  // 🆕 Riff 集成配置
         incrementalSettings: currentSettings.incremental,  // 🆕 新增
+        uiSettings: { enableDebugLogs: currentSettings.ui?.enableDebugLogs ?? false },  // 🆕 新增
         i18n: this.i18n || {},
         defaultTab,
         queueCount: this.retrievalQueue['localBuffer']?.length || 0,
@@ -663,7 +717,9 @@ export default class FSRSPlugin extends Plugin {
             },
             queues: settings.queues || currentSettings.queues,
             scheduler: settings.scheduler || currentSettings.scheduler,  // 🆕 保存调度器配置
+            riffIntegration: settings.riffIntegration || currentSettings.riffIntegration,  // 🆕 保存 Riff 集成配置
             incremental: settings.incremental || currentSettings.incremental,  // 🆕 保存增量阅读配置
+            ui: settings.ui || currentSettings.ui,  // 🆕 保存 UI 设置
           };
           await this.storage.updateSettings(updatedSettings);
           this.scheduler.updateParams(updatedSettings.fsrs);
@@ -683,6 +739,53 @@ export default class FSRSPlugin extends Plugin {
             const autoCardEnabled = settings.incremental.autoCardEnabled || false;
             this.transactionObserver.setEnabled(autoCardEnabled);
             console.log('[FSRS] ✅ TransactionObserver enabled:', autoCardEnabled);
+          }
+
+          // 🆕 更新 HybridSyncService 配置（如果需要）
+          if (settings.riffIntegration) {
+            const newMode = settings.riffIntegration.mode;
+            const oldMode = currentSettings.riffIntegration?.mode;
+
+            // 如果模式从 simple 切换到 advanced，初始化 HybridSyncService
+            if (newMode === 'advanced' && oldMode !== 'advanced' && !this.hybridSyncService) {
+              this.hybridSyncService = new HybridSyncService({
+                deckId: riff.BUILTIN_DECK_ID,
+                storage: this.storage,
+                incrementalSync: {
+                  ...settings.riffIntegration.incrementalSync,
+                  autoDetectCardType: true
+                },
+                fullSync: settings.riffIntegration.fullSync,
+                deleteSync: settings.riffIntegration.deleteSync
+              });
+              await this.hybridSyncService.start();
+              console.log('[FSRS] ✅ HybridSyncService initialized (mode switched to advanced)');
+            }
+
+            // 如果模式从 advanced 切换到 simple，停止 HybridSyncService
+            if (newMode === 'simple' && oldMode === 'advanced' && this.hybridSyncService) {
+              this.hybridSyncService.stop();
+              this.hybridSyncService = undefined;
+              console.log('[FSRS] ✅ HybridSyncService stopped (mode switched to simple)');
+            }
+
+            // 如果保持 advanced 模式，更新配置
+            if (newMode === 'advanced' && this.hybridSyncService) {
+              // 重启服务以应用新配置
+              this.hybridSyncService.stop();
+              this.hybridSyncService = new HybridSyncService({
+                deckId: riff.BUILTIN_DECK_ID,
+                storage: this.storage,
+                incrementalSync: {
+                  ...settings.riffIntegration.incrementalSync,
+                  autoDetectCardType: true
+                },
+                fullSync: settings.riffIntegration.fullSync,
+                deleteSync: settings.riffIntegration.deleteSync
+              });
+              await this.hybridSyncService.start();
+              console.log('[FSRS] ✅ HybridSyncService config updated');
+            }
           }
         },
         close: () => {

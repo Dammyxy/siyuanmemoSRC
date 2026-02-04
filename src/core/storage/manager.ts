@@ -7,7 +7,7 @@
  */
 
 import type { FSRSCard, ReviewLog, PluginSettings, RescheduleLog } from '@/types';
-import { DEFAULT_SETTINGS } from '@/types';
+import { DEFAULT_SETTINGS, DEFAULT_RIFF_CONFIG, type RiffIntegrationConfig } from '@/types';
 import * as siyuanApi from '@/core/siyuan/api';
 import { ATTR_PRIORITY } from '@/core/siyuan/block';
 import { clampPriority, DEFAULT_PRIORITY } from '@/core/queue/abstraction/IPriority';
@@ -100,6 +100,22 @@ export class StorageManager {
      */
     private async saveSettings(): Promise<void> {
         await this.writePluginData(STORAGE_FILES.SETTINGS, JSON.stringify(this.settings, null, 2));
+    }
+
+    /**
+     * 获取 Riff 集成配置
+     */
+    getRiffIntegrationConfig(): RiffIntegrationConfig {
+        return this.settings.riffIntegration || DEFAULT_RIFF_CONFIG;
+    }
+
+    /**
+     * 更新 Riff 集成配置
+     */
+    async updateRiffIntegrationConfig(config: Partial<RiffIntegrationConfig>): Promise<void> {
+        const currentConfig = this.getRiffIntegrationConfig();
+        this.settings.riffIntegration = { ...currentConfig, ...config };
+        await this.saveSettings();
     }
 
     // ==================== 卡片 ====================

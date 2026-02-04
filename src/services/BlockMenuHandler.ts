@@ -26,6 +26,7 @@ export interface BlockMenuHandlerDeps {
   xiuyuanService: XiuyuanService;
   openCreateTemplateCardDialog: (blockIds: string[]) => Promise<void>;
   openNeuralReviewDialog: (options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) => Promise<void>;
+  plugin?: any;  // 🆕 添加 plugin 引用，用于访问 hybridSyncService
 }
 
 export class BlockMenuHandler {
@@ -212,9 +213,22 @@ export class BlockMenuHandler {
               continue;
             }
             try {
+              // 1. 从本地删除（必须成功）
               await unmarkBlockAsCard(blockId);
               this.deps.storage.removeCard(cardId);
               removedCount++;
+              
+              // 🆕 2. 尝试从 Riff 删除（如果启用）
+              const plugin = (this.deps as any).plugin;
+              if (plugin?.hybridSyncService) {
+                const riffConfig = this.deps.storage.getSettings().riffIntegration;
+                if (riffConfig?.mode === 'advanced' && riffConfig?.deleteSync?.enabled) {
+                  // 后台执行删除同步，不阻塞 UI
+                  void plugin.hybridSyncService.deleteSync(cardId).catch((err: Error) => {
+                    console.error('[BlockMenuHandler] Delete sync failed for card:', cardId, err);
+                  });
+                }
+              }
             } catch (err) {
               console.error('[FSRS] Failed to remove card from block:', blockId, err);
             }

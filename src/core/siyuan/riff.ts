@@ -60,13 +60,96 @@ export async function getRiffCardsByBlockIDs(blockIDs: string[]): Promise<RiffBl
     }
 }
 
-/** 获取卡包中的所有卡片 */
-export async function getRiffCards(deckID: string, page = 1, pageSize = 20): Promise<{
+/** 获取卡包中的所有卡片（旧版 API - 分页） */
+export async function getRiffCards(deckID: string, page?: number, pageSize?: number): Promise<{
     blocks: RiffBlock[];
     total: number;
     pageCount: number;
-}> {
-    return request('/riff/getRiffCards', { id: deckID, page, pageSize });
+}>;
+
+/** 获取卡包中的所有卡片（新版 API - 支持过滤选项） */
+export async function getRiffCards(deckID: string, options?: {
+    dueOnly?: boolean;
+    notebook?: string;
+    rootID?: string;
+    includeNew?: boolean;
+}): Promise<RiffBlock[]>;
+
+/** 获取卡包中的所有卡片（实现） */
+export async function getRiffCards(
+    deckID: string,
+    pageOrOptions?: number | {
+        dueOnly?: boolean;
+        notebook?: string;
+        rootID?: string;
+        includeNew?: boolean;
+    },
+    pageSize?: number
+): Promise<{ blocks: RiffBlock[]; total: number; pageCount: number } | RiffBlock[]> {
+    // 旧版 API：getRiffCards(deckID, page, pageSize)
+    if (typeof pageOrOptions === 'number' || pageOrOptions === undefined) {
+        const page = pageOrOptions || 1;
+        const size = pageSize || 20;
+        return request('/riff/getRiffCards', { id: deckID, page, pageSize: size });
+    }
+    
+    // 新版 API：getRiffCards(deckID, options)
+    const options = pageOrOptions;
+    
+    // 如果指定了 dueOnly，使用 getRiffDueCards
+    if (options.dueOnly) {
+        const data = await getRiffDueCards(deckID, options.notebook, options.rootID);
+        if (!data || !data.cards || data.cards.length === 0) return [];
+        const blockIDs = data.cards.map(c => c.blockID);
+        return getRiffCardsByBlockIDs(blockIDs);
+    }
+    
+    // 否则获取所有卡片（分页）
+    const allCards: RiffBlock[] = [];
+    let page = 1;
+    const size = 100;
+    
+    while (true) {
+        let data: { blocks: RiffBlock[]; total: number; pageCount: number };
+        
+        if (options.notebook) {
+            data = await getNotebookRiffCards(options.notebook, page, size);
+        } else if (options.rootID) {
+            data = await getTreeRiffCards(options.rootID, page, size);
+        } else {
+            data = await request('/riff/getRiffCards', { id: deckID, page, pageSize: size });
+        }
+        
+        if (!data.blocks || data.blocks.length === 0) break;
+        
+        allCards.push(...data.blocks);
+        
+        if (page >= data.pageCount) break;
+        page++;
+    }
+    
+    return allCards;
+}
+
+/** 获取新卡片（增量同步用）
+ * 
+ * @param deckID 卡包 ID
+ * @param since 时间戳（毫秒），只获取此时间之后创建的卡片
+ * @returns 新卡片列表
+ */
+export async function getRiffNewCards(deckID: string, since?: number): Promise<RiffBlock[]> {
+    // 获取所有卡片
+    const allCards = await getRiffCards(deckID, { includeNew: true });
+    
+    // 如果指定了 since，只返回新卡片
+    if (since) {
+        return allCards.filter(card => {
+            const created = new Date(card.created).getTime();
+            return created > since;
+        });
+    }
+    
+    return allCards;
 }
 
 /** 获取文档树下的闪卡 */

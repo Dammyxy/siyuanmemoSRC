@@ -109,6 +109,43 @@ export interface QueueSettings {
     };
 }
 
+/** 🆕 Riff 集成配置 */
+export interface RiffIntegrationConfig {
+    /** 模式选择 */
+    mode: 'advanced' | 'simple';
+    
+    /** 使用本地调度器 */
+    useLocalScheduler: boolean;
+    
+    /** 增量同步配置 */
+    incrementalSync: {
+        /** 是否启用增量同步 */
+        enabled: boolean;
+        /** 触发时机 */
+        triggers: Array<'plugin-start' | 'browser-open' | 'review-open'>;
+        /** 是否使用黑名单过滤 */
+        useBlacklist: boolean;
+    };
+    
+    /** 全量同步配置 */
+    fullSync: {
+        /** 是否启用全量同步 */
+        enabled: boolean;
+        /** 同步间隔（毫秒） */
+        interval: number;
+        /** 是否清理黑名单 */
+        cleanupBlacklist: boolean;
+    };
+    
+    /** 删除同步配置 */
+    deleteSync: {
+        /** 是否启用删除同步 */
+        enabled: boolean;
+        /** 删除失败时是否使用黑名单作为后备 */
+        useBlacklistFallback: boolean;
+    };
+}
+
 /** 插件完整设置 */
 export interface PluginSettings {
     // FSRS 算法
@@ -117,6 +154,9 @@ export interface PluginSettings {
 
     // 🆕 调度器配置
     scheduler?: SchedulerConfig;
+    
+    // 🆕 Riff 集成配置
+    riffIntegration?: RiffIntegrationConfig;
 
     // 复习队列
     newCardsPerDay: number;    // 每日新卡上限
@@ -139,6 +179,29 @@ export interface PluginSettings {
     // 统计
     collectStats: boolean;     // 收集统计数据
 }
+
+/** 默认 Riff 集成配置 */
+export const DEFAULT_RIFF_CONFIG: RiffIntegrationConfig = {
+    mode: 'advanced',
+    useLocalScheduler: true,
+    
+    incrementalSync: {
+        enabled: true,
+        triggers: ['plugin-start', 'browser-open', 'review-open'],
+        useBlacklist: true
+    },
+    
+    fullSync: {
+        enabled: true,
+        interval: 86400000,  // 24小时（毫秒）
+        cleanupBlacklist: true
+    },
+    
+    deleteSync: {
+        enabled: true,
+        useBlacklistFallback: true
+    }
+};
 
 /** 默认设置 */
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -166,6 +229,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
             intervalBase: 1,
         },
     },
+    riffIntegration: DEFAULT_RIFF_CONFIG,
     newCardsPerDay: 20,
     reviewsPerDay: 0,
     defaultPriority: 50,

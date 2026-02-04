@@ -41,6 +41,7 @@ export interface ReviewDialogManagerDeps {
   filterGroupQueue: FilterGroupQueue;
   incrementalQueue: IncrementalLearningQueue;
   isInitialized: () => boolean;
+  plugin?: any;  // 🆕 添加 plugin 引用，用于访问 hybridSyncService
   openReviewTab?: (options: {
     provider?: any;
     queue?: any;
@@ -96,6 +97,7 @@ export class ReviewDialogManager {
         app: this.deps.app,
         i18n: this.deps.i18n || {},
         title,
+        plugin: this.deps.plugin,  // 🆕 传递 plugin 引用
         ...(provider && { provider }),
         ...(queue && { queue }),
         ...(adapter && { adapter }),
@@ -343,6 +345,7 @@ export class ReviewDialogManager {
         app: this.deps.app,
         i18n: this.deps.i18n || {},
         title,
+        plugin: this.deps.plugin,  // 🆕 传递 plugin 引用
         queue: session as any,
         adapter: adapter as any,
       },

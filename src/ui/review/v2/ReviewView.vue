@@ -55,6 +55,7 @@ const props = defineProps<{
   reviewUI?: any;
   title?: string; // 队列标题（如"提取练习"）
   mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
+  plugin?: any; // 🆕 插件实例，用于访问 hybridSyncService
 }>();
 
 const emit = defineEmits<{
@@ -76,6 +77,20 @@ onMounted(() => {
     dialogElements: document.querySelectorAll('.b3-dialog__container').length,
     ourDialog: document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]'),
   });
+
+  // 🆕 触发增量同步（如果启用）
+  const plugin = props.plugin as any;
+  if (plugin?.hybridSyncService) {
+    const riffConfig = plugin.storage?.getSettings?.()?.riffIntegration;
+    if (riffConfig?.mode === 'advanced' && 
+        riffConfig?.incrementalSync?.enabled &&
+        riffConfig?.incrementalSync?.triggers?.includes('review-open')) {
+      // 后台执行增量同步，不阻塞 UI
+      void plugin.hybridSyncService.incrementalSync().catch((err: Error) => {
+        console.error('[ReviewView] Incremental sync failed:', err);
+      });
+    }
+  }
 });
 
 const providerAdapter = props.reviewUI?.adapter;
