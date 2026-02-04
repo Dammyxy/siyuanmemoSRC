@@ -6,4 +6,5 @@
  */
 
 export { SimpleDataRouter } from './SimpleDataRouter';
+export { AdvancedDataRouter } from './AdvancedDataRouter';
 

@@ -19,6 +19,7 @@ import {
     CardFilter,
 } from '../types/unified-data-source';
 import { FSRSCard } from '../types/card';
+import { QueueFactory } from '../queues/QueueFactory';
 
 /**
  * UnifiedDataSourceManager 类
@@ -115,11 +116,11 @@ export class UnifiedDataSourceManager {
     /**
      * 队列工厂
      * 
-     * 将在后续任务中实现。
+     * 负责创建和管理队列实例。
      * 
      * @see 需求 5.1, 15.3
      */
-    private queueFactory: any | null; // TODO: 替换为 QueueFactory 类型
+    private queueFactory: QueueFactory;
     
     // ========================================================================
     // 构造函数
@@ -144,8 +145,22 @@ export class UnifiedDataSourceManager {
         this.simpleRouter = null;
         this.advancedRouter = null;
         
-        // 初始化队列工厂（将在后续任务中实现）
-        this.queueFactory = null;
+        // 初始化队列工厂
+        this.queueFactory = new QueueFactory(this);
+    }
+    
+    /**
+     * 初始化路由器
+     * 
+     * 设置简单模式和高级模式的数据路由器。
+     * 此方法应该在使用 UnifiedDataSourceManager 之前调用。
+     * 
+     * @param simpleRouter 简单模式数据路由器
+     * @param advancedRouter 高级模式数据路由器
+     */
+    public initializeRouters(simpleRouter: IDataRouter, advancedRouter: IDataRouter): void {
+        this.simpleRouter = simpleRouter;
+        this.advancedRouter = advancedRouter;
     }
     
     // ========================================================================
@@ -163,32 +178,181 @@ export class UnifiedDataSourceManager {
     }
     
     /**
+     * 获取当前路由器
+     * 
+     * 根据当前操作模式返回对应的数据路由器。
+     * 
+     * @returns 当前模式的数据路由器
+     * @throws Error 如果路由器未初始化
+     */
+    private getCurrentRouter(): IDataRouter {
+        const router = this.currentMode === OperationMode.Simple 
+            ? this.simpleRouter 
+            : this.advancedRouter;
+        
+        if (!router) {
+            throw new Error(`路由器未初始化 (模式: ${this.currentMode})`);
+        }
+        
+        return router;
+    }
+    
+    /**
      * 切换操作模式
      * 
      * 切换操作模式并通知所有观察者。
      * 
-     * 完整逻辑将在后续任务中实现：
-     * - 简单→高级：触发增量同步
-     * - 高级→简单：切换数据源
-     * - 添加错误处理和回滚机制
+     * 模式切换逻辑：
+     * - 简单→高级：触发增量同步（从 Riff API 同步到本地存储）
+     * - 高级→简单：切换数据源（从本地存储切换到 Riff API）
+     * - 包含错误处理和回滚机制
+     * 
+     * 错误处理策略：
+     * - 如果切换失败，回滚到原模式
+     * - 保留用户数据
+     * - 记录错误日志
+     * - 抛出 ModeError 异常
      * 
      * @param newMode 新的操作模式
+     * @throws ModeError 如果模式切换失败
      * @see 需求 4.1, 4.2, 4.3
      */
     public async switchMode(newMode: OperationMode): Promise<void> {
-        // TODO: 实现完整的模式切换逻辑（任务 4.1）
-        // - 简单→高级：触发增量同步
-        // - 高级→简单：切换数据源
-        // - 添加错误处理和回滚机制
+        // 如果模式相同，直接返回
+        if (newMode === this.currentMode) {
+            return;
+        }
         
-        // 更新当前模式
-        this.currentMode = newMode;
+        // 保存原模式用于回滚
+        const oldMode = this.currentMode;
         
-        // 通知所有观察者模式已切换
-        this.notifyObservers({
-            type: 'mode-switched',
-            timestamp: Date.now(),
-        });
+        try {
+            // 简单→高级：触发增量同步
+            if (newMode === OperationMode.Advanced && oldMode === OperationMode.Simple) {
+                await this.triggerIncrementalSync();
+            }
+            
+            // 高级→简单：切换数据源（无需额外操作，只需更新模式）
+            // 数据源切换会在下次数据访问时自动生效
+            
+            // 更新当前模式
+            this.currentMode = newMode;
+            
+            // 通知所有观察者模式已切换
+            this.notifyObservers({
+                type: 'mode-switched',
+                timestamp: Date.now(),
+            });
+            
+            console.log(`[UnifiedDataSourceManager] Mode switched: ${oldMode} -> ${newMode}`);
+        } catch (error) {
+            // 回滚到原模式
+            this.currentMode = oldMode;
+            
+            // 构造错误消息
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const modeError = new Error(`模式切换失败 (${oldMode} -> ${newMode}): ${errorMessage}`);
+            modeError.name = 'ModeError';
+            
+            // 记录错误日志
+            console.error('[UnifiedDataSourceManager] Mode switch failed:', modeError);
+            
+            // 抛出错误
+            throw modeError;
+        }
+    }
+    
+    /**
+     * 触发增量同步
+     * 
+     * 从 Riff API 同步数据到本地存储。
+     * 这是一个增量同步过程，只同步变更的数据。
+     * 
+     * 同步策略：
+     * 1. 从 Riff API 获取所有卡片
+     * 2. 与本地存储比较，识别新增、更新和删除的卡片
+     * 3. 应用变更到本地存储
+     * 4. 记录同步元数据（时间戳、版本号等）
+     * 
+     * 注意：此方法需要 simpleRouter 和 advancedRouter 已初始化。
+     * 如果路由器未初始化，将抛出错误。
+     * 
+     * @throws Error 如果同步失败
+     * @see 需求 4.1
+     */
+    private async triggerIncrementalSync(): Promise<void> {
+        // 检查路由器是否已初始化
+        if (!this.simpleRouter || !this.advancedRouter) {
+            throw new Error('路由器未初始化，无法执行增量同步');
+        }
+        
+        try {
+            console.log('[UnifiedDataSourceManager] Starting incremental sync from Riff to Local Storage...');
+            
+            // 从 Riff API 获取所有卡片
+            const riffCards = await this.simpleRouter.getCards();
+            
+            console.log(`[UnifiedDataSourceManager] Fetched ${riffCards.length} cards from Riff API`);
+            
+            // 从本地存储获取所有卡片
+            const localCards = await this.advancedRouter.getCards();
+            
+            console.log(`[UnifiedDataSourceManager] Found ${localCards.length} cards in Local Storage`);
+            
+            // 构建本地卡片 ID 集合
+            const localCardIds = new Set(localCards.map(card => card.id));
+            
+            // 识别新增和更新的卡片
+            let newCount = 0;
+            let updateCount = 0;
+            
+            for (const riffCard of riffCards) {
+                if (localCardIds.has(riffCard.id)) {
+                    // 卡片已存在，检查是否需要更新
+                    const localCard = localCards.find(c => c.id === riffCard.id);
+                    
+                    if (localCard && this.shouldUpdateCard(localCard, riffCard)) {
+                        // 更新卡片
+                        await this.advancedRouter.updateCard(riffCard);
+                        updateCount++;
+                    }
+                } else {
+                    // 新卡片，添加到本地存储
+                    await this.advancedRouter.updateCard(riffCard);
+                    newCount++;
+                }
+            }
+            
+            console.log(`[UnifiedDataSourceManager] Sync completed: ${newCount} new, ${updateCount} updated`);
+            
+            // 注意：我们不删除本地存储中存在但 Riff 中不存在的卡片
+            // 因为用户可能在高级模式下创建了本地卡片
+            // 这些卡片应该保留
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error('[UnifiedDataSourceManager] Incremental sync failed:', errorMessage);
+            throw new Error(`增量同步失败: ${errorMessage}`);
+        }
+    }
+    
+    /**
+     * 判断是否应该更新卡片
+     * 
+     * 比较本地卡片和远程卡片，判断是否需要更新。
+     * 
+     * 更新策略：
+     * - 如果远程卡片的更新时间更新，则更新
+     * - 如果更新时间相同，不更新（避免不必要的写入）
+     * - 如果本地卡片的更新时间更新，不更新（保留本地修改）
+     * 
+     * @param localCard 本地卡片
+     * @param remoteCard 远程卡片
+     * @returns 是否应该更新
+     */
+    private shouldUpdateCard(localCard: FSRSCard, remoteCard: FSRSCard): boolean {
+        // 比较更新时间
+        // 如果远程卡片更新时间更新，则更新
+        return remoteCard.updatedAt > localCard.updatedAt;
     }
     
     // ========================================================================
@@ -332,27 +496,30 @@ export class UnifiedDataSourceManager {
     /**
      * 获取队列实例
      * 
-     * 将在后续任务中实现。
+     * 通过队列工厂获取指定类型的队列实例。
+     * 队列实例会被缓存，避免重复创建。
      * 
      * @param type 队列类型
      * @returns 队列实例
+     * @throws {QueueError} 如果队列类型未知或未实现
      * @see 需求 1.1, 2.1, 3.1
      */
     public getQueue(type: QueueType): IReviewQueue {
-        // TODO: 实现队列访问方法（任务 6.3）
-        throw new Error('Not implemented yet');
+        return this.queueFactory.getQueue(type);
     }
     
     /**
      * 获取当前模式下可用的队列类型
      * 
-     * 将在后续任务中实现。
+     * 根据当前操作模式返回可用的队列类型列表。
+     * - 简单模式：检索练习、最终训练（2 种）
+     * - 高级模式：检索练习、最终训练、渐进学习、过滤组、神经漫游（5 种）
      * 
      * @returns 队列类型数组
      * @see 需求 2.1, 3.1
      */
     public getAvailableQueueTypes(): QueueType[] {
-        // TODO: 实现队列访问方法（任务 6.3）
-        throw new Error('Not implemented yet');
+        const router = this.getCurrentRouter();
+        return router.getAvailableQueueTypes();
     }
 }

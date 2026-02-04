@@ -20,6 +20,29 @@ describe('UnifiedDataSourceManager', () => {
         UnifiedDataSourceManager.resetInstance();
     });
     
+    // 创建模拟路由器的辅助函数
+    const createMockRouters = () => {
+        const mockSimpleRouter = {
+            getCard: vi.fn(),
+            getCards: vi.fn().mockResolvedValue([]),
+            updateCard: vi.fn(),
+            deleteCard: vi.fn(),
+            getAvailableQueueTypes: vi.fn(),
+            getContextMenuOptions: vi.fn(),
+        };
+        
+        const mockAdvancedRouter = {
+            getCard: vi.fn(),
+            getCards: vi.fn().mockResolvedValue([]),
+            updateCard: vi.fn(),
+            deleteCard: vi.fn(),
+            getAvailableQueueTypes: vi.fn(),
+            getContextMenuOptions: vi.fn(),
+        };
+        
+        return { mockSimpleRouter, mockAdvancedRouter };
+    };
+    
     describe('单例模式', () => {
         it('应该返回相同的实例', () => {
             // 验证需求 1.4：单例模式
@@ -134,10 +157,79 @@ describe('UnifiedDataSourceManager', () => {
         it('switchMode() 应该更新当前模式', async () => {
             // 验证需求 4.1：模式切换
             const manager = UnifiedDataSourceManager.getInstance();
+            const { mockSimpleRouter, mockAdvancedRouter } = createMockRouters();
+            
+            // 初始化路由器
+            manager.initializeRouters(mockSimpleRouter as any, mockAdvancedRouter as any);
             
             await manager.switchMode(OperationMode.Advanced);
             
             expect(manager.getCurrentMode()).toBe(OperationMode.Advanced);
+        });
+        
+        it('switchMode() 从简单模式切换到高级模式应该触发增量同步', async () => {
+            // 验证需求 4.1：简单→高级触发增量同步
+            const manager = UnifiedDataSourceManager.getInstance();
+            const { mockSimpleRouter, mockAdvancedRouter } = createMockRouters();
+            
+            // 初始化路由器
+            manager.initializeRouters(mockSimpleRouter as any, mockAdvancedRouter as any);
+            
+            await manager.switchMode(OperationMode.Advanced);
+            
+            // 验证调用了 getCards 进行同步
+            expect(mockSimpleRouter.getCards).toHaveBeenCalled();
+            expect(mockAdvancedRouter.getCards).toHaveBeenCalled();
+        });
+        
+        it('switchMode() 从高级模式切换到简单模式应该切换数据源', async () => {
+            // 验证需求 4.2：高级→简单切换数据源
+            const manager = UnifiedDataSourceManager.getInstance();
+            const { mockSimpleRouter, mockAdvancedRouter } = createMockRouters();
+            
+            // 初始化路由器
+            manager.initializeRouters(mockSimpleRouter as any, mockAdvancedRouter as any);
+            
+            // 先切换到高级模式
+            await manager.switchMode(OperationMode.Advanced);
+            expect(manager.getCurrentMode()).toBe(OperationMode.Advanced);
+            
+            // 再切换回简单模式
+            await manager.switchMode(OperationMode.Simple);
+            expect(manager.getCurrentMode()).toBe(OperationMode.Simple);
+        });
+        
+        it('switchMode() 切换到相同模式应该直接返回', async () => {
+            // 验证优化：相同模式不执行切换
+            const manager = UnifiedDataSourceManager.getInstance();
+            const { mockSimpleRouter, mockAdvancedRouter } = createMockRouters();
+            
+            // 初始化路由器
+            manager.initializeRouters(mockSimpleRouter as any, mockAdvancedRouter as any);
+            
+            // 当前已经是简单模式，再次切换到简单模式
+            await manager.switchMode(OperationMode.Simple);
+            
+            // 不应该调用 getCards（没有同步）
+            expect(mockSimpleRouter.getCards).not.toHaveBeenCalled();
+        });
+        
+        it('switchMode() 失败时应该回滚到原模式', async () => {
+            // 验证需求 4.1：错误处理和回滚机制
+            const manager = UnifiedDataSourceManager.getInstance();
+            const { mockSimpleRouter, mockAdvancedRouter } = createMockRouters();
+            
+            // 模拟同步失败
+            mockSimpleRouter.getCards.mockRejectedValue(new Error('Sync failed'));
+            
+            // 初始化路由器
+            manager.initializeRouters(mockSimpleRouter as any, mockAdvancedRouter as any);
+            
+            // 尝试切换模式
+            await expect(manager.switchMode(OperationMode.Advanced)).rejects.toThrow('模式切换失败');
+            
+            // 验证模式已回滚
+            expect(manager.getCurrentMode()).toBe(OperationMode.Simple);
         });
     });
     
@@ -154,6 +246,8 @@ describe('UnifiedDataSourceManager', () => {
          * 2. 注册所有观察者
          * 3. 执行模式切换
          * 4. 验证所有观察者都收到了 'mode-switched' 类型的通知
+         * 
+         * 注意：如果目标模式与当前模式相同，不会触发通知（优化）
          */
         it('Feature: unified-data-source-architecture, Property 4: 对于任何已注册的观察者集合，当模式切换完成时，所有观察者都应该收到通知', async () => {
             await fc.assert(
@@ -166,6 +260,10 @@ describe('UnifiedDataSourceManager', () => {
                         // 重置实例以确保测试独立性
                         UnifiedDataSourceManager.resetInstance();
                         const manager = UnifiedDataSourceManager.getInstance();
+                        
+                        // 初始化路由器
+                        const { mockSimpleRouter, mockAdvancedRouter } = createMockRouters();
+                        manager.initializeRouters(mockSimpleRouter as any, mockAdvancedRouter as any);
                         
                         // 创建观察者集合
                         const observers: IDataSourceObserver[] = [];
@@ -180,22 +278,33 @@ describe('UnifiedDataSourceManager', () => {
                             manager.registerObserver(observer);
                         });
                         
+                        // 获取当前模式
+                        const currentMode = manager.getCurrentMode();
+                        
                         // 执行模式切换
                         await manager.switchMode(targetMode);
                         
-                        // 验证：所有观察者都应该收到通知
-                        observers.forEach(observer => {
-                            expect(observer.onDataChanged).toHaveBeenCalled();
-                            
-                            // 验证通知的事件类型是 'mode-switched'
-                            const calls = (observer.onDataChanged as any).mock.calls;
-                            const hasModeSwitchedEvent = calls.some((call: any[]) => {
-                                const event = call[0];
-                                return event && event.type === 'mode-switched';
+                        // 如果目标模式与当前模式相同，不会触发通知（优化）
+                        if (targetMode === currentMode) {
+                            // 验证：所有观察者都不应该收到通知
+                            observers.forEach(observer => {
+                                expect(observer.onDataChanged).not.toHaveBeenCalled();
                             });
-                            
-                            expect(hasModeSwitchedEvent).toBe(true);
-                        });
+                        } else {
+                            // 验证：所有观察者都应该收到通知
+                            observers.forEach(observer => {
+                                expect(observer.onDataChanged).toHaveBeenCalled();
+                                
+                                // 验证通知的事件类型是 'mode-switched'
+                                const calls = (observer.onDataChanged as any).mock.calls;
+                                const hasModeSwitchedEvent = calls.some((call: any[]) => {
+                                    const event = call[0];
+                                    return event && event.type === 'mode-switched';
+                                });
+                                
+                                expect(hasModeSwitchedEvent).toBe(true);
+                            });
+                        }
                     }
                 ),
                 { numRuns: 100 } // 运行 100 次测试
