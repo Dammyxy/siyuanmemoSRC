@@ -17,6 +17,9 @@
         <span v-if="syncStatus.lastResult.skippedCount > 0">
           ，{{ t('skipped', '跳过') }} {{ syncStatus.lastResult.skippedCount }} {{ t('cards', '张') }}
         </span>
+        <span v-if="syncStatus.lastResult.detectedCount && syncStatus.lastResult.detectedCount > 0">
+          ，{{ t('detected', '检测') }} {{ syncStatus.lastResult.detectedCount }} {{ t('cards', '张') }}
+        </span>
       </span>
     </div>
     
@@ -60,6 +63,7 @@ interface SyncResult {
   deletedCount: number;
   skippedCount: number;
   blacklistCleanedCount?: number;
+  detectedCount?: number;
   errorMessage?: string;
 }
 
