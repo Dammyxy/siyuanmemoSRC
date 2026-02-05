@@ -7,10 +7,8 @@
 
 export { BaseReviewQueue } from './BaseReviewQueue';
 export { QueueFactory } from './QueueFactory';
-
-// 具体的队列实现将在后续任务中添加
-// export { RetrievalPracticeQueue } from './RetrievalPracticeQueue';
-// export { IncrementalLearningQueue } from './IncrementalLearningQueue';
-// export { FinalDrillQueue } from './FinalDrillQueue';
-// export { FilterGroupQueue } from './FilterGroupQueue';
-// export { NeuralRoamQueue } from './NeuralRoamQueue';
+export { RetrievalPracticeQueue } from './RetrievalPracticeQueue';
+export { IncrementalLearningQueue } from './IncrementalLearningQueue';
+export { FilterGroupQueue } from './FilterGroupQueue';
+export { FinalDrillQueue } from './FinalDrillQueue';
+export { NeuralRoamQueue } from './NeuralRoamQueue';

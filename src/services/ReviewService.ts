@@ -18,6 +18,8 @@ import { riff } from '@/core/siyuan';
 import { NeuralRoamQueue } from '@/core/queue/strategies/NeuralRoamQueue';
 import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
 import { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
+import { createUnifiedReviewDialog, getQueueDisplayName } from '@/strategies/createUnifiedReviewDialog';
+import { QueueType } from '@/types/unified-data-source';
 
 /**
  * 复习服务类
@@ -36,6 +38,45 @@ export class ReviewService {
 
   async openReviewV2Dialog() {
     await this.openReviewProviderV2Dialog();
+  }
+  
+  /**
+   * 🆕 使用统一数据源打开复习对话框
+   * 
+   * 这个方法使用 UnifiedQueueStrategy 和 UnifiedReviewAdapter，
+   * 自动集成到统一数据源架构中，获得以下好处：
+   * - 自动数据同步
+   * - 统一的错误处理
+   * - 统一的日志记录
+   * - 观察者模式支持
+   */
+  async openUnifiedReviewDialog(queueType: QueueType = QueueType.RetrievalPractice) {
+    if (!this.plugin.isInitialized) {
+      await pushErrMsg(this.plugin.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
+      return;
+    }
+    
+    if (this.plugin.reviewDialog) {
+      this.plugin.reviewDialog.destroy();
+    }
+    
+    try {
+      const title = getQueueDisplayName(queueType, this.plugin.i18n);
+      
+      this.plugin.reviewDialog = createUnifiedReviewDialog({
+        plugin: this.plugin,
+        queueType,
+        title,
+        onClose: () => {
+          this.plugin.reviewDialog = null;
+        }
+      });
+      
+      console.log(`[ReviewService] Opened unified review dialog: ${queueType}`);
+    } catch (err) {
+      console.error('[ReviewService] Failed to open unified review dialog:', err);
+      await pushErrMsg(this.plugin.i18n?.loadFailed || '加载失败');
+    }
   }
 
   async openReviewProviderV2Dialog() {

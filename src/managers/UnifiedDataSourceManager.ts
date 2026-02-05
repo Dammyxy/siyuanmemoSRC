@@ -432,61 +432,133 @@ export class UnifiedDataSourceManager {
     /**
      * 获取单个卡片
      * 
-     * 将在后续任务中实现。
+     * 通过当前路由器获取卡片数据。
+     * 包含错误处理，确保数据访问的可靠性。
      * 
      * @param cardId 卡片 ID
      * @returns 卡片数据
+     * @throws Error 如果卡片不存在或数据访问失败
      * @see 需求 11.1
      */
     public async getCard(cardId: string): Promise<FSRSCard> {
-        // TODO: 实现数据访问方法（任务 11.1）
-        throw new Error('Not implemented yet');
+        try {
+            const router = this.getCurrentRouter();
+            const card = await router.getCard(cardId);
+            return card;
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`[UnifiedDataSourceManager] Failed to get card ${cardId}:`, errorMessage);
+            throw new Error(`获取卡片失败 (${cardId}): ${errorMessage}`);
+        }
     }
     
     /**
      * 获取卡片列表
      * 
-     * 将在后续任务中实现。
+     * 通过当前路由器获取卡片列表，支持可选的过滤条件。
+     * 包含错误处理，确保数据访问的可靠性。
      * 
      * @param filter 可选的过滤条件
      * @returns 卡片数组
+     * @throws Error 如果数据访问失败
      * @see 需求 11.1
      */
     public async getCards(filter?: CardFilter): Promise<FSRSCard[]> {
-        // TODO: 实现数据访问方法（任务 11.1）
-        throw new Error('Not implemented yet');
+        try {
+            const router = this.getCurrentRouter();
+            const cards = await router.getCards(filter);
+            return cards;
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error('[UnifiedDataSourceManager] Failed to get cards:', errorMessage);
+            throw new Error(`获取卡片列表失败: ${errorMessage}`);
+        }
     }
     
     /**
      * 更新卡片
      * 
-     * 将在后续任务中实现。
+     * 通过当前路由器更新卡片，并执行以下操作：
+     * 1. 更新卡片数据
+     * 2. 使受影响的队列缓存失效
+     * 3. 通知所有观察者
+     * 
+     * 错误处理策略：
+     * - 如果更新失败，不通知观察者
+     * - 记录错误日志
+     * - 抛出错误给调用者
      * 
      * @param card 要更新的卡片
-     * @see 需求 11.1, 11.4
+     * @throws Error 如果更新失败
+     * @see 需求 11.1, 11.2, 11.4, 15.3
      */
     public async updateCard(card: FSRSCard): Promise<void> {
-        // TODO: 实现数据访问方法（任务 11.1）
-        // - 通过当前路由器更新卡片
-        // - 使受影响的队列缓存失效
-        // - 通知所有观察者
-        throw new Error('Not implemented yet');
+        try {
+            // 1. 通过当前路由器更新卡片
+            const router = this.getCurrentRouter();
+            await router.updateCard(card);
+            
+            // 2. 使受影响的队列缓存失效
+            // 卡片更新可能影响所有动态队列（检索练习、渐进学习、过滤组）
+            this.queueFactory.invalidateQueue(QueueType.RetrievalPractice);
+            this.queueFactory.invalidateQueue(QueueType.IncrementalLearning);
+            this.queueFactory.invalidateQueue(QueueType.FilterGroup);
+            
+            // 3. 通知所有观察者
+            this.notifyObservers({
+                type: 'card-updated',
+                cardIds: [card.id],
+                timestamp: Date.now(),
+            });
+            
+            console.log(`[UnifiedDataSourceManager] Card updated: ${card.id}`);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`[UnifiedDataSourceManager] Failed to update card ${card.id}:`, errorMessage);
+            throw new Error(`更新卡片失败 (${card.id}): ${errorMessage}`);
+        }
     }
     
     /**
      * 删除卡片
      * 
-     * 将在后续任务中实现。
+     * 通过当前路由器删除卡片，并执行以下操作：
+     * 1. 删除卡片数据
+     * 2. 使受影响的队列缓存失效
+     * 3. 通知所有观察者
+     * 
+     * 错误处理策略：
+     * - 如果删除失败，不通知观察者
+     * - 记录错误日志
+     * - 抛出错误给调用者
      * 
      * @param cardId 要删除的卡片 ID
-     * @see 需求 11.1, 11.4
+     * @throws Error 如果删除失败
+     * @see 需求 11.1, 11.2, 11.4, 15.3
      */
     public async deleteCard(cardId: string): Promise<void> {
-        // TODO: 实现数据访问方法（任务 11.1）
-        // - 通过当前路由器删除卡片
-        // - 使受影响的队列缓存失效
-        // - 通知所有观察者
-        throw new Error('Not implemented yet');
+        try {
+            // 1. 通过当前路由器删除卡片
+            const router = this.getCurrentRouter();
+            await router.deleteCard(cardId);
+            
+            // 2. 使受影响的队列缓存失效
+            // 卡片删除可能影响所有队列
+            this.queueFactory.invalidateAllQueues();
+            
+            // 3. 通知所有观察者
+            this.notifyObservers({
+                type: 'card-deleted',
+                cardIds: [cardId],
+                timestamp: Date.now(),
+            });
+            
+            console.log(`[UnifiedDataSourceManager] Card deleted: ${cardId}`);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`[UnifiedDataSourceManager] Failed to delete card ${cardId}:`, errorMessage);
+            throw new Error(`删除卡片失败 (${cardId}): ${errorMessage}`);
+        }
     }
     
     // ========================================================================

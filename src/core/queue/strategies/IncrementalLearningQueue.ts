@@ -70,6 +70,94 @@ function normalizeDueCard(raw: any, fallbackDeckID: string): QueueItem {
 }
 
 /**
+ * 安全地将时间戳转换为 ISO 字符串
+ * 
+ * 验证时间值的有效性，对于无效值返回当前时间的 ISO 字符串作为后备。
+ * 这可以防止 Invalid Date 错误导致整个队列加载失败。
+ * 
+ * @param timestamp - 要转换的时间戳（可能是无效值）
+ * @param context - 上下文信息，用于日志记录
+ * @returns 有效的 ISO 时间字符串
+ * 
+ * @see .kiro/specs/invalid-date-fix/design.md
+ */
+function safeToISOString(
+  timestamp: number | undefined | null,
+  context: { cardID: string; field: string }
+): string {
+  // 检查 undefined 或 null
+  if (timestamp === undefined || timestamp === null) {
+    const fallback = new Date().toISOString();
+    console.warn('[IncrementalLearningQueue] Invalid due time detected:', {
+      cardID: context.cardID,
+      field: context.field,
+      value: timestamp,
+      reason: timestamp === undefined ? 'undefined' : 'null',
+      fallback,
+    });
+    return fallback;
+  }
+
+  // 检查 NaN
+  if (Number.isNaN(timestamp)) {
+    const fallback = new Date().toISOString();
+    console.warn('[IncrementalLearningQueue] Invalid due time detected:', {
+      cardID: context.cardID,
+      field: context.field,
+      value: timestamp,
+      reason: 'NaN',
+      fallback,
+    });
+    return fallback;
+  }
+
+  // 检查是否为有限数字
+  if (!Number.isFinite(timestamp)) {
+    const fallback = new Date().toISOString();
+    console.warn('[IncrementalLearningQueue] Invalid due time detected:', {
+      cardID: context.cardID,
+      field: context.field,
+      value: timestamp,
+      reason: 'not finite',
+      fallback,
+    });
+    return fallback;
+  }
+
+  // 尝试转换为 ISO 字符串
+  try {
+    const date = new Date(timestamp);
+    
+    // 检查是否创建了 Invalid Date
+    if (isNaN(date.getTime())) {
+      const fallback = new Date().toISOString();
+      console.warn('[IncrementalLearningQueue] Invalid due time detected:', {
+        cardID: context.cardID,
+        field: context.field,
+        value: timestamp,
+        reason: 'invalid date',
+        fallback,
+      });
+      return fallback;
+    }
+    
+    return date.toISOString();
+  } catch (error) {
+    // 捕获任何未预期的异常
+    const fallback = new Date().toISOString();
+    console.warn('[IncrementalLearningQueue] Invalid due time detected:', {
+      cardID: context.cardID,
+      field: context.field,
+      value: timestamp,
+      reason: 'exception',
+      error: error instanceof Error ? error.message : String(error),
+      fallback,
+    });
+    return fallback;
+  }
+}
+
+/**
  * Incremental Learning Queue (Simplified)
  *
  * Simple queue implementation:
@@ -719,12 +807,20 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
           const goodCard = previews.get(3);
           const easyCard = previews.get(4);
 
-          // 更新 nextDues
+          // 更新 nextDues - 使用 safeToISOString 防止 Invalid Date 错误
           item.nextDues = {
-            1: againCard ? new Date(againCard.due).toISOString() : new Date().toISOString(),
-            2: hardCard ? new Date(hardCard.due).toISOString() : new Date().toISOString(),
-            3: goodCard ? new Date(goodCard.due).toISOString() : new Date().toISOString(),
-            4: easyCard ? new Date(easyCard.due).toISOString() : new Date().toISOString(),
+            1: againCard 
+              ? safeToISOString(againCard.due, { cardID: item.cardID, field: 'again' })
+              : new Date().toISOString(),
+            2: hardCard 
+              ? safeToISOString(hardCard.due, { cardID: item.cardID, field: 'hard' })
+              : new Date().toISOString(),
+            3: goodCard 
+              ? safeToISOString(goodCard.due, { cardID: item.cardID, field: 'good' })
+              : new Date().toISOString(),
+            4: easyCard 
+              ? safeToISOString(easyCard.due, { cardID: item.cardID, field: 'easy' })
+              : new Date().toISOString(),
           };
 
           recalculatedCount++;

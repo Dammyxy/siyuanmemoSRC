@@ -140,20 +140,25 @@ export function useSorting(options: UseSortingOptions) {
       await pushErrMsg(t('queueNotFound', '队列未找到'));
       return;
     }
+    
+    // 检查队列是否支持 reorder 方法
     if (typeof q.reorder !== 'function') {
       await pushErrMsg(t('queueNotSupportReorder', '当前队列不支持重排'));
       return;
     }
+    
     if (!gridApi.value) {
       await pushErrMsg(t('initFailed', 'FSRS 插件初始化失败，请打开控制台查看错误'));
       return;
     }
 
+    // 获取当前队列中的所有项（旧队列系统格式）
     const currentItems = q.getAllItems?.() || [];
     const currentItemsByBlockId = new Map(
       currentItems.map((item: any) => [String(item.blockID || ''), item] as const)
     );
 
+    // 获取浏览器中显示的卡片顺序
     const orderedCards: any[] = [];
     const count = Number(gridApi.value.getDisplayedRowCount?.() ?? 0);
     for (let i = 0; i < count; i++) {
@@ -167,22 +172,37 @@ export function useSorting(options: UseSortingOptions) {
       return;
     }
 
-    const queueItems: any[] = [];
-    for (const card of orderedCards) {
-      const blockId = String(card.blockId || '');
-      const item = currentItemsByBlockId.get(blockId);
-      if (item) queueItems.push(item);
-    }
-
     try {
-      console.log('[useSorting] Applying sort to queue:', { queueId: qid, queueItemsCount: queueItems.length });
-      const ok = await Promise.resolve(q.reorder(queueItems));
+      console.log('[useSorting] Applying sort to queue:', { queueId: qid, cardsCount: orderedCards.length });
+      
+      // 尝试新队列系统的 reorder 方法（接受 FSRSCard[]）
+      // 如果队列是新系统的 IReviewQueue，直接传递卡片数组
+      let ok: boolean;
+      
+      // 检查是否为新队列系统（通过检查是否有 getType 方法）
+      if (typeof (q as any).getType === 'function') {
+        // 新队列系统：直接传递卡片数组
+        console.log('[useSorting] Using new queue system (IReviewQueue)');
+        ok = await Promise.resolve(q.reorder(orderedCards));
+      } else {
+        // 旧队列系统：需要转换为 QueueItem 格式
+        console.log('[useSorting] Using legacy queue system (QueueInterface)');
+        const queueItems: any[] = [];
+        for (const card of orderedCards) {
+          const blockId = String(card.blockId || '');
+          const item = currentItemsByBlockId.get(blockId);
+          if (item) queueItems.push(item);
+        }
+        ok = await Promise.resolve(q.reorder(queueItems));
+      }
+      
       console.log('[useSorting] Queue reorder result:', { ok });
 
       if (!ok) {
         await pushErrMsg(t('sortApplyFailed', '应用排序失败'));
         return;
       }
+      
       await pushMsg(t('sortApplied', '队列已按当前排序重新排列'));
       hasRandomSort.value = false;
       await loadData();

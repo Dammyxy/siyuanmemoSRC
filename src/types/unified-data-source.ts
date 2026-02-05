@@ -288,6 +288,30 @@ export interface IReviewQueue {
      * @returns true 表示动态队列，false 表示静态队列
      */
     isDynamic(): boolean;
+    
+    /**
+     * 重新排序队列
+     * 
+     * 根据提供的卡片顺序重新排列队列中的卡片。
+     * 这个方法用于支持浏览器中的排序功能，允许用户自定义队列顺序。
+     * 
+     * 实现说明：
+     * - 动态队列：支持临时排序覆盖，影响 getCards() 的返回顺序（不持久化）
+     * - 静态队列：支持持久化排序，永久改变队列顺序
+     * 
+     * @param orderedCards 按新顺序排列的卡片数组
+     * @returns true 表示重排序成功，false 表示不支持或失败
+     */
+    reorder(orderedCards: FSRSCard[]): Promise<boolean>;
+    
+    /**
+     * 清除自定义排序
+     * 
+     * 恢复到默认排序：
+     * - 动态队列：按算法排序（到期日期、优先级等）
+     * - 静态队列：按添加顺序
+     */
+    clearCustomOrder(): void;
 }
 
 // ============================================================================
@@ -324,7 +348,7 @@ export type ReviewButtonType = 'rating' | 'action';
 /**
  * 复习按钮配置
  * 
- * @see 需求 10.1, 10.2
+ * @see 需求 10.1, 10.2, 21.3
  */
 export interface ReviewButtonConfig {
     /** 按钮类型 */
@@ -337,7 +361,7 @@ export interface ReviewButtonConfig {
     value?: number;
     
     /** 操作类型（仅用于 action 类型） */
-    action?: 'insert' | 'next';
+    action?: 'insert' | 'next' | 'lock-seed';
 }
 
 // ============================================================================

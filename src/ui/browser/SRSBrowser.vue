@@ -146,6 +146,11 @@ import SyncStatusIndicator from '../components/SyncStatusIndicator.vue';  // �
 import { useCardTypeDetection } from './composables/useCardTypeDetection';
 // ✅ 导入配置模块
 import { createColumnDefs } from './config';
+// 🆕 导入统一数据源适配器
+import { SRSBrowserAdapter } from './SRSBrowserAdapter';
+import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
+import { QueueType } from '@/types/unified-data-source';
+import type { DataChangeEvent } from '@/types/unified-data-source';
 import { 
   CARD_STATE_COLORS, 
   DEFAULT_PRIORITY, 
@@ -203,6 +208,8 @@ const loading = ref(false);
 const rows = ref<BrowserCard[]>([]);
 const allRows = ref<BrowserCard[]>([]);  // ✅ 所有卡片的完整数据（不受筛选影响，用于【全部】区统计）
 const currentDataSource = ref<ICardDataSource | null>(null);
+// 🆕 统一数据源适配器
+const browserAdapter = ref<SRSBrowserAdapter | null>(null);
 const currentPreset = ref('all');
 const currentCardType = ref<'all' | 'topic-only' | 'item-only'>('all');  // ✅ 卡片类型筛选
 const selectedRows = ref<BrowserCard[]>([]);
@@ -311,7 +318,7 @@ const filteredCards = computed(() => {
   return scopedRows.value.filter((c) => matchesParsedQuery(c, parsed));
 });
 
-// 加载数据 - 使用 browserService (riff API)
+// 加载数据 - 使用 browserService (riff API) 或 UnifiedDataSourceManager
 async function loadData(forceRefresh = false) {
   loading.value = true;
   hasRandomSort.value = false;  // ✅ 重新加载数据时清除随机排序标志
@@ -319,6 +326,62 @@ async function loadData(forceRefresh = false) {
     selectedRows.value = [];
     previewCard.value = null;
 
+    // 🆕 尝试使用统一数据源适配器
+    if (browserAdapter.value && activeQueueId.value) {
+      try {
+        console.log('[SRSBrowser] Using UnifiedDataSourceManager for queue:', activeQueueId.value);
+        
+        // 映射队列 ID 到 QueueType
+        const queueTypeMap: Record<string, QueueType> = {
+          'retrieval': QueueType.RetrievalPractice,
+          'final-drill': QueueType.FinalDrill,
+          'incremental-learning': QueueType.IncrementalLearning,
+          'filter-group': QueueType.FilterGroup,
+          'neural-roam': QueueType.NeuralRoam,
+        };
+        
+        const queueType = queueTypeMap[activeQueueId.value];
+        if (queueType) {
+          // 初始化队列视图
+          await browserAdapter.value.initializeQueueView(queueType);
+          
+          // 获取卡片数据
+          const result = await browserAdapter.value.fetchRows({
+            sortModel: currentSortModel.value,
+            filterModel: {},
+          });
+          
+          // 🔧 修复：填充卡片的 content 字段
+          // browserAdapter 返回的数据中 content 字段为空，需要通过 loadCards 填充
+          const blockIds = result.rows.map(card => card.blockId);
+          const cardsWithContent = await PerformanceMonitor.measure('loadCardsContent', () =>
+            loadCards('all', blockIds, '', forceRefresh)
+          );
+          
+          // 合并数据：使用 browserAdapter 的数据作为基础，用 loadCards 的 content 填充
+          const contentMap = new Map(cardsWithContent.map(c => [c.blockId, c.content]));
+          rows.value = result.rows.map(card => ({
+            ...card,
+            content: contentMap.get(card.blockId) || card.content,
+            fullContent: contentMap.get(card.blockId) || card.fullContent,
+          }));
+          rowsForFocus.value = rows.value;
+          
+          // 更新全量统计数据
+          allRows.value = await PerformanceMonitor.measure('loadAllCards', () => 
+            loadCards('all', undefined, '', forceRefresh)
+          );
+          
+          await refreshQueueCounts();
+          return;
+        }
+      } catch (error) {
+        console.error('[SRSBrowser] Failed to use UnifiedDataSourceManager, falling back to legacy:', error);
+        // 降级到旧的实现
+      }
+    }
+
+    // 原有的实现（降级路径）
     const sqlStmt = extractSqlStatement(searchQuery.value);
     if (sqlStmt != null) {
       const ok = await ensureSqlModeConfirmed();
@@ -1129,6 +1192,13 @@ function showPerformanceReport() {
 let unsubscribe: (() => void) | null = null;
 
 onBeforeUnmount(() => {
+  // 🆕 清理统一数据源适配器
+  if (browserAdapter.value) {
+    browserAdapter.value.destroy();
+    browserAdapter.value = null;
+    console.log('[SRSBrowser] UnifiedDataSourceManager adapter destroyed');
+  }
+  
   if (unsubscribe) {
     unsubscribe();
     unsubscribe = null;
@@ -1144,6 +1214,40 @@ onMounted(() => {
       viewMode.value = stored;
     }
   } catch {}
+
+  // 🆕 初始化统一数据源适配器
+  try {
+    const manager = UnifiedDataSourceManager.getInstance();
+    browserAdapter.value = new SRSBrowserAdapter(manager);
+    
+    // 设置数据变更回调
+    browserAdapter.value.setOnDataChangeCallback((event: DataChangeEvent) => {
+      console.log('[SRSBrowser] Data changed event received:', event);
+      
+      // 根据事件类型处理
+      switch (event.type) {
+        case 'card-updated':
+        case 'card-deleted':
+        case 'queue-changed':
+          // 刷新当前视图
+          if (gridApi.value) {
+            gridApi.value.refreshCells({ force: true });
+          }
+          void refreshQueueCounts();
+          break;
+        case 'mode-switched':
+          // 模式切换时重新加载数据
+          void loadData();
+          break;
+      }
+    });
+    
+    console.log('[SRSBrowser] UnifiedDataSourceManager adapter initialized');
+  } catch (error) {
+    console.error('[SRSBrowser] Failed to initialize UnifiedDataSourceManager adapter:', error);
+    // 降级到旧的实现，不影响正常使用
+    browserAdapter.value = null;
+  }
 
   // 订阅增量更新
   unsubscribe = subscribeCacheUpdate((cards, isComplete) => {
@@ -1266,6 +1370,33 @@ function openPracticeMenu(ev: MouseEvent) {
 }
 
 function getQueueById(id: string) {
+  // 🆕 优先从 UnifiedDataSourceManager 获取队列实例
+  if (browserAdapter.value) {
+    try {
+      const queueTypeMap: Record<string, QueueType> = {
+        'retrieval': QueueType.RetrievalPractice,
+        'final-drill': QueueType.FinalDrill,
+        'incremental-learning': QueueType.IncrementalLearning,
+        'filter-group': QueueType.FilterGroup,
+        'neural-roam': QueueType.NeuralRoam,
+      };
+      
+      const queueType = queueTypeMap[id];
+      if (queueType) {
+        const manager = UnifiedDataSourceManager.getInstance();
+        const queue = manager.getQueue(queueType);
+        if (queue) {
+          console.log(`[SRSBrowser] getQueueById: Using UnifiedDataSourceManager queue for ${id}`);
+          return queue;
+        }
+      }
+    } catch (error) {
+      console.warn(`[SRSBrowser] Failed to get queue from UnifiedDataSourceManager:`, error);
+      // 降级到旧队列系统
+    }
+  }
+  
+  // 降级：使用旧队列系统
   if (id === 'retrieval') return (props.plugin as any)?.retrievalQueue;
   if (id === 'final-drill') return (props.plugin as any)?.finalDrillQueue;
   if (id === 'neural-roam') return props.plugin?.neuralQueue;

@@ -109,4 +109,95 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @see 需求 5.1, 6.1
      */
     public abstract isDynamic(): boolean;
+    
+    /**
+     * 重新排序队列
+     * 
+     * 默认实现：使用内存中的排序覆盖（不持久化）。
+     * 子类可以覆盖此方法以实现自定义排序逻辑（如持久化）。
+     * 
+     * 实现说明：
+     * - 动态队列：支持临时排序覆盖，影响 getCards() 的返回顺序
+     * - 静态队列：支持持久化排序，永久改变队列顺序
+     * 
+     * @param orderedCards 按新顺序排列的卡片数组
+     * @returns true 表示重排序成功，false 表示失败
+     */
+    public async reorder(orderedCards: FSRSCard[]): Promise<boolean> {
+        try {
+            console.log(`[${this.type}] Reordering ${orderedCards.length} cards`);
+            
+            // 将排序顺序存储在内存中
+            this.customOrder = orderedCards.map(card => card.id);
+            
+            // 通知观察者队列已变更（触发复习界面刷新）
+            this.manager.notifyObservers({
+                type: 'queue-changed',
+                queueType: this.type,
+                timestamp: Date.now()
+            });
+            
+            console.log(`[${this.type}] Reorder completed successfully (in-memory)`);
+            return true;
+        } catch (error) {
+            console.error(`[${this.type}] Failed to reorder:`, error);
+            return false;
+        }
+    }
+    
+    /**
+     * 清除自定义排序
+     * 
+     * 恢复到默认排序（动态队列按算法排序，静态队列按添加顺序）
+     */
+    public clearCustomOrder(): void {
+        this.customOrder = null;
+        console.log(`[${this.type}] Custom order cleared`);
+    }
+    
+    /**
+     * 应用自定义排序到卡片数组
+     * 
+     * 如果存在自定义排序，按照自定义顺序重新排列卡片。
+     * 
+     * @param cards 原始卡片数组
+     * @returns 排序后的卡片数组
+     */
+    protected applyCustomOrder(cards: FSRSCard[]): FSRSCard[] {
+        if (!this.customOrder || this.customOrder.length === 0) {
+            return cards;
+        }
+        
+        // 创建卡片 ID 到卡片的映射
+        const cardMap = new Map<string, FSRSCard>();
+        for (const card of cards) {
+            cardMap.set(card.id, card);
+        }
+        
+        // 按照自定义顺序重新排列
+        const orderedCards: FSRSCard[] = [];
+        for (const cardId of this.customOrder) {
+            const card = cardMap.get(cardId);
+            if (card) {
+                orderedCards.push(card);
+                cardMap.delete(cardId);
+            }
+        }
+        
+        // 添加不在自定义顺序中的卡片（保持在末尾）
+        for (const card of cardMap.values()) {
+            orderedCards.push(card);
+        }
+        
+        return orderedCards;
+    }
+    
+    /**
+     * 自定义排序顺序（卡片 ID 数组）
+     * 
+     * 用于临时覆盖队列的默认排序。
+     * - null 表示使用默认排序
+     * - 非空数组表示使用自定义排序
+     */
+    protected customOrder: string[] | null = null;
 }

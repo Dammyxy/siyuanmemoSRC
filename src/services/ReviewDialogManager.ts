@@ -32,6 +32,10 @@ import type { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
 import type { FilterGroupQueue } from '@/core/queue/strategies/FilterGroupQueue';
 import type { IncrementalLearningQueue } from '@/core/queue/strategies/IncrementalLearningQueue';
 
+// 🆕 Unified Data Source
+import { createUnifiedReviewDialog } from '@/strategies/createUnifiedReviewDialog';
+import { QueueType } from '@/types/unified-data-source';
+
 export interface ReviewDialogManagerDeps {
   app: App;
   i18n: Record<string, string>;
@@ -146,25 +150,24 @@ export class ReviewDialogManager {
 
   /**
    * 打开提取练习对话框 (Vue UI 2.0)
+   * 🆕 使用统一数据源架构
    */
   async openRetrievalPractice(): Promise<void> {
     if (!(await this.checkInitialized())) return;
     this.destroyCurrentDialog();
 
     try {
-      const provider = await RetrievalPracticeProvider.create({ storage: this.deps.storage, scheduler: this.deps.scheduler });
-      const adapter = new RetrievalPracticeAdapter({ i18n: this.deps.i18n || {} });
-
-      this.createDialog({
-        title: provider.displayName,
-        provider: provider as any,
-        adapter: adapter as any,
-        reviewUI: {
-          component: ReviewView,
-          adapter: adapter as any,
-          context: { uiConfig: { statsType: 'riff-counts', showRatingButtons: true, allowSkip: true } },
-        },
+      // 🆕 使用 createUnifiedReviewDialog 创建对话框
+      this.reviewDialog = createUnifiedReviewDialog({
+        plugin: this.deps.plugin,
+        queueType: QueueType.RetrievalPractice,
+        title: this.deps.i18n?.retrievalPractice || '提取练习',
+        onClose: () => {
+          this.reviewDialog = null;
+        }
       });
+      
+      console.log('[ReviewDialogManager] ✅ Retrieval practice dialog created with unified data source');
     } catch (err) {
       console.error('[FSRS] Failed to open retrieval practice dialog:', err);
       await pushErrMsg(this.deps.i18n?.loadFailed || '加载失败');
@@ -200,26 +203,24 @@ export class ReviewDialogManager {
 
   /**
    * 打开刻意练习对话框 (Vue UI 2.0)
+   * 🆕 使用统一数据源架构
    */
   async openFinalDrill(): Promise<void> {
     if (!(await this.checkInitialized())) return;
     this.destroyCurrentDialog();
 
     try {
-      const provider = new FinalDrillProvider({ queue: this.deps.finalDrillQueue as any, storage: this.deps.storage, i18n: this.deps.i18n || {} });
-      await provider.init();
-      const adapter = new FinalDrillAdapter({ i18n: this.deps.i18n || {} });
-
-      this.createDialog({
-        title: provider.displayName,
-        provider: provider as any,
-        adapter: adapter as any,
-        reviewUI: {
-          component: ReviewView,
-          adapter: adapter as any,
-          context: { uiConfig: { statsType: 'queue-size', showRatingButtons: true, allowSkip: true } },
-        },
+      // 🆕 使用 createUnifiedReviewDialog 创建对话框
+      this.reviewDialog = createUnifiedReviewDialog({
+        plugin: this.deps.plugin,
+        queueType: QueueType.FinalDrill,
+        title: this.deps.i18n?.finalDrill || '刻意练习',
+        onClose: () => {
+          this.reviewDialog = null;
+        }
       });
+      
+      console.log('[ReviewDialogManager] ✅ Final drill dialog created with unified data source');
     } catch (err) {
       console.error('[FSRS] Failed to open final drill dialog:', err);
       await pushErrMsg(this.deps.i18n?.drillFailed || '机械练习启动失败');
@@ -228,19 +229,24 @@ export class ReviewDialogManager {
 
   /**
    * 打开渐进学习队列对话框
+   * 🆕 使用统一数据源架构
    */
   async openIncrementalLearning(): Promise<void> {
     if (!(await this.checkInitialized())) return;
     this.destroyCurrentDialog();
 
     try {
-      const title = this.deps.i18n?.incrementalLearning || '渐进学习';
-      this.createDialog({
-        title,
-        queue: this.deps.incrementalQueue as any,
-        adapter: new RetrievalPracticeAdapter({ i18n: this.deps.i18n || {}, label: title, queueName: 'incremental-learning' }) as any,
-        dataKey: 'dialog-incremental-learning',
+      // 🆕 使用 createUnifiedReviewDialog 创建对话框
+      this.reviewDialog = createUnifiedReviewDialog({
+        plugin: this.deps.plugin,
+        queueType: QueueType.IncrementalLearning,
+        title: this.deps.i18n?.incrementalLearning || '渐进学习',
+        onClose: () => {
+          this.reviewDialog = null;
+        }
       });
+      
+      console.log('[ReviewDialogManager] ✅ Incremental learning dialog created with unified data source');
     } catch (err) {
       console.error('[FSRS] Failed to open incremental learning dialog:', err);
       await pushErrMsg(this.deps.i18n?.openFailed || '打开渐进学习失败');
@@ -249,18 +255,24 @@ export class ReviewDialogManager {
 
   /**
    * 打开分组队列对话框
+   * 🆕 使用统一数据源架构
    */
   async openFilterGroupPractice(): Promise<void> {
     if (!(await this.checkInitialized())) return;
     this.destroyCurrentDialog();
 
     try {
-      const title = this.deps.i18n?.filterGroupPractice || '分组队列';
-      this.createDialog({
-        title,
-        queue: this.deps.filterGroupQueue as any,
-        adapter: new SubsetPracticeAdapter({ i18n: this.deps.i18n || {}, label: title, queueName: 'filter-group' }) as any,
+      // 🆕 使用 createUnifiedReviewDialog 创建对话框
+      this.reviewDialog = createUnifiedReviewDialog({
+        plugin: this.deps.plugin,
+        queueType: QueueType.FilterGroup,
+        title: this.deps.i18n?.filterGroupPractice || '分组队列',
+        onClose: () => {
+          this.reviewDialog = null;
+        }
       });
+      
+      console.log('[ReviewDialogManager] ✅ Filter group dialog created with unified data source');
     } catch (err) {
       console.error('[FSRS] Failed to open filter group practice dialog:', err);
       await pushErrMsg(this.deps.i18n?.openFailed || '打开分组队列失败');

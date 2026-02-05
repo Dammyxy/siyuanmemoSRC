@@ -10,6 +10,11 @@
 
 import { IReviewQueue, QueueType, QueueError } from '../types/unified-data-source';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
+import { RetrievalPracticeQueue } from './RetrievalPracticeQueue';
+import { IncrementalLearningQueue } from './IncrementalLearningQueue';
+import { FilterGroupQueue } from './FilterGroupQueue';
+import { FinalDrillQueue } from './FinalDrillQueue';
+import { NeuralRoamQueue } from './NeuralRoamQueue';
 
 /**
  * 队列工厂类
@@ -73,25 +78,25 @@ export class QueueFactory {
      * @see 需求 5.1
      */
     private createQueue(type: QueueType): IReviewQueue {
-        // TODO: 在任务 7 和 8 中实现具体的队列类
-        // 目前抛出错误，表示尚未实现
-        throw new QueueError(`Queue type not implemented yet: ${type}`);
-        
-        // 未来的实现将类似于：
-        // switch (type) {
-        //     case QueueType.RetrievalPractice:
-        //         return new RetrievalPracticeQueue(this.manager);
-        //     case QueueType.IncrementalLearning:
-        //         return new IncrementalLearningQueue(this.manager);
-        //     case QueueType.FinalDrill:
-        //         return new FinalDrillQueue(this.manager);
-        //     case QueueType.FilterGroup:
-        //         return new FilterGroupQueue(this.manager);
-        //     case QueueType.NeuralRoam:
-        //         return new NeuralRoamQueue(this.manager);
-        //     default:
-        //         throw new QueueError(`Unknown queue type: ${type}`);
-        // }
+        switch (type) {
+            case QueueType.RetrievalPractice:
+                return new RetrievalPracticeQueue(this.manager);
+            
+            case QueueType.IncrementalLearning:
+                return new IncrementalLearningQueue(this.manager);
+            
+            case QueueType.FilterGroup:
+                return new FilterGroupQueue(this.manager);
+            
+            case QueueType.FinalDrill:
+                return new FinalDrillQueue(this.manager);
+            
+            case QueueType.NeuralRoam:
+                return new NeuralRoamQueue(this.manager);
+            
+            default:
+                throw new QueueError(`Unknown queue type: ${type}`);
+        }
     }
     
     /**

@@ -195,6 +195,14 @@ export class SimpleDataRouter implements IDataRouter {
         const updatedAt = new Date(riffBlock.updated).getTime();
         const lastReview = riffCard?.lastReview ? new Date(riffCard.lastReview).getTime() : 0;
         
+        // 🔧 修复：从块属性读取实际的 cardType
+        // 块属性存储在 riffBlock.ial 中
+        const cardTypeAttr = riffBlock.ial?.['custom-fsrs-card-type'];
+        let cardType: 'item' | 'topic' | 'incremental' | 'webpage' = 'item';
+        if (cardTypeAttr === 'topic' || cardTypeAttr === 'incremental' || cardTypeAttr === 'webpage') {
+            cardType = cardTypeAttr;
+        }
+        
         // 构造 FSRSCard
         const card: FSRSCard = {
             // 标识
@@ -214,7 +222,7 @@ export class SimpleDataRouter implements IDataRouter {
             
             // 扩展功能
             priority: 50, // 默认优先级
-            type: 'item' as any, // 简单模式不区分类型，默认为 item
+            type: cardType as any, // 🔧 使用从块属性读取的实际类型
             tags: [],
             
             // 难点攻克
@@ -252,9 +260,10 @@ export class SimpleDataRouter implements IDataRouter {
         // 过滤卡片类型
         if (filter.cardType) {
             filtered = filtered.filter(card => {
-                // 简单模式不区分主题/项目卡片（需求 2.2）
-                // 所有卡片都视为 item 类型
-                return filter.cardType === 'item';
+                // 🔧 修复：检查卡片的实际类型是否与过滤器匹配
+                // 将 CardType 枚举转换为字符串进行比较
+                const cardTypeStr = String(card.type);
+                return cardTypeStr === filter.cardType;
             });
         }
         

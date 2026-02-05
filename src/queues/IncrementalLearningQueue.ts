@@ -1,0 +1,330 @@
+/**
+ * Incremental Learning Queue
+ * 渐进学习队列
+ * 
+ * 动态队列，自动获取所有到期卡片（项目卡片和主题卡片）。
+ * 
+ * 核心功能：
+ * - 自动包含所有到期的项目卡片和主题卡片
+ * - 支持手动添加未到期卡片
+ * - 按到期日期和优先级排序
+ * - 评分 3/4 移除卡片，1/2 保留并添加到最终训练
+ * - 持久化手动添加的卡片列表
+ * 
+ * @see .kiro/specs/unified-data-source-architecture/requirements.md
+ * @see .kiro/specs/unified-data-source-architecture/design.md
+ */
+
+import { BaseReviewQueue } from './BaseReviewQueue';
+import { QueueType } from '../types/unified-data-source';
+import { FSRSCard } from '../types/card';
+import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
+
+/**
+ * 渐进学习队列类
+ * 
+ * 动态队列，自动获取所有到期卡片（项目和主题）。
+ * 
+ * 队列行为：
+ * - 自动包含所有到期的卡片（项目和主题）
+ * - 支持手动添加卡片（包括未到期卡片）
+ * - 手动添加的卡片会被持久化
+ * - 评分 3/4：更新到期日期，从队列移除
+ * - 评分 1/2：保持今天到期，保留在队列中，自动添加到最终训练
+ * 
+ * @see 需求 5.2, 7.3, 7.4, 9.2
+ */
+export class IncrementalLearningQueue extends BaseReviewQueue {
+    /**
+     * 手动添加的卡片 ID 集合
+     */
+    private manuallyAddedCards: Set<string>;
+    
+    /**
+     * 持久化存储键
+     */
+    private readonly STORAGE_KEY = 'incremental-learning-manual-cards';
+    
+    /**
+     * 构造函数
+     * 
+     * @param manager 统一数据源管理器实例
+     */
+    constructor(manager: UnifiedDataSourceManager) {
+        super(manager, QueueType.IncrementalLearning);
+        
+        this.manuallyAddedCards = new Set<string>();
+        this.loadManuallyAddedCards();
+    }
+    
+    /**
+     * 判断是否为动态队列
+     * 
+     * @returns true（动态队列）
+     * @see 需求 5.2
+     */
+    public isDynamic(): boolean {
+        return true;
+    }
+    
+    /**
+     * 获取队列中的所有卡片
+     * 
+     * 获取逻辑：
+     * 1. 获取所有到期的卡片（项目和主题）
+     * 2. 获取手动添加的卡片
+     * 3. 合并并去重
+     * 4. 按到期日期和优先级排序
+     * 5. 应用自定义排序（如果存在）
+     * 
+     * @returns 卡片数组
+     * @see 需求 5.2, 15.1, 15.4
+     */
+    public async getCards(): Promise<FSRSCard[]> {
+        try {
+            const now = Date.now();
+            
+            // 获取所有到期的卡片（项目和主题）
+            const dueCards = await this.manager.getCards({
+                dueDate: { lte: new Date(now) }
+            });
+            
+            // 获取手动添加的卡片
+            const manualCards = await this.getManuallyAddedCards();
+            
+            // 合并并去重
+            const allCards = this.mergeAndDeduplicate(dueCards, manualCards);
+            
+            // 按到期日期和优先级排序
+            const sortedCards = this.sortByDueDateAndPriority(allCards);
+            
+            // 应用自定义排序（如果存在）
+            return this.applyCustomOrder(sortedCards);
+        } catch (error) {
+            console.error('[IncrementalLearningQueue] Failed to get cards:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 添加卡片到队列
+     * 
+     * @param cardId 卡片 ID
+     * @see 需求 5.4, 18.1, 18.4, 6.4
+     */
+    public async addCard(cardId: string): Promise<void> {
+        try {
+            this.manuallyAddedCards.add(cardId);
+            await this.persistManuallyAddedCards();
+            
+            // 触发观察者通知（需求 6.4：卡片添加的队列统计更新）
+            this.manager.notifyObservers({
+                type: 'queue-changed',
+                queueType: this.getType(),
+                timestamp: Date.now()
+            });
+            
+            console.log(`[IncrementalLearningQueue] Card ${cardId} added manually`);
+        } catch (error) {
+            console.error('[IncrementalLearningQueue] Failed to add card:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 从队列中移除卡片
+     * 
+     * @param cardId 卡片 ID
+     * @see 需求 5.5, 12.2
+     */
+    public async removeCard(cardId: string): Promise<void> {
+        try {
+            this.manuallyAddedCards.delete(cardId);
+            await this.persistManuallyAddedCards();
+            console.log(`[IncrementalLearningQueue] Card ${cardId} removed`);
+        } catch (error) {
+            console.error('[IncrementalLearningQueue] Failed to remove card:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 处理卡片复习
+     * 
+     * 复习逻辑：
+     * - 评分 3/4：更新到期日期，从队列移除
+     * - 评分 1/2：更新到期日期，根据新日期决定是否保留
+     * 
+     * @param cardId 卡片 ID
+     * @param rating 评分 (1-4)
+     * @see 需求 7.3, 7.4, 7.7, 9.2, 18.2, 18.3
+     */
+    public async handleReview(cardId: string, rating: number): Promise<void> {
+        try {
+            const card = await this.manager.getCard(cardId);
+            
+            if (rating >= 3) {
+                // 记住了：更新到期日期，从队列移除
+                card.due = this.calculateNextDueDate(card, rating);
+                await this.manager.updateCard(card);
+                await this.removeCard(cardId);
+                
+                console.log(`[IncrementalLearningQueue] Card ${cardId} reviewed with rating ${rating}, removed from queue`);
+            } else {
+                // 忘记了：更新到期日期，根据新日期决定是否保留
+                const newDueDate = this.calculateNextDueDateForLowRating(card, rating);
+                card.due = newDueDate;
+                await this.manager.updateCard(card);
+                
+                // 根据新的到期日期决定是否保留在队列中
+                const now = Date.now();
+                if (newDueDate > now) {
+                    await this.removeCard(cardId);
+                    console.log(`[IncrementalLearningQueue] Card ${cardId} reviewed with rating ${rating}, new due date is in future, removed from queue`);
+                } else {
+                    console.log(`[IncrementalLearningQueue] Card ${cardId} reviewed with rating ${rating}, kept in queue`);
+                }
+                
+                // 自动添加到最终训练队列
+                const finalDrillQueue = this.manager.getQueue(QueueType.FinalDrill);
+                await finalDrillQueue.addCard(cardId, 'auto-failed');
+            }
+            
+            // 通知观察者
+            this.manager.notifyObservers({
+                type: 'card-updated',
+                cardIds: [cardId],
+                timestamp: Date.now()
+            });
+        } catch (error) {
+            console.error('[IncrementalLearningQueue] Failed to handle review:', error);
+            throw error;
+        }
+    }
+    
+    // ========================================================================
+    // 私有辅助方法
+    // ========================================================================
+    
+    /**
+     * 获取手动添加的卡片
+     */
+    private async getManuallyAddedCards(): Promise<FSRSCard[]> {
+        const cards: FSRSCard[] = [];
+        
+        for (const cardId of this.manuallyAddedCards) {
+            try {
+                const card = await this.manager.getCard(cardId);
+                cards.push(card);
+            } catch (error) {
+                console.warn(`[IncrementalLearningQueue] Card ${cardId} not found, removing from manual additions`);
+                this.manuallyAddedCards.delete(cardId);
+            }
+        }
+        
+        return cards;
+    }
+    
+    /**
+     * 合并并去重卡片
+     */
+    private mergeAndDeduplicate(dueCards: FSRSCard[], manualCards: FSRSCard[]): FSRSCard[] {
+        const cardMap = new Map<string, FSRSCard>();
+        
+        for (const card of dueCards) {
+            cardMap.set(card.id, card);
+        }
+        
+        for (const card of manualCards) {
+            cardMap.set(card.id, card);
+        }
+        
+        return Array.from(cardMap.values());
+    }
+    
+    /**
+     * 按到期日期和优先级排序
+     * 
+     * 排序规则：
+     * 1. 首先按到期日期排序（升序）
+     * 2. 如果到期日期相同，按优先级排序（升序）
+     * 3. 如果优先级也相同，按卡片 ID 排序（确保稳定排序）
+     */
+    private sortByDueDateAndPriority(cards: FSRSCard[]): FSRSCard[] {
+        return cards.sort((a, b) => {
+            const dateDiff = a.due - b.due;
+            if (dateDiff !== 0) {
+                return dateDiff;
+            }
+            const priorityDiff = a.priority - b.priority;
+            if (priorityDiff !== 0) {
+                return priorityDiff;
+            }
+            // 最后按卡片 ID 排序（确保稳定排序）
+            return a.id.localeCompare(b.id);
+        });
+    }
+    
+    /**
+     * 计算下次到期日期
+     */
+    private calculateNextDueDate(card: FSRSCard, rating: number): number {
+        const currentInterval = card.scheduledDays || 1;
+        const newInterval = rating === 3 ? currentInterval * 2 : currentInterval * 4;
+        const now = Date.now();
+        return now + newInterval * 24 * 60 * 60 * 1000;
+    }
+    
+    /**
+     * 计算低评分（1/2）的下次到期日期
+     * 
+     * @param card 卡片
+     * @param rating 评分 (1 或 2)
+     * @returns 下次到期日期（时间戳）
+     * @see 需求 18.3
+     */
+    private calculateNextDueDateForLowRating(card: FSRSCard, rating: number): number {
+        const now = Date.now();
+        
+        if (rating === 1) {
+            // Again: 重置为今天
+            return now;
+        } else {
+            // Hard: 使用当前间隔的一半
+            const currentInterval = card.scheduledDays || 1;
+            const newInterval = Math.max(0, currentInterval * 0.5);
+            return now + newInterval * 24 * 60 * 60 * 1000;
+        }
+    }
+    
+    /**
+     * 从持久化存储加载手动添加的卡片
+     */
+    private loadManuallyAddedCards(): void {
+        try {
+            const stored = localStorage.getItem(this.STORAGE_KEY);
+            if (stored) {
+                const cardIds: string[] = JSON.parse(stored);
+                this.manuallyAddedCards = new Set(cardIds);
+                console.log(`[IncrementalLearningQueue] Loaded ${cardIds.length} manually added cards from storage`);
+            }
+        } catch (error) {
+            console.error('[IncrementalLearningQueue] Failed to load manually added cards:', error);
+            this.manuallyAddedCards = new Set();
+        }
+    }
+    
+    /**
+     * 持久化手动添加的卡片
+     */
+    private async persistManuallyAddedCards(): Promise<void> {
+        try {
+            const cardIds = Array.from(this.manuallyAddedCards);
+            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(cardIds));
+            console.log(`[IncrementalLearningQueue] Persisted ${cardIds.length} manually added cards`);
+        } catch (error) {
+            console.error('[IncrementalLearningQueue] Failed to persist manually added cards:', error);
+            throw error;
+        }
+    }
+}

@@ -60,6 +60,11 @@ import { DialogService, MenuService, ReviewDialogManager, BlockMenuHandler, crea
 import { NativeReviewSession } from '@/core/native/session';
 import { ConfigMigrator } from '@/utils/configMigrator';
 
+// 🆕 Unified Data Source
+import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
+import { SimpleDataRouter } from '@/routers/SimpleDataRouter';
+import { AdvancedDataRouter } from '@/routers/AdvancedDataRouter';
+
 // Topic/Item 迁移
 import { checkMigrationNeeded, migrateExistingCards } from '@/scripts/migrateToTopicItem';
 
@@ -243,6 +248,14 @@ export default class FSRSPlugin extends Plugin {
       });
 
       console.log('[FSRS] ✅ SchedulerRouter initialized');
+
+      // 🆕 初始化 UnifiedDataSourceManager
+      const unifiedManager = UnifiedDataSourceManager.getInstance();
+      const simpleRouter = new SimpleDataRouter();
+      const advancedRouter = new AdvancedDataRouter(this.storage);
+      
+      unifiedManager.initializeRouters(simpleRouter, advancedRouter);
+      console.log('[FSRS] ✅ UnifiedDataSourceManager initialized');
 
       // 🆕 初始化 Services
       this.dialogService = new DialogService({

@@ -64,7 +64,7 @@ export interface BrowserCard {
     queueIndex?: number;
 
     // Topic/Item 区分
-    cardType?: 'topic' | 'item';  // 卡片类型
+    cardType?: 'topic' | 'item' | 'incremental' | 'webpage';  // 卡片类型
     aFactor?: number;              // A-Factor (仅 Topic 卡片)
 }
 

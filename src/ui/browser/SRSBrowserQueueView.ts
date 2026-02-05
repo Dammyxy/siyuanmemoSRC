@@ -1,0 +1,249 @@
+/**
+ * SRS Browser Queue View
+ * SRS 浏览器队列视图
+ * 
+ * 实现 IDataSourceObserver 接口，集成统一数据源架构。
+ * 当队列数据变化时，自动刷新视图。
+ * 
+ * @see .kiro/specs/unified-data-source-architecture/requirements.md - 需求 16
+ * @see .kiro/specs/unified-data-source-architecture/design.md - SRS 浏览器队列视图集成
+ */
+
+import type { UnifiedDataSourceManager } from '../../managers/UnifiedDataSourceManager';
+import type { IDataSourceObserver, DataChangeEvent, QueueType } from '../../types/unified-data-source';
+import type { FSRSCard } from '../../types/card';
+import type { GridApi } from 'ag-grid-community';
+
+/**
+ * SRS 浏览器队列视图
+ * 
+ * 核心功能：
+ * - 实现 IDataSourceObserver 接口，响应数据变化
+ * - 切换到指定队列视图
+ * - 从队列加载数据并显示在 AG-Grid 中
+ * - 添加卡片到队列
+ * - 获取可用队列类型
+ * 
+ * 验证需求：16.1, 16.2, 16.3, 16.4, 16.5
+ */
+export class SRSBrowserQueueView implements IDataSourceObserver {
+    /**
+     * 统一数据源管理器实例
+     */
+    private manager: UnifiedDataSourceManager;
+    
+    /**
+     * 当前队列类型
+     */
+    private currentQueueType: QueueType | null;
+    
+    /**
+     * AG-Grid API 实例
+     */
+    private gridApi: GridApi | null;
+    
+    /**
+     * 是否已注册为观察者
+     */
+    private isRegistered: boolean;
+    
+    /**
+     * 构造函数
+     * 
+     * @param manager 统一数据源管理器实例
+     */
+    constructor(manager: UnifiedDataSourceManager) {
+        this.manager = manager;
+        this.currentQueueType = null;
+        this.gridApi = null;
+        this.isRegistered = false;
+        
+        // 注册为观察者
+        this.registerObserver();
+    }
+    
+    // ========================================================================
+    // 公共方法
+    // ========================================================================
+    
+    /**
+     * 切换到指定队列视图
+     * 
+     * 验证需求：16.1
+     * 
+     * @param queueType 队列类型
+     */
+    async switchToQueueView(queueType: QueueType): Promise<void> {
+        console.log(`[SRSBrowserQueueView] Switching to queue view: ${queueType}`);
+        
+        this.currentQueueType = queueType;
+        await this.loadQueueData();
+    }
+    
+    /**
+     * 从队列加载数据
+     * 
+     * 验证需求：16.1, 16.2
+     */
+    async loadQueueData(): Promise<void> {
+        if (!this.currentQueueType) {
+            console.warn('[SRSBrowserQueueView] No queue type selected');
+            return;
+        }
+        
+        try {
+            console.log(`[SRSBrowserQueueView] Loading queue data for: ${this.currentQueueType}`);
+            
+            // 获取队列实例
+            const queue = this.manager.getQueue(this.currentQueueType);
+            
+            // 获取队列中的所有卡片
+            const cards = await queue.getCards();
+            
+            console.log(`[SRSBrowserQueueView] Loaded ${cards.length} cards from queue`);
+            
+            // 更新 AG-Grid
+            if (this.gridApi) {
+                this.gridApi.setRowData(cards);
+                console.log('[SRSBrowserQueueView] Grid updated with queue data');
+            } else {
+                console.warn('[SRSBrowserQueueView] Grid API not initialized');
+            }
+        } catch (error) {
+            console.error('[SRSBrowserQueueView] Failed to load queue data:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 响应数据变化事件
+     * 
+     * 当数据变化时，自动刷新队列视图。
+     * 
+     * 验证需求：16.3
+     * 
+     * @param event 数据变更事件
+     */
+    onDataChanged(event: DataChangeEvent): void {
+        console.log('[SRSBrowserQueueView] Data changed:', event);
+        
+        // 如果当前有选中的队列，自动刷新
+        if (this.currentQueueType) {
+            // 使用 setTimeout 确保在下一个事件循环中执行，避免阻塞
+            setTimeout(() => {
+                this.loadQueueData().catch(error => {
+                    console.error('[SRSBrowserQueueView] Failed to refresh queue data:', error);
+                });
+            }, 0);
+        }
+    }
+    
+    /**
+     * 从浏览器添加卡片到队列
+     * 
+     * 验证需求：16.4
+     * 
+     * @param cardId 卡片 ID
+     */
+    async addCardToQueue(cardId: string): Promise<void> {
+        if (!this.currentQueueType) {
+            console.warn('[SRSBrowserQueueView] No queue type selected');
+            throw new Error('No queue type selected');
+        }
+        
+        try {
+            console.log(`[SRSBrowserQueueView] Adding card ${cardId} to queue ${this.currentQueueType}`);
+            
+            // 获取队列实例
+            const queue = this.manager.getQueue(this.currentQueueType);
+            
+            // 添加卡片到队列
+            await queue.addCard(cardId);
+            
+            console.log(`[SRSBrowserQueueView] Card ${cardId} added to queue`);
+            
+            // 数据会通过观察者模式自动刷新，无需手动调用 loadQueueData()
+        } catch (error) {
+            console.error('[SRSBrowserQueueView] Failed to add card to queue:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 获取可用队列类型
+     * 
+     * 根据当前模式返回可用的队列类型列表。
+     * 
+     * 验证需求：16.5
+     * 
+     * @returns 队列类型数组
+     */
+    getAvailableQueueTypes(): QueueType[] {
+        const queueTypes = this.manager.getAvailableQueueTypes();
+        console.log('[SRSBrowserQueueView] Available queue types:', queueTypes);
+        return queueTypes;
+    }
+    
+    /**
+     * 设置 AG-Grid API 实例
+     * 
+     * 在 AG-Grid 初始化后调用此方法。
+     * 
+     * @param gridApi AG-Grid API 实例
+     */
+    setGridApi(gridApi: GridApi): void {
+        this.gridApi = gridApi;
+        console.log('[SRSBrowserQueueView] Grid API set');
+    }
+    
+    /**
+     * 获取当前队列类型
+     * 
+     * @returns 当前队列类型，如果未选择则返回 null
+     */
+    getCurrentQueueType(): QueueType | null {
+        return this.currentQueueType;
+    }
+    
+    /**
+     * 销毁视图
+     * 
+     * 取消注册观察者，清理资源。
+     */
+    destroy(): void {
+        console.log('[SRSBrowserQueueView] Destroying view');
+        
+        // 取消注册观察者
+        this.unregisterObserver();
+        
+        // 清理引用
+        this.gridApi = null;
+        this.currentQueueType = null;
+    }
+    
+    // ========================================================================
+    // 私有方法
+    // ========================================================================
+    
+    /**
+     * 注册为观察者
+     */
+    private registerObserver(): void {
+        if (!this.isRegistered) {
+            this.manager.registerObserver(this);
+            this.isRegistered = true;
+            console.log('[SRSBrowserQueueView] Registered as observer');
+        }
+    }
+    
+    /**
+     * 取消注册观察者
+     */
+    private unregisterObserver(): void {
+        if (this.isRegistered) {
+            this.manager.unregisterObserver(this);
+            this.isRegistered = false;
+            console.log('[SRSBrowserQueueView] Unregistered as observer');
+        }
+    }
+}
