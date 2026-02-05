@@ -161,7 +161,11 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             const queue = this.manager.getQueue(this.currentQueueType);
             
             // 获取队列中的所有卡片
-            const cards = await queue.getCards();
+            // 注意：使用 getAllCards() 而不是 getCards()
+            // getAllCards() 会调用 dataSource.getAll()，包含过滤逻辑
+            console.log(`[SRSBrowserAdapter] Calling getAllCards() on queue`);
+            const cards = await queue.getAllCards();
+            console.log(`[SRSBrowserAdapter] getAllCards() returned ${cards.length} cards`);
             
             // 转换为 BrowserCard 格式
             const browserCards = cards.map(card => this.convertToBrowserCard(card));
@@ -360,6 +364,13 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
      * @returns 浏览器卡片
      */
     private convertToBrowserCard(card: FSRSCard): BrowserCard {
+        console.log('[SRSBrowserAdapter] ========== convertToBrowserCard ==========');
+        console.log('[SRSBrowserAdapter] 输入 FSRSCard:', {
+            id: card.id,
+            riffCardId: card.riffCardId,
+            blockId: card.blockId,
+            type: card.type,
+        });
         // 计算经过的天数
         const now = Date.now();
         const elapsedDays = card.lastReview 
@@ -393,7 +404,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             cardType = card.type as any;
         }
         
-        return {
+        const result = {
             id: card.riffCardId || card.id,
             fsrsCardId: card.id,
             blockId: card.blockId,
@@ -432,6 +443,16 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             cardType,
             aFactor: card.aFactor,
         };
+        
+        console.log('[SRSBrowserAdapter] 输出 BrowserCard:', {
+            id: result.id,
+            fsrsCardId: result.fsrsCardId,
+            blockId: result.blockId,
+            cardType: result.cardType,
+        });
+        console.log('[SRSBrowserAdapter] ========== convertToBrowserCard 完成 ==========');
+        
+        return result;
     }
     
     /**

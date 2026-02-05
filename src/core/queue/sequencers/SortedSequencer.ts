@@ -308,14 +308,56 @@ export class SortedSequencer<TItem extends QueueItem> implements ISequencer<TIte
    * ```
    */
   insert(item: TItem): void {
+    console.log('[SortedSequencer] ========== insert 被调用 ==========');
+    console.log('[SortedSequencer] 输入 item:', {
+      cardID: (item as any)?.cardID,
+      blockID: (item as any)?.blockID,
+      dueTime: this.getDueMs(item),
+      priority: this.getPriority ? this.getPriority(item) : undefined,
+    });
+    console.log('[SortedSequencer] 插入前队列大小:', this.items.length);
+    console.log('[SortedSequencer] 插入前队列内容（前5个）:', this.items.slice(0, 5).map(i => ({
+      cardID: (i as any)?.cardID,
+      dueTime: this.getDueMs(i),
+    })));
+    
     const index = this._findIndexToInsert(item);
+    console.log('[SortedSequencer] 计算出的插入位置:', index);
+    
     this.items.splice(index, 0, item);
+    console.log('[SortedSequencer] ✅ splice 完成');
+    console.log('[SortedSequencer] 插入后队列大小:', this.items.length);
+    
+    // 验证插入结果
+    const insertedItem = this.items[index];
+    if (insertedItem !== item) {
+      console.error('[SortedSequencer] ❌ 验证失败：插入的 item 不在预期位置', {
+        expected: (item as any)?.cardID,
+        actualAtIndex: (insertedItem as any)?.cardID,
+      });
+    } else {
+      console.log('[SortedSequencer] ✅ 验证成功：item 已插入到正确位置');
+    }
+    
+    // 验证 cardID
+    const expectedCardID = (item as any)?.cardID;
+    const actualCardID = (insertedItem as any)?.cardID;
+    if (expectedCardID !== actualCardID) {
+      console.error('[SortedSequencer] ❌ 严重错误：cardID 被替换！', {
+        expected: expectedCardID,
+        actual: actualCardID,
+        index,
+        itemBefore: index > 0 ? (this.items[index - 1] as any)?.cardID : null,
+        itemAfter: index < this.items.length - 1 ? (this.items[index + 1] as any)?.cardID : null,
+      });
+    }
     
     console.log('[SortedSequencer] Inserted item at index', index, {
       cardID: (item as any)?.cardID,
       dueTime: this.getDueMs(item),
       queueSize: this.items.length,
     });
+    console.log('[SortedSequencer] ========== insert 完成 ==========');
   }
 
   /**
@@ -353,9 +395,24 @@ export class SortedSequencer<TItem extends QueueItem> implements ISequencer<TIte
    * ```
    */
   insertMany(items: TItem[]): void {
-    for (const item of items) {
+    console.log('[SortedSequencer] ========== insertMany 被调用 ==========');
+    console.log('[SortedSequencer] 输入 items 数量:', items.length);
+    console.log('[SortedSequencer] 当前队列大小:', this.items.length);
+    console.log('[SortedSequencer] 输入 items 详情:', items.map(item => ({
+      cardID: (item as any)?.cardID,
+      blockID: (item as any)?.blockID,
+      dueTime: this.getDueMs(item),
+      priority: this.getPriority ? this.getPriority(item) : undefined,
+    })));
+    
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      console.log(`[SortedSequencer] 插入第 ${i + 1}/${items.length} 个 item`);
       this.insert(item);
     }
+    
+    console.log('[SortedSequencer] ========== insertMany 完成 ==========');
+    console.log('[SortedSequencer] 最终队列大小:', this.items.length);
   }
 
   /**

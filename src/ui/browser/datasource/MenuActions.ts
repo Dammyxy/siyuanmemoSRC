@@ -164,18 +164,64 @@ export type PluginLike = {
  * 将 BrowserCard 转换为 QueueItem
  */
 export function cardsToQueueItems(cards: BrowserCard[]): any[] {
-  return cards.map((r) => ({
-    cardID: r.fsrsCardId || r.id || r.blockId,
-    blockID: r.blockId,
-    deckID: r.deckId,
-    priority: typeof r.priority === 'number' ? r.priority : 50,
-    nextDues: r.nextDues,
-    state: r.state,
-    lapses: r.lapses,
-    reps: r.reps,
-    lastReview: r.lastReview,
-    meta: r.meta,
-  }));
+  console.log('[MenuActions] ========== cardsToQueueItems 转换开始 ==========');
+  console.log('[MenuActions] 输入 BrowserCard 数量:', cards.length);
+  
+  const result = cards.map((r, index) => {
+    const cardID = r.fsrsCardId || r.id || r.blockId;
+    const item = {
+      cardID,
+      blockID: r.blockId,
+      deckID: r.deckId,
+      priority: typeof r.priority === 'number' ? r.priority : 50,
+      nextDues: r.nextDues,
+      state: r.state,
+      lapses: r.lapses,
+      reps: r.reps,
+      lastReview: r.lastReview,
+      meta: r.meta,
+    };
+    
+    console.log(`[MenuActions] 转换卡片 ${index + 1}/${cards.length}:`, {
+      input: {
+        id: r.id,
+        fsrsCardId: r.fsrsCardId,
+        blockId: r.blockId,
+        deckId: r.deckId,
+        nextDues: r.nextDues,
+        priority: r.priority,
+      },
+      output: {
+        cardID: item.cardID,
+        blockID: item.blockID,
+        deckID: item.deckID,
+        nextDues: item.nextDues,
+        priority: item.priority,
+      },
+      match: cardID === (r.fsrsCardId || r.id || r.blockId),
+    });
+    
+    // 验证转换结果
+    if (!item.cardID) {
+      console.error(`[MenuActions] ❌ 转换错误：cardID 为空`, { input: r, output: item });
+    }
+    if (!item.blockID) {
+      console.error(`[MenuActions] ❌ 转换错误：blockID 为空`, { input: r, output: item });
+    }
+    if (item.cardID !== cardID) {
+      console.error(`[MenuActions] ❌ 转换错误：cardID 不匹配`, {
+        expected: cardID,
+        actual: item.cardID,
+      });
+    }
+    
+    return item;
+  });
+  
+  console.log('[MenuActions] ========== cardsToQueueItems 转换完成 ==========');
+  console.log('[MenuActions] 输出 QueueItem 数量:', result.length);
+  
+  return result;
 }
 
 /**
@@ -496,7 +542,30 @@ export async function addToQueue(
 
   // 提取练习使用 addItems（批量）
   if (queueType === 'retrieval') {
-    console.log('[MenuActions] 处理提取练习队列');
+    console.log('[MenuActions] ========== 处理提取练习队列 ==========');
+    console.log('[MenuActions] 原始 selectedRows 完整对象:', selectedRows.map(r => {
+      // 打印完整对象以便调试
+      const fullObj = { ...r };
+      console.log('[MenuActions] 单个 BrowserCard 完整数据:', fullObj);
+      return {
+        id: r.id,
+        fsrsCardId: r.fsrsCardId,
+        blockId: r.blockId,
+        deckId: r.deckId,
+        cardType: (r as any).cardType,
+        nextDues: r.nextDues,
+        priority: r.priority,
+        // 打印所有字段
+        allKeys: Object.keys(r),
+      };
+    }));
+    console.log('[MenuActions] 转换后的 items（过滤前）:', items.map(item => ({
+      cardID: item.cardID,
+      blockID: item.blockID,
+      deckID: item.deckID,
+      nextDues: item.nextDues,
+      priority: item.priority,
+    })));
     
     // 🆕 过滤 Topic 卡片：提取练习只接受 Item 卡片
     const filteredItems = items.filter((item) => {
@@ -510,19 +579,43 @@ export async function addToQueue(
       return true;
     });
     
-    console.log(`[MenuActions] 过滤后：${filteredItems.length}/${items.length} 张卡片`);
+    // 🆕 为手动添加的卡片添加 manuallyAdded 标记
+    // 这样 getAll() 时不会被过滤，无论 nextDues 是什么
+    const itemsWithManualFlag = filteredItems.map(item => ({
+      ...item,
+      manuallyAdded: true,  // 🆕 标记为手动添加
+    }));
     
-    if (filteredItems.length === 0) {
+    console.log(`[MenuActions] 过滤后：${itemsWithManualFlag.length}/${items.length} 张卡片`);
+    console.log('[MenuActions] 最终传递给 queue.addItems 的数据:');
+    itemsWithManualFlag.forEach((item, index) => {
+      console.log(`[MenuActions]   卡片 ${index + 1}:`, {
+        cardID: item.cardID,
+        blockID: item.blockID,
+        deckID: item.deckID,
+        manuallyAdded: item.manuallyAdded,
+        priority: item.priority,
+      });
+    });
+    
+    if (itemsWithManualFlag.length === 0) {
+      console.log('[MenuActions] ❌ 没有有效卡片，返回失败');
       return { added: 0, message: 'Topic 卡片不能加入提取练习队列' };
     }
     
     if (queue?.addItems) {
-      const added = await Promise.resolve(queue.addItems(filteredItems));
-      const skipped = items.length - filteredItems.length;
+      console.log('[MenuActions] ✅ 调用 queue.addItems，参数数量:', itemsWithManualFlag.length);
+      const added = await Promise.resolve(queue.addItems(itemsWithManualFlag));
+      console.log('[MenuActions] ✅ queue.addItems 返回结果:', added);
+      const skipped = items.length - itemsWithManualFlag.length;
       const message = skipped > 0
         ? `已加入 ${added} 张卡片到提取练习队列（过滤了 ${skipped} 张 Topic 卡片）`
         : `已加入 ${added} 张卡片到提取练习队列`;
+      console.log('[MenuActions] ========== 处理完成，返回消息 ==========');
       return { added, message };
+    } else {
+      console.error('[MenuActions] ❌ queue.addItems 方法不存在');
+      return { added: 0, message: '提取练习队列不可用' };
     }
   }
 

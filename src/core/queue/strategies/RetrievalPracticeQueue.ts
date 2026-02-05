@@ -90,18 +90,45 @@ class RetrievalHybridDataSource extends HybridDataSource {
     // Load Riff cards
     this.riffBuffer = await this.getFromSource('riff');
 
-    // Filter local buffer for due cards only
+    // 🆕 迁移逻辑：为所有没有 manuallyAdded 标记的旧卡片添加标记
+    // 这样旧卡片也能正常显示
+    let needsPersist = false;
+    for (const item of this.localBuffer) {
+      if ((item as any).manuallyAdded === undefined) {
+        (item as any).manuallyAdded = true;
+        needsPersist = true;
+      }
+    }
+    if (needsPersist) {
+      console.log('[RetrievalHybridDataSource] 🔄 迁移：为旧卡片添加 manuallyAdded 标记');
+      await this._persistLocalQueue();
+    }
+
+    // Filter local buffer:
+    // - 手动添加的卡片（manuallyAdded = true）：不过滤，直接显示
+    // - 自动到期的卡片（manuallyAdded = false）：只显示到期的
     const now = Date.now();
     console.log('[RetrievalHybridDataSource] getAll: filtering local buffer', {
       totalLocal: this.localBuffer.length,
       localBufferCards: this.localBuffer.map(it => ({
         cardID: it.cardID,
+        manuallyAdded: (it as any).manuallyAdded,
         nextDues: it.nextDues,
       })),
       now,
     });
     
     const dueLocalItems = this.localBuffer.filter(item => {
+      // 🆕 如果是手动添加的卡片，直接通过过滤
+      if ((item as any).manuallyAdded === true) {
+        console.log('[RetrievalHybridDataSource] ✅ 手动添加的卡片，直接显示:', {
+          cardID: item.cardID,
+          manuallyAdded: true,
+        });
+        return true;
+      }
+      
+      // 否则检查是否到期
       const dueTime = CardStorage.getDueTime(item);
       const isDue = dueTime <= now;
       console.log('[RetrievalHybridDataSource] Checking local item:', {
@@ -110,6 +137,7 @@ class RetrievalHybridDataSource extends HybridDataSource {
         now,
         isDue,
         nextDues: item.nextDues,
+        manuallyAdded: false,
       });
       return isDue;
     });
@@ -182,16 +210,56 @@ class RetrievalHybridDataSource extends HybridDataSource {
    * Add items to local buffer
    */
   async insertAt(items: QueueItem[], index: number): Promise<void> {
-    console.log('[RetrievalHybridDataSource] insertAt called:', {
+    console.log('[RetrievalHybridDataSource] ========== insertAt 被调用 ==========');
+    console.log('[RetrievalHybridDataSource] 输入参数:', {
       itemCount: items.length,
       index,
-      items: items.map(it => ({
-        cardID: it.cardID,
-        nextDues: it.nextDues,
-      })),
+      currentLocalBufferSize: this.localBuffer.length,
     });
+    console.log('[RetrievalHybridDataSource] 输入 items 详情:', items.map(it => ({
+      cardID: it.cardID,
+      blockID: it.blockID,
+      nextDues: it.nextDues,
+      priority: it.priority,
+    })));
+    console.log('[RetrievalHybridDataSource] 当前 localBuffer 内容:', this.localBuffer.map(it => ({
+      cardID: it.cardID,
+      blockID: it.blockID,
+    })));
+    
+    // 执行插入
     this.localBuffer.splice(index, 0, ...items);
+    console.log('[RetrievalHybridDataSource] ✅ splice 完成');
+    console.log('[RetrievalHybridDataSource] 更新后 localBuffer 大小:', this.localBuffer.length);
+    console.log('[RetrievalHybridDataSource] 更新后 localBuffer 内容:', this.localBuffer.map(it => ({
+      cardID: it.cardID,
+      blockID: it.blockID,
+    })));
+    
+    // 验证插入结果
+    for (const item of items) {
+      const found = this.localBuffer.find(li => li.cardID === item.cardID);
+      if (!found) {
+        console.error('[RetrievalHybridDataSource] ❌ 验证失败：卡片未在 localBuffer 中找到', {
+          cardID: item.cardID,
+          blockID: item.blockID,
+        });
+      } else if (found.cardID !== item.cardID) {
+        console.error('[RetrievalHybridDataSource] ❌ 验证失败：cardID 不匹配', {
+          expected: item.cardID,
+          actual: found.cardID,
+        });
+      } else {
+        console.log('[RetrievalHybridDataSource] ✅ 验证成功：卡片已在 localBuffer 中', {
+          cardID: found.cardID,
+          blockID: found.blockID,
+        });
+      }
+    }
+    
+    console.log('[RetrievalHybridDataSource] ✅ 准备持久化到存储');
     await this._persistLocalQueue();
+    console.log('[RetrievalHybridDataSource] ========== insertAt 完成 ==========');
   }
 
   /**
@@ -244,6 +312,21 @@ class RetrievalHybridDataSource extends HybridDataSource {
       if (data && Array.isArray(data.items)) {
         this.localBuffer = data.items;
         console.log('[RetrievalHybridDataSource] Loaded', this.localBuffer.length, 'items from storage');
+        
+        // 🆕 迁移逻辑：为所有没有 manuallyAdded 标记的旧卡片添加标记
+        // 这确保旧架构添加的卡片也能正常显示
+        let needsMigration = false;
+        for (const item of this.localBuffer) {
+          if ((item as any).manuallyAdded === undefined) {
+            (item as any).manuallyAdded = true;
+            needsMigration = true;
+          }
+        }
+        
+        if (needsMigration) {
+          console.log('[RetrievalHybridDataSource] 🔄 迁移：为', this.localBuffer.length, '张旧卡片添加 manuallyAdded 标记');
+          await this._persistLocalQueue();
+        }
       } else {
         this.localBuffer = [];
         console.log('[RetrievalHybridDataSource] No saved queue found, starting empty');
@@ -514,13 +597,74 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
    * Items are inserted at the beginning of the local buffer
    */
   async addItems(items: QueueItem[]): Promise<number> {
-    if (!items || items.length === 0) return 0;
+    console.log('[RetrievalPracticeQueue] ========== addItems 被调用 ==========');
+    console.log('[RetrievalPracticeQueue] 输入 items 数量:', items?.length || 0);
+    console.log('[RetrievalPracticeQueue] 输入 items 详情:', items?.map(item => ({
+      cardID: item.cardID,
+      blockID: item.blockID,
+      deckID: item.deckID,
+      nextDues: item.nextDues,
+      priority: item.priority,
+    })));
+    
+    if (!items || items.length === 0) {
+      console.log('[RetrievalPracticeQueue] ❌ items 为空，返回 0');
+      return 0;
+    }
+    
+    // 验证输入数据
+    for (const item of items) {
+      if (!item.cardID) {
+        console.error('[RetrievalPracticeQueue] ❌ 验证失败：cardID 为空', item);
+      }
+      if (!item.blockID) {
+        console.error('[RetrievalPracticeQueue] ❌ 验证失败：blockID 为空', item);
+      }
+    }
+    
+    // 🆕 为所有手动添加的卡片设置 manuallyAdded 标记
+    // 这样即使卡片未到期，也会在 getAll() 中显示
+    const itemsWithFlag = items.map(item => ({
+      ...item,
+      manuallyAdded: true,
+    }));
+    console.log('[RetrievalPracticeQueue] ✅ 已为所有卡片设置 manuallyAdded = true');
+    
+    console.log('[RetrievalPracticeQueue] ✅ 准备调用 hybridSource.insertAt()');
+    console.log('[RetrievalPracticeQueue] 当前 localBuffer 大小:', this.hybridSource['localBuffer'].length);
+    console.log('[RetrievalPracticeQueue] 当前 sequencer 大小:', (this.sequencer as SortedSequencer<QueueItem>).size());
     
     // Add to data source (for persistence)
-    await this.hybridSource.insertAt(items, 0);
+    await this.hybridSource.insertAt(itemsWithFlag, 0);
+    console.log('[RetrievalPracticeQueue] ✅ hybridSource.insertAt() 完成');
+    console.log('[RetrievalPracticeQueue] 更新后 localBuffer 大小:', this.hybridSource['localBuffer'].length);
     
     // Add to sequencer (for immediate availability)
-    (this.sequencer as SortedSequencer<QueueItem>).insertMany(items);
+    console.log('[RetrievalPracticeQueue] ✅ 准备调用 sequencer.insertMany()');
+    (this.sequencer as SortedSequencer<QueueItem>).insertMany(itemsWithFlag);
+    console.log('[RetrievalPracticeQueue] ✅ sequencer.insertMany() 完成');
+    console.log('[RetrievalPracticeQueue] 更新后 sequencer 大小:', (this.sequencer as SortedSequencer<QueueItem>).size());
+    
+    // 验证插入结果
+    const sequencerItems = (this.sequencer as SortedSequencer<QueueItem>).getAll();
+    for (const item of items) {
+      const found = sequencerItems.find(si => si.cardID === item.cardID);
+      if (!found) {
+        console.error('[RetrievalPracticeQueue] ❌ 验证失败：卡片未在 sequencer 中找到', {
+          cardID: item.cardID,
+          blockID: item.blockID,
+        });
+      } else {
+        console.log('[RetrievalPracticeQueue] ✅ 验证成功：卡片已在 sequencer 中', {
+          cardID: found.cardID,
+          blockID: found.blockID,
+          match: found.cardID === item.cardID && found.blockID === item.blockID,
+        });
+      }
+    }
+    
+    console.log('[RetrievalPracticeQueue] ========== addItems 完成，返回 ==========');
+    console.log('[RetrievalPracticeQueue] 返回值:', items.length);
     
     return items.length;
   }

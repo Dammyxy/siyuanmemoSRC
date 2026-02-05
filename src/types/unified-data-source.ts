@@ -258,6 +258,20 @@ export interface IReviewQueue {
     getCards(): Promise<FSRSCard[]>;
     
     /**
+     * 获取队列中的所有卡片（包括过滤后的结果）
+     * 
+     * 此方法用于浏览器等 UI 组件，返回经过过滤和处理的卡片列表。
+     * 与 getCards() 的区别：
+     * - getCards(): 返回原始卡片数据
+     * - getAllCards(): 返回经过数据源过滤的卡片（例如：只返回到期的卡片）
+     * 
+     * 注意：返回类型为 any[] 以兼容旧架构的 QueueItem 类型
+     * 
+     * @returns 卡片数组（FSRSCard[] 或 QueueItem[]）
+     */
+    getAllCards(): Promise<any[]>;
+    
+    /**
      * 添加卡片到队列
      * 
      * @param cardId 卡片 ID
