@@ -10,6 +10,7 @@
  */
 
 import { FSRSCard } from './card';
+import type { QueueItem } from '../core/queue/types';
 
 // ============================================================================
 // 核心枚举类型
@@ -244,6 +245,16 @@ export interface ContextMenuOption {
  */
 export interface IReviewQueue {
     /**
+     * 队列名称
+     */
+    name: string;
+    
+    /**
+     * 队列类型
+     */
+    type: QueueType;
+
+    /**
      * 获取队列类型
      * 
      * @returns 队列类型
@@ -265,26 +276,33 @@ export interface IReviewQueue {
      * - getCards(): 返回原始卡片数据
      * - getAllCards(): 返回经过数据源过滤的卡片（例如：只返回到期的卡片）
      * 
-     * 注意：返回类型为 any[] 以兼容旧架构的 QueueItem 类型
-     * 
-     * @returns 卡片数组（FSRSCard[] 或 QueueItem[]）
+     * @returns 卡片数组（FSRSCard[]）
      */
-    getAllCards(): Promise<any[]>;
+    getAllCards(): Promise<FSRSCard[]>;
+
+    /**
+     * 获取下一张卡片
+     */
+    getNextCard(): Promise<FSRSCard | null>;
     
     /**
      * 添加卡片到队列
      * 
-     * @param cardId 卡片 ID
-     * @param source 来源类型（可选，仅用于最终训练队列）
+     * @param card 卡片
      */
-    addCard(cardId: string, source?: 'manual' | 'auto-failed'): Promise<void>;
+    addCard(card: FSRSCard | QueueItem | string, source?: 'manual' | 'auto-failed'): Promise<void>;
     
     /**
      * 从队列中移除卡片
      * 
-     * @param cardId 卡片 ID
+     * @param cardIdOrBlockId 卡片 ID 或 Block ID
      */
-    removeCard(cardId: string): Promise<void>;
+    removeCard(cardIdOrBlockId: string): Promise<void>;
+
+    /**
+     * 更新卡片
+     */
+    updateCard(card: FSRSCard): Promise<void>;
     
     /**
      * 处理卡片复习
@@ -302,6 +320,51 @@ export interface IReviewQueue {
      * @returns true 表示动态队列，false 表示静态队列
      */
     isDynamic(): boolean;
+
+    /**
+     * 刷新队列
+     */
+    refresh(): Promise<void>;
+    
+    /**
+     * 清空队列
+     */
+    clear(): Promise<void>;
+    
+    /**
+     * 获取队列大小
+     */
+    getSize(): Promise<number>;
+    
+    /**
+     * 判断队列是否为空
+     */
+    isEmpty(): Promise<boolean>;
+    
+    /**
+     * 排序队列
+     */
+    sort(compareFn?: (a: FSRSCard, b: FSRSCard) => number): Promise<void>;
+    
+    /**
+     * 过滤队列
+     */
+    filter(predicate: (card: FSRSCard) => boolean): Promise<FSRSCard[]>;
+
+    /**
+     * 订阅队列变更
+     */
+    subscribe(observer: QueueObserver): void;
+    
+    /**
+     * 取消订阅队列变更
+     */
+    unsubscribe(observer: QueueObserver): void;
+    
+    /**
+     * 通知所有订阅者
+     */
+    notifyObservers(): void;
     
     /**
      * 重新排序队列
@@ -326,6 +389,13 @@ export interface IReviewQueue {
      * - 静态队列：按添加顺序
      */
     clearCustomOrder(): void;
+}
+
+/**
+ * 队列观察者接口
+ */
+export interface QueueObserver {
+    onQueueUpdate(queue: IReviewQueue): void;
 }
 
 // ============================================================================

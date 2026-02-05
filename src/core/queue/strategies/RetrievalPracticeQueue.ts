@@ -371,6 +371,9 @@ class RetrievalHybridDataSource extends HybridDataSource {
  * 
  * Now uses SortedSequencer (SM-15 style) for efficient binary search insertion.
  */
+/**
+ * @deprecated Old architecture queue. Use src/queues/RetrievalPracticeQueue instead.
+ */
 export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
   private readonly hybridSource: RetrievalHybridDataSource;
   private readonly deckID: string;

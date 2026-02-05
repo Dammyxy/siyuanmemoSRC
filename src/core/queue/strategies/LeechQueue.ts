@@ -47,6 +47,9 @@ export interface LeechQueueConfig {
  * New implementation using composite architecture.
  * Maintains full compatibility with V1 while using cleaner structure.
  */
+/**
+ * @deprecated Old architecture queue. Use src/queues/ instead when possible.
+ */
 export class LeechQueue extends BaseCompositeQueue<QueueItem> {
   private readonly config: Required<LeechQueueConfig>;
   private readonly deckID: string;

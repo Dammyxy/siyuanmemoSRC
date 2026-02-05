@@ -14,6 +14,7 @@ import type { IDataSourceObserver, DataChangeEvent, QueueType } from '../../type
 import type { FSRSCard } from '../../types/card';
 import type { BrowserCard } from './types';
 import { CardState, calculateRetrievability, formatDate, truncateContent } from './types';
+import { validateConsumerCardType } from '../../diagnostics/type-guards';
 
 /**
  * fetchRows 方法的选项参数
@@ -166,6 +167,9 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             console.log(`[SRSBrowserAdapter] Calling getAllCards() on queue`);
             const cards = await queue.getAllCards();
             console.log(`[SRSBrowserAdapter] getAllCards() returned ${cards.length} cards`);
+
+            // 运行时类型验证（开发模式）
+            validateConsumerCardType('SRSBrowserAdapter', cards);
             
             // 转换为 BrowserCard 格式
             const browserCards = cards.map(card => this.convertToBrowserCard(card));

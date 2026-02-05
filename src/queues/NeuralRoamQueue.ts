@@ -19,10 +19,12 @@
 import { BaseReviewQueue } from './BaseReviewQueue';
 import { QueueType } from '../types/unified-data-source';
 import { FSRSCard } from '../types/card';
+import type { QueueItem } from '../core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import { NeuralQueue } from '../core/queue/neural/NeuralQueue';
 import { NeuralQueueStorage } from '../core/queue/neural/NeuralQueueStorage';
 import type { NeuralQueueConfig } from '../core/queue/neural/types';
+import { resolveCardId } from '../diagnostics/type-guards';
 
 /**
  * 种子块数据接口
@@ -46,6 +48,7 @@ interface SeedBlockData {
  * @see 需求 6.2, 6.4, 6.5, 13.2, 13.4, 19.1-19.5, 20.1-20.5, 21.1-21.5
  */
 export class NeuralRoamQueue extends BaseReviewQueue {
+    public name = 'NeuralRoamQueue';
     /**
      * 现有神经队列实例
      */
@@ -136,8 +139,9 @@ export class NeuralRoamQueue extends BaseReviewQueue {
      * @param cardId 卡片 ID
      * @see 需求 19.2, 19.5, 6.4
      */
-    public async addCard(cardId: string): Promise<void> {
+    public async addCard(card: FSRSCard | QueueItem | string): Promise<void> {
         try {
+            const cardId = resolveCardId(card);
             this.seedBlocks.add(cardId);
             await this.persistSeeds();
             
@@ -161,17 +165,17 @@ export class NeuralRoamQueue extends BaseReviewQueue {
      * @param cardId 卡片 ID
      * @see 需求 19.2
      */
-    public async removeCard(cardId: string): Promise<void> {
+    public async removeCard(cardIdOrBlockId: string): Promise<void> {
         try {
-            this.seedBlocks.delete(cardId);
+            this.seedBlocks.delete(cardIdOrBlockId);
             
             // 如果移除的是当前种子，清空当前种子
-            if (this.currentSeed === cardId) {
+            if (this.currentSeed === cardIdOrBlockId) {
                 this.currentSeed = null;
             }
             
             await this.persistSeeds();
-            console.log(`[NeuralRoamQueue] Seed block removed: ${cardId}`);
+            console.log(`[NeuralRoamQueue] Seed block removed: ${cardIdOrBlockId}`);
         } catch (error) {
             console.error('[NeuralRoamQueue] Failed to remove seed block:', error);
             throw error;

@@ -18,7 +18,9 @@
 import { BaseReviewQueue } from './BaseReviewQueue';
 import { QueueType } from '../types/unified-data-source';
 import { FSRSCard } from '../types/card';
+import type { QueueItem } from '../core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
+import { resolveCardId } from '../diagnostics/type-guards';
 
 /**
  * 检索练习队列类
@@ -35,6 +37,7 @@ import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceMana
  * @see 需求 5.1, 5.4, 7.1, 7.2, 9.1
  */
 export class RetrievalPracticeQueue extends BaseReviewQueue {
+    public name = 'RetrievalPracticeQueue';
     /**
      * 手动添加的卡片 ID 集合
      * 
@@ -129,8 +132,9 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
      * @param cardId 卡片 ID
      * @see 需求 5.4, 18.1, 18.4, 6.4
      */
-    public async addCard(cardId: string): Promise<void> {
+    public async addCard(card: FSRSCard | QueueItem | string): Promise<void> {
         try {
+            const cardId = resolveCardId(card);
             // 添加到手动添加的卡片集合
             this.manuallyAddedCards.add(cardId);
             
@@ -160,15 +164,15 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
      * @param cardId 卡片 ID
      * @see 需求 5.5, 12.1
      */
-    public async removeCard(cardId: string): Promise<void> {
+    public async removeCard(cardIdOrBlockId: string): Promise<void> {
         try {
             // 从手动添加的卡片集合中移除
-            this.manuallyAddedCards.delete(cardId);
+            this.manuallyAddedCards.delete(cardIdOrBlockId);
             
             // 持久化
             await this.persistManuallyAddedCards();
             
-            console.log(`[RetrievalPracticeQueue] Card ${cardId} removed`);
+            console.log(`[RetrievalPracticeQueue] Card ${cardIdOrBlockId} removed`);
         } catch (error) {
             console.error('[RetrievalPracticeQueue] Failed to remove card:', error);
             throw error;

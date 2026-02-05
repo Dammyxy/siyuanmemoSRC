@@ -8,9 +8,11 @@
  * @see .kiro/specs/unified-data-source-architecture/design.md
  */
 
-import { IReviewQueue, QueueType } from '../types/unified-data-source';
+import { IReviewQueue, QueueObserver, QueueType } from '../types/unified-data-source';
 import { FSRSCard } from '../types/card';
+import type { QueueItem } from '../core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
+import { normalizeToFSRSCard, validateQueueReturnType } from '../diagnostics/type-guards';
 
 /**
  * 复习队列抽象基类
@@ -22,6 +24,11 @@ import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceMana
  */
 export abstract class BaseReviewQueue implements IReviewQueue {
     /**
+     * 队列名称
+     */
+    public abstract name: string;
+    
+    /**
      * 数据源管理器引用
      */
     protected manager: UnifiedDataSourceManager;
@@ -29,7 +36,17 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     /**
      * 队列类型
      */
-    protected type: QueueType;
+    public type: QueueType;
+
+    /**
+     * 队列卡片缓存
+     */
+    protected cards: FSRSCard[] = [];
+
+    /**
+     * 队列观察者
+     */
+    protected observers: QueueObserver[] = [];
     
     /**
      * 构造函数
@@ -75,9 +92,22 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @returns 卡片数组
      * @see 需求 5.1, 5.2, 5.3, 6.1, 6.2
      */
-    public async getAllCards(): Promise<any[]> {
-        // 默认实现：直接调用 getCards()
-        return await this.getCards();
+    public async getAllCards(): Promise<FSRSCard[]> {
+        const rawCards = await this.getCards();
+        const cards = normalizeToFSRSCard(rawCards as any[]);
+        this.cards = [...cards];
+        validateQueueReturnType(this.name ?? this.type, 'getAllCards', cards);
+        return cards;
+    }
+
+    /**
+     * 获取下一张卡片
+     */
+    public async getNextCard(): Promise<FSRSCard | null> {
+        if (this.cards.length === 0) {
+            await this.getAllCards();
+        }
+        return this.cards.length > 0 ? this.cards[0] : null;
     }
     
     /**
@@ -89,7 +119,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @param source 来源类型（可选，仅用于最终训练队列）
      * @see 需求 5.4, 6.1, 6.2, 9.1, 9.5, 18.1
      */
-    public abstract addCard(cardId: string, source?: 'manual' | 'auto-failed'): Promise<void>;
+    public abstract addCard(card: FSRSCard | QueueItem | string, source?: 'manual' | 'auto-failed'): Promise<void>;
     
     /**
      * 从队列中移除卡片
@@ -99,7 +129,18 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @param cardId 卡片 ID
      * @see 需求 5.5, 6.1, 6.2, 12.1, 12.2, 12.3
      */
-    public abstract removeCard(cardId: string): Promise<void>;
+    public abstract removeCard(cardIdOrBlockId: string): Promise<void>;
+
+    /**
+     * 更新卡片
+     */
+    public async updateCard(card: FSRSCard): Promise<void> {
+        const index = this.cards.findIndex(c => c.blockId === card.blockId);
+        if (index !== -1) {
+            this.cards[index] = card;
+            this.notifyObservers();
+        }
+    }
     
     /**
      * 处理卡片复习
@@ -127,6 +168,87 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @see 需求 5.1, 6.1
      */
     public abstract isDynamic(): boolean;
+
+    /**
+     * 刷新队列
+     */
+    public async refresh(): Promise<void> {
+        await this.getAllCards();
+        this.notifyObservers();
+    }
+
+    /**
+     * 清空队列
+     */
+    public async clear(): Promise<void> {
+        this.cards = [];
+        this.notifyObservers();
+    }
+
+    /**
+     * 获取队列大小
+     */
+    public async getSize(): Promise<number> {
+        if (this.cards.length === 0) {
+            await this.getAllCards();
+        }
+        return this.cards.length;
+    }
+
+    /**
+     * 判断队列是否为空
+     */
+    public async isEmpty(): Promise<boolean> {
+        return (await this.getSize()) === 0;
+    }
+
+    /**
+     * 排序队列
+     */
+    public async sort(compareFn?: (a: FSRSCard, b: FSRSCard) => number): Promise<void> {
+        if (this.cards.length === 0) {
+            await this.getAllCards();
+        }
+        if (compareFn) {
+            this.cards.sort(compareFn);
+        } else {
+            this.cards.sort((a, b) => a.due - b.due);
+        }
+        this.notifyObservers();
+    }
+
+    /**
+     * 过滤队列
+     */
+    public async filter(predicate: (card: FSRSCard) => boolean): Promise<FSRSCard[]> {
+        if (this.cards.length === 0) {
+            await this.getAllCards();
+        }
+        return this.cards.filter(predicate);
+    }
+
+    /**
+     * 订阅队列变更
+     */
+    public subscribe(observer: QueueObserver): void {
+        if (!this.observers.includes(observer)) {
+            this.observers.push(observer);
+        }
+    }
+
+    /**
+     * 取消订阅队列变更
+     */
+    public unsubscribe(observer: QueueObserver): void {
+        this.observers = this.observers.filter(o => o !== observer);
+    }
+
+    /**
+     * 通知所有订阅者
+     */
+    public notifyObservers(): void {
+        this.observers.forEach(observer => observer.onQueueUpdate(this));
+    }
     
     /**
      * 重新排序队列

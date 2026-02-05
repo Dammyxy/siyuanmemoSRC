@@ -18,7 +18,9 @@
 import { BaseReviewQueue } from './BaseReviewQueue';
 import { QueueType } from '../types/unified-data-source';
 import { FSRSCard } from '../types/card';
+import type { QueueItem } from '../core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
+import { resolveCardId } from '../diagnostics/type-guards';
 
 /**
  * 最终训练条目接口
@@ -47,6 +49,7 @@ export interface FinalDrillEntry {
  * @see 需求 6.1, 6.3, 8.1, 8.2, 8.3, 9.4, 9.5, 13.1, 13.3, 13.5
  */
 export class FinalDrillQueue extends BaseReviewQueue {
+    public name = 'FinalDrillQueue';
     /**
      * 队列条目映射
      * 
@@ -144,8 +147,9 @@ export class FinalDrillQueue extends BaseReviewQueue {
      * @param source 来源类型（'manual' 或 'auto-failed'）
      * @see 需求 6.1, 9.1, 9.5, 6.4
      */
-    public async addCard(cardId: string, source: 'manual' | 'auto-failed' = 'manual'): Promise<void> {
+    public async addCard(card: FSRSCard | QueueItem | string, source: 'manual' | 'auto-failed' = 'manual'): Promise<void> {
         try {
+            const cardId = resolveCardId(card);
             // 检查是否已存在
             const existing = this.entries.get(cardId);
             if (existing && existing.source === 'manual') {
@@ -184,11 +188,11 @@ export class FinalDrillQueue extends BaseReviewQueue {
      * @param cardId 卡片 ID
      * @see 需求 6.1, 8.2
      */
-    public async removeCard(cardId: string): Promise<void> {
+    public async removeCard(cardIdOrBlockId: string): Promise<void> {
         try {
-            this.entries.delete(cardId);
+            this.entries.delete(cardIdOrBlockId);
             await this.persistEntries();
-            console.log(`[FinalDrillQueue] Card ${cardId} removed`);
+            console.log(`[FinalDrillQueue] Card ${cardIdOrBlockId} removed`);
         } catch (error) {
             console.error('[FinalDrillQueue] Failed to remove card:', error);
             throw error;

@@ -37,6 +37,9 @@ export interface FilterGroupSnapshot {
  * New implementation using composite architecture.
  * Maintains full compatibility with V1.
  */
+/**
+ * @deprecated Old architecture queue. Use src/queues/FilterGroupQueue instead.
+ */
 export class FilterGroupQueue extends BaseCompositeQueue<QueueItem>
   implements IQueueStrategy<QueueItem>
 {

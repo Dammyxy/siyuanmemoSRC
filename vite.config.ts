@@ -43,10 +43,13 @@ export default defineConfig(({
   console.log("isWatch=>", isWatch)
   console.log("distDir=>", distDir)
 
+  const isTest = mode === 'test' || process.env.VITEST === 'true'
+
   return {
     resolve: {
       alias: {
         "@": resolve(__dirname, "src"),
+        ...(isTest ? { siyuan: resolve(__dirname, "src/test/mocks/siyuan.ts") } : {}),
       },
     },
 

@@ -23,6 +23,7 @@ import { DEFAULT_PRIORITY } from '../abstraction/IPriority';
 import type { IPrioritizableTrait, IMutableTrait, IRemovableTrait } from '../abstraction/types';
 import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy';
 import { getHiddenContentTypes } from '../utils/hiddenContentTypes';
+import { warnDeprecatedQueueUsage } from '../deprecation';
 
 type RiffApi = {
   getRiffDueCards: typeof riff.getRiffDueCards;
@@ -166,6 +167,9 @@ function safeToISOString(
  * - No filtering (all cards can be added)
  * - Unified FSRS scheduling
  */
+/**
+ * @deprecated Old architecture queue. Use src/queues/IncrementalLearningQueue instead.
+ */
 export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
   private readonly deckID: string;
   private readonly api: RiffApi;
@@ -202,6 +206,7 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
     schedulerRouter?: SchedulerRouter;  // 🆕 Phase 2.1.1
     config?: { enableRiffSync?: boolean };  // 🆕 Phase 2.1.1
   }) {
+    warnDeprecatedQueueUsage(this.constructor.name);
     this.deckID = String(options?.deckID || riff.BUILTIN_DECK_ID);
     this.api = {
       getRiffDueCards: options?.api?.getRiffDueCards || riff.getRiffDueCards,

@@ -58,6 +58,9 @@ class GraphDataSource {
  * Simplified wrapper around existing NeuralRoamQueue logic.
  * Uses BaseCompositeQueue for consistency with other queues.
  */
+/**
+ * @deprecated Old architecture queue. Use src/queues/NeuralRoamQueue instead.
+ */
 export class NeuralRoamQueue extends BaseCompositeQueue<QueueItem> {
   private readonly deckID: string;
   private readonly i18n?: I18n;

@@ -35,6 +35,9 @@ type Snapshot = {
  * New implementation using composite architecture.
  * Maintains full compatibility with V1.
  */
+/**
+ * @deprecated Old architecture queue. Use src/queues/FinalDrillQueue instead.
+ */
 export class FinalDrillQueue extends BaseCompositeQueue<FinalDrillItem> {
   private readonly adapter: PersistenceAdapter<Snapshot> | null;
   // ⚠️ sequencer is already in BaseCompositeQueue, don't redeclare as private

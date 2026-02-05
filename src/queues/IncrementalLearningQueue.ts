@@ -18,7 +18,9 @@
 import { BaseReviewQueue } from './BaseReviewQueue';
 import { QueueType } from '../types/unified-data-source';
 import { FSRSCard } from '../types/card';
+import type { QueueItem } from '../core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
+import { resolveCardId } from '../diagnostics/type-guards';
 
 /**
  * 渐进学习队列类
@@ -35,6 +37,7 @@ import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceMana
  * @see 需求 5.2, 7.3, 7.4, 9.2
  */
 export class IncrementalLearningQueue extends BaseReviewQueue {
+    public name = 'IncrementalLearningQueue';
     /**
      * 手动添加的卡片 ID 集合
      */
@@ -112,8 +115,9 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
      * @param cardId 卡片 ID
      * @see 需求 5.4, 18.1, 18.4, 6.4
      */
-    public async addCard(cardId: string): Promise<void> {
+    public async addCard(card: FSRSCard | QueueItem | string): Promise<void> {
         try {
+            const cardId = resolveCardId(card);
             this.manuallyAddedCards.add(cardId);
             await this.persistManuallyAddedCards();
             
@@ -137,11 +141,11 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
      * @param cardId 卡片 ID
      * @see 需求 5.5, 12.2
      */
-    public async removeCard(cardId: string): Promise<void> {
+    public async removeCard(cardIdOrBlockId: string): Promise<void> {
         try {
-            this.manuallyAddedCards.delete(cardId);
+            this.manuallyAddedCards.delete(cardIdOrBlockId);
             await this.persistManuallyAddedCards();
-            console.log(`[IncrementalLearningQueue] Card ${cardId} removed`);
+            console.log(`[IncrementalLearningQueue] Card ${cardIdOrBlockId} removed`);
         } catch (error) {
             console.error('[IncrementalLearningQueue] Failed to remove card:', error);
             throw error;

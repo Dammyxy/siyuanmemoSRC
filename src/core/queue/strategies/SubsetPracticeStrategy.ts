@@ -5,6 +5,7 @@ import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy.ts';
 import type { QueueItem } from '../types.ts';
 import type { StorageManager } from '@/core/storage/manager';
 import { getHiddenContentTypes } from '../utils/hiddenContentTypes.ts';
+import { warnDeprecatedQueueUsage } from '../deprecation';
 
 type SubsetQueueItem = {
   blockID: string;
@@ -12,6 +13,9 @@ type SubsetQueueItem = {
   deckID: string;
 };
 
+/**
+ * @deprecated Old architecture queue. Use src/queues/ instead when possible.
+ */
 export class SubsetPracticeStrategy implements IQueueStrategy<QueueItem> {
   private readonly deckID: string;
   private readonly queue: SubsetQueueItem[];
@@ -19,6 +23,7 @@ export class SubsetPracticeStrategy implements IQueueStrategy<QueueItem> {
   private readonly storage?: StorageManager;  // 🆕 添加 storage 参数
 
   constructor(options: { blockIds: string[]; deckID?: string; storage?: StorageManager }) {
+    warnDeprecatedQueueUsage(this.constructor.name);
     this.deckID = options.deckID || riff.BUILTIN_DECK_ID;
     this.storage = options.storage;  // 🆕 保存 storage
     const ids = Array.from(new Set((options.blockIds || []).map((x) => String(x || '')).filter(Boolean)));

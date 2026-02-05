@@ -15,6 +15,7 @@ import type { QueueStats, QueueUIConfig, QueueItem } from '../types';
 import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy';
 import type { IScheduler, ISequencer, IQueueTrait } from '../abstraction/types';
 import type { IDataSource } from '../datasource/IDataSource';
+import { warnDeprecatedQueueUsage } from '../deprecation';
 
 export type CompositeQueueConfig<TItem extends QueueItem> = {
   /**
@@ -70,6 +71,9 @@ export type CompositeQueueConfig<TItem extends QueueItem> = {
  * 
  * @see Requirement 6.2 - Generic type constraints for IQueue interface
  */
+/**
+ * @deprecated Old architecture base class. Use BaseReviewQueue in src/queues/ instead.
+ */
 export class BaseCompositeQueue<TItem extends QueueItem = QueueItem> implements IQueueStrategy<TItem> {
   protected readonly scheduler?: IScheduler<TItem, number>;
   protected readonly sequencer: ISequencer<TItem>;
@@ -82,6 +86,7 @@ export class BaseCompositeQueue<TItem extends QueueItem = QueueItem> implements 
   protected currentItem: TItem | null = null;
 
   constructor(config: CompositeQueueConfig<TItem>) {
+    warnDeprecatedQueueUsage(this.constructor.name);
     this.scheduler = config.scheduler;
     this.sequencer = config.sequencer;
     this.dataSource = config.dataSource;
