@@ -313,6 +313,29 @@ export interface IReviewQueue {
     handleReview(cardId: string, rating: number): Promise<void>;
     
     /**
+     * 跳过卡片
+     * 
+     * 将卡片移到队列末尾，不影响调度数据。
+     * 
+     * @param cardId 卡片 ID
+     */
+    skip(cardId: string): Promise<void>;
+    
+    /**
+     * 获取队列统计信息
+     * 
+     * @returns 队列统计数据
+     */
+    getStats(): Promise<QueueStats>;
+    
+    /**
+     * 获取队列 UI 配置
+     * 
+     * @returns UI 配置对象
+     */
+    getUIConfig(): QueueUIConfig;
+    
+    /**
      * 判断是否为动态队列
      * 
      * 动态队列自动获取到期卡片，静态队列仅包含手动管理的卡片。
@@ -418,6 +441,54 @@ export interface FinalDrillEntry {
     
     /** 添加时间戳 */
     timestamp: number;
+}
+
+// ============================================================================
+// 队列统计信息
+// ============================================================================
+
+/**
+ * 队列统计信息
+ * 
+ * 提供队列的统计数据，用于 UI 显示和监控。
+ */
+export interface QueueStats {
+    /** 队列中的总卡片数 */
+    total: number;
+    
+    /** 到期卡片数 */
+    due: number;
+    
+    /** 新卡片数（从未复习过） */
+    new: number;
+    
+    /** 学习中的卡片数 */
+    learning: number;
+    
+    /** 已复习的卡片数（本次会话） */
+    reviewed: number;
+}
+
+/**
+ * 队列 UI 配置
+ * 
+ * 定义队列在复习界面中的 UI 行为和按钮配置。
+ */
+export interface QueueUIConfig {
+    /** 队列显示名称 */
+    displayName: string;
+    
+    /** 复习按钮配置 */
+    buttons: ReviewButtonConfig[];
+    
+    /** 是否显示跳过按钮 */
+    showSkipButton: boolean;
+    
+    /** 是否显示进度条 */
+    showProgressBar: boolean;
+    
+    /** 自定义 CSS 类名（可选） */
+    customClass?: string;
 }
 
 // ============================================================================

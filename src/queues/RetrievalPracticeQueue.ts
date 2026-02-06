@@ -106,11 +106,23 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
                 dueDate: { lte: new Date(now) }
             });
             
+            console.log(`[RetrievalPracticeQueue] 🔍 Got ${dueCards.length} due cards from manager`);
+            
             // 获取手动添加的卡片
             const manualCards = await this.getManuallyAddedCards();
             
+            console.log(`[RetrievalPracticeQueue] 🔍 Got ${manualCards.length} manually added cards`);
+            
             // 合并并去重
             const allCards = this.mergeAndDeduplicate(dueCards, manualCards);
+            
+            console.log(`[RetrievalPracticeQueue] 🔍 After merge: ${allCards.length} cards`);
+            
+            // 检查无效卡片（blockId 为空或 undefined）
+            const invalidCards = allCards.filter(card => !card.blockId || card.blockId === 'undefined');
+            if (invalidCards.length > 0) {
+                console.warn(`[RetrievalPracticeQueue] ⚠️ Found ${invalidCards.length} cards with invalid blockId:`, invalidCards.map(c => ({ id: c.id, blockId: c.blockId })));
+            }
             
             // 按到期日期和优先级排序
             const sortedCards = this.sortByDueDateAndPriority(allCards);
@@ -260,16 +272,26 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
      */
     private async getManuallyAddedCards(): Promise<FSRSCard[]> {
         const cards: FSRSCard[] = [];
+        const toRemove: string[] = [];
         
         for (const cardId of this.manuallyAddedCards) {
             try {
-                const card = await this.manager.getCard(cardId);
+                // 使用静默模式，避免记录预期的"卡片不存在"错误
+                const card = await this.manager.getCard(cardId, { silent: true });
                 cards.push(card);
             } catch (error) {
-                // 如果卡片不存在，从手动添加集合中移除
-                console.warn(`[RetrievalPracticeQueue] Card ${cardId} not found, removing from manual additions`);
+                // 卡片不存在是预期行为（可能已被删除），标记为待移除
+                toRemove.push(cardId);
+            }
+        }
+        
+        // 批量移除不存在的卡片并持久化
+        if (toRemove.length > 0) {
+            for (const cardId of toRemove) {
                 this.manuallyAddedCards.delete(cardId);
             }
+            await this.persistManuallyAddedCards();
+            console.log(`[RetrievalPracticeQueue] Removed ${toRemove.length} non-existent cards from manual additions`);
         }
         
         return cards;
@@ -438,5 +460,19 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
             console.error('[RetrievalPracticeQueue] Failed to persist manually added cards:', error);
             throw error;
         }
+    }
+    
+    /**
+     * ✅ 兼容方法：获取所有队列项（同步）
+     * 
+     * 这是为了兼容旧架构的 getAllItems() 方法。
+     * 新代码应该使用 getAllCards() 方法。
+     * 
+     * @deprecated 使用 getAllCards() 代替
+     */
+    public getAllItems(): any[] {
+        console.warn('[RetrievalPracticeQueue] getAllItems() is deprecated, use getAllCards() instead');
+        // 返回当前缓存的卡片
+        return this.cards;
     }
 }

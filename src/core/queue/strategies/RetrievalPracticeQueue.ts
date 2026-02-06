@@ -1,6 +1,10 @@
 /**
  * Retrieval Practice Queue (V2 - Composite Architecture)
  *
+ * @deprecated 此文件属于旧队列架构，将在未来版本中移除。
+ * 请使用 src/queues/ 中的新架构。
+ * 参考迁移指南: docs/MIGRATION_GUIDE.md
+ *
  * New implementation using BaseCompositeQueue pattern.
  * Unifies Riff + Local storage with algorithmic sorting.
  *

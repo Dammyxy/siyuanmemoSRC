@@ -22,6 +22,12 @@ export const BASE_ACTIONS = {
   removeFromQueue: {
     id: 'remove-from-current-queue',
     label: '从当前队列移除',
+    icon: 'iconMin',
+    danger: true,
+  } as CardBrowserAction,
+  deleteCard: {
+    id: 'delete-card',
+    label: '删除卡片',
     icon: 'iconTrashcan',
     danger: true,
   } as CardBrowserAction,
@@ -112,12 +118,16 @@ export function buildQueueActions(options: {
   withSort?: boolean;
   withPriority?: boolean;
   withTimeAdjust?: boolean;
+  withDelete?: boolean;  // 🆕 是否包含删除操作
 }): CardBrowserAction[] {
   const actions: CardBrowserAction[] = [
     BASE_ACTIONS.open,
     BASE_ACTIONS.removeFromQueue,
   ];
 
+  if (options.withDelete) {
+    actions.push(BASE_ACTIONS.deleteCard);
+  }
   if (options.withInsert) {
     actions.push(BASE_ACTIONS.insertAt);
   }
@@ -502,9 +512,10 @@ export async function addToQueue(
     }
   }
 
-  // 刻意练习使用 addItems（批量）
+  // 刻意练习使用 addCard（单个添加）或 addItems（批量添加，旧架构）
   if (queueType === 'final-drill') {  // ✅ 改名：'deliberate' → 'final-drill'
     console.log('[MenuActions] 处理刻意练习队列');
+    console.log('[MenuActions] queue.addCard 存在:', typeof queue?.addCard === 'function');
     console.log('[MenuActions] queue.addItems 存在:', typeof queue?.addItems === 'function');
     
     // 🆕 过滤 Topic 卡片：刻意练习只接受 Item 卡片
@@ -525,8 +536,28 @@ export async function addToQueue(
       return { added: 0, message: 'Topic 卡片不能加入刻意练习队列' };
     }
     
-    if (queue?.addItems) {
-      console.log('[MenuActions] ✅ 调用 queue.addItems（批量添加）');
+    // ✅ 新架构：使用 addCard 方法（单个添加）
+    if (queue?.addCard) {
+      console.log('[MenuActions] ✅ 使用新架构 queue.addCard（逐个添加）');
+      let added = 0;
+      for (const item of filteredItems) {
+        try {
+          await queue.addCard(item.blockID, 'manual');
+          added++;
+        } catch (err) {
+          console.error(`[MenuActions] 添加卡片失败: ${item.blockID}`, err);
+        }
+      }
+      console.log('[MenuActions] 刻意练习队列添加完成，共添加:', added);
+      const skipped = items.length - filteredItems.length;
+      const message = skipped > 0
+        ? `已加入 ${added} 张卡片到刻意练习队列（过滤了 ${skipped} 张 Topic 卡片）`
+        : `已加入 ${added} 张卡片到刻意练习队列`;
+      return { added, message };
+    }
+    // ✅ 旧架构：使用 addItems 方法（批量添加）
+    else if (queue?.addItems) {
+      console.log('[MenuActions] ✅ 使用旧架构 queue.addItems（批量添加）');
       const added = await Promise.resolve(queue.addItems(filteredItems));
       console.log('[MenuActions] 刻意练习队列添加完成，共添加:', added);
       const skipped = items.length - filteredItems.length;
@@ -535,7 +566,7 @@ export async function addToQueue(
         : `已加入 ${added} 张卡片到刻意练习队列`;
       return { added, message };
     } else {
-      console.error('[MenuActions] ❌ queue.addItems 方法不存在');
+      console.error('[MenuActions] ❌ queue.addCard 和 queue.addItems 方法都不存在');
       return { added: 0, message: '刻意练习队列不可用' };
     }
   }

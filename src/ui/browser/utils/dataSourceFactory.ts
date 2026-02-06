@@ -33,20 +33,21 @@ export interface DataSourceOptionsWithDoc extends DataSourceOptions {
  * 创建队列数据源（五重筛选）
  * 
  * @param queueId - 队列 ID
- * @param plugin - 插件实例
+ * @param manager - UnifiedDataSourceManager 实例
  * @param options - 筛选选项
  * @returns 数据源实例或 null
  */
 export function createQueueDataSource(
   queueId: string,
-  plugin: any,
+  manager: any,
   options: DataSourceOptionsWithDoc
 ): ICardDataSource | null {
   const { docId, preset, queryText, cardType } = options;
 
+  // ✅ 所有队列都使用新架构数据源
   switch (queueId) {
     case 'final-drill':
-      return new FinalDrillDataSource(plugin, {
+      return new FinalDrillDataSource(manager, {
         docId,
         preset,
         queryText,
@@ -54,7 +55,7 @@ export function createQueueDataSource(
       });
 
     case 'retrieval':
-      return new RetrievalDataSource(plugin, {
+      return new RetrievalDataSource(manager, {
         docId,
         preset,
         queryText,
@@ -62,7 +63,7 @@ export function createQueueDataSource(
       });
 
     case 'filter-group':
-      return new FilterGroupDataSource(plugin, {
+      return new FilterGroupDataSource(manager, {
         docId,
         preset,
         queryText,
@@ -70,7 +71,7 @@ export function createQueueDataSource(
       });
 
     case 'incremental-learning':
-      return new IncrementalLearningDataSource(plugin, {
+      return new IncrementalLearningDataSource(manager, {
         docId,
         preset,
         queryText,
@@ -107,24 +108,26 @@ export function createBlockIdsDataSource(
 /**
  * 创建 Deck 数据源（五重筛选）
  * 
- * @param plugin - 插件实例
+ * @param manager - UnifiedDataSourceManager 实例
  * @param options - 筛选选项
  * @param currentDocId - 当前文档 ID（fallback）
+ * @param plugin - 插件实例（可选，用于特殊功能）
  * @returns 数据源实例
  */
 export function createDeckDataSource(
-  plugin: any,
+  manager: any,
   options: DataSourceOptionsWithDoc,
-  currentDocId?: string | null
+  currentDocId?: string | null,
+  plugin?: any
 ): ICardDataSource {
   const { docId, preset, queryText, cardType } = options;
 
-  return new DeckDataSource(plugin, {
+  return new DeckDataSource(manager, {
     preset,
     currentDocId: docId || currentDocId,
     queryText,
     cardType,
-  });
+  }, plugin);
 }
 
 /**
@@ -141,14 +144,14 @@ export function createQueryDataSource(sqlStmt: string): ICardDataSource {
  * 创建不含文档筛选的数据源（用于聚焦计算）
  * 
  * @param queueId - 队列 ID（null 表示全部卡片模式）
- * @param plugin - 插件实例
+ * @param manager - UnifiedDataSourceManager 实例
  * @param options - 筛选选项（不含 docId）
  * @param getQueueItems - 获取队列项的函数（仅队列模式需要）
  * @returns 数据源实例或 null
  */
 export function createFocusDataSource(
   queueId: string | null,
-  plugin: any,
+  manager: any,
   options: DataSourceOptions,
   getQueueItems?: () => any[]
 ): ICardDataSource | null {
@@ -156,7 +159,7 @@ export function createFocusDataSource(
 
   // 队列模式：创建不含文档筛选的队列数据源
   if (queueId === 'final-drill') {
-    return new FinalDrillDataSource(plugin, {
+    return new FinalDrillDataSource(manager, {
       preset,
       queryText,
       cardType,
@@ -164,7 +167,7 @@ export function createFocusDataSource(
   }
 
   if (queueId === 'retrieval') {
-    return new RetrievalDataSource(plugin, {
+    return new RetrievalDataSource(manager, {
       preset,
       queryText,
       cardType,
@@ -172,7 +175,7 @@ export function createFocusDataSource(
   }
 
   if (queueId === 'filter-group') {
-    return new FilterGroupDataSource(plugin, {
+    return new FilterGroupDataSource(manager, {
       preset,
       queryText,
       cardType,
@@ -181,7 +184,7 @@ export function createFocusDataSource(
 
   // ✅ 新增：渐进学习队列
   if (queueId === 'incremental-learning') {
-    return new IncrementalLearningDataSource(plugin, {
+    return new IncrementalLearningDataSource(manager, {
       preset,
       queryText,
       cardType,
@@ -192,12 +195,13 @@ export function createFocusDataSource(
   if (queueId && getQueueItems) {
     const items = getQueueItems();
     const blockIds = items.map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
-    return createBlockIdsDataSource(queueId, blockIds, plugin);
+    // 注意：BlockIdsDataSource 仍然需要 plugin 对象
+    return createBlockIdsDataSource(queueId, blockIds, manager);
   }
 
   // 全部卡片模式：创建不含文档筛选的 DeckDataSource
   if (!queueId) {
-    return new DeckDataSource(plugin, {
+    return new DeckDataSource(manager, {
       preset,
       currentDocId: undefined,  // 不传文档 ID，获取所有文档的数据
       queryText,

@@ -10,7 +10,8 @@ import { FilterGroupQueue } from '@/core/queue/strategies/FilterGroupQueue';
 import { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
 import { NeuralRoamQueue } from '@/core/queue/strategies/NeuralRoamQueue';
 import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
-import { IncrementalLearningQueue } from '@/core/queue/strategies/IncrementalLearningQueue';
+// 🔧 使用新架构的 IncrementalLearningQueue（注意：LifecycleManager 已废弃，不再使用）
+import { IncrementalLearningQueue } from '@/queues/IncrementalLearningQueue';
 import { NeuralQueueStorage } from '@/core/queue/neural';
 import { DialogService, MenuService } from '@/services';
 import { checkMigrationNeeded, migrateExistingCards } from '@/scripts/migrateToTopicItem';

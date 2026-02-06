@@ -46,13 +46,14 @@ if (process.env.NODE_ENV === 'development') {
 import { ConsoleQueueMonitor, DEFAULT_PRIORITY, QueueContext, StorageFileJsonAdapter, type QueueItem } from '@/core/queue';
 import { SubsetPracticeStrategy } from '@/core/queue/strategies';
 import { TransactionObserver } from '@/core/box/TransactionObserver';
-// 队列导入（直接从V2文件导入）
-import { RetrievalPracticeQueue } from '@/core/queue/strategies/RetrievalPracticeQueue';
-import { FilterGroupQueue } from '@/core/queue/strategies/FilterGroupQueue';
-import { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
+// 🆕 使用新架构队列（统一从 @/queues 导入）
+import { RetrievalPracticeQueue } from '@/queues/RetrievalPracticeQueue';
+import { FilterGroupQueue } from '@/queues/FilterGroupQueue';
+import { FinalDrillQueue } from '@/queues/FinalDrillQueue';
+import { IncrementalLearningQueue } from '@/queues/IncrementalLearningQueue';
+// 🔧 旧架构队列（仅用于神经漫游和难点攻坚）
 import { NeuralRoamQueue } from '@/core/queue/strategies/NeuralRoamQueue';
 import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
-import { IncrementalLearningQueue } from '@/core/queue/strategies/IncrementalLearningQueue';
 import { NeuralQueueStorage } from '@/core/queue/neural';
 import { ExtractionNativeAdapter, FinalDrillNativeAdapter } from '@/core/native/adapter';
 // Services
@@ -62,6 +63,7 @@ import { ConfigMigrator } from '@/utils/configMigrator';
 
 // 🆕 Unified Data Source
 import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
+import { OperationMode, QueueType } from '@/types/unified-data-source';
 import { SimpleDataRouter } from '@/routers/SimpleDataRouter';
 import { AdvancedDataRouter } from '@/routers/AdvancedDataRouter';
 
@@ -87,6 +89,9 @@ export default class FSRSPlugin extends Plugin {
   public leechQueue!: LeechQueue;
   public incrementalQueue!: IncrementalLearningQueue;
   private subsetQueue!: FilterGroupQueue; // 内部命名
+  
+  // 🆕 统一数据源管理器
+  public unifiedDataSourceManager!: UnifiedDataSourceManager;
 
   // 🆕 Services
   private dialogService!: DialogService;
@@ -186,38 +191,42 @@ export default class FSRSPlugin extends Plugin {
       // ✅ 保留旧调度器（向后兼容）
       this.scheduler = createScheduler(settings.fsrs, settings.schedulerEngine);
 
-      // ✅ 使用 队列（复合架构）
-      this.retrievalQueue = await RetrievalPracticeQueue.create({
-        storage: this.storage,
-        localScheduler: this.scheduler,      // 保留（向后兼容）
-        schedulerRouter: this.schedulerRouter, // 🆕 新增
-      });
+      // 🆕 初始化 UnifiedDataSourceManager（必须在队列初始化之前）
+      this.unifiedDataSourceManager = UnifiedDataSourceManager.getInstance();
+      const simpleRouter = new SimpleDataRouter();
+      const advancedRouter = new AdvancedDataRouter(this.storage);
+      
+      this.unifiedDataSourceManager.initializeRouters(simpleRouter, advancedRouter);
+      console.log('[FSRS] ✅ UnifiedDataSourceManager initialized');
+
+      // 🆕 根据用户设置切换到正确的模式
+      const riffModeConfig = settings.riffIntegration || { mode: 'advanced' };
+      const targetMode = riffModeConfig.mode === 'advanced' ? OperationMode.Advanced : OperationMode.Simple;
+      
+      if (targetMode !== this.unifiedDataSourceManager.getCurrentMode()) {
+        try {
+          await this.unifiedDataSourceManager.switchMode(targetMode);
+          console.log(`[FSRS] ✅ Switched to ${targetMode} mode based on user settings`);
+        } catch (error) {
+          console.error('[FSRS] ❌ Failed to switch mode:', error);
+          // 继续使用默认模式（简单模式）
+        }
+      }
+
+      // ✅ 使用新架构队列（通过 UnifiedDataSourceManager）
+      this.retrievalQueue = this.unifiedDataSourceManager.getQueue(QueueType.RetrievalPractice) as any;
+      this.finalDrillQueue = this.unifiedDataSourceManager.getQueue(QueueType.FinalDrill) as any;
+      this.subsetQueue = this.unifiedDataSourceManager.getQueue(QueueType.FilterGroup) as any;
+      this.incrementalQueue = this.unifiedDataSourceManager.getQueue(QueueType.IncrementalLearning) as any;
 
       this.queueContext = new QueueContext<QueueItem>({
         initial: 'retrieval',
         monitors: [new ConsoleQueueMonitor()],
       });
       this.queueContext.register('retrieval', this.retrievalQueue as any);
-      
-      const groupConfigs = (settings.queues?.filterGroup?.groups || []).map((g: any) => ({
-        id: String(g.id),
-        weight: Number(g.weight) || 1,
-      })).filter((g: any) => g.id);
-      const configs = groupConfigs.length ? groupConfigs : [{ id: 'default', weight: 1 }];
-
-      // ✅ 使用 队列（复合架构）
-      const filterGroupQueue = new FilterGroupQueue(
-        configs,
-        new StorageFileJsonAdapter(this.storage, 'queue-filter-group.json'),
-      );
-      await filterGroupQueue.init();
-      this.subsetQueue = filterGroupQueue;
-      this.queueContext.register('filter-group', this.subsetQueue as any);
-
-      // ✅ 使用 队列（复合架构）
-      this.finalDrillQueue = new FinalDrillQueue(this.storage);
-      await this.finalDrillQueue.init();
       this.queueContext.register('final-drill', this.finalDrillQueue as any);
+      this.queueContext.register('filter-group', this.subsetQueue as any);
+      this.queueContext.register('incremental-learning' as any, this.incrementalQueue as any);
 
       // 初始化难点攻坚队列（✅ 使用 V2）
       this.leechQueue = new LeechQueue();
@@ -228,34 +237,8 @@ export default class FSRSPlugin extends Plugin {
       this.neuralQueue = new NeuralRoamQueue({ config: neuralConfig });
       this.queueContext.register('neural-roam', this.neuralQueue as any);
 
-      // 初始化渐进学习队列（✅ 使用 V2 - Simplified）
-      this.incrementalQueue = new IncrementalLearningQueue({
-        storage: this.storage,
-        scheduler: this.scheduler,
-        schedulerRouter: this.schedulerRouter, // 🆕 Phase 2.1: 传入 schedulerRouter
-        config: {
-          enableRiffSync: settings.scheduler?.enableRiffSync || false, // 🆕 Phase 2.1: 传入配置
-        },
-      });
-      this.queueContext.register('incremental-learning' as any, this.incrementalQueue as any);
-
-      console.log('[FSRS] ✅ Incremental learning queue initialized:', {
-        hasQueue: !!this.incrementalQueue,
-        hasAddItems: typeof this.incrementalQueue.addItems === 'function',
-        queueName: this.incrementalQueue.constructor.name,
-        hasSchedulerRouter: !!this.schedulerRouter,
-        enableRiffSync: settings.scheduler?.enableRiffSync || false,
-      });
-
       console.log('[FSRS] ✅ SchedulerRouter initialized');
-
-      // 🆕 初始化 UnifiedDataSourceManager
-      const unifiedManager = UnifiedDataSourceManager.getInstance();
-      const simpleRouter = new SimpleDataRouter();
-      const advancedRouter = new AdvancedDataRouter(this.storage);
-      
-      unifiedManager.initializeRouters(simpleRouter, advancedRouter);
-      console.log('[FSRS] ✅ UnifiedDataSourceManager initialized');
+      console.log('[FSRS] ✅ All queues initialized with new architecture');
 
       // 🆕 初始化 Services
       this.dialogService = new DialogService({
@@ -284,17 +267,14 @@ export default class FSRSPlugin extends Plugin {
 
       console.log('[FSRS] ✅ Services initialized');
 
-      // 🆕 初始化 ReviewDialogManager
+      // 🆕 初始化 ReviewDialogManager（使用统一数据源架构）
       this.reviewDialogManager = new ReviewDialogManager({
         app: this.app,
         i18n: this.i18n || {},
         storage: this.storage,
         scheduler: this.scheduler,
-        finalDrillQueue: this.finalDrillQueue,
-        filterGroupQueue: this.subsetQueue,
-        incrementalQueue: this.incrementalQueue,
         isInitialized: () => this.isInitialized,
-        plugin: this,  // 🆕 传递 plugin 引用
+        plugin: this,  // 🆕 传递 plugin 引用（包含 UnifiedDataSourceManager）
         openReviewTab: (options) => this.openReviewTab(options),
       });
 
@@ -1066,8 +1046,28 @@ export default class FSRSPlugin extends Plugin {
   private async addPracticeQueue(filter: PracticeQueueFilter): Promise<number> {
     const blockIds = await this.getPracticeQueueBlockIds(filter);
     if (blockIds.length === 0) return 0;
-    const cards = await this.blockMenuHandler.buildDrillCardsFromBlockIds(blockIds);
-    return this.retrievalQueue.addItems(cards as QueueItem[]);
+    
+    // ✅ 新架构：使用 addCard 方法（逐个添加）
+    if (this.retrievalQueue?.addCard) {
+      let added = 0;
+      for (const blockId of blockIds) {
+        try {
+          await this.retrievalQueue.addCard(blockId, 'manual');
+          added++;
+        } catch (err) {
+          console.error(`[Plugin] 添加卡片失败: ${blockId}`, err);
+        }
+      }
+      return added;
+    }
+    
+    // ✅ 旧架构：使用 addItems 方法（批量添加）
+    if (this.retrievalQueue?.addItems) {
+      const cards = await this.blockMenuHandler.buildDrillCardsFromBlockIds(blockIds);
+      return this.retrievalQueue.addItems(cards as QueueItem[]);
+    }
+    
+    return 0;
   }
 
   private async clearPracticeQueue(): Promise<void> {
@@ -1078,11 +1078,27 @@ export default class FSRSPlugin extends Plugin {
   }
 
   private async startPracticeQueue(): Promise<void> {
-    const cards = this.retrievalQueue.getAllItems();
-    if (cards.length === 0) {
+    // ✅ 新架构：使用 getAllCards 或 getSize
+    let cards: any[] = [];
+    let isEmpty = false;
+    
+    if (this.retrievalQueue?.getAllCards) {
+      cards = await this.retrievalQueue.getAllCards();
+      isEmpty = cards.length === 0;
+    } else if (this.retrievalQueue?.getSize) {
+      const size = await this.retrievalQueue.getSize();
+      isEmpty = size === 0;
+    } else if (this.retrievalQueue?.getAllItems) {
+      // ✅ 旧架构：使用 getAllItems
+      cards = this.retrievalQueue.getAllItems();
+      isEmpty = cards.length === 0;
+    }
+    
+    if (isEmpty) {
       await pushMsg(this.i18n?.practiceQueueEmpty || '练习队列为空');
       return;
     }
+    
     this.openDrillDialogWithCards(cards, 'queue');
   }
 

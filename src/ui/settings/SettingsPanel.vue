@@ -98,212 +98,6 @@
 
 
 
-      <!-- 🆕 调度器设置 -->
-      <div v-show="activeTab === 'scheduler'" class="settings-section">
-        <h3>{{ t('schedulerSettingsTitle', '调度器设置') }}</h3>
-
-        <!-- 默认调度器 -->
-        <div class="form-item">
-          <label>{{ t('defaultScheduler', '默认调度器') }}</label>
-          <div class="form-control">
-            <select v-model="schedulerConfig.defaultScheduler" class="scheduler-select">
-              <option value="fsrs-v5">{{ t('schedulerFsrsV5', 'FSRS v5 (推荐)') }}</option>
-              <option value="riff">{{ t('schedulerRiff', 'Riff (思源原生)') }}</option>
-              <option value="sm2">{{ t('schedulerSm2', 'SM-2') }}</option>
-              <option value="sm15">{{ t('schedulerSm15', 'SM-15') }}</option>
-              <option value="a-factor-v2">{{ t('schedulerAFactorV2', 'A-Factor v2') }}</option>
-            </select>
-          </div>
-          <p class="form-hint">
-            💡 {{ schedulerDescriptions[schedulerConfig.defaultScheduler] }}
-          </p>
-        </div>
-
-        <div class="fn__hr"></div>
-
-        <h4>{{ t('schedulerByCardType', '按卡片类型配置') }}</h4>
-
-        <!-- Topic 调度器 -->
-        <div class="form-item">
-          <label>{{ t('topicScheduler', 'Topic 卡片调度器') }}</label>
-          <div class="form-control">
-            <select v-model="schedulerConfig.topicScheduler" class="scheduler-select">
-              <option value="a-factor">{{ t('schedulerAFactor', 'A-Factor (原始)') }}</option>
-              <option value="a-factor-v2">{{ t('schedulerAFactorV2Recommended', 'A-Factor v2 (推荐)') }}</option>
-            </select>
-          </div>
-          <p class="form-hint">
-            💡 {{ t('topicSchedulerHint', '适合阅读材料，动态调整难度因子') }}
-          </p>
-        </div>
-
-        <!-- Item 调度器 -->
-        <div class="form-item">
-          <label>{{ t('itemScheduler', 'Item 卡片调度器') }}</label>
-          <div class="form-control">
-            <select v-model="schedulerConfig.itemScheduler" class="scheduler-select">
-              <option value="fsrs-v5">{{ t('schedulerFsrsV5Recommended', 'FSRS v5 (推荐)') }}</option>
-              <option value="riff">{{ t('schedulerRiff', 'Riff (思源原生)') }}</option>
-              <option value="sm2">{{ t('schedulerSm2', 'SM-2') }}</option>
-              <option value="sm15">{{ t('schedulerSm15', 'SM-15') }}</option>
-            </select>
-          </div>
-          <p class="form-hint">
-            💡 {{ t('itemSchedulerHint', '适合问答卡片，精确间隔计算') }}
-          </p>
-        </div>
-
-        <div class="fn__hr"></div>
-
-        <h4>{{ t('advancedOptions', '高级选项') }}</h4>
-
-        <!-- Riff 同步 -->
-        <div class="form-item">
-          <label>{{ t('riffSync', 'Riff 同步') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="schedulerConfig.enableRiffSync">
-            <span>{{ t('enableRiffSync', '启用 Riff 同步') }}</span>
-          </div>
-          <p class="form-hint form-hint--warning">
-            ⚠️ {{ t('riffSyncWarning', '启用后会将卡片数据同步到 Riff 数据库') }}
-          </p>
-        </div>
-
-        <!-- 保存按钮 -->
-        <div class="form-actions">
-          <button class="btn-primary" @click="saveSettings">{{ t('saveSettings', '保存设置') }}</button>
-          <button class="btn-secondary" @click="resetSchedulerSettings">{{ t('resetDefault', '重置默认') }}</button>
-        </div>
-      </div>
-
-
-
-      <!-- 关于 -->
-      <div v-show="activeTab === 'about'" class="settings-section">
-        <h3>{{ t('aboutFsrsTitle', '关于 FSRS') }}</h3>
-        <p>{{ t('aboutFsrsDesc1', 'FSRS (Free Spaced Repetition Scheduler) 是一种现代的间隔重复算法，由 Jarrett Ye 开发。') }}</p>
-        <p>{{ t('aboutFsrsDesc2', '相比传统的 SM-2 算法，FSRS 能够更准确地预测记忆遗忘曲线，提供更优的复习计划。') }}</p>
-        
-        <h4>{{ t('links', '链接') }}</h4>
-        <ul>
-          <li><a href="https://github.com/open-spaced-repetition/fsrs4anki" target="_blank">FSRS GitHub</a></li>
-          <li><a href="https://github.com/open-spaced-repetition/ts-fsrs" target="_blank">ts-fsrs</a></li>
-        </ul>
-
-        <h4>{{ t('version', '版本') }}</h4>
-        <p>FSRS-5 (ts-fsrs)</p>
-      </div>
-
-      <div v-show="activeTab === 'practice'" class="settings-section">
-        <h3>{{ t('practiceTab', '练习模式') }}</h3>
-        <div class="practice-guide">
-          <div class="practice-guide__title">{{ t('practiceQueueGuideTitle', '队列模式') }}</div>
-          <div class="practice-guide__text">{{ t('practiceQueueGuide', '筛选并加入练习队列，队列会持久保存。') }}</div>
-          <div class="practice-guide__text">{{ t('practiceQueueGuideStep1', '1. 选择筛选条件并查看数量') }}</div>
-          <div class="practice-guide__text">{{ t('practiceQueueGuideStep2', '2. 加入队列后可跨次继续练习') }}</div>
-          <div class="practice-guide__text">{{ t('practiceQueueGuideStep3', '3. 进入练习时会显示队列模式标识') }}</div>
-          <div class="practice-guide__title">{{ t('practiceBlockGuideTitle', '块练习模式') }}</div>
-          <div class="practice-guide__text">{{ t('practiceBlockGuide', '在文档块或父级块上右键，收集当前块及子块闪卡进行练习。') }}</div>
-          <div class="practice-guide__text">{{ t('practiceBlockGuideStep1', '1. 仅收集当前块层级内的闪卡') }}</div>
-          <div class="practice-guide__text">{{ t('practiceBlockGuideStep2', '2. 与队列模式数据完全隔离') }}</div>
-          <div class="practice-guide__text">{{ t('practiceBlockGuideStep3', '3. 练习界面显示块练习标识') }}</div>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('practiceFilterType', '筛选条件') }}</label>
-          <div class="form-control practice-filter">
-            <select v-model="queueFilterType">
-              <option value="doc">{{ t('practiceFilterDoc', '文档ID') }}</option>
-              <option value="tree">{{ t('practiceFilterTree', '文档树') }}</option>
-              <option value="sql">{{ t('practiceFilterSql', 'SQL') }}</option>
-            </select>
-            <input v-model="queueFilterValue" type="text" :placeholder="t('practiceFilterPlaceholder', '输入筛选值')" />
-          </div>
-          <p class="form-hint">{{ t('practiceFilterHint', '文档树会包含子文档，SQL 应返回块列表。') }}</p>
-        </div>
-
-        <div class="practice-actions">
-          <button class="btn-secondary" @click="handleQueuePreview">{{ t('practicePreview', '查看筛选数量') }}</button>
-          <button class="btn-primary" @click="handleQueueAdd">{{ t('practiceAddToQueue', '加入练习队列') }}</button>
-          <button class="btn-secondary" @click="handleQueueStart">{{ t('practiceStartQueue', '开始队列练习') }}</button>
-          <button class="btn-secondary" @click="handleQueueClear">{{ t('practiceClearQueue', '清空队列') }}</button>
-        </div>
-
-        <div class="practice-stats">
-          <span>{{ t('practiceQueueCount', '队列数量') }}: {{ queueCount }}</span>
-          <span v-if="queuePreviewCount !== null">{{ t('practicePreviewCount', '筛选数量') }}: {{ queuePreviewCount }}</span>
-        </div>
-
-        <div class="fn__hr"></div>
-
-        <h4>{{ t('queueStrategyTitle', '队列策略') }}</h4>
-        <div class="form-item">
-          <label>{{ t('defaultQueue', '默认队列') }}</label>
-          <div class="form-control">
-            <select v-model="queueSettings.defaultQueue">
-              <option value="extraction">{{ t('queueExtraction', '提取练习队列') }}</option>
-              <option value="final-drill">{{ t('queueDeliberate', '最终冲刺队列') }}</option>
-              <option value="neural-roam">{{ t('queueNeural', '神经漫游队列') }}</option>
-              <option value="filter-group">{{ t('queueFilterGroup', '筛选组队列') }}</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- TODO: 神经漫游队列配置UI - 等待新实现 -->
-        <!-- 旧的神经漫游队列代码已被移除 -->
-        <!--
-        <div class="form-item">
-          <label>{{ t('neuralWanderingQueue', '神经漫游队列') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="queueSettings.neuralWandering.enabled">
-            <span>{{ t('enable', '启用') }}</span>
-            <span class="fn__space"></span>
-            <span>{{ t('maxPool', '最大池') }}</span>
-            <input type="number" min="10" max="5000" v-model.number="queueSettings.neuralWandering.maxPool" style="width: 110px;">
-          </div>
-          <div class="form-control" style="margin-top: 8px; flex-wrap: wrap;">
-            <span>{{ t('historyLimit', '历史长度') }}</span>
-            <input type="number" min="5" max="500" v-model.number="queueSettings.neuralWandering.historyLimit" style="width: 110px;">
-            <span>{{ t('maxContext', '同文档上限') }}</span>
-            <input type="number" min="5" max="200" v-model.number="queueSettings.neuralWandering.maxContext" style="width: 110px;">
-          </div>
-          <div class="form-control" style="margin-top: 8px; flex-wrap: wrap;">
-            <input type="checkbox" v-model="queueSettings.neuralWandering.enableTags">
-            <span>{{ t('enableTags', '启用标签') }}</span>
-            <span>{{ t('maxTags', '标签上限') }}</span>
-            <input type="number" min="0" max="200" v-model.number="queueSettings.neuralWandering.maxTags" style="width: 110px;">
-            <input type="checkbox" v-model="queueSettings.neuralWandering.enableSiblings">
-            <span>{{ t('enableSiblings', '启用兄弟块') }}</span>
-            <span>{{ t('maxSiblings', '兄弟上限') }}</span>
-            <input type="number" min="0" max="200" v-model.number="queueSettings.neuralWandering.maxSiblings" style="width: 110px;">
-          </div>
-          <div class="form-control" style="margin-top: 8px; flex-wrap: wrap;">
-            <span>{{ t('weightRef', '双链权重') }}</span>
-            <input type="number" min="0" max="100" v-model.number="queueSettings.neuralWandering.weights.ref" style="width: 90px;">
-            <span>{{ t('weightContext', '同文档权重') }}</span>
-            <input type="number" min="0" max="100" v-model.number="queueSettings.neuralWandering.weights.context" style="width: 90px;">
-            <span>{{ t('weightTag', '标签权重') }}</span>
-            <input type="number" min="0" max="100" v-model.number="queueSettings.neuralWandering.weights.tag" style="width: 90px;">
-            <span>{{ t('weightSibling', '兄弟权重') }}</span>
-            <input type="number" min="0" max="100" v-model.number="queueSettings.neuralWandering.weights.sibling" style="width: 90px;">
-          </div>
-        </div>
-        -->
-
-        <div class="form-item">
-          <label>{{ t('filterGroupQueue', '筛选组队列') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="queueSettings.filterGroup.enabled">
-            <span>{{ t('enable', '启用') }}</span>
-          </div>
-          <div class="form-control" style="margin-top: 8px; align-items: flex-start;">
-            <textarea v-model="filterGroupsJson" rows="6" style="width: 100%;"></textarea>
-          </div>
-          <p v-if="queueConfigError" class="form-hint ft__error">{{ queueConfigError }}</p>
-          <p v-else class="form-hint">{{ t('filterGroupHint', 'JSON 数组，每项包含 id/name/type/value/weight') }}</p>
-        </div>
-      </div>
-
       <!-- 🆕 Riff 集成配置 -->
       <div v-show="activeTab === 'riff'" class="settings-section">
         <h3>{{ t('riffIntegrationTitle', 'Riff 集成配置') }}</h3>
@@ -335,6 +129,55 @@
 
         <!-- 高阶模式详细配置 -->
         <div v-if="riffIntegrationConfig.mode === 'advanced'" class="advanced-config">
+          <div class="fn__hr"></div>
+          
+          <h4>{{ t('schedulerSettingsTitle', '调度器设置') }}</h4>
+          
+          <!-- 默认调度器 -->
+          <div class="form-item">
+            <label>{{ t('defaultScheduler', '默认调度器') }}</label>
+            <div class="form-control">
+              <select v-model="schedulerConfig.defaultScheduler" class="scheduler-select">
+                <option value="fsrs-v5">{{ t('schedulerFsrsV5', 'FSRS v5 (推荐)') }}</option>
+                <option value="sm2">{{ t('schedulerSm2', 'SM-2') }}</option>
+                <option value="sm15">{{ t('schedulerSm15', 'SM-15') }}</option>
+                <option value="a-factor-v2">{{ t('schedulerAFactorV2', 'A-Factor v2') }}</option>
+              </select>
+            </div>
+            <p class="form-hint">
+              💡 {{ schedulerDescriptions[schedulerConfig.defaultScheduler] }}
+            </p>
+          </div>
+
+          <!-- Topic 调度器 -->
+          <div class="form-item">
+            <label>{{ t('topicScheduler', 'Topic 卡片调度器') }}</label>
+            <div class="form-control">
+              <select v-model="schedulerConfig.topicScheduler" class="scheduler-select">
+                <option value="a-factor">{{ t('schedulerAFactor', 'A-Factor (原始)') }}</option>
+                <option value="a-factor-v2">{{ t('schedulerAFactorV2Recommended', 'A-Factor v2 (推荐)') }}</option>
+              </select>
+            </div>
+            <p class="form-hint">
+              💡 {{ t('topicSchedulerHint', '适合阅读材料，动态调整难度因子') }}
+            </p>
+          </div>
+
+          <!-- Item 调度器 -->
+          <div class="form-item">
+            <label>{{ t('itemScheduler', 'Item 卡片调度器') }}</label>
+            <div class="form-control">
+              <select v-model="schedulerConfig.itemScheduler" class="scheduler-select">
+                <option value="fsrs-v5">{{ t('schedulerFsrsV5Recommended', 'FSRS v5 (推荐)') }}</option>
+                <option value="sm2">{{ t('schedulerSm2', 'SM-2') }}</option>
+                <option value="sm15">{{ t('schedulerSm15', 'SM-15') }}</option>
+              </select>
+            </div>
+            <p class="form-hint">
+              💡 {{ t('itemSchedulerHint', '适合问答卡片，精确间隔计算') }}
+            </p>
+          </div>
+          
           <div class="fn__hr"></div>
           
           <h4>{{ t('incrementalSyncConfig', '增量同步配置') }}</h4>
@@ -440,6 +283,92 @@
           <button class="btn-primary" @click="saveSettings">{{ t('saveSettings', '保存设置') }}</button>
         </div>
       </div>
+
+      <!-- 练习模式 -->
+      <div v-show="activeTab === 'practice'" class="settings-section">
+        <h3>{{ t('practiceTab', '练习模式') }}</h3>
+        <div class="practice-guide">
+          <div class="practice-guide__title">{{ t('practiceQueueGuideTitle', '队列模式') }}</div>
+          <div class="practice-guide__text">{{ t('practiceQueueGuide', '筛选并加入练习队列，队列会持久保存。') }}</div>
+          <div class="practice-guide__text">{{ t('practiceQueueGuideStep1', '1. 选择筛选条件并查看数量') }}</div>
+          <div class="practice-guide__text">{{ t('practiceQueueGuideStep2', '2. 加入队列后可跨次继续练习') }}</div>
+          <div class="practice-guide__text">{{ t('practiceQueueGuideStep3', '3. 进入练习时会显示队列模式标识') }}</div>
+          <div class="practice-guide__title">{{ t('practiceBlockGuideTitle', '块练习模式') }}</div>
+          <div class="practice-guide__text">{{ t('practiceBlockGuide', '在文档块或父级块上右键，收集当前块及子块闪卡进行练习。') }}</div>
+          <div class="practice-guide__text">{{ t('practiceBlockGuideStep1', '1. 仅收集当前块层级内的闪卡') }}</div>
+          <div class="practice-guide__text">{{ t('practiceBlockGuideStep2', '2. 与队列模式数据完全隔离') }}</div>
+          <div class="practice-guide__text">{{ t('practiceBlockGuideStep3', '3. 练习界面显示块练习标识') }}</div>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('practiceFilterType', '筛选条件') }}</label>
+          <div class="form-control practice-filter">
+            <select v-model="queueFilterType">
+              <option value="doc">{{ t('practiceFilterDoc', '文档ID') }}</option>
+              <option value="tree">{{ t('practiceFilterTree', '文档树') }}</option>
+              <option value="sql">{{ t('practiceFilterSql', 'SQL') }}</option>
+            </select>
+            <input v-model="queueFilterValue" type="text" :placeholder="t('practiceFilterPlaceholder', '输入筛选值')" />
+          </div>
+          <p class="form-hint">{{ t('practiceFilterHint', '文档树会包含子文档，SQL 应返回块列表。') }}</p>
+        </div>
+
+        <div class="practice-actions">
+          <button class="btn-secondary" @click="handleQueuePreview">{{ t('practicePreview', '查看筛选数量') }}</button>
+          <button class="btn-primary" @click="handleQueueAdd">{{ t('practiceAddToQueue', '加入练习队列') }}</button>
+          <button class="btn-secondary" @click="handleQueueStart">{{ t('practiceStartQueue', '开始队列练习') }}</button>
+          <button class="btn-secondary" @click="handleQueueClear">{{ t('practiceClearQueue', '清空队列') }}</button>
+        </div>
+
+        <div class="practice-stats">
+          <span>{{ t('practiceQueueCount', '队列数量') }}: {{ queueCount }}</span>
+          <span v-if="queuePreviewCount !== null">{{ t('practicePreviewCount', '筛选数量') }}: {{ queuePreviewCount }}</span>
+        </div>
+
+        <div class="fn__hr"></div>
+
+        <h4>{{ t('queueStrategyTitle', '队列策略') }}</h4>
+        <div class="form-item">
+          <label>{{ t('defaultQueue', '默认队列') }}</label>
+          <div class="form-control">
+            <select v-model="queueSettings.defaultQueue">
+              <option value="extraction">{{ t('queueExtraction', '提取练习队列') }}</option>
+              <option value="final-drill">{{ t('queueDeliberate', '最终冲刺队列') }}</option>
+              <option value="neural-roam">{{ t('queueNeural', '神经漫游队列') }}</option>
+              <option value="filter-group">{{ t('queueFilterGroup', '筛选组队列') }}</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('filterGroupQueue', '筛选组队列') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="queueSettings.filterGroup.enabled">
+            <span>{{ t('enable', '启用') }}</span>
+          </div>
+          <div class="form-control" style="margin-top: 8px; align-items: flex-start;">
+            <textarea v-model="filterGroupsJson" rows="6" style="width: 100%;"></textarea>
+          </div>
+          <p v-if="queueConfigError" class="form-hint ft__error">{{ queueConfigError }}</p>
+          <p v-else class="form-hint">{{ t('filterGroupHint', 'JSON 数组，每项包含 id/name/type/value/weight') }}</p>
+        </div>
+      </div>
+
+      <!-- 关于 -->
+      <div v-show="activeTab === 'about'" class="settings-section">
+        <h3>{{ t('aboutFsrsTitle', '关于 FSRS') }}</h3>
+        <p>{{ t('aboutFsrsDesc1', 'FSRS (Free Spaced Repetition Scheduler) 是一种现代的间隔重复算法，由 Jarrett Ye 开发。') }}</p>
+        <p>{{ t('aboutFsrsDesc2', '相比传统的 SM-2 算法，FSRS 能够更准确地预测记忆遗忘曲线，提供更优的复习计划。') }}</p>
+        
+        <h4>{{ t('links', '链接') }}</h4>
+        <ul>
+          <li><a href="https://github.com/open-spaced-repetition/fsrs4anki" target="_blank">FSRS GitHub</a></li>
+          <li><a href="https://github.com/open-spaced-repetition/ts-fsrs" target="_blank">ts-fsrs</a></li>
+        </ul>
+
+        <h4>{{ t('version', '版本') }}</h4>
+        <p>FSRS-5 (ts-fsrs)</p>
+      </div>
     </div>
   </div>
 </template>
@@ -487,7 +416,6 @@ function t(key: string, fallback: string): string {
 
 const tabs = computed(() => [
   { key: 'params', label: t('settingsParamsTab', '参数设置'), icon: '#iconSettings' },
-  { key: 'scheduler', label: t('schedulerTab', '调度器'), icon: '#iconAlgorithm' },  // 🆕 新增
   { key: 'riff', label: t('riffTab', 'Riff 集成'), icon: '#iconCloud' },  // 🆕 Riff 集成
   { key: 'practice', label: t('practiceTab', '练习模式'), icon: '#iconPlay' },
   { key: 'about', label: t('settingsAboutTab', '关于'), icon: '#iconInfo' },
@@ -542,7 +470,7 @@ const uiSettings = ref({
 // 🆕 调度器配置
 const schedulerConfig = ref<SchedulerConfig>({
   defaultScheduler: 'fsrs-v5',
-  enableRiffSync: false,
+  // enableRiffSync 已废弃，使用 riffIntegration.mode 替代
   topicScheduler: 'a-factor-v2',
   itemScheduler: 'fsrs-v5',
 });
@@ -634,7 +562,6 @@ function loadSettings() {
   if (props.schedulerSettings) {
     schedulerConfig.value = {
       defaultScheduler: props.schedulerSettings.defaultScheduler || 'fsrs-v5',
-      enableRiffSync: props.schedulerSettings.enableRiffSync || false,
       topicScheduler: props.schedulerSettings.topicScheduler || 'a-factor-v2',
       itemScheduler: props.schedulerSettings.itemScheduler || 'fsrs-v5',
     };
@@ -709,7 +636,6 @@ function saveSettings() {
     // 🆕 保存调度器配置
     scheduler: {
       defaultScheduler: schedulerConfig.value.defaultScheduler,
-      enableRiffSync: schedulerConfig.value.enableRiffSync,
       topicScheduler: schedulerConfig.value.topicScheduler,
       itemScheduler: schedulerConfig.value.itemScheduler,
     },
@@ -745,7 +671,6 @@ function resetSettings() {
 function resetSchedulerSettings() {
   schedulerConfig.value = {
     defaultScheduler: 'fsrs-v5',
-    enableRiffSync: false,
     topicScheduler: 'a-factor-v2',
     itemScheduler: 'fsrs-v5',
   };

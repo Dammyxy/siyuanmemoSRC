@@ -362,19 +362,33 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
      * 将 FSRSCard 转换为 BrowserCard
      * 
      * 注意：FSRSCard 是精简的核心数据结构，不包含 UI 展示需要的所有字段。
-     * 某些字段（如 content、deckId、rootId）需要从思源 API 或 meta 字段获取。
+     * 某些字段（如 content、deckId、rootId）需要从 meta 字段获取。
+     * 
+     * 🔧 修复说明：
+     * 当 SimpleDataRouter 从 Riff API 获取数据时，如果 riffCard 字段缺失，
+     * 会将原始块数据存储在 meta 字段中，包括：
+     * - content: 块内容
+     * - path: 块路径
+     * - hPath: 人类可读路径
+     * - deckId: 卡包 ID
+     * - isIncomplete: 标记数据是否不完整
      * 
      * @param card FSRS 卡片
      * @returns 浏览器卡片
      */
     private convertToBrowserCard(card: FSRSCard): BrowserCard {
-        console.log('[SRSBrowserAdapter] ========== convertToBrowserCard ==========');
-        console.log('[SRSBrowserAdapter] 输入 FSRSCard:', {
-            id: card.id,
-            riffCardId: card.riffCardId,
-            blockId: card.blockId,
-            type: card.type,
-        });
+        // 🔧 检查数据完整性
+        const isIncomplete = card.meta?.isIncomplete === true;
+        if (isIncomplete) {
+            console.warn('[SRSBrowserAdapter] ⚠️ Converting incomplete FSRSCard:', {
+                id: card.id,
+                blockId: card.blockId,
+                hasRiffCardId: !!card.riffCardId,
+                stability: card.stability,
+                difficulty: card.difficulty,
+            });
+        }
+        
         // 计算经过的天数
         const now = Date.now();
         const elapsedDays = card.lastReview 
@@ -396,10 +410,12 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
         const lastReviewFormatted = lastReviewDate ? formatDate(lastReviewDate) : '';
         const firstReviewFormatted = lastReviewDate ? formatDate(lastReviewDate) : ''; // TODO: 使用实际的 firstReview
         
-        // 获取卡片内容（从 meta 或其他来源）
-        // 注意：FSRSCard 不包含 content 字段，需要从 meta 或通过 blockId 查询思源 API
-        const content = truncateContent((card.meta?.content as string) || '', 100);
+        // 🔧 优先从 meta 字段获取内容，如果不存在则使用空字符串
         const fullContent = (card.meta?.content as string) || '';
+        const content = truncateContent(fullContent, 100);
+        
+        // 🔧 从 meta 字段获取 deckId
+        const deckId = (card.meta?.deckId as string) || '';
         
         // 转换 CardType 枚举为字符串
         // FSRSCard.type 是 CardType 枚举，BrowserCard.cardType 是字符串字面量
@@ -412,7 +428,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             id: card.riffCardId || card.id,
             fsrsCardId: card.id,
             blockId: card.blockId,
-            deckId: (card.meta?.deckId as string) || '',
+            deckId,
             content,
             fullContent,
             rootId: (card.meta?.rootId as string) || '',
@@ -448,13 +464,20 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             aFactor: card.aFactor,
         };
         
-        console.log('[SRSBrowserAdapter] 输出 BrowserCard:', {
-            id: result.id,
-            fsrsCardId: result.fsrsCardId,
-            blockId: result.blockId,
-            cardType: result.cardType,
-        });
-        console.log('[SRSBrowserAdapter] ========== convertToBrowserCard 完成 ==========');
+        // 🔧 如果数据不完整，记录详细日志
+        if (isIncomplete) {
+            console.log('[SRSBrowserAdapter] ⚠️ Converted incomplete card to BrowserCard:', {
+                id: result.id,
+                fsrsCardId: result.fsrsCardId,
+                blockId: result.blockId,
+                cardType: result.cardType,
+                stability: result.stability,
+                difficulty: result.difficulty,
+                state: result.state,
+                stateLabel: result.stateLabel,
+                hasContent: !!result.content,
+            });
+        }
         
         return result;
     }

@@ -242,10 +242,12 @@ export class FilterGroupQueue extends BaseReviewQueue {
         
         for (const cardId of this.manuallyAddedCards) {
             try {
-                const card = await this.manager.getCard(cardId);
+                // 使用静默模式，避免记录预期的"卡片不存在"错误
+                const card = await this.manager.getCard(cardId, { silent: true });
                 cards.push(card);
             } catch (error) {
-                console.warn(`[FilterGroupQueue] Card ${cardId} not found, removing from manual additions`);
+                // 卡片不存在是预期行为（可能已被删除），自动清理
+                console.log(`[FilterGroupQueue] Card ${cardId} not found, removing from manual additions`);
                 this.manuallyAddedCards.delete(cardId);
             }
         }

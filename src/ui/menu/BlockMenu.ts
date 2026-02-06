@@ -83,8 +83,26 @@ export class BlockMenuManager {
                     return;
                 }
                 const items = this.buildQueueItemsFromElements(drillBlocks);
-                // @ts-ignore - access private
-                const added = await (this.plugin as any).retrievalQueue.addItems(items);
+                
+                // ✅ 新架构：使用 addCard 方法（逐个添加）
+                const queue = (this.plugin as any).retrievalQueue;
+                let added = 0;
+                
+                if (queue?.addCard) {
+                    // 新架构：RetrievalPracticeQueue.addCard()
+                    for (const item of items) {
+                        try {
+                            await queue.addCard(item.blockID, 'manual');
+                            added++;
+                        } catch (err) {
+                            console.error(`[BlockMenu] 添加卡片失败: ${item.blockID}`, err);
+                        }
+                    }
+                } else if (queue?.addItems) {
+                    // 旧架构：fallback
+                    added = await queue.addItems(items);
+                }
+                
                 if (added > 0) {
                     await pushMsg((this.plugin.i18n?.queueAdded || '已加入 {n} 张闪卡到队列练习').replace('{n}', String(added)));
                 } else {

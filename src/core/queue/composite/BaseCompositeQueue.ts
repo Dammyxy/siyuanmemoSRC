@@ -9,6 +9,10 @@
  * - Sequencer: Ordering logic (Priority, Graph, List, etc.)
  * - DataSource: Storage backend (Riff API, Local Storage, etc.)
  * - Traits: Optional capabilities (Mutable, Removable, Prioritizable, etc.)
+ * 
+ * @deprecated Old architecture base class. Use src/queues/ implementations with IReviewQueue interface instead.
+ * This class is part of the legacy queue architecture and will be removed in a future version.
+ * New code should use the unified queue architecture in src/queues/.
  */
 
 import type { QueueStats, QueueUIConfig, QueueItem } from '../types';

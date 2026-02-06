@@ -5,6 +5,10 @@
  * This data source integrates with the Riff API to fetch due cards and provides
  * automatic cache invalidation through the Observer pattern.
  * 
+ * @deprecated Old architecture data source. Use RiffDataSource from src/data-sources/ instead.
+ * This class is part of the legacy queue architecture and will be removed in a future version.
+ * New code should use the unified data source architecture with UnifiedDataSourceManager.
+ * 
  * ## Features
  * - Fetches due cards from Riff API
  * - Merges local storage data with Riff data (local data takes priority)

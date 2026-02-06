@@ -8,6 +8,7 @@
 
 import type { FSRSCard, ReviewLog, PluginSettings, RescheduleLog } from '@/types';
 import { DEFAULT_SETTINGS, DEFAULT_RIFF_CONFIG, type RiffIntegrationConfig } from '@/types';
+import { CardType } from '@/types/card';
 import * as siyuanApi from '@/core/siyuan/api';
 import { ATTR_PRIORITY } from '@/core/siyuan/block';
 import { clampPriority, DEFAULT_PRIORITY } from '@/core/queue/abstraction/IPriority';
@@ -179,6 +180,8 @@ export class StorageManager {
 
     /**
      * 加载卡片
+     * 
+     * 🔧 自动规范化混合类型数据
      */
     private async loadCards(): Promise<void> {
         try {
@@ -187,10 +190,28 @@ export class StorageManager {
             if (data) {
                 const cards: FSRSCard[] = Array.isArray(data) ? data : [];
                 this.cardsCache.clear();
+                
+                // 🔧 规范化每张卡片
+                let normalizedCount = 0;
                 for (const card of cards) {
-                    this.cardsCache.set(card.id, card);
+                    const normalizedCard = this.normalizeCard(card);
+                    this.cardsCache.set(normalizedCard.id, normalizedCard);
+                    
+                    // 检查是否进行了规范化
+                    if (this.wasCardNormalized(card, normalizedCard)) {
+                        normalizedCount++;
+                    }
                 }
+                
                 console.log(`[FSRS] Loaded ${cards.length} cards (msgpack)`);
+                
+                // 如果有卡片被规范化，保存到磁盘
+                if (normalizedCount > 0) {
+                    console.log(`[FSRS] 🔧 Normalized ${normalizedCount} mixed-type cards, saving...`);
+                    this.isDirty = true;
+                    await this.saveCards();
+                }
+                
                 return;
             }
 
@@ -199,14 +220,111 @@ export class StorageManager {
             if (jsonData) {
                 const cards: FSRSCard[] = JSON.parse(jsonData);
                 this.cardsCache.clear();
+                
+                // 🔧 规范化每张卡片
+                let normalizedCount = 0;
                 for (const card of cards) {
-                    this.cardsCache.set(card.id, card);
+                    const normalizedCard = this.normalizeCard(card);
+                    this.cardsCache.set(normalizedCard.id, normalizedCard);
+                    
+                    if (this.wasCardNormalized(card, normalizedCard)) {
+                        normalizedCount++;
+                    }
                 }
+                
                 console.log(`[FSRS] Loaded ${cards.length} cards (JSON, will migrate to msgpack)`);
+                
+                // 如果有卡片被规范化，保存到磁盘
+                if (normalizedCount > 0) {
+                    console.log(`[FSRS] 🔧 Normalized ${normalizedCount} mixed-type cards, saving...`);
+                    this.isDirty = true;
+                    await this.saveCards();
+                }
             }
         } catch (err) {
             console.warn('[FSRS] Failed to load cards:', err);
         }
+    }
+    
+    /**
+     * 规范化卡片数据
+     * 
+     * 将混合类型的卡片转换为纯 FSRSCard 格式：
+     * - 移除 QueueItem 特有字段（deckID）
+     * - 统一使用小写字段（blockId, cardId）
+     * - 填充缺失的扩展字段
+     * 
+     * 🔧 注意：type 字段需要从块属性读取，不能随意填充默认值
+     * 如果卡片没有 type 字段，保持 undefined，等待从块属性读取
+     */
+    private normalizeCard(card: any): FSRSCard {
+        // 处理大小写变体
+        const id = card.id || card.cardID || card.cardId;
+        const blockId = card.blockId || card.blockID;
+        
+        // 构造纯 FSRSCard（移除 QueueItem 字段）
+        const normalized: FSRSCard = {
+            // 标识字段
+            id: String(id || blockId),
+            blockId: String(blockId || id),
+            
+            // FSRS 核心字段
+            due: card.due ?? Date.now(),
+            state: card.state ?? 0,
+            stability: card.stability ?? 0,
+            difficulty: card.difficulty ?? 0,
+            reps: card.reps ?? 0,
+            lapses: card.lapses ?? 0,
+            lastReview: card.lastReview ?? 0,
+            elapsedDays: card.elapsedDays ?? 0,
+            scheduledDays: card.scheduledDays ?? 0,
+            
+            // 扩展字段（填充默认值）
+            priority: card.priority ?? 50,
+            // ✅ 修复：为 null/undefined 提供默认值 CardType.Item
+            type: card.type ?? CardType.Item,
+            tags: card.tags ?? [],
+            leechCount: card.leechCount ?? 0,
+            isLeech: card.isLeech ?? false,
+            skipped: card.skipped ?? false,
+            
+            // 元数据
+            createdAt: card.createdAt ?? Date.now(),
+            updatedAt: card.updatedAt ?? Date.now(),
+            
+            // 保留其他字段（但不包括 deckID）
+            ...(card.schedulerType && { schedulerType: card.schedulerType }),
+            ...(card.syncToRiff !== undefined && { syncToRiff: card.syncToRiff }),
+            ...(card.riffCardId && { riffCardId: card.riffCardId }),
+            ...(card.skipUntil && { skipUntil: card.skipUntil }),
+            ...(card.meta && { meta: card.meta }),
+        };
+        
+        return normalized;
+    }
+    
+    /**
+     * 检查卡片是否被规范化
+     * 
+     * 判断依据：
+     * - 原卡片有 deckID 字段（QueueItem 特征）
+     * - 原卡片使用大写字段（blockID, cardID）
+     * - 原卡片缺少扩展字段
+     */
+    private wasCardNormalized(original: any, normalized: FSRSCard): boolean {
+        // 检查是否有 QueueItem 特征
+        const hadDeckID = 'deckID' in original;
+        
+        // 检查是否使用大写字段
+        const hadUpperCase = ('blockID' in original) || ('cardID' in original);
+        
+        // 检查是否缺少扩展字段
+        const lackedExtendedFields = 
+            !('priority' in original) ||
+            !('type' in original) ||
+            !('tags' in original);
+        
+        return hadDeckID || hadUpperCase || lackedExtendedFields;
     }
 
     /**

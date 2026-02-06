@@ -38,12 +38,19 @@ const mockCard: FSRSCard = {
     lapses: 0,
     last_review: new Date('2023-12-22'),
     lastReview: new Date('2023-12-22'),
-    cardType: 'item',
+    type: 'item' as any, // CardType enum
     priority: 5,
     suspended: false,
     tags: ['test'],
     note: 'Test note',
     aFactor: 1.0,
+    meta: {
+        content: 'Test card content',
+        deckId: 'test-deck-1',
+        rootId: 'test-root-1',
+        suspended: false,
+        note: 'Test note',
+    },
 } as FSRSCard;
 
 describe('SRSBrowserAdapter', () => {
@@ -54,13 +61,24 @@ describe('SRSBrowserAdapter', () => {
     beforeEach(() => {
         // 创建 mock 队列
         mockQueue = {
+            name: 'retrieval-practice',
+            type: 'retrieval-practice' as QueueType,
             getType: vi.fn().mockReturnValue('retrieval-practice'),
-            getCards: vi.fn().mockResolvedValue([mockCard]),
+            getAllCards: vi.fn().mockResolvedValue([mockCard]),
+            getNextCard: vi.fn().mockResolvedValue(mockCard),
             addCard: vi.fn().mockResolvedValue(undefined),
             removeCard: vi.fn().mockResolvedValue(undefined),
+            updateCard: vi.fn().mockResolvedValue(undefined),
             handleReview: vi.fn().mockResolvedValue(undefined),
+            refresh: vi.fn().mockResolvedValue(undefined),
+            clear: vi.fn().mockResolvedValue(undefined),
+            reorder: vi.fn().mockResolvedValue(true),
+            sort: vi.fn().mockResolvedValue(undefined),
+            getStats: vi.fn().mockResolvedValue({ size: 1 }),
             isDynamic: vi.fn().mockReturnValue(true),
-        };
+            isReady: vi.fn().mockReturnValue(true),
+            getConfig: vi.fn().mockReturnValue({}),
+        } as any;
         
         // 创建 mock 管理器
         mockManager = {
@@ -307,7 +325,7 @@ describe('SRSBrowserAdapter', () => {
             await adapter.initializeQueueView(queueType);
             
             const errorMessage = 'Failed to load cards';
-            mockQueue.getCards = vi.fn().mockRejectedValue(new Error(errorMessage));
+            mockQueue.getAllCards = vi.fn().mockRejectedValue(new Error(errorMessage));
             
             await expect(adapter.fetchRows({
                 sortModel: [],
@@ -324,7 +342,7 @@ describe('SRSBrowserAdapter', () => {
             await adapter.initializeQueueView(queueType);
             
             const errorMessage = 'Failed to load cards';
-            mockQueue.getCards = vi.fn().mockRejectedValue(new Error(errorMessage));
+            mockQueue.getAllCards = vi.fn().mockRejectedValue(new Error(errorMessage));
             
             try {
                 await adapter.fetchRows({
@@ -559,7 +577,7 @@ describe('SRSBrowserAdapter', () => {
                 state: 0, // New
             };
             
-            mockQueue.getCards = vi.fn().mockResolvedValue([newCard]);
+            mockQueue.getAllCards = vi.fn().mockResolvedValue([newCard]);
             
             await adapter.initializeQueueView('retrieval-practice' as QueueType);
             const result = await adapter.fetchRows({ sortModel: [], filterModel: {} });
@@ -574,7 +592,7 @@ describe('SRSBrowserAdapter', () => {
                 state: 1, // Learning
             };
             
-            mockQueue.getCards = vi.fn().mockResolvedValue([learningCard]);
+            mockQueue.getAllCards = vi.fn().mockResolvedValue([learningCard]);
             
             await adapter.initializeQueueView('retrieval-practice' as QueueType);
             const result = await adapter.fetchRows({ sortModel: [], filterModel: {} });
@@ -589,7 +607,7 @@ describe('SRSBrowserAdapter', () => {
                 state: 2, // Review
             };
             
-            mockQueue.getCards = vi.fn().mockResolvedValue([reviewCard]);
+            mockQueue.getAllCards = vi.fn().mockResolvedValue([reviewCard]);
             
             await adapter.initializeQueueView('retrieval-practice' as QueueType);
             const result = await adapter.fetchRows({ sortModel: [], filterModel: {} });
@@ -604,7 +622,7 @@ describe('SRSBrowserAdapter', () => {
                 state: 3, // Relearning
             };
             
-            mockQueue.getCards = vi.fn().mockResolvedValue([relearningCard]);
+            mockQueue.getAllCards = vi.fn().mockResolvedValue([relearningCard]);
             
             await adapter.initializeQueueView('retrieval-practice' as QueueType);
             const result = await adapter.fetchRows({ sortModel: [], filterModel: {} });
@@ -616,7 +634,7 @@ describe('SRSBrowserAdapter', () => {
     
     describe('边界条件', () => {
         it('应该处理空卡片列表', async () => {
-            mockQueue.getCards = vi.fn().mockResolvedValue([]);
+            mockQueue.getAllCards = vi.fn().mockResolvedValue([]);
             
             await adapter.initializeQueueView('retrieval-practice' as QueueType);
             const result = await adapter.fetchRows({ sortModel: [], filterModel: {} });
@@ -631,7 +649,7 @@ describe('SRSBrowserAdapter', () => {
                 { ...mockCard, id: 'fsrs-card-3', riffCardId: 'riff-card-3', blockId: 'test-block-3' },
             ];
             
-            mockQueue.getCards = vi.fn().mockResolvedValue(cards);
+            mockQueue.getAllCards = vi.fn().mockResolvedValue(cards);
             
             await adapter.initializeQueueView('retrieval-practice' as QueueType);
             const result = await adapter.fetchRows({ sortModel: [], filterModel: {} });
@@ -659,7 +677,7 @@ describe('SRSBrowserAdapter', () => {
                 cardType: 'item',
             } as FSRSCard;
             
-            mockQueue.getCards = vi.fn().mockResolvedValue([minimalCard]);
+            mockQueue.getAllCards = vi.fn().mockResolvedValue([minimalCard]);
             
             await adapter.initializeQueueView('retrieval-practice' as QueueType);
             const result = await adapter.fetchRows({ sortModel: [], filterModel: {} });

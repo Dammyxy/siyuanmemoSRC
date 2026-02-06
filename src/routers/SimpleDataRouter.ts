@@ -5,8 +5,14 @@
  * 简单模式路由器，所有请求转发到 Riff API。
  * 简单模式只允许删除操作（通过黑名单），不允许更新卡片。
  * 
+ * 实现了网络错误重试机制（需求 11.5）：
+ * - 最多重试 3 次
+ * - 指数退避策略（100ms, 200ms, 400ms）
+ * - 只对网络错误重试，不对业务错误重试
+ * 
  * @see .kiro/specs/unified-data-source-architecture/requirements.md
  * @see .kiro/specs/unified-data-source-architecture/design.md
+ * @see .kiro/specs/queue-architecture-migration/requirements.md - 需求 11.5
  */
 
 import {
@@ -19,8 +25,8 @@ import {
 } from '../types/unified-data-source';
 import { FSRSCard } from '../types/card';
 import {
-    getRiffCards,
     getRiffCardsByBlockIDs,
+    getRiffDueCards,
     removeRiffCards,
     BUILTIN_DECK_ID,
     type RiffBlock,
@@ -34,8 +40,9 @@ import {
  * - 通过黑名单删除卡片
  * - 拒绝更新操作（简单模式限制）
  * - 提供简单模式下的队列类型和上下文菜单选项
+ * - 网络错误自动重试（最多 3 次，指数退避）
  * 
- * @see 需求 2.1, 2.2, 2.3, 2.4, 2.5
+ * @see 需求 2.1, 2.2, 2.3, 2.4, 2.5, 11.5
  */
 export class SimpleDataRouter implements IDataRouter {
     // ========================================================================
@@ -48,6 +55,22 @@ export class SimpleDataRouter implements IDataRouter {
      * 默认使用内置卡包 ID
      */
     private deckId: string;
+    
+    /**
+     * 最大重试次数
+     * 
+     * 网络错误时的最大重试次数
+     * @see 需求 11.5
+     */
+    private readonly maxRetries: number = 3;
+    
+    /**
+     * 初始重试延迟（毫秒）
+     * 
+     * 第一次重试的延迟时间，后续重试使用指数退避
+     * @see 需求 11.5
+     */
+    private readonly initialRetryDelay: number = 100;
     
     // ========================================================================
     // 构造函数
@@ -70,14 +93,19 @@ export class SimpleDataRouter implements IDataRouter {
      * 获取单个卡片
      * 
      * 通过 Riff API 获取卡片数据。
+     * 网络错误时自动重试（最多 3 次）。
      * 
      * @param cardId 卡片 ID（块 ID）
      * @returns 卡片数据
-     * @see 需求 2.5
+     * @throws Error 如果卡片不存在或网络错误超过重试次数
+     * @see 需求 2.5, 11.5
      */
     async getCard(cardId: string): Promise<FSRSCard> {
-        // 通过块 ID 获取 Riff 卡片
-        const riffBlocks = await getRiffCardsByBlockIDs([cardId]);
+        // 使用重试机制调用 Riff API
+        const riffBlocks = await this.retryOnNetworkError(
+            async () => await getRiffCardsByBlockIDs([cardId]),
+            'getCard'
+        );
         
         if (riffBlocks.length === 0) {
             throw new Error(`Card not found: ${cardId}`);
@@ -91,16 +119,39 @@ export class SimpleDataRouter implements IDataRouter {
      * 获取卡片列表
      * 
      * 通过 Riff API 获取卡片列表，支持过滤。
+     * 网络错误时自动重试（最多 3 次）。
+     * 
+     * 🔧 修复说明：
+     * 使用 getRiffDueCards 而不是 getRiffCards，因为：
+     * - getRiffCards 返回所有块，但不包含 riffCard 调度信息
+     * - getRiffDueCards 返回到期卡片，包含完整的 riffCard 调度信息
      * 
      * @param filter 可选的过滤条件
      * @returns 卡片数组
-     * @see 需求 2.5
+     * @throws Error 如果网络错误超过重试次数
+     * @see 需求 2.5, 11.5
      */
     async getCards(filter?: CardFilter): Promise<FSRSCard[]> {
-        // 获取所有 Riff 卡片
-        const riffBlocks = await getRiffCards(this.deckId, {
-            includeNew: true,
-        });
+        // 使用重试机制调用 Riff API
+        // 🔧 修复：使用 getRiffDueCards 获取包含完整调度信息的卡片
+        const riffReviewData = await this.retryOnNetworkError(
+            async () => await getRiffDueCards(this.deckId),
+            'getCards'
+        );
+        
+        // 如果没有到期卡片，返回空数组
+        if (!riffReviewData || !riffReviewData.cards || riffReviewData.cards.length === 0) {
+            return [];
+        }
+        
+        // 获取卡片的块 ID
+        const blockIDs = riffReviewData.cards.map(c => c.blockID);
+        
+        // 通过块 ID 获取完整的 RiffBlock 数据
+        const riffBlocks = await this.retryOnNetworkError(
+            async () => await getRiffCardsByBlockIDs(blockIDs),
+            'getRiffCardsByBlockIDs'
+        );
         
         // 转换为 FSRSCard
         let cards = riffBlocks.map(block => this.convertRiffBlockToFSRSCard(block));
@@ -118,11 +169,11 @@ export class SimpleDataRouter implements IDataRouter {
      * 
      * 简单模式不允许更新卡片，抛出错误。
      * 
-     * @param card 要更新的卡片
+     * @param _card 要更新的卡片（未使用）
      * @throws Error 简单模式不允许更新操作
      * @see 需求 2.4
      */
-    async updateCard(card: FSRSCard): Promise<void> {
+    async updateCard(_card: FSRSCard): Promise<void> {
         // 简单模式只允许删除（通过黑名单）
         throw new Error('Update not allowed in Simple Mode');
     }
@@ -131,13 +182,18 @@ export class SimpleDataRouter implements IDataRouter {
      * 删除卡片
      * 
      * 通过 Riff API 将卡片添加到黑名单（从卡包中移除）。
+     * 网络错误时自动重试（最多 3 次）。
      * 
      * @param cardId 要删除的卡片 ID
-     * @see 需求 2.4
+     * @throws Error 如果网络错误超过重试次数
+     * @see 需求 2.4, 11.5
      */
     async deleteCard(cardId: string): Promise<void> {
-        // 通过 Riff API 从卡包中移除卡片（黑名单）
-        await removeRiffCards(this.deckId, [cardId]);
+        // 使用重试机制调用 Riff API
+        await this.retryOnNetworkError(
+            async () => await removeRiffCards(this.deckId, [cardId]),
+            'deleteCard'
+        );
     }
     
     // ========================================================================
@@ -178,9 +234,115 @@ export class SimpleDataRouter implements IDataRouter {
     // ========================================================================
     
     /**
+     * 网络错误重试包装器
+     * 
+     * 对网络请求进行重试，使用指数退避策略。
+     * 只对网络错误重试，不对业务错误（如卡片不存在）重试。
+     * 
+     * @param fn 要执行的异步函数
+     * @param operation 操作名称（用于日志）
+     * @returns 函数执行结果
+     * @throws Error 如果超过最大重试次数
+     * @see 需求 11.5
+     */
+    private async retryOnNetworkError<T>(
+        fn: () => Promise<T>,
+        operation: string
+    ): Promise<T> {
+        let lastError: Error | null = null;
+        
+        for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+            try {
+                // 尝试执行函数
+                return await fn();
+            } catch (error) {
+                lastError = error instanceof Error ? error : new Error(String(error));
+                
+                // 检查是否是网络错误
+                const isNetworkError = this.isNetworkError(lastError);
+                
+                // 如果不是网络错误，或者已经达到最大重试次数，直接抛出
+                if (!isNetworkError || attempt >= this.maxRetries) {
+                    console.error(
+                        `[SimpleDataRouter] ${operation} failed after ${attempt} attempts:`,
+                        lastError
+                    );
+                    throw lastError;
+                }
+                
+                // 计算退避延迟（指数退避）
+                const delay = this.initialRetryDelay * Math.pow(2, attempt);
+                
+                console.warn(
+                    `[SimpleDataRouter] ${operation} failed (attempt ${attempt + 1}/${this.maxRetries + 1}), ` +
+                    `retrying in ${delay}ms...`,
+                    lastError.message
+                );
+                
+                // 等待后重试
+                await this.sleep(delay);
+            }
+        }
+        
+        // 理论上不会到达这里，但为了类型安全
+        throw lastError || new Error(`${operation} failed after ${this.maxRetries} retries`);
+    }
+    
+    /**
+     * 判断是否是网络错误
+     * 
+     * 检查错误是否是由网络问题引起的（如超时、连接失败等）。
+     * 
+     * @param error 错误对象
+     * @returns 是否是网络错误
+     */
+    private isNetworkError(error: Error): boolean {
+        const message = error.message.toLowerCase();
+        
+        // 常见的网络错误关键词
+        const networkErrorKeywords = [
+            'network',
+            'timeout',
+            'fetch',
+            'connection',
+            'econnrefused',
+            'enotfound',
+            'etimedout',
+            'socket',
+            'abort',
+        ];
+        
+        return networkErrorKeywords.some(keyword => message.includes(keyword));
+    }
+    
+    /**
+     * 异步睡眠
+     * 
+     * @param ms 睡眠时间（毫秒）
+     */
+    private sleep(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+    
+    /**
      * 转换 RiffBlock 为 FSRSCard
      * 
      * 将 Riff API 返回的 RiffBlock 转换为统一的 FSRSCard 格式。
+     * 
+     * 🔧 修复说明：
+     * Riff API 返回的 RiffBlock 中，riffCard 字段可能为 undefined。
+     * 这通常发生在以下情况：
+     * 1. 卡片是新创建的，还没有复习记录
+     * 2. 卡片不在当前卡包中
+     * 3. API 返回的数据不完整
+     * 
+     * 当 riffCard 缺失时，我们使用合理的默认值：
+     * - due: 当前时间（表示立即到期）
+     * - stability: 0（新卡片）
+     * - difficulty: 0（新卡片）
+     * - state: 0（New 状态）
+     * - reps: 0（未复习过）
+     * - lapses: 0（未遗忘过）
      * 
      * @param riffBlock Riff 卡片块
      * @returns FSRSCard
@@ -188,6 +350,18 @@ export class SimpleDataRouter implements IDataRouter {
     private convertRiffBlockToFSRSCard(riffBlock: RiffBlock): FSRSCard {
         // 从 RiffBlock 提取卡片信息
         const riffCard = riffBlock.riffCard;
+        
+        // 🔧 修复：如果 riffCard 不存在，记录详细警告
+        if (!riffCard) {
+            console.warn(`[SimpleDataRouter] ⚠️ RiffCard data missing for block ${riffBlock.id}`, {
+                blockId: riffBlock.id,
+                blockType: riffBlock.type,
+                blockSubType: riffBlock.subType,
+                hasRiffCardID: !!(riffBlock.riffCardID || riffBlock.riffCardId),
+                riffCardID: riffBlock.riffCardID || riffBlock.riffCardId,
+                ial: riffBlock.ial,
+            });
+        }
         
         // 解析时间戳（转换为毫秒）
         const due = riffCard?.due ? new Date(riffCard.due).getTime() : Date.now();
@@ -240,7 +414,31 @@ export class SimpleDataRouter implements IDataRouter {
             schedulerType: 'riff',
             syncToRiff: true,
             riffCardId: riffCard?.id,
+            
+            // 🔧 新增：存储原始块数据到 meta 字段，供 UI 使用
+            meta: {
+                content: riffBlock.content,
+                path: riffBlock.path,
+                hPath: riffBlock.hPath,
+                deckId: riffCard?.deckID,
+                // 如果 riffCard 缺失，标记为不完整数据
+                isIncomplete: !riffCard,
+            },
         };
+        
+        // 🔧 调试日志：记录转换结果（仅在 riffCard 缺失时输出详细日志）
+        if (!riffCard) {
+            console.log('[SimpleDataRouter] ⚠️ Converted RiffBlock with missing riffCard:', {
+                blockId: riffBlock.id,
+                hasRiffCard: false,
+                due: new Date(card.due).toISOString(),
+                stability: card.stability,
+                difficulty: card.difficulty,
+                state: card.state,
+                type: card.type,
+                content: riffBlock.content?.substring(0, 50) + '...',
+            });
+        }
         
         return card;
     }

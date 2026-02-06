@@ -436,18 +436,25 @@ export class UnifiedDataSourceManager {
      * 包含错误处理，确保数据访问的可靠性。
      * 
      * @param cardId 卡片 ID
+     * @param options 可选参数
+     * @param options.silent 是否静默模式（不记录错误日志）
      * @returns 卡片数据
      * @throws Error 如果卡片不存在或数据访问失败
      * @see 需求 11.1
      */
-    public async getCard(cardId: string): Promise<FSRSCard> {
+    public async getCard(cardId: string, options?: { silent?: boolean }): Promise<FSRSCard> {
         try {
             const router = this.getCurrentRouter();
             const card = await router.getCard(cardId);
             return card;
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error(`[UnifiedDataSourceManager] Failed to get card ${cardId}:`, errorMessage);
+            
+            // 如果不是静默模式，记录错误日志
+            if (!options?.silent) {
+                console.error(`[UnifiedDataSourceManager] Failed to get card ${cardId}:`, errorMessage);
+            }
+            
             throw new Error(`获取卡片失败 (${cardId}): ${errorMessage}`);
         }
     }

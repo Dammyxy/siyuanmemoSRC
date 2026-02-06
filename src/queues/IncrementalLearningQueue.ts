@@ -16,7 +16,7 @@
  */
 
 import { BaseReviewQueue } from './BaseReviewQueue';
-import { QueueType } from '../types/unified-data-source';
+import { QueueType, QueueUIConfig, ReviewButtonConfig } from '../types/unified-data-source';
 import { FSRSCard } from '../types/card';
 import type { QueueItem } from '../core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -206,6 +206,41 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
         }
     }
     
+    /**
+     * 获取队列 UI 配置
+     * 
+     * 渐进学习队列使用自定义按钮配置，包括额外的操作按钮。
+     * 
+     * @returns UI 配置对象
+     */
+    public getUIConfig(): QueueUIConfig {
+        return {
+            displayName: '渐进学习',
+            buttons: this.getIncrementalLearningButtons(),
+            showSkipButton: true,
+            showProgressBar: true,
+            customClass: 'incremental-learning-queue',
+        };
+    }
+    
+    /**
+     * 获取渐进学习队列的按钮配置
+     * 
+     * 包括标准的 4 个评分按钮和额外的操作按钮。
+     * 
+     * @returns 按钮配置数组
+     */
+    private getIncrementalLearningButtons(): ReviewButtonConfig[] {
+        return [
+            { type: 'rating', label: 'Again', value: 1 },
+            { type: 'rating', label: 'Hard', value: 2 },
+            { type: 'rating', label: 'Good', value: 3 },
+            { type: 'rating', label: 'Easy', value: 4 },
+            { type: 'action', label: 'Insert', action: 'insert' },
+            { type: 'action', label: 'Next', action: 'next' },
+        ];
+    }
+    
     // ========================================================================
     // 私有辅助方法
     // ========================================================================
@@ -218,10 +253,12 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
         
         for (const cardId of this.manuallyAddedCards) {
             try {
-                const card = await this.manager.getCard(cardId);
+                // 使用静默模式，避免记录预期的"卡片不存在"错误
+                const card = await this.manager.getCard(cardId, { silent: true });
                 cards.push(card);
             } catch (error) {
-                console.warn(`[IncrementalLearningQueue] Card ${cardId} not found, removing from manual additions`);
+                // 卡片不存在是预期行为（可能已被删除），自动清理
+                console.log(`[IncrementalLearningQueue] Card ${cardId} not found, removing from manual additions`);
                 this.manuallyAddedCards.delete(cardId);
             }
         }
@@ -330,5 +367,19 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
             console.error('[IncrementalLearningQueue] Failed to persist manually added cards:', error);
             throw error;
         }
+    }
+    
+    /**
+     * ✅ 兼容方法：获取所有队列项（同步）
+     * 
+     * 这是为了兼容旧架构的 getAllItems() 方法。
+     * 新代码应该使用 getAllCards() 方法。
+     * 
+     * @deprecated 使用 getAllCards() 代替
+     */
+    public getAllItems(): any[] {
+        console.warn('[IncrementalLearningQueue] getAllItems() is deprecated, use getAllCards() instead');
+        // 返回当前缓存的卡片
+        return this.cards;
     }
 }

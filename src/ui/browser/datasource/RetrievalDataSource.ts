@@ -1,23 +1,13 @@
 import type { BrowserCard } from '../types';
-import { loadQueueCards } from '../browserService';
+import { CardState, calculateRetrievability, formatDate, truncateContent } from '../types';
+import { batchDelete } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
 import {
   buildQueueActions,
-  removeFromQueue,
-  insertAt,
-  setPriority,
-  adjustTime,
 } from './MenuActions';
-
-type RetrievalQueueLike = {
-  getAllItems?: () => any[];
-  removeItem?: (item: any) => Promise<boolean> | boolean;
-  remove?: (items: any[]) => Promise<number> | number;
-};
-
-type FsrsPluginLike = {
-  retrievalQueue?: RetrievalQueueLike;
-};
+import type { UnifiedDataSourceManager } from '../../../managers/UnifiedDataSourceManager';
+import { QueueType } from '../../../types/unified-data-source';
+import type { FSRSCard } from '../../../types/card';
 
 // ✅ 五重筛选：支持的筛选参数
 export type RetrievalDataSourceOptions = {
@@ -50,49 +40,36 @@ export class RetrievalDataSource implements ICardDataSource {
   id = 'retrieval';
   label = 'Retrieval';
 
-  private readonly plugin?: FsrsPluginLike;
+  private readonly manager: UnifiedDataSourceManager;
   private readonly options: RetrievalDataSourceOptions;
 
-  constructor(plugin: FsrsPluginLike | undefined, options?: RetrievalDataSourceOptions) {
-    this.plugin = plugin;
+  constructor(manager: UnifiedDataSourceManager, options?: RetrievalDataSourceOptions) {
+    this.manager = manager;
     this.options = options || {};
   }
 
   async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
-    const q = (this.plugin as any)?.retrievalQueue as RetrievalQueueLike | undefined;
-
-    // ✅ 优先使用混合数据源（Riff + 本地）
-    let items: any[] = [];
-    if (q && typeof (q as any).getAllCards === 'function') {
-      // 使用新的 getAllCards() 方法（包含 Riff 卡片）
-      items = await (q as any).getAllCards();
-    } else {
-      // 回退到旧方法（向后兼容）
-      items = q?.getAllItems?.() || [];
+    try {
+      // 通过统一数据源管理器获取队列实例
+      const queue = this.manager.getQueue(QueueType.RetrievalPractice);
+      
+      // 获取队列中的所有卡片（FSRSCard 格式）
+      const cards = await queue.getCards();
+      
+      // 转换为 BrowserCard 格式
+      const browserCards = cards.map(card => this.convertToBrowserCard(card));
+      
+      // 应用筛选条件
+      const filtered = this.applyFilters(browserCards);
+      
+      // 应用排序
+      const sorted = applySort(filtered, params?.sortModel || []);
+      
+      return { rows: sorted, totalCount: sorted.length };
+    } catch (error) {
+      console.error('[RetrievalDataSource] Failed to fetch rows:', error);
+      throw error;
     }
-
-    const blockIds = items.map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
-    const cards = await loadQueueCards(blockIds);
-    const byBlockId = new Map(cards.map((c) => [c.blockId, c]));
-
-    const ordered: BrowserCard[] = [];
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      const bid = String(it?.blockID || it?.blockId || '');
-      const card = byBlockId.get(bid);
-      if (!card) continue;
-      const p = Number(it?.priority);
-      if (Number.isFinite(p)) {
-        (card as any).priority = p;
-      }
-      ordered.push(card);
-    }
-
-    // ✅ 四重筛选：应用文档、Preset、搜索筛选
-    let filtered = this.applyFilters(ordered);
-
-    const sorted = applySort(filtered, params?.sortModel || []);
-    return { rows: sorted, totalCount: sorted.length };
   }
 
   // ✅ 四重筛选：应用筛选条件
@@ -145,40 +122,143 @@ export class RetrievalDataSource implements ICardDataSource {
       withSort: false,
       withPriority: true,
       withTimeAdjust: true,
+      withDelete: true,  // 🆕 启用删除操作
     });
   }
 
   async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<void> {
-    void context;
     if (actionId === 'open') return;
 
-    const q = (this.plugin as any)?.retrievalQueue;
-    if (!q) return;
+    try {
+      const queue = this.manager.getQueue(QueueType.RetrievalPractice);
 
-    // 从队列移除
-    if (actionId === 'remove-from-current-queue') {
-      await removeFromQueue(q, selectedRows);
-      return;
+      // 从队列移除
+      if (actionId === 'remove-from-current-queue') {
+        for (const row of selectedRows) {
+          await queue.removeCard(row.fsrsCardId || row.id);
+        }
+        return;
+      }
+
+      // 删除卡片（完全删除）
+      if (actionId === 'delete-card') {
+        const blockIds = selectedRows.map(row => row.blockId);
+        
+        let deleted = await batchDelete(blockIds);
+        if (deleted === 0 && blockIds.length > 0) {
+          console.warn('[RetrievalDataSource] 常规删除失败，自动尝试强制删除...');
+          deleted = await batchDelete(blockIds, { force: true });
+        }
+        return;
+      }
+
+      // 设置优先级
+      if (actionId === 'set-priority') {
+        const priority = Math.max(0, Math.min(100, Math.floor(Number(context?.priority))));
+        for (const row of selectedRows) {
+          const card = await this.manager.getCard(row.fsrsCardId || row.id);
+          card.priority = priority;
+          await this.manager.updateCard(card);
+        }
+        return;
+      }
+
+      // 时间调整
+      if (actionId === 'postpone' || actionId === 'advance' || actionId === 'spread') {
+        const days = Math.floor(Number(context?.days || 1));
+        for (let i = 0; i < selectedRows.length; i++) {
+          const row = selectedRows[i];
+          const card = await this.manager.getCard(row.fsrsCardId || row.id);
+          
+          let newDue = card.due;
+          if (actionId === 'postpone') {
+            newDue = card.due + days * 24 * 60 * 60 * 1000;
+          } else if (actionId === 'advance') {
+            newDue = card.due - days * 24 * 60 * 60 * 1000;
+          } else if (actionId === 'spread') {
+            const offset = Math.floor((i / selectedRows.length) * days * 24 * 60 * 60 * 1000);
+            newDue = card.due + offset;
+          }
+          
+          card.due = newDue;
+          await this.manager.updateCard(card);
+        }
+        return;
+      }
+    } catch (error) {
+      console.error('[RetrievalDataSource] Failed to perform action:', error);
+      throw error;
     }
+  }
 
-    // 插入到指定位置
-    if (actionId === 'insert-at') {
-      const index = Math.max(0, Math.floor(Number(context?.index ?? 0)));
-      await insertAt(q, selectedRows, index);
-      return;
+  private convertToBrowserCard(card: FSRSCard): BrowserCard {
+    const now = Date.now();
+    const elapsedDays = card.lastReview 
+      ? Math.floor((now - card.lastReview) / (1000 * 60 * 60 * 24))
+      : 0;
+    const retrievability = calculateRetrievability(card.stability, elapsedDays);
+    const state = this.convertCardState(card.state);
+    const dueDate = new Date(card.due);
+    const lastReviewDate = card.lastReview ? new Date(card.lastReview) : null;
+    const fullContent = (card.meta?.content as string) || '';
+    const content = truncateContent(fullContent, 100);
+    const deckId = (card.meta?.deckId as string) || '';
+    
+    let cardType: 'topic' | 'item' | 'incremental' | 'webpage' | undefined;
+    if (typeof card.type === 'string') {
+      cardType = card.type as any;
     }
+    
+    return {
+      id: card.riffCardId || card.id,
+      fsrsCardId: card.id,
+      blockId: card.blockId,
+      deckId,
+      content,
+      fullContent,
+      rootId: (card.meta?.rootId as string) || '',
+      state,
+      stateLabel: this.getStateLabel(state),
+      due: dueDate,
+      dueFormatted: formatDate(dueDate),
+      stability: card.stability,
+      difficulty: card.difficulty,
+      retrievability,
+      reps: card.reps,
+      lapses: card.lapses,
+      elapsedDays,
+      scheduledDays: card.scheduledDays,
+      lastReview: lastReviewDate,
+      lastReviewFormatted: lastReviewDate ? formatDate(lastReviewDate) : '',
+      interval: card.scheduledDays,
+      firstReview: lastReviewDate,
+      firstReviewFormatted: lastReviewDate ? formatDate(lastReviewDate) : '',
+      priority: card.priority || 0,
+      suspended: (card.meta?.suspended as boolean) || false,
+      tags: card.tags,
+      note: (card.meta?.note as string) || '',
+      cardType,
+      aFactor: card.aFactor,
+    };
+  }
 
-    // 设置优先级
-    if (actionId === 'set-priority') {
-      const priority = Math.max(0, Math.min(100, Math.floor(Number(context?.priority))));
-      await setPriority(q, selectedRows, priority);
-      return;
+  private convertCardState(state: number): CardState {
+    switch (state) {
+      case 0: return CardState.New;
+      case 1: return CardState.Learning;
+      case 2: return CardState.Review;
+      case 3: return CardState.Relearning;
+      default: return CardState.New;
     }
+  }
 
-    // 时间调整
-    if (actionId === 'postpone' || actionId === 'advance' || actionId === 'spread') {
-      await adjustTime(this.plugin, selectedRows, actionId as any, context);
-      return;
+  private getStateLabel(state: CardState): string {
+    switch (state) {
+      case CardState.New: return '新卡';
+      case CardState.Learning: return '学习中';
+      case CardState.Review: return '复习';
+      case CardState.Relearning: return '重学';
+      default: return '未知';
     }
   }
 }

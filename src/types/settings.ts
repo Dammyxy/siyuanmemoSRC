@@ -17,7 +17,7 @@ export type SchedulerEngine = 'simple-fsrs' | 'sm2' | 'sm15' | 'a-factor-v2';
 /** 🆕 调度器配置 */
 export interface SchedulerConfig {
     defaultScheduler: 'fsrs-v5' | 'riff' | 'sm2' | 'sm15' | 'a-factor-v2';
-    enableRiffSync: boolean;
+    // enableRiffSync 已废弃，请使用 riffIntegration.mode 替代
 
     // 按卡片类型配置（可选）
     topicScheduler?: 'a-factor' | 'a-factor-v2';
@@ -221,7 +221,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     schedulerEngine: 'simple-fsrs',
     scheduler: {
         defaultScheduler: 'fsrs-v5',
-        enableRiffSync: false,
         topicScheduler: 'a-factor-v2',
         itemScheduler: 'fsrs-v5',
         sm15: {

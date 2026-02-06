@@ -8,7 +8,7 @@
  * @see .kiro/specs/unified-data-source-architecture/design.md
  */
 
-import { IReviewQueue, QueueObserver, QueueType } from '../types/unified-data-source';
+import { IReviewQueue, QueueObserver, QueueType, QueueStats, QueueUIConfig, ReviewButtonConfig } from '../types/unified-data-source';
 import { FSRSCard } from '../types/card';
 import type { QueueItem } from '../core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -156,6 +156,104 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @see 需求 7.1-7.7, 8.1-8.3, 9.1-9.3
      */
     public abstract handleReview(cardId: string, rating: number): Promise<void>;
+    
+    /**
+     * 跳过卡片
+     * 
+     * 默认实现：将卡片移到队列末尾。
+     * 子类可以覆盖此方法以提供自定义行为。
+     * 
+     * @param cardId 卡片 ID
+     */
+    public async skip(cardId: string): Promise<void> {
+        try {
+            if (this.cards.length === 0) {
+                await this.getAllCards();
+            }
+            
+            const index = this.cards.findIndex(c => c.id === cardId || c.blockId === cardId);
+            if (index === -1) {
+                console.warn(`[${this.type}] Card ${cardId} not found in queue`);
+                return;
+            }
+            
+            const card = this.cards[index];
+            this.cards.splice(index, 1);
+            this.cards.push(card);
+            
+            console.log(`[${this.type}] Card ${cardId} skipped (moved to end)`);
+            this.notifyObservers();
+        } catch (error) {
+            console.error(`[${this.type}] Failed to skip card:`, error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 获取队列统计信息
+     * 
+     * 默认实现：基于当前队列卡片计算统计。
+     * 子类可以覆盖此方法以提供更精确的统计。
+     * 
+     * @returns 队列统计数据
+     */
+    public async getStats(): Promise<QueueStats> {
+        try {
+            if (this.cards.length === 0) {
+                await this.getAllCards();
+            }
+            
+            const now = Date.now();
+            const total = this.cards.length;
+            const due = this.cards.filter(c => c.due <= now).length;
+            const newCards = this.cards.filter(c => c.reps === 0).length;
+            const learning = this.cards.filter(c => c.state === 1).length;
+            
+            return {
+                total,
+                due,
+                new: newCards,
+                learning,
+                reviewed: 0, // 默认不跟踪已复习数量
+            };
+        } catch (error) {
+            console.error(`[${this.type}] Failed to get stats:`, error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 获取队列 UI 配置
+     * 
+     * 默认实现：返回标准的 4 按钮配置。
+     * 子类可以覆盖此方法以提供自定义 UI 配置。
+     * 
+     * @returns UI 配置对象
+     */
+    public getUIConfig(): QueueUIConfig {
+        return {
+            displayName: this.name || this.type,
+            buttons: this.getDefaultButtons(),
+            showSkipButton: true,
+            showProgressBar: true,
+        };
+    }
+    
+    /**
+     * 获取默认按钮配置
+     * 
+     * 返回标准的 4 按钮配置（Again, Hard, Good, Easy）。
+     * 
+     * @returns 按钮配置数组
+     */
+    protected getDefaultButtons(): ReviewButtonConfig[] {
+        return [
+            { type: 'rating', label: 'Again', value: 1 },
+            { type: 'rating', label: 'Hard', value: 2 },
+            { type: 'rating', label: 'Good', value: 3 },
+            { type: 'rating', label: 'Easy', value: 4 },
+        ];
+    }
     
     /**
      * 判断是否为动态队列

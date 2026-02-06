@@ -102,9 +102,21 @@ export class AdvancedDataRouter implements IDataRouter {
         // 获取所有卡片
         let cards = this.storage.getAllCards();
         
+        console.log(`[AdvancedDataRouter] 🔍 getAllCards() returned ${cards.length} cards`);
+        
         // 应用过滤器
         if (filter) {
+            console.log(`[AdvancedDataRouter] 🔍 Applying filter:`, filter);
             cards = this.applyFilter(cards, filter);
+            console.log(`[AdvancedDataRouter] 🔍 After applyFilter: ${cards.length} cards`);
+        }
+        
+        // 过滤掉 blockId 无效的卡片（在应用其他过滤器之后）
+        const invalidCards = cards.filter(card => !card.blockId || card.blockId === 'undefined' || card.blockId === '');
+        if (invalidCards.length > 0) {
+            console.warn(`[AdvancedDataRouter] ⚠️ Filtering out ${invalidCards.length} cards with invalid blockId:`, invalidCards.map(c => ({ id: c.id, blockId: c.blockId })));
+            cards = cards.filter(card => card.blockId && card.blockId !== 'undefined' && card.blockId !== '');
+            console.log(`[AdvancedDataRouter] 🔍 After blockId filtering: ${cards.length} cards`);
         }
         
         return cards;
@@ -250,10 +262,15 @@ export class AdvancedDataRouter implements IDataRouter {
         
         // 过滤卡片类型
         if (filter.cardType) {
+            console.log(`[AdvancedDataRouter] 🔍 Filtering by cardType: ${filter.cardType}`);
+            console.log(`[AdvancedDataRouter] 🔍 Sample card types:`, cards.slice(0, 5).map(c => ({ id: c.id, type: c.type, typeOf: typeof c.type })));
+            
             filtered = filtered.filter(card => {
                 // 高级模式严格区分主题/项目卡片（需求 3.2）
                 return card.type === filter.cardType;
             });
+            
+            console.log(`[AdvancedDataRouter] 🔍 After cardType filter: ${filtered.length} cards`);
         }
         
         // 过滤到期日期

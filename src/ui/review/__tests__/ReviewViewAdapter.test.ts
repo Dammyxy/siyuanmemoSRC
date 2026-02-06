@@ -62,13 +62,24 @@ describe('ReviewViewAdapter', () => {
     beforeEach(() => {
         // 创建 mock 队列
         mockQueue = {
+            name: 'retrieval-practice',
+            type: 'retrieval-practice' as QueueType,
             getType: vi.fn().mockReturnValue('retrieval-practice'),
-            getCards: vi.fn().mockResolvedValue([mockCard]),
+            getAllCards: vi.fn().mockResolvedValue([mockCard]),
+            getNextCard: vi.fn().mockResolvedValue(mockCard),
             addCard: vi.fn().mockResolvedValue(undefined),
             removeCard: vi.fn().mockResolvedValue(undefined),
+            updateCard: vi.fn().mockResolvedValue(undefined),
             handleReview: vi.fn().mockResolvedValue(undefined),
+            refresh: vi.fn().mockResolvedValue(undefined),
+            clear: vi.fn().mockResolvedValue(undefined),
+            reorder: vi.fn().mockResolvedValue(true),
+            sort: vi.fn().mockResolvedValue(undefined),
+            getStats: vi.fn().mockResolvedValue({ size: 1 }),
             isDynamic: vi.fn().mockReturnValue(true),
-        };
+            isReady: vi.fn().mockReturnValue(true),
+            getConfig: vi.fn().mockReturnValue({}),
+        } as any;
         
         // 创建 mock 控制器
         mockController = {

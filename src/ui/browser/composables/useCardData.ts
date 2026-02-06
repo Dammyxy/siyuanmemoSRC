@@ -98,7 +98,7 @@ export function useCardData(props: CardDataOptions) {
         };
 
         // 创建数据源
-        if (activeQueueId.value && ['final-drill', 'retrieval', 'filter-group'].includes(activeQueueId.value)) {
+        if (activeQueueId.value && ['final-drill', 'retrieval', 'filter-group', 'incremental-learning'].includes(activeQueueId.value)) {
           // 队列模式（五重筛选）
           currentDataSource.value = createQueueDataSource(activeQueueId.value, props.plugin, options);
         } else if (activeQueueId.value) {

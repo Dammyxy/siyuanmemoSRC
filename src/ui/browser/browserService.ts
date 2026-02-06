@@ -943,18 +943,75 @@ export async function batchSetPriority(blockIds: string[], priority: number): Pr
 }
 
 /** 批量删除卡片 (从卡组移除) */
-export async function batchDelete(blockIds: string[]): Promise<number> {
+export async function batchDelete(blockIds: string[], options?: { force?: boolean }): Promise<number> {
     if (blockIds.length === 0) return 0;
 
+    console.log('[batchDelete] 开始删除卡片:', blockIds);
+    console.log('[batchDelete] 强制删除模式:', options?.force);
+
     try {
+        // 先检查卡片是否存在
+        const existingCards = await riff.getRiffCardsByBlockIDs(blockIds);
+        console.log('[batchDelete] Riff 中存在的卡片数量:', existingCards?.length);
+        console.log('[batchDelete] Riff 中存在的卡片 ID:', existingCards?.map((c: any) => c.id));
+        
+        if (!existingCards || existingCards.length === 0) {
+            console.warn('[batchDelete] 这些卡片不在 Riff 中，无法删除');
+            return 0;
+        }
+
+        // 删除卡片
+        console.log('[batchDelete] 调用 riff.removeRiffCards...');
         await riff.removeRiffCards(BUILTIN_DECK_ID, blockIds);
+        console.log('[batchDelete] ✅ Riff API 调用成功');
+
+        // 验证删除结果
+        const remainingCards = await riff.getRiffCardsByBlockIDs(blockIds);
+        let actualDeleted = blockIds.length - (remainingCards?.length || 0);
+        console.log('[batchDelete] 删除后剩余卡片数量:', remainingCards?.length);
+        console.log('[batchDelete] 实际删除的卡片数量:', actualDeleted);
+
+        // 🆕 如果删除失败且启用强制模式，尝试重置后再删除
+        if (actualDeleted === 0 && options?.force && remainingCards?.length > 0) {
+            console.warn('[batchDelete] ⚠️ 常规删除失败，尝试强制删除（重置后删除）...');
+            
+            try {
+                // 步骤1: 重置卡片（清除损坏的数据）
+                console.log('[batchDelete] 步骤1: 重置卡片...');
+                await riff.resetRiffCards('deck', BUILTIN_DECK_ID, BUILTIN_DECK_ID, blockIds);
+                console.log('[batchDelete] ✅ 重置成功');
+                
+                // 步骤2: 再次尝试删除
+                console.log('[batchDelete] 步骤2: 再次尝试删除...');
+                await riff.removeRiffCards(BUILTIN_DECK_ID, blockIds);
+                
+                // 步骤3: 验证结果
+                const finalCheck = await riff.getRiffCardsByBlockIDs(blockIds);
+                actualDeleted = blockIds.length - (finalCheck?.length || 0);
+                console.log('[batchDelete] 强制删除后实际删除数量:', actualDeleted);
+                
+                if (actualDeleted > 0) {
+                    console.log('[batchDelete] ✅ 强制删除成功');
+                } else {
+                    console.error('[batchDelete] ❌ 强制删除仍然失败，这些卡片可能需要手动清理数据库');
+                    console.error('[batchDelete] 问题卡片 ID:', blockIds);
+                }
+            } catch (forceErr) {
+                console.error('[batchDelete] 强制删除过程中出错:', forceErr);
+                console.error('[batchDelete] 错误堆栈:', forceErr instanceof Error ? forceErr.stack : undefined);
+            }
+        }
 
         // 增量更新缓存：移除卡片
-        cardCache.removeCards(blockIds);
+        if (actualDeleted > 0) {
+            cardCache.removeCards(blockIds);
+            console.log('[batchDelete] 缓存已更新，移除了', actualDeleted, '张卡片');
+        }
 
-        return blockIds.length;
+        return actualDeleted;
     } catch (err) {
-        console.error('[CardBrowser] Delete error:', err);
+        console.error('[batchDelete] 删除失败:', err);
+        console.error('[batchDelete] 错误堆栈:', err instanceof Error ? err.stack : undefined);
         return 0;
     }
 }

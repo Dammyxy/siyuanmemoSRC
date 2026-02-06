@@ -1,6 +1,6 @@
 import type { BrowserCard } from '../types';
 import { formatDate } from '../types';
-import { loadCards, batchReset, batchSuspend } from '../browserService';
+import { loadCards, batchReset, batchSuspend, batchDelete } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
 import {
   BASE_ACTIONS,
@@ -10,6 +10,8 @@ import {
   addToQueue,
 } from './MenuActions';
 import { RescheduleService } from '@/core/scheduler/rescheduleService';
+import type { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
+import { QueueType } from '@/types/unified-data-source';
 
 type DeckDataSourceOptions = {
   preset: string;
@@ -27,12 +29,6 @@ type FsrsPluginLike = {
   storage?: any;
   rescheduleService?: RescheduleService;
   openSubsetReviewDialog?: (blockIds: string[]) => Promise<void> | void;
-  retrievalQueue?: QueueLike;
-  incrementalQueue?: QueueLike;  // ✅ 添加渐进学习队列
-  finalDrillQueue?: QueueLike;  // ✅ 刻意练习队列（主属性名）
-  deliberateQueue?: QueueLike;  // ⚠️ 向后兼容别名，指向 finalDrillQueue
-  filterGroupQueue?: QueueLike;
-  neuralQueue?: QueueLike;  // ✅ 添加神经漫游队列
 };
 
 function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
@@ -74,17 +70,19 @@ export class DeckDataSource implements ICardDataSource {
   id = 'deck';
   label = 'Deck';
 
-  private readonly plugin?: FsrsPluginLike;
+  private readonly manager: UnifiedDataSourceManager;  // 🆕 新架构
+  private readonly plugin?: FsrsPluginLike;  // 🔧 保留用于特殊功能（Review Subset、神经漫游、时间调整）
   private readonly options: DeckDataSourceOptions;
 
-  constructor(plugin: FsrsPluginLike | undefined, options: DeckDataSourceOptions) {
-    this.plugin = plugin;
+  constructor(manager: UnifiedDataSourceManager, options: DeckDataSourceOptions, plugin?: FsrsPluginLike) {
+    this.manager = manager;  // 🆕 直接接收 manager
+    this.plugin = plugin;  // 🔧 可选的 plugin 对象
     this.options = options;
 
-    console.log('[DeckDataSource] Constructor - Plugin keys:', {
-      hasPlugin: !!plugin,
-      keys: plugin ? Object.keys(plugin).filter(k => k.includes('Queue')).sort() : [],
-      incrementalQueueType: plugin?.incrementalQueue?.constructor?.name,
+    console.log('[DeckDataSource] Constructor - Using unified data source manager:', {
+      hasManager: !!this.manager,
+      hasPlugin: !!this.plugin,
+      currentMode: this.manager?.getCurrentMode(),
     });
   }
 
@@ -128,34 +126,20 @@ export class DeckDataSource implements ICardDataSource {
   getSupportedActions(): CardBrowserAction[] {
     const actions: CardBrowserAction[] = [
       BASE_ACTIONS.open,
+      BASE_ACTIONS.deleteCard,  // 🆕 添加删除操作
     ];
 
-    // 🔍 详细调试日志
+    // 🆕 使用统一数据源管理器检测可用队列
     console.log('[DeckDataSource] ========== getSupportedActions 调试 ==========');
-    console.log('[DeckDataSource] Plugin 对象:', this.plugin);
-    console.log('[DeckDataSource] Plugin 类型:', this.plugin?.constructor?.name);
-    console.log('[DeckDataSource] Plugin 所有属性:', this.plugin ? Object.keys(this.plugin) : []);
-    console.log('[DeckDataSource] Plugin 所有属性（包括原型链）:', this.plugin ? Object.getOwnPropertyNames(Object.getPrototypeOf(this.plugin)) : []);
+    console.log('[DeckDataSource] Manager:', this.manager);
+    console.log('[DeckDataSource] Current mode:', this.manager?.getCurrentMode());
     
-    console.log('[DeckDataSource] 队列检测结果:', {
-      hasPlugin: !!this.plugin,
-      hasRetrieval: !!this.plugin?.retrievalQueue,
-      hasIncremental: !!this.plugin?.incrementalQueue,
-      hasFinalDrill: !!(this.plugin as any)?.finalDrillQueue,
-      hasFilterGroup: !!this.plugin?.filterGroupQueue,
-      hasNeuralRoam: !!this.plugin?.neuralQueue,
-    });
-
-    // 尝试直接访问队列
-    console.log('[DeckDataSource] 直接访问 finalDrillQueue:', (this.plugin as any)?.finalDrillQueue);
-
-    // 添加"加入队列"子菜单
     const hasQueues = {
-      retrieval: !!this.plugin?.retrievalQueue,
-      incremental: !!this.plugin?.incrementalQueue,
-      finalDrill: !!(this.plugin as any)?.finalDrillQueue,  // ✅ 使用 finalDrillQueue
-      filterGroup: !!this.plugin?.filterGroupQueue,
-      neuralRoam: !!this.plugin?.neuralQueue,
+      retrieval: !!this.manager,  // 所有模式都支持提取练习
+      incremental: !!this.manager,  // 所有模式都支持渐进学习
+      finalDrill: !!this.manager,  // 所有模式都支持刻意练习
+      filterGroup: !!this.manager,  // 所有模式都支持筛选复习
+      neuralRoam: !!this.manager,  // 所有模式都支持神经漫游
     };
     
     console.log('[DeckDataSource] buildAddToQueueAction 参数:', hasQueues);
@@ -185,6 +169,13 @@ export class DeckDataSource implements ICardDataSource {
 
     if (this.plugin?.openSubsetReviewDialog) {
       actions.unshift({ id: 'review-subset', label: 'Review Subset', icon: 'iconPlay' });
+      console.log('[DeckDataSource] ✅ 已添加"选中复习"菜单');
+    } else {
+      console.log('[DeckDataSource] ❌ 没有添加"选中复习"菜单', {
+        hasPlugin: !!this.plugin,
+        hasOpenSubsetReviewDialog: !!this.plugin?.openSubsetReviewDialog,
+        pluginKeys: this.plugin ? Object.keys(this.plugin) : [],
+      });
     }
 
     return actions;
@@ -199,77 +190,70 @@ export class DeckDataSource implements ICardDataSource {
     // 打开操作
     if (actionId === 'open') return;
 
-    // ========== 队列操作 ==========
+    // 🆕 删除卡片（支持强制删除）
+    if (actionId === 'delete-card') {
+      const blockIds = selectedRows.map(row => row.blockId);
+      
+      // 第一次尝试：常规删除
+      let deleted = await batchDelete(blockIds);
+      
+      // 如果删除失败，自动尝试强制删除
+      if (deleted === 0 && blockIds.length > 0) {
+        console.warn('[DeckDataSource] 常规删除失败，自动尝试强制删除...');
+        deleted = await batchDelete(blockIds, { force: true });
+      }
+      
+      return deleted;
+    }
+
+    // ========== 队列操作（使用统一数据源管理器）==========
+
+    if (!this.manager) {
+      console.error('[DeckDataSource] UnifiedDataSourceManager not available!');
+      return;
+    }
 
     // 提取练习
     if (actionId === 'add-to-retrieval-queue') {
       console.log('[DeckDataSource] 处理：加入提取练习队列');
-      if (this.plugin?.retrievalQueue) {
-        return await addToQueue(this.plugin.retrievalQueue, selectedRows, 'retrieval');
-      }
-      return;
+      const queue = this.manager.getQueue(QueueType.RetrievalPractice);
+      return await addToQueue(queue as any, selectedRows, 'retrieval');
     }
 
     // 渐进学习
     if (actionId === 'add-to-incremental-queue') {
       console.log('[DeckDataSource] 处理：加入渐进学习队列');
-      if (this.plugin?.incrementalQueue) {
-        return await addToQueue(this.plugin.incrementalQueue, selectedRows, 'incremental');
-      }
-      console.error('[DeckDataSource] incrementalQueue not available!');
-      return;
+      const queue = this.manager.getQueue(QueueType.IncrementalLearning);
+      return await addToQueue(queue as any, selectedRows, 'incremental');
     }
 
     // 刻意练习（支持新旧两种 action ID）
     if (actionId === 'add-to-deliberate-queue' || actionId === 'add-to-final-drill-queue') {
       console.log('[DeckDataSource] 处理：加入刻意练习队列');
-      console.log('[DeckDataSource] 检查队列:', {
-        hasFinalDrill: !!(this.plugin as any)?.finalDrillQueue,
-      });
-      
-      // ✅ 使用 finalDrillQueue
-      const queue = (this.plugin as any)?.finalDrillQueue;
-      console.log('[DeckDataSource] 获取到的队列:', queue);
-      console.log('[DeckDataSource] 队列类型:', queue?.constructor?.name);
-      console.log('[DeckDataSource] 队列有 addItems 方法:', typeof queue?.addItems === 'function');
-      
-      if (queue) {
-        console.log('[DeckDataSource] ✅ 调用 addToQueue');
-        const result = await addToQueue(queue, selectedRows, 'final-drill');
-        console.log('[DeckDataSource] addToQueue 返回结果:', result);
-        return result;
-      }
-      console.error('[DeckDataSource] ❌ finalDrillQueue not available!');
-      return;
+      const queue = this.manager.getQueue(QueueType.FinalDrill);
+      console.log('[DeckDataSource] ✅ 调用 addToQueue');
+      const result = await addToQueue(queue as any, selectedRows, 'final-drill');
+      console.log('[DeckDataSource] addToQueue 返回结果:', result);
+      return result;
     }
 
     // 筛选复习
     if (actionId === 'add-to-filter-group-queue') {
       console.log('[DeckDataSource] 处理：加入筛选复习队列');
-      console.log('[DeckDataSource] 检查队列:', {
-        hasFilterGroup: !!this.plugin?.filterGroupQueue,
-      });
-      
-      const queue = this.plugin?.filterGroupQueue;
-      console.log('[DeckDataSource] 获取到的队列:', queue);
-      console.log('[DeckDataSource] 队列类型:', queue?.constructor?.name);
-      console.log('[DeckDataSource] 队列有 addItems 方法:', typeof queue?.addItems === 'function');
-      
-      if (queue) {
-        console.log('[DeckDataSource] ✅ 调用 addToQueue');
-        const result = await addToQueue(queue, selectedRows, 'filter-group');
-        console.log('[DeckDataSource] addToQueue 返回结果:', result);
-        return result;
-      }
-      console.error('[DeckDataSource] ❌ filterGroupQueue not available!');
-      return;
+      const queue = this.manager.getQueue(QueueType.FilterGroup);
+      console.log('[DeckDataSource] ✅ 调用 addToQueue');
+      const result = await addToQueue(queue as any, selectedRows, 'filter-group');
+      console.log('[DeckDataSource] addToQueue 返回结果:', result);
+      return result;
     }
 
-    // 神经漫游
+    // 神经漫游（暂时保留旧架构访问方式，因为神经漫游尚未迁移到新架构）
     if (actionId === 'add-to-neural-roam-queue') {
+      console.log('[DeckDataSource] 处理：加入神经漫游队列（使用旧架构）');
       if (this.plugin?.neuralQueue) {
         return await addToQueue(this.plugin.neuralQueue, selectedRows, 'neural-roam');
       }
+      console.error('[DeckDataSource] neuralQueue not available!');
       return;
     }
 

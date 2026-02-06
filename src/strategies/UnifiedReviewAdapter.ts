@@ -89,7 +89,7 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                 id: card.blockId || card.id
             },
             actions: {
-                showAnswer: context.showAnswer,
+                showAnswer: !context.showAnswer,  // 🔧 修复：反转 context.showAnswer 的值
                 grades: uiConfig.showRatingButtons ? [
                     { label: '1', value: 1, color: 'red', kb: '1' },
                     { label: '2', value: 2, color: 'orange', kb: '2' },

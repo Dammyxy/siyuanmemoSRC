@@ -290,6 +290,7 @@ const scopedRows = computed(() => {
 const focusedDocIds = computed(() => {
   // 如果没有标记聚焦，返回 null（显示所有文档）
   if (!shouldFocusDocList.value) {
+    console.log('[SRSBrowser] 🔍 focusedDocIds: shouldFocusDocList is false, returning null');
     return null;
   }
 
@@ -300,7 +301,17 @@ const focusedDocIds = computed(() => {
       docs.add(card.rootId);
     }
   }
-  return docs.size > 0 ? Array.from(docs) : null;
+  
+  const result = docs.size > 0 ? Array.from(docs) : null;
+  console.log('[SRSBrowser] 🔍 focusedDocIds computed:', {
+    shouldFocusDocList: shouldFocusDocList.value,
+    rowsForFocusCount: rowsForFocus.value.length,
+    sampleRootIds: rowsForFocus.value.slice(0, 3).map(c => ({ blockId: c.blockId, rootId: c.rootId })),
+    uniqueDocIds: result,
+    docsCount: docs.size,
+  });
+  
+  return result;
 });
 
 // ✅ 全局统计（【全部】区使用）- 基于所有卡片，不受筛选影响
@@ -318,7 +329,7 @@ const filteredCards = computed(() => {
   return scopedRows.value.filter((c) => matchesParsedQuery(c, parsed));
 });
 
-// 加载数据 - 使用 browserService (riff API) 或 UnifiedDataSourceManager
+// 加载数据 - 强制使用统一数据源架构
 async function loadData(forceRefresh = false) {
   loading.value = true;
   hasRandomSort.value = false;  // ✅ 重新加载数据时清除随机排序标志
@@ -326,94 +337,134 @@ async function loadData(forceRefresh = false) {
     selectedRows.value = [];
     previewCard.value = null;
 
-    // 🆕 尝试使用统一数据源适配器
-    if (browserAdapter.value && activeQueueId.value) {
-      try {
-        console.log('[SRSBrowser] Using UnifiedDataSourceManager for queue:', activeQueueId.value);
-        
-        // 映射队列 ID 到 QueueType
-        const queueTypeMap: Record<string, QueueType> = {
-          'retrieval': QueueType.RetrievalPractice,
-          'final-drill': QueueType.FinalDrill,
-          'incremental-learning': QueueType.IncrementalLearning,
-          'filter-group': QueueType.FilterGroup,
-          'neural-roam': QueueType.NeuralRoam,
-        };
-        
-        const queueType = queueTypeMap[activeQueueId.value];
-        if (queueType) {
-          // 初始化队列视图
-          await browserAdapter.value.initializeQueueView(queueType);
-          
-          // 获取卡片数据
-          const result = await browserAdapter.value.fetchRows({
-            sortModel: currentSortModel.value,
-            filterModel: {},
-          });
-          
-          // 🔧 修复：填充卡片的 content 字段
-          // browserAdapter 返回的数据中 content 字段为空，需要通过 loadCards 填充
-          const blockIds = result.rows.map(card => card.blockId);
-          const cardsWithContent = await PerformanceMonitor.measure('loadCardsContent', () =>
-            loadCards('all', blockIds, '', forceRefresh)
-          );
-          
-          // 合并数据：使用 browserAdapter 的数据作为基础，用 loadCards 的 content 填充
-          const contentMap = new Map(cardsWithContent.map(c => [c.blockId, c.content]));
-          rows.value = result.rows.map(card => ({
-            ...card,
-            content: contentMap.get(card.blockId) || card.content,
-            fullContent: contentMap.get(card.blockId) || card.fullContent,
-          }));
-          rowsForFocus.value = rows.value;
-          
-          // 更新全量统计数据
-          allRows.value = await PerformanceMonitor.measure('loadAllCards', () => 
-            loadCards('all', undefined, '', forceRefresh)
-          );
-          
-          await refreshQueueCounts();
-          return;
-        }
-      } catch (error) {
-        console.error('[SRSBrowser] Failed to use UnifiedDataSourceManager, falling back to legacy:', error);
-        // 降级到旧的实现
+    // ========================================================================
+    // 队列模式：强制使用统一数据源架构
+    // ========================================================================
+    if (activeQueueId.value) {
+      // 检查 browserAdapter 是否已初始化
+      if (!browserAdapter.value) {
+        throw new Error('UnifiedDataSourceManager adapter not initialized');
       }
+
+      console.log('[SRSBrowser] 🔍 Using UnifiedDataSourceManager for queue:', activeQueueId.value);
+      console.log('[SRSBrowser] 🔍 Current mode:', UnifiedDataSourceManager.getInstance().getCurrentMode());
+      
+      // 映射队列 ID 到 QueueType
+      const queueTypeMap: Record<string, QueueType> = {
+        'retrieval': QueueType.RetrievalPractice,
+        'final-drill': QueueType.FinalDrill,
+        'incremental-learning': QueueType.IncrementalLearning,
+        'filter-group': QueueType.FilterGroup,
+        'neural-roam': QueueType.NeuralRoam,
+      };
+      
+      const queueType = queueTypeMap[activeQueueId.value];
+      if (!queueType) {
+        throw new Error(`Queue type not supported by UnifiedDataSourceManager: ${activeQueueId.value}`);
+      }
+
+      console.log('[SRSBrowser] ✅ Queue type mapped:', queueType);
+      
+      // 初始化队列视图
+      await browserAdapter.value.initializeQueueView(queueType);
+      console.log('[SRSBrowser] ✅ Queue view initialized');
+      
+      // 获取卡片数据
+      console.log('[SRSBrowser] 🔍 Fetching rows from UnifiedDataSourceManager...');
+      const result = await browserAdapter.value.fetchRows({
+        sortModel: currentSortModel.value,
+        filterModel: {},
+      });
+      console.log('[SRSBrowser] ✅ Fetched', result.rows.length, 'rows from UnifiedDataSourceManager');
+      
+      // 🔧 修复：填充卡片的 content 和 rootId 字段
+      // browserAdapter 返回的数据中 content 和 rootId 字段可能为空，需要通过 loadCards 填充
+      const blockIds = result.rows.map(card => card.blockId);
+      const cardsWithContent = await PerformanceMonitor.measure('loadCardsContent', () =>
+        loadCards('all', blockIds, '', forceRefresh)
+      );
+      
+      // 合并数据：使用 browserAdapter 的数据作为基础，用 loadCards 的 content 和 rootId 填充
+      const contentMap = new Map(cardsWithContent.map(c => [c.blockId, { content: c.content, rootId: c.rootId }]));
+      const allQueueCards = result.rows.map(card => {
+        const extra = contentMap.get(card.blockId);
+        return {
+          ...card,
+          content: extra?.content || card.content,
+          fullContent: extra?.content || card.fullContent,
+          rootId: extra?.rootId || card.rootId,  // ✅ 填充 rootId
+        };
+      });
+      
+      // ✅ 五重筛选：应用文档筛选
+      console.log('[SRSBrowser] 🔍 Document filter check:', {
+        activeDocId: activeDocId.value,
+        totalCards: allQueueCards.length,
+        sampleRootIds: allQueueCards.slice(0, 5).map(c => ({ blockId: c.blockId, rootId: c.rootId })),
+      });
+      
+      if (activeDocId.value && activeDocId.value !== '__lost__') {
+        // 如果选择了特定文档，只显示该文档的卡片
+        rows.value = allQueueCards.filter(card => card.rootId === activeDocId.value);
+        console.log('[SRSBrowser] ✅ Applied document filter:', {
+          docId: activeDocId.value,
+          totalCards: allQueueCards.length,
+          filteredCards: rows.value.length,
+        });
+      } else if (activeDocId.value === '__lost__') {
+        // 如果选择了【丢失闪卡】，只显示没有 rootId 的卡片
+        rows.value = allQueueCards.filter(card => !card.rootId);
+        console.log('[SRSBrowser] ✅ Applied lost cards filter:', {
+          totalCards: allQueueCards.length,
+          lostCards: rows.value.length,
+        });
+      } else {
+        // 没有文档筛选，显示所有卡片
+        rows.value = allQueueCards;
+      }
+      
+      // ✅ 五重筛选：rowsForFocus 始终包含所有队列卡片（不应用文档筛选）
+      // 这样文档区可以正确显示队列中包含的所有文档
+      rowsForFocus.value = allQueueCards;
+      
+      console.log('[SRSBrowser] 🔍 Set rowsForFocus:', {
+        count: rowsForFocus.value.length,
+        sampleRootIds: rowsForFocus.value.slice(0, 3).map(c => ({ blockId: c.blockId, rootId: c.rootId })),
+        shouldFocusDocList: shouldFocusDocList.value,
+      });
+      
+      console.log('[SRSBrowser] ✅ Successfully loaded data from UnifiedDataSourceManager');
+      
+      // 更新全量统计数据
+      allRows.value = await PerformanceMonitor.measure('loadAllCards', () => 
+        loadCards('all', undefined, '', forceRefresh)
+      );
+      
+      await refreshQueueCounts();
+      return;
     }
 
-    // 原有的实现（降级路径）
+    // ========================================================================
+    // 非队列模式：SQL 查询或全部卡片
+    // ========================================================================
     const sqlStmt = extractSqlStatement(searchQuery.value);
     if (sqlStmt != null) {
       const ok = await ensureSqlModeConfirmed();
       if (!ok) return;
-      // ✅ SQL 模式独立运行，清除其他筛选状态（但不使用）
+      // ✅ SQL 模式独立运行，清除其他筛选状态
       activeQueueId.value = null;
       activeDocId.value = null;
       shouldFocusDocList.value = false;  // SQL 模式不聚焦
       currentDataSource.value = createQueryDataSource(sqlStmt);
     } else {
-      // 筛选选项
+      // 全部卡片模式（五重筛选）
       const options: DataSourceOptionsWithDoc = {
         docId: activeDocId.value,
         preset: currentPreset.value,
         queryText: searchQuery.value,
         cardType: currentCardType.value as 'all' | 'topic-only' | 'item-only',
       };
-
-      // 创建数据源
-      if (activeQueueId.value && ['final-drill', 'retrieval', 'filter-group', 'incremental-learning'].includes(activeQueueId.value)) {
-        // 队列模式（五重筛选）
-        currentDataSource.value = createQueueDataSource(activeQueueId.value, props.plugin, options);
-      } else if (activeQueueId.value) {
-        // 神经漫游队列（BlockIds）
-        const q = getQueueById(activeQueueId.value);
-        const items = q?.getAllItems?.() || [];
-        const ids = extractBlockIds(items);
-        currentDataSource.value = createBlockIdsDataSource(activeQueueId.value, ids, props.plugin);
-      } else {
-        // 全部卡片模式（五重筛选）
-        currentDataSource.value = createDeckDataSource(props.plugin, options, props.currentDocId);
-      }
+      currentDataSource.value = createDeckDataSource(props.plugin.unifiedDataSourceManager, options, props.currentDocId, props.plugin);
     }
 
     if (!currentDataSource.value) {
@@ -461,7 +512,7 @@ async function executeFetchRows(forceRefresh = false) {
 
     const dataSourceForFocus = createFocusDataSource(
       activeQueueId.value,
-      props.plugin,
+      props.plugin.unifiedDataSourceManager,
       focusOptions,
       () => getQueueById(activeQueueId.value)?.getAllItems?.() || []
     );
@@ -879,6 +930,17 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
     if (!ok) return;
   }
 
+  // 🆕 删除卡片确认
+  if (actionId === 'delete-card') {
+    const ok = await confirmDialog({
+      title: t('deleteCard', '删除卡片'),
+      content: t('confirmDelete', `确定要删除 ${targetCards.length} 张卡片吗？此操作不可撤销。`),
+      confirmText: t('confirm', '确认'),
+      cancelText: t('cancel', '取消'),
+    });
+    if (!ok) return;
+  }
+
   const builder = ACTION_PARAM_BUILDERS[actionId];
   console.log('[CardBrowser] 参数构建器:', builder ? '存在' : '不存在');
   
@@ -910,12 +972,19 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
       actionId === 'remove-from-queue'
       || actionId === 'remove-from-current-queue'
       || actionId === 'dismiss'
+      || actionId === 'delete-card'  // 🆕 删除卡片后刷新
       || actionId === 'insert-at'
       || actionId === 'auto-sort'
       || actionId === 'reset'
       || actionId === 'suspend'
     ) {
-      await loadData();
+      // 🆕 删除卡片后强制清除缓存
+      if (actionId === 'delete-card') {
+        console.log('[CardBrowser] 删除卡片后清除缓存');
+        invalidateCardCache();
+      }
+      
+      await loadData(actionId === 'delete-card');  // 删除后强制刷新
     } else {
       gridApi.value?.refreshCells({ force: true });
     }
@@ -1370,7 +1439,7 @@ function openPracticeMenu(ev: MouseEvent) {
 }
 
 function getQueueById(id: string) {
-  // 🆕 优先从 UnifiedDataSourceManager 获取队列实例
+  // 🆕 从 UnifiedDataSourceManager 获取队列实例
   if (browserAdapter.value) {
     try {
       const queueTypeMap: Record<string, QueueType> = {
@@ -1391,17 +1460,14 @@ function getQueueById(id: string) {
         }
       }
     } catch (error) {
-      console.warn(`[SRSBrowser] Failed to get queue from UnifiedDataSourceManager:`, error);
-      // 降级到旧队列系统
+      console.error(`[SRSBrowser] Failed to get queue from UnifiedDataSourceManager:`, error);
+      // ⚠️ 不再降级到旧队列系统，防止数据污染
+      return null;
     }
   }
   
-  // 降级：使用旧队列系统
-  if (id === 'retrieval') return (props.plugin as any)?.retrievalQueue;
-  if (id === 'final-drill') return (props.plugin as any)?.finalDrillQueue;
-  if (id === 'neural-roam') return props.plugin?.neuralQueue;
-  if (id === 'filter-group') return props.plugin?.filterGroupQueue;
-  if (id === 'incremental-learning') return (props.plugin as any)?.incrementalQueue;
+  // ⚠️ 如果 browserAdapter 未初始化，记录错误并返回 null
+  console.error(`[SRSBrowser] browserAdapter not initialized, cannot get queue: ${id}`);
   return null;
 }
 
@@ -1466,27 +1532,71 @@ async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {
 }
 
 async function refreshQueueCounts() {
-  const retrieval = (props.plugin as any)?.retrievalQueue?.size?.() ?? ((props.plugin as any)?.retrievalQueue?.getAllItems?.()?.length ?? 0);
-  const finalDrill = (props.plugin as any)?.finalDrillQueue?.size?.() ?? ((props.plugin as any)?.finalDrillQueue?.getAllItems?.()?.length ?? 0);
-  const neural = props.plugin?.neuralQueue?.size?.() ?? (props.plugin?.neuralQueue?.getAllItems?.()?.length ?? 0);
-  const filterGroup = props.plugin?.filterGroupQueue?.size?.() ?? (props.plugin?.filterGroupQueue?.getAllItems?.()?.length ?? 0);
-  const incremental = (props.plugin as any)?.incrementalQueue?.getAllItems?.()?.length ?? 0;
-  queueCounts.value = {
-    retrieval: Number(retrieval) || 0,
-    'final-drill': Number(finalDrill) || 0,
-    'neural-roam': Number(neural) || 0,
-    'filter-group': Number(filterGroup) || 0,
-    'incremental-learning': Number(incremental) || 0,
-  };
+  // 🆕 使用统一数据源管理器获取队列数量
+  const manager = (props.plugin as any)?.unifiedDataSourceManager;
+  
+  if (!manager) {
+    console.warn('[SRSBrowser] UnifiedDataSourceManager not available, queue counts will be 0');
+    queueCounts.value = {
+      retrieval: 0,
+      'final-drill': 0,
+      'neural-roam': 0,
+      'filter-group': 0,
+      'incremental-learning': 0,
+    };
+    return;
+  }
+  
+  try {
+    // 获取各个队列的大小
+    const retrievalQueue = manager.getQueue(QueueType.RetrievalPractice);
+    const finalDrillQueue = manager.getQueue(QueueType.FinalDrill);
+    const filterGroupQueue = manager.getQueue(QueueType.FilterGroup);
+    const incrementalQueue = manager.getQueue(QueueType.IncrementalLearning);
+    
+    // 神经漫游队列暂时保留旧架构访问方式
+    const neural = (props.plugin as any)?.neuralQueue?.size?.() ?? ((props.plugin as any)?.neuralQueue?.getAllItems?.()?.length ?? 0);
+    
+    // 🆕 使用异步的 getSize() 方法获取队列数量
+    queueCounts.value = {
+      retrieval: retrievalQueue ? await retrievalQueue.getSize() : 0,
+      'final-drill': finalDrillQueue ? await finalDrillQueue.getSize() : 0,
+      'neural-roam': Number(neural) || 0,
+      'filter-group': filterGroupQueue ? await filterGroupQueue.getSize() : 0,
+      'incremental-learning': incrementalQueue ? await incrementalQueue.getSize() : 0,
+    };
+    
+    console.log('[SRSBrowser] Queue counts refreshed:', queueCounts.value);
+  } catch (error) {
+    console.error('[SRSBrowser] Failed to refresh queue counts:', error);
+    queueCounts.value = {
+      retrieval: 0,
+      'final-drill': 0,
+      'neural-roam': 0,
+      'filter-group': 0,
+      'incremental-learning': 0,
+    };
+  }
 }
 
 async function handleSelectQueue(queueId: string) {
+  console.log('[SRSBrowser] 🔍 handleSelectQueue called:', {
+    queueId,
+    beforeActiveDocId: activeDocId.value,
+  });
+  
   activeQueueId.value = queueId;
-  // ✅ 四重筛选：不再清除文档筛选
-  // activeDocId.value → 保留文档
+  // ✅ 五重筛选：点击队列时清除文档筛选，显示队列中的所有卡片
+  activeDocId.value = null;  // ✅ 清除文档筛选
   // currentPreset.value → 保留 Preset
   // searchQuery.value → 保留搜索
-  shouldFocusDocList.value = true;  // ✅ 选择队列后开启聚焦
+  shouldFocusDocList.value = true;  // ✅ 选择队列后开启聚焦（文档区会自动聚焦到包含队列卡片的文档）
+  
+  console.log('[SRSBrowser] 🔍 After clearing activeDocId:', {
+    activeDocId: activeDocId.value,
+    shouldFocusDocList: shouldFocusDocList.value,
+  });
+  
   await loadData();
 }
 

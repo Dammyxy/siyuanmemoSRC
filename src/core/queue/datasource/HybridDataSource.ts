@@ -1,6 +1,10 @@
 /**
  * Hybrid Data Source
  *
+ * @deprecated 此文件属于旧队列架构，将在未来版本中移除。
+ * 请使用 src/data-sources/ 中的新架构。
+ * 参考迁移指南: docs/MIGRATION_GUIDE.md
+ *
  * Combines multiple data sources into a single unified source.
  * Useful for queues that need to merge Riff + Local storage, or multiple decks.
  * 

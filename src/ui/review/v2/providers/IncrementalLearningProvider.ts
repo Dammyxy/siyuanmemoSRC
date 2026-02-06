@@ -8,7 +8,10 @@
 import * as riff from '@/core/siyuan/riff';
 import type { QueueProvider } from '@/core/extensions';
 import type { BrowserCard } from '@/ui/browser/browserService';
-import { IncrementalLearningQueue } from '@/core/queue/strategies/IncrementalLearningQueue';
+// 🔧 使用新架构的 IncrementalLearningQueue
+import { IncrementalLearningQueue } from '@/queues/IncrementalLearningQueue';
+import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
+import { QueueType } from '@/types/unified-data-source';
 
 /**
  * 渐进学习队列 Provider
@@ -29,15 +32,15 @@ export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
 
     constructor(config?: { deckID?: string }) {
         this.deckId = config?.deckID ?? riff.BUILTIN_DECK_ID;
-        this.queue = new IncrementalLearningQueue({
-            deckID: this.deckId,
-        });
+        // 🔧 使用新架构：通过 UnifiedDataSourceManager 获取队列实例
+        const manager = UnifiedDataSourceManager.getInstance();
+        this.queue = manager.getQueue(QueueType.IncrementalLearning) as IncrementalLearningQueue;
     }
 
     /**
      * 获取到期卡片
      *
-     * 🆕 改进：Provider 自己管理卡片列表，只在第一次或强制重载时从 Queue 加载
+     * 🔧 新架构：使用 getCards() 方法
      *
      * @param options 可选参数
      * @returns 到期卡片列表
@@ -65,19 +68,19 @@ export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
         if (!this.loaded) {
             try {
                 console.log('[IncrementalLearningProvider] Loading cards from queue...');
-                // 从队列获取所有项目
-                const items = await this.queue.getAllItems();
+                // 🔧 新架构：使用 getCards() 方法获取 FSRSCard[]
+                const fsrsCards = await this.queue.getCards();
 
                 // 转换为 BrowserCard 格式
-                this.cards = items.map(item => ({
-                    id: item.cardID,
-                    blockId: item.blockID || item.cardID,
+                this.cards = fsrsCards.map(card => ({
+                    id: card.id,
+                    blockId: card.blockId,
                     content: '', // 内容会在渲染时加载
-                    due: item.due || Date.now(),
-                    reps: item.reps || 0,
-                    lapses: item.lapses || 0,
-                    state: item.state || 0,
-                    type: item.type || 'item',
+                    due: card.due,
+                    reps: card.reps,
+                    lapses: card.lapses,
+                    state: card.state,
+                    type: card.type || 'item',
                 }));
 
                 this.loaded = true;
@@ -104,7 +107,7 @@ export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
     /**
      * 提交复习评分
      *
-     * 🆕 改进：直接操作 Provider 的 cards 数组，然后同步到 Queue
+     * 🔧 新架构：使用 handleReview() 方法
      * - 评分 < 3：移到末尾（SM-15 的 THRESHOLD_RECALL = 3）
      * - 评分 >= 3：删除
      *
@@ -138,7 +141,10 @@ export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
             const card = this.cards[index];
             console.log('[IncrementalLearningProvider] Card found at index:', index);
 
-            // 根据评分修改列表
+            // 🔧 新架构：调用 handleReview() 方法
+            await this.queue.handleReview(cardId, rating);
+
+            // 根据评分修改本地列表
             if (rating < 3) {
                 // 评分 1-2：移到末尾（SM-15 的 THRESHOLD_RECALL = 3）
                 console.log('[IncrementalLearningProvider] Rating < 3, rotating to end:', cardId);
@@ -151,13 +157,6 @@ export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
             }
 
             console.log('[IncrementalLearningProvider] Cards remaining:', this.cards.length);
-
-            // 同步到底层 Queue（用于持久化）
-            await this.queue.onFeedback(card as any, {
-                action: 'rate',
-                rating,
-            });
-
             console.log('[IncrementalLearningProvider] Card reviewed:', {
                 cardId,
                 rating,
@@ -174,32 +173,26 @@ export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
     /**
      * 跳过卡片
      *
-     * 🆕 改进：直接操作 Provider 的 cards 数组，移到末尾
+     * 🔧 新架构：使用队列的 skip() 方法
      *
      * @param cardId 卡片 ID
      * @returns 是否成功
      */
     async skipReviewCard(cardId: string): Promise<boolean> {
         try {
-            // 找到卡片在列表中的位置
+            // 🔧 新架构：使用队列的 skip() 方法
+            await this.queue.skip(cardId);
+
+            // 同步更新本地列表
             const index = this.cards.findIndex(
                 c => c.blockId === cardId || c.id === cardId
             );
 
-            if (index === -1) {
-                console.warn('[IncrementalLearningProvider] Card not found:', cardId);
-                return false;
+            if (index !== -1) {
+                const card = this.cards[index];
+                this.cards.splice(index, 1);
+                this.cards.push(card);
             }
-
-            const card = this.cards[index];
-
-            // 跳过：移到末尾
-            console.log('[IncrementalLearningProvider] Skipping card, moving to end:', cardId);
-            this.cards.splice(index, 1);
-            this.cards.push(card);
-
-            // 同步到底层 Queue
-            await this.queue.onFeedback(card as any, { action: 'skip' });
 
             console.log('[IncrementalLearningProvider] Skipped card:', cardId);
             return true;
@@ -212,6 +205,8 @@ export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
     /**
      * 获取统计信息
      *
+     * 🔧 新架构：使用队列的 getStats() 方法
+     *
      * @returns 队列统计
      */
     async getStats(): Promise<{
@@ -221,14 +216,7 @@ export class IncrementalLearningProvider implements QueueProvider<BrowserCard> {
         reviewed: number;
         learning: number;
     }> {
-        const stats = await this.queue.getStats();
-
-        return {
-            total: stats.total,
-            due: stats.remaining,
-            new: stats.new ?? 0,
-            reviewed: stats.reviewed,
-            learning: stats.learning ?? 0,
-        };
+        // 🔧 新架构：使用队列的 getStats() 方法
+        return await this.queue.getStats();
     }
 }

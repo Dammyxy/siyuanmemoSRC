@@ -1,6 +1,10 @@
 /**
  * Incremental Learning Queue (V2 - Simplified)
  *
+ * @deprecated 此文件属于旧队列架构，将在未来版本中移除。
+ * 请使用 src/queues/ 中的新架构。
+ * 参考迁移指南: docs/MIGRATION_GUIDE.md
+ *
  * Simple implementation based on RetrievalPracticeQueue pattern.
  * Supports manual card addition with persistence.
  *
@@ -24,6 +28,7 @@ import type { IPrioritizableTrait, IMutableTrait, IRemovableTrait } from '../abs
 import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy';
 import { getHiddenContentTypes } from '../utils/hiddenContentTypes';
 import { warnDeprecatedQueueUsage } from '../deprecation';
+import { CardType } from '../../../types/card';
 
 type RiffApi = {
   getRiffDueCards: typeof riff.getRiffDueCards;
@@ -787,7 +792,7 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
             elapsedDays: 0,
             scheduledDays: 0,
             priority: item.priority ?? 50,
-            type: 'item', // 默认为 item，后续可以通过 detectCardType 更新
+            type: CardType.Item, // ✅ 修复：使用 CardType 枚举而不是字符串
             tags: [],
             leechCount: 0,
             isLeech: false,

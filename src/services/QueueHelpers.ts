@@ -12,7 +12,13 @@ export type PracticeQueueFilter = { type: 'doc' | 'tree' | 'sql'; value: string 
 
 export interface QueueHelpersConfig {
   blockMenuHandler: BlockMenuHandler;
-  retrievalQueue: { addItems: (items: QueueItem[]) => number; getAllItems: () => any[] };
+  retrievalQueue: { 
+    addCard?: (blockId: string, source: 'manual' | 'auto-failed') => Promise<void>;  // ✅ 新架构
+    addItems?: (items: QueueItem[]) => number;  // ✅ 旧架构
+    getAllCards?: () => Promise<any[]>;  // ✅ 新架构
+    getAllItems?: () => any[];  // ✅ 旧架构
+    getSize?: () => Promise<number>;  // ✅ 新架构
+  };
 }
 
 /**
@@ -46,8 +52,30 @@ export async function addPracticeQueue(
   if (blockIds.length === 0) {
     return 0;
   }
-  const cards = await config.blockMenuHandler.buildDrillCardsFromBlockIds(blockIds);
-  return config.retrievalQueue.addItems(cards as QueueItem[]);
+  
+  const queue = config.retrievalQueue;
+  
+  // ✅ 新架构：使用 addCard 方法（逐个添加）
+  if (queue?.addCard) {
+    let added = 0;
+    for (const blockId of blockIds) {
+      try {
+        await queue.addCard(blockId, 'manual');
+        added++;
+      } catch (err) {
+        console.error(`[QueueHelpers] 添加卡片失败: ${blockId}`, err);
+      }
+    }
+    return added;
+  }
+  
+  // ✅ 旧架构：使用 addItems 方法（批量添加）
+  if (queue?.addItems) {
+    const cards = await config.blockMenuHandler.buildDrillCardsFromBlockIds(blockIds);
+    return queue.addItems(cards as QueueItem[]);
+  }
+  
+  return 0;
 }
 
 /**
@@ -86,10 +114,26 @@ export function createQueueHandlers(config: QueueHelpersConfig) {
  * 开始练习队列
  */
 async function startPracticeQueue(config: QueueHelpersConfig): Promise<void> {
-  const cards = config.retrievalQueue.getAllItems();
-  if (cards.length === 0) {
-    // 由调用方处理消息提示
-    return;
+  const queue = config.retrievalQueue;
+  
+  // ✅ 新架构：使用 getAllCards 或 getSize
+  if (queue?.getAllCards) {
+    const cards = await queue.getAllCards();
+    if (cards.length === 0) {
+      return;
+    }
+  } else if (queue?.getSize) {
+    const size = await queue.getSize();
+    if (size === 0) {
+      return;
+    }
+  } else if (queue?.getAllItems) {
+    // ✅ 旧架构：使用 getAllItems
+    const cards = queue.getAllItems();
+    if (cards.length === 0) {
+      return;
+    }
   }
+  
   // 由 ReviewDialogManager 处理打开对话框
 }

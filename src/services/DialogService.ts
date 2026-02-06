@@ -14,7 +14,8 @@ import { RetrievalPracticeProvider } from '@/ui/review/v2/providers/RetrievalPra
 import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
 import { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
 import { NeuralRoamQueue } from '@/core/queue/strategies/NeuralRoamQueue';
-import { IncrementalLearningQueue } from '@/core/queue/strategies/IncrementalLearningQueue';
+// 🔧 使用新架构的 IncrementalLearningQueue
+import { IncrementalLearningQueue } from '@/queues/IncrementalLearningQueue';
 import { FilterGroupQueue } from '@/core/queue/strategies/FilterGroupQueue';
 import type { StorageManager } from '@/core/storage/manager';
 import type { SchedulerEngineAdapter } from '@/core/scheduler/types';

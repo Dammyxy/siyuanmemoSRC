@@ -6,7 +6,7 @@
  * Phase 3: SM-15 完整集成与迁移
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { FSRSCard } from '@/types';
 import { CardState } from '@/types';
 import {
