@@ -68,6 +68,8 @@ export interface ReviewUIState {
       blockID?: string;
       deckID?: string;
       isReviewCard?: boolean;
+      type?: 'item' | 'topic'; // 🆕 卡片类型
+      cardType?: 'item' | 'topic'; // 🆕 兼容字段
     };
   };
 
@@ -88,6 +90,8 @@ export interface ReviewUIState {
     };
     hasHiddenContent?: boolean;
     canSkip?: boolean;
+    queueSize?: number; // 🆕 队列总大小
+    remainingSize?: number; // 🆕 剩余卡片数量
   };
 }
 

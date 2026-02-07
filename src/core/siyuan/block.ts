@@ -27,7 +27,12 @@ export const ATTR_TOPIC_STATE = `${ATTR_PREFIX}topic-state`;
 /**
  * 将块标记为闪卡
  */
-export async function markBlockAsCard(blockId: string, cardId: string, priority?: number): Promise<void> {
+export async function markBlockAsCard(
+    blockId: string, 
+    cardId: string, 
+    priority?: number,
+    cardType?: 'topic' | 'item'
+): Promise<void> {
     const attrs: Record<string, string> = {
         [ATTR_CARD_ID]: cardId,
         [ATTR_IS_FLASHCARD]: 'true',
@@ -35,6 +40,11 @@ export async function markBlockAsCard(blockId: string, cardId: string, priority?
 
     if (priority !== undefined) {
         attrs[ATTR_PRIORITY] = String(priority);
+    }
+
+    // 设置卡片类型（默认为 item）
+    if (cardType) {
+        attrs[ATTR_CARD_TYPE] = cardType;
     }
 
     await api.setBlockAttrs(blockId, attrs);

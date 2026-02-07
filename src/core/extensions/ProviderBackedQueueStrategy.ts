@@ -142,6 +142,54 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
     }
   }
 
+  /**
+   * 插入卡片到指定位置
+   * 
+   * @param cardId 卡片 ID
+   * @param position 位置 (1-based)
+   */
+  async insertAt(cardId: string, position: number): Promise<void> {
+    console.log('[ProviderBackedQueueStrategy] insertAt called:', { cardId, position });
+    
+    // 尝试委托给 provider 的 insertAt 方法
+    if (typeof (this.provider as any)?.insertAt === 'function') {
+      await (this.provider as any).insertAt(cardId, position);
+      // 重新加载 buffer
+      this.loaded = false;
+      await this.ensureLoaded();
+      return;
+    }
+    
+    // 降级方案：直接操作 buffer
+    // 注意：这只是临时方案，不会持久化到底层队列
+    console.warn('[ProviderBackedQueueStrategy] Provider does not support insertAt, using buffer fallback');
+    
+    await this.ensureLoaded();
+    
+    // 找到卡片在 buffer 中的位置
+    const cardIndex = this.buffer.findIndex(item => this.getCardId(item) === cardId);
+    if (cardIndex === -1) {
+      throw new Error(`Card not found in buffer: ${cardId}`);
+    }
+    
+    // 移除卡片
+    const [card] = this.buffer.splice(cardIndex, 1);
+    
+    // 插入到指定位置 (position - 1 因为是 0-based)
+    const targetIndex = Math.max(0, Math.min(position - 1, this.buffer.length));
+    this.buffer.splice(targetIndex, 0, card);
+    
+    console.log('[ProviderBackedQueueStrategy] Card inserted in buffer at position', targetIndex);
+  }
+
+  /**
+   * 获取剩余卡片数量
+   */
+  async getRemainingSize(): Promise<number> {
+    await this.ensureLoaded();
+    return this.buffer.length;
+  }
+
   private async ensureLoaded(): Promise<void> {
     if (this.loaded) return;
     this.loaded = true;

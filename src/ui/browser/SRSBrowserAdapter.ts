@@ -13,7 +13,7 @@ import type { UnifiedDataSourceManager } from '../../managers/UnifiedDataSourceM
 import type { IDataSourceObserver, DataChangeEvent, QueueType } from '../../types/unified-data-source';
 import type { FSRSCard } from '../../types/card';
 import type { BrowserCard } from './types';
-import { CardState, calculateRetrievability, formatDate, truncateContent } from './types';
+import { CardState, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from './types';
 import { validateConsumerCardType } from '../../diagnostics/type-guards';
 
 /**
@@ -405,10 +405,10 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
         const dueDate = new Date(card.due);
         const lastReviewDate = card.lastReview ? new Date(card.lastReview) : null;
         
-        // 格式化日期
-        const dueFormatted = formatDate(dueDate);
-        const lastReviewFormatted = lastReviewDate ? formatDate(lastReviewDate) : '';
-        const firstReviewFormatted = lastReviewDate ? formatDate(lastReviewDate) : ''; // TODO: 使用实际的 firstReview
+        // 格式化日期（始终显示具体日期）
+        const dueFormatted = formatDueDate(dueDate);
+        const lastReviewFormatted = lastReviewDate ? formatHistoryDate(lastReviewDate) : '';
+        const firstReviewFormatted = lastReviewDate ? formatHistoryDate(lastReviewDate) : ''; // TODO: 使用实际的 firstReview
         
         // 🔧 优先从 meta 字段获取内容，如果不存在则使用空字符串
         const fullContent = (card.meta?.content as string) || '';
@@ -419,10 +419,9 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
         
         // 转换 CardType 枚举为字符串
         // FSRSCard.type 是 CardType 枚举，BrowserCard.cardType 是字符串字面量
-        let cardType: 'topic' | 'item' | 'incremental' | 'webpage' | undefined;
-        if (typeof card.type === 'string') {
-            cardType = card.type as any;
-        }
+        // 转换 CardType 枚举为字符串
+        // CardType 枚举的值本身就是字符串 ('item', 'topic', 'incremental', 'webpage')
+        const cardType = card.type as 'topic' | 'item' | 'incremental' | 'webpage' | undefined;
         
         const result = {
             id: card.riffCardId || card.id,

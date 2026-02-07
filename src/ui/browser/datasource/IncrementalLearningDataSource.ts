@@ -10,7 +10,7 @@
  */
 
 import type { BrowserCard } from '../types';
-import { CardState, calculateRetrievability, formatDate, truncateContent } from '../types';
+import { CardState, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from '../types';
 import { batchDelete } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
 import type { UnifiedDataSourceManager } from '../../../managers/UnifiedDataSourceManager';
@@ -158,6 +158,9 @@ export class IncrementalLearningDataSource implements ICardDataSource {
 
     // 卡片类型筛选
     if (this.options.cardType && this.options.cardType !== 'all') {
+      console.log(`[IncrementalLearningDataSource] Applying cardType filter: ${this.options.cardType}`);
+      console.log(`[IncrementalLearningDataSource] Sample cardTypes before filter:`, result.slice(0, 5).map(c => ({ blockId: c.blockId, cardType: c.cardType })));
+      
       result = result.filter(c => {
         switch (this.options.cardType) {
           case 'topic-only':
@@ -168,6 +171,9 @@ export class IncrementalLearningDataSource implements ICardDataSource {
             return true;
         }
       });
+      
+      console.log(`[IncrementalLearningDataSource] After cardType filter: ${result.length} cards`);
+      console.log(`[IncrementalLearningDataSource] Sample cardTypes after filter:`, result.slice(0, 5).map(c => ({ blockId: c.blockId, cardType: c.cardType })));
     }
 
     return result;
@@ -207,9 +213,9 @@ export class IncrementalLearningDataSource implements ICardDataSource {
     const lastReviewDate = card.lastReview ? new Date(card.lastReview) : null;
     
     // 格式化日期
-    const dueFormatted = formatDate(dueDate);
-    const lastReviewFormatted = lastReviewDate ? formatDate(lastReviewDate) : '';
-    const firstReviewFormatted = lastReviewDate ? formatDate(lastReviewDate) : '';
+    const dueFormatted = formatDueDate(dueDate);  // ✅ 使用 formatDueDate
+    const lastReviewFormatted = formatHistoryDate(lastReviewDate);  // ✅ 使用 formatHistoryDate
+    const firstReviewFormatted = formatHistoryDate(lastReviewDate);  // ✅ 使用 formatHistoryDate
     
     // 从 meta 字段获取内容
     const fullContent = (card.meta?.content as string) || '';
@@ -219,9 +225,17 @@ export class IncrementalLearningDataSource implements ICardDataSource {
     const deckId = (card.meta?.deckId as string) || '';
     
     // 转换 CardType 枚举为字符串
-    let cardType: 'topic' | 'item' | 'incremental' | 'webpage' | undefined;
-    if (typeof card.type === 'string') {
-      cardType = card.type as any;
+    // CardType 枚举的值本身就是字符串 ('item', 'topic', 'incremental', 'webpage')
+    const cardType = card.type as 'topic' | 'item' | 'incremental' | 'webpage' | undefined;
+    
+    // 🔍 调试日志：检查 cardType 转换
+    if (!cardType || (cardType !== 'item' && cardType !== 'topic' && cardType !== 'incremental' && cardType !== 'webpage')) {
+      console.warn('[IncrementalLearningDataSource] Invalid cardType:', {
+        blockId: card.blockId,
+        originalType: card.type,
+        convertedType: cardType,
+        typeOfOriginal: typeof card.type,
+      });
     }
     
     return {

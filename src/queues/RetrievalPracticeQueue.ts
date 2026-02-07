@@ -89,11 +89,13 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
      * 1. 获取所有到期的项目卡片（cardType === 'item', due <= now）
      * 2. 获取手动添加的卡片
      * 3. 合并并去重
-     * 4. 按到期日期和优先级排序
-     * 5. 应用自定义排序（如果存在）
+     * 4. 过滤临时黑名单中的卡片
+     * 5. 按到期日期和优先级排序
+     * 6. 应用自定义排序（如果存在）
      * 
      * @returns 卡片数组
      * @see 需求 5.1, 5.4, 15.1, 15.4
+     * @see .kiro/specs/retrieval-practice-browser-display-fix/requirements.md
      */
     public async getCards(): Promise<FSRSCard[]> {
         try {
@@ -118,14 +120,23 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
             
             console.log(`[RetrievalPracticeQueue] 🔍 After merge: ${allCards.length} cards`);
             
+            // 过滤临时黑名单中的卡片
+            const filteredCards = allCards.filter(card => 
+                !this.temporaryBlacklist.has(card.id)
+            );
+            
+            if (filteredCards.length < allCards.length) {
+                console.log(`[RetrievalPracticeQueue] 🔍 Filtered ${allCards.length - filteredCards.length} cards from temporary blacklist`);
+            }
+            
             // 检查无效卡片（blockId 为空或 undefined）
-            const invalidCards = allCards.filter(card => !card.blockId || card.blockId === 'undefined');
+            const invalidCards = filteredCards.filter(card => !card.blockId || card.blockId === 'undefined');
             if (invalidCards.length > 0) {
                 console.warn(`[RetrievalPracticeQueue] ⚠️ Found ${invalidCards.length} cards with invalid blockId:`, invalidCards.map(c => ({ id: c.id, blockId: c.blockId })));
             }
             
             // 按到期日期和优先级排序
-            const sortedCards = this.sortByDueDateAndPriority(allCards);
+            const sortedCards = this.sortByDueDateAndPriority(filteredCards);
             
             // 应用自定义排序（如果存在）
             return this.applyCustomOrder(sortedCards);
@@ -141,12 +152,20 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
      * 将卡片 ID 添加到手动添加的卡片集合中，并持久化。
      * 支持添加未到期的卡片，用于提前复习。
      * 
-     * @param cardId 卡片 ID
+     * 如果卡片在临时黑名单中，会自动从黑名单中移除。
+     * 
+     * @param card 卡片对象、QueueItem 或卡片 ID
      * @see 需求 5.4, 18.1, 18.4, 6.4
+     * @see .kiro/specs/retrieval-practice-browser-display-fix/requirements.md
      */
     public async addCard(card: FSRSCard | QueueItem | string): Promise<void> {
         try {
             const cardId = resolveCardId(card);
+            
+            // 从临时黑名单中移除（如果存在）
+            const wasBlacklisted = this.temporaryBlacklist.has(cardId);
+            this.temporaryBlacklist.delete(cardId);
+            
             // 添加到手动添加的卡片集合
             this.manuallyAddedCards.add(cardId);
             
@@ -160,7 +179,10 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
                 timestamp: Date.now()
             });
             
-            console.log(`[RetrievalPracticeQueue] Card ${cardId} added manually`);
+            console.log(`[RetrievalPracticeQueue] Card ${cardId} added manually`, {
+                wasBlacklisted,
+                temporaryBlacklistSize: this.temporaryBlacklist.size
+            });
         } catch (error) {
             console.error('[RetrievalPracticeQueue] Failed to add card:', error);
             throw error;
@@ -170,23 +192,39 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
     /**
      * 从队列中移除卡片
      * 
-     * 从手动添加的卡片集合中移除卡片，并持久化。
-     * 注意：到期卡片会自动从队列中移除（通过 getCards 的过滤逻辑）。
+     * 移除逻辑：
+     * 1. 从手动添加的卡片集合中移除（如果存在）
+     * 2. 将卡片 ID 加入临时黑名单
+     * 3. 持久化手动添加的卡片列表
      * 
-     * @param cardId 卡片 ID
+     * 注意：临时黑名单不持久化，关闭浏览器后自动清空。
+     * 
+     * @param cardIdOrBlockId 卡片 ID 或块 ID
      * @see 需求 5.5, 12.1
+     * @see .kiro/specs/retrieval-practice-browser-display-fix/requirements.md
      */
     public async removeCard(cardIdOrBlockId: string): Promise<void> {
         try {
-            // 从手动添加的卡片集合中移除
+            // 1. 从手动添加的卡片集合中移除
+            const wasManuallyAdded = this.manuallyAddedCards.has(cardIdOrBlockId);
             this.manuallyAddedCards.delete(cardIdOrBlockId);
             
-            // 持久化
-            await this.persistManuallyAddedCards();
+            // 2. 加入临时黑名单（继承自 BaseReviewQueue）
+            this.temporaryBlacklist.add(cardIdOrBlockId);
             
-            console.log(`[RetrievalPracticeQueue] Card ${cardIdOrBlockId} removed`);
+            // 3. 持久化手动添加的卡片列表（如果有变化）
+            if (wasManuallyAdded) {
+                await this.persistManuallyAddedCards();
+            }
+            
+            console.log(`[RetrievalPracticeQueue] Card ${cardIdOrBlockId} removed`, {
+                wasManuallyAdded,
+                temporaryBlacklistSize: this.temporaryBlacklist.size
+            });
         } catch (error) {
             console.error('[RetrievalPracticeQueue] Failed to remove card:', error);
+            // 即使出错，也要尝试加入临时黑名单
+            this.temporaryBlacklist.add(cardIdOrBlockId);
             throw error;
         }
     }

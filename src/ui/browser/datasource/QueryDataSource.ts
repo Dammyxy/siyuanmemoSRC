@@ -1,5 +1,5 @@
 import type { BrowserCard } from '../types';
-import { CardState, STATE_LABELS, calculateRetrievability, formatDate, truncateContent } from '../types';
+import { CardState, STATE_LABELS, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from '../types';
 import { sql } from '@/core/siyuan/api';
 import { loadQueueCards } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
@@ -45,7 +45,7 @@ function toBrowserCardFromRow(row: any): BrowserCard | null {
     state,
     stateLabel: STATE_LABELS[state] || 'New',
     due,
-    dueFormatted: formatDate(due),
+    dueFormatted: formatDueDate(due),  // ✅ 使用 formatDueDate
     stability,
     difficulty: 0,
     retrievability: calculateRetrievability(stability, elapsedDays),
@@ -54,10 +54,10 @@ function toBrowserCardFromRow(row: any): BrowserCard | null {
     elapsedDays,
     scheduledDays: 0,
     lastReview: null,
-    lastReviewFormatted: formatDate(null),
+    lastReviewFormatted: formatHistoryDate(null),  // ✅ 使用 formatHistoryDate
     interval: 0,
     firstReview: null,
-    firstReviewFormatted: formatDate(null),
+    firstReviewFormatted: formatHistoryDate(null),  // ✅ 使用 formatHistoryDate
     priority: 50,
     suspended: false,
     tags: [],

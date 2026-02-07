@@ -34,6 +34,8 @@
         :viewMode="viewMode"
         :loading="loading"
         :mode="mode"
+        :queue-type="currentQueueType"
+        :applied-filter="appliedFilter"
         @exitFocus="handleExitFocus"
         @openPracticeMenu="openPracticeMenu"
         @applySortToQueue="handleApplySortToQueue"
@@ -42,6 +44,7 @@
         @migrateTopicItem="migrateTopicItem"
         @showPerformanceReport="showPerformanceReport"
         @convertToTab="convertToTab"
+        @openFilterDialog="showFilterDialog = true"
       />
 
       <!-- 🆕 同步状态指示器（仅在 advanced 模式显示） -->
@@ -111,6 +114,19 @@
       :size="previewSize"
       @jump="jumpToBlock"
     />
+
+    <!-- 🆕 过滤对话框 (filter-group-queue-ui) -->
+    <div v-if="showFilterDialog" class="filter-dialog-overlay" @click.self="showFilterDialog = false">
+      <div class="filter-dialog-container">
+        <FilterDialog
+          :is-open="showFilterDialog"
+          :initial-filter="appliedFilter"
+          @apply="handleApplyFilter"
+          @cancel="showFilterDialog = false"
+          @clear="handleClearFilter"
+        />
+      </div>
+    </div>
   </div>
 </template>
 
@@ -142,6 +158,7 @@ import ActionParamsDialog from './ActionParamsDialog.vue';
 import BrowserHierarchy from './BrowserHierarchy.vue';
 import BrowserPreview from './BrowserPreview.vue';
 import BrowserToolbar from './BrowserToolbar.vue';
+import FilterDialog from './dialogs/FilterDialog.vue';
 import SyncStatusIndicator from '../components/SyncStatusIndicator.vue';  // 🆕 导入同步状态指示器
 import { useCardTypeDetection } from './composables/useCardTypeDetection';
 // ✅ 导入配置模块
@@ -150,7 +167,8 @@ import { createColumnDefs } from './config';
 import { SRSBrowserAdapter } from './SRSBrowserAdapter';
 import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
 import { QueueType } from '@/types/unified-data-source';
-import type { DataChangeEvent } from '@/types/unified-data-source';
+import type { DataChangeEvent, CardFilter } from '@/types/unified-data-source';
+import { filterService } from './services/FilterService';
 import { 
   CARD_STATE_COLORS, 
   DEFAULT_PRIORITY, 
@@ -221,6 +239,10 @@ const activeQueueId = ref<string | null>(null);
 const activeDocId = ref<string | null>(null);
 const queueCounts = ref<Record<string, number>>({});
 
+// 🆕 过滤条件状态 (filter-group-queue-ui)
+const appliedFilter = ref<CardFilter | null>(null);
+const showFilterDialog = ref(false);
+
 // ✅ 检测触发标志（防止同一个 loading 周期内重复触发）
 let detectionTriggered = false;
 
@@ -253,6 +275,20 @@ const columnDefs = ref<ColDef[]>(createColumnDefs());
 const isQueueMode = computed(() => {
   const qid = String(activeQueueId.value || '');
   return qid === 'final-drill' || qid === 'retrieval' || qid === 'filter-group' || qid === 'neural' || qid === 'incremental-learning';
+});
+
+// 🆕 当前队列类型 (filter-group-queue-ui)
+const currentQueueType = computed(() => {
+  const qid = String(activeQueueId.value || '');
+  console.log('[SRSBrowser] currentQueueType computed:', {
+    activeQueueId: activeQueueId.value,
+    qid,
+  });
+  if (qid === 'filter-group') return 'filter-group';
+  if (qid === 'final-drill') return 'final-drill';
+  if (qid === 'retrieval') return 'retrieval-practice';
+  if (qid === 'incremental-learning') return 'incremental-learning';
+  return '';
 });
 
 // 始终启用 sortable，通过 canApplySortToQueue 控制按钮显示
@@ -303,13 +339,31 @@ const focusedDocIds = computed(() => {
   }
   
   const result = docs.size > 0 ? Array.from(docs) : null;
+  
+  // ✅ 详细日志：显示所有卡片的 rootId（用于调试）
+  const allRootIds = rowsForFocus.value.map(c => ({ blockId: c.blockId, rootId: c.rootId }));
+  const rootIdCounts = new Map<string, number>();
+  for (const card of rowsForFocus.value) {
+    if (card.rootId) {
+      rootIdCounts.set(card.rootId, (rootIdCounts.get(card.rootId) || 0) + 1);
+    }
+  }
+  
   console.log('[SRSBrowser] 🔍 focusedDocIds computed:', {
     shouldFocusDocList: shouldFocusDocList.value,
     rowsForFocusCount: rowsForFocus.value.length,
-    sampleRootIds: rowsForFocus.value.slice(0, 3).map(c => ({ blockId: c.blockId, rootId: c.rootId })),
+    cardsWithRootId: rowsForFocus.value.filter(c => c.rootId).length,
+    allRootIds,  // ✅ 显示所有卡片的 rootId
+    rootIdCounts: Object.fromEntries(rootIdCounts),  // ✅ 显示每个 rootId 的卡片数量
     uniqueDocIds: result,
+    uniqueDocIdsExpanded: result ? [...result] : null,
     docsCount: docs.size,
   });
+  
+  // ✅ 警告日志：当所有卡片都缺少 rootId 时输出警告
+  if (result === null && rowsForFocus.value.length > 0) {
+    console.warn('[SRSBrowser] ⚠️ All cards missing rootId, cannot focus documents');
+  }
   
   return result;
 });
@@ -338,102 +392,37 @@ async function loadData(forceRefresh = false) {
     previewCard.value = null;
 
     // ========================================================================
-    // 队列模式：强制使用统一数据源架构
+    // 队列模式：使用数据源工厂创建数据源（支持 cardType 筛选）
     // ========================================================================
     if (activeQueueId.value) {
-      // 检查 browserAdapter 是否已初始化
-      if (!browserAdapter.value) {
-        throw new Error('UnifiedDataSourceManager adapter not initialized');
-      }
-
-      console.log('[SRSBrowser] 🔍 Using UnifiedDataSourceManager for queue:', activeQueueId.value);
+      console.log('[SRSBrowser] 🔍 Using data source for queue:', activeQueueId.value);
       console.log('[SRSBrowser] 🔍 Current mode:', UnifiedDataSourceManager.getInstance().getCurrentMode());
+      console.log('[SRSBrowser] 🔍 Current cardType filter:', currentCardType.value);
       
-      // 映射队列 ID 到 QueueType
-      const queueTypeMap: Record<string, QueueType> = {
-        'retrieval': QueueType.RetrievalPractice,
-        'final-drill': QueueType.FinalDrill,
-        'incremental-learning': QueueType.IncrementalLearning,
-        'filter-group': QueueType.FilterGroup,
-        'neural-roam': QueueType.NeuralRoam,
+      // 使用数据源工厂创建数据源（支持 cardType 筛选）
+      const options = {
+        docId: activeDocId.value,
+        preset: currentPreset.value,
+        queryText: searchQuery.value,
+        cardType: currentCardType.value as 'all' | 'topic-only' | 'item-only',
       };
       
-      const queueType = queueTypeMap[activeQueueId.value];
-      if (!queueType) {
-        throw new Error(`Queue type not supported by UnifiedDataSourceManager: ${activeQueueId.value}`);
-      }
-
-      console.log('[SRSBrowser] ✅ Queue type mapped:', queueType);
-      
-      // 初始化队列视图
-      await browserAdapter.value.initializeQueueView(queueType);
-      console.log('[SRSBrowser] ✅ Queue view initialized');
-      
-      // 获取卡片数据
-      console.log('[SRSBrowser] 🔍 Fetching rows from UnifiedDataSourceManager...');
-      const result = await browserAdapter.value.fetchRows({
-        sortModel: currentSortModel.value,
-        filterModel: {},
-      });
-      console.log('[SRSBrowser] ✅ Fetched', result.rows.length, 'rows from UnifiedDataSourceManager');
-      
-      // 🔧 修复：填充卡片的 content 和 rootId 字段
-      // browserAdapter 返回的数据中 content 和 rootId 字段可能为空，需要通过 loadCards 填充
-      const blockIds = result.rows.map(card => card.blockId);
-      const cardsWithContent = await PerformanceMonitor.measure('loadCardsContent', () =>
-        loadCards('all', blockIds, '', forceRefresh)
+      currentDataSource.value = createQueueDataSource(
+        activeQueueId.value,
+        props.plugin.unifiedDataSourceManager,
+        options,
+        () => getQueueById(activeQueueId.value)?.getAllItems?.() || []
       );
       
-      // 合并数据：使用 browserAdapter 的数据作为基础，用 loadCards 的 content 和 rootId 填充
-      const contentMap = new Map(cardsWithContent.map(c => [c.blockId, { content: c.content, rootId: c.rootId }]));
-      const allQueueCards = result.rows.map(card => {
-        const extra = contentMap.get(card.blockId);
-        return {
-          ...card,
-          content: extra?.content || card.content,
-          fullContent: extra?.content || card.fullContent,
-          rootId: extra?.rootId || card.rootId,  // ✅ 填充 rootId
-        };
-      });
-      
-      // ✅ 五重筛选：应用文档筛选
-      console.log('[SRSBrowser] 🔍 Document filter check:', {
-        activeDocId: activeDocId.value,
-        totalCards: allQueueCards.length,
-        sampleRootIds: allQueueCards.slice(0, 5).map(c => ({ blockId: c.blockId, rootId: c.rootId })),
-      });
-      
-      if (activeDocId.value && activeDocId.value !== '__lost__') {
-        // 如果选择了特定文档，只显示该文档的卡片
-        rows.value = allQueueCards.filter(card => card.rootId === activeDocId.value);
-        console.log('[SRSBrowser] ✅ Applied document filter:', {
-          docId: activeDocId.value,
-          totalCards: allQueueCards.length,
-          filteredCards: rows.value.length,
-        });
-      } else if (activeDocId.value === '__lost__') {
-        // 如果选择了【丢失闪卡】，只显示没有 rootId 的卡片
-        rows.value = allQueueCards.filter(card => !card.rootId);
-        console.log('[SRSBrowser] ✅ Applied lost cards filter:', {
-          totalCards: allQueueCards.length,
-          lostCards: rows.value.length,
-        });
-      } else {
-        // 没有文档筛选，显示所有卡片
-        rows.value = allQueueCards;
+      if (!currentDataSource.value) {
+        console.error('[SRSBrowser] Failed to create data source for queue:', activeQueueId.value);
+        rows.value = [];
+        rowsForFocus.value = [];
+        return;
       }
       
-      // ✅ 五重筛选：rowsForFocus 始终包含所有队列卡片（不应用文档筛选）
-      // 这样文档区可以正确显示队列中包含的所有文档
-      rowsForFocus.value = allQueueCards;
-      
-      console.log('[SRSBrowser] 🔍 Set rowsForFocus:', {
-        count: rowsForFocus.value.length,
-        sampleRootIds: rowsForFocus.value.slice(0, 3).map(c => ({ blockId: c.blockId, rootId: c.rootId })),
-        shouldFocusDocList: shouldFocusDocList.value,
-      });
-      
-      console.log('[SRSBrowser] ✅ Successfully loaded data from UnifiedDataSourceManager');
+      // 执行数据加载
+      await executeFetchRows(forceRefresh);
       
       // 更新全量统计数据
       allRows.value = await PerformanceMonitor.measure('loadAllCards', () => 
@@ -522,9 +511,21 @@ async function executeFetchRows(forceRefresh = false) {
         dataSourceForFocus!.fetchRows({ sortModel: [], filterModel: {} })
       );
       rowsForFocus.value = focusRows;
+      
+      // 🔍 调试：显示所有卡片的 rootId
+      console.log('[SRSBrowser] 🔍 rowsForFocus after fetch:', {
+        count: focusRows.length,
+        allRootIds: focusRows.map(c => ({ blockId: c.blockId, rootId: c.rootId })),
+      });
     }
   } else {
     rowsForFocus.value = fetchedRows;
+    
+    // 🔍 调试：显示所有卡片的 rootId
+    console.log('[SRSBrowser] 🔍 rowsForFocus (using fetchedRows):', {
+      count: fetchedRows.length,
+      allRootIds: fetchedRows.map(c => ({ blockId: c.blockId, rootId: c.rootId })),
+    });
   }
 }
 
@@ -1639,5 +1640,60 @@ function handleFilterDoc(docId: string) {
   // activeQueueId.value → 保留队列
   // searchQuery.value 将在下方设置为 `doc:${docId}`
   searchQuery.value = `doc:${docId}`;
+}
+
+// 🆕 过滤处理方法 (filter-group-queue-ui)
+/**
+ * 应用过滤条件
+ * @see filter-group-queue-ui 需求 6.1, 6.2, 6.3
+ */
+async function handleApplyFilter(filter: CardFilter) {
+  console.log('[SRSBrowser] Applying filter:', filter);
+  
+  appliedFilter.value = filter;
+  showFilterDialog.value = false;
+  
+  // 如果当前是 filter-group 队列，设置队列的过滤条件
+  if (activeQueueId.value === 'filter-group') {
+    try {
+      const queue = props.plugin.unifiedDataSourceManager.getQueue('filter-group' as any);
+      if (queue && 'setFilter' in queue && typeof (queue as any).setFilter === 'function') {
+        (queue as any).setFilter(filter);
+        console.log('[SRSBrowser] Filter set on FilterGroupQueue');
+      }
+    } catch (error) {
+      console.error('[SRSBrowser] Failed to set filter on queue:', error);
+    }
+  }
+  
+  // 刷新数据以应用过滤
+  await refreshData(false, true);
+}
+
+/**
+ * 清除过滤条件
+ * @see filter-group-queue-ui 需求 7.1, 7.2
+ */
+async function handleClearFilter() {
+  console.log('[SRSBrowser] Clearing filter');
+  
+  appliedFilter.value = null;
+  showFilterDialog.value = false;
+  
+  // 如果当前是 filter-group 队列，清除队列的过滤条件
+  if (activeQueueId.value === 'filter-group') {
+    try {
+      const queue = props.plugin.unifiedDataSourceManager.getQueue('filter-group' as any);
+      if (queue && 'setFilter' in queue && typeof (queue as any).setFilter === 'function') {
+        (queue as any).setFilter({});
+        console.log('[SRSBrowser] Filter cleared on FilterGroupQueue');
+      }
+    } catch (error) {
+      console.error('[SRSBrowser] Failed to clear filter on queue:', error);
+    }
+  }
+  
+  // 刷新数据以移除过滤
+  await refreshData(false, true);
 }
 </script>

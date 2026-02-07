@@ -171,6 +171,34 @@ export function formatDate(date: Date | null | undefined): string {
     });
 }
 
+/** 格式化到期时间（用于 NextRep，始终显示具体日期） */
+export function formatDueDate(date: Date | null | undefined): string {
+    if (!date) return '-';
+    
+    // 始终显示具体日期（包含年份）
+    return date.toLocaleDateString('zh-CN', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
+
+/** 格式化历史时间（用于 LastRep/FirstRep，始终显示具体日期） */
+export function formatHistoryDate(date: Date | null | undefined): string {
+    if (!date) return '-';
+    
+    // 始终显示具体日期（包含年份）
+    return date.toLocaleDateString('zh-CN', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
+
 /** 截断文本 */
 export function truncateContent(text: string, maxLength = 100): string {
     const cleaned = text.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();

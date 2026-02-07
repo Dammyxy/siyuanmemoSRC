@@ -121,6 +121,21 @@ export interface DateRangeFilter {
 }
 
 /**
+ * 数值范围过滤器（通用）
+ * 
+ * 用于过滤数值范围，例如复习次数、遗忘次数、间隔天数等。
+ * 
+ * @see filter-group-queue-ui 需求 9.1, 9.2, 9.3, 9.4, 9.5
+ */
+export interface NumericRangeFilter {
+    /** 最小值 */
+    min?: number;
+    
+    /** 最大值 */
+    max?: number;
+}
+
+/**
  * 优先级范围过滤器
  */
 export interface PriorityRangeFilter {
@@ -137,6 +152,7 @@ export interface PriorityRangeFilter {
  * 用于过滤卡片集合，支持多种过滤条件。
  * 
  * @see 需求 5.3
+ * @see filter-group-queue-ui 需求 9.1, 9.2, 9.3, 9.4, 9.5
  */
 export interface CardFilter {
     /** 卡片类型过滤 */
@@ -150,6 +166,34 @@ export interface CardFilter {
     
     /** 优先级过滤 */
     priority?: PriorityRangeFilter;
+    
+    // ========================================================================
+    // 新增过滤字段（filter-group-queue-ui 功能）
+    // ========================================================================
+    
+    /** 复习次数过滤（范围 0-999） */
+    repetitions?: NumericRangeFilter;
+    
+    /** 遗忘次数过滤（范围 0-999） */
+    lapses?: NumericRangeFilter;
+    
+    /** 间隔天数过滤（范围 0-9999） */
+    interval?: NumericRangeFilter;
+    
+    /** 上次复习日期过滤 */
+    lastReview?: DateRangeFilter;
+    
+    /** 难度过滤（范围 0-10，对应 SuperMemo 的 A-Factor） */
+    difficulty?: NumericRangeFilter;
+    
+    /** 稳定性过滤（范围 0-9999，FSRS 算法参数） */
+    stability?: NumericRangeFilter;
+    
+    /** 可提取性过滤（范围 0-1，对应 SuperMemo 的 Forgetting Index） */
+    retrievability?: NumericRangeFilter;
+    
+    /** 卡片状态过滤（New=0、Learning=1、Review=2、Relearning=3） */
+    cardStatus?: Array<'new' | 'learning' | 'review' | 'relearning'>;
 }
 
 // ============================================================================

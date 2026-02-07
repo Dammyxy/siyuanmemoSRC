@@ -482,22 +482,58 @@ export async function addToQueue(
   
   console.log('[MenuActions] 转换后的 items:', items);
 
-  // 神经漫游：使用 addItems（批量）
+  // 神经漫游：使用 addCard（逐个添加）
   if (queueType === 'neural-roam') {
     console.log('[MenuActions] 处理神经漫游队列');
-    if (queue?.addItems) {
+    
+    // 新架构：使用 addCard 方法（逐个添加）
+    if (queue?.addCard) {
+      let added = 0;
+      for (const item of items) {
+        try {
+          await queue.addCard(item.blockID, 'manual');
+          added++;
+        } catch (err) {
+          console.error(`[MenuActions] 添加种子块失败: ${item.blockID}`, err);
+        }
+      }
+      return { added, message: `已将 ${added} 张卡片设置为神经漫游种子块` };
+    }
+    // 旧架构：fallback
+    else if (queue?.addItems) {
       const added = await Promise.resolve(queue.addItems(items));
       return { added, message: `已将卡片设置为神经漫游种子块` };
     }
+    
     return { added: 0, message: '神经漫游队列不可用' };
   }
 
-  // 渐进学习和筛选复习使用 addItems（批量）
+  // 渐进学习和筛选复习使用 addCard（逐个添加）
   if (queueType === 'incremental' || queueType === 'filter-group') {
     console.log('[MenuActions] 处理渐进学习/筛选复习队列');
-    console.log('[MenuActions] queue.addItems 存在:', typeof queue?.addItems === 'function');
+    console.log('[MenuActions] queue.addCard 存在:', typeof queue?.addCard === 'function');
     
-    if (queue?.addItems) {
+    // 新架构：使用 addCard 方法（逐个添加）
+    if (queue?.addCard) {
+      console.log('[MenuActions] ✅ 调用 queue.addCard（逐个添加）');
+      let added = 0;
+      for (const item of items) {
+        try {
+          await queue.addCard(item.blockID, 'manual');
+          added++;
+        } catch (err) {
+          console.error(`[MenuActions] 添加卡片失败: ${item.blockID}`, err);
+        }
+      }
+      const queueNames = {
+        incremental: '渐进学习',
+        'filter-group': '筛选复习',
+      };
+      console.log('[MenuActions] 队列添加完成，共添加:', added);
+      return { added, message: `已加入 ${added} 张卡片到${queueNames[queueType]}队列` };
+    }
+    // 旧架构：fallback
+    else if (queue?.addItems) {
       console.log('[MenuActions] ✅ 调用 queue.addItems（批量添加）');
       const added = await Promise.resolve(queue.addItems(items));
       const queueNames = {
@@ -507,7 +543,7 @@ export async function addToQueue(
       console.log('[MenuActions] 队列添加完成，共添加:', added);
       return { added, message: `已加入 ${added} 张卡片到${queueNames[queueType]}队列` };
     } else {
-      console.error('[MenuActions] ❌ queue.addItems 方法不存在');
+      console.error('[MenuActions] ❌ queue.addCard 和 queue.addItems 方法都不存在');
       return { added: 0, message: `${queueType === 'incremental' ? '渐进学习' : '筛选复习'}队列不可用` };
     }
   }
@@ -634,7 +670,27 @@ export async function addToQueue(
       return { added: 0, message: 'Topic 卡片不能加入提取练习队列' };
     }
     
-    if (queue?.addItems) {
+    // 新架构：使用 addCard 方法（逐个添加）
+    if (queue?.addCard) {
+      console.log('[MenuActions] ✅ 调用 queue.addCard（逐个添加），参数数量:', itemsWithManualFlag.length);
+      let added = 0;
+      for (const item of itemsWithManualFlag) {
+        try {
+          await queue.addCard(item.blockID, 'manual');
+          added++;
+        } catch (err) {
+          console.error(`[MenuActions] 添加卡片失败: ${item.blockID}`, err);
+        }
+      }
+      console.log('[MenuActions] ✅ queue.addCard 完成，共添加:', added);
+      const skipped = items.length - itemsWithManualFlag.length;
+      const message = skipped > 0
+        ? `已加入 ${added} 张卡片到提取练习队列（过滤了 ${skipped} 张 Topic 卡片）`
+        : `已加入 ${added} 张卡片到提取练习队列`;
+      return { added, message };
+    }
+    // 旧架构：fallback
+    else if (queue?.addItems) {
       console.log('[MenuActions] ✅ 调用 queue.addItems，参数数量:', itemsWithManualFlag.length);
       const added = await Promise.resolve(queue.addItems(itemsWithManualFlag));
       console.log('[MenuActions] ✅ queue.addItems 返回结果:', added);

@@ -20,6 +20,7 @@ import {
 import { FSRSCard } from '../types/card';
 import type { StorageManager } from '../core/storage/manager';
 import { batchSetRiffCardsDueTime } from '../core/siyuan/riff';
+import { sql } from '../core/siyuan/api';  // ✅ 添加 sql 导入
 
 /**
  * AdvancedDataRouter 类
@@ -103,6 +104,13 @@ export class AdvancedDataRouter implements IDataRouter {
         let cards = this.storage.getAllCards();
         
         console.log(`[AdvancedDataRouter] 🔍 getAllCards() returned ${cards.length} cards`);
+        
+        // ✅ 检查并填充缺失的 rootId
+        const cardsNeedingRootId = cards.filter(c => !c.meta?.rootId);
+        if (cardsNeedingRootId.length > 0) {
+            console.log(`[AdvancedDataRouter] 🔧 Filling missing rootId for ${cardsNeedingRootId.length} cards`);
+            await this.fillMissingRootIds(cardsNeedingRootId);
+        }
         
         // 应用过滤器
         if (filter) {
@@ -319,6 +327,256 @@ export class AdvancedDataRouter implements IDataRouter {
             });
         }
         
+        // ====================================================================
+        // 新增过滤条件（filter-group-queue-ui 功能）
+        // @see 需求 6.2, 6.3, 9.1, 9.2, 9.3, 9.4
+        // ====================================================================
+        
+        // 过滤复习次数
+        if (filter.repetitions) {
+            filtered = filtered.filter(card => {
+                const reps = card.reps;
+                
+                if (filter.repetitions!.min !== undefined && reps < filter.repetitions!.min) {
+                    return false;
+                }
+                
+                if (filter.repetitions!.max !== undefined && reps > filter.repetitions!.max) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        // 过滤遗忘次数
+        if (filter.lapses) {
+            filtered = filtered.filter(card => {
+                const lapses = card.lapses;
+                
+                if (filter.lapses!.min !== undefined && lapses < filter.lapses!.min) {
+                    return false;
+                }
+                
+                if (filter.lapses!.max !== undefined && lapses > filter.lapses!.max) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        // 过滤间隔天数
+        if (filter.interval) {
+            filtered = filtered.filter(card => {
+                // 计算间隔天数（当前日期到到期日期的天数）
+                const now = new Date();
+                const dueDate = new Date(card.due);
+                const intervalDays = Math.floor((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                
+                if (filter.interval!.min !== undefined && intervalDays < filter.interval!.min) {
+                    return false;
+                }
+                
+                if (filter.interval!.max !== undefined && intervalDays > filter.interval!.max) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        // 过滤上次复习日期
+        if (filter.lastReview) {
+            filtered = filtered.filter(card => {
+                // 使用 updatedAt 作为上次复习日期
+                const lastReviewDate = new Date(card.updatedAt);
+                
+                if (filter.lastReview!.lte && lastReviewDate > filter.lastReview!.lte) {
+                    return false;
+                }
+                
+                if (filter.lastReview!.gte && lastReviewDate < filter.lastReview!.gte) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        // 过滤难度
+        if (filter.difficulty) {
+            filtered = filtered.filter(card => {
+                const difficulty = card.difficulty;
+                
+                if (filter.difficulty!.min !== undefined && difficulty < filter.difficulty!.min) {
+                    return false;
+                }
+                
+                if (filter.difficulty!.max !== undefined && difficulty > filter.difficulty!.max) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        // 过滤稳定性
+        if (filter.stability) {
+            filtered = filtered.filter(card => {
+                const stability = card.stability;
+                
+                if (filter.stability!.min !== undefined && stability < filter.stability!.min) {
+                    return false;
+                }
+                
+                if (filter.stability!.max !== undefined && stability > filter.stability!.max) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        // 过滤可提取性
+        if (filter.retrievability) {
+            filtered = filtered.filter(card => {
+                // 计算可提取性（基于 FSRS 算法）
+                // R = e^(-t/S)，其中 t 是经过的时间，S 是稳定性
+                const now = new Date();
+                const lastReview = new Date(card.updatedAt);
+                const elapsedDays = (now.getTime() - lastReview.getTime()) / (1000 * 60 * 60 * 24);
+                const retrievability = Math.exp(-elapsedDays / card.stability);
+                
+                if (filter.retrievability!.min !== undefined && retrievability < filter.retrievability!.min) {
+                    return false;
+                }
+                
+                if (filter.retrievability!.max !== undefined && retrievability > filter.retrievability!.max) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        // 过滤卡片状态
+        if (filter.cardStatus && filter.cardStatus.length > 0) {
+            filtered = filtered.filter(card => {
+                // 根据卡片的 state 字段判断状态
+                // state: 0=New, 1=Learning, 2=Review, 3=Relearning
+                let cardStatus: 'new' | 'learning' | 'review' | 'relearning';
+                
+                switch (card.state) {
+                    case 0:
+                        cardStatus = 'new';
+                        break;
+                    case 1:
+                        cardStatus = 'learning';
+                        break;
+                    case 2:
+                        cardStatus = 'review';
+                        break;
+                    case 3:
+                        cardStatus = 'relearning';
+                        break;
+                    default:
+                        cardStatus = 'new';
+                }
+                
+                return filter.cardStatus!.includes(cardStatus);
+            });
+        }
+        
         return filtered;
+    }
+    
+    // ========================================================================
+    // ✅ rootId 填充方法（queue-doc-filter-rootid-fix）
+    // ========================================================================
+    
+    /**
+     * 填充缺失的 rootId
+     * 
+     * 对于缺少 meta.rootId 的卡片，通过 blockId 查询思源 API 获取 rootId 并填充。
+     * 
+     * @param cards 需要填充 rootId 的卡片数组
+     * @see 需求 3.1, 3.2
+     */
+    private async fillMissingRootIds(cards: FSRSCard[]): Promise<void> {
+        if (cards.length === 0) {
+            return;
+        }
+        
+        const blockIds = cards.map(c => c.blockId);
+        const rootIdMap = await this.batchQueryRootIds(blockIds);
+        
+        for (const card of cards) {
+            const rootId = rootIdMap.get(card.blockId) || '';
+            if (!card.meta) {
+                card.meta = {};
+            }
+            card.meta.rootId = rootId;
+            
+            // 更新本地存储
+            await this.storage.updateCard(card);
+        }
+        
+        console.log(`[AdvancedDataRouter] ✅ Filled rootId for ${cards.length} cards`);
+    }
+    
+    /**
+     * 批量查询 rootId
+     * 
+     * 使用 SQL 查询 blocks 表的 root_id 字段，分批查询以提高性能。
+     * 
+     * @param blockIds 块 ID 数组
+     * @returns Map<blockId, rootId>
+     * @see 需求 3.2, 3.4
+     */
+    private async batchQueryRootIds(blockIds: string[]): Promise<Map<string, string>> {
+        const rootIdMap = new Map<string, string>();
+        
+        if (blockIds.length === 0) {
+            return rootIdMap;
+        }
+        
+        // 分批查询（每批 500 个）
+        const BATCH_SIZE = 500;
+        for (let i = 0; i < blockIds.length; i += BATCH_SIZE) {
+            const batchIds = blockIds.slice(i, i + BATCH_SIZE);
+            const inClause = batchIds.map(id => `'${this.escapeSQL(id)}'`).join(',');
+            
+            try {
+                const result = await sql(`SELECT id, root_id FROM blocks WHERE id IN (${inClause})`);
+                
+                for (const row of result || []) {
+                    rootIdMap.set(row.id, row.root_id || '');
+                }
+            } catch (error) {
+                console.error('[AdvancedDataRouter] Failed to query rootIds:', error);
+                // 为失败的批次设置空字符串
+                for (const blockId of batchIds) {
+                    if (!rootIdMap.has(blockId)) {
+                        rootIdMap.set(blockId, '');
+                    }
+                }
+            }
+        }
+        
+        return rootIdMap;
+    }
+    
+    /**
+     * 转义 SQL 字符串
+     * 
+     * 转义 SQL 字符串中的单引号，防止 SQL 注入。
+     * 
+     * @param str 待转义的字符串
+     * @returns 转义后的字符串
+     * @see 需求 3.2
+     */
+    private escapeSQL(str: string): string {
+        return str.replace(/'/g, "''");
     }
 }

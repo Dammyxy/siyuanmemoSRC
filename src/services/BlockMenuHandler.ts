@@ -168,7 +168,7 @@ export class BlockMenuHandler {
             }
             try {
               const card = createDefaultCard(blockId);
-              await markBlockAsCard(blockId, card.id, card.priority);
+              await markBlockAsCard(blockId, card.id, card.priority, 'item');
               this.deps.storage.setCard(card);
               createdCount++;
             } catch (err) {

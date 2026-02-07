@@ -6,7 +6,9 @@
 
     <ReviewActions
       :actions="state.actions"
+      :meta="state.meta"
       :i18n="i18n"
+      :queue="providerQueue || props.queue"
       @reveal="hook.reveal"
       @grade="hook.grade"
       @skip="hook.skip"

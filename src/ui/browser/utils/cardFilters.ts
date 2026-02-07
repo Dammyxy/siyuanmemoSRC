@@ -199,10 +199,12 @@ export function applyCardTypeFilter(cards: BrowserCard[], cardType: CardTypeFilt
       return cards;
     
     case 'topic-only':
+      // 只显示明确标记为 topic 的卡片
       return cards.filter(card => card.cardType === 'topic');
     
     case 'item-only':
-      return cards.filter(card => card.cardType === 'item');
+      // 显示 item 卡片，缺失 cardType 的卡片默认为 item
+      return cards.filter(card => card.cardType === 'item' || !card.cardType);
     
     default:
       return cards;

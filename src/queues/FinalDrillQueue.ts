@@ -21,6 +21,7 @@ import { FSRSCard } from '../types/card';
 import type { QueueItem } from '../core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import { resolveCardId } from '../diagnostics/type-guards';
+import { DynamicDrawSequencer } from '../core/queue/sequencers/DynamicDrawSequencer';
 
 /**
  * 最终训练条目接口
@@ -57,6 +58,13 @@ export class FinalDrillQueue extends BaseReviewQueue {
      * 值：条目信息（来源和时间戳）
      */
     private entries: Map<string, FinalDrillEntry>;
+    
+    /**
+     * 动态抽牌排序器
+     * 
+     * 使用随机抽牌算法，确保每次评分后看到不同的卡片。
+     */
+    private sequencer: DynamicDrawSequencer<FSRSCard> | null = null;
     
     /**
      * 自动清理天数阈值
@@ -100,11 +108,12 @@ export class FinalDrillQueue extends BaseReviewQueue {
     /**
      * 获取队列中的所有卡片
      * 
-     * 获取逻辑：
+     * 使用动态抽牌算法：
      * 1. 清理过期的自动失败卡片
      * 2. 获取所有条目对应的卡片数据
+     * 3. 使用 DynamicDrawSequencer 进行随机抽牌
      * 
-     * @returns 卡片数组
+     * @returns 卡片数组（随机顺序）
      * @see 需求 6.1, 9.4, 13.5
      */
     public async getCards(): Promise<FSRSCard[]> {
@@ -127,6 +136,28 @@ export class FinalDrillQueue extends BaseReviewQueue {
             
             // 持久化（如果有卡片被移除）
             await this.persistEntries();
+            
+            // 使用动态抽牌排序器打乱顺序
+            if (cards.length > 0) {
+                // 创建新的排序器（每次都重新创建以确保随机性）
+                this.sequencer = new DynamicDrawSequencer<FSRSCard>({
+                    getAll: () => cards,
+                    strategy: 'random',
+                    removeAfterSelection: false // 不移除，因为我们只是用来排序
+                });
+                
+                // 使用排序器重新排列卡片
+                const shuffledCards: FSRSCard[] = [];
+                for (let i = 0; i < cards.length; i++) {
+                    const card = await this.sequencer.next();
+                    if (card) {
+                        shuffledCards.push(card);
+                    }
+                }
+                
+                console.log(`[FinalDrillQueue] Cards shuffled using DynamicDrawSequencer: ${shuffledCards.length} cards`);
+                return shuffledCards;
+            }
             
             return cards;
         } catch (error) {

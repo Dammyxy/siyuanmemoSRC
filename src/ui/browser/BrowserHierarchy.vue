@@ -99,9 +99,22 @@ watchEffect(() => {
   // ✅ 四重筛选：队列聚焦文档
   // 如果有聚焦的文档列表，只统计和加载这些文档
   const focusedIds = props.focusedDocIds;
+  
+  // ✅ 调试日志：记录接收到的数据
+  console.log('[BrowserHierarchy] 🔍 watchEffect triggered:', {
+    cardsCount: cards.length,
+    focusedIds,
+    sampleCards: cards.slice(0, 3).map(c => ({ blockId: c.blockId, rootId: (c as any)?.rootId })),
+  });
+  
   const filteredCards = focusedIds
     ? cards.filter(c => focusedIds.includes((c as any)?.rootId || ''))
     : cards;
+  
+  console.log('[BrowserHierarchy] 🔍 After filtering:', {
+    filteredCardsCount: filteredCards.length,
+    sampleFiltered: filteredCards.slice(0, 3).map(c => ({ blockId: c.blockId, rootId: (c as any)?.rootId })),
+  });
 
   // 计算文档统计
   const counts = new Map<string, number>();
@@ -112,10 +125,22 @@ watchEffect(() => {
   }
   const ids = Array.from(counts.keys());
   const current = ++loadSeq;
+  
+  console.log('[BrowserHierarchy] 🔍 Document IDs to load:', {
+    idsCount: ids.length,
+    ids,
+    counts: Object.fromEntries(counts),
+  });
 
   void (async () => {
     const nodes = await getDocTree(ids);
     if (current !== loadSeq) return;
+    
+    console.log('[BrowserHierarchy] 🔍 getDocTree returned:', {
+      nodesCount: nodes.length,
+      nodes: nodes.map(n => ({ id: n.id, title: n.title })),
+    });
+    
     // ✅ 只包含普通文档，"全部闪卡"和"丢失/关闭闪卡"已移至【全部】区
     docs.value = nodes.map((n) => ({
       id: n.id,
@@ -123,6 +148,11 @@ watchEffect(() => {
       count: counts.get(n.id) || 0,
       filterable: true
     }));
+    
+    console.log('[BrowserHierarchy] ✅ docs.value updated:', {
+      docsCount: docs.value.length,
+      docs: docs.value,
+    });
   })();
 });
 </script>

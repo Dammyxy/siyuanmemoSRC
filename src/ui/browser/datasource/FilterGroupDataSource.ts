@@ -1,5 +1,5 @@
 import type { BrowserCard } from '../types';
-import { CardState, calculateRetrievability, formatDate, truncateContent } from '../types';
+import { CardState, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from '../types';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
 import {
   buildQueueActions,
@@ -194,10 +194,9 @@ export class FilterGroupDataSource implements ICardDataSource {
     const content = truncateContent(fullContent, 100);
     const deckId = (card.meta?.deckId as string) || '';
     
-    let cardType: 'topic' | 'item' | 'incremental' | 'webpage' | undefined;
-    if (typeof card.type === 'string') {
-      cardType = card.type as any;
-    }
+    // 转换 CardType 枚举为字符串
+    // CardType 枚举的值本身就是字符串 ('item', 'topic', 'incremental', 'webpage')
+    const cardType = card.type as 'topic' | 'item' | 'incremental' | 'webpage' | undefined;
     
     return {
       id: card.riffCardId || card.id,
@@ -210,7 +209,7 @@ export class FilterGroupDataSource implements ICardDataSource {
       state,
       stateLabel: this.getStateLabel(state),
       due: dueDate,
-      dueFormatted: formatDate(dueDate),
+      dueFormatted: formatDueDate(dueDate),  // ✅ 使用 formatDueDate
       stability: card.stability,
       difficulty: card.difficulty,
       retrievability,
@@ -219,10 +218,10 @@ export class FilterGroupDataSource implements ICardDataSource {
       elapsedDays,
       scheduledDays: card.scheduledDays,
       lastReview: lastReviewDate,
-      lastReviewFormatted: lastReviewDate ? formatDate(lastReviewDate) : '',
+      lastReviewFormatted: formatHistoryDate(lastReviewDate),  // ✅ 使用 formatHistoryDate
       interval: card.scheduledDays,
       firstReview: lastReviewDate,
-      firstReviewFormatted: lastReviewDate ? formatDate(lastReviewDate) : '',
+      firstReviewFormatted: formatHistoryDate(lastReviewDate),  // ✅ 使用 formatHistoryDate
       priority: card.priority || 0,
       suspended: (card.meta?.suspended as boolean) || false,
       tags: card.tags,

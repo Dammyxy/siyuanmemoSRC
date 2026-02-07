@@ -154,7 +154,8 @@ export class TransactionObserver {
 
             // 6. Mark block with FSRS attributes (Plugin UI support) if not exists
             if (!isFsrsAttr && card) {
-                await markBlockAsCard(blockId, card.id, card.priority);
+                // 注意：cardType 会在后面的步骤 6.5 中单独设置
+                await markBlockAsCard(blockId, card.id, card.priority, card.type as 'topic' | 'item');
             }
 
             // 6.5. 标记卡片类型和初始化 A-Factor（总是执行，除非已有类型）

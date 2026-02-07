@@ -85,6 +85,8 @@ export class FinalDrillAdapter implements IAdapter<QueueItem> {
             queueName: 'final-drill',
             newCards: 0,
             reviewCards: 0,
+            currentNewCards: 0, // 🆕
+            currentReviewCards: 0, // 🆕
           },
           breadcrumbs: [],
           toolbar: [
@@ -125,6 +127,8 @@ export class FinalDrillAdapter implements IAdapter<QueueItem> {
           queueName: 'final-drill',
           newCards: remaining,  // ✅ 修复：显示剩余卡片数量
           reviewCards: 0,
+          currentNewCards: remaining, // 🆕
+          currentReviewCards: 0, // 🆕
         },
         breadcrumbs: [],
         toolbar: [
@@ -155,6 +159,8 @@ export class FinalDrillAdapter implements IAdapter<QueueItem> {
           blockID: item?.blockID,
           deckID: item?.deckID,
           isReviewCard: (item?.state ?? 0) !== 0,
+          type: (item as any)?.type || 'item', // 🆕 卡片类型
+          cardType: (item as any)?.type || 'item', // 🆕 兼容字段
         },
       },
       meta: {
@@ -167,6 +173,7 @@ export class FinalDrillAdapter implements IAdapter<QueueItem> {
         },
         canSkip: uiConfig.allowSkip,
         hasHiddenContent: Boolean(uiConfig.hiddenContentTypes?.length),
+        remainingSize: remaining || 0, // 🆕 剩余卡片数量
       },
     };
   }

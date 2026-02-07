@@ -31,6 +31,7 @@ import {
     BUILTIN_DECK_ID,
     type RiffBlock,
 } from '../core/siyuan/riff';
+import { sql } from '../core/siyuan/api';  // ✅ 添加 sql 导入
 
 /**
  * SimpleDataRouter 类
@@ -153,8 +154,43 @@ export class SimpleDataRouter implements IDataRouter {
             'getRiffCardsByBlockIDs'
         );
         
-        // 转换为 FSRSCard
-        let cards = riffBlocks.map(block => this.convertRiffBlockToFSRSCard(block));
+        // 🔍 调试：显示 Riff API 返回的原始 RiffBlock 数据
+        console.log('[SimpleDataRouter] 🔍 RiffBlocks from Riff API:', 
+            riffBlocks.map(b => ({ blockId: b.id, box: b.box, content: b.content?.substring(0, 30) }))
+        );
+        
+        // 🔍 调试：查询思源数据库中这些块的实际 root_id
+        const rootIdMap = new Map<string, string>();
+        try {
+            const blockIds = riffBlocks.map(b => b.id);
+            const inClause = blockIds.map(id => `'${id.replace(/'/g, "''")}'`).join(',');
+            const result = await sql(`SELECT id, root_id FROM blocks WHERE id IN (${inClause})`);
+            console.log('[SimpleDataRouter] 🔍 Actual root_id from SiYuan database:', 
+                result.map((r: any) => ({ blockId: r.id, actualRootId: r.root_id }))
+            );
+            
+            // 构建 blockId -> root_id 映射
+            for (const row of result) {
+                rootIdMap.set(row.id, row.root_id || '');
+            }
+            
+            // 🔍 对比 Riff API 的 box 和数据库的 root_id
+            const comparison = riffBlocks.map(b => {
+                const dbRootId = rootIdMap.get(b.id);
+                return {
+                    blockId: b.id,
+                    riffBox: b.box,
+                    dbRootId,
+                    match: b.box === dbRootId
+                };
+            });
+            console.log('[SimpleDataRouter] 🔍 Comparison (Riff box vs DB root_id):', comparison);
+        } catch (error) {
+            console.error('[SimpleDataRouter] Failed to query root_id from database:', error);
+        }
+        
+        // 转换为 FSRSCard（使用数据库的 root_id 而不是 Riff 的 box）
+        let cards = riffBlocks.map(block => this.convertRiffBlockToFSRSCard(block, rootIdMap));
         
         // 应用过滤器
         if (filter) {
@@ -347,7 +383,7 @@ export class SimpleDataRouter implements IDataRouter {
      * @param riffBlock Riff 卡片块
      * @returns FSRSCard
      */
-    private convertRiffBlockToFSRSCard(riffBlock: RiffBlock): FSRSCard {
+    private convertRiffBlockToFSRSCard(riffBlock: RiffBlock, rootIdMap: Map<string, string>): FSRSCard {
         // 从 RiffBlock 提取卡片信息
         const riffCard = riffBlock.riffCard;
         
@@ -421,6 +457,7 @@ export class SimpleDataRouter implements IDataRouter {
                 path: riffBlock.path,
                 hPath: riffBlock.hPath,
                 deckId: riffCard?.deckID,
+                rootId: rootIdMap.get(riffBlock.id) || '',  // ✅ 使用数据库的 root_id（文档 ID），而不是 Riff 的 box（笔记本 ID）
                 // 如果 riffCard 缺失，标记为不完整数据
                 isIncomplete: !riffCard,
             },
@@ -437,6 +474,17 @@ export class SimpleDataRouter implements IDataRouter {
                 state: card.state,
                 type: card.type,
                 content: riffBlock.content?.substring(0, 50) + '...',
+            });
+        }
+        
+        // ✅ 调试日志：记录 rootId 来源
+        const dbRootId = rootIdMap.get(riffBlock.id);
+        if (!dbRootId) {
+            console.warn('[SimpleDataRouter] ⚠️ Block not found in database (rootId unavailable):', {
+                blockId: riffBlock.id,
+                content: riffBlock.content?.substring(0, 50),
+                path: riffBlock.path,
+                riffBox: riffBlock.box,  // Riff 的 box 是笔记本 ID，不是文档 ID
             });
         }
         
@@ -508,6 +556,161 @@ export class SimpleDataRouter implements IDataRouter {
                 }
                 
                 return true;
+            });
+        }
+        
+        // ====================================================================
+        // 新增过滤条件（filter-group-queue-ui 功能）
+        // @see 需求 6.2, 6.3, 9.1, 9.2, 9.3, 9.4
+        // ====================================================================
+        
+        // 过滤复习次数
+        if (filter.repetitions) {
+            filtered = filtered.filter(card => {
+                const reps = card.reps;
+                
+                if (filter.repetitions!.min !== undefined && reps < filter.repetitions!.min) {
+                    return false;
+                }
+                
+                if (filter.repetitions!.max !== undefined && reps > filter.repetitions!.max) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        // 过滤遗忘次数
+        if (filter.lapses) {
+            filtered = filtered.filter(card => {
+                const lapses = card.lapses;
+                
+                if (filter.lapses!.min !== undefined && lapses < filter.lapses!.min) {
+                    return false;
+                }
+                
+                if (filter.lapses!.max !== undefined && lapses > filter.lapses!.max) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        // 过滤间隔天数
+        if (filter.interval) {
+            filtered = filtered.filter(card => {
+                // 计算间隔天数（当前日期到到期日期的天数）
+                const now = new Date();
+                const dueDate = new Date(card.due);
+                const intervalDays = Math.floor((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                
+                if (filter.interval!.min !== undefined && intervalDays < filter.interval!.min) {
+                    return false;
+                }
+                
+                if (filter.interval!.max !== undefined && intervalDays > filter.interval!.max) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        // 过滤上次复习日期
+        if (filter.lastReview) {
+            filtered = filtered.filter(card => {
+                // 使用 updatedAt 作为上次复习日期
+                const lastReviewDate = new Date(card.updatedAt);
+                
+                if (filter.lastReview!.lte && lastReviewDate > filter.lastReview!.lte) {
+                    return false;
+                }
+                
+                if (filter.lastReview!.gte && lastReviewDate < filter.lastReview!.gte) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        // 过滤难度
+        if (filter.difficulty) {
+            filtered = filtered.filter(card => {
+                const difficulty = card.difficulty;
+                
+                if (filter.difficulty!.min !== undefined && difficulty < filter.difficulty!.min) {
+                    return false;
+                }
+                
+                if (filter.difficulty!.max !== undefined && difficulty > filter.difficulty!.max) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        // 过滤稳定性
+        if (filter.stability) {
+            filtered = filtered.filter(card => {
+                const stability = card.stability;
+                
+                if (filter.stability!.min !== undefined && stability < filter.stability!.min) {
+                    return false;
+                }
+                
+                if (filter.stability!.max !== undefined && stability > filter.stability!.max) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        // 过滤可提取性
+        if (filter.retrievability) {
+            filtered = filtered.filter(card => {
+                // 计算可提取性（基于 FSRS 算法）
+                // R = e^(-t/S)，其中 t 是经过的时间，S 是稳定性
+                const now = new Date();
+                const lastReview = new Date(card.updatedAt);
+                const elapsedDays = (now.getTime() - lastReview.getTime()) / (1000 * 60 * 60 * 24);
+                const retrievability = Math.exp(-elapsedDays / card.stability);
+                
+                if (filter.retrievability!.min !== undefined && retrievability < filter.retrievability!.min) {
+                    return false;
+                }
+                
+                if (filter.retrievability!.max !== undefined && retrievability > filter.retrievability!.max) {
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+        
+        // 过滤卡片状态
+        if (filter.cardStatus && filter.cardStatus.length > 0) {
+            filtered = filtered.filter(card => {
+                // 根据卡片的 state 字段判断状态
+                // state: 0=New, 1=Learning, 2=Review, 3=Relearning
+                let cardStatus: 'memorized' | 'pending' | 'dismissed';
+                
+                if (card.state === 2) {
+                    // Review 状态视为已记忆
+                    cardStatus = 'memorized';
+                } else if (card.state === 0 || card.state === 1 || card.state === 3) {
+                    // New, Learning, Relearning 状态视为待复习
+                    cardStatus = 'pending';
+                } else {
+                    // 其他状态视为已忽略
+                    cardStatus = 'dismissed';
+                }
+                
+                return filter.cardStatus!.includes(cardStatus);
             });
         }
         

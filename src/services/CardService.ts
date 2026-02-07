@@ -154,7 +154,7 @@ export class CardService {
             }
             try {
               const card = createDefaultCard(blockId);
-              await markBlockAsCard(blockId, card.id, card.priority);
+              await markBlockAsCard(blockId, card.id, card.priority, 'item');
               this.plugin.storage.setCard(card);
               createdCount++;
             } catch (err) {

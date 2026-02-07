@@ -1,5 +1,5 @@
 import type { BrowserCard } from '../types';
-import { CardState, calculateRetrievability, formatDate, truncateContent } from '../types';
+import { CardState, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from '../types';
 import { batchDelete } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
 import {
@@ -56,8 +56,50 @@ export class RetrievalDataSource implements ICardDataSource {
       // 获取队列中的所有卡片（FSRSCard 格式）
       const cards = await queue.getCards();
       
+      // 🔍 调试：检查第一张卡片的原始数据
+      if (cards.length > 0) {
+        console.log('[RetrievalDataSource] 📊 Sample FSRSCard data:', {
+          id: cards[0].id,
+          blockId: cards[0].blockId,
+          scheduledDays: cards[0].scheduledDays,
+          stability: cards[0].stability,
+          difficulty: cards[0].difficulty,
+          lastReview: cards[0].lastReview,
+          lastReviewDate: cards[0].lastReview ? new Date(cards[0].lastReview) : null,
+          due: cards[0].due,
+          dueDate: new Date(cards[0].due),
+          reps: cards[0].reps,
+          lapses: cards[0].lapses,
+          state: cards[0].state,
+          elapsedDays: cards[0].elapsedDays,
+          hasMeta: !!cards[0].meta,
+          metaRootId: cards[0].meta?.rootId,
+        });
+        
+        // 🔍 调试：显示所有卡片的 rootId
+        console.log('[RetrievalDataSource] 📊 All FSRSCard rootIds:', 
+          cards.map(c => ({ blockId: c.blockId, metaRootId: c.meta?.rootId }))
+        );
+      }
+      
       // 转换为 BrowserCard 格式
       const browserCards = cards.map(card => this.convertToBrowserCard(card));
+      
+      // 🔍 调试：检查转换后的数据
+      if (browserCards.length > 0) {
+        console.log('[RetrievalDataSource] 📊 Sample BrowserCard data:', {
+          blockId: browserCards[0].blockId,
+          interval: browserCards[0].interval,
+          stability: browserCards[0].stability,
+          difficulty: browserCards[0].difficulty,
+          retrievability: browserCards[0].retrievability,
+          lastReview: browserCards[0].lastReview,
+          lastReviewFormatted: browserCards[0].lastReviewFormatted,
+          due: browserCards[0].due,
+          dueFormatted: browserCards[0].dueFormatted,
+          firstReviewFormatted: browserCards[0].firstReviewFormatted,
+        });
+      }
       
       // 应用筛选条件
       const filtered = this.applyFilters(browserCards);
@@ -198,15 +240,39 @@ export class RetrievalDataSource implements ICardDataSource {
       : 0;
     const retrievability = calculateRetrievability(card.stability, elapsedDays);
     const state = this.convertCardState(card.state);
+    
+    // ✅ 修复：正确处理时间戳（FSRSCard 的时间字段是 number 类型的时间戳）
     const dueDate = new Date(card.due);
     const lastReviewDate = card.lastReview ? new Date(card.lastReview) : null;
+    
+    // ✅ 修复：首次复习应该从 createdAt 获取（如果 reps > 0 但没有 createdAt，使用 lastReview）
+    let firstReviewDate: Date | null = null;
+    if (card.reps > 0) {
+      if (card.createdAt) {
+        firstReviewDate = new Date(card.createdAt);
+      } else if (lastReviewDate) {
+        // 降级：如果没有 createdAt，使用 lastReview（不准确但总比没有好）
+        firstReviewDate = lastReviewDate;
+      }
+    }
+    
     const fullContent = (card.meta?.content as string) || '';
     const content = truncateContent(fullContent, 100);
     const deckId = (card.meta?.deckId as string) || '';
     
-    let cardType: 'topic' | 'item' | 'incremental' | 'webpage' | undefined;
-    if (typeof card.type === 'string') {
-      cardType = card.type as any;
+    // 转换 CardType 枚举为字符串
+    // CardType 枚举的值本身就是字符串 ('item', 'topic', 'incremental', 'webpage')
+    const cardType = card.type as 'topic' | 'item' | 'incremental' | 'webpage' | undefined;
+    
+    // 🔍 调试：检查 rootId 提取
+    const extractedRootId = (card.meta?.rootId as string) || '';
+    if (!extractedRootId) {
+      console.warn('[RetrievalDataSource] ⚠️ Card missing rootId:', {
+        blockId: card.blockId,
+        hasMeta: !!card.meta,
+        metaRootId: card.meta?.rootId,
+        metaKeys: card.meta ? Object.keys(card.meta) : [],
+      });
     }
     
     return {
@@ -216,26 +282,37 @@ export class RetrievalDataSource implements ICardDataSource {
       deckId,
       content,
       fullContent,
-      rootId: (card.meta?.rootId as string) || '',
+      rootId: extractedRootId,
       state,
       stateLabel: this.getStateLabel(state),
+      
+      // ✅ 到期时间（始终显示具体日期）
       due: dueDate,
-      dueFormatted: formatDate(dueDate),
-      stability: card.stability,
-      difficulty: card.difficulty,
-      retrievability,
-      reps: card.reps,
-      lapses: card.lapses,
+      dueFormatted: formatDueDate(dueDate),
+      
+      // ✅ FSRS 参数（确保有默认值）
+      stability: card.stability || 0,
+      difficulty: card.difficulty || 0,
+      retrievability: retrievability || 0,
+      reps: card.reps || 0,
+      lapses: card.lapses || 0,
       elapsedDays,
-      scheduledDays: card.scheduledDays,
+      scheduledDays: card.scheduledDays || 0,
+      
+      // ✅ 历史时间（始终显示具体日期）
       lastReview: lastReviewDate,
-      lastReviewFormatted: lastReviewDate ? formatDate(lastReviewDate) : '',
-      interval: card.scheduledDays,
-      firstReview: lastReviewDate,
-      firstReviewFormatted: lastReviewDate ? formatDate(lastReviewDate) : '',
-      priority: card.priority || 0,
+      lastReviewFormatted: formatHistoryDate(lastReviewDate),
+      
+      // ✅ 间隔天数
+      interval: card.scheduledDays || 0,
+      
+      // ✅ 首次复习（修复：不再使用 lastReview）
+      firstReview: firstReviewDate,
+      firstReviewFormatted: formatHistoryDate(firstReviewDate),
+      
+      priority: card.priority || 50,
       suspended: (card.meta?.suspended as boolean) || false,
-      tags: card.tags,
+      tags: card.tags || [],
       note: (card.meta?.note as string) || '',
       cardType,
       aFactor: card.aFactor,

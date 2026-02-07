@@ -79,36 +79,60 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                     current: stats?.size || 0,
                     total: stats?.size || 0,
                     label: stats?.label || '',
-                    queueName: '统一队列'
+                    queueName: '统一队列',
+                    // 🆕 添加新卡和复习卡的统计
+                    newCards: 0, // 统一队列不区分新卡和复习卡
+                    reviewCards: stats?.size || 0, // 所有卡片都算作复习卡
+                    currentNewCards: 0,
+                    currentReviewCards: stats?.size || 0,
                 },
                 breadcrumbs: []
             },
             content: {
                 type: 'protyle',
                 data: card.blockId || card.id,
-                id: card.blockId || card.id
+                id: card.blockId || card.id,
+                // 🆕 Xiuyuan 模板卡片：从 meta 中获取答案块 ID
+                answerBlockID: (() => {
+                    const answerBlockID = String((card as any)?.meta?.answerBlockID || '');
+                    console.log('[UnifiedReviewAdapter] toUIState - answerBlockID:', {
+                        cardID: card.id,
+                        blockID: card.blockId,
+                        hasMeta: !!(card as any)?.meta,
+                        meta: (card as any)?.meta,
+                        answerBlockID,
+                    });
+                    return answerBlockID;
+                })(),
+                card: card as any
             },
             actions: {
                 showAnswer: !context.showAnswer,  // 🔧 修复：反转 context.showAnswer 的值
                 grades: uiConfig.showRatingButtons ? [
-                    { label: '1', value: 1, color: 'red', kb: '1' },
-                    { label: '2', value: 2, color: 'orange', kb: '2' },
-                    { label: '3', value: 3, color: 'green', kb: '3' },
-                    { label: '4', value: 4, color: 'blue', kb: '4' }
+                    { label: '重来', value: 1, color: 'var(--b3-theme-error)', kb: '1', emoji: '🙈', nextDue: '' },
+                    { label: '困难', value: 2, color: 'var(--b3-theme-warning)', kb: '2', emoji: '😬', nextDue: '' },
+                    { label: '良好', value: 3, color: 'var(--b3-theme-info)', kb: '3', emoji: '😊', nextDue: '' },
+                    { label: '简单', value: 4, color: 'var(--b3-theme-success)', kb: '4', emoji: '🌈', nextDue: '' }
                 ] : [],
                 menu: [],
                 toolbar: [],
                 cardMeta: {
                     blockID: card.blockId || card.id,
+                    cardID: card.id,
+                    deckID: (card as any).deckId || '',
                     reps: card.reps,
                     lapses: card.lapses,
+                    state: card.state,
                     lastReview: card.lastReview,
-                    isReviewCard: card.reps > 0
+                    isReviewCard: card.reps > 0,
+                    type: (card as any)?.type || 'item', // 🆕 卡片类型
+                    cardType: (card as any)?.type || 'item', // 🆕 兼容字段
                 }
             },
             meta: {
                 transition: 'slide-left',
-                hasHiddenContent: !context.showAnswer
+                hasHiddenContent: !context.showAnswer,
+                remainingSize: stats?.size || 0, // 🆕 剩余卡片数量
             },
             overlay: null
         };

@@ -26,6 +26,14 @@
         <option value="topic-only">{{ t('topicOnly', 'Topic Only') }}</option>
         <option value="item-only">{{ t('itemOnly', 'Item Only') }}</option>
       </select>
+
+      <!-- 过滤按钮 (需求 1.1, 1.2, 1.3) -->
+      <FilterButton
+        :queue-type="queueType"
+        :applied-filter="appliedFilter"
+        :i18n="i18n"
+        @open-dialog="$emit('openFilterDialog')"
+      />
     </div>
     
     <div class="toolbar__center">
@@ -112,6 +120,9 @@
 </template>
 
 <script setup lang="ts">
+import FilterButton from './components/FilterButton.vue';
+import type { CardFilter } from '@/types/unified-data-source';
+
 // Props
 const props = defineProps<{
   i18n?: Record<string, string>;
@@ -126,6 +137,9 @@ const props = defineProps<{
   loading: boolean;
   showPreview: boolean;
   mode: 'dialog' | 'tab' | 'dock';
+  // 新增：队列类型和过滤条件 (需求 1.1, 1.2)
+  queueType: string;
+  appliedFilter: CardFilter | null;
 }>();
 
 // Emits
@@ -142,6 +156,8 @@ defineEmits<{
   (e: 'migrateTopicItem'): void;
   (e: 'showPerformanceReport'): void;
   (e: 'convertToTab'): void;
+  // 新增：打开过滤对话框事件 (需求 1.3)
+  (e: 'openFilterDialog'): void;
 }>();
 
 // 国际化

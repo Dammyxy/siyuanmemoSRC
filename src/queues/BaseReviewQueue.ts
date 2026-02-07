@@ -272,6 +272,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     public async refresh(): Promise<void> {
         await this.getAllCards();
+        this.clearSizeCache();
         this.notifyObservers();
     }
 
@@ -280,6 +281,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     public async clear(): Promise<void> {
         this.cards = [];
+        this.clearSizeCache();
         this.notifyObservers();
     }
 
@@ -438,4 +440,121 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * - 非空数组表示使用自定义排序
      */
     protected customOrder: string[] | null = null;
+    
+    /**
+     * 临时黑名单（会话级，不持久化）
+     * 
+     * 用于临时移除不想复习的卡片。移除的卡片在当前会话中不再显示，
+     * 但关闭浏览器或重新加载插件后会自动恢复。
+     * 
+     * 特性：
+     * - 只存在于内存中，不持久化
+     * - 每个队列实例维护独立的黑名单
+     * - 通过 addCard() 可以立即恢复被移除的卡片
+     * 
+     * @see .kiro/specs/retrieval-practice-browser-display-fix/requirements.md
+     * @see .kiro/specs/retrieval-practice-browser-display-fix/design.md
+     */
+    protected temporaryBlacklist: Set<string> = new Set();
+    
+    /**
+     * 获取临时黑名单大小
+     * 
+     * 用于调试和统计临时移除的卡片数量。
+     * 
+     * @returns 临时黑名单中的卡片数量
+     */
+    public getTemporaryBlacklistSize(): number {
+        return this.temporaryBlacklist.size;
+    }
+    
+    /**
+     * 清空临时黑名单
+     * 
+     * 用于测试或手动恢复所有被移除的卡片。
+     * 调用此方法后，所有被临时移除的卡片将重新出现在队列中。
+     */
+    public clearTemporaryBlacklist(): void {
+        this.temporaryBlacklist.clear();
+        console.log(`[${this.constructor.name}] Temporary blacklist cleared`);
+    }
+    
+    /**
+     * 插入卡片到指定位置
+     * 
+     * @param cardId 卡片 ID
+     * @param position 位置 (1-based)
+     */
+    public async insertAt(cardId: string, position: number): Promise<void> {
+        try {
+            // 1. 验证位置
+            const size = await this.getSize();
+            if (position < 1 || position > size) {
+                throw new Error(`Invalid position: ${position}, queue size: ${size}`);
+            }
+            
+            // 2. 获取当前队列
+            if (this.cards.length === 0) {
+                await this.getAllCards();
+            }
+            
+            // 3. 找到目标卡片
+            const cardIndex = this.cards.findIndex(c => c.id === cardId || c.blockId === cardId);
+            if (cardIndex === -1) {
+                throw new Error(`Card not found: ${cardId}`);
+            }
+            
+            // 4. 移除卡片
+            const [card] = this.cards.splice(cardIndex, 1);
+            
+            // 5. 插入到指定位置 (position - 1 因为是 0-based)
+            this.cards.splice(position - 1, 0, card);
+            
+            // 6. 更新自定义排序
+            this.customOrder = this.cards.map(c => c.id);
+            
+            console.log(`[${this.type}] Card ${cardId} inserted at position ${position}`);
+            
+            // 7. 通知观察者
+            this.notifyObservers();
+        } catch (error) {
+            console.error(`[${this.type}] Failed to insert card:`, error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 获取剩余卡片数量
+     */
+    public async getRemainingSize(): Promise<number> {
+        const now = Date.now();
+        
+        // 使用缓存
+        if (this.cachedSize !== null && now - this.cacheTimestamp < this.CACHE_TTL) {
+            return this.cachedSize;
+        }
+        
+        // 重新计算
+        if (this.cards.length === 0) {
+            await this.getAllCards();
+        }
+        this.cachedSize = this.cards.length;
+        this.cacheTimestamp = now;
+        
+        return this.cachedSize;
+    }
+    
+    /**
+     * 清除缓存（在队列变化时调用）
+     */
+    protected clearSizeCache(): void {
+        this.cachedSize = null;
+    }
+    
+    /**
+     * 队列大小缓存
+     */
+    private cachedSize: number | null = null;
+    private cacheTimestamp: number = 0;
+    private readonly CACHE_TTL = 5000; // 5 秒缓存
 }

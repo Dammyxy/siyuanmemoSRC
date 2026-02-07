@@ -151,14 +151,30 @@ export class BlockMenuManager {
                     }
                     const items = this.buildQueueItemsFromElements(drillBlocks, gid);
                     // @ts-ignore
-                    const before = (this.plugin as any).filterGroupQueue?.size?.() ?? 0;
-                    for (const item of items) {
-                        // @ts-ignore
-                        await (this.plugin as any).filterGroupQueue.addItem(item);
+                    const queue = (this.plugin as any).filterGroupQueue;
+                    
+                    let added = 0;
+                    // 新架构：使用 addCard 方法（逐个添加）
+                    if (queue?.addCard) {
+                        for (const item of items) {
+                            try {
+                                await queue.addCard(item.blockID, 'manual');
+                                added++;
+                            } catch (err) {
+                                console.error(`[BlockMenu] 添加卡片失败: ${item.blockID}`, err);
+                            }
+                        }
                     }
-                    // @ts-ignore
-                    const after = (this.plugin as any).filterGroupQueue?.size?.() ?? before;
-                    const added = Math.max(0, after - before);
+                    // 旧架构：fallback
+                    else if (queue?.addItem) {
+                        const before = queue?.size?.() ?? 0;
+                        for (const item of items) {
+                            await queue.addItem(item);
+                        }
+                        const after = queue?.size?.() ?? before;
+                        added = Math.max(0, after - before);
+                    }
+                    
                     if (added > 0) {
                         await pushMsg((this.plugin.i18n?.filterGroupAdded || '已加入 {n} 张闪卡到分组队列').replace('{n}', String(added)));
                     } else {
@@ -266,7 +282,7 @@ export class BlockMenuManager {
                             const content = element.textContent || '';
 
                             const card = await builder.build(blockId, content);
-                            await markBlockAsCard(blockId, card.id, card.priority);
+                            await markBlockAsCard(blockId, card.id, card.priority, 'item');
                             this.plugin.storage.setCard(card);
                             createdCount++;
                         } catch (err) {

@@ -100,7 +100,15 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
      * 获取下一张卡片
      * 
      * 从缓存的卡片列表中返回下一张卡片。
-     * 如果缓存无效或用完，重新加载卡片列表。
+     * 如果缓存无效，重新加载卡片列表。
+     * 
+     * 对于刻意练习队列（FinalDrill），使用动态抽牌算法：
+     * - 每次调用都重新加载队列
+     * - 返回第一张卡片（随机或加权随机）
+     * 
+     * 对于其他队列，使用顺序遍历：
+     * - 缓存卡片列表
+     * - 按索引顺序返回
      * 
      * 验证需求：4.2, 5.1
      * 
@@ -108,6 +116,30 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
      */
     async next(): Promise<FSRSCard | null> {
         try {
+            // 刻意练习队列：动态抽牌算法
+            if (this.queueType === 'final-drill') {
+                // 每次都重新加载队列（动态抽牌）
+                await this.reloadCards();
+                
+                // 如果队列为空，返回 null
+                if (this.cachedCards.length === 0) {
+                    console.log(`[UnifiedQueueStrategy] Queue is empty: ${this.queueType}`);
+                    return null;
+                }
+                
+                // 返回第一张卡片（队列已经处理了随机/加权逻辑）
+                const card = this.cachedCards[0];
+                
+                console.log(`[UnifiedQueueStrategy] Next card (dynamic draw):`, {
+                    queueType: this.queueType,
+                    cardId: card.id,
+                    total: this.cachedCards.length
+                });
+                
+                return card;
+            }
+            
+            // 其他队列：顺序遍历
             // 如果缓存无效或用完，重新加载
             if (!this.cacheValid || this.currentIndex >= this.cachedCards.length) {
                 await this.reloadCards();
@@ -176,8 +208,11 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                 // 处理评分
                 await this.queue.handleReview(currentItem.id, feedback.rating);
                 
-                // 使缓存失效，下次 next() 会重新加载
-                this.invalidateCache();
+                // 刻意练习队列：不需要失效缓存（每次 next() 都会重新加载）
+                // 其他队列：失效缓存，下次 next() 会重新加载
+                if (this.queueType !== 'final-drill') {
+                    this.invalidateCache();
+                }
                 
                 console.log(`[UnifiedQueueStrategy] Card rated:`, {
                     queueType: this.queueType,
@@ -305,6 +340,76 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                 label: '0 张',
                 extra: ''
             };
+        }
+    }
+    
+    /**
+     * 插入卡片到指定位置
+     * 
+     * @param cardId 卡片 ID
+     * @param position 位置 (1-based)
+     */
+    async insertAt(cardId: string, position: number): Promise<void> {
+        try {
+            console.log(`[UnifiedQueueStrategy] insertAt called:`, {
+                queueType: this.queueType,
+                cardId,
+                position
+            });
+            
+            // 检查底层队列是否支持 insertAt
+            if (typeof (this.queue as any).insertAt === 'function') {
+                await (this.queue as any).insertAt(cardId, position);
+                
+                // 失效缓存，下次 next() 会重新加载
+                this.invalidateCache();
+                
+                console.log(`[UnifiedQueueStrategy] Card inserted via queue.insertAt:`, {
+                    queueType: this.queueType,
+                    cardId,
+                    position
+                });
+            } else {
+                console.error(`[UnifiedQueueStrategy] Queue does not support insertAt:`, {
+                    queueType: this.queueType,
+                    queueType_actual: this.queue.constructor.name
+                });
+                throw new Error(`Queue type ${this.queueType} does not support insertAt`);
+            }
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`[UnifiedQueueStrategy] Failed to insert card:`, {
+                queueType: this.queueType,
+                cardId,
+                position,
+                error: errorMessage
+            });
+            throw error;
+        }
+    }
+    
+    /**
+     * 获取剩余卡片数量
+     * 
+     * @returns 剩余卡片数量
+     */
+    async getRemainingSize(): Promise<number> {
+        try {
+            // 如果缓存有效，返回缓存的数量
+            if (this.cacheValid) {
+                return Math.max(0, this.cachedCards.length - this.currentIndex);
+            }
+            
+            // 否则重新加载并返回总数
+            await this.reloadCards();
+            return this.cachedCards.length;
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`[UnifiedQueueStrategy] Failed to get remaining size:`, {
+                queueType: this.queueType,
+                error: errorMessage
+            });
+            return 0;
         }
     }
     

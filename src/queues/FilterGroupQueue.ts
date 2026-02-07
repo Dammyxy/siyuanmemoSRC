@@ -92,11 +92,15 @@ export class FilterGroupQueue extends BaseReviewQueue {
      */
     public async getCards(): Promise<FSRSCard[]> {
         try {
+            console.log('[FilterGroupQueue] getCards() called with filter:', this.filterCriteria);
+            
             // 根据过滤条件获取卡片
             const filteredCards = await this.manager.getCards(this.filterCriteria);
+            console.log('[FilterGroupQueue] Filtered cards count:', filteredCards.length);
             
             // 获取手动添加的卡片
             const manualCards = await this.getManuallyAddedCards();
+            console.log('[FilterGroupQueue] Manual cards count:', manualCards.length);
             
             // 合并并去重
             const allCards = this.mergeAndDeduplicate(filteredCards, manualCards);
@@ -210,15 +214,36 @@ export class FilterGroupQueue extends BaseReviewQueue {
     }
     
     /**
+     * 获取队列大小
+     * 
+     * 覆盖基类方法，确保返回筛选后的卡片数量。
+     * 
+     * @returns 筛选后的卡片数量
+     */
+    public async getSize(): Promise<number> {
+        // 总是重新获取卡片，确保返回最新的筛选结果
+        const cards = await this.getCards();
+        return cards.length;
+    }
+    
+    /**
      * 设置过滤条件
      * 
      * 更新过滤条件后，下次调用 getCards() 时将使用新的过滤条件。
+     * 同时通知观察者队列已更改。
      * 
      * @param filter 新的过滤条件
      */
     public setFilter(filter: CardFilter): void {
         this.filterCriteria = filter;
-        console.log('[FilterGroupQueue] Filter criteria updated');
+        console.log('[FilterGroupQueue] Filter criteria updated:', filter);
+        
+        // 通知观察者队列已更改
+        this.manager.notifyObservers({
+            type: 'queue-changed',
+            queueType: this.getType(),
+            timestamp: Date.now()
+        });
     }
     
     /**

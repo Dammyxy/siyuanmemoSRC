@@ -196,12 +196,15 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
           blockID: item?.blockID,
           deckID: item?.deckID,
           isReviewCard: (item?.state ?? 0) !== 0,
+          type: (item as any)?.type || 'item', // 🆕 卡片类型
+          cardType: (item as any)?.type || 'item', // 🆕 兼容字段
         },
       },
       meta: {
         transition: 'none',
         canSkip: uiConfig.allowSkip,
         hasHiddenContent: Boolean(uiConfig.hiddenContentTypes?.length),
+        remainingSize: statsRemaining || 0, // 🆕 剩余卡片数量
       },
     };
   }

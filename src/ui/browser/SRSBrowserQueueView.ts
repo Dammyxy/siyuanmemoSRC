@@ -10,9 +10,10 @@
  */
 
 import type { UnifiedDataSourceManager } from '../../managers/UnifiedDataSourceManager';
-import type { IDataSourceObserver, DataChangeEvent, QueueType } from '../../types/unified-data-source';
+import type { IDataSourceObserver, DataChangeEvent, QueueType, CardFilter } from '../../types/unified-data-source';
 import type { FSRSCard } from '../../types/card';
 import type { GridApi } from 'ag-grid-community';
+import { filterService } from './services/FilterService';
 
 /**
  * SRS 浏览器队列视图
@@ -23,8 +24,10 @@ import type { GridApi } from 'ag-grid-community';
  * - 从队列加载数据并显示在 AG-Grid 中
  * - 添加卡片到队列
  * - 获取可用队列类型
+ * - 管理过滤条件（filter-group-queue-ui 功能）
  * 
  * 验证需求：16.1, 16.2, 16.3, 16.4, 16.5
+ * @see filter-group-queue-ui 需求 6.2, 6.3, 8.2, 8.3
  */
 export class SRSBrowserQueueView implements IDataSourceObserver {
     /**
@@ -48,6 +51,12 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
     private isRegistered: boolean;
     
     /**
+     * 当前应用的过滤条件
+     * @see filter-group-queue-ui 需求 6.2, 8.2
+     */
+    private appliedFilter: CardFilter | null;
+    
+    /**
      * 构造函数
      * 
      * @param manager 统一数据源管理器实例
@@ -57,9 +66,13 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
         this.currentQueueType = null;
         this.gridApi = null;
         this.isRegistered = false;
+        this.appliedFilter = null;
         
         // 注册为观察者
         this.registerObserver();
+        
+        // 加载保存的过滤条件（如果有）
+        this.loadSavedFilter();
     }
     
     // ========================================================================
@@ -206,6 +219,94 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
     }
     
     /**
+     * 获取当前应用的过滤条件
+     * 
+     * @see filter-group-queue-ui 需求 8.2
+     * @returns 当前应用的过滤条件，如果未设置则返回 null
+     */
+    getAppliedFilter(): CardFilter | null {
+        return this.appliedFilter;
+    }
+    
+    /**
+     * 应用过滤条件
+     * 
+     * 设置过滤条件并刷新队列显示。
+     * 仅在 FilterGroup 队列类型时有效。
+     * 
+     * @see filter-group-queue-ui 需求 6.2, 6.3, 8.2, 8.3
+     * @param filter 过滤条件
+     */
+    async applyFilter(filter: CardFilter): Promise<void> {
+        // 仅在 FilterGroup 队列时应用过滤
+        if (this.currentQueueType !== 'filter-group' as QueueType) {
+            console.warn('[SRSBrowserQueueView] Filter can only be applied to FilterGroup queue');
+            return;
+        }
+        
+        try {
+            console.log('[SRSBrowserQueueView] Applying filter:', filter);
+            
+            // 保存过滤条件
+            this.appliedFilter = filter;
+            
+            // 获取队列实例
+            const queue = this.manager.getQueue(this.currentQueueType);
+            
+            // 设置过滤条件（假设 FilterGroupQueue 有 setFilter 方法）
+            if ('setFilter' in queue && typeof (queue as any).setFilter === 'function') {
+                await (queue as any).setFilter(filter);
+            }
+            
+            // 刷新队列显示
+            await this.loadQueueData();
+            
+            console.log('[SRSBrowserQueueView] Filter applied successfully');
+        } catch (error) {
+            console.error('[SRSBrowserQueueView] Failed to apply filter:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 清除过滤条件
+     * 
+     * 清除当前应用的过滤条件并刷新队列显示。
+     * 
+     * @see filter-group-queue-ui 需求 7.3, 7.4
+     */
+    async clearFilter(): Promise<void> {
+        // 仅在 FilterGroup 队列时清除过滤
+        if (this.currentQueueType !== 'filter-group' as QueueType) {
+            console.warn('[SRSBrowserQueueView] Filter can only be cleared from FilterGroup queue');
+            return;
+        }
+        
+        try {
+            console.log('[SRSBrowserQueueView] Clearing filter');
+            
+            // 清除过滤条件
+            this.appliedFilter = null;
+            
+            // 获取队列实例
+            const queue = this.manager.getQueue(this.currentQueueType);
+            
+            // 清除过滤条件
+            if ('setFilter' in queue && typeof (queue as any).setFilter === 'function') {
+                await (queue as any).setFilter({});
+            }
+            
+            // 刷新队列显示
+            await this.loadQueueData();
+            
+            console.log('[SRSBrowserQueueView] Filter cleared successfully');
+        } catch (error) {
+            console.error('[SRSBrowserQueueView] Failed to clear filter:', error);
+            throw error;
+        }
+    }
+    
+    /**
      * 销毁视图
      * 
      * 取消注册观察者，清理资源。
@@ -219,11 +320,32 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
         // 清理引用
         this.gridApi = null;
         this.currentQueueType = null;
+        this.appliedFilter = null;
     }
     
     // ========================================================================
     // 私有方法
     // ========================================================================
+    
+    /**
+     * 加载保存的过滤条件
+     * 
+     * 从 localStorage 加载上次保存的过滤条件。
+     * 
+     * @see filter-group-queue-ui 需求 8.2, 8.3
+     */
+    private loadSavedFilter(): void {
+        try {
+            const savedFilter = filterService.loadFilter();
+            if (savedFilter) {
+                this.appliedFilter = savedFilter;
+                console.log('[SRSBrowserQueueView] Loaded saved filter:', savedFilter);
+            }
+        } catch (error) {
+            console.error('[SRSBrowserQueueView] Failed to load saved filter:', error);
+            // 加载失败不影响正常使用
+        }
+    }
     
     /**
      * 注册为观察者

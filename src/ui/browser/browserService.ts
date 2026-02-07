@@ -25,7 +25,8 @@ import {
     CardState,
     STATE_LABELS,
     calculateRetrievability,
-    formatDate,
+    formatDueDate,
+    formatHistoryDate,
     truncateContent
 } from './types';
 
@@ -364,7 +365,7 @@ function transformRiffBlock(block: any, customAttrs: Record<string, string>): Br
         state,
         stateLabel: STATE_LABELS[state] || '未知',
         due,
-        dueFormatted: formatDate(due),
+        dueFormatted: formatDueDate(due),  // ✅ 使用 formatDueDate（可以显示"已过期"）
         stability,
         difficulty: riffCard.difficulty ?? 0,
         retrievability: calculateRetrievability(stability, elapsedDays),
@@ -373,12 +374,12 @@ function transformRiffBlock(block: any, customAttrs: Record<string, string>): Br
         elapsedDays,
         scheduledDays,
         lastReview,
-        lastReviewFormatted: formatDate(lastReview),
+        lastReviewFormatted: formatHistoryDate(lastReview),  // ✅ 使用 formatHistoryDate（显示具体日期）
 
         // 新增字段
         interval: scheduledDays,
         firstReview,
-        firstReviewFormatted: formatDate(firstReview),
+        firstReviewFormatted: formatHistoryDate(firstReview),  // ✅ 使用 formatHistoryDate（显示具体日期）
 
         priority: parseInt(customAttrs[ATTR_PRIORITY] || '50') || 50,
         suspended: customAttrs[ATTR_SUSPENDED] === 'true',
@@ -662,9 +663,11 @@ function applyPresetFilter(cards: BrowserCard[], preset: string, currentDocId?: 
             }
             return cards;
         case 'topic-only':
-            return cards.filter(c => c.cardType === 'topic' || (!c.cardType && c.content.indexOf('::') === -1 && c.content.indexOf('?') === -1));
+            // 只显示明确标记为 topic 的卡片
+            return cards.filter(c => c.cardType === 'topic');
         case 'item-only':
-            return cards.filter(c => c.cardType === 'item' || (!c.cardType && (c.content.indexOf('::') !== -1 || c.content.indexOf('?') !== -1)));
+            // 显示 item 卡片，缺失 cardType 的卡片默认为 item
+            return cards.filter(c => c.cardType === 'item' || !c.cardType);
         case 'all':
         default:
             return cards;
@@ -691,10 +694,12 @@ export async function loadCards(
             let cards = applyPresetFilter(allCards, preset, currentDocId);
 
             // Step 2.5: ✅ 应用 cardType 筛选
+            // 注意：不再使用基于内容的回退逻辑来推断卡片类型
+            // 如果 cardType 字段缺失，默认为 'item'
             if (cardType === 'topic-only') {
-                cards = cards.filter(c => c.cardType === 'topic' || (!c.cardType && c.content.indexOf('::') === -1 && c.content.indexOf('?') === -1));
+                cards = cards.filter(c => c.cardType === 'topic');
             } else if (cardType === 'item-only') {
-                cards = cards.filter(c => c.cardType === 'item' || (!c.cardType && (c.content.indexOf('::') !== -1 || c.content.indexOf('?') !== -1)));
+                cards = cards.filter(c => c.cardType === 'item' || !c.cardType);  // 缺失时默认为 item
             }
 
             // Step 3: 应用查询文本筛选
@@ -748,16 +753,37 @@ export interface DocTreeNode {
 export async function getDocTree(rootIds: string[]): Promise<DocTreeNode[]> {
     const ids = Array.from(new Set((rootIds || []).filter(Boolean)));
     if (ids.length === 0) return [];
+    
+    console.log('[getDocTree] 🔍 Input rootIds:', rootIds);
+    console.log('[getDocTree] 🔍 Unique IDs:', ids);
+    
     try {
-        const rows = await sql(`
+        const sqlQuery = `
       SELECT id, content, hpath
       FROM blocks
       WHERE id IN (${ids.map(id => `'${escapeSQL(id)}'`).join(',')})
-    `);
-        return (rows || []).map((r: any) => {
+    `;
+        console.log('[getDocTree] 🔍 SQL query:', sqlQuery);
+        
+        const rows = await sql(sqlQuery);
+        console.log('[getDocTree] 🔍 SQL result:', rows);
+        
+        const foundIds = new Set((rows || []).map((r: any) => r.id));
+        const result = (rows || []).map((r: any) => {
             const title = (r.content || '').trim() || String(r.hpath || '').split('/').pop() || r.id;
             return { id: r.id, title };
         });
+        
+        // ✅ 对于未找到的文档，添加占位符（显示ID）
+        for (const id of ids) {
+            if (!foundIds.has(id)) {
+                console.warn('[getDocTree] ⚠️ Document not found in database:', id);
+                result.push({ id, title: `📄 ${id} (已删除)` });
+            }
+        }
+        
+        console.log('[getDocTree] ✅ Final result:', result);
+        return result;
     } catch (err) {
         console.error('[CardBrowser] getDocTree error:', err);
         return ids.map((id) => ({ id, title: id }));

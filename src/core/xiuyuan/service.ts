@@ -375,9 +375,9 @@ export class XiuyuanService {
       
       this.storageManager.setCard(fsrsCard);
 
-      // 6. 标记块属性
+      // 6. 标记块属性（设置为 item 类型）
       try {
-        await markBlockAsCard(mainBlockID, mainBlockID, fsrsCard.priority);
+        await markBlockAsCard(mainBlockID, mainBlockID, fsrsCard.priority, 'item');
       } catch (err) {
         console.warn('[Xiuyuan] markBlockAsCard failed:', err);
       }
