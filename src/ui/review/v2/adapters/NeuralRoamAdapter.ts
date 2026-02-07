@@ -45,11 +45,7 @@ export class NeuralRoamAdapter implements IAdapter<QueueItem> {
 
     const menu = Array.isArray((uiConfig as any)?.menuCommands) ? (uiConfig as any).menuCommands : [];
     const customButtons = Array.isArray((uiConfig as any)?.customButtons) ? (uiConfig as any).customButtons : [];
-    const toolbar = customButtons.map((b: any) => ({
-      icon: b?.icon,
-      label: String(b?.label || ''),
-      command: String(b?.actionId || ''),
-    })).filter((b: any) => b.label && b.command);
+    // customButtons 用于自定义按钮，暂时未使用
 
     const grades = uiConfig.showRatingButtons ? [
       { label: t(this.i18n, 'cardRatingAgain', '重来'), value: 1, color: 'var(--b3-theme-error)', kb: '1', emoji: '🙈', nextDue: (item as any)?.nextDues?.[1] || '' },
@@ -104,7 +100,6 @@ export class NeuralRoamAdapter implements IAdapter<QueueItem> {
           showAnswer: false,
           grades: [],
           menu,
-          toolbar,
         },
         meta: {
           transition: 'none',
@@ -145,7 +140,6 @@ export class NeuralRoamAdapter implements IAdapter<QueueItem> {
         showAnswer: uiConfig.showRatingButtons ? !context.showAnswer : false,
         grades: uiConfig.showRatingButtons ? (context.showAnswer ? grades : []) : [],
         menu,
-        toolbar,
         cardMeta: {
           lapses: item?.lapses,
           reps: item?.reps,

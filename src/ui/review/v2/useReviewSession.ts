@@ -20,6 +20,8 @@ export function useReviewSession<TItem>(
         ...aux.header,
         stats: { ...base.header.stats, ...(aux.header as any).stats },
         breadcrumbs: (aux.header as any).breadcrumbs ?? base.header.breadcrumbs,
+        // 🔧 修复：只有当 aux.header.toolbar 存在且是数组时才覆盖，否则保留 base 的 toolbar
+        toolbar: Array.isArray((aux.header as any).toolbar) ? (aux.header as any).toolbar : base.header.toolbar,
       };
     }
     if (aux.content) {
@@ -31,7 +33,6 @@ export function useReviewSession<TItem>(
         ...aux.actions,
         grades: (aux.actions as any).grades ?? base.actions.grades,
         menu: (aux.actions as any).menu ?? base.actions.menu,
-        toolbar: (aux.actions as any).toolbar ?? base.actions.toolbar,
       };
     }
     if (aux.meta) {
@@ -44,6 +45,12 @@ export function useReviewSession<TItem>(
   const updateState = async (): Promise<void> => {
     const seq = ++updateSeq;
     const mainState = await adapter.toUIState(queue as any, currentItem.value, context.value);
+    console.log('[useReviewSession] updateState - mainState.header.toolbar:', {
+      hasHeader: !!mainState.header,
+      hasToolbar: !!mainState.header?.toolbar,
+      toolbarLength: mainState.header?.toolbar?.length,
+      toolbar: mainState.header?.toolbar,
+    });
     if (seq !== updateSeq) return;
     state.value = mainState;
 
@@ -51,6 +58,11 @@ export function useReviewSession<TItem>(
       adapter.fetchAuxiliaryData(currentItem.value)
         .then((aux) => {
           if (seq !== updateSeq) return;
+          console.log('[useReviewSession] merging aux data:', {
+            hasAuxHeader: !!aux.header,
+            hasAuxToolbar: !!(aux.header as any)?.toolbar,
+            auxToolbar: (aux.header as any)?.toolbar,
+          });
           state.value = mergeAux(state.value, aux);
         })
         .catch(() => {});

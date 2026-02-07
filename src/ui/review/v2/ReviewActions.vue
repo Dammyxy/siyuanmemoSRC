@@ -79,8 +79,8 @@
   
   <!-- 插入位置对话框 -->
   <teleport to="body">
-    <div v-if="showInsertDialog" class="b3-dialog b3-dialog--open" @click.self="closeInsertDialog">
-      <div class="b3-dialog__scrim"></div>
+    <div v-if="showInsertDialog" class="b3-dialog b3-dialog--open" @mousedown.self="handleDialogMouseDown">
+      <div class="b3-dialog__scrim" @click="closeInsertDialog"></div>
       <div class="b3-dialog__container" style="max-width: 400px;">
         <InsertPositionDialog
           :queue-size="remainingSize"
@@ -94,8 +94,8 @@
   
   <!-- 安排日期对话框 -->
   <teleport to="body">
-    <div v-if="showScheduleDialog" class="b3-dialog b3-dialog--open" @click.self="closeScheduleDialog">
-      <div class="b3-dialog__scrim"></div>
+    <div v-if="showScheduleDialog" class="b3-dialog b3-dialog--open" @mousedown.self="handleDialogMouseDown">
+      <div class="b3-dialog__scrim" @click="closeScheduleDialog"></div>
       <div class="b3-dialog__container" style="max-width: 450px;">
         <ScheduleDateDialog
           :card-type="cardType"
@@ -157,6 +157,12 @@ const remainingSize = computed(() => {
 // 对话框状态
 const showInsertDialog = ref(false);
 const showScheduleDialog = ref(false);
+
+// 防止鼠标拖动关闭对话框
+function handleDialogMouseDown(ev: MouseEvent) {
+  // 只在点击遮罩层时关闭，拖动不关闭
+  ev.stopPropagation();
+}
 
 // 调试：监控 grades 变化
 watch(() => props.actions.grades, (grades) => {

@@ -83,7 +83,7 @@ function toggleMenu(ev: MouseEvent) {
   const buttonGroup = (ev.currentTarget as HTMLElement).parentElement;
   if (buttonGroup) {
     const rect = buttonGroup.getBoundingClientRect();
-    // 菜单在按钮组正上方弹出
+    // 菜单在按钮组正上方弹出（y 使用 top，菜单会自动向上展开）
     console.log('[SkipMenuButton] Opening menu above button group at:', { x: rect.left, y: rect.top });
     menu.open({ x: rect.left, y: rect.top });
   } else {

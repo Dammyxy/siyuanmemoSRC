@@ -88,8 +88,11 @@ function handleCancel() {
 
 <style scoped>
 .insert-position-dialog {
+  background-color: var(--b3-theme-background);
+  border-radius: var(--b3-border-radius);
   padding: 16px;
   min-width: 360px;
+  box-shadow: var(--b3-dialog-shadow);
 }
 
 .insert-position-dialog__header {
@@ -97,44 +100,71 @@ function handleCancel() {
   align-items: center;
   gap: 8px;
   font-weight: 600;
+  font-size: 16px;
   margin-bottom: 16px;
+  color: var(--b3-theme-on-background);
 }
 
 .insert-position-dialog__header svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
+  color: var(--b3-theme-primary);
 }
 
 .insert-position-dialog__content {
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
 .insert-position-dialog__hint {
   color: var(--b3-theme-on-surface);
-  font-size: 14px;
-  margin-bottom: 12px;
+  font-size: 13px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background-color: var(--b3-theme-surface);
+  border-radius: var(--b3-border-radius-b);
+  border-left: 3px solid var(--b3-theme-primary);
 }
 
 .insert-position-dialog__field label {
   display: block;
-  margin-bottom: 4px;
-  font-size: 12px;
-  color: var(--b3-theme-on-surface);
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--b3-theme-on-background);
 }
 
 .insert-position-dialog__field input {
   width: 100%;
+  padding: 8px 12px;
+  font-size: 14px;
+  border-radius: var(--b3-border-radius);
+  transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.insert-position-dialog__field input:focus {
+  outline: none;
+  border-color: var(--b3-theme-primary);
+  box-shadow: 0 0 0 2px var(--b3-theme-primary-lightest);
 }
 
 .insert-position-dialog__error {
   color: var(--b3-theme-error);
   font-size: 12px;
-  margin-top: 4px;
+  margin-top: 6px;
+  padding: 4px 8px;
+  background-color: var(--b3-theme-error-lighter);
+  border-radius: var(--b3-border-radius-b);
 }
 
 .insert-position-dialog__actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--b3-theme-surface);
+}
+
+.insert-position-dialog__actions .b3-button {
+  min-width: 80px;
 }
 </style>

@@ -166,8 +166,11 @@ function handleCancel() {
 
 <style scoped>
 .schedule-date-dialog {
+  background-color: var(--b3-theme-background);
+  border-radius: var(--b3-border-radius);
   padding: 16px;
-  min-width: 400px;
+  min-width: 420px;
+  box-shadow: var(--b3-dialog-shadow);
 }
 
 .schedule-date-dialog__header {
@@ -175,20 +178,26 @@ function handleCancel() {
   align-items: center;
   gap: 8px;
   font-weight: 600;
+  font-size: 16px;
   margin-bottom: 16px;
+  color: var(--b3-theme-on-background);
 }
 
 .schedule-date-dialog__header svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
+  color: var(--b3-theme-primary);
 }
 
 .schedule-date-dialog__content {
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
 .schedule-date-dialog__section {
-  margin-bottom: 16px;
+  margin-bottom: 20px;
+  padding: 12px;
+  background-color: var(--b3-theme-surface);
+  border-radius: var(--b3-border-radius);
 }
 
 .schedule-date-dialog__section:last-child {
@@ -196,7 +205,7 @@ function handleCancel() {
 }
 
 .schedule-date-dialog__field {
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .schedule-date-dialog__field:last-child {
@@ -205,45 +214,78 @@ function handleCancel() {
 
 .schedule-date-dialog__field label {
   display: block;
-  margin-bottom: 4px;
-  font-size: 12px;
-  color: var(--b3-theme-on-surface);
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--b3-theme-on-background);
 }
 
 .schedule-date-dialog__field input,
 .schedule-date-dialog__field select {
   width: 100%;
+  padding: 8px 12px;
+  font-size: 14px;
+  border-radius: var(--b3-border-radius);
+  transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.schedule-date-dialog__field input:focus,
+.schedule-date-dialog__field select:focus {
+  outline: none;
+  border-color: var(--b3-theme-primary);
+  box-shadow: 0 0 0 2px var(--b3-theme-primary-lightest);
 }
 
 .schedule-date-dialog__ratings {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  padding: 8px;
 }
 
 .schedule-date-dialog__rating {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  padding: 8px 12px;
   cursor: pointer;
+  border-radius: var(--b3-border-radius);
+  transition: background-color 0.15s ease-in-out;
+}
+
+.schedule-date-dialog__rating:hover {
+  background-color: var(--b3-list-hover);
 }
 
 .schedule-date-dialog__rating input[type="radio"] {
   width: auto;
   cursor: pointer;
+  margin: 0;
+}
+
+.schedule-date-dialog__rating span {
+  font-size: 14px;
+  color: var(--b3-theme-on-background);
 }
 
 .schedule-date-dialog__hint {
   color: var(--b3-theme-on-surface);
   font-size: 12px;
-  padding: 8px;
-  background-color: var(--b3-theme-surface);
-  border-radius: 4px;
+  padding: 10px 12px;
+  background-color: var(--b3-theme-primary-lightest);
+  border-radius: var(--b3-border-radius-b);
+  border-left: 3px solid var(--b3-theme-primary);
 }
 
 .schedule-date-dialog__actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--b3-theme-surface);
+}
+
+.schedule-date-dialog__actions .b3-button {
+  min-width: 80px;
 }
 </style>

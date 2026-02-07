@@ -94,7 +94,6 @@ export class LeechAdapter implements IAdapter<QueueItem> {
           showAnswer: false,
           grades: [],
           menu,
-          toolbar: [],
         },
         meta: {
           transition: 'none',
@@ -134,7 +133,6 @@ export class LeechAdapter implements IAdapter<QueueItem> {
         showAnswer: uiConfig.showRatingButtons ? !context.showAnswer : false,
         grades: context.showAnswer ? grades : [],
         menu,
-        toolbar: [],
         cardMeta: {
           lapses: item?.lapses,
           reps: item?.reps,

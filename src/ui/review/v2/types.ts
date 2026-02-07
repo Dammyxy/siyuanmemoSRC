@@ -21,7 +21,7 @@ export interface ReviewUIState {
     }>;
     toolbar?: Array<{
       icon: string;
-      type: 'filter' | 'fullscreen' | 'more' | 'sticktab';
+      type: string; // 按钮类型（fullscreen, edit-srs, sticktab, filter, more 等）
       ariaLabel?: string;
       disabled?: boolean;
     }>;
@@ -54,11 +54,6 @@ export interface ReviewUIState {
       nextDue?: string;
     }>;
     menu: IQueueCommand<unknown>[];
-    toolbar: Array<{
-      icon: string;
-      label: string;
-      command: string;
-    }>;
     cardMeta?: {
       lapses?: number;
       reps?: number;
@@ -118,6 +113,7 @@ export function createEmptyReviewUIState(): ReviewUIState {
         queueName: '',
       },
       breadcrumbs: [],
+      toolbar: [], // ✅ toolbar 在 header 中
     },
     content: {
       type: 'empty',
@@ -128,7 +124,6 @@ export function createEmptyReviewUIState(): ReviewUIState {
       showAnswer: true,
       grades: [],
       menu: [],
-      toolbar: [],
     },
     meta: {
       transition: 'none',

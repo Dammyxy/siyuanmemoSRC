@@ -384,10 +384,28 @@ const filteredCards = computed(() => {
 });
 
 // 加载数据 - 强制使用统一数据源架构
+let loadDataAbortController: AbortController | null = null;
+
 async function loadData(forceRefresh = false) {
+  // 取消之前的加载请求
+  if (loadDataAbortController) {
+    loadDataAbortController.abort();
+    console.log('[SRSBrowser] Previous loadData() aborted');
+  }
+  
+  // 创建新的 AbortController
+  loadDataAbortController = new AbortController();
+  const currentController = loadDataAbortController;
+  
   loading.value = true;
   hasRandomSort.value = false;  // ✅ 重新加载数据时清除随机排序标志
   try {
+    // 检查是否已被取消
+    if (currentController.signal.aborted) {
+      console.log('[SRSBrowser] loadData() aborted before execution');
+      return;
+    }
+    
     selectedRows.value = [];
     previewCard.value = null;
 
@@ -424,10 +442,22 @@ async function loadData(forceRefresh = false) {
       // 执行数据加载
       await executeFetchRows(forceRefresh);
       
+      // 检查是否已被取消
+      if (currentController.signal.aborted) {
+        console.log('[SRSBrowser] loadData() aborted after executeFetchRows (queue mode)');
+        return;
+      }
+      
       // 更新全量统计数据
       allRows.value = await PerformanceMonitor.measure('loadAllCards', () => 
         loadCards('all', undefined, '', forceRefresh, 'all', props.plugin)
       );
+      
+      // 检查是否已被取消
+      if (currentController.signal.aborted) {
+        console.log('[SRSBrowser] loadData() aborted after loadAllCards (queue mode)');
+        return;
+      }
       
       await refreshQueueCounts();
       return;
@@ -465,12 +495,26 @@ async function loadData(forceRefresh = false) {
     // 执行数据加载
     await executeFetchRows(forceRefresh);
 
+    // 检查是否已被取消
+    if (currentController.signal.aborted) {
+      console.log('[SRSBrowser] loadData() aborted after executeFetchRows (non-queue mode)');
+      return;
+    }
+
     await refreshQueueCounts();
   } catch (err) {
     console.error('[CardBrowser] Load data error:', err);
     rows.value = [];
   } finally {
-    loading.value = false;
+    // 只有当前 controller 没有被取消时才设置 loading = false
+    if (!currentController.signal.aborted) {
+      loading.value = false;
+    }
+    
+    // 清理 controller
+    if (loadDataAbortController === currentController) {
+      loadDataAbortController = null;
+    }
   }
 }
 
@@ -549,6 +593,11 @@ function handleSearchInput() {
     }
   }, 150);
 }
+
+// 监听 searchQuery 变化
+watch(searchQuery, () => {
+  handleSearchInput();
+});
 
 // 监听 preset 和 cardType 变化
 watch(currentPreset, () => {
@@ -1366,6 +1415,7 @@ function openPracticeMenu(ev: MouseEvent) {
 
   const menu = new Menu('fsrs-browser-practice-menu');
 
+  // 1. 提取练习
   menu.addItem({
     icon: 'iconRiffCard',
     label: t('practiceExtract', '提取练习'),
@@ -1374,6 +1424,16 @@ function openPracticeMenu(ev: MouseEvent) {
     },
   });
 
+  // 2. 渐进学习
+  menu.addItem({
+    icon: 'iconBook',
+    label: t('incrementalLearning', '渐进学习'),
+    click: () => {
+      void plugin.openIncrementalLearningDialog?.();
+    },
+  });
+
+  // 3. 刻意练习
   menu.addItem({
     icon: 'iconFlag',
     label: t('practiceDeliberate', '刻意练习'),
@@ -1382,14 +1442,7 @@ function openPracticeMenu(ev: MouseEvent) {
     },
   });
 
-  menu.addItem({
-    icon: 'iconList',
-    label: t('practiceFilterGroup', '筛选复习'),
-    click: () => {
-      void plugin.openFilterGroupPracticeDialog?.();
-    },
-  });
-
+  // 4. 神经漫游
   menu.addItem({
     icon: 'iconRefresh',
     label: t('practiceNeural', '神经漫游'),
@@ -1398,6 +1451,16 @@ function openPracticeMenu(ev: MouseEvent) {
     },
   });
 
+  // 5. 筛选复习
+  menu.addItem({
+    icon: 'iconList',
+    label: t('practiceFilterGroup', '筛选复习'),
+    click: () => {
+      void plugin.openFilterGroupPracticeDialog?.();
+    },
+  });
+
+  // 6. 难点攻坚
   menu.addItem({
     icon: 'iconBug',
     label: t('practiceLeech', '难点攻坚'),
