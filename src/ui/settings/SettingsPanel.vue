@@ -81,6 +81,57 @@
           <p class="form-hint">{{ t('enableDebugLogsHint', '在浏览器控制台显示详细的调试信息（开发用，关闭可提升性能）') }}</p>
         </div>
 
+        <!-- 🆕 每日刷新时间 -->
+        <div class="form-item">
+          <label>{{ t('dayStartHour', '每日刷新时间') }}</label>
+          <div class="form-control">
+            <input 
+              type="number" 
+              min="0" 
+              max="23" 
+              step="1" 
+              v-model.number="settings.dayStartHour"
+              @change="handleDayStartHourChange"
+            >
+            <span class="form-unit">{{ t('hourUnit', '点') }}</span>
+          </div>
+          <p class="form-hint">
+            {{ t('dayStartHourHint', '定义"新的一天"的开始时间（0-23点）。例如设置为4，则凌晨4点之前的时间仍属于"昨天"。') }}
+          </p>
+          
+          <!-- 当前"今天"范围示例 -->
+          <div class="form-example">
+            <span class="example-label">{{ t('todayRangeExample', '当前"今天"范围：') }}</span>
+            <code class="example-value">{{ todayRangeText }}</code>
+          </div>
+          
+          <!-- 快速设置按钮 -->
+          <div class="form-quick-actions">
+            <span class="quick-label">{{ t('commonSettings', '常见设置：') }}</span>
+            <button 
+              class="btn-small" 
+              @click="setDayStartHour(0)"
+              :class="{ 'btn-active': settings.dayStartHour === 0 }"
+            >
+              {{ t('midnight', '午夜 (0点)') }}
+            </button>
+            <button 
+              class="btn-small" 
+              @click="setDayStartHour(4)"
+              :class="{ 'btn-active': settings.dayStartHour === 4 }"
+            >
+              {{ t('dawn', '凌晨 (4点)') }}
+            </button>
+            <button 
+              class="btn-small" 
+              @click="setDayStartHour(6)"
+              :class="{ 'btn-active': settings.dayStartHour === 6 }"
+            >
+              {{ t('morning', '早晨 (6点)') }}
+            </button>
+          </div>
+        </div>
+
         <!-- 当前参数展示 -->
         <div class="form-item">
           <label>{{ t('modelParams', '模型参数 (19)') }}</label>
@@ -376,6 +427,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import type { FilterGroupDefinition, FSRSParameters, QueueSettings, SchedulerConfig } from '../../types';
+import { getTodayRange, formatTodayRange } from '../../utils/dateUtils';  // 🆕 导入日期工具
 
 // FSRS-5 默认权重参数
 const DEFAULT_PARAMS = [
@@ -452,6 +504,7 @@ interface Settings {
   enableShortTerm: boolean;
   params: number[];
   autoCardEnabled: boolean;
+  dayStartHour: number;  // 🆕 每日刷新时间
 }
 
 const settings = ref<Settings>({
@@ -460,6 +513,7 @@ const settings = ref<Settings>({
   enableShortTerm: true,
   params: [...DEFAULT_PARAMS],
   autoCardEnabled: false,
+  dayStartHour: 4,  // 🆕 默认值：凌晨4点
 });
 
 // 🆕 UI 设置
@@ -518,6 +572,12 @@ const paramsPreview = computed(() => {
   return settings.value.params.map(p => p.toFixed(4)).join(', ');
 });
 
+// 🆕 计算"今天"范围的显示文本
+const todayRangeText = computed(() => {
+  const range = getTodayRange(settings.value.dayStartHour);
+  return formatTodayRange(range);
+});
+
 // 加载设置
 function loadSettings() {
   if (props.fsrsSettings) {
@@ -527,6 +587,7 @@ function loadSettings() {
       enableShortTerm: props.fsrsSettings.enableShortTerm,
       params: [...props.fsrsSettings.weights],
       autoCardEnabled: props.incrementalSettings?.autoCardEnabled ?? false,
+      dayStartHour: props.fsrsSettings.dayStartHour ?? 4,  // 🆕 加载 dayStartHour 配置
     };
   }
   
@@ -664,6 +725,8 @@ function resetSettings() {
     maximumInterval: 365,
     enableShortTerm: true,
     params: [...DEFAULT_PARAMS],
+    autoCardEnabled: false,
+    dayStartHour: 4,  // 🆕 重置为默认值4
   };
 }
 
@@ -694,6 +757,24 @@ function handleDebugLogsChange() {
       // 可以在这里添加 toast 提示
     }
   }
+}
+
+// 🆕 dayStartHour 变更处理
+function handleDayStartHourChange() {
+  // 验证范围
+  if (settings.value.dayStartHour < 0) {
+    settings.value.dayStartHour = 0;
+  } else if (settings.value.dayStartHour > 23) {
+    settings.value.dayStartHour = 23;
+  }
+  
+  console.log('[Settings] dayStartHour changed:', settings.value.dayStartHour);
+}
+
+// 🆕 快速设置 dayStartHour
+function setDayStartHour(hour: number) {
+  settings.value.dayStartHour = hour;
+  handleDayStartHourChange();
 }
 
 
@@ -1057,5 +1138,62 @@ async function handleQueueClear() {
   margin-left: 24px;
   padding-left: 16px;
   border-left: 2px solid var(--b3-border-color);
+}
+
+/* 🆕 每日刷新时间样式 */
+.form-example {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background-color: var(--b3-theme-surface);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.example-label {
+  color: var(--b3-theme-on-surface-light);
+  margin-right: 8px;
+}
+
+.example-value {
+  color: var(--b3-theme-primary);
+  font-family: monospace;
+}
+
+.form-quick-actions {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quick-label {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.btn-small {
+  padding: 4px 12px;
+  font-size: 12px;
+  border: 1px solid var(--b3-theme-surface-lighter);
+  border-radius: 4px;
+  background-color: var(--b3-theme-surface);
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-small:hover {
+  background-color: var(--b3-theme-surface-light);
+}
+
+.btn-small.btn-active {
+  background-color: var(--b3-theme-primary);
+  color: var(--b3-theme-on-primary);
+  border-color: var(--b3-theme-primary);
+}
+
+.form-unit {
+  margin-left: 8px;
+  color: var(--b3-theme-on-surface-light);
 }
 </style>

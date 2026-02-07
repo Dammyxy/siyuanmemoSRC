@@ -174,6 +174,19 @@ export class HybridSyncService {
                 const localCard = this.storage.getCard(riffCard.id);
                 
                 if (!localCard) {
+                    // 🔧 修复：检查是否有相同 blockId 的卡片（防止重复）
+                    // 当用户"重置闪卡"时，会创建新 ID 的卡片，但 Riff 中还保留着旧 ID
+                    // 我们应该跳过 Riff 中的旧卡片，保留本地的新卡片
+                    const existingCardWithSameBlock = this.storage.getAllCards()
+                        .find(c => c.blockId === riffCard.id);
+                    
+                    if (existingCardWithSameBlock) {
+                        // 本地已有相同块的卡片，跳过（保留本地数据）
+                        console.log(`[HybridSync] Skipping ${riffCard.id}: block already has card ${existingCardWithSameBlock.id}`);
+                        skippedCount++;
+                        continue;
+                    }
+                    
                     // 本地没有，添加新卡片
                     const fsrsCard = this.convertRiffCardToFSRSCard(riffCard);
                     this.storage.setCard(fsrsCard);
@@ -438,14 +451,31 @@ export class HybridSyncService {
     
     /**
      * 转换 RiffBlock 为 FSRSCard
+     * 
+     * 从 Riff 数据和块属性中提取卡片信息。
+     * 卡片类型（topic/item）从块属性 `custom-fsrs-card-type` 中读取。
      */
     private convertRiffCardToFSRSCard(riffBlock: RiffBlock): FSRSCard {
         const riffCard = riffBlock.riffCard;
+        const now = Date.now();
+        
+        // 从块属性中读取卡片类型
+        const cardTypeAttr = riffBlock.ial?.['custom-fsrs-card-type'];
+        const cardType = (cardTypeAttr === 'topic' || cardTypeAttr === 'item') 
+            ? cardTypeAttr 
+            : 'item'; // 默认为 item
+        
+        // 🔍 调试：记录卡片类型
+        if (cardTypeAttr) {
+            console.log(`[HybridSync] Block ${riffBlock.id.substring(0, 8)}: cardType=${cardType} (from attr: ${cardTypeAttr})`);
+        } else {
+            console.log(`[HybridSync] Block ${riffBlock.id.substring(0, 8)}: cardType=${cardType} (default, no attr found)`);
+        }
         
         return {
             id: riffBlock.id,
             blockId: riffBlock.id,
-            due: riffCard?.due ? new Date(riffCard.due).getTime() : Date.now(),
+            due: riffCard?.due ? new Date(riffCard.due).getTime() : now,
             stability: riffCard?.stability || 0,
             difficulty: riffCard?.difficulty || 0,
             elapsedDays: riffCard?.elapsedDays || 0,
@@ -455,8 +485,24 @@ export class HybridSyncService {
             state: riffCard?.state || 0,
             lastReview: riffCard?.lastReview 
                 ? new Date(riffCard.lastReview).getTime()
+                : 0,
+            
+            // 🔧 修复：从块属性读取卡片类型
+            priority: riffCard?.priority || 50,
+            type: cardType as any,
+            tags: [],
+            leechCount: 0,
+            isLeech: false,
+            skipped: false,
+            createdAt: now,
+            updatedAt: now,
+            
+            // Topic 卡片的 A-Factor
+            aFactor: cardType === 'topic' 
+                ? (riffBlock.ial?.['custom-fsrs-a-factor'] 
+                    ? parseFloat(riffBlock.ial['custom-fsrs-a-factor']) 
+                    : undefined)
                 : undefined,
-            deckID: riffCard?.deckID || this.config.deckId
         };
     }
 }

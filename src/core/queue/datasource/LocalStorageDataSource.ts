@@ -58,12 +58,14 @@ import { ok, type Result } from '@/types/result';
  * @property filter - Optional: Filter function to select specific cards
  * @property sort - Optional: Sort function to order cards
  * @property schedulerRouter - Optional: Scheduler for predicting next review times
+ * @property plugin - Optional: Plugin instance for accessing configuration (e.g., dayStartHour)
  */
 export interface LocalStorageDataSourceOptions {
   storage: StorageManager;
   filter?: (card: FSRSCard) => boolean;
   sort?: (a: FSRSCard, b: FSRSCard) => number;
   schedulerRouter?: SchedulerRouter;
+  plugin?: any;  // Plugin instance for configuration access
 }
 
 /**
@@ -97,6 +99,7 @@ export class LocalStorageDataSource extends ObservableDataSource<QueueItem> {
   private readonly filterFn?: (card: FSRSCard) => boolean;
   private readonly sortFn?: (a: FSRSCard, b: FSRSCard) => number;
   private readonly schedulerRouter?: SchedulerRouter;
+  private readonly plugin?: any;  // Plugin instance for configuration access
 
   /**
    * Creates a new LocalStorageDataSource instance
@@ -132,6 +135,7 @@ export class LocalStorageDataSource extends ObservableDataSource<QueueItem> {
     this.filterFn = options.filter;
     this.sortFn = options.sort;
     this.schedulerRouter = options.schedulerRouter;
+    this.plugin = options.plugin;  // Store plugin instance
   }
 
   /**
@@ -144,9 +148,10 @@ export class LocalStorageDataSource extends ObservableDataSource<QueueItem> {
    * 1. **Read from storage**: Get all cards from StorageManager
    * 2. **Apply filter**: Remove cards that don't match criteria
    * 2.5. **Apply cardType filter**: Filter by card type (item-only, topic-only, all)
-   * 3. **Apply sort**: Order cards by specified criteria
-   * 4. **Convert to QueueItem**: Transform FSRSCard to QueueItem format
-   * 5. **Extract nextDues**: Predict next review times for all ratings
+   * 3. **Apply dueOnly filter**: Filter by due time (if enabled)
+   * 4. **Apply sort**: Order cards by specified criteria
+   * 5. **Convert to QueueItem**: Transform FSRSCard to QueueItem format
+   * 6. **Extract nextDues**: Predict next review times for all ratings
    *
    * ## Performance
    * - Typical execution time: < 1ms for 100 cards, < 10ms for 1000 cards
@@ -159,6 +164,7 @@ export class LocalStorageDataSource extends ObservableDataSource<QueueItem> {
    *
    * @param options - Optional filtering options
    * @param options.cardType - Filter by card type: 'item-only' | 'topic-only' | 'all'
+   * @param options.dueOnly - If true, only return cards with due <= current day end
    * @returns Array of queue items ready for review
    *
    * @example
@@ -171,14 +177,21 @@ export class LocalStorageDataSource extends ObservableDataSource<QueueItem> {
    * // Get only Item cards (for Retrieval Practice Queue)
    * const itemCards = await dataSource.getAll({ cardType: 'item-only' });
    *
-   * // Get only Topic cards
-   * const topicCards = await dataSource.getAll({ cardType: 'topic-only' });
+   * // Get only due cards (for Review Queue)
+   * const dueCards = await dataSource.getAll({ dueOnly: true });
+   *
+   * // Get only due Item cards
+   * const dueItemCards = await dataSource.getAll({ 
+   *   cardType: 'item-only', 
+   *   dueOnly: true 
+   * });
    * ```
    *
    * @public
    */
   async getAll(options?: {
     cardType?: 'item-only' | 'topic-only' | 'all';
+    dueOnly?: boolean;
   }): Promise<QueueItem[]> {
     try {
       // 1. Read all cards from storage
@@ -203,6 +216,52 @@ export class LocalStorageDataSource extends ObservableDataSource<QueueItem> {
         // 'all' - no filtering needed
       }
 
+      // 🆕 2.6. Apply dueOnly filter
+      if (options?.dueOnly) {
+        try {
+          // Import getDayStartHour and getCurrentDayEnd
+          const { getDayStartHour } = await import('@/utils/configUtils');
+          const { getCurrentDayEnd } = await import('@/utils/dateUtils');
+          
+          const dayStartHour = this.plugin ? getDayStartHour(this.plugin) : 4;
+          const dayEnd = getCurrentDayEnd(dayStartHour);
+          
+          const beforeFilter = cards.length;
+          cards = cards.filter(card => {
+            // Validate due field
+            if (card.due == null) {
+              console.warn('[LocalStorageDataSource] Card has null/undefined due:', card.id);
+              return false;
+            }
+
+            // Convert to timestamp
+            const dueTime = typeof card.due === 'number' 
+              ? card.due 
+              : new Date(card.due).getTime();
+
+            // Check validity
+            if (isNaN(dueTime)) {
+              console.warn('[LocalStorageDataSource] Card has invalid due:', card.id, card.due);
+              return false;
+            }
+
+            // Due check: due <= dayEnd
+            return dueTime <= dayEnd;
+          });
+          
+          console.log('[LocalStorageDataSource] Due filter applied:', {
+            before: beforeFilter,
+            after: cards.length,
+            filtered: beforeFilter - cards.length,
+            dayStartHour,
+            dayEnd: new Date(dayEnd).toISOString(),
+          });
+        } catch (filterError) {
+          console.error('[LocalStorageDataSource] Due filter failed:', filterError);
+          // Fallback: Don't apply dueOnly filter, return all cards
+        }
+      }
+
       // 3. Apply sort
       if (this.sortFn) {
         cards.sort(this.sortFn);
@@ -214,7 +273,8 @@ export class LocalStorageDataSource extends ObservableDataSource<QueueItem> {
       console.log('[LocalStorageDataSource] Loaded cards:', {
         total: this.storage.getAllCards().length,
         filtered: items.length,
-        cardType: options?.cardType || 'all',  // 🆕 添加 cardType 日志
+        cardType: options?.cardType || 'all',
+        dueOnly: options?.dueOnly || false,  // 🆕 添加 dueOnly 日志
       });
 
       return items;

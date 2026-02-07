@@ -194,12 +194,14 @@ export default class FSRSPlugin extends Plugin {
       // 🆕 初始化 UnifiedDataSourceManager（必须在队列初始化之前）
       this.unifiedDataSourceManager = UnifiedDataSourceManager.getInstance();
       const simpleRouter = new SimpleDataRouter();
-      const advancedRouter = new AdvancedDataRouter(this.storage);
+      const advancedRouter = new AdvancedDataRouter(this.storage, this);  // 🆕 传递 plugin 实例
       
       this.unifiedDataSourceManager.initializeRouters(simpleRouter, advancedRouter);
       console.log('[FSRS] ✅ UnifiedDataSourceManager initialized');
 
-      // 🆕 根据用户设置切换到正确的模式
+      // 🔧 临时注释：强制使用高级模式，暂时禁用模式切换
+      // TODO: 简单模式（Riff）和高级模式的切换需要重构
+      /*
       const riffModeConfig = settings.riffIntegration || { mode: 'advanced' };
       const targetMode = riffModeConfig.mode === 'advanced' ? OperationMode.Advanced : OperationMode.Simple;
       
@@ -212,6 +214,8 @@ export default class FSRSPlugin extends Plugin {
           // 继续使用默认模式（简单模式）
         }
       }
+      */
+      console.log('[FSRS] 🔧 Using Advanced mode (local data) - mode switching temporarily disabled');
 
       // ✅ 使用新架构队列（通过 UnifiedDataSourceManager）
       this.retrievalQueue = this.unifiedDataSourceManager.getQueue(QueueType.RetrievalPractice) as any;

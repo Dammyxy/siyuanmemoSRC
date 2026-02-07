@@ -9,6 +9,9 @@
 
 import { riff } from '@/core/siyuan';
 import { PerformanceMonitor } from '@/utils/performance';
+import { getCurrentDayEnd } from '@/utils/dateUtils';
+import { getDayStartHour } from '@/utils/configUtils';
+import type { Plugin } from 'siyuan';
 
 const { BUILTIN_DECK_ID } = riff;
 import { sql, setBlockAttrs } from '@/core/siyuan/api';
@@ -638,11 +641,56 @@ async function loadAllCardsRaw(forceRefresh = false): Promise<BrowserCard[]> {
 
 /**
  * 快速筛选：在内存中应用 preset 筛选
- * 优化：使用 switch 和早期返回，避免不必要的遍历
+ * 
+ * 根据预设类型过滤卡片列表。支持多种预设类型，包括：
+ * - due: 到期卡片（使用自定义每日刷新时间）
+ * - overdue: 过期卡片
+ * - new: 新卡片
+ * - learning: 学习中的卡片
+ * - leech: 困难卡片（失败次数 >= 8）
+ * - suspended: 暂停的卡片
+ * - current-doc: 当前文档的卡片
+ * - topic-only: 仅主题卡片
+ * - item-only: 仅项目卡片
+ * 
+ * ## 自定义每日刷新时间
+ * 
+ * 对于 'due' 预设，使用用户配置的 dayStartHour 来计算"今天"的结束时间。
+ * 例如：如果 dayStartHour = 4，则"今天"的结束时间是明天凌晨 4:00，
+ * 而不是今天的 23:59:59。
+ * 
+ * 如果无法获取 plugin 实例或配置，则降级使用传统的 23:59:59 作为结束时间。
+ * 
+ * @param cards - 待过滤的卡片列表
+ * @param preset - 预设类型
+ * @param currentDocId - 当前文档 ID（用于 current-doc 预设）
+ * @param plugin - 插件实例（用于获取 dayStartHour 配置）
+ * @returns 过滤后的卡片列表
+ * 
+ * @see .kiro/specs/advanced-mode-due-cards-fix-and-custom-day-start/requirements.md
+ * 
+ * @example
+ * ```typescript
+ * // 获取到期卡片（使用自定义每日刷新时间）
+ * const dueCards = applyPresetFilter(allCards, 'due', undefined, plugin);
+ * 
+ * // 获取当前文档的卡片
+ * const currentDocCards = applyPresetFilter(allCards, 'current-doc', docId, plugin);
+ * ```
  */
-function applyPresetFilter(cards: BrowserCard[], preset: string, currentDocId?: string): BrowserCard[] {
+function applyPresetFilter(cards: BrowserCard[], preset: string, currentDocId?: string, plugin?: Plugin): BrowserCard[] {
     const now = new Date();
-    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    
+    // 使用基于 dayStartHour 的 todayEnd 计算
+    let todayEnd: Date;
+    if (plugin) {
+        const dayStartHour = getDayStartHour(plugin);
+        const dayEndTimestamp = getCurrentDayEnd(dayStartHour);
+        todayEnd = new Date(dayEndTimestamp);
+    } else {
+        // 降级：使用传统的 23:59:59
+        todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    }
 
     switch (preset) {
         case 'due':
@@ -680,7 +728,8 @@ export async function loadCards(
     currentDocId?: string,
     queryText?: string,
     forceRefresh = false,
-    cardType: 'all' | 'topic-only' | 'item-only' = 'all'  // ✅ 新增卡片类型参数
+    cardType: 'all' | 'topic-only' | 'item-only' = 'all',  // ✅ 新增卡片类型参数
+    plugin?: Plugin  // 🆕 新增 plugin 参数
 ): Promise<BrowserCard[]> {
     return PerformanceMonitor.measure('loadCards', async () => {
         try {
@@ -691,7 +740,7 @@ export async function loadCards(
             }
 
             // Step 2: 应用 preset 筛选（内存中快速过滤）
-            let cards = applyPresetFilter(allCards, preset, currentDocId);
+            let cards = applyPresetFilter(allCards, preset, currentDocId, plugin);
 
             // Step 2.5: ✅ 应用 cardType 筛选
             // 注意：不再使用基于内容的回退逻辑来推断卡片类型

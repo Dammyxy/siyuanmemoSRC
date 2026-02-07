@@ -275,14 +275,22 @@ export class BlockMenuManager {
                         }
                         try {
                             // 获取块文本内容用于策略匹配
-                            // 简单的从 element.textContent 获取，或者使用更高级的 getBlockText
-                            // element 是 .protyle-wysiwyg__embed 或类似容器，
-                            // 我们需要获取其实际内容。
-                            // 但 element 本身就是块元素 (e.g. div[data-node-id])
                             const content = element.textContent || '';
 
+                            // 检测卡片类型
+                            const { detectCardType } = await import('@/core/card-builder/detectCardType');
+                            const cardType = await detectCardType(blockId);
+                            
+                            // 构建卡片
                             const card = await builder.build(blockId, content);
-                            await markBlockAsCard(blockId, card.id, card.priority, 'item');
+                            
+                            // 设置卡片类型
+                            card.type = cardType as any;
+                            
+                            // 标记块为闪卡
+                            await markBlockAsCard(blockId, card.id, card.priority, cardType);
+                            
+                            // 保存卡片
                             this.plugin.storage.setCard(card);
                             createdCount++;
                         } catch (err) {

@@ -135,8 +135,9 @@ export class UnifiedDataSourceManager {
      * @see 需求 1.4
      */
     private constructor() {
-        // 初始化当前模式为简单模式
-        this.currentMode = OperationMode.Simple;
+        // 🔧 临时修复：强制使用高级模式（本地数据）
+        // TODO: 简单模式（Riff）和高级模式的切换需要重构
+        this.currentMode = OperationMode.Advanced;
         
         // 初始化观察者集合
         this.observers = new Set<IDataSourceObserver>();
@@ -218,6 +219,30 @@ export class UnifiedDataSourceManager {
      * @see 需求 4.1, 4.2, 4.3
      */
     public async switchMode(newMode: OperationMode): Promise<void> {
+        console.warn('[UnifiedDataSourceManager] switchMode() is temporarily disabled - using Advanced mode only');
+        
+        // 🔧 临时修复：只允许切换到高级模式
+        if (newMode !== OperationMode.Advanced) {
+            throw new Error('Simple mode is temporarily disabled. Only Advanced mode is supported.');
+        }
+        
+        // 如果已经是高级模式，直接返回
+        if (this.currentMode === OperationMode.Advanced) {
+            return;
+        }
+        
+        // 更新到高级模式
+        this.currentMode = OperationMode.Advanced;
+        
+        // 通知观察者
+        this.notifyObservers({
+            type: 'mode-switched',
+            timestamp: Date.now(),
+        });
+        
+        console.log('[UnifiedDataSourceManager] Forced to Advanced mode');
+        
+        /* 原始实现 - 暂时注释
         // 如果模式相同，直接返回
         if (newMode === this.currentMode) {
             return;
@@ -260,6 +285,7 @@ export class UnifiedDataSourceManager {
             // 抛出错误
             throw modeError;
         }
+        */
     }
     
     /**

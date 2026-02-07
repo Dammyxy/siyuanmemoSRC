@@ -20,7 +20,10 @@ import {
 import { FSRSCard } from '../types/card';
 import type { StorageManager } from '../core/storage/manager';
 import { batchSetRiffCardsDueTime } from '../core/siyuan/riff';
-import { sql } from '../core/siyuan/api';  // ✅ 添加 sql 导入
+import { sql } from '../core/siyuan/api';
+import { getCurrentDayEnd } from '../utils/dateUtils';
+import { getDayStartHour } from '../utils/configUtils';
+import { getBlockText } from '../core/siyuan/block';
 
 /**
  * AdvancedDataRouter 类
@@ -46,6 +49,13 @@ export class AdvancedDataRouter implements IDataRouter {
     private storage: StorageManager;
     
     /**
+     * 插件实例
+     * 
+     * 用于访问插件配置（如 dayStartHour）
+     */
+    private plugin: any;
+    
+    /**
      * Riff 同步启用标志
      * 
      * 控制是否自动同步到 Riff（默认不同步）
@@ -61,9 +71,11 @@ export class AdvancedDataRouter implements IDataRouter {
      * 构造函数
      * 
      * @param storage 本地存储管理器实例
+     * @param plugin 插件实例（用于访问配置）
      */
-    constructor(storage: StorageManager) {
+    constructor(storage: StorageManager, plugin?: any) {
         this.storage = storage;
+        this.plugin = plugin;
     }
     
     // ========================================================================
@@ -105,11 +117,19 @@ export class AdvancedDataRouter implements IDataRouter {
         
         console.log(`[AdvancedDataRouter] 🔍 getAllCards() returned ${cards.length} cards`);
         
-        // ✅ 检查并填充缺失的 rootId
-        const cardsNeedingRootId = cards.filter(c => !c.meta?.rootId);
-        if (cardsNeedingRootId.length > 0) {
-            console.log(`[AdvancedDataRouter] 🔧 Filling missing rootId for ${cardsNeedingRootId.length} cards`);
-            await this.fillMissingRootIds(cardsNeedingRootId);
+        // 🔍 调试：统计卡片类型分布
+        const typeStats = cards.reduce((acc, card) => {
+            const type = card.type || 'undefined';
+            acc[type] = (acc[type] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+        console.log(`[AdvancedDataRouter] 🔍 Card type distribution:`, typeStats);
+        
+        // ✅ 检查并填充缺失的 rootId 和 content
+        const cardsNeedingData = cards.filter(c => !c.meta?.rootId || !c.meta?.content);
+        if (cardsNeedingData.length > 0) {
+            console.log(`[AdvancedDataRouter] 🔧 Filling missing rootId/content for ${cardsNeedingData.length} cards`);
+            await this.fillMissingRootIds(cardsNeedingData);
         }
         
         // 应用过滤器
@@ -273,29 +293,114 @@ export class AdvancedDataRouter implements IDataRouter {
             console.log(`[AdvancedDataRouter] 🔍 Filtering by cardType: ${filter.cardType}`);
             console.log(`[AdvancedDataRouter] 🔍 Sample card types:`, cards.slice(0, 5).map(c => ({ id: c.id, type: c.type, typeOf: typeof c.type })));
             
+            // 🔍 调试：统计过滤前的类型分布
+            const beforeTypeStats = cards.reduce((acc, card) => {
+                const type = card.type || 'undefined';
+                acc[type] = (acc[type] || 0) + 1;
+                return acc;
+            }, {} as Record<string, number>);
+            console.log(`[AdvancedDataRouter] 🔍 Before cardType filter - type distribution:`, beforeTypeStats);
+            
             filtered = filtered.filter(card => {
                 // 高级模式严格区分主题/项目卡片（需求 3.2）
-                return card.type === filter.cardType;
+                const matches = card.type === filter.cardType;
+                if (!matches && cards.length <= 10) {
+                    // 如果卡片很少,打印不匹配的卡片详情
+                    console.log(`[AdvancedDataRouter] 🔍 Card ${card.id} filtered out: type=${card.type}, expected=${filter.cardType}`);
+                }
+                return matches;
             });
             
             console.log(`[AdvancedDataRouter] 🔍 After cardType filter: ${filtered.length} cards`);
         }
         
-        // 过滤到期日期
+        /**
+         * 过滤到期日期（使用自定义每日刷新时间）
+         * 
+         * 根据用户配置的 dayStartHour 计算"今天"的结束时间，
+         * 而不是使用固定的午夜 23:59:59。
+         * 
+         * 例如：如果 dayStartHour = 4，则"今天"的结束时间是明天凌晨 4:00，
+         * 而不是今天的 23:59:59。
+         * 
+         * @see .kiro/specs/advanced-mode-due-cards-fix-and-custom-day-start/requirements.md
+         */
         if (filter.dueDate) {
+            console.log(`[AdvancedDataRouter] 🔍 Filtering by dueDate:`, filter.dueDate);
+            
+            // 🔍 调试：统计过滤前的到期状态
+            const now = Date.now();
+            const beforeDueStats = {
+                overdue: 0,
+                dueToday: 0,
+                dueFuture: 0,
+            };
+            for (const card of filtered) {
+                if (card.due < now - 24 * 60 * 60 * 1000) {
+                    beforeDueStats.overdue++;
+                } else if (card.due <= now) {
+                    beforeDueStats.dueToday++;
+                } else {
+                    beforeDueStats.dueFuture++;
+                }
+            }
+            console.log(`[AdvancedDataRouter] 🔍 Before dueDate filter - due status:`, beforeDueStats);
+            
+            // 🔍 调试：显示前5张卡片的到期时间
+            console.log(`[AdvancedDataRouter] 🔍 Sample due dates (first 5 cards):`, 
+                filtered.slice(0, 5).map(c => ({
+                    id: c.id.substring(0, 8),
+                    due: new Date(c.due).toISOString(),
+                    dueTimestamp: c.due
+                }))
+            );
+            
+            // 获取自定义每日刷新时间
+            const dayStartHour = this.plugin ? getDayStartHour(this.plugin) : 4;
+            const dayEnd = getCurrentDayEnd(dayStartHour);
+            
+            console.log(`[AdvancedDataRouter] 🔍 Using dayStartHour=${dayStartHour}, dayEnd=${new Date(dayEnd).toISOString()}, now=${new Date(now).toISOString()}`);
+            
+            // 🔍 记录被过滤掉的卡片
+            const filteredOutCards: any[] = [];
+            
             filtered = filtered.filter(card => {
-                const dueDate = new Date(card.due);
+                const cardDueDate = new Date(card.due);
                 
-                if (filter.dueDate!.lte && dueDate > filter.dueDate!.lte) {
-                    return false;
+                if (filter.dueDate!.lte) {
+                    // 使用 dayEnd 作为今天的结束时间
+                    if (card.due > dayEnd) {
+                        // 记录被过滤掉的卡片
+                        filteredOutCards.push({
+                            id: card.id.substring(0, 12),
+                            blockId: card.blockId.substring(0, 8),
+                            due: new Date(card.due).toISOString(),
+                            dueLocal: new Date(card.due).toLocaleString('zh-CN'),
+                            state: card.state,
+                            createdAt: new Date(card.createdAt).toLocaleString('zh-CN'),
+                        });
+                        return false;
+                    }
                 }
                 
-                if (filter.dueDate!.gte && dueDate < filter.dueDate!.gte) {
-                    return false;
+                if (filter.dueDate!.gte) {
+                    const filterGteOnly = new Date(filter.dueDate!.gte);
+                    filterGteOnly.setHours(0, 0, 0, 0);
+                    
+                    if (cardDueDate < filterGteOnly) {
+                        return false;
+                    }
                 }
                 
                 return true;
             });
+            
+            console.log(`[AdvancedDataRouter] 🔍 After dueDate filter: ${filtered.length} cards`);
+            
+            // 🔍 显示被过滤掉的卡片
+            if (filteredOutCards.length > 0) {
+                console.log(`[AdvancedDataRouter] 🔍 Filtered out ${filteredOutCards.length} cards (due > dayEnd):`, filteredOutCards);
+            }
         }
         
         // 过滤标签
@@ -496,11 +601,11 @@ export class AdvancedDataRouter implements IDataRouter {
     // ========================================================================
     
     /**
-     * 填充缺失的 rootId
+     * 填充缺失的 rootId 和 content
      * 
-     * 对于缺少 meta.rootId 的卡片，通过 blockId 查询思源 API 获取 rootId 并填充。
+     * 对于缺少 meta.rootId 或 meta.content 的卡片，通过 blockId 查询思源 API 获取并填充。
      * 
-     * @param cards 需要填充 rootId 的卡片数组
+     * @param cards 需要填充的卡片数组
      * @see 需求 3.1, 3.2
      */
     private async fillMissingRootIds(cards: FSRSCard[]): Promise<void> {
@@ -511,18 +616,35 @@ export class AdvancedDataRouter implements IDataRouter {
         const blockIds = cards.map(c => c.blockId);
         const rootIdMap = await this.batchQueryRootIds(blockIds);
         
+        // 批量获取块内容
+        const contentPromises = cards.map(async (card) => {
+            try {
+                const content = await getBlockText(card.blockId);
+                return { blockId: card.blockId, content };
+            } catch (error) {
+                console.warn(`[AdvancedDataRouter] Failed to get content for block ${card.blockId}:`, error);
+                return { blockId: card.blockId, content: '' };
+            }
+        });
+        
+        const contentResults = await Promise.all(contentPromises);
+        const contentMap = new Map(contentResults.map(r => [r.blockId, r.content]));
+        
         for (const card of cards) {
             const rootId = rootIdMap.get(card.blockId) || '';
+            const content = contentMap.get(card.blockId) || '';
+            
             if (!card.meta) {
                 card.meta = {};
             }
             card.meta.rootId = rootId;
+            card.meta.content = content;
             
-            // 更新本地存储
-            await this.storage.updateCard(card);
+            // 更新本地存储（使用 setCard 而不是 updateCard）
+            this.storage.setCard(card);
         }
         
-        console.log(`[AdvancedDataRouter] ✅ Filled rootId for ${cards.length} cards`);
+        console.log(`[AdvancedDataRouter] ✅ Filled rootId and content for ${cards.length} cards`);
     }
     
     /**

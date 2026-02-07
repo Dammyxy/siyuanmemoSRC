@@ -95,7 +95,7 @@ export class DeckDataSource implements ICardDataSource {
     });
 
     // 传递 queryText 和 cardType 参数以支持筛选，使用缓存优化
-    let rows = await loadCards(this.options.preset, undefined, this.options.queryText, false, this.options.cardType);
+    let rows = await loadCards(this.options.preset, undefined, this.options.queryText, false, this.options.cardType, this.plugin as any);
     console.log('[DeckDataSource] loadCards returned:', rows.length, 'cards');
 
     // ✅ 四重筛选：应用文档筛选

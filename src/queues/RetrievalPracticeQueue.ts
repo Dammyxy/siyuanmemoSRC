@@ -21,6 +21,8 @@ import { FSRSCard } from '../types/card';
 import type { QueueItem } from '../core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import { resolveCardId } from '../diagnostics/type-guards';
+import { getCurrentDayEnd } from '../utils/dateUtils';
+import { getDayStartHour } from '../utils/configUtils';
 
 /**
  * 检索练习队列类
@@ -102,10 +104,19 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
             // 获取当前时间戳
             const now = Date.now();
             
-            // 获取所有到期的项目卡片
+            // 🔧 修复：使用 getCurrentDayEnd() 获取今天的结束时间
+            // 从 manager 的 advancedRouter 获取 plugin 实例
+            const router = (this.manager as any).advancedRouter;
+            const plugin = router?.plugin;
+            const dayStartHour = plugin ? getDayStartHour(plugin) : 4;
+            const dayEnd = getCurrentDayEnd(dayStartHour);
+            
+            console.log(`[RetrievalPracticeQueue] 🔍 Using dayStartHour=${dayStartHour}, dayEnd=${new Date(dayEnd).toISOString()}, now=${new Date(now).toISOString()}`);
+            
+            // 获取所有到期的项目卡片（使用 dayEnd 而不是 now）
             const dueCards = await this.manager.getCards({
                 cardType: 'item',
-                dueDate: { lte: new Date(now) }
+                dueDate: { lte: new Date(dayEnd) }  // ✅ 使用 dayEnd
             });
             
             console.log(`[RetrievalPracticeQueue] 🔍 Got ${dueCards.length} due cards from manager`);

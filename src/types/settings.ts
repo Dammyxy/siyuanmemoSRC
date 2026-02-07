@@ -10,6 +10,24 @@ export interface FSRSParameters {
     weights: number[];         // 19 个权重参数
     enableFuzz: boolean;       // 启用模糊化
     enableShortTerm: boolean;  // 启用短期调度器
+    
+    /**
+     * 每日刷新时间（小时，0-23）
+     * 
+     * 定义"新的一天"的开始时间。
+     * 
+     * ## 使用场景
+     * - 用户习惯在凌晨4点睡觉，希望将"新的一天"设置为凌晨4点
+     * - 用户希望在23:59:59就能看到第二天的卡片
+     * 
+     * ## 影响范围
+     * - 浏览器的'due'预设筛选
+     * - 复习队列的到期卡片获取
+     * - 统计数据的"今天"计算
+     * 
+     * @default 4 (凌晨4点)
+     */
+    dayStartHour?: number;
 }
 
 export type SchedulerEngine = 'simple-fsrs' | 'sm2' | 'sm15' | 'a-factor-v2';
@@ -217,6 +235,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
         ],
         enableFuzz: true,
         enableShortTerm: true,
+        dayStartHour: 4,  // 🆕 默认凌晨4点
     },
     schedulerEngine: 'simple-fsrs',
     scheduler: {

@@ -104,6 +104,7 @@ export class DataSourceFactory {
    * - **Filter**: Only cards with `due <= Date.now()` (due cards only)
    * - **Sort**: By priority (ascending order, lower priority first)
    * - **SchedulerRouter**: For accurate nextDues prediction
+   * - **Plugin**: For accessing configuration (e.g., dayStartHour)
    * 
    * ## Simple Mode Configuration
    * When `config.mode === 'simple'`, creates a RiffDataSource with:
@@ -120,10 +121,12 @@ export class DataSourceFactory {
    * ## Dependencies
    * - **storage**: Required for both modes (LocalStorage reads from it, Riff caches to it)
    * - **schedulerRouter**: Optional but recommended for accurate nextDues prediction
+   * - **plugin**: Optional but recommended for accessing custom configuration (e.g., dayStartHour)
    * 
    * @param config - Riff integration configuration containing mode selection
    * @param storage - Storage manager for accessing local cards
    * @param schedulerRouter - Optional scheduler for predicting next review times
+   * @param plugin - Optional plugin instance for accessing configuration
    * @returns Data source instance appropriate for the configured mode
    * 
    * @example
@@ -132,7 +135,8 @@ export class DataSourceFactory {
    * const advancedSource = DataSourceFactory.createDataSource(
    *   { mode: 'advanced', useLocalScheduler: true, ... },
    *   storageManager,
-   *   schedulerRouter
+   *   schedulerRouter,
+   *   plugin
    * );
    * 
    * // Simple mode - Riff API access
@@ -145,7 +149,9 @@ export class DataSourceFactory {
    * // Without scheduler (degraded mode)
    * const degradedSource = DataSourceFactory.createDataSource(
    *   { mode: 'advanced', ... },
-   *   storageManager
+   *   storageManager,
+   *   undefined,
+   *   plugin
    * );
    * ```
    * 
@@ -155,7 +161,8 @@ export class DataSourceFactory {
   static createDataSource(
     config: RiffIntegrationConfig,
     storage: StorageManager,
-    schedulerRouter?: SchedulerRouter
+    schedulerRouter?: SchedulerRouter,
+    plugin?: any
   ): IDataSource<QueueItem> {
     // Mode detection: advanced or simple
     if (config.mode === 'advanced') {
@@ -164,13 +171,15 @@ export class DataSourceFactory {
       // - Filter only due cards (due <= now)
       // - Sort by priority (lower priority first)
       // - Use SchedulerRouter for accurate nextDues prediction
+      // - Use plugin for accessing custom configuration
       console.log('[DataSourceFactory] Creating LocalStorageDataSource for advanced mode');
       
       return new LocalStorageDataSource({
         storage,
         filter: (card) => card.due <= Date.now(),
         sort: (a, b) => (a.priority ?? 50) - (b.priority ?? 50),
-        schedulerRouter
+        schedulerRouter,
+        plugin  // 🆕 传递 plugin 实例
       });
     } else {
       // Simple Mode: Use RiffDataSource

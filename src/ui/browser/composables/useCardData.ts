@@ -145,7 +145,7 @@ export function useCardData(props: CardDataOptions) {
 
     // 更新全量统计数据
     allRows.value = await PerformanceMonitor.measure('loadAllCards', () => 
-      loadCards('all', undefined, '', forceRefresh)
+      loadCards('all', undefined, '', forceRefresh, 'all', props.plugin)
     );
 
     // 四重筛选：如果开启了聚焦，额外获取不包含文档筛选的数据
