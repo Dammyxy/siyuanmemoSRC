@@ -18,22 +18,22 @@
 
     <div v-if="state.meta.resumePrompt" class="fsrs-review-v2-resume">
       <div class="fsrs-review-v2-resume__panel b3-card">
-        <div class="fsrs-review-v2-resume__title">{{ t('resumePromptTitle', 'å‘ç°æœªå®Œæˆçš„ç»ƒä¹ ') }}</div>
+        <div class="fsrs-review-v2-resume__title">{{ t('resumePromptTitle', '·¢ÏÖÎ´Íê³ÉµÄÁ·Ï°') }}</div>
         <div class="fsrs-review-v2-resume__desc ft__secondary">
           {{ state.meta.resumePrompt.message }}
         </div>
         <div class="fsrs-review-v2-resume__actions">
           <button class="b3-button b3-button--cancel" type="button" @click="hook.executeCommand('resume-start-over')">
-            {{ t('resumeStartOver', 'ä»å¤´å¼€å§‹') }}
+            {{ t('resumeStartOver', '´ÓÍ·¿ªÊ¼') }}
           </button>
           <button class="b3-button b3-button--text" type="button" @click="hook.executeCommand('resume-continue')">
-            {{ t('resumeContinue', 'ç»§ç»­ç»ƒä¹ ') }}
+            {{ t('resumeContinue', '¼ÌĞøÁ·Ï°') }}
           </button>
         </div>
       </div>
     </div>
 
-    <!-- ğŸ†• ç¥ç»æ¼«æ¸¸å›¾è°±çª—å£ -->
+    <!-- ?? Éñ¾­ÂşÓÎÍ¼Æ×´°¿Ú -->
     <GraphWindow
       v-if="isNeuralRoamMode && graphWindowVisible"
       ref="graphWindowRef"
@@ -42,6 +42,7 @@
       :i18n="i18n"
       @close="handleGraphWindowClose"
       @node-click="handleGraphNodeClick"
+      @navigate-to-block="handleGraphNavigateToBlock"
     />
   </div>
 </template>
@@ -68,32 +69,32 @@ const props = defineProps<{
   adapter?: any;
   provider?: any;
   reviewUI?: any;
-  title?: string; // é˜Ÿåˆ—æ ‡é¢˜ï¼ˆå¦‚"æå–ç»ƒä¹ "ï¼‰
-  mode?: 'dialog' | 'tab'; // ğŸ†• æ‰“å¼€æ¨¡å¼ï¼ˆå¯¹è¯æ¡†/Tabï¼‰
-  plugin?: any; // ğŸ†• æ’ä»¶å®ä¾‹ï¼Œç”¨äºè®¿é—® hybridSyncService
+  title?: string; // ¶ÓÁĞ±êÌâ£¨Èç"ÌáÈ¡Á·Ï°"£©
+  mode?: 'dialog' | 'tab'; // ?? ´ò¿ªÄ£Ê½£¨¶Ô»°¿ò/Tab£©
+  plugin?: any; // ?? ²å¼şÊµÀı£¬ÓÃÓÚ·ÃÎÊ hybridSyncService
 }>();
 
 const emit = defineEmits<{
   (e: 'openMenu', menu: IQueueCommand<unknown>[]): void;
-  (e: 'close'): void; // æ·»åŠ å…³é—­äº‹ä»¶
-  (e: 'convert-to-tab'): void; // ğŸ†• è½¬æ¢ä¸º Tab æ¨¡å¼ï¼ˆkebab-caseï¼‰
+  (e: 'close'): void; // Ìí¼Ó¹Ø±ÕÊÂ¼ş
+  (e: 'convert-to-tab'): void; // ?? ×ª»»Îª Tab Ä£Ê½£¨kebab-case£©
 }>();
 
 const rootRef = ref<HTMLDivElement | null>(null);
 
-// ğŸ†• å›¾è°±çª—å£çŠ¶æ€
+// ?? Í¼Æ×´°¿Ú×´Ì¬
 const graphWindowVisible = ref(false);
 const graphWindowRef = ref<InstanceType<typeof GraphWindow> | null>(null);
 
-// ğŸ†• åˆ¤æ–­æ˜¯å¦ä¸ºç¥ç»æ¼«æ¸¸æ¨¡å¼
+// ?? ÅĞ¶ÏÊÇ·ñÎªÉñ¾­ÂşÓÎÄ£Ê½
 const isNeuralRoamMode = computed(() => {
-  // æ£€æŸ¥é˜Ÿåˆ—ç±»å‹æ˜¯å¦ä¸ºç¥ç»æ¼«æ¸¸
+  // ¼ì²é¶ÓÁĞÀàĞÍÊÇ·ñÎªÉñ¾­ÂşÓÎ
   const queueStrategy = hook.getQueueStrategy();
   const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
   return underlyingQueue?.name === 'NeuralRoamQueue';
 });
 
-// ğŸ†• è·å–ç¥ç»æ¼«æ¸¸é˜Ÿåˆ—å®ä¾‹
+// ?? »ñÈ¡Éñ¾­ÂşÓÎ¶ÓÁĞÊµÀı
 const neuralQueueInstance = computed<NeuralRoamQueue | null>(() => {
   if (!isNeuralRoamMode.value) return null;
   const queueStrategy = hook.getQueueStrategy();
@@ -101,7 +102,7 @@ const neuralQueueInstance = computed<NeuralRoamQueue | null>(() => {
   return underlyingQueue as NeuralRoamQueue;
 });
 
-// æ£€æŸ¥ç¯å¢ƒ
+// ¼ì²é»·¾³
 onMounted(() => {
   console.log('[FSRS ReviewView] Component mounted');
   console.log('[FSRS ReviewView] Checking environment:', {
@@ -113,14 +114,14 @@ onMounted(() => {
     ourDialog: document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]'),
   });
 
-  // ğŸ†• è§¦å‘å¢é‡åŒæ­¥ï¼ˆå¦‚æœå¯ç”¨ï¼‰
+  // ?? ´¥·¢ÔöÁ¿Í¬²½£¨Èç¹ûÆôÓÃ£©
   const plugin = props.plugin as any;
   if (plugin?.hybridSyncService) {
     const riffConfig = plugin.storage?.getSettings?.()?.riffIntegration;
     if (riffConfig?.mode === 'advanced' && 
         riffConfig?.incrementalSync?.enabled &&
         riffConfig?.incrementalSync?.triggers?.includes('review-open')) {
-      // åå°æ‰§è¡Œå¢é‡åŒæ­¥ï¼Œä¸é˜»å¡ UI
+      // ºóÌ¨Ö´ĞĞÔöÁ¿Í¬²½£¬²»×èÈû UI
       void plugin.hybridSyncService.incrementalSync().catch((err: Error) => {
         console.error('[ReviewView] Incremental sync failed:', err);
       });
@@ -159,7 +160,7 @@ function t(key: string, fallback: string): string {
   return i18n?.[key] || fallback;
 }
 
-// å¤„ç†æ¥è‡ªæ€æºçƒ­é”®ç³»ç»Ÿçš„ CustomEvent
+// ´¦ÀíÀ´×ÔË¼Ô´ÈÈ¼üÏµÍ³µÄ CustomEvent
 function handleRootClick(e: MouseEvent) {
   console.log('[FSRS ReviewView] handleRootClick triggered:', {
     detail: e.detail,
@@ -168,13 +169,13 @@ function handleRootClick(e: MouseEvent) {
     currentTarget: e.currentTarget,
   });
 
-  // åªå¤„ç†æ¥è‡ªæ€æºçƒ­é”®ç³»ç»Ÿçš„ CustomEventï¼ˆevent.detail ä¸ºå­—ç¬¦ä¸²ï¼‰
+  // Ö»´¦ÀíÀ´×ÔË¼Ô´ÈÈ¼üÏµÍ³µÄ CustomEvent£¨event.detail Îª×Ö·û´®£©
   if (typeof e.detail !== 'string') return;
 
   const key = e.detail.toLowerCase();
   console.log('[FSRS ReviewView] Hotkey detected:', key, 'answerShown:', hook.context.value.showAnswer);
 
-  // æ˜¾ç¤ºç­”æ¡ˆï¼ˆç©ºæ ¼/å›è½¦ï¼‰ - åªåœ¨ç­”æ¡ˆæœªæ˜¾ç¤ºæ—¶å·¥ä½œ
+  // ÏÔÊ¾´ğ°¸£¨¿Õ¸ñ/»Ø³µ£© - Ö»ÔÚ´ğ°¸Î´ÏÔÊ¾Ê±¹¤×÷
   if ((key === ' ' || key === 'enter') && !hook.context.value.showAnswer) {
     e.preventDefault();
     e.stopPropagation();
@@ -183,7 +184,7 @@ function handleRootClick(e: MouseEvent) {
     return;
   }
 
-  // è¯„åˆ†ï¼ˆ1/2/3/4ï¼‰ - åªåœ¨ç­”æ¡ˆå·²æ˜¾ç¤ºåæ‰èƒ½è¯„åˆ†
+  // ÆÀ·Ö£¨1/2/3/4£© - Ö»ÔÚ´ğ°¸ÒÑÏÔÊ¾ºó²ÅÄÜÆÀ·Ö
   if (['1', '2', '3', '4'].includes(key)) {
     if (hook.context.value.showAnswer) {
       e.preventDefault();
@@ -196,7 +197,7 @@ function handleRootClick(e: MouseEvent) {
     return;
   }
 
-  // è·³è¿‡ï¼ˆSé”®ï¼‰ - ä»»ä½•æ—¶å€™éƒ½èƒ½å·¥ä½œ
+  // Ìø¹ı£¨S¼ü£© - ÈÎºÎÊ±ºò¶¼ÄÜ¹¤×÷
   if (key === 's') {
     e.preventDefault();
     e.stopPropagation();
@@ -219,7 +220,7 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
 
   const menu = new Menu();
 
-  // æ·»åŠ å¡ç‰‡ç»Ÿè®¡(åªè¯»é¡¹)
+  // Ìí¼Ó¿¨Æ¬Í³¼Æ(Ö»¶ÁÏî)
   if (cardMeta) {
     menu.addItem({
       id: 'card-stats',
@@ -229,25 +230,25 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
     menu.addSeparator();
   }
 
-  // Part 5: æ·»åŠ "æ‰“å¼€"å­èœå•
+  // Part 5: Ìí¼Ó"´ò¿ª"×Ó²Ëµ¥
   if (currentCard?.blockId) {
     menu.addItem({
       icon: 'iconOpen',
-      label: t('openCard', 'æ‰“å¼€'),
+      label: t('openCard', '´ò¿ª'),
       submenu: [
         {
           icon: 'iconTab',
-          label: t('openInNewTab', 'æ–°æ ‡ç­¾é¡µ'),
+          label: t('openInNewTab', 'ĞÂ±êÇ©Ò³'),
           click: () => openCardInTab(currentCard.blockId, false),
         },
         {
           icon: 'iconLayoutRight',
-          label: t('openInRight', 'å³ä¾§'),
+          label: t('openInRight', 'ÓÒ²à'),
           click: () => openCardInTab(currentCard.blockId, true),
         },
         {
           icon: 'iconExport',
-          label: t('openInNewWindow', 'æ–°çª—å£'),
+          label: t('openInNewWindow', 'ĞÂ´°¿Ú'),
           click: () => openCardInNewWindow(currentCard.blockId),
         },
       ],
@@ -255,11 +256,11 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
     menu.addSeparator();
   }
 
-  // Part 4: æ·»åŠ "ç¼–è¾‘ SRS æ•°æ®"èœå•é¡¹
+  // Part 4: Ìí¼Ó"±à¼­ SRS Êı¾İ"²Ëµ¥Ïî
   if (currentCard?.blockId) {
     menu.addItem({
       icon: 'iconEdit',
-      label: t('editSrsData', 'ç¼–è¾‘ SRS æ•°æ®'),
+      label: t('editSrsData', '±à¼­ SRS Êı¾İ'),
       click: () => {
         void openSrsEditorDialog(currentCard.blockId);
       },
@@ -267,7 +268,7 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
     menu.addSeparator();
   }
 
-  // æ ‡å‡†èœå•é¡¹
+  // ±ê×¼²Ëµ¥Ïî
   for (const cmd of cmds) {
     const id = String((cmd as any)?.id || '');
     const label = String((cmd as any)?.label || '');
@@ -281,7 +282,7 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
     });
   }
 
-  // ä½¿ç”¨æŒ‰é’®ä½ç½®å®šä½èœå•ï¼ˆä¸æ€æºåŸç”Ÿé—ªå¡ä¸€è‡´ï¼‰
+  // Ê¹ÓÃ°´Å¥Î»ÖÃ¶¨Î»²Ëµ¥£¨ÓëË¼Ô´Ô­ÉúÉÁ¿¨Ò»ÖÂ£©
   const target = ev.currentTarget as HTMLElement;
   if (target) {
     const rect = target.getBoundingClientRect();
@@ -293,7 +294,7 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
     });
     menu.open({ x: rect.left, y: rect.bottom });
   } else {
-    // é™çº§ï¼šä½¿ç”¨é¼ æ ‡ä½ç½®
+    // ½µ¼¶£ºÊ¹ÓÃÊó±êÎ»ÖÃ
     console.log('[FSRS ReviewView] currentTarget is null, using mouse position');
     menu.open({ x: ev.clientX, y: ev.clientY });
   }
@@ -301,8 +302,8 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
 
 function buildCardStatsHTML(meta: NonNullable<ReviewUIState['actions']['cardMeta']>): string {
   const stateText = meta.isReviewCard
-    ? t('reviewCard', 'å¤ä¹ å¡')
-    : t('newCard', 'æ–°å¡');
+    ? t('reviewCard', '¸´Ï°¿¨')
+    : t('newCard', 'ĞÂ¿¨');
 
   const lastReview = meta.lastReview && meta.lastReview > 0
     ? new Date(meta.lastReview).toISOString().split('T')[0]
@@ -310,17 +311,17 @@ function buildCardStatsHTML(meta: NonNullable<ReviewUIState['actions']['cardMeta
 
   return `
     <div class="fn__flex">
-      <div class="fn__flex-1 ft__breakword">${t('lapses', 'é—å¿˜æ¬¡æ•°')}</div>
+      <div class="fn__flex-1 ft__breakword">${t('lapses', 'ÒÅÍü´ÎÊı')}</div>
       <div class="fn__space"></div>
       <div>${meta.lapses ?? 0}</div>
     </div>
     <div class="fn__flex">
-      <div class="fn__flex-1 ft__breakword">${t('reps', 'å¤ä¹ æ¬¡æ•°')}</div>
+      <div class="fn__flex-1 ft__breakword">${t('reps', '¸´Ï°´ÎÊı')}</div>
       <div class="fn__space"></div>
       <div>${meta.reps ?? 0}</div>
     </div>
     <div class="fn__flex">
-      <div class="fn__flex-1 ft__breakword">${t('cardState', 'å¡ç‰‡çŠ¶æ€')}</div>
+      <div class="fn__flex-1 ft__breakword">${t('cardState', '¿¨Æ¬×´Ì¬')}</div>
       <div class="fn__space"></div>
       <div class="${meta.isReviewCard ? 'ft__success' : 'ft__primary'}">
         ${stateText}
@@ -328,7 +329,7 @@ function buildCardStatsHTML(meta: NonNullable<ReviewUIState['actions']['cardMeta
     </div>
     <div class="fn__flex ${!lastReview ? 'fn__none' : ''}">
       <div class="fn__flex-1 ft__breakword" style="width: 170px;">
-        ${t('lastReview', 'ä¸Šæ¬¡å¤ä¹ ')}
+        ${t('lastReview', 'ÉÏ´Î¸´Ï°')}
       </div>
       <div class="fn__space"></div>
       <div>${lastReview}</div>
@@ -350,12 +351,12 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   console.log('[FSRS ReviewView] handleToolbarAction called:', actionType);
 
   if (actionType === 'fullscreen') {
-    // å®ç°å…¨å±åŠŸèƒ½ï¼ˆå‚è€ƒæ€æºåŸç”Ÿå®ç°ï¼‰
+    // ÊµÏÖÈ«ÆÁ¹¦ÄÜ£¨²Î¿¼Ë¼Ô´Ô­ÉúÊµÏÖ£©
     console.log('[FSRS ReviewView] Fullscreen button clicked');
 
-    // æŸ¥æ‰¾å¯¹è¯æ¡†å®¹å™¨
+    // ²éÕÒ¶Ô»°¿òÈİÆ÷
     const dialogContainer = document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]');
-    // ä½¿ç”¨è‡ªå®šä¹‰ç±»åæŸ¥æ‰¾å†…å®¹åŒºåŸŸ
+    // Ê¹ÓÃ×Ô¶¨ÒåÀàÃû²éÕÒÄÚÈİÇøÓò
     const contentMain = rootRef.value?.querySelector('.fsrs-review-v2-content') || document.querySelector('.fsrs-review-v2-content');
     console.log('[FSRS ReviewView] dialogContainer found:', !!dialogContainer);
     console.log('[FSRS ReviewView] contentMain found:', !!contentMain);
@@ -365,30 +366,30 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
       console.log('[FSRS ReviewView] Current fullscreen state:', isFullscreen);
 
       if (isFullscreen) {
-        // é€€å‡ºå…¨å±
+        // ÍË³öÈ«ÆÁ
         contentMain.classList.remove('fullscreen');
         dialogContainer.classList.remove('fullscreen');
-        // æ¢å¤ maxWidth
+        // »Ö¸´ maxWidth
         (dialogContainer as HTMLElement).style.maxWidth = '1024px';
         document.getElementById('drag')?.classList.remove('fn__hidden');
         console.log('[FSRS ReviewView] Exited fullscreen');
       } else {
-        // è¿›å…¥å…¨å±
+        // ½øÈëÈ«ÆÁ
         contentMain.classList.add('fullscreen');
         dialogContainer.classList.add('fullscreen');
-        // è®¾ç½®ä¸º 100vw ä»¥ç¡®ä¿å…¨å±æ•ˆæœ(è¦†ç›–å†…è”æ ·å¼)
+        // ÉèÖÃÎª 100vw ÒÔÈ·±£È«ÆÁĞ§¹û(¸²¸ÇÄÚÁªÑùÊ½)
         (dialogContainer as HTMLElement).style.maxWidth = '100vw';
         document.getElementById('drag')?.classList.add('fn__hidden');
         console.log('[FSRS ReviewView] Entered fullscreen');
       }
 
-      // è°ƒæ•´ protyle å°ºå¯¸
+      // µ÷Õû protyle ³ß´ç
       setTimeout(() => {
         const protyleHost = contentMain.querySelector('.fsrs-review-v2-content__protyle-host');
         console.log('[FSRS ReviewView] protyleHost:', protyleHost);
 
         if (protyleHost) {
-          // æŸ¥æ‰¾ protyle å®ä¾‹
+          // ²éÕÒ protyle ÊµÀı
           const protyle = (protyleHost as any)?.['__vnode__']?.['ctx']?.['protyle']
                          || (protyleHost as any)?.['__vueParentComponent']?.['protyle'];
           console.log('[FSRS ReviewView] protyle instance:', protyle);
@@ -403,7 +404,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
       console.log('[FSRS ReviewView] ERROR: contentMain or dialogContainer not found!');
     }
   } else if (actionType === 'edit-srs') {
-    // æ‰“å¼€SRSç¼–è¾‘å™¨
+    // ´ò¿ªSRS±à¼­Æ÷
     console.log('[FSRS ReviewView] Edit SRS button clicked');
     const cardMeta = state.value.actions.cardMeta;
     const blockId = cardMeta?.blockID || state.value.content.data;
@@ -415,16 +416,16 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
       console.error('[FSRS ReviewView] ERROR: blockId is undefined!');
     }
   } else if (actionType === 'sticktab') {
-    // æ‰“å¼€ä¸ºèœå•
+    // ´ò¿ªÎª²Ëµ¥
     handleOpenAsMenu(ev);
   } else if (actionType === 'lock-seed') {
-    // ğŸ†• é”å®šå½“å‰å—ä¸ºç§å­å—ï¼ˆç¥ç»æ¼«æ¸¸ï¼‰
+    // ?? Ëø¶¨µ±Ç°¿éÎªÖÖ×Ó¿é£¨Éñ¾­ÂşÓÎ£©
     console.log('[FSRS ReviewView] Lock seed button clicked');
     const cardMeta = state.value.actions.cardMeta;
     const blockId = cardMeta?.blockID || state.value.content.data;
     
     if (blockId) {
-      // è·å–åº•å±‚é˜Ÿåˆ—å®ä¾‹ï¼ˆç›´æ¥è®¿é—®ï¼Œä¸é€šè¿‡ä»£ç†ï¼‰
+      // »ñÈ¡µ×²ã¶ÓÁĞÊµÀı£¨Ö±½Ó·ÃÎÊ£¬²»Í¨¹ı´úÀí£©
       const queueStrategy = hook.getQueueStrategy();
       const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
       
@@ -432,29 +433,29 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
         underlyingQueue.lockCurrentAsSeed(blockId)
           .then(() => {
             console.log('[FSRS ReviewView] Block locked as seed:', blockId);
-            // æ˜¾ç¤ºæˆåŠŸæç¤º
-            showMessage('å·²é”å®šä¸ºç§å­å— ğŸŒ±', 3000, 'info');
+            // ÏÔÊ¾³É¹¦ÌáÊ¾
+            showMessage('ÒÑËø¶¨ÎªÖÖ×Ó¿é ??', 3000, 'info');
           })
           .catch((error: Error) => {
             console.error('[FSRS ReviewView] Failed to lock seed:', error);
-            showMessage('é”å®šç§å­å—å¤±è´¥', 3000, 'error');
+            showMessage('Ëø¶¨ÖÖ×Ó¿éÊ§°Ü', 3000, 'error');
           });
       } else {
         console.error('[FSRS ReviewView] Queue does not support lockCurrentAsSeed');
-        showMessage('å½“å‰é˜Ÿåˆ—ä¸æ”¯æŒé”å®šç§å­å—', 3000, 'error');
+        showMessage('µ±Ç°¶ÓÁĞ²»Ö§³ÖËø¶¨ÖÖ×Ó¿é', 3000, 'error');
       }
     } else {
       console.error('[FSRS ReviewView] ERROR: blockId is undefined!');
     }
   } else if (actionType === 'neural-menu') {
-    // ğŸ†• ç¥ç»æ¼«æ¸¸èœå•
+    // ?? Éñ¾­ÂşÓÎ²Ëµ¥
     console.log('[FSRS ReviewView] Neural menu button clicked');
-    // é˜»æ­¢äº‹ä»¶å†’æ³¡ï¼Œé˜²æ­¢èœå•æ‰“å¼€åç«‹å³è§¦å‘èœå•é¡¹
+    // ×èÖ¹ÊÂ¼şÃ°Åİ£¬·ÀÖ¹²Ëµ¥´ò¿ªºóÁ¢¼´´¥·¢²Ëµ¥Ïî
     ev.stopPropagation();
     ev.preventDefault();
     handleNeuralMenu(ev);
   } else if (actionType === 'open-graph') {
-    // ğŸ†• æ‰“å¼€å›¾è°±çª—å£
+    // ?? ´ò¿ªÍ¼Æ×´°¿Ú
     console.log('[FSRS ReviewView] Open graph button clicked');
     toggleGraphWindow();
   }
@@ -465,12 +466,12 @@ function handleOpenAsMenu(ev: MouseEvent) {
 
   const menu = new Menu();
 
-  // è·å–æ’ä»¶å®ä¾‹
+  // »ñÈ¡²å¼şÊµÀı
   const fsrsPlugin = (window as any).siyuanFsrsPlugin;
 
   if (!fsrsPlugin) {
     console.error('[FSRS ReviewView] FSRS plugin instance not found');
-    // é™çº§æ–¹æ¡ˆï¼šæ‰“å¼€æ–‡æ¡£
+    // ½µ¼¶·½°¸£º´ò¿ªÎÄµµ
     const cardMeta = state.value.actions.cardMeta;
     const blockId = cardMeta?.blockID || state.value.content.data;
 
@@ -478,7 +479,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
       menu.addItem({
         id: 'openByNewWindow',
         icon: 'iconOpenWindow',
-        label: 'ä½¿ç”¨æ–°çª—å£æ‰“å¼€',
+        label: 'Ê¹ÓÃĞÂ´°¿Ú´ò¿ª',
         click() {
           if (props.app) {
             openWindow({
@@ -498,59 +499,59 @@ function handleOpenAsMenu(ev: MouseEvent) {
     return;
   }
 
-  // ğŸ†• åœ¨ Tab ä¸­æ‰“å¼€
+  // ?? ÔÚ Tab ÖĞ´ò¿ª
   menu.addItem({
     id: 'openByTab',
     icon: 'iconLayoutRight',
-    label: 'åœ¨ Tab ä¸­æ‰“å¼€',
+    label: 'ÔÚ Tab ÖĞ´ò¿ª',
     click() {
       console.log('[FSRS ReviewView] Opening in tab and closing dialog');
       
-      // è·å–æ’ä»¶å®ä¾‹
+      // »ñÈ¡²å¼şÊµÀı
       const fsrsPlugin = (window as any).siyuanFsrsPlugin;
       if (!fsrsPlugin) {
         console.error('[FSRS ReviewView] Plugin instance not found');
         return;
       }
 
-      // æ‰“å¼€ Tab
+      // ´ò¿ª Tab
       fsrsPlugin.openReviewTab({
         provider: props.provider,
         queue: props.queue,
         adapter: props.adapter,
-        title: props.title || 'å¤ä¹ ',
+        title: props.title || '¸´Ï°',
       });
 
-      // å…³é—­å½“å‰å¯¹è¯æ¡†
+      // ¹Ø±Õµ±Ç°¶Ô»°¿ò
       emit('close');
     },
   });
 
-  // ä½¿ç”¨æ–°çª—å£æ‰“å¼€ï¼ˆæ‰“å¼€ç‹¬ç«‹çª—å£ï¼‰
+  // Ê¹ÓÃĞÂ´°¿Ú´ò¿ª£¨´ò¿ª¶ÀÁ¢´°¿Ú£©
   /// #if !BROWSER
   menu.addItem({
     id: 'openByNewWindow',
     icon: 'iconOpenWindow',
-    label: 'ä½¿ç”¨æ–°çª—å£æ‰“å¼€',
+    label: 'Ê¹ÓÃĞÂ´°¿Ú´ò¿ª',
     click() {
       console.log('[FSRS ReviewView] Opening review in new window');
       try {
-        // è·å–æ’ä»¶å®ä¾‹
+        // »ñÈ¡²å¼şÊµÀı
         const fsrsPlugin = (window as any).siyuanFsrsPlugin;
         if (!fsrsPlugin) {
           console.error('[FSRS ReviewView] Plugin instance not found');
           return;
         }
 
-        // è°ƒç”¨ä¼˜é›…çš„æ–°çª—å£æ‰“å¼€æ–¹æ³•
+        // µ÷ÓÃÓÅÑÅµÄĞÂ´°¿Ú´ò¿ª·½·¨
         fsrsPlugin.openReviewInNewWindow({
           provider: props.provider,
           queue: props.queue,
           adapter: props.adapter,
-          title: props.title || 'å¤ä¹ ',
+          title: props.title || '¸´Ï°',
         });
 
-        // å…³é—­å½“å‰å¯¹è¯æ¡†
+        // ¹Ø±Õµ±Ç°¶Ô»°¿ò
         emit('close');
       } catch (err) {
         console.error('[FSRS ReviewView] Error opening review in new window:', err);
@@ -559,7 +560,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
   });
   /// #endif
 
-  // æ‰“å¼€èœå•
+  // ´ò¿ª²Ëµ¥
   const target = ev.currentTarget as HTMLElement;
   const rect = target.getBoundingClientRect();
   menu.open({
@@ -568,7 +569,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
   });
 }
 
-// Part 4: æ‰“å¼€ SRS ç¼–è¾‘å™¨å¯¹è¯æ¡†
+// Part 4: ´ò¿ª SRS ±à¼­Æ÷¶Ô»°¿ò
 function openSrsEditorDialog(blockId: string) {
   console.log('[FSRS ReviewView] openSrsEditorDialog called with blockId:', blockId);
 
@@ -583,7 +584,7 @@ function openSrsEditorDialog(blockId: string) {
   }
 
   createVueDialog({
-    title: t('editSrsData', 'ç¼–è¾‘ SRS æ•°æ®'),
+    title: t('editSrsData', '±à¼­ SRS Êı¾İ'),
     component: SrsEditorDialog,
     props: {
       card: {
@@ -599,7 +600,7 @@ function openSrsEditorDialog(blockId: string) {
   });
 }
 
-// Part 5: åœ¨æ ‡ç­¾é¡µä¸­æ‰“å¼€å¡ç‰‡
+// Part 5: ÔÚ±êÇ©Ò³ÖĞ´ò¿ª¿¨Æ¬
 function openCardInTab(blockId: string, openInRight: boolean) {
   if (!props.app) return;
 
@@ -610,7 +611,7 @@ function openCardInTab(blockId: string, openInRight: boolean) {
   });
 }
 
-// Part 5: åœ¨æ–°çª—å£ä¸­æ‰“å¼€å¡ç‰‡
+// Part 5: ÔÚĞÂ´°¿ÚÖĞ´ò¿ª¿¨Æ¬
 function openCardInNewWindow(blockId: string) {
   if (!props.app) return;
 
@@ -621,7 +622,7 @@ function openCardInNewWindow(blockId: string) {
   });
 }
 
-// Part 5: ç¥ç»æ¼«æ¸¸èœå•
+// Part 5: Éñ¾­ÂşÓÎ²Ëµ¥
 function handleNeuralMenu(ev: MouseEvent) {
   console.log('[FSRS ReviewView] handleNeuralMenu - start', { ev, target: ev.target });
   
@@ -640,23 +641,23 @@ function handleNeuralMenu(ev: MouseEvent) {
   const menu = new Menu('neural-roam-menu');
   console.log('[FSRS ReviewView] Menu created:', menu);
   
-  // 1. æŸ¥çœ‹ç§å­å—åˆ—è¡¨
-  console.log('[FSRS ReviewView] Adding menu item 1: æŸ¥çœ‹ç§å­å—åˆ—è¡¨');
+  // 1. ²é¿´ÖÖ×Ó¿éÁĞ±í
+  console.log('[FSRS ReviewView] Adding menu item 1: ²é¿´ÖÖ×Ó¿éÁĞ±í');
   const viewSeedsItem = menu.addItem({
     icon: 'iconList',
-    label: 'æŸ¥çœ‹ç§å­å—åˆ—è¡¨',
+    label: '²é¿´ÖÖ×Ó¿éÁĞ±í',
     click: () => {
-      console.log('[FSRS ReviewView] æŸ¥çœ‹ç§å­å—åˆ—è¡¨ clicked');
+      console.log('[FSRS ReviewView] ²é¿´ÖÖ×Ó¿éÁĞ±í clicked');
       try {
         const seeds = underlyingQueue.getSeedBlocks?.();
         console.log('[FSRS ReviewView] Got seeds:', seeds);
         if (seeds && seeds.length > 0) {
           const seedList = seeds.map((id: string, index: number) => `${index + 1}. ${id}`).join('\n');
           console.log('[FSRS ReviewView] Showing message with seed list');
-          showMessage(`ç§å­å—åˆ—è¡¨ (${seeds.length}ä¸ª):\n${seedList}`, 5000, 'info');
+          showMessage(`ÖÖ×Ó¿éÁĞ±í (${seeds.length}¸ö):\n${seedList}`, 5000, 'info');
         } else {
           console.log('[FSRS ReviewView] No seeds, showing empty message');
-          showMessage('æš‚æ— ç§å­å—', 3000, 'info');
+          showMessage('ÔİÎŞÖÖ×Ó¿é', 3000, 'info');
         }
       } catch (error) {
         console.error('[FSRS ReviewView] Failed to get seed blocks:', error);
@@ -665,7 +666,7 @@ function handleNeuralMenu(ev: MouseEvent) {
   });
   console.log('[FSRS ReviewView] Menu item 1 added:', viewSeedsItem);
   
-  // 2. ä»ç§å­å¼€å§‹æ¼«æ¸¸ï¼ˆå­èœå•ï¼‰
+  // 2. ´ÓÖÖ×Ó¿ªÊ¼ÂşÓÎ£¨×Ó²Ëµ¥£©
   console.log('[FSRS ReviewView] Getting seeds for submenu...');
   const seeds = underlyingQueue.getSeedBlocks?.() || [];
   console.log('[FSRS ReviewView] Seeds:', seeds);
@@ -676,81 +677,81 @@ function handleNeuralMenu(ev: MouseEvent) {
       click: async () => {
         try {
           await underlyingQueue.startRoamingFromSeed?.(seedId);
-          showMessage(`å·²ä»ç§å­ ${seedId} å¼€å§‹æ¼«æ¸¸`, 3000, 'info');
-          // åˆ·æ–°å½“å‰å¡ç‰‡
+          showMessage(`ÒÑ´ÓÖÖ×Ó ${seedId} ¿ªÊ¼ÂşÓÎ`, 3000, 'info');
+          // Ë¢ĞÂµ±Ç°¿¨Æ¬
           await hook.executeCommand('next');
         } catch (error) {
           console.error('[FSRS ReviewView] Failed to start roaming from seed:', error);
-          showMessage('å¼€å§‹æ¼«æ¸¸å¤±è´¥', 3000, 'error');
+          showMessage('¿ªÊ¼ÂşÓÎÊ§°Ü', 3000, 'error');
         }
       }
     }));
     
-    console.log('[FSRS ReviewView] Adding menu item 2: ä»ç§å­å¼€å§‹æ¼«æ¸¸ (with submenu)');
+    console.log('[FSRS ReviewView] Adding menu item 2: ´ÓÖÖ×Ó¿ªÊ¼ÂşÓÎ (with submenu)');
     menu.addItem({
       icon: 'iconPlay',
-      label: 'ä»ç§å­å¼€å§‹æ¼«æ¸¸',
+      label: '´ÓÖÖ×Ó¿ªÊ¼ÂşÓÎ',
       submenu: seedSubmenuItems
     });
   } else {
-    console.log('[FSRS ReviewView] Adding menu item 2: ä»ç§å­å¼€å§‹æ¼«æ¸¸ (disabled)');
+    console.log('[FSRS ReviewView] Adding menu item 2: ´ÓÖÖ×Ó¿ªÊ¼ÂşÓÎ (disabled)');
     menu.addItem({
       icon: 'iconPlay',
-      label: 'ä»ç§å­å¼€å§‹æ¼«æ¸¸',
+      label: '´ÓÖÖ×Ó¿ªÊ¼ÂşÓÎ',
       disabled: true
     });
   }
   
   menu.addSeparator();
   
-  // 3. ç§»é™¤ç§å­å—ï¼ˆå­èœå•ï¼‰
+  // 3. ÒÆ³ıÖÖ×Ó¿é£¨×Ó²Ëµ¥£©
   if (seeds.length > 0) {
     const removeSubmenuItems = seeds.map((seedId: string) => ({
       label: seedId.substring(0, 20) + '...',
       click: async () => {
         try {
           await underlyingQueue.removeCard?.(seedId);
-          showMessage(`å·²ç§»é™¤ç§å­å— ${seedId}`, 3000, 'info');
+          showMessage(`ÒÑÒÆ³ıÖÖ×Ó¿é ${seedId}`, 3000, 'info');
         } catch (error) {
           console.error('[FSRS ReviewView] Failed to remove seed:', error);
-          showMessage('ç§»é™¤ç§å­å—å¤±è´¥', 3000, 'error');
+          showMessage('ÒÆ³ıÖÖ×Ó¿éÊ§°Ü', 3000, 'error');
         }
       }
     }));
     
-    console.log('[FSRS ReviewView] Adding menu item 3: ç§»é™¤ç§å­å— (with submenu)');
+    console.log('[FSRS ReviewView] Adding menu item 3: ÒÆ³ıÖÖ×Ó¿é (with submenu)');
     menu.addItem({
       icon: 'iconTrashcan',
-      label: 'ç§»é™¤ç§å­å—',
+      label: 'ÒÆ³ıÖÖ×Ó¿é',
       submenu: removeSubmenuItems
     });
   } else {
-    console.log('[FSRS ReviewView] Adding menu item 3: ç§»é™¤ç§å­å— (disabled)');
+    console.log('[FSRS ReviewView] Adding menu item 3: ÒÆ³ıÖÖ×Ó¿é (disabled)');
     menu.addItem({
       icon: 'iconTrashcan',
-      label: 'ç§»é™¤ç§å­å—',
+      label: 'ÒÆ³ıÖÖ×Ó¿é',
       disabled: true
     });
   }
   
   menu.addSeparator();
   
-  // 4. æŸ¥çœ‹å†å²è®°å½•
-  console.log('[FSRS ReviewView] Adding menu item 4: æŸ¥çœ‹å†å²è®°å½•');
+  // 4. ²é¿´ÀúÊ·¼ÇÂ¼
+  console.log('[FSRS ReviewView] Adding menu item 4: ²é¿´ÀúÊ·¼ÇÂ¼');
   menu.addItem({
     icon: 'iconHistory',
-    label: 'æŸ¥çœ‹å†å²è®°å½•',
+    label: '²é¿´ÀúÊ·¼ÇÂ¼',
     click: () => {
-      console.log('[FSRS ReviewView] æŸ¥çœ‹å†å²è®°å½• clicked');
+      console.log('[FSRS ReviewView] ²é¿´ÀúÊ·¼ÇÂ¼ clicked');
       try {
         const history = underlyingQueue.getHistorySnapshot?.();
         if (history && history.length > 0) {
           const historyList = history.slice(-10).map((id: string, index: number) => 
             `${history.length - 10 + index + 1}. ${id}`
           ).join('\n');
-          showMessage(`å†å²è®°å½• (æœ€è¿‘10æ¡ï¼Œå…±${history.length}æ¡):\n${historyList}`, 5000, 'info');
+          showMessage(`ÀúÊ·¼ÇÂ¼ (×î½ü10Ìõ£¬¹²${history.length}Ìõ):\n${historyList}`, 5000, 'info');
         } else {
-          showMessage('æš‚æ— å†å²è®°å½•', 3000, 'info');
+          showMessage('ÔİÎŞÀúÊ·¼ÇÂ¼', 3000, 'info');
         }
       } catch (error) {
         console.error('[FSRS ReviewView] Failed to get history:', error);
@@ -758,24 +759,24 @@ function handleNeuralMenu(ev: MouseEvent) {
     }
   });
   
-  // 5. æ¸…ç©ºå†å²è®°å½•
-  console.log('[FSRS ReviewView] Adding menu item 5: æ¸…ç©ºå†å²è®°å½•');
+  // 5. Çå¿ÕÀúÊ·¼ÇÂ¼
+  console.log('[FSRS ReviewView] Adding menu item 5: Çå¿ÕÀúÊ·¼ÇÂ¼');
   menu.addItem({
     icon: 'iconClear',
-    label: 'æ¸…ç©ºå†å²è®°å½•',
+    label: 'Çå¿ÕÀúÊ·¼ÇÂ¼',
     click: () => {
-      console.log('[FSRS ReviewView] æ¸…ç©ºå†å²è®°å½• clicked');
+      console.log('[FSRS ReviewView] Çå¿ÕÀúÊ·¼ÇÂ¼ clicked');
       try {
         underlyingQueue.clearHistory?.();
-        showMessage('å†å²è®°å½•å·²æ¸…ç©º', 3000, 'info');
+        showMessage('ÀúÊ·¼ÇÂ¼ÒÑÇå¿Õ', 3000, 'info');
       } catch (error) {
         console.error('[FSRS ReviewView] Failed to clear history:', error);
-        showMessage('æ¸…ç©ºå†å²è®°å½•å¤±è´¥', 3000, 'error');
+        showMessage('Çå¿ÕÀúÊ·¼ÇÂ¼Ê§°Ü', 3000, 'error');
       }
     }
   });
   
-  // æ˜¾ç¤ºèœå•
+  // ÏÔÊ¾²Ëµ¥
   console.log('[FSRS ReviewView] Opening menu...');
   const target = ev.currentTarget as HTMLElement;
   console.log('[FSRS ReviewView] Target element:', target);
@@ -798,7 +799,7 @@ function handleNeuralMenu(ev: MouseEvent) {
   }
 }
 
-// Part 6: å¤„ç†é¢åŒ…å±‘ç‚¹å‡»
+// Part 6: ´¦ÀíÃæ°üĞ¼µã»÷
 function handleBreadcrumbClick(crumb: { icon?: string; text: string; id?: string; action?: string }, index: number) {
   const action = crumb.action || crumb.id;
   if (action) {
@@ -806,9 +807,9 @@ function handleBreadcrumbClick(crumb: { icon?: string; text: string; id?: string
   }
 }
 
-// ğŸ†• Part 7: å›¾è°±çª—å£å¤„ç†å‡½æ•°
+// ?? Part 7: Í¼Æ×´°¿Ú´¦Àíº¯Êı
 /**
- * åˆ‡æ¢å›¾è°±çª—å£æ˜¾ç¤º/éšè—
+ * ÇĞ»»Í¼Æ×´°¿ÚÏÔÊ¾/Òş²Ø
  */
 function toggleGraphWindow() {
   graphWindowVisible.value = !graphWindowVisible.value;
@@ -816,7 +817,7 @@ function toggleGraphWindow() {
 }
 
 /**
- * å¤„ç†å›¾è°±çª—å£å…³é—­
+ * ´¦ÀíÍ¼Æ×´°¿Ú¹Ø±Õ
  */
 function handleGraphWindowClose() {
   graphWindowVisible.value = false;
@@ -824,35 +825,53 @@ function handleGraphWindowClose() {
 }
 
 /**
- * å¤„ç†å›¾è°±èŠ‚ç‚¹ç‚¹å‡»
+ * ´¦ÀíÍ¼Æ×½Úµãµã»÷
  * 
- * å½“ç”¨æˆ·åœ¨å›¾è°±ä¸­ç‚¹å‡»èŠ‚ç‚¹æ—¶ï¼Œè·³è½¬åˆ°è¯¥èŠ‚ç‚¹å¯¹åº”çš„å—ã€‚
+ * µ±ÓÃ»§ÔÚÍ¼Æ×ÖĞµã»÷½ÚµãÊ±£¬Ìø×ªµ½¸Ã½Úµã¶ÔÓ¦µÄ¿é¡£
  */
 function handleGraphNodeClick(nodeId: string) {
   console.log('[FSRS ReviewView] Graph node clicked:', nodeId);
-  
-  if (!props.app) {
-    console.error('[FSRS ReviewView] app is not available');
-    return;
-  }
-  
-  // åœ¨æ–°æ ‡ç­¾é¡µä¸­æ‰“å¼€å—
-  openTab({
-    app: props.app,
-    doc: { id: nodeId },
-    openNewTab: true,
-  });
+  void handleGraphNavigateToBlock(nodeId);
 }
 
-// ğŸ†• ç›‘å¬å½“å‰å¡ç‰‡å˜åŒ–ï¼ŒåŒæ­¥åˆ°å›¾è°±
+async function handleGraphNavigateToBlock(nodeId: string) {
+  console.log('[FSRS ReviewView] Navigating to block in review:', nodeId);
+
+  try {
+    const queueStrategy = hook.getQueueStrategy();
+    const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+
+    if (underlyingQueue && typeof underlyingQueue.startRoamingFromSeed === 'function') {
+      await underlyingQueue.startRoamingFromSeed(nodeId);
+      await hook.executeCommand('next');
+      console.log('[FSRS ReviewView] Navigated to block:', nodeId);
+      showMessage(`Switched to block ${nodeId}.`, 2000, 'info');
+      return;
+    }
+
+    if (props.app) {
+      openTab({
+        app: props.app,
+        doc: { id: nodeId },
+        openNewTab: true,
+      });
+    } else {
+      console.error('[FSRS ReviewView] app is not available');
+    }
+  } catch (error) {
+    console.error('[FSRS ReviewView] Failed to navigate to block:', error);
+    showMessage('ÇĞ»»Ê§°Ü', 3000, 'error');
+  }
+}
+// ?? ¼àÌıµ±Ç°¿¨Æ¬±ä»¯£¬Í¬²½µ½Í¼Æ×
 watch(
   () => state.value.content.data,
   (newBlockId) => {
     if (graphWindowVisible.value && graphWindowRef.value && newBlockId) {
       console.log('[FSRS ReviewView] Card changed, syncing to graph:', newBlockId);
-      // åˆ·æ–°å›¾è°±æ•°æ®
+      // Ë¢ĞÂÍ¼Æ×Êı¾İ
       graphWindowRef.value.refresh();
-      // èšç„¦åˆ°å½“å‰èŠ‚ç‚¹
+      // ¾Û½¹µ½µ±Ç°½Úµã
       graphWindowRef.value.focusNode(newBlockId);
     }
   }
@@ -897,10 +916,10 @@ watch(
   gap: 8px;
 }
 
-/* å…¨å±æ ·å¼ - å½“å¯¹è¯æ¡†å®¹å™¨æœ‰ fullscreen ç±»æ—¶ */
-/* å‚è€ƒæ€æºåŸç”Ÿå®ç°ï¼šsiyuan/app/src/assets/scss/main/_main.scss:28-56 */
+/* È«ÆÁÑùÊ½ - µ±¶Ô»°¿òÈİÆ÷ÓĞ fullscreen ÀàÊ± */
+/* ²Î¿¼Ë¼Ô´Ô­ÉúÊµÏÖ£ºsiyuan/app/src/assets/scss/main/_main.scss:28-56 */
 
-/* 1. å¯¹è¯æ¡†å®¹å™¨å…¨å± */
+/* 1. ¶Ô»°¿òÈİÆ÷È«ÆÁ */
 .b3-dialog__container.fullscreen {
   position: fixed !important;
   top: 0 !important;
@@ -911,14 +930,14 @@ watch(
   z-index: 8 !important;
   border-radius: 0 !important;
 
-  /* æ ‡é¢˜æ æ ·å¼è°ƒæ•´ */
+  /* ±êÌâÀ¸ÑùÊ½µ÷Õû */
   .block__icons {
     padding-left: var(--b3-toolbar-left-mac);
     height: 32px;
     min-height: 32px;
   }
 
-  /* æ‹–æ‹½åŒºåŸŸæ ·å¼ */
+  /* ÍÏ×§ÇøÓòÑùÊ½ */
   .block__icons > .fn__flex-1 {
     -webkit-app-region: drag;
     min-width: 32px;
@@ -932,7 +951,7 @@ watch(
   }
 }
 
-/* 2. å†…å®¹åŒºåŸŸå…¨å±ï¼ˆå¡«å……çˆ¶å®¹å™¨ï¼‰ */
+/* 2. ÄÚÈİÇøÓòÈ«ÆÁ£¨Ìî³ä¸¸ÈİÆ÷£© */
 .fsrs-review-v2-content.fullscreen {
   width: 100%;
   height: 100%;
@@ -940,7 +959,7 @@ watch(
 </style>
 
 <style>
-/* ç¡®ä¿å¯¹è¯æ¡†æœ‰åœ†è§’ */
+/* È·±£¶Ô»°¿òÓĞÔ²½Ç */
 .b3-dialog__container[data-key="dialog-opencard"] {
   border-radius: var(--b3-border-radius-b) !important;
 }

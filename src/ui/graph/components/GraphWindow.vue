@@ -1,42 +1,58 @@
-<template>
+﻿<template>
   <div v-if="visible" class="graph-window" :style="windowStyle">
-    <!-- 窗口头部 -->
     <div class="window-header" @mousedown="startDrag">
-      <span class="window-title">🌌 {{ t('orbitTitle', 'Orbit 轨道图谱') }}</span>
+      <div class="window-title-wrap">
+        <span class="window-title">{{ t('orbitTitle', '漫游图谱') }}</span>
+        <span class="window-subtitle">{{ t('orbitSubtitle', '神经漫游') }}</span>
+      </div>
       <div class="window-actions">
-        <!-- 🆕 回到当前按钮 -->
+        <div class="direction-menu-wrap" @mousedown.stop>
+          <button
+            ref="directionMenuButtonRef"
+            class="btn-action btn-menu"
+            @click="toggleDirectionMenu"
+            :title="t('directions', '漫游方向')"
+          >
+            <span class="icon">方向</span>
+            <span class="btn-label">{{ t('directions', '方向') }}</span>
+          </button>
+          <div
+            v-if="directionMenuOpen"
+            ref="directionMenuRef"
+            class="direction-menu"
+            @click.stop
+          >
+            <div class="direction-menu__header">
+              <span>{{ t('directions', '漫游方向') }}</span>
+              <button class="btn-ghost" @click="directionMenuOpen = false">关闭</button>
+            </div>
+            <DirectionControlPanel
+              :available-directions="availableDirections"
+              :selected-directions="selectedDirections"
+              :collapsed="false"
+              :direction-counts="directionCounts"
+              :i18n="i18n"
+              @direction-change="handleDirectionChange"
+              @toggle-collapse="noop"
+            />
+          </div>
+        </div>
         <button class="btn-action" @click="focusCurrentNode" :title="t('focusCurrent', '回到当前节点')">
-          <span class="icon">🎯</span>
+          <span class="icon">回到</span>
         </button>
-        <!-- 🆕 全览按钮 -->
         <button class="btn-action" @click="showOverview" :title="t('overview', '显示全部图谱')">
-          <span class="icon">🔭</span>
+          <span class="icon">全览</span>
         </button>
         <button class="btn-refresh" @click="handleRefresh" :title="t('refresh', '刷新')">
-          <span class="icon">🔄</span>
+          <span class="icon">刷新</span>
         </button>
         <button class="btn-close" @click="handleClose" :title="t('close', '关闭')">
-          <span class="icon">✕</span>
+          <span class="icon">关闭</span>
         </button>
       </div>
     </div>
-    
-    <!-- 窗口内容 -->
+
     <div class="window-content">
-      <!-- 左侧：方向控制面板 -->
-      <div class="sidebar" :class="{ collapsed: panelCollapsed }">
-        <DirectionControlPanel
-          :available-directions="availableDirections"
-          :selected-directions="selectedDirections"
-          :collapsed="panelCollapsed"
-          :direction-counts="directionCounts"
-          :i18n="i18n"
-          @direction-change="handleDirectionChange"
-          @toggle-collapse="togglePanel"
-        />
-      </div>
-      
-      <!-- 右侧：图谱画布 -->
       <div class="canvas-area">
         <GraphCanvas
           ref="canvasRef"
@@ -50,9 +66,10 @@
           @node-click="handleNodeClick"
           @node-hover="handleNodeHover"
           @canvas-click="handleCanvasClick"
+          @set-seed="handleSetSeed"
+          @navigate-to-block="handleNavigateToBlock"
         />
-        
-        <!-- 悬停提示 -->
+
         <div v-if="hoveredNode" class="node-tooltip" :style="tooltipStyle">
           <div class="tooltip-title">{{ hoveredNode.title }}</div>
           <div v-if="hoveredNode.associationType" class="tooltip-meta">
@@ -61,8 +78,7 @@
         </div>
       </div>
     </div>
-    
-    <!-- 窗口调整大小手柄 -->
+
     <div class="resize-handle" @mousedown="startResize"></div>
   </div>
 </template>
@@ -77,45 +93,30 @@ import { GraphStorageService } from '../services/GraphStorageService';
 import GraphCanvas from './GraphCanvas.vue';
 import DirectionControlPanel from './DirectionControlPanel.vue';
 
-/**
- * Props 定义
- */
 const props = defineProps<{
-  /** 神经漫游队列实例 */
   queueInstance: NeuralRoamQueue;
-  /** 窗口可见性 */
   visible: boolean;
-  /** 初始位置 */
   initialPosition?: { x: number; y: number };
-  /** 初始大小 */
   initialSize?: { width: number; height: number };
-  /** 国际化文本 */
   i18n?: Record<string, string>;
 }>();
 
-/**
- * Emits 定义
- */
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'node-click', nodeId: string): void;
+  (e: 'navigate-to-block', nodeId: string): void;
   (e: 'resize', size: { width: number; height: number }): void;
 }>();
 
-// ========================================================================
-// 响应式状态
-// ========================================================================
-
-/** Canvas 组件引用 */
 const canvasRef = ref<InstanceType<typeof GraphCanvas> | null>(null);
 
-/** 数据服务实例 */
-let dataService: GraphDataService | null = null;
+const directionMenuOpen = ref(false);
+const directionMenuRef = ref<HTMLDivElement | null>(null);
+const directionMenuButtonRef = ref<HTMLButtonElement | null>(null);
 
-/** 存储服务实例 */
+let dataService: GraphDataService | null = null;
 const storageService = new GraphStorageService();
 
-/** 可用的方向列表 */
 const availableDirections = ref<AssociationType[]>([
   AssociationType.REF_LINK,
   AssociationType.HIERARCHY,
@@ -123,52 +124,25 @@ const availableDirections = ref<AssociationType[]>([
   AssociationType.SIBLING,
 ]);
 
-/** 选中的方向集合 */
 const selectedDirections = ref<Set<AssociationType>>(new Set());
-
-/** 方向候选节点数量 */
 const directionCounts = ref<Record<AssociationType, number>>({} as any);
 
-/** 图谱节点数据 */
 const graphNodes = ref<GraphNode[]>([]);
-
-/** 图谱边数据 */
 const graphEdges = ref<GraphEdge[]>([]);
-
-/** 🆕 Orbit 布局位置映射 */
 const orbitPositions = ref<Map<string, { x: number; y: number }>>(new Map());
-
-/** 高亮节点集合 */
 const highlightedNodes = ref<Set<string>>(new Set());
-
-/** 当前节点 ID */
 const currentNodeId = ref<string | null>(null);
-
-/** 悬停的节点 */
 const hoveredNode = ref<GraphNode | null>(null);
 
-/** 控制面板折叠状态 */
-const panelCollapsed = ref(false);
-
-/** 窗口位置 */
 const windowPosition = ref({ x: 100, y: 100 });
+const windowSize = ref({ width: 860, height: 560 });
 
-/** 窗口大小 */
-const windowSize = ref({ width: 800, height: 600 });
-
-/** 拖拽状态 */
 const dragging = ref(false);
 const dragStart = ref({ x: 0, y: 0 });
 
-/** 调整大小状态 */
 const resizing = ref(false);
 const resizeStart = ref({ x: 0, y: 0, width: 0, height: 0 });
 
-// ========================================================================
-// 计算属性
-// ========================================================================
-
-/** 窗口样式 */
 const windowStyle = computed(() => ({
   left: `${windowPosition.value.x}px`,
   top: `${windowPosition.value.y}px`,
@@ -176,32 +150,31 @@ const windowStyle = computed(() => ({
   height: `${windowSize.value.height}px`,
 }));
 
-/** 提示框样式 */
 const tooltipStyle = computed(() => ({
-  // 简单实现，实际应该根据鼠标位置动态调整
   bottom: '20px',
   right: '20px',
 }));
 
-/** vis-network 配置选项 */
-const graphOptions = computed<VisNetworkOptions>(() => ({
-  // 可以在这里添加自定义配置
-}));
+const graphOptions = computed<VisNetworkOptions>(() => ({}));
 
-// ========================================================================
-// 辅助函数
-// ========================================================================
-
-/**
- * 国际化文本
- */
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
-/**
- * 获取关联类型标签
- */
+const noop = () => {};
+
+function toggleDirectionMenu() {
+  directionMenuOpen.value = !directionMenuOpen.value;
+}
+
+function handleDocumentClick(event: MouseEvent) {
+  if (!directionMenuOpen.value) return;
+  const target = event.target as Node | null;
+  if (target && directionMenuRef.value?.contains(target)) return;
+  if (target && directionMenuButtonRef.value?.contains(target)) return;
+  directionMenuOpen.value = false;
+}
+
 function getAssociationLabel(type: AssociationType): string {
   const labels: Record<AssociationType, string> = {
     [AssociationType.REF_LINK]: t('refLink', '链接关系'),
@@ -212,53 +185,42 @@ function getAssociationLabel(type: AssociationType): string {
   return labels[type] || type;
 }
 
-/**
- * 初始化数据服务
- */
 function initializeDataService() {
   dataService = new GraphDataService(props.queueInstance);
-  console.log('[GraphWindow] Data service initialized');
 }
 
-/**
- * 加载图谱数据
- */
 async function loadGraphData() {
-  if (!dataService) {
-    console.warn('[GraphWindow] Data service not initialized');
-    return;
-  }
-  
+  if (!dataService) return;
+
   try {
-    // 🔧 使用 Orbit 图谱数据
-    const orbitData = await dataService.getOrbitGraphData();
-    
+    const orbitData = await dataService.getOrbitGraphData(selectedDirections.value);
     graphNodes.value = orbitData.nodes;
     graphEdges.value = orbitData.edges;
     orbitPositions.value = orbitData.positions;
-    
-    // 更新当前节点
+
     currentNodeId.value = dataService.getCurrentNode();
-    
-    // 更新高亮节点（历史路径）
-    const historyPath = dataService.getHistoryPath();
-    highlightedNodes.value = new Set(historyPath);
-    
-    console.log(`[GraphWindow] Orbit graph data loaded: ${orbitData.nodes.length} nodes, ${orbitData.edges.length} edges, ${orbitData.positions.size} positions`);
+    highlightedNodes.value = new Set(dataService.getHistoryPath());
+
+    const counts: Record<AssociationType, number> = {} as any;
+    availableDirections.value.forEach(direction => {
+      counts[direction] = 0;
+    });
+    for (const node of orbitData.nodes) {
+      if (node.type === 'candidate' && node.associationType) {
+        counts[node.associationType] = (counts[node.associationType] || 0) + 1;
+      }
+    }
+    directionCounts.value = counts;
   } catch (error) {
     console.error('[GraphWindow] Failed to load graph data:', error);
   }
 }
 
-/**
- * 加载配置
- */
 function loadConfig() {
-  // 加载方向选择
   const savedDirections = storageService.loadDirections();
-  selectedDirections.value = savedDirections as Set<AssociationType>;
-  
-  // 加载窗口配置
+  const directions = new Set(Array.from(savedDirections) as AssociationType[]);
+  selectedDirections.value = directions.size > 0 ? directions : new Set(availableDirections.value);
+
   const savedConfig = storageService.loadWindowConfig();
   if (savedConfig) {
     windowPosition.value = savedConfig.position;
@@ -267,52 +229,46 @@ function loadConfig() {
     windowPosition.value = props.initialPosition;
     windowSize.value = props.initialSize;
   }
-  
-  console.log('[GraphWindow] Config loaded');
 }
 
-/**
- * 保存配置
- */
 function saveConfig() {
-  // 保存方向选择
-  storageService.saveDirections(selectedDirections.value as Set<string>);
-  
-  // 保存窗口配置
+  storageService.saveDirections(new Set(Array.from(selectedDirections.value) as string[]));
+
   const config: WindowConfig = {
     position: windowPosition.value,
     size: windowSize.value,
     visible: props.visible,
   };
   storageService.saveWindowConfig(config);
-  
-  console.log('[GraphWindow] Config saved');
 }
 
-// ========================================================================
-// 事件处理
-// ========================================================================
-
-/**
- * 处理方向变化
- */
 async function handleDirectionChange(directions: Set<AssociationType>) {
   selectedDirections.value = directions;
   await loadGraphData();
   saveConfig();
 }
 
-/**
- * 处理节点点击
- */
 function handleNodeClick(nodeId: string) {
-  console.log('[GraphWindow] Node clicked:', nodeId);
   emit('node-click', nodeId);
 }
 
-/**
- * 处理节点悬停
- */
+function handleSetSeed(nodeId: string) {
+  const queue = props.queueInstance as any;
+  if (!queue || typeof queue.lockCurrentAsSeed !== 'function') {
+    console.warn('[GraphWindow] Queue does not support lockCurrentAsSeed');
+    return;
+  }
+  void queue.lockCurrentAsSeed(nodeId)
+    .then(() => loadGraphData())
+    .catch((err: Error) => {
+      console.error('[GraphWindow] Failed to lock seed:', err);
+    });
+}
+
+function handleNavigateToBlock(nodeId: string) {
+  emit('navigate-to-block', nodeId);
+}
+
 function handleNodeHover(nodeId: string | null) {
   if (nodeId) {
     const node = graphNodes.value.find(n => n.id === nodeId);
@@ -322,112 +278,55 @@ function handleNodeHover(nodeId: string | null) {
   }
 }
 
-/**
- * 处理画布点击
- */
 function handleCanvasClick() {
   hoveredNode.value = null;
 }
 
-/**
- * 处理刷新
- */
 async function handleRefresh() {
   await loadGraphData();
 }
 
-/**
- * 处理关闭
- */
 function handleClose() {
   saveConfig();
   emit('close');
 }
 
-/**
- * 🆕 聚焦到当前节点
- * 
- * Requirements: 7.3
- */
 function focusCurrentNode() {
-  if (!canvasRef.value) {
-    console.warn('[GraphWindow] Canvas ref not available');
-    return;
-  }
-
+  if (!canvasRef.value) return;
   if (currentNodeId.value) {
     canvasRef.value.focusNode(currentNodeId.value);
-    console.log('[GraphWindow] Focused on current node:', currentNodeId.value);
-  } else {
-    console.warn('[GraphWindow] No current node to focus');
   }
 }
 
-/**
- * 🆕 显示全览
- * 
- * Requirements: 7.4
- */
 function showOverview() {
-  if (!canvasRef.value) {
-    console.warn('[GraphWindow] Canvas ref not available');
-    return;
-  }
-
+  if (!canvasRef.value) return;
   const cy = canvasRef.value.getInstance();
-  if (!cy) {
-    console.warn('[GraphWindow] Cytoscape instance not available');
-    return;
-  }
-
+  if (!cy) return;
   cy.animate({
     fit: { padding: 50 },
-    duration: 1000,
+    duration: 800,
     easing: 'ease-in-out-cubic',
   });
-  console.log('[GraphWindow] Showing overview');
 }
 
-/**
- * 切换面板折叠
- */
-function togglePanel() {
-  panelCollapsed.value = !panelCollapsed.value;
-}
-
-// ========================================================================
-// 窗口拖拽
-// ========================================================================
-
-/**
- * 开始拖拽
- */
 function startDrag(e: MouseEvent) {
   dragging.value = true;
   dragStart.value = {
     x: e.clientX - windowPosition.value.x,
     y: e.clientY - windowPosition.value.y,
   };
-  
   document.addEventListener('mousemove', onDrag);
   document.addEventListener('mouseup', stopDrag);
 }
 
-/**
- * 拖拽中
- */
 function onDrag(e: MouseEvent) {
   if (!dragging.value) return;
-  
   windowPosition.value = {
     x: e.clientX - dragStart.value.x,
     y: e.clientY - dragStart.value.y,
   };
 }
 
-/**
- * 停止拖拽
- */
 function stopDrag() {
   dragging.value = false;
   document.removeEventListener('mousemove', onDrag);
@@ -435,13 +334,6 @@ function stopDrag() {
   saveConfig();
 }
 
-// ========================================================================
-// 窗口调整大小
-// ========================================================================
-
-/**
- * 开始调整大小
- */
 function startResize(e: MouseEvent) {
   resizing.value = true;
   resizeStart.value = {
@@ -450,31 +342,21 @@ function startResize(e: MouseEvent) {
     width: windowSize.value.width,
     height: windowSize.value.height,
   };
-  
   document.addEventListener('mousemove', onResize);
   document.addEventListener('mouseup', stopResize);
 }
 
-/**
- * 调整大小中
- */
 function onResize(e: MouseEvent) {
   if (!resizing.value) return;
-  
   const deltaX = e.clientX - resizeStart.value.x;
   const deltaY = e.clientY - resizeStart.value.y;
-  
   windowSize.value = {
     width: Math.max(400, resizeStart.value.width + deltaX),
     height: Math.max(300, resizeStart.value.height + deltaY),
   };
-  
   emit('resize', windowSize.value);
 }
 
-/**
- * 停止调整大小
- */
 function stopResize() {
   resizing.value = false;
   document.removeEventListener('mousemove', onResize);
@@ -482,34 +364,25 @@ function stopResize() {
   saveConfig();
 }
 
-// ========================================================================
-// 生命周期钩子
-// ========================================================================
-
 onMounted(() => {
-  // 初始化
+  document.addEventListener('mousedown', handleDocumentClick);
   initializeDataService();
   loadConfig();
   loadGraphData();
 });
 
 onUnmounted(() => {
-  // 清理事件监听器
+  document.removeEventListener('mousedown', handleDocumentClick);
   document.removeEventListener('mousemove', onDrag);
   document.removeEventListener('mouseup', stopDrag);
   document.removeEventListener('mousemove', onResize);
   document.removeEventListener('mouseup', stopResize);
 });
 
-// ========================================================================
-// 监听 Props 变化
-// ========================================================================
-
 watch(
   () => props.visible,
   (newVisible) => {
     if (newVisible) {
-      // 窗口打开时重新加载数据
       loadGraphData();
     }
   }
@@ -518,27 +391,15 @@ watch(
 watch(
   () => props.queueInstance,
   () => {
-    // 队列实例变化时重新初始化
     initializeDataService();
     loadGraphData();
   }
 );
 
-// ========================================================================
-// 暴露方法给父组件
-// ========================================================================
-
 defineExpose({
-  /**
-   * 刷新图谱
-   */
   refresh: () => {
     loadGraphData();
   },
-  
-  /**
-   * 聚焦节点
-   */
   focusNode: (nodeId: string) => {
     canvasRef.value?.focusNode(nodeId);
   },
@@ -552,8 +413,8 @@ defineExpose({
   flex-direction: column;
   background: var(--b3-theme-background);
   border: 1px solid var(--b3-border-color);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.15);
   overflow: hidden;
   z-index: 1000;
 }
@@ -562,22 +423,37 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  background: var(--b3-theme-surface);
+  padding: 10px 12px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(0, 0, 0, 0.08));
   border-bottom: 1px solid var(--b3-border-color);
   cursor: move;
   user-select: none;
 }
 
+.window-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .window-title {
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--b3-theme-on-surface);
+}
+
+.window-subtitle {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--b3-theme-on-surface-light);
+  opacity: 0.7;
 }
 
 .window-actions {
   display: flex;
-  gap: 4px;
+  gap: 6px;
+  align-items: center;
 }
 
 .btn-action,
@@ -588,8 +464,8 @@ defineExpose({
   background: transparent;
   color: var(--b3-theme-on-surface);
   cursor: pointer;
-  border-radius: 4px;
-  transition: background 0.15s;
+  border-radius: 6px;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .btn-action:hover,
@@ -603,21 +479,20 @@ defineExpose({
   color: white;
 }
 
+.btn-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-label {
+  font-size: 12px;
+}
+
 .window-content {
   display: flex;
   flex: 1;
   overflow: hidden;
-}
-
-.sidebar {
-  width: 250px;
-  border-right: 1px solid var(--b3-border-color);
-  overflow-y: auto;
-  transition: width 0.2s;
-}
-
-.sidebar.collapsed {
-  width: 40px;
 }
 
 .canvas-area {
@@ -674,5 +549,38 @@ defineExpose({
     var(--b3-theme-primary) 50%,
     var(--b3-theme-primary) 100%
   );
+}
+
+.direction-menu-wrap {
+  position: relative;
+}
+
+.direction-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 220px;
+  background: var(--b3-theme-surface);
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  padding: 8px;
+  z-index: 20;
+}
+
+.direction-menu__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  padding: 4px 6px 8px;
+  color: var(--b3-theme-on-surface);
+}
+
+.btn-ghost {
+  border: none;
+  background: transparent;
+  color: var(--b3-theme-on-surface-light);
+  cursor: pointer;
 }
 </style>

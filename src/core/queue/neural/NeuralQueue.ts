@@ -23,33 +23,36 @@ import {
 export class NeuralQueue implements QueueInterface<QueueItem> {
   /** 历史过滤器 */
   private readonly historyFilter: HistoryFilter;
-  
+
   /** 查询引擎 */
   private readonly queryEngine: QueryEngine;
-  
+
   /** 加权游走引擎 */
   private readonly weightedWalkEngine: WeightedWalkEngine;
-  
+
   /** 配置 */
   private readonly config: NeuralQueueConfig;
-  
+
   /** 当前种子卡片 ID */
   private currentSeedId: string | null = null;
-  
+
   /** 用户指定的初始种子 ID */
   private readonly initialSeedId: string | null = null;
-  
+
   /** 前一张卡片 ID（用于显示导航路径） */
   private previousCardId: string | null = null;
-  
+
   /** 前一张卡片的关联类型 */
 
   // 🆕 Orbit 状态管理
   /** 种子节点集合 */
   private seedNodes: Set<string> = new Set();
-  
+
   /** 遗落块映射：种子ID -> 遗落块列表 */
   private missedBlocks: Map<string, import('./types.ts').MissedBlock[]> = new Map();
+
+  /** 🆕 上次缓存的候选节点（用于记录遗落块） */
+  private lastCandidates: import('./types.ts').WeightedNeighbor[] = [];
 
   /**
    * 构造函数
@@ -124,7 +127,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
 
       // 2. 获取当前种子的邻居
       const neighbors = await this.queryEngine.fetchNeighbors(this.currentSeedId);
-      
+
       // 3. 使用历史过滤器过滤已访问的节点
       const unvisitedNeighbors = this.historyFilter.filter(
         neighbors.map(n => ({ id: n.id, type: n.type }))
@@ -138,11 +141,11 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
           console.warn('[NeuralQueue] No more cards available');
           return null;
         }
-        
+
         // 重置状态
         this.previousCardId = this.currentSeedId;
         this.currentSeedId = newSeed;
-        
+
         // 递归调用获取下一张卡片
         return this.getNextItem();
       }
@@ -156,6 +159,9 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       }));
 
       const neighborsWithWeights = this.weightedWalkEngine.applyWeights(weightedNeighbors);
+
+      // 🔧 缓存当前候选节点（用于记录遗落块）
+      this.lastCandidates = neighborsWithWeights;
 
       // 6. 使用加权随机选择下一个节点
       const selectedNeighbor = this.weightedWalkEngine.selectNext(neighborsWithWeights);
@@ -176,7 +182,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       // 8. 更新状态并添加到历史记录
       this.previousCardId = this.currentSeedId;
       this.currentSeedId = selectedNeighbor.id;
-      
+
       // 🔑 关键：添加当前块及其所有子块到历史记录，避免重复展示
       await this.addBlockAndDescendantsToHistory(selectedNeighbor.id);
 
@@ -330,10 +336,10 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     try {
       // 1. 添加当前块到历史记录
       this.historyFilter.add(blockId);
-      
+
       // 2. 查询所有子块
       const descendants = await this.queryEngine.fetchDescendants(blockId);
-      
+
       // 3. 将所有子块添加到历史记录
       if (descendants && descendants.length > 0) {
         for (const descendant of descendants) {
@@ -388,6 +394,9 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     // 3. 更新当前种子
     this.previousCardId = this.currentSeedId;
     this.currentSeedId = blockId;
+    if (!this.historyFilter.has(blockId)) {
+      this.historyFilter.add(blockId);
+    }
   }
 
   /**
@@ -410,13 +419,22 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
   /**
    * 获取当前候选节点（带关联类型）
    * 
+   * 注意：这个方法返回缓存的候选节点。
+   * 实际的候选节点在 getNextItem() 中从 queryEngine 获取。
+   * 
    * @returns 候选节点列表
    * @private
    */
   private getCurrentCandidates(): import('./types.ts').CandidateNode[] {
-    // TODO: 实现从 queryEngine 获取邻居的逻辑
-    // 这需要在后续任务中与 QueryEngine 集成
-    return [];
+    // 返回上次缓存的候选节点
+    // 实际候选节点从 GraphDataService.getCandidateNodes 获取
+    // 这里返回空数组，GraphDataService 会直接调用 queryEngine
+    return (this.lastCandidates || []).map(candidate => ({
+      id: candidate.id,
+      associationType: candidate.associationType,
+      weight: candidate.weight,
+      reason: candidate.reason,
+    }));
   }
 
   /**
@@ -430,7 +448,12 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    */
   private getNavigationPath(): import('./types.ts').NavigationPathNode[] {
     const history = this.historyFilter.snapshot();
-    
+    const currentId = this.currentSeedId;
+
+    if (currentId && !history.includes(currentId)) {
+      history.push(currentId);
+    }
+
     // 转换为 NavigationPathNode 格式
     return history.map((cardId, index) => ({
       cardId,
@@ -440,5 +463,40 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       isSeed: this.seedNodes.has(cardId),
     }));
   }
-}
 
+  /**
+   * 获取当前候选节点（用于 setSeed）
+   * 
+   * 返回当前缓存的候选节点列表，用于在设置种子时记录遗落块。
+   * 
+   * @returns 候选节点（WeightedNeighbor 格式）
+   * @public
+   */
+  public getCurrentCandidatesForSeed(): import('./types.ts').WeightedNeighbor[] {
+    // 从 lastCandidates 返回缓存的候选
+    return this.lastCandidates || [];
+  }
+
+  /**
+   * 获取遗落块数据
+   * 
+   * @returns 遗落块 Map
+   * @public
+   */
+  public getMissedBlocks(): Map<string, import('./types.ts').MissedBlock[]> {
+    return new Map(this.missedBlocks);
+  }
+
+  /**
+   * 恢复遗落块数据
+   * 
+   * 用于在重新初始化后恢复之前记录的遗落块。
+   * 
+   * @param missedBlocks 遗落块 Map
+   * @public
+   */
+  public restoreMissedBlocks(missedBlocks: Map<string, import('./types.ts').MissedBlock[]>): void {
+    this.missedBlocks = new Map(missedBlocks);
+    console.log(`[NeuralQueue] Restored ${missedBlocks.size} missed block entries`);
+  }
+}

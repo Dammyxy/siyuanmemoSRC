@@ -9,6 +9,7 @@
  * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5
  */
 
+import { AssociationType } from '../../../core/queue/neural/types';
 import type { OrbitState, NavigationPathNode, MissedBlock, CandidateNode } from '../../../core/queue/neural/types';
 
 /**
@@ -23,13 +24,13 @@ export interface Position {
  * Orbit 布局引擎
  */
 export class OrbitLayoutEngine {
-  // 布局常量
-  private readonly HORIZONTAL_SPACING = 200;  // 主轨道水平间距
-  private readonly VERTICAL_SPACING = 150;    // 垂直间距
-  private readonly MISSED_OFFSET_Y = -150;    // 遗落块向上偏移
-  private readonly CANDIDATE_OFFSET_Y = 150;  // 候选块向下偏移
-  private readonly CANDIDATE_OFFSET_X = 100;  // 候选块向右偏移
-  private readonly MISSED_HORIZONTAL_SPACING = 80; // 遗落块之间的水平间距
+  // Layout constants
+  private readonly HORIZONTAL_SPACING = 180;
+  private readonly MISSED_OFFSET_Y = -220;
+  private readonly MISSED_HORIZONTAL_SPACING = 70;
+  private readonly CANDIDATE_OFFSET_Y = 220;
+  private readonly CANDIDATE_SPACING = 70;
+  private readonly CANDIDATE_GROUP_GAP = 50;
 
   /**
    * 计算所有节点的布局位置
@@ -43,7 +44,7 @@ export class OrbitLayoutEngine {
       const positions = new Map<string, Position>();
 
       // 1. 计算主轨道节点位置（历史路径）
-      const mainOrbitPositions = this.calculateMainOrbitPositions(state.historyPath);
+      const mainOrbitPositions = this.calculateMainOrbitPositions(state.historyPath, state.currentNodeId);
       mainOrbitPositions.forEach((pos, id) => positions.set(id, pos));
 
       // 2. 计算遗落块位置（在种子块上方）
@@ -84,13 +85,21 @@ export class OrbitLayoutEngine {
    * Requirements: 1.1, 1.4
    */
   private calculateMainOrbitPositions(
-    historyPath: NavigationPathNode[]
+    historyPath: NavigationPathNode[],
+    currentNodeId?: string | null
   ): Map<string, Position> {
     const positions = new Map<string, Position>();
 
+    if (historyPath.length === 0) return positions;
+
+    const currentIndex = currentNodeId
+      ? historyPath.findIndex(node => node.cardId === currentNodeId)
+      : -1;
+    const pivotIndex = currentIndex >= 0 ? currentIndex : Math.floor(historyPath.length / 2);
+
     historyPath.forEach((node, index) => {
       positions.set(node.cardId, {
-        x: index * this.HORIZONTAL_SPACING,
+        x: (index - pivotIndex) * this.HORIZONTAL_SPACING,
         y: 0,
       });
     });
@@ -152,30 +161,60 @@ export class OrbitLayoutEngine {
     currentNodePosition: Position
   ): Map<string, Position> {
     const positions = new Map<string, Position>();
+    if (!candidateNodes.length) return positions;
 
-    candidateNodes.forEach((candidate, index) => {
-      positions.set(candidate.id, {
-        x: currentNodePosition.x + this.CANDIDATE_OFFSET_X,
-        y: currentNodePosition.y + this.CANDIDATE_OFFSET_Y + index * 60,
-      });
+    const order: AssociationType[] = [
+      AssociationType.REF_LINK,
+      AssociationType.HIERARCHY,
+      AssociationType.TAG,
+      AssociationType.SIBLING,
+    ];
+
+    const groups = new Map<AssociationType, CandidateNode[]>();
+    for (const candidate of candidateNodes) {
+      const type = candidate.associationType || AssociationType.REF_LINK;
+      const list = groups.get(type) || [];
+      list.push(candidate);
+      groups.set(type, list);
+    }
+
+    const extraTypes = Array.from(groups.keys()).filter(type => !order.includes(type));
+    const finalOrder = [...order, ...extraTypes];
+    const activeGroups = finalOrder.filter(type => (groups.get(type) || []).length > 0);
+
+    const groupWidths = activeGroups.map(type => {
+      const count = (groups.get(type) || []).length;
+      return count > 1 ? (count - 1) * this.CANDIDATE_SPACING : 0;
     });
+
+    const totalWidth = groupWidths.reduce((sum, w) => sum + w, 0)
+      + Math.max(0, activeGroups.length - 1) * this.CANDIDATE_GROUP_GAP;
+
+    let cursor = currentNodePosition.x - totalWidth / 2;
+    const baseY = currentNodePosition.y + this.CANDIDATE_OFFSET_Y;
+
+    for (const type of activeGroups) {
+      const list = groups.get(type) || [];
+      list.forEach((candidate, index) => {
+        positions.set(candidate.id, {
+          x: cursor + index * this.CANDIDATE_SPACING,
+          y: baseY,
+        });
+      });
+
+      const width = list.length > 1 ? (list.length - 1) * this.CANDIDATE_SPACING : 0;
+      cursor += width + this.CANDIDATE_GROUP_GAP;
+    }
 
     return positions;
   }
 
   /**
-   * 降级布局（简单的线性布局）
-   * 
-   * 当正常布局计算失败时使用
-   * 
-   * @param state Orbit 状态
-   * @returns 节点 ID 到位置的映射
-   * @private
+   * Fallback layout for safety.
    */
   private calculateFallbackLayout(state: OrbitState): Map<string, Position> {
     const positions = new Map<string, Position>();
 
-    // 简单的线性布局：所有节点从左到右排列
     state.historyPath.forEach((node, index) => {
       positions.set(node.cardId, { x: index * 200, y: 0 });
     });

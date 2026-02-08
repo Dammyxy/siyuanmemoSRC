@@ -55,22 +55,22 @@ export class NeuralRoamQueue extends BaseReviewQueue {
      * 现有神经队列实例
      */
     private neuralQueue: NeuralQueue;
-    
+
     /**
      * 种子块集合（用户锁定的种子）
      */
     private seedBlocks: Set<string>;
-    
+
     /**
      * 当前激活的种子块
      */
     private currentSeed: string | null;
-    
+
     /**
      * 持久化存储键
      */
     private readonly STORAGE_KEY = 'neural-roam-seeds';
-    
+
     /**
      * 构造函数
      * 
@@ -78,19 +78,19 @@ export class NeuralRoamQueue extends BaseReviewQueue {
      */
     constructor(manager: UnifiedDataSourceManager) {
         super(manager, QueueType.NeuralRoam);
-        
+
         // 初始化种子块集合
         this.seedBlocks = new Set<string>();
         this.currentSeed = null;
         this.loadPersistedSeeds();
-        
+
         // 创建神经队列实例
         const config = this.loadNeuralConfig();
         this.neuralQueue = new NeuralQueue(config, this.currentSeed || undefined);
-        
+
         console.log('[NeuralRoamQueue] Initialized with', this.seedBlocks.size, 'seed blocks');
     }
-    
+
     /**
      * 判断是否为动态队列
      * 
@@ -100,7 +100,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     public isDynamic(): boolean {
         return false;
     }
-    
+
     /**
      * 获取队列中的所有卡片
      * 
@@ -122,14 +122,14 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                     console.warn(`[NeuralRoamQueue] Seed block ${seedId} not found`);
                 }
             }
-            
+
             return cards;
         } catch (error) {
             console.error('[NeuralRoamQueue] Failed to get cards:', error);
             throw error;
         }
     }
-    
+
     /**
      * 添加种子块
      * 
@@ -143,21 +143,21 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             const cardId = resolveCardId(card);
             this.seedBlocks.add(cardId);
             await this.persistSeeds();
-            
+
             // 触发观察者通知（需求 6.4：卡片添加的队列统计更新）
             this.manager.notifyObservers({
                 type: 'queue-changed',
                 queueType: this.getType(),
                 timestamp: Date.now()
             });
-            
+
             console.log(`[NeuralRoamQueue] Seed block added: ${cardId}`);
         } catch (error) {
             console.error('[NeuralRoamQueue] Failed to add seed block:', error);
             throw error;
         }
     }
-    
+
     /**
      * 移除种子块
      * 
@@ -167,12 +167,12 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     public async removeCard(cardIdOrBlockId: string): Promise<void> {
         try {
             this.seedBlocks.delete(cardIdOrBlockId);
-            
+
             // 如果移除的是当前种子，清空当前种子
             if (this.currentSeed === cardIdOrBlockId) {
                 this.currentSeed = null;
             }
-            
+
             await this.persistSeeds();
             console.log(`[NeuralRoamQueue] Seed block removed: ${cardIdOrBlockId}`);
         } catch (error) {
@@ -180,7 +180,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             throw error;
         }
     }
-    
+
     /**
      * 处理卡片复习
      * 
@@ -200,7 +200,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             // 🔑 混合架构：先尝试从 UnifiedDataSourceManager 获取（闪卡）
             let card: FSRSCard | null = null;
             let isFlashcard = false;
-            
+
             try {
                 card = await this.manager.getCard(cardId);
                 isFlashcard = true;
@@ -209,29 +209,29 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 // 如果不是闪卡，从 SQL 获取块数据
                 console.log(`[NeuralRoamQueue] Card ${cardId} not in manager, fetching from SQL`);
                 const blockData = await this.fetchBlockDataFromSQL(cardId);
-                
+
                 if (!blockData) {
                     console.warn(`[NeuralRoamQueue] Block ${cardId} not found in SQL either`);
                     return; // 静默失败，不抛出错误
                 }
-                
+
                 // 转换为 FSRSCard（虚拟卡片）
                 card = this.convertBlockToFSRSCard(blockData, { cardID: cardId, meta: {} });
                 isFlashcard = blockData.has_flashcard === 1;
             }
-            
+
             if (!card) {
                 console.warn(`[NeuralRoamQueue] Failed to get card data for ${cardId}`);
                 return;
             }
-            
+
             // 仅对 item 卡片（闪卡）评分
             if (card.type === 'item' && isFlashcard) {
                 card.due = this.calculateNextDueDate(card, rating);
                 await this.manager.updateCard(card);
-                
+
                 console.log(`[NeuralRoamQueue] Card ${cardId} reviewed with rating ${rating}`);
-                
+
                 // 通知观察者
                 this.manager.notifyObservers({
                     type: 'card-updated',
@@ -246,7 +246,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             // 不抛出错误，避免中断复习流程
         }
     }
-    
+
     /**
      * 获取下一张卡片（扩散激活）
      * 
@@ -267,14 +267,14 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 console.log('[NeuralRoamQueue] No more cards available');
                 return null;
             }
-            
+
             // 🔑 混合架构：直接从 SQL 获取块数据，转换为 FSRSCard
             const blockData = await this.fetchBlockDataFromSQL(queueItem.cardID);
             if (!blockData) {
                 console.warn(`[NeuralRoamQueue] Block ${queueItem.cardID} not found`);
                 return null;
             }
-            
+
             // 转换为 FSRSCard 格式（包括非闪卡块）
             const card = this.convertBlockToFSRSCard(blockData, queueItem);
             return card;
@@ -283,31 +283,49 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             return null;
         }
     }
-    
+
     /**
      * 锁定当前块为种子
      * 
      * 将当前正在复习的块锁定为种子块。
+     * 同时记录其他候选块作为"遗落块"。
      * 
      * @param cardId 卡片 ID
      * @see 需求 19.1, 19.2
      */
     public async lockCurrentAsSeed(cardId: string): Promise<void> {
         try {
+            // 🔧 在重新初始化前，获取当前候选并调用 setSeed 记录遗落块
+            if (this.neuralQueue) {
+                // 获取当前候选节点（如果有）
+                const currentCandidates = this.neuralQueue.getCurrentCandidatesForSeed();
+                if (currentCandidates.length > 0) {
+                    // 记录遗落块
+                    this.neuralQueue.setSeed(cardId, currentCandidates);
+                    console.log(`[NeuralRoamQueue] Recorded ${currentCandidates.length - 1} missed blocks for seed ${cardId}`);
+                }
+            }
+
             this.currentSeed = cardId;
             await this.addCard(cardId);
-            
+
             // 重新初始化神经队列，使用新种子
             const config = this.loadNeuralConfig();
+            const oldMissedBlocks = this.neuralQueue?.getMissedBlocks();
             this.neuralQueue = new NeuralQueue(config, this.currentSeed);
-            
+
+            // 🔧 恢复遗落块数据
+            if (oldMissedBlocks) {
+                this.neuralQueue.restoreMissedBlocks(oldMissedBlocks);
+            }
+
             console.log(`[NeuralRoamQueue] Current block locked as seed: ${cardId}`);
         } catch (error) {
             console.error('[NeuralRoamQueue] Failed to lock current as seed:', error);
             throw error;
         }
     }
-    
+
     /**
      * 从指定种子开始漫游
      * 
@@ -317,18 +335,18 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     public async startRoamingFromSeed(seedId: string): Promise<void> {
         try {
             this.currentSeed = seedId;
-            
+
             // 重新初始化神经队列
             const config = this.loadNeuralConfig();
             this.neuralQueue = new NeuralQueue(config, this.currentSeed);
-            
+
             console.log(`[NeuralRoamQueue] Started roaming from seed: ${seedId}`);
         } catch (error) {
             console.error('[NeuralRoamQueue] Failed to start roaming from seed:', error);
             throw error;
         }
     }
-    
+
     /**
      * 清空历史记录
      * 
@@ -338,7 +356,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         this.neuralQueue.clearHistory();
         console.log('[NeuralRoamQueue] History cleared');
     }
-    
+
     /**
      * 获取所有种子块
      * 
@@ -348,7 +366,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     public getSeedBlocks(): string[] {
         return Array.from(this.seedBlocks);
     }
-    
+
     /**
      * 获取当前种子
      * 
@@ -358,7 +376,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     public getCurrentSeed(): string | null {
         return this.currentSeed;
     }
-    
+
     /**
      * 获取历史快照
      * 
@@ -367,7 +385,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     public getHistorySnapshot(): string[] {
         return this.neuralQueue.getHistorySnapshot();
     }
-    
+
     /**
      * 🆕 获取 Orbit 状态
      * 
@@ -380,7 +398,29 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     public getOrbitState(): import('../core/queue/neural/types').OrbitState {
         return this.neuralQueue.getOrbitState();
     }
-    
+
+    /**
+     * 获取当前候选节点（用于 Orbit 交互）
+     */
+    public getCurrentCandidatesForSeed(): import('../core/queue/neural/types').WeightedNeighbor[] {
+        return this.neuralQueue.getCurrentCandidatesForSeed();
+    }
+
+    /**
+     * 🆕 设置种子块
+     * 
+     * 将指定块设为种子，并记录其他候选块为遗落块。
+     * 这是 Orbit 图谱交互的核心方法。
+     * 
+     * @param blockId 要设为种子的块 ID
+     * @param currentCandidates 当前所有候选节点列表
+     * Requirements: 4.1, 4.2, 4.3
+     */
+    public setSeed(blockId: string, currentCandidates: import('../core/queue/neural/types').WeightedNeighbor[]): void {
+        this.neuralQueue.setSeed(blockId, currentCandidates);
+        console.log(`[NeuralRoamQueue] Set seed via Orbit: ${blockId}`);
+    }
+
     /**
      * 恢复历史记录
      * 
@@ -390,7 +430,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         this.neuralQueue.restoreHistory(snapshot);
         console.log(`[NeuralRoamQueue] History restored with ${snapshot.length} cards`);
     }
-    
+
     /**
      * 重新排序队列
      * 
@@ -403,30 +443,30 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     public async reorder(orderedCards: FSRSCard[]): Promise<boolean> {
         try {
             console.log(`[NeuralRoamQueue] Reordering ${orderedCards.length} seed blocks`);
-            
+
             // 创建新的 Set 以保持顺序（虽然 Set 不保证顺序，但我们可以用数组）
             const newSeeds: string[] = [];
-            
+
             // 按照 orderedCards 的顺序重新添加种子
             for (const card of orderedCards) {
                 if (this.seedBlocks.has(card.id)) {
                     newSeeds.push(card.id);
                 }
             }
-            
+
             // 添加不在 orderedCards 中的种子（保持在末尾）
             for (const seedId of this.seedBlocks) {
                 if (!newSeeds.includes(seedId)) {
                     newSeeds.push(seedId);
                 }
             }
-            
+
             // 更新种子块集合
             this.seedBlocks = new Set(newSeeds);
-            
+
             // 持久化新顺序
             await this.persistSeeds();
-            
+
             console.log(`[NeuralRoamQueue] Reorder completed successfully`);
             return true;
         } catch (error) {
@@ -434,11 +474,11 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             return false;
         }
     }
-    
+
     // ========================================================================
     // 私有辅助方法
     // ========================================================================
-    
+
     /**
      * 从 SQL 直接获取块数据
      * 
@@ -461,7 +501,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             //    - 如果在列表项中，返回列表项块
             //    - 如果不在列表项中，返回段落/标题块
             // 3. 如果 blockId 是列表块，返回 null（不显示列表块）
-            
+
             const stmt = `
                 SELECT 
                     b.*,
@@ -501,28 +541,28 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 )
                 LIMIT 1
             `;
-            
+
             const rows = await sql(stmt);
-            
+
             if (rows.length === 0) {
                 console.log(`[NeuralRoamQueue] Block ${blockId} filtered out (likely a list block)`);
                 return null;
             }
-            
+
             const result = rows[0];
-            
+
             // 如果返回的是父列表项，记录日志
             if (result.id !== blockId) {
                 console.log(`[NeuralRoamQueue] Replaced ${blockId} with parent list item ${result.id}`);
             }
-            
+
             return result;
         } catch (error) {
             console.error('[NeuralRoamQueue] Failed to fetch block data from SQL:', error);
             return null;
         }
     }
-    
+
     /**
      * 将块数据转换为 FSRSCard 格式
      * 
@@ -535,7 +575,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     private convertBlockToFSRSCard(blockData: any, queueItem: any): FSRSCard {
         const hasFlashcard = blockData.has_flashcard === 1;
         const now = Date.now();
-        
+
         // 如果是闪卡，尝试从 UnifiedDataSourceManager 获取完整数据
         if (hasFlashcard && blockData.card_id) {
             try {
@@ -546,17 +586,17 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 console.warn(`[NeuralRoamQueue] Failed to get flashcard data for ${blockData.id}`);
             }
         }
-        
+
         // 创建 FSRSCard 对象（包括非闪卡块）
         const card: FSRSCard = {
             // 基本信息
             id: blockData.card_id || blockData.id, // 闪卡用 card_id，非闪卡用 block_id
             blockId: blockData.id,
-            
+
             // 卡片类型
             type: hasFlashcard ? 'item' : 'topic',
             cardType: hasFlashcard ? 'item' : 'topic',
-            
+
             // FSRS 调度数据（非闪卡使用默认值）
             due: hasFlashcard ? now : now + 365 * 24 * 60 * 60 * 1000, // 非闪卡设置为一年后
             stability: 0,
@@ -567,19 +607,19 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             lapses: 0,
             state: 0,
             lastReview: null,
-            
+
             // 神经上下文（从 queueItem 获取）
             neuralContext: queueItem.meta?.neuralContext,
-            
+
             // 其他元数据
             deckId: blockData.box || 'default',
             createdAt: blockData.created ? new Date(blockData.created).getTime() : now,
             updatedAt: blockData.updated ? new Date(blockData.updated).getTime() : now,
         };
-        
+
         return card;
     }
-    
+
     /**
      * SQL 转义（防止 SQL 注入）
      * 
@@ -590,7 +630,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         if (!value) return '';
         return value.replace(/'/g, "''");
     }
-    
+
     /**
      * 计算下次到期日期
      * 
@@ -602,7 +642,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         const now = Date.now();
         return now + newInterval * 24 * 60 * 60 * 1000;
     }
-    
+
     /**
      * 加载神经队列配置
      * 
@@ -616,7 +656,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             return {};
         }
     }
-    
+
     /**
      * 从持久化存储加载种子块
      * 
@@ -637,7 +677,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             this.currentSeed = null;
         }
     }
-    
+
     /**
      * 持久化种子块到存储
      * 
@@ -656,7 +696,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             throw error;
         }
     }
-    
+
     /**
      * ✅ 兼容方法：获取所有队列项（同步）
      * 
