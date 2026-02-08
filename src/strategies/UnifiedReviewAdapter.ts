@@ -74,6 +74,25 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
         
         const card = item as FSRSCard;
         
+        // 🔑 检查是否为神经漫游队列
+        const isNeuralRoam = (queue as any).getType?.() === 'neural-roam';
+        
+        // 构建工具栏按钮
+        const toolbar = [
+            { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: '全屏' },
+            { icon: '#iconEdit', type: 'edit-srs', ariaLabel: '编辑SRS数据' },
+            { icon: '#iconOpen', type: 'sticktab', ariaLabel: '打开为' },
+        ];
+        
+        // 🆕 仅神经漫游队列显示锁定种子按钮和菜单
+        if (isNeuralRoam) {
+            toolbar.push(
+                { icon: '#iconGraph', type: 'open-graph', ariaLabel: '打开图谱 🗺️' },
+                { icon: '#iconLock', type: 'lock-seed', ariaLabel: '锁定为种子块 🌱' },
+                { icon: '#iconMenu', type: 'neural-menu', ariaLabel: '神经漫游菜单' }
+            );
+        }
+        
         // 构建 UI 状态
         const state: any = {
             header: {
@@ -90,11 +109,7 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                     currentReviewCards: stats?.size || 0,
                 },
                 breadcrumbs: [],
-                toolbar: [
-                    { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: '全屏' },
-                    { icon: '#iconEdit', type: 'edit-srs', ariaLabel: '编辑SRS数据' },
-                    { icon: '#iconOpen', type: 'sticktab', ariaLabel: '打开为' },
-                ],
+                toolbar: toolbar,
             },
             content: {
                 type: 'protyle',

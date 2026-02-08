@@ -25,6 +25,8 @@ import { NeuralQueue } from '../core/queue/neural/NeuralQueue';
 import { NeuralQueueStorage } from '../core/queue/neural/NeuralQueueStorage';
 import type { NeuralQueueConfig } from '../core/queue/neural/types';
 import { resolveCardId } from '../diagnostics/type-guards';
+import { sql } from '@/core/siyuan/api';
+import { ATTR_CARD_ID } from '@/core/siyuan/block';
 
 /**
  * 种子块数据接口
@@ -187,40 +189,73 @@ export class NeuralRoamQueue extends BaseReviewQueue {
      * - 对于 topic 卡片：不评分，支持插入和跳过操作
      * - 永不自动移除卡片
      * 
-     * @param cardId 卡片 ID
+     * 混合架构：先尝试从 UnifiedDataSourceManager 获取，如果失败则从 SQL 获取
+     * 
+     * @param cardId 卡片 ID（可能是 card_id 或 block_id）
      * @param rating 评分 (1-4)
      * @see 需求 6.4, 13.2
      */
     public async handleReview(cardId: string, rating: number): Promise<void> {
         try {
-            const card = await this.manager.getCard(cardId);
+            // 🔑 混合架构：先尝试从 UnifiedDataSourceManager 获取（闪卡）
+            let card: FSRSCard | null = null;
+            let isFlashcard = false;
             
-            // 仅对 item 卡片评分
-            if (card.type === 'item') {
+            try {
+                card = await this.manager.getCard(cardId);
+                isFlashcard = true;
+                console.log(`[NeuralRoamQueue] Found flashcard in manager: ${cardId}`);
+            } catch (error) {
+                // 如果不是闪卡，从 SQL 获取块数据
+                console.log(`[NeuralRoamQueue] Card ${cardId} not in manager, fetching from SQL`);
+                const blockData = await this.fetchBlockDataFromSQL(cardId);
+                
+                if (!blockData) {
+                    console.warn(`[NeuralRoamQueue] Block ${cardId} not found in SQL either`);
+                    return; // 静默失败，不抛出错误
+                }
+                
+                // 转换为 FSRSCard（虚拟卡片）
+                card = this.convertBlockToFSRSCard(blockData, { cardID: cardId, meta: {} });
+                isFlashcard = blockData.has_flashcard === 1;
+            }
+            
+            if (!card) {
+                console.warn(`[NeuralRoamQueue] Failed to get card data for ${cardId}`);
+                return;
+            }
+            
+            // 仅对 item 卡片（闪卡）评分
+            if (card.type === 'item' && isFlashcard) {
                 card.due = this.calculateNextDueDate(card, rating);
                 await this.manager.updateCard(card);
                 
                 console.log(`[NeuralRoamQueue] Card ${cardId} reviewed with rating ${rating}`);
+                
+                // 通知观察者
+                this.manager.notifyObservers({
+                    type: 'card-updated',
+                    cardIds: [cardId],
+                    timestamp: Date.now()
+                });
             } else {
-                console.log(`[NeuralRoamQueue] Skipped rating for non-item card ${cardId}`);
+                console.log(`[NeuralRoamQueue] Skipped rating for non-item card ${cardId} (type: ${card.type})`);
             }
-            
-            // 通知观察者
-            this.manager.notifyObservers({
-                type: 'card-updated',
-                cardIds: [cardId],
-                timestamp: Date.now()
-            });
         } catch (error) {
             console.error('[NeuralRoamQueue] Failed to handle review:', error);
-            throw error;
+            // 不抛出错误，避免中断复习流程
         }
     }
     
     /**
      * 获取下一张卡片（扩散激活）
      * 
-     * 使用现有的神经队列实现获取下一张卡片。
+     * 混合架构实现：
+     * - 使用 NeuralQueue 进行扩散激活（获取下一个块 ID）
+     * - 直接从 SQL 获取块数据（不通过 UnifiedDataSourceManager）
+     * - 将块数据转换为 FSRSCard 格式（包括非闪卡块）
+     * 
+     * 这样可以支持漫游所有类型的块，而不仅仅是闪卡。
      * 
      * @returns 下一张卡片，如果没有则返回 null
      * @see 需求 20.1, 20.2, 20.3, 20.4, 20.5
@@ -233,8 +268,15 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 return null;
             }
             
-            // 转换为 FSRSCard 对象
-            const card = await this.manager.getCard(queueItem.cardID);
+            // 🔑 混合架构：直接从 SQL 获取块数据，转换为 FSRSCard
+            const blockData = await this.fetchBlockDataFromSQL(queueItem.cardID);
+            if (!blockData) {
+                console.warn(`[NeuralRoamQueue] Block ${queueItem.cardID} not found`);
+                return null;
+            }
+            
+            // 转换为 FSRSCard 格式（包括非闪卡块）
+            const card = this.convertBlockToFSRSCard(blockData, queueItem);
             return card;
         } catch (error) {
             console.error('[NeuralRoamQueue] Failed to get next card:', error);
@@ -327,6 +369,19 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     }
     
     /**
+     * 🆕 获取 Orbit 状态
+     * 
+     * 从底层 NeuralQueue 获取完整的 Orbit 状态，
+     * 包括历史路径、遗落块、当前节点和候选节点。
+     * 
+     * @returns Orbit 状态对象
+     * Requirements: 10.1, 10.2
+     */
+    public getOrbitState(): import('../core/queue/neural/types').OrbitState {
+        return this.neuralQueue.getOrbitState();
+    }
+    
+    /**
      * 恢复历史记录
      * 
      * @param snapshot 历史快照
@@ -383,6 +438,158 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     // ========================================================================
     // 私有辅助方法
     // ========================================================================
+    
+    /**
+     * 从 SQL 直接获取块数据
+     * 
+     * 混合架构的关键：绕过 UnifiedDataSourceManager，直接查询数据库。
+     * 这样可以获取所有类型的块，不仅仅是闪卡。
+     * 
+     * 过滤逻辑（避免"一炮三响"）：
+     * - 优先返回列表项块（type='i'）
+     * - 如果不在列表项中，返回段落块/标题块（type='p' 或 type='h'）
+     * - 永远不返回列表块（type='l'）
+     * 
+     * @param blockId 块 ID
+     * @returns 块数据，如果不存在则返回 null
+     */
+    private async fetchBlockDataFromSQL(blockId: string): Promise<any | null> {
+        try {
+            // 🔑 关键：使用过滤逻辑避免重复
+            // 1. 如果 blockId 是列表项块，直接返回
+            // 2. 如果 blockId 是段落/标题块，检查是否在列表项中
+            //    - 如果在列表项中，返回列表项块
+            //    - 如果不在列表项中，返回段落/标题块
+            // 3. 如果 blockId 是列表块，返回 null（不显示列表块）
+            
+            const stmt = `
+                SELECT 
+                    b.*,
+                    a.value as card_id,
+                    CASE 
+                        WHEN a.value IS NOT NULL AND a.value != '' THEN 1
+                        ELSE 0
+                    END as has_flashcard
+                FROM blocks b
+                LEFT JOIN attributes a ON b.id = a.block_id AND a.name = '${ATTR_CARD_ID}'
+                WHERE (
+                    -- 情况 1: 如果是列表项块，直接返回
+                    (b.id = '${this.escapeSQL(blockId)}' AND b.type = 'i')
+                    
+                    OR
+                    
+                    -- 情况 2: 如果是段落/标题块，检查是否在列表项中
+                    (
+                        b.id = '${this.escapeSQL(blockId)}' 
+                        AND (b.type = 'p' OR b.type = 'h' OR b.type = 't')
+                        AND b.parent_id NOT IN (
+                            SELECT id FROM blocks WHERE type = 'i'
+                        )
+                    )
+                    
+                    OR
+                    
+                    -- 情况 3: 如果查询的是段落/标题块，但它在列表项中，返回其父列表项
+                    (
+                        b.type = 'i'
+                        AND b.id IN (
+                            SELECT parent_id FROM blocks 
+                            WHERE id = '${this.escapeSQL(blockId)}' 
+                            AND (type = 'p' OR type = 'h' OR type = 't')
+                        )
+                    )
+                )
+                LIMIT 1
+            `;
+            
+            const rows = await sql(stmt);
+            
+            if (rows.length === 0) {
+                console.log(`[NeuralRoamQueue] Block ${blockId} filtered out (likely a list block)`);
+                return null;
+            }
+            
+            const result = rows[0];
+            
+            // 如果返回的是父列表项，记录日志
+            if (result.id !== blockId) {
+                console.log(`[NeuralRoamQueue] Replaced ${blockId} with parent list item ${result.id}`);
+            }
+            
+            return result;
+        } catch (error) {
+            console.error('[NeuralRoamQueue] Failed to fetch block data from SQL:', error);
+            return null;
+        }
+    }
+    
+    /**
+     * 将块数据转换为 FSRSCard 格式
+     * 
+     * 为非闪卡块创建"虚拟" FSRSCard 对象，使其可以在复习界面中显示。
+     * 
+     * @param blockData SQL 查询返回的块数据
+     * @param queueItem 神经队列项（包含神经上下文）
+     * @returns FSRSCard 对象
+     */
+    private convertBlockToFSRSCard(blockData: any, queueItem: any): FSRSCard {
+        const hasFlashcard = blockData.has_flashcard === 1;
+        const now = Date.now();
+        
+        // 如果是闪卡，尝试从 UnifiedDataSourceManager 获取完整数据
+        if (hasFlashcard && blockData.card_id) {
+            try {
+                // 异步获取，但我们需要同步返回，所以这里只能用默认值
+                // 实际的 FSRS 数据会在后续的 handleReview 中使用
+                console.log(`[NeuralRoamQueue] Block ${blockData.id} is a flashcard`);
+            } catch (error) {
+                console.warn(`[NeuralRoamQueue] Failed to get flashcard data for ${blockData.id}`);
+            }
+        }
+        
+        // 创建 FSRSCard 对象（包括非闪卡块）
+        const card: FSRSCard = {
+            // 基本信息
+            id: blockData.card_id || blockData.id, // 闪卡用 card_id，非闪卡用 block_id
+            blockId: blockData.id,
+            
+            // 卡片类型
+            type: hasFlashcard ? 'item' : 'topic',
+            cardType: hasFlashcard ? 'item' : 'topic',
+            
+            // FSRS 调度数据（非闪卡使用默认值）
+            due: hasFlashcard ? now : now + 365 * 24 * 60 * 60 * 1000, // 非闪卡设置为一年后
+            stability: 0,
+            difficulty: 0,
+            elapsedDays: 0,
+            scheduledDays: 0,
+            reps: 0,
+            lapses: 0,
+            state: 0,
+            lastReview: null,
+            
+            // 神经上下文（从 queueItem 获取）
+            neuralContext: queueItem.meta?.neuralContext,
+            
+            // 其他元数据
+            deckId: blockData.box || 'default',
+            createdAt: blockData.created ? new Date(blockData.created).getTime() : now,
+            updatedAt: blockData.updated ? new Date(blockData.updated).getTime() : now,
+        };
+        
+        return card;
+    }
+    
+    /**
+     * SQL 转义（防止 SQL 注入）
+     * 
+     * @param value 要转义的值
+     * @returns 转义后的值
+     */
+    private escapeSQL(value: string): string {
+        if (!value) return '';
+        return value.replace(/'/g, "''");
+    }
     
     /**
      * 计算下次到期日期

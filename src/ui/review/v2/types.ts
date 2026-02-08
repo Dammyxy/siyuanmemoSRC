@@ -99,6 +99,7 @@ export interface ReviewSessionHook {
   grade: (rating: number) => Promise<void>;
   skip: () => Promise<void>;
   executeCommand: (cmdId: string) => Promise<void>;
+  getQueueStrategy: () => any; // 🆕 获取底层队列策略（用于神经漫游等特殊功能）
   onMounted: () => void;
   onUnmounted: () => void;
 }

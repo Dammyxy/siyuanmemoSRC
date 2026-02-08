@@ -4,7 +4,7 @@
  */
 
 /**
- * 神经复习中的块类型
+ * 神经漫游中的块类型
  */
 export enum NeuralBlockType {
   /** 闪卡 - 需要主动回忆和评分 */
@@ -238,6 +238,8 @@ export interface NavigationPathNode {
   associationType: AssociationType;
   /** 时间戳 */
   timestamp: number;
+  /** 🆕 是否为种子块 (Orbit) */
+  isSeed?: boolean;
 }
 
 /**
@@ -264,4 +266,57 @@ export interface QueryOptions {
   includeTags?: boolean;
   /** 是否包含兄弟块 */
   includeSiblings?: boolean;
+}
+
+// ============================================================================
+// Orbit Visualization Types (轨道可视化类型)
+// ============================================================================
+
+/**
+ * Orbit 节点类型枚举
+ * Node types in the Orbit visualization
+ */
+export type OrbitNodeType = 'history' | 'seed' | 'current' | 'missed' | 'candidate';
+
+/**
+ * 遗落块记录
+ * Missed block - candidate that was skipped when choosing a seed
+ */
+export interface MissedBlock {
+  /** 块 ID */
+  id: string;
+  /** 关联类型 */
+  associationType: AssociationType;
+  /** 被遗落的时间戳 */
+  missedAt: number;
+}
+
+/**
+ * 候选节点
+ * Candidate node - current explorable neighbor
+ */
+export interface CandidateNode {
+  /** 块 ID */
+  id: string;
+  /** 关联类型 */
+  associationType: AssociationType;
+  /** 权重 */
+  weight: number;
+  /** 关联原因描述 */
+  reason: string;
+}
+
+/**
+ * Orbit 状态
+ * Complete state of the Orbit visualization system
+ */
+export interface OrbitState {
+  /** 历史路径（有序） */
+  historyPath: NavigationPathNode[];
+  /** 遗落块映射：种子ID -> 遗落块列表 */
+  missedBlocks: Map<string, MissedBlock[]>;
+  /** 当前节点 ID */
+  currentNodeId: string | null;
+  /** 候选节点列表 */
+  candidateNodes: CandidateNode[];
 }

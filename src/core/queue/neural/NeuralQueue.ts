@@ -44,6 +44,13 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
   
   /** 前一张卡片的关联类型 */
 
+  // 🆕 Orbit 状态管理
+  /** 种子节点集合 */
+  private seedNodes: Set<string> = new Set();
+  
+  /** 遗落块映射：种子ID -> 遗落块列表 */
+  private missedBlocks: Map<string, import('./types.ts').MissedBlock[]> = new Map();
+
   /**
    * 构造函数
    * 
@@ -166,10 +173,12 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
         return this.getNextItem();
       }
 
-      // 8. 更新状态
+      // 8. 更新状态并添加到历史记录
       this.previousCardId = this.currentSeedId;
       this.currentSeedId = selectedNeighbor.id;
-      this.historyFilter.add(selectedNeighbor.id);
+      
+      // 🔑 关键：添加当前块及其所有子块到历史记录，避免重复展示
+      await this.addBlockAndDescendantsToHistory(selectedNeighbor.id);
 
       // 9. 构造 QueueItem 并注入神经上下文
       const queueItem: QueueItem = {
@@ -308,4 +317,128 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     };
     return reasonMap[type] || '未知关联';
   }
+
+  /**
+   * 将块及其所有子块添加到历史记录
+   * 
+   * 避免"一炮三响"问题：如果展示了父列表项块，就不应该再展示它的子块。
+   * 
+   * @param blockId 块 ID
+   * @private
+   */
+  private async addBlockAndDescendantsToHistory(blockId: string): Promise<void> {
+    try {
+      // 1. 添加当前块到历史记录
+      this.historyFilter.add(blockId);
+      
+      // 2. 查询所有子块
+      const descendants = await this.queryEngine.fetchDescendants(blockId);
+      
+      // 3. 将所有子块添加到历史记录
+      if (descendants && descendants.length > 0) {
+        for (const descendant of descendants) {
+          this.historyFilter.add(descendant.id);
+        }
+        console.log(`[NeuralQueue] Added ${descendants.length} descendants of ${blockId} to history`);
+      }
+    } catch (error) {
+      // 如果查询子块失败，只添加当前块（降级处理）
+      console.error(`[NeuralQueue] Failed to fetch descendants for ${blockId}:`, error);
+      this.historyFilter.add(blockId);
+    }
+  }
+
+  // ============================================================================
+  // Orbit 状态管理方法
+  // ============================================================================
+
+  /**
+   * 设置种子块
+   * 
+   * 当用户选择一个候选块或遗落块作为种子时调用。
+   * 将其他候选块记录为"遗落块"。
+   * 
+   * @param blockId 被选为种子的块 ID
+   * @param currentCandidates 当前所有候选节点列表
+   * Requirements: 4.1, 4.2, 4.3
+   */
+  public setSeed(blockId: string, currentCandidates: WeightedNeighbor[]): void {
+    // 检查是否已经是种子
+    if (this.seedNodes.has(blockId)) {
+      console.warn(`[NeuralQueue] Block ${blockId} is already a seed`);
+      return;
+    }
+
+    // 1. 标记为种子
+    this.seedNodes.add(blockId);
+    console.log(`[NeuralQueue] Set block ${blockId} as seed`);
+
+    // 2. 将其他候选记录为遗落块
+    const missed: import('./types.ts').MissedBlock[] = currentCandidates
+      .filter(c => c.id !== blockId)
+      .map(c => ({
+        id: c.id,
+        associationType: c.associationType,
+        missedAt: Date.now(),
+      }));
+
+    this.missedBlocks.set(blockId, missed);
+    console.log(`[NeuralQueue] Recorded ${missed.length} missed blocks for seed ${blockId}`);
+
+    // 3. 更新当前种子
+    this.previousCardId = this.currentSeedId;
+    this.currentSeedId = blockId;
+  }
+
+  /**
+   * 获取 Orbit 状态
+   * 
+   * 返回完整的 Orbit 可视化状态，包括历史路径、遗落块、当前节点和候选节点。
+   * 
+   * @returns Orbit 状态对象
+   * Requirements: 10.1, 10.2
+   */
+  public getOrbitState(): import('./types.ts').OrbitState {
+    return {
+      historyPath: this.getNavigationPath(),
+      missedBlocks: new Map(this.missedBlocks),
+      currentNodeId: this.currentSeedId,
+      candidateNodes: this.getCurrentCandidates(),
+    };
+  }
+
+  /**
+   * 获取当前候选节点（带关联类型）
+   * 
+   * @returns 候选节点列表
+   * @private
+   */
+  private getCurrentCandidates(): import('./types.ts').CandidateNode[] {
+    // TODO: 实现从 queryEngine 获取邻居的逻辑
+    // 这需要在后续任务中与 QueryEngine 集成
+    return [];
+  }
+
+  /**
+   * 获取导航路径
+   * 
+   * 从历史过滤器获取访问过的卡片列表，并转换为导航路径节点格式。
+   * 
+   * @returns 导航路径节点列表
+   * @private
+   * Requirements: 10.1
+   */
+  private getNavigationPath(): import('./types.ts').NavigationPathNode[] {
+    const history = this.historyFilter.snapshot();
+    
+    // 转换为 NavigationPathNode 格式
+    return history.map((cardId, index) => ({
+      cardId,
+      cardTitle: '', // TODO: 需要从数据库获取标题
+      associationType: AssociationType.REF_LINK, // 默认类型
+      timestamp: Date.now() - (history.length - index) * 1000, // 估算时间戳
+      isSeed: this.seedNodes.has(cardId),
+    }));
+  }
 }
+

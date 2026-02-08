@@ -90,7 +90,7 @@ export class MenuService {
     // 神经漫游
     menu.addItem({
       icon: 'iconRefresh',
-      label: this.deps.i18n?.startNeuralReview || '开始神经复习',
+      label: this.deps.i18n?.startNeuralReview || '开始神经漫游',
       accelerator: 'Alt+N',
       click: () => {
         this.deps.openNeuralRoamDialog();

@@ -1,6 +1,6 @@
 <template>
-  <!-- 阶段1: 答案隐藏 - showAnswer 为 true 时显示"显示答案"按钮 -->
-  <div v-if="actions.showAnswer" class="card__action fn__flex">
+  <!-- 阶段1: 答案隐藏 - showAnswer 为 true 时显示"显示答案"按钮 (Topic 卡片跳过此阶段) -->
+  <div v-if="actions.showAnswer && !isTopicCard" class="card__action fn__flex">
     <button
       class="b3-button b3-button--cancel"
       disabled="disabled"

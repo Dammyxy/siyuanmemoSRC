@@ -186,7 +186,7 @@ export class BlockMenuManager {
 
         menu.addItem({
             icon: 'iconRefresh',
-            label: this.plugin.i18n?.startNeuralReviewFromHere || '从此处开始神经复习',
+            label: this.plugin.i18n?.startNeuralReviewFromHere || '从此处开始神经漫游',
             click: async () => {
                 const seedBlockId = blockIds[0];
                 const includeSeedAsFirst = Boolean(blockElements[0]?.hasAttribute?.(ATTR_CARD_ID));
@@ -194,7 +194,7 @@ export class BlockMenuManager {
                     await (this.plugin as any).openNeuralRoamDialog({ seedBlockId, includeSeedAsFirst, resetHistory: true });
                 } catch (err) {
                     console.error('[FSRS] Failed to open neural review from block:', err);
-                    await pushErrMsg(this.plugin.i18n?.neuralReviewFailed || '神经复习启动失败');
+                    await pushErrMsg(this.plugin.i18n?.neuralReviewFailed || '神经漫游启动失败');
                 }
             },
         });

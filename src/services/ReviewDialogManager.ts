@@ -290,7 +290,7 @@ export class ReviewDialogManager {
       this.reviewDialog = createUnifiedReviewDialog({
         plugin: this.deps.plugin,
         queueType: QueueType.NeuralRoam,
-        title: this.deps.i18n?.neuralReviewTitle || '神经复习',
+        title: this.deps.i18n?.neuralReviewTitle || '神经漫游',
         onClose: () => {
           this.reviewDialog = null;
         }

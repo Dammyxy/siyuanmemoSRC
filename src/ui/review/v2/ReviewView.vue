@@ -32,12 +32,23 @@
         </div>
       </div>
     </div>
+
+    <!-- 🆕 神经漫游图谱窗口 -->
+    <GraphWindow
+      v-if="isNeuralRoamMode && graphWindowVisible"
+      ref="graphWindowRef"
+      :queue-instance="neuralQueueInstance"
+      :visible="graphWindowVisible"
+      :i18n="i18n"
+      @close="handleGraphWindowClose"
+      @node-click="handleGraphNodeClick"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { Menu, openTab, openWindow } from 'siyuan';
-import { onMounted, onUnmounted, ref } from 'vue';
+import { Menu, openTab, openWindow, showMessage } from 'siyuan';
+import { onMounted, onUnmounted, ref, computed, watch } from 'vue';
 import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
 import ReviewHeader from './ReviewHeader.vue';
@@ -47,6 +58,8 @@ import { ProviderBackedQueueStrategy } from '@/core/extensions';
 import { createVueDialog } from '@/utils/dialog';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import * as riff from '@/core/siyuan/riff';
+import GraphWindow from '@/ui/graph/components/GraphWindow.vue';
+import type { NeuralRoamQueue } from '@/queues/NeuralRoamQueue';
 
 const props = defineProps<{
   app: any;
@@ -67,6 +80,26 @@ const emit = defineEmits<{
 }>();
 
 const rootRef = ref<HTMLDivElement | null>(null);
+
+// 🆕 图谱窗口状态
+const graphWindowVisible = ref(false);
+const graphWindowRef = ref<InstanceType<typeof GraphWindow> | null>(null);
+
+// 🆕 判断是否为神经漫游模式
+const isNeuralRoamMode = computed(() => {
+  // 检查队列类型是否为神经漫游
+  const queueStrategy = hook.getQueueStrategy();
+  const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+  return underlyingQueue?.name === 'NeuralRoamQueue';
+});
+
+// 🆕 获取神经漫游队列实例
+const neuralQueueInstance = computed<NeuralRoamQueue | null>(() => {
+  if (!isNeuralRoamMode.value) return null;
+  const queueStrategy = hook.getQueueStrategy();
+  const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+  return underlyingQueue as NeuralRoamQueue;
+});
 
 // 检查环境
 onMounted(() => {
@@ -384,6 +417,46 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   } else if (actionType === 'sticktab') {
     // 打开为菜单
     handleOpenAsMenu(ev);
+  } else if (actionType === 'lock-seed') {
+    // 🆕 锁定当前块为种子块（神经漫游）
+    console.log('[FSRS ReviewView] Lock seed button clicked');
+    const cardMeta = state.value.actions.cardMeta;
+    const blockId = cardMeta?.blockID || state.value.content.data;
+    
+    if (blockId) {
+      // 获取底层队列实例（直接访问，不通过代理）
+      const queueStrategy = hook.getQueueStrategy();
+      const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+      
+      if (underlyingQueue && typeof underlyingQueue.lockCurrentAsSeed === 'function') {
+        underlyingQueue.lockCurrentAsSeed(blockId)
+          .then(() => {
+            console.log('[FSRS ReviewView] Block locked as seed:', blockId);
+            // 显示成功提示
+            showMessage('已锁定为种子块 🌱', 3000, 'info');
+          })
+          .catch((error: Error) => {
+            console.error('[FSRS ReviewView] Failed to lock seed:', error);
+            showMessage('锁定种子块失败', 3000, 'error');
+          });
+      } else {
+        console.error('[FSRS ReviewView] Queue does not support lockCurrentAsSeed');
+        showMessage('当前队列不支持锁定种子块', 3000, 'error');
+      }
+    } else {
+      console.error('[FSRS ReviewView] ERROR: blockId is undefined!');
+    }
+  } else if (actionType === 'neural-menu') {
+    // 🆕 神经漫游菜单
+    console.log('[FSRS ReviewView] Neural menu button clicked');
+    // 阻止事件冒泡，防止菜单打开后立即触发菜单项
+    ev.stopPropagation();
+    ev.preventDefault();
+    handleNeuralMenu(ev);
+  } else if (actionType === 'open-graph') {
+    // 🆕 打开图谱窗口
+    console.log('[FSRS ReviewView] Open graph button clicked');
+    toggleGraphWindow();
   }
 }
 
@@ -548,6 +621,183 @@ function openCardInNewWindow(blockId: string) {
   });
 }
 
+// Part 5: 神经漫游菜单
+function handleNeuralMenu(ev: MouseEvent) {
+  console.log('[FSRS ReviewView] handleNeuralMenu - start', { ev, target: ev.target });
+  
+  const queueStrategy = hook.getQueueStrategy();
+  console.log('[FSRS ReviewView] queueStrategy:', queueStrategy);
+  
+  const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+  console.log('[FSRS ReviewView] underlyingQueue:', underlyingQueue);
+  
+  if (!underlyingQueue) {
+    console.error('[FSRS ReviewView] Underlying queue not found');
+    return;
+  }
+
+  console.log('[FSRS ReviewView] Creating menu...');
+  const menu = new Menu('neural-roam-menu');
+  console.log('[FSRS ReviewView] Menu created:', menu);
+  
+  // 1. 查看种子块列表
+  console.log('[FSRS ReviewView] Adding menu item 1: 查看种子块列表');
+  const viewSeedsItem = menu.addItem({
+    icon: 'iconList',
+    label: '查看种子块列表',
+    click: () => {
+      console.log('[FSRS ReviewView] 查看种子块列表 clicked');
+      try {
+        const seeds = underlyingQueue.getSeedBlocks?.();
+        console.log('[FSRS ReviewView] Got seeds:', seeds);
+        if (seeds && seeds.length > 0) {
+          const seedList = seeds.map((id: string, index: number) => `${index + 1}. ${id}`).join('\n');
+          console.log('[FSRS ReviewView] Showing message with seed list');
+          showMessage(`种子块列表 (${seeds.length}个):\n${seedList}`, 5000, 'info');
+        } else {
+          console.log('[FSRS ReviewView] No seeds, showing empty message');
+          showMessage('暂无种子块', 3000, 'info');
+        }
+      } catch (error) {
+        console.error('[FSRS ReviewView] Failed to get seed blocks:', error);
+      }
+    }
+  });
+  console.log('[FSRS ReviewView] Menu item 1 added:', viewSeedsItem);
+  
+  // 2. 从种子开始漫游（子菜单）
+  console.log('[FSRS ReviewView] Getting seeds for submenu...');
+  const seeds = underlyingQueue.getSeedBlocks?.() || [];
+  console.log('[FSRS ReviewView] Seeds:', seeds);
+  
+  if (seeds.length > 0) {
+    const seedSubmenuItems = seeds.map((seedId: string) => ({
+      label: seedId.substring(0, 20) + '...',
+      click: async () => {
+        try {
+          await underlyingQueue.startRoamingFromSeed?.(seedId);
+          showMessage(`已从种子 ${seedId} 开始漫游`, 3000, 'info');
+          // 刷新当前卡片
+          await hook.executeCommand('next');
+        } catch (error) {
+          console.error('[FSRS ReviewView] Failed to start roaming from seed:', error);
+          showMessage('开始漫游失败', 3000, 'error');
+        }
+      }
+    }));
+    
+    console.log('[FSRS ReviewView] Adding menu item 2: 从种子开始漫游 (with submenu)');
+    menu.addItem({
+      icon: 'iconPlay',
+      label: '从种子开始漫游',
+      submenu: seedSubmenuItems
+    });
+  } else {
+    console.log('[FSRS ReviewView] Adding menu item 2: 从种子开始漫游 (disabled)');
+    menu.addItem({
+      icon: 'iconPlay',
+      label: '从种子开始漫游',
+      disabled: true
+    });
+  }
+  
+  menu.addSeparator();
+  
+  // 3. 移除种子块（子菜单）
+  if (seeds.length > 0) {
+    const removeSubmenuItems = seeds.map((seedId: string) => ({
+      label: seedId.substring(0, 20) + '...',
+      click: async () => {
+        try {
+          await underlyingQueue.removeCard?.(seedId);
+          showMessage(`已移除种子块 ${seedId}`, 3000, 'info');
+        } catch (error) {
+          console.error('[FSRS ReviewView] Failed to remove seed:', error);
+          showMessage('移除种子块失败', 3000, 'error');
+        }
+      }
+    }));
+    
+    console.log('[FSRS ReviewView] Adding menu item 3: 移除种子块 (with submenu)');
+    menu.addItem({
+      icon: 'iconTrashcan',
+      label: '移除种子块',
+      submenu: removeSubmenuItems
+    });
+  } else {
+    console.log('[FSRS ReviewView] Adding menu item 3: 移除种子块 (disabled)');
+    menu.addItem({
+      icon: 'iconTrashcan',
+      label: '移除种子块',
+      disabled: true
+    });
+  }
+  
+  menu.addSeparator();
+  
+  // 4. 查看历史记录
+  console.log('[FSRS ReviewView] Adding menu item 4: 查看历史记录');
+  menu.addItem({
+    icon: 'iconHistory',
+    label: '查看历史记录',
+    click: () => {
+      console.log('[FSRS ReviewView] 查看历史记录 clicked');
+      try {
+        const history = underlyingQueue.getHistorySnapshot?.();
+        if (history && history.length > 0) {
+          const historyList = history.slice(-10).map((id: string, index: number) => 
+            `${history.length - 10 + index + 1}. ${id}`
+          ).join('\n');
+          showMessage(`历史记录 (最近10条，共${history.length}条):\n${historyList}`, 5000, 'info');
+        } else {
+          showMessage('暂无历史记录', 3000, 'info');
+        }
+      } catch (error) {
+        console.error('[FSRS ReviewView] Failed to get history:', error);
+      }
+    }
+  });
+  
+  // 5. 清空历史记录
+  console.log('[FSRS ReviewView] Adding menu item 5: 清空历史记录');
+  menu.addItem({
+    icon: 'iconClear',
+    label: '清空历史记录',
+    click: () => {
+      console.log('[FSRS ReviewView] 清空历史记录 clicked');
+      try {
+        underlyingQueue.clearHistory?.();
+        showMessage('历史记录已清空', 3000, 'info');
+      } catch (error) {
+        console.error('[FSRS ReviewView] Failed to clear history:', error);
+        showMessage('清空历史记录失败', 3000, 'error');
+      }
+    }
+  });
+  
+  // 显示菜单
+  console.log('[FSRS ReviewView] Opening menu...');
+  const target = ev.currentTarget as HTMLElement;
+  console.log('[FSRS ReviewView] Target element:', target);
+  
+  if (target) {
+    const rect = target.getBoundingClientRect();
+    console.log('[FSRS ReviewView] Target rect:', rect);
+    console.log('[FSRS ReviewView] Menu open position:', {
+      x: rect.left,
+      y: rect.bottom
+    });
+    
+    menu.open({
+      x: rect.left,
+      y: rect.bottom
+    });
+    console.log('[FSRS ReviewView] Menu.open() called');
+  } else {
+    console.error('[FSRS ReviewView] Target element is null!');
+  }
+}
+
 // Part 6: 处理面包屑点击
 function handleBreadcrumbClick(crumb: { icon?: string; text: string; id?: string; action?: string }, index: number) {
   const action = crumb.action || crumb.id;
@@ -555,6 +805,58 @@ function handleBreadcrumbClick(crumb: { icon?: string; text: string; id?: string
     void hook.executeCommand(action);
   }
 }
+
+// 🆕 Part 7: 图谱窗口处理函数
+/**
+ * 切换图谱窗口显示/隐藏
+ */
+function toggleGraphWindow() {
+  graphWindowVisible.value = !graphWindowVisible.value;
+  console.log('[FSRS ReviewView] Graph window toggled:', graphWindowVisible.value);
+}
+
+/**
+ * 处理图谱窗口关闭
+ */
+function handleGraphWindowClose() {
+  graphWindowVisible.value = false;
+  console.log('[FSRS ReviewView] Graph window closed');
+}
+
+/**
+ * 处理图谱节点点击
+ * 
+ * 当用户在图谱中点击节点时，跳转到该节点对应的块。
+ */
+function handleGraphNodeClick(nodeId: string) {
+  console.log('[FSRS ReviewView] Graph node clicked:', nodeId);
+  
+  if (!props.app) {
+    console.error('[FSRS ReviewView] app is not available');
+    return;
+  }
+  
+  // 在新标签页中打开块
+  openTab({
+    app: props.app,
+    doc: { id: nodeId },
+    openNewTab: true,
+  });
+}
+
+// 🆕 监听当前卡片变化，同步到图谱
+watch(
+  () => state.value.content.data,
+  (newBlockId) => {
+    if (graphWindowVisible.value && graphWindowRef.value && newBlockId) {
+      console.log('[FSRS ReviewView] Card changed, syncing to graph:', newBlockId);
+      // 刷新图谱数据
+      graphWindowRef.value.refresh();
+      // 聚焦到当前节点
+      graphWindowRef.value.focusNode(newBlockId);
+    }
+  }
+);
 </script>
 
 <style scoped>

@@ -395,7 +395,7 @@ export class ReviewService {
       this.plugin.reviewDialog = createUnifiedReviewDialog({
         plugin: this.plugin,
         queueType: QueueType.NeuralRoam,
-        title: this.plugin.i18n?.neuralReviewTitle || '神经复习',
+        title: this.plugin.i18n?.neuralReviewTitle || '神经漫游',
         onClose: () => {
           this.plugin.reviewDialog = null;
         }
@@ -404,7 +404,7 @@ export class ReviewService {
       console.log('[ReviewService] ✅ Neural roam dialog created with unified data source');
     } catch (err) {
       console.error('[FSRS] Failed to open neural review v2 dialog:', err);
-      await pushErrMsg(this.plugin.i18n?.neuralReviewFailed || '神经复习启动失败');
+      await pushErrMsg(this.plugin.i18n?.neuralReviewFailed || '神经漫游启动失败');
     }
   }
 

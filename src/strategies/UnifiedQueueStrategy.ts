@@ -18,7 +18,8 @@
 import type { IQueueStrategy, QueueFeedback } from '@/core/queue/abstraction/Strategy';
 import type { QueueStats, QueueUIConfig } from '@/core/queue/types';
 import type { FSRSCard } from '@/types/card';
-import type { IReviewQueue, QueueType } from '@/types/unified-data-source';
+import type { IReviewQueue } from '@/types/unified-data-source';
+import { QueueType } from '@/types/unified-data-source';
 import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
 
 /**
@@ -142,9 +143,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
             // 其他队列：顺序遍历
             // 神经漫游队列：使用扩散激活
             if (this.queueType === QueueType.NeuralRoam) {
-                const queue = this.getQueueInstance();
-                if (queue && typeof queue.getNextCard === 'function') {
-                    const nextCard = await queue.getNextCard();
+                // 直接使用 this.queue，它已经在构造函数中初始化
+                if (this.queue && typeof (this.queue as any).getNextCard === 'function') {
+                    const nextCard = await (this.queue as any).getNextCard();
                     if (nextCard) {
                         console.log(`[UnifiedQueueStrategy] Next card (spreading activation):`, {
                             queueType: this.queueType,
@@ -480,5 +481,26 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
     private invalidateCache(): void {
         this.cacheValid = false;
         console.log(`[UnifiedQueueStrategy] Cache invalidated: ${this.queueType}`);
+    }
+    
+    /**
+     * 获取队列类型
+     * 
+     * @returns 队列类型
+     */
+    getType(): QueueType {
+        return this.queueType;
+    }
+    
+    /**
+     * 获取底层队列实例
+     * 
+     * 暴露底层队列对象，允许 UI 层直接访问队列特有的方法。
+     * 这避免了在适配器层添加大量代理方法。
+     * 
+     * @returns 底层队列实例
+     */
+    getUnderlyingQueue(): IReviewQueue {
+        return this.queue;
     }
 }

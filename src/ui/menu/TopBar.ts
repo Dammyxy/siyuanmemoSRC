@@ -94,7 +94,7 @@ export class TopBarManager {
 
         menu.addItem({
             icon: 'iconRefresh',
-            label: this.plugin.i18n?.startNeuralReview || '开始神经复习',
+            label: this.plugin.i18n?.startNeuralReview || '开始神经漫游',
             accelerator: 'Alt+N',
             click: () => {
                 (this.plugin as any).openNeuralRoamDialog();

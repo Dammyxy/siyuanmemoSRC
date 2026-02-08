@@ -119,5 +119,20 @@ export function useReviewSession<TItem>(
   onMounted(mounted);
   onUnmounted(unmounted);
 
-  return { state, context, reveal, grade, skip, executeCommand, onMounted: mounted, onUnmounted: unmounted };
+  // 🆕 暴露 getQueueStrategy 方法，用于访问底层队列策略（神经漫游功能需要）
+  const getQueueStrategy = (): IQueueStrategy<TItem> => {
+    return queue;
+  };
+
+  return { 
+    state, 
+    context, 
+    reveal, 
+    grade, 
+    skip, 
+    executeCommand, 
+    getQueueStrategy, // 🆕 添加到返回对象
+    onMounted: mounted, 
+    onUnmounted: unmounted 
+  };
 }

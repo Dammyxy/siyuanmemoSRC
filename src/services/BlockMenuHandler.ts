@@ -81,10 +81,10 @@ export class BlockMenuHandler {
       },
     });
 
-    // 神经复习菜单项
+    // 神经漫游菜单项
     menu.addItem({
       icon: 'iconRefresh',
-      label: this.deps.i18n?.startNeuralReviewFromHere || '从此处开始神经复习',
+      label: this.deps.i18n?.startNeuralReviewFromHere || '从此处开始神经漫游',
       click: async () => {
         const seedBlockId = blockIds[0];
         const includeSeedAsFirst = Boolean(blockElements[0]?.hasAttribute?.(ATTR_CARD_ID));
@@ -92,7 +92,7 @@ export class BlockMenuHandler {
           await this.deps.openNeuralReviewDialog({ seedBlockId, includeSeedAsFirst, resetHistory: true });
         } catch (err) {
           console.error('[FSRS] Failed to open neural review from block:', err);
-          await pushErrMsg(this.deps.i18n?.neuralReviewFailed || '神经复习启动失败');
+          await pushErrMsg(this.deps.i18n?.neuralReviewFailed || '神经漫游启动失败');
         }
       },
     });

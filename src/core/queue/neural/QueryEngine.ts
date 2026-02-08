@@ -482,6 +482,43 @@ export class QueryEngine {
   }
 
   /**
+   * 获取块的所有子块（递归查询）
+   * 
+   * 用于避免"一炮三响"问题：当展示父块时，将所有子块添加到历史记录。
+   * 
+   * @param blockId 块 ID
+   * @returns 子块列表
+   * @private
+   */
+  async fetchDescendants(blockId: string): Promise<{ id: string }[]> {
+    try {
+      // 使用递归 CTE 查询所有子块
+      const stmt = `
+        WITH RECURSIVE descendants AS (
+          -- 基础查询：直接子块
+          SELECT id, parent_id
+          FROM blocks
+          WHERE parent_id = '${this.escapeSQL(blockId)}'
+          
+          UNION ALL
+          
+          -- 递归查询：子块的子块
+          SELECT b.id, b.parent_id
+          FROM blocks b
+          INNER JOIN descendants d ON b.parent_id = d.id
+        )
+        SELECT DISTINCT id FROM descendants
+      `;
+      
+      const rows = await api.sql(stmt);
+      return rows.map(row => ({ id: row.id }));
+    } catch (error) {
+      console.error(`[QueryEngine] Failed to fetch descendants for ${blockId}:`, error);
+      return [];
+    }
+  }
+
+  /**
    * SQL 转义（防止 SQL 注入）
    * 
    * @param value 要转义的值
