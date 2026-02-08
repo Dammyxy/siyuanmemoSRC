@@ -36,7 +36,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue';
 import type { GraphNode, GraphEdge, VisNetworkOptions } from '../types/graph';
-import { CytoscapeOrbitRenderer, type OrbitGraphData } from '../services/CytoscapeOrbitRenderer';
+import { CytoscapeOrbitRenderer, type OrbitGraphData } from '@/infrastructure/graph/CytoscapeOrbitRenderer';
 
 /**
  * Props 瀹氫箟

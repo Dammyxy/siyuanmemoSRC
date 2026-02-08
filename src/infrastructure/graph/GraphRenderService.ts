@@ -7,7 +7,8 @@
  * Requirements: 7.6, 12.1, 1.1, 2.1, 3.1, 3.5
  */
 
-import type { GraphNode, GraphEdge, FocusOptions, VisNetworkOptions } from '../types/graph';
+import type { GraphNode, GraphEdge } from '@/application/graph/types';
+import type { FocusOptions, VisNetworkOptions } from './types';
 
 /**
  * vis-network 类型定义（简化版）

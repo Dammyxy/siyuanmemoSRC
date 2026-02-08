@@ -7,22 +7,22 @@
  * Requirements: 1.1, 2.1, 8.1
  */
 
-import type { NeuralRoamQueue } from '../../../queues/NeuralRoamQueue';
+import type { NeuralRoamQueue } from '@/queues/NeuralRoamQueue';
 import type {
     GraphNode,
     GraphEdge,
     CandidateNode,
     NodeColor,
-} from '../types/graph';
-import { AssociationType } from '../types/graph';
-import { sql } from '../../../core/siyuan/api';
-import { ATTR_CARD_ID } from '../../../core/siyuan/block';
-import { calculateNodeSize } from '../utils/nodeCalculator';
-import { QueryEngine } from '../../../core/queue/neural/QueryEngine';
-import { NeuralQueueStorage } from '../../../core/queue/neural/NeuralQueueStorage';
+} from '@/application/graph/types';
+import { AssociationType } from '@/core/queue/neural/types';
+import { sql } from '@/core/siyuan/api';
+import { ATTR_CARD_ID } from '@/core/siyuan/block';
+import { calculateNodeSize } from './nodeCalculator';
+import { QueryEngine } from '@/core/queue/neural/QueryEngine';
+import { NeuralQueueStorage } from '@/core/queue/neural/NeuralQueueStorage';
 import { OrbitLayoutEngine, Position } from './OrbitLayoutEngine';
-import { getNodeStyle, getEdgeStyle } from '../utils/OrbitStyles';
-import type { OrbitState, MissedBlock as OrbitMissedBlock, CandidateNode as OrbitCandidateNode, NavigationPathNode } from '../../../core/queue/neural/types';
+import { getNodeStyle, getEdgeStyle } from './OrbitStyles';
+import type { OrbitState, MissedBlock as OrbitMissedBlock, CandidateNode as OrbitCandidateNode, NavigationPathNode } from '@/core/queue/neural/types';
 
 /**
  * 块数据接口（?SQL 查询返回?

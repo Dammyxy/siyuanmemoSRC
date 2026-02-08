@@ -7,8 +7,6 @@
  * 源码参考：H:\project-F\flashcard\siyuan\app\src\layout\dock\Graph.ts
  */
 
-import type { GraphNode, GraphEdge } from '../types/graph';
-
 declare const vis: any;
 
 export interface SiyuanGraphData {

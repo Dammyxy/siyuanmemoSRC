@@ -6,8 +6,8 @@
  * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 3.1, 3.2, 3.3, 3.4, 3.5, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6
  */
 
-import { AssociationType } from '../../../core/queue/neural/types';
-import type { NodeColor, EdgeColor } from '../types/graph';
+import { AssociationType } from '@/core/queue/neural/types';
+import type { NodeColor, EdgeColor } from '@/application/graph/types';
 
 /**
  * 节点样式配置接口

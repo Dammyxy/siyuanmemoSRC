@@ -13,7 +13,7 @@ export * from './types/graph';
 // export { default as DirectionControlPanel } from './components/DirectionControlPanel.vue';
 
 // 服务将在后续任务中导出
-// export { GraphDataService } from './services/GraphDataService';
-// export { GraphRenderService } from './services/GraphRenderService';
+// export { GraphDataService } from '@/application/graph/GraphDataService';
+// export { GraphRenderService } from '@/infrastructure/graph/GraphRenderService';
 // export { GraphSyncService } from './services/GraphSyncService';
-// export { GraphStorageService } from './services/GraphStorageService';
+// export { GraphStorageService } from '@/application/graph/GraphStorageService';

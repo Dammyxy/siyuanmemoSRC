@@ -9,8 +9,8 @@
  * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5
  */
 
-import { AssociationType } from '../../../core/queue/neural/types';
-import type { OrbitState, NavigationPathNode, MissedBlock, CandidateNode } from '../../../core/queue/neural/types';
+import { AssociationType } from '@/core/queue/neural/types';
+import type { OrbitState, NavigationPathNode, MissedBlock, CandidateNode } from '@/core/queue/neural/types';
 
 /**
  * 位置接口

@@ -7,7 +7,7 @@
  * Requirements: 4.6, 6.5, 13.1, 13.2, 13.3, 13.4
  */
 
-import type { WindowConfig, AssociationType } from '../types/graph';
+import type { WindowConfig } from '@/application/graph/types';
 
 /**
  * 存储键常量

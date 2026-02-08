@@ -88,8 +88,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import type { NeuralRoamQueue } from '../../../queues/NeuralRoamQueue';
 import type { GraphNode, GraphEdge, VisNetworkOptions, WindowConfig } from '../types/graph';
 import { AssociationType } from '../types/graph';
-import { GraphDataService } from '../services/GraphDataService';
-import { GraphStorageService } from '../services/GraphStorageService';
+import { OrbitGraphUseCase } from '@/application/graph/OrbitGraphUseCase';
 import GraphCanvas from './GraphCanvas.vue';
 import DirectionControlPanel from './DirectionControlPanel.vue';
 
@@ -114,15 +113,9 @@ const directionMenuOpen = ref(false);
 const directionMenuRef = ref<HTMLDivElement | null>(null);
 const directionMenuButtonRef = ref<HTMLButtonElement | null>(null);
 
-let dataService: GraphDataService | null = null;
-const storageService = new GraphStorageService();
+let orbitUseCase: OrbitGraphUseCase | null = null;
 
-const availableDirections = ref<AssociationType[]>([
-  AssociationType.REF_LINK,
-  AssociationType.HIERARCHY,
-  AssociationType.TAG,
-  AssociationType.SIBLING,
-]);
+const availableDirections = ref<AssociationType[]>([]);
 
 const selectedDirections = ref<Set<AssociationType>>(new Set());
 const directionCounts = ref<Record<AssociationType, number>>({} as any);
@@ -185,43 +178,32 @@ function getAssociationLabel(type: AssociationType): string {
   return labels[type] || type;
 }
 
-function initializeDataService() {
-  dataService = new GraphDataService(props.queueInstance);
+function initializeUseCase() {
+  orbitUseCase = new OrbitGraphUseCase(props.queueInstance);
+  availableDirections.value = orbitUseCase.getDefaultDirections();
 }
 
 async function loadGraphData() {
-  if (!dataService) return;
+  if (!orbitUseCase) return;
 
   try {
-    const orbitData = await dataService.getOrbitGraphData(selectedDirections.value);
+    const orbitData = await orbitUseCase.loadOrbitGraph(selectedDirections.value);
     graphNodes.value = orbitData.nodes;
     graphEdges.value = orbitData.edges;
     orbitPositions.value = orbitData.positions;
-
-    currentNodeId.value = dataService.getCurrentNode();
-    highlightedNodes.value = new Set(dataService.getHistoryPath());
-
-    const counts: Record<AssociationType, number> = {} as any;
-    availableDirections.value.forEach(direction => {
-      counts[direction] = 0;
-    });
-    for (const node of orbitData.nodes) {
-      if (node.type === 'candidate' && node.associationType) {
-        counts[node.associationType] = (counts[node.associationType] || 0) + 1;
-      }
-    }
-    directionCounts.value = counts;
+    currentNodeId.value = orbitData.currentNodeId;
+    highlightedNodes.value = orbitData.highlightedNodes;
+    directionCounts.value = orbitData.directionCounts;
   } catch (error) {
     console.error('[GraphWindow] Failed to load graph data:', error);
   }
 }
 
 function loadConfig() {
-  const savedDirections = storageService.loadDirections();
-  const directions = new Set(Array.from(savedDirections) as AssociationType[]);
-  selectedDirections.value = directions.size > 0 ? directions : new Set(availableDirections.value);
+  if (!orbitUseCase) return;
+  selectedDirections.value = orbitUseCase.loadDirections(availableDirections.value);
 
-  const savedConfig = storageService.loadWindowConfig();
+  const savedConfig = orbitUseCase.loadWindowConfig();
   if (savedConfig) {
     windowPosition.value = savedConfig.position;
     windowSize.value = savedConfig.size;
@@ -232,14 +214,15 @@ function loadConfig() {
 }
 
 function saveConfig() {
-  storageService.saveDirections(new Set(Array.from(selectedDirections.value) as string[]));
+  if (!orbitUseCase) return;
+  orbitUseCase.saveDirections(selectedDirections.value);
 
   const config: WindowConfig = {
     position: windowPosition.value,
     size: windowSize.value,
     visible: props.visible,
   };
-  storageService.saveWindowConfig(config);
+  orbitUseCase.saveWindowConfig(config);
 }
 
 async function handleDirectionChange(directions: Set<AssociationType>) {
@@ -366,7 +349,7 @@ function stopResize() {
 
 onMounted(() => {
   document.addEventListener('mousedown', handleDocumentClick);
-  initializeDataService();
+  initializeUseCase();
   loadConfig();
   loadGraphData();
 });
@@ -391,7 +374,7 @@ watch(
 watch(
   () => props.queueInstance,
   () => {
-    initializeDataService();
+    initializeUseCase();
     loadGraphData();
   }
 );

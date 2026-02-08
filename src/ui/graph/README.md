@@ -4,24 +4,17 @@
 
 ```
 graph/
-├── components/          # Vue 组件
-│   ├── GraphWindow.vue              # 图谱窗口主组件
-│   ├── GraphCanvas.vue              # vis-network 画布封装
-│   ├── DirectionControlPanel.vue    # 方向控制面板
-│   └── GraphToolbar.vue             # 图谱工具栏
-├── services/           # 服务层
-│   ├── GraphDataService.ts          # 图谱数据获取和转换
-│   ├── GraphRenderService.ts        # vis-network 渲染管理
-│   ├── GraphSyncService.ts          # 与复习界面同步
-│   └── GraphStorageService.ts       # 配置持久化
-├── types/              # 类型定义
-│   └── graph.ts                     # 图谱相关类型
-├── utils/              # 工具函数
-│   ├── nodeCalculator.ts            # 节点大小计算
-│   └── layoutOptimizer.ts           # 布局优化算法
-├── index.ts            # 模块导出
-└── README.md           # 本文件
+??? components/          # Vue ??
+?   ??? GraphWindow.vue              # ???????
+?   ??? GraphCanvas.vue              # ????
+?   ??? DirectionControlPanel.vue    # ??????
+??? types/              # ????
+?   ??? graph.ts                     # ??????
+??? index.ts            # ????
+??? README.md           # ???
 ```
+
+
 
 ## 功能概述
 
@@ -33,6 +26,7 @@ graph/
    - 支持点击节点跳转和回退
 
 2. **漫游方向控制**
+?????????? `src/infrastructure/graph`??????????? `src/application/graph`?
    - 提供勾选选项控制漫游方向（链接、层级、标签、兄弟块）
    - 实时更新候选节点集合
    - 持久化用户偏好设置

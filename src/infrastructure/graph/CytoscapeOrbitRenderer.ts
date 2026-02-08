@@ -13,8 +13,8 @@
  */
 
 import cytoscape, { Core } from 'cytoscape';
-import type { GraphNode, GraphEdge } from '../types/graph';
-import { ORBIT_NODE_STYLES, ORBIT_CANDIDATE_COLORS, ORBIT_EDGE_STYLES } from '../utils/OrbitStyles';
+import type { GraphNode, GraphEdge } from '@/application/graph/types';
+import { ORBIT_NODE_STYLES, ORBIT_CANDIDATE_COLORS, ORBIT_EDGE_STYLES } from '@/application/graph/OrbitStyles';
 
 /**
  * Orbit 鍥捐氨鏁版嵁鎺ュ彛
