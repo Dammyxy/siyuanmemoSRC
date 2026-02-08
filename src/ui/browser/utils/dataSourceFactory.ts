@@ -78,6 +78,19 @@ export function createQueueDataSource(
         cardType,
       });
 
+    case 'neural-roam':
+      // 神经漫游队列：使用 BlockIds 数据源
+      // 获取种子块列表作为初始数据
+      const queue = manager.getQueue('neural-roam');
+      const seedBlocks = queue?.getSeedBlocks?.() || [];
+      return new BlockIdsDataSource({
+        id: 'neural-roam',
+        label: '神经漫游',
+        blockIds: seedBlocks,
+        plugin: manager.plugin || manager,
+        queueId: 'neural-roam',
+      });
+
     default:
       return null;
   }

@@ -247,14 +247,11 @@ export class DeckDataSource implements ICardDataSource {
       return result;
     }
 
-    // 神经漫游（暂时保留旧架构访问方式，因为神经漫游尚未迁移到新架构）
+    // 神经漫游（使用新架构）
     if (actionId === 'add-to-neural-roam-queue') {
-      console.log('[DeckDataSource] 处理：加入神经漫游队列（使用旧架构）');
-      if (this.plugin?.neuralQueue) {
-        return await addToQueue(this.plugin.neuralQueue, selectedRows, 'neural-roam');
-      }
-      console.error('[DeckDataSource] neuralQueue not available!');
-      return;
+      console.log('[DeckDataSource] 处理：加入神经漫游队列');
+      const queue = this.manager.getQueue(QueueType.NeuralRoam);
+      return await addToQueue(queue as any, selectedRows, 'neural-roam');
     }
 
     // Review Subset

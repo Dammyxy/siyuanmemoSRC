@@ -431,8 +431,25 @@ function handleOpenAsMenu(ev: MouseEvent) {
     icon: 'iconLayoutRight',
     label: '在 Tab 中打开',
     click() {
-      console.log('[FSRS ReviewView] Emitting convert-to-tab event');
-      emit('convert-to-tab');
+      console.log('[FSRS ReviewView] Opening in tab and closing dialog');
+      
+      // 获取插件实例
+      const fsrsPlugin = (window as any).siyuanFsrsPlugin;
+      if (!fsrsPlugin) {
+        console.error('[FSRS ReviewView] Plugin instance not found');
+        return;
+      }
+
+      // 打开 Tab
+      fsrsPlugin.openReviewTab({
+        provider: props.provider,
+        queue: props.queue,
+        adapter: props.adapter,
+        title: props.title || '复习',
+      });
+
+      // 关闭当前对话框
+      emit('close');
     },
   });
 

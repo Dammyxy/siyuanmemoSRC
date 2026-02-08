@@ -42,6 +42,7 @@
     "fast-glob": "^3.2.12",
     "glob": "^11.0.1",
     "happy-dom": "^15.11.7",
+    "jsdom": "^28.0.0",
     "minimist": "^1.2.8",
     "rollup-plugin-livereload": "^2.0.5",
     "sass": "^1.62.1",

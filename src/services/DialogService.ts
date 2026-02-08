@@ -9,16 +9,19 @@ import type { App } from 'siyuan';
 import * as riff from '@/core/siyuan/riff';
 import { pushErrMsg } from '@/core/siyuan/api';
 import { createVueDialog } from '@/utils/dialog';
-import { ReviewView, RetrievalPracticeAdapter, NeuralRoamAdapter } from '@/ui/review/v2';
+import { ReviewView, RetrievalPracticeAdapter } from '@/ui/review/v2';
 import { RetrievalPracticeProvider } from '@/ui/review/v2/providers/RetrievalPracticeProvider';
 import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
 import { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
-import { NeuralRoamQueue } from '@/core/queue/strategies/NeuralRoamQueue';
 // 🔧 使用新架构的 IncrementalLearningQueue
 import { IncrementalLearningQueue } from '@/queues/IncrementalLearningQueue';
 import { FilterGroupQueue } from '@/core/queue/strategies/FilterGroupQueue';
 import type { StorageManager } from '@/core/storage/manager';
 import type { SchedulerEngineAdapter } from '@/core/scheduler/types';
+
+// 🆕 Unified Data Source
+import { createUnifiedReviewDialog } from '@/strategies/createUnifiedReviewDialog';
+import { QueueType } from '@/types/unified-data-source';
 
 type I18n = Record<string, string>;
 
@@ -165,6 +168,7 @@ export class DialogService {
 
   /**
    * 打开神经漫游对话框
+   * 🆕 使用统一数据源架构
    */
   async openNeuralRoamDialog(options?: { 
     seedBlockId?: string; 
@@ -178,24 +182,17 @@ export class DialogService {
     this.destroyCurrentDialog();
 
     try {
-      const session = new NeuralRoamQueue({
-        deckID: riff.BUILTIN_DECK_ID,
-        i18n: this.deps.i18n || {},
-        seedBlockId: options?.seedBlockId,
-        includeSeedAsFirst: options?.includeSeedAsFirst,
-      });
-      const adapter = new NeuralRoamAdapter({ i18n: this.deps.i18n || {} });
-
-      this.reviewDialog = this.createReviewDialog({
+      // 🆕 使用 createUnifiedReviewDialog 创建对话框
+      this.reviewDialog = createUnifiedReviewDialog({
+        plugin: (this.deps as any).plugin, // 需要插件实例
+        queueType: QueueType.NeuralRoam,
         title: this.deps.i18n?.neuralReviewTitle || '神经漫游',
-        props: {
-          app: this.deps.app,
-          i18n: this.deps.i18n || {},
-          title: this.deps.i18n?.neuralReviewTitle || '神经漫游',
-          queue: session as any,
-          adapter: adapter as any,
-        },
+        onClose: () => {
+          this.reviewDialog = null;
+        }
       });
+      
+      console.log('[DialogService] ✅ Neural roam dialog created with unified data source');
     } catch (err) {
       console.error('[DialogService] Failed to open neural roam dialog:', err);
       await pushErrMsg(this.deps.i18n?.neuralReviewFailed || '神经漫游启动失败');

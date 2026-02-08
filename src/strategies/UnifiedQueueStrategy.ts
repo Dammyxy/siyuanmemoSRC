@@ -140,6 +140,25 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
             }
             
             // 其他队列：顺序遍历
+            // 神经漫游队列：使用扩散激活
+            if (this.queueType === QueueType.NeuralRoam) {
+                const queue = this.getQueueInstance();
+                if (queue && typeof queue.getNextCard === 'function') {
+                    const nextCard = await queue.getNextCard();
+                    if (nextCard) {
+                        console.log(`[UnifiedQueueStrategy] Next card (spreading activation):`, {
+                            queueType: this.queueType,
+                            cardId: nextCard.id
+                        });
+                        return nextCard;
+                    } else {
+                        console.log(`[UnifiedQueueStrategy] No more cards from spreading activation`);
+                        return null;
+                    }
+                }
+            }
+            
+            // 其他队列：顺序遍历
             // 如果缓存无效或用完，重新加载
             if (!this.cacheValid || this.currentIndex >= this.cachedCards.length) {
                 await this.reloadCards();

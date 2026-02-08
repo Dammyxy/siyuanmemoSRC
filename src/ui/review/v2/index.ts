@@ -5,7 +5,7 @@ export { default as ReviewHeader } from './ReviewHeader.vue';
 export { default as ReviewContent } from './ReviewContent.vue';
 export { default as ReviewActions } from './ReviewActions.vue';
 export * from './adapters/FinalDrillAdapter';
-export * from './adapters/NeuralRoamAdapter';
+// 🆕 NeuralRoamAdapter 已废弃，使用 UnifiedReviewAdapter 代替
 export * from './adapters/RetrievalPracticeAdapter';
 export * from './adapters/LeechAdapter';
 export * from './adapters/SubsetPracticeAdapter';

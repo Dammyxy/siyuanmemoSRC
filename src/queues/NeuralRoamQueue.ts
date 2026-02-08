@@ -102,25 +102,22 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     /**
      * 获取队列中的所有卡片
      * 
-     * 神经漫游队列动态生成卡片，通过扩散激活获取下一张卡片。
-     * 这里返回当前会话的历史记录。
+     * 神经漫游队列返回种子块列表。
+     * 历史记录可以通过 getHistorySnapshot() 获取。
      * 
-     * @returns 卡片数组
+     * @returns 种子块卡片数组
      * @see 需求 6.2, 20.4
      */
     public async getCards(): Promise<FSRSCard[]> {
         try {
-            // 获取历史快照
-            const history = this.neuralQueue.getHistorySnapshot();
-            
-            // 转换为卡片数组
+            // 返回种子块列表
             const cards: FSRSCard[] = [];
-            for (const cardId of history) {
+            for (const seedId of this.seedBlocks) {
                 try {
-                    const card = await this.manager.getCard(cardId);
+                    const card = await this.manager.getCard(seedId);
                     cards.push(card);
                 } catch (error) {
-                    console.warn(`[NeuralRoamQueue] Card ${cardId} not found in history`);
+                    console.warn(`[NeuralRoamQueue] Seed block ${seedId} not found`);
                 }
             }
             

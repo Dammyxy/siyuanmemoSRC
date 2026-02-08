@@ -8,9 +8,10 @@ import { describe, test, expect } from 'vitest';
 import { RetrievalPracticeQueue } from '@/core/queue/strategies/RetrievalPracticeQueue';
 import { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
 import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
-import { NeuralRoamQueue } from '@/core/queue/strategies/NeuralRoamQueue';
 import { IncrementalLearningQueue } from '@/core/queue/strategies/IncrementalLearningQueue';
 import { FilterGroupQueue } from '@/core/queue/strategies/FilterGroupQueue';
+import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
+import { QueueType } from '@/types/unified-data-source';
 
 describe('Phase 1 - V2 Queues Validation', () => {
   test('RetrievalPracticeQueue 可以实例化', async () => {
@@ -31,9 +32,11 @@ describe('Phase 1 - V2 Queues Validation', () => {
     expect(queue).toBeDefined();
   });
 
-  test('NeuralRoamQueue 可以实例化', () => {
-    const queue = new NeuralRoamQueue();
+  test('NeuralRoamQueue 可以通过 UnifiedDataSourceManager 访问', () => {
+    const manager = UnifiedDataSourceManager.getInstance();
+    const queue = manager.getQueue(QueueType.NeuralRoam);
     expect(queue).toBeDefined();
+    expect(queue.getType()).toBe(QueueType.NeuralRoam);
   });
 
   test('IncrementalLearningQueue 可以实例化', () => {
@@ -54,7 +57,6 @@ describe('Phase 1 - V2 Queues Validation', () => {
       RetrievalPracticeQueue,
       FinalDrillQueue,
       LeechQueue,
-      NeuralRoamQueue,
       IncrementalLearningQueue,
       FilterGroupQueue
     } = await import('@/core/queue/strategies');
@@ -62,8 +64,12 @@ describe('Phase 1 - V2 Queues Validation', () => {
     expect(await RetrievalPracticeQueue.create()).toBeInstanceOf(RetrievalPracticeQueue);
     expect(new FinalDrillQueue()).toBeInstanceOf(FinalDrillQueue);
     expect(new LeechQueue()).toBeInstanceOf(LeechQueue);
-    expect(new NeuralRoamQueue()).toBeInstanceOf(NeuralRoamQueue);
     expect(new IncrementalLearningQueue()).toBeInstanceOf(IncrementalLearningQueue);
     expect(new FilterGroupQueue([{ id: 'test', weight: 1 }])).toBeInstanceOf(FilterGroupQueue);
+    
+    // NeuralRoamQueue 现在通过 UnifiedDataSourceManager 访问
+    const manager = UnifiedDataSourceManager.getInstance();
+    const neuralQueue = manager.getQueue(QueueType.NeuralRoam);
+    expect(neuralQueue).toBeDefined();
   });
 });

@@ -1,0 +1,1899 @@
+﻿
+> siyuan-plugin-fsrs@0.0.1 test
+> vitest src/core/siyuan/__tests__/riff.property.test.ts
+
+
+[1m[7m[34m DEV [39m[27m[22m [34mv2.1.9 [39m[90mH:/project-F/flashcard/siyuan-plugin-fsrs[39m
+
+node.exe : [90mstderr[2m | src/core/siyuan/__tests__/riff.property.test.ts[2m > [22m[2mFeature: riff-decoupling, Pro
+perty 3: API 瑙ｈ€?- 鏇存柊涓嶈Е鍙戣皟搴?[2m > [22m[2msyncToRiff should not throw errors even when update fails
+所在位置 C:\Program Files\nodejs\npm.ps1:29 字符: 3
++   & $NODE_EXE $NPM_CLI_JS $args
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([90mstderr[2m...en update fails:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[22m[39m[syncToRiff] Failed to sync card: hasOwnProperty Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: toLocaleString Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: o&hasOwnProper Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: hasOwnProperty Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: hasOwnProperty Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: e&~1G}y1"9 {~w Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: '"z{b}{"$z%)~( Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: |>q#od}"y|"BkB Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: toLocaleString Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: Xi%|^n1r1 qQcy Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: SxXnAz5e9{%8#e Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: ${%F~,W6~%!#;} Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: BK(%^!p$$y/%~h Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: z@vxe$%__]|G y Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: $:$R$MKfk(!ZxN Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: b@!#M|$x;iN(=6 Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: ~toLocaleStrin Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: si8H{4>Bu! &|Y Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: %RP0z]p$`i#K}  Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: toLocaleString Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: tFm&TYz]}]1LyO Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card:  nProperty#Mca Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: p"#{#3NB"$%?D[ Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: Iygx#u! u{A%$# Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: xchasOwnProper Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: {bw;Q{#w RQC$. Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: +toLocaleStrin Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: xnh^{k}mP+$L"- Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: ;&@; @;p~%gM~g Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: toLocaleString Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: ci."Y$}JxJw%#V Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: W}5"}H%[?f~t 4 Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: hasOwnProperty Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: ~lE |~]#5{4f1o Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: $3AhasOwnPrope Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: !$%`y+"wyAwBnb Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: HEx4m`MkV#Co~_ Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card:  yzO~!7&-}"T># Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: { "?4ad#m "!|0 Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: $"3}?&!{UJ!8_h Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: "!"}Iqb&"p4dFz Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: & FC!)o$hahasO Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: %S]4{~x.$0#wmP Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: !4@pL!Wx0y%IU! Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: 4%YcWHs"&n_d^! Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: 8#x{%",~12s}Za Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: ;-#&vE~gS/zL@6 Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: hasOwnProperty Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: `D~^L-jAT$C\ls Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: so|3A"4toLocal Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: {$J3$`^x%y~|c% Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: hasOwnProperty Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: toLocaleString Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: x[J"+U~}_{o0]} Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: H#; ~3$#t&ve9{ Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: !+M5pH= yB|'|# Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: 8MxckQyzK}!m%_ Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: toLocaleString Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: hasOwnProperty Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: asOwnPropropto Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: !yz4%y#``%x@!# Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: nQhasOwnProper Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: X*|F)q!I4&SYP! Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: 3~"hasOwnPrope Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: GtM1~%^Jb"!x^{ Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: R} f1$"Xz1eN}{ Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: ~@tzO~81%FkeuN Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: nj#{I!fnE#>d#& Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: AeMH|7xr {Rl38 Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: X%ud{yrFS$divm Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: hasOwnProperty Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: toLocaleString Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: 6t 7l#&d(s3>|# Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: ",$F{K"mQ02}x9 Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: uhasOwnPropert Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: &}Kyh}|$EnWG"} Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: hasOwnProperty Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: I~1yrJ3Q$0*Z q Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: toLocaleString Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: D$pUA}mr*zXpy~ Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: ?b V2#zhXS{$8j Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: roperttoLocale Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: $%hasOwnProper Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: sOwnPI#hasOwnP Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: N}^ .5Fv VzlCp Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: toLocaleString Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: x&!nhasOwnProp Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: hasOwnProperty Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: ?mJ% "l85|%6?| Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: toLocaleString Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: =,&Q{$P%SyM4#% Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: "P"!]:%"v6y2g~ Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: hasOwnProperty Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: d$5,$&gG*O1*J| Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: toLocaleString Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+[syncToRiff] Failed to sync card: ?#AK&x"hasOwnP Error: Network error
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:304:48
+    at AsyncProperty.predicate [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/f
+ast-check@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.js:14:59[90m)[39m
+    at AsyncProperty.run [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-ch
+eck@4.5.3/node_modules/[4mfast-check[24m/lib/check/property/AsyncProperty.generic.js:43:39[90m)[39m
+    at asyncRunIt [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/fast-check@4.5
+.3/node_modules/[4mfast-check[24m/lib/check/runner/Runner.js:24:36[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:105:5)[39m
+    at [90mH:\project-F\flashcard\siyuan-plugin-fsrs\[39msrc\core\siyuan\__tests__\riff.property.test.ts:298:5
+    at [90mfile:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.1.9/node_
+modules/[4m@vitest[24m/runner/dist/index.js:533:5
+    at runTest [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2.
+1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1056:11[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+    at runSuite [90m(file:///H:/project-F/flashcard/siyuan-plugin-fsrs/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@2
+.1.9/node_modules/[4m@vitest[24m/runner/dist/index.js:1205:15[90m)[39m
+
+ [31m鉂?[39m src/core/siyuan/__tests__/riff.property.test.ts [2m([22m[2m8 tests[22m[2m | [22m[31m4 failed[39m[2m)[22m[33m 723[2mms[22m[39m
+[31m   [31m脳[31m Feature: riff-decoupling, Property 1: API 瑙ｈ€?- 鑾峰彇鎵€鏈夊崱鐗?[2m > [22mshould return all cards (due and not due) when dueOnly=false[90m 35[2mms[22m[31m[39m
+[31m     鈫?Property failed after 1 tests
+{ seed: -239430395, path: "0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0", endOnFailure: true }
+Counterexample: ["              ",[{"id":"              ","deckID":"              ","blockID":"              ","nextDues":{"1":"1970-01-01T00:00:00.000Z","2":"1970-01-01T00:00:00.000Z","3":"1970-01-01T00:00:00.000Z","4":"1970-01-01T00:00:00.000Z"}}]]
+Shrunk 61 time(s)
+
+Hint: Enable verbose mode in order to have the list of all failing values encountered during the run[39m
+[31m   [31m脳[31m Feature: riff-decoupling, Property 1: API 瑙ｈ€?- 鑾峰彇鎵€鏈夊崱鐗?[2m > [22mshould include new cards when includeNew=true[90m 17[2mms[22m[31m[39m
+[31m     鈫?Property failed after 1 tests
+{ seed: -675530972, path: "0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0", endOnFailure: true }
+Counterexample: ["              ",[{"id":"              ","deckID":"              ","blockID":"              ","nextDues":{"1":"1970-01-01T00:00:00.000Z","2":"1970-01-01T00:00:00.000Z","3":"1970-01-01T00:00:00.000Z","4":"1970-01-01T00:00:00.000Z"}}]]
+Shrunk 61 time(s)
+
+Hint: Enable verbose mode in order to have the list of all failing values encountered during the run[39m
+[31m   [31m脳[31m Feature: riff-decoupling, Property 2: API 瑙ｈ€?- 澧為噺鏇存柊杩囨护[2m > [22mshould return empty array when all cards are older than timestamp[90m 182[2mms[22m[31m[39m
+[31m     鈫?Property failed after 1 tests
+{ seed: 145682555, path: "0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:1:0:0:0:0:0:0:0:0:0:0:1:0:1:3:1:0:2:2:0:2:0:0:0:1:0:0:3:0:0:0:1:0:1:1", endOnFailure: true }
+Counterexample: ["              ",[{__proto__:null,"id":"              ","blockID":"              ","deckID":"              ","due":"1970-01-01T00:00:00.000Z","reps":0,"lapses":0,"state":0,"lastReview":"1970-01-01T00:00:00.000Z","stability":0.10000000149011612,"difficulty":1,"elapsedDays":0,"scheduledDays":0,"created":"2026-02-02T20:36:26.225Z","updated":"1970-01-01T00:00:00.000Z"}]]
+Shrunk 101 time(s)
+
+Hint: Enable verbose mode in order to have the list of all failing values encountered during the run[39m
+[31m   [31m脳[31m Feature: riff-decoupling, Property 3: API 瑙ｈ€?- 鏇存柊涓嶈Е鍙戣皟搴?[2m > [22msyncToRiff should not throw errors even when update fails[90m 51[2mms[22m[31m[39m
+[31m     鈫?Invalid time value[39m
+
+[31m鈳幆鈳幆鈳幆鈳?[1m[7m Failed Tests 4 [27m[22m鈳幆鈳幆鈳幆鈳?[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/core/siyuan/__tests__/riff.property.test.ts[2m > [22mFeature: riff-decoupling, P
+roperty 1: API 瑙ｈ€?- 鑾峰彇鎵€鏈夊崱鐗?[2m > [22mshould return all cards (due and not due) when dueOnly=false
+[31m[1mError[22m: Property failed after 1 tests
+{ seed: -239430395, path: "0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:
+0:0:0:0:0:0:0:0:0:0:0:0:0:0:0", endOnFailure: true }
+Counterexample: ["              ",[{"id":"              ","deckID":"              ","blockID":"              ","nextDues"
+:{"1":"1970-01-01T00:00:00.000Z","2":"1970-01-01T00:00:00.000Z","3":"1970-01-01T00:00:00.000Z","4":"1970-01-01T00:00:00.0
+00Z"}}]]
+Shrunk 61 time(s)
+
+Hint: Enable verbose mode in order to have the list of all failing values encountered during the run[39m
+[90m [2m鉂?[22m buildError node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/check/runner/utils/RunDetails
+Formatter.js:[2m156:19[22m[39m
+[90m [2m鉂?[22m asyncThrowIfFailed node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/check/runner/utils/Ru
+nDetailsFormatter.js:[2m170:11[22m[39m
+
+[31m[1mCaused by: AssertionError[22m: Target cannot be null or undefined.[39m
+[36m [2m鉂?[22m src/core/siyuan/__tests__/riff.property.test.ts:[2m108:33[22m[39m
+[90m [2m鉂?[22m AsyncProperty.run node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/check/property/AsyncPr
+operty.generic.js:[2m43:28[22m[39m
+[90m [2m鉂?[22m asyncRunIt node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/check/runner/Runner.js:[2m24
+:21[22m[39m
+[90m [2m鉂?[22m src/core/siyuan/__tests__/riff.property.test.ts:[2m92:5[22m[39m
+
+[31m[2m鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆[1/4]鈳?[22m[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/core/siyuan/__tests__/riff.property.test.ts[2m > [22mFeature: riff-decoupling, P
+roperty 1: API 瑙ｈ€?- 鑾峰彇鎵€鏈夊崱鐗?[2m > [22mshould include new cards when includeNew=true
+[31m[1mError[22m: Property failed after 1 tests
+{ seed: -675530972, path: "0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:
+0:0:0:0:0:0:0:0:0:0:0:0:0:0:0", endOnFailure: true }
+Counterexample: ["              ",[{"id":"              ","deckID":"              ","blockID":"              ","nextDues"
+:{"1":"1970-01-01T00:00:00.000Z","2":"1970-01-01T00:00:00.000Z","3":"1970-01-01T00:00:00.000Z","4":"1970-01-01T00:00:00.0
+00Z"}}]]
+Shrunk 61 time(s)
+
+Hint: Enable verbose mode in order to have the list of all failing values encountered during the run[39m
+[90m [2m鉂?[22m buildError node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/check/runner/utils/RunDetails
+Formatter.js:[2m156:19[22m[39m
+[90m [2m鉂?[22m asyncThrowIfFailed node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/check/runner/utils/Ru
+nDetailsFormatter.js:[2m170:11[22m[39m
+
+[31m[1mCaused by: AssertionError[22m: Target cannot be null or undefined.[39m
+[36m [2m鉂?[22m src/core/siyuan/__tests__/riff.property.test.ts:[2m143:33[22m[39m
+[90m [2m鉂?[22m AsyncProperty.run node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/check/property/AsyncPr
+operty.generic.js:[2m43:28[22m[39m
+[90m [2m鉂?[22m asyncRunIt node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/check/runner/Runner.js:[2m24
+:21[22m[39m
+[90m [2m鉂?[22m src/core/siyuan/__tests__/riff.property.test.ts:[2m124:5[22m[39m
+
+[31m[2m鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆[2/4]鈳?[22m[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/core/siyuan/__tests__/riff.property.test.ts[2m > [22mFeature: riff-decoupling, P
+roperty 2: API 瑙ｈ€?- 澧為噺鏇存柊杩囨护[2m > [22mshould return empty array when all cards are older than timestamp
+[31m[1mError[22m: Property failed after 1 tests
+{ seed: 145682555, path: "0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0
+:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:1:0:0:0:0:0:0:0:0:0:0:1:0:1:3:1:0:2:2:0:2:0:0:0:1:0:0:3:0:0:0:1:0:1:1", endOnFailu
+re: true }
+Counterexample: ["              ",[{__proto__:null,"id":"              ","blockID":"              ","deckID":"           
+   ","due":"1970-01-01T00:00:00.000Z","reps":0,"lapses":0,"state":0,"lastReview":"1970-01-01T00:00:00.000Z","stability":0
+.10000000149011612,"difficulty":1,"elapsedDays":0,"scheduledDays":0,"created":"2026-02-02T20:36:26.225Z","updated":"1970-
+01-01T00:00:00.000Z"}]]
+Shrunk 101 time(s)
+
+Hint: Enable verbose mode in order to have the list of all failing values encountered during the run[39m
+[90m [2m鉂?[22m buildError node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/check/runner/utils/RunDetails
+Formatter.js:[2m156:19[22m[39m
+[90m [2m鉂?[22m asyncThrowIfFailed node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/check/runner/utils/Ru
+nDetailsFormatter.js:[2m170:11[22m[39m
+
+[31m[1mCaused by: AssertionError[22m: expected [ { id: '              ', 鈥?13) } ] to have a length of +0 but got 1[3
+9m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 1[39m
+
+[36m [2m鉂?[22m src/core/siyuan/__tests__/riff.property.test.ts:[2m238:26[22m[39m
+[90m [2m鉂?[22m AsyncProperty.run node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/check/property/AsyncPr
+operty.generic.js:[2m43:28[22m[39m
+[90m [2m鉂?[22m asyncRunIt node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/check/runner/Runner.js:[2m24
+:21[22m[39m
+[90m [2m鉂?[22m src/core/siyuan/__tests__/riff.property.test.ts:[2m220:5[22m[39m
+
+[31m[2m鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆[3/4]鈳?[22m[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/core/siyuan/__tests__/riff.property.test.ts[2m > [22mFeature: riff-decoupling, P
+roperty 3: API 瑙ｈ€?- 鏇存柊涓嶈Е鍙戣皟搴?[2m > [22msyncToRiff should not throw errors even when update fails
+[31m[1mRangeError[22m: Invalid time value[39m
+[36m [2m鉂?[22m MapArbitrary.mapper src/core/siyuan/__tests__/riff.property.test.ts:[2m58:38[22m[39m
+    [90m 56| [39m    lapses[33m:[39m fc[33m.[39m[34mnat[39m({ max[33m:[39m [34m50[39m })[33m,[39m
+    [90m 57| [39m    state[33m:[39m fc[33m.[39m[34minteger[39m({ min[33m:[39m [34m0[39m[33m,[39m max[33m:
+[39m [34m3[39m })[33m,[39m
+    [90m 58| [39m    lastReview[33m:[39m fc[33m.[39m[34mdate[39m()[33m.[39m[34mmap[39m(d [33m=>[39m d[33m.
+[39m[34mtoISOString[39m())[33m,[39m
+    [90m   | [39m                                     [31m^[39m
+    [90m 59| [39m    stability[33m:[39m fc[33m.[39m[34mfloat[39m({ min[33m:[39m [33mMath[39m[33m.[39m[34mf
+round[39m([34m0.1[39m)[33m,[39m max[33m:[39m [33mMath[39m[33m.[39m[34mfround[39m([34m365[39m)鈥?    [90m 6
+0| [39m    difficulty[33m:[39m fc[33m.[39m[34mfloat[39m({ min[33m:[39m [33mMath[39m[33m.[39m[34mfround[39m
+([34m1[39m)[33m,[39m max[33m:[39m [33mMath[39m[33m.[39m[34mfround[39m([34m10[39m) }鈥?[90m [2m鉂?[22m MapAr
+bitrary.mapperWithCloneIfNeeded node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/check/arbitrary/definitio
+n/Arbitrary.js:[2m108:34[22m[39m
+[90m [2m鉂?[22m MapArbitrary.valueMapper node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/check/arbitrary
+/definition/Arbitrary.js:[2m118:49[22m[39m
+[90m [2m鉂?[22m MapArbitrary.generate node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/check/arbitrary/de
+finition/Arbitrary.js:[2m82:21[22m[39m
+[90m [2m鉂?[22m TupleArbitrary.generate node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/arbitrary/_inter
+nals/TupleArbitrary.js:[2m63:45[22m[39m
+[90m [2m鉂?[22m TupleArbitrary.generate node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/arbitrary/_inter
+nals/TupleArbitrary.js:[2m63:45[22m[39m
+[90m [2m鉂?[22m MapArbitrary.generate node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/check/arbitrary/de
+finition/Arbitrary.js:[2m81:28[22m[39m
+[90m [2m鉂?[22m AlwaysShrinkableArbitrary.generate node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/arbit
+rary/_internals/AlwaysShrinkableArbitrary.js:[2m10:32[22m[39m
+[90m [2m鉂?[22m TupleArbitrary.generate node_modules/.pnpm/fast-check@4.5.3/node_modules/fast-check/lib/arbitrary/_inter
+nals/TupleArbitrary.js:[2m63:45[22m[39m
+
+[31m[2m鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆[4/4]鈳?[22m[39m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m4 failed[39m[22m[2m | [22m[1m[32m4 passed[39m[22m[90m (8)[39m
+[2m   Start at [22m 04:19:43
+[2m   Duration [22m 2.73s[2m (transform 146ms, setup 0ms, collect 452ms, tests 723ms, environment 723ms, prepare 241ms)[22m
+
+[1m[7m[31m FAIL [39m[27m[22m [31mTests failed. Watching for file changes...[39m
+       [2mpress [22m[1mh[22m[2m to show help[22m[2m, [22m[2mpress [22m[1mq[22m[2m to quit[22m

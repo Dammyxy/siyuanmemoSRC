@@ -26,7 +26,7 @@ import { riff } from '@/core/siyuan';
 import { markBlockAsCard, unmarkBlockAsCard, ATTR_CARD_ID, getCardBlockIds } from '@/core/siyuan/block';
 import { getRiffCardsByBlockIDs } from '@/core/siyuan/riff';
 import { pushErrMsg, pushMsg, sql } from '@/core/siyuan/api';
-import { FinalDrillAdapter, FinalDrillProvider, LeechAdapter, NeuralRoamAdapter, RetrievalPracticeAdapter, ReviewView, SubsetPracticeAdapter } from '@/ui/review/v2';
+import { FinalDrillAdapter, FinalDrillProvider, LeechAdapter, RetrievalPracticeAdapter, ReviewView, SubsetPracticeAdapter } from '@/ui/review/v2';
 import { RetrievalPracticeProvider } from '@/ui/review/v2/providers/RetrievalPracticeProvider';
 import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
 import { SettingsPanel } from '@/ui/settings';
@@ -51,8 +51,7 @@ import { RetrievalPracticeQueue } from '@/queues/RetrievalPracticeQueue';
 import { FilterGroupQueue } from '@/queues/FilterGroupQueue';
 import { FinalDrillQueue } from '@/queues/FinalDrillQueue';
 import { IncrementalLearningQueue } from '@/queues/IncrementalLearningQueue';
-// 🔧 旧架构队列（仅用于神经漫游和难点攻坚）
-import { NeuralRoamQueue } from '@/core/queue/strategies/NeuralRoamQueue';
+// 🔧 旧架构队列（仅用于难点攻坚）
 import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
 import { NeuralQueueStorage } from '@/core/queue/neural';
 import { ExtractionNativeAdapter, FinalDrillNativeAdapter } from '@/core/native/adapter';
@@ -84,7 +83,7 @@ export default class FSRSPlugin extends Plugin {
   public rescheduleService!: RescheduleService;
   private queueContext!: QueueContext<QueueItem>;
   private retrievalQueue!: RetrievalPracticeQueue;
-  public neuralQueue!: NeuralRoamQueue;
+  // 🆕 neuralQueue 通过 getter 访问，使用统一数据源管理器
   public finalDrillQueue!: FinalDrillQueue;
   public leechQueue!: LeechQueue;
   public incrementalQueue!: IncrementalLearningQueue;
@@ -108,7 +107,13 @@ export default class FSRSPlugin extends Plugin {
     return this.finalDrillQueue;
   }
 
-  public get neuralRoamQueue(): NeuralRoamQueue {
+  // 🆕 neuralQueue getter - 通过统一数据源管理器访问
+  public get neuralQueue() {
+    return this.unifiedDataSourceManager.getQueue(QueueType.NeuralRoam) as any;
+  }
+
+  // neuralRoamQueue 别名 → neuralQueue（保持兼容性）
+  public get neuralRoamQueue() {
     return this.neuralQueue;
   }
 
@@ -236,10 +241,7 @@ export default class FSRSPlugin extends Plugin {
       this.leechQueue = new LeechQueue();
       this.queueContext.register('leech' as any, this.leechQueue as any);
 
-      // 初始化神经漫游队列（✅ 使用 V2）
-      const neuralConfig = NeuralQueueStorage.loadConfig();
-      this.neuralQueue = new NeuralRoamQueue({ config: neuralConfig });
-      this.queueContext.register('neural-roam', this.neuralQueue as any);
+      // 🆕 神经漫游队列通过 UnifiedDataSourceManager 管理，无需手动初始化
 
       console.log('[FSRS] ✅ SchedulerRouter initialized');
       console.log('[FSRS] ✅ All queues initialized with new architecture');
@@ -540,12 +542,15 @@ export default class FSRSPlugin extends Plugin {
             };
             adapter = new LeechAdapter({ i18n: plugin.i18n || {} });
           } else if (savedProviderId === 'neural-roam') {
+            // 🆕 神经漫游使用新架构 - 通过 UnifiedDataSourceManager
+            const neuralQueue = plugin.unifiedDataSourceManager?.getQueue(QueueType.NeuralRoam);
             provider = {
               id: 'neural-roam',
               displayName: plugin.i18n?.neuralRoam || '神经漫游',
-              getDueCards: () => plugin.neuralRoamQueue?.getDueCards?.() || [],
+              getDueCards: () => neuralQueue?.getAllCards?.() || [],
             };
-            adapter = new NeuralRoamAdapter({ i18n: plugin.i18n || {} });
+            // 神经漫游适配器已迁移到新架构，使用通用适配器
+            adapter = new RetrievalPracticeAdapter({ i18n: plugin.i18n || {} });
           } else {
             // 默认：提取练习
             provider = new RetrievalPracticeProvider({
@@ -564,7 +569,8 @@ export default class FSRSPlugin extends Plugin {
             } else if (providerId === 'leech') {
               adapter = new LeechAdapter({ i18n: plugin.i18n || {} });
             } else if (providerId === 'neural-roam') {
-              adapter = new NeuralRoamAdapter({ i18n: plugin.i18n || {} });
+              // 🆕 神经漫游使用新架构 - 使用通用适配器
+              adapter = new RetrievalPracticeAdapter({ i18n: plugin.i18n || {} });
             } else {
               adapter = new RetrievalPracticeAdapter({ i18n: plugin.i18n || {} });
             }
@@ -1123,20 +1129,20 @@ export default class FSRSPlugin extends Plugin {
     try {
       const providerId = options.provider?.id || (options.queue ? 'queue-based' : 'retrieval');
       
-      // 构建 JSON 数据（参考思源原生 openCard.ts）
+      // 🔧 修复：不传递完整对象，只传递必要的标识符
+      // 新窗口会重新创建 provider/queue/adapter
       const json = [{
         "title": options.title,
         "icon": "iconFSRS",
         "instance": "Tab",
         "children": {
           "instance": "Custom",
-          "customModelType": this.REVIEW_TAB_TYPE, // 使用实际注册的 Tab type
+          "customModelType": this.REVIEW_TAB_TYPE,
           "customModelData": {
-            "provider": options.provider,
-            "queue": options.queue,
-            "adapter": options.adapter,
-            "title": options.title,
+            // 只传递标识符，不传递完整对象（避免循环引用）
             "providerId": providerId,
+            "title": options.title,
+            // 新窗口会根据 providerId 重新创建 provider/queue/adapter
           }
         }
       }];

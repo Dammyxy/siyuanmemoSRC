@@ -11,6 +11,11 @@ function t(i18n: Record<string, string> | undefined, key: string, fallback: stri
   return i18n?.[key] || fallback;
 }
 
+/**
+ * @deprecated 此 Adapter 已废弃，请使用 UnifiedReviewAdapter 代替
+ * @see UnifiedReviewAdapter
+ * @see createUnifiedReviewDialog
+ */
 export class FinalDrillAdapter implements IAdapter<QueueItem> {
   private readonly i18n?: Record<string, string>;
 

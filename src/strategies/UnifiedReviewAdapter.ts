@@ -41,8 +41,12 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
             return {
                 header: {
                     title: '复习',
-                    stats: { current: 0, total: 0, label: '', queueName: '' },
-                    breadcrumbs: []
+                    stats: { current: 0, total: 0, label: '', queueName: '', newCards: 0, reviewCards: 0 },
+                    breadcrumbs: [],
+                    toolbar: [
+                        { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: '全屏' },
+                        { icon: '#iconEdit', type: 'edit-srs', ariaLabel: '编辑SRS数据' },
+                    ],
                 },
                 content: {
                     type: 'empty',
@@ -53,7 +57,6 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                     showAnswer: false,
                     grades: [],
                     menu: [],
-                    toolbar: []
                 },
                 meta: {
                     transition: 'fade',
@@ -86,7 +89,12 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                     currentNewCards: 0,
                     currentReviewCards: stats?.size || 0,
                 },
-                breadcrumbs: []
+                breadcrumbs: [],
+                toolbar: [
+                    { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: '全屏' },
+                    { icon: '#iconEdit', type: 'edit-srs', ariaLabel: '编辑SRS数据' },
+                    { icon: '#iconOpen', type: 'sticktab', ariaLabel: '打开为' },
+                ],
             },
             content: {
                 type: 'protyle',
@@ -115,7 +123,6 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                     { label: '简单', value: 4, color: 'var(--b3-theme-success)', kb: '4', emoji: '🌈', nextDue: '' }
                 ] : [],
                 menu: [],
-                toolbar: [],
                 cardMeta: {
                     blockID: card.blockId || card.id,
                     cardID: card.id,

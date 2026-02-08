@@ -14,7 +14,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { RetrievalPracticeAdapter } from '../v2/adapters/RetrievalPracticeAdapter';
 import { FinalDrillAdapter } from '../v2/adapters/FinalDrillAdapter';
-import { NeuralRoamAdapter } from '../v2/adapters/NeuralRoamAdapter';
 import type { IQueueStrategy, QueueFeedback } from '@/core/queue/abstraction/Strategy';
 import type { QueueItem, QueueStats, QueueUIConfig } from '@/core/queue/types';
 
@@ -171,7 +170,7 @@ describe('E2E: 复习队列和适配器集成', () => {
     });
 
     it('神经漫游适配器应该处理漫游元数据', () => {
-      const adapter = new NeuralRoamAdapter();
+      // 神经漫游适配器已迁移到新架构，通过 UnifiedDataSourceManager 访问
       const item = createQueueItem('card-roam', {
         meta: {
           neuralReason: 'ref',
@@ -179,7 +178,6 @@ describe('E2E: 复习队列和适配器集成', () => {
         },
       });
 
-      expect(adapter).toBeDefined();
       expect(item.meta?.neuralReason).toBe('ref');
     });
   });

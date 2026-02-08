@@ -14,6 +14,11 @@ function toLabel(base: string, tail: string): string {
   return `${a} ${b}`;
 }
 
+/**
+ * @deprecated 此 Adapter 已废弃，请使用 UnifiedReviewAdapter 代替
+ * @see UnifiedReviewAdapter
+ * @see createUnifiedReviewDialog
+ */
 export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
   private readonly i18n?: Record<string, string>;
   private readonly label?: string;
@@ -109,6 +114,11 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
     ] : [];
 
     if (!item) {
+      const toolbar = [
+        { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', '全屏') },
+        { icon: '#iconEdit', type: 'edit-srs', ariaLabel: t(this.i18n, 'editSrsData', '编辑SRS数据') },
+      ];
+      console.log('[RetrievalPracticeAdapter] toUIState (no item) - toolbar:', toolbar);
       return {
         header: {
           stats: {
@@ -120,10 +130,7 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
             reviewCards: 0,
           },
           breadcrumbs: [],
-          toolbar: [
-            { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', '全屏') },
-            { icon: '#iconEdit', type: 'edit-srs', ariaLabel: t(this.i18n, 'editSrsData', '编辑SRS数据') },
-          ],
+          toolbar,
         },
         content: {
           type: 'html',
@@ -142,6 +149,13 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
       };
     }
 
+    const toolbar = [
+      { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', '全屏') },
+      { icon: '#iconEdit', type: 'edit-srs', ariaLabel: t(this.i18n, 'editSrsData', '编辑SRS数据') },
+      { icon: '#iconOpen', type: 'sticktab', ariaLabel: t(this.i18n, 'openBy', '打开为') },
+    ];
+    console.log('[RetrievalPracticeAdapter] toUIState (with item) - toolbar:', toolbar);
+
     return {
       header: {
         stats: {
@@ -157,11 +171,7 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
           reviewCards,
         },
         breadcrumbs: [],
-        toolbar: [
-          { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', '全屏') },
-          { icon: '#iconEdit', type: 'edit-srs', ariaLabel: t(this.i18n, 'editSrsData', '编辑SRS数据') },
-          { icon: '#iconOpen', type: 'sticktab', ariaLabel: t(this.i18n, 'openBy', '打开为') },
-        ],
+        toolbar,
       },
       content: {
         type: 'protyle',

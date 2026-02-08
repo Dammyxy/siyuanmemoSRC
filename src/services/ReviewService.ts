@@ -6,7 +6,6 @@ import {
   FinalDrillAdapter, 
   FinalDrillProvider as UIFinalDrillProvider, 
   LeechAdapter, 
-  NeuralRoamAdapter, 
   RetrievalPracticeAdapter, 
   ReviewView, 
   SubsetPracticeAdapter 
@@ -15,7 +14,6 @@ import { RetrievalPracticeProvider } from '@/ui/review/v2/providers/RetrievalPra
 import { FinalDrillProvider as ProviderFinalDrillProvider } from '@/ui/review/v2/providers/FinalDrillProvider';
 import { SubsetPracticeStrategy } from '@/core/queue/strategies';
 import { riff } from '@/core/siyuan';
-import { NeuralRoamQueue } from '@/core/queue/strategies/NeuralRoamQueue';
 import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
 import { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
 import { createUnifiedReviewDialog, getQueueDisplayName } from '@/strategies/createUnifiedReviewDialog';
@@ -380,6 +378,9 @@ export class ReviewService {
     await this.openNeuralRoamV2Dialog(options);
   }
 
+  /**
+   * 打开神经漫游对话框 (V2 - 统一数据源架构)
+   */
   async openNeuralRoamV2Dialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) {
     if (!this.plugin.isInitialized) {
       await pushErrMsg(this.plugin.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
@@ -390,36 +391,17 @@ export class ReviewService {
     }
 
     try {
-      const session = new NeuralRoamQueue({
-        deckID: riff.BUILTIN_DECK_ID,
-        i18n: this.plugin.i18n || {},
-        seedBlockId: options?.seedBlockId,
-        includeSeedAsFirst: options?.includeSeedAsFirst,
-      });
-      const adapter = new NeuralRoamAdapter({ i18n: this.plugin.i18n || {} });
-      this.plugin.reviewDialog = createVueDialog({
-        hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
-        component: ReviewView,
-        dataKey: 'dialog-opencard', // 让思源热键系统能够识别
-        transparent: true,
-        props: {
-          app: this.plugin.app,
-          i18n: this.plugin.i18n || {},
-          title: this.plugin.i18n?.neuralReviewTitle || '神经复习',  // 传递给 Vue 组件显示
-          queue: session as any,
-          adapter: adapter as any,
-        },
-        events: {
-          close: () => {
-            this.plugin.reviewDialog?.destroy();
-          },
-        },
-        width: 'min(860px, 96vw)',
-        height: 'min(720px, 90vh)',
+      // 🆕 使用 createUnifiedReviewDialog 创建对话框
+      this.plugin.reviewDialog = createUnifiedReviewDialog({
+        plugin: this.plugin,
+        queueType: QueueType.NeuralRoam,
+        title: this.plugin.i18n?.neuralReviewTitle || '神经复习',
         onClose: () => {
           this.plugin.reviewDialog = null;
-        },
+        }
       });
+      
+      console.log('[ReviewService] ✅ Neural roam dialog created with unified data source');
     } catch (err) {
       console.error('[FSRS] Failed to open neural review v2 dialog:', err);
       await pushErrMsg(this.plugin.i18n?.neuralReviewFailed || '神经复习启动失败');

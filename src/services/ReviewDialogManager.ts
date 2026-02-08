@@ -15,7 +15,6 @@ import {
   FinalDrillAdapter,
   FinalDrillProvider,
   LeechAdapter,
-  NeuralRoamAdapter,
   RetrievalPracticeAdapter,
   ReviewView,
   SubsetPracticeAdapter,
@@ -25,7 +24,6 @@ import { RetrievalPracticeProvider } from '@/ui/review/v2/providers/RetrievalPra
 // Queue strategies
 import { SubsetPracticeStrategy } from '@/core/queue/strategies';
 import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
-import { NeuralRoamQueue } from '@/core/queue/strategies/NeuralRoamQueue';
 
 // Types
 import type { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
@@ -280,28 +278,28 @@ export class ReviewDialogManager {
   }
 
   /**
-   * 打开神经漫游对话框 (Vue UI 2.0)
+   * 鎵撳紑绁炵粡婕父瀵硅瘽妗?(Vue UI 2.0)
+   * 馃啎 浣跨敤缁熶竴鏁版嵁婧愭灦鏋?
    */
   async openNeuralRoam(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }): Promise<void> {
     if (!(await this.checkInitialized())) return;
     this.destroyCurrentDialog();
 
     try {
-      const queue = new NeuralRoamQueue({
-        deckID: riff.BUILTIN_DECK_ID,
-        i18n: this.deps.i18n || {},
-        seedBlockId: options?.seedBlockId,
-        includeSeedAsFirst: options?.includeSeedAsFirst,
-      });
-
-      this.createDialog({
+      // 馃啎 浣跨敤 createUnifiedReviewDialog 鍒涘缓瀵硅瘽妗?
+      this.reviewDialog = createUnifiedReviewDialog({
+        plugin: this.deps.plugin,
+        queueType: QueueType.NeuralRoam,
         title: this.deps.i18n?.neuralReviewTitle || '神经复习',
-        queue: queue as any,
-        adapter: new NeuralRoamAdapter({ i18n: this.deps.i18n || {} }) as any,
+        onClose: () => {
+          this.reviewDialog = null;
+        }
       });
+      
+      console.log('[ReviewDialogManager] 鉁?Neural roam dialog created with unified data source');
     } catch (err) {
       console.error('[FSRS] Failed to open neural roam dialog:', err);
-      await pushErrMsg(this.deps.i18n?.neuralReviewFailed || '神经复习启动失败');
+      await pushErrMsg(this.deps.i18n?.neuralReviewFailed || '绁炵粡澶嶄範鍚姩澶辫触');
     }
   }
 
