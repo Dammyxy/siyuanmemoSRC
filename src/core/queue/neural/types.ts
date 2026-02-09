@@ -35,6 +35,8 @@ export enum AssociationType {
 export interface WeightedNeighbor {
   /** 块 ID */
   id: string;
+  /** 块内容文本（用于图谱显示） */
+  title?: string;
   /** 权重值 */
   weight: number;
   /** 关联类型 */

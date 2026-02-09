@@ -62,6 +62,8 @@ const props = defineProps<{
   isTabMode?: boolean;
   title?: string; // 队列标题（如"提取练习"）
   mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
+  showSidebarToggle?: boolean; // 🌌 是否显示侧边栏切换按钮
+  sidebarCollapsed?: boolean;  // 🌌 侧边栏是否折叠
 }>();
 
 const emit = defineEmits<{
@@ -71,16 +73,29 @@ const emit = defineEmits<{
   (e: 'breadcrumb-click', crumb: { icon?: string; text: string; id?: string; action?: string }, index: number): void;
 }>();
 
-// 🆕 根据 mode 过滤工具栏按钮
+// 🆕 根据 mode 和侧边栏状态过滤工具栏按钮
 const filteredToolbar = computed(() => {
-  const toolbar = props.header?.toolbar || [];
+  let toolbar = props.header?.toolbar || [];
   console.log('[ReviewHeader] filteredToolbar computed:', {
     hasHeader: !!props.header,
     hasToolbar: !!props.header?.toolbar,
     toolbarLength: toolbar.length,
     toolbar: toolbar,
     mode: props.mode,
+    showSidebarToggle: props.showSidebarToggle,
   });
+
+  // 🌌 如果需要显示侧边栏切换按钮，添加到工具栏开头
+  if (props.showSidebarToggle) {
+    const sidebarButton = {
+      type: 'toggle-sidebar',
+      icon: props.sidebarCollapsed ? '#iconLayoutRight' : '#iconLayoutLeft',
+      ariaLabel: props.sidebarCollapsed ? '显示图谱' : '隐藏图谱',
+      disabled: false,
+    };
+    toolbar = [sidebarButton, ...toolbar];
+  }
+
   if (props.mode === 'tab') {
     // Tab 模式：移除 sticktab 按钮（已经在 Tab 中了，不需要"在 Tab 中打开"按钮）
     return toolbar.filter(btn => btn.type !== 'sticktab');

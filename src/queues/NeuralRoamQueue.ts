@@ -388,15 +388,25 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
     /**
      * 🆕 获取 Orbit 状态
-     * 
+     *
      * 从底层 NeuralQueue 获取完整的 Orbit 状态，
      * 包括历史路径、遗落块、当前节点和候选节点。
-     * 
+     *
      * @returns Orbit 状态对象
      * Requirements: 10.1, 10.2
      */
     public getOrbitState(): import('../core/queue/neural/types').OrbitState {
         return this.neuralQueue.getOrbitState();
+    }
+
+    /**
+     * 🆕 获取 Orbit 状态 V2（包含按方向分组的数据）
+     *
+     * @param selectedDirection 当前选中的方向
+     * @returns Orbit 状态对象 V2
+     */
+    public async getOrbitStateV2(selectedDirection: 'AUTO' | import('../core/queue/neural/types').AssociationType): Promise<any> {
+        return await this.neuralQueue.getOrbitStateV2(selectedDirection);
     }
 
     /**

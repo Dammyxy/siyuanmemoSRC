@@ -33,8 +33,43 @@ export class QueryEngine {
   }
 
   /**
+   * 批量查询块内容
+   *
+   * @param blockIds 块 ID 列表
+   * @returns Map<blockId, content>
+   */
+  async fetchBlockContents(blockIds: string[]): Promise<Map<string, string>> {
+    if (blockIds.length === 0) return new Map();
+
+    try {
+      const escapedIds = blockIds.map(id => `'${this.escapeSQL(id)}'`).join(',');
+      const stmt = `
+        SELECT id, content
+        FROM blocks
+        WHERE id IN (${escapedIds})
+      `;
+
+      const rows = await api.sql(stmt);
+      const contentMap = new Map<string, string>();
+
+      for (const row of rows) {
+        // 提取纯文本内容（去除 Markdown 标记）
+        const content = (row.content || '').replace(/[#*`\[\]()]/g, '').trim();
+        // 限制长度为 50 字符
+        const truncated = content.length > 50 ? content.substring(0, 50) + '...' : content;
+        contentMap.set(row.id, truncated);
+      }
+
+      return contentMap;
+    } catch (error) {
+      console.error('[QueryEngine] Failed to fetch block contents:', error);
+      return new Map();
+    }
+  }
+
+  /**
    * 获取所有邻居节点（聚合方法）
-   * 
+   *
    * @param currentCardId 当前卡片 ID
    * @returns 邻居节点列表
    * Requirements: 2.2, 3.1, 3.2, 3.3, 3.5

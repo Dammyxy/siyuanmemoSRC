@@ -54,6 +54,12 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
   /** 🆕 上次缓存的候选节点（用于记录遗落块） */
   private lastCandidates: import('./types.ts').WeightedNeighbor[] = [];
 
+  /** 🆕 方向遗落块存储（方向漫游专用） */
+  private directionMissedBlocks: Map<AssociationType, import('./types.ts').MissedBlock[]> = new Map();
+
+  /** 🔑 展示路径：只记录真正通过 getNextItem() 返回的卡片 */
+  private displayPath: string[] = [];
+
   /**
    * 构造函数
    * 
@@ -183,6 +189,9 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       this.previousCardId = this.currentSeedId;
       this.currentSeedId = selectedNeighbor.id;
 
+      // 🔑 添加到展示路径（只记录真正展示的卡片）
+      this.displayPath.push(selectedNeighbor.id);
+
       // 🔑 关键：添加当前块及其所有子块到历史记录，避免重复展示
       await this.addBlockAndDescendantsToHistory(selectedNeighbor.id);
 
@@ -245,6 +254,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    */
   clearHistory(): void {
     this.historyFilter.clear();
+    this.displayPath = []; // 同时清空展示路径
     this.currentSeedId = this.initialSeedId;
     this.previousCardId = null;
   }
@@ -439,27 +449,32 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
 
   /**
    * 获取导航路径
-   * 
-   * 从历史过滤器获取访问过的卡片列表，并转换为导航路径节点格式。
-   * 
+   *
+   * 返回真正展示过的卡片路径（不包括自动添加的子块）
+   *
    * @returns 导航路径节点列表
    * @private
    * Requirements: 10.1
    */
-  private getNavigationPath(): import('./types.ts').NavigationPathNode[] {
-    const history = this.historyFilter.snapshot();
+  private async getNavigationPath(): Promise<import('./types.ts').NavigationPathNode[]> {
+    // 使用展示路径，只包含真正通过 getNextItem() 返回的卡片
+    const path = [...this.displayPath];
     const currentId = this.currentSeedId;
 
-    if (currentId && !history.includes(currentId)) {
-      history.push(currentId);
+    // 如果当前节点不在路径中，添加到末尾
+    if (currentId && !path.includes(currentId)) {
+      path.push(currentId);
     }
 
+    // 批量查询块内容
+    const contentMap = await this.queryEngine.fetchBlockContents(path);
+
     // 转换为 NavigationPathNode 格式
-    return history.map((cardId, index) => ({
+    return path.map((cardId, index) => ({
       cardId,
-      cardTitle: '', // TODO: 需要从数据库获取标题
-      associationType: AssociationType.REF_LINK, // 默认类型
-      timestamp: Date.now() - (history.length - index) * 1000, // 估算时间戳
+      cardTitle: contentMap.get(cardId) || cardId.substring(0, 8) + '...',
+      associationType: AssociationType.REF_LINK,
+      timestamp: Date.now() - (path.length - index) * 1000,
       isSeed: this.seedNodes.has(cardId),
     }));
   }
@@ -489,14 +504,145 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
 
   /**
    * 恢复遗落块数据
-   * 
+   *
    * 用于在重新初始化后恢复之前记录的遗落块。
-   * 
+   *
    * @param missedBlocks 遗落块 Map
    * @public
    */
   public restoreMissedBlocks(missedBlocks: Map<string, import('./types.ts').MissedBlock[]>): void {
     this.missedBlocks = new Map(missedBlocks);
     console.log(`[NeuralQueue] Restored ${missedBlocks.size} missed block entries`);
+  }
+
+  // ===== 🆕 方向漫游扩展方法（Orbit v2.0） =====
+
+  /**
+   * 🆕 获取指定方向的候选节点
+   *
+   * @param nodeId 节点 ID
+   * @param direction 关联类型
+   * @returns 该方向的候选节点列表
+   */
+  public async getCandidatesForDirection(
+    nodeId: string,
+    direction: AssociationType
+  ): Promise<import('./types.ts').WeightedNeighbor[]> {
+    const allNeighbors = await this.queryEngine.fetchNeighbors(nodeId);
+    return allNeighbors
+      .filter(n => n.associationType === direction)
+      .map(n => ({
+        id: n.id,
+        weight: n.weight || 0,
+        associationType: n.associationType,
+        reason: this.getReasonText(n.associationType),
+      }));
+  }
+
+  /**
+   * 🆕 获取所有方向的候选节点（分组）
+   *
+   * @param nodeId 节点 ID
+   * @returns 按关联类型分组的候选节点 Map
+   */
+  public async getCandidatesByDirection(
+    nodeId: string
+  ): Promise<Map<AssociationType, import('./types.ts').WeightedNeighbor[]>> {
+    const allNeighbors = await this.queryEngine.fetchNeighbors(nodeId);
+    const grouped = new Map<AssociationType, import('./types.ts').WeightedNeighbor[]>();
+
+    // 收集所有 ID 用于批量查询内容
+    const allIds = allNeighbors.map(n => n.id);
+    const contentMap = await this.queryEngine.fetchBlockContents(allIds);
+
+    for (const neighbor of allNeighbors) {
+      if (!grouped.has(neighbor.associationType)) {
+        grouped.set(neighbor.associationType, []);
+      }
+      grouped.get(neighbor.associationType)!.push({
+        id: neighbor.id,
+        title: contentMap.get(neighbor.id) || neighbor.id.substring(0, 8) + '...', // 添加块内容
+        weight: neighbor.weight || 0,
+        associationType: neighbor.associationType,
+        reason: this.getReasonText(neighbor.associationType),
+      });
+    }
+
+    return grouped;
+  }
+
+  /**
+   * 🆕 记录方向遗落块
+   *
+   * 当用户切换方向时，将当前方向的未选中候选记为遗落。
+   *
+   * @param direction 关联类型
+   * @param candidateIds 候选块 ID 列表
+   */
+  public recordDirectionMissed(direction: AssociationType, candidateIds: string[]): void {
+    this.directionMissedBlocks.set(
+      direction,
+      candidateIds.map(id => ({
+        id,
+        blockId: id,
+        associationType: direction,
+        missedAt: Date.now(),
+      }))
+    );
+    console.log(`[NeuralQueue] Recorded ${candidateIds.length} missed blocks for direction: ${direction}`);
+  }
+
+  /**
+   * 🆕 获取增强的 Orbit 状态（v2 - 支持方向漫游）
+   *
+   * @param selectedDirection 当前选中的方向
+   * @returns Orbit 状态对象
+   */
+  public async getOrbitStateV2(
+    selectedDirection: 'AUTO' | AssociationType
+  ): Promise<any> {
+    const currentNodeId = this.currentSeedId;
+    if (!currentNodeId) {
+      // 返回空状态
+      return {
+        historyPath: [],
+        currentNodeId: null,
+        selectedDirection,
+        autoModeDirections: [AssociationType.REF_LINK, AssociationType.HIERARCHY],
+        candidatesByDirection: new Map(),
+        seedMissedBlocks: new Map(),
+        directionMissedBlocks: new Map(),
+      };
+    }
+
+    const candidatesByDirection = await this.getCandidatesByDirection(currentNodeId);
+    const historyPath = await this.getNavigationPath(); // 改为 await
+
+    return {
+      historyPath,
+      currentNodeId,
+      selectedDirection,
+      autoModeDirections: [AssociationType.REF_LINK, AssociationType.HIERARCHY],
+      candidatesByDirection,
+      seedMissedBlocks: new Map(this.missedBlocks),
+      directionMissedBlocks: new Map(this.directionMissedBlocks),
+    };
+  }
+
+  /**
+   * 🆕 获取方向遗落块
+   *
+   * @returns 方向遗落块 Map
+   */
+  public getDirectionMissedBlocks(): Map<AssociationType, import('./types.ts').MissedBlock[]> {
+    return new Map(this.directionMissedBlocks);
+  }
+
+  /**
+   * 🆕 清除方向遗落块
+   */
+  public clearDirectionMissedBlocks(): void {
+    this.directionMissedBlocks.clear();
+    console.log('[NeuralQueue] Cleared direction missed blocks');
   }
 }

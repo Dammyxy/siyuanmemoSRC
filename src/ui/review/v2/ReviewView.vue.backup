@@ -1,76 +1,49 @@
-<template>
-  <div
-    ref="rootRef"
-    class="fsrs-review-v2"
-    :class="{ 'fsrs-review-v2--with-sidebar': isNeuralRoamMode && !sidebarCollapsed }"
-    data-key="dialog-opencard"
-    @click="handleRootClick"
-  >
-    <!-- 🌌 Orbit 侧边栏（仅神经漫游模式 + 展开状态） -->
-    <OrbitSidebar
-      v-if="isNeuralRoamMode && !sidebarCollapsed"
-      ref="orbitSidebarRef"
-      :neural-queue="neuralQueueInstance"
-      :width="sidebarWidth"
+﻿<template>
+  <div ref="rootRef" class="fsrs-review-v2" data-key="dialog-opencard" @click="handleRootClick">
+    <ReviewHeader :header="state.header" :is-tab-mode="!!props.reviewUI" :title="props.title" :mode="props.mode" @toolbar-action="handleToolbarAction" @action="hook.executeCommand" @context="handleContext" @breadcrumb-click="handleBreadcrumbClick" />
+
+    <ReviewContent :app="app" :content="state.content" :overlay="state.overlay" :has-hidden-content="state.meta.hasHiddenContent" :show-answer="state.actions.showAnswer" :meta="state.meta" :i18n="i18n" />
+
+    <ReviewActions
+      :actions="state.actions"
+      :meta="state.meta"
       :i18n="i18n"
-      @node-click="handleGraphNodeClick"
-      @navigate-to-block="handleGraphNavigateToBlock"
+      :queue="providerQueue || props.queue"
+      @reveal="hook.reveal"
+      @grade="hook.grade"
+      @skip="hook.skip"
+      @command="hook.executeCommand"
+      @openMenu="handleOpenMenu"
     />
 
-    <!-- 🖱️ 拖拽分隔条（仅侧边栏展开时显示） -->
-    <div
-      v-if="isNeuralRoamMode && !sidebarCollapsed"
-      class="fsrs-review-v2__resizer"
-      :class="{ 'fsrs-review-v2__resizer--dragging': isResizingSidebar }"
-      @mousedown="startResizeSidebar"
-    ></div>
-
-    <!-- 📝 复习内容区 -->
-    <div class="fsrs-review-v2__content-wrapper">
-      <ReviewHeader
-        :header="state.header"
-        :is-tab-mode="!!props.reviewUI"
-        :title="props.title"
-        :mode="props.mode"
-        :show-sidebar-toggle="isNeuralRoamMode"
-        :sidebar-collapsed="sidebarCollapsed"
-        @toolbar-action="handleToolbarAction"
-        @action="hook.executeCommand"
-        @context="handleContext"
-        @breadcrumb-click="handleBreadcrumbClick"
-      />
-
-      <ReviewContent :app="app" :content="state.content" :overlay="state.overlay" :has-hidden-content="state.meta.hasHiddenContent" :show-answer="state.actions.showAnswer" :meta="state.meta" :i18n="i18n" />
-
-      <ReviewActions
-        :actions="state.actions"
-        :meta="state.meta"
-        :i18n="i18n"
-        :queue="providerQueue || props.queue"
-        @reveal="hook.reveal"
-        @grade="hook.grade"
-        @skip="hook.skip"
-        @command="hook.executeCommand"
-        @openMenu="handleOpenMenu"
-      />
-
-      <div v-if="state.meta.resumePrompt" class="fsrs-review-v2-resume">
-        <div class="fsrs-review-v2-resume__panel b3-card">
-          <div class="fsrs-review-v2-resume__title">{{ t('resumePromptTitle', '发现未完成的练习') }}</div>
-          <div class="fsrs-review-v2-resume__desc ft__secondary">
-            {{ state.meta.resumePrompt.message }}
-          </div>
-          <div class="fsrs-review-v2-resume__actions">
-            <button class="b3-button b3-button--cancel" type="button" @click="hook.executeCommand('resume-start-over')">
-              {{ t('resumeStartOver', '从头开始') }}
-            </button>
-            <button class="b3-button b3-button--text" type="button" @click="hook.executeCommand('resume-continue')">
-              {{ t('resumeContinue', '继续练习') }}
-            </button>
-          </div>
+    <div v-if="state.meta.resumePrompt" class="fsrs-review-v2-resume">
+      <div class="fsrs-review-v2-resume__panel b3-card">
+        <div class="fsrs-review-v2-resume__title">{{ t('resumePromptTitle', '检测到未完成的复习') }}</div>
+        <div class="fsrs-review-v2-resume__desc ft__secondary">
+          {{ state.meta.resumePrompt.message }}
+        </div>
+        <div class="fsrs-review-v2-resume__actions">
+          <button class="b3-button b3-button--cancel" type="button" @click="hook.executeCommand('resume-start-over')">
+            {{ t('resumeStartOver', '重头开始') }}
+          </button>
+          <button class="b3-button b3-button--text" type="button" @click="hook.executeCommand('resume-continue')">
+            {{ t('resumeContinue', '继续复习') }}
+          </button>
         </div>
       </div>
     </div>
+
+    <!-- 🆕 Orbit 轨道图窗口 v2.0 -->
+    <OrbitWindow
+      v-if="isNeuralRoamMode && graphWindowVisible"
+      ref="orbitWindowRef"
+      :neural-queue="neuralQueueInstance"
+      :visible="graphWindowVisible"
+      :i18n="i18n"
+      @close="handleGraphWindowClose"
+      @node-click="handleGraphNodeClick"
+      @navigate-to-block="handleGraphNavigateToBlock"
+    />
   </div>
 </template>
 
@@ -86,8 +59,8 @@ import { ProviderBackedQueueStrategy } from '@/core/extensions';
 import { createVueDialog } from '@/utils/dialog';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import * as riff from '@/core/siyuan/riff';
-// 🌌 Orbit 侧边栏 v2.0
-import OrbitSidebar from '@/presentation/orbit/OrbitSidebar.vue';
+// 🔥 旧图谱组件已删除，使用新的 Orbit v2.0
+import OrbitWindow from '@/presentation/orbit/OrbitWindow.vue';
 import type { NeuralRoamQueue } from '@/queues/NeuralRoamQueue';
 
 const props = defineProps<{
@@ -97,24 +70,22 @@ const props = defineProps<{
   adapter?: any;
   provider?: any;
   reviewUI?: any;
-  title?: string; // 队列标题（如"提取练习"）
-  mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
-  plugin?: any; // 🆕 插件实例，用于访问 hybridSyncService
+  title?: string; // 窗口标题（如"检索复习"）
+  mode?: 'dialog' | 'tab'; // 显示模式：对话框/Tab页
+  plugin?: any; // 插件实例，用于访问 hybridSyncService
 }>();
 
 const emit = defineEmits<{
   (e: 'openMenu', menu: IQueueCommand<unknown>[]): void;
   (e: 'close'): void; // 添加关闭事件
-  (e: 'convert-to-tab'): void; // 🆕 转换为 Tab 模式（kebab-case）
+  (e: 'convert-to-tab'): void; // 转换为 Tab 模式（kebab-case）
 }>();
 
 const rootRef = ref<HTMLDivElement | null>(null);
 
-// 🌌 侧边栏状态
-const sidebarCollapsed = ref(true);  // 默认折叠
-const sidebarWidth = ref(600);       // 默认宽度 600px (接近 50% 屏幕宽度)
-const isResizingSidebar = ref(false);
-const orbitSidebarRef = ref<InstanceType<typeof OrbitSidebar> | null>(null);
+// 图谱窗口状态
+const graphWindowVisible = ref(false);
+const orbitWindowRef = ref<InstanceType<typeof OrbitWindow> | null>(null);
 
 // 判断是否为神经漫游模式
 const isNeuralRoamMode = computed(() => {
@@ -144,36 +115,14 @@ onMounted(() => {
     ourDialog: document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]'),
   });
 
-  // 🌌 恢复侧边栏状态
-  try {
-    const savedState = localStorage.getItem('fsrs-orbit-sidebar-state');
-    if (savedState) {
-      const state = JSON.parse(savedState);
-      sidebarCollapsed.value = state.collapsed ?? true;
-      sidebarWidth.value = state.width ?? 600;
-
-      // 如果恢复的是展开状态,立即调整对话框宽度
-      if (!state.collapsed) {
-        setTimeout(() => {
-          const dialogContainer = document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]') as HTMLElement;
-          if (dialogContainer) {
-            dialogContainer.style.maxWidth = `${1024 + sidebarWidth.value}px`;
-          }
-        }, 100);
-      }
-    }
-  } catch (error) {
-    console.warn('[ReviewView] Failed to load sidebar state:', error);
-  }
-
-  // 🆕 触发增量同步（如果启用）
+  // ?? ��������ͬ����������ã�
   const plugin = props.plugin as any;
   if (plugin?.hybridSyncService) {
     const riffConfig = plugin.storage?.getSettings?.()?.riffIntegration;
-    if (riffConfig?.mode === 'advanced' &&
+    if (riffConfig?.mode === 'advanced' && 
         riffConfig?.incrementalSync?.enabled &&
         riffConfig?.incrementalSync?.triggers?.includes('review-open')) {
-      // 后台执行增量同步，不阻塞 UI
+      // ��ִ̨������ͬ���������� UI
       void plugin.hybridSyncService.incrementalSync().catch((err: Error) => {
         console.error('[ReviewView] Incremental sync failed:', err);
       });
@@ -212,7 +161,7 @@ function t(key: string, fallback: string): string {
   return i18n?.[key] || fallback;
 }
 
-// 处理来自思源热键系统的 CustomEvent
+// ��������˼Դ�ȼ�ϵͳ�� CustomEvent
 function handleRootClick(e: MouseEvent) {
   console.log('[FSRS ReviewView] handleRootClick triggered:', {
     detail: e.detail,
@@ -221,13 +170,13 @@ function handleRootClick(e: MouseEvent) {
     currentTarget: e.currentTarget,
   });
 
-  // 只处理来自思源热键系统的 CustomEvent（event.detail 为字符串）
+  // ֻ��������˼Դ�ȼ�ϵͳ�� CustomEvent��event.detail Ϊ�ַ�����
   if (typeof e.detail !== 'string') return;
 
   const key = e.detail.toLowerCase();
   console.log('[FSRS ReviewView] Hotkey detected:', key, 'answerShown:', hook.context.value.showAnswer);
 
-  // 显示答案（空格/回车） - 只在答案未显示时工作
+  // ��ʾ�𰸣��ո�/�س��� - ֻ�ڴ�δ��ʾʱ����
   if ((key === ' ' || key === 'enter') && !hook.context.value.showAnswer) {
     e.preventDefault();
     e.stopPropagation();
@@ -236,7 +185,7 @@ function handleRootClick(e: MouseEvent) {
     return;
   }
 
-  // 评分（1/2/3/4） - 只在答案已显示后才能评分
+  // ���֣�1/2/3/4�� - ֻ�ڴ�����ʾ���������
   if (['1', '2', '3', '4'].includes(key)) {
     if (hook.context.value.showAnswer) {
       e.preventDefault();
@@ -249,7 +198,7 @@ function handleRootClick(e: MouseEvent) {
     return;
   }
 
-  // 跳过（S键） - 任何时候都能工作
+  // ������S���� - �κ�ʱ���ܹ���
   if (key === 's') {
     e.preventDefault();
     e.stopPropagation();
@@ -272,7 +221,7 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
 
   const menu = new Menu();
 
-  // 添加卡片统计(只读项)
+  // ��ӿ�Ƭͳ��(ֻ����)
   if (cardMeta) {
     menu.addItem({
       id: 'card-stats',
@@ -282,25 +231,25 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
     menu.addSeparator();
   }
 
-  // Part 5: 添加"打开"子菜单
+  // Part 5: ���"��"�Ӳ˵�
   if (currentCard?.blockId) {
     menu.addItem({
       icon: 'iconOpen',
-      label: t('openCard', '打开'),
+      label: t('openCard', '��'),
       submenu: [
         {
           icon: 'iconTab',
-          label: t('openInNewTab', '新标签页'),
+          label: t('openInNewTab', '�±�ǩҳ'),
           click: () => openCardInTab(currentCard.blockId, false),
         },
         {
           icon: 'iconLayoutRight',
-          label: t('openInRight', '右侧'),
+          label: t('openInRight', '�Ҳ�'),
           click: () => openCardInTab(currentCard.blockId, true),
         },
         {
           icon: 'iconExport',
-          label: t('openInNewWindow', '新窗口'),
+          label: t('openInNewWindow', '�´���'),
           click: () => openCardInNewWindow(currentCard.blockId),
         },
       ],
@@ -308,11 +257,11 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
     menu.addSeparator();
   }
 
-  // Part 4: 添加"编辑 SRS 数据"菜单项
+  // Part 4: ���"�༭ SRS ����"�˵���
   if (currentCard?.blockId) {
     menu.addItem({
       icon: 'iconEdit',
-      label: t('editSrsData', '编辑 SRS 数据'),
+      label: t('editSrsData', '�༭ SRS ����'),
       click: () => {
         void openSrsEditorDialog(currentCard.blockId);
       },
@@ -320,7 +269,7 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
     menu.addSeparator();
   }
 
-  // 标准菜单项
+  // ��׼�˵���
   for (const cmd of cmds) {
     const id = String((cmd as any)?.id || '');
     const label = String((cmd as any)?.label || '');
@@ -334,7 +283,7 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
     });
   }
 
-  // 使用按钮位置定位菜单（与思源原生闪卡一致）
+  // ʹ�ð�ťλ�ö�λ�˵�����˼Դԭ������һ�£�
   const target = ev.currentTarget as HTMLElement;
   if (target) {
     const rect = target.getBoundingClientRect();
@@ -346,7 +295,7 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
     });
     menu.open({ x: rect.left, y: rect.bottom });
   } else {
-    // 降级：使用鼠标位置
+    // ������ʹ�����λ��
     console.log('[FSRS ReviewView] currentTarget is null, using mouse position');
     menu.open({ x: ev.clientX, y: ev.clientY });
   }
@@ -354,8 +303,8 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
 
 function buildCardStatsHTML(meta: NonNullable<ReviewUIState['actions']['cardMeta']>): string {
   const stateText = meta.isReviewCard
-    ? t('reviewCard', '复习卡')
-    : t('newCard', '新卡');
+    ? t('reviewCard', '��ϰ��')
+    : t('newCard', '�¿�');
 
   const lastReview = meta.lastReview && meta.lastReview > 0
     ? new Date(meta.lastReview).toISOString().split('T')[0]
@@ -363,17 +312,17 @@ function buildCardStatsHTML(meta: NonNullable<ReviewUIState['actions']['cardMeta
 
   return `
     <div class="fn__flex">
-      <div class="fn__flex-1 ft__breakword">${t('lapses', '遗忘次数')}</div>
+      <div class="fn__flex-1 ft__breakword">${t('lapses', '��������')}</div>
       <div class="fn__space"></div>
       <div>${meta.lapses ?? 0}</div>
     </div>
     <div class="fn__flex">
-      <div class="fn__flex-1 ft__breakword">${t('reps', '复习次数')}</div>
+      <div class="fn__flex-1 ft__breakword">${t('reps', '��ϰ����')}</div>
       <div class="fn__space"></div>
       <div>${meta.reps ?? 0}</div>
     </div>
     <div class="fn__flex">
-      <div class="fn__flex-1 ft__breakword">${t('cardState', '卡片状态')}</div>
+      <div class="fn__flex-1 ft__breakword">${t('cardState', '��Ƭ״̬')}</div>
       <div class="fn__space"></div>
       <div class="${meta.isReviewCard ? 'ft__success' : 'ft__primary'}">
         ${stateText}
@@ -381,7 +330,7 @@ function buildCardStatsHTML(meta: NonNullable<ReviewUIState['actions']['cardMeta
     </div>
     <div class="fn__flex ${!lastReview ? 'fn__none' : ''}">
       <div class="fn__flex-1 ft__breakword" style="width: 170px;">
-        ${t('lastReview', '上次复习')}
+        ${t('lastReview', '�ϴθ�ϰ')}
       </div>
       <div class="fn__space"></div>
       <div>${lastReview}</div>
@@ -403,12 +352,12 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   console.log('[FSRS ReviewView] handleToolbarAction called:', actionType);
 
   if (actionType === 'fullscreen') {
-    // 实现全屏功能（参考思源原生实现）
+    // ʵ��ȫ�����ܣ��ο�˼Դԭ��ʵ�֣�
     console.log('[FSRS ReviewView] Fullscreen button clicked');
 
-    // 查找对话框容器
+    // ���ҶԻ�������
     const dialogContainer = document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]');
-    // 使用自定义类名查找内容区域
+    // ʹ���Զ�������������������
     const contentMain = rootRef.value?.querySelector('.fsrs-review-v2-content') || document.querySelector('.fsrs-review-v2-content');
     console.log('[FSRS ReviewView] dialogContainer found:', !!dialogContainer);
     console.log('[FSRS ReviewView] contentMain found:', !!contentMain);
@@ -418,30 +367,30 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
       console.log('[FSRS ReviewView] Current fullscreen state:', isFullscreen);
 
       if (isFullscreen) {
-        // 退出全屏
+        // �˳�ȫ��
         contentMain.classList.remove('fullscreen');
         dialogContainer.classList.remove('fullscreen');
-        // 恢复 maxWidth
+        // �ָ� maxWidth
         (dialogContainer as HTMLElement).style.maxWidth = '1024px';
         document.getElementById('drag')?.classList.remove('fn__hidden');
         console.log('[FSRS ReviewView] Exited fullscreen');
       } else {
-        // 进入全屏
+        // ����ȫ��
         contentMain.classList.add('fullscreen');
         dialogContainer.classList.add('fullscreen');
-        // 设置为 100vw 以确保全屏效果(覆盖内联样式)
+        // ����Ϊ 100vw ��ȷ��ȫ��Ч��(����������ʽ)
         (dialogContainer as HTMLElement).style.maxWidth = '100vw';
         document.getElementById('drag')?.classList.add('fn__hidden');
         console.log('[FSRS ReviewView] Entered fullscreen');
       }
 
-      // 调整 protyle 尺寸
+      // ���� protyle �ߴ�
       setTimeout(() => {
         const protyleHost = contentMain.querySelector('.fsrs-review-v2-content__protyle-host');
         console.log('[FSRS ReviewView] protyleHost:', protyleHost);
 
         if (protyleHost) {
-          // 查找 protyle 实例
+          // ���� protyle ʵ��
           const protyle = (protyleHost as any)?.['__vnode__']?.['ctx']?.['protyle']
                          || (protyleHost as any)?.['__vueParentComponent']?.['protyle'];
           console.log('[FSRS ReviewView] protyle instance:', protyle);
@@ -456,7 +405,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
       console.log('[FSRS ReviewView] ERROR: contentMain or dialogContainer not found!');
     }
   } else if (actionType === 'edit-srs') {
-    // 打开SRS编辑器
+    // ��SRS�༭��
     console.log('[FSRS ReviewView] Edit SRS button clicked');
     const cardMeta = state.value.actions.cardMeta;
     const blockId = cardMeta?.blockID || state.value.content.data;
@@ -468,23 +417,23 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
       console.error('[FSRS ReviewView] ERROR: blockId is undefined!');
     }
   } else if (actionType === 'sticktab') {
-    // 打开为菜单
+    // ��Ϊ�˵�
     handleOpenAsMenu(ev);
   } else if (actionType === 'lock-seed') {
     // Lock current block as seed (Neural Roam) - uses SeedService
     console.log('[FSRS ReviewView] Lock seed button clicked');
     const cardMeta = state.value.actions.cardMeta;
     const blockId = cardMeta?.blockID || state.value.content.data;
-
+    
     if (blockId) {
       const queueStrategy = hook.getQueueStrategy();
       const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
-
+      
       if (underlyingQueue) {
         import('@/core/neural/SeedService').then(({ SeedService }) => {
           const seedService = new SeedService(underlyingQueue);
           const currentCandidates = underlyingQueue.getCurrentCandidatesForSeed?.() || [];
-
+          
           seedService.lockAsSeed(blockId, currentCandidates)
             .then(() => {
               console.log('[FSRS ReviewView] Block locked as seed:', blockId);
@@ -503,16 +452,16 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
       console.error('[FSRS ReviewView] ERROR: blockId is undefined!');
     }
   } else if (actionType === 'neural-menu') {
-    // 🧠 神经漫游菜单
+    // ?? �����β˵�
     console.log('[FSRS ReviewView] Neural menu button clicked');
-    // 阻止事件冒泡，防止菜单打开后又立即关闭菜单
+    // ��ֹ�¼�ð�ݣ���ֹ�˵��򿪺����������˵���
     ev.stopPropagation();
     ev.preventDefault();
     handleNeuralMenu(ev);
-  } else if (actionType === 'toggle-sidebar') {
-    // 🌌 切换侧边栏
-    console.log('[FSRS ReviewView] Toggle sidebar button clicked');
-    toggleSidebar();
+  } else if (actionType === 'open-graph') {
+    // ?? ��ͼ�״���
+    console.log('[FSRS ReviewView] Open graph button clicked');
+    toggleGraphWindow();
   }
 }
 
@@ -521,12 +470,12 @@ function handleOpenAsMenu(ev: MouseEvent) {
 
   const menu = new Menu();
 
-  // 获取插件实例
+  // ��ȡ���ʵ��
   const fsrsPlugin = (window as any).siyuanFsrsPlugin;
 
   if (!fsrsPlugin) {
     console.error('[FSRS ReviewView] FSRS plugin instance not found');
-    // 降级方案：打开文档
+    // �������������ĵ�
     const cardMeta = state.value.actions.cardMeta;
     const blockId = cardMeta?.blockID || state.value.content.data;
 
@@ -534,7 +483,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
       menu.addItem({
         id: 'openByNewWindow',
         icon: 'iconOpenWindow',
-        label: '使用新窗口打开',
+        label: 'ʹ���´��ڴ�',
         click() {
           if (props.app) {
             openWindow({
@@ -554,60 +503,59 @@ function handleOpenAsMenu(ev: MouseEvent) {
     return;
   }
 
-  // 🆕 在 Tab 中打开
-  // 🆕 在 Tab 中打开
+  // ?? �� Tab �д�
   menu.addItem({
     id: 'openByTab',
     icon: 'iconLayoutRight',
-    label: '在 Tab 中打开',
+    label: '�� Tab �д�',
     click() {
       console.log('[FSRS ReviewView] Opening in tab and closing dialog');
-
-      // 获取插件实例
+      
+      // ��ȡ���ʵ��
       const fsrsPlugin = (window as any).siyuanFsrsPlugin;
       if (!fsrsPlugin) {
         console.error('[FSRS ReviewView] Plugin instance not found');
         return;
       }
 
-      // 打开 Tab
+      // �� Tab
       fsrsPlugin.openReviewTab({
         provider: props.provider,
         queue: props.queue,
         adapter: props.adapter,
-        title: props.title || '复习',
+        title: props.title || '��ϰ',
       });
 
-      // 关闭当前对话框
+      // �رյ�ǰ�Ի���
       emit('close');
     },
   });
 
-  // 使用新窗口打开（打开独立窗口）
+  // ʹ���´��ڴ򿪣��򿪶������ڣ�
   /// #if !BROWSER
   menu.addItem({
     id: 'openByNewWindow',
     icon: 'iconOpenWindow',
-    label: '使用新窗口打开',
+    label: 'ʹ���´��ڴ�',
     click() {
       console.log('[FSRS ReviewView] Opening review in new window');
       try {
-        // 获取插件实例
+        // ��ȡ���ʵ��
         const fsrsPlugin = (window as any).siyuanFsrsPlugin;
         if (!fsrsPlugin) {
           console.error('[FSRS ReviewView] Plugin instance not found');
           return;
         }
 
-        // 调用优雅的新窗口打开方法
+        // �������ŵ��´��ڴ򿪷���
         fsrsPlugin.openReviewInNewWindow({
           provider: props.provider,
           queue: props.queue,
           adapter: props.adapter,
-          title: props.title || '复习',
+          title: props.title || '��ϰ',
         });
 
-        // 关闭当前对话框
+        // �رյ�ǰ�Ի���
         emit('close');
       } catch (err) {
         console.error('[FSRS ReviewView] Error opening review in new window:', err);
@@ -616,7 +564,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
   });
   /// #endif
 
-  // 打开菜单
+  // �򿪲˵�
   const target = ev.currentTarget as HTMLElement;
   const rect = target.getBoundingClientRect();
   menu.open({
@@ -625,7 +573,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
   });
 }
 
-// Part 4: 打开 SRS 编辑器对话框
+// Part 4: �� SRS �༭���Ի���
 function openSrsEditorDialog(blockId: string) {
   console.log('[FSRS ReviewView] openSrsEditorDialog called with blockId:', blockId);
 
@@ -640,7 +588,7 @@ function openSrsEditorDialog(blockId: string) {
   }
 
   createVueDialog({
-    title: t('editSrsData', '编辑 SRS 数据'),
+    title: t('editSrsData', '�༭ SRS ����'),
     component: SrsEditorDialog,
     props: {
       card: {
@@ -656,7 +604,7 @@ function openSrsEditorDialog(blockId: string) {
   });
 }
 
-// Part 5: 在标签页中打开卡片
+// Part 5: �ڱ�ǩҳ�д򿪿�Ƭ
 function openCardInTab(blockId: string, openInRight: boolean) {
   if (!props.app) return;
 
@@ -667,7 +615,7 @@ function openCardInTab(blockId: string, openInRight: boolean) {
   });
 }
 
-// Part 5: 在新窗口中打开卡片
+// Part 5: ���´����д򿪿�Ƭ
 function openCardInNewWindow(blockId: string) {
   if (!props.app) return;
 
@@ -678,16 +626,16 @@ function openCardInNewWindow(blockId: string) {
   });
 }
 
-// Part 5: 神经漫游菜单
+// Part 5: �����β˵�
 function handleNeuralMenu(ev: MouseEvent) {
   console.log('[FSRS ReviewView] handleNeuralMenu - start', { ev, target: ev.target });
-
+  
   const queueStrategy = hook.getQueueStrategy();
   console.log('[FSRS ReviewView] queueStrategy:', queueStrategy);
-
+  
   const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
   console.log('[FSRS ReviewView] underlyingQueue:', underlyingQueue);
-
+  
   if (!underlyingQueue) {
     console.error('[FSRS ReviewView] Underlying queue not found');
     return;
@@ -696,24 +644,24 @@ function handleNeuralMenu(ev: MouseEvent) {
   console.log('[FSRS ReviewView] Creating menu...');
   const menu = new Menu('neural-roam-menu');
   console.log('[FSRS ReviewView] Menu created:', menu);
-
-  // 1. 查看种子块列表
-  console.log('[FSRS ReviewView] Adding menu item 1: 查看种子块列表');
+  
+  // 1. �鿴���ӿ��б�
+  console.log('[FSRS ReviewView] Adding menu item 1: �鿴���ӿ��б�');
   const viewSeedsItem = menu.addItem({
     icon: 'iconList',
-    label: '查看种子块列表',
+    label: '�鿴���ӿ��б�',
     click: () => {
-      console.log('[FSRS ReviewView] 查看种子块列表 clicked');
+      console.log('[FSRS ReviewView] �鿴���ӿ��б� clicked');
       try {
         const seeds = underlyingQueue.getSeedBlocks?.();
         console.log('[FSRS ReviewView] Got seeds:', seeds);
         if (seeds && seeds.length > 0) {
           const seedList = seeds.map((id: string, index: number) => `${index + 1}. ${id}`).join('\n');
           console.log('[FSRS ReviewView] Showing message with seed list');
-          showMessage(`种子块列表 (${seeds.length}个):\n${seedList}`, 5000, 'info');
+          showMessage(`���ӿ��б� (${seeds.length}��):\n${seedList}`, 5000, 'info');
         } else {
           console.log('[FSRS ReviewView] No seeds, showing empty message');
-          showMessage('暂无种子块', 3000, 'info');
+          showMessage('�������ӿ�', 3000, 'info');
         }
       } catch (error) {
         console.error('[FSRS ReviewView] Failed to get seed blocks:', error);
@@ -721,122 +669,122 @@ function handleNeuralMenu(ev: MouseEvent) {
     }
   });
   console.log('[FSRS ReviewView] Menu item 1 added:', viewSeedsItem);
-
-  // 2. 从种子块开始漫游（子菜单）
+  
+  // 2. �����ӿ�ʼ���Σ��Ӳ˵���
   console.log('[FSRS ReviewView] Getting seeds for submenu...');
   const seeds = underlyingQueue.getSeedBlocks?.() || [];
   console.log('[FSRS ReviewView] Seeds:', seeds);
-
+  
   if (seeds.length > 0) {
     const seedSubmenuItems = seeds.map((seedId: string) => ({
       label: seedId.substring(0, 20) + '...',
       click: async () => {
         try {
           await underlyingQueue.startRoamingFromSeed?.(seedId);
-          showMessage(`已从种子 ${seedId} 开始漫游`, 3000, 'info');
-          // 刷新当前卡片
+          showMessage(`�Ѵ����� ${seedId} ��ʼ����`, 3000, 'info');
+          // ˢ�µ�ǰ��Ƭ
           await hook.executeCommand('next');
         } catch (error) {
           console.error('[FSRS ReviewView] Failed to start roaming from seed:', error);
-          showMessage('开始漫游失败', 3000, 'error');
+          showMessage('��ʼ����ʧ��', 3000, 'error');
         }
       }
     }));
-
-    console.log('[FSRS ReviewView] Adding menu item 2: 从种子块开始漫游 (with submenu)');
+    
+    console.log('[FSRS ReviewView] Adding menu item 2: �����ӿ�ʼ���� (with submenu)');
     menu.addItem({
       icon: 'iconPlay',
-      label: '从种子块开始漫游',
+      label: '�����ӿ�ʼ����',
       submenu: seedSubmenuItems
     });
   } else {
-    console.log('[FSRS ReviewView] Adding menu item 2: 从种子块开始漫游 (disabled)');
+    console.log('[FSRS ReviewView] Adding menu item 2: �����ӿ�ʼ���� (disabled)');
     menu.addItem({
       icon: 'iconPlay',
-      label: '从种子块开始漫游',
+      label: '�����ӿ�ʼ����',
       disabled: true
     });
   }
-
+  
   menu.addSeparator();
-
-  // 3. 移除种子块（子菜单）
+  
+  // 3. �Ƴ����ӿ飨�Ӳ˵���
   if (seeds.length > 0) {
     const removeSubmenuItems = seeds.map((seedId: string) => ({
       label: seedId.substring(0, 20) + '...',
       click: async () => {
         try {
           await underlyingQueue.removeCard?.(seedId);
-          showMessage(`已移除种子块 ${seedId}`, 3000, 'info');
+          showMessage(`���Ƴ����ӿ� ${seedId}`, 3000, 'info');
         } catch (error) {
           console.error('[FSRS ReviewView] Failed to remove seed:', error);
-          showMessage('移除种子块失败', 3000, 'error');
+          showMessage('�Ƴ����ӿ�ʧ��', 3000, 'error');
         }
       }
     }));
-
-    console.log('[FSRS ReviewView] Adding menu item 3: 移除种子块 (with submenu)');
+    
+    console.log('[FSRS ReviewView] Adding menu item 3: �Ƴ����ӿ� (with submenu)');
     menu.addItem({
       icon: 'iconTrashcan',
-      label: '移除种子块',
+      label: '�Ƴ����ӿ�',
       submenu: removeSubmenuItems
     });
   } else {
-    console.log('[FSRS ReviewView] Adding menu item 3: 移除种子块 (disabled)');
+    console.log('[FSRS ReviewView] Adding menu item 3: �Ƴ����ӿ� (disabled)');
     menu.addItem({
       icon: 'iconTrashcan',
-      label: '移除种子块',
+      label: '�Ƴ����ӿ�',
       disabled: true
     });
   }
-
+  
   menu.addSeparator();
-
-  // 4. 查看历史记录
-  console.log('[FSRS ReviewView] Adding menu item 4: 查看历史记录');
+  
+  // 4. �鿴��ʷ��¼
+  console.log('[FSRS ReviewView] Adding menu item 4: �鿴��ʷ��¼');
   menu.addItem({
     icon: 'iconHistory',
-    label: '查看历史记录',
+    label: '�鿴��ʷ��¼',
     click: () => {
-      console.log('[FSRS ReviewView] 查看历史记录 clicked');
+      console.log('[FSRS ReviewView] �鿴��ʷ��¼ clicked');
       try {
         const history = underlyingQueue.getHistorySnapshot?.();
         if (history && history.length > 0) {
-          const historyList = history.slice(-10).map((id: string, index: number) =>
+          const historyList = history.slice(-10).map((id: string, index: number) => 
             `${history.length - 10 + index + 1}. ${id}`
           ).join('\n');
-          showMessage(`历史记录 (最近10条，共${history.length}条):\n${historyList}`, 5000, 'info');
+          showMessage(`��ʷ��¼ (���10������${history.length}��):\n${historyList}`, 5000, 'info');
         } else {
-          showMessage('暂无历史记录', 3000, 'info');
+          showMessage('������ʷ��¼', 3000, 'info');
         }
       } catch (error) {
         console.error('[FSRS ReviewView] Failed to get history:', error);
       }
     }
   });
-
-  // 5. 清空历史记录
-  console.log('[FSRS ReviewView] Adding menu item 5: 清空历史记录');
+  
+  // 5. �����ʷ��¼
+  console.log('[FSRS ReviewView] Adding menu item 5: �����ʷ��¼');
   menu.addItem({
     icon: 'iconClear',
-    label: '清空历史记录',
+    label: '�����ʷ��¼',
     click: () => {
-      console.log('[FSRS ReviewView] 清空历史记录 clicked');
+      console.log('[FSRS ReviewView] �����ʷ��¼ clicked');
       try {
         underlyingQueue.clearHistory?.();
-        showMessage('历史记录已清空', 3000, 'info');
+        showMessage('��ʷ��¼�����', 3000, 'info');
       } catch (error) {
         console.error('[FSRS ReviewView] Failed to clear history:', error);
-        showMessage('清空历史记录失败', 3000, 'error');
+        showMessage('�����ʷ��¼ʧ��', 3000, 'error');
       }
     }
   });
-
-  // 显示菜单
+  
+  // ��ʾ�˵�
   console.log('[FSRS ReviewView] Opening menu...');
   const target = ev.currentTarget as HTMLElement;
   console.log('[FSRS ReviewView] Target element:', target);
-
+  
   if (target) {
     const rect = target.getBoundingClientRect();
     console.log('[FSRS ReviewView] Target rect:', rect);
@@ -844,7 +792,7 @@ function handleNeuralMenu(ev: MouseEvent) {
       x: rect.left,
       y: rect.bottom
     });
-
+    
     menu.open({
       x: rect.left,
       y: rect.bottom
@@ -855,7 +803,7 @@ function handleNeuralMenu(ev: MouseEvent) {
   }
 }
 
-// Part 6: 处理面包屑点击
+// Part 6: �������м���
 function handleBreadcrumbClick(crumb: { icon?: string; text: string; id?: string; action?: string }, index: number) {
   const action = crumb.action || crumb.id;
   if (action) {
@@ -863,98 +811,31 @@ function handleBreadcrumbClick(crumb: { icon?: string; text: string; id?: string
   }
 }
 
-// 🌐 Part 7: 侧边栏处理函数
+// ?? Part 7: ͼ�״��ڴ������
 /**
- * 切换侧边栏显示/隐藏
+ * �л�ͼ�״�����ʾ/����
  */
-function toggleSidebar() {
-  sidebarCollapsed.value = !sidebarCollapsed.value;
-  console.log('[FSRS ReviewView] Sidebar toggled:', sidebarCollapsed.value ? 'collapsed' : 'expanded');
-
-  // 动态调整对话框宽度
-  const dialogContainer = document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]') as HTMLElement;
-  if (dialogContainer) {
-    if (sidebarCollapsed.value) {
-      // 折叠:恢复原宽度
-      dialogContainer.style.maxWidth = '1024px';
-    } else {
-      // 展开:扩展宽度以容纳侧边栏
-      dialogContainer.style.maxWidth = `${1024 + sidebarWidth.value}px`;
-    }
-  }
-
-  // 持久化状态
-  try {
-    const state = {
-      collapsed: sidebarCollapsed.value,
-      width: sidebarWidth.value,
-    };
-    localStorage.setItem('fsrs-orbit-sidebar-state', JSON.stringify(state));
-  } catch (error) {
-    console.warn('[ReviewView] Failed to save sidebar state:', error);
-  }
+function toggleGraphWindow() {
+  graphWindowVisible.value = !graphWindowVisible.value;
+  console.log('[FSRS ReviewView] Graph window toggled:', graphWindowVisible.value);
 }
 
 /**
- * 拖拽调整侧边栏宽度（参考 SRSBrowser）
+ * ����ͼ�״��ڹر�
  */
-function startResizeSidebar(e: MouseEvent) {
-  e.preventDefault();
-  isResizingSidebar.value = true;
-
-  // 🔑 防止拖拽时选中文字
-  document.body.style.userSelect = 'none';
-  document.body.style.cursor = 'col-resize';
-
-  const startX = e.clientX;
-  const startWidth = sidebarWidth.value;
-
-  // 🔑 使用全局监听，避免鼠标移出分隔条时停止
-  const onMouseMove = (moveEvent: MouseEvent) => {
-    moveEvent.preventDefault();
-    const delta = moveEvent.clientX - startX;
-    const newWidth = Math.min(800, Math.max(200, startWidth + delta));
-    sidebarWidth.value = newWidth;
-
-    // 实时调整对话框宽度
-    const dialogContainer = document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]') as HTMLElement;
-    if (dialogContainer) {
-      dialogContainer.style.maxWidth = `${1024 + newWidth}px`;
-    }
-  };
-
-  const onMouseUp = () => {
-    // 🔑 清理全局样式和监听器
-    isResizingSidebar.value = false;
-    document.body.style.userSelect = '';
-    document.body.style.cursor = '';
-    document.removeEventListener('mousemove', onMouseMove);
-    document.removeEventListener('mouseup', onMouseUp);
-
-    // 持久化宽度
-    try {
-      const state = {
-        collapsed: sidebarCollapsed.value,
-        width: sidebarWidth.value,
-      };
-      localStorage.setItem('fsrs-orbit-sidebar-state', JSON.stringify(state));
-    } catch (error) {
-      console.warn('[ReviewView] Failed to save sidebar width:', error);
-    }
-  };
-
-  document.addEventListener('mousemove', onMouseMove);
-  document.addEventListener('mouseup', onMouseUp);
+function handleGraphWindowClose() {
+  graphWindowVisible.value = false;
+  console.log('[FSRS ReviewView] Graph window closed');
 }
 
 /**
- * 处理图谱节点点击
- *
- * 当用户在图谱中点击节点时，跳转到该节点对应的卡。
+ * ����ͼ�׽ڵ���
+ * 
+ * ���û���ͼ���е���ڵ�ʱ����ת���ýڵ��Ӧ�Ŀ顣
  */
-function handleGraphNodeClick(data: { nodeId: string; nodeType: string }) {
-  console.log('[FSRS ReviewView] Graph node clicked:', data.nodeId);
-  void handleGraphNavigateToBlock(data.nodeId);
+function handleGraphNodeClick(nodeId: string) {
+  console.log('[FSRS ReviewView] Graph node clicked:', nodeId);
+  void handleGraphNavigateToBlock(nodeId);
 }
 
 async function handleGraphNavigateToBlock(nodeId: string) {
@@ -984,21 +865,19 @@ async function handleGraphNavigateToBlock(nodeId: string) {
     }
   } catch (error) {
     console.error('[FSRS ReviewView] Failed to navigate to block:', error);
-    showMessage('切换失败', 3000, 'error');
+    showMessage('�л�ʧ��', 3000, 'error');
   }
 }
-// 🌐 监听当前卡片变化，同步到侧边栏图谱
+// ?? ������ǰ��Ƭ�仯��ͬ����ͼ��
 watch(
   () => state.value.content.data,
   (newBlockId) => {
-    if (!sidebarCollapsed.value && orbitSidebarRef.value && newBlockId) {
-      console.log('[FSRS ReviewView] Card changed, syncing to sidebar graph:', newBlockId);
-      // 刷新图谱数据
-      orbitSidebarRef.value.refresh();
-      // 聚焦到当前节点（如果组件支持此方法）
-      if (typeof orbitSidebarRef.value.focusNode === 'function') {
-        orbitSidebarRef.value.focusNode(newBlockId);
-      }
+    if (graphWindowVisible.value && graphWindowRef.value && newBlockId) {
+      console.log('[FSRS ReviewView] Card changed, syncing to graph:', newBlockId);
+      // ˢ��ͼ������
+      graphWindowRef.value.refresh();
+      // �۽�����ǰ�ڵ�
+      graphWindowRef.value.focusNode(newBlockId);
     }
   }
 );
@@ -1012,34 +891,6 @@ watch(
   height: 100%;
   width: 100%;
   background: var(--b3-theme-background);
-}
-
-/* 🌌 带侧边栏时切换为横向布局 */
-.fsrs-review-v2--with-sidebar {
-  flex-direction: row;
-}
-
-/* 🌌 内容包装器（占据剩余空间） */
-.fsrs-review-v2__content-wrapper {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0; /* 防止 flex 子元素溢出 */
-}
-
-/* 🌌 拖拽分隔条 */
-.fsrs-review-v2__resizer {
-  width: 4px;
-  background: var(--b3-theme-surface);
-  cursor: col-resize;
-  transition: background 0.2s;
-  flex-shrink: 0;
-  user-select: none;
-}
-
-.fsrs-review-v2__resizer:hover,
-.fsrs-review-v2__resizer--dragging {
-  background: var(--b3-theme-primary);
 }
 
 .fsrs-review-v2-resume {
@@ -1070,10 +921,10 @@ watch(
   gap: 8px;
 }
 
-/* 全屏样式 - 当对话框容器有 fullscreen 类时 */
-/* 参考思源原生实现：siyuan/app/src/assets/scss/main/_main.scss:28-56 */
+/* ȫ����ʽ - ���Ի��������� fullscreen ��ʱ */
+/* �ο�˼Դԭ��ʵ�֣�siyuan/app/src/assets/scss/main/_main.scss:28-56 */
 
-/* 1. 对话框容器全屏 */
+/* 1. �Ի�������ȫ�� */
 .b3-dialog__container.fullscreen {
   position: fixed !important;
   top: 0 !important;
@@ -1084,14 +935,14 @@ watch(
   z-index: 8 !important;
   border-radius: 0 !important;
 
-  /* 标题栏样式调整 */
+  /* ��������ʽ���� */
   .block__icons {
     padding-left: var(--b3-toolbar-left-mac);
     height: 32px;
     min-height: 32px;
   }
 
-  /* 拖拽区域样式 */
+  /* ��ק������ʽ */
   .block__icons > .fn__flex-1 {
     -webkit-app-region: drag;
     min-width: 32px;
@@ -1105,7 +956,7 @@ watch(
   }
 }
 
-/* 2. 内容区域全屏（填充父容器） */
+/* 2. ��������ȫ������丸������ */
 .fsrs-review-v2-content.fullscreen {
   width: 100%;
   height: 100%;
@@ -1113,7 +964,7 @@ watch(
 </style>
 
 <style>
-/* 确保对话框有圆角 */
+/* ȷ���Ի�����Բ�� */
 .b3-dialog__container[data-key="dialog-opencard"] {
   border-radius: var(--b3-border-radius-b) !important;
 }
