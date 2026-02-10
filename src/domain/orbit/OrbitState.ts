@@ -61,7 +61,7 @@ export interface MissedBlock {
 }
 
 /**
- * Orbit 核心状态（v2 - 支持方向漫游）
+ * Orbit 核心状态（v2 - 支持方向漫游 + 路径导航）
  */
 export interface OrbitStateV2 {
   // ===== 现有字段（兼容旧版）=====
@@ -83,6 +83,14 @@ export interface OrbitStateV2 {
   seedMissedBlocks: Map<string, MissedBlock[]>;
   /** 方向遗落块：关联类型 -> 遗落块列表 */
   directionMissedBlocks: Map<AssociationType, MissedBlock[]>;
+
+  // ===== 🆕 路径导航系统字段 =====
+  /** 当前路径指针（-1 表示未初始化） */
+  currentPathIndex: number;
+  /** 导航模式：explore 探索新邻居 | follow 沿路径前进 */
+  navigationMode: 'explore' | 'follow';
+  /** 是否有书签（用于"返回最新"功能） */
+  hasBookmark: boolean;
 }
 
 /**

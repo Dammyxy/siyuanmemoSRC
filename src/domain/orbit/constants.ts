@@ -13,8 +13,10 @@ export const LAYOUT_CONSTANTS = {
   /** 历史节点水平间距 */
   HORIZONTAL_SPACING: 180,
 
-  /** 关系大节点距离当前节点的半径 */
-  DIRECTION_GROUP_RADIUS: 250,
+  /** 候选区 Y 偏移（在当前节点下方） */
+  CANDIDATE_AREA_Y_OFFSET: 200,
+  /** 关系节点水平间距 */
+  DIRECTION_GROUP_SPACING: 150,
   /** 候选节点竖向间距 */
   CANDIDATE_VERTICAL_SPACING: 50,
   /** 每个方向最多显示候选数 */
@@ -30,32 +32,35 @@ export const LAYOUT_CONSTANTS = {
 
 /**
  * 方向对应的角度（扇形布局）
+ * 注意：键使用 AssociationType 枚举的值（'ref', 'context', 'tag', 'sibling'）
  */
-export const DIRECTION_ANGLES = {
-  REF_LINK: 15,      // 0-30度
-  HIERARCHY: 45,     // 30-60度
-  TAG: 75,           // 60-90度
-  SIBLING: 105,      // 90-120度
+export const DIRECTION_ANGLES: Record<string, number> = {
+  ref: 15,        // REF_LINK: 0-30度
+  context: 45,    // HIERARCHY: 30-60度
+  tag: 75,        // TAG: 60-90度
+  sibling: 105,   // SIBLING: 90-120度
 };
 
 /**
  * 方向对应的颜色
+ * 注意：键使用 AssociationType 枚举的值（'ref', 'context', 'tag', 'sibling'）
  */
-export const DIRECTION_COLORS = {
-  REF_LINK: '#2196F3',    // 蓝色
-  HIERARCHY: '#FF9800',   // 橙色
-  TAG: '#9C27B0',         // 紫色
-  SIBLING: '#00BCD4',     // 青色
+export const DIRECTION_COLORS: Record<string, string> = {
+  ref: '#2196F3',       // REF_LINK: 蓝色
+  context: '#FF9800',   // HIERARCHY: 橙色
+  tag: '#9C27B0',       // TAG: 紫色
+  sibling: '#00BCD4',   // SIBLING: 青色
 };
 
 /**
  * 方向对应的中文标签
+ * 注意：键使用 AssociationType 枚举的值（'ref', 'context', 'tag', 'sibling'）
  */
-export const DIRECTION_LABELS = {
-  REF_LINK: '引用',
-  HIERARCHY: '同文档',
-  TAG: '标签',
-  SIBLING: '兄弟',
+export const DIRECTION_LABELS: Record<string, string> = {
+  ref: '引用',        // REF_LINK
+  context: '同文档',  // HIERARCHY
+  tag: '标签',        // TAG
+  sibling: '兄弟',    // SIBLING
 };
 
 /**

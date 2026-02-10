@@ -76,26 +76,64 @@ export function useReviewSession<TItem>(
   };
 
   const grade = async (rating: number): Promise<void> => {
-    const feedback: QueueFeedback = { action: 'rate', rating: Math.max(1, Math.min(4, Math.floor(rating))) as 1 | 2 | 3 | 4 };
-    await queue.onFeedback(currentItem.value, feedback);
-    currentItem.value = await queue.next();
-    context.value.showAnswer = false;
-    await updateState();
+    try {
+      const feedback: QueueFeedback = { action: 'rate', rating: Math.max(1, Math.min(4, Math.floor(rating))) as 1 | 2 | 3 | 4 };
+      await queue.onFeedback(currentItem.value, feedback);
+      currentItem.value = await queue.next();
+
+      // 处理队列耗尽：如果 next() 返回 null，显示完成界面
+      if (currentItem.value === null) {
+        console.log('[useReviewSession] 队列已耗尽，会话完成');
+        // 设置为空内容类型，让适配器处理完成状态
+      }
+
+      context.value.showAnswer = false;
+      await updateState();
+    } catch (error) {
+      console.error('[ReviewSession] 加载下一张卡片失败:', error);
+      // 发生错误时也设置为 null，触发错误/完成界面
+      currentItem.value = null;
+      await updateState();
+    }
   };
 
   const skip = async (): Promise<void> => {
-    await queue.onFeedback(currentItem.value, { action: 'skip' });
-    currentItem.value = await queue.next();
-    context.value.showAnswer = false;
-    await updateState();
+    try {
+      await queue.onFeedback(currentItem.value, { action: 'skip' });
+      currentItem.value = await queue.next();
+
+      // 处理队列耗尽：如果 next() 返回 null，显示完成界面
+      if (currentItem.value === null) {
+        console.log('[useReviewSession] 队列已耗尽，会话完成');
+      }
+
+      context.value.showAnswer = false;
+      await updateState();
+    } catch (error) {
+      console.error('[ReviewSession] 跳过卡片失败:', error);
+      currentItem.value = null;
+      await updateState();
+    }
   };
 
   const executeCommand = async (cmdId: string): Promise<void> => {
-    const id = String(cmdId || '');
-    if (!id) return;
-    await queue.onFeedback(currentItem.value, { action: 'custom', customActionId: id });
-    currentItem.value = await queue.next();
-    await updateState();
+    try {
+      const id = String(cmdId || '');
+      if (!id) return;
+      await queue.onFeedback(currentItem.value, { action: 'custom', customActionId: id });
+      currentItem.value = await queue.next();
+
+      // 处理队列耗尽：如果 next() 返回 null，显示完成界面
+      if (currentItem.value === null) {
+        console.log('[useReviewSession] 队列已耗尽，会话完成');
+      }
+
+      await updateState();
+    } catch (error) {
+      console.error('[ReviewSession] 执行命令失败:', error);
+      currentItem.value = null;
+      await updateState();
+    }
   };
 
   const mounted = (): void => {
@@ -124,15 +162,71 @@ export function useReviewSession<TItem>(
     return queue;
   };
 
-  return { 
-    state, 
-    context, 
-    reveal, 
-    grade, 
-    skip, 
-    executeCommand, 
+  /**
+   * 🆕 直接加载指定 blockId 的卡片（路径导航专用）
+   *
+   * 用于历史节点跳转场景：不调用 queue.next()，直接从队列中获取指定卡片并更新 UI。
+   * 这样可以在不改变队列状态的情况下"跳转"到历史路径中的某个节点。
+   *
+   * @param blockId 块 ID
+   */
+  const loadCardByBlockId = async (blockId: string): Promise<void> => {
+    try {
+      // 🔧 修复：尝试从队列获取当前路径项的完整数据，而非创建空壳临时对象
+      const underlyingQueue = (queue as any)?.getUnderlyingQueue?.()?.neuralQueue;
+
+      if (underlyingQueue?.getCurrentPathItem) {
+        const realItem = await underlyingQueue.getCurrentPathItem();
+        if (realItem) {
+          currentItem.value = realItem;
+
+          // 🆕 根据卡片类型设置初始状态
+          // - flashcard（闪卡）: 显示【显示答案】（showAnswer = false）
+          // - topic（主题块）: 直接显示【下一张】（showAnswer = true）
+          const neuralContext = (realItem as any)?.meta?.neuralContext;
+          const blockType = neuralContext?.blockType;
+          const isFlashcard = neuralContext?.isFlashcard;
+
+          // 优先使用 isFlashcard 判断，fallback 到 blockType
+          const shouldShowAnswer = isFlashcard === false || blockType === 'topic';
+          context.value.showAnswer = shouldShowAnswer;
+
+          await updateState();
+          console.log(`[useReviewSession] Loaded real card data for blockId: ${blockId}, blockType: ${blockType}, isFlashcard: ${isFlashcard}, showAnswer: ${context.value.showAnswer}`);
+          return;
+        }
+      }
+
+      // 降级：如果无法获取真实数据，使用临时项（可能导致部分功能受限）
+      console.warn(`[useReviewSession] Fallback to temp item for blockId: ${blockId}`);
+      const tempItem = {
+        cardID: blockId,
+        blockID: blockId,
+        deckID: 'neural-roaming',
+        priority: 0,
+        meta: {},
+      } as any;
+
+      currentItem.value = tempItem;
+      context.value.showAnswer = false; // 降级情况默认为 item
+      await updateState();
+
+      console.log(`[useReviewSession] Loaded card by blockId: ${blockId}`);
+    } catch (error) {
+      console.error('[useReviewSession] Failed to load card by blockId:', error);
+    }
+  };
+
+  return {
+    state,
+    context,
+    reveal,
+    grade,
+    skip,
+    executeCommand,
     getQueueStrategy, // 🆕 添加到返回对象
-    onMounted: mounted, 
-    onUnmounted: unmounted 
+    loadCardByBlockId, // 🆕 路径导航专用方法
+    onMounted: mounted,
+    onUnmounted: unmounted
   };
 }

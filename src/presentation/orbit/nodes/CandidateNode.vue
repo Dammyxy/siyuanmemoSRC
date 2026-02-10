@@ -13,20 +13,21 @@ const typeLabel = computed(() => DIRECTION_LABELS[props.data.assocType as keyof 
 
 <template>
   <div class="node-candidate" :style="{ '--candidate-color': color }">
-    <span class="type-label">{{ typeLabel }}</span>
+    <span class="content-label">{{ data.label }}</span>
     <Handle type="target" :position="Position.Top" />
   </div>
-  <div class="label" :style="{ color }">{{ data.label }}</div>
+  <div class="type-badge" :style="{ backgroundColor: color }">{{ typeLabel }}</div>
 </template>
 
 <style scoped>
 .node-candidate {
   position: relative;
-  min-width: 60px;
-  height: 28px;
-  padding: 0 14px;
-  border-radius: 14px;
-  background: rgba(var(--candidate-color), 0.15);
+  min-width: 80px;
+  max-width: 120px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.05);
   border: 2px solid var(--candidate-color);
   display: flex;
   align-items: center;
@@ -36,26 +37,30 @@ const typeLabel = computed(() => DIRECTION_LABELS[props.data.assocType as keyof 
 }
 
 .node-candidate:hover {
-  transform: scale(1.1);
+  transform: scale(1.05);
   box-shadow: 0 0 12px var(--candidate-color);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.1);
 }
 
-.type-label {
+.content-label {
   font-size: 12px;
-  font-weight: 600;
-  color: var(--candidate-color);
-}
-
-.label {
-  position: absolute;
-  bottom: -18px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 10px;
+  font-weight: 500;
+  color: white;
   white-space: nowrap;
-  max-width: 80px;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.type-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-size: 9px;
+  font-weight: 600;
+  color: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 </style>

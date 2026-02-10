@@ -34,6 +34,7 @@
         :mode="props.mode"
         :show-sidebar-toggle="isNeuralRoamMode"
         :sidebar-collapsed="sidebarCollapsed"
+        :navigation-state="state.header.navigationState"
         @toolbar-action="handleToolbarAction"
         @action="hook.executeCommand"
         @context="handleContext"
@@ -112,7 +113,7 @@ const rootRef = ref<HTMLDivElement | null>(null);
 
 // 🌌 侧边栏状态
 const sidebarCollapsed = ref(true);  // 默认折叠
-const sidebarWidth = ref(600);       // 默认宽度 600px (接近 50% 屏幕宽度)
+const sidebarWidth = ref(1024);      // 默认宽度 1024px (与复习区域等宽)
 const isResizingSidebar = ref(false);
 const orbitSidebarRef = ref<InstanceType<typeof OrbitSidebar> | null>(null);
 
@@ -157,7 +158,9 @@ onMounted(() => {
         setTimeout(() => {
           const dialogContainer = document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]') as HTMLElement;
           if (dialogContainer) {
+            // 复习区域固定 1024px + 侧边栏宽度
             dialogContainer.style.maxWidth = `${1024 + sidebarWidth.value}px`;
+            dialogContainer.style.width = `${1024 + sidebarWidth.value}px`;
           }
         }, 100);
       }
@@ -179,6 +182,9 @@ onMounted(() => {
       });
     }
   }
+
+  // 🆕 初始化导航状态（Phase 3: UI 控件）
+  refreshNavigationState();
 });
 
 const providerAdapter = props.reviewUI?.adapter;
@@ -513,6 +519,53 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
     // 🌌 切换侧边栏
     console.log('[FSRS ReviewView] Toggle sidebar button clicked');
     toggleSidebar();
+  } else if (actionType === 'nav-toggle-mode') {
+    // 🆕 导航模式切换（Phase 3: UI 控件）
+    console.log('[FSRS ReviewView] Navigation mode toggle button clicked');
+    const queueStrategy = hook.getQueueStrategy();
+    const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+
+    if (underlyingQueue?.name === 'NeuralRoamQueue') {
+      const neuralQueue = underlyingQueue.neuralQueue;
+      const currentMode = neuralQueue.getNavigationState().navigationMode;
+
+      // 切换模式：follow <-> explore
+      const newMode = currentMode === 'follow' ? 'explore' : 'follow';
+      neuralQueue.setNavigationMode(newMode);
+
+      // 刷新 UI
+      refreshNavigationState();
+
+      // 显示提示
+      const modeText = newMode === 'follow' ? '🛤️ 沿路径前进' : '🧭 探索新分支';
+      showMessage(`已切换为: ${modeText}`, 2000, 'info');
+    }
+  } else if (actionType === 'nav-return-bookmark') {
+    // 🆕 返回书签（Phase 3: UI 控件）
+    console.log('[FSRS ReviewView] Return to bookmark button clicked');
+    const queueStrategy = hook.getQueueStrategy();
+    const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+
+    if (underlyingQueue?.name === 'NeuralRoamQueue') {
+      const neuralQueue = underlyingQueue.neuralQueue;
+      const success = neuralQueue.returnToBookmark();
+
+      if (success) {
+        const navState = neuralQueue.getNavigationState();
+        const targetBlockId = neuralQueue.displayPath[navState.currentPathIndex];
+
+        // 加载书签位置的卡片
+        void hook.loadCardByBlockId(targetBlockId);
+
+        // 刷新图谱
+        orbitSidebarRef.value?.refresh(false);
+
+        // 刷新导航状态
+        refreshNavigationState();
+
+        showMessage('已返回最新位置', 2000, 'info');
+      }
+    }
   }
 }
 
@@ -877,9 +930,12 @@ function toggleSidebar() {
     if (sidebarCollapsed.value) {
       // 折叠:恢复原宽度
       dialogContainer.style.maxWidth = '1024px';
+      dialogContainer.style.width = '';  // 清除固定宽度
     } else {
-      // 展开:扩展宽度以容纳侧边栏
-      dialogContainer.style.maxWidth = `${1024 + sidebarWidth.value}px`;
+      // 展开:复习区域 1024px + 侧边栏宽度
+      const totalWidth = 1024 + sidebarWidth.value;
+      dialogContainer.style.maxWidth = `${totalWidth}px`;
+      dialogContainer.style.width = `${totalWidth}px`;  // 强制固定宽度，避免被挤压
     }
   }
 
@@ -913,13 +969,16 @@ function startResizeSidebar(e: MouseEvent) {
   const onMouseMove = (moveEvent: MouseEvent) => {
     moveEvent.preventDefault();
     const delta = moveEvent.clientX - startX;
-    const newWidth = Math.min(800, Math.max(200, startWidth + delta));
+    // 允许更大的侧边栏宽度（最大 1200px，最小 400px）
+    const newWidth = Math.min(1200, Math.max(400, startWidth + delta));
     sidebarWidth.value = newWidth;
 
     // 实时调整对话框宽度
     const dialogContainer = document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]') as HTMLElement;
     if (dialogContainer) {
-      dialogContainer.style.maxWidth = `${1024 + newWidth}px`;
+      const totalWidth = 1024 + newWidth;
+      dialogContainer.style.maxWidth = `${totalWidth}px`;
+      dialogContainer.style.width = `${totalWidth}px`;  // 强制固定宽度
     }
   };
 
@@ -957,26 +1016,62 @@ function handleGraphNodeClick(data: { nodeId: string; nodeType: string }) {
   void handleGraphNavigateToBlock(data.nodeId);
 }
 
-async function handleGraphNavigateToBlock(nodeId: string) {
-  console.log('[FSRS ReviewView] Navigating to block in review:', nodeId);
+/**
+ * 🆕 处理图谱历史节点跳转（路径导航系统）
+ *
+ * 当用户在 Orbit 图谱中点击历史节点时，跳转到该节点对应的卡片。
+ * 使用路径导航系统：保留完整路径，只改变当前位置。
+ *
+ * @param blockId 目标块 ID
+ */
+async function handleGraphNavigateToBlock(blockId: string) {
+  console.log('[FSRS ReviewView] Navigating to history node:', blockId);
 
   try {
     const queueStrategy = hook.getQueueStrategy();
     const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
 
-    if (underlyingQueue && typeof underlyingQueue.startRoamingFromSeed === 'function') {
-      // 🔧 只设置种子，不自动跳到下一张
-      // 用户可以手动点击"下一张"按钮来继续
-      await underlyingQueue.startRoamingFromSeed(nodeId);
-      console.log('[FSRS ReviewView] Set roaming seed to:', nodeId);
-      showMessage(`已设置漫游起点: ${nodeId}`, 2000, 'info');
-      return;
+    // 🆕 神经漫游队列 - 使用路径导航系统
+    if (underlyingQueue?.name === 'NeuralRoamQueue') {
+      const neuralQueue = underlyingQueue.neuralQueue;
+
+      // 1. 跳转到历史节点（保留完整路径）
+      const success = neuralQueue.jumpToHistoryNode(blockId);
+
+      if (success) {
+        console.log('[FSRS ReviewView] Successfully jumped to history node:', blockId);
+
+        // 2. 直接加载该卡片到 UI（不调用 queue.next()）
+        await hook.loadCardByBlockId(blockId);
+
+        // 3. 刷新图谱（保持视野，不自动 fitView）
+        orbitSidebarRef.value?.refresh(false);
+
+        // 4. 刷新导航状态到 UI
+        refreshNavigationState();
+
+        // 5. 显示导航模式提示
+        const navState = neuralQueue.getNavigationState();
+        const modeText = navState.navigationMode === 'follow' ? '沿路径前进' : '探索新分支';
+        showMessage(`已跳转到历史节点 | 当前模式: ${modeText}`, 2000, 'info');
+
+        return;
+      } else {
+        // 节点不在路径中，降级为设置种子
+        console.warn('[FSRS ReviewView] Node not in path, fallback to setting seed');
+        if (typeof underlyingQueue.startRoamingFromSeed === 'function') {
+          await underlyingQueue.startRoamingFromSeed(blockId);
+          showMessage(`已设置漫游起点: ${blockId}`, 2000, 'info');
+        }
+        return;
+      }
     }
 
+    // 其他队列类型 - 降级为打开新标签页
     if (props.app) {
       openTab({
         app: props.app,
-        doc: { id: nodeId },
+        doc: { id: blockId },
         openNewTab: true,
       });
     } else {
@@ -987,17 +1082,60 @@ async function handleGraphNavigateToBlock(nodeId: string) {
     showMessage('切换失败', 3000, 'error');
   }
 }
-// 🌐 监听当前卡片变化，同步到侧边栏图谱
+
+/**
+ * 🆕 获取当前队列的导航状态（仅神经漫游队列）
+ * Phase 3: UI 控件
+ */
+function getNavigationState() {
+  const queueStrategy = hook.getQueueStrategy();
+  const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+
+  if (underlyingQueue?.name === 'NeuralRoamQueue') {
+    const neuralQueue = underlyingQueue.neuralQueue;
+    return neuralQueue.getNavigationState();
+  }
+  return null;
+}
+
+/**
+ * 🆕 检查当前是否是神经漫游队列
+ * Phase 3: UI 控件
+ */
+function isNeuralRoamQueue(): boolean {
+  const queueStrategy = hook.getQueueStrategy();
+  const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+  return underlyingQueue?.name === 'NeuralRoamQueue';
+}
+
+/**
+ * 🆕 刷新导航状态到 UI
+ * Phase 3: UI 控件
+ */
+function refreshNavigationState() {
+  if (!isNeuralRoamQueue()) return;
+
+  const navState = getNavigationState();
+  if (navState) {
+    // 更新 state.header.navigationState
+    state.value = {
+      ...state.value,
+      header: {
+        ...state.value.header,
+        navigationState: navState,
+      },
+    };
+  }
+}
+
+// 🌐 监听当前卡片变化,同步到侧边栏图谱
 watch(
   () => state.value.content.data,
   (newBlockId) => {
     if (!sidebarCollapsed.value && orbitSidebarRef.value && newBlockId) {
-      console.log('[FSRS ReviewView] Card changed, syncing to sidebar graph:', newBlockId);
-      // 刷新图谱数据
-      orbitSidebarRef.value.refresh();
-      // 聚焦到当前节点（如果组件支持此方法）
-      if (typeof orbitSidebarRef.value.focusNode === 'function') {
-        orbitSidebarRef.value.focusNode(newBlockId);
+      // 🔑 只刷新图谱数据,保持用户设置的视野
+      if (typeof orbitSidebarRef.value.refresh === 'function') {
+        orbitSidebarRef.value.refresh(false);  // ← 禁用自动 fitView,不移动视野
       }
     }
   }
@@ -1025,6 +1163,12 @@ watch(
   display: flex;
   flex-direction: column;
   min-width: 0; /* 防止 flex 子元素溢出 */
+}
+
+/* 侧边栏展开时，内容区域固定宽度 */
+.fsrs-review-v2--with-sidebar .fsrs-review-v2__content-wrapper {
+  flex: 0 0 1024px; /* 固定宽度 1024px，不伸缩 */
+  width: 1024px;
 }
 
 /* 🌌 拖拽分隔条 */

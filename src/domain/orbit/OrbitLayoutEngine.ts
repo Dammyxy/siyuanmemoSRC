@@ -36,6 +36,13 @@ export class OrbitLayoutEngine {
     const edges: Edge[] = [];
     const nodePositions = new Map<string, { x: number; y: number }>();
 
+    console.log('[OrbitLayoutEngine] calculate called:', {
+      historyPathLength: state.historyPath?.length || 0,
+      currentNodeId: state.currentNodeId,
+      candidatesByDirectionSize: state.candidatesByDirection?.size || 0,
+      candidatesByDirectionKeys: state.candidatesByDirection ? Array.from(state.candidatesByDirection.keys()) : [],
+    });
+
     // 1. 主轨道布局（y=0）- 水平排列历史路径
     this.layoutMainTrack(state.historyPath, state.currentNodeId, nodes, edges, nodePositions);
 
@@ -56,6 +63,13 @@ export class OrbitLayoutEngine {
       nodes,
       edges
     );
+
+    console.log('[OrbitLayoutEngine] calculate result:', {
+      nodesCount: nodes.length,
+      edgesCount: edges.length,
+      nodeTypes: nodes.map(n => n.type),
+      nodePositions: nodes.map(n => ({ id: n.id.substring(0, 12), type: n.type, x: n.position.x, y: n.position.y })),
+    });
 
     return { nodes, edges };
   }
@@ -85,22 +99,28 @@ export class OrbitLayoutEngine {
       if (isCurrent) nodeType = 'current';
       else if (node.isSeed) nodeType = 'seed';
 
+      // 使用 path-${index} 作为唯一ID，避免重复
+      const nodeId = `path-${index}`;
+
       nodes.push({
-        id: node.cardId,
+        id: nodeId,
         type: nodeType,
         position: { x, y },
-        data: { label: node.cardTitle },
+        data: { label: node.cardTitle, blockId: node.cardId },
         draggable: false,
       });
 
-      nodePositions.set(node.cardId, { x, y });
+      // 只保存当前节点的位置（用于候选区连线）
+      if (isCurrent) {
+        nodePositions.set(node.cardId, { x, y });
+      }
 
       // 主轨道连线
       if (index > 0) {
         edges.push({
           id: `main-${index}`,
-          source: historyPath[index - 1].cardId,
-          target: node.cardId,
+          source: `path-${index - 1}`,
+          target: nodeId,
           type: 'smoothstep',
           style: { stroke: '#4a90d9', strokeWidth: 3 },
         });
@@ -109,7 +129,7 @@ export class OrbitLayoutEngine {
   }
 
   /**
-   * 关系大节点扇形布局
+   * 关系大节点水平布局（在当前节点下方）
    */
   private layoutDirectionGroups(
     candidatesByDirection: Map<AssociationType, CandidateNode[]>,
@@ -123,17 +143,28 @@ export class OrbitLayoutEngine {
     const currentPos = nodePositions.get(currentNodeId);
     if (!currentPos) return;
 
-    const { DIRECTION_GROUP_RADIUS, CANDIDATE_VERTICAL_SPACING, MAX_CANDIDATES_PER_DIRECTION } =
+    const { CANDIDATE_AREA_Y_OFFSET, DIRECTION_GROUP_SPACING, CANDIDATE_VERTICAL_SPACING, MAX_CANDIDATES_PER_DIRECTION } =
       LAYOUT_CONSTANTS;
 
-    candidatesByDirection.forEach((candidates, direction) => {
-      if (candidates.length === 0) return;
+    // 固定的方向顺序：ref, context, tag, sibling
+    const directionOrder: AssociationType[] = [
+      AssociationType.REF_LINK,
+      AssociationType.HIERARCHY,
+      AssociationType.TAG,
+      AssociationType.SIBLING,
+    ];
 
-      // 计算关系大节点位置（扇形布局）
-      const angle = DIRECTION_ANGLES[direction];
-      const radian = (angle * Math.PI) / 180;
-      const groupX = currentPos.x + DIRECTION_GROUP_RADIUS * Math.cos(radian);
-      const groupY = currentPos.y + DIRECTION_GROUP_RADIUS * Math.sin(radian);
+    // 计算总宽度，居中对齐
+    const totalDirections = directionOrder.length;
+    const totalWidth = (totalDirections - 1) * DIRECTION_GROUP_SPACING;
+    const startX = currentPos.x - totalWidth / 2;
+
+    directionOrder.forEach((direction, index) => {
+      const candidates = candidatesByDirection.get(direction) || [];
+
+      // 计算关系大节点位置（水平排列）
+      const groupX = startX + index * DIRECTION_GROUP_SPACING;
+      const groupY = currentPos.y + CANDIDATE_AREA_Y_OFFSET;
 
       // 创建关系大节点
       const groupNodeId = `group-${direction}`;
@@ -148,24 +179,11 @@ export class OrbitLayoutEngine {
         draggable: false,
       });
 
-      // 连线：当前节点 -> 关系大节点
-      edges.push({
-        id: `edge-to-${groupNodeId}`,
-        source: currentNodeId,
-        target: groupNodeId,
-        type: 'smoothstep',
-        style: {
-          stroke: DIRECTION_COLORS[direction],
-          strokeWidth: 2,
-          strokeDasharray: '5,5',
-        },
-      });
-
       // 在关系大节点下方排列候选块（竖向列表）
       const visibleCandidates = candidates.slice(0, MAX_CANDIDATES_PER_DIRECTION);
       visibleCandidates.forEach((candidate, idx) => {
         const candX = groupX;
-        const candY = groupY + 80 + idx * CANDIDATE_VERTICAL_SPACING;
+        const candY = groupY + 100 + idx * CANDIDATE_VERTICAL_SPACING;
 
         nodes.push({
           id: candidate.id,
@@ -178,24 +196,12 @@ export class OrbitLayoutEngine {
           },
           draggable: false,
         });
-
-        // 连线：关系大节点 -> 候选块
-        edges.push({
-          id: `edge-to-${candidate.id}`,
-          source: groupNodeId,
-          target: candidate.id,
-          type: 'straight',
-          style: {
-            stroke: DIRECTION_COLORS[direction],
-            strokeWidth: 1,
-          },
-        });
       });
 
       // 如果候选数超过限制，显示 "+X 更多" 节点
       if (candidates.length > MAX_CANDIDATES_PER_DIRECTION) {
         const moreNodeId = `more-${direction}`;
-        const moreY = groupY + 80 + MAX_CANDIDATES_PER_DIRECTION * CANDIDATE_VERTICAL_SPACING;
+        const moreY = groupY + 100 + MAX_CANDIDATES_PER_DIRECTION * CANDIDATE_VERTICAL_SPACING;
         nodes.push({
           id: moreNodeId,
           type: 'more',
@@ -224,6 +230,11 @@ export class OrbitLayoutEngine {
 
     // 1. 种子遗落块（第一层，y=-150）
     seedMissedBlocks.forEach((missedList, seedId) => {
+      // 🔧 防御性检查：确保 missedList 存在且是数组
+      if (!missedList || !Array.isArray(missedList) || missedList.length === 0) {
+        return;
+      }
+
       const seedPos = nodePositions.get(seedId);
       if (!seedPos) return;
 
@@ -262,6 +273,11 @@ export class OrbitLayoutEngine {
     // 2. 方向遗落块（第二层，y=-250）
     let directionMissedXOffset = 0;
     directionMissedBlocks.forEach((missedList, direction) => {
+      // 🔧 防御性检查：确保 missedList 存在且是数组
+      if (!missedList || !Array.isArray(missedList) || missedList.length === 0) {
+        return;
+      }
+
       missedList.forEach((missed, idx) => {
         nodes.push({
           id: `dir-missed-${missed.id}`,

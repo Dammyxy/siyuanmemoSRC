@@ -45,13 +45,34 @@ export class CytoscapeOrbitRenderer {
     private renderVersion = 0;
 
     /**
+     * 🆕 视口裁剪：存储所有元素（用于动态加载）
+     * @see 第二期优化：视口裁剪
+     */
+    private allElements: any[] = [];
+
+    /**
+     * 🆕 视口裁剪：已渲染的节点 ID 集合
+     */
+    private renderedNodeIds = new Set<string>();
+
+    /**
+     * 🆕 视口裁剪：视口边距（提前加载视口外的节点）
+     */
+    private readonly VIEWPORT_PADDING = 200;
+
+    /**
+     * 🆕 视口裁剪：防抖定时器
+     */
+    private viewportDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    /**
      * 娓叉煋 Orbit 鍥捐氨
      * 
      * @param container 瀹瑰櫒鍏冪礌
      * @param graphData 鍥捐氨鏁版嵁锛堝寘鍚妭鐐广€佽竟鍜屼綅缃級
      * @param currentNodeId 褰撳墠鑺傜偣 ID锛堝彲閫夛級
      * Requirements: 1.1, 1.2, 1.3
-     */
+     */
     public render(
         container: HTMLElement,
         graphData: OrbitGraphData,
@@ -100,11 +121,17 @@ export class CytoscapeOrbitRenderer {
 
             this.bindEvents();
 
-            this.addElementsGradually(elements, {
+            // 🆕 存储所有元素用于视口裁剪
+            this.allElements = elements;
+            this.renderedNodeIds.clear();
+
+            // 🆕 视口裁剪：初始只渲染视口内的节点
+            this.addElementsWithViewportCulling(elements, {
                 fit: true,
                 onDone: () => {
                     this.hasRendered = true;
-                    console.log('[CytoscapeOrbitRenderer] Rendered', graphData.nodes.length, 'nodes');
+                    this.bindViewportListener();
+                    console.log('[CytoscapeOrbitRenderer] Rendered', this.renderedNodeIds.size, '/', graphData.nodes.length, 'nodes (viewport culling)');
                 },
             });
         } catch (error) {
@@ -124,7 +151,12 @@ export class CytoscapeOrbitRenderer {
         });
         this.cy.style(this.getStylesheet());
 
-        this.addElementsGradually(elements, {
+        // 🆕 存储所有元素用于视口裁剪
+        this.allElements = elements;
+        this.renderedNodeIds.clear();
+
+        // 🆕 使用视口裁剪更新
+        this.addElementsWithViewportCulling(elements, {
             zoom,
             pan,
             fit: !this.hasRendered,
@@ -222,56 +254,197 @@ export class CytoscapeOrbitRenderer {
     }
 
     /**
-     * Append orbit guide lines (main / missed / candidate) as dashed tracks.
+     * 🆕 视口裁剪：只渲染视口内的节点
+     *
+     * 初始渲染时，先计算所有节点的边界，然后只添加视口内的节点。
+     * 后续通过 viewport 事件动态加载视口外的节点。
+     *
+     * @see 第二期优化：视口裁剪
      */
-    private appendOrbitGuides(elements: any[], graphData: OrbitGraphData): void {
-        const positions = graphData.positions;
+    private addElementsWithViewportCulling(
+        elements: any[],
+        options: { fit?: boolean; zoom?: number; pan?: { x: number; y: number }; onDone?: () => void } = {}
+    ): void {
+        if (!this.cy) return;
 
-        const addGuide = (idPrefix: string, nodeIds: string[]) => {
-            if (nodeIds.length < 2) return;
+        const currentVersion = ++this.renderVersion;
+        const nodes = elements.filter((el) => el.group === 'nodes');
+        const edges = elements.filter((el) => el.group === 'edges');
 
-            const coords = nodeIds
-                .map((id) => positions.get(id))
-                .filter((pos): pos is { x: number; y: number } => !!pos);
-            if (coords.length < 2) return;
+        // 计算所有节点的边界
+        const positions = nodes.map((n) => n.position).filter(Boolean);
+        if (positions.length === 0) {
+            options.onDone?.();
+            return;
+        }
 
-            const xs = coords.map((p) => p.x);
-            const ys = coords.map((p) => p.y);
-            const minX = Math.min(...xs);
-            const maxX = Math.max(...xs);
-            const avgY = ys.reduce((sum, y) => sum + y, 0) / ys.length;
-            const padding = 40;
-
-            const leftId = `orbit-guide-${idPrefix}-left`;
-            const rightId = `orbit-guide-${idPrefix}-right`;
-
-            elements.push({
-                group: 'nodes',
-                data: { id: leftId },
-                position: { x: minX - padding, y: avgY },
-                classes: ['orbit-guide'],
-            });
-            elements.push({
-                group: 'nodes',
-                data: { id: rightId },
-                position: { x: maxX + padding, y: avgY },
-                classes: ['orbit-guide'],
-            });
-            elements.push({
-                group: 'edges',
-                data: {
-                    id: `orbit-guide-${idPrefix}-edge`,
-                    source: leftId,
-                    target: rightId,
-                    edgeType: 'orbit-guide',
-                },
-            });
+        const xs = positions.map((p: { x: number }) => p.x);
+        const ys = positions.map((p: { y: number }) => p.y);
+        const bounds = {
+            x1: Math.min(...xs),
+            x2: Math.max(...xs),
+            y1: Math.min(...ys),
+            y2: Math.max(...ys),
         };
 
-        const mainIds = graphData.nodes
-            .filter((n) => n.type === 'history' || n.type === 'seed' || n.type === 'current')
-            .map((n) => n.id);
-        addGuide('main', mainIds);
+        // 初始视口：居中显示，包含所有节点
+        const containerWidth = this.container?.clientWidth || 800;
+        const containerHeight = this.container?.clientHeight || 600;
+        const graphWidth = bounds.x2 - bounds.x1;
+        const graphHeight = bounds.y2 - bounds.y1;
+
+        // 计算初始缩放和平移
+        const initialZoom = Math.min(
+            containerWidth / (graphWidth + 100),
+            containerHeight / (graphHeight + 100),
+            1.5
+        );
+        const initialPan = {
+            x: containerWidth / 2 - ((bounds.x1 + bounds.x2) / 2) * initialZoom,
+            y: containerHeight / 2 - ((bounds.y1 + bounds.y2) / 2) * initialZoom,
+        };
+
+        // 计算初始视口范围（模型坐标）
+        const viewportBounds = this.calculateViewportBounds(initialZoom, initialPan, containerWidth, containerHeight);
+
+        // 筛选视口内的节点
+        const visibleNodes = nodes.filter((node) => {
+            const pos = node.position;
+            if (!pos) return false;
+            return this.isInViewport(pos, viewportBounds);
+        });
+
+        // 记录已渲染的节点
+        visibleNodes.forEach((node) => this.renderedNodeIds.add(node.data.id));
+
+        // 筛选相关的边（两端节点都已渲染）
+        const visibleEdges = edges.filter((edge) => {
+            return this.renderedNodeIds.has(edge.data.source) && this.renderedNodeIds.has(edge.data.target);
+        });
+
+        console.log(`[CytoscapeOrbitRenderer] Viewport culling: ${visibleNodes.length}/${nodes.length} nodes visible`);
+
+        // 使用渐进式加载添加可见元素
+        this.addElementsGradually([...visibleNodes, ...visibleEdges], {
+            zoom: options.zoom ?? initialZoom,
+            pan: options.pan ?? initialPan,
+            fit: options.fit && visibleNodes.length === nodes.length, // 只有全部可见时才 fit
+            onDone: () => {
+                if (this.renderVersion !== currentVersion) return;
+                options.onDone?.();
+            },
+        });
+    }
+
+    /**
+     * 🆕 计算视口边界（模型坐标）
+     */
+    private calculateViewportBounds(
+        zoom: number,
+        pan: { x: number; y: number },
+        containerWidth: number,
+        containerHeight: number
+    ): { x1: number; x2: number; y1: number; y2: number } {
+        const padding = this.VIEWPORT_PADDING;
+        return {
+            x1: (-pan.x - padding) / zoom,
+            x2: (containerWidth - pan.x + padding) / zoom,
+            y1: (-pan.y - padding) / zoom,
+            y2: (containerHeight - pan.y + padding) / zoom,
+        };
+    }
+
+    /**
+     * 🆕 判断位置是否在视口内
+     */
+    private isInViewport(
+        pos: { x: number; y: number },
+        bounds: { x1: number; x2: number; y1: number; y2: number }
+    ): boolean {
+        return pos.x >= bounds.x1 && pos.x <= bounds.x2 && pos.y >= bounds.y1 && pos.y <= bounds.y2;
+    }
+
+    /**
+     * 🆕 绑定视口变化监听器（动态加载）
+     */
+    private bindViewportListener(): void {
+        if (!this.cy) return;
+
+        this.cy.on('viewport', () => {
+            // 防抖：避免频繁触发
+            if (this.viewportDebounceTimer) {
+                clearTimeout(this.viewportDebounceTimer);
+            }
+            this.viewportDebounceTimer = setTimeout(() => {
+                this.loadVisibleNodes();
+            }, 150);
+        });
+    }
+
+    /**
+     * 🆕 加载视口内尚未渲染的节点
+     */
+    private loadVisibleNodes(): void {
+        if (!this.cy || this.allElements.length === 0) return;
+
+        const zoom = this.cy.zoom();
+        const pan = this.cy.pan();
+        const containerWidth = this.container?.clientWidth || 800;
+        const containerHeight = this.container?.clientHeight || 600;
+
+        const viewportBounds = this.calculateViewportBounds(zoom, pan, containerWidth, containerHeight);
+
+        const nodes = this.allElements.filter((el) => el.group === 'nodes');
+        const edges = this.allElements.filter((el) => el.group === 'edges');
+
+        // 找到视口内尚未渲染的节点
+        const newNodes = nodes.filter((node) => {
+            if (this.renderedNodeIds.has(node.data.id)) return false;
+            const pos = node.position;
+            if (!pos) return false;
+            return this.isInViewport(pos, viewportBounds);
+        });
+
+        if (newNodes.length === 0) return;
+
+        // 记录新渲染的节点
+        newNodes.forEach((node) => this.renderedNodeIds.add(node.data.id));
+
+        // 找到相关的边
+        const newEdges = edges.filter((edge) => {
+            const sourceRendered = this.renderedNodeIds.has(edge.data.source);
+            const targetRendered = this.renderedNodeIds.has(edge.data.target);
+            // 只有当两端都已渲染且边未添加时才添加
+            if (!sourceRendered || !targetRendered) return false;
+            // 检查边是否已存在
+            return !this.cy?.getElementById(edge.data.id).length;
+        });
+
+        console.log(`[CytoscapeOrbitRenderer] Dynamic load: ${newNodes.length} nodes, ${newEdges.length} edges`);
+
+        // 批量添加
+        this.cy.batch(() => {
+            this.cy?.add([...newNodes, ...newEdges]);
+        });
+    }
+
+    /**
+     * Append orbit guide lines (main / missed / candidate) as dashed tracks.
+     *
+     * 🔧 修复双线问题：不再创建与主路径重叠的辅助线。
+     * 主路径边（main）已经显示了轨道，辅助线会导致视觉重叠。
+     *
+     * 如果需要轨道延伸线（超出节点范围），可以启用此功能，
+     * 但需要将辅助线放在主路径下方（Y 偏移）。
+     */
+    private appendOrbitGuides(_elements: any[], _graphData: OrbitGraphData): void {
+        // 🔧 禁用轨道辅助线以修复双线问题
+        // 主路径边已经显示了完整的轨道，辅助线会导致重叠
+        //
+        // 如果需要恢复，可以取消注释以下代码并添加 Y 偏移：
+        // const GUIDE_Y_OFFSET = 30; // 辅助线放在主路径下方
+        // avgY + GUIDE_Y_OFFSET
+        return;
     }
 
     /**

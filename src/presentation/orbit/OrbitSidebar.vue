@@ -16,16 +16,11 @@ const emit = defineEmits<{
 const orbitViewRef = ref<InstanceType<typeof OrbitView> | null>(null);
 
 // 暴露方法给父组件
-function refresh() {
-  orbitViewRef.value?.refresh();
+function refresh(autoFitView = true) {
+  orbitViewRef.value?.refresh(autoFitView);
 }
 
-function focusNode(nodeId: string) {
-  // 可选：实现节点聚焦功能
-  console.log('[OrbitSidebar] Focus node:', nodeId);
-}
-
-defineExpose({ refresh, focusNode });
+defineExpose({ refresh });
 </script>
 
 <template>

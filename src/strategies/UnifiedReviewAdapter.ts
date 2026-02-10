@@ -73,6 +73,10 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
         const uiConfig = queue.getUIConfig(item);
         
         const card = item as FSRSCard;
+
+        // 🔧 兼容 QueueItem (blockID/cardID) 和 FSRSCard (blockId/id) 的属性命名
+        const blockId = (item as any).blockID || card.blockId || (item as any).blockId || card.id || (item as any).cardID;
+        const cardId = (item as any).cardID || card.id || (item as any).id;
         
         // 🔑 检查是否为神经漫游队列
         const isNeuralRoam = (queue as any).getType?.() === 'neural-roam';
@@ -113,14 +117,14 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
             },
             content: {
                 type: 'protyle',
-                data: card.blockId || card.id,
-                id: card.blockId || card.id,
+                data: blockId,
+                id: blockId,
                 // 🆕 Xiuyuan 模板卡片：从 meta 中获取答案块 ID
                 answerBlockID: (() => {
                     const answerBlockID = String((card as any)?.meta?.answerBlockID || '');
                     console.log('[UnifiedReviewAdapter] toUIState - answerBlockID:', {
-                        cardID: card.id,
-                        blockID: card.blockId,
+                        cardID: cardId,
+                        blockID: blockId,
                         hasMeta: !!(card as any)?.meta,
                         meta: (card as any)?.meta,
                         answerBlockID,
@@ -139,9 +143,9 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                 ] : [],
                 menu: [],
                 cardMeta: {
-                    blockID: card.blockId || card.id,
-                    cardID: card.id,
-                    deckID: (card as any).deckId || '',
+                    blockID: blockId,
+                    cardID: cardId,
+                    deckID: (card as any).deckId || (item as any).deckID || '',
                     reps: card.reps,
                     lapses: card.lapses,
                     state: card.state,

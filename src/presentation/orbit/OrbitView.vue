@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, markRaw, computed } from 'vue';
+import { ref, onMounted, markRaw, computed, nextTick } from 'vue';
 import { VueFlow, useVueFlow } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import '@vue-flow/core/dist/style.css';
@@ -42,7 +42,7 @@ const nodeTypes = {
 const nodes = ref([]);
 const edges = ref([]);
 const currentDirection = ref<DirectionMode>('AUTO');
-const { fitView } = useVueFlow();
+const { fitView, setCenter, getViewport, setViewport } = useVueFlow();
 
 // 方向按钮配置
 const directionButtons = [
@@ -55,13 +55,23 @@ const directionButtons = [
 
 const isActiveDirection = (dir: DirectionMode) => currentDirection.value === dir;
 
-async function refresh() {
+/**
+ * 刷新图谱数据
+ *
+ * 🔧 修复焦点乱跳：默认不自动调整视野，保持用户当前的缩放和位置
+ *
+ * @param autoFitView 是否自动调整视野(默认 false)
+ */
+async function refresh(autoFitView = false) {
   if (!props.neuralQueue) {
     console.warn('[OrbitView] neuralQueue is not provided');
     return;
   }
 
   try {
+    // 🔑 保存当前视野状态（zoom + position）- 在数据请求前保存
+    const savedViewport = getViewport();
+
     const adapter = new OrbitDataAdapter(props.neuralQueue);
     const service = new OrbitService(adapter);
     const result = await service.getOrbitVisualization(currentDirection.value);
@@ -72,7 +82,16 @@ async function refresh() {
     );
     edges.value = result.edges;
 
-    setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 100);
+    // 🔧 使用 nextTick 替代 setTimeout，减少视觉跳变
+    await nextTick();
+
+    if (autoFitView) {
+      // 自动调整视野（仅在首次加载或用户明确请求时）
+      fitView({ padding: 0.2, duration: 300 });
+    } else {
+      // 🔑 立即恢复视口，不使用延迟
+      setViewport(savedViewport, { duration: 0 });
+    }
   } catch (error) {
     console.error('[OrbitView] Failed to refresh:', error);
   }
@@ -84,29 +103,54 @@ async function handleSwitchDirection(newDirection: DirectionMode) {
 
   await service.switchDirection(currentDirection.value, newDirection);
   currentDirection.value = newDirection;
-  await refresh();
+  await refresh(false); // ← 禁用自动 fitView，保持用户设置的缩放
 }
 
 function handleNodeClick(event: { node: any }) {
-  const { id, type } = event.node;
+  const { id, type, data } = event.node;
 
-  // 发射节点点击事件
-  emit('node-click', { nodeId: id, nodeType: type });
-
-  // 如果点击候选节点或关系大节点，导航到该块
-  if (type === 'candidate' || type === 'history' || type === 'seed') {
-    emit('navigate-to-block', id);
+  // 如果点击关系大节点，只切换方向，不发射 node-click 事件
+  if (type === 'directionGroup' && data?.direction) {
+    handleSwitchDirection(data.direction);
+    return; // ← 提前返回，不发射事件
   }
 
-  // 如果点击关系大节点，切换到该方向
-  if (type === 'directionGroup' && event.node.data?.direction) {
-    handleSwitchDirection(event.node.data.direction);
+  // 获取真实的块ID（历史/种子/当前节点使用 data.blockId，候选节点直接使用 id）
+  const blockId = (type === 'history' || type === 'seed' || type === 'current')
+    ? data?.blockId
+    : id;
+
+  // 发射节点点击事件（排除 directionGroup 和 more）
+  if (type !== 'directionGroup' && type !== 'more') {
+    emit('node-click', { nodeId: blockId, nodeType: type });
+  }
+
+  // 如果点击候选/历史/种子节点，导航到该块
+  if (type === 'candidate' || type === 'history' || type === 'seed') {
+    emit('navigate-to-block', blockId);
   }
 }
 
-onMounted(refresh);
+onMounted(() => refresh(false)); // ← 初始加载时也不自动调整视野，让用户自己控制缩放
 
-defineExpose({ refresh, fitView: () => fitView({ padding: 0.2 }) });
+defineExpose({
+  refresh,
+  fitView: (options?: any) => {
+    // 支持自定义 fitView 选项（如聚焦特定节点）
+    if (options) {
+      fitView(options);
+    } else {
+      fitView({ padding: 0.2 });
+    }
+  },
+  // 🆕 只移动视野中心，不改变缩放级别
+  panToNode: (nodeId: string) => {
+    const node = nodes.value.find(n => n.id === nodeId);
+    if (node) {
+      setCenter(node.position.x, node.position.y, { duration: 500 });
+    }
+  }
+});
 </script>
 
 <template>
@@ -136,6 +180,8 @@ defineExpose({ refresh, fitView: () => fitView({ padding: 0.2 }) });
       :zoom-on-scroll="true"
       :min-zoom="0.2"
       :max-zoom="2"
+      :fit-view-on-init="false"
+      :prevent-scrolling="true"
       @node-click="handleNodeClick"
     >
       <Background variant="dots" :gap="20" :size="1" pattern-color="rgba(100,149,237,0.15)" />

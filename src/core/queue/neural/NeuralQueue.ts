@@ -60,6 +60,15 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
   /** 🔑 展示路径：只记录真正通过 getNextItem() 返回的卡片 */
   private displayPath: string[] = [];
 
+  /** 🆕 路径导航指针（-1 表示未初始化，指向 displayPath 中的当前位置） */
+  private currentPathIndex: number = -1;
+
+  /** 🆕 导航模式：explore 探索新邻居 | follow 沿路径前进 */
+  private navigationMode: 'explore' | 'follow' = 'explore';
+
+  /** 🆕 书签位置（用于"返回最新"功能，-1 表示无书签） */
+  private pathBookmark: number = -1;
+
   /**
    * 构造函数
    * 
@@ -114,109 +123,197 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
 
   /**
    * 获取下一张卡片（核心方法）
-   * 
+   *
+   * 🆕 支持双模式导航：
+   * - follow 模式：沿历史路径前进（返回 displayPath[currentPathIndex + 1]）
+   * - explore 模式：探索新邻居（原有逻辑）
+   *
    * @returns 下一张卡片，如果没有则返回 null
    * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.7, 6.5, 9.1, 9.4
    */
   async getNextItem(): Promise<QueueItem | null> {
     try {
-      // 1. 初始化种子（如果需要）
-      if (!this.currentSeedId) {
-        this.currentSeedId = await this.pickRandomSeed();
-        if (!this.currentSeedId) {
-          console.warn('[NeuralQueue] No cards available in the pool');
-          return null;
-        }
-        // 第一张卡片没有前驱
-        this.previousCardId = null;
-      }
+      // 🆕 1. 如果是 follow 模式 + 路径内有下一个节点
+      if (this.navigationMode === 'follow' &&
+          this.currentPathIndex >= 0 &&
+          this.currentPathIndex < this.displayPath.length - 1) {
+        const nextNodeId = this.displayPath[this.currentPathIndex + 1];
+        this.currentPathIndex++;
 
-      // 2. 获取当前种子的邻居
-      const neighbors = await this.queryEngine.fetchNeighbors(this.currentSeedId);
+        console.log(`[NeuralQueue] Follow mode: moving to next node in path (index: ${this.currentPathIndex}, id: ${nextNodeId})`);
 
-      // 3. 使用历史过滤器过滤已访问的节点
-      const unvisitedNeighbors = this.historyFilter.filter(
-        neighbors.map(n => ({ id: n.id, type: n.type }))
-      );
-
-      // 4. 处理死胡同情况
-      if (unvisitedNeighbors.length === 0) {
-        console.log('[NeuralQueue] Dead end reached, picking new seed');
-        const newSeed = await this.pickRandomSeed();
-        if (!newSeed) {
-          console.warn('[NeuralQueue] No more cards available');
-          return null;
+        // 获取卡片详情并返回
+        const cardData = await this.fetchCardDetails(nextNodeId);
+        if (!cardData) {
+          // 节点不存在，退出 follow 模式
+          console.warn(`[NeuralQueue] Follow mode: node ${nextNodeId} not found, switching to explore mode`);
+          this.navigationMode = 'explore';
+          return this.getNextItem(); // 递归调用（explore 模式）
         }
 
-        // 重置状态
+        // 更新当前种子
         this.previousCardId = this.currentSeedId;
-        this.currentSeedId = newSeed;
+        this.currentSeedId = nextNodeId;
 
-        // 递归调用获取下一张卡片
-        return this.getNextItem();
+        return this.buildQueueItem(cardData);
       }
 
-      // 5. 转换为 WeightedNeighbor 并应用权重
-      const weightedNeighbors: WeightedNeighbor[] = unvisitedNeighbors.map(n => ({
-        id: n.id,
-        weight: 0, // 将由 weightedWalkEngine 分配
-        associationType: n.type,
-        reason: this.getReasonText(n.type),
-      }));
-
-      const neighborsWithWeights = this.weightedWalkEngine.applyWeights(weightedNeighbors);
-
-      // 🔧 缓存当前候选节点（用于记录遗落块）
-      this.lastCandidates = neighborsWithWeights;
-
-      // 6. 使用加权随机选择下一个节点
-      const selectedNeighbor = this.weightedWalkEngine.selectNext(neighborsWithWeights);
-      if (!selectedNeighbor) {
-        console.error('[NeuralQueue] Failed to select next neighbor');
-        return null;
+      // 🆕 2. explore 模式或路径已到末尾 - 使用原逻辑
+      if (this.navigationMode === 'follow') {
+        console.log('[NeuralQueue] Follow mode: reached end of path, switching to explore mode');
+        this.navigationMode = 'explore'; // 自动切换到 explore
       }
 
-      // 7. 获取卡片详情
-      const cardData = await this.fetchCardDetails(selectedNeighbor.id);
-      if (!cardData) {
-        // 卡片不存在，从历史中移除并重试
-        console.warn(`[NeuralQueue] Card ${selectedNeighbor.id} not found, retrying`);
-        this.historyFilter.add(selectedNeighbor.id);
-        return this.getNextItem();
+      const item = await this.getNextItemExplore();
+
+      // 🆕 3. 更新路径指针（explore 模式下追加新节点）
+      if (item) {
+        // 🔧 检查节点是否已存在于路径中
+        const existingIndex = this.displayPath.indexOf(item.blockID);
+
+        if (existingIndex !== -1) {
+          // 节点已存在：跳转到该位置（不追加）
+          this.currentPathIndex = existingIndex;
+          console.log(`[NeuralQueue] Node ${item.blockID.substring(0, 8)} already in path, jumped to index ${existingIndex} (total: ${this.displayPath.length})`);
+        } else {
+          // 节点不存在：追加到路径
+          // 如果当前不在路径末尾，截断后续路径（类似浏览器历史的"分支"行为）
+          if (this.currentPathIndex >= 0 && this.currentPathIndex < this.displayPath.length - 1) {
+            this.displayPath = this.displayPath.slice(0, this.currentPathIndex + 1);
+            console.log(`[NeuralQueue] Explore mode: truncated path to index ${this.currentPathIndex}`);
+          }
+
+          this.displayPath.push(item.blockID);
+          this.currentPathIndex = this.displayPath.length - 1;
+          console.log(`[NeuralQueue] Explore mode: added new node to path (index: ${this.currentPathIndex}, total: ${this.displayPath.length})`);
+        }
       }
 
-      // 8. 更新状态并添加到历史记录
-      this.previousCardId = this.currentSeedId;
-      this.currentSeedId = selectedNeighbor.id;
-
-      // 🔑 添加到展示路径（只记录真正展示的卡片）
-      this.displayPath.push(selectedNeighbor.id);
-
-      // 🔑 关键：添加当前块及其所有子块到历史记录，避免重复展示
-      await this.addBlockAndDescendantsToHistory(selectedNeighbor.id);
-
-      // 9. 构造 QueueItem 并注入神经上下文
-      const queueItem: QueueItem = {
-        cardID: cardData.id,
-        blockID: cardData.id,
-        deckID: 'neural-roaming', // 神经漫游使用特殊的 deck ID
-        priority: DEFAULT_PRIORITY,
-        meta: {
-          neuralContext: {
-            previousCardId: this.previousCardId,
-            associationType: selectedNeighbor.associationType,
-            reason: selectedNeighbor.reason,
-            blockType: cardData.blockType,
-            isFlashcard: cardData.hasFlashcard,
-          } as NeuralContext,
-        },
-      };
-
-      return queueItem;
+      return item;
     } catch (error) {
       console.error('[NeuralQueue] Error in getNextItem:', error);
       return null;
     }
+  }
+
+  /**
+   * 🆕 获取下一张卡片（探索模式）
+   *
+   * 原 getNextItem() 的核心逻辑，负责：
+   * - 初始化种子
+   * - 获取邻居节点
+   * - 加权随机选择
+   * - 添加到历史记录
+   *
+   * @returns 下一张卡片，如果没有则返回 null
+   * @private
+   */
+  private async getNextItemExplore(): Promise<QueueItem | null> {
+    // 1. 初始化种子（如果需要）
+    if (!this.currentSeedId) {
+      this.currentSeedId = await this.pickRandomSeed();
+      if (!this.currentSeedId) {
+        console.warn('[NeuralQueue] No cards available in the pool');
+        return null;
+      }
+      // 第一张卡片没有前驱
+      this.previousCardId = null;
+    }
+
+    // 2. 获取当前种子的邻居
+    const neighbors = await this.queryEngine.fetchNeighbors(this.currentSeedId);
+
+    // 3. 使用历史过滤器过滤已访问的节点
+    const unvisitedNeighbors = this.historyFilter.filter(
+      neighbors.map(n => ({ id: n.id, type: n.type }))
+    );
+
+    // 4. 处理死胡同情况
+    if (unvisitedNeighbors.length === 0) {
+      console.log('[NeuralQueue] Dead end reached, picking new seed');
+      const newSeed = await this.pickRandomSeed();
+      if (!newSeed) {
+        console.warn('[NeuralQueue] No more cards available');
+        return null;
+      }
+
+      // 重置状态
+      this.previousCardId = this.currentSeedId;
+      this.currentSeedId = newSeed;
+
+      // 递归调用获取下一张卡片
+      return this.getNextItemExplore();
+    }
+
+    // 5. 转换为 WeightedNeighbor 并应用权重
+    const weightedNeighbors: WeightedNeighbor[] = unvisitedNeighbors.map(n => ({
+      id: n.id,
+      weight: 0, // 将由 weightedWalkEngine 分配
+      associationType: n.type,
+      reason: this.getReasonText(n.type),
+    }));
+
+    const neighborsWithWeights = this.weightedWalkEngine.applyWeights(weightedNeighbors);
+
+    // 🔧 缓存当前候选节点（用于记录遗落块）
+    this.lastCandidates = neighborsWithWeights;
+
+    // 6. 使用加权随机选择下一个节点
+    const selectedNeighbor = this.weightedWalkEngine.selectNext(neighborsWithWeights);
+    if (!selectedNeighbor) {
+      console.error('[NeuralQueue] Failed to select next neighbor');
+      return null;
+    }
+
+    // 7. 获取卡片详情
+    const cardData = await this.fetchCardDetails(selectedNeighbor.id);
+    if (!cardData) {
+      // 卡片不存在，从历史中移除并重试
+      console.warn(`[NeuralQueue] Card ${selectedNeighbor.id} not found, retrying`);
+      this.historyFilter.add(selectedNeighbor.id);
+      return this.getNextItemExplore();
+    }
+
+    // 8. 更新状态并添加到历史记录
+    this.previousCardId = this.currentSeedId;
+    this.currentSeedId = selectedNeighbor.id;
+
+    // 🔑 关键：添加当前块及其所有子块到历史记录，避免重复展示
+    await this.addBlockAndDescendantsToHistory(selectedNeighbor.id);
+
+    // 9. 构造 QueueItem 并注入神经上下文
+    return this.buildQueueItem(cardData, selectedNeighbor.associationType, selectedNeighbor.reason);
+  }
+
+  /**
+   * 🆕 构造 QueueItem（辅助方法）
+   *
+   * @param cardData 卡片数据
+   * @param associationType 关联类型（可选，默认为 REF_LINK）
+   * @param reason 关联原因（可选）
+   * @returns QueueItem
+   * @private
+   */
+  private buildQueueItem(
+    cardData: CardData,
+    associationType?: AssociationType,
+    reason?: string
+  ): QueueItem {
+    return {
+      cardID: cardData.id,
+      blockID: cardData.id,
+      deckID: 'neural-roaming', // 神经漫游使用特殊的 deck ID
+      priority: DEFAULT_PRIORITY,
+      meta: {
+        neuralContext: {
+          previousCardId: this.previousCardId,
+          associationType: associationType || AssociationType.REF_LINK,
+          reason: reason || this.getReasonText(associationType || AssociationType.REF_LINK),
+          blockType: cardData.blockType,
+          isFlashcard: cardData.hasFlashcard,
+        } as NeuralContext,
+      },
+    };
   }
 
   /**
@@ -370,18 +467,29 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
 
   /**
    * 设置种子块
-   * 
+   *
+   * 🆕 保留完整路径并追加新种子（不清空历史）
+   *
    * 当用户选择一个候选块或遗落块作为种子时调用。
    * 将其他候选块记录为"遗落块"。
-   * 
+   *
    * @param blockId 被选为种子的块 ID
    * @param currentCandidates 当前所有候选节点列表
    * Requirements: 4.1, 4.2, 4.3
    */
   public setSeed(blockId: string, currentCandidates: WeightedNeighbor[]): void {
     // 检查是否已经是种子
-    if (this.seedNodes.has(blockId)) {
+    const isAlreadySeed = this.seedNodes.has(blockId);
+
+    if (isAlreadySeed) {
       console.warn(`[NeuralQueue] Block ${blockId} is already a seed`);
+      // 🆕 即使已经是种子，也要跳转到该位置（更新路径指针）
+      if (this.displayPath.includes(blockId)) {
+        const index = this.displayPath.indexOf(blockId);
+        this.currentPathIndex = index;
+        console.log(`[NeuralQueue] Jumped to existing seed at index ${index} (total: ${this.displayPath.length})`);
+      }
+      this.navigationMode = 'explore'; // 切换到探索模式
       return;
     }
 
@@ -407,6 +515,22 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     if (!this.historyFilter.has(blockId)) {
       this.historyFilter.add(blockId);
     }
+
+    // 🆕 4. 追加到路径末尾（而非清空）
+    if (!this.displayPath.includes(blockId)) {
+      // 如果不在路径中，追加到末尾
+      this.displayPath.push(blockId);
+      this.currentPathIndex = this.displayPath.length - 1;
+      console.log(`[NeuralQueue] Appended seed ${blockId} to path (index: ${this.currentPathIndex}, total: ${this.displayPath.length})`);
+    } else {
+      // 如果已在路径中，跳转到该位置（复用 jumpToHistoryNode 逻辑）
+      const index = this.displayPath.indexOf(blockId);
+      this.currentPathIndex = index;
+      console.log(`[NeuralQueue] Seed ${blockId} already in path, jumped to index ${index} (total: ${this.displayPath.length})`);
+    }
+
+    // 🆕 5. 切换到 explore 模式（从新种子开始探索）
+    this.navigationMode = 'explore';
   }
 
   /**
@@ -556,15 +680,16 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     const contentMap = await this.queryEngine.fetchBlockContents(allIds);
 
     for (const neighbor of allNeighbors) {
-      if (!grouped.has(neighbor.associationType)) {
-        grouped.set(neighbor.associationType, []);
+      if (!grouped.has(neighbor.type)) {
+        grouped.set(neighbor.type, []);
       }
-      grouped.get(neighbor.associationType)!.push({
+      grouped.get(neighbor.type)!.push({
         id: neighbor.id,
+        blockId: neighbor.id, // 修复：添加缺失的 blockId 字段
         title: contentMap.get(neighbor.id) || neighbor.id.substring(0, 8) + '...', // 添加块内容
-        weight: neighbor.weight || 0,
-        associationType: neighbor.associationType,
-        reason: this.getReasonText(neighbor.associationType),
+        weight: (neighbor as any).weight || 0,
+        associationType: neighbor.type, // 修复：使用正确的字段名 type
+        reason: this.getReasonText(neighbor.type), // 修复：使用正确的字段名 type
       });
     }
 
@@ -602,7 +727,10 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     selectedDirection: 'AUTO' | AssociationType
   ): Promise<any> {
     const currentNodeId = this.currentSeedId;
+    console.log('[NeuralQueue] getOrbitStateV2 called:', { currentNodeId, selectedDirection });
+
     if (!currentNodeId) {
+      console.log('[NeuralQueue] getOrbitStateV2: No current node, returning empty state');
       // 返回空状态
       return {
         historyPath: [],
@@ -617,6 +745,13 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
 
     const candidatesByDirection = await this.getCandidatesByDirection(currentNodeId);
     const historyPath = await this.getNavigationPath(); // 改为 await
+
+    console.log('[NeuralQueue] getOrbitStateV2 result:', {
+      historyPathLength: historyPath.length,
+      candidatesByDirectionSize: candidatesByDirection.size,
+      candidatesByDirectionKeys: Array.from(candidatesByDirection.keys()),
+      candidateCounts: Array.from(candidatesByDirection.entries()).map(([k, v]) => `${k}: ${v.length}`),
+    });
 
     return {
       historyPath,
@@ -644,5 +779,141 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
   public clearDirectionMissedBlocks(): void {
     this.directionMissedBlocks.clear();
     console.log('[NeuralQueue] Cleared direction missed blocks');
+  }
+
+  // ============================================================================
+  // 路径导航系统（Path Navigation System）
+  // ============================================================================
+
+  /**
+   * 🆕 跳转到历史路径中的指定节点
+   *
+   * 当用户点击历史节点时调用。设置当前位置指针，保存书签，并切换为 follow 模式。
+   *
+   * @param nodeId 目标节点 ID
+   * @returns 是否成功跳转（节点存在于路径中返回 true）
+   */
+  public jumpToHistoryNode(nodeId: string): boolean {
+    const index = this.displayPath.indexOf(nodeId);
+    if (index === -1) {
+      console.warn(`[NeuralQueue] Node ${nodeId} not found in display path`);
+      return false;
+    }
+
+    // 保存当前位置为书签（用于"返回最新"）
+    if (this.currentPathIndex !== -1 && this.currentPathIndex !== index) {
+      this.pathBookmark = this.currentPathIndex;
+      console.log(`[NeuralQueue] Bookmark saved at index ${this.pathBookmark}`);
+    }
+
+    // 跳转到目标位置
+    this.currentPathIndex = index;
+    this.currentSeedId = nodeId;
+    this.navigationMode = 'follow'; // 默认进入"沿路径"模式
+
+    console.log(`[NeuralQueue] Jumped to history node ${nodeId} (index: ${index}, mode: follow)`);
+    return true;
+  }
+
+  /**
+   * 🆕 获取当前路径位置的卡片项（不推进索引）
+   *
+   * 用于历史节点跳转后获取完整卡片数据，而不是创建空壳临时对象。
+   * 这确保 UI 适配器的 toUIState 能获取到真实的卡片信息。
+   *
+   * @returns 当前路径位置的完整 QueueItem，如果位置无效或卡片不存在则返回 null
+   */
+  public async getCurrentPathItem(): Promise<QueueItem | null> {
+    if (this.currentPathIndex < 0 || this.currentPathIndex >= this.displayPath.length) {
+      console.warn(`[NeuralQueue] getCurrentPathItem: invalid path index ${this.currentPathIndex}`);
+      return null;
+    }
+
+    const nodeId = this.displayPath[this.currentPathIndex];
+    const cardData = await this.fetchCardDetails(nodeId);
+
+    if (!cardData) {
+      console.warn(`[NeuralQueue] getCurrentPathItem: node ${nodeId} not found`);
+      return null;
+    }
+
+    return this.buildQueueItem(cardData);
+  }
+
+  /**
+   * 🆕 切换导航模式
+   *
+   * @param mode 导航模式：'explore' 探索新邻居 | 'follow' 沿路径前进
+   */
+  public setNavigationMode(mode: 'explore' | 'follow'): void {
+    this.navigationMode = mode;
+    console.log(`[NeuralQueue] Navigation mode set to: ${mode}`);
+  }
+
+  /**
+   * 🆕 返回书签位置
+   *
+   * 用于"返回最新"功能。跳转回书签保存的位置，并清除书签。
+   *
+   * @returns 是否成功返回（有书签且位置有效返回 true）
+   */
+  public returnToBookmark(): boolean {
+    if (this.pathBookmark === -1) {
+      console.warn('[NeuralQueue] No bookmark to return to');
+      return false;
+    }
+
+    if (this.pathBookmark >= this.displayPath.length) {
+      console.warn('[NeuralQueue] Bookmark index out of range');
+      this.pathBookmark = -1;
+      return false;
+    }
+
+    const bookmarkNodeId = this.displayPath[this.pathBookmark];
+    this.currentPathIndex = this.pathBookmark;
+    this.currentSeedId = bookmarkNodeId;
+    this.pathBookmark = -1; // 清除书签
+
+    console.log(`[NeuralQueue] Returned to bookmark (index: ${this.currentPathIndex}, node: ${bookmarkNodeId})`);
+    return true;
+  }
+
+  /**
+   * 🆕 获取导航状态
+   *
+   * @returns 导航状态对象
+   */
+  public getNavigationState(): {
+    currentPathIndex: number;
+    navigationMode: 'explore' | 'follow';
+    hasBookmark: boolean;
+    pathLength: number;
+    displayPath: string[];  // 🆕 添加完整路径
+  } {
+    return {
+      currentPathIndex: this.currentPathIndex,
+      navigationMode: this.navigationMode,
+      hasBookmark: this.pathBookmark !== -1,
+      pathLength: this.displayPath.length,
+      displayPath: [...this.displayPath],  // 🆕 返回路径副本
+    };
+  }
+
+  /**
+   * 🆕 恢复导航状态
+   *
+   * 用于重建 NeuralQueue 实例后恢复之前的路径状态。
+   *
+   * @param state 导航状态对象
+   */
+  public restoreNavigationState(state: {
+    displayPath: string[];
+    currentPathIndex: number;
+    navigationMode: 'explore' | 'follow';
+  }): void {
+    this.displayPath = [...state.displayPath];
+    this.currentPathIndex = state.currentPathIndex;
+    this.navigationMode = state.navigationMode;
+    console.log(`[NeuralQueue] Navigation state restored: index ${this.currentPathIndex}, total ${this.displayPath.length}, mode ${this.navigationMode}`);
   }
 }

@@ -25,6 +25,13 @@ export interface ReviewUIState {
       ariaLabel?: string;
       disabled?: boolean;
     }>;
+    // 🆕 神经漫游导航状态（Phase 3: UI 控件）
+    navigationState?: {
+      currentPathIndex: number;
+      navigationMode: 'explore' | 'follow';
+      hasBookmark: boolean;
+      pathLength: number;
+    };
   };
 
   content: {
@@ -100,6 +107,7 @@ export interface ReviewSessionHook {
   skip: () => Promise<void>;
   executeCommand: (cmdId: string) => Promise<void>;
   getQueueStrategy: () => any; // 🆕 获取底层队列策略（用于神经漫游等特殊功能）
+  loadCardByBlockId: (blockId: string) => Promise<void>; // 🆕 直接加载指定卡片（Phase 3: UI 控件）
   onMounted: () => void;
   onUnmounted: () => void;
 }

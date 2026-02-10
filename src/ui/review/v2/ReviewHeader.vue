@@ -64,6 +64,12 @@ const props = defineProps<{
   mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
   showSidebarToggle?: boolean; // 🌌 是否显示侧边栏切换按钮
   sidebarCollapsed?: boolean;  // 🌌 侧边栏是否折叠
+  navigationState?: { // 🆕 神经漫游导航状态
+    currentPathIndex: number;
+    navigationMode: 'explore' | 'follow';
+    hasBookmark: boolean;
+    pathLength: number;
+  } | null;
 }>();
 
 const emit = defineEmits<{
@@ -83,6 +89,7 @@ const filteredToolbar = computed(() => {
     toolbar: toolbar,
     mode: props.mode,
     showSidebarToggle: props.showSidebarToggle,
+    navigationState: props.navigationState,
   });
 
   // 🌌 如果需要显示侧边栏切换按钮，添加到工具栏开头
@@ -94,6 +101,42 @@ const filteredToolbar = computed(() => {
       disabled: false,
     };
     toolbar = [sidebarButton, ...toolbar];
+  }
+
+  // 🆕 神经漫游导航按钮（Phase 3: UI 控件）
+  const navState = props.navigationState;
+  if (navState) {
+    const navButtons: typeof toolbar = [];
+
+    // 1. 模式切换按钮（仅在 follow 模式时显示）
+    if (navState.navigationMode === 'follow') {
+      navButtons.push({
+        type: 'nav-toggle-mode',
+        icon: '#iconMove',  // 沿路径图标
+        ariaLabel: `当前: 沿路径前进 (${navState.currentPathIndex + 1}/${navState.pathLength}) | 点击切换为探索新分支`,
+        disabled: false,
+      });
+    }
+
+    // 2. 返回书签按钮（仅在有书签时显示）
+    if (navState.hasBookmark) {
+      navButtons.push({
+        type: 'nav-return-bookmark',
+        icon: '#iconBookmark',
+        ariaLabel: '返回最新位置',
+        disabled: false,
+      });
+    }
+
+    // 插入到工具栏开头（侧边栏按钮之后）
+    if (navButtons.length > 0) {
+      const insertIndex = props.showSidebarToggle ? 1 : 0;
+      toolbar = [
+        ...toolbar.slice(0, insertIndex),
+        ...navButtons,
+        ...toolbar.slice(insertIndex),
+      ];
+    }
   }
 
   if (props.mode === 'tab') {
