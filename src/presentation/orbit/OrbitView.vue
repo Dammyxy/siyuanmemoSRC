@@ -192,7 +192,7 @@ function handleNodeClick(event: { node: any }) {
     emit('node-click', { nodeId: blockId, nodeType: type });
   }
 
-  // 如果点击候选/历史/种子节点，导航到该块
+  // 左键点击候选/种子/历史节点 → 导航到该块（跳转位置）
   if (type === 'candidate' || type === 'history' || type === 'seed') {
     emit('navigate-to-block', blockId);
   }
@@ -200,7 +200,7 @@ function handleNodeClick(event: { node: any }) {
 
 /**
  * 右键点击事件处理
- * 🆕 新增：右键点击 DirectionGroupNode → 显示上下文菜单
+ * 只对 DirectionGroupNode 显示上下文菜单
  */
 function handleNodeContextMenu(event: { event: MouseEvent; node: any }) {
   const { node } = event;
@@ -223,6 +223,8 @@ function handleNodeContextMenu(event: { event: MouseEvent; node: any }) {
       y: event.event.clientY,
       direction,
       candidateCount: data.count || 0,
+      nodeType: 'directionGroup',
+      blockId: '',
     };
 
     console.log(`[OrbitView] Context menu opened for direction: ${direction}, expanded: ${isExpanded}`);

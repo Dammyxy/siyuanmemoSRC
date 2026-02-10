@@ -153,14 +153,15 @@ onMounted(() => {
       sidebarCollapsed.value = state.collapsed ?? true;
       sidebarWidth.value = state.width ?? 600;
 
-      // 如果恢复的是展开状态,立即调整对话框宽度
-      if (!state.collapsed) {
+      // 🆕 只在神经漫游模式下调整对话框宽度
+      if (isNeuralRoamMode.value && !state.collapsed) {
         setTimeout(() => {
           const dialogContainer = document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]') as HTMLElement;
           if (dialogContainer) {
             // 复习区域固定 1024px + 侧边栏宽度
-            dialogContainer.style.maxWidth = `${1024 + sidebarWidth.value}px`;
-            dialogContainer.style.width = `${1024 + sidebarWidth.value}px`;
+            const totalWidth = 1024 + sidebarWidth.value;
+            dialogContainer.style.maxWidth = `${totalWidth}px`;
+            dialogContainer.style.width = `${totalWidth}px`;
           }
         }, 100);
       }
@@ -924,13 +925,19 @@ function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value;
   console.log('[FSRS ReviewView] Sidebar toggled:', sidebarCollapsed.value ? 'collapsed' : 'expanded');
 
+  // 🆕 只在神经漫游模式下调整对话框宽度
+  if (!isNeuralRoamMode.value) {
+    console.log('[FSRS ReviewView] Not neural roam mode, skipping dialog width adjustment');
+    return;
+  }
+
   // 动态调整对话框宽度
   const dialogContainer = document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]') as HTMLElement;
   if (dialogContainer) {
     if (sidebarCollapsed.value) {
-      // 折叠:恢复原宽度
-      dialogContainer.style.maxWidth = '1024px';
-      dialogContainer.style.width = '';  // 清除固定宽度
+      // 折叠:清除固定宽度，让对话框恢复响应式
+      dialogContainer.style.maxWidth = '';
+      dialogContainer.style.width = '';
     } else {
       // 展开:复习区域 1024px + 侧边栏宽度
       const totalWidth = 1024 + sidebarWidth.value;

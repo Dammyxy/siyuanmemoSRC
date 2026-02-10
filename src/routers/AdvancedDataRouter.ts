@@ -290,9 +290,10 @@ export class AdvancedDataRouter implements IDataRouter {
         
         // 过滤卡片类型
         if (filter.cardType) {
-            console.log(`[AdvancedDataRouter] 🔍 Filtering by cardType: ${filter.cardType}`);
+            const allowedTypes = Array.isArray(filter.cardType) ? filter.cardType : [filter.cardType];
+            console.log(`[AdvancedDataRouter] 🔍 Filtering by cardType:`, allowedTypes);
             console.log(`[AdvancedDataRouter] 🔍 Sample card types:`, cards.slice(0, 5).map(c => ({ id: c.id, type: c.type, typeOf: typeof c.type })));
-            
+
             // 🔍 调试：统计过滤前的类型分布
             const beforeTypeStats = cards.reduce((acc, card) => {
                 const type = card.type || 'undefined';
@@ -300,17 +301,17 @@ export class AdvancedDataRouter implements IDataRouter {
                 return acc;
             }, {} as Record<string, number>);
             console.log(`[AdvancedDataRouter] 🔍 Before cardType filter - type distribution:`, beforeTypeStats);
-            
+
             filtered = filtered.filter(card => {
                 // 高级模式严格区分主题/项目卡片（需求 3.2）
-                const matches = card.type === filter.cardType;
+                const matches = allowedTypes.includes(card.type);
                 if (!matches && cards.length <= 10) {
                     // 如果卡片很少,打印不匹配的卡片详情
-                    console.log(`[AdvancedDataRouter] 🔍 Card ${card.id} filtered out: type=${card.type}, expected=${filter.cardType}`);
+                    console.log(`[AdvancedDataRouter] 🔍 Card ${card.id} filtered out: type=${card.type}, allowed=`, allowedTypes);
                 }
                 return matches;
             });
-            
+
             console.log(`[AdvancedDataRouter] 🔍 After cardType filter: ${filtered.length} cards`);
         }
         

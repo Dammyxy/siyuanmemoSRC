@@ -885,6 +885,57 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
   }
 
   /**
+   * 🆕 选中历史路径中的指定节点（仅查看，不跳转）
+   *
+   * 当用户左键点击历史节点时调用。仅用于加载卡片内容到 UI，
+   * 不改变当前路径指针、种子 ID 或导航模式。
+   *
+   * 与 jumpToHistoryNode 的区别：
+   * - jumpToHistoryNode: 改变路径位置，轨道区会跟随移动
+   * - selectHistoryNode: 仅加载卡片，轨道区保持当前位置
+   *
+   * @param nodeId 目标节点 ID
+   * @returns 是否成功选中（节点存在于路径中返回 true）
+   */
+  public selectHistoryNode(nodeId: string): boolean {
+    const index = this.displayPath.indexOf(nodeId);
+    if (index === -1) {
+      console.warn(`[NeuralQueue] Node ${nodeId} not found in display path`);
+      return false;
+    }
+
+    // 仅记录日志，不改变任何状态
+    console.log(`[NeuralQueue] Selected history node ${nodeId} (index: ${index}) without changing position`);
+    return true;
+  }
+
+  /**
+   * 🆕 获取指定路径位置的卡片项（不改变当前索引）
+   *
+   * 用于加载历史节点的完整卡片数据到 UI。
+   * 不改变 currentPathIndex，不改变导航状态。
+   *
+   * @param nodeId 目标节点 ID
+   * @returns 完整 QueueItem，如果节点不存在则返回 null
+   */
+  public async getPathItemByNodeId(nodeId: string): Promise<QueueItem | null> {
+    const index = this.displayPath.indexOf(nodeId);
+    if (index === -1) {
+      console.warn(`[NeuralQueue] Node ${nodeId} not found in display path`);
+      return null;
+    }
+
+    const cardData = await this.fetchCardDetails(nodeId);
+
+    if (!cardData) {
+      console.warn(`[NeuralQueue] getPathItemByNodeId: node ${nodeId} not found`);
+      return null;
+    }
+
+    return this.buildQueueItem(cardData);
+  }
+
+  /**
    * 🆕 获取当前路径位置的卡片项（不推进索引）
    *
    * 用于历史节点跳转后获取完整卡片数据，而不是创建空壳临时对象。

@@ -172,11 +172,12 @@ export function useReviewSession<TItem>(
    */
   const loadCardByBlockId = async (blockId: string): Promise<void> => {
     try {
-      // 🔧 修复：尝试从队列获取当前路径项的完整数据，而非创建空壳临时对象
+      // 🔧 修复：尝试从队列获取指定节点的完整数据
       const underlyingQueue = (queue as any)?.getUnderlyingQueue?.()?.neuralQueue;
 
-      if (underlyingQueue?.getCurrentPathItem) {
-        const realItem = await underlyingQueue.getCurrentPathItem();
+      if (underlyingQueue?.getPathItemByNodeId) {
+        // 🆕 使用 blockId 获取指定节点的卡片数据
+        const realItem = await underlyingQueue.getPathItemByNodeId(blockId);
         if (realItem) {
           currentItem.value = realItem;
 
@@ -194,6 +195,8 @@ export function useReviewSession<TItem>(
           await updateState();
           console.log(`[useReviewSession] Loaded real card data for blockId: ${blockId}, blockType: ${blockType}, isFlashcard: ${isFlashcard}, showAnswer: ${context.value.showAnswer}`);
           return;
+        } else {
+          console.warn(`[useReviewSession] Node not found: ${blockId}`);
         }
       }
 

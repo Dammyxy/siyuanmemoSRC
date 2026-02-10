@@ -368,7 +368,7 @@ export class FilterService {
         console.log('[FilterService] cardType enabled:', state.enabled.cardType);
         console.log('[FilterService] cardType values:', state.values.cardType);
         console.log('[FilterService] cardType size:', state.values.cardType.size);
-        
+
         // cardType 和 cardStatus 不需要 enabled 检查，只要 Set 不为空就添加到 filter
         if (state.values.cardType.size > 0) {
             // 如果只选择了一个类型，直接设置
@@ -376,8 +376,9 @@ export class FilterService {
                 filter.cardType = Array.from(state.values.cardType)[0] as 'item' | 'topic';
                 console.log('[FilterService] Set cardType to:', filter.cardType);
             } else {
-                // 如果选择了多个类型，不设置（表示接受所有类型）
-                console.log('[FilterService] Multiple cardTypes selected, not setting filter');
+                // 如果选择了多个类型，设置为数组
+                filter.cardType = Array.from(state.values.cardType);
+                console.log('[FilterService] Set cardType to multiple types:', filter.cardType);
             }
         } else {
             console.log('[FilterService] cardType Set is empty');
@@ -512,7 +513,8 @@ export class FilterService {
         // 多选过滤条件
         if (filter.cardType) {
             state.enabled.cardType = true;
-            state.values.cardType = new Set([filter.cardType]);
+            const types = Array.isArray(filter.cardType) ? filter.cardType : [filter.cardType];
+            state.values.cardType = new Set(types);
         }
 
         if (filter.cardStatus && filter.cardStatus.length > 0) {
@@ -577,8 +579,9 @@ export class FilterService {
 
         // 多选过滤条件
         if (filter.cardType) {
-            const typeLabel = filter.cardType === 'item' ? 'Item' : 'Topic';
-            parts.push(`卡片类型: ${typeLabel}`);
+            const types = Array.isArray(filter.cardType) ? filter.cardType : [filter.cardType];
+            const typeLabels = types.map(t => t === 'item' ? 'Item' : 'Topic');
+            parts.push(`卡片类型: ${typeLabels.join(', ')}`);
         }
 
         if (filter.cardStatus && filter.cardStatus.length > 0) {

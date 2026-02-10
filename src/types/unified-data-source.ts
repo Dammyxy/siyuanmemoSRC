@@ -155,8 +155,8 @@ export interface PriorityRangeFilter {
  * @see filter-group-queue-ui 需求 9.1, 9.2, 9.3, 9.4, 9.5
  */
 export interface CardFilter {
-    /** 卡片类型过滤 */
-    cardType?: 'item' | 'topic';
+    /** 卡片类型过滤（支持单个类型或多个类型） */
+    cardType?: 'item' | 'topic' | Array<'item' | 'topic'>;
     
     /** 到期日期过滤 */
     dueDate?: DateRangeFilter;
