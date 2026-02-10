@@ -28,7 +28,7 @@ defineExpose({ refresh });
     <!-- 标题栏 -->
     <div class="orbit-sidebar__header">
       <span class="orbit-sidebar__icon">🌌</span>
-      <span class="orbit-sidebar__title">轨道图 Orbit</span>
+      <span class="orbit-sidebar__title">Orbit</span>
     </div>
 
     <!-- 图谱内容 -->

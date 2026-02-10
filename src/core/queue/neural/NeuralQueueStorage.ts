@@ -154,6 +154,78 @@ export class NeuralQueueStorage {
   // ============================================================================
 
   /**
+   * 🔧 验证种子块 ID 数组
+   *
+   * @param seeds 种子块 ID 数组
+   * @returns 验证后的有效种子块 ID 数组
+   * @private
+   */
+  private static validateSeedArray(seeds: any): string[] {
+    if (!Array.isArray(seeds)) {
+      console.warn('[NeuralQueueStorage] Invalid seeds format (not an array)');
+      return [];
+    }
+
+    // 过滤掉无效 ID
+    return seeds.filter((id): id is string => {
+      const isValid = id && typeof id === 'string' && id.length > 0;
+      if (!isValid && id) {
+        console.warn(`[NeuralQueueStorage] Invalid seed ID: ${id}`);
+      }
+      return isValid;
+    });
+  }
+
+  /**
+   * 🔧 清理无效的遗落块条目
+   *
+   * @param missedBlocksObj 遗落块对象
+   * @returns 清理后的遗落块对象
+   * @private
+   */
+  private static cleanupMissedBlocks(missedBlocksObj: Record<string, any>): Record<string, MissedBlock[]> {
+    const cleaned: Record<string, MissedBlock[]> = {};
+
+    for (const [seedId, missedList] of Object.entries(missedBlocksObj)) {
+      // 验证种子 ID
+      if (!seedId || typeof seedId !== 'string') {
+        console.warn('[NeuralQueueStorage] Invalid seed ID in missedBlocks, skipping');
+        continue;
+      }
+
+      // 验证遗落块列表
+      if (!Array.isArray(missedList)) {
+        console.warn(`[NeuralQueueStorage] Invalid missed list for seed ${seedId}, skipping`);
+        continue;
+      }
+
+      // 过滤并验证每个遗落块
+      const validMissedBlocks = missedList.filter((block): block is MissedBlock => {
+        const isValid =
+          block &&
+          typeof block === 'object' &&
+          block.id &&
+          typeof block.id === 'string' &&
+          block.associationType &&
+          typeof block.missedAt === 'number';
+
+        if (!isValid) {
+          console.warn(`[NeuralQueueStorage] Invalid missed block for seed ${seedId}, skipping`);
+        }
+
+        return isValid;
+      });
+
+      // 只保留有有效遗落块的条目
+      if (validMissedBlocks.length > 0) {
+        cleaned[seedId] = validMissedBlocks;
+      }
+    }
+
+    return cleaned;
+  }
+
+  /**
    * 验证 Orbit 状态数据结构
    * 
    * @param state 待验证的状态对象
@@ -208,7 +280,7 @@ export class NeuralQueueStorage {
 
   /**
    * 保存 Orbit 状态（作为会话状态的一部分）
-   * 
+   *
    * @param seedNodes 种子节点列表
    * @param missedBlocks 遗落块映射
    * @param navigationPath 导航路径
@@ -220,6 +292,12 @@ export class NeuralQueueStorage {
     navigationPath: NavigationPathNode[]
   ): void {
     try {
+      // 🔧 验证和清理种子块数组
+      const validSeedNodes = this.validateSeedArray(seedNodes);
+      if (validSeedNodes.length !== seedNodes.length) {
+        console.warn(`[NeuralQueueStorage] Filtered ${seedNodes.length - validSeedNodes.length} invalid seed IDs`);
+      }
+
       // 加载现有会话状态
       const currentState = this.loadSessionState() || {
         currentSeedId: null,
@@ -234,17 +312,25 @@ export class NeuralQueueStorage {
         missedBlocksObj[key] = value;
       });
 
+      // 🔧 清理无效的遗落块条目
+      const cleanedMissedBlocks = this.cleanupMissedBlocks(missedBlocksObj);
+      const missedCount = Object.values(missedBlocksObj).reduce((sum, arr) => sum + arr.length, 0);
+      const cleanedCount = Object.values(cleanedMissedBlocks).reduce((sum, arr) => sum + arr.length, 0);
+      if (missedCount !== cleanedCount) {
+        console.warn(`[NeuralQueueStorage] Cleaned ${missedCount - cleanedCount} invalid missed blocks`);
+      }
+
       // 合并 Orbit 状态
       const updatedState: SessionState = {
         ...currentState,
-        seedNodes,
-        missedBlocks: missedBlocksObj,
+        seedNodes: validSeedNodes,
+        missedBlocks: cleanedMissedBlocks,
         navigationPath,
       };
 
       // 保存
       this.saveSessionState(updatedState);
-      console.log('[NeuralQueueStorage] Saved Orbit state');
+      console.log('[NeuralQueueStorage] Saved Orbit state (validated and cleaned)');
     } catch (error) {
       console.error('[NeuralQueueStorage] Failed to save Orbit state:', error);
     }
@@ -252,7 +338,7 @@ export class NeuralQueueStorage {
 
   /**
    * 加载 Orbit 状态
-   * 
+   *
    * @returns Orbit 状态数据，如果不存在或无效则返回 null
    * Requirements: 8.3, 8.6
    */
@@ -273,16 +359,30 @@ export class NeuralQueueStorage {
         return null;
       }
 
-      // 将普通对象转换为 Map
+      // 🔧 验证和清理种子块数组
+      const validSeedNodes = this.validateSeedArray(state.seedNodes || []);
+      if (validSeedNodes.length !== (state.seedNodes || []).length) {
+        console.warn(`[NeuralQueueStorage] Filtered ${(state.seedNodes || []).length - validSeedNodes.length} invalid seed IDs on load`);
+      }
+
+      // 🔧 将普通对象转换为 Map，同时清理无效的遗落块
       const missedBlocksMap = new Map<string, MissedBlock[]>();
       if (state.missedBlocks) {
-        for (const key in state.missedBlocks) {
-          missedBlocksMap.set(key, state.missedBlocks[key]);
+        // 使用 cleanupMissedBlocks 清理
+        const cleanedMissedBlocks = this.cleanupMissedBlocks(state.missedBlocks);
+
+        for (const [key, missedList] of Object.entries(cleanedMissedBlocks)) {
+          // 只保留引用有效种子的遗落块
+          if (validSeedNodes.includes(key)) {
+            missedBlocksMap.set(key, missedList);
+          } else {
+            console.warn(`[NeuralQueueStorage] Skipping missed blocks for invalid seed: ${key}`);
+          }
         }
       }
 
       return {
-        seedNodes: state.seedNodes || [],
+        seedNodes: validSeedNodes,
         missedBlocks: missedBlocksMap,
         navigationPath: state.navigationPath || [],
       };

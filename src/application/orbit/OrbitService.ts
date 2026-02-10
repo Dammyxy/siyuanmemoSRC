@@ -20,14 +20,18 @@ export class OrbitService {
    * 获取完整的图谱数据（数据 + 布局）
    *
    * @param selectedDirection 当前选中的方向
+   * @param expandedDirections 已展开的方向列表（可选）
    * @returns 节点和边的位置信息
    */
-  async getOrbitVisualization(selectedDirection: DirectionMode) {
+  async getOrbitVisualization(
+    selectedDirection: DirectionMode,
+    expandedDirections: string[] = []
+  ) {
     // 1. 从 adapter 获取数据
     const state = await this.adapter.getOrbitState(selectedDirection);
 
-    // 2. 使用 layoutEngine 计算布局
-    const layout = this.layoutEngine.calculate(state);
+    // 2. 使用 layoutEngine 计算布局（传递展开状态）
+    const layout = this.layoutEngine.calculate(state, expandedDirections);
 
     return layout;
   }

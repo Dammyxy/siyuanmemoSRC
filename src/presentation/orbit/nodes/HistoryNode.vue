@@ -15,6 +15,21 @@ defineProps<{ data: { label: string } }>();
 </template>
 
 <style scoped>
+/* 白色外圆环 */
+.node-history::before {
+  content: '';
+  position: absolute;
+  width: 52px;  /* 节点 40px + 12px 边框 */
+  height: 52px;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
 .node-history {
   position: relative;
   width: 40px;

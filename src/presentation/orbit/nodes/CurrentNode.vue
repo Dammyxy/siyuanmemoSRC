@@ -52,7 +52,7 @@ defineProps<{ data: { label: string } }>();
 .ring {
   position: absolute;
   border-radius: 50%;
-  border: 2px solid rgba(255, 215, 0, 0.3);
+  border: 2px solid rgba(255, 215, 0, 0.6);  /* 增强可见度: 0.3 → 0.6 */
   animation: rotate 4s linear infinite;
 }
 
@@ -66,6 +66,20 @@ defineProps<{ data: { label: string } }>();
   height: 130px;
   animation-direction: reverse;
   animation-duration: 6s;
+}
+
+/* 增加第三层光环 - 更强的视觉效果 */
+.node-current::after {
+  content: '';
+  position: absolute;
+  width: 140px;
+  height: 140px;
+  border: 1px solid rgba(255, 215, 0, 0.25);
+  border-radius: 50%;
+  animation: rotate 8s linear infinite;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 
 @keyframes rotate {

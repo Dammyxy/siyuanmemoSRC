@@ -116,6 +116,13 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         const config = this.loadNeuralConfig();
         this.neuralQueue = new NeuralQueue(config, this.currentSeed || undefined);
 
+        // 🆕 恢复种子节点到 NeuralQueue.seedNodes（修复绿色种子块不显示的问题）
+        if (this.seedBlocks.size > 0) {
+            const seedIds = Array.from(this.seedBlocks);
+            this.neuralQueue.restoreSeedNodes(seedIds);
+            console.log(`[NeuralRoamQueue] Synced ${seedIds.length} seed blocks to NeuralQueue`);
+        }
+
         console.log('[NeuralRoamQueue] Initialized with', this.seedBlocks.size, 'seed blocks');
     }
 

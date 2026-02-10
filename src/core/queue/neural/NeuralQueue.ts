@@ -69,9 +69,16 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
   /** 🆕 书签位置（用于"返回最新"功能，-1 表示无书签） */
   private pathBookmark: number = -1;
 
+  /** 🆕 验证缓存（避免重复验证） */
+  private validationCache: Set<string> = new Set();
+  /** 🆕 上次验证时间 */
+  private lastValidationTime: number = 0;
+  /** 🆕 验证间隔（毫秒） */
+  private readonly VALIDATION_INTERVAL = 60000; // 1分钟
+
   /**
    * 构造函数
-   * 
+   *
    * @param config 配置对象（可选，使用默认配置）
    * @param initialSeedId 用户指定的初始种子 ID（可选）
    * Requirements: 2.1, 4.2
@@ -108,6 +115,26 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     // 保存用户指定的初始种子
     this.initialSeedId = initialSeedId || null;
     this.currentSeedId = this.initialSeedId;
+
+    // 🔧 延迟执行自动验证（不阻塞初始化）
+    setTimeout(async () => {
+      await this.validateSeedBlocks();
+    }, 1000);
+  }
+
+  /**
+   * 🆕 恢复种子节点集合（从持久化数据恢复）
+   *
+   * 用于在初始化后批量添加种子块，避免触发 setSeed 的副作用（如记录遗落块）
+   *
+   * @param seedIds 种子块 ID 列表
+   */
+  restoreSeedNodes(seedIds: string[]): void {
+    console.log(`[NeuralQueue] Restoring ${seedIds.length} seed nodes:`, seedIds.map(id => id.substring(0, 12)));
+    for (const seedId of seedIds) {
+      this.seedNodes.add(seedId);
+    }
+    console.log(`[NeuralQueue] Seed nodes restored, total: ${this.seedNodes.size}`);
   }
 
   /**
@@ -477,7 +504,18 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    * @param currentCandidates 当前所有候选节点列表
    * Requirements: 4.1, 4.2, 4.3
    */
-  public setSeed(blockId: string, currentCandidates: WeightedNeighbor[]): void {
+  public async setSeed(blockId: string, currentCandidates: WeightedNeighbor[]): Promise<void> {
+    // 🔧 验证种子块是否存在
+    try {
+      const exists = await this.queryEngine.fetchCardData(blockId);
+      if (!exists) {
+        throw new Error(`Cannot set seed: block ${blockId} does not exist`);
+      }
+    } catch (error) {
+      console.error(`[NeuralQueue] Seed validation failed for ${blockId}:`, error);
+      throw new Error(`Cannot set seed: block ${blockId} is invalid`);
+    }
+
     // 检查是否已经是种子
     const isAlreadySeed = this.seedNodes.has(blockId);
 
@@ -585,6 +623,15 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     const path = [...this.displayPath];
     const currentId = this.currentSeedId;
 
+    // 🔧 调试：记录种子节点集合的内容
+    console.log('[NeuralQueue] getNavigationPath - seedNodes Set:', {
+      size: this.seedNodes.size,
+      seeds: Array.from(this.seedNodes).map(id => id.substring(0, 12)),
+      displayPathLength: path.length,
+      displayPathIds: path.map(id => id.substring(0, 12)),
+      currentSeedId: currentId?.substring(0, 12),
+    });
+
     // 如果当前节点不在路径中，添加到末尾
     if (currentId && !path.includes(currentId)) {
       path.push(currentId);
@@ -594,13 +641,25 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     const contentMap = await this.queryEngine.fetchBlockContents(path);
 
     // 转换为 NavigationPathNode 格式
-    return path.map((cardId, index) => ({
+    const result = path.map((cardId, index) => ({
       cardId,
       cardTitle: contentMap.get(cardId) || cardId.substring(0, 8) + '...',
       associationType: AssociationType.REF_LINK,
       timestamp: Date.now() - (path.length - index) * 1000,
       isSeed: this.seedNodes.has(cardId),
     }));
+
+    // 🔧 调试：记录哪些节点被标记为种子
+    console.log('[NeuralQueue] getNavigationPath - result:', {
+      totalNodes: result.length,
+      seedCount: result.filter(n => n.isSeed).length,
+      seedNodes: result.filter(n => n.isSeed).map(n => ({
+        id: n.cardId.substring(0, 12),
+        title: n.cardTitle?.substring(0, 30),
+      })),
+    });
+
+    return result;
   }
 
   /**
@@ -726,6 +785,11 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
   public async getOrbitStateV2(
     selectedDirection: 'AUTO' | AssociationType
   ): Promise<any> {
+    // 🔧 在获取状态前验证种子块（非阻塞，使用缓存）
+    this.validateSeedBlocks().catch(err => {
+      console.warn('[NeuralQueue] Seed validation failed during getOrbitStateV2:', err);
+    });
+
     const currentNodeId = this.currentSeedId;
     console.log('[NeuralQueue] getOrbitStateV2 called:', { currentNodeId, selectedDirection });
 
@@ -751,6 +815,11 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       candidatesByDirectionSize: candidatesByDirection.size,
       candidatesByDirectionKeys: Array.from(candidatesByDirection.keys()),
       candidateCounts: Array.from(candidatesByDirection.entries()).map(([k, v]) => `${k}: ${v.length}`),
+      // 🆕 显示哪些节点是种子块
+      seedNodes: historyPath.filter(n => n.isSeed).map(n => ({
+        cardId: n.cardId?.substring(0, 12),
+        title: n.cardTitle?.substring(0, 30),
+      })),
     });
 
     return {
@@ -915,5 +984,192 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     this.currentPathIndex = state.currentPathIndex;
     this.navigationMode = state.navigationMode;
     console.log(`[NeuralQueue] Navigation state restored: index ${this.currentPathIndex}, total ${this.displayPath.length}, mode ${this.navigationMode}`);
+  }
+
+  // ============================================================================
+  // 🆕 种子块验证机制（Seed Block Validation）
+  // ============================================================================
+
+  /**
+   * 🔧 验证种子块是否存在
+   *
+   * 检查所有种子块是否仍然存在于数据库中，清理无效的种子和相关遗落块。
+   *
+   * @private
+   */
+  private async validateSeedBlocks(): Promise<void> {
+    const now = Date.now();
+    const timeSinceLastValidation = now - this.lastValidationTime;
+
+    // 避免频繁验证（1分钟内只验证一次）
+    if (timeSinceLastValidation < this.VALIDATION_INTERVAL && this.validationCache.size > 0) {
+      console.log('[NeuralQueue] Skipping validation (cached, last validation was ' +
+        `${Math.round(timeSinceLastValidation / 1000)}s ago)`);
+      return;
+    }
+
+    console.log('[NeuralQueue] Starting seed block validation...');
+    const validSeeds = new Set<string>();
+    const invalidSeeds: string[] = [];
+
+    // 并发验证所有种子（提高性能）
+    const validationPromises = Array.from(this.seedNodes).map(async (seedId) => {
+      try {
+        const exists = await this.queryEngine.fetchCardData(seedId);
+        return { seedId, exists: !!exists };
+      } catch (error) {
+        console.warn(`[NeuralQueue] Error validating seed ${seedId}:`, error);
+        return { seedId, exists: false };
+      }
+    });
+
+    const results = await Promise.all(validationPromises);
+
+    for (const { seedId, exists } of results) {
+      if (exists) {
+        validSeeds.add(seedId);
+        this.validationCache.add(seedId);
+      } else {
+        invalidSeeds.push(seedId);
+        console.warn(`[NeuralQueue] Removing invalid seed: ${seedId}`);
+        // 清理相关的遗落块
+        this.missedBlocks.delete(seedId);
+        this.directionMissedBlocks.delete(seedId);
+        this.validationCache.delete(seedId);
+      }
+    }
+
+    if (invalidSeeds.length > 0) {
+      console.log(`[NeuralQueue] Cleaned up ${invalidSeeds.length} invalid seeds:`, invalidSeeds);
+      this.seedNodes = validSeeds;
+
+      // 持久化更新后的种子集合
+      this.persistSeedBlocks();
+    }
+
+    this.lastValidationTime = now;
+    console.log(`[NeuralQueue] Seed validation completed: ${validSeeds.size} valid, ${invalidSeeds.length} invalid`);
+  }
+
+  /**
+   * 🔧 自动修复队列状态
+   *
+   * 公共方法：清理无效数据，验证种子块，修复不一致状态。
+   *
+   * @returns 修复统计信息
+   */
+  public async autoRepair(): Promise<{
+    seedsCleaned: number;
+    missedBlocksCleaned: number;
+  }> {
+    console.log('[NeuralQueue] Starting auto-repair...');
+
+    // 1. 验证并清理种子块
+    const validSeeds = new Set<string>();
+    let seedsCleaned = 0;
+
+    const validationPromises = Array.from(this.seedNodes).map(async (seedId) => {
+      try {
+        const exists = await this.queryEngine.fetchCardData(seedId);
+        return { seedId, exists: !!exists };
+      } catch (error) {
+        return { seedId, exists: false };
+      }
+    });
+
+    const results = await Promise.all(validationPromises);
+
+    for (const { seedId, exists } of results) {
+      if (exists) {
+        validSeeds.add(seedId);
+      } else {
+        seedsCleaned++;
+        this.missedBlocks.delete(seedId);
+        this.directionMissedBlocks.delete(seedId);
+      }
+    }
+
+    this.seedNodes = validSeeds;
+
+    // 2. 清理空的遗落块记录
+    let missedBlocksCleaned = 0;
+    const emptyMissedEntries: string[] = [];
+
+    this.missedBlocks.forEach((blocks, seedId) => {
+      if (blocks.length === 0 || !this.seedNodes.has(seedId)) {
+        emptyMissedEntries.push(seedId);
+      }
+    });
+
+    emptyMissedEntries.forEach(seedId => {
+      this.missedBlocks.delete(seedId);
+      const dirMissed = this.directionMissedBlocks.get(seedId as any);
+      if (dirMissed) {
+        this.directionMissedBlocks.delete(seedId as any);
+      }
+      missedBlocksCleaned++;
+    });
+
+    // 3. 如果没有有效种子，尝试使用当前种子
+    if (this.seedNodes.size === 0 && this.currentSeedId) {
+      console.warn('[NeuralQueue] No valid seeds found, trying to use current seed');
+      const currentExists = await this.queryEngine.fetchCardData(this.currentSeedId);
+      if (currentExists) {
+        this.seedNodes.add(this.currentSeedId);
+        console.log('[NeuralQueue] Added current seed as valid seed');
+      }
+    }
+
+    // 4. 持久化修复后的状态
+    this.persistSeedBlocks();
+
+    console.log(`[NeuralQueue] Auto-repair completed: ${seedsCleaned} seeds, ${missedBlocksCleaned} missed block entries`);
+
+    return { seedsCleaned, missedBlocksCleaned };
+  }
+
+  /**
+   * 🔧 持久化种子块到存储
+   *
+   * @private
+   */
+  private persistSeedBlocks(): void {
+    try {
+      // 使用 NeuralQueueStorage 持久化
+      const { NeuralQueueStorage } = require('./NeuralQueueStorage');
+      const seedArray = Array.from(this.seedNodes);
+
+      // 检查是否有 Orbit 状态需要保存
+      const sessionState = NeuralQueueStorage.loadSessionState();
+      if (sessionState) {
+        // 更新现有会话状态
+        sessionState.seedNodes = seedArray;
+        NeuralQueueStorage.saveSessionState(sessionState);
+      } else {
+        // 创建新的会话状态
+        NeuralQueueStorage.saveOrbitState(
+          seedArray,
+          this.missedBlocks,
+          [] // navigationPath 将由外部提供
+        );
+      }
+
+      console.log(`[NeuralQueue] Persisted ${seedArray.length} seed blocks`);
+    } catch (error) {
+      console.error('[NeuralQueue] Failed to persist seed blocks:', error);
+    }
+  }
+
+  /**
+   * 🔧 触发验证（在关键时刻调用）
+   *
+   * @param force 是否强制验证（忽略缓存）
+   */
+  public async triggerValidation(force = false): Promise<void> {
+    if (force) {
+      this.validationCache.clear();
+      this.lastValidationTime = 0;
+    }
+    await this.validateSeedBlocks();
   }
 }
