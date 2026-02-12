@@ -414,7 +414,6 @@ async function loadData(forceRefresh = false) {
     // ========================================================================
     if (activeQueueId.value) {
       console.log('[SRSBrowser] 🔍 Using data source for queue:', activeQueueId.value);
-      console.log('[SRSBrowser] 🔍 Current mode:', UnifiedDataSourceManager.getInstance().getCurrentMode());
       console.log('[SRSBrowser] 🔍 Current cardType filter:', currentCardType.value);
       
       // 使用数据源工厂创建数据源（支持 cardType 筛选）

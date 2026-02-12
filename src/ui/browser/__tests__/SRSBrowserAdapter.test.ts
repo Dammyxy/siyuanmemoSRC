@@ -16,7 +16,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SRSBrowserAdapter } from '../SRSBrowserAdapter';
 import type { UnifiedDataSourceManager } from '../../../managers/UnifiedDataSourceManager';
-import type { IReviewQueue, QueueType, DataChangeEvent, OperationMode } from '../../../types/unified-data-source';
+import type { IReviewQueue, QueueType, DataChangeEvent } from '../../../types/unified-data-source';
 import type { FSRSCard } from '../../../types/card';
 
 // Mock 数据
@@ -85,7 +85,6 @@ describe('SRSBrowserAdapter', () => {
             registerObserver: vi.fn(),
             unregisterObserver: vi.fn(),
             getQueue: vi.fn().mockReturnValue(mockQueue),
-            getCurrentMode: vi.fn().mockReturnValue('simple' as OperationMode),
         } as any;
         
         // 创建适配器实例
@@ -134,12 +133,11 @@ describe('SRSBrowserAdapter', () => {
             
             await adapter.initializeQueueView(queueType);
             
-            // 验证记录了数据源类型
+            // 验证记录了初始化日志
             expect(consoleSpy).toHaveBeenCalledWith(
                 expect.stringContaining('[SRSBrowserAdapter] Initializing queue view'),
                 expect.objectContaining({
                     queueType,
-                    dataSourceMode: 'simple',
                 })
             );
             
@@ -148,7 +146,6 @@ describe('SRSBrowserAdapter', () => {
                 expect.stringContaining('[SRSBrowserAdapter] Queue view initialized successfully'),
                 expect.objectContaining({
                     queueType,
-                    dataSourceMode: 'simple',
                 })
             );
             
@@ -439,27 +436,6 @@ describe('SRSBrowserAdapter', () => {
             
             expect(consoleSpy).toHaveBeenCalledWith(
                 expect.stringContaining('[SRSBrowserAdapter] Handling queue-changed event: retrieval-practice')
-            );
-            
-            consoleSpy.mockRestore();
-        });
-        
-        it('应该响应 mode-switched 事件', async () => {
-            // 验证需求：1.3
-            const queueType = 'retrieval-practice' as QueueType;
-            await adapter.initializeQueueView(queueType);
-            
-            const consoleSpy = vi.spyOn(console, 'log');
-            
-            const event: DataChangeEvent = {
-                type: 'mode-switched',
-                timestamp: Date.now(),
-            };
-            
-            adapter.onDataChanged(event);
-            
-            expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SRSBrowserAdapter] Handling mode-switched event')
             );
             
             consoleSpy.mockRestore();
@@ -1064,63 +1040,6 @@ describe('SRSBrowserAdapter', () => {
             });
         });
         
-        describe('mode-switched 事件处理', () => {
-            it('应该处理模式切换事件', async () => {
-                // 验证需求：1.3, 10.3
-                const queueType = 'retrieval-practice' as QueueType;
-                await adapter.initializeQueueView(queueType);
-                
-                const consoleSpy = vi.spyOn(console, 'log');
-                const callback = vi.fn();
-                adapter.setOnDataChangeCallback(callback);
-                
-                const event: DataChangeEvent = {
-                    type: 'mode-switched',
-                    timestamp: Date.now(),
-                };
-                
-                adapter.onDataChanged(event);
-                
-                // 验证记录了事件日志
-                expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SRSBrowserAdapter] Data changed'),
-                    expect.objectContaining({
-                        eventType: 'mode-switched',
-                    })
-                );
-                
-                // 验证调用了处理方法
-                expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SRSBrowserAdapter] Handling mode-switched event')
-                );
-                
-                // 验证调用了回调函数
-                expect(callback).toHaveBeenCalledWith(event);
-                
-                consoleSpy.mockRestore();
-            });
-            
-            it('应该在模式切换后刷新所有数据', async () => {
-                // 验证需求：1.3, 10.3
-                const queueType = 'retrieval-practice' as QueueType;
-                await adapter.initializeQueueView(queueType);
-                
-                const callback = vi.fn();
-                adapter.setOnDataChangeCallback(callback);
-                
-                const event: DataChangeEvent = {
-                    type: 'mode-switched',
-                    timestamp: Date.now(),
-                };
-                
-                adapter.onDataChanged(event);
-                
-                // 验证调用了回调函数（Vue 组件会根据回调刷新数据）
-                expect(callback).toHaveBeenCalledWith(event);
-                expect(callback).toHaveBeenCalledTimes(1);
-            });
-        });
-        
         describe('事件处理的通用行为', () => {
             it('应该在未初始化时也能处理事件', () => {
                 // 验证需求：10.3
@@ -1213,18 +1132,16 @@ describe('SRSBrowserAdapter', () => {
                     { type: 'card-updated', cardIds: ['test-block-1'], timestamp: Date.now() },
                     { type: 'card-deleted', cardIds: ['test-block-2'], timestamp: Date.now() },
                     { type: 'queue-changed', queueType: 'retrieval-practice' as QueueType, timestamp: Date.now() },
-                    { type: 'mode-switched', timestamp: Date.now() },
                 ];
                 
                 // 依次处理事件
                 events.forEach(event => adapter.onDataChanged(event));
                 
                 // 验证所有事件都被处理
-                expect(callback).toHaveBeenCalledTimes(4);
+                expect(callback).toHaveBeenCalledTimes(3);
                 expect(callback).toHaveBeenNthCalledWith(1, events[0]);
                 expect(callback).toHaveBeenNthCalledWith(2, events[1]);
                 expect(callback).toHaveBeenNthCalledWith(3, events[2]);
-                expect(callback).toHaveBeenNthCalledWith(4, events[3]);
             });
         });
     });

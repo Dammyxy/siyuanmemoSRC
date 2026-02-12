@@ -82,7 +82,7 @@ export class DeckDataSource implements ICardDataSource {
     console.log('[DeckDataSource] Constructor - Using unified data source manager:', {
       hasManager: !!this.manager,
       hasPlugin: !!this.plugin,
-      currentMode: this.manager?.getCurrentMode(),
+      currentMode: 'advanced',
     });
   }
 
@@ -91,36 +91,180 @@ export class DeckDataSource implements ICardDataSource {
       preset: this.options.preset,
       currentDocId: this.options.currentDocId,
       queryText: this.options.queryText,
-      cardType: this.options.cardType,  // ✅ 添加卡片类型参数到日志
+      cardType: this.options.cardType,
+      currentMode: 'advanced',
     });
 
-    // 传递 queryText 和 cardType 参数以支持筛选，使用缓存优化
-    let rows = await loadCards(this.options.preset, undefined, this.options.queryText, false, this.options.cardType, this.plugin as any);
-    console.log('[DeckDataSource] loadCards returned:', rows.length, 'cards');
+    // 使用统一数据源管理器（从本地存储获取）
+    try {
+      const allCards = await this.manager.getCards();
+      console.log('[DeckDataSource] manager.getCards returned:', allCards.length, 'cards (advanced mode)');
+      
+      // 转换为 BrowserCard 格式
+      let rows = allCards.map(card => this.convertToBrowserCard(card));
+      
+      // 应用 preset 筛选
+      rows = this.applyPresetFilter(rows);
+      
+      // 应用 cardType 筛选
+      if (this.options.cardType && this.options.cardType !== 'all') {
+        if (this.options.cardType === 'topic-only') {
+          rows = rows.filter(c => c.cardType === 'topic');
+        } else if (this.options.cardType === 'item-only') {
+          rows = rows.filter(c => c.cardType === 'item');
+          }
+        }
+        
+        // 应用搜索筛选
+        if (this.options.queryText) {
+          const query = this.options.queryText.toLowerCase().trim();
+          if (query && !query.startsWith('tag:') && !query.startsWith('deck:') && !query.startsWith('state:') && !query.startsWith('doc:')) {
+            rows = rows.filter(c => {
+              return c.content?.toLowerCase().includes(query) ||
+                     c.fullContent?.toLowerCase().includes(query);
+            });
+          }
+        }
+        
+        // ✅ 四重筛选：应用文档筛选
+        if (this.options.currentDocId) {
+          if (this.options.currentDocId === '__lost__') {
+            rows = rows.filter(c => !String((c as any)?.rootId || ''));
+          } else if (this.options.preset === 'current-doc') {
+            rows = rows.filter(c => c.rootId === this.options.currentDocId);
+          } else {
+            rows = rows.filter(c => c.rootId === this.options.currentDocId);
+          }
+        }
 
-    // ✅ 四重筛选：应用文档筛选
-    if (this.options.currentDocId) {
-      // 特殊处理：丢失闪卡（rootId 为空的卡片）
-      if (this.options.currentDocId === '__lost__') {
-        console.log('[DeckDataSource] Filtering for lost cards (no rootId)');
-        const beforeCount = rows.length;
-        rows = rows.filter(c => !String((c as any)?.rootId || ''));
-        console.log('[DeckDataSource] Lost cards filter:', beforeCount, '->', rows.length);
+        const sorted = applySort(rows, params?.sortModel || []);
+        return { rows: sorted, totalCount: sorted.length };
+      } catch (error) {
+        console.error('[DeckDataSource] Failed to fetch from manager:', error);
+        throw error;
       }
-      // 当前文档筛选
-      else if (this.options.preset === 'current-doc') {
-        rows = rows.filter(c => c.rootId === this.options.currentDocId);
+  }
+  
+  private applyPresetFilter(cards: BrowserCard[]): BrowserCard[] {
+    if (!this.options.preset || this.options.preset === 'all') {
+      return cards;
+    }
+    
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    return cards.filter(c => {
+      switch (this.options.preset) {
+        case 'due':
+          return c.due && new Date(c.due) <= today;
+        case 'overdue':
+          return c.due && new Date(c.due) < today;
+        case 'new':
+          return c.state === 0; // New
+        case 'leech':
+          return (c.lapses || 0) > 0;
+        default:
+          return true;
       }
-      // 其他文档筛选
-      else {
-        rows = rows.filter(c => c.rootId === this.options.currentDocId);
+    });
+  }
+  
+  private convertToBrowserCard(card: any): BrowserCard {
+    const now = Date.now();
+    const elapsedDays = card.lastReview 
+      ? Math.floor((now - card.lastReview) / (1000 * 60 * 60 * 24))
+      : 0;
+    const retrievability = this.calculateRetrievability(card.stability || 0, elapsedDays);
+    const state = card.state || 0;
+    
+    const dueDate = new Date(card.due);
+    const lastReviewDate = card.lastReview ? new Date(card.lastReview) : null;
+    
+    let firstReviewDate: Date | null = null;
+    if (card.reps > 0) {
+      if (card.createdAt) {
+        firstReviewDate = new Date(card.createdAt);
+      } else if (lastReviewDate) {
+        firstReviewDate = lastReviewDate;
       }
     }
-
-    // 【全部闪卡】模式下不设置 queueIndex，NO 列将显示数组索引
-    // 只有在【复习队列】模式下，数据源才会设置 queueIndex
-    const sorted = applySort(rows, params?.sortModel || []);
-    return { rows: sorted, totalCount: sorted.length };
+    
+    const fullContent = (card.meta?.content as string) || card.content || '';
+    const content = this.truncateContent(fullContent, 100);
+    const deckId = (card.meta?.deckId as string) || card.deckId || '';
+    const cardType = card.type as 'topic' | 'item' | 'incremental' | 'webpage' | undefined;
+    const extractedRootId = (card.meta?.rootId as string) || card.rootId || '';
+    
+    return {
+      id: card.riffCardId || card.id,
+      fsrsCardId: card.id,
+      blockId: card.blockId,
+      deckId,
+      content,
+      fullContent,
+      rootId: extractedRootId,
+      state,
+      stateLabel: this.getStateLabel(state),
+      due: dueDate,
+      dueFormatted: this.formatDueDate(dueDate),
+      stability: card.stability || 0,
+      difficulty: card.difficulty || 0,
+      retrievability: retrievability || 0,
+      reps: card.reps || 0,
+      lapses: card.lapses || 0,
+      elapsedDays,
+      scheduledDays: card.scheduledDays || 0,
+      lastReview: lastReviewDate,
+      lastReviewFormatted: this.formatHistoryDate(lastReviewDate),
+      interval: card.scheduledDays || 0,
+      firstReview: firstReviewDate,
+      firstReviewFormatted: this.formatHistoryDate(firstReviewDate),
+      priority: card.priority || 50,
+      suspended: (card.meta?.suspended as boolean) || false,
+      tags: card.tags || [],
+      note: (card.meta?.note as string) || '',
+      cardType,
+      aFactor: card.aFactor,
+    };
+  }
+  
+  private calculateRetrievability(stability: number, elapsedDays: number): number {
+    if (stability <= 0) return 0;
+    return Math.pow(1 + elapsedDays / (9 * stability), -1);
+  }
+  
+  private truncateContent(content: string, maxLength: number): string {
+    if (!content) return '';
+    if (content.length <= maxLength) return content;
+    return content.substring(0, maxLength) + '...';
+  }
+  
+  private formatDueDate(date: Date): string {
+    if (!date || isNaN(date.getTime())) return '-';
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dueDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const diffDays = Math.floor((dueDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) return `已过期 ${-diffDays} 天`;
+    if (diffDays === 0) return '今天';
+    if (diffDays === 1) return '明天';
+    return `${diffDays} 天后`;
+  }
+  
+  private formatHistoryDate(date: Date | null): string {
+    if (!date || isNaN(date.getTime())) return '-';
+    return date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
+  }
+  
+  private getStateLabel(state: number): string {
+    switch (state) {
+      case 0: return '新卡';
+      case 1: return '学习中';
+      case 2: return '复习';
+      case 3: return '重学';
+      default: return '未知';
+    }
   }
 
   getSupportedActions(): CardBrowserAction[] {
@@ -132,7 +276,7 @@ export class DeckDataSource implements ICardDataSource {
     // 🆕 使用统一数据源管理器检测可用队列
     console.log('[DeckDataSource] ========== getSupportedActions 调试 ==========');
     console.log('[DeckDataSource] Manager:', this.manager);
-    console.log('[DeckDataSource] Current mode:', this.manager?.getCurrentMode());
+    console.log('[DeckDataSource] Current mode: advanced');
     
     const hasQueues = {
       retrieval: !!this.manager,  // 所有模式都支持提取练习

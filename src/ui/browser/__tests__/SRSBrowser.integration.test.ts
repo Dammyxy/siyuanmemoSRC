@@ -18,7 +18,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SRSBrowserAdapter } from '../SRSBrowserAdapter';
 import { UnifiedDataSourceManager } from '../../../managers/UnifiedDataSourceManager';
-import type { IReviewQueue, QueueType, DataChangeEvent, OperationMode } from '../../../types/unified-data-source';
+import type { IReviewQueue, QueueType, DataChangeEvent } from '../../../types/unified-data-source';
 import type { FSRSCard } from '../../../types/card';
 
 // Mock 数据
@@ -73,7 +73,6 @@ describe('SRSBrowser.vue Integration Tests', () => {
             registerObserver: vi.fn(),
             unregisterObserver: vi.fn(),
             getQueue: vi.fn().mockReturnValue(mockQueue),
-            getCurrentMode: vi.fn().mockReturnValue('simple' as OperationMode),
         } as any;
         
         // 创建适配器实例
@@ -106,12 +105,11 @@ describe('SRSBrowser.vue Integration Tests', () => {
             
             await adapter.initializeQueueView('retrieval-practice' as QueueType);
             
-            // 验证记录了数据源类型
+            // 验证记录了初始化日志
             expect(consoleSpy).toHaveBeenCalledWith(
                 expect.stringContaining('[SRSBrowserAdapter] Initializing queue view'),
                 expect.objectContaining({
                     queueType: 'retrieval-practice',
-                    dataSourceMode: 'simple',
                 })
             );
             
@@ -120,7 +118,6 @@ describe('SRSBrowser.vue Integration Tests', () => {
                 expect.stringContaining('[SRSBrowserAdapter] Queue view initialized successfully'),
                 expect.objectContaining({
                     queueType: 'retrieval-practice',
-                    dataSourceMode: 'simple',
                 })
             );
             
@@ -386,9 +383,10 @@ describe('SRSBrowser.vue Integration Tests', () => {
             const callback = vi.fn();
             adapter.setOnDataChangeCallback(callback);
             
-            // 模拟模式切换事件
+            // 模拟队列变更事件
             const event: DataChangeEvent = {
-                type: 'mode-switched',
+                type: 'queue-changed',
+                queueType: 'retrieval-practice' as QueueType,
                 timestamp: Date.now(),
             };
             
@@ -438,18 +436,16 @@ describe('SRSBrowser.vue Integration Tests', () => {
                 { type: 'card-updated', cardIds: ['test-block-1'], timestamp: Date.now() },
                 { type: 'card-deleted', cardIds: ['test-block-2'], timestamp: Date.now() },
                 { type: 'queue-changed', queueType: 'retrieval-practice' as QueueType, timestamp: Date.now() },
-                { type: 'mode-switched', timestamp: Date.now() },
             ];
             
             // 依次处理事件
             events.forEach(event => adapter.onDataChanged(event));
             
             // 验证所有事件都被处理
-            expect(callback).toHaveBeenCalledTimes(4);
+            expect(callback).toHaveBeenCalledTimes(3);
             expect(callback).toHaveBeenNthCalledWith(1, events[0]);
             expect(callback).toHaveBeenNthCalledWith(2, events[1]);
             expect(callback).toHaveBeenNthCalledWith(3, events[2]);
-            expect(callback).toHaveBeenNthCalledWith(4, events[3]);
         });
     });
 });

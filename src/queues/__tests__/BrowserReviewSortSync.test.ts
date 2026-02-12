@@ -8,7 +8,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
 import { UnifiedQueueStrategy } from '@/strategies/UnifiedQueueStrategy';
-import { SimpleDataRouter } from '@/routers/SimpleDataRouter';
 import { AdvancedDataRouter } from '@/routers/AdvancedDataRouter';
 import { QueueType } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
@@ -25,9 +24,8 @@ describe('Browser-Review Sort Synchronization', () => {
         manager = UnifiedDataSourceManager.getInstance();
         
         // 初始化路由器
-        const simpleRouter = new SimpleDataRouter();
-        const advancedRouter = new AdvancedDataRouter();
-        manager.initializeRouters(simpleRouter, advancedRouter);
+        const advancedRouter = new AdvancedDataRouter({} as any);
+        manager.initializeRouters(null as any, advancedRouter);
         
         // 创建模拟卡片数据
         mockCards = [

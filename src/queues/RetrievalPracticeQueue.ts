@@ -280,15 +280,20 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
                 card.due = newDueDate;
                 await this.manager.updateCard(card);
                 
-                // 根据新的到期日期决定是否保留在队列中
-                const now = Date.now();
-                if (newDueDate > now) {
-                    // 新日期是未来，从手动添加集合中移除
+                // 🔧 修复：根据新的到期日期是否在今天范围内决定是否保留
+                // 获取今天的结束时间
+                const router = (this.manager as any).advancedRouter;
+                const plugin = router?.plugin;
+                const dayStartHour = plugin ? getDayStartHour(plugin) : 4;
+                const dayEnd = getCurrentDayEnd(dayStartHour);
+                
+                if (newDueDate > dayEnd) {
+                    // 新日期超出今天范围，从队列移除
                     await this.removeCard(cardId);
-                    console.log(`[RetrievalPracticeQueue] Card ${cardId} reviewed with rating ${rating}, new due date is in future, removed from queue`);
+                    console.log(`[RetrievalPracticeQueue] Card ${cardId} reviewed with rating ${rating}, new due date (${new Date(newDueDate).toISOString()}) is beyond today (${new Date(dayEnd).toISOString()}), removed from queue`);
                 } else {
-                    // 新日期是今天或过去，保留在队列中
-                    console.log(`[RetrievalPracticeQueue] Card ${cardId} reviewed with rating ${rating}, kept in queue`);
+                    // 新日期在今天范围内，保留在队列中
+                    console.log(`[RetrievalPracticeQueue] Card ${cardId} reviewed with rating ${rating}, new due date (${new Date(newDueDate).toISOString()}) is within today (${new Date(dayEnd).toISOString()}), kept in queue`);
                 }
                 
                 // 自动添加到最终训练队列

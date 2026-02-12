@@ -16,7 +16,7 @@ import { RetrievalPracticeQueue } from '../RetrievalPracticeQueue';
 import { IncrementalLearningQueue } from '../IncrementalLearningQueue';
 import { FilterGroupQueue } from '../FilterGroupQueue';
 import { UnifiedDataSourceManager } from '../../managers/UnifiedDataSourceManager';
-import { QueueType, OperationMode } from '../../types/unified-data-source';
+import { QueueType } from '../../types/unified-data-source';
 import { FSRSCard, CardType, CardState } from '../../types/card';
 
 // Mock localStorage

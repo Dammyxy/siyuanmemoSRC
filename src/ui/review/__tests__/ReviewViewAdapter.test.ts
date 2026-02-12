@@ -18,7 +18,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ReviewViewAdapter } from '../ReviewViewAdapter';
 import { ReviewViewController } from '../../../controllers/ReviewViewController';
 import type { UnifiedDataSourceManager } from '../../../managers/UnifiedDataSourceManager';
-import type { IReviewQueue, QueueType, DataChangeEvent, OperationMode } from '../../../types/unified-data-source';
+import type { IReviewQueue, QueueType, DataChangeEvent } from '../../../types/unified-data-source';
 import type { FSRSCard } from '../../../types/card';
 
 // Mock 数据
@@ -93,7 +93,6 @@ describe('ReviewViewAdapter', () => {
             registerObserver: vi.fn(),
             unregisterObserver: vi.fn(),
             getQueue: vi.fn().mockReturnValue(mockQueue),
-            getCurrentMode: vi.fn().mockReturnValue('simple' as OperationMode),
         } as any;
         
         // Mock ReviewViewController 构造函数
@@ -148,12 +147,11 @@ describe('ReviewViewAdapter', () => {
             
             await adapter.initializeController(queueType);
             
-            // 验证记录了数据源类型
+            // 验证记录了初始化日志
             expect(consoleSpy).toHaveBeenCalledWith(
                 expect.stringContaining('[ReviewViewAdapter] Initializing controller'),
                 expect.objectContaining({
                     queueType,
-                    dataSourceMode: 'simple',
                 })
             );
             
@@ -162,7 +160,6 @@ describe('ReviewViewAdapter', () => {
                 expect.stringContaining('[ReviewViewAdapter] Controller initialized successfully'),
                 expect.objectContaining({
                     queueType,
-                    dataSourceMode: 'simple',
                 })
             );
             
@@ -677,27 +674,6 @@ describe('ReviewViewAdapter', () => {
             consoleSpy.mockRestore();
         });
         
-        it('应该响应 mode-switched 事件', async () => {
-            // 验证需求：1.3
-            const queueType = 'retrieval-practice' as QueueType;
-            await adapter.initializeController(queueType);
-            
-            const consoleSpy = vi.spyOn(console, 'log');
-            
-            const event: DataChangeEvent = {
-                type: 'mode-switched',
-                timestamp: Date.now(),
-            };
-            
-            adapter.onDataChanged(event);
-            
-            expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[ReviewViewAdapter] Handling mode-switched event')
-            );
-            
-            consoleSpy.mockRestore();
-        });
-        
         it('应该调用数据变更回调函数', async () => {
             const queueType = 'retrieval-practice' as QueueType;
             await adapter.initializeController(queueType);
@@ -1040,18 +1016,16 @@ describe('ReviewViewAdapter', () => {
                 { type: 'card-updated', cardIds: ['test-block-1'], timestamp: Date.now() },
                 { type: 'card-deleted', cardIds: ['test-block-2'], timestamp: Date.now() },
                 { type: 'queue-changed', queueType: 'retrieval-practice' as QueueType, timestamp: Date.now() },
-                { type: 'mode-switched', timestamp: Date.now() },
             ];
             
             // 依次处理事件
             events.forEach(event => adapter.onDataChanged(event));
             
             // 验证所有事件都被处理
-            expect(callback).toHaveBeenCalledTimes(4);
+            expect(callback).toHaveBeenCalledTimes(3);
             expect(callback).toHaveBeenNthCalledWith(1, events[0]);
             expect(callback).toHaveBeenNthCalledWith(2, events[1]);
             expect(callback).toHaveBeenNthCalledWith(3, events[2]);
-            expect(callback).toHaveBeenNthCalledWith(4, events[3]);
         });
     });
 });

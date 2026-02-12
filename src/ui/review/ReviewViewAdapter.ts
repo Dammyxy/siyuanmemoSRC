@@ -84,10 +84,9 @@ export class ReviewViewAdapter implements IDataSourceObserver {
     async initializeController(queueType: QueueType): Promise<void> {
         try {
             // 记录初始化开始（需求 12.1：记录数据源类型）
-            const currentMode = this.manager.getCurrentMode();
             console.log(`[ReviewViewAdapter] Initializing controller:`, {
                 queueType,
-                dataSourceMode: currentMode,
+                dataSourceMode: 'advanced',
                 timestamp: new Date().toISOString()
             });
             
@@ -107,7 +106,7 @@ export class ReviewViewAdapter implements IDataSourceObserver {
             // 记录初始化成功（需求 12.1）
             console.log(`[ReviewViewAdapter] Controller initialized successfully:`, {
                 queueType,
-                dataSourceMode: currentMode,
+                dataSourceMode: 'advanced',
                 timestamp: new Date().toISOString()
             });
         } catch (error) {
@@ -371,9 +370,6 @@ export class ReviewViewAdapter implements IDataSourceObserver {
             case 'queue-changed':
                 this.handleQueueChanged(event.queueType);
                 break;
-            case 'mode-switched':
-                this.handleModeSwitched();
-                break;
         }
         
         // 调用回调函数通知 Vue 组件
@@ -440,17 +436,5 @@ export class ReviewViewAdapter implements IDataSourceObserver {
             // 触发 Vue 组件刷新
             // 实际的刷新逻辑由 Vue 组件通过回调函数处理
         }
-    }
-    
-    /**
-     * 处理模式切换事件
-     * 
-     * 验证需求：1.3
-     */
-    private handleModeSwitched(): void {
-        console.log('[ReviewViewAdapter] Handling mode-switched event');
-        
-        // 刷新所有数据
-        // 实际的刷新逻辑由 Vue 组件通过回调函数处理
     }
 }

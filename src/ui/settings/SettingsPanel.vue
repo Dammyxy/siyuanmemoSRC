@@ -153,33 +153,8 @@
       <div v-show="activeTab === 'riff'" class="settings-section">
         <h3>{{ t('riffIntegrationTitle', 'Riff 集成配置') }}</h3>
         
-        <!-- 模式选择 -->
-        <div class="mode-selection">
-          <label class="mode-card-wrapper">
-            <input type="radio" v-model="riffIntegrationConfig.mode" value="advanced" />
-            <div class="mode-card" :class="{ 'mode-card--active': riffIntegrationConfig.mode === 'advanced' }">
-              <h4>{{ t('advancedMode', '高阶模式 (Advanced Mode)') }}</h4>
-              <p>{{ t('advancedModeDesc', '使用本地调度器（FSRS/SM-15/A-Factor）') }}</p>
-              <p>{{ t('advancedModeDesc2', '通过混合同步方案与 Riff 保持数据一致性') }}</p>
-              <ul>
-                <li>✓ {{ t('incrementalSyncFeature', '增量同步：快速获取新卡片') }}</li>
-                <li>✓ {{ t('fullSyncFeature', '全量同步：每24小时检测双向删除') }}</li>
-                <li>✓ {{ t('deleteSyncFeature', '双向删除：插件和 Riff 保持一致') }}</li>
-              </ul>
-            </div>
-          </label>
-          
-          <label class="mode-card-wrapper">
-            <input type="radio" v-model="riffIntegrationConfig.mode" value="simple" />
-            <div class="mode-card" :class="{ 'mode-card--active': riffIntegrationConfig.mode === 'simple' }">
-              <h4>{{ t('simpleMode', '简单模式 (Simple Mode)') }}</h4>
-              <p>{{ t('simpleModeDesc', '直接使用 Riff 调度器，开箱即用') }}</p>
-            </div>
-          </label>
-        </div>
-
         <!-- 高阶模式详细配置 -->
-        <div v-if="riffIntegrationConfig.mode === 'advanced'" class="advanced-config">
+        <div class="advanced-config">
           <div class="fn__hr"></div>
           
           <h4>{{ t('schedulerSettingsTitle', '调度器设置') }}</h4>
@@ -531,7 +506,6 @@ const schedulerConfig = ref<SchedulerConfig>({
 
 // 🆕 Riff 集成配置
 const riffIntegrationConfig = ref({
-  mode: 'advanced' as 'advanced' | 'simple',
   useLocalScheduler: true,
   incrementalSync: {
     enabled: true,
@@ -631,7 +605,6 @@ function loadSettings() {
   // 🆕 加载 Riff 集成配置
   if (props.riffIntegrationSettings) {
     riffIntegrationConfig.value = {
-      mode: props.riffIntegrationSettings.mode || 'advanced',
       useLocalScheduler: props.riffIntegrationSettings.useLocalScheduler ?? true,
       incrementalSync: {
         enabled: props.riffIntegrationSettings.incrementalSync?.enabled ?? true,
@@ -706,7 +679,6 @@ function saveSettings() {
     },
     // 🆕 保存 Riff 集成配置
     riffIntegration: {
-      mode: riffIntegrationConfig.value.mode,
       useLocalScheduler: riffIntegrationConfig.value.useLocalScheduler,
       incrementalSync: {
         ...riffIntegrationConfig.value.incrementalSync,
@@ -1068,66 +1040,6 @@ async function handleQueueClear() {
 .form-hint--warning {
   color: var(--b3-theme-error);
   font-weight: 500;
-}
-
-/* 🆕 Riff 集成模式选择样式 */
-.mode-selection {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-.mode-card-wrapper {
-  display: block;
-  cursor: pointer;
-}
-
-.mode-card-wrapper input[type="radio"] {
-  display: none;
-}
-
-.mode-card {
-  padding: 16px;
-  border: 2px solid var(--b3-border-color);
-  border-radius: 8px;
-  background: var(--b3-theme-surface);
-  transition: all 0.2s;
-}
-
-.mode-card:hover {
-  border-color: var(--b3-theme-primary-light);
-  background: var(--b3-list-hover);
-}
-
-.mode-card--active {
-  border-color: var(--b3-theme-primary);
-  background: var(--b3-theme-primary-lightest);
-}
-
-.mode-card h4 {
-  margin: 0 0 8px 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--b3-theme-on-background);
-}
-
-.mode-card p {
-  margin: 4px 0;
-  font-size: 13px;
-  color: var(--b3-theme-on-surface-light);
-}
-
-.mode-card ul {
-  margin: 12px 0 0 0;
-  padding-left: 20px;
-  list-style: none;
-}
-
-.mode-card ul li {
-  margin: 6px 0;
-  font-size: 13px;
-  color: var(--b3-theme-on-surface);
 }
 
 .advanced-config {

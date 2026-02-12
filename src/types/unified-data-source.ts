@@ -17,19 +17,6 @@ import type { QueueItem } from '../core/queue/types';
 // ============================================================================
 
 /**
- * 操作模式
- * 
- * - Simple: 简单模式，使用 Riff API 作为数据源，功能有限
- * - Advanced: 高级模式，使用本地存储，具有完整功能访问权限
- * 
- * @see 需求 1.1, 1.2
- */
-export enum OperationMode {
-    Simple = 'simple',
-    Advanced = 'advanced',
-}
-
-/**
  * 队列类型
  * 
  * - RetrievalPractice: 检索练习队列（动态，仅项目卡片）
@@ -60,8 +47,7 @@ export enum QueueType {
 export type DataChangeEventType =
     | 'card-updated'    // 卡片数据更新
     | 'card-deleted'    // 卡片删除
-    | 'queue-changed'   // 队列内容变化
-    | 'mode-switched';  // 模式切换
+    | 'queue-changed';  // 队列内容变化
 
 /**
  * 数据变更事件
@@ -203,7 +189,7 @@ export interface CardFilter {
 /**
  * 数据路由器接口
  * 
- * 定义数据访问的统一接口，由 SimpleDataRouter 和 AdvancedDataRouter 实现。
+ * 定义数据访问的统一接口，由 AdvancedDataRouter 实现。
  * 
  * @see 需求 1.1, 1.2
  */
@@ -723,19 +709,6 @@ export function isFormalReviewQueue(queueType: QueueType): boolean {
 }
 
 /**
- * 获取简单模式下可用的队列类型
- * 
- * @returns 队列类型数组
- * @see 需求 2.1
- */
-export function getSimpleModeQueueTypes(): QueueType[] {
-    return [
-        QueueType.RetrievalPractice,
-        QueueType.FinalDrill,
-    ];
-}
-
-/**
  * 获取高级模式下可用的队列类型
  * 
  * @returns 队列类型数组
@@ -748,20 +721,6 @@ export function getAdvancedModeQueueTypes(): QueueType[] {
         QueueType.IncrementalLearning,
         QueueType.FilterGroup,
         QueueType.NeuralRoam,
-    ];
-}
-
-/**
- * 获取简单模式下的上下文菜单选项
- * 
- * @returns 上下文菜单选项数组
- * @see 需求 2.3
- */
-export function getSimpleModeContextMenuOptions(): ContextMenuOption[] {
-    return [
-        { id: 'open', label: '打开' },
-        { id: 'delete', label: '删除' },
-        { id: 'add-to-final-drill', label: '添加到最终训练' },
     ];
 }
 

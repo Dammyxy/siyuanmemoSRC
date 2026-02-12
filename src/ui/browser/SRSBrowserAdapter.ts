@@ -95,10 +95,9 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
     async initializeQueueView(queueType: QueueType): Promise<void> {
         try {
             // 记录初始化开始（需求 12.1：记录数据源类型）
-            const currentMode = this.manager.getCurrentMode();
             console.log(`[SRSBrowserAdapter] Initializing queue view:`, {
                 queueType,
-                dataSourceMode: currentMode,
+                dataSourceMode: 'advanced',
                 timestamp: new Date().toISOString()
             });
             
@@ -115,7 +114,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             // 记录初始化成功（需求 12.1）
             console.log(`[SRSBrowserAdapter] Queue view initialized successfully:`, {
                 queueType,
-                dataSourceMode: currentMode,
+                dataSourceMode: 'advanced',
                 timestamp: new Date().toISOString()
             });
         } catch (error) {
@@ -282,9 +281,6 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             case 'queue-changed':
                 this.handleQueueChanged(event.queueType);
                 break;
-            case 'mode-switched':
-                this.handleModeSwitched();
-                break;
         }
         
         // 调用回调函数通知 Vue 组件
@@ -342,18 +338,6 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
         }
     }
     
-    /**
-     * 处理模式切换事件
-     * 
-     * 验证需求：1.3
-     */
-    private handleModeSwitched(): void {
-        console.log('[SRSBrowserAdapter] Handling mode-switched event');
-        
-        // 刷新所有数据
-        // 实际的刷新逻辑由 Vue 组件通过回调函数处理
-    }
-    
     // ========================================================================
     // 私有方法 - 数据转换
     // ========================================================================
@@ -365,7 +349,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
      * 某些字段（如 content、deckId、rootId）需要从 meta 字段获取。
      * 
      * 🔧 修复说明：
-     * 当 SimpleDataRouter 从 Riff API 获取数据时，如果 riffCard 字段缺失，
+     * 当从 Riff API 获取数据时，如果 riffCard 字段缺失，
      * 会将原始块数据存储在 meta 字段中，包括：
      * - content: 块内容
      * - path: 块路径

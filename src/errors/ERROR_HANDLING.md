@@ -46,42 +46,33 @@ try {
 - ✅ 重新抛出带有上下文的错误
 - ✅ 不影响系统稳定性
 
-### 2. 模式切换中的回滚逻辑
+### 2. 数据同步中的错误处理
 
-**位置**: `UnifiedDataSourceManager.switchMode()`
+**位置**: `UnifiedDataSourceManager` 和 `HybridSyncService`
 
 **错误处理策略**:
 ```typescript
-const oldMode = this.currentMode;
-
 try {
-    // 执行模式切换
-    if (newMode === OperationMode.Advanced && oldMode === OperationMode.Simple) {
-        await this.triggerIncrementalSync();
-    }
+    // 执行同步操作
+    await this.triggerIncrementalSync();
     
-    this.currentMode = newMode;
-    this.notifyObservers({ type: 'mode-switched', timestamp: Date.now() });
+    this.notifyObservers({ type: 'sync-completed', timestamp: Date.now() });
     
 } catch (error) {
-    // 回滚到原模式
-    this.currentMode = oldMode;
-    
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const modeError = new Error(`模式切换失败: ${errorMessage}`);
-    modeError.name = 'ModeError';
+    const syncError = new Error(`同步失败: ${errorMessage}`);
+    syncError.name = 'SyncError';
     
-    console.error('[UnifiedDataSourceManager] Mode switch failed:', modeError);
-    throw modeError;
+    console.error('[UnifiedDataSourceManager] Sync failed:', syncError);
+    throw syncError;
 }
 ```
 
 **特点**:
-- ✅ 保存原模式用于回滚
-- ✅ 失败时自动回滚
-- ✅ 保留用户数据
+- ✅ 捕获同步异常
 - ✅ 记录错误日志
-- ✅ 抛出自定义 ModeError
+- ✅ 不影响本地数据
+- ✅ 抛出自定义 SyncError
 
 ### 3. 队列操作中的状态快照和回滚
 
@@ -198,27 +189,9 @@ private async persistEntries(): Promise<void> {
 
 ### 6. 数据路由器中的错误处理
 
-**位置**: `SimpleDataRouter.ts` 和 `AdvancedDataRouter.ts`
+**位置**: `AdvancedDataRouter.ts`
 
-**SimpleDataRouter 示例**:
-```typescript
-async getCard(cardId: string): Promise<FSRSCard> {
-    const riffBlocks = await getRiffCardsByBlockIDs([cardId]);
-    
-    if (riffBlocks.length === 0) {
-        throw new Error(`Card not found: ${cardId}`);
-    }
-    
-    return this.convertRiffBlockToFSRSCard(riffBlocks[0]);
-}
-
-async updateCard(card: FSRSCard): Promise<void> {
-    // 简单模式只允许删除（通过黑名单）
-    throw new Error('Update not allowed in Simple Mode');
-}
-```
-
-**AdvancedDataRouter 示例**:
+**示例**:
 ```typescript
 async getCard(cardId: string): Promise<FSRSCard> {
     const card = this.storage.getCard(cardId);
@@ -246,7 +219,6 @@ async syncToRiff(cardId: string): Promise<void> {
 
 **特点**:
 - ✅ 验证数据存在性
-- ✅ 强制模式限制
 - ✅ 同步失败不影响本地操作
 - ✅ 记录详细错误日志
 
@@ -257,14 +229,12 @@ async syncToRiff(cardId: string): Promise<void> {
 | 错误场景 | 处理位置 | 策略 | 状态 |
 |---------|---------|------|------|
 | 数据源不可用 | `UnifiedDataSourceManager.getCard/getCards()` | 捕获并重新抛出带上下文的错误 | ✅ |
-| 模式切换失败 | `UnifiedDataSourceManager.switchMode()` | 回滚到原模式 | ✅ |
 | 队列操作失败 | 所有队列类的 `addCard/removeCard/handleReview()` | 捕获并记录错误 | ✅ |
 | 观察者通知失败 | `UnifiedDataSourceManager.notifyObservers()` | 错误隔离，继续通知其他观察者 | ✅ |
 | 持久化失败 | 所有队列类的 `persistEntries()` | 捕获并记录错误，保留内存数据 | ✅ |
 | 卡片不存在 | 路由器的 `getCard()` | 抛出明确的错误消息 | ✅ |
-| 简单模式更新限制 | `SimpleDataRouter.updateCard()` | 抛出操作不允许错误 | ✅ |
 | Riff 同步失败 | `AdvancedDataRouter.syncToRiff()` | 记录错误但不影响本地操作 | ✅ |
-| 增量同步失败 | `UnifiedDataSourceManager.triggerIncrementalSync()` | 抛出错误，触发模式切换回滚 | ✅ |
+| 增量同步失败 | `HybridSyncService.triggerIncrementalSync()` | 抛出错误并记录日志 | ✅ |
 | 卡片获取失败（队列中） | 所有队列类的 `getCards()` | 跳过不存在的卡片，从队列移除 | ✅ |
 
 ## 错误处理最佳实践
@@ -272,12 +242,12 @@ async syncToRiff(cardId: string): Promise<void> {
 ### 1. 使用自定义错误类
 
 ```typescript
-import { ModeError, QueueError, StorageError } from '../errors/DataSourceErrors';
+import { SyncError, QueueError, StorageError } from '../errors/DataSourceErrors';
 
-// 模式切换失败
-throw new ModeError('模式切换失败', {
-    oldMode: OperationMode.Simple,
-    newMode: OperationMode.Advanced,
+// 同步失败
+throw new SyncError('同步失败', {
+    operation: 'incrementalSync',
+    cardCount: 100,
 });
 
 // 队列操作失败
@@ -348,19 +318,15 @@ try {
 
 ```typescript
 describe('UnifiedDataSourceManager - Error Handling', () => {
-    it('should rollback on mode switch failure', async () => {
+    it('should handle sync failures gracefully', async () => {
         const manager = UnifiedDataSourceManager.getInstance();
-        const originalMode = manager.getCurrentMode();
         
         // 模拟同步失败
         jest.spyOn(manager as any, 'triggerIncrementalSync')
             .mockRejectedValue(new Error('Sync failed'));
         
-        await expect(manager.switchMode(OperationMode.Advanced))
-            .rejects.toThrow('模式切换失败');
-        
-        // 验证回滚
-        expect(manager.getCurrentMode()).toBe(originalMode);
+        await expect(manager.triggerIncrementalSync())
+            .rejects.toThrow('同步失败');
     });
     
     it('should isolate observer notification failures', () => {
@@ -426,14 +392,14 @@ describe('UnifiedDataSourceManager - Error Handling', () => {
 ✅ **已实现的核心功能**:
 - 自定义错误类层次结构
 - 数据访问方法的错误处理
-- 模式切换的回滚逻辑
+- 数据同步的错误处理
 - 队列操作的错误捕获
 - 观察者通知的错误隔离
 - 持久化操作的错误处理
 
 ✅ **覆盖的错误场景**:
 - 数据源不可用
-- 模式切换失败
+- 数据同步失败
 - 队列操作失败
 - 观察者通知失败
 - 持久化失败

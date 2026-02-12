@@ -6,7 +6,6 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-    OperationMode,
     QueueType,
     DataChangeEvent,
     IDataSourceObserver,
@@ -26,19 +25,12 @@ import {
     isDynamicQueueType,
     isStaticQueueType,
     isFormalReviewQueue,
-    getSimpleModeQueueTypes,
     getAdvancedModeQueueTypes,
-    getSimpleModeContextMenuOptions,
     getAdvancedModeContextMenuOptions,
 } from '../unified-data-source';
 
 describe('Unified Data Source Types', () => {
     describe('Enums', () => {
-        it('should define OperationMode enum', () => {
-            expect(OperationMode.Simple).toBe('simple');
-            expect(OperationMode.Advanced).toBe('advanced');
-        });
-
         it('should define QueueType enum', () => {
             expect(QueueType.RetrievalPractice).toBe('retrieval-practice');
             expect(QueueType.FinalDrill).toBe('final-drill');
@@ -75,13 +67,6 @@ describe('Unified Data Source Types', () => {
     });
 
     describe('Mode-specific Functions', () => {
-        it('should return correct queue types for simple mode', () => {
-            const queueTypes = getSimpleModeQueueTypes();
-            expect(queueTypes).toHaveLength(2);
-            expect(queueTypes).toContain(QueueType.RetrievalPractice);
-            expect(queueTypes).toContain(QueueType.FinalDrill);
-        });
-
         it('should return correct queue types for advanced mode', () => {
             const queueTypes = getAdvancedModeQueueTypes();
             expect(queueTypes).toHaveLength(5);
@@ -90,16 +75,6 @@ describe('Unified Data Source Types', () => {
             expect(queueTypes).toContain(QueueType.IncrementalLearning);
             expect(queueTypes).toContain(QueueType.FilterGroup);
             expect(queueTypes).toContain(QueueType.NeuralRoam);
-        });
-
-        it('should return correct context menu options for simple mode', () => {
-            const options = getSimpleModeContextMenuOptions();
-            expect(options).toHaveLength(3);
-            expect(options.map(o => o.id)).toEqual([
-                'open',
-                'delete',
-                'add-to-final-drill',
-            ]);
         });
 
         it('should return correct context menu options for advanced mode', () => {

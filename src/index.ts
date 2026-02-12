@@ -62,8 +62,7 @@ import { ConfigMigrator } from '@/utils/configMigrator';
 
 // 🆕 Unified Data Source
 import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
-import { OperationMode, QueueType } from '@/types/unified-data-source';
-import { SimpleDataRouter } from '@/routers/SimpleDataRouter';
+import { QueueType } from '@/types/unified-data-source';
 import { AdvancedDataRouter } from '@/routers/AdvancedDataRouter';
 
 // Topic/Item 迁移
@@ -246,29 +245,10 @@ export default class FSRSPlugin extends Plugin {
 
       // 🆕 初始化 UnifiedDataSourceManager（必须在队列初始化之前）
       this.unifiedDataSourceManager = UnifiedDataSourceManager.getInstance();
-      const simpleRouter = new SimpleDataRouter();
       const advancedRouter = new AdvancedDataRouter(this.storage, this);  // 🆕 传递 plugin 实例
       
-      this.unifiedDataSourceManager.initializeRouters(simpleRouter, advancedRouter);
-      console.log('[FSRS] ✅ UnifiedDataSourceManager initialized');
-
-      // 🔧 临时注释：强制使用高级模式，暂时禁用模式切换
-      // TODO: 简单模式（Riff）和高级模式的切换需要重构
-      /*
-      const riffModeConfig = settings.riffIntegration || { mode: 'advanced' };
-      const targetMode = riffModeConfig.mode === 'advanced' ? OperationMode.Advanced : OperationMode.Simple;
-      
-      if (targetMode !== this.unifiedDataSourceManager.getCurrentMode()) {
-        try {
-          await this.unifiedDataSourceManager.switchMode(targetMode);
-          console.log(`[FSRS] ✅ Switched to ${targetMode} mode based on user settings`);
-        } catch (error) {
-          console.error('[FSRS] ❌ Failed to switch mode:', error);
-          // 继续使用默认模式（简单模式）
-        }
-      }
-      */
-      console.log('[FSRS] 🔧 Using Advanced mode (local data) - mode switching temporarily disabled');
+      this.unifiedDataSourceManager.setAdvancedRouter(advancedRouter);
+      console.log('[FSRS] ✅ UnifiedDataSourceManager initialized with Advanced mode');
 
       // ✅ 使用新架构队列（通过 UnifiedDataSourceManager）
       this.retrievalQueue = this.unifiedDataSourceManager.getQueue(QueueType.RetrievalPractice) as any;
@@ -370,7 +350,7 @@ export default class FSRSPlugin extends Plugin {
       this.transactionObserver.setEnabled(autoCardEnabled);
       console.log('[FSRS] ✅ TransactionObserver initialized, autoCardEnabled:', autoCardEnabled);
 
-      // 🆕 检测并执行配置迁移
+      // 🆕 检测并执行配置迁移（旧版 disabled/data-only/full-scheduler）
       const riffConfig = settings.riffIntegration;
       if (riffConfig && ConfigMigrator.needsMigration(riffConfig)) {
         console.log('[FSRS] Riff config migration needed');
@@ -391,9 +371,9 @@ export default class FSRSPlugin extends Plugin {
         console.log('[FSRS] ✅ Riff config migrated');
       }
 
-      // 🆕 初始化 HybridSyncService（仅在 advanced 模式）
+      // 🆕 初始化 HybridSyncService（始终初始化，不再检查 mode）
       const currentRiffConfig = this.storage.getSettings().riffIntegration;
-      if (currentRiffConfig?.mode === 'advanced') {
+      if (currentRiffConfig) {
         this.hybridSyncService = new HybridSyncService({
           deckId: riff.BUILTIN_DECK_ID,
           storage: this.storage,
@@ -409,7 +389,47 @@ export default class FSRSPlugin extends Plugin {
         await this.hybridSyncService.start();
         console.log('[FSRS] ✅ HybridSyncService initialized and started');
       } else {
-        console.log('[FSRS] HybridSyncService not initialized (mode:', currentRiffConfig?.mode, ')');
+        console.log('[FSRS] HybridSyncService not initialized (no riffIntegration config)');
+      }
+
+      // 🆕 简单模式移除迁移（移除 mode 字段，自动切换到高级模式）
+      const { SimpleModeRemovalMigrator } = await import('./utils/simpleModeRemovalMigrator');
+      const finalRiffConfig = this.storage.getSettings().riffIntegration;
+      
+      if (finalRiffConfig && SimpleModeRemovalMigrator.needsMigration(finalRiffConfig)) {
+        console.log('[FSRS] Simple mode removal migration needed');
+        
+        try {
+          // 执行迁移
+          const migrationResult = await SimpleModeRemovalMigrator.performMigration(
+            finalRiffConfig,
+            this.hybridSyncService
+          );
+          
+          // 保存迁移后的配置
+          await this.storage.updateSettings({
+            ...this.storage.getSettings(),
+            riffIntegration: migrationResult.migratedConfig as any
+          });
+          
+          console.log('[FSRS] ✅ Simple mode removal migration completed');
+          console.log('[FSRS] Sync triggered:', migrationResult.syncTriggered);
+          console.log('[FSRS] Migration success:', migrationResult.success);
+        } catch (error) {
+          console.error('[FSRS] ❌ Simple mode removal migration failed:', error);
+          await SimpleModeRemovalMigrator.handleMigrationError(
+            error as Error,
+            'plugin initialization'
+          );
+        }
+      } else if (finalRiffConfig && finalRiffConfig.mode) {
+        // 即使不是简单模式，也移除 mode 字段以保持一致性
+        console.log('[FSRS] Removing mode field from config for consistency');
+        const { mode, ...cleanConfig } = finalRiffConfig;
+        await this.storage.updateSettings({
+          ...this.storage.getSettings(),
+          riffIntegration: cleanConfig as any
+        });
       }
 
       this.isInitialized = true;
@@ -793,50 +813,35 @@ export default class FSRSPlugin extends Plugin {
           }
 
           // 🆕 更新 HybridSyncService 配置（如果需要）
-          if (settings.riffIntegration) {
-            const newMode = settings.riffIntegration.mode;
-            const oldMode = currentSettings.riffIntegration?.mode;
-
-            // 如果模式从 simple 切换到 advanced，初始化 HybridSyncService
-            if (newMode === 'advanced' && oldMode !== 'advanced' && !this.hybridSyncService) {
-              this.hybridSyncService = new HybridSyncService({
-                deckId: riff.BUILTIN_DECK_ID,
-                storage: this.storage,
-                incrementalSync: {
-                  ...settings.riffIntegration.incrementalSync,
-                  autoDetectCardType: true
-                },
-                fullSync: settings.riffIntegration.fullSync,
-                deleteSync: settings.riffIntegration.deleteSync
-              });
-              await this.hybridSyncService.start();
-              console.log('[FSRS] ✅ HybridSyncService initialized (mode switched to advanced)');
-            }
-
-            // 如果模式从 advanced 切换到 simple，停止 HybridSyncService
-            if (newMode === 'simple' && oldMode === 'advanced' && this.hybridSyncService) {
-              this.hybridSyncService.stop();
-              this.hybridSyncService = undefined;
-              console.log('[FSRS] ✅ HybridSyncService stopped (mode switched to simple)');
-            }
-
-            // 如果保持 advanced 模式，更新配置
-            if (newMode === 'advanced' && this.hybridSyncService) {
-              // 重启服务以应用新配置
-              this.hybridSyncService.stop();
-              this.hybridSyncService = new HybridSyncService({
-                deckId: riff.BUILTIN_DECK_ID,
-                storage: this.storage,
-                incrementalSync: {
-                  ...settings.riffIntegration.incrementalSync,
-                  autoDetectCardType: true
-                },
-                fullSync: settings.riffIntegration.fullSync,
-                deleteSync: settings.riffIntegration.deleteSync
-              });
-              await this.hybridSyncService.start();
-              console.log('[FSRS] ✅ HybridSyncService config updated');
-            }
+          if (settings.riffIntegration && this.hybridSyncService) {
+            // 重启服务以应用新配置
+            this.hybridSyncService.stop();
+            this.hybridSyncService = new HybridSyncService({
+              deckId: riff.BUILTIN_DECK_ID,
+              storage: this.storage,
+              incrementalSync: {
+                ...settings.riffIntegration.incrementalSync,
+                autoDetectCardType: true
+              },
+              fullSync: settings.riffIntegration.fullSync,
+              deleteSync: settings.riffIntegration.deleteSync
+            });
+            await this.hybridSyncService.start();
+            console.log('[FSRS] ✅ HybridSyncService config updated');
+          } else if (settings.riffIntegration && !this.hybridSyncService) {
+            // 如果 HybridSyncService 未初始化，初始化它
+            this.hybridSyncService = new HybridSyncService({
+              deckId: riff.BUILTIN_DECK_ID,
+              storage: this.storage,
+              incrementalSync: {
+                ...settings.riffIntegration.incrementalSync,
+                autoDetectCardType: true
+              },
+              fullSync: settings.riffIntegration.fullSync,
+              deleteSync: settings.riffIntegration.deleteSync
+            });
+            await this.hybridSyncService.start();
+            console.log('[FSRS] ✅ HybridSyncService initialized');
           }
         },
         close: () => {

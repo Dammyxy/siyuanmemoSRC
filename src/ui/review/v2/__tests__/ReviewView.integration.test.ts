@@ -81,7 +81,6 @@ describe('ReviewView.vue Integration Tests', () => {
             registerObserver: vi.fn(),
             unregisterObserver: vi.fn(),
             getQueue: vi.fn().mockReturnValue(mockQueue),
-            getCurrentMode: vi.fn().mockReturnValue('simple'),
             getCard: vi.fn().mockResolvedValue(mockCard),
             updateCard: vi.fn().mockResolvedValue(undefined),
             deleteCard: vi.fn().mockResolvedValue(undefined),

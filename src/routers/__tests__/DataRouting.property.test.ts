@@ -17,9 +17,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fc from 'fast-check';
 import { UnifiedDataSourceManager } from '../../managers/UnifiedDataSourceManager';
-import { SimpleDataRouter } from '../SimpleDataRouter';
 import { AdvancedDataRouter } from '../AdvancedDataRouter';
-import { OperationMode } from '../../types/unified-data-source';
 import type { FSRSCard } from '../../types/card';
 import { CardState, CardType } from '../../types/card';
 
@@ -125,7 +123,6 @@ const riffBlockArbitrary = () => {
 // ============================================================================
 
 describe('Data Routing Property-Based Tests', () => {
-    let simpleRouter: SimpleDataRouter;
     let advancedRouter: AdvancedDataRouter;
     
     beforeEach(() => {
@@ -133,132 +130,11 @@ describe('Data Routing Property-Based Tests', () => {
         vi.clearAllMocks();
         
         // 创建路由器实例
-        simpleRouter = new SimpleDataRouter();
         advancedRouter = new AdvancedDataRouter(mockStorageManager as any);
     });
     
     afterEach(() => {
         vi.restoreAllMocks();
-    });
-    
-    // ========================================================================
-    // 属性 1：简单模式数据路由
-    // ========================================================================
-    
-    describe('Property 1: 简单模式数据路由', () => {
-        it('Feature: unified-data-source-architecture, Property 1: 对于任何数据请求，当系统处于简单模式时，该请求应该被路由到 Riff_API', async () => {
-            /**
-             * **Validates: Requirements 1.1, 2.5**
-             * 
-             * 属性：简单模式下的所有数据请求都应该路由到 Riff API
-             * 
-             * 测试策略：
-             * 1. 生成随机卡片 ID
-             * 2. 模拟 Riff API 返回数据
-             * 3. 调用 SimpleDataRouter.getCard()
-             * 4. 验证 Riff API 被调用
-             */
-            await fc.assert(
-                fc.asyncProperty(
-                    cardIdArbitrary(),
-                    riffBlockArbitrary(),
-                    async (cardId, riffBlock) => {
-                        // 设置 mock：Riff API 返回数据
-                        riffBlock.id = cardId;
-                        if (riffBlock.riffCard) {
-                            riffBlock.riffCard.blockID = cardId;
-                        }
-                        vi.mocked(riffApi.getRiffCardsByBlockIDs).mockResolvedValue([riffBlock]);
-                        
-                        // 执行：通过 SimpleDataRouter 获取卡片
-                        const card = await simpleRouter.getCard(cardId);
-                        
-                        // 验证：Riff API 被调用
-                        expect(riffApi.getRiffCardsByBlockIDs).toHaveBeenCalledWith([cardId]);
-                        
-                        // 验证：返回的卡片 ID 正确
-                        expect(card.id).toBe(cardId);
-                        expect(card.blockId).toBe(cardId);
-                        
-                        // 验证：卡片标记为使用 Riff 调度器
-                        expect(card.schedulerType).toBe('riff');
-                        expect(card.syncToRiff).toBe(true);
-                    }
-                ),
-                { numRuns: 100 }
-            );
-        });
-        
-        it('Feature: unified-data-source-architecture, Property 1 (getCards): 对于任何批量数据请求，当系统处于简单模式时，该请求应该被路由到 Riff_API', async () => {
-            /**
-             * **Validates: Requirements 1.1, 2.5**
-             * 
-             * 属性：简单模式下的批量数据请求都应该路由到 Riff API
-             * 
-             * 测试策略：
-             * 1. 生成随机 RiffBlock 数组
-             * 2. 模拟 Riff API 返回数据
-             * 3. 调用 SimpleDataRouter.getCards()
-             * 4. 验证 Riff API 被调用
-             */
-            await fc.assert(
-                fc.asyncProperty(
-                    fc.array(riffBlockArbitrary(), { minLength: 0, maxLength: 20 }),
-                    async (riffBlocks) => {
-                        // 设置 mock：Riff API 返回数据
-                        vi.mocked(riffApi.getRiffCards).mockResolvedValue(riffBlocks);
-                        
-                        // 执行：通过 SimpleDataRouter 获取卡片列表
-                        const cards = await simpleRouter.getCards();
-                        
-                        // 验证：Riff API 被调用
-                        expect(riffApi.getRiffCards).toHaveBeenCalled();
-                        
-                        // 验证：返回的卡片数量正确
-                        expect(cards).toHaveLength(riffBlocks.length);
-                        
-                        // 验证：所有卡片都标记为使用 Riff 调度器
-                        for (const card of cards) {
-                            expect(card.schedulerType).toBe('riff');
-                            expect(card.syncToRiff).toBe(true);
-                        }
-                    }
-                ),
-                { numRuns: 100 }
-            );
-        });
-        
-        it('Feature: unified-data-source-architecture, Property 1 (deleteCard): 对于任何删除请求，当系统处于简单模式时，该请求应该被路由到 Riff_API', async () => {
-            /**
-             * **Validates: Requirements 1.1, 2.4**
-             * 
-             * 属性：简单模式下的删除请求都应该路由到 Riff API（黑名单）
-             * 
-             * 测试策略：
-             * 1. 生成随机卡片 ID
-             * 2. 调用 SimpleDataRouter.deleteCard()
-             * 3. 验证 Riff API 的 removeRiffCards 被调用
-             */
-            await fc.assert(
-                fc.asyncProperty(
-                    cardIdArbitrary(),
-                    async (cardId) => {
-                        // 设置 mock：Riff API 删除成功
-                        vi.mocked(riffApi.removeRiffCards).mockResolvedValue({ name: 'test-deck', size: 0 });
-                        
-                        // 执行：通过 SimpleDataRouter 删除卡片
-                        await simpleRouter.deleteCard(cardId);
-                        
-                        // 验证：Riff API 的 removeRiffCards 被调用
-                        expect(riffApi.removeRiffCards).toHaveBeenCalledWith(
-                            riffApi.BUILTIN_DECK_ID,
-                            [cardId]
-                        );
-                    }
-                ),
-                { numRuns: 100 }
-            );
-        });
     });
     
     // ========================================================================
@@ -403,72 +279,6 @@ describe('Data Routing Property-Based Tests', () => {
                         
                         // 验证：Riff API 未被调用
                         expect(riffApi.removeRiffCards).not.toHaveBeenCalled();
-                    }
-                ),
-                { numRuns: 100 }
-            );
-        });
-    });
-    
-    // ========================================================================
-    // 属性 5：简单模式操作限制
-    // ========================================================================
-    
-    describe('Property 5: 简单模式操作限制', () => {
-        it('Feature: unified-data-source-architecture, Property 5: 对于任何修改操作（除删除外），当系统处于简单模式时，该操作应该被拒绝', async () => {
-            /**
-             * **Validates: Requirements 2.4**
-             * 
-             * 属性：简单模式下的更新操作应该被拒绝
-             * 
-             * 测试策略：
-             * 1. 生成随机卡片
-             * 2. 调用 SimpleDataRouter.updateCard()
-             * 3. 验证抛出错误，错误消息包含 "Update not allowed in Simple Mode"
-             */
-            await fc.assert(
-                fc.asyncProperty(
-                    cardArbitrary(),
-                    async (card) => {
-                        // 执行并验证：更新操作应该抛出错误
-                        await expect(simpleRouter.updateCard(card)).rejects.toThrow(
-                            'Update not allowed in Simple Mode'
-                        );
-                        
-                        // 验证：Riff API 未被调用
-                        expect(riffApi.batchSetRiffCardsDueTime).not.toHaveBeenCalled();
-                    }
-                ),
-                { numRuns: 100 }
-            );
-        });
-        
-        it('Feature: unified-data-source-architecture, Property 5 (delete allowed): 简单模式下的删除操作应该被允许', async () => {
-            /**
-             * **Validates: Requirements 2.4**
-             * 
-             * 属性：简单模式下的删除操作应该被允许（通过黑名单）
-             * 
-             * 测试策略：
-             * 1. 生成随机卡片 ID
-             * 2. 调用 SimpleDataRouter.deleteCard()
-             * 3. 验证不抛出错误，Riff API 被调用
-             */
-            await fc.assert(
-                fc.asyncProperty(
-                    cardIdArbitrary(),
-                    async (cardId) => {
-                        // 设置 mock：Riff API 删除成功
-                        vi.mocked(riffApi.removeRiffCards).mockResolvedValue({ name: 'test-deck', size: 0 });
-                        
-                        // 执行：删除操作应该成功
-                        await expect(simpleRouter.deleteCard(cardId)).resolves.toBeUndefined();
-                        
-                        // 验证：Riff API 被调用
-                        expect(riffApi.removeRiffCards).toHaveBeenCalledWith(
-                            riffApi.BUILTIN_DECK_ID,
-                            [cardId]
-                        );
                     }
                 ),
                 { numRuns: 100 }

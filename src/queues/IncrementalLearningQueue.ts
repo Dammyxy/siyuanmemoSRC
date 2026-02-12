@@ -21,6 +21,8 @@ import { FSRSCard } from '../types/card';
 import type { QueueItem } from '../core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import { resolveCardId } from '../diagnostics/type-guards';
+import { getCurrentDayEnd } from '../utils/dateUtils';
+import { getDayStartHour } from '../utils/configUtils';
 
 /**
  * 渐进学习队列类
@@ -237,13 +239,20 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
                 card.due = newDueDate;
                 await this.manager.updateCard(card);
                 
-                // 根据新的到期日期决定是否保留在队列中
-                const now = Date.now();
-                if (newDueDate > now) {
+                // 🔧 修复：根据新的到期日期是否在今天范围内决定是否保留
+                // 获取今天的结束时间（使用正确的 dayStartHour 配置）
+                const router = (this.manager as any).advancedRouter;
+                const plugin = router?.plugin;
+                const dayStartHour = plugin ? getDayStartHour(plugin) : 4;
+                const dayEnd = getCurrentDayEnd(dayStartHour);
+                
+                if (newDueDate > dayEnd) {
+                    // 新日期超出今天范围，从队列移除
                     await this.removeCard(cardId);
-                    console.log(`[IncrementalLearningQueue] Card ${cardId} reviewed with rating ${rating}, new due date is in future, removed from queue`);
+                    console.log(`[IncrementalLearningQueue] Card ${cardId} reviewed with rating ${rating}, new due date (${new Date(newDueDate).toISOString()}) is beyond today (${new Date(dayEnd).toISOString()}), removed from queue`);
                 } else {
-                    console.log(`[IncrementalLearningQueue] Card ${cardId} reviewed with rating ${rating}, kept in queue`);
+                    // 新日期在今天范围内，保留在队列中
+                    console.log(`[IncrementalLearningQueue] Card ${cardId} reviewed with rating ${rating}, new due date (${new Date(newDueDate).toISOString()}) is within today (${new Date(dayEnd).toISOString()}), kept in queue`);
                 }
                 
                 // 自动添加到最终训练队列

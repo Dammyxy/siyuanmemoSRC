@@ -7,7 +7,6 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
-import { SimpleDataRouter } from '@/routers/SimpleDataRouter';
 import { AdvancedDataRouter } from '@/routers/AdvancedDataRouter';
 import { QueueType } from '@/types/unified-data-source';
 
@@ -22,9 +21,8 @@ describe('Queue Instance Sharing', () => {
         manager = UnifiedDataSourceManager.getInstance();
         
         // 初始化路由器（使用模拟实现）
-        const simpleRouter = new SimpleDataRouter();
-        const advancedRouter = new AdvancedDataRouter();
-        manager.initializeRouters(simpleRouter, advancedRouter);
+        const advancedRouter = new AdvancedDataRouter({} as any);
+        manager.initializeRouters(null as any, advancedRouter);
     });
     
     it('should return the same queue instance when called multiple times', () => {

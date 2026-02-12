@@ -5,6 +5,5 @@
  * 导出所有数据路由器实现
  */
 
-export { SimpleDataRouter } from './SimpleDataRouter';
 export { AdvancedDataRouter } from './AdvancedDataRouter';
 

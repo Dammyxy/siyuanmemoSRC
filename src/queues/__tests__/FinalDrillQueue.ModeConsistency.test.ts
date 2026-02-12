@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import fc from 'fast-check';
 import { FinalDrillQueue } from '../FinalDrillQueue';
 import { UnifiedDataSourceManager } from '../../managers/UnifiedDataSourceManager';
-import { OperationMode, QueueType } from '../../types/unified-data-source';
+import { QueueType } from '../../types/unified-data-source';
 import { FSRSCard, CardType, CardState } from '../../types/card';
 
 // Mock localStorage
