@@ -95,13 +95,13 @@ export class FilterGroupQueue extends BaseReviewQueue {
      */
     public async getCards(): Promise<FSRSCard[]> {
         try {
-            const now = Date.now();
+            // 🔍 调试：记录当前过滤条件
+            console.log(`[FilterGroupQueue] 🔍 Current cardFilter:`, this.cardFilter);
             
             // 根据过滤条件获取卡片
-            const filteredCards = await this.manager.getCards({
-                ...this.cardFilter,
-                dueDate: { lte: new Date(now) }
-            });
+            // ✅ 修复：不强制添加 dueDate 过滤，只使用用户设置的过滤条件
+            // 筛选复习队列应该显示所有符合过滤条件的卡片，而不是只显示到期的卡片
+            const filteredCards = await this.manager.getCards(this.cardFilter);
             
             console.log(`[FilterGroupQueue] 🔍 Got ${filteredCards.length} filtered cards from manager`);
             
@@ -221,7 +221,7 @@ export class FilterGroupQueue extends BaseReviewQueue {
      * 
      * 复习逻辑：
      * - 评分 3/4：更新到期日期，从队列移除
-     * - 评分 1/2：更新到期日期，根据新日期决定是否保留
+     * - 评分 1/2：更新到期日期，根据过滤条件决定是否保留
      * 
      * @param cardId 卡片 ID
      * @param rating 评分 (1-4)
@@ -239,25 +239,31 @@ export class FilterGroupQueue extends BaseReviewQueue {
                 
                 console.log(`[FilterGroupQueue] Card ${cardId} reviewed with rating ${rating}, removed from queue`);
             } else {
-                // 忘记了：更新到期日期，根据新日期决定是否保留
+                // 忘记了：更新到期日期，根据过滤条件决定是否保留
                 const newDueDate = this.calculateNextDueDateForLowRating(card, rating);
                 card.due = newDueDate;
                 await this.manager.updateCard(card);
                 
-                // 🔧 修复：根据新的到期日期是否在今天范围内决定是否保留
-                // 获取今天的结束时间（使用正确的 dayStartHour 配置）
-                const router = (this.manager as any).advancedRouter;
-                const plugin = router?.plugin;
-                const dayStartHour = plugin ? getDayStartHour(plugin) : 4;
-                const dayEnd = getCurrentDayEnd(dayStartHour);
-                
-                if (newDueDate > dayEnd) {
-                    // 新日期超出今天范围，从队列移除
-                    await this.removeCard(cardId);
-                    console.log(`[FilterGroupQueue] Card ${cardId} reviewed with rating ${rating}, new due date (${new Date(newDueDate).toISOString()}) is beyond today (${new Date(dayEnd).toISOString()}), removed from queue`);
+                // ✅ 修复：只有当用户设置了 dueDate 过滤条件时，才根据新日期决定是否保留
+                // 如果没有设置 dueDate 过滤，卡片应该保留在队列中（因为它仍然符合其他过滤条件）
+                if (this.cardFilter.dueDate) {
+                    // 获取今天的结束时间（使用正确的 dayStartHour 配置）
+                    const router = (this.manager as any).advancedRouter;
+                    const plugin = router?.plugin;
+                    const dayStartHour = plugin ? getDayStartHour(plugin) : 4;
+                    const dayEnd = getCurrentDayEnd(dayStartHour);
+                    
+                    if (newDueDate > dayEnd) {
+                        // 新日期超出今天范围，从队列移除
+                        await this.removeCard(cardId);
+                        console.log(`[FilterGroupQueue] Card ${cardId} reviewed with rating ${rating}, new due date (${new Date(newDueDate).toISOString()}) is beyond today (${new Date(dayEnd).toISOString()}), removed from queue`);
+                    } else {
+                        // 新日期在今天范围内，保留在队列中
+                        console.log(`[FilterGroupQueue] Card ${cardId} reviewed with rating ${rating}, new due date (${new Date(newDueDate).toISOString()}) is within today (${new Date(dayEnd).toISOString()}), kept in queue`);
+                    }
                 } else {
-                    // 新日期在今天范围内，保留在队列中
-                    console.log(`[FilterGroupQueue] Card ${cardId} reviewed with rating ${rating}, new due date (${new Date(newDueDate).toISOString()}) is within today (${new Date(dayEnd).toISOString()}), kept in queue`);
+                    // 没有设置 dueDate 过滤，保留在队列中
+                    console.log(`[FilterGroupQueue] Card ${cardId} reviewed with rating ${rating}, no dueDate filter set, kept in queue`);
                 }
                 
                 // 自动添加到最终训练队列

@@ -1682,7 +1682,7 @@ function handleSelectGlobal(type: '__all__' | '__lost__') {
 }
 
 function handleExitFocus() {
-  // ✅ 退出聚焦模式 = 点击【全部闪卡】
+  // ✅ 退出队列模式 = 点击【全部闪卡】
   handleSelectGlobal('__all__');
 }
 
@@ -1691,7 +1691,7 @@ function handleSelectDoc(docId: string) {
   // ✅ 移除了 __all__ 的处理（已移至【全部】区）
   // ✅ 四重筛选：设置文档筛选，保留其他条件
   activeDocId.value = id;
-  // ✅ 点击文档开启聚焦（显示退出聚焦按钮）
+  // ✅ 点击文档开启队列聚焦（显示退出队列按钮）
   shouldFocusDocList.value = true;
   void loadData();
 }

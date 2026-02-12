@@ -41,15 +41,15 @@
     </div>
     
     <div class="toolbar__right">
-      <!-- 退出聚焦按钮 -->
+      <!-- 退出队列按钮 -->
       <button
         v-if="showExitFocus"
         class="b3-button b3-button--outline"
         @click="$emit('exitFocus')"
-        :title="t('exitFocus', '退出聚焦')"
+        :title="t('exitFocus', '退出队列')"
       >
         <svg><use xlink:href="#iconClose"></use></svg>
-        {{ t('exitFocus', '退出聚焦') }}
+        {{ t('exitFocus', '退出队列') }}
       </button>
 
       <button

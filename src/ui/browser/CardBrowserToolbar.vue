@@ -33,15 +33,15 @@
     </div>
     
     <div class="toolbar__right">
-      <!-- ✅ 退出聚焦按钮：仅在【丢失/关闭闪卡】或聚焦模式下显示 -->
+      <!-- ✅ 退出队列按钮：仅在【丢失/关闭闪卡】或队列模式下显示 -->
       <button
         v-if="activeDocId === '__lost__' || shouldFocusDocList"
         class="b3-button b3-button--outline"
         @click="onExitFocus"
-        :title="t('exitFocus', '退出聚焦')"
+        :title="t('exitFocus', '退出队列')"
       >
         <svg><use xlink:href="#iconClose"></use></svg>
-        {{ t('exitFocus', '退出聚焦') }}
+        {{ t('exitFocus', '退出队列') }}
       </button>
 
       <button
