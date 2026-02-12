@@ -2,11 +2,11 @@
  * Filter Group Queue
  * 过滤组队列
  * 
- * 动态队列，根据过滤条件自动获取卡片。
+ * 动态队列，根据过滤条件获取卡片。
  * 
  * 核心功能：
- * - 根据过滤条件自动包含匹配的卡片
- * - 支持手动添加卡片
+ * - 根据过滤条件自动获取卡片
+ * - 支持手动添加未到期卡片
  * - 按到期日期和优先级排序
  * - 评分 3/4 移除卡片，1/2 保留并添加到最终训练
  * - 持久化手动添加的卡片列表
@@ -25,11 +25,11 @@ import { resolveCardId } from '../diagnostics/type-guards';
 /**
  * 过滤组队列类
  * 
- * 动态队列，根据过滤条件自动获取卡片。
+ * 动态队列，根据过滤条件获取卡片。
  * 
  * 队列行为：
- * - 根据过滤条件自动包含匹配的卡片
- * - 支持手动添加卡片（包括不匹配过滤条件的卡片）
+ * - 根据过滤条件自动获取卡片
+ * - 支持手动添加卡片（包括未到期卡片）
  * - 手动添加的卡片会被持久化
  * - 评分 3/4：更新到期日期，从队列移除
  * - 评分 1/2：保持今天到期，保留在队列中，自动添加到最终训练
@@ -38,11 +38,6 @@ import { resolveCardId } from '../diagnostics/type-guards';
  */
 export class FilterGroupQueue extends BaseReviewQueue {
     public name = 'FilterGroupQueue';
-    /**
-     * 过滤条件
-     */
-    private filterCriteria: CardFilter;
-    
     /**
      * 手动添加的卡片 ID 集合
      */
@@ -54,6 +49,11 @@ export class FilterGroupQueue extends BaseReviewQueue {
     private readonly STORAGE_KEY = 'filter-group-manual-cards';
     
     /**
+     * 过滤条件
+     */
+    private cardFilter: CardFilter;
+    
+    /**
      * 构造函数
      * 
      * @param manager 统一数据源管理器实例
@@ -62,7 +62,7 @@ export class FilterGroupQueue extends BaseReviewQueue {
     constructor(manager: UnifiedDataSourceManager, filter: CardFilter = {}) {
         super(manager, QueueType.FilterGroup);
         
-        this.filterCriteria = filter;
+        this.cardFilter = filter;
         this.manuallyAddedCards = new Set<string>();
         this.loadManuallyAddedCards();
     }
@@ -81,32 +81,49 @@ export class FilterGroupQueue extends BaseReviewQueue {
      * 获取队列中的所有卡片
      * 
      * 获取逻辑：
-     * 1. 根据过滤条件获取匹配的卡片
+     * 1. 根据过滤条件获取卡片
      * 2. 获取手动添加的卡片
      * 3. 合并并去重
-     * 4. 按到期日期和优先级排序
-     * 5. 应用自定义排序（如果存在）
+     * 4. 过滤临时黑名单中的卡片
+     * 5. 按到期日期和优先级排序
+     * 6. 应用自定义排序（如果存在）
      * 
      * @returns 卡片数组
      * @see 需求 5.3, 15.1, 15.4
      */
     public async getCards(): Promise<FSRSCard[]> {
         try {
-            console.log('[FilterGroupQueue] getCards() called with filter:', this.filterCriteria);
+            const now = Date.now();
             
             // 根据过滤条件获取卡片
-            const filteredCards = await this.manager.getCards(this.filterCriteria);
-            console.log('[FilterGroupQueue] Filtered cards count:', filteredCards.length);
+            const filteredCards = await this.manager.getCards({
+                ...this.cardFilter,
+                dueDate: { lte: new Date(now) }
+            });
+            
+            console.log(`[FilterGroupQueue] 🔍 Got ${filteredCards.length} filtered cards from manager`);
             
             // 获取手动添加的卡片
             const manualCards = await this.getManuallyAddedCards();
-            console.log('[FilterGroupQueue] Manual cards count:', manualCards.length);
+            
+            console.log(`[FilterGroupQueue] 🔍 Got ${manualCards.length} manually added cards`);
             
             // 合并并去重
             const allCards = this.mergeAndDeduplicate(filteredCards, manualCards);
             
+            console.log(`[FilterGroupQueue] 🔍 After merge: ${allCards.length} cards`);
+            
+            // 过滤临时黑名单中的卡片
+            const blacklistFiltered = allCards.filter(card => 
+                !this.temporaryBlacklist.has(card.id)
+            );
+            
+            if (blacklistFiltered.length < allCards.length) {
+                console.log(`[FilterGroupQueue] 🔍 Filtered ${allCards.length - blacklistFiltered.length} cards from temporary blacklist`);
+            }
+            
             // 按到期日期和优先级排序
-            const sortedCards = this.sortByDueDateAndPriority(allCards);
+            const sortedCards = this.sortByDueDateAndPriority(blacklistFiltered);
             
             // 应用自定义排序（如果存在）
             return this.applyCustomOrder(sortedCards);
@@ -119,23 +136,39 @@ export class FilterGroupQueue extends BaseReviewQueue {
     /**
      * 添加卡片到队列
      * 
-     * @param cardId 卡片 ID
+     * 将卡片 ID 添加到手动添加的卡片集合中，并持久化。
+     * 支持添加未到期的卡片，用于提前复习。
+     * 
+     * 如果卡片在临时黑名单中，会自动从黑名单中移除。
+     * 
+     * @param card 卡片对象、QueueItem 或卡片 ID
      * @see 需求 5.4, 18.1, 18.4, 6.4
      */
     public async addCard(card: FSRSCard | QueueItem | string): Promise<void> {
         try {
             const cardId = resolveCardId(card);
+            
+            // 从临时黑名单中移除（如果存在）
+            const wasBlacklisted = this.temporaryBlacklist.has(cardId);
+            this.temporaryBlacklist.delete(cardId);
+            
+            // 添加到手动添加的卡片集合
             this.manuallyAddedCards.add(cardId);
+            
+            // 持久化
             await this.persistManuallyAddedCards();
             
-            // 触发观察者通知（需求 6.4：卡片添加的队列统计更新）
+            // 触发观察者通知
             this.manager.notifyObservers({
                 type: 'queue-changed',
                 queueType: this.getType(),
                 timestamp: Date.now()
             });
             
-            console.log(`[FilterGroupQueue] Card ${cardId} added manually`);
+            console.log(`[FilterGroupQueue] Card ${cardId} added manually`, {
+                wasBlacklisted,
+                temporaryBlacklistSize: this.temporaryBlacklist.size
+            });
         } catch (error) {
             console.error('[FilterGroupQueue] Failed to add card:', error);
             throw error;
@@ -145,16 +178,38 @@ export class FilterGroupQueue extends BaseReviewQueue {
     /**
      * 从队列中移除卡片
      * 
-     * @param cardId 卡片 ID
-     * @see 需求 5.5, 12.3
+     * 移除逻辑：
+     * 1. 从手动添加的卡片集合中移除（如果存在）
+     * 2. 将卡片 ID 加入临时黑名单
+     * 3. 持久化手动添加的卡片列表
+     * 
+     * 注意：临时黑名单不持久化，关闭浏览器后自动清空。
+     * 
+     * @param cardIdOrBlockId 卡片 ID 或块 ID
+     * @see 需求 5.5, 12.2
      */
     public async removeCard(cardIdOrBlockId: string): Promise<void> {
         try {
+            // 1. 从手动添加的卡片集合中移除
+            const wasManuallyAdded = this.manuallyAddedCards.has(cardIdOrBlockId);
             this.manuallyAddedCards.delete(cardIdOrBlockId);
-            await this.persistManuallyAddedCards();
-            console.log(`[FilterGroupQueue] Card ${cardIdOrBlockId} removed`);
+            
+            // 2. 加入临时黑名单（继承自 BaseReviewQueue）
+            this.temporaryBlacklist.add(cardIdOrBlockId);
+            
+            // 3. 持久化手动添加的卡片列表（如果有变化）
+            if (wasManuallyAdded) {
+                await this.persistManuallyAddedCards();
+            }
+            
+            console.log(`[FilterGroupQueue] Card ${cardIdOrBlockId} removed`, {
+                wasManuallyAdded,
+                temporaryBlacklistSize: this.temporaryBlacklist.size
+            });
         } catch (error) {
             console.error('[FilterGroupQueue] Failed to remove card:', error);
+            // 即使出错，也要尝试加入临时黑名单
+            this.temporaryBlacklist.add(cardIdOrBlockId);
             throw error;
         }
     }
@@ -221,7 +276,6 @@ export class FilterGroupQueue extends BaseReviewQueue {
      * @returns 筛选后的卡片数量
      */
     public async getSize(): Promise<number> {
-        // 总是重新获取卡片，确保返回最新的筛选结果
         const cards = await this.getCards();
         return cards.length;
     }
@@ -229,30 +283,22 @@ export class FilterGroupQueue extends BaseReviewQueue {
     /**
      * 设置过滤条件
      * 
-     * 更新过滤条件后，下次调用 getCards() 时将使用新的过滤条件。
-     * 同时通知观察者队列已更改。
+     * 更新过滤条件后，下次调用 getCards() 时会使用新的过滤条件。
      * 
      * @param filter 新的过滤条件
      */
     public setFilter(filter: CardFilter): void {
-        this.filterCriteria = filter;
-        console.log('[FilterGroupQueue] Filter criteria updated:', filter);
-        
-        // 通知观察者队列已更改
-        this.manager.notifyObservers({
-            type: 'queue-changed',
-            queueType: this.getType(),
-            timestamp: Date.now()
-        });
+        this.cardFilter = filter;
+        console.log('[FilterGroupQueue] Filter updated:', filter);
     }
     
     /**
      * 获取当前过滤条件
      * 
-     * @returns 当前过滤条件
+     * @returns 当前的过滤条件
      */
     public getFilter(): CardFilter {
-        return { ...this.filterCriteria };
+        return { ...this.cardFilter };
     }
     
     // ========================================================================
@@ -328,28 +374,6 @@ export class FilterGroupQueue extends BaseReviewQueue {
         const newInterval = rating === 3 ? currentInterval * 2 : currentInterval * 4;
         const now = Date.now();
         return now + newInterval * 24 * 60 * 60 * 1000;
-    }
-    
-    /**
-     * 计算低评分（1/2）的下次到期日期
-     * 
-     * @param card 卡片
-     * @param rating 评分 (1 或 2)
-     * @returns 下次到期日期（时间戳）
-     * @see 需求 18.3
-     */
-    private calculateNextDueDateForLowRating(card: FSRSCard, rating: number): number {
-        const now = Date.now();
-        
-        if (rating === 1) {
-            // Again: 重置为今天
-            return now;
-        } else {
-            // Hard: 使用当前间隔的一半
-            const currentInterval = card.scheduledDays || 1;
-            const newInterval = Math.max(0, currentInterval * 0.5);
-            return now + newInterval * 24 * 60 * 60 * 1000;
-        }
     }
     
     /**

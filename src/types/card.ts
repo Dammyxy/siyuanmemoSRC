@@ -43,6 +43,7 @@ export interface FSRSCard {
     lastReview: number;   // 上次复习时间戳 (ms)
     elapsedDays: number;  // 距上次复习经过的天数
     scheduledDays: number; // 预定的间隔天数
+    learning_step?: number; // 当前 learning step 索引 (0-based)，用于跟踪卡片在 learning steps 中的位置
 
     // === 扩展功能 ===
     priority: number;     // 优先级 0-100 (越小越优先)
@@ -124,6 +125,7 @@ export function createDefaultCard(blockId: string): FSRSCard {
         lastReview: 0,
         elapsedDays: 0,
         scheduledDays: 0,
+        learning_step: 0,  // ✅ 默认 learning step 为 0
         priority: 50,
         type: CardType.Item,
         tags: [],

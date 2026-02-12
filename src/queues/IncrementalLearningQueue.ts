@@ -374,28 +374,6 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
     }
     
     /**
-     * 计算低评分（1/2）的下次到期日期
-     * 
-     * @param card 卡片
-     * @param rating 评分 (1 或 2)
-     * @returns 下次到期日期（时间戳）
-     * @see 需求 18.3
-     */
-    private calculateNextDueDateForLowRating(card: FSRSCard, rating: number): number {
-        const now = Date.now();
-        
-        if (rating === 1) {
-            // Again: 重置为今天
-            return now;
-        } else {
-            // Hard: 使用当前间隔的一半
-            const currentInterval = card.scheduledDays || 1;
-            const newInterval = Math.max(0, currentInterval * 0.5);
-            return now + newInterval * 24 * 60 * 60 * 1000;
-        }
-    }
-    
-    /**
      * 从持久化存储加载手动添加的卡片
      */
     private loadManuallyAddedCards(): void {

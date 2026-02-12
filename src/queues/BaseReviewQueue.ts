@@ -9,10 +9,68 @@
  */
 
 import { IReviewQueue, QueueObserver, QueueType, QueueStats, QueueUIConfig, ReviewButtonConfig } from '../types/unified-data-source';
-import { FSRSCard } from '../types/card';
+import { FSRSCard, CardState } from '../types/card';
 import type { QueueItem } from '../core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import { normalizeToFSRSCard, validateQueueReturnType } from '../diagnostics/type-guards';
+
+/**
+ * Learning Steps配置接口
+ * 
+ * 定义新卡片和失败卡片的学习步骤配置。
+ * 
+ * @see .kiro/specs/learning-steps-rating-fix/requirements.md
+ * @see .kiro/specs/learning-steps-rating-fix/design.md
+ */
+interface LearningStepsConfig {
+    /**
+     * 新卡片的学习步骤
+     * 格式: ['1m', '10m'] (分钟), ['1h', '2h'] (小时), ['1d'] (天)
+     */
+    learning_steps: string[];
+    
+    /**
+     * 失败复习卡片的重新学习步骤
+     * 格式同 learning_steps
+     */
+    relearning_steps: string[];
+    
+    /**
+     * Easy评分的奖励倍数
+     * 用于计算Easy评分的毕业间隔
+     */
+    easy_bonus: number;
+    
+    /**
+     * Good评分的毕业间隔（天）
+     * 完成所有learning steps后，Good评分使用此间隔
+     */
+    graduating_interval_good: number;
+    
+    /**
+     * Easy评分的毕业间隔（天）
+     * Easy评分直接毕业时使用此间隔
+     */
+    graduating_interval_easy: number;
+}
+
+/**
+ * 默认Learning Steps配置
+ * 
+ * 参考Anki和FSRS的默认配置：
+ * - learning_steps: ['1m', '10m'] - 新卡片在1分钟和10分钟后复习
+ * - relearning_steps: ['10m'] - 失败卡片在10分钟后复习
+ * - easy_bonus: 1.3 - Easy评分的间隔是Good的1.3倍
+ * - graduating_interval_good: 1 - Good毕业后1天复习
+ * - graduating_interval_easy: 4 - Easy毕业后4天复习
+ */
+const DEFAULT_LEARNING_STEPS_CONFIG: LearningStepsConfig = {
+    learning_steps: ['1m', '10m'],
+    relearning_steps: ['10m'],
+    easy_bonus: 1.3,
+    graduating_interval_good: 1,
+    graduating_interval_easy: 4,
+};
 
 /**
  * 复习队列抽象基类
@@ -254,6 +312,502 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             { type: 'rating', label: 'Easy', value: 4 },
         ];
     }
+    
+    /**
+     * 获取Learning Steps配置
+     * 
+     * 从插件配置读取learning steps配置，如果未配置则返回默认值。
+     * 
+     * **Learning Steps机制说明**：
+     * 
+     * Learning steps定义了新卡片和失败卡片的学习路径，参考Anki和FSRS的设计：
+     * - 新卡片（New）：使用 `learning_steps` 定义学习路径
+     * - 失败卡片（Review → Relearning）：使用 `relearning_steps` 定义重新学习路径
+     * - 评分1（Again）：返回第一个step，重置学习进度
+     * - 评分2（Hard）：使用介于Again和Good之间的间隔
+     * - 评分3（Good）：进入下一个step，完成所有steps后毕业
+     * - 评分4（Easy）：直接毕业，跳过所有steps
+     * 
+     * **配置优先级**：
+     * 1. Per-deck配置（未来支持）
+     * 2. 全局插件配置（未来支持）
+     * 3. 默认配置
+     * 
+     * @returns Learning Steps配置对象
+     * 
+     * @example
+     * // 获取配置
+     * const config = this.getLearningStepsConfig();
+     * // {
+     * //   learning_steps: ['1m', '10m'],
+     * //   relearning_steps: ['10m'],
+     * //   easy_bonus: 1.3,
+     * //   graduating_interval_good: 1,
+     * //   graduating_interval_easy: 4
+     * // }
+     * 
+     * @example
+     * // 在handleReview中使用
+     * protected async handleReview(cardId: string, rating: number): Promise<void> {
+     *   const card = await this.getCard(cardId);
+     *   if (rating < 3) {
+     *     // 使用learning steps机制
+     *     const newDue = this.calculateNextDueDateForLowRating(card, rating);
+     *     card.due = newDue;
+     *   }
+     * }
+     * 
+     * @see .kiro/specs/learning-steps-rating-fix/design.md 3.1
+     * @see .kiro/specs/learning-steps-rating-fix/requirements.md 4.1
+     */
+    protected getLearningStepsConfig(): LearningStepsConfig {
+        // TODO: 未来从插件配置读取
+        // 1. 尝试读取per-deck配置（如果支持）
+        // 2. 尝试读取全局插件配置
+        // 3. 使用默认配置作为fallback
+        
+        // 当前实现：直接返回默认配置
+        const config = DEFAULT_LEARNING_STEPS_CONFIG;
+        
+        // 调试日志：记录使用的learning steps配置
+        console.log(`[${this.type}] Learning Steps Config:`, {
+            learning_steps: config.learning_steps,
+            relearning_steps: config.relearning_steps,
+            easy_bonus: config.easy_bonus,
+            graduating_interval_good: config.graduating_interval_good,
+            graduating_interval_easy: config.graduating_interval_easy,
+        });
+        
+        return config;
+    }
+    
+    /**
+     * 将learning step字符串转换为毫秒
+     * 
+     * 这是learning steps机制的基础工具方法，用于将人类可读的时间格式
+     * （如'1m', '10m', '1h'）转换为程序使用的毫秒数。
+     * 
+     * **支持的单位**：
+     * - 'm': 分钟 (minutes) - 例如 '1m' = 1分钟 = 60000毫秒
+     * - 'h': 小时 (hours) - 例如 '1h' = 1小时 = 3600000毫秒
+     * - 'd': 天 (days) - 例如 '1d' = 1天 = 86400000毫秒
+     * 
+     * **格式要求**：
+     * - 数值部分必须是非负整数
+     * - 单位部分必须是'm', 'h', 'd'之一
+     * - 格式：数值 + 单位，例如 '10m', '2h', '1d'
+     * 
+     * @param step - 时间步骤字符串，格式: '1m', '10m', '1h', '2h', '1d' 等
+     * @returns 毫秒数
+     * @throws {Error} 如果step格式无效、单位不支持或值为负数
+     * 
+     * @example
+     * // 基本用法
+     * this.convertStepToMs('1m')  // 60000 (1分钟)
+     * this.convertStepToMs('10m') // 600000 (10分钟)
+     * this.convertStepToMs('1h')  // 3600000 (1小时)
+     * this.convertStepToMs('1d')  // 86400000 (1天)
+     * 
+     * @example
+     * // 在calculateAgainInterval中使用
+     * const firstStep = config.learning_steps[0]; // '1m'
+     * const delayMs = this.convertStepToMs(firstStep); // 60000
+     * return Date.now() + delayMs; // 1分钟后
+     * 
+     * @example
+     * // 错误处理
+     * try {
+     *   this.convertStepToMs('invalid'); // 抛出错误
+     * } catch (error) {
+     *   console.error('Invalid step format:', error.message);
+     * }
+     * 
+     * @see .kiro/specs/learning-steps-rating-fix/design.md 3.2
+     */
+    protected convertStepToMs(step: string): number {
+        // 验证输入不为空
+        if (!step || step.length < 2) {
+            throw new Error(`Invalid step format: ${step}`);
+        }
+        
+        // 提取单位和数值
+        const unit = step.slice(-1);
+        const valueStr = step.slice(0, -1);
+        const value = parseInt(valueStr, 10);
+        
+        // 验证数值有效性
+        if (isNaN(value) || value < 0) {
+            throw new Error(`Invalid step value: ${step}`);
+        }
+        
+        // 根据单位转换为毫秒
+        switch (unit) {
+            case 'm': // 分钟
+                return value * 60 * 1000;
+            case 'h': // 小时
+                return value * 60 * 60 * 1000;
+            case 'd': // 天
+                return value * 24 * 60 * 60 * 1000;
+            default:
+                throw new Error(`Invalid step unit: ${step}. Supported units: 'm' (minutes), 'h' (hours), 'd' (days)`);
+        }
+    }
+
+    /**
+     * 计算评分1（Again）的间隔
+     *
+     * 当用户评分为1（Again）时，使用第一个learning step作为延迟间隔。
+     * 这避免了卡片立即重新出现，给用户"喘息"的时间。
+     *
+     * **Learning Steps机制核心**：
+     * 
+     * 这是learning steps机制的关键方法之一。在旧的实现中，评分1会返回
+     * `Date.now()`，导致卡片立即重新出现。新的实现使用第一个learning step
+     * （默认1分钟）作为延迟，让用户有时间思考和准备。
+     * 
+     * **工作原理**：
+     * 1. 根据卡片状态选择steps：
+     *    - New/Learning状态 → 使用 `learning_steps`
+     *    - Review状态 → 使用 `relearning_steps`
+     * 2. 获取第一个step（如'1m'）
+     * 3. 转换为毫秒（60000ms）
+     * 4. 返回 now + 延迟时间
+     * 
+     * **状态转换**：
+     * - New → Learning (step 0)
+     * - Learning → Learning (step 0)
+     * - Review → Relearning (step 0)
+     *
+     * @param card - 卡片对象
+     * @returns 下次到期时间（时间戳，毫秒）
+     *
+     * @example
+     * // 基本用法：learning_steps = ['1m', '10m']
+     * const card = { state: CardState.Learning, learning_step: 1 };
+     * const dueDate = this.calculateAgainInterval(card);
+     * // dueDate = now + 60000 (1分钟后)
+     * // 用户在1分钟后才会再次看到这张卡片
+     *
+     * @example
+     * // Review状态卡片失败：relearning_steps = ['10m']
+     * const card = { state: CardState.Review };
+     * const dueDate = this.calculateAgainInterval(card);
+     * // dueDate = now + 600000 (10分钟后)
+     * 
+     * @example
+     * // 空steps数组的fallback
+     * const card = { state: CardState.New };
+     * const dueDate = this.calculateAgainInterval(card);
+     * // dueDate = now + 60000 (默认1分钟)
+     * 
+     * @example
+     * // 在动态队列的handleReview中使用
+     * async handleReview(cardId: string, rating: number): Promise<void> {
+     *   const card = this.cards.find(c => c.id === cardId);
+     *   if (rating === 1) {
+     *     // 使用learning steps机制，避免立即重复
+     *     card.due = this.calculateAgainInterval(card);
+     *     // 如果队列中有其他卡片，会先显示其他卡片
+     *   }
+     * }
+     *
+     * @see .kiro/specs/learning-steps-rating-fix/design.md 3.3.1
+     * @see .kiro/specs/learning-steps-rating-fix/requirements.md 4.2
+     */
+    protected calculateAgainInterval(card: FSRSCard): number {
+        const now = Date.now();
+        const config = this.getLearningStepsConfig();
+
+        // 根据卡片状态选择learning steps或relearning steps
+        const steps = card.state === CardState.Review
+            ? config.relearning_steps
+            : config.learning_steps;
+
+        // 调试日志：记录评分1的详细信息
+        console.log(`[${this.type}] Rating 1 (Again) - Card ${card.id}:`, {
+            cardState: card.state,
+            stepsType: card.state === CardState.Review ? 'relearning_steps' : 'learning_steps',
+            steps: steps,
+        });
+
+        // 如果没有配置steps，使用默认1分钟
+        if (!steps || steps.length === 0) {
+            console.warn(`[${this.type}] No learning steps configured, using default 1 minute`);
+            const dueDate = now + 60 * 1000;
+            console.log(`[${this.type}] Again interval calculation:`, {
+                firstStep: '1m (default)',
+                delayMs: 60000,
+                delayMinutes: 1,
+                newDueDate: new Date(dueDate).toISOString(),
+            });
+            return dueDate;
+        }
+
+        // 获取第一个learning step并转换为毫秒
+        const firstStep = steps[0];
+        const delayMs = this.convertStepToMs(firstStep);
+        const dueDate = now + delayMs;
+
+        // 调试日志：记录间隔计算过程
+        console.log(`[${this.type}] Again interval calculation:`, {
+            firstStep: firstStep,
+            delayMs: delayMs,
+            delayMinutes: Math.round(delayMs / 60000 * 10) / 10,
+            newDueDate: new Date(dueDate).toISOString(),
+        });
+
+        return dueDate;
+    }
+
+    /**
+     * 计算评分2（Hard）的间隔
+     *
+     * 当用户评分为2（Hard）时，使用介于Again和Good之间的间隔。
+     * 
+     * **计算规则**：
+     * - 如果只有一个learning step：`first_step * 1.5`
+     * - 如果有多个learning steps：`(first_step + next_step) / 2`
+     *
+     * 这确保了Hard的间隔始终大于Again，但小于Good，提供合理的难度梯度。
+     * 
+     * **工作原理**：
+     * 
+     * Hard评分表示卡片有一定难度，但不至于完全忘记。因此间隔应该：
+     * - 比Again（完全忘记）更长，给用户更多时间巩固
+     * - 比Good（记住了）更短，需要更频繁的复习
+     * 
+     * 单个step场景（如 learning_steps = ['10m']）：
+     * - Again: 10分钟
+     * - Hard: 15分钟（10 * 1.5）
+     * - Good: 进入下一阶段或毕业
+     * 
+     * 多个steps场景（如 learning_steps = ['1m', '10m']）：
+     * - Again: 1分钟（第一个step）
+     * - Hard: 5.5分钟（(1 + 10) / 2）
+     * - Good: 10分钟（第二个step）
+     *
+     * **状态转换**：
+     * - New → Learning (保持当前step)
+     * - Learning → Learning (保持当前step)
+     * - Review → Relearning (保持当前step)
+     *
+     * @param card - 卡片对象
+     * @returns 下次到期时间（时间戳，毫秒）
+     *
+     * @example
+     * // 单个step: learning_steps = ['1m']
+     * const card = { state: CardState.Learning, learning_step: 0 };
+     * const dueDate = this.calculateHardInterval(card);
+     * // dueDate = now + 90000 (1.5分钟后)
+     *
+     * @example
+     * // 多个steps: learning_steps = ['1m', '10m']
+     * const card = { state: CardState.Learning, learning_step: 0 };
+     * const dueDate = this.calculateHardInterval(card);
+     * // dueDate = now + 330000 (5.5分钟后，即(1+10)/2)
+     * 
+     * @example
+     * // 在动态队列的handleReview中使用
+     * async handleReview(cardId: string, rating: number): Promise<void> {
+     *   const card = this.cards.find(c => c.id === cardId);
+     *   if (rating === 2) {
+     *     // Hard评分：使用介于Again和Good之间的间隔
+     *     card.due = this.calculateHardInterval(card);
+     *     // 间隔保证：Again < Hard < Good
+     *   }
+     * }
+     *
+     * @see .kiro/specs/learning-steps-rating-fix/design.md 3.3.2
+     * @see .kiro/specs/learning-steps-rating-fix/requirements.md 4.3
+     */
+    protected calculateHardInterval(card: FSRSCard): number {
+        const now = Date.now();
+        const config = this.getLearningStepsConfig();
+
+        // 根据卡片状态选择learning steps或relearning steps
+        const steps = card.state === CardState.Review || card.state === CardState.Relearning
+            ? config.relearning_steps
+            : config.learning_steps;
+
+        // 调试日志：记录评分2的详细信息
+        console.log(`[${this.type}] Rating 2 (Hard) - Card ${card.id}:`, {
+            cardState: card.state,
+            stepsType: (card.state === CardState.Review || card.state === CardState.Relearning) 
+                ? 'relearning_steps' 
+                : 'learning_steps',
+            steps: steps,
+        });
+
+        // 如果没有配置steps，使用默认1分钟
+        if (!steps || steps.length === 0) {
+            console.warn(`[${this.type}] No learning steps configured, using default 1 minute`);
+            const dueDate = now + 60 * 1000;
+            console.log(`[${this.type}] Hard interval calculation:`, {
+                stepsCount: 0,
+                calculationMethod: 'default',
+                delayMs: 60000,
+                delayMinutes: 1,
+                newDueDate: new Date(dueDate).toISOString(),
+            });
+            return dueDate;
+        }
+
+        const currentStep = 0; // Default to first step since learning_step is not tracked on FSRSCard
+        const firstStepMs = this.convertStepToMs(steps[0]);
+        let dueDate: number;
+        let calculationDetails: any;
+
+        if (steps.length === 1) {
+            // 只有一个step：first_step * 1.5
+            dueDate = now + Math.round(firstStepMs * 1.5);
+            calculationDetails = {
+                stepsCount: 1,
+                calculationMethod: 'first_step * 1.5',
+                firstStep: steps[0],
+                firstStepMs: firstStepMs,
+                multiplier: 1.5,
+                delayMs: Math.round(firstStepMs * 1.5),
+                delayMinutes: Math.round(firstStepMs * 1.5 / 60000 * 10) / 10,
+            };
+        } else {
+            // 多个steps：(first_step + next_step) / 2
+            const nextStepIndex = Math.min(currentStep + 1, steps.length - 1);
+            const nextStepMs = this.convertStepToMs(steps[nextStepIndex]);
+            dueDate = now + Math.round((firstStepMs + nextStepMs) / 2);
+            calculationDetails = {
+                stepsCount: steps.length,
+                calculationMethod: '(first_step + next_step) / 2',
+                firstStep: steps[0],
+                firstStepMs: firstStepMs,
+                nextStep: steps[nextStepIndex],
+                nextStepMs: nextStepMs,
+                delayMs: Math.round((firstStepMs + nextStepMs) / 2),
+                delayMinutes: Math.round((firstStepMs + nextStepMs) / 2 / 60000 * 10) / 10,
+            };
+        }
+
+        // 调试日志：记录间隔计算过程
+        console.log(`[${this.type}] Hard interval calculation:`, {
+            ...calculationDetails,
+            newDueDate: new Date(dueDate).toISOString(),
+        });
+
+        return dueDate;
+    }
+
+    /**
+     * 计算低评分（1/2）的下次到期日期
+     *
+     * 使用learning steps机制，避免卡片立即重新出现。
+     * 
+     * **Learning Steps机制总览**：
+     * 
+     * 这是BaseReviewQueue基类提供的核心方法，所有动态队列（RetrievalPracticeQueue、
+     * IncrementalLearningQueue、FilterGroupQueue）自动继承此功能。
+     * 
+     * **评分处理**：
+     * - rating 1 (Again): 使用第一个learning step作为延迟（默认1分钟）
+     * - rating 2 (Hard): 使用介于Again和Good之间的间隔（默认5.5分钟）
+     * 
+     * **与旧实现的对比**：
+     * 
+     * 旧实现（问题）：
+     * ```typescript
+     * if (rating === 1) {
+     *   return Date.now(); // 立即重新出现！
+     * }
+     * ```
+     * 
+     * 新实现（解决方案）：
+     * ```typescript
+     * if (rating === 1) {
+     *   return this.calculateAgainInterval(card); // 1分钟后出现
+     * }
+     * ```
+     * 
+     * **使用场景**：
+     * 
+     * 所有动态队列的`handleReview`方法都会调用此方法处理低评分：
+     * 1. 用户评分1或2
+     * 2. 调用`calculateNextDueDateForLowRating`计算新的due时间
+     * 3. 更新卡片的due字段
+     * 4. 根据新due决定是否保留在队列中
+     * 5. 如果队列中有其他卡片，会先显示其他卡片
+     *
+     * @param card - 卡片对象
+     * @param rating - 评分 (1 或 2)
+     * @returns 下次到期时间（时间戳，毫秒）
+     *
+     * @example
+     * // 评分1（Again）- learning_steps = ['1m', '10m']
+     * const card = { state: CardState.Learning, learning_step: 0 };
+     * const dueDate = this.calculateNextDueDateForLowRating(card, 1);
+     * // dueDate = now + 60000 (1分钟后)
+     *
+     * @example
+     * // 评分2（Hard）- learning_steps = ['1m', '10m']
+     * const card = { state: CardState.Learning, learning_step: 0 };
+     * const dueDate = this.calculateNextDueDateForLowRating(card, 2);
+     * // dueDate = now + 330000 (5.5分钟后，即(1+10)/2)
+     * 
+     * @example
+     * // 在动态队列中使用（所有动态队列都继承此方法）
+     * class RetrievalPracticeQueue extends BaseReviewQueue {
+     *   async handleReview(cardId: string, rating: number): Promise<void> {
+     *     const card = this.cards.find(c => c.id === cardId);
+     *     
+     *     if (rating >= 3) {
+     *       // 高评分：使用FSRS算法
+     *       // ...
+     *     } else {
+     *       // 低评分：使用learning steps机制（继承自基类）
+     *       const newDueDate = this.calculateNextDueDateForLowRating(card, rating);
+     *       card.due = newDueDate;
+     *       
+     *       // 根据新due决定是否保留在队列中
+     *       if (newDueDate > this.dayEnd) {
+     *         await this.removeCard(cardId); // 超出今天范围，移除
+     *       }
+     *       // 否则保留在队列中，1分钟后重新出现
+     *     }
+     *   }
+     * }
+     *
+     * @see .kiro/specs/learning-steps-rating-fix/design.md 3.5
+     * @see .kiro/specs/learning-steps-rating-fix/requirements.md 4.2, 4.3
+     */
+    protected calculateNextDueDateForLowRating(card: FSRSCard, rating: number): number {
+        // 调试日志：记录评分处理开始
+        console.log(`[${this.type}] Processing low rating for card ${card.id}:`, {
+            rating: rating,
+            ratingLabel: rating === 1 ? 'Again' : 'Hard',
+            cardState: card.state,
+            currentDue: card.due ? new Date(card.due).toISOString() : 'N/A',
+        });
+
+        let dueDate: number;
+        if (rating === 1) {
+            // Again: 使用第一个learning step
+            dueDate = this.calculateAgainInterval(card);
+        } else {
+            // Hard: 使用Hard间隔
+            dueDate = this.calculateHardInterval(card);
+        }
+
+        // 调试日志：记录最终结果
+        console.log(`[${this.type}] Low rating processing complete:`, {
+            cardId: card.id,
+            rating: rating,
+            oldDue: card.due ? new Date(card.due).toISOString() : 'N/A',
+            newDue: new Date(dueDate).toISOString(),
+            delayFromNow: Math.round((dueDate - Date.now()) / 60000 * 10) / 10 + ' minutes',
+        });
+
+        return dueDate;
+    }
+
+
+
     
     /**
      * 判断是否为动态队列

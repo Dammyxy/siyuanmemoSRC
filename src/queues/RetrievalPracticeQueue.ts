@@ -439,38 +439,7 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
         return nextDue;
     }
     
-    /**
-     * 计算低评分（1/2）的下次到期日期
-     * 
-     * 对于评分 1/2（忘记了），使用 FSRS 算法计算新的到期日期。
-     * 
-     * 计算逻辑：
-     * - 评分 1（Again）：重置间隔，通常设置为今天或明天
-     * - 评分 2（Hard）：减少间隔，通常设置为今天或短期内
-     * 
-     * 注意：这是一个简化的实现。实际的 FSRS 算法会考虑更多因素，
-     * 如难度、稳定性、遗忘曲线等。
-     * 
-     * @param card 卡片
-     * @param rating 评分 (1 或 2)
-     * @returns 下次到期日期（时间戳）
-     * @see 需求 18.3
-     */
-    private calculateNextDueDateForLowRating(card: FSRSCard, rating: number): number {
-        const now = Date.now();
-        
-        if (rating === 1) {
-            // Again: 重置为今天（立即复习）
-            return now;
-        } else {
-            // Hard: 设置为今天或短期内
-            // 使用当前间隔的一半，但至少是今天
-            const currentInterval = card.scheduledDays || 1;
-            const newInterval = Math.max(0, currentInterval * 0.5);
-            return now + newInterval * 24 * 60 * 60 * 1000;
-        }
-    }
-    
+
     /**
      * 从持久化存储加载手动添加的卡片
      * 

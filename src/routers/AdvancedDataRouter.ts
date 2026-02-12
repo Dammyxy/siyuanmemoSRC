@@ -24,6 +24,7 @@ import { sql } from '../core/siyuan/api';
 import { getCurrentDayEnd } from '../utils/dateUtils';
 import { getDayStartHour } from '../utils/configUtils';
 import { getBlockText } from '../core/siyuan/block';
+import { migrateCard } from '../utils/cardMigration';  // ✅ 添加迁移工具导入
 
 /**
  * AdvancedDataRouter 类
@@ -99,7 +100,8 @@ export class AdvancedDataRouter implements IDataRouter {
             throw new Error(`Card not found: ${cardId}`);
         }
         
-        return card;
+        // ✅ 应用迁移逻辑：确保 learning_step 字段存在
+        return migrateCard(card);
     }
     
     /**
@@ -146,6 +148,9 @@ export class AdvancedDataRouter implements IDataRouter {
             cards = cards.filter(card => card.blockId && card.blockId !== 'undefined' && card.blockId !== '');
             console.log(`[AdvancedDataRouter] 🔍 After blockId filtering: ${cards.length} cards`);
         }
+        
+        // ✅ 应用迁移逻辑：确保所有卡片都有 learning_step 字段
+        cards = cards.map(card => migrateCard(card));
         
         return cards;
     }

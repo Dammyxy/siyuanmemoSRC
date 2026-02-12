@@ -10,6 +10,7 @@
  * - 持久化
  */
 
+import { describe, it, expect, beforeEach } from 'vitest';
 import { IncrementalLearningQueue } from '../IncrementalLearningQueue';
 import { UnifiedDataSourceManager } from '../../managers/UnifiedDataSourceManager';
 import { QueueType } from '../../types/unified-data-source';

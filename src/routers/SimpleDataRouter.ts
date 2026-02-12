@@ -32,6 +32,7 @@ import {
     type RiffBlock,
 } from '../core/siyuan/riff';
 import { sql } from '../core/siyuan/api';  // ✅ 添加 sql 导入
+import { migrateCard } from '../utils/cardMigration';  // ✅ 添加迁移工具导入
 
 /**
  * SimpleDataRouter 类
@@ -488,7 +489,8 @@ export class SimpleDataRouter implements IDataRouter {
             });
         }
         
-        return card;
+        // ✅ 应用迁移逻辑：确保 learning_step 字段存在
+        return migrateCard(card);
     }
     
     /**
