@@ -353,6 +353,8 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 .card__action {
   padding: 8px;
   user-select: none;
+  flex-shrink: 0; /* 防止被压缩 */
+  background: var(--b3-theme-background); /* 确保背景不透明 */
 }
 
 .card__action > div {

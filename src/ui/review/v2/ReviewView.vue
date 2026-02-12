@@ -1170,6 +1170,8 @@ watch(
   display: flex;
   flex-direction: column;
   min-width: 0; /* 防止 flex 子元素溢出 */
+  height: 100%; /* 确保容器有明确的高度 */
+  overflow: hidden; /* 防止整体滚动，只允许 ReviewContent 滚动 */
 }
 
 /* 侧边栏展开时，内容区域固定宽度 */

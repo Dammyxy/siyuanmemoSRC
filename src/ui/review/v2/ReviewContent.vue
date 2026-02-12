@@ -458,12 +458,15 @@ const content = computed(() => props.content);
   position: relative;
   min-height: 240px;
   flex: 1;
-  overflow: hidden;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .fsrs-review-v2-content__inner {
-  height: 100%;
-  width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .fsrs-review-v2-content__empty {
@@ -476,7 +479,7 @@ const content = computed(() => props.content);
 }
 
 .fsrs-review-v2-content__protyle {
-  height: 100%;
+  flex: 1;
   overflow: auto;
 }
 
