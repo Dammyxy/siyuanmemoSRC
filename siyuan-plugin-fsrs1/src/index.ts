@@ -253,7 +253,71 @@ export default class FSRSPlugin extends Plugin {
      * 处理块图标点击（添加闪卡菜单）
      */
     private handleBlockIconClick(e: any) {
-        // TODO: 实现块菜单
+        const { detail } = e;
+        const blockElements = detail.blockElements;
+        
+        if (!blockElements || blockElements.length === 0) {
+            return;
+        }
+
+        // 获取第一个块的 ID
+        const blockId = blockElements[0].getAttribute('data-node-id');
+        if (!blockId) {
+            return;
+        }
+
+        // 检查是否已经是闪卡
+        const existingCard = this.storage.getCard(blockId);
+
+        // 构建子菜单项
+        const submenu: any[] = [];
+
+        if (existingCard) {
+            // 已经是闪卡，显示相关操作
+            submenu.push({
+                icon: 'iconEye',
+                label: this.i18n?.viewCard || '查看卡片信息',
+                click: () => {
+                    this.showCardInfo(existingCard);
+                },
+            });
+
+            submenu.push({
+                icon: 'iconRefresh',
+                label: this.i18n?.reviewNow || '立即复习',
+                click: () => {
+                    this.reviewSingleCard(existingCard);
+                },
+            });
+
+            submenu.push({
+                type: 'separator',
+            });
+
+            submenu.push({
+                icon: 'iconTrashcan',
+                label: this.i18n?.removeCard || '移除闪卡',
+                click: () => {
+                    this.removeCard(blockId);
+                },
+            });
+        } else {
+            // 不是闪卡，显示添加选项
+            submenu.push({
+                icon: 'iconAdd',
+                label: this.i18n?.addCard || '添加为闪卡',
+                click: () => {
+                    this.addCard(blockId);
+                },
+            });
+        }
+
+        // 添加到块菜单，使用子菜单
+        detail.menu.addItem({
+            icon: 'iconCards',
+            label: 'FSRS',
+            submenu,
+        });
     }
 
     /**
@@ -262,4 +326,120 @@ export default class FSRSPlugin extends Plugin {
     getDueCount(): number {
         return this.storage.getDueCards().length;
     }
+
+    /**
+     * 显示卡片信息
+     */
+    private showCardInfo(card: FSRSCard) {
+        const nextReview = new Date(card.due).toLocaleString('zh-CN');
+        const stability = card.stability.toFixed(2);
+        const difficulty = card.difficulty.toFixed(2);
+
+        const info = `
+卡片 ID: ${card.id}
+状态: ${this.getStateText(card.state)}
+下次复习: ${nextReview}
+稳定性: ${stability} 天
+难度: ${difficulty}
+复习次数: ${card.reps}
+失误次数: ${card.lapses}
+        `.trim();
+
+        this.addTopBar({
+            icon: 'iconInfo',
+            title: info,
+            position: 'right',
+        });
+
+        // 使用思源的通知 API
+        if ((window as any).siyuan?.showMessage) {
+            (window as any).siyuan.showMessage(info, 5000);
+        }
+    }
+
+    /**
+     * 获取状态文本
+     */
+    private getStateText(state: number): string {
+        const stateMap: Record<number, string> = {
+            0: '新卡片',
+            1: '学习中',
+            2: '复习中',
+            3: '重新学习',
+        };
+        return stateMap[state] || '未知';
+    }
+
+    /**
+     * 复习单张卡片
+     */
+    private reviewSingleCard(card: FSRSCard) {
+        this.openReviewDialog();
+        // TODO: 定位到特定卡片
+    }
+
+    /**
+     * 移除闪卡
+     */
+    private async removeCard(blockId: string) {
+        const confirmed = await inputDialog({
+            title: this.i18n?.confirmRemove || '确认移除',
+            text: this.i18n?.confirmRemoveText || '确定要移除这张闪卡吗？',
+            confirm: this.i18n?.confirm || '确定',
+            cancel: this.i18n?.cancel || '取消',
+        });
+
+        if (confirmed) {
+            this.storage.deleteCard(blockId);
+            if ((window as any).siyuan?.showMessage) {
+                (window as any).siyuan.showMessage(
+                    this.i18n?.removeSuccess || '已移除闪卡',
+                    3000
+                );
+            }
+        }
+    }
+
+    /**
+     * 添加闪卡
+     */
+    private async addCard(blockId: string) {
+        // 获取块内容
+        const content = await this.getBlockContent(blockId);
+        if (!content) {
+            if ((window as any).siyuan?.showMessage) {
+                (window as any).siyuan.showMessage(
+                    this.i18n?.getContentFailed || '获取块内容失败',
+                    3000
+                );
+            }
+            return;
+        }
+
+        // 创建新卡片
+        const card: FSRSCard = {
+            id: blockId,
+            due: new Date(),
+            stability: 0,
+            difficulty: 0,
+            elapsedDays: 0,
+            scheduledDays: 0,
+            reps: 0,
+            lapses: 0,
+            state: 0, // New
+            lastReview: new Date(),
+            leechCount: 0,
+            isLeech: false,
+        };
+
+        this.storage.setCard(card);
+
+        if ((window as any).siyuan?.showMessage) {
+            (window as any).siyuan.showMessage(
+                this.i18n?.addSuccess || '已添加为闪卡',
+                3000
+            );
+        }
+    }
 }
+
