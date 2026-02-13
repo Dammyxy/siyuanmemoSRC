@@ -49,9 +49,10 @@
         :title="t('exitFocus', '退出队列')"
       >
         <svg><use xlink:href="#iconClose"></use></svg>
-        {{ t('exitFocus', '退出队列') }}
+        {{ t('exitFocus', '退出') }}
       </button>
 
+      <!-- 开始练习按钮 -->
       <button
         class="b3-button b3-button--outline"
         @click.stop.prevent="$emit('openPracticeMenu', $event)"
@@ -62,6 +63,7 @@
         {{ t('startPractice', '开始练习') }}
       </button>
 
+      <!-- 应用排序到队列按钮 -->
       <button
         v-if="canApplySortToQueue"
         class="b3-button b3-button--outline"
@@ -70,41 +72,31 @@
         :title="t('applySortToQueue', '应用排序到队列')"
       >
         <svg><use xlink:href="#iconSort"></use></svg>
-        {{ t('applySortToQueue', '应用排序到队列') }}
+        {{ t('applySortToQueue', '应用排序') }}
       </button>
 
-      <button
-        class="b3-button b3-button--outline"
-        @click="$emit('toggleViewMode')"
-        :title="viewMode === 'flat' ? t('hierarchyView', 'Hierarchy View') : t('flatView', 'Flat View')"
-      >
-        <svg><use :xlink:href="viewMode === 'flat' ? '#iconFiles' : '#iconList'"></use></svg>
-      </button>
-
-      <!-- 强制刷新按钮 -->
-      <button class="b3-button b3-button--outline" @click="$emit('forceRefresh')" :disabled="loading" :title="t('forceRefresh', '强制刷新数据（清除缓存）')">
-        <svg><use xlink:href="#iconRefresh"></use></svg>
-      </button>
-
-      <!-- 🆕 分摊复习压力按钮 -->
+      <!-- 分摊复习压力按钮 -->
       <button 
+        v-if="showSpreadButton"
         class="b3-button b3-button--outline" 
         @click="$emit('openSpreadDialog')" 
         :disabled="loading"
         :title="t('spreadReviews', '分摊复习压力 - 将积压的复习任务均匀分散')"
       >
         <svg><use xlink:href="#iconCalendar"></use></svg>
-        {{ t('spread', '分摊复习压力') }}
+        {{ t('spread', '分摊压力') }}
       </button>
 
-      <!-- Topic/Item 迁移按钮 -->
-      <button class="b3-button b3-button--outline" @click="$emit('migrateTopicItem')" :disabled="loading" :title="t('migrateTopicItem', '识别 Topic/Item 类型')">
-        <svg><use xlink:href="#iconTags"></use></svg>
-      </button>
+      <!-- 分隔线 -->
+      <div class="toolbar__divider"></div>
 
-      <!-- 性能报告按钮 -->
-      <button class="b3-button b3-button--outline" @click="$emit('showPerformanceReport')" :disabled="loading" :title="t('perfReport', '性能报告')">
-        <svg><use xlink:href="#iconInfo"></use></svg>
+      <!-- 视图切换按钮 -->
+      <button
+        class="b3-button b3-button--outline"
+        @click="$emit('toggleViewMode')"
+        :title="viewMode === 'flat' ? t('hierarchyView', '层级视图') : t('flatView', '平铺视图')"
+      >
+        <svg><use :xlink:href="viewMode === 'flat' ? '#iconFiles' : '#iconList'"></use></svg>
       </button>
 
       <!-- 预览切换按钮 -->
@@ -116,21 +108,62 @@
       >
         <svg><use xlink:href="#iconPreview"></use></svg>
       </button>
-      
-      <!-- 转换为 Tab 按钮 -->
+
+      <!-- 强制刷新按钮 -->
       <button 
-        v-if="mode === 'dialog'"
         class="b3-button b3-button--outline" 
-        @click="$emit('convertToTab')"
-        :title="t('openInTab', '在 Tab 中打开')"
+        @click="$emit('forceRefresh')" 
+        :disabled="loading" 
+        :title="t('forceRefresh', '强制刷新数据（清除缓存）')"
       >
-        <svg><use xlink:href="#iconLayoutRight"></use></svg>
+        <svg><use xlink:href="#iconRefresh"></use></svg>
       </button>
+
+      <!-- 更多菜单按钮 -->
+      <button 
+        class="b3-button b3-button--outline" 
+        @click="toggleMoreMenu"
+        :title="t('more', '更多')"
+        ref="moreButtonRef"
+      >
+        <svg><use xlink:href="#iconMore"></use></svg>
+      </button>
+
+      <!-- 更多菜单下拉 -->
+      <div v-if="showMoreMenu" class="toolbar__more-menu" ref="moreMenuRef">
+        <div class="b3-menu__items">
+          <button 
+            class="b3-menu__item" 
+            @click="handleMenuAction('migrateTopicItem')"
+            :disabled="loading"
+          >
+            <svg class="b3-menu__icon"><use xlink:href="#iconTags"></use></svg>
+            <span class="b3-menu__label">{{ t('migrateTopicItem', '识别 Topic/Item 类型') }}</span>
+          </button>
+          <button 
+            class="b3-menu__item" 
+            @click="handleMenuAction('showPerformanceReport')"
+            :disabled="loading"
+          >
+            <svg class="b3-menu__icon"><use xlink:href="#iconInfo"></use></svg>
+            <span class="b3-menu__label">{{ t('perfReport', '性能报告') }}</span>
+          </button>
+          <button 
+            v-if="mode === 'dialog'"
+            class="b3-menu__item" 
+            @click="handleMenuAction('convertToTab')"
+          >
+            <svg class="b3-menu__icon"><use xlink:href="#iconLayoutRight"></use></svg>
+            <span class="b3-menu__label">{{ t('openInTab', '在 Tab 中打开') }}</span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import FilterButton from './components/FilterButton.vue';
 import type { CardFilter } from '@/types/unified-data-source';
 
@@ -148,13 +181,26 @@ const props = defineProps<{
   loading: boolean;
   showPreview: boolean;
   mode: 'dialog' | 'tab' | 'dock';
-  // 新增：队列类型和过滤条件 (需求 1.1, 1.2)
   queueType: string;
   appliedFilter: CardFilter | null;
+  activeQueueId: string | null;  // 🆕 添加当前队列 ID
 }>();
 
+// 🆕 计算是否显示"分摊压力"按钮
+const showSpreadButton = computed(() => {
+  // 只在以下情况显示：
+  // 1. 全部闪卡（没有激活队列）
+  // 2. 提取练习队列
+  // 3. 渐进学习队列
+  if (!props.activeQueueId) {
+    return true;  // 全部闪卡
+  }
+  
+  return props.activeQueueId === 'retrieval' || props.activeQueueId === 'incremental-learning';
+});
+
 // Emits
-defineEmits<{
+const emit = defineEmits<{
   (e: 'update:searchQuery', value: string): void;
   (e: 'update:currentPreset', value: string): void;
   (e: 'update:currentCardType', value: string): void;
@@ -167,11 +213,44 @@ defineEmits<{
   (e: 'migrateTopicItem'): void;
   (e: 'showPerformanceReport'): void;
   (e: 'convertToTab'): void;
-  // 新增：打开过滤对话框事件 (需求 1.3)
   (e: 'openFilterDialog'): void;
-  // 新增：打开分散对话框事件 (supermemo-reschedule-operations)
   (e: 'openSpreadDialog'): void;
 }>();
+
+// 更多菜单状态
+const showMoreMenu = ref(false);
+const moreButtonRef = ref<HTMLElement | null>(null);
+const moreMenuRef = ref<HTMLElement | null>(null);
+
+// 切换更多菜单
+function toggleMoreMenu() {
+  showMoreMenu.value = !showMoreMenu.value;
+}
+
+// 处理菜单项点击
+function handleMenuAction(action: string) {
+  showMoreMenu.value = false;
+  emit(action as any);
+}
+
+// 点击外部关闭菜单
+function handleClickOutside(event: MouseEvent) {
+  if (showMoreMenu.value && 
+      moreButtonRef.value && 
+      moreMenuRef.value &&
+      !moreButtonRef.value.contains(event.target as Node) &&
+      !moreMenuRef.value.contains(event.target as Node)) {
+    showMoreMenu.value = false;
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleClickOutside);
+});
 
 // 国际化
 function t(key: string, fallback: string): string {

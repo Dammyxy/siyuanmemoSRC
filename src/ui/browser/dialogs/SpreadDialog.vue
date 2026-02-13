@@ -9,7 +9,8 @@
       <div class="form-section">
         <h4 class="section-title">基础参数</h4>
         
-        <div class="form-field">
+        <!-- 🆕 队列模式下隐藏收集期 -->
+        <div v-if="!queueMode" class="form-field">
           <label>收集期（天）</label>
           <div class="input-with-buttons">
             <div class="quick-buttons">
@@ -30,6 +31,14 @@
           <p class="field-hint">
             收集从现在到未来 {{ config.collectingPeriod }} 天内的卡片
           </p>
+        </div>
+        
+        <!-- 🆕 队列模式下显示提示信息 -->
+        <div v-if="queueMode" class="form-field">
+          <div class="queue-mode-hint">
+            <svg><use xlink:href="#iconInfo"></use></svg>
+            <span>队列模式：将分散当前队列中的所有卡片（{{ collectedCount }} 张）</span>
+          </div>
         </div>
         
         <div class="form-field">
@@ -55,7 +64,8 @@
           </p>
         </div>
         
-        <div class="form-field">
+        <!-- 🆕 队列模式下隐藏"考虑未来复习"选项 -->
+        <div v-if="!queueMode" class="form-field">
           <label class="checkbox-label">
             <input 
               type="checkbox" 
@@ -209,6 +219,7 @@ const props = defineProps<{
   count: number;
   configManager: ConfigManager;
   allCards?: BrowserCard[];  // 🆕 直接接收已加载的卡片数据，避免触发缓存更新回调
+  queueMode?: boolean;  // 🆕 是否为队列模式（提取练习/渐进学习）
 }>();
 
 const emit = defineEmits<{
@@ -231,10 +242,15 @@ const collectedCount = computed(() => {
     return props.count;
   }
   
+  // 🆕 队列模式：直接返回所有队列卡片数量（不需要按 due 筛选）
+  if (props.queueMode) {
+    return props.allCards.length;
+  }
+  
+  // 全部闪卡模式：根据配置筛选卡片
   const now = Date.now();
   const collectingPeriodMs = config.value.collectingPeriod * 24 * 60 * 60 * 1000;
   
-  // 根据配置筛选卡片
   const filtered = props.allCards.filter(card => {
     const dueTime = card.due instanceof Date ? card.due.getTime() : card.due;
     
@@ -245,56 +261,6 @@ const collectedCount = computed(() => {
       // 仅到期卡片：收集 due <= now 的卡片
       return dueTime <= now;
     }
-  });
-  
-  // 🆕 详细日志：显示卡片的 due 日期分布
-  const dueDistribution = props.allCards.map(card => {
-    const dueTime = card.due instanceof Date ? card.due.getTime() : card.due;
-    const daysFromNow = Math.ceil((dueTime - now) / (24 * 60 * 60 * 1000));
-    return daysFromNow;
-  }).sort((a, b) => a - b);
-  
-  // 🆕 诊断：显示前 3 张卡片的详细信息
-  const sampleCards = props.allCards.slice(0, 3).map(card => {
-    const dueTime = card.due instanceof Date ? card.due.getTime() : card.due;
-    const daysFromNow = Math.ceil((dueTime - now) / (24 * 60 * 60 * 1000));
-    return {
-      blockId: card.blockId,
-      dueRaw: card.due,
-      dueTime,
-      dueDate: new Date(dueTime).toISOString(),
-      now,
-      nowDate: new Date(now).toISOString(),
-      diff: dueTime - now,
-      daysFromNow,
-    };
-  });
-  
-  const collectingThreshold = config.value.considerFutureRepetitions 
-    ? Math.ceil(config.value.collectingPeriod)
-    : 0;
-  
-  console.log('[SpreadDialog] Computing collectedCount:', {
-    hasAllCards: !!props.allCards,
-    allCardsLength: props.allCards.length,
-    collectingPeriod: config.value.collectingPeriod,
-    considerFutureRepetitions: config.value.considerFutureRepetitions,
-    collectingThreshold: `due <= now + ${collectingThreshold} 天`,
-    sampleCards,  // 🆕 显示样本卡片的详细信息
-    dueDistribution: {
-      min: dueDistribution[0],
-      max: dueDistribution[dueDistribution.length - 1],
-      median: dueDistribution[Math.floor(dueDistribution.length / 2)],
-      all: dueDistribution,
-    },
-  });
-  
-  console.log('[SpreadDialog] Filtered cards:', {
-    total: props.allCards.length,
-    filtered: filtered.length,
-    explanation: config.value.considerFutureRepetitions 
-      ? `收集 due <= now + ${config.value.collectingPeriod} 天的卡片`
-      : '仅收集 due <= now 的卡片（已到期）',
   });
   
   return filtered.length;
@@ -705,5 +671,25 @@ function handleCancel() {
   margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid var(--b3-border-color);
+}
+
+/* 🆕 队列模式提示样式 */
+.queue-mode-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: var(--b3-theme-primary-lightest);
+  border: 1px solid var(--b3-theme-primary-lighter);
+  border-radius: 6px;
+  color: var(--b3-theme-on-surface);
+  font-size: 13px;
+}
+
+.queue-mode-hint svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  fill: var(--b3-theme-primary);
 }
 </style>

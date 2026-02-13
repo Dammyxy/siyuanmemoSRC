@@ -7,7 +7,6 @@ import type { App } from 'siyuan';
 import type { StorageManager } from '@/core/storage';
 import { riff } from '@/core/siyuan';
 import { markBlockAsCard, unmarkBlockAsCard, ATTR_CARD_ID, getCardBlockIds } from '@/core/siyuan/block';
-import { getRiffCardsByBlockIDs } from '@/core/siyuan/riff';
 import { pushErrMsg, pushMsg, sql } from '@/core/siyuan/api';
 import { createVueDialog } from '@/utils/dialog';
 import { createDefaultCard } from '@/types';
@@ -106,24 +105,21 @@ export class BlockMenuHandler {
         let blockID = target?.getAttribute('data-node-id');
         let cardID = target?.getAttribute(ATTR_CARD_ID);
 
-        // 如果没找到，尝试从 riff API 查询老卡
+        // ✅ 新架构：从本地存储查询卡片
         if (!cardID && blockIds.length > 0) {
           try {
-            console.log('[FSRS] Querying riff cards for blockIds:', blockIds);
-            const riffBlocks = await getRiffCardsByBlockIDs(blockIds);
-            console.log('[FSRS] Riff API response:', riffBlocks);
-
-            if (riffBlocks.length > 0) {
-              const riffBlock = riffBlocks[0];
-              blockID = riffBlock.id || blockIds[0];
-              cardID =
-                riffBlock.riffCard?.id ||
-                riffBlock.ial?.['custom-riff-decks']?.split(',')[0] ||
-                blockID;
-              console.log('[FSRS] Resolved blockID:', blockID, 'cardID:', cardID);
+            console.log('[FSRS] Querying local storage for blockIds:', blockIds);
+            for (const bid of blockIds) {
+              const card = this.deps.storage.getCardByBlockId(bid);
+              if (card) {
+                blockID = card.blockId;
+                cardID = card.id;
+                console.log('[FSRS] Found card in local storage:', blockID, cardID);
+                break;
+              }
             }
           } catch (err) {
-            console.warn('[FSRS] Failed to query riff cards:', err);
+            console.warn('[FSRS] Failed to query local storage:', err);
           }
         }
 
@@ -143,6 +139,7 @@ export class BlockMenuHandler {
             },
             deckID: riff.BUILTIN_DECK_ID,
             i18n: this.deps.i18n || {},
+            plugin: this.deps.plugin,  // ✅ 传递 plugin 实例
           },
           width: '760px',
           height: '70vh',

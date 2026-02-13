@@ -58,7 +58,7 @@
   border-bottom: 1px solid var(--b3-border-color);
   background: var(--b3-theme-surface);
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;  /* 禁止换行 */
   flex-shrink: 0;
 }
 
@@ -67,6 +67,67 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
+  position: relative;  /* 为下拉菜单提供定位上下文 */
+}
+
+.toolbar__divider {
+  width: 1px;
+  height: 20px;
+  background: var(--b3-border-color);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.toolbar__more-menu {
+  position: absolute;
+  top: 100%;
+  right: 10px;
+  margin-top: 4px;
+  background: var(--b3-theme-background);
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  box-shadow: var(--b3-dialog-shadow);
+  z-index: 1000;
+  min-width: 200px;
+}
+
+.toolbar__more-menu .b3-menu__items {
+  padding: 4px 0;
+}
+
+.toolbar__more-menu .b3-menu__item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.toolbar__more-menu .b3-menu__item:hover:not(:disabled) {
+  background: var(--b3-list-hover);
+}
+
+.toolbar__more-menu .b3-menu__item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toolbar__more-menu .b3-menu__icon {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.toolbar__more-menu .b3-menu__label {
+  flex: 1;
+  font-size: 14px;
 }
 
 .toolbar__center {

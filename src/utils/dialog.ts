@@ -21,6 +21,7 @@ export function createVueDialog<T extends Component>(options: {
     dataKey?: string; // 添加 dataKey 选项，用于思源热键系统识别
     transparent?: boolean;  // 添加透明遮罩层选项
     isReview?: boolean;  // 添加标识：是否为复习对话框（用于控制 maxWidth）
+    responsive?: boolean;  // 🆕 添加响应式选项
 }): { dialog: Dialog; destroy: () => void } {
     const containerId = `fsrs-dialog-${Date.now()}`;
 
@@ -47,11 +48,37 @@ export function createVueDialog<T extends Component>(options: {
         ...eventProps,
     });
 
+    // 🆕 响应式尺寸计算
+    let dialogWidth = options.width || '700px';
+    let dialogHeight = options.height || '500px';
+    
+    if (options.responsive) {
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        
+        // 根据视口大小调整对话框尺寸
+        // 小屏幕（< 768px）：使用 90% 视口宽度
+        // 中等屏幕（768px - 1200px）：使用 80% 视口宽度
+        // 大屏幕（> 1200px）：使用固定宽度或最大宽度
+        if (vw < 768) {
+            dialogWidth = '90vw';
+            dialogHeight = '85vh';
+        } else if (vw < 1200) {
+            dialogWidth = '80vw';
+            dialogHeight = '80vh';
+        } else {
+            // 大屏幕使用指定宽度，但不超过 90vw
+            const specifiedWidth = parseInt(options.width || '700');
+            dialogWidth = `min(${specifiedWidth}px, 90vw)`;
+            dialogHeight = `min(${options.height || '80vh'}, 85vh)`;
+        }
+    }
+
     const dialog = new Dialog({
         title: options.hideTitle ? undefined : options.title,  // 如果 hideTitle，不传 title
         content: `<div id="${containerId}" class="fn__flex-column" style="height: 100%; width: 100%; overflow: hidden;"></div>`,
-        width: options.width || '700px',
-        height: options.height || '500px',
+        width: dialogWidth,
+        height: dialogHeight,
         transparent: options.transparent,  // 传递 transparent 选项
         disableClose: false,  // 允许点击遮罩层关闭（与原生复习界面一致）
         destroyCallback: () => {

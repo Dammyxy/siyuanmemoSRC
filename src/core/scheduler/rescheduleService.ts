@@ -1,6 +1,5 @@
-import { riff } from '@/core/siyuan';
-import { pushErrMsg } from '@/core/siyuan/api';
 import type { StorageManager } from '@/core/storage';
+import { pushErrMsg } from '@/core/siyuan/api';
 import type { RescheduleLog, RescheduleResult, ActionMeta } from '@/types';
 import type { FSRSCard } from '@/types/card';
 import type { PostponeConfig, AdvanceConfig, SpreadConfig, PostponeResult, AdvanceResult, SpreadResult } from '@/types/reschedule';
@@ -10,12 +9,6 @@ import { AdvanceEngine } from './AdvanceEngine';
 import { SpreadEngine } from './SpreadEngine';
 import { ConfigManager } from './ConfigManager';
 import { ConfigValidator } from './ConfigValidator';
-
-const { BUILTIN_DECK_ID } = riff;
-
-function formatSiyuanTime(date: Date): string {
-    return date.toISOString().replace(/[-:]/g, '').replace('T', '').split('.')[0];
-}
 
 export class RescheduleService {
     private postponeEngine: PostponeEngine;
@@ -76,56 +69,40 @@ export class RescheduleService {
     }
 
     /**
-     * Resolve Riff Card IDs from Block IDs with JIT initialization and retry policy.
+     * ⚠️ DEPRECATED: 使用 StorageManager 的新实现
+     * 
+     * 旧方法直接调用 Riff API，已被废弃。
+     * 请使用新的基于 StorageManager 的实现。
+     * 
+     * @deprecated 使用 `advanceWithConfig()` 代替
      */
-    private async resolveRiffCardIdByBlockIdWithRetry(blockIds: string[], options?: { maxRetries?: number }): Promise<Map<string, string>> {
+    private async resolveCardIdsByBlockIds(blockIds: string[]): Promise<Map<string, string>> {
         const resolvedByBlockId = new Map<string, string>();
         const unique = Array.from(new Set(blockIds.filter(Boolean)));
         if (unique.length === 0) return resolvedByBlockId;
 
-        const fetchOnce = async (ids: string[]) => {
-            for (let i = 0; i < ids.length; i += 200) {
-                const batch = ids.slice(i, i + 200);
-                const blocks = await riff.getRiffCardsByBlockIDs(batch);
-                for (const b of blocks as any[]) {
-                    const blockID = String(b?.id || '');
-                    const riffCardID = String(b?.riffCardID || b?.riffCardId || b?.riffCard?.id || '');
-                    if (blockID && riffCardID) resolvedByBlockId.set(blockID, riffCardID);
-                }
+        // ✅ 使用 StorageManager 查询卡片
+        const cards = await this.storage.getCardsByBlockIds(unique);
+        for (const card of cards) {
+            if (card.blockId && card.id) {
+                resolvedByBlockId.set(card.blockId, card.id);
             }
-        };
-
-        // 1. Initial Check
-        await fetchOnce(unique);
-        let pending = unique.filter((bid) => !resolvedByBlockId.has(bid));
-        if (pending.length === 0) return resolvedByBlockId;
-
-        // 2. Initialize missing cards
-        for (let i = 0; i < pending.length; i += 200) {
-            const batch = pending.slice(i, i + 200);
-            await riff.addRiffCards(BUILTIN_DECK_ID, batch);
-        }
-
-        // 3. Retry loop (no JIT delay; keep limited retries for eventual consistency)
-        const maxRetries = Math.max(1, Math.min(8, Math.floor(Number(options?.maxRetries ?? 6))));
-        for (let attempt = 0; attempt < maxRetries; attempt++) {
-            if (attempt > 0) {
-                const delayMs = Math.min(500, 80 * attempt);
-                await this.sleep(delayMs);
-            }
-            await fetchOnce(pending);
-            pending = pending.filter((bid) => !resolvedByBlockId.has(bid));
-            console.log(`[RescheduleService] JIT Retry ${attempt + 1}/${maxRetries}, pending: ${pending.length}`, pending);
-            if (pending.length === 0) break;
-        }
-        if (pending.length > 0) {
-            await this.sleep(800);
-            await fetchOnce(pending);
         }
 
         return resolvedByBlockId;
     }
 
+    /**
+     * ⚠️ DEPRECATED: 旧的批量更新实现
+     * 
+     * @deprecated 使用新的 Engine 实现（PostponeEngine, AdvanceEngine, SpreadEngine）
+     */
+
+    /**
+     * ⚠️ DEPRECATED: 旧的批量更新实现
+     * 
+     * @deprecated 使用新的 Engine 实现（PostponeEngine, AdvanceEngine, SpreadEngine）
+     */
     private async performBatchUpdate(
         rows: Array<{ blockId: string; cardId?: string; currentDue?: Date }>,
         calculator: (currentDue: Date) => Date,
@@ -134,11 +111,11 @@ export class RescheduleService {
     ): Promise<RescheduleResult> {
         const result: RescheduleResult = { updated: [], skipped: [] };
 
-        // 1. Resolve IDs
+        // ✅ 使用 StorageManager 查询卡片
         const missingBlockIds = rows.filter(r => !r.cardId && r.blockId).map(r => r.blockId);
-        const resolvedMap = await this.resolveRiffCardIdByBlockIdWithRetry(missingBlockIds);
+        const resolvedMap = await this.resolveCardIdsByBlockIds(missingBlockIds);
 
-        const itemsToUpdate: { id: string; due: string }[] = [];
+        const cardsToUpdate: Array<{ blockId: string; due: number }> = [];
         const logSample: RescheduleLog['sample'] = [];
 
         for (const row of rows) {
@@ -146,7 +123,7 @@ export class RescheduleService {
             if (!cardId && row.blockId) {
                 cardId = resolvedMap.get(row.blockId) || '';
                 if (!cardId) {
-                    result.skipped.push({ reason: 'jit-failed', blockId: row.blockId });
+                    result.skipped.push({ reason: 'not-found', blockId: row.blockId });
                     continue;
                 }
             }
@@ -158,44 +135,41 @@ export class RescheduleService {
 
             const currentDue = row.currentDue || new Date();
             const newDue = calculator(currentDue);
-            const newDueStr = formatSiyuanTime(newDue);
+            const newDueTimestamp = newDue.getTime();
 
-            // Safety check: if newDue is same as old due? Riff doesn't care, but we might want to skip?
-            // For now, valid update.
-
-            itemsToUpdate.push({ id: cardId, due: newDueStr });
+            cardsToUpdate.push({ blockId: row.blockId, due: newDueTimestamp });
             result.updated.push({
                 cardId,
                 blockId: row.blockId,
-                oldDue: row.currentDue ? formatSiyuanTime(row.currentDue) : undefined,
-                newDue: newDueStr
+                oldDue: row.currentDue ? row.currentDue.toISOString() : undefined,
+                newDue: newDue.toISOString()
             });
 
             if (logSample.length < 3) {
                 logSample.push({
                     cardId,
                     blockId: row.blockId,
-                    oldDue: row.currentDue ? formatSiyuanTime(row.currentDue) : undefined,
-                    newDue: newDueStr
+                    oldDue: row.currentDue ? row.currentDue.toISOString() : undefined,
+                    newDue: newDue.toISOString()
                 });
             }
         }
 
-        if (itemsToUpdate.length === 0) {
+        if (cardsToUpdate.length === 0) {
             return result;
         }
 
         try {
-            await riff.batchSetRiffCardsDueTime(itemsToUpdate);
+            // ✅ 使用 StorageManager 批量更新
+            await this.storage.batchUpdateCards(cardsToUpdate as any);
 
-            // Log it
-            console.log(`[RescheduleService] Batch update success: ${itemsToUpdate.length} items, skipped: ${result.skipped.length}`, itemsToUpdate);
+            console.log(`[RescheduleService] Batch update success: ${cardsToUpdate.length} items, skipped: ${result.skipped.length}`);
             await this.storage.addRescheduleLog({
                 ts: Date.now(),
                 action: type,
                 source: meta.source,
-                targets: itemsToUpdate.map(i => i.id),
-                result: { updated: itemsToUpdate.length, skipped: result.skipped.length },
+                targets: cardsToUpdate.map(c => c.blockId),
+                result: { updated: cardsToUpdate.length, skipped: result.skipped.length },
                 sample: logSample
             });
 
@@ -203,18 +177,13 @@ export class RescheduleService {
             console.error('[RescheduleService] Batch update failed', err);
             await pushErrMsg(`Reschedule failed: ${err.message}`);
             result.errors = [{ message: err.message }];
-            // Adjust result to reflect failure?
-            // Technically we shouldn't return updated if api failed.
-            // But we pushed to `result.updated` earlier for optimistic return.
-            // We should revert or mark valid.
 
-            // Allow caller to handle error, but we log failure.
             await this.storage.addRescheduleLog({
                 ts: Date.now(),
                 action: type,
                 source: meta.source,
-                targets: itemsToUpdate.map(i => i.id),
-                result: { updated: 0, skipped: itemsToUpdate.length + result.skipped.length },
+                targets: cardsToUpdate.map(c => c.blockId),
+                result: { updated: 0, skipped: cardsToUpdate.length + result.skipped.length },
                 sample: [],
                 error: { code: 'API_ERROR', message: err.message }
             });
@@ -225,7 +194,9 @@ export class RescheduleService {
     }
 
     /**
-     * Advance cards (random disperse)
+     * ⚠️ DEPRECATED: Advance cards (random disperse)
+     * 
+     * @deprecated 使用 `advanceWithConfig()` 代替，它提供更完整的 SuperMemo Advance 算法
      */
     async advance(
         rows: Array<{ blockId: string; cardId?: string; currentDue?: Date }>,
@@ -251,7 +222,9 @@ export class RescheduleService {
     }
 
     /**
-     * Postpone cards
+     * ⚠️ DEPRECATED: Postpone cards
+     * 
+     * @deprecated 使用 `postponeWithConfig()` 代替，它提供更完整的 SuperMemo Postpone 算法
      */
     async postpone(
         rows: Array<{ blockId: string; cardId?: string; currentDue?: Date }>,
@@ -277,6 +250,11 @@ export class RescheduleService {
         );
     }
 
+    /**
+     * ⚠️ DEPRECATED: Spread cards
+     * 
+     * @deprecated 使用 `spreadWithConfig()` 代替，它提供更完整的 SuperMemo Spread/Mercy 算法
+     */
     async spread(
         rows: Array<{ blockId: string; cardId?: string; currentDue?: Date }>,
         options: { maxDays: number },
@@ -287,7 +265,7 @@ export class RescheduleService {
         const dayMs = 24 * 60 * 60 * 1000;
         const now = Date.now();
 
-        const itemsToUpdate: { id: string; due: string }[] = [];
+        const cardsToUpdate: Array<{ blockId: string; due: number }> = [];
         const logSample: RescheduleLog['sample'] = [];
 
         const candidates: Array<{ cardId: string; blockId?: string }> = [];
@@ -306,24 +284,39 @@ export class RescheduleService {
             const raw = Math.floor(((i + 1) / total) * clamped) - 1;
             const days = Math.max(0, Math.min(clamped - 1, raw));
             const newDue = new Date(now + days * dayMs);
-            const newDueStr = formatSiyuanTime(newDue);
-            itemsToUpdate.push({ id: row.cardId, due: newDueStr });
-            result.updated.push({ cardId: row.cardId, blockId: row.blockId, newDue: newDueStr });
+            const newDueTimestamp = newDue.getTime();
+            
+            if (row.blockId) {
+                cardsToUpdate.push({ blockId: row.blockId, due: newDueTimestamp });
+            }
+            
+            result.updated.push({ 
+                cardId: row.cardId, 
+                blockId: row.blockId, 
+                newDue: newDue.toISOString() 
+            });
+            
             if (logSample.length < 3) {
-                logSample.push({ cardId: row.cardId, blockId: row.blockId, newDue: newDueStr });
+                logSample.push({ 
+                    cardId: row.cardId, 
+                    blockId: row.blockId, 
+                    newDue: newDue.toISOString() 
+                });
             }
         }
 
-        if (itemsToUpdate.length === 0) return result;
+        if (cardsToUpdate.length === 0) return result;
 
         try {
-            await riff.batchSetRiffCardsDueTime(itemsToUpdate);
+            // ✅ 使用 StorageManager 批量更新
+            await this.storage.batchUpdateCards(cardsToUpdate as any);
+            
             await this.storage.addRescheduleLog({
                 ts: Date.now(),
                 action: 'spread',
                 source: meta.source,
-                targets: itemsToUpdate.map(i => i.id),
-                result: { updated: itemsToUpdate.length, skipped: result.skipped.length },
+                targets: cardsToUpdate.map(c => c.blockId),
+                result: { updated: cardsToUpdate.length, skipped: result.skipped.length },
                 sample: logSample
             });
         } catch (err: any) {
@@ -333,8 +326,8 @@ export class RescheduleService {
                 ts: Date.now(),
                 action: 'spread',
                 source: meta.source,
-                targets: itemsToUpdate.map(i => i.id),
-                result: { updated: 0, skipped: itemsToUpdate.length + result.skipped.length },
+                targets: cardsToUpdate.map(c => c.blockId),
+                result: { updated: 0, skipped: cardsToUpdate.length + result.skipped.length },
                 sample: [],
                 error: { code: 'API_ERROR', message: err.message }
             });
@@ -345,7 +338,9 @@ export class RescheduleService {
     }
 
     /**
-     * Absolute Reschedule
+     * ⚠️ DEPRECATED: Absolute Reschedule
+     * 
+     * @deprecated 使用新的 Engine 实现
      */
     async rescheduleAbsolute(
         rows: Array<{ blockId: string; cardId?: string; currentDue?: Date }>,
@@ -361,7 +356,9 @@ export class RescheduleService {
     }
 
     /**
-     * Relative Reschedule
+     * ⚠️ DEPRECATED: Relative Reschedule
+     * 
+     * @deprecated 使用新的 Engine 实现
      */
     async rescheduleRelative(
         rows: Array<{ blockId: string; cardId?: string; currentDue?: Date }>,

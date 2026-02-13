@@ -4,7 +4,6 @@ import { createVueDialog } from '@/utils/dialog';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import { riff } from '@/core/siyuan';
 import { ATTR_CARD_ID, getCardBlockIds } from '@/core/siyuan/block';
-import { getRiffCardsByBlockIDs } from '@/core/siyuan/riff';
 import { createDefaultCard } from '@/types';
 import { markBlockAsCard, unmarkBlockAsCard } from '@/core/siyuan/block';
 
@@ -89,29 +88,22 @@ export class CardService {
         let blockID = target?.getAttribute('data-node-id');
         let cardID = target?.getAttribute(ATTR_CARD_ID);
 
-        // 如果没找到，尝试从 riff API 查询老卡
+        // ✅ 新架构：从本地存储查询卡片
         if (!cardID && blockIds.length > 0) {
           try {
-            console.log('[FSRS] Querying riff cards for blockIds:', blockIds);
-            const riffBlocks = await getRiffCardsByBlockIDs(blockIds);
-            console.log('[FSRS] Riff API response:', riffBlocks);
-
-            if (riffBlocks.length > 0) {
-              const riffBlock = riffBlocks[0];
-              blockID = riffBlock.id || blockIds[0];
-
-              // 尝试从多个位置获取卡片 ID
-              // 1. 从 riffCard 子对象（新版本格式）
-              // 2. 从 ial 属性中的 custom-riff-decks（老版本格式）
-              // 3. 如果都没有，使用块 ID 作为标识（SrsEditorDialog 会自己查询）
-              cardID = riffBlock.riffCard?.id
-                || riffBlock.ial?.['custom-riff-decks']?.split(',')[0]
-                || blockID; // 使用 blockID 作为后备
-
-              console.log('[FSRS] Resolved blockID:', blockID, 'cardID:', cardID);
+            console.log('[FSRS] Querying local storage for blockIds:', blockIds);
+            // 尝试从本地存储获取卡片
+            for (const bid of blockIds) {
+              const card = this.plugin.storage.getCardByBlockId(bid);
+              if (card) {
+                blockID = card.blockId;
+                cardID = card.id;
+                console.log('[FSRS] Found card in local storage:', blockID, cardID);
+                break;
+              }
             }
           } catch (err) {
-            console.warn('[FSRS] Failed to query riff cards:', err);
+            console.warn('[FSRS] Failed to query local storage:', err);
           }
         }
 
@@ -129,6 +121,7 @@ export class CardService {
               deckID: riff.BUILTIN_DECK_ID,
             },
             deckID: riff.BUILTIN_DECK_ID,
+            plugin: this.plugin,  // ✅ 传递 plugin 实例
             i18n: this.plugin.i18n || {},
           },
           width: '760px',

@@ -86,7 +86,7 @@ import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import { ProviderBackedQueueStrategy } from '@/core/extensions';
 import { createVueDialog } from '@/utils/dialog';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
-import * as riff from '@/core/siyuan/riff';
+import { riff } from '@/core/siyuan';
 // 🌌 Orbit 侧边栏 v2.0
 import OrbitSidebar from '@/presentation/orbit/OrbitSidebar.vue';
 import type { NeuralRoamQueue } from '@/queues/NeuralRoamQueue';
@@ -704,6 +704,7 @@ function openSrsEditorDialog(blockId: string) {
       },
       deckID: riff.BUILTIN_DECK_ID,
       i18n: props.i18n || {},
+      plugin: props.plugin,  // ✅ 传递 plugin 实例
     },
     width: 'min(700px, 90vw)',
     height: 'min(600px, 80vh)',

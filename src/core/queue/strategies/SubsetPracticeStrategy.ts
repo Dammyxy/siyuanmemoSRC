@@ -153,18 +153,32 @@ export class SubsetPracticeStrategy implements IQueueStrategy<QueueItem> {
       this.queue.splice(idx, 1);
     }
 
-    try {
-      const cardID = await this.resolveCardId(blockID);
-      if (!cardID) return;
+    // ✅ 新架构：使用 StorageManager（如果可用）
+    // 注意：这是废弃的队列策略，只做最小化修改
+    if (!this.storage) {
+      console.warn('[SubsetPracticeStrategy] No storage available, skipping feedback');
+      return;
+    }
 
-      if (feedback.action === 'skip') {
-        await riff.skipReviewRiffCard(this.deckID, cardID);
+    try {
+      const card = this.storage.getCardByBlockId(blockID);
+      if (!card) {
+        console.warn('[SubsetPracticeStrategy] Card not found in storage:', blockID);
         return;
       }
+
+      if (feedback.action === 'skip') {
+        // 跳过：不做任何操作（旧的 skipReviewRiffCard 已废弃）
+        return;
+      }
+      
       if (feedback.action === 'rate') {
         const rating = feedback.rating;
         if (!rating) return;
-        await riff.reviewRiffCard(this.deckID, cardID, rating);
+        
+        // 使用 SchedulerRouter 进行复习（需要从外部传入）
+        // 由于这是废弃的策略，这里只记录警告
+        console.warn('[SubsetPracticeStrategy] @deprecated: Cannot review card without SchedulerRouter');
         return;
       }
     } catch (err) {
@@ -173,22 +187,21 @@ export class SubsetPracticeStrategy implements IQueueStrategy<QueueItem> {
   }
 
   private async prefetch(blockIds: string[]): Promise<void> {
+    // ✅ 新架构：从 StorageManager 预取卡片 ID
     if (blockIds.length === 0) return;
-    for (let i = 0; i < blockIds.length; i += 200) {
-      const batch = blockIds.slice(i, i + 200);
-      try {
-        const blocks = await riff.getRiffCardsByBlockIDs(batch);
-        const idMap = new Map<string, string>();
-        for (const b of blocks as any[]) {
-          const bid = String(b?.id || '');
-          const cid = normalizeRiffCardId(b);
-          if (bid && cid) idMap.set(bid, cid);
+    if (!this.storage) {
+      console.warn('[SubsetPracticeStrategy] No storage available for prefetch');
+      return;
+    }
+
+    for (const blockID of blockIds) {
+      const card = this.storage.getCardByBlockId(blockID);
+      if (card) {
+        const it = this.queue.find((x) => x.blockID === blockID);
+        if (it && !it.cardID) {
+          it.cardID = card.id;
         }
-        for (const it of this.queue) {
-          const cid = idMap.get(it.blockID);
-          if (cid && !it.cardID) it.cardID = cid;
-        }
-      } catch {}
+      }
     }
   }
 
@@ -204,21 +217,17 @@ export class SubsetPracticeStrategy implements IQueueStrategy<QueueItem> {
     const existing = this.queue.find((it) => it.blockID === blockID)?.cardID;
     if (existing) return existing;
 
-    const blocks = await riff.getRiffCardsByBlockIDs([blockID]);
-    const cid = normalizeRiffCardId((blocks as any[])?.[0]);
-    if (cid) {
-      const it = this.queue.find((x) => x.blockID === blockID);
-      if (it) it.cardID = cid;
-      return cid;
+    // ✅ 新架构：从 StorageManager 解析卡片 ID
+    if (!this.storage) {
+      console.warn('[SubsetPracticeStrategy] No storage available for resolveCardId');
+      return null;
     }
 
-    await riff.addRiffCards(this.deckID, [blockID]);
-    const blocks2 = await riff.getRiffCardsByBlockIDs([blockID]);
-    const cid2 = normalizeRiffCardId((blocks2 as any[])?.[0]);
-    if (cid2) {
+    const card = this.storage.getCardByBlockId(blockID);
+    if (card) {
       const it = this.queue.find((x) => x.blockID === blockID);
-      if (it) it.cardID = cid2;
-      return cid2;
+      if (it) it.cardID = card.id;
+      return card.id;
     }
 
     return null;

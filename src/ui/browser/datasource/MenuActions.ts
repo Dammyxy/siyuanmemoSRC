@@ -537,9 +537,56 @@ export async function adjustTime(
     case 'spread':
       // 检查是否使用新的配置对象
       if (context?.config) {
-        // 使用新的 spreadWithConfig 方法
-        const spreadDays = Math.max(1, Number(context?.maxDays || context?.days || 7));
-        result = await (service as any).spread?.(rows, { maxDays: spreadDays }, meta);
+        // 🆕 使用新的 spreadWithConfig 方法
+        // 先从存储加载完整的 FSRSCard 对象
+        const storage = plugin?.storage;
+        if (!storage) {
+          console.error('[MenuActions] No storage available for spreadWithConfig');
+          result = { updated: 0, skipped: 0, averageCardsPerDay: 0 };
+          break;
+        }
+        
+        console.log('[MenuActions] Loading FSRS cards for spread, rows:', rows.length);
+        const fsrsCards: any[] = [];
+        for (const row of rows) {
+          console.log('[MenuActions] Processing row:', { blockId: row.blockId, cardId: row.cardId });
+          if (!row.cardId) {
+            console.warn('[MenuActions] Row missing cardId, skipping:', row);
+            continue;
+          }
+          const card = storage.getCard(row.cardId);
+          console.log('[MenuActions] Got card from storage:', card ? 'found' : 'not found', row.cardId);
+          if (card) {
+            fsrsCards.push(card);
+          } else {
+            console.warn('[MenuActions] Card not found:', row.cardId);
+          }
+        }
+        
+        console.log('[MenuActions] Loaded FSRS cards:', fsrsCards.length, '/', rows.length);
+        
+        if (fsrsCards.length === 0) {
+          console.warn('[MenuActions] No FSRS cards found for spread');
+          result = { updated: 0, skipped: rows.length, averageCardsPerDay: 0 };
+          break;
+        }
+        
+        // 调用 spreadWithConfig
+        console.log('[MenuActions] Calling spreadWithConfig with config:', context.config);
+        const spreadResult = await (service as any).spreadWithConfig?.(
+          fsrsCards,
+          context.config,
+          meta
+        );
+        
+        console.log('[MenuActions] spreadWithConfig result:', spreadResult);
+        
+        // 转换结果格式以兼容旧接口
+        result = {
+          updated: spreadResult?.updated ? (Array.isArray(spreadResult.updated) ? spreadResult.updated : new Array(spreadResult.updated).fill({})) : [],
+          skipped: spreadResult?.skipped ? (Array.isArray(spreadResult.skipped) ? spreadResult.skipped : new Array(spreadResult.skipped).fill({})) : [],
+          averageCardsPerDay: spreadResult?.averageCardsPerDay
+        };
       } else {
         // 兼容旧的简单参数方式
         const spreadDays = Math.max(1, Number(context?.maxDays || context?.days || 0));

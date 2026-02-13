@@ -178,7 +178,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                 queueType: this.queueType,
                 cardId: card.id,
                 index: this.currentIndex - 1,
-                total: this.cachedCards.length
+                total: this.cachedCards.length,
+                due: new Date(card.due).toISOString(),
+                now: new Date(Date.now()).toISOString()
             });
             
             return card;

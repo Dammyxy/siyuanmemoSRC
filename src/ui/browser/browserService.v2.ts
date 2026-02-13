@@ -432,27 +432,237 @@ export function getCacheStats(): { count: number; age: number; valid: boolean } 
 // 筛选逻辑（保持不变）
 // ============================================================================
 
-// TODO: 从原 browserService.ts 复制以下函数：
-// - parseQuery()
-// - applyPresetFilter()
-// - applyParsedQuery()
-// - matchesParsedQuery()
-// - extractSqlStatement()
-// 等等...
+// ============================================================================
+// 查询和筛选逻辑（从原文件复制）
+// ============================================================================
 
-// 临时占位符
-function parseQuery(query: string): any {
-    return { text: query, tags: [], decks: [], states: [], docs: [], conditions: [] };
+/** 数值比较条件 */
+export interface NumberCondition {
+    operator: '<' | '>' | '<=' | '>=' | '=' | '!=';
+    value: number;
+}
+
+export interface ParsedBrowserQuery {
+    text: string;
+    tags: string[];
+    decks: string[];
+    states: CardState[];
+    docs: string[];
+    conditions: {
+        priority?: NumberCondition[];
+        interval?: NumberCondition[];
+        reps?: NumberCondition[];
+        lapses?: NumberCondition[];
+        difficulty?: NumberCondition[];
+        retrievability?: NumberCondition[];
+        stability?: NumberCondition[];
+    };
+}
+
+export function parseQuery(input: string): ParsedBrowserQuery {
+    const tokens = (input || '').trim().split(/\s+/).filter(Boolean);
+    const tags: string[] = [];
+    const decks: string[] = [];
+    const docs: string[] = [];
+    const states: CardState[] = [];
+    const freeText: string[] = [];
+
+    const conditions: ParsedBrowserQuery['conditions'] = {
+        priority: [],
+        interval: [],
+        reps: [],
+        lapses: [],
+        difficulty: [],
+        retrievability: [],
+        stability: [],
+    };
+
+    const pushUnique = (arr: string[], v: string) => {
+        if (!v) return;
+        if (!arr.includes(v)) arr.push(v);
+    };
+
+    const fieldAliases: Record<string, keyof ParsedBrowserQuery['conditions']> = {
+        'prior': 'priority',
+        'priority': 'priority',
+        'intrv': 'interval',
+        'interval': 'interval',
+        'reps': 'reps',
+        'lapses': 'lapses',
+        'dif': 'difficulty',
+        'difficulty': 'difficulty',
+        'fi': 'retrievability',
+        'retrievability': 'retrievability',
+        'af': 'stability',
+        'stability': 'stability',
+    };
+
+    const parseNumberCondition = (token: string): boolean => {
+        const match = token.match(/^([a-zA-Z_]+)(<=|>=|<|>|=|!=)(-?\d+(\.\d+)?)$/);
+        if (!match) return false;
+
+        const [, field, operator, valueStr] = match;
+        const fieldName = fieldAliases[field.toLowerCase()];
+        if (!fieldName) return false;
+
+        const value = parseFloat(valueStr);
+        if (isNaN(value)) return false;
+
+        conditions[fieldName]!.push({ operator: operator as NumberCondition['operator'], value });
+        return true;
+    };
+
+    for (const token of tokens) {
+        if (parseNumberCondition(token)) {
+            continue;
+        }
+
+        const idx = token.indexOf(':');
+        if (idx <= 0) {
+            freeText.push(token);
+            continue;
+        }
+
+        const key = token.slice(0, idx).toLowerCase();
+        const rawValue = token.slice(idx + 1).trim();
+        if (!rawValue) continue;
+
+        if (key === 'tag') {
+            const v = rawValue.replace(/^#+|#+$/g, '');
+            pushUnique(tags, v);
+            continue;
+        }
+        if (key === 'deck') {
+            pushUnique(decks, rawValue);
+            continue;
+        }
+        if (key === 'doc') {
+            pushUnique(docs, rawValue);
+            continue;
+        }
+        if (key === 'state') {
+            const parts = rawValue.split(/[\/,|]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+            for (const p of parts) {
+                if (p === 'new') states.push(CardState.New);
+                else if (p === 'review') states.push(CardState.Review);
+                else if (p === 'learning') states.push(CardState.Learning);
+                else if (p === 'relearning') states.push(CardState.Relearning);
+            }
+            continue;
+        }
+
+        freeText.push(token);
+    }
+
+    return {
+        text: freeText.join(' ').trim(),
+        tags,
+        decks,
+        states: Array.from(new Set(states)),
+        docs,
+        conditions,
+    };
+}
+
+function checkNumberCondition(actualValue: number, conditions: NumberCondition[]): boolean {
+    if (conditions.length === 0) return true;
+
+    return conditions.every(cond => {
+        switch (cond.operator) {
+            case '<': return actualValue < cond.value;
+            case '>': return actualValue > cond.value;
+            case '<=': return actualValue <= cond.value;
+            case '>=': return actualValue >= cond.value;
+            case '=': return actualValue === cond.value;
+            case '!=': return actualValue !== cond.value;
+            default: return true;
+        }
+    });
+}
+
+function applyParsedQuery(cards: BrowserCard[], parsed: ParsedBrowserQuery): BrowserCard[] {
+    let next = cards;
+
+    if (parsed.decks.length > 0) {
+        const set = new Set(parsed.decks);
+        next = next.filter(c => set.has(c.deckId));
+    }
+
+    if (parsed.states.length > 0) {
+        const set = new Set(parsed.states);
+        next = next.filter(c => set.has(c.state));
+    }
+
+    if (parsed.docs.length > 0) {
+        const set = new Set(parsed.docs);
+        next = next.filter(c => c.rootId && set.has(c.rootId));
+    }
+
+    if (parsed.tags.length > 0) {
+        next = next.filter(c => {
+            const tags = c.tags || [];
+            return parsed.tags.every(t => tags.includes(t));
+        });
+    }
+
+    if (parsed.text) {
+        const q = parsed.text.toLowerCase();
+        next = next.filter(c => (c.fullContent || c.content || '').toLowerCase().includes(q));
+    }
+
+    const conds = parsed.conditions;
+    next = next.filter(c => {
+        if (conds.priority && !checkNumberCondition(c.priority, conds.priority)) return false;
+        if (conds.interval && !checkNumberCondition(c.interval, conds.interval)) return false;
+        if (conds.reps && !checkNumberCondition(c.reps, conds.reps)) return false;
+        if (conds.lapses && !checkNumberCondition(c.lapses, conds.lapses)) return false;
+        if (conds.difficulty && !checkNumberCondition(c.difficulty, conds.difficulty)) return false;
+        if (conds.retrievability && !checkNumberCondition(c.retrievability, conds.retrievability)) return false;
+        if (conds.stability && !checkNumberCondition(c.stability, conds.stability)) return false;
+        return true;
+    });
+
+    return next;
 }
 
 function applyPresetFilter(cards: BrowserCard[], preset: string, currentDocId?: string, plugin?: Plugin): BrowserCard[] {
-    // TODO: 实现筛选逻辑
-    return cards;
-}
+    const now = new Date();
+    
+    let todayEnd: Date;
+    if (plugin) {
+        const dayStartHour = getDayStartHour(plugin);
+        const dayEndTimestamp = getCurrentDayEnd(dayStartHour);
+        todayEnd = new Date(dayEndTimestamp);
+    } else {
+        todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    }
 
-function applyParsedQuery(cards: BrowserCard[], parsed: any): BrowserCard[] {
-    // TODO: 实现查询筛选
-    return cards;
+    switch (preset) {
+        case 'due':
+            return cards.filter(c => c.due <= todayEnd && !c.suspended);
+        case 'overdue':
+            return cards.filter(c => c.due < now && !c.suspended);
+        case 'new':
+            return cards.filter(c => c.state === CardState.New && !c.suspended);
+        case 'learning':
+            return cards.filter(c => (c.state === CardState.Learning || c.state === CardState.Relearning) && !c.suspended);
+        case 'leech':
+            return cards.filter(c => c.lapses >= 8);
+        case 'suspended':
+            return cards.filter(c => c.suspended);
+        case 'current-doc':
+            if (currentDocId) {
+                return cards.filter(c => c.rootId === currentDocId);
+            }
+            return cards;
+        case 'topic-only':
+            return cards.filter(c => c.cardType === 'topic');
+        case 'item-only':
+            return cards.filter(c => c.cardType === 'item' || !c.cardType);
+        case 'all':
+        default:
+            return cards;
+    }
 }
 
 export function extractSqlStatement(query: string): string | null {
@@ -460,7 +670,369 @@ export function extractSqlStatement(query: string): string | null {
     return match ? match[1].trim() : null;
 }
 
-export function matchesParsedQuery(card: BrowserCard, parsed: any): boolean {
-    // TODO: 实现匹配逻辑
+export function matchesParsedQuery(card: BrowserCard, parsed: ParsedBrowserQuery): boolean {
+    if (parsed.decks.length > 0 && !parsed.decks.includes(card.deckId)) return false;
+    if (parsed.states.length > 0 && !parsed.states.includes(card.state)) return false;
+    if (parsed.docs.length > 0 && (!card.rootId || !parsed.docs.includes(card.rootId))) return false;
+    
+    if (parsed.tags.length > 0) {
+        const tags = card.tags || [];
+        if (!parsed.tags.every(t => tags.includes(t))) return false;
+    }
+    
+    if (parsed.text) {
+        const q = parsed.text.toLowerCase();
+        if (!(card.fullContent || card.content || '').toLowerCase().includes(q)) return false;
+    }
+    
+    const conds = parsed.conditions;
+    if (conds.priority && !checkNumberCondition(card.priority, conds.priority)) return false;
+    if (conds.interval && !checkNumberCondition(card.interval, conds.interval)) return false;
+    if (conds.reps && !checkNumberCondition(card.reps, conds.reps)) return false;
+    if (conds.lapses && !checkNumberCondition(card.lapses, conds.lapses)) return false;
+    if (conds.difficulty && !checkNumberCondition(card.difficulty, conds.difficulty)) return false;
+    if (conds.retrievability && !checkNumberCondition(card.retrievability, conds.retrievability)) return false;
+    if (conds.stability && !checkNumberCondition(card.stability, conds.stability)) return false;
+    
     return true;
+}
+
+// ============================================================================
+// 其他辅助函数
+// ============================================================================
+
+export async function loadAllCards(
+    unifiedDataSourceManager: UnifiedDataSourceManager,
+    forceRefresh = false
+): Promise<BrowserCard[]> {
+    return loadAllCardsRaw(unifiedDataSourceManager, forceRefresh);
+}
+
+export interface DocTreeNode {
+    id: string;
+    title: string;
+}
+
+export async function getDocTree(rootIds: string[]): Promise<DocTreeNode[]> {
+    const ids = Array.from(new Set((rootIds || []).filter(Boolean)));
+    if (ids.length === 0) return [];
+    
+    try {
+        const sqlQuery = `
+            SELECT id, content, hpath
+            FROM blocks
+            WHERE id IN (${ids.map(id => `'${escapeSQL(id)}'`).join(',')})
+        `;
+        
+        const rows = await sql(sqlQuery);
+        const foundIds = new Set((rows || []).map((r: any) => r.id));
+        const result = (rows || []).map((r: any) => {
+            const title = (r.content || '').trim() || String(r.hpath || '').split('/').pop() || r.id;
+            return { id: r.id, title };
+        });
+        
+        for (const id of ids) {
+            if (!foundIds.has(id)) {
+                result.push({ id, title: `📄 ${id} (已删除)` });
+            }
+        }
+        
+        return result;
+    } catch (err) {
+        console.error('[CardBrowser] getDocTree error:', err);
+        return ids.map((id) => ({ id, title: id }));
+    }
+}
+
+export async function loadQueueCards(
+    blockIds: string[],
+    queryText: string | undefined,
+    unifiedDataSourceManager: UnifiedDataSourceManager
+): Promise<BrowserCard[]> {
+    const ids = Array.from(new Set((blockIds || []).filter(Boolean)));
+    if (ids.length === 0) return [];
+
+    try {
+        // 从缓存或统一数据源获取卡片
+        const cachedCards = cardCache.get();
+        if (cachedCards) {
+            const cardMap = new Map(cachedCards.map(c => [c.blockId, c]));
+            let cards = ids.map(id => cardMap.get(id)).filter(Boolean) as BrowserCard[];
+            
+            if (queryText) {
+                const parsed = parseQuery(queryText);
+                cards = applyParsedQuery(cards, parsed);
+            }
+            
+            const byBlockId = new Map(cards.map((c) => [c.blockId, c]));
+            return ids.map((id) => byBlockId.get(id)).filter(Boolean) as BrowserCard[];
+        }
+
+        // 回退：从统一数据源加载
+        const router = unifiedDataSourceManager.getRouter();
+        const allCards = await router.getCards();
+        const cardMap = new Map(allCards.map(c => [c.blockId, c]));
+        
+        const { attrsMap, rootIdMap, tagsMap } = await fetchBlockInfoBatched(ids);
+        
+        let cards: BrowserCard[] = ids
+            .map(id => cardMap.get(id))
+            .filter(Boolean)
+            .map(card => {
+                const customAttrs = attrsMap.get(card!.blockId) || {};
+                const browserCard = transformFSRSCard(card!, customAttrs);
+                browserCard.rootId = rootIdMap.get(card!.blockId) || browserCard.rootId || '';
+                browserCard.tags = tagsMap.get(card!.blockId) || [];
+                return browserCard;
+            });
+
+        const parsed = parseQuery(queryText || '');
+        cards = applyParsedQuery(cards, parsed);
+        const byBlockId = new Map(cards.map((c) => [c.blockId, c]));
+        return ids.map((id) => byBlockId.get(id)).filter(Boolean) as BrowserCard[];
+    } catch (err) {
+        console.error('[CardBrowser] loadQueueCards error:', err);
+        return [];
+    }
+}
+
+
+// ============================================================================
+// 批量操作（使用 StorageManager）
+// ============================================================================
+
+/**
+ * 批量重置为新卡
+ * ✅ 使用 StorageManager，移除 Riff API 调用
+ */
+export async function batchReset(
+    blockIds: string[],
+    storageManager: StorageManager
+): Promise<number> {
+    if (blockIds.length === 0) return 0;
+
+    try {
+        // ✅ 使用 StorageManager 批量更新
+        const updates = blockIds.map(blockId => ({
+            blockId,
+            state: CardState.New,
+            due: Date.now(),
+            reps: 0,
+            lapses: 0,
+            lastReview: null,
+        }));
+        
+        await storageManager.batchUpdateCards(updates as any);
+        
+        // 清除缓存
+        cardCache.clear();
+        
+        console.log('[CardBrowser] ✅ Batch reset completed:', blockIds.length);
+        return blockIds.length;
+    } catch (err) {
+        console.error('[CardBrowser] Batch reset error:', err);
+        return 0;
+    }
+}
+
+/**
+ * 批量暂停/取消暂停
+ * ✅ 使用 StorageManager，移除 Riff API 调用
+ */
+export async function batchSuspend(
+    blockIds: string[],
+    suspend: boolean,
+    storageManager: StorageManager
+): Promise<number> {
+    if (blockIds.length === 0) return 0;
+
+    try {
+        // ✅ 使用 StorageManager 批量更新
+        const farFuture = Date.now() + 100 * 365 * 24 * 60 * 60 * 1000;
+        const updates = blockIds.map(blockId => ({
+            blockId,
+            suspended: suspend,
+            due: suspend ? farFuture : Date.now(),
+        }));
+        
+        await storageManager.batchUpdateCards(updates as any);
+        
+        // 同时更新块属性
+        for (const blockId of blockIds) {
+            try {
+                if (suspend) {
+                    await setBlockAttrs(blockId, { [ATTR_SUSPENDED]: 'true' });
+                } else {
+                    await setBlockAttrs(blockId, { [ATTR_SUSPENDED]: '' });
+                }
+                
+                // 增量更新缓存
+                cardCache.updateCard(blockId, { suspended: suspend });
+            } catch (err) {
+                console.error('[CardBrowser] Update block attr error:', blockId, err);
+            }
+        }
+        
+        console.log('[CardBrowser] ✅ Batch suspend completed:', blockIds.length);
+        return blockIds.length;
+    } catch (err) {
+        console.error('[CardBrowser] Batch suspend error:', err);
+        return 0;
+    }
+}
+
+/**
+ * 批量设置优先级
+ */
+export async function batchSetPriority(
+    blockIds: string[],
+    priority: number
+): Promise<number> {
+    if (blockIds.length === 0) return 0;
+
+    let successCount = 0;
+    const clampedPriority = Math.max(0, Math.min(100, priority));
+
+    for (const blockId of blockIds) {
+        try {
+            await setBlockAttrs(blockId, { [ATTR_PRIORITY]: String(clampedPriority) });
+            successCount++;
+            
+            // 增量更新缓存
+            cardCache.updateCard(blockId, { priority: clampedPriority });
+        } catch (err) {
+            console.error('[CardBrowser] Set priority error:', blockId, err);
+        }
+    }
+
+    return successCount;
+}
+
+/**
+ * 批量删除卡片
+ * ✅ 使用 StorageManager，移除 Riff API 调用
+ */
+export async function batchDelete(
+    blockIds: string[],
+    storageManager: StorageManager
+): Promise<number> {
+    if (blockIds.length === 0) return 0;
+
+    try {
+        console.log('[batchDelete] 开始删除卡片:', blockIds.length);
+        
+        // ✅ 使用 StorageManager 删除
+        await storageManager.deleteCards(blockIds);
+        
+        // 增量更新缓存
+        cardCache.removeCards(blockIds);
+        
+        console.log('[batchDelete] ✅ Batch delete completed:', blockIds.length);
+        return blockIds.length;
+    } catch (err) {
+        console.error('[batchDelete] Batch delete error:', err);
+        return 0;
+    }
+}
+
+/**
+ * 批量重新调度
+ * ✅ 使用 StorageManager，移除 Riff API 调用
+ */
+export async function batchReschedule(
+    cards: BrowserCard[],
+    mode: 'absolute' | 'relative',
+    value: Date | number,
+    storageManager: StorageManager
+): Promise<number> {
+    if (cards.length === 0) return 0;
+
+    const newDue = mode === 'absolute'
+        ? (value as Date).getTime()
+        : Date.now() + (value as number) * 24 * 60 * 60 * 1000;
+
+    try {
+        // ✅ 使用 StorageManager 批量更新
+        const updates = cards.map(card => ({
+            blockId: card.blockId,
+            due: newDue,
+        }));
+        
+        await storageManager.batchUpdateCards(updates as any);
+        
+        console.log('[CardBrowser] ✅ Batch reschedule completed:', cards.length);
+        return cards.length;
+    } catch (err) {
+        console.error('[CardBrowser] Batch reschedule error:', err);
+        return 0;
+    }
+}
+
+/**
+ * 批量检测卡片类型并应用到块属性
+ */
+export async function batchDetectCardTypes(
+    cards: BrowserCard[]
+): Promise<{
+    detected: number;
+    updated: number;
+    failed: number;
+}> {
+    if (cards.length === 0) {
+        return { detected: 0, updated: 0, failed: 0 };
+    }
+
+    try {
+        const blockIds = cards.map(c => c.blockId);
+        const typeMap = await batchDetectCardType(blockIds);
+
+        let updated = 0;
+        let failed = 0;
+
+        const BATCH_SIZE = 50;
+        for (let i = 0; i < cards.length; i += BATCH_SIZE) {
+            const batch = cards.slice(i, i + BATCH_SIZE);
+
+            await Promise.all(batch.map(async (card) => {
+                try {
+                    const cardType = typeMap.get(card.blockId);
+                    if (!cardType) {
+                        failed++;
+                        return;
+                    }
+
+                    const attrs: Record<string, string> = {
+                        [ATTR_CARD_TYPE]: cardType,
+                    };
+
+                    let aFactor: number | undefined;
+                    if (cardType === 'topic') {
+                        aFactor = initializeAFactor(card.priority);
+                        attrs[ATTR_A_FACTOR] = aFactor.toString();
+                    }
+
+                    await setBlockAttrs(card.blockId, attrs);
+
+                    const cacheUpdates: Partial<BrowserCard> = { cardType };
+                    if (aFactor !== undefined) {
+                        cacheUpdates.aFactor = aFactor;
+                    }
+                    cardCache.updateCard(card.blockId, cacheUpdates);
+                    updated++;
+                } catch (err) {
+                    console.error(`[CardBrowser] Failed to update card type for ${card.blockId}:`, err);
+                    failed++;
+                }
+            }));
+        }
+
+        return {
+            detected: cards.length,
+            updated,
+            failed,
+        };
+    } catch (err) {
+        console.error('[CardBrowser] batchDetectCardTypes error:', err);
+        return { detected: 0, updated: 0, failed: cards.length };
+    }
 }

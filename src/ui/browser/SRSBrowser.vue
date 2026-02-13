@@ -36,6 +36,7 @@
         :mode="mode"
         :queue-type="currentQueueType"
         :applied-filter="appliedFilter"
+        :active-queue-id="activeQueueId"
         @exitFocus="handleExitFocus"
         @openPracticeMenu="openPracticeMenu"
         @applySortToQueue="handleApplySortToQueue"
@@ -155,6 +156,7 @@ import { RetrievalDataSource } from './datasource/RetrievalDataSource';
 import { DeckDataSource } from './datasource/DeckDataSource';
 import { QueryDataSource } from './datasource/QueryDataSource';
 import { BlockIdsDataSource } from './datasource/BlockIdsDataSource';
+import { adjustTime } from './datasource/MenuActions';  // 🆕 导入 adjustTime
 import ActionParamsDialog from './ActionParamsDialog.vue';
 import BrowserHierarchy from './BrowserHierarchy.vue';
 import BrowserPreview from './BrowserPreview.vue';
@@ -241,7 +243,7 @@ const selectedRows = ref<BrowserCard[]>([]);
 const gridApi = ref<GridApi | null>(null);
 const currentSortModel = ref<any[]>([]);
 const searchQuery = ref('');
-const viewMode = ref<'flat' | 'hierarchy'>('flat');
+const viewMode = ref<'flat' | 'hierarchy'>('hierarchy');  // ✅ 默认使用层级视图
 const activeQueueId = ref<string | null>(null);
 const activeDocId = ref<string | null>(null);
 const queueCounts = ref<Record<string, number>>({});
@@ -868,8 +870,9 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
             resolve(null);
           },
         },
-        width: '600px',
-        height: '80vh',
+        width: '800px',  // 🆕 增大默认宽度
+        height: '85vh',  // 🆕 增大默认高度
+        responsive: true,  // 🆕 启用响应式
       });
     });
   },
@@ -894,8 +897,9 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
             resolve(null);
           },
         },
-        width: '600px',
-        height: '80vh',
+        width: '800px',  // 🆕 增大默认宽度
+        height: '85vh',  // 🆕 增大默认高度
+        responsive: true,  // 🆕 启用响应式
       });
     });
   },
@@ -1828,49 +1832,70 @@ async function handleClearFilter() {
  */
 async function handleOpenSpreadDialog() {
   console.log('[SRSBrowser] Opening Spread dialog');
-  console.log('[SRSBrowser] allRows.value:', {
-    length: allRows.value.length,
-    sample: allRows.value.slice(0, 3).map(c => ({ blockId: c.blockId, due: c.due })),
-  });
   
   try {
-    // 1. 收集所有 Outstanding 卡片（due <= now）
-    // 注意：这里只收集默认范围的卡片，具体的收集逻辑由 SpreadEngine 根据配置执行
+    // 🆕 根据当前模式决定使用哪些卡片
+    let cardsToSpread: BrowserCard[] = [];
+    const isQueueMode = activeQueueId.value === 'retrieval' || activeQueueId.value === 'incremental-learning';
+    
+    if (isQueueMode) {
+      // 队列模式：使用当前队列的卡片（到期 + 手动添加）
+      console.log('[SRSBrowser] Queue mode - using queue cards:', activeQueueId.value);
+      cardsToSpread = rows.value;  // rows.value 已经是当前队列的卡片
+    } else {
+      // 全部闪卡模式：使用所有卡片
+      console.log('[SRSBrowser] All cards mode - using allRows');
+      cardsToSpread = allRows.value;
+    }
+    
+    console.log('[SRSBrowser] Cards to spread:', {
+      mode: activeQueueId.value || 'all',
+      total: cardsToSpread.length,
+      sample: cardsToSpread.slice(0, 3).map(c => ({ blockId: c.blockId, due: c.due })),
+    });
+    
+    // 检查是否有卡片
+    if (cardsToSpread.length === 0) {
+      await pushMsg(t('noCards', '没有卡片'));
+      return;
+    }
+    
+    // 1. 收集所有 Outstanding 卡片（due <= now）用于初始显示
     const now = Date.now();
-    const outstandingCards = allRows.value.filter(card => {
+    const outstandingCards = cardsToSpread.filter(card => {
       const dueTime = card.due instanceof Date ? card.due.getTime() : card.due;
       return dueTime <= now;
     });
     
     console.log('[SRSBrowser] Collected outstanding cards:', {
-      total: allRows.value.length,
+      total: cardsToSpread.length,
       outstanding: outstandingCards.length,
     });
     
-    if (outstandingCards.length === 0) {
-      await pushMsg(t('noOutstandingCards', '没有需要分散的卡片（所有卡片都已完成复习）'));
-      return;
-    }
-    
-    // 2. 打开 SpreadDialog
+    // 2. 打开 SpreadDialog（即使没有到期卡片也允许打开，因为可以选择"考虑未来复习"模式）
     const configManager = new ConfigManager(props.plugin?.storage!);
     const dlg = createVueDialog({
       title: t('spread', '分摊复习压力'),
       component: SpreadDialog,
       props: {
-        count: outstandingCards.length,
+        count: outstandingCards.length,  // 初始显示到期卡片数量
         configManager,
-        allCards: allRows.value,  // 🆕 传入已加载的卡片数据，避免触发缓存更新回调
+        allCards: cardsToSpread,  // 🆕 传入当前模式的卡片数据
+        queueMode: isQueueMode,  // 🆕 传入队列模式标志
       },
       events: {
         confirm: async (config) => {
           dlg.destroy();
           
           // 3. 执行 Spread 操作
+          // 🆕 根据配置决定传入哪些卡片：
+          // - considerFutureRepetitions = true: 传入所有卡片（SpreadEngine 会根据 collectingPeriod 筛选）
+          // - considerFutureRepetitions = false: 传入所有卡片（SpreadEngine 会筛选出 due <= now 的卡片）
+          // 因此，无论哪种模式，都应该传入所有卡片，让 SpreadEngine 根据配置筛选
           try {
             const result = await adjustTime(
               props.plugin,
-              outstandingCards,
+              cardsToSpread,  // 🆕 使用当前模式的卡片
               'spread',
               { config }
             );
@@ -1882,19 +1907,21 @@ async function handleOpenSpreadDialog() {
                 component: RescheduleResultDialog,
                 props: {
                   result: {
-                    updated: result.updated?.length || 0,
-                    skipped: result.skipped?.length || 0,
+                    success: true,  // 🆕 添加 success 字段
+                    updated: typeof result.updated === 'number' ? result.updated : (result.updated?.length || 0),
+                    skipped: typeof result.skipped === 'number' ? result.skipped : (result.skipped?.length || 0),
                     averageCardsPerDay: result.averageCardsPerDay,
                   },
-                  operation: 'spread',
+                  operationType: 'spread',  // 🆕 修正属性名
                 },
                 events: {
                   close: () => {
                     resultDlg.destroy();
                   },
                 },
-                width: '500px',
-                height: '300px',
+                width: '600px',  // 🆕 增大宽度
+                height: '450px',  // 🆕 增大高度
+                responsive: true,  // 🆕 启用响应式
               });
             }
             
@@ -1910,8 +1937,9 @@ async function handleOpenSpreadDialog() {
           dlg.destroy();
         },
       },
-      width: '700px',
-      height: '80vh',
+      width: '800px',  // 🆕 增大默认宽度
+      height: '85vh',  // 🆕 增大默认高度
+      responsive: true,  // 🆕 启用响应式
     });
   } catch (err: any) {
     console.error('[SRSBrowser] Failed to open Spread dialog:', err);

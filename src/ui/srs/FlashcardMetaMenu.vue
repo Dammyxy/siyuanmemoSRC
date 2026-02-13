@@ -26,9 +26,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { sql, getBlockAttrs } from '@/core/siyuan/api';
-import { getRiffCardsByBlockIDs, getRiffDecks } from '@/core/siyuan/riff';
 import { createScheduler } from '@/core/scheduler';
 import { DEFAULT_SETTINGS } from '@/types';
+import type FSRSPlugin from '@/index';
 
 interface FieldItem {
   key: string;
@@ -39,6 +39,7 @@ interface FieldItem {
 const props = defineProps<{
   blockID: string;
   i18n?: Record<string, string>;
+  plugin?: FSRSPlugin;  // ✅ 添加 plugin prop
 }>();
 
 const t = (key: string, fallback: string) => props.i18n?.[key] || fallback;
@@ -77,27 +78,19 @@ onMounted(async () => {
       return;
     }
 
-    // 并行获取闪卡数据
-    const [attrs, riffBlocks] = await Promise.all([
-      getBlockAttrs(props.blockID).catch(() => ({})),
-      getRiffCardsByBlockIDs([props.blockID]).catch(() => []),
-    ]);
-
-    const card = riffBlocks[0]?.riffCard;
+    // ✅ 新架构：从本地存储获取卡片数据
+    const attrs = await getBlockAttrs(props.blockID).catch(() => ({}));
+    const card = props.plugin?.storage.getCardByBlockId(props.blockID);
     
-    // 获取卡片组名
-    let deckName = '-';
-    if (card?.deckID) {
-      const decks = await getRiffDecks().catch(() => []);
-      deckName = decks.find(d => d.id === card.deckID)?.name || card.deckID;
-    }
+    // 获取卡片组名（暂时使用默认值，因为新架构中没有 deckID 概念）
+    const deckName = '-';
 
     // 计算掌握程度
     let mastery = 0;
-    if (card?.stability > 0) {
+    if (card?.stability && card.stability > 0) {
       const scheduler = createScheduler(DEFAULT_SETTINGS.fsrs);
       mastery = Math.round(scheduler.getRetrievability({
-        due: Date.now(),
+        due: card.due,
         stability: card.stability,
         difficulty: card.difficulty ?? 0,
         elapsedDays: card.elapsedDays ?? 0,
@@ -105,7 +98,7 @@ onMounted(async () => {
         reps: card.reps ?? 0,
         lapses: card.lapses ?? 0,
         state: card.state ?? 0,
-        lastReview: parseTime(card.lastReview)?.getTime() ?? Date.now(),
+        lastReview: card.lastReview ?? Date.now(),
       } as any, new Date()) * 100);
     }
 
@@ -122,7 +115,7 @@ onMounted(async () => {
       { key: 'stability', label: t('stability', '记忆强度'), value: (card?.stability ?? 0).toFixed(2) },
       { key: 'difficulty', label: t('difficulty', '难度'), value: (card?.difficulty ?? 0).toFixed(2) },
       { key: 'lapses', label: t('lapses', '遗忘次数'), value: fmt(card?.lapses ?? 0) },
-      { key: 'due', label: t('due', '下次复习'), value: fmtDate(parseTime(card?.due)) },
+      { key: 'due', label: t('due', '下次复习'), value: card?.due ? fmtDate(new Date(card.due)) : '-' },
       { key: 'tags', label: t('tags', '关联标签'), value: block.tag || '-' },
       { key: 'deck', label: t('deck', '所属卡片组'), value: deckName },
     ];

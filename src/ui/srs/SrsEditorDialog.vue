@@ -212,16 +212,17 @@ import { ref, computed, onMounted } from 'vue';
 import { Dialog } from 'siyuan';
 import { getBlockInfo, getBlockDOM } from '@/core/siyuan/api';
 import { getCardBlockIds } from '@/core/siyuan/block';
-import { getRiffCardsByBlockIDs, resetRiffCards, batchSetRiffCardsDueTime, reviewRiffCard } from '@/core/siyuan/riff';
-import { DEFAULT_SETTINGS } from '@/types';
+import { DEFAULT_SETTINGS, CardState } from '@/types';
 import { createScheduler } from '@/core/scheduler';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
 import FsrsSettingsPanel from './FsrsSettingsPanel.vue';
+import type FSRSPlugin from '@/index';
 
 const props = defineProps<{
   card: { cardID: string; blockID: string; deckID: string };
   deckID: string;
   i18n?: Record<string, string>;
+  plugin?: FSRSPlugin;  // ✅ 添加 plugin prop
 }>();
 
 const selectDocAll = ref(false);
@@ -341,23 +342,19 @@ async function loadSelection() {
   if (!selectDocAll.value) {
     selectedBlocks.value = [props.card.blockID];
     
-    // 从 riff API 查询真正的卡片 ID
+    // ✅ 新架构：从本地存储查询卡片
     try {
-      const riffBlocks = await getRiffCardsByBlockIDs([props.card.blockID]);
-      const rb = riffBlocks[0];
+      const card = props.plugin?.storage.getCardByBlockId(props.card.blockID);
       
-      // 真正的卡片 ID 在 riffCardID 字段（顶层），不是 riffCard.id 或 ial
-      const cardId = (rb as any)?.riffCardID || rb?.riffCard?.id;
-      
-      if (cardId) {
-        selectedCards.value = [cardId];
-        console.log('[SrsEditor] loadSelection: resolved real cardID:', cardId);
+      if (card) {
+        selectedCards.value = [card.id];
+        console.log('[SrsEditor] loadSelection: resolved cardID from storage:', card.id);
       } else {
         selectedCards.value = [props.card.cardID];
         console.log('[SrsEditor] loadSelection: fallback to props cardID:', props.card.cardID);
       }
     } catch (err) {
-      console.warn('[SrsEditor] Failed to query riff card ID:', err);
+      console.warn('[SrsEditor] Failed to query local storage:', err);
       selectedCards.value = [props.card.cardID];
     }
     
@@ -375,9 +372,15 @@ async function loadSelection() {
     }
     const blocks = await getCardBlockIds({ type: 'doc', value: rootId });
     selectedBlocks.value = blocks.length ? blocks : [props.card.blockID];
-    const riffBlocks = await getRiffCardsByBlockIDs(selectedBlocks.value);
-    // 优先从 riffCard 获取真正的卡片 ID
-    const cardIds = riffBlocks.map(b => b.riffCard?.id).filter(Boolean) as string[];
+    
+    // ✅ 新架构：从本地存储批量查询卡片
+    const cardIds: string[] = [];
+    for (const blockId of selectedBlocks.value) {
+      const card = props.plugin?.storage.getCardByBlockId(blockId);
+      if (card) {
+        cardIds.push(card.id);
+      }
+    }
     selectedCards.value = cardIds.length ? cardIds : [props.card.cardID];
     console.log('[SrsEditor] loadSelection doc cards:', selectedCards.value);
     await loadMeta(selectedBlocks.value[0], selectedCards.value[0]);
@@ -401,14 +404,16 @@ async function loadMeta(blockId: string, cardId: string) {
   }
   try {
     const info = await getBlockInfo(blockId);
-    const riffBlocks = await getRiffCardsByBlockIDs([blockId]);
-    const rb = riffBlocks[0];
+    
+    // ✅ 新架构：从本地存储获取卡片数据
+    const card = props.plugin?.storage.getCardByBlockId(blockId);
+    
     const createdAt = resolveTimeDate(
-      [info?.created_time, info?.created, info?.createdAt, info?.created_at, rb?.created],
+      [info?.created_time, info?.created, info?.createdAt, info?.created_at, card?.createdAt],
       true
     ) || new Date();
     let updatedAt = resolveTimeDate(
-      [info?.last_edited_time, info?.updated, info?.updatedAt, info?.updated_at, rb?.updated],
+      [info?.last_edited_time, info?.updated, info?.updatedAt, info?.updated_at, card?.updatedAt],
       true
     ) || createdAt;
     if (updatedAt.getTime() < createdAt.getTime()) {
@@ -417,23 +422,10 @@ async function loadMeta(blockId: string, cardId: string) {
     createdAtText.value = createdAt.toLocaleString();
     updatedAtText.value = updatedAt.toLocaleString();
     
-    // 兼容新老数据结构：优先从 riffCard 获取，否则从块属性获取
-    const card = rb?.riffCard || (rb ? {
-      due: (rb as any).due,
-      lastReview: (rb as any).lastReview,
-      reps: (rb as any).reps ?? 0,
-      lapses: (rb as any).lapses ?? 0,
-      stability: (rb as any).stability ?? 0,
-      difficulty: (rb as any).difficulty ?? 0,
-      state: (rb as any).state ?? 0,
-      elapsedDays: (rb as any).elapsedDays ?? 0,
-      scheduledDays: (rb as any).scheduledDays ?? 0,
-    } : null);
-    
     console.log('[SrsEditor] Loaded card data:', card);
     
-    const lastReviewDate = resolveTimeDate([card?.lastReview], false);
-    const nextReviewDate = resolveTimeDate([card?.due], false);
+    const lastReviewDate = card?.lastReview ? new Date(card.lastReview) : null;
+    const nextReviewDate = card?.due ? new Date(card.due) : null;
     lastReviewText.value = lastReviewDate ? lastReviewDate.toLocaleString() : t('pending', '待首次复习');
     nextReviewText.value = nextReviewDate ? nextReviewDate.toLocaleString() : t('pending', '待安排');
     lastReviewState.value = lastReviewDate ? 'date' : card ? 'pending' : 'unknown';
@@ -643,20 +635,6 @@ function openFsrsSettings() {
   });
 }
 
-function makeDueISOFromDays(days: number): string {
-  const due = new Date();
-  due.setDate(due.getDate() + Math.max(1, days));
-  return due.toISOString().replace(/[-:]/g, '').replace('T', '').split('.')[0];
-}
-
-function makeDueISOFromDate(dateStr: string): string | null {
-  if (!dateStr) return null;
-  const due = new Date(dateStr);
-  const now = new Date();
-  if (due.getTime() <= now.getTime()) return null;
-  return due.toISOString().replace(/[-:]/g, '').replace('T', '').split('.')[0];
-}
-
 async function handleReset() {
   if (!hasSelection.value) return;
   const confirmed = await confirmDialog({
@@ -666,8 +644,28 @@ async function handleReset() {
     cancelText: t('cancel', '取消'),
   });
   if (!confirmed) return;
+  
   try {
-    await resetRiffCards('deck', props.deckID, props.deckID, selectedBlocks.value);
+    // ✅ 新架构：使用 StorageManager 重置卡片
+    for (const blockId of selectedBlocks.value) {
+      const card = props.plugin?.storage.getCardByBlockId(blockId);
+      if (card) {
+        // 重置卡片状态
+        card.state = CardState.New;
+        card.due = Date.now();
+        card.stability = 0;
+        card.difficulty = 0;
+        card.reps = 0;
+        lapses = 0;
+        card.elapsedDays = 0;
+        card.scheduledDays = 0;
+        card.lastReview = 0;
+        
+        props.plugin?.storage.setCard(card);
+      }
+    }
+    
+    await props.plugin?.storage.saveCards();
     await loadSelection();
     alert(t('resetDone', '已重置所选卡片'));
   } catch (err) {
@@ -682,10 +680,13 @@ async function applyReschedule() {
     console.log('[SrsEditor] No selection, returning');
     return;
   }
-  let iso = '';
+  
+  // 计算新的到期时间（时间戳）
+  let dueTimestamp: number;
   if (dueDate.value) {
-    const r = makeDueISOFromDate(dueDate.value);
-    if (!r) {
+    const due = new Date(dueDate.value);
+    const now = new Date();
+    if (due.getTime() <= now.getTime()) {
       showResultDialog({
         title: t('reschedule', '安排日期'),
         content: t('dateInvalid', '请选择晚于当前的日期'),
@@ -693,15 +694,27 @@ async function applyReschedule() {
       });
       return;
     }
-    iso = r;
+    dueTimestamp = due.getTime();
   } else {
-    iso = makeDueISOFromDays(postponeDays.value || 1);
+    const due = new Date();
+    due.setDate(due.getDate() + Math.max(1, postponeDays.value || 1));
+    dueTimestamp = due.getTime();
   }
-  console.log('[SrsEditor] Rescheduling with ISO:', iso);
+  
+  console.log('[SrsEditor] Rescheduling to timestamp:', dueTimestamp);
+  
   try {
-    const dues = selectedCards.value.map(id => ({ id, due: iso }));
-    console.log('[SrsEditor] Calling batchSetRiffCardsDueTime with:', dues);
-    await batchSetRiffCardsDueTime(dues);
+    // ✅ 新架构：使用 StorageManager 批量更新卡片
+    for (const blockId of selectedBlocks.value) {
+      const card = props.plugin?.storage.getCardByBlockId(blockId);
+      if (card) {
+        card.due = dueTimestamp;
+        card.updatedAt = Date.now();
+        props.plugin?.storage.setCard(card);
+      }
+    }
+    
+    await props.plugin?.storage.saveCards();
     await loadSelection();
     showResultDialog({
       title: t('reschedule', '安排日期'),
@@ -720,31 +733,36 @@ async function applyReschedule() {
 
 async function applyReview() {
   if (!hasSelection.value) return;
+  
   try {
-    // 1. 执行复习
-    for (const id of selectedCards.value) {
-      await reviewRiffCard(props.deckID, id, reviewRating.value);
-    }
-    
-    // 2. 如果指定了推迟天数或日期，则在复习后重新排期
-    if (reviewPostponeDays.value > 0 || reviewDueDate.value) {
-      let iso = '';
-      if (reviewDueDate.value) {
-        const r = makeDueISOFromDate(reviewDueDate.value);
-        if (r) {
-          iso = r;
+    // ✅ 新架构：使用 SchedulerRouter 执行复习
+    for (const blockId of selectedBlocks.value) {
+      const card = props.plugin?.storage.getCardByBlockId(blockId);
+      if (card && props.plugin?.schedulerRouter) {
+        // 1. 执行复习（使用调度器计算新的复习时间）
+        const updatedCard = props.plugin.schedulerRouter.route(card, reviewRating.value);
+        
+        // 2. 如果指定了推迟天数或日期，则在复习后重新排期
+        if (reviewPostponeDays.value > 0 || reviewDueDate.value) {
+          let dueTimestamp: number;
+          if (reviewDueDate.value) {
+            const due = new Date(reviewDueDate.value);
+            dueTimestamp = due.getTime();
+          } else {
+            const due = new Date();
+            due.setDate(due.getDate() + reviewPostponeDays.value);
+            dueTimestamp = due.getTime();
+          }
+          updatedCard.due = dueTimestamp;
+          console.log('[SrsEditor] Review + reschedule to timestamp:', dueTimestamp);
         }
-      }
-      if (!iso && reviewPostponeDays.value > 0) {
-        iso = makeDueISOFromDays(reviewPostponeDays.value);
-      }
-      if (iso) {
-        const dues = selectedCards.value.map(id => ({ id, due: iso }));
-        await batchSetRiffCardsDueTime(dues);
-        console.log('[SrsEditor] Review + reschedule with ISO:', iso);
+        
+        updatedCard.updatedAt = Date.now();
+        props.plugin.storage.setCard(updatedCard);
       }
     }
     
+    await props.plugin?.storage.saveCards();
     await loadSelection();
     
     const message = reviewPostponeDays.value > 0 || reviewDueDate.value
@@ -779,22 +797,29 @@ async function applyPlan() {
     alert(t('planDateInvalid', '计划日期区间不合法'));
     return;
   }
-  const count = selectedCards.value.length;
+  const count = selectedBlocks.value.length;
   if (count === 0) return;
   const span = end - start;
   let factor = algo.value === 'sm2' ? 0.65 : 0.5;
   if (intensity.value === 'dense') factor *= 0.8;
   if (intensity.value === 'loose') factor *= 1.2;
   factor = Math.min(1.2, Math.max(0.2, factor));
-  const dues: Array<{ id: string; due: string }> = [];
-  for (let i = 0; i < count; i++) {
-    const pos = (i + 1) / (count + 1);
-    const ms = start + Math.floor(span * Math.pow(pos, factor));
-    const iso = new Date(ms).toISOString().replace(/[-:]/g, '').replace('T', '').split('.')[0];
-    dues.push({ id: selectedCards.value[i], due: iso });
-  }
+  
   try {
-    await batchSetRiffCardsDueTime(dues);
+    // ✅ 新架构：使用 StorageManager 批量更新卡片
+    for (let i = 0; i < count; i++) {
+      const blockId = selectedBlocks.value[i];
+      const card = props.plugin?.storage.getCardByBlockId(blockId);
+      if (card) {
+        const pos = (i + 1) / (count + 1);
+        const dueTimestamp = start + Math.floor(span * Math.pow(pos, factor));
+        card.due = dueTimestamp;
+        card.updatedAt = Date.now();
+        props.plugin?.storage.setCard(card);
+      }
+    }
+    
+    await props.plugin?.storage.saveCards();
     await loadSelection();
     alert(t('planApplied', '已应用复习计划'));
   } catch (err) {

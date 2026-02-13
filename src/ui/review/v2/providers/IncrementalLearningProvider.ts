@@ -5,7 +5,7 @@
  * 封装 IncrementalLearningQueue 为外部提供标准 API
  */
 
-import * as riff from '@/core/siyuan/riff';
+import { riff } from '@/core/siyuan';
 import type { QueueProvider } from '@/core/extensions';
 import type { BrowserCard } from '@/ui/browser/browserService';
 // 🔧 使用新架构的 IncrementalLearningQueue

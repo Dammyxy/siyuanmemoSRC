@@ -79,19 +79,19 @@ function toggleMenu(ev: MouseEvent) {
     },
   });
   
-  // 获取整个按钮组的位置，让菜单在按钮组正上方弹出
+  // 获取整个按钮组的位置，让菜单从按钮上方向上展开
   const buttonGroup = (ev.currentTarget as HTMLElement).parentElement;
   if (buttonGroup) {
     const rect = buttonGroup.getBoundingClientRect();
-    // 菜单在按钮组正上方弹出（y 使用 top，菜单会自动向上展开）
-    console.log('[SkipMenuButton] Opening menu above button group at:', { x: rect.left, y: rect.top });
-    menu.open({ x: rect.left, y: rect.top });
+    // 使用按钮顶部位置，让菜单向上展开（思源会自动将菜单放在这个点上方）
+    console.log('[SkipMenuButton] Opening menu above button at:', { x: rect.left, y: rect.top });
+    menu.open({ x: rect.left, y: rect.top, isLeft: true });
   } else {
     // 降级方案：使用当前按钮的位置
     const target = ev.currentTarget as HTMLElement;
     const rect = target.getBoundingClientRect();
     console.log('[SkipMenuButton] Opening menu above button at:', { x: rect.left, y: rect.top });
-    menu.open({ x: rect.left, y: rect.top });
+    menu.open({ x: rect.left, y: rect.top, isLeft: true });
   }
 }
 </script>
