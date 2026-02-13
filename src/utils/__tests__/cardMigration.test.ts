@@ -124,6 +124,53 @@ describe('cardMigration', () => {
             expect(migrated.learning_step).toBe(1);
             expect(migrated.state).toBe(CardState.Learning);
         });
+        
+        // 🆕 SuperMemo 重新调度字段迁移测试
+        it('should add default postponeCount = 0 if undefined', () => {
+            const card = createTestCard({ postponeCount: undefined });
+            const migrated = migrateCard(card);
+            
+            expect(migrated.postponeCount).toBe(0);
+        });
+        
+        it('should preserve existing postponeCount value', () => {
+            const card = createTestCard({ postponeCount: 5 });
+            const migrated = migrateCard(card);
+            
+            expect(migrated.postponeCount).toBe(5);
+        });
+        
+        it('should add empty rescheduleHistory if undefined', () => {
+            const card = createTestCard({ rescheduleHistory: undefined });
+            const migrated = migrateCard(card);
+            
+            expect(migrated.rescheduleHistory).toEqual([]);
+            expect(Array.isArray(migrated.rescheduleHistory)).toBe(true);
+        });
+        
+        it('should preserve existing rescheduleHistory', () => {
+            const history = [
+                { type: 'postpone' as const, timestamp: 123456, oldDue: 100, newDue: 200 }
+            ];
+            const card = createTestCard({ rescheduleHistory: history });
+            const migrated = migrateCard(card);
+            
+            expect(migrated.rescheduleHistory).toEqual(history);
+        });
+        
+        it('should keep lastPostponeDate as undefined if not set', () => {
+            const card = createTestCard({ lastPostponeDate: undefined });
+            const migrated = migrateCard(card);
+            
+            expect(migrated.lastPostponeDate).toBeUndefined();
+        });
+        
+        it('should preserve existing lastPostponeDate', () => {
+            const card = createTestCard({ lastPostponeDate: 123456789 });
+            const migrated = migrateCard(card);
+            
+            expect(migrated.lastPostponeDate).toBe(123456789);
+        });
     });
     
     describe('migrateCards', () => {
@@ -174,6 +221,25 @@ describe('cardMigration', () => {
             expect(needsMigration(card)).toBe(true);
         });
         
+        it('should return true if postponeCount is undefined', () => {
+            const card = createTestCard({ 
+                learning_step: 0,
+                state: CardState.New,
+                postponeCount: undefined
+            });
+            expect(needsMigration(card)).toBe(true);
+        });
+        
+        it('should return true if rescheduleHistory is undefined', () => {
+            const card = createTestCard({ 
+                learning_step: 0,
+                state: CardState.New,
+                postponeCount: 0,
+                rescheduleHistory: undefined
+            });
+            expect(needsMigration(card)).toBe(true);
+        });
+        
         it('should return true if both fields are undefined', () => {
             const card = createTestCard({ 
                 learning_step: undefined,
@@ -185,7 +251,9 @@ describe('cardMigration', () => {
         it('should return false if all fields are defined', () => {
             const card = createTestCard({ 
                 learning_step: 0,
-                state: CardState.New 
+                state: CardState.New,
+                postponeCount: 0,
+                rescheduleHistory: []
             });
             expect(needsMigration(card)).toBe(false);
         });
@@ -193,7 +261,9 @@ describe('cardMigration', () => {
         it('should return false if learning_step = 0 and state is set', () => {
             const card = createTestCard({ 
                 learning_step: 0,
-                state: CardState.Learning 
+                state: CardState.Learning,
+                postponeCount: 0,
+                rescheduleHistory: []
             });
             expect(needsMigration(card)).toBe(false);
         });

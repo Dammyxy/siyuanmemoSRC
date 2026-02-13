@@ -180,6 +180,9 @@ export interface CardFilter {
     
     /** 卡片状态过滤（New=0、Learning=1、Review=2、Relearning=3） */
     cardStatus?: Array<'new' | 'learning' | 'review' | 'relearning'>;
+    
+    /** 关键词过滤（搜索卡片内容） */
+    keyword?: string;
 }
 
 // ============================================================================

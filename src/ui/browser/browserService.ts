@@ -310,11 +310,17 @@ export function parseQuery(input: string): ParsedBrowserQuery {
     };
 }
 
-/** 解析时间格式 (支持思源14位格式和ISO格式) */
+/** 
+ * 解析时间格式 (支持思源14位格式和ISO格式)
+ * 
+ * 注意：
+ * - Riff API 返回的 due 字段是 ISO UTC 字符串（如 "2026-02-03T23:38:42.448Z"）
+ * - 思源块属性中的时间是 14 位本地时间字符串（如 "20260204073842"）
+ */
 function parseSiyuanTime(timeStr: string | undefined): Date | null {
     if (!timeStr) return null;
 
-    // 1. 思源 14 位格式: 20260120150000 -> Date
+    // 1. 思源 14 位格式: 20260120150000 -> Date（本地时间）
     if (/^\d{14}$/.test(timeStr)) {
         const y = parseInt(timeStr.slice(0, 4));
         const m = parseInt(timeStr.slice(4, 6)) - 1;
@@ -322,10 +328,11 @@ function parseSiyuanTime(timeStr: string | undefined): Date | null {
         const h = parseInt(timeStr.slice(8, 10));
         const min = parseInt(timeStr.slice(10, 12));
         const s = parseInt(timeStr.slice(12, 14));
-        return new Date(Date.UTC(y, m, d, h, min, s));
+        return new Date(y, m, d, h, min, s);  // ✅ 本地时间
     }
 
-    // 2. ISO 格式: 2026-01-21T05:17:35+08:00 -> Date
+    // 2. ISO 格式: 2026-01-21T05:17:35+08:00 或 2026-02-03T23:38:42.448Z -> Date
+    // ✅ new Date() 会自动处理 UTC 时间并转换为本地时间对象
     const isoParsed = new Date(timeStr);
     if (!isNaN(isoParsed.getTime())) {
         return isoParsed;

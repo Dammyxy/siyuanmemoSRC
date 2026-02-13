@@ -2,6 +2,14 @@ import { riff } from '@/core/siyuan';
 import { pushErrMsg } from '@/core/siyuan/api';
 import type { StorageManager } from '@/core/storage';
 import type { RescheduleLog, RescheduleResult, ActionMeta } from '@/types';
+import type { FSRSCard } from '@/types/card';
+import type { PostponeConfig, AdvanceConfig, SpreadConfig, PostponeResult, AdvanceResult, SpreadResult } from '@/types/reschedule';
+import { RescheduleErrorCode, type RescheduleError, type Result } from '@/types/reschedule-error';
+import { PostponeEngine } from './PostponeEngine';
+import { AdvanceEngine } from './AdvanceEngine';
+import { SpreadEngine } from './SpreadEngine';
+import { ConfigManager } from './ConfigManager';
+import { ConfigValidator } from './ConfigValidator';
 
 const { BUILTIN_DECK_ID } = riff;
 
@@ -10,7 +18,58 @@ function formatSiyuanTime(date: Date): string {
 }
 
 export class RescheduleService {
-    constructor(private storage: StorageManager) { }
+    private postponeEngine: PostponeEngine;
+    private advanceEngine: AdvanceEngine;
+    private spreadEngine: SpreadEngine;
+    private configManager: ConfigManager;
+
+    constructor(private storage: StorageManager) {
+        this.postponeEngine = new PostponeEngine(storage);
+        this.advanceEngine = new AdvanceEngine(storage);
+        this.spreadEngine = new SpreadEngine(storage);
+        this.configManager = new ConfigManager(storage);
+    }
+
+    /**
+     * 错误处理包装器
+     * 捕获操作中的错误并返回统一的错误格式
+     *
+     * @param operation 要执行的操作
+     * @param errorContext 错误上下文描述
+     * @returns 操作结果（成功或失败）
+     */
+    private async executeWithErrorHandling<T>(
+        operation: () => Promise<T>,
+        errorContext: string
+    ): Promise<Result<T, RescheduleError>> {
+        try {
+            const result = await operation();
+            return { ok: true, value: result };
+        } catch (error: any) {
+            console.error(`[RescheduleService] ${errorContext}:`, error);
+
+            // 确定错误代码
+            let code = RescheduleErrorCode.UNKNOWN_ERROR;
+            if (error.message?.includes('network') || error.message?.includes('fetch')) {
+                code = RescheduleErrorCode.NETWORK_ERROR;
+            } else if (error.message?.includes('storage') || error.message?.includes('database')) {
+                code = RescheduleErrorCode.STORAGE_ERROR;
+            } else if (error.message?.includes('calculation') || error.message?.includes('NaN')) {
+                code = RescheduleErrorCode.CALCULATION_ERROR;
+            } else if (error.message?.includes('batch') || error.message?.includes('update')) {
+                code = RescheduleErrorCode.BATCH_UPDATE_FAILED;
+            }
+
+            return {
+                ok: false,
+                error: {
+                    code,
+                    message: error.message || 'Unknown error occurred',
+                    details: error
+                }
+            };
+        }
+    }
 
     private async sleep(ms: number): Promise<void> {
         await new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -144,7 +203,7 @@ export class RescheduleService {
             console.error('[RescheduleService] Batch update failed', err);
             await pushErrMsg(`Reschedule failed: ${err.message}`);
             result.errors = [{ message: err.message }];
-            // Adjust result to reflect failure? 
+            // Adjust result to reflect failure?
             // Technically we shouldn't return updated if api failed.
             // But we pushed to `result.updated` earlier for optimistic return.
             // We should revert or mark valid.
@@ -208,7 +267,7 @@ export class RescheduleService {
                 // Dev feedback says: "以 Card.Due 为基准推迟（不是 Today）"
                 // "Postpone 语义：以 Card.Due 为基准推迟（不是 Today）。"
                 // However, if Card.Due is in the past (Overdue), usually we want Postpone to be relative to Today or Due?
-                // SuperMemo Postpone: relative to current schedule. 
+                // SuperMemo Postpone: relative to current schedule.
                 // If I have a card due yesterday (-1), and postpone 1 day. New due = Today (0)? Or Yesterday+1 = Today?
                 // If I utilize `currentDue` strictly:
                 return new Date(currentDue.getTime() + clamped * dayMs);
@@ -318,4 +377,265 @@ export class RescheduleService {
             'reschedule-relative'
         );
     }
+
+    // ========== 新增方法：基于 SuperMemo 设计的高级重新调度操作 ==========
+
+    /**
+     * 执行 Postpone 操作（新接口）
+     * 使用 PostponeEngine 实现完整的 SuperMemo Postpone 算法
+     *
+     * @param cards 要处理的卡片列表
+     * @param config Postpone 配置
+     * @param meta 操作元数据
+     * @returns Postpone 操作结果
+     */
+    async postponeWithConfig(
+        cards: FSRSCard[],
+        config: PostponeConfig,
+        meta: ActionMeta,
+        onProgress?: (processed: number, total: number, percentage: number) => void
+    ): Promise<PostponeResult> {
+        // 验证配置
+        const validationError = ConfigValidator.validatePostponeConfig(config);
+        if (validationError) {
+            console.error('[RescheduleService] Invalid postpone config:', validationError);
+            await pushErrMsg(`Invalid configuration: ${validationError.message}`);
+            return {
+                updated: 0,
+                skipped: 0,
+                skippedReasons: {},
+                errors: [validationError.message]
+            };
+        }
+
+        // 执行操作并处理错误
+        const result = await this.executeWithErrorHandling(
+            () => this.postponeEngine.execute(cards, config, false, meta.source, onProgress),
+            'postponeWithConfig'
+        );
+
+        if (!result.ok) {
+            await pushErrMsg(`Postpone failed: ${result.error.message}`);
+            return {
+                updated: 0,
+                skipped: 0,
+                skippedReasons: {},
+                errors: [result.error.message]
+            };
+        }
+
+        return result.value;
+    }
+
+    /**
+     * 执行 Dilute 操作
+     * Dilute 与 Postpone 的区别：Dilute 处理所有卡片（包括未到期的），而 Postpone 只处理 outstanding 卡片
+     *
+     * @param cards 要处理的卡片列表
+     * @param config Postpone 配置（Dilute 使用相同的配置）
+     * @param meta 操作元数据
+     * @param onProgress 进度回调函数
+     * @returns Postpone 操作结果
+     */
+    async dilute(
+        cards: FSRSCard[],
+        config: PostponeConfig,
+        meta: ActionMeta,
+        onProgress?: (processed: number, total: number, percentage: number) => void
+    ): Promise<PostponeResult> {
+        // 验证配置
+        const validationError = ConfigValidator.validatePostponeConfig(config);
+        if (validationError) {
+            console.error('[RescheduleService] Invalid dilute config:', validationError);
+            await pushErrMsg(`Invalid configuration: ${validationError.message}`);
+            return {
+                updated: 0,
+                skipped: 0,
+                skippedReasons: {},
+                errors: [validationError.message]
+            };
+        }
+
+        // 执行操作并处理错误
+        const result = await this.executeWithErrorHandling(
+            () => this.postponeEngine.execute(cards, config, true, meta.source, onProgress),
+            'dilute'
+        );
+
+        if (!result.ok) {
+            await pushErrMsg(`Dilute failed: ${result.error.message}`);
+            return {
+                updated: 0,
+                skipped: 0,
+                skippedReasons: {},
+                errors: [result.error.message]
+            };
+        }
+
+        return result.value;
+    }
+
+    /**
+     * 执行 Auto-Postpone 操作
+     * 在学习开始前自动推迟低优先级的积压卡片
+     *
+     * 算法：
+     * 1. 获取所有 outstanding 卡片（due < now）
+     * 2. 按优先级排序
+     * 3. 跳过前 N 个最高优先级卡片
+     * 4. 对剩余卡片执行 Postpone
+     *
+     * @param config Postpone 配置
+     * @param onProgress 进度回调函数
+     * @returns Postpone 操作结果
+     */
+    async autoPostpone(
+        config: PostponeConfig,
+        onProgress?: (processed: number, total: number, percentage: number) => void
+    ): Promise<PostponeResult> {
+        // 验证配置
+        const validationError = ConfigValidator.validatePostponeConfig(config);
+        if (validationError) {
+            console.error('[RescheduleService] Invalid auto-postpone config:', validationError);
+            await pushErrMsg(`Invalid configuration: ${validationError.message}`);
+            return {
+                updated: 0,
+                skipped: 0,
+                skippedReasons: {},
+                errors: [validationError.message]
+            };
+        }
+
+        // 执行操作并处理错误
+        const result = await this.executeWithErrorHandling(
+            async () => {
+                // 获取所有卡片
+                const allCards = await this.storage.getAllCards();
+                const now = Date.now();
+
+                // 过滤 outstanding 卡片
+                const outstandingCards = allCards.filter(card => card.due < now);
+
+                // 按优先级排序（priority 越小越重要）
+                const sortedCards = outstandingCards.sort((a, b) =>
+                    (a.priority ?? 50) - (b.priority ?? 50)
+                );
+
+                // 跳过前 N 个最高优先级卡片
+                const skipCount = config.skipTopNElements ?? 0;
+                const cardsToPostpone = sortedCards.slice(skipCount);
+
+                // 执行 Postpone
+                return this.postponeEngine.execute(cardsToPostpone, config, false, 'auto-postpone', onProgress);
+            },
+            'autoPostpone'
+        );
+
+        if (!result.ok) {
+            await pushErrMsg(`Auto-postpone failed: ${result.error.message}`);
+            return {
+                updated: 0,
+                skipped: 0,
+                skippedReasons: {},
+                errors: [result.error.message]
+            };
+        }
+
+        return result.value;
+    }
+
+    /**
+     * 执行 Advance 操作（新接口）
+     * 使用 AdvanceEngine 实现完整的 SuperMemo Advance 算法
+     *
+     * @param cards 要处理的卡片列表
+     * @param config Advance 配置
+     * @param meta 操作元数据
+     * @param onProgress 进度回调函数
+     * @returns Advance 操作结果
+     */
+    async advanceWithConfig(
+        cards: FSRSCard[],
+        config: AdvanceConfig,
+        meta: ActionMeta,
+        onProgress?: (processed: number, total: number, percentage: number) => void
+    ): Promise<AdvanceResult> {
+        // 验证配置
+        const validationError = ConfigValidator.validateAdvanceConfig(config);
+        if (validationError) {
+            console.error('[RescheduleService] Invalid advance config:', validationError);
+            await pushErrMsg(`Invalid configuration: ${validationError.message}`);
+            return {
+                updated: 0,
+                overdueHandled: 0,
+                unchanged: 0,
+                errors: [validationError.message]
+            };
+        }
+
+        // 执行操作并处理错误
+        const result = await this.executeWithErrorHandling(
+            () => this.advanceEngine.execute(cards, config, meta.source, onProgress),
+            'advanceWithConfig'
+        );
+
+        if (!result.ok) {
+            await pushErrMsg(`Advance failed: ${result.error.message}`);
+            return {
+                updated: 0,
+                overdueHandled: 0,
+                unchanged: 0,
+                errors: [result.error.message]
+            };
+        }
+
+        return result.value;
+    }
+
+    /**
+     * 执行 Spread 操作（新接口）
+     * 使用 SpreadEngine 实现完整的 SuperMemo Spread/Mercy 算法
+     *
+     * @param cards 要处理的卡片列表
+     * @param config Spread 配置
+     * @param meta 操作元数据
+     * @param onProgress 进度回调函数
+     * @returns Spread 操作结果
+     */
+    async spreadWithConfig(
+        cards: FSRSCard[],
+        config: SpreadConfig,
+        meta: ActionMeta,
+        onProgress?: (processed: number, total: number, percentage: number) => void
+    ): Promise<SpreadResult> {
+        // 验证配置
+        const validationError = ConfigValidator.validateSpreadConfig(config);
+        if (validationError) {
+            console.error('[RescheduleService] Invalid spread config:', validationError);
+            await pushErrMsg(`Invalid configuration: ${validationError.message}`);
+            return {
+                updated: 0,
+                averageCardsPerDay: 0,
+                errors: [validationError.message]
+            };
+        }
+
+        // 执行操作并处理错误
+        const result = await this.executeWithErrorHandling(
+            () => this.spreadEngine.execute(cards, config, meta.source, onProgress),
+            'spreadWithConfig'
+        );
+
+        if (!result.ok) {
+            await pushErrMsg(`Spread failed: ${result.error.message}`);
+            return {
+                updated: 0,
+                averageCardsPerDay: 0,
+                errors: [result.error.message]
+            };
+        }
+
+        return result.value;
+    }
 }
+

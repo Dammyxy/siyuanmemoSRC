@@ -5,6 +5,20 @@
     </div>
 
     <div class="dialog__content">
+      <!-- 🆕 关键词搜索区（独立区域） -->
+      <div class="filter-section keyword-section">
+        <h4 class="section-title">
+          <svg class="section-icon"><use xlink:href="#iconSearch"></use></svg>
+          关键词搜索
+        </h4>
+        <input
+          type="text"
+          class="b3-text-field keyword-input-large"
+          v-model="filterState.values.keyword"
+          placeholder="输入关键词筛选卡片内容..."
+        />
+      </div>
+
       <!-- 主过滤区域：表格布局 -->
       <div class="filter-main">
         <table class="filter-table">
@@ -279,6 +293,7 @@ const filterState = ref<FilterState>({
     postpones: false,
     cardType: true,
     cardStatus: true,
+    keyword: false,
   },
   values: {
     priority: { min: 0, max: 100 },
@@ -293,6 +308,7 @@ const filterState = ref<FilterState>({
     postpones: { min: 0, max: 100 },
     cardType: new Set<string>(['item']),
     cardStatus: new Set<string>(['new', 'learning', 'review', 'relearning']),
+    keyword: '',
   },
 });
 
@@ -417,6 +433,7 @@ function handleClear() {
   
   filterState.value.values.cardType.clear();
   filterState.value.values.cardStatus.clear();
+  filterState.value.values.keyword = '';
   
   emit('clear');
 }
@@ -609,6 +626,53 @@ watch(() => props.isOpen, (isOpen) => {
   flex: 1;
   overflow-y: auto;
   padding: 20px;
+}
+
+.filter-section {
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  background: var(--b3-theme-surface);
+}
+
+.keyword-section {
+  .section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--b3-theme-on-surface);
+    
+    .section-icon {
+      width: 16px;
+      height: 16px;
+      opacity: 0.7;
+    }
+  }
+  
+  .keyword-input-large {
+    width: 100%;
+    height: 36px;
+    padding: 8px 12px;
+    font-size: 14px;
+    border: 1px solid var(--b3-border-color);
+    border-radius: 3px;
+    transition: border-color 0.15s;
+    
+    &:focus {
+      outline: none;
+      border-color: var(--b3-theme-primary);
+      box-shadow: 0 0 0 2px var(--b3-theme-primary-lightest);
+    }
+    
+    &::placeholder {
+      color: var(--b3-theme-on-surface-light);
+      opacity: 0.6;
+    }
+  }
 }
 
 .filter-main {

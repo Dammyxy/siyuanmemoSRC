@@ -15,4 +15,13 @@ export {
   clearPracticeQueue,
   createQueueHandlers,
 } from './QueueHelpers';
-export { HybridSyncService, type HybridSyncConfig, type SyncResult, type SyncStatus } from './HybridSyncService';
+export { 
+  HybridSyncService, 
+  type HybridSyncConfig, 
+  type SyncResult, 
+  type SyncStatus,
+  type SyncType,
+  type SyncProgress,
+  type ProgressCallback
+} from './HybridSyncService';
+export type { HybridSyncEvents, SyncPhase } from './HybridSyncService.types';

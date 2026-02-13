@@ -45,6 +45,7 @@
         @showPerformanceReport="showPerformanceReport"
         @convertToTab="convertToTab"
         @openFilterDialog="showFilterDialog = true"
+        @openSpreadDialog="handleOpenSpreadDialog"
       />
 
       <!-- 🆕 同步状态指示器（仅在 advanced 模式显示） -->
@@ -159,8 +160,13 @@ import BrowserHierarchy from './BrowserHierarchy.vue';
 import BrowserPreview from './BrowserPreview.vue';
 import BrowserToolbar from './BrowserToolbar.vue';
 import FilterDialog from './dialogs/FilterDialog.vue';
+import PostponeDialog from './dialogs/PostponeDialog.vue';
+import AdvanceDialog from './dialogs/AdvanceDialog.vue';
+import SpreadDialog from './dialogs/SpreadDialog.vue';
+import RescheduleResultDialog from './dialogs/RescheduleResultDialog.vue';
 import SyncStatusIndicator from '../components/SyncStatusIndicator.vue';  // 🆕 导入同步状态指示器
 import { useCardTypeDetection } from './composables/useCardTypeDetection';
+import { ConfigManager } from '@/core/scheduler/ConfigManager';
 // ✅ 导入配置模块
 import { createColumnDefs } from './config';
 // 🆕 导入统一数据源适配器
@@ -212,8 +218,9 @@ const showSyncIndicator = computed(() => {
   const plugin = props.plugin as any;
   if (!plugin?.storage) return false;
   
+  // ✅ 简单模式已移除，只要有 riffIntegration 配置且 hybridSyncService 存在就显示
   const riffConfig = plugin.storage.getSettings?.()?.riffIntegration;
-  return riffConfig?.mode === 'advanced' && !!hybridSyncService.value;
+  return !!riffConfig && !!hybridSyncService.value;
 });
 
 const emit = defineEmits<{
@@ -840,48 +847,84 @@ function convertToTab() {
 type ActionParamBuilder = (targetCards: BrowserCard[]) => Promise<any | null>;
 
 const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
-  postpone: async () => {
-    const days = await openNumberDialog({
-      title: t('postpone', '推迟'),
-      label: t('daysLabel', '天数'),
-      description: t('postponeHint', '将到期时间推迟 N 天'),
-      defaultValue: 7,
-      min: 1,
-      max: 365,
-      step: 1,
-      integer: true,
+  postpone: async (cards) => {
+    // 使用新的 PostponeDialog
+    return new Promise((resolve) => {
+      const configManager = new ConfigManager(props.plugin?.storage!);
+      const dlg = createVueDialog({
+        title: t('postpone', '推迟'),
+        component: PostponeDialog,
+        props: {
+          count: cards.length,
+          configManager,
+        },
+        events: {
+          confirm: async (config) => {
+            dlg.destroy();
+            resolve({ config });
+          },
+          cancel: () => {
+            dlg.destroy();
+            resolve(null);
+          },
+        },
+        width: '600px',
+        height: '80vh',
+      });
     });
-    if (days == null || days <= 0) return null;
-    return { days };
   },
-  advance: async () => {
-    const maxDays = await openNumberDialog({
-      title: t('advance', '提前复习'),
-      label: t('maxDaysLabel', '最大天数'),
-      description: t('advanceHint', 'NewDue = Today + Random(1..N)'),
-      defaultValue: 30,
-      min: 1,
-      max: 365,
-      step: 1,
-      integer: true,
+  advance: async (cards) => {
+    // 使用新的 AdvanceDialog
+    return new Promise((resolve) => {
+      const configManager = new ConfigManager(props.plugin?.storage!);
+      const dlg = createVueDialog({
+        title: t('advance', '提前复习'),
+        component: AdvanceDialog,
+        props: {
+          count: cards.length,
+          configManager,
+        },
+        events: {
+          confirm: async (config) => {
+            dlg.destroy();
+            resolve({ config });
+          },
+          cancel: () => {
+            dlg.destroy();
+            resolve(null);
+          },
+        },
+        width: '600px',
+        height: '80vh',
+      });
     });
-    if (maxDays == null || maxDays <= 0) return null;
-    return { maxDays };
   },
   spread: async (cards) => {
-    const maxDays = await openNumberDialog({
-      title: t('spread', '平摊复习'),
-      label: t('maxDaysLabel', '最大天数'),
-      description: t('spreadHint', '将 {n} 张卡片均匀分布在未来 N 天内')
-        .replace('{n}', String(cards.length)),
-      defaultValue: 7,
-      min: 1,
-      max: 365,
-      step: 1,
-      integer: true,
+    // 使用新的 SpreadDialog
+    return new Promise((resolve) => {
+      const configManager = new ConfigManager(props.plugin?.storage!);
+      const dlg = createVueDialog({
+        title: t('spread', '分摊复习压力'),
+        component: SpreadDialog,
+        props: {
+          count: cards.length,
+          configManager,
+          allCards: allRows.value,  // 🆕 传入已加载的卡片数据，避免触发缓存更新回调
+        },
+        events: {
+          confirm: async (config) => {
+            dlg.destroy();
+            resolve({ config });
+          },
+          cancel: () => {
+            dlg.destroy();
+            resolve(null);
+          },
+        },
+        width: '700px',
+        height: '80vh',
+      });
     });
-    if (maxDays == null || maxDays <= 0) return null;
-    return { maxDays };
   },
   'set-priority': async (cards) => {
     const row = cards?.[0] as any;
@@ -1026,6 +1069,8 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
       || actionId === 'auto-sort'
       || actionId === 'reset'
       || actionId === 'suspend'
+      || actionId === 'postpone'  // 🆕 推迟后刷新
+      || actionId === 'advance'   // 🆕 提前后刷新
     ) {
       // 🆕 删除卡片后强制清除缓存
       if (actionId === 'delete-card') {
@@ -1033,7 +1078,9 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
         invalidateCardCache();
       }
       
-      await loadData(actionId === 'delete-card');  // 删除后强制刷新
+      // 🆕 推迟/提前后强制刷新以显示新的 due 日期
+      const forceRefresh = actionId === 'delete-card' || actionId === 'postpone' || actionId === 'advance';
+      await loadData(forceRefresh);
     } else {
       gridApi.value?.refreshCells({ force: true });
     }
@@ -1056,8 +1103,11 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   console.log('[CardBrowser] 数据源类型:', ds?.constructor?.name);
   console.log('[CardBrowser] 数据源 ID:', (ds as any)?.id);
   
-  const actions = ds?.getSupportedActions?.() || [];
-  console.log('[CardBrowser] getSupportedActions 返回的动作数量:', actions.length);
+  // ✅ 过滤掉 undefined/null 的 action
+  const rawActions = ds?.getSupportedActions?.() || [];
+  const actions = rawActions.filter(a => a && a.id);
+  
+  console.log('[CardBrowser] getSupportedActions 返回的动作数量:', rawActions.length, '→ 过滤后:', actions.length);
   console.log('[CardBrowser] 所有动作:', actions.map(a => ({ id: a.id, label: a.label, hasSubmenu: !!a.submenu })));
   
   const addToQueueAction = actions.find(a => a.id === 'add-to-queue');
@@ -1151,13 +1201,22 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   console.log('[CardBrowser] 开始渲染操作菜单，共', actions.length, '个动作');
   
   for (const action of actions) {
+    // ✅ 跳过无效的 action
+    if (!action || !action.id) {
+      console.warn('[CardBrowser] ⚠️ 跳过无效的 action:', action);
+      continue;
+    }
+    
     console.log('[CardBrowser] 渲染动作:', action.id, action.label, '有子菜单:', !!action.submenu);
     
     if (action.submenu && action.submenu.length > 0) {
       // 处理子菜单
       console.log('[CardBrowser] 渲染子菜单，共', action.submenu.length, '项');
       
-      const submenuItems = action.submenu.map(sub => {
+      // ✅ 过滤掉无效的子菜单项
+      const validSubmenu = action.submenu.filter(sub => sub && sub.id);
+      
+      const submenuItems = validSubmenu.map(sub => {
         console.log('[CardBrowser] 子菜单项:', sub.id, sub.label);
         return {
           icon: sub.icon || 'iconMore',
@@ -1757,5 +1816,106 @@ async function handleClearFilter() {
   
   // 刷新数据以移除过滤
   await refreshData(false, true);
+}
+
+/**
+ * 打开分散对话框
+ * 根据 SuperMemo 设计，Spread 操作自动收集卡片：
+ * - 默认：收集所有 due <= now 的 Outstanding 卡片
+ * - considerFutureRepetitions: 收集所有 due <= (now + collectingPeriod) 的卡片
+ * 
+ * @see supermemo-reschedule-operations 需求 8.2, 10.4
+ */
+async function handleOpenSpreadDialog() {
+  console.log('[SRSBrowser] Opening Spread dialog');
+  console.log('[SRSBrowser] allRows.value:', {
+    length: allRows.value.length,
+    sample: allRows.value.slice(0, 3).map(c => ({ blockId: c.blockId, due: c.due })),
+  });
+  
+  try {
+    // 1. 收集所有 Outstanding 卡片（due <= now）
+    // 注意：这里只收集默认范围的卡片，具体的收集逻辑由 SpreadEngine 根据配置执行
+    const now = Date.now();
+    const outstandingCards = allRows.value.filter(card => {
+      const dueTime = card.due instanceof Date ? card.due.getTime() : card.due;
+      return dueTime <= now;
+    });
+    
+    console.log('[SRSBrowser] Collected outstanding cards:', {
+      total: allRows.value.length,
+      outstanding: outstandingCards.length,
+    });
+    
+    if (outstandingCards.length === 0) {
+      await pushMsg(t('noOutstandingCards', '没有需要分散的卡片（所有卡片都已完成复习）'));
+      return;
+    }
+    
+    // 2. 打开 SpreadDialog
+    const configManager = new ConfigManager(props.plugin?.storage!);
+    const dlg = createVueDialog({
+      title: t('spread', '分摊复习压力'),
+      component: SpreadDialog,
+      props: {
+        count: outstandingCards.length,
+        configManager,
+        allCards: allRows.value,  // 🆕 传入已加载的卡片数据，避免触发缓存更新回调
+      },
+      events: {
+        confirm: async (config) => {
+          dlg.destroy();
+          
+          // 3. 执行 Spread 操作
+          try {
+            const result = await adjustTime(
+              props.plugin,
+              outstandingCards,
+              'spread',
+              { config }
+            );
+            
+            // 4. 显示结果对话框
+            if (result) {
+              const resultDlg = createVueDialog({
+                title: t('spreadResult', '分散结果'),
+                component: RescheduleResultDialog,
+                props: {
+                  result: {
+                    updated: result.updated?.length || 0,
+                    skipped: result.skipped?.length || 0,
+                    averageCardsPerDay: result.averageCardsPerDay,
+                  },
+                  operation: 'spread',
+                },
+                events: {
+                  close: () => {
+                    resultDlg.destroy();
+                  },
+                },
+                width: '500px',
+                height: '300px',
+              });
+            }
+            
+            // 5. 刷新数据
+            await refreshData(true);
+            await pushMsg(t('spreadSuccess', '分散操作完成'));
+          } catch (err: any) {
+            console.error('[SRSBrowser] Spread operation failed:', err);
+            await pushErrMsg(err?.message || t('spreadFailed', '分散操作失败'));
+          }
+        },
+        cancel: () => {
+          dlg.destroy();
+        },
+      },
+      width: '700px',
+      height: '80vh',
+    });
+  } catch (err: any) {
+    console.error('[SRSBrowser] Failed to open Spread dialog:', err);
+    await pushErrMsg(err?.message || t('openDialogFailed', '打开对话框失败'));
+  }
 }
 </script>

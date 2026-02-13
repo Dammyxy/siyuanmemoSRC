@@ -6,6 +6,8 @@
  * 
  * @see .kiro/specs/learning-steps-rating-fix/requirements.md
  * @see .kiro/specs/learning-steps-rating-fix/design.md
+ * @see .kiro/specs/supermemo-reschedule-operations/requirements.md (Requirement 18.7)
+ * @see .kiro/specs/supermemo-reschedule-operations/design.md
  */
 
 import { FSRSCard, CardState } from '../types/card';
@@ -18,6 +20,8 @@ import { FSRSCard, CardState } from '../types/card';
  * 主要功能：
  * - 为现有卡片添加默认 learning_step = 0（如果未定义）
  * - state 字段通常已存在，不需要推断
+ * - 为现有卡片添加默认的 postponeCount = 0（如果未定义）
+ * - 为现有卡片添加空的 rescheduleHistory（如果未定义）
  * - 确保向后兼容，不破坏现有数据
  * 
  * 注意：此函数会修改传入的卡片对象（in-place mutation）
@@ -36,6 +40,19 @@ export function migrateCard(card: FSRSCard): FSRSCard {
     if (card.state === undefined) {
         card.state = inferCardState(card);
     }
+    
+    // 🆕 SuperMemo 重新调度字段迁移
+    // 为现有卡片添加默认的 postponeCount = 0
+    if (card.postponeCount === undefined) {
+        card.postponeCount = 0;
+    }
+    
+    // 为现有卡片添加空的 rescheduleHistory
+    if (card.rescheduleHistory === undefined) {
+        card.rescheduleHistory = [];
+    }
+    
+    // lastPostponeDate 保持为 undefined（只有在实际推迟后才设置）
     
     return card;
 }
@@ -84,5 +101,8 @@ function inferCardState(card: FSRSCard): CardState {
  * @returns 如果卡片需要迁移则返回 true
  */
 export function needsMigration(card: FSRSCard): boolean {
-    return card.learning_step === undefined || card.state === undefined;
+    return card.learning_step === undefined 
+        || card.state === undefined
+        || card.postponeCount === undefined
+        || card.rescheduleHistory === undefined;
 }

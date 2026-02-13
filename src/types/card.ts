@@ -3,6 +3,8 @@
  * 基于 FSRS v6 算法的卡片数据结构
  */
 
+import type { RescheduleHistoryEntry } from './reschedule';
+
 /** 卡片状态 */
 export enum CardState {
     New = 0,        // 新卡片
@@ -87,6 +89,11 @@ export interface FSRSCard {
             optimalInterval: number; // 最优间隔
         };
     };
+
+    // === 🆕 重新调度相关字段 ===
+    postponeCount?: number;        // 推迟次数
+    lastPostponeDate?: number;     // 上次推迟时间戳
+    rescheduleHistory?: RescheduleHistoryEntry[];  // 重新调度历史
 }
 
 /**

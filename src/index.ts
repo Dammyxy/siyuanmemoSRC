@@ -100,6 +100,7 @@ export default class FSRSPlugin extends Plugin {
   private blockMenuHandler!: BlockMenuHandler;
   private transactionObserver!: TransactionObserver;
   private hybridSyncService?: HybridSyncService;
+  private fullSyncTimer?: NodeJS.Timeout; // 🆕 全量同步定时器
 
   // 为兼容性提供的别名访问器
   public get deliberateQueue(): FinalDrillQueue {
@@ -385,8 +386,18 @@ export default class FSRSPlugin extends Plugin {
           deleteSync: currentRiffConfig.deleteSync
         });
         
-        // 启动同步服务
+        // 启动同步服务（只执行初始同步）
         await this.hybridSyncService.start();
+        
+        // 🆕 插件主类管理全量同步定时器
+        if (currentRiffConfig.fullSync.enabled) {
+          this.fullSyncTimer = setInterval(
+            () => this.hybridSyncService!.fullSync(),
+            currentRiffConfig.fullSync.interval
+          );
+          console.log(`[FSRS] Full sync timer started (interval: ${currentRiffConfig.fullSync.interval}ms)`);
+        }
+        
         console.log('[FSRS] ✅ HybridSyncService initialized and started');
       } else {
         console.log('[FSRS] HybridSyncService not initialized (no riffIntegration config)');
@@ -696,6 +707,13 @@ export default class FSRSPlugin extends Plugin {
       this.transactionObserver.unload();
     }
 
+    // 🆕 清理全量同步定时器
+    if (this.fullSyncTimer) {
+      clearInterval(this.fullSyncTimer);
+      this.fullSyncTimer = undefined;
+      console.log('[FSRS] ✅ Full sync timer cleared');
+    }
+
     // 🆕 停止 HybridSyncService
     if (this.hybridSyncService) {
       this.hybridSyncService.stop();
@@ -814,6 +832,12 @@ export default class FSRSPlugin extends Plugin {
 
           // 🆕 更新 HybridSyncService 配置（如果需要）
           if (settings.riffIntegration && this.hybridSyncService) {
+            // 清理旧定时器
+            if (this.fullSyncTimer) {
+              clearInterval(this.fullSyncTimer);
+              this.fullSyncTimer = undefined;
+            }
+            
             // 重启服务以应用新配置
             this.hybridSyncService.stop();
             this.hybridSyncService = new HybridSyncService({
@@ -827,6 +851,16 @@ export default class FSRSPlugin extends Plugin {
               deleteSync: settings.riffIntegration.deleteSync
             });
             await this.hybridSyncService.start();
+            
+            // 重启定时器
+            if (settings.riffIntegration.fullSync.enabled) {
+              this.fullSyncTimer = setInterval(
+                () => this.hybridSyncService!.fullSync(),
+                settings.riffIntegration.fullSync.interval
+              );
+              console.log(`[FSRS] Full sync timer restarted (interval: ${settings.riffIntegration.fullSync.interval}ms)`);
+            }
+            
             console.log('[FSRS] ✅ HybridSyncService config updated');
           } else if (settings.riffIntegration && !this.hybridSyncService) {
             // 如果 HybridSyncService 未初始化，初始化它
@@ -841,6 +875,16 @@ export default class FSRSPlugin extends Plugin {
               deleteSync: settings.riffIntegration.deleteSync
             });
             await this.hybridSyncService.start();
+            
+            // 启动定时器
+            if (settings.riffIntegration.fullSync.enabled) {
+              this.fullSyncTimer = setInterval(
+                () => this.hybridSyncService!.fullSync(),
+                settings.riffIntegration.fullSync.interval
+              );
+              console.log(`[FSRS] Full sync timer started (interval: ${settings.riffIntegration.fullSync.interval}ms)`);
+            }
+            
             console.log('[FSRS] ✅ HybridSyncService initialized');
           }
         },

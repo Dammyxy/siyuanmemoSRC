@@ -91,6 +91,7 @@ const syncStatus = ref<SyncStatus>({
 });
 
 let statusCheckInterval: NodeJS.Timeout | null = null;
+let unsubscribe: (() => void) | null = null;
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
@@ -122,7 +123,7 @@ function formatTime(timestamp: number): string {
 }
 
 /**
- * 更新同步状态
+ * 更新同步状态（仅更新时间戳）
  */
 function updateSyncStatus() {
   if (!props.hybridSyncService) {
@@ -131,10 +132,8 @@ function updateSyncStatus() {
   }
   
   const status = props.hybridSyncService.getSyncStatus();
-  syncStatus.value = {
-    ...syncStatus.value,
-    ...status,
-  };
+  syncStatus.value.lastSyncTime = status.lastSyncTime;
+  syncStatus.value.lastFullSyncTime = status.lastFullSyncTime;
 }
 
 /**
@@ -147,25 +146,11 @@ async function handleManualSync() {
   }
   
   try {
-    syncStatus.value.status = 'syncing';
-    const result = await props.hybridSyncService.incrementalSync();
-    
-    syncStatus.value = {
-      status: result.success ? 'success' : 'error',
-      lastSyncTime: Date.now(),
-      lastFullSyncTime: syncStatus.value.lastFullSyncTime,
-      lastResult: result,
-      errorMessage: result.errorMessage,
-    };
-    
+    // 使用进度回调
+    await props.hybridSyncService.incrementalSync();
     emit('sync', 'incremental');
   } catch (error) {
     console.error('[SyncStatusIndicator] Manual sync failed:', error);
-    syncStatus.value = {
-      ...syncStatus.value,
-      status: 'error',
-      errorMessage: error instanceof Error ? error.message : 'Unknown error',
-    };
   }
 }
 
@@ -179,25 +164,11 @@ async function handleFullSync() {
   }
   
   try {
-    syncStatus.value.status = 'syncing';
-    const result = await props.hybridSyncService.fullSync();
-    
-    syncStatus.value = {
-      status: result.success ? 'success' : 'error',
-      lastSyncTime: syncStatus.value.lastSyncTime,
-      lastFullSyncTime: Date.now(),
-      lastResult: result,
-      errorMessage: result.errorMessage,
-    };
-    
+    // 使用进度回调
+    await props.hybridSyncService.fullSync();
     emit('sync', 'full');
   } catch (error) {
     console.error('[SyncStatusIndicator] Full sync failed:', error);
-    syncStatus.value = {
-      ...syncStatus.value,
-      status: 'error',
-      errorMessage: error instanceof Error ? error.message : 'Unknown error',
-    };
   }
 }
 
@@ -209,16 +180,62 @@ async function handleRetry() {
 }
 
 onMounted(() => {
+  if (!props.hybridSyncService) return;
+  
   // 初始化状态
   updateSyncStatus();
   
-  // 定期更新状态（每5秒）
+  // 🆕 监听同步事件
+  const onSyncStart = (data: any) => {
+    console.log('[SyncStatusIndicator] Sync started:', data.type);
+    syncStatus.value.status = 'syncing';
+    syncStatus.value.errorMessage = undefined;
+  };
+  
+  const onSyncSuccess = (data: any) => {
+    console.log('[SyncStatusIndicator] Sync success:', data);
+    syncStatus.value.status = 'success';
+    syncStatus.value.lastResult = data.result;
+    
+    // 更新时间戳
+    if (data.type === 'incremental') {
+      syncStatus.value.lastSyncTime = data.timestamp;
+    } else if (data.type === 'full') {
+      syncStatus.value.lastFullSyncTime = data.timestamp;
+    }
+  };
+  
+  const onSyncError = (data: any) => {
+    console.error('[SyncStatusIndicator] Sync error:', data);
+    if (!data.willRetry) {
+      syncStatus.value.status = 'error';
+      syncStatus.value.errorMessage = data.error.message;
+    }
+  };
+  
+  // 注册事件监听器
+  props.hybridSyncService.on('syncStart', onSyncStart);
+  props.hybridSyncService.on('syncSuccess', onSyncSuccess);
+  props.hybridSyncService.on('syncError', onSyncError);
+  
+  // 清理函数
+  unsubscribe = () => {
+    props.hybridSyncService!.off('syncStart', onSyncStart);
+    props.hybridSyncService!.off('syncSuccess', onSyncSuccess);
+    props.hybridSyncService!.off('syncError', onSyncError);
+  };
+  
+  // 定期更新时间戳（每5秒，用于显示相对时间）
   statusCheckInterval = setInterval(() => {
     updateSyncStatus();
   }, 5000);
 });
 
 onUnmounted(() => {
+  // 清理事件监听器
+  unsubscribe?.();
+  
+  // 清理定时器
   if (statusCheckInterval) {
     clearInterval(statusCheckInterval);
     statusCheckInterval = null;

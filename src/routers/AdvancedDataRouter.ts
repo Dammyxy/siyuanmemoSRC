@@ -599,6 +599,32 @@ export class AdvancedDataRouter implements IDataRouter {
             });
         }
         
+        // 过滤关键词（搜索卡片内容）
+        if (filter.keyword && filter.keyword.trim()) {
+            const keyword = filter.keyword.trim().toLowerCase();
+            console.log(`[AdvancedDataRouter] 🔍 Filtering by keyword: "${keyword}"`);
+            
+            filtered = filtered.filter(card => {
+                // 搜索卡片内容（meta.content）
+                const content = card.meta?.content || '';
+                const contentLower = content.toLowerCase();
+                
+                // 搜索卡片标题（如果有）
+                const title = card.meta?.title || '';
+                const titleLower = title.toLowerCase();
+                
+                // 搜索块 ID
+                const blockId = card.blockId || '';
+                
+                // 只要任一字段包含关键词就返回 true
+                return contentLower.includes(keyword) || 
+                       titleLower.includes(keyword) || 
+                       blockId.includes(keyword);
+            });
+            
+            console.log(`[AdvancedDataRouter] 🔍 After keyword filter: ${filtered.length} cards`);
+        }
+        
         return filtered;
     }
     

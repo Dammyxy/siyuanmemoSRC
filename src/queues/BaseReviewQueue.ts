@@ -841,12 +841,13 @@ export abstract class BaseReviewQueue implements IReviewQueue {
 
     /**
      * 获取队列大小
+     * 
+     * 注意：总是调用 getCards() 以确保返回最新的队列大小
      */
     public async getSize(): Promise<number> {
-        if (this.cards.length === 0) {
-            await this.getAllCards();
-        }
-        return this.cards.length;
+        const cards = await this.getCards();
+        console.log(`[${this.name}] getSize: returning ${cards.length} cards`);
+        return cards.length;
     }
 
     /**

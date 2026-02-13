@@ -32,6 +32,7 @@ export interface FilterEnabledState {
     retrievability: boolean;
     cardType: boolean;
     cardStatus: boolean;
+    keyword: boolean;
 }
 
 /**
@@ -49,6 +50,7 @@ export interface FilterValues {
     retrievability: { min: number; max: number };
     cardType: Set<'item' | 'topic'>;
     cardStatus: Set<'new' | 'learning' | 'review' | 'relearning'>;
+    keyword: string;
 }
 
 /**
@@ -299,6 +301,12 @@ export class FilterService {
 
         console.log('[FilterService] toCardFilter called with state:', state);
 
+        // 关键词过滤（只要有内容就生效，不需要 enabled 检查）
+        if (state.values.keyword && state.values.keyword.trim()) {
+            filter.keyword = state.values.keyword.trim();
+            console.log('[FilterService] Set keyword to:', filter.keyword);
+        }
+
         // 数值范围过滤条件
         if (state.enabled.priority) {
             filter.priority = {
@@ -420,6 +428,7 @@ export class FilterService {
                 retrievability: false,
                 cardType: false,
                 cardStatus: false,
+                keyword: false,
             },
             values: {
                 priority: { min: 0, max: 100 },
@@ -433,8 +442,15 @@ export class FilterService {
                 retrievability: { min: 0, max: 1 },
                 cardType: new Set(),
                 cardStatus: new Set(),
+                keyword: '',
             },
         };
+
+        // 关键词过滤（只要有内容就生效）
+        if (filter.keyword && filter.keyword.trim()) {
+            state.enabled.keyword = true;
+            state.values.keyword = filter.keyword.trim();
+        }
 
         // 数值范围过滤条件
         if (filter.priority) {
@@ -534,6 +550,11 @@ export class FilterService {
      */
     generateSummary(filter: CardFilter): string {
         const parts: string[] = [];
+
+        // 关键词过滤
+        if (filter.keyword) {
+            parts.push(`关键词: "${filter.keyword}"`);
+        }
 
         // 数值范围过滤条件
         if (filter.priority) {

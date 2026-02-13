@@ -14,6 +14,7 @@ import { ATTR_PRIORITY } from '@/core/siyuan/block';
 import { clampPriority, DEFAULT_PRIORITY } from '@/core/queue/abstraction/IPriority';
 import type { QueueData } from '@/core/queue/strategies/QueueMigrationManager';
 import { encode, decode } from '@msgpack/msgpack';
+import { migrateCard } from '@/utils/cardMigration';
 
 /** 存储文件名 */
 const STORAGE_FILES = {
@@ -298,9 +299,15 @@ export class StorageManager {
             ...(card.riffCardId && { riffCardId: card.riffCardId }),
             ...(card.skipUntil && { skipUntil: card.skipUntil }),
             ...(card.meta && { meta: card.meta }),
+            
+            // 🆕 保留 SuperMemo 重新调度字段（如果存在）
+            ...(card.postponeCount !== undefined && { postponeCount: card.postponeCount }),
+            ...(card.lastPostponeDate !== undefined && { lastPostponeDate: card.lastPostponeDate }),
+            ...(card.rescheduleHistory !== undefined && { rescheduleHistory: card.rescheduleHistory }),
         };
         
-        return normalized;
+        // ✅ 应用迁移逻辑：确保所有必需字段存在（learning_step、postponeCount、rescheduleHistory）
+        return migrateCard(normalized);
     }
     
     /**

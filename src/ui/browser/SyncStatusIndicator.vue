@@ -136,10 +136,12 @@ function updateSyncStatus() {
   if (!props.syncService) return;
   
   const status = props.syncService.getSyncStatus();
-  syncStatus.value = status.status;
   lastSyncTime.value = status.lastSyncTime;
   lastFullSyncTime.value = status.lastFullSyncTime;
 }
+
+// 事件监听器
+let unsubscribe: (() => void) | null = null;
 
 // 手动同步
 async function handleManualSync() {
@@ -148,26 +150,14 @@ async function handleManualSync() {
   console.log('[SyncStatusIndicator] Manual sync triggered');
   
   try {
-    syncStatus.value = 'syncing';
-    progress.value = '';
-    errorMessage.value = '';
-    
-    const result = await props.syncService.incrementalSync();
-    lastResult.value = result;
-    
-    if (result.success) {
-      syncStatus.value = 'success';
-      lastSyncTime.value = Date.now();
-    } else {
-      syncStatus.value = 'error';
-      errorMessage.value = result.errorMessage || t('unknownError', '未知错误');
-    }
+    // 使用进度回调
+    await props.syncService.incrementalSync((progressData: any) => {
+      progress.value = `${progressData.percentage}%`;
+    });
     
     emit('sync');
   } catch (error) {
     console.error('[SyncStatusIndicator] Manual sync failed:', error);
-    syncStatus.value = 'error';
-    errorMessage.value = error instanceof Error ? error.message : t('unknownError', '未知错误');
   }
 }
 
@@ -178,26 +168,14 @@ async function handleFullSync() {
   console.log('[SyncStatusIndicator] Full sync triggered');
   
   try {
-    syncStatus.value = 'syncing';
-    progress.value = '';
-    errorMessage.value = '';
-    
-    const result = await props.syncService.fullSync();
-    lastResult.value = result;
-    
-    if (result.success) {
-      syncStatus.value = 'success';
-      lastFullSyncTime.value = Date.now();
-    } else {
-      syncStatus.value = 'error';
-      errorMessage.value = result.errorMessage || t('unknownError', '未知错误');
-    }
+    // 使用进度回调
+    await props.syncService.fullSync((progressData: any) => {
+      progress.value = `${progressData.percentage}%`;
+    });
     
     emit('fullSync');
   } catch (error) {
     console.error('[SyncStatusIndicator] Full sync failed:', error);
-    syncStatus.value = 'error';
-    errorMessage.value = error instanceof Error ? error.message : t('unknownError', '未知错误');
   }
 }
 
@@ -208,20 +186,75 @@ function handleRetry() {
   handleManualSync();
 }
 
-// 定时更新状态
+// 定时更新时间戳（用于显示相对时间）
 let statusUpdateTimer: ReturnType<typeof setInterval> | null = null;
 
 onMounted(() => {
+  if (!props.syncService) return;
+  
   // 初始更新
   updateSyncStatus();
   
-  // 每 5 秒更新一次状态
+  // 🆕 监听同步事件
+  const onSyncStart = (data: any) => {
+    console.log('[SyncStatusIndicator] Sync started:', data.type);
+    syncStatus.value = 'syncing';
+    progress.value = '';
+    errorMessage.value = '';
+  };
+  
+  const onSyncSuccess = (data: any) => {
+    console.log('[SyncStatusIndicator] Sync success:', data);
+    syncStatus.value = 'success';
+    lastResult.value = data.result;
+    progress.value = '';
+    
+    // 更新时间戳
+    if (data.type === 'incremental') {
+      lastSyncTime.value = data.timestamp;
+    } else if (data.type === 'full') {
+      lastFullSyncTime.value = data.timestamp;
+    }
+  };
+  
+  const onSyncError = (data: any) => {
+    console.error('[SyncStatusIndicator] Sync error:', data);
+    if (!data.willRetry) {
+      syncStatus.value = 'error';
+      errorMessage.value = data.error.message;
+      progress.value = '';
+    }
+  };
+  
+  const onSyncProgress = (data: any) => {
+    progress.value = `${data.progress.percentage}%`;
+  };
+  
+  // 注册事件监听器
+  props.syncService.on('syncStart', onSyncStart);
+  props.syncService.on('syncSuccess', onSyncSuccess);
+  props.syncService.on('syncError', onSyncError);
+  props.syncService.on('syncProgress', onSyncProgress);
+  
+  // 清理函数
+  unsubscribe = () => {
+    props.syncService!.off('syncStart', onSyncStart);
+    props.syncService!.off('syncSuccess', onSyncSuccess);
+    props.syncService!.off('syncError', onSyncError);
+    props.syncService!.off('syncProgress', onSyncProgress);
+  };
+  
+  // 每 5 秒更新一次时间戳（用于显示相对时间）
   statusUpdateTimer = setInterval(() => {
     updateSyncStatus();
   }, 5000);
 });
 
 onBeforeUnmount(() => {
+  // 清理事件监听器
+  unsubscribe?.();
+  
+  // 清理定时器
   if (statusUpdateTimer) {
     clearInterval(statusUpdateTimer);
     statusUpdateTimer = null;

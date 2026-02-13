@@ -86,6 +86,17 @@
         <svg><use xlink:href="#iconRefresh"></use></svg>
       </button>
 
+      <!-- 🆕 分摊复习压力按钮 -->
+      <button 
+        class="b3-button b3-button--outline" 
+        @click="$emit('openSpreadDialog')" 
+        :disabled="loading"
+        :title="t('spreadReviews', '分摊复习压力 - 将积压的复习任务均匀分散')"
+      >
+        <svg><use xlink:href="#iconCalendar"></use></svg>
+        {{ t('spread', '分摊复习压力') }}
+      </button>
+
       <!-- Topic/Item 迁移按钮 -->
       <button class="b3-button b3-button--outline" @click="$emit('migrateTopicItem')" :disabled="loading" :title="t('migrateTopicItem', '识别 Topic/Item 类型')">
         <svg><use xlink:href="#iconTags"></use></svg>
@@ -158,6 +169,8 @@ defineEmits<{
   (e: 'convertToTab'): void;
   // 新增：打开过滤对话框事件 (需求 1.3)
   (e: 'openFilterDialog'): void;
+  // 新增：打开分散对话框事件 (supermemo-reschedule-operations)
+  (e: 'openSpreadDialog'): void;
 }>();
 
 // 国际化

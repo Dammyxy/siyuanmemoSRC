@@ -36,7 +36,7 @@ export const BASE_ACTIONS = {
   autoSort: { id: 'auto-sort', label: '自动排序', icon: 'iconSort' } as CardBrowserAction,
   postpone: { id: 'postpone', label: '推迟', icon: 'iconCalendar' } as CardBrowserAction,
   advance: { id: 'advance', label: '提前', icon: 'iconCalendar' } as CardBrowserAction,
-  spread: { id: 'spread', label: '分散', icon: 'iconSort' } as CardBrowserAction,
+  // spread 已移至工具栏独立按钮，不再出现在右键菜单
   reset: { id: 'reset', label: '重置', icon: 'iconRefresh', danger: true } as CardBrowserAction,
   suspend: { id: 'suspend', label: '暂停', icon: 'iconPause' } as CardBrowserAction,
 };
@@ -140,7 +140,7 @@ export function buildQueueActions(options: {
   if (options.withTimeAdjust) {
     actions.push(BASE_ACTIONS.postpone);
     actions.push(BASE_ACTIONS.advance);
-    actions.push(BASE_ACTIONS.spread);
+    // spread 已移至工具栏独立按钮，不再出现在右键菜单
   }
 
   return actions;
@@ -376,7 +376,7 @@ export async function adjustTime(
 ): Promise<any> {
   const rows = (selectedRows || []).map((r) => ({
     blockId: r.blockId,
-    cardId: r.id || undefined,
+    cardId: r.fsrsCardId || r.id || undefined,  // 优先使用 fsrsCardId
     currentDue: r.due instanceof Date ? r.due : undefined,
   }));
 
@@ -422,18 +422,129 @@ export async function adjustTime(
   let result: any;
   switch (action) {
     case 'postpone':
-      const days = Math.max(1, Number(context?.days || 0));
-      result = await service.postpone(rows, days, meta);
+      // 检查是否使用新的配置对象
+      if (context?.config) {
+        // 🆕 使用新的 postponeWithConfig 方法
+        // 先从存储加载完整的 FSRSCard 对象
+        const storage = plugin?.storage;
+        if (!storage) {
+          console.error('[MenuActions] No storage available for postponeWithConfig');
+          result = { updated: [], skipped: [] };
+          break;
+        }
+        
+        console.log('[MenuActions] Loading FSRS cards for postpone, rows:', rows.length);
+        const fsrsCards: any[] = [];
+        for (const row of rows) {
+          console.log('[MenuActions] Processing row:', { blockId: row.blockId, cardId: row.cardId });
+          if (!row.cardId) {
+            console.warn('[MenuActions] Row missing cardId, skipping:', row);
+            continue;
+          }
+          const card = storage.getCard(row.cardId);
+          console.log('[MenuActions] Got card from storage:', card ? 'found' : 'not found', row.cardId);
+          if (card) {
+            fsrsCards.push(card);
+          } else {
+            console.warn('[MenuActions] Card not found:', row.cardId);
+          }
+        }
+        
+        console.log('[MenuActions] Loaded FSRS cards:', fsrsCards.length, '/', rows.length);
+        
+        if (fsrsCards.length === 0) {
+          console.warn('[MenuActions] No FSRS cards found for postpone, falling back to old method');
+          // 降级到旧方法
+          const days = Math.max(1, Number(context?.config?.minInterval || 7));
+          result = await service.postpone(rows, days, meta);
+          break;
+        }
+        
+        // 调用 postponeWithConfig
+        console.log('[MenuActions] Calling postponeWithConfig with config:', context.config);
+        const postponeResult = await (service as any).postponeWithConfig?.(
+          fsrsCards,
+          context.config,
+          meta
+        );
+        
+        console.log('[MenuActions] postponeWithConfig result:', postponeResult);
+        console.log('[MenuActions] skippedReasons:', postponeResult?.skippedReasons);
+        
+        // 转换结果格式以兼容旧接口
+        result = {
+          updated: postponeResult?.updated ? new Array(postponeResult.updated).fill({}) : [],
+          skipped: postponeResult?.skipped ? new Array(postponeResult.skipped).fill({}) : []
+        };
+      } else {
+        // 兼容旧的简单参数方式
+        const days = Math.max(1, Number(context?.days || 0));
+        result = await service.postpone(rows, days, meta);
+      }
       updateUIDue(result?.updated);
       break;
     case 'advance':
-      const maxDays = Math.max(1, Number(context?.maxDays || 0));
-      result = await service.advance(rows, maxDays, meta);
+      // 检查是否使用新的配置对象
+      if (context?.config) {
+        // 🆕 使用新的 advanceWithConfig 方法
+        // 先从存储加载完整的 FSRSCard 对象
+        const storage = plugin?.storage;
+        if (!storage) {
+          console.error('[MenuActions] No storage available for advanceWithConfig');
+          result = { updated: [], skipped: [] };
+          break;
+        }
+        
+        const fsrsCards: any[] = [];
+        for (const row of rows) {
+          if (!row.cardId) {
+            console.warn('[MenuActions] Row missing cardId for advance, skipping:', row);
+            continue;
+          }
+          const card = storage.getCard(row.cardId);
+          if (card) {
+            fsrsCards.push(card);
+          } else {
+            console.warn('[MenuActions] Card not found for advance:', row.cardId);
+          }
+        }
+        
+        if (fsrsCards.length === 0) {
+          console.warn('[MenuActions] No FSRS cards found for advance');
+          result = { updated: [], skipped: rows };
+          break;
+        }
+        
+        // 调用 advanceWithConfig
+        const advanceResult = await (service as any).advanceWithConfig?.(
+          fsrsCards,
+          context.config,
+          meta
+        );
+        
+        // 转换结果格式以兼容旧接口
+        result = {
+          updated: advanceResult?.updated ? new Array(advanceResult.updated).fill({}) : [],
+          skipped: advanceResult?.skipped ? new Array(advanceResult.skipped).fill({}) : []
+        };
+      } else {
+        // 兼容旧的简单参数方式
+        const maxDays = Math.max(1, Number(context?.maxDays || 0));
+        result = await service.advance(rows, maxDays, meta);
+      }
       updateUIDue(result?.updated);
       break;
     case 'spread':
-      const spreadDays = Math.max(1, Number(context?.maxDays || context?.days || 0));
-      result = await (service as any).spread?.(rows, { maxDays: spreadDays }, meta);
+      // 检查是否使用新的配置对象
+      if (context?.config) {
+        // 使用新的 spreadWithConfig 方法
+        const spreadDays = Math.max(1, Number(context?.maxDays || context?.days || 7));
+        result = await (service as any).spread?.(rows, { maxDays: spreadDays }, meta);
+      } else {
+        // 兼容旧的简单参数方式
+        const spreadDays = Math.max(1, Number(context?.maxDays || context?.days || 0));
+        result = await (service as any).spread?.(rows, { maxDays: spreadDays }, meta);
+      }
       updateUIDue(result?.updated);
       break;
   }
