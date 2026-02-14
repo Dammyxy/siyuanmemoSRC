@@ -61,6 +61,41 @@
 
         <div class="fn__hr"></div>
 
+        <h3>{{ t('schedulerSettingsTitle', '调度器设置') }}</h3>
+        
+        <p class="form-hint" style="margin-bottom: 16px;">
+          {{ t('schedulerArchitectureHint', 'Topic 卡片（阅读材料）使用 A-Factor 算法，Item 卡片（问答）可选择其他调度器。') }}
+        </p>
+
+        <!-- Item 调度器（默认调度器） -->
+        <div class="form-item">
+          <label>{{ t('itemScheduler', 'Item 卡片调度器（默认）') }}</label>
+          <div class="form-control">
+            <select v-model="schedulerConfig.defaultScheduler" class="scheduler-select">
+              <option value="fsrs-v5">{{ t('schedulerFsrsV5', 'FSRS v6 (推荐)') }}</option>
+              <option value="sm15">{{ t('schedulerSm15', 'SM-15') }}</option>
+            </select>
+          </div>
+          <p class="form-hint">
+            💡 {{ schedulerDescriptions[schedulerConfig.defaultScheduler] }}
+          </p>
+        </div>
+
+        <!-- Topic 调度器 -->
+        <div class="form-item">
+          <label>{{ t('topicScheduler', 'Topic 卡片调度器') }}</label>
+          <div class="form-control">
+            <select v-model="schedulerConfig.topicScheduler" class="scheduler-select" disabled>
+              <option value="a-factor-v2">{{ t('schedulerAFactorV2', 'A-Factor v2') }}</option>
+            </select>
+          </div>
+          <p class="form-hint">
+            💡 {{ t('topicSchedulerHint', 'Topic 卡片专用，适合阅读材料，动态调整难度因子（固定使用 A-Factor v2）') }}
+          </p>
+        </div>
+
+        <div class="fn__hr"></div>
+
         <h3>{{ t('featuresTitle', '功能开关') }}</h3>
 
         <!-- 自动制卡 -->
@@ -209,63 +244,12 @@
 
 
 
-      <!-- 🆕 Riff 集成配置 -->
+      <!-- 数据同步配置 -->
       <div v-show="activeTab === 'riff'" class="settings-section">
-        <h3>{{ t('riffIntegrationTitle', 'Riff 集成配置') }}</h3>
+        <h3>{{ t('riffSyncTitle', 'Riff 数据同步') }}</h3>
         
-        <!-- 高阶模式详细配置 -->
+        <!-- 数据同步配置 -->
         <div class="advanced-config">
-          <div class="fn__hr"></div>
-          
-          <h4>{{ t('schedulerSettingsTitle', '调度器设置') }}</h4>
-          
-          <!-- 默认调度器 -->
-          <div class="form-item">
-            <label>{{ t('defaultScheduler', '默认调度器') }}</label>
-            <div class="form-control">
-              <select v-model="schedulerConfig.defaultScheduler" class="scheduler-select">
-                <option value="fsrs-v5">{{ t('schedulerFsrsV5', 'FSRS v5 (推荐)') }}</option>
-                <option value="sm2">{{ t('schedulerSm2', 'SM-2') }}</option>
-                <option value="sm15">{{ t('schedulerSm15', 'SM-15') }}</option>
-                <option value="a-factor-v2">{{ t('schedulerAFactorV2', 'A-Factor v2') }}</option>
-              </select>
-            </div>
-            <p class="form-hint">
-              💡 {{ schedulerDescriptions[schedulerConfig.defaultScheduler] }}
-            </p>
-          </div>
-
-          <!-- Topic 调度器 -->
-          <div class="form-item">
-            <label>{{ t('topicScheduler', 'Topic 卡片调度器') }}</label>
-            <div class="form-control">
-              <select v-model="schedulerConfig.topicScheduler" class="scheduler-select">
-                <option value="a-factor">{{ t('schedulerAFactor', 'A-Factor (原始)') }}</option>
-                <option value="a-factor-v2">{{ t('schedulerAFactorV2Recommended', 'A-Factor v2 (推荐)') }}</option>
-              </select>
-            </div>
-            <p class="form-hint">
-              💡 {{ t('topicSchedulerHint', '适合阅读材料，动态调整难度因子') }}
-            </p>
-          </div>
-
-          <!-- Item 调度器 -->
-          <div class="form-item">
-            <label>{{ t('itemScheduler', 'Item 卡片调度器') }}</label>
-            <div class="form-control">
-              <select v-model="schedulerConfig.itemScheduler" class="scheduler-select">
-                <option value="fsrs-v5">{{ t('schedulerFsrsV5Recommended', 'FSRS v5 (推荐)') }}</option>
-                <option value="sm2">{{ t('schedulerSm2', 'SM-2') }}</option>
-                <option value="sm15">{{ t('schedulerSm15', 'SM-15') }}</option>
-              </select>
-            </div>
-            <p class="form-hint">
-              💡 {{ t('itemSchedulerHint', '适合问答卡片，精确间隔计算') }}
-            </p>
-          </div>
-          
-          <div class="fn__hr"></div>
-          
           <h4>{{ t('incrementalSyncConfig', '增量同步配置') }}</h4>
           <div class="form-item">
             <label>
@@ -535,7 +519,7 @@ function t(key: string, fallback: string): string {
 
 const tabs = computed(() => [
   { key: 'params', label: t('settingsParamsTab', '参数设置'), icon: '#iconSettings' },
-  { key: 'riff', label: t('riffTab', 'Riff 集成'), icon: '#iconCloud' },  // 🆕 Riff 集成
+  { key: 'riff', label: t('riffTab', '数据同步'), icon: '#iconCloud' },  // 数据同步
   { key: 'practice', label: t('practiceTab', '练习模式'), icon: '#iconPlay' },
   { key: 'about', label: t('settingsAboutTab', '关于'), icon: '#iconInfo' },
 ]);
@@ -591,10 +575,16 @@ const uiSettings = ref({
 // 🆕 调度器配置
 const schedulerConfig = ref<SchedulerConfig>({
   defaultScheduler: 'fsrs-v5',
-  // enableRiffSync 已废弃，使用 riffIntegration.mode 替代
   topicScheduler: 'a-factor-v2',
   itemScheduler: 'fsrs-v5',
 });
+
+// 调度器说明
+const schedulerDescriptions: Record<string, string> = {
+  'fsrs-v5': '现代算法，准确预测遗忘曲线，推荐使用',
+  'sm15': 'SuperMemo 15 算法，完整的遗忘曲线系统',
+  'a-factor-v2': '改进的 A-Factor，动态调整难度',
+};
 
 // 🆕 Riff 集成配置
 const riffIntegrationConfig = ref({
@@ -622,16 +612,6 @@ const triggers = ref({
   browserOpen: true,
   reviewOpen: true,
 });
-
-// 🆕 调度器说明
-const schedulerDescriptions: Record<string, string> = {
-  'fsrs-v5': '现代算法，准确预测遗忘曲线，自动优化参数',
-  'riff': '思源笔记原生调度器，与系统深度集成',
-  'sm2': '经典算法，简单稳定，广泛使用',
-  'sm15': 'SuperMemo 15 算法，完整的遗忘曲线系统',
-  'a-factor-v2': '改进的 A-Factor，动态调整难度',
-  'a-factor': '固定难度因子，简单稳定',
-};
 
 // 参数预览
 const paramsPreview = computed(() => {

@@ -2,12 +2,10 @@
 import type { SchedulerEngineAdapter } from './types';
 import { TSFSRSScheduler } from './strategies/TSFSRSScheduler';
 import { ImprovedTopicScheduler } from './strategies/ImprovedTopicScheduler';
-import { TopicScheduler } from './TopicScheduler';
 
 export * from './types';
 export * from './strategies/TSFSRSScheduler';
 export * from './strategies/ImprovedTopicScheduler';
-export * from './TopicScheduler';
 export * from './rescheduleService';
 export * from './SchedulerRouter';
 

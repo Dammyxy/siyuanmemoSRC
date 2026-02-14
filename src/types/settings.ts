@@ -37,7 +37,7 @@ export interface SchedulerConfig {
     defaultScheduler: 'fsrs-v5' | 'sm15' | 'a-factor-v2';
 
     // 按卡片类型配置（可选）
-    topicScheduler?: 'a-factor' | 'a-factor-v2';
+    topicScheduler?: 'a-factor-v2';  // Topic 固定使用 A-Factor v2
     itemScheduler?: 'fsrs-v5' | 'sm15';
 
     sm15?: {

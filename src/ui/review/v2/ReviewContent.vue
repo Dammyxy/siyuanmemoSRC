@@ -2,8 +2,9 @@
   <div class="fsrs-review-v2-content">
     <Transition :name="transitionName">
       <div :key="contentKey" class="fsrs-review-v2-content__inner">
-        <div v-if="content.type === 'empty'" class="fsrs-review-v2-content__empty ft__secondary">
-          {{ t('loadingContent', '内容加载中...') }}
+        <div v-if="content.type === 'empty'" class="fsrs-review-v2-content__empty">
+          <div class="fsrs-review-v2-content__empty-icon">🔮</div>
+          <div class="fsrs-review-v2-content__empty-title">{{ t('noDueCard', '没有到期卡片') }}</div>
         </div>
 
         <div v-else-if="content.type === 'html'" class="fsrs-review-v2-content__html" v-html="content.data"></div>
@@ -472,8 +473,29 @@ const content = computed(() => props.content);
 }
 
 .fsrs-review-v2-content__empty {
-  padding: 16px;
+  padding: 48px 16px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.fsrs-review-v2-content__empty-icon {
+  font-size: 48px;
+  line-height: 1;
+}
+
+.fsrs-review-v2-content__empty-title {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--b3-theme-on-surface);
+}
+
+.fsrs-review-v2-content__empty-subtitle {
+  font-size: 14px;
+  color: var(--b3-theme-on-surface-light);
 }
 
 .fsrs-review-v2-content__html {

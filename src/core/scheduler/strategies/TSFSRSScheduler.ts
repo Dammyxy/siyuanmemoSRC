@@ -321,16 +321,32 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
      * @returns ts-fsrs 的卡片格式
      */
     private toTSCard(card: FSRSCard): TSCard {
+        // 安全地转换 due 日期，确保不会产生 Invalid Date
+        let dueDate: Date;
+        if (card.due && !isNaN(card.due) && isFinite(card.due)) {
+            dueDate = new Date(card.due);
+        } else {
+            // 如果 due 无效，使用当前时间
+            dueDate = new Date();
+            console.warn('[TSFSRSScheduler] Invalid due date for card:', card.id, 'using current time');
+        }
+        
+        // 安全地转换 lastReview 日期
+        let lastReviewDate: Date | undefined;
+        if (card.lastReview && !isNaN(card.lastReview) && isFinite(card.lastReview)) {
+            lastReviewDate = new Date(card.lastReview);
+        }
+        
         return {
-            due: card.due ? new Date(card.due) : new Date(),
-            stability: card.stability,
-            difficulty: card.difficulty,
+            due: dueDate,
+            stability: card.stability ?? 0,
+            difficulty: card.difficulty ?? 5,
             elapsed_days: card.elapsedDays ?? 0,
             scheduled_days: card.scheduledDays ?? 0,
-            reps: card.reps,
-            lapses: card.lapses,
+            reps: card.reps ?? 0,
+            lapses: card.lapses ?? 0,
             state: this.toTSState(card.state),
-            last_review: card.lastReview ? new Date(card.lastReview) : undefined,
+            last_review: lastReviewDate,
         };
     }
     
@@ -354,9 +370,32 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
      * @returns 我们的卡片格式
      */
     private fromTSCard(tsCard: TSCard, originalCard: FSRSCard): FSRSCard {
+        // 安全地转换 due 日期
+        let dueTime: number;
+        if (tsCard.due && tsCard.due instanceof Date && !isNaN(tsCard.due.getTime())) {
+            dueTime = tsCard.due.getTime();
+        } else {
+            // 如果 due 无效，使用当前时间 + 1天
+            dueTime = Date.now() + 86400000;
+            console.error('[TSFSRSScheduler] Invalid due date from ts-fsrs:', {
+                cardId: originalCard.id,
+                tsCardDue: tsCard.due,
+                fallbackDue: new Date(dueTime).toISOString(),
+            });
+        }
+        
+        // 安全地转换 lastReview 日期
+        let lastReviewTime: number;
+        if (tsCard.last_review && tsCard.last_review instanceof Date && !isNaN(tsCard.last_review.getTime())) {
+            lastReviewTime = tsCard.last_review.getTime();
+        } else {
+            // 如果 lastReview 无效，使用当前时间
+            lastReviewTime = Date.now();
+        }
+        
         return {
             ...originalCard,
-            due: tsCard.due.getTime(),
+            due: dueTime,
             stability: tsCard.stability,
             difficulty: tsCard.difficulty,
             elapsedDays: tsCard.elapsed_days,
@@ -364,7 +403,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
             reps: tsCard.reps,
             lapses: tsCard.lapses,
             state: this.fromTSState(tsCard.state),
-            lastReview: tsCard.last_review ? tsCard.last_review.getTime() : Date.now(),
+            lastReview: lastReviewTime,
             updatedAt: Date.now(),
         };
     }

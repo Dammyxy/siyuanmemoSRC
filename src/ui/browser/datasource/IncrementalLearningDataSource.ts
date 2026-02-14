@@ -336,7 +336,7 @@ export class IncrementalLearningDataSource implements ICardDataSource {
       },
       {
         id: 'delete-card',
-        label: '删除卡片',
+        label: '取消闪卡',
         icon: 'iconTrashcan',
         danger: true,
       },

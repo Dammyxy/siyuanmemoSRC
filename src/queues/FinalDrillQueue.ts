@@ -143,7 +143,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
                 this.sequencer = new DynamicDrawSequencer<FSRSCard>({
                     getAll: () => cards,
                     strategy: 'random',
-                    removeAfterSelection: false // 不移除，因为我们只是用来排序
+                    removeAfterSelection: true // 移除已选择的项，避免重复
                 });
                 
                 // 使用排序器重新排列卡片
@@ -181,12 +181,25 @@ export class FinalDrillQueue extends BaseReviewQueue {
     public async addCard(card: FSRSCard | QueueItem | string, source: 'manual' | 'auto-failed' = 'manual'): Promise<void> {
         try {
             const cardId = resolveCardId(card);
+            
             // 检查是否已存在
             const existing = this.entries.get(cardId);
-            if (existing && existing.source === 'manual') {
-                // 手动添加的卡片不覆盖
-                console.log(`[FinalDrillQueue] Card ${cardId} already exists as manual, skipping`);
-                return;
+            
+            if (existing) {
+                // 如果已存在
+                if (existing.source === 'manual') {
+                    // 手动添加的卡片不覆盖
+                    console.log(`[FinalDrillQueue] Card ${cardId} already exists as manual, skipping`);
+                    return;
+                }
+                
+                if (existing.source === 'auto-failed' && source === 'auto-failed') {
+                    // 🆕 自动失败的卡片重复添加，不更新时间戳（保留最早的失败时间）
+                    console.log(`[FinalDrillQueue] Card ${cardId} already exists as auto-failed, keeping original timestamp`);
+                    return;
+                }
+                
+                // 其他情况：auto-failed → manual，允许覆盖
             }
             
             // 添加或更新条目

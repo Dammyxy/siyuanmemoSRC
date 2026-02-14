@@ -116,7 +116,7 @@ export const BATCH_ACTIONS: BatchActionDef[] = [
     { key: 'suspend', label: '暂停卡片', icon: 'iconPause', shortcut: 'Ctrl+K' },
     { key: 'unsuspend', label: '取消暂停', icon: 'iconPlay', shortcut: 'Ctrl+Shift+K' },
     { key: 'priority', label: '设置优先级', icon: 'iconMark', shortcut: 'Ctrl+P' },
-    { key: 'delete', label: '删除卡片', icon: 'iconTrashcan', shortcut: 'Del', danger: true },
+    { key: 'delete', label: '取消闪卡', icon: 'iconTrashcan', shortcut: 'Del', danger: true },
 ];
 
 /** 重新调度选项 */

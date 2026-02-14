@@ -1029,8 +1029,8 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   // 🆕 删除卡片确认
   if (actionId === 'delete-card') {
     const ok = await confirmDialog({
-      title: t('deleteCard', '删除卡片'),
-      content: t('confirmDelete', `确定要删除 ${targetCards.length} 张卡片吗？此操作不可撤销。`),
+      title: t('deleteCard', '取消闪卡'),
+      content: t('confirmDelete', `确定要取消 ${targetCards.length} 张闪卡吗？此操作不可撤销。`),
       confirmText: t('confirm', '确认'),
       cancelText: t('cancel', '取消'),
     });

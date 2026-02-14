@@ -11,12 +11,11 @@ import type { StorageManager } from '../storage/manager';
 import { TSFSRSScheduler } from './strategies/TSFSRSScheduler';
 import { SM15Scheduler } from './strategies/SM15Scheduler';
 import { ImprovedTopicScheduler } from './strategies/ImprovedTopicScheduler';
-import { TopicScheduler } from './TopicScheduler';
 import { createScheduler } from './index';
 import { migrateCard } from './strategies/sm15/migration';
 
 /** 调度器类型 */
-export type SchedulerType = 'fsrs-v5' | 'sm15' | 'a-factor' | 'a-factor-v2';
+export type SchedulerType = 'fsrs-v5' | 'sm15' | 'a-factor-v2';
 
 /** Scheduler Router 配置 */
 export interface SchedulerRouterConfig {
@@ -55,9 +54,6 @@ export class SchedulerRouter {
         // SM-15
         this.schedulers.set('sm15', new SM15Scheduler(params));
 
-        // A-Factor (原始 TopicScheduler)
-        this.schedulers.set('a-factor', new TopicScheduler());
-
         // A-Factor v2 (ImprovedTopicScheduler)
         this.schedulers.set('a-factor-v2', new ImprovedTopicScheduler(params));
     }
@@ -80,9 +76,9 @@ export class SchedulerRouter {
                 stability: card.stability,
                 difficulty: card.difficulty,
                 due: card.due,
-                dueDate: new Date(card.due).toISOString(),
+                dueDate: card.due ? new Date(card.due).toISOString() : 'undefined',
                 lastReview: card.lastReview,
-                lastReviewDate: new Date(card.lastReview).toISOString(),
+                lastReviewDate: card.lastReview ? new Date(card.lastReview).toISOString() : 'undefined',
             });
             
             // 1. 确定调度器类型
@@ -107,7 +103,7 @@ export class SchedulerRouter {
                 updatedCard: updatedCard ? {
                     id: updatedCard.id,
                     due: updatedCard.due,
-                    dueDate: new Date(updatedCard.due).toISOString(),
+                    dueDate: updatedCard.due ? new Date(updatedCard.due).toISOString() : 'undefined',
                     state: updatedCard.state,
                     reps: updatedCard.reps,
                     stability: updatedCard.stability,
@@ -155,12 +151,8 @@ export class SchedulerRouter {
     getSchedulerType(card: FSRSCard): SchedulerType {
         // 1. 检查卡片类型强制规则
         if (card.type === 'topic') {
-            // Topic 卡片强制使用 A-Factor 系列调度器
-            // 优先使用 a-factor-v2，如果不存在则使用 a-factor
-            if (this.schedulers.has('a-factor-v2')) {
-                return 'a-factor-v2';
-            }
-            return 'a-factor';
+            // Topic 卡片强制使用 A-Factor v2
+            return 'a-factor-v2';
         }
 
         // 2. 检查用户覆盖配置
@@ -194,9 +186,9 @@ export class SchedulerRouter {
     ): Promise<boolean> {
         // 1. 验证切换是否允许
         if (card.type === 'topic') {
-            // Topic 卡片只能使用 A-Factor 系列调度器
-            if (newScheduler !== 'a-factor' && newScheduler !== 'a-factor-v2') {
-                console.error('[SchedulerRouter] Topic cards must use A-Factor scheduler');
+            // Topic 卡片只能使用 A-Factor v2
+            if (newScheduler !== 'a-factor-v2') {
+                console.error('[SchedulerRouter] Topic cards must use A-Factor v2 scheduler');
                 return false;
             }
         }
@@ -290,19 +282,9 @@ export class SchedulerRouter {
             // 简化版转换（保持向后兼容）
             const converted = { ...card };
 
-            // 从 A-Factor 切换到其他算法
-            if (oldScheduler === 'a-factor' || oldScheduler === 'a-factor-v2') {
-                if (newScheduler !== 'a-factor' && newScheduler !== 'a-factor-v2') {
-                    // A-Factor (1.2-6.0) → FSRS difficulty (1-10)
-                    const aFactor = card.aFactor || 1.2;
-                    converted.difficulty = 1 + ((aFactor - 1.2) / 4.8) * 9;
-                    converted.stability = card.scheduledDays || 2;
-                }
-            }
-
-            // 从其他算法切换到 A-Factor
-            if (oldScheduler !== 'a-factor' && oldScheduler !== 'a-factor-v2') {
-                if (newScheduler === 'a-factor' || newScheduler === 'a-factor-v2') {
+            // 从其他算法切换到 A-Factor v2
+            if (oldScheduler !== 'a-factor-v2') {
+                if (newScheduler === 'a-factor-v2') {
                     // FSRS difficulty (1-10) → A-Factor (1.2-6.0)
                     const difficulty = card.difficulty || 5;
                     converted.aFactor = 1.2 + ((difficulty - 1) / 9) * 4.8;
