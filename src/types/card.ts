@@ -17,6 +17,8 @@ export enum CardState {
 export enum CardType {
     Item = 'item',               // 普通闪卡（基于块）
     Topic = 'topic',             // 主题（增量阅读）
+    Concept = 'concept',         // 概念卡（使用 FSRS 调度器）
+    Descriptor = 'descriptor',   // 描述符卡（使用 FSRS 调度器）
     Incremental = 'incremental', // 增量内容
     Webpage = 'webpage',         // 网页卡片（渐进阅读）
 }
@@ -51,6 +53,8 @@ export interface FSRSCard {
     priority: number;     // 优先级 0-100 (越小越优先)
     type: CardType;       // 卡片类型
     tags: string[];       // 标签
+    cardTypeMarker?: 'concept' | 'descriptor';  // 卡片类型标记（用户层语义）
+    neuralRoamSeed?: boolean;  // 是否为神经漫游种子
 
     // === 难点攻克 ===
     leechCount: number;   // 连续遗忘计数
@@ -136,6 +140,8 @@ export function createDefaultCard(blockId: string): FSRSCard {
         priority: 50,
         type: CardType.Item,
         tags: [],
+        cardTypeMarker: undefined,  // 卡片类型标记（默认未设置）
+        neuralRoamSeed: undefined,  // 神经漫游种子标记（默认未设置）
         leechCount: 0,
         isLeech: false,
         skipped: false,

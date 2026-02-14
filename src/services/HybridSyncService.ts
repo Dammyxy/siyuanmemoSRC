@@ -17,7 +17,7 @@ import type { StorageManager } from '@/core/storage/manager';
 import type { FSRSCard } from '@/types';
 import { getRiffCards, getRiffNewCards, removeRiffCards, type RiffBlock } from '@/core/siyuan/riff';
 import { batchDetectCardType, initializeAFactor } from '@/core/card-builder';
-import { setBlockAttrs } from '@/core/siyuan/api';
+import { setBlockAttrs, getBlockAttrs } from '@/core/siyuan/api';
 import { ATTR_CARD_TYPE, ATTR_A_FACTOR } from '@/core/siyuan/block';
 import { EventEmitter } from '@/utils/EventEmitter';
 import type {
@@ -462,40 +462,63 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
             });
             
             try {
-                // 1. 获取所有卡片 ID
+                // 1. 获取所有卡片（使用 blockId 而不是 cardId）
                 this.reportProgress(onProgress, 'full', 'fetching', 0, 7, '正在获取所有卡片...');
                 const riffCards = await getRiffCards(this.config.deckId, {
                     dueOnly: false,
                     includeNew: true
                 });
-                const riffCardIDs = new Set(riffCards.map(c => c.id));
-                const localCardIDs = new Set(this.storage.getAllCards().map(c => c.id));
+                // 🔧 修改：使用 blockId 而不是 cardId
+                const riffBlockIds = new Set(riffCards.map(c => c.id));
+                const localCards = this.storage.getAllCards();
                 
-                console.log(`[HybridSync] Riff: ${riffCardIDs.size} cards, Local: ${localCardIDs.size} cards`);
+                console.log(`[HybridSync] Riff: ${riffBlockIds.size} blocks, Local: ${localCards.length} cards`);
                 
-                // 2. 新增：Riff 有但本地没有
+                // 2. 🔧 只添加新卡片（本地没有的），不更新已有卡片的复习数据
                 this.reportProgress(onProgress, 'full', 'adding', 2, 7, '正在添加新卡片...');
-                const toAdd = riffCards.filter(card => !localCardIDs.has(card.id));
-                for (const card of toAdd) {
-                    const fsrsCard = this.convertRiffCardToFSRSCard(card);
-                    this.storage.setCard(fsrsCard);
-                }
-                console.log(`[HybridSync] Added ${toAdd.length} cards from Riff`);
+                let addedCount = 0;
+                let skippedCount = 0;
                 
-                // 3. 删除：本地有但 Riff 没有
+                for (const riffCard of riffCards) {
+                    const localCard = this.storage.getCard(riffCard.id);
+                    if (localCard) {
+                        // ✅ 已存在，跳过（不覆盖本地复习数据）
+                        console.log(`[HybridSync] Card exists locally, skipping: ${riffCard.id}`);
+                        skippedCount++;
+                    } else {
+                        // ✅ 不存在，添加新卡片
+                        await this.syncRiffCardToLocal(riffCard);
+                        addedCount++;
+                    }
+                }
+                console.log(`[HybridSync] Added ${addedCount} new cards, skipped ${skippedCount} existing cards`);
+                
+                // 3. 删除：本地有但 Riff 没有（通过 blockId 判断）
                 this.reportProgress(onProgress, 'full', 'deleting', 3, 7, '正在删除过期卡片...');
-                const toDelete = Array.from(localCardIDs).filter(id => !riffCardIDs.has(id));
-                for (const id of toDelete) {
-                    this.storage.removeCard(id);
+                const toDelete = localCards.filter(card => {
+                    // 在Riff中，保留
+                    if (riffBlockIds.has(card.blockId)) return false;
+                    
+                    // 🆕 秀元卡片，保留（多卡片共用一个blockId）
+                    if (card.meta?.xiuyuanID) {
+                        console.log(`[HybridSync] Skipping Xiuyuan card: ${card.id} (xiuyuanID: ${card.meta.xiuyuanID})`);
+                        return false;
+                    }
+                    
+                    // 其他情况，删除
+                    return true;
+                });
+                for (const card of toDelete) {
+                    this.storage.removeCard(card.id);
                 }
                 console.log(`[HybridSync] Deleted ${toDelete.length} cards not in Riff`);
                 
-                // 4. 清理黑名单：黑名单中 Riff 已不存在的 ID
+                // 4. 清理黑名单：黑名单中 Riff 已不存在的 blockId
                 let blacklistCleanedCount = 0;
                 if (this.config.fullSync.cleanupBlacklist) {
                     this.reportProgress(onProgress, 'full', 'cleanup', 4, 7, '正在清理黑名单...');
                     const blacklist = this.storage.getRiffBlacklist();
-                    const toRemoveFromBlacklist = Array.from(blacklist).filter(id => !riffCardIDs.has(id));
+                    const toRemoveFromBlacklist = Array.from(blacklist).filter(id => !riffBlockIds.has(id));
                     
                     for (const id of toRemoveFromBlacklist) {
                         this.storage.removeFromRiffBlacklist(id);
@@ -507,15 +530,19 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                 
                 // 5. 保存
                 this.reportProgress(onProgress, 'full', 'saving', 5, 7, '正在保存数据...');
-                if (toAdd.length > 0 || toDelete.length > 0) {
+                if (addedCount > 0 || toDelete.length > 0) {
                     await this.storage.saveCards();
                 }
                 
                 // 6. 自动检测卡片类型（如果启用）
                 let detectedCount: number | undefined;
-                if (this.config.incrementalSync.autoDetectCardType && toAdd.length > 0) {
+                if (this.config.incrementalSync.autoDetectCardType && addedCount > 0) {
                     this.reportProgress(onProgress, 'full', 'detecting', 6, 7, '正在检测卡片类型...');
-                    detectedCount = await this.detectCardTypesForNewCards(toAdd);
+                    // 只检测新添加的卡片
+                    const newCards = riffCards.filter(card => !this.storage.getCard(card.id));
+                    if (newCards.length > 0) {
+                        detectedCount = await this.detectCardTypesForNewCards(newCards);
+                    }
                 }
                 
                 // 7. 更新时间戳
@@ -523,9 +550,9 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                 
                 const result: SyncResult = {
                     success: true,
-                    addedCount: toAdd.length,
+                    addedCount,
                     deletedCount: toDelete.length,
-                    skippedCount: 0,
+                    skippedCount, // 🔧 记录跳过的已有卡片数量
                     blacklistCleanedCount,
                     detectedCount
                 };
@@ -546,6 +573,146 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                 throw error; // 让 withRetry 处理重试
             }
         });
+    }
+    
+    /**
+     * 同步单个 Riff 卡片到本地
+     * 
+     * 检查是否为 Xiuyuan 卡片，如果是则更新所有关联的 FSRSCard
+     * 
+     * @param riffCard Riff 卡片数据
+     */
+    /**
+     * 🔧 从 Riff 同步卡片到本地（仅用于添加新卡片）
+     * 
+     * 注意：此方法现在只用于添加本地不存在的新卡片。
+     * fullSync 会在调用前检查卡片是否存在，已存在的卡片会被跳过。
+     * 
+     * @param riffCard Riff 卡片数据
+     */
+    private async syncRiffCardToLocal(riffCard: RiffBlock): Promise<void> {
+        const blockId = riffCard.id;
+        
+        try {
+            // 1. 检查是否为 Xiuyuan 卡片（通过块属性）
+            const attrs = await getBlockAttrs(blockId);
+            const xiuyuanID = attrs['custom-fsrs-xiuyuan-id'];
+            
+            if (xiuyuanID) {
+                // 这是一个 Xiuyuan 卡片
+                console.log(`[HybridSync] Adding new Xiuyuan card: ${blockId}, xiuyuanID: ${xiuyuanID}`);
+                
+                // 跨设备同步：本地没有该 Xiuyuan 的卡片
+                console.warn(`[HybridSync] Xiuyuan ${xiuyuanID} not found locally. Cross-device rebuild not yet implemented.`);
+                console.warn(`[HybridSync] Please manually create the Xiuyuan on this device, or wait for future implementation.`);
+                // TODO: 实现跨设备重建逻辑
+                // await this.rebuildXiuyuanFromBlock(blockId, xiuyuanID, attrs['custom-fsrs-template-id'], riffCard);
+                return;
+            } else {
+                // 普通卡片：添加新卡片
+                const fsrsCard = this.convertRiffCardToFSRSCard(riffCard);
+                this.storage.setCard(fsrsCard);
+                console.log(`[HybridSync] Added new card: ${blockId}`);
+            }
+        } catch (error) {
+            console.error(`[HybridSync] Failed to add card ${blockId}:`, error);
+            // 不抛出错误，继续处理其他卡片
+        }
+    }
+    
+    // ==================== 跨设备重建逻辑（TODO）====================
+    
+    /**
+     * 从块重建 Xiuyuan（跨设备同步）
+     * 
+     * TODO: 实现跨设备重建逻辑
+     * 
+     * @param blockId 代表块 ID
+     * @param xiuyuanID Xiuyuan ID
+     * @param templateID 模版 ID
+     * @param riffCard Riff 卡片数据
+     */
+    private async rebuildXiuyuanFromBlock(
+        blockId: string,
+        xiuyuanID: string,
+        templateID: string,
+        riffCard: RiffBlock
+    ): Promise<void> {
+        console.warn('[HybridSync] rebuildXiuyuanFromBlock not yet implemented');
+        // TODO: 实现以下步骤
+        // 1. 获取块的子块（重建 blockIDs）
+        // const blockIDs = await this.getXiuyuanBlockIDs(blockId, templateID);
+        // 
+        // 2. 重建 fieldMapping
+        // const fieldMapping = await this.rebuildFieldMapping(blockIDs, templateID);
+        // 
+        // 3. 调用 XiuyuanService.createFromBlocks
+        // const result = await this.xiuyuanService.createFromBlocks(
+        //     blockIDs,
+        //     templateID,
+        //     fieldMapping,
+        //     BUILTIN_DECK_ID
+        // );
+        // 
+        // 4. 更新复习数据
+        // if (result.ok) {
+        //     await this.updateXiuyuanReviewData(xiuyuanID, riffCard);
+        // }
+    }
+    
+    /**
+     * 获取 Xiuyuan 的所有块 ID
+     * 
+     * TODO: 实现获取子块逻辑
+     * 
+     * @param blockId 代表块 ID
+     * @param templateID 模版 ID
+     * @returns 块 ID 数组
+     */
+    private async getXiuyuanBlockIDs(blockId: string, templateID: string): Promise<string[]> {
+        console.warn('[HybridSync] getXiuyuanBlockIDs not yet implemented');
+        // TODO: 根据模版类型获取相关块
+        // 例如：列表模版需要获取父块和子块
+        return [blockId];
+    }
+    
+    /**
+     * 重建字段映射
+     * 
+     * TODO: 实现字段映射重建逻辑
+     * 
+     * @param blockIDs 块 ID 数组
+     * @param templateID 模版 ID
+     * @returns 字段映射
+     */
+    private async rebuildFieldMapping(
+        blockIDs: string[],
+        templateID: string
+    ): Promise<Record<string, string>> {
+        console.warn('[HybridSync] rebuildFieldMapping not yet implemented');
+        // TODO: 根据模版类型和块 ID 重建字段映射
+        return {};
+    }
+    
+    /**
+     * 更新 Xiuyuan 的复习数据
+     * 
+     * TODO: 实现复习数据更新逻辑
+     * 
+     * @param xiuyuanID Xiuyuan ID
+     * @param riffCard Riff 卡片数据
+     */
+    private async updateXiuyuanReviewData(xiuyuanID: string, riffCard: RiffBlock): Promise<void> {
+        console.warn('[HybridSync] updateXiuyuanReviewData not yet implemented');
+        // TODO: 更新所有关联卡片的复习数据
+        // const xiuyuanCards = this.storage.getAllCards().filter(
+        //     card => card.meta?.xiuyuanID === xiuyuanID
+        // );
+        // 
+        // const riffData = riffCard.riffCard || {};
+        // for (const card of xiuyuanCards) {
+        //     // 更新复习数据
+        // }
     }
     
     /**
@@ -618,8 +785,40 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
         console.log(`[HybridSync] Auto-detecting card types for ${cards.length} new cards...`);
         
         try {
+            // 0. 过滤掉已经有 cardTypeMarker 的卡片（用户手动标记的）
+            const cardsToDetect: RiffBlock[] = [];
+            let skippedWithMarker = 0;
+            
+            for (const card of cards) {
+                try {
+                    const attrs = await getBlockAttrs(card.id);
+                    const cardTypeMarker = attrs?.['custom-fsrs-card-type'];
+                    
+                    if (cardTypeMarker === 'concept' || cardTypeMarker === 'descriptor') {
+                        // 跳过已有用户标记的卡片
+                        skippedWithMarker++;
+                        console.log(`[HybridSync] Skipping card with cardTypeMarker: ${card.id} (${cardTypeMarker})`);
+                        continue;
+                    }
+                    
+                    cardsToDetect.push(card);
+                } catch (err) {
+                    // 如果获取属性失败，仍然尝试检测
+                    cardsToDetect.push(card);
+                }
+            }
+            
+            if (skippedWithMarker > 0) {
+                console.log(`[HybridSync] Skipped ${skippedWithMarker} cards with user-defined cardTypeMarker`);
+            }
+            
+            if (cardsToDetect.length === 0) {
+                console.log(`[HybridSync] No cards to detect (all have cardTypeMarker)`);
+                return 0;
+            }
+            
             // 1. 批量检测类型
-            const blockIds = cards.map(c => c.id);
+            const blockIds = cardsToDetect.map(c => c.id);
             const typeMap = await batchDetectCardType(blockIds);
             
             // 2. 批量更新块属性（每批 50 张，避免阻塞）
@@ -627,8 +826,8 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
             let failed = 0;
             const BATCH_SIZE = 50;
             
-            for (let i = 0; i < cards.length; i += BATCH_SIZE) {
-                const batch = cards.slice(i, i + BATCH_SIZE);
+            for (let i = 0; i < cardsToDetect.length; i += BATCH_SIZE) {
+                const batch = cardsToDetect.slice(i, i + BATCH_SIZE);
                 
                 await Promise.all(batch.map(async (card) => {
                     try {
@@ -659,7 +858,7 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                 }));
             }
             
-            console.log(`[HybridSync] Auto-detection completed: ${updated} updated, ${failed} failed (total: ${cards.length})`);
+            console.log(`[HybridSync] Auto-detection completed: ${updated} updated, ${failed} failed, ${skippedWithMarker} skipped (total: ${cards.length})`);
             return updated;
         } catch (error) {
             console.error('[HybridSync] Auto-detection failed:', error);
@@ -671,17 +870,32 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
      * 转换 RiffBlock 为 FSRSCard
      * 
      * 从 Riff 数据和块属性中提取卡片信息。
-     * 卡片类型（topic/item）从块属性 `custom-fsrs-card-type` 中读取。
+     * 卡片类型优先从 cardTypeMarker 推导，其次从 custom-card-type 读取。
+     * 卡片类型标记（concept/descriptor）从块属性 `custom-fsrs-card-type` 中读取。
      */
     private convertRiffCardToFSRSCard(riffBlock: RiffBlock): FSRSCard {
         const riffCard = riffBlock.riffCard;
         const now = Date.now();
         
-        // 从块属性中读取卡片类型
-        const cardTypeAttr = riffBlock.ial?.['custom-fsrs-card-type'];
-        const cardType = (cardTypeAttr === 'topic' || cardTypeAttr === 'item') 
-            ? cardTypeAttr 
-            : 'item'; // 默认为 item
+        // 从块属性中读取卡片类型标记（concept/descriptor）
+        const cardTypeMarkerAttr = riffBlock.ial?.['custom-fsrs-card-type'];
+        const cardTypeMarker = (cardTypeMarkerAttr === 'concept' || cardTypeMarkerAttr === 'descriptor')
+            ? cardTypeMarkerAttr as 'concept' | 'descriptor'
+            : undefined;
+        
+        // 根据 cardTypeMarker 推导 CardType，或从块属性读取
+        let cardType: string;
+        if (cardTypeMarker) {
+            // 如果有 cardTypeMarker，使用对应的 CardType 枚举值
+            // concept -> CardType.Concept, descriptor -> CardType.Descriptor
+            cardType = cardTypeMarker === 'concept' ? 'concept' : 'descriptor';
+        } else {
+            // 否则从块属性中读取技术类型
+            const cardTypeAttr = riffBlock.ial?.['custom-card-type'];
+            cardType = (cardTypeAttr === 'topic' || cardTypeAttr === 'item' || cardTypeAttr === 'concept' || cardTypeAttr === 'descriptor') 
+                ? cardTypeAttr 
+                : 'item'; // 默认为 item
+        }
         
         // 🔧 修复：验证 lastReview 日期的有效性
         // Riff API 可能返回无效日期（如 "0001-01-01T00:00:00Z"），需要过滤
@@ -717,6 +931,7 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
             
             priority: 50, // 默认优先级（RiffCard 不包含 priority 字段）
             type: cardType as any,
+            cardTypeMarker, // 添加卡片类型标记
             tags: [],
             leechCount: 0,
             isLeech: false,

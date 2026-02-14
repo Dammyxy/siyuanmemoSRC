@@ -63,8 +63,8 @@ export interface BrowserCard {
     note?: string;
     queueIndex?: number;
 
-    // Topic/Item 区分
-    cardType?: 'topic' | 'item' | 'incremental' | 'webpage';  // 卡片类型
+    // Topic/Item/Concept/Descriptor 区分
+    cardType?: 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage';  // 卡片类型
     aFactor?: number;              // A-Factor (仅 Topic 卡片)
     
     // 🆕 Xiuyuan 卡片支持
@@ -89,9 +89,11 @@ export const FILTER_PRESETS: FilterPreset[] = [
     { key: 'leech', label: '难点卡片', icon: 'iconBug' },
     { key: 'suspended', label: '已暂停', icon: 'iconPause' },
     { key: 'current-doc', label: '当前文档', icon: 'iconFile' },
-    // Topic/Item 筛选
+    // Topic/Item/Concept/Descriptor 筛选
     { key: 'topic-only', label: '仅主题', icon: 'iconFile' },
     { key: 'item-only', label: '仅卡片', icon: 'iconCheck' },
+    { key: 'concept-only', label: '仅概念卡', icon: 'iconBrain' },
+    { key: 'descriptor-only', label: '仅描述符卡', icon: 'iconTag' },
 ];
 
 /** 批量操作类型 */
@@ -226,7 +228,7 @@ export interface IBreadcrumbItem {
 export type BrowserViewMode = 'flat' | 'hierarchy';
 
 /** 卡片类型筛选 */
-export type CardTypeFilter = 'all' | 'topic-only' | 'item-only';
+export type CardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only';
 
 /** 浏览器模式 */
 export type BrowserMode = 'dialog' | 'tab' | 'dock';

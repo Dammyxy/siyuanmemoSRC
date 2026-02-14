@@ -493,6 +493,49 @@ export default class FSRSPlugin extends Plugin {
           console.error('[SiyuanMemo] Topic/Item migration check failed:', err);
         }
       }, 2000); // 延迟 2 秒，避免影响启动速度
+
+      // 🆕 检查是否需要 Xiuyuan 卡片迁移
+      setTimeout(async () => {
+        try {
+          const { MigrationService } = await import('@/services/MigrationService');
+          const migrationService = new MigrationService(this.xiuyuanService, this.storage);
+          
+          // 检查是否有需要迁移的 Xiuyuan 卡片
+          const xiuyuans = this.xiuyuanService.getAllXiuyuans();
+          if (xiuyuans.length === 0) {
+            console.log('[SiyuanMemo] No Xiuyuan cards to migrate');
+            return;
+          }
+          
+          console.log(`[SiyuanMemo] Found ${xiuyuans.length} Xiuyuan cards, checking migration status...`);
+          
+          // 自动执行迁移（静默模式）
+          pushMsg('正在检查秀元卡片迁移状态...');
+          const result = await migrationService.migrateExistingXiuyuanCards();
+          
+          if (result.migrated > 0) {
+            pushMsg(
+              `✅ 秀元卡片迁移完成！\n` +
+              `总计：${result.total} 个秀元\n` +
+              `已迁移：${result.migrated} 个\n` +
+              `失败：${result.failed} 个`
+            );
+            console.log('[SiyuanMemo] Xiuyuan migration completed:', result);
+          } else if (result.failed > 0) {
+            pushErrMsg(
+              `⚠️ 秀元卡片迁移部分失败\n` +
+              `总计：${result.total} 个\n` +
+              `失败：${result.failed} 个\n` +
+              `请查看控制台了解详情`
+            );
+            console.error('[SiyuanMemo] Xiuyuan migration errors:', result.errors);
+          } else {
+            console.log('[SiyuanMemo] All Xiuyuan cards already migrated');
+          }
+        } catch (err) {
+          console.error('[SiyuanMemo] Xiuyuan migration check failed:', err);
+        }
+      }, 3000); // 延迟 3 秒，在 Topic/Item 迁移之后
     } catch (err) {
       console.error('[SiyuanMemo] Plugin initialization failed:', err);
       try {

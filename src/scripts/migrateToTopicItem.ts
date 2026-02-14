@@ -173,33 +173,64 @@ export async function migrateSingleCard(blockId: string, forceRemigrate = false)
     aFactor?: number;
 }> {
     try {
-        // 1. 检测卡片类型
-        const cardType = await detectCardType(blockId);
-
-        // 2. 获取现有属性
+        // 1. 获取现有属性
         const attrs = await getBlockAttrs(blockId);
-        const existingType = attrs?.[ATTR_CARD_TYPE];  // ← 添加可选链操作符
+        const existingType = attrs?.[ATTR_CARD_TYPE];
+        const cardTypeMarker = attrs?.['custom-fsrs-card-type']; // 检查用户设置的类型标记
 
-        // 如果已经有类型标记，跳过（除非强制重新识别）
-        if (!forceRemigrate && (existingType === 'topic' || existingType === 'item')) {
+        // 2. 如果已经有用户设置的类型标记,优先使用(不受 forceRemigrate 影响)
+        if (cardTypeMarker === 'concept' || cardTypeMarker === 'descriptor') {
+            // 概念卡和描述符卡使用新的 CardType 枚举值
+            const inferredType = cardTypeMarker; // 'concept' -> CardType.Concept, 'descriptor' -> CardType.Descriptor
+            
+            // 如果技术类型不匹配,更新块属性
+            if (existingType !== inferredType) {
+                const updates: Record<string, string> = {
+                    [ATTR_CARD_TYPE]: inferredType,
+                };
+                
+                await setBlockAttrs(blockId, updates);
+                
+                console.log(`[Migration] Respecting cardTypeMarker: ${blockId} -> ${cardTypeMarker} (${inferredType})`);
+                
+                return {
+                    blockId,
+                    migrated: true,
+                    cardType: inferredType as 'topic' | 'item',
+                };
+            }
+            
+            // 类型已经匹配,跳过
             return {
                 blockId,
                 migrated: false,
-                cardType: existingType,
+                cardType: inferredType as 'topic' | 'item',
             };
         }
 
-        // 3. 获取优先级（用于初始化 A-Factor）
+        // 3. 如果已经有类型标记（但没有 cardTypeMarker），跳过（除非强制重新识别）
+        if (!forceRemigrate && (existingType === 'topic' || existingType === 'item' || existingType === 'concept' || existingType === 'descriptor')) {
+            return {
+                blockId,
+                migrated: false,
+                cardType: existingType as 'topic' | 'item',
+            };
+        }
+
+        // 4. 自动检测卡片类型
+        const cardType = await detectCardType(blockId);
+
+        // 5. 获取优先级（用于初始化 A-Factor）
         const priorityStr = attrs?.[ATTR_PRIORITY] || '50';
         const priority = parseInt(priorityStr, 10);
         const validPriority = isNaN(priority) ? 50 : Math.max(0, Math.min(100, priority));
 
-        // 4. 准备更新属性
+        // 6. 准备更新属性
         const updates: Record<string, string> = {
             [ATTR_CARD_TYPE]: cardType,
         };
 
-        // 5. 如果是 Topic，初始化 A-Factor
+        // 7. 如果是 Topic，初始化 A-Factor
         if (cardType === 'topic') {
             const aFactor = initializeAFactor(validPriority);
             updates[ATTR_A_FACTOR] = aFactor.toString();
@@ -213,7 +244,7 @@ export async function migrateSingleCard(blockId: string, forceRemigrate = false)
             console.log('[Migration] Item card:', { blockId });
         }
 
-        // 6. 写入块属性
+        // 8. 写入块属性
         await setBlockAttrs(blockId, updates);
 
         return {

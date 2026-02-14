@@ -204,13 +204,13 @@ export const DEFAULT_RIFF_CONFIG: RiffIntegrationConfig = {
     
     incrementalSync: {
         enabled: true,
-        triggers: ['plugin-start', 'browser-open', 'review-open'],
+        triggers: ['plugin-start', 'review-open'],  // 🆕 移除 browser-open，减少不必要的同步
         useBlacklist: true
     },
     
     fullSync: {
         enabled: true,
-        interval: 86400000,  // 24小时（毫秒）
+        interval: 604800000,  // 🆕 7天（而不是24小时），减少频率但保持数据一致性
         cleanupBlacklist: true
     },
     

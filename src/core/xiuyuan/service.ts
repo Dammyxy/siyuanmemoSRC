@@ -1,4 +1,4 @@
-﻿﻿/**
+﻿﻿﻿﻿﻿﻿/**
  * Xiuyuan Service
  * 
  * @module XiuyuanService
@@ -60,6 +60,7 @@ import { XiuyuanStorage } from './storage';
 import type { StorageManager } from '@/core/storage/manager';
 import { markBlockAsCard } from '@/core/siyuan/block';
 import * as riffAPI from '@/core/siyuan/riff';
+import { setBlockAttrs } from '@/core/siyuan/api';
 import type { FSRSCard } from '@/types';
 import { CardState, CardType } from '@/types';
 import { ok, err, type Result } from '@/types/result';
@@ -322,6 +323,94 @@ export class XiuyuanService {
      * );
      * ```
      */
+
+  /**
+   * 选择代表块
+   * 
+   * @description
+   * 根据模版类型选择合适的代表块，用于 Riff 同步。
+   * 
+   * **选择规则**：
+   * - `builtin-list-item`: 父列表项（第一个块）
+   * - `builtin-concept-descriptor`: 描述符块（fieldMapping 中的 descriptor 字段）
+   * - `builtin-bidirectional`: 第一个块
+   * - 其他模版: 第一个块
+   * 
+   * @param blockIDs - 所有相关块 ID
+   * @param templateID - 模版 ID
+   * @param fieldMapping - 字段映射
+   * @returns 代表块 ID
+   * 
+   * @example
+   * ```typescript
+   * const blockId = this.selectRepresentativeBlock(
+   *   ['parent', 'child1', 'child2'],
+   *   'builtin-list-item',
+   *   { question: 'parent', answer: 'child1' }
+   * );
+   * // 返回 'parent'
+   * ```
+   */
+  private selectRepresentativeBlock(
+    blockIDs: string[],
+    templateID: string,
+    fieldMapping: Record<string, string>
+  ): string {
+    // 默认选择第一个块
+    if (blockIDs.length === 0) {
+      throw new Error('blockIDs cannot be empty');
+    }
+
+    switch (templateID) {
+      case 'builtin-list-item':
+        // 列表模版：选择父列表项（第一个块）
+        return blockIDs[0];
+
+      case 'builtin-concept-descriptor':
+        // 概念-描述符模版：选择描述符块
+        // 如果 fieldMapping 中有 descriptor 字段，使用它；否则使用第一个块
+        return fieldMapping['descriptor'] || blockIDs[0];
+
+      case 'builtin-bidirectional':
+        // 双向卡片：选择第一个块
+        return blockIDs[0];
+
+      default:
+        // 其他模版：默认选择第一个块
+        return blockIDs[0];
+    }
+  }
+
+  /**
+   * 从 Xiuyuan 构建字段映射
+   * 
+   * @param xiuyuan - Xiuyuan 对象
+   * @returns 字段映射 Record<fieldName, blockID>
+   * 
+   * @private
+   * @description
+   * 将 Xiuyuan 的 fields 数组转换为字段映射对象，用于 selectRepresentativeBlock。
+   * 
+   * @example
+   * ```typescript
+   * const xiuyuan = {
+   *   fields: [
+   *     { name: 'question', blockID: 'block-1', marker: 'question' },
+   *     { name: 'answer', blockID: 'block-2', marker: 'answer' }
+   *   ]
+   * };
+   * const mapping = this.buildFieldMappingFromXiuyuan(xiuyuan);
+   * // 返回 { question: 'block-1', answer: 'block-2' }
+   * ```
+   */
+  private buildFieldMappingFromXiuyuan(xiuyuan: IXiuyuan): Record<string, string> {
+    const mapping: Record<string, string> = {};
+    for (const field of xiuyuan.fields) {
+      mapping[field.name] = field.blockID;
+    }
+    return mapping;
+  }
+
     async createFromBlocks(
       blockIDs: string[],
       templateID: string,
@@ -354,7 +443,37 @@ export class XiuyuanService {
 
         console.log('[Xiuyuan] Created Xiuyuan:', xiuyuan.id);
 
-        // 3. 为每个 cardRule 创建 FSRSCard
+        // 3. 选择代表块
+        const representativeBlockID = this.selectRepresentativeBlock(
+          blockIDs,
+          templateID,
+          fieldMapping
+        );
+
+        console.log('[Xiuyuan] Selected representative block:', representativeBlockID);
+
+        // 4. 添加代表块到 Riff（错误不阻断流程）
+        try {
+          await riffAPI.addRiffCards(deckID, [representativeBlockID]);
+          console.log('[Xiuyuan] Added representative block to Riff');
+        } catch (err) {
+          console.error('[Xiuyuan] Failed to add to Riff:', err);
+          // 不阻断流程，继续执行
+        }
+
+        // 5. 标记代表块属性（错误不阻断流程）
+        try {
+          await setBlockAttrs(representativeBlockID, {
+            'custom-fsrs-xiuyuan-id': xiuyuan.id,
+            'custom-fsrs-template-id': templateID,
+          });
+          console.log('[Xiuyuan] Marked block attributes');
+        } catch (err) {
+          console.error('[Xiuyuan] Failed to mark attributes:', err);
+          // 不阻断流程，继续执行
+        }
+
+        // 6. 为每个 cardRule 创建 FSRSCard（所有卡片共用代表块）
         const cards: ICardMapping[] = [];
         const now = Date.now();
 
@@ -371,10 +490,6 @@ export class XiuyuanService {
             fieldMapping
           );
 
-          // 确定主块 ID（用于卡片浏览器显示）
-          // 优先使用背面的第一个块，如果没有则使用正面的第一个块
-          const mainBlockID = backBlockIDs[0] || frontBlockIDs[0] || blockIDs[0];
-
           console.log('[Xiuyuan] Creating card:', {
             cardID,
             ruleIndex,
@@ -383,7 +498,7 @@ export class XiuyuanService {
             backFields: rule.backFields,
             frontBlockIDs,
             backBlockIDs,
-            mainBlockID,
+            representativeBlockID,
           });
 
           // 创建 CardMapping
@@ -411,7 +526,7 @@ export class XiuyuanService {
 
           const fsrsCard: FSRSCard = {
             id: cardID,
-            blockId: mainBlockID,
+            blockId: representativeBlockID,  // ← 关键：所有卡片共用代表块
             due: now,
             stability: 0,
             difficulty: 0,
@@ -436,7 +551,7 @@ export class XiuyuanService {
           console.log('[Xiuyuan] Created FSRSCard:', cardID);
         }
 
-        // 4. 持久化
+        // 7. 持久化
         const saveResult = await this.save();
         if (!saveResult.ok) {
           console.warn('[Xiuyuan] Save failed:', saveResult.error);
@@ -445,7 +560,8 @@ export class XiuyuanService {
 
         console.log('[Xiuyuan] Created:', { 
           xiuyuanID: xiuyuan.id, 
-          cardCount: cards.length 
+          cardCount: cards.length,
+          representativeBlockID,
         });
 
         return ok({ xiuyuan, cards });
@@ -454,8 +570,6 @@ export class XiuyuanService {
         return err(error as Error);
       }
     }
-
-
   // ============ 查询 ============
 
   /**
@@ -602,33 +716,62 @@ export class XiuyuanService {
    * - 8.3: Returns { ok: false, error: Error } on failure
    */
   async deleteXiuyuan(id: string): Promise<Result<boolean>> {
-    try {
-      const xiuyuan = this.storage.getXiuyuan(id);
-      if (!xiuyuan) {
-        return ok(false);
-      }
-
-      // 删除关联的 FSRSCard
-      const mappings = this.storage.getMappingsByXiuyuanID(id);
-      for (const mapping of mappings) {
-        this.storageManager.removeCard(mapping.cardID);
-      }
-
-      const result = this.storage.deleteXiuyuan(id);
-      if (result) {
-        const saveResult = await this.save();
-        if (!saveResult.ok) {
-          console.warn('[Xiuyuan] Save failed after delete:', saveResult.error);
-          // Continue anyway - data is deleted in memory
+      try {
+        const xiuyuan = this.storage.getXiuyuan(id);
+        if (!xiuyuan) {
+          return ok(false);
         }
-        await this.storageManager.saveCards();
+
+        // 1. 选择代表块
+        const fieldMapping = this.buildFieldMappingFromXiuyuan(xiuyuan);
+        const representativeBlockID = this.selectRepresentativeBlock(
+          xiuyuan.blockIDs,
+          xiuyuan.templateID,
+          fieldMapping
+        );
+
+        // 2. 删除关联的 FSRSCard
+        const mappings = this.storage.getMappingsByXiuyuanID(id);
+        for (const mapping of mappings) {
+          this.storageManager.removeCard(mapping.cardID);
+        }
+
+        // 3. 从 Riff 中移除代表块
+        try {
+          await riffAPI.removeRiffCards(riffAPI.BUILTIN_DECK_ID, [representativeBlockID]);
+        } catch (err) {
+          console.error('[Xiuyuan] Failed to remove from Riff:', err);
+          // 不阻断流程，继续删除
+        }
+
+        // 4. 清除代表块属性
+        try {
+          await setBlockAttrs(representativeBlockID, {
+            'custom-fsrs-xiuyuan-id': '',
+            'custom-fsrs-template-id': '',
+          });
+        } catch (err) {
+          console.error('[Xiuyuan] Failed to clear block attributes:', err);
+          // 不阻断流程，继续删除
+        }
+
+        // 5. 删除 Xiuyuan
+        const result = this.storage.deleteXiuyuan(id);
+        if (result) {
+          const saveResult = await this.save();
+          if (!saveResult.ok) {
+            console.warn('[Xiuyuan] Save failed after delete:', saveResult.error);
+            // Continue anyway - data is deleted in memory
+          }
+          await this.storageManager.saveCards();
+        }
+        return ok(result);
+      } catch (error) {
+        console.error('[Xiuyuan] deleteXiuyuan failed:', error);
+        return err(error as Error);
       }
-      return ok(result);
-    } catch (error) {
-      console.error('[Xiuyuan] deleteXiuyuan failed:', error);
-      return err(error as Error);
     }
-  }
+
 
   // ============ 统计 ============
 

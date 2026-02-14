@@ -157,15 +157,17 @@ export function createColumnDefs(): ColDef[] {
         fontWeight: 500,
       }),
     },
-    // CardType - 卡片类型 (Topic/Item)
+    // CardType - 卡片类型 (Topic/Item/Concept/Descriptor)
     {
       field: 'cardType',
       headerName: 'CardType',
-      width: 70,
+      width: 90,
       valueFormatter: (params) => {
         const type = params.value;
         if (type === 'topic') return '📄 Topic';
         if (type === 'item') return '❓ Item';
+        if (type === 'concept') return '🧠 Concept';
+        if (type === 'descriptor') return '🏷️ Descriptor';
         return '-';
       },
       cellStyle: (params) => {
@@ -175,6 +177,12 @@ export function createColumnDefs(): ColDef[] {
         }
         if (type === 'item') {
           return { color: 'var(--b3-theme-success)', fontWeight: 500 };
+        }
+        if (type === 'concept') {
+          return { color: 'var(--b3-theme-primary)', fontWeight: 600 };
+        }
+        if (type === 'descriptor') {
+          return { color: 'var(--b3-theme-secondary)', fontWeight: 500 };
         }
         return {};
       },

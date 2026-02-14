@@ -37,18 +37,22 @@
     <!-- 同步操作按钮 -->
     <div class="sync-actions">
       <button 
-        class="btn-sync" 
+        class="btn-sync btn-sync--primary" 
         :disabled="syncStatus.status === 'syncing'"
         @click="handleManualSync"
+        :title="t('quickSyncTooltip', '获取新卡片和更新（推荐日常使用）')"
       >
-        {{ t('manualSync', '手动同步') }}
+        <span class="btn-icon">🔄</span>
+        <span class="btn-text">{{ t('quickSync', '快速同步') }}</span>
       </button>
       <button 
-        class="btn-full-sync" 
+        class="btn-sync btn-sync--secondary" 
         :disabled="syncStatus.status === 'syncing'"
         @click="handleFullSync"
+        :title="t('fullSyncTooltip', '完整检查并清理数据（耗时较长，建议每周一次）')"
       >
-        {{ t('fullSync', '全量同步') }}
+        <span class="btn-icon">🔁</span>
+        <span class="btn-text">{{ t('fullSync', '完整同步') }}</span>
       </button>
     </div>
   </div>
@@ -291,7 +295,67 @@ onUnmounted(() => {
   gap: 8px;
 }
 
-.btn-sync,
+.btn-sync {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.btn-text {
+  font-weight: 500;
+}
+
+/* 主要按钮（快速同步） */
+.btn-sync--primary {
+  background: transparent;
+  color: var(--b3-theme-primary);
+  border-color: var(--b3-theme-primary);
+  border-width: 1.5px;
+}
+
+.btn-sync--primary:hover:not(:disabled) {
+  background: var(--b3-theme-primary-lighter);
+  color: var(--b3-theme-primary);
+  border-color: var(--b3-theme-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.btn-sync--primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* 次要按钮（完整同步） */
+.btn-sync--secondary {
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  border-color: var(--b3-border-color);
+}
+
+.btn-sync--secondary:hover:not(:disabled) {
+  background: var(--b3-list-hover);
+  border-color: var(--b3-theme-primary);
+}
+
+/* 禁用状态 */
+.btn-sync:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
 .btn-full-sync,
 .btn-retry {
   padding: 4px 12px;
@@ -304,14 +368,11 @@ onUnmounted(() => {
   transition: all 0.15s;
 }
 
-.btn-sync:hover,
-.btn-full-sync:hover,
-.btn-retry:hover {
+.btn-full-sync:hover {
   background: var(--b3-list-hover);
   border-color: var(--b3-theme-primary);
 }
 
-.btn-sync:disabled,
 .btn-full-sync:disabled {
   opacity: 0.5;
   cursor: not-allowed;

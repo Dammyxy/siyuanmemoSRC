@@ -140,7 +140,7 @@ export class SchedulerRouter {
      * 获取卡片应使用的调度器类型
      *
      * 优先级：
-     * 1. 卡片类型强制规则（Topic → A-Factor）
+     * 1. 卡片类型强制规则（Topic → A-Factor, Concept/Descriptor → FSRS）
      * 2. 用户覆盖配置
      * 3. 卡片的 schedulerType 字段
      * 4. 默认调度器
@@ -153,6 +153,11 @@ export class SchedulerRouter {
         if (card.type === 'topic') {
             // Topic 卡片强制使用 A-Factor v2
             return 'a-factor-v2';
+        }
+        
+        if (card.type === 'concept' || card.type === 'descriptor') {
+            // Concept 和 Descriptor 卡片强制使用 FSRS
+            return 'fsrs-v5';
         }
 
         // 2. 检查用户覆盖配置
@@ -189,6 +194,14 @@ export class SchedulerRouter {
             // Topic 卡片只能使用 A-Factor v2
             if (newScheduler !== 'a-factor-v2') {
                 console.error('[SchedulerRouter] Topic cards must use A-Factor v2 scheduler');
+                return false;
+            }
+        }
+        
+        if (card.type === 'concept' || card.type === 'descriptor') {
+            // Concept 和 Descriptor 卡片只能使用 FSRS
+            if (newScheduler !== 'fsrs-v5') {
+                console.error('[SchedulerRouter] Concept and Descriptor cards must use FSRS scheduler');
                 return false;
             }
         }

@@ -1199,7 +1199,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   // 添加分隔线（排序菜单和现有操作之间）
   menu.addItem({ type: 'separator' });
 
-  // ========== 卡片类型菜单（Topic/Item）==========
+  // ========== 卡片类型菜单（Topic/Item + 概念卡/描述符卡）==========
   const cardTypeMenu: any[] = [
     {
       icon: 'iconFile',
@@ -1210,6 +1210,17 @@ function onCellContextMenu(event: CellContextMenuEvent) {
       icon: 'iconCheck',
       label: '标记为 Item',
       click: () => void markCardsAsItem(selected),
+    },
+    { type: 'separator' },  // 分隔线
+    {
+      icon: '🧠',
+      label: '标记为概念卡',
+      click: () => void markCardsAsConcept(selected),
+    },
+    {
+      icon: '🏷️',
+      label: '标记为描述符卡',
+      click: () => void markCardsAsDescriptor(selected),
     },
   ];
 
@@ -1671,20 +1682,22 @@ onMounted(() => {
     // 🔧 修复：mode 为 undefined 时默认为 advanced（简单模式已移除）
     const isAdvancedMode = !riffConfig?.mode || riffConfig.mode === 'advanced';
     
-    // 🔧 修复：浏览器打开时使用全量同步，确保获取所有新卡片
-    // 原因：增量同步依赖 lastSyncTime，可能因为时间戳不同步而漏掉卡片
-    if (isAdvancedMode && riffConfig?.fullSync?.enabled) {
-      console.log('[SRSBrowser] ✅ Triggering full sync on browser open...');
+    // 🆕 优化：只在配置了 browser-open 触发器时才同步
+    const shouldSyncOnBrowserOpen = riffConfig?.incrementalSync?.enabled && 
+                                    riffConfig?.incrementalSync?.triggers?.includes('browser-open');
+    
+    if (isAdvancedMode && shouldSyncOnBrowserOpen) {
+      console.log('[SRSBrowser] ✅ Triggering incremental sync on browser open...');
       
       // 使用立即执行的异步函数
       void (async () => {
         try {
-          await plugin.hybridSyncService.fullSync();
-          console.log('[SRSBrowser] ✅ Full sync completed, reloading data...');
+          await plugin.hybridSyncService.incrementalSync();
+          console.log('[SRSBrowser] ✅ Incremental sync completed, reloading data...');
           // 同步完成后重新加载数据
           await loadData(true); // 强制刷新缓存
         } catch (err) {
-          console.error('[SRSBrowser] ❌ Full sync failed:', err);
+          console.error('[SRSBrowser] ❌ Incremental sync failed:', err);
           // 同步失败也继续加载数据
           await loadData();
         }
@@ -1694,7 +1707,8 @@ onMounted(() => {
     } else {
       console.log('[SRSBrowser] ⚠️ Auto-sync not triggered, loading data without sync', {
         isAdvancedMode,
-        fullSyncEnabled: riffConfig?.fullSync?.enabled
+        shouldSyncOnBrowserOpen,
+        reason: !shouldSyncOnBrowserOpen ? 'browser-open trigger not configured' : 'not advanced mode'
       });
     }
   } else {
@@ -1864,6 +1878,8 @@ const {
 const {
   markCardsAsTopic,
   markCardsAsItem,
+  markCardsAsConcept,
+  markCardsAsDescriptor,
   migrateTopicItem,
   buildCardTypeSubmenu,
 } = useCardActions({
@@ -1873,6 +1889,7 @@ const {
   t,
   pushMsg: (msg, duration) => pushMsg(msg, duration),
   pushErrMsg: (msg, duration) => pushErrMsg(msg, duration),
+  storage: (props.plugin as any)?.storage,
 });
 
 // ✅ 类型检测

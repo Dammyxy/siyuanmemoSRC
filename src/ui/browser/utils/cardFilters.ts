@@ -184,7 +184,7 @@ export function applyPresetFilter(cards: BrowserCard[], preset: PresetType): Bro
 /**
  * 卡片类型筛选
  */
-export type CardTypeFilter = 'all' | 'topic-only' | 'item-only';
+export type CardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only';
 
 /**
  * 应用卡片类型筛选
@@ -205,6 +205,14 @@ export function applyCardTypeFilter(cards: BrowserCard[], cardType: CardTypeFilt
     case 'item-only':
       // 显示 item 卡片，缺失 cardType 的卡片默认为 item
       return cards.filter(card => card.cardType === 'item' || !card.cardType);
+    
+    case 'concept-only':
+      // 只显示概念卡
+      return cards.filter(card => card.cardType === 'concept');
+    
+    case 'descriptor-only':
+      // 只显示描述符卡
+      return cards.filter(card => card.cardType === 'descriptor');
     
     default:
       return cards;

@@ -14,7 +14,8 @@ import type { StorageManager } from '@/core/storage/manager';
 import type { FSRSCard } from '@/types';
 import { CardState, CardType } from '@/types';
 import { ok, err, type Result } from '@/types/result';
-import { sql } from '@/core/siyuan/api';
+import { sql, setBlockAttrs } from '@/core/siyuan/api';
+import * as riffAPI from '@/core/siyuan/riff';
 import { 
   generateXiuyuanCardID, 
   calculateRenderBlockIDs,
@@ -123,7 +124,34 @@ export async function createListTemplateCards(
       templateID,
     });
 
-    // 3. 为每个子列表项创建一张 FSRSCard
+    console.log('[Xiuyuan] Created list template Xiuyuan:', xiuyuan.id);
+
+    // 🆕 3. 选择代表块（列表模板使用父列表项）
+    const representativeBlockID = parentBlockId;
+    console.log('[Xiuyuan] Selected representative block:', representativeBlockID);
+
+    // 🆕 4. 添加代表块到 Riff（错误不阻断流程）
+    try {
+      await riffAPI.addRiffCards(riffAPI.BUILTIN_DECK_ID, [representativeBlockID]);
+      console.log('[Xiuyuan] Added representative block to Riff');
+    } catch (err) {
+      console.error('[Xiuyuan] Failed to add to Riff:', err);
+      // 不阻断流程，继续执行
+    }
+
+    // 🆕 5. 标记代表块属性（错误不阻断流程）
+    try {
+      await setBlockAttrs(representativeBlockID, {
+        'custom-fsrs-xiuyuan-id': xiuyuan.id,
+        'custom-fsrs-template-id': templateID,
+      });
+      console.log('[Xiuyuan] Marked block attributes');
+    } catch (err) {
+      console.error('[Xiuyuan] Failed to mark attributes:', err);
+      // 不阻断流程，继续执行
+    }
+
+    // 6. 为每个子列表项创建一张 FSRSCard（所有卡片共用代表块）
     const cards: ICardMapping[] = [];
     const now = Date.now();
 
@@ -185,7 +213,7 @@ export async function createListTemplateCards(
 
       const fsrsCard: FSRSCard = {
         id: cardID,
-        blockId: mainBlockID,
+        blockId: representativeBlockID,  // ← 关键：所有卡片共用代表块
         due: now,
         stability: 0,
         difficulty: 0,

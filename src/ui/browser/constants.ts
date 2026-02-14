@@ -103,6 +103,8 @@ export const PRESET_KEYS = {
   CURRENT_DOC: 'current-doc',
   TOPIC_ONLY: 'topic-only',
   ITEM_ONLY: 'item-only',
+  CONCEPT_ONLY: 'concept-only',
+  DESCRIPTOR_ONLY: 'descriptor-only',
 } as const;
 
 /** 排序字段 */

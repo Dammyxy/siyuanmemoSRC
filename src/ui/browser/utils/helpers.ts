@@ -97,6 +97,12 @@ export function groupCardsByType(cards: BrowserCard[]): Record<string, BrowserCa
       groups.topic.push(card);
     } else if (card.cardType === 'item') {
       groups.item.push(card);
+    } else if (card.cardType === 'concept') {
+      groups.concept = groups.concept || [];
+      groups.concept.push(card);
+    } else if (card.cardType === 'descriptor') {
+      groups.descriptor = groups.descriptor || [];
+      groups.descriptor.push(card);
     } else {
       groups.unknown.push(card);
     }

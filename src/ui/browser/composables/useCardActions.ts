@@ -8,6 +8,8 @@ import { ATTR_CARD_TYPE } from '@/core/siyuan/block';
 import { migrateExistingCards } from '@/scripts/migrateToTopicItem';
 import { invalidateCardCache } from '../browserService';
 import type { BrowserCard } from '../types';
+import { CardTypeMarkerService } from '@/core/card-type/CardTypeMarkerService';
+import type { StorageManager } from '@/core/storage/manager';
 
 export interface UseCardActionsOptions {
   loading: Ref<boolean>;
@@ -16,10 +18,14 @@ export interface UseCardActionsOptions {
   t: (key: string, fallback: string) => string;
   pushMsg: (msg: string, duration?: number) => Promise<void>;
   pushErrMsg: (msg: string, duration?: number) => Promise<void>;
+  storage: StorageManager;  // 添加 storage 依赖
 }
 
 export function useCardActions(options: UseCardActionsOptions) {
-  const { loading, loadData, refreshData, t, pushMsg, pushErrMsg } = options;
+  const { loading, loadData, refreshData, t, pushMsg, pushErrMsg, storage } = options;
+
+  // 初始化 CardTypeMarkerService
+  const cardTypeMarkerService = new CardTypeMarkerService(storage);
 
   /**
    * 标记卡片为 Topic
@@ -142,6 +148,92 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
   }
 
   /**
+   * 标记卡片为概念卡
+   */
+  async function markCardsAsConcept(cards: BrowserCard[]): Promise<void> {
+    if (!cards?.length) return;
+
+    // 收集有效的卡片 ID（必须有 fsrsCardId）
+    const cardIds: string[] = [];
+    const skippedCount = cards.length;
+    
+    for (const card of cards) {
+      if (card.fsrsCardId) {
+        cardIds.push(card.fsrsCardId);
+      } else {
+        console.warn('[useCardActions] Card missing fsrsCardId, skipping:', card.id, card.blockId);
+      }
+    }
+
+    if (cardIds.length === 0) {
+      await pushErrMsg('未找到有效的卡片 ID', 3000);
+      return;
+    }
+
+    console.log(`[useCardActions] Marking ${cardIds.length} cards as Concept:`, cardIds);
+
+    try {
+      // 使用 CardTypeMarkerService 批量设置
+      await cardTypeMarkerService.batchSetMarker(cardIds, 'concept');
+
+      const skipped = skippedCount - cardIds.length;
+      const msg = skipped > 0 
+        ? `✅ 已将 ${cardIds.length} 张卡片标记为概念卡（跳过 ${skipped} 张）`
+        : `✅ 已将 ${cardIds.length} 张卡片标记为概念卡`;
+      await pushMsg(msg, 3000);
+
+      invalidateCardCache();
+      await loadData();
+    } catch (err: any) {
+      console.error('[useCardActions] Failed to mark cards as Concept:', err);
+      await pushErrMsg(`标记失败：${err?.message || '未知错误'}`, 3000);
+    }
+  }
+
+  /**
+   * 标记卡片为描述符卡
+   */
+  async function markCardsAsDescriptor(cards: BrowserCard[]): Promise<void> {
+    if (!cards?.length) return;
+
+    // 收集有效的卡片 ID（必须有 fsrsCardId）
+    const cardIds: string[] = [];
+    const skippedCount = cards.length;
+    
+    for (const card of cards) {
+      if (card.fsrsCardId) {
+        cardIds.push(card.fsrsCardId);
+      } else {
+        console.warn('[useCardActions] Card missing fsrsCardId, skipping:', card.id, card.blockId);
+      }
+    }
+
+    if (cardIds.length === 0) {
+      await pushErrMsg('未找到有效的卡片 ID', 3000);
+      return;
+    }
+
+    console.log(`[useCardActions] Marking ${cardIds.length} cards as Descriptor:`, cardIds);
+
+    try {
+      // 使用 CardTypeMarkerService 批量设置
+      await cardTypeMarkerService.batchSetMarker(cardIds, 'descriptor');
+
+      const skipped = skippedCount - cardIds.length;
+      const msg = skipped > 0 
+        ? `✅ 已将 ${cardIds.length} 张卡片标记为描述符卡（跳过 ${skipped} 张）`
+        : `✅ 已将 ${cardIds.length} 张卡片标记为描述符卡`;
+      await pushMsg(msg, 3000);
+
+      invalidateCardCache();
+      await loadData();
+    } catch (err: any) {
+      console.error('[useCardActions] Failed to mark cards as Descriptor:', err);
+      await pushErrMsg(`标记失败：${err?.message || '未知错误'}`, 3000);
+    }
+  }
+
+  /**
    * 构建卡片类型子菜单
    */
   function buildCardTypeSubmenu(selected: BrowserCard[]): any[] {
@@ -156,12 +248,25 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
         label: '标记为 Item',
         click: () => void markCardsAsItem(selected),
       },
+      { type: 'separator' },  // 分隔线
+      {
+        icon: '🧠',
+        label: '标记为概念卡',
+        click: () => void markCardsAsConcept(selected),
+      },
+      {
+        icon: '🏷️',
+        label: '标记为描述符卡',
+        click: () => void markCardsAsDescriptor(selected),
+      },
     ];
   }
 
   return {
     markCardsAsTopic,
     markCardsAsItem,
+    markCardsAsConcept,
+    markCardsAsDescriptor,
     migrateTopicItem,
     buildCardTypeSubmenu,
   };
