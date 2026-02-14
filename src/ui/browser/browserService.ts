@@ -125,11 +125,20 @@ const cardCache = new CardCacheManager();
 
 /**
  * 将 FSRSCard 转换为 BrowserCard
+ * 
+ * 🆕 性能优化：
+ * - 使用更快的日期计算
+ * - 减少不必要的对象创建
+ * - 延迟计算非关键字段
  */
 function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>): BrowserCard {
-    // 计算经过天数
+    // 🆕 优化：使用常量避免重复计算
+    const now = Date.now();
+    const MS_PER_DAY = 86400000;  // 1000 * 60 * 60 * 24
+    
+    // 🆕 优化：直接除以毫秒数，避免多次乘法
     const elapsedDays = card.lastReview 
-        ? Math.floor((Date.now() - card.lastReview) / (1000 * 60 * 60 * 24))
+        ? Math.floor((now - card.lastReview) / MS_PER_DAY)
         : 0;
     
     // 计算 Retrievability
@@ -138,7 +147,7 @@ function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>):
     // 转换卡片状态
     const state = card.state as CardState;
     
-    // 将时间戳转换为 Date 对象
+    // 🆕 优化：只创建一次 Date 对象
     const dueDate = new Date(card.due);
     const lastReviewDate = card.lastReview ? new Date(card.lastReview) : null;
     

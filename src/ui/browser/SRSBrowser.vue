@@ -86,6 +86,10 @@
           :defaultColDef="defaultColDef"
           :rowSelection="rowSelection"
           :enableCellTextSelection="true"
+          :animateRows="false"
+          :suppressCellFocus="true"
+          :suppressRowHoverHighlight="false"
+          :rowBuffer="10"
           @grid-ready="onGridReady"
           @sort-changed="onSortChanged"
           @displayed-columns-changed="onDisplayedColumnsChanged"
@@ -304,6 +308,7 @@ const currentQueueType = computed(() => {
 const defaultColDef: ColDef = {
   resizable: true,
   sortable: true,
+  suppressMenu: true,  // 🆕 禁用列菜单，减少 DOM 节点，提升性能
 };
 
 const hasConfirmedSqlMode = ref(false);
@@ -456,18 +461,14 @@ async function loadData(forceRefresh = false) {
         return;
       }
       
-      // 更新全量统计数据
-      allRows.value = await PerformanceMonitor.measure('loadAllCards', () => 
-        loadCards('all', undefined, '', forceRefresh, 'all', props.plugin)
-      );
-      
-      // 检查是否已被取消
-      if (currentController.signal.aborted) {
-        console.log('[SRSBrowser] loadData() aborted after loadAllCards (queue mode)');
-        return;
+      // 更新全量统计数据（懒加载：后台加载，不阻塞 UI）
+      if (allRows.value.length === 0) {
+        void loadCards('all', undefined, '', forceRefresh, 'all', props.plugin)
+          .then(cards => { allRows.value = cards; });
       }
       
-      await refreshQueueCounts();
+      // ❌ 移除：避免重复调用（观察者回调中会调用）
+      // await refreshQueueCounts();
       return;
     }
 
@@ -509,7 +510,8 @@ async function loadData(forceRefresh = false) {
       return;
     }
 
-    await refreshQueueCounts();
+    // ❌ 移除：避免重复调用（观察者回调中会调用）
+    // await refreshQueueCounts();
   } catch (err) {
     console.error('[CardBrowser] Load data error:', err);
     rows.value = [];
@@ -517,6 +519,10 @@ async function loadData(forceRefresh = false) {
     // 只有当前 controller 没有被取消时才设置 loading = false
     if (!currentController.signal.aborted) {
       loading.value = false;
+      
+      // ✅ 初始加载完成后刷新队列统计
+      // 注意：观察者回调中的更新不会走到这里，避免重复调用
+      void refreshQueueCounts();
     }
     
     // 清理 controller
@@ -669,6 +675,15 @@ const rowSelection = ref<RowSelectionOptions>({
   headerCheckbox: true,   // ✅ AG-Grid v35+：启用表头全选复选框
   enableClickSelection: false,
 });
+
+// 🆕 AG-Grid 性能优化配置
+const gridOptions = {
+  animateRows: false,  // 禁用行动画，提升性能
+  suppressCellFocus: true,  // 禁用单元格焦点，减少重绘
+  suppressRowHoverHighlight: false,  // 保留悬停高亮
+  enableCellTextSelection: true,  // 保留文本选择
+  rowBuffer: 10,  // 缓冲 10 行（默认值）
+};
 
 // Grid 事件
 function onGridReady(params: any) {
@@ -1325,6 +1340,126 @@ async function refreshData(forceRefresh = false, preserveFocusState = false) {
   await loadData(forceRefresh);
 }
 
+// 🆕 增量更新卡片（性能优化）
+// 🆕 批量 DOM 更新状态
+let rafId: number | null = null;
+let pendingUpdates: BrowserCard[] = [];
+
+async function handleCardUpdatedIncremental(cardIds: string[]) {
+  if (!gridApi.value || cardIds.length === 0) {
+    // 降级：如果 Grid 未初始化或没有卡片，完全重新加载
+    console.log('[SRSBrowser] ⚠️ Falling back to full reload (no grid or no cards)');
+    await loadData(true);
+    await refreshQueueCounts();
+    return;
+  }
+  
+  try {
+    console.log(`[SRSBrowser] ⚡ Incremental update: ${cardIds.length} cards`);
+    
+    // 1. 从数据源获取更新后的卡片数据
+    const updatedCards = await loadQueueCards(cardIds);
+    
+    if (updatedCards.length === 0) {
+      console.warn('[SRSBrowser] ⚠️ No updated cards returned, skipping update');
+      return;
+    }
+    
+    // 2. 更新 rows.value 中的数据
+    const updatedMap = new Map(updatedCards.map(c => [c.blockId, c]));
+    let updateCount = 0;
+    
+    for (const card of rows.value) {
+      const updated = updatedMap.get(card.blockId);
+      if (updated) {
+        Object.assign(card, updated);
+        updateCount++;
+      }
+    }
+    
+    // 3. 收集待更新的行
+    const rowsToUpdate = rows.value.filter(c => cardIds.includes(c.blockId));
+    
+    if (rowsToUpdate.length > 0) {
+      // 🆕 使用 RAF 批量更新 DOM
+      pendingUpdates.push(...rowsToUpdate);
+      
+      if (rafId === null) {
+        rafId = requestAnimationFrame(() => {
+          if (gridApi.value && pendingUpdates.length > 0) {
+            // 批量应用所有更新
+            gridApi.value.applyTransaction({ update: pendingUpdates });
+            console.log(`[SRSBrowser] ✅ Batch updated ${pendingUpdates.length} rows in grid`);
+            pendingUpdates = [];
+          }
+          rafId = null;
+        });
+      }
+    }
+    
+    // 4. 只刷新队列统计（不重新加载数据）
+    await refreshQueueCounts();
+    
+    console.log(`[SRSBrowser] ✅ Incremental update completed: ${updateCount}/${cardIds.length} cards updated`);
+  } catch (error) {
+    console.error('[SRSBrowser] ❌ Incremental update failed, falling back to full reload:', error);
+    await loadData(true);
+    await refreshQueueCounts();
+  }
+}
+
+// 🆕 增量删除卡片（性能优化）
+async function handleCardDeletedIncremental(cardIds: string[]) {
+  if (!gridApi.value || cardIds.length === 0) {
+    // 降级：如果 Grid 未初始化或没有卡片，完全重新加载
+    console.log('[SRSBrowser] ⚠️ Falling back to full reload (no grid or no cards)');
+    await loadData(true);
+    await refreshQueueCounts();
+    return;
+  }
+  
+  try {
+    console.log(`[SRSBrowser] ⚡ Incremental delete: ${cardIds.length} cards`);
+    
+    // 1. 从 rows.value 中移除删除的卡片
+    const rowsToRemove = rows.value.filter(c => cardIds.includes(c.blockId));
+    rows.value = rows.value.filter(c => !cardIds.includes(c.blockId));
+    
+    // 2. 使用 RAF 批量删除 DOM
+    if (rowsToRemove.length > 0) {
+      if (rafId !== null) {
+        // 如果有待处理的更新，先取消
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      
+      rafId = requestAnimationFrame(() => {
+        if (gridApi.value) {
+          // 先应用待处理的更新（如果有）
+          if (pendingUpdates.length > 0) {
+            gridApi.value.applyTransaction({ update: pendingUpdates });
+            pendingUpdates = [];
+          }
+          
+          // 然后删除行
+          gridApi.value.applyTransaction({ remove: rowsToRemove });
+          console.log(`[SRSBrowser] ✅ Batch removed ${rowsToRemove.length} rows from grid`);
+        }
+        rafId = null;
+      });
+    }
+    
+    // 3. 只刷新队列统计（不重新加载数据）
+    await refreshQueueCounts();
+    
+    console.log(`[SRSBrowser] ✅ Incremental delete completed: ${rowsToRemove.length}/${cardIds.length} cards removed`);
+  } catch (error) {
+    console.error('[SRSBrowser] ❌ Incremental delete failed, falling back to full reload:', error);
+    await loadData(true);
+    await refreshQueueCounts();
+  }
+}
+
 // 切换预设
 function handlePresetChange() {
   // ✅ 四重筛选：不再清除其他筛选条件
@@ -1401,29 +1536,62 @@ onMounted(() => {
     const manager = UnifiedDataSourceManager.getInstance();
     browserAdapter.value = new SRSBrowserAdapter(manager);
     
-    // 设置数据变更回调
+    // 🆕 防抖相关状态
+    let dataChangeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingCardIds = new Set<string>();
+    
+    // 设置数据变更回调（带防抖）
     browserAdapter.value.setOnDataChangeCallback((event: DataChangeEvent) => {
       console.log('[SRSBrowser] Data changed event received:', event);
       
-      // 根据事件类型处理
-      switch (event.type) {
-        case 'card-updated':
-        case 'card-deleted':
-        case 'queue-changed':
-          // 刷新当前视图
-          if (gridApi.value) {
-            gridApi.value.refreshCells({ force: true });
-          }
-          void refreshQueueCounts();
-          break;
-        case 'mode-switched':
-          // 模式切换时重新加载数据
-          void loadData();
-          break;
+      // 收集待更新的卡片 ID
+      if (event.cardIds) {
+        event.cardIds.forEach(id => pendingCardIds.add(id));
       }
+      
+      // 清除之前的定时器
+      if (dataChangeDebounceTimer) {
+        clearTimeout(dataChangeDebounceTimer);
+      }
+      
+      // 设置新的定时器（300ms 防抖）
+      dataChangeDebounceTimer = setTimeout(async () => {
+        const cardIds = Array.from(pendingCardIds);
+        pendingCardIds.clear();
+        
+        if (cardIds.length > 0) {
+          console.log(`[SRSBrowser] ⚡ Processing batched updates: ${cardIds.length} cards`);
+        }
+        
+        // 根据事件类型处理
+        switch (event.type) {
+          case 'card-updated':
+            // 卡片更新：使用增量更新
+            if (cardIds.length > 0) {
+              await handleCardUpdatedIncremental(cardIds);
+            }
+            break;
+          case 'card-deleted':
+            // 卡片删除：使用增量删除
+            if (cardIds.length > 0) {
+              await handleCardDeletedIncremental(cardIds);
+            }
+            break;
+          case 'queue-changed':
+            // 队列变更：只刷新队列统计
+            console.log('[SRSBrowser] Refreshing queue counts due to queue changes');
+            void refreshQueueCounts();
+            break;
+          case 'mode-switched':
+            // 模式切换：完全重新加载
+            console.log('[SRSBrowser] Reloading data due to mode switch');
+            void loadData();
+            break;
+        }
+      }, 300);
     });
     
-    console.log('[SRSBrowser] UnifiedDataSourceManager adapter initialized');
+    console.log('[SRSBrowser] UnifiedDataSourceManager adapter initialized with debouncing');
   } catch (error) {
     console.error('[SRSBrowser] Failed to initialize UnifiedDataSourceManager adapter:', error);
     // 降级到旧的实现，不影响正常使用

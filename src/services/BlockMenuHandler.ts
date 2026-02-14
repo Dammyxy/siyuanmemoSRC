@@ -22,7 +22,8 @@ import type { XiuyuanService } from '@/core/xiuyuan';
 import { ReviewEntryBase } from './ReviewEntryBase';
 import { RetrievalPracticeEntry } from './RetrievalPracticeEntry';
 import { IncrementalLearningEntry } from './IncrementalLearningEntry';
-import { FinalDrillEntry } from './FinalDrillEntry';
+import { TemporaryDrillEntry } from './TemporaryDrillEntry';
+import { AddToFinalDrillEntry } from './AddToFinalDrillEntry';
 
 export interface BlockMenuHandlerDeps {
   app: App;
@@ -40,7 +41,7 @@ export class BlockMenuHandler {
   private reviewEntries: ReviewEntryBase[];
   
   constructor(private deps: BlockMenuHandlerDeps) {
-    // 🆕 初始化复习入口（提取练习、渐进学习、刻意练习）
+    // 🆕 初始化复习入口（提取练习、渐进学习、临时练习、添加到刻意练习）
     this.reviewEntries = [
       new RetrievalPracticeEntry({
         storage: deps.storage,
@@ -52,7 +53,12 @@ export class BlockMenuHandler {
         reviewDialogManager: deps.reviewDialogManager,
         i18n: deps.i18n,
       }),
-      new FinalDrillEntry({
+      new TemporaryDrillEntry({
+        storage: deps.storage,
+        reviewDialogManager: deps.reviewDialogManager,
+        i18n: deps.i18n,
+      }),
+      new AddToFinalDrillEntry({
         storage: deps.storage,
         reviewDialogManager: deps.reviewDialogManager,
         i18n: deps.i18n,

@@ -239,17 +239,23 @@ export class DeckDataSource implements ICardDataSource {
     return content.substring(0, maxLength) + '...';
   }
   
+  /**
+   * 格式化到期日期（显示具体日期，与 SuperMemo 一致）
+   * 
+   * SuperMemo 的 NextRep 显示具体日期，而 Intrv 显示间隔天数。
+   * 这样可以避免信息重复。
+   */
   private formatDueDate(date: Date): string {
     if (!date || isNaN(date.getTime())) return '-';
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dueDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const diffDays = Math.floor((dueDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     
-    if (diffDays < 0) return `已过期 ${-diffDays} 天`;
-    if (diffDays === 0) return '今天';
-    if (diffDays === 1) return '明天';
-    return `${diffDays} 天后`;
+    // 始终显示具体日期（包含年份）
+    return date.toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   }
   
   private formatHistoryDate(date: Date | null): string {

@@ -87,7 +87,14 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
             },
             width: 'min(860px, 96vw)',
             height: 'min(720px, 90vh)',
-            onClose: () => {
+            onClose: async () => {
+                // 🆕 对话框关闭时自动调用 ReviewSyncManager
+                // 这会触发数据同步并通知所有观察者（包括浏览器）刷新 UI
+                if (plugin.reviewSyncManager) {
+                    await plugin.reviewSyncManager.onDialogClose();
+                }
+                
+                // 调用用户提供的关闭回调
                 onClose?.();
             },
         });
