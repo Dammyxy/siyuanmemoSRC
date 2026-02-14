@@ -66,6 +66,9 @@ export interface BrowserCard {
     // Topic/Item 区分
     cardType?: 'topic' | 'item' | 'incremental' | 'webpage';  // 卡片类型
     aFactor?: number;              // A-Factor (仅 Topic 卡片)
+    
+    // 🆕 Xiuyuan 卡片支持
+    meta?: any;  // FSRSCard 的 meta 字段（包含 Xiuyuan 信息）
 }
 
 /** 筛选预设 */

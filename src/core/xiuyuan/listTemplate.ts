@@ -206,6 +206,17 @@ export async function createListTemplateCards(
         meta,
       };
       
+      // 🔍 调试日志：确认 meta 字段
+      console.log('[Xiuyuan] 🔍 Created FSRSCard with meta:', {
+        cardID,
+        blockId: mainBlockID,
+        hasMeta: !!fsrsCard.meta,
+        metaKeys: fsrsCard.meta ? Object.keys(fsrsCard.meta) : [],
+        xiuyuanID: (fsrsCard.meta as any)?.xiuyuanID,
+        currentIndex: (fsrsCard.meta as any)?.currentIndex,
+        allChildrenLength: (fsrsCard.meta as any)?.allChildren?.length,
+      });
+      
       storageManager.setCard(fsrsCard);
     }
 

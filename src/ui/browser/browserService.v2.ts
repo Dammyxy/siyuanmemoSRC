@@ -127,6 +127,19 @@ const cardCache = new CardCacheManager();
  * 将 FSRSCard 转换为 BrowserCard
  */
 function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>): BrowserCard {
+    // 🔍 只为 Xiuyuan 卡片打印详细日志
+    if (card.id.startsWith('xy_card_')) {
+        console.log('[transformFSRSCard] 🔍 Xiuyuan card input:', {
+            id: card.id,
+            blockId: card.blockId,
+            hasMeta: !!card.meta,
+            metaKeys: card.meta ? Object.keys(card.meta) : [],
+            xiuyuanID: (card.meta as any)?.xiuyuanID,
+            allChildren: (card.meta as any)?.allChildren,
+            currentIndex: (card.meta as any)?.currentIndex,
+        });
+    }
+    
     // 计算经过天数
     const elapsedDays = card.lastReview 
         ? Math.floor((Date.now() - card.lastReview) / (1000 * 60 * 60 * 24))
@@ -192,6 +205,9 @@ function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>):
         aFactor: parseFloat(customAttrs[ATTR_A_FACTOR] || '') || undefined,
         
         tags: [],  // 将在后续步骤中填充
+        
+        // 🆕 传递完整的 meta 字段（用于 Xiuyuan 卡片识别）
+        meta: card.meta,
     };
 }
 

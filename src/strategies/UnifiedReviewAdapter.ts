@@ -140,7 +140,10 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                     // 向后兼容：旧的 Xiuyuan 卡片
                     return String((card as any)?.meta?.answerBlockID || '');
                 })(),
-                card: card as any
+                card: card as any,
+                // 🆕 Xiuyuan 列表模版卡：标记需要自定义渲染
+                isXiuyuanListTemplate: isXiuyuanCard(card) && card.meta.templateID === 'builtin-list-item',
+                xiuyuanMeta: isXiuyuanCard(card) ? card.meta : null,
             },
             actions: {
                 showAnswer: !context.showAnswer,  // 🔧 修复：反转 context.showAnswer 的值

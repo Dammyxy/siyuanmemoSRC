@@ -192,6 +192,22 @@ export class StorageManager {
                 const cards: FSRSCard[] = Array.isArray(data) ? data : [];
                 this.cardsCache.clear();
                 
+                // 🔍 调试日志：检查加载的 Xiuyuan 卡片
+                const xiuyuanCards = cards.filter(c => c.id.startsWith('xy_card_'));
+                if (xiuyuanCards.length > 0) {
+                    console.log('[StorageManager] 🔍 Loaded Xiuyuan cards from msgpack:', {
+                        count: xiuyuanCards.length,
+                        samples: xiuyuanCards.slice(0, 2).map(c => ({
+                            id: c.id,
+                            blockId: c.blockId,
+                            hasMeta: !!c.meta,
+                            metaKeys: c.meta ? Object.keys(c.meta) : [],
+                            xiuyuanID: (c.meta as any)?.xiuyuanID,
+                            currentIndex: (c.meta as any)?.currentIndex,
+                        })),
+                    });
+                }
+                
                 // 🔧 规范化每张卡片
                 let normalizedCount = 0;
                 for (const card of cards) {
@@ -373,6 +389,23 @@ export class StorageManager {
         if (!this.isDirty) return;
 
         const cards = this.getAllCards();
+        
+        // 🔍 调试日志：检查 Xiuyuan 卡片的 meta
+        const xiuyuanCards = cards.filter(c => c.id.startsWith('xy_card_'));
+        if (xiuyuanCards.length > 0) {
+            console.log('[StorageManager] 🔍 Saving Xiuyuan cards:', {
+                count: xiuyuanCards.length,
+                samples: xiuyuanCards.slice(0, 2).map(c => ({
+                    id: c.id,
+                    blockId: c.blockId,
+                    hasMeta: !!c.meta,
+                    metaKeys: c.meta ? Object.keys(c.meta) : [],
+                    xiuyuanID: (c.meta as any)?.xiuyuanID,
+                    currentIndex: (c.meta as any)?.currentIndex,
+                })),
+            });
+        }
+        
         // 🆕 使用 msgpack 格式保存
         await this.saveMsgpackData(STORAGE_FILES.CARDS, cards);
         this.isDirty = false;

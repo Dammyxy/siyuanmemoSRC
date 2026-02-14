@@ -229,6 +229,9 @@ export class FilterGroupDataSource implements ICardDataSource {
       cardType,
       aFactor: card.aFactor,
       queueIndex: 0, // 会在 fetchRows 中设置
+      
+      // 🆕 传递完整的 meta 字段（用于 Xiuyuan 卡片识别）
+      meta: card.meta,
     };
   }
 

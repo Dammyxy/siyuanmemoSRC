@@ -276,6 +276,9 @@ export class IncrementalLearningDataSource implements ICardDataSource {
       // Topic/Item 区分
       cardType,
       aFactor: card.aFactor,
+      
+      // 🆕 传递完整的 meta 字段（用于 Xiuyuan 卡片识别）
+      meta: card.meta,
     };
   }
   

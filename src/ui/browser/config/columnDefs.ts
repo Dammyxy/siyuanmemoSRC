@@ -39,6 +39,69 @@ export function createColumnDefs(): ColDef[] {
       minWidth: 100,
       suppressSizeToFit: false,
       tooltipField: 'fullContent',
+      // 🆕 自定义渲染：添加同源卡片标记
+      valueFormatter: (params) => {
+        const card = params.data;
+        if (!card) {
+          return '';
+        }
+        
+        // 🔍 调试日志：打印卡片数据
+        if (card.id && card.id.startsWith('xy_card_')) {
+          console.log('[CardBrowser] 🔍 Xiuyuan card in valueFormatter:', {
+            id: card.id,
+            blockId: card.blockId,
+            content: card.content?.substring(0, 50),
+            hasMeta: !!card.meta,
+            metaKeys: card.meta ? Object.keys(card.meta) : [],
+            xiuyuanID: card.meta?.xiuyuanID,
+            currentIndex: card.meta?.currentIndex,
+            allChildrenLength: card.meta?.allChildren?.length,
+          });
+        }
+        
+        // 检查是否为 Xiuyuan 卡片（从 meta）
+        const meta = card.meta;
+        if (meta?.xiuyuanID && meta?.allChildren && meta?.currentIndex !== undefined) {
+          const currentIndex = meta.currentIndex;
+          const totalCount = meta.allChildren.length;
+          const prefix = `[${currentIndex + 1}/${totalCount}] `;
+          console.log('[CardBrowser] ✅ Xiuyuan card detected from meta:', {
+            xiuyuanID: meta.xiuyuanID,
+            currentIndex,
+            totalCount,
+            prefix,
+          });
+          return prefix + (card.content || '');
+        }
+        
+        // 🔧 临时方案：从卡片 ID 判断是否为 Xiuyuan 卡片
+        // Xiuyuan 卡片 ID 格式：xy_card_{xiuyuanID}_{index}_{timestamp}_{random}
+        const cardId = card.id || '';
+        if (cardId.startsWith('xy_card_')) {
+          // 解析卡片 ID 获取索引信息
+          const parts = cardId.split('_');
+          if (parts.length >= 5) {
+            // parts[0] = 'xy'
+            // parts[1] = 'card'
+            // parts[2] = xiuyuanID 的一部分
+            // parts[3] = xiuyuanID 的另一部分
+            // parts[4] = index
+            const index = parseInt(parts[4]) || 0;
+            
+            // 先显示索引，总数暂时用 '?' 表示
+            const prefix = `[${index + 1}/?] `;
+            console.warn('[CardBrowser] ⚠️ Xiuyuan card detected from ID (meta missing):', {
+              cardId,
+              index,
+              prefix,
+            });
+            return prefix + (card.content || '');
+          }
+        }
+        
+        return card.content || '';
+      },
     },
     // Prior - 优先级
     { 

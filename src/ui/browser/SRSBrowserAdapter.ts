@@ -445,6 +445,9 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             // Topic/Item 区分
             cardType,
             aFactor: card.aFactor,
+            
+            // 🆕 传递完整的 meta 字段（用于 Xiuyuan 卡片识别）
+            meta: card.meta,
         };
         
         // 🔧 如果数据不完整，记录详细日志

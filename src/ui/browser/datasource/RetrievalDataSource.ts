@@ -316,6 +316,9 @@ export class RetrievalDataSource implements ICardDataSource {
       note: (card.meta?.note as string) || '',
       cardType,
       aFactor: card.aFactor,
+      
+      // 🆕 传递完整的 meta 字段（用于 Xiuyuan 卡片识别）
+      meta: card.meta,
     };
   }
 
