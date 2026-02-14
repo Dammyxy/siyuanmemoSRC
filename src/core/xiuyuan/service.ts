@@ -1,4 +1,4 @@
-﻿/**
+﻿﻿/**
  * Xiuyuan Service
  * 
  * @module XiuyuanService
@@ -63,6 +63,11 @@ import * as riffAPI from '@/core/siyuan/riff';
 import type { FSRSCard } from '@/types';
 import { CardState, CardType } from '@/types';
 import { ok, err, type Result } from '@/types/result';
+import { 
+  generateXiuyuanCardID, 
+  calculateRenderBlockIDs,
+  type XiuyuanCardMeta 
+} from './cardMeta';
 
 /**
  * Xiuyuan 服务
@@ -282,121 +287,174 @@ export class XiuyuanService {
    * - 8.2: Returns { ok: true, value: T } on success
    * - 8.3: Returns { ok: false, error: Error } on failure
    */
-  async createFromBlocks(
-    blockIDs: string[],
-    templateID: string,
-    fieldMapping: Record<string, string>,
-    deckID: string = riffAPI.BUILTIN_DECK_ID
-  ): Promise<Result<{ xiuyuan: IXiuyuan; cards: ICardMapping[] }>> {
-    try {
-      const template = this.storage.getTemplate(templateID);
-      if (!template) {
-        return err(new Error(`Template not found: ${templateID}`));
-      }
-
-      // 1. 构建字段
-      const fields: IXiuyuanField[] = template.fields.map(f => ({
-        name: f.name,
-        blockID: fieldMapping[f.name] || '',
-        marker: f.name,
-      }));
-
-      // 2. 创建 Xiuyuan
-      const xiuyuan = this.storage.createXiuyuan({
-        blockIDs,
-        fields,
-        templateID,
-      });
-
-      // 3. 创建卡片（只用第一个块，因为思源一个块只能对应一张卡片）
-      const cards: ICardMapping[] = [];
-      const now = Date.now();
-      const mainBlockID = blockIDs[0];
-      const rule = template.cardRules[0]; // 只使用第一个规则
-
-      if (!rule) {
-        return err(new Error('Template has no card rules'));
-      }
-
-      // 创建 mapping
-      const mapping: ICardMapping = {
-        xiuyuanID: xiuyuan.id,
-        cardID: mainBlockID,
-        frontFields: rule.frontFields,
-        backFields: rule.backFields,
-        typeMarker: rule.typeMarker,
-      };
-      this.storage.createMapping(mapping);
-      cards.push(mapping);
-
-      // 4. 调用 Riff API 创建闪卡（思源原生）
+  /**
+     * 从选中的块创建 Xiuyuan 和卡片
+     * 
+     * @param blockIDs - 源块 ID 列表
+     * @param templateID - 模板 ID
+     * @param fieldMapping - 字段映射（字段名 → 块 ID）
+     * @param deckID - 卡包 ID，默认为内置卡包
+     * @returns Result，成功时包含创建的 Xiuyuan 和 CardMapping 数组，失败时包含错误信息
+     * 
+     * @description
+     * **新实现（Phase 1）**：
+     * - 根据 template.cardRules 创建多张 FSRSCard
+     * - 每张卡片有独立的 ID（不依赖块 ID）
+     * - 在 meta 中存储字段映射和渲染信息
+     * 
+     * **执行步骤**：
+     * 1. 验证模板存在
+     * 2. 构建字段映射
+     * 3. 创建 Xiuyuan
+     * 4. 为每个 cardRule 创建一张 FSRSCard
+     * 5. 持久化数据
+     * 
+     * @example
+     * ```typescript
+     * // 创建列表模版卡（1个 Xiuyuan → 3张 FSRSCard）
+     * const result = await service.createFromBlocks(
+     *   ['parent-id', 'child1-id', 'child2-id', 'child3-id'],
+     *   'builtin-list-item',
+     *   {
+     *     question: 'parent-id',
+     *     answer: 'child1-id'  // 第一张卡片的答案
+     *   }
+     * );
+     * ```
+     */
+    async createFromBlocks(
+      blockIDs: string[],
+      templateID: string,
+      fieldMapping: Record<string, string>,
+      deckID: string = riffAPI.BUILTIN_DECK_ID
+    ): Promise<Result<{ xiuyuan: IXiuyuan; cards: ICardMapping[] }>> {
       try {
-        await riffAPI.addRiffCards(deckID, [mainBlockID]);
-      } catch (err) {
-        console.warn('[Xiuyuan] Riff API addRiffCards failed:', err);
-      }
+        const template = this.storage.getTemplate(templateID);
+        if (!template) {
+          return err(new Error(`Template not found: ${templateID}`));
+        }
 
-      // 5. 创建 FSRSCard 存入 StorageManager（让卡片浏览器可见）
-      // 在 meta 中存储答案块 ID，供复习界面渲染使用
-      const answerBlockID = blockIDs.length > 1 ? blockIDs[1] : undefined;
-      const fsrsCard: FSRSCard = {
-        id: mainBlockID,
-        blockId: mainBlockID,
-        due: now,
-        stability: 0,
-        difficulty: 0,
-        reps: 0,
-        lapses: 0,
-        state: CardState.New,
-        lastReview: 0,
-        elapsedDays: 0,
-        scheduledDays: 0,
-        priority: 50,
-        type: CardType.Item,
-        tags: [],
-        leechCount: 0,
-        isLeech: false,
-        skipped: false,
-        createdAt: now,
-        updatedAt: now,
-        meta: answerBlockID ? {
-          xiuyuanID: xiuyuan.id,
-          answerBlockID,
+        if (!template.cardRules || template.cardRules.length === 0) {
+          return err(new Error('Template has no card rules'));
+        }
+
+        // 1. 构建字段
+        const fields: IXiuyuanField[] = template.fields.map(f => ({
+          name: f.name,
+          blockID: fieldMapping[f.name] || '',
+          marker: f.name,
+        }));
+
+        // 2. 创建 Xiuyuan
+        const xiuyuan = this.storage.createXiuyuan({
+          blockIDs,
+          fields,
           templateID,
-        } : undefined,
-      };
-      
-      console.log('[Xiuyuan] Created FSRSCard with meta:', {
-        cardID: fsrsCard.id,
-        blockIDs,
-        answerBlockID,
-        meta: fsrsCard.meta,
-      });
-      
-      this.storageManager.setCard(fsrsCard);
+        });
 
-      // 6. 标记块属性（设置为 item 类型）
-      try {
-        await markBlockAsCard(mainBlockID, mainBlockID, fsrsCard.priority, 'item');
-      } catch (err) {
-        console.warn('[Xiuyuan] markBlockAsCard failed:', err);
+        console.log('[Xiuyuan] Created Xiuyuan:', xiuyuan.id);
+
+        // 3. 为每个 cardRule 创建 FSRSCard
+        const cards: ICardMapping[] = [];
+        const now = Date.now();
+
+        for (let ruleIndex = 0; ruleIndex < template.cardRules.length; ruleIndex++) {
+          const rule = template.cardRules[ruleIndex];
+
+          // 生成独立的卡片 ID
+          const cardID = generateXiuyuanCardID(xiuyuan.id, ruleIndex);
+
+          // 计算渲染信息
+          const { frontBlockIDs, backBlockIDs } = calculateRenderBlockIDs(
+            rule.frontFields,
+            rule.backFields,
+            fieldMapping
+          );
+
+          // 确定主块 ID（用于卡片浏览器显示）
+          // 优先使用背面的第一个块，如果没有则使用正面的第一个块
+          const mainBlockID = backBlockIDs[0] || frontBlockIDs[0] || blockIDs[0];
+
+          console.log('[Xiuyuan] Creating card:', {
+            cardID,
+            ruleIndex,
+            typeMarker: rule.typeMarker,
+            frontFields: rule.frontFields,
+            backFields: rule.backFields,
+            frontBlockIDs,
+            backBlockIDs,
+            mainBlockID,
+          });
+
+          // 创建 CardMapping
+          const mapping: ICardMapping = {
+            xiuyuanID: xiuyuan.id,
+            cardID,
+            frontFields: rule.frontFields,
+            backFields: rule.backFields,
+            typeMarker: rule.typeMarker,
+          };
+          this.storage.createMapping(mapping);
+          cards.push(mapping);
+
+          // 创建 FSRSCard
+          const meta: XiuyuanCardMeta = {
+            xiuyuanID: xiuyuan.id,
+            templateID,
+            ruleIndex,
+            frontFields: rule.frontFields,
+            backFields: rule.backFields,
+            fieldMapping,
+            frontBlockIDs,
+            backBlockIDs,
+          };
+
+          const fsrsCard: FSRSCard = {
+            id: cardID,
+            blockId: mainBlockID,
+            due: now,
+            stability: 0,
+            difficulty: 0,
+            reps: 0,
+            lapses: 0,
+            state: CardState.New,
+            lastReview: 0,
+            elapsedDays: 0,
+            scheduledDays: 0,
+            priority: 50,
+            type: CardType.Item,
+            tags: [],
+            leechCount: 0,
+            isLeech: false,
+            skipped: false,
+            createdAt: now,
+            updatedAt: now,
+            meta,
+          };
+
+          this.storageManager.setCard(fsrsCard);
+          console.log('[Xiuyuan] Created FSRSCard:', cardID);
+        }
+
+        // 4. 持久化
+        const saveResult = await this.save();
+        if (!saveResult.ok) {
+          console.warn('[Xiuyuan] Save failed:', saveResult.error);
+        }
+        await this.storageManager.saveCards();
+
+        console.log('[Xiuyuan] Created:', { 
+          xiuyuanID: xiuyuan.id, 
+          cardCount: cards.length 
+        });
+
+        return ok({ xiuyuan, cards });
+      } catch (error) {
+        console.error('[Xiuyuan] createFromBlocks failed:', error);
+        return err(error as Error);
       }
-
-      // 7. 持久化
-      const saveResult = await this.save();
-      if (!saveResult.ok) {
-        console.warn('[Xiuyuan] Save failed:', saveResult.error);
-        // Continue anyway - data is in memory
-      }
-      await this.storageManager.saveCards();
-
-      console.log('[Xiuyuan] Created:', { xiuyuan, cards });
-      return ok({ xiuyuan, cards });
-    } catch (error) {
-      console.error('[Xiuyuan] createFromBlocks failed:', error);
-      return err(error as Error);
     }
-  }
+
 
   // ============ 查询 ============
 

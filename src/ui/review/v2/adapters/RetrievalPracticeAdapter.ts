@@ -1,6 +1,7 @@
 ﻿import type { AdapterContext, IAdapter, ReviewUIState } from '../types';
 import { getBlockBreadcrumb, getIconByType } from '../../../../core/siyuan/api.ts';
 import type { QueueItem, QueueStats, QueueUIConfig } from '../../../../core/queue/types.ts';
+import { isXiuyuanCard } from '@/core/xiuyuan/cardMeta';
 
 function t(i18n: Record<string, string> | undefined, key: string, fallback: string): string {
   return i18n?.[key] || fallback;
@@ -176,18 +177,20 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
       content: {
         type: 'protyle',
         data: String((item as any)?.blockID || ''),
-        id: String((item as any)?.blockID || (item as any)?.cardID || 'card'),
-        // Xiuyuan 模板卡片：从 meta 中获取答案块 ID
+        id: (() => {
+          // 🆕 Xiuyuan 卡片：使用 frontBlockIDs 的第一个块
+          if (isXiuyuanCard(item) && item.meta.frontBlockIDs.length > 0) {
+            return item.meta.frontBlockIDs[0];
+          }
+          return String((item as any)?.blockID || (item as any)?.cardID || 'card');
+        })(),
         answerBlockID: (() => {
-          const answerBlockID = String((item as any)?.meta?.answerBlockID || '');
-          console.log('[RetrievalPracticeAdapter] toUIState - answerBlockID:', {
-            itemBlockID: (item as any)?.blockID,
-            itemCardID: (item as any)?.cardID,
-            hasMeta: !!(item as any)?.meta,
-            meta: (item as any)?.meta,
-            answerBlockID,
-          });
-          return answerBlockID;
+          // 🆕 Xiuyuan 卡片：使用 backBlockIDs 的第一个块
+          if (isXiuyuanCard(item) && item.meta.backBlockIDs.length > 0) {
+            return item.meta.backBlockIDs[0];
+          }
+          // 向后兼容：旧的 Xiuyuan 卡片
+          return String((item as any)?.meta?.answerBlockID || '');
         })(),
         card: item as any,
       },

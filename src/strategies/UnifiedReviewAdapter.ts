@@ -14,6 +14,7 @@
 import type { IAdapter, AdapterContext } from '@/ui/review/v2/types';
 import type { FSRSCard } from '@/types/card';
 import type { IQueueStrategy } from '@/core/queue/abstraction/Strategy';
+import { isXiuyuanCard } from '@/core/xiuyuan/cardMeta';
 
 /**
  * 统一复习适配器
@@ -117,19 +118,27 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
             },
             content: {
                 type: 'protyle',
-                data: blockId,
-                id: blockId,
-                // 🆕 Xiuyuan 模板卡片：从 meta 中获取答案块 ID
+                data: (() => {
+                    // 🆕 Xiuyuan 卡片：data 也使用 frontBlockIDs 的第一个块
+                    if (isXiuyuanCard(card) && card.meta.frontBlockIDs.length > 0) {
+                        return card.meta.frontBlockIDs[0];
+                    }
+                    return blockId;
+                })(),
+                id: (() => {
+                    // 🆕 Xiuyuan 卡片：使用 frontBlockIDs 的第一个块
+                    if (isXiuyuanCard(card) && card.meta.frontBlockIDs.length > 0) {
+                        return card.meta.frontBlockIDs[0];
+                    }
+                    return blockId;
+                })(),
                 answerBlockID: (() => {
-                    const answerBlockID = String((card as any)?.meta?.answerBlockID || '');
-                    console.log('[UnifiedReviewAdapter] toUIState - answerBlockID:', {
-                        cardID: cardId,
-                        blockID: blockId,
-                        hasMeta: !!(card as any)?.meta,
-                        meta: (card as any)?.meta,
-                        answerBlockID,
-                    });
-                    return answerBlockID;
+                    // 🆕 Xiuyuan 卡片：使用 backBlockIDs 的第一个块
+                    if (isXiuyuanCard(card) && card.meta.backBlockIDs.length > 0) {
+                        return card.meta.backBlockIDs[0];
+                    }
+                    // 向后兼容：旧的 Xiuyuan 卡片
+                    return String((card as any)?.meta?.answerBlockID || '');
                 })(),
                 card: card as any
             },

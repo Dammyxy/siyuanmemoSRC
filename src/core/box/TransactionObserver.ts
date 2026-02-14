@@ -1,6 +1,6 @@
 ﻿import type FSRSPlugin from '@/index';
 import { CardBuilderContext, detectCardType, initializeAFactor } from '@/core/card-builder';
-import { getBlockKramdown, getBlockAttrs, setBlockAttrs } from '@/core/siyuan/api';
+import { getBlockKramdown, getBlockAttrs, setBlockAttrs, sql } from '@/core/siyuan/api';
 import { getRiffCardsByBlockIDs, addRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 import { isFlashcardBlock, markBlockAsCard, hasRiffAttribute } from '@/core/siyuan/block';
 
@@ -150,6 +150,14 @@ export class TransactionObserver {
                 console.log(`[SiyuanMemo] Adding to Riff Deck: ${BUILTIN_DECK_ID}`);
                 const res = await addRiffCards(BUILTIN_DECK_ID, [blockId]);
                 console.log(`[SiyuanMemo] addRiffCards result:`, res);
+                
+                // 🆕 5.5. 检测是否为列表项模版卡
+                const isListTemplate = await this.checkListTemplate(blockId);
+                if (isListTemplate) {
+                    console.log(`[SiyuanMemo] Detected list template card: ${blockId}`);
+                    await this.createListTemplateCards(blockId);
+                    return; // 已处理，跳过常规流程
+                }
             }
 
             // 6. Mark block with FSRS attributes (Plugin UI support) if not exists
@@ -189,6 +197,153 @@ export class TransactionObserver {
             console.error(`[SiyuanMemo] Failed to auto-create card for ${blockId}:`, err);
         } finally {
             this.processing.delete(blockId);
+        }
+    }
+
+    /**
+     * 检查块是否为列表项模版卡
+     * 
+     * @description
+     * 列表项模版卡的条件：
+     * - 块类型必须是列表项（type='i'）
+     * - 必须有至少2个子级列表项块
+     * 
+     * @param blockId 块 ID
+     * @returns 是否为列表项模版卡
+     */
+    private async checkListTemplate(blockId: string): Promise<boolean> {
+        try {
+            console.log(`[SiyuanMemo] 🔍 Checking if block ${blockId} is a list template...`);
+            
+            // 1. 检查块类型
+            const typeResult = await sql(`
+                SELECT type FROM blocks
+                WHERE id = '${blockId}'
+                LIMIT 1
+            `);
+            
+            console.log(`[SiyuanMemo] Block type query result:`, typeResult);
+            
+            if (!typeResult || typeResult.length === 0) {
+                console.log(`[SiyuanMemo] ❌ Block ${blockId} not found in database`);
+                return false;
+            }
+            
+            const blockType = typeResult[0].type;
+            console.log(`[SiyuanMemo] Block ${blockId} type: ${blockType}`);
+            
+            if (blockType !== 'i') {
+                console.log(`[SiyuanMemo] ❌ Block ${blockId} is not a list item (type='${blockType}'), skipping list template check`);
+                return false;
+            }
+            
+            // 2. 检查子级列表项数量
+            const childrenResult = await sql(`
+                SELECT id FROM blocks
+                WHERE parent_id = '${blockId}'
+                AND type = 'i'
+                AND type != 'd'
+            `);
+            
+            console.log(`[SiyuanMemo] Children query result:`, childrenResult);
+            
+            const childCount = childrenResult ? childrenResult.length : 0;
+            console.log(`[SiyuanMemo] Block ${blockId} has ${childCount} list item children`);
+            
+            const hasMultipleChildren = childCount >= 2;
+            
+            if (hasMultipleChildren) {
+                console.log(`[SiyuanMemo] ✅ Block ${blockId} is a list template with ${childCount} children`);
+            } else {
+                console.log(`[SiyuanMemo] ❌ Block ${blockId} has only ${childCount} children (need ≥2), not a list template`);
+            }
+            
+            return hasMultipleChildren;
+        } catch (err) {
+            console.error(`[SiyuanMemo] ❌ Failed to check list template:`, err);
+            return false;
+        }
+    }
+
+    /**
+     * 创建列表项模版卡
+     * 
+     * @description
+     * 为每个子级列表项创建一张 Xiuyuan 卡片：
+     * - 父列表项作为问题（正面）
+     * - 每个子级列表项作为答案（背面）
+     * 
+     * @param parentBlockId 父列表项块 ID
+     */
+    private async createListTemplateCards(parentBlockId: string): Promise<void> {
+        try {
+            console.log(`[SiyuanMemo] 🎯 Starting to create list template cards for parent: ${parentBlockId}`);
+            
+            // 1. 获取所有子级列表项
+            const childrenResult = await sql(`
+                SELECT id FROM blocks
+                WHERE parent_id = '${parentBlockId}'
+                AND type = 'i'
+                AND type != 'd'
+                ORDER BY id ASC
+            `);
+            
+            console.log(`[SiyuanMemo] Query children result:`, childrenResult);
+            
+            if (!childrenResult || childrenResult.length < 2) {
+                console.warn(`[SiyuanMemo] ⚠️ Not enough children for list template: ${parentBlockId} (found: ${childrenResult?.length || 0})`);
+                return;
+            }
+            
+            const childBlockIds = childrenResult.map((row: any) => row.id);
+            console.log(`[SiyuanMemo] 📝 Creating ${childBlockIds.length} list template cards for parent: ${parentBlockId}`);
+            console.log(`[SiyuanMemo] Child block IDs:`, childBlockIds);
+            
+            // 2. 为每个子级创建 Xiuyuan 卡片
+            let successCount = 0;
+            let failCount = 0;
+            
+            for (let i = 0; i < childBlockIds.length; i++) {
+                const childBlockId = childBlockIds[i];
+                console.log(`[SiyuanMemo] 📌 Creating card ${i + 1}/${childBlockIds.length} for child: ${childBlockId}`);
+                
+                const blockIds = [parentBlockId, childBlockId];
+                const fieldMapping = {
+                    question: parentBlockId,
+                    answer: childBlockId
+                };
+                
+                console.log(`[SiyuanMemo] Calling xiuyuanService.createFromBlocks with:`, {
+                    blockIds,
+                    templateId: 'builtin-list-item',
+                    fieldMapping,
+                    deckId: BUILTIN_DECK_ID
+                });
+                
+                const result = await this.plugin.xiuyuanService.createFromBlocks(
+                    blockIds,
+                    'builtin-list-item',
+                    fieldMapping,
+                    BUILTIN_DECK_ID
+                );
+                
+                if (result.ok) {
+                    successCount++;
+                    console.log(`[SiyuanMemo] ✅ Created list template card ${i + 1}/${childBlockIds.length}: ${result.value.xiuyuan.id} (child: ${childBlockId})`);
+                    console.log(`[SiyuanMemo] Card details:`, result.value);
+                } else {
+                    failCount++;
+                    console.error(`[SiyuanMemo] ❌ Failed to create list template card ${i + 1}/${childBlockIds.length} for child ${childBlockId}:`, result.error);
+                }
+            }
+            
+            console.log(`[SiyuanMemo] 🎉 List template cards creation complete: ${successCount} succeeded, ${failCount} failed`);
+            
+            if (successCount > 0) {
+                console.log(`[SiyuanMemo] ✅ Successfully created ${successCount} list template cards`);
+            }
+        } catch (err) {
+            console.error(`[SiyuanMemo] ❌ Failed to create list template cards:`, err);
         }
     }
 }

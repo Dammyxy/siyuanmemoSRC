@@ -88,10 +88,19 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
             width: 'min(860px, 96vw)',
             height: 'min(720px, 90vh)',
             onClose: async () => {
-                // 🆕 对话框关闭时自动调用 ReviewSyncManager
-                // 这会触发数据同步并通知所有观察者（包括浏览器）刷新 UI
+                // 🆕 对话框关闭时只同步数据，不刷新 UI
+                // 因为增量更新已经实时更新了浏览器，这里只需要确保数据持久化
                 if (plugin.reviewSyncManager) {
-                    await plugin.reviewSyncManager.onDialogClose();
+                    // 只调用同步，不触发观察者通知
+                    const syncManager = plugin.reviewSyncManager;
+                    if (syncManager.reviewCount > 0) {
+                        try {
+                            await plugin.hybridSyncService?.incrementalSync();
+                            console.log('[createUnifiedReviewDialog] Data synced on close');
+                        } catch (err) {
+                            console.error('[createUnifiedReviewDialog] Sync failed on close:', err);
+                        }
+                    }
                 }
                 
                 // 调用用户提供的关闭回调

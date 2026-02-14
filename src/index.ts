@@ -353,6 +353,9 @@ export default class FSRSPlugin extends Plugin {
       await this.xiuyuanStorage.save();
       console.log('[SiyuanMemo] ✅ XiuyuanService initialized with', BUILTIN_TEMPLATES.length, 'builtin templates');
 
+      // 🆕 更新 BlockMenuHandler 的 xiuyuanService 依赖
+      (this.blockMenuHandler as any).deps.xiuyuanService = this.xiuyuanService;
+
       // 🆕 初始化 TransactionObserver（自动制卡）
       this.transactionObserver = new TransactionObserver(this);
       this.transactionObserver.init();

@@ -220,6 +220,21 @@ export class BlockMenuHandler {
           await this.deps.openCreateTemplateCardDialog(blockIds);
         },
       });
+
+      // 🆕 创建列表模版卡（自动检测，仅子级为有序列表）
+      submenu.push({
+        icon: 'iconList',
+        label: '创建列表模版卡',
+        click: async () => {
+          // 检查子级是否为有序列表项
+          const hasOrderedChildren = await this.hasOrderedListChildren(blockIds[0]);
+          if (!hasOrderedChildren) {
+            await pushErrMsg('只能对包含有序子列表项的块使用此功能');
+            return;
+          }
+          await this.createListTemplateCards(blockIds);
+        },
+      });
     }
 
     // 取消闪卡菜单项
@@ -582,5 +597,182 @@ export class BlockMenuHandler {
     }
     
     return result;
+  }
+
+  /**
+   * 检查块的子列表项是否为有序列表
+   */
+  private async hasOrderedListChildren(parentBlockId: string): Promise<boolean> {
+    try {
+      // 1. 获取列表容器
+      const listContainerResult = await sql(`
+        SELECT id FROM blocks
+        WHERE parent_id = '${parentBlockId}'
+        AND type = 'l'
+        LIMIT 1
+      `);
+      
+      if (!listContainerResult || listContainerResult.length === 0) {
+        return false;
+      }
+      
+      const listContainerId = listContainerResult[0].id;
+      
+      // 2. 检查子列表项是否为有序列表
+      const childrenResult = await sql(`
+        SELECT subtype FROM blocks
+        WHERE parent_id = '${listContainerId}'
+        AND type = 'i'
+        LIMIT 1
+      `);
+      
+      if (!childrenResult || childrenResult.length === 0) {
+        return false;
+      }
+      
+      return childrenResult[0].subtype === 'o';
+    } catch (err) {
+      console.error('[SiyuanMemo] Failed to check list type:', err);
+      return false;
+    }
+  }
+
+  /**
+   * 创建列表模版卡
+   * 
+   * @description
+   * 自动检测列表项块，如果子级为有序列表项，则为每个子级创建一张卡片。
+   * 支持提示功能：子列表项使用 `::` 分隔提示和答案。
+   * 
+   * @param blockIds 选中的块 ID 列表
+   */
+  private async createListTemplateCards(blockIds: string[]): Promise<void> {
+    try {
+      if (!blockIds || blockIds.length === 0) {
+        await pushErrMsg('未选中任何块');
+        return;
+      }
+
+      // 只处理第一个块
+      const parentBlockId = blockIds[0];
+      console.log(`[SiyuanMemo] 🎯 Creating list template cards for: ${parentBlockId}`);
+
+      // 1. 检查块类型
+      const typeResult = await sql(`
+        SELECT type, content FROM blocks
+        WHERE id = '${parentBlockId}'
+        LIMIT 1
+      `);
+
+      if (!typeResult || typeResult.length === 0) {
+        await pushErrMsg('块不存在');
+        return;
+      }
+
+      const blockType = typeResult[0].type;
+      const blockContent = typeResult[0].content;
+
+      if (blockType !== 'i') {
+        await pushErrMsg(`只能对列表项块使用此功能（当前类型：${blockType}）`);
+        return;
+      }
+
+      // 2. 获取子级列表项（必须是有序列表）
+      // 思源的列表结构：列表项(i) → 段落(p) + 列表容器(l) → 子列表项(i)
+      // 所以需要先找到列表容器(l)，再查询其子级
+      const allChildrenResult = await sql(`
+        SELECT id, type, content FROM blocks
+        WHERE parent_id = '${parentBlockId}'
+        ORDER BY id ASC
+      `);
+      
+      console.log(`[SiyuanMemo] All children of ${parentBlockId}:`, allChildrenResult);
+      
+      // 找到列表容器
+      const listContainer = allChildrenResult?.find((r: any) => r.type === 'l');
+      
+      if (!listContainer) {
+        await pushErrMsg('未找到列表容器，请确保列表结构正确');
+        return;
+      }
+      
+      console.log(`[SiyuanMemo] Found list container:`, listContainer.id);
+      
+      // 查询列表容器的所有子级（不限制类型，看看实际结构）
+      const allListChildren = await sql(`
+        SELECT id, type, subtype, content FROM blocks
+        WHERE parent_id = '${listContainer.id}'
+        ORDER BY id ASC
+      `);
+      
+      console.log(`[SiyuanMemo] All list container children:`, allListChildren);
+      
+      // 查询列表容器的子级列表项（必须是有序列表）
+      const childrenResult = await sql(`
+        SELECT id, content FROM blocks
+        WHERE parent_id = '${listContainer.id}'
+        AND type = 'i'
+        AND subtype = 'o'
+        ORDER BY id ASC
+      `);
+
+      console.log(`[SiyuanMemo] Ordered list item children (type='i', subtype='o'):`, childrenResult);
+
+      // 如果没有找到直接子级，尝试查询所有后代列表项（必须是有序列表）
+      let finalChildren = childrenResult;
+      if (!finalChildren || finalChildren.length === 0) {
+        console.log(`[SiyuanMemo] No direct ordered children found, trying descendants...`);
+        
+        // 使用递归查询找到所有后代列表项（有序列表）
+        const descendantsResult = await sql(`
+          WITH RECURSIVE descendants AS (
+            SELECT id, type, subtype, content, parent_id FROM blocks WHERE parent_id = '${listContainer.id}'
+            UNION ALL
+            SELECT b.id, b.type, b.subtype, b.content, b.parent_id FROM blocks b
+            INNER JOIN descendants d ON b.parent_id = d.id
+          )
+          SELECT id, content FROM descendants WHERE type = 'i' AND subtype = 'o' ORDER BY id ASC
+        `);
+        
+        console.log(`[SiyuanMemo] Descendant ordered list items:`, descendantsResult);
+        finalChildren = descendantsResult;
+      }
+
+      if (!finalChildren || finalChildren.length < 2) {
+        await pushErrMsg(`需要至少2个有序子列表项（当前：${finalChildren?.length || 0}个）`);
+        return;
+      }
+
+      const childBlockIds = finalChildren.map((row: any) => row.id);
+      console.log(`[SiyuanMemo] Found ${childBlockIds.length} children:`, childBlockIds);
+
+      // 3. 确认创建
+      await pushMsg(`检测到 ${childBlockIds.length} 个子级列表项，开始创建卡片...`);
+
+      // 4. 为所有子级创建列表模版卡（一次性创建）
+      console.log(`[SiyuanMemo] Creating list template cards: ${blockContent} → ${childBlockIds.length} children`);
+
+      // 🔧 使用专用的列表模版卡创建方法
+      const { createListTemplateCards } = await import('@/core/xiuyuan/listTemplate');
+      
+      const result = await createListTemplateCards(
+        parentBlockId,
+        childBlockIds,
+        'builtin-list-item',
+        (this.deps.xiuyuanService as any).storage,
+        this.deps.storage
+      );
+
+      if (result.ok) {
+        await pushMsg(`✅ 成功创建 ${childBlockIds.length} 张列表模版卡！`);
+        console.log(`[SiyuanMemo] 🎉 List template cards creation complete:`, result.value);
+      } else {
+        await pushErrMsg(`创建失败：${result.error.message}`);
+        console.error(`[SiyuanMemo] ❌ List template cards creation failed:`, result.error);
+      }
+    } catch (err) {
+      console.error('[SiyuanMemo] Failed to create list template cards:', err);
+      await pushErrMsg(`创建失败：${(err as Error).message}`);
+    }
   }
 }
