@@ -1,5 +1,5 @@
-<template>
-  <div class="sy-plugin-fsrs-restore-tab">
+﻿<template>
+  <div class="sy-plugin-siyuanmemo-restore-tab">
     <div v-if="loading" class="loading">正在恢复复习界面...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
   </div>
@@ -27,7 +27,7 @@ onMounted(async () => {
   try {
     // 触发 FSRS 插件打开对应的复习界面
     // 使用事件总线或直接调用插件方法
-    const fsrsPlugin = (window as any).siyuanFsrsPlugin;
+    const fsrsPlugin = (window as any).siyuanMemoPlugin;
 
     if (!fsrsPlugin) {
       throw new Error('FSRS 插件未找到');
@@ -63,7 +63,7 @@ onMounted(async () => {
 
     // 成功后关闭当前 Tab（因为会打开新的对话框）
     setTimeout(() => {
-      const tab = props.app.editor?.findTab((tab: any) => tab.panel?.element?.classList.contains('sy-plugin-fsrs-restore-tab'));
+      const tab = props.app.editor?.findTab((tab: any) => tab.panel?.element?.classList.contains('sy-plugin-siyuanmemo-restore-tab'));
       if (tab) {
         tab.close();
       }
@@ -79,7 +79,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.sy-plugin-fsrs-restore-tab {
+.sy-plugin-siyuanmemo-restore-tab {
   display: flex;
   align-items: center;
   justify-content: center;

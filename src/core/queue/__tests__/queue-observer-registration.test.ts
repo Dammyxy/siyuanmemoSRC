@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Tests for Queue Observer Registration
  * 
  * Verifies that queues properly register their sequencers as observers

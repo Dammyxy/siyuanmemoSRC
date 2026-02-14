@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Observable Data Source Base Class
  * 
  * Implements the Observer pattern for automatic cache invalidation.

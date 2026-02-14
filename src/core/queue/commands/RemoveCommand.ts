@@ -1,4 +1,4 @@
-import type { IQueueCommand } from '../abstraction/Command';
+﻿import type { IQueueCommand } from '../abstraction/Command';
 import type { IRemovableTrait } from '../abstraction/types';
 
 export type RemoveCommandContext<TItem> = {

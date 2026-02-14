@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Deprecated queue warnings
  * 旧架构队列弃用提示
  */

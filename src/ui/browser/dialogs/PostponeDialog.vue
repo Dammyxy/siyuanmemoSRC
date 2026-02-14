@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="postpone-dialog">
     <div class="dialog__content">
       <div class="dialog__info">

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SpreadEngine - 实现 SuperMemo Spread/Mercy 算法
  * 
  * 功能：

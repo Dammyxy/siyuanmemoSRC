@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SettingsPanel 组件测试 - 清理工具部分
  * 
  * 测试 SettingsPanel.vue 中的清理工具功能：

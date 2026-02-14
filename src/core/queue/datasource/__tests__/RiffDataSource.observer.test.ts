@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Tests for RiffDataSource Observer Pattern Integration
  * 
  * Verifies that RiffDataSource properly extends ObservableDataSource

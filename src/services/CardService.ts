@@ -1,4 +1,4 @@
-import type FSRSPlugin from '../index';
+﻿import type FSRSPlugin from '../index';
 import { pushMsg, pushErrMsg, sql } from '@/core/siyuan/api';
 import { createVueDialog } from '@/utils/dialog';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
@@ -57,7 +57,7 @@ export class CardService {
           // await pushMsg((this.plugin.i18n?.drillAdded || '已加入 {n} 张闪卡').replace('{n}', String(cards.length)));
           this.plugin.openDrillDialogWithCards(cards, 'block');
         } catch (err) {
-          console.error('[FSRS] Failed to open drill from blocks:', err);
+          console.error('[SiyuanMemo] Failed to open drill from blocks:', err);
           await pushErrMsg(this.plugin.i18n?.drillFailed || '机械练习启动失败');
         }
       },
@@ -72,7 +72,7 @@ export class CardService {
         try {
           await this.plugin.openNeuralReviewDialog({ seedBlockId, includeSeedAsFirst, resetHistory: true });
         } catch (err) {
-          console.error('[FSRS] Failed to open neural review from block:', err);
+          console.error('[SiyuanMemo] Failed to open neural review from block:', err);
           await pushErrMsg(this.plugin.i18n?.neuralReviewFailed || '神经漫游启动失败');
         }
       },
@@ -91,19 +91,19 @@ export class CardService {
         // ✅ 新架构：从本地存储查询卡片
         if (!cardID && blockIds.length > 0) {
           try {
-            console.log('[FSRS] Querying local storage for blockIds:', blockIds);
+            console.log('[SiyuanMemo] Querying local storage for blockIds:', blockIds);
             // 尝试从本地存储获取卡片
             for (const bid of blockIds) {
               const card = this.plugin.storage.getCardByBlockId(bid);
               if (card) {
                 blockID = card.blockId;
                 cardID = card.id;
-                console.log('[FSRS] Found card in local storage:', blockID, cardID);
+                console.log('[SiyuanMemo] Found card in local storage:', blockID, cardID);
                 break;
               }
             }
           } catch (err) {
-            console.warn('[FSRS] Failed to query local storage:', err);
+            console.warn('[SiyuanMemo] Failed to query local storage:', err);
           }
         }
 
@@ -151,7 +151,7 @@ export class CardService {
               this.plugin.storage.setCard(card);
               createdCount++;
             } catch (err) {
-              console.error('[FSRS] Failed to create card from block:', blockId, err);
+              console.error('[SiyuanMemo] Failed to create card from block:', blockId, err);
             }
           }
 
@@ -186,7 +186,7 @@ export class CardService {
               this.plugin.storage.removeCard(cardId);
               removedCount++;
             } catch (err) {
-              console.error('[FSRS] Failed to remove card from block:', blockId, err);
+              console.error('[SiyuanMemo] Failed to remove card from block:', blockId, err);
             }
           }
 
@@ -276,7 +276,7 @@ export class CardService {
           // await pushMsg((this.plugin.i18n?.drillAdded || '已加入 {n} 张闪卡').replace('{n}', String(cards.length)));
           this.plugin.openDrillDialogWithCards(cards, 'block');
         } catch (err) {
-          console.error('[FSRS] Failed to open drill from doc menu:', err);
+          console.error('[SiyuanMemo] Failed to open drill from doc menu:', err);
           await pushErrMsg(this.plugin.i18n?.drillFailed || '机械练习启动失败');
         }
       }
@@ -305,7 +305,7 @@ export class CardService {
           // await pushMsg((this.plugin.i18n?.drillAdded || '已加入 {n} 张闪卡').replace('{n}', String(cards.length)));
           this.plugin.openDrillDialogWithCards(cards, 'block');
         } catch (err) {
-          console.error('[FSRS] Failed to open drill from breadcrumb menu:', err);
+          console.error('[SiyuanMemo] Failed to open drill from breadcrumb menu:', err);
           await pushErrMsg(this.plugin.i18n?.drillFailed || '机械练习启动失败');
         }
       }

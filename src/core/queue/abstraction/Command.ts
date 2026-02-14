@@ -1,4 +1,4 @@
-export interface IQueueCommand<TContext> {
+﻿export interface IQueueCommand<TContext> {
   id: string;
   label: string;
   icon?: string;

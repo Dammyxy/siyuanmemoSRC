@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Riff API Data Source
  *
  * Retrieves queue items from SiYuan's built-in Riff flashcard system.

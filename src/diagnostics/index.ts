@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Diagnostics Module
  * 诊断模块
  *

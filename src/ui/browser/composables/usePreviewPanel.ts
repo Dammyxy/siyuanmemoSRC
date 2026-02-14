@@ -1,4 +1,4 @@
-import { ref, computed, nextTick } from 'vue';
+﻿import { ref, computed, nextTick } from 'vue';
 import { Protyle, openTab } from 'siyuan';
 import { BrowserCard, IBreadcrumbItem } from '../types';
 import { pushErrMsg } from '@/core/siyuan/api';

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Incremental Learning Queue
  * 渐进学习队列
  * 
@@ -21,8 +21,6 @@ import { FSRSCard } from '../types/card';
 import type { QueueItem } from '../core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import { resolveCardId } from '../diagnostics/type-guards';
-import { getCurrentDayEnd } from '../utils/dateUtils';
-import { getDayStartHour } from '../utils/configUtils';
 
 /**
  * 渐进学习队列类
@@ -217,57 +215,28 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
      * 处理卡片复习
      * 
      * 复习逻辑：
-     * - 评分 3/4：更新到期日期，从队列移除
-     * - 评分 1/2：更新到期日期，根据新日期决定是否保留
+     * - 评分 3/4：使用调度器更新卡片状态，从队列移除
+     * - 评分 1/2：使用调度器更新卡片状态，根据新日期决定是否保留，并自动添加到最终训练
+     * 
+     * 使用基类的 handleReviewWithScheduler() 方法处理调度器集成。
      * 
      * @param cardId 卡片 ID
      * @param rating 评分 (1-4)
+     * @throws Error 如果 SchedulerRouter 不可用
      * @see 需求 7.3, 7.4, 7.7, 9.2, 18.2, 18.3
+     * @see .kiro/specs/queue-scheduler-separation/requirements.md
      */
     public async handleReview(cardId: string, rating: number): Promise<void> {
         try {
-            const card = await this.manager.getCard(cardId);
+            // 使用基类的调度器集成方法
+            await this.handleReviewWithScheduler(cardId, rating);
             
-            if (rating >= 3) {
-                // 记住了：更新到期日期，从队列移除
-                card.due = this.calculateNextDueDate(card, rating);
-                await this.manager.updateCard(card);
-                await this.removeCard(cardId);
-                
-                console.log(`[IncrementalLearningQueue] Card ${cardId} reviewed with rating ${rating}, removed from queue`);
-            } else {
-                // 忘记了：更新到期日期，根据新日期决定是否保留
-                const newDueDate = this.calculateNextDueDateForLowRating(card, rating);
-                card.due = newDueDate;
-                await this.manager.updateCard(card);
-                
-                // 🔧 修复：根据新的到期日期是否在今天范围内决定是否保留
-                // 获取今天的结束时间（使用正确的 dayStartHour 配置）
-                const router = (this.manager as any).advancedRouter;
-                const plugin = router?.plugin;
-                const dayStartHour = plugin ? getDayStartHour(plugin) : 4;
-                const dayEnd = getCurrentDayEnd(dayStartHour);
-                
-                if (newDueDate > dayEnd) {
-                    // 新日期超出今天范围，从队列移除
-                    await this.removeCard(cardId);
-                    console.log(`[IncrementalLearningQueue] Card ${cardId} reviewed with rating ${rating}, new due date (${new Date(newDueDate).toISOString()}) is beyond today (${new Date(dayEnd).toISOString()}), removed from queue`);
-                } else {
-                    // 新日期在今天范围内，保留在队列中
-                    console.log(`[IncrementalLearningQueue] Card ${cardId} reviewed with rating ${rating}, new due date (${new Date(newDueDate).toISOString()}) is within today (${new Date(dayEnd).toISOString()}), kept in queue`);
-                }
-                
-                // 自动添加到最终训练队列
+            // 渐进学习队列特殊逻辑：评分 < 3 时自动添加到最终训练
+            if (rating < 3) {
                 const finalDrillQueue = this.manager.getQueue(QueueType.FinalDrill);
                 await finalDrillQueue.addCard(cardId, 'auto-failed');
+                console.log(`[IncrementalLearningQueue] Card ${cardId} with rating ${rating} added to FinalDrill`);
             }
-            
-            // 通知观察者
-            this.manager.notifyObservers({
-                type: 'card-updated',
-                cardIds: [cardId],
-                timestamp: Date.now()
-            });
         } catch (error) {
             console.error('[IncrementalLearningQueue] Failed to handle review:', error);
             throw error;
@@ -372,16 +341,6 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
             // 最后按卡片 ID 排序（确保稳定排序）
             return a.id.localeCompare(b.id);
         });
-    }
-    
-    /**
-     * 计算下次到期日期
-     */
-    private calculateNextDueDate(card: FSRSCard, rating: number): number {
-        const currentInterval = card.scheduledDays || 1;
-        const newInterval = rating === 3 ? currentInterval * 2 : currentInterval * 4;
-        const now = Date.now();
-        return now + newInterval * 24 * 60 * 60 * 1000;
     }
     
     /**

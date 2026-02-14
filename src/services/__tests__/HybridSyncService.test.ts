@@ -1,4 +1,4 @@
-/**
+﻿/**
  * HybridSyncService 单元测试
  */
 
@@ -755,7 +755,7 @@ describe('HybridSyncService', () => {
                     reps: 0,
                     lapses: 0,
                     state: 0,
-                    lastReview: undefined,
+                    lastReview: 0, // 修复：无效日期应该被转换为 0，而不是 undefined
                     deckID: 'test-deck',
                 })
             );
@@ -2271,7 +2271,7 @@ describe('HybridSyncService - Property-Based Tests', () => {
                             reps: rc.riffCard?.reps || 0,
                             lapses: rc.riffCard?.lapses || 0,
                             state: rc.riffCard?.state || 0,
-                            lastReview: rc.riffCard?.lastReview ? new Date(rc.riffCard.lastReview).getTime() : undefined,
+                            lastReview: rc.riffCard?.lastReview ? new Date(rc.riffCard.lastReview).getTime() : 0, // 修复：无效日期应该被转换为 0
                             deckID: rc.riffCard?.deckID || 'test-deck',
                         }));
                         
@@ -2479,3 +2479,121 @@ describe('HybridSyncService - Property-Based Tests', () => {
         });
     });
 });
+
+    describe('convertRiffCardToFSRSCard - 无效日期处理', () => {
+        it('应该正确处理无效的 lastReview 日期（0001-01-01）', async () => {
+            // Arrange: 创建一个包含无效日期的 Riff 卡片
+            const invalidRiffCard = {
+                id: 'test-card-invalid-date',
+                blockId: 'test-card-invalid-date',
+                ial: {
+                    'custom-fsrs-card-type': 'item'
+                },
+                riffCard: {
+                    id: 'test-card-invalid-date',
+                    blockID: 'test-card-invalid-date',
+                    deckID: 'test-deck',
+                    due: '2026-02-15T00:00:00Z',
+                    reps: 5,
+                    lapses: 1,
+                    state: 2,
+                    lastReview: '0001-01-01T00:00:00Z', // 无效日期
+                    stability: 10,
+                    difficulty: 5,
+                    elapsedDays: 3,
+                    scheduledDays: 7,
+                }
+            };
+            
+            vi.mocked(riffApi.getRiffCards).mockResolvedValue([invalidRiffCard] as any);
+            
+            // Act: 执行全量同步
+            const result = await service.fullSync();
+            
+            // Assert: 验证卡片被正确添加，且 lastReview 被设置为 0
+            expect(result.success).toBe(true);
+            expect(result.addedCount).toBe(1);
+            
+            const addedCard = vi.mocked(mockStorage.setCard).mock.calls[0][0];
+            expect(addedCard.lastReview).toBe(0); // 无效日期应该被转换为 0
+            expect(addedCard.reps).toBe(5);
+            expect(addedCard.state).toBe(2);
+        });
+        
+        it('应该正确处理空的 lastReview 日期', async () => {
+            // Arrange: 创建一个 lastReview 为空字符串的 Riff 卡片
+            const emptyLastReviewCard = {
+                id: 'test-card-empty-date',
+                blockId: 'test-card-empty-date',
+                ial: {
+                    'custom-fsrs-card-type': 'item'
+                },
+                riffCard: {
+                    id: 'test-card-empty-date',
+                    blockID: 'test-card-empty-date',
+                    deckID: 'test-deck',
+                    due: '2026-02-15T00:00:00Z',
+                    reps: 0,
+                    lapses: 0,
+                    state: 0,
+                    lastReview: '', // 空字符串
+                    stability: 0,
+                    difficulty: 0,
+                    elapsedDays: 0,
+                    scheduledDays: 0,
+                }
+            };
+            
+            vi.mocked(riffApi.getRiffCards).mockResolvedValue([emptyLastReviewCard] as any);
+            
+            // Act: 执行全量同步
+            const result = await service.fullSync();
+            
+            // Assert: 验证卡片被正确添加，且 lastReview 被设置为 0
+            expect(result.success).toBe(true);
+            expect(result.addedCount).toBe(1);
+            
+            const addedCard = vi.mocked(mockStorage.setCard).mock.calls[0][0];
+            expect(addedCard.lastReview).toBe(0);
+        });
+        
+        it('应该正确处理有效的 lastReview 日期', async () => {
+            // Arrange: 创建一个包含有效日期的 Riff 卡片
+            const validDate = '2026-02-10T10:30:00Z';
+            const validRiffCard = {
+                id: 'test-card-valid-date',
+                blockId: 'test-card-valid-date',
+                ial: {
+                    'custom-fsrs-card-type': 'item'
+                },
+                riffCard: {
+                    id: 'test-card-valid-date',
+                    blockID: 'test-card-valid-date',
+                    deckID: 'test-deck',
+                    due: '2026-02-15T00:00:00Z',
+                    reps: 3,
+                    lapses: 0,
+                    state: 2,
+                    lastReview: validDate,
+                    stability: 8,
+                    difficulty: 4,
+                    elapsedDays: 2,
+                    scheduledDays: 5,
+                }
+            };
+            
+            vi.mocked(riffApi.getRiffCards).mockResolvedValue([validRiffCard] as any);
+            
+            // Act: 执行全量同步
+            const result = await service.fullSync();
+            
+            // Assert: 验证卡片被正确添加，且 lastReview 被正确转换
+            expect(result.success).toBe(true);
+            expect(result.addedCount).toBe(1);
+            
+            const addedCard = vi.mocked(mockStorage.setCard).mock.calls[0][0];
+            expect(addedCard.lastReview).toBe(new Date(validDate).getTime());
+            expect(addedCard.lastReview).toBeGreaterThan(0);
+        });
+    });
+

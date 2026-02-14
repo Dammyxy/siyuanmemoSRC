@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SRS Browser Adapter Unit Tests
  * SRS 浏览器适配器单元测试
  * 

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Feature: queue-architecture-diagnosis, Property 5-7: Interface validation
  *
  * Property 5: 接口实现完整性

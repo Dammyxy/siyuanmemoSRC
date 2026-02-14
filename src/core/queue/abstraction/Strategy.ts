@@ -1,4 +1,4 @@
-import type { QueueStats, QueueUIConfig } from '../types';
+﻿import type { QueueStats, QueueUIConfig } from '../types';
 
 /**
  * Feedback from user interaction with a queue item

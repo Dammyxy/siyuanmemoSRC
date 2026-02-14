@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="confirm-dialog">
     <div class="dialog__content">
       <div class="dialog__icon" :class="`dialog__icon--${type}`">

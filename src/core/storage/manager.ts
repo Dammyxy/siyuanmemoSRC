@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Storage Manager
  * 统一管理插件数据的存储和读取
  * 采用混合方案：块属性 + 独立存储
@@ -92,7 +92,7 @@ export class StorageManager {
                 if (dq === 'neural-wandering') (this.settings as any).queues.defaultQueue = 'neural-roam';
             }
         } catch (err) {
-            console.warn('[FSRS] Failed to load settings, using defaults:', err);
+            console.warn('[SiyuanMemo] Failed to load settings, using defaults:', err);
             this.settings = DEFAULT_SETTINGS;
         }
     }
@@ -204,11 +204,11 @@ export class StorageManager {
                     }
                 }
                 
-                console.log(`[FSRS] Loaded ${cards.length} cards (msgpack)`);
+                console.log(`[SiyuanMemo] Loaded ${cards.length} cards (msgpack)`);
                 
                 // 如果有卡片被规范化，保存到磁盘
                 if (normalizedCount > 0) {
-                    console.log(`[FSRS] 🔧 Normalized ${normalizedCount} mixed-type cards, saving...`);
+                    console.log(`[SiyuanMemo] 🔧 Normalized ${normalizedCount} mixed-type cards, saving...`);
                     this.isDirty = true;
                     await this.saveCards();
                 }
@@ -233,17 +233,17 @@ export class StorageManager {
                     }
                 }
                 
-                console.log(`[FSRS] Loaded ${cards.length} cards (JSON, will migrate to msgpack)`);
+                console.log(`[SiyuanMemo] Loaded ${cards.length} cards (JSON, will migrate to msgpack)`);
                 
                 // 如果有卡片被规范化，保存到磁盘
                 if (normalizedCount > 0) {
-                    console.log(`[FSRS] 🔧 Normalized ${normalizedCount} mixed-type cards, saving...`);
+                    console.log(`[SiyuanMemo] 🔧 Normalized ${normalizedCount} mixed-type cards, saving...`);
                     this.isDirty = true;
                     await this.saveCards();
                 }
             }
         } catch (err) {
-            console.warn('[FSRS] Failed to load cards:', err);
+            console.warn('[SiyuanMemo] Failed to load cards:', err);
         }
     }
     
@@ -254,6 +254,7 @@ export class StorageManager {
      * - 移除 QueueItem 特有字段（deckID）
      * - 统一使用小写字段（blockId, cardId）
      * - 填充缺失的扩展字段
+     * - 🆕 修复无效的日期字段（due, lastReview）
      * 
      * 🔧 注意：type 字段需要从块属性读取，不能随意填充默认值
      * 如果卡片没有 type 字段，保持 undefined，等待从块属性读取
@@ -263,20 +264,51 @@ export class StorageManager {
         const id = card.id || card.cardID || card.cardId;
         const blockId = card.blockId || card.blockID;
         
+        // 🆕 验证并修复日期字段
+        const validateTimestamp = (value: any, fieldName: string): number => {
+            // 如果是字符串，尝试解析
+            if (typeof value === 'string') {
+                const timestamp = new Date(value).getTime();
+                // 检查是否为有效时间戳（大于 2000-01-01 且不是 NaN）
+                // 2000-01-01 ≈ 946684800000 ms
+                // 这样可以过滤掉 "0001-01-01" 这种无效日期（会被解析为负数或很小的正数）
+                const MIN_VALID_TIMESTAMP = 946684800000; // 2000-01-01
+                if (!isNaN(timestamp) && timestamp >= MIN_VALID_TIMESTAMP) {
+                    return timestamp;
+                }
+                console.warn(`[StorageManager] Invalid date string in ${fieldName}: "${value}" (timestamp: ${timestamp}) for card ${id || blockId}`);
+                return 0;
+            }
+            
+            // 如果是数字，验证有效性
+            if (typeof value === 'number') {
+                // 同样检查最小有效时间戳
+                const MIN_VALID_TIMESTAMP = 946684800000; // 2000-01-01
+                if (isNaN(value) || value < 0 || (value > 0 && value < MIN_VALID_TIMESTAMP)) {
+                    console.warn(`[StorageManager] Invalid timestamp in ${fieldName}: ${value} for card ${id || blockId}`);
+                    return 0;
+                }
+                return value;
+            }
+            
+            // 其他情况返回默认值
+            return 0;
+        };
+        
         // 构造纯 FSRSCard（移除 QueueItem 字段）
         const normalized: FSRSCard = {
             // 标识字段
             id: String(id || blockId),
             blockId: String(blockId || id),
             
-            // FSRS 核心字段
-            due: card.due ?? Date.now(),
+            // FSRS 核心字段（🆕 验证日期）
+            due: validateTimestamp(card.due, 'due') || Date.now(),
             state: card.state ?? 0,
             stability: card.stability ?? 0,
             difficulty: card.difficulty ?? 0,
             reps: card.reps ?? 0,
             lapses: card.lapses ?? 0,
-            lastReview: card.lastReview ?? 0,
+            lastReview: validateTimestamp(card.lastReview, 'lastReview'),
             elapsedDays: card.elapsedDays ?? 0,
             scheduledDays: card.scheduledDays ?? 0,
             
@@ -344,7 +376,7 @@ export class StorageManager {
         // 🆕 使用 msgpack 格式保存
         await this.saveMsgpackData(STORAGE_FILES.CARDS, cards);
         this.isDirty = false;
-        console.log(`[FSRS] Saved ${cards.length} cards (msgpack)`);
+        console.log(`[SiyuanMemo] Saved ${cards.length} cards (msgpack)`);
     }
 
     getPracticeQueue(): any[] {
@@ -575,7 +607,7 @@ export class StorageManager {
                     this.practiceQueue = [];
                     this.practiceQueueLastAutoSortDay = '';
                 }
-                console.log(`[FSRS] Loaded practice queue (msgpack): ${this.practiceQueue.length} items`);
+                console.log(`[SiyuanMemo] Loaded practice queue (msgpack): ${this.practiceQueue.length} items`);
                 await this.autoSortPracticeQueueIfNeeded();
                 return;
             }
@@ -601,13 +633,13 @@ export class StorageManager {
                     this.practiceQueue = [];
                     this.practiceQueueLastAutoSortDay = '';
                 }
-                console.log(`[FSRS] Loaded practice queue (JSON, will migrate): ${this.practiceQueue.length} items`);
+                console.log(`[SiyuanMemo] Loaded practice queue (JSON, will migrate): ${this.practiceQueue.length} items`);
             } else {
                 this.practiceQueue = [];
                 this.practiceQueueLastAutoSortDay = '';
             }
         } catch (err) {
-            console.warn('[FSRS] Failed to load practice queue:', err);
+            console.warn('[SiyuanMemo] Failed to load practice queue:', err);
             this.practiceQueue = [];
             this.practiceQueueLastAutoSortDay = '';
         }
@@ -639,7 +671,7 @@ export class StorageManager {
             const data = await this.loadMsgpackData(STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE);
             if (data) {
                 this.incrementalLearningQueue = Array.isArray(data) ? data : [];
-                console.log(`[FSRS] Loaded incremental learning queue (msgpack): ${this.incrementalLearningQueue.length} items`);
+                console.log(`[SiyuanMemo] Loaded incremental learning queue (msgpack): ${this.incrementalLearningQueue.length} items`);
                 return;
             }
 
@@ -648,12 +680,12 @@ export class StorageManager {
             if (jsonData) {
                 const parsed = JSON.parse(jsonData);
                 this.incrementalLearningQueue = Array.isArray(parsed) ? parsed : [];
-                console.log(`[FSRS] Loaded incremental learning queue (JSON, will migrate): ${this.incrementalLearningQueue.length} items`);
+                console.log(`[SiyuanMemo] Loaded incremental learning queue (JSON, will migrate): ${this.incrementalLearningQueue.length} items`);
             } else {
                 this.incrementalLearningQueue = [];
             }
         } catch (err) {
-            console.warn('[FSRS] Failed to load incremental learning queue:', err);
+            console.warn('[SiyuanMemo] Failed to load incremental learning queue:', err);
             this.incrementalLearningQueue = [];
         }
     }
@@ -965,4 +997,72 @@ export class StorageManager {
             console.error('[StorageManager] Failed to save Riff blacklist:', err);
         }
     }
+    
+    // ==================== 数据修复 ====================
+    
+    /**
+     * 修复所有卡片的无效日期
+     * 
+     * 扫描所有卡片，修复以下问题：
+     * - 无效的 lastReview 时间戳（NaN、负数、无效日期字符串）
+     * - 无效的 due 时间戳
+     * 
+     * @returns 修复的卡片数量
+     */
+    async repairInvalidDates(): Promise<{ fixed: number; total: number }> {
+        console.log('[StorageManager] 🔧 Starting date repair...');
+        
+        let fixedCount = 0;
+        const totalCount = this.cardsCache.size;
+        const MIN_VALID_TIMESTAMP = 946684800000; // 2000-01-01
+        
+        for (const [cardId, card] of this.cardsCache.entries()) {
+            let needsFix = false;
+            
+            // 检查 lastReview
+            if (typeof card.lastReview === 'number') {
+                // 修复无效时间戳：NaN、负数、或小于 2000-01-01 的值（如 0 或 "0001-01-01" 转换后的值）
+                if (isNaN(card.lastReview) || card.lastReview < 0 || (card.lastReview > 0 && card.lastReview < MIN_VALID_TIMESTAMP)) {
+                    console.warn(`[StorageManager] Fixing invalid lastReview for card ${cardId}: ${card.lastReview} -> 0`);
+                    card.lastReview = 0;
+                    needsFix = true;
+                }
+            } else if (card.lastReview !== undefined && card.lastReview !== null) {
+                console.warn(`[StorageManager] Fixing non-numeric lastReview for card ${cardId}: ${typeof card.lastReview} -> 0`);
+                card.lastReview = 0;
+                needsFix = true;
+            }
+            
+            // 检查 due
+            if (typeof card.due === 'number') {
+                // 修复无效时间戳：NaN、负数、或小于 2000-01-01 的值
+                if (isNaN(card.due) || card.due < 0 || (card.due > 0 && card.due < MIN_VALID_TIMESTAMP)) {
+                    console.warn(`[StorageManager] Fixing invalid due for card ${cardId}: ${card.due} -> ${Date.now()}`);
+                    card.due = Date.now();
+                    needsFix = true;
+                }
+            } else if (card.due !== undefined && card.due !== null) {
+                console.warn(`[StorageManager] Fixing non-numeric due for card ${cardId}: ${typeof card.due} -> ${Date.now()}`);
+                card.due = Date.now();
+                needsFix = true;
+            }
+            
+            if (needsFix) {
+                card.updatedAt = Date.now();
+                this.cardsCache.set(cardId, card);
+                fixedCount++;
+            }
+        }
+        
+        if (fixedCount > 0) {
+            console.log(`[StorageManager] 🔧 Fixed ${fixedCount} cards, saving...`);
+            this.isDirty = true;
+            await this.saveCards();
+        } else {
+            console.log('[StorageManager] ✅ No invalid dates found');
+        }
+        
+        return { fixed: fixedCount, total: totalCount };
+    }
 }
+

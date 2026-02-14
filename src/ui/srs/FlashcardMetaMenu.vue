@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="meta fn__flex-column">
     <div class="meta__header fn__flex">
       <svg class="meta__icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -125,7 +125,7 @@ onMounted(async () => {
 
     fields.value = items;
   } catch (e: any) {
-    console.error('[FSRS] Meta load error:', e);
+    console.error('[SiyuanMemo] Meta load error:', e);
     error.value = e?.message || t('loadError', '加载失败');
   } finally {
     loading.value = false;

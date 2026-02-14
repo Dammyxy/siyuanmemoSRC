@@ -1,4 +1,4 @@
-import type FSRSPlugin from '@/index';
+﻿import type FSRSPlugin from '@/index';
 import { CardBuilderContext, detectCardType, initializeAFactor } from '@/core/card-builder';
 import { getBlockKramdown, getBlockAttrs, setBlockAttrs } from '@/core/siyuan/api';
 import { getRiffCardsByBlockIDs, addRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
@@ -35,7 +35,7 @@ export class TransactionObserver {
     }
 
     public init() {
-        console.log('[FSRS] TransactionObserver initialized');
+        console.log('[SiyuanMemo] TransactionObserver initialized');
         this.plugin.eventBus.on('ws-main', this.handleTransaction);
     }
 
@@ -44,7 +44,7 @@ export class TransactionObserver {
     }
 
     public setEnabled(enabled: boolean) {
-        console.log('[FSRS] TransactionObserver enabled:', enabled);
+        console.log('[SiyuanMemo] TransactionObserver enabled:', enabled);
         this.enabled = enabled;
     }
 
@@ -52,17 +52,17 @@ export class TransactionObserver {
         if (!this.enabled) return;
 
         const detail = event.detail as TransactionDetail;
-        console.log('[FSRS] WS Event:', detail.cmd);
+        console.log('[SiyuanMemo] WS Event:', detail.cmd);
 
         if (detail.cmd !== 'transactions' || !detail.data) return;
 
-        console.log('[FSRS] Transaction received:', detail.data.length);
+        console.log('[SiyuanMemo] Transaction received:', detail.data.length);
 
         detail.data.forEach(data => {
             data.doOperations.forEach(op => {
                 // We monitor insert and update actions
                 if (op.action === 'insert' || op.action === 'update') {
-                    console.log('[FSRS] Ops:', op.action, op.id);
+                    console.log('[SiyuanMemo] Ops:', op.action, op.id);
                     this.queueBlockCheck(op.id);
                 }
             });
@@ -70,7 +70,7 @@ export class TransactionObserver {
     }
 
     private queueBlockCheck(blockId: string) {
-        // console.log('[FSRS] Queueing check for block:', blockId);
+        // console.log('[SiyuanMemo] Queueing check for block:', blockId);
         this.pendingBlocks.add(blockId);
         if (this.debounceTimer) clearTimeout(this.debounceTimer);
 
@@ -82,14 +82,14 @@ export class TransactionObserver {
 
     private async processQueue() {
         const blocks = Array.from(this.pendingBlocks);
-        console.log('[FSRS] Processing queue, blocks:', blocks.length);
+        console.log('[SiyuanMemo] Processing queue, blocks:', blocks.length);
         this.pendingBlocks.clear();
 
         for (const blockId of blocks) {
             try {
                 await this.checkAndCreateCard(blockId);
             } catch (err) {
-                console.error(`[FSRS] Auto-card failed for block ${blockId}:`, err);
+                console.error(`[SiyuanMemo] Auto-card failed for block ${blockId}:`, err);
             }
         }
         // Save storage once after batch
@@ -100,17 +100,17 @@ export class TransactionObserver {
         if (this.processing.has(blockId)) return;
         this.processing.add(blockId);
 
-        console.log(`[FSRS] checkAndCreateCard called for ${blockId}`);
+        console.log(`[SiyuanMemo] checkAndCreateCard called for ${blockId}`);
 
         try {
             // 1. Get block markdown content
             const { kramdown } = await getBlockKramdown(blockId);
-            console.log(`[FSRS] Check block ${blockId}, content: ${kramdown}`);
+            console.log(`[SiyuanMemo] Check block ${blockId}, content: ${kramdown}`);
             if (!kramdown) return;
 
             // 2. Check if content matches any strategy (Excluding default)
             const strategy = this.builder.matchStrategy(blockId, kramdown, true);
-            console.log(`[FSRS] Strategy match result for ${blockId}:`, strategy ? strategy.strategyName : 'None');
+            console.log(`[SiyuanMemo] Strategy match result for ${blockId}:`, strategy ? strategy.strategyName : 'None');
             if (!strategy) {
                 return;
             }
@@ -125,7 +125,7 @@ export class TransactionObserver {
             // Check if plugin knows it (via FSRS block attrs)
             const isFsrsAttr = await isFlashcardBlock(blockId);
 
-            console.log(`[FSRS] Card Status for ${blockId}: RiffDB=${isRiffInDb}, RiffAttr=${hasRiffAttr}, FSRSAttr=${isFsrsAttr}`);
+            console.log(`[SiyuanMemo] Card Status for ${blockId}: RiffDB=${isRiffInDb}, RiffAttr=${hasRiffAttr}, FSRSAttr=${isFsrsAttr}`);
 
             // 检查卡片类型是否已标记
             const attrs = await getBlockAttrs(blockId);
@@ -133,11 +133,11 @@ export class TransactionObserver {
 
             if (isRiffInDb && hasRiffAttr && isFsrsAttr && hasCardType) {
                 // Completely done and synced (including card type)
-                console.log(`[FSRS] Card ${blockId} already fully synced with type: ${attrs['custom-fsrs-card-type']}`);
+                console.log(`[SiyuanMemo] Card ${blockId} already fully synced with type: ${attrs['custom-fsrs-card-type']}`);
                 return;
             }
 
-            console.log(`[FSRS] Syncing card for block ${blockId}... (hasCardType: ${hasCardType})`);
+            console.log(`[SiyuanMemo] Syncing card for block ${blockId}... (hasCardType: ${hasCardType})`);
 
             // 4. Build card object (generate metadata) - only if needed
             let card;
@@ -147,9 +147,9 @@ export class TransactionObserver {
 
             // 5. Add to Siyuan Riff Deck (Native) if not in DB OR missing attribute (repair UI)
             if (!isRiffInDb || !hasRiffAttr) {
-                console.log(`[FSRS] Adding to Riff Deck: ${BUILTIN_DECK_ID}`);
+                console.log(`[SiyuanMemo] Adding to Riff Deck: ${BUILTIN_DECK_ID}`);
                 const res = await addRiffCards(BUILTIN_DECK_ID, [blockId]);
-                console.log(`[FSRS] addRiffCards result:`, res);
+                console.log(`[SiyuanMemo] addRiffCards result:`, res);
             }
 
             // 6. Mark block with FSRS attributes (Plugin UI support) if not exists
@@ -172,9 +172,9 @@ export class TransactionObserver {
                     const priority = card?.priority || parseInt(attrs?.['custom-fsrs-priority'] || '50', 10);
                     const aFactor = initializeAFactor(priority);
                     cardTypeAttrs['custom-fsrs-a-factor'] = aFactor.toString();
-                    console.log(`[FSRS] Topic card detected: blockID=${blockId}, aFactor=${aFactor}`);
+                    console.log(`[SiyuanMemo] Topic card detected: blockID=${blockId}, aFactor=${aFactor}`);
                 } else {
-                    console.log(`[FSRS] Item card detected: blockID=${blockId}`);
+                    console.log(`[SiyuanMemo] Item card detected: blockID=${blockId}`);
                 }
 
                 await setBlockAttrs(blockId, cardTypeAttrs);
@@ -186,7 +186,7 @@ export class TransactionObserver {
             }
 
         } catch (err) {
-            console.error(`[FSRS] Failed to auto-create card for ${blockId}:`, err);
+            console.error(`[SiyuanMemo] Failed to auto-create card for ${blockId}:`, err);
         } finally {
             this.processing.delete(blockId);
         }

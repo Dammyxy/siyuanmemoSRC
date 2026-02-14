@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Unified Data Source Architecture Types
  * 统一数据源架构的核心类型定义
  * 
@@ -139,6 +139,7 @@ export interface PriorityRangeFilter {
  * 
  * @see 需求 5.3
  * @see filter-group-queue-ui 需求 9.1, 9.2, 9.3, 9.4, 9.5
+ * @see block-menu-review-entries 需求 3.1
  */
 export interface CardFilter {
     /** 卡片类型过滤（支持单个类型或多个类型） */
@@ -152,6 +153,9 @@ export interface CardFilter {
     
     /** 优先级过滤 */
     priority?: PriorityRangeFilter;
+    
+    /** 块 ID 列表过滤（只显示这些块的卡片） */
+    blockIds?: string[];
     
     // ========================================================================
     // 新增过滤字段（filter-group-queue-ui 功能）

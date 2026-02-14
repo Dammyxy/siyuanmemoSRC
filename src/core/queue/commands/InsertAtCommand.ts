@@ -1,4 +1,4 @@
-import type { IQueueCommand } from '../abstraction/Command';
+﻿import type { IQueueCommand } from '../abstraction/Command';
 import type { IMutableTrait } from '../abstraction/types';
 
 export type InsertAtCommandContext<TItem> = {

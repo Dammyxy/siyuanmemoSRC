@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Queue Recovery Manager
  *
  * 管理队列数据的验证和恢复

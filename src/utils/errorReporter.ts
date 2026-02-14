@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Error Reporter Module
  * 
  * Provides a unified interface for reporting errors to monitoring systems.

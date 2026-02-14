@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Property-Based Tests for Xiuyuan Association Consistency
  * 
  * Feature: architecture-optimization

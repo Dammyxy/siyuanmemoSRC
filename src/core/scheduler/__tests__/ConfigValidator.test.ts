@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+﻿import { describe, it, expect } from 'vitest';
 import { ConfigValidator } from '../ConfigValidator';
 import { RescheduleErrorCode } from '@/types/reschedule-error';
 import type { PostponeConfig, AdvanceConfig, SpreadConfig } from '@/types/reschedule';

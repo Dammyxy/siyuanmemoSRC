@@ -1,4 +1,4 @@
-/**
+﻿/**
  * BaseCompositeQueue.getAllCards() Property-Based Tests
  * 
  * Feature: architecture-optimization

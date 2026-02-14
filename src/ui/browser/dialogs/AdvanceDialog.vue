@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="advance-dialog">
     <div class="dialog__content">
       <div class="dialog__info">

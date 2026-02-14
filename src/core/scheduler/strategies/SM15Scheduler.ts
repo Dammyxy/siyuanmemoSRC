@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SM-15 Scheduler Adapter
  *
  * 将 SM-15 算法适配到 SchedulerEngineAdapter 接口

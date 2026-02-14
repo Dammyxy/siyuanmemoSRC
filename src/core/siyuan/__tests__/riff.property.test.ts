@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Property-Based Tests for Riff API Layer
  * 
  * Feature: riff-decoupling

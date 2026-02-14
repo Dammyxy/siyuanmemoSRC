@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="insert-position-dialog">
     <div class="insert-position-dialog__header">
       <svg><use xlink:href="#iconPin"></use></svg>

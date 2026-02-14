@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Dual Queue Data Source
  *
  * Manages two separate data sources for different card types.

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Property-Based Tests for Result Type
  * 
  * Tests the Result type pattern to ensure it correctly handles success and failure cases.

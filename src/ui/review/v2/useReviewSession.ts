@@ -1,4 +1,4 @@
-import { onMounted, onUnmounted, ref } from 'vue';
+﻿import { onMounted, onUnmounted, ref } from 'vue';
 import type { IQueueStrategy, QueueFeedback } from '@/core/queue/abstraction/Strategy';
 import type { AdapterContext, IAdapter, ReviewSessionHook, ReviewUIState } from './types';
 import { createEmptyReviewUIState } from './types';
@@ -6,6 +6,9 @@ import { createEmptyReviewUIState } from './types';
 export function useReviewSession<TItem>(
   queue: IQueueStrategy<TItem>,
   adapter: IAdapter<TItem>,
+  options?: {
+    onReview?: (cardId: string, rating: number) => void;
+  }
 ): ReviewSessionHook {
   const state = ref<ReviewUIState>(createEmptyReviewUIState());
   const currentItem = ref<TItem | null>(null);
@@ -78,6 +81,20 @@ export function useReviewSession<TItem>(
   const grade = async (rating: number): Promise<void> => {
     try {
       const feedback: QueueFeedback = { action: 'rate', rating: Math.max(1, Math.min(4, Math.floor(rating))) as 1 | 2 | 3 | 4 };
+      
+      // 🆕 调用 onReview 回调（用于刻意练习黑名单）
+      if (options?.onReview && currentItem.value) {
+        try {
+          // 尝试从 currentItem 中提取 cardId
+          const cardId = (currentItem.value as any)?.cardID || (currentItem.value as any)?.id;
+          if (cardId) {
+            options.onReview(cardId, feedback.rating);
+          }
+        } catch (err) {
+          console.warn('[useReviewSession] Failed to call onReview callback:', err);
+        }
+      }
+      
       await queue.onFeedback(currentItem.value, feedback);
       currentItem.value = await queue.next();
 

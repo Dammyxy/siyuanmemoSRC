@@ -1,4 +1,4 @@
-import type { AdapterContext, IAdapter, ReviewUIState } from '../types';
+﻿import type { AdapterContext, IAdapter, ReviewUIState } from '../types';
 import { getBlockBreadcrumb } from '../../../../core/siyuan/api.ts';
 import type { QueueItem, QueueUIConfig } from '../../../../core/queue/types.ts';
 

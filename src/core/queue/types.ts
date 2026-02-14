@@ -1,4 +1,4 @@
-import type { IQueueCommand } from './abstraction/Command';
+﻿import type { IQueueCommand } from './abstraction/Command';
 import type { QueueCardRef } from './abstraction/QueueCardRef.ts';
 import type { BlockID, CardID } from '../../types/branded';
 

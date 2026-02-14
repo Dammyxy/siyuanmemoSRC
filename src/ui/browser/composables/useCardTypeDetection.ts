@@ -1,4 +1,4 @@
-import { ref, computed, onMounted } from 'vue';
+﻿import { ref, computed, onMounted } from 'vue';
 import type { BrowserCard } from '../types';
 import { batchDetectCardTypes } from '../browserService';
 

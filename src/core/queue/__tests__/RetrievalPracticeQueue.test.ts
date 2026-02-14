@@ -1,4 +1,4 @@
-/**
+﻿/**
  * RetrievalPracticeQueue 单元测试
  * 
  * 测试新的 Composite Architecture 实现的公共 API
@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { RetrievalPracticeQueue } from '@/core/queue/strategies/RetrievalPracticeQueue';
 import type { StorageManager } from '@/core/storage/manager';
-import { SimpleFSRSScheduler } from '@/core/scheduler/strategies/FSRSV5';
+import { TSFSRSScheduler } from '@/core/scheduler/strategies/TSFSRSScheduler';
 import type { QueueItem } from '@/core/queue/types';
 import { DEFAULT_PRIORITY } from '@/core/queue/abstraction/IPriority';
 
@@ -87,7 +87,7 @@ describe('RetrievalPracticeQueue - 公共 API 测试', () => {
       deckID: 'test-deck',
       api: mockRiffApi,
       storage: mockStorage,
-      localScheduler: new SimpleFSRSScheduler(mockFSRSParams),
+      localScheduler: new TSFSRSScheduler(mockFSRSParams),
     });
   });
 
@@ -253,7 +253,7 @@ describe('RetrievalPracticeQueue - 集成测试：评分操作', () => {
       deckID: 'test-deck',
       api: mockRiffApi,
       storage: mockStorage,
-      localScheduler: new SimpleFSRSScheduler(mockFSRSParams),
+      localScheduler: new TSFSRSScheduler(mockFSRSParams),
     });
   });
 

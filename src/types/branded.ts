@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Branded Types Module
  * 
  * Provides type-safe ID handling using the Branded Type pattern.

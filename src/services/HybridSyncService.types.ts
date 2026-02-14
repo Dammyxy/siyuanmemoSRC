@@ -1,4 +1,4 @@
-/**
+﻿/**
  * HybridSyncService 类型定义
  */
 

@@ -1,4 +1,4 @@
-import type { QueueStats } from './types.ts';
+﻿import type { QueueStats } from './types.ts';
 
 export interface QueueProvider<TItem = any> {
   readonly id: string;

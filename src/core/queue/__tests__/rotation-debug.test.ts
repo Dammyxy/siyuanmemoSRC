@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Card Rotation Behavior Debug Tests
  * 
  * These tests help diagnose and verify the card rotation behavior,

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Infrastructure-level graph rendering types.
  * Keep renderer option types here to avoid UI layer coupling.
  */

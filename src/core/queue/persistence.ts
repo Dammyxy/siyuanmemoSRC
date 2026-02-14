@@ -1,4 +1,4 @@
-export interface PersistenceAdapter<TSnapshot> {
+﻿export interface PersistenceAdapter<TSnapshot> {
   load(): Promise<TSnapshot | null>;
   save(snapshot: TSnapshot): Promise<void>;
   clear(): Promise<void>;

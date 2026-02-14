@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="fsrs-settings">
     <!-- 计划预览 -->
     <div class="fsrs-section">

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="fsrs-neural-top-area" v-if="!isTopicMode">
     <div class="fsrs-neural-top-area__row">
       <span class="ft__secondary">{{ t('neuralReasonLabel', '关联') }}：</span>

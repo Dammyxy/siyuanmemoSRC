@@ -1,4 +1,4 @@
-import type { BrowserCard } from '../types';
+﻿import type { BrowserCard } from '../types';
 import { formatDate } from '../types';
 import { loadCards, batchReset, batchSuspend, batchDelete } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';

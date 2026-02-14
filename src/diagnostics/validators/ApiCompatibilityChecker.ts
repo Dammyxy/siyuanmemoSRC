@@ -1,4 +1,4 @@
-/**
+﻿/**
  * API Compatibility Checker
  * API 兼容性检查器
  *

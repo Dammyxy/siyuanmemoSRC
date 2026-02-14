@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Migration Error Types
  * 迁移错误类型
  * 

@@ -1,4 +1,4 @@
-import type { BlockID, CardID } from '../../../types/branded';
+﻿import type { BlockID, CardID } from '../../../types/branded';
 import { createBlockID, createCardID } from '../../../types/branded';
 
 export interface QueueCardRef {

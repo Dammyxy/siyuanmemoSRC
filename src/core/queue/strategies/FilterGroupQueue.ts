@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Filter Group Queue (V2 - Composite Architecture)
  *
  * @deprecated 此文件属于旧队列架构，将在未来版本中移除。

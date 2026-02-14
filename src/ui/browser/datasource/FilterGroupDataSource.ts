@@ -1,4 +1,4 @@
-import type { BrowserCard } from '../types';
+﻿import type { BrowserCard } from '../types';
 import { CardState, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from '../types';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
 import {

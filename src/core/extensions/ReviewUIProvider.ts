@@ -1,4 +1,4 @@
-import type { Component } from 'vue';
+﻿import type { Component } from 'vue';
 import type { ReviewUIState } from '../../ui/review/v2/types.ts';
 import type { QueueProvider } from './QueueProvider.ts';
 

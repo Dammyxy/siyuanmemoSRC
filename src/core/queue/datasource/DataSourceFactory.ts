@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Data Source Factory
  *
  * Factory class for creating appropriate data sources based on configuration mode.

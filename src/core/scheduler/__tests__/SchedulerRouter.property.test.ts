@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Property-Based Tests for SchedulerRouter
  * 
  * Feature: riff-decoupling

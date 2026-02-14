@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Feature: queue-architecture-diagnosis, Property 2: Code analysis accuracy
  *
  * 对于任何包含 QueueItem、FSRSCard 类型使用或队列类实例化的代码，

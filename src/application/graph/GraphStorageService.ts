@@ -1,4 +1,4 @@
-/**
+﻿/**
  * GraphStorageService - 配置持久化服务
  * 
  * 负责图谱配置的保存和加载，使用 localStorage 进行持久化。

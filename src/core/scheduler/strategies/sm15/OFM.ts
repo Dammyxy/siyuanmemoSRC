@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SM-15 OFM (Optimum Factor Matrix)
  *
  * 管理 O-Factor 矩阵

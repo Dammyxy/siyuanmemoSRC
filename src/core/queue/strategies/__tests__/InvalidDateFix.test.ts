@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Invalid Date Fix - 单元测试
  * 
  * 测试 safeToISOString 函数能否正确处理无效的时间值

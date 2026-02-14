@@ -1,4 +1,4 @@
-import { createDefaultCard } from '@/types';
+﻿import { createDefaultCard } from '@/types';
 import type { FSRSCard } from '@/types';
 import type { CardBuilderStrategy } from '../types';
 

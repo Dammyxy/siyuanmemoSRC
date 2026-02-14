@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 检索练习队列 Provider
  *
  * 实现 Extensions Layer 的 QueueProvider 接口

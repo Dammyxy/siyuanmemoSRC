@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Xiuyuan (修缘) - 卡片来源抽象层
  * 
  * @module Xiuyuan

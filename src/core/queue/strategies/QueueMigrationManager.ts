@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Queue Migration Manager
  *
  * 管理队列数据格式的版本和迁移

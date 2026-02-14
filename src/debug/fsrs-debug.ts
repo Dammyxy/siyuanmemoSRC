@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Debug Tools for FSRS Plugin
  *
  * Usage in browser console (F12):

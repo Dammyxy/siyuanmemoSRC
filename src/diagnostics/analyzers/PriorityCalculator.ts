@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Priority Calculator
  * 优先级计算器
  *

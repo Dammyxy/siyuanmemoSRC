@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Queue Architecture Integration Tests
  */
 

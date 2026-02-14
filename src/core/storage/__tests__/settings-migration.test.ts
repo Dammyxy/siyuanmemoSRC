@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Unit Tests for Settings Migration
  * 
  * Feature: fsrs-v6-upgrade-and-settings-optimization

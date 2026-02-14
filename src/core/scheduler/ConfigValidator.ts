@@ -1,4 +1,4 @@
-import type { PostponeConfig, AdvanceConfig, SpreadConfig } from '@/types/reschedule';
+﻿import type { PostponeConfig, AdvanceConfig, SpreadConfig } from '@/types/reschedule';
 import { RescheduleErrorCode, type RescheduleError } from '@/types/reschedule-error';
 
 /**

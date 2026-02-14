@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Retrieval Practice Queue
  * 检索练习队列
  * 
@@ -243,70 +243,29 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
     /**
      * 处理卡片复习
      * 
-     * 复习逻辑：
-     * - 评分 3/4（记住了）：
-     *   - 更新卡片的到期日期（使用 FSRS 算法）
-     *   - 从队列中移除（从手动添加集合中删除）
-     * - 评分 1/2（忘记了）：
-     *   - 更新卡片的到期日期（使用 FSRS 算法）
-     *   - 根据新的到期日期决定是否保留在队列中：
-     *     - 如果新日期仍未到期（未来），从手动添加集合中移除
-     *     - 如果新日期已到期（今天或过去），保留在手动添加集合中
-     *   - 自动添加到最终训练队列（标记为 'auto-failed'）
+     * 使用基类的通用调度器集成方法处理复习。
      * 
-     * 注意：评分会计入卡片的调度算法（正式复习队列）。
+     * 复习逻辑：
+     * - 调用 SchedulerRouter 更新卡片（应用 FSRS 算法和 learning step）
+     * - 根据新的到期日期决定是否从队列移除
+     * - 评分 < 3 时自动添加到最终训练队列
      * 
      * @param cardId 卡片 ID
      * @param rating 评分 (1-4)
+     * @throws Error 如果 SchedulerRouter 不可用
      * @see 需求 7.1, 7.2, 7.7, 9.1, 18.2, 18.3
+     * @see .kiro/specs/queue-scheduler-separation/requirements.md
      */
     public async handleReview(cardId: string, rating: number): Promise<void> {
         try {
-            // 获取卡片
-            const card = await this.manager.getCard(cardId);
+            // 使用基类的通用调度器集成方法
+            await this.handleReviewWithScheduler(cardId, rating);
             
-            if (rating >= 3) {
-                // 记住了：更新到期日期，从队列移除
-                card.due = this.calculateNextDueDate(card, rating);
-                await this.manager.updateCard(card);
-                
-                // 从手动添加集合中移除（如果存在）
-                await this.removeCard(cardId);
-                
-                console.log(`[RetrievalPracticeQueue] Card ${cardId} reviewed with rating ${rating}, removed from queue`);
-            } else {
-                // 忘记了：更新到期日期，根据新日期决定是否保留
-                const newDueDate = this.calculateNextDueDateForLowRating(card, rating);
-                card.due = newDueDate;
-                await this.manager.updateCard(card);
-                
-                // 🔧 修复：根据新的到期日期是否在今天范围内决定是否保留
-                // 获取今天的结束时间
-                const router = (this.manager as any).advancedRouter;
-                const plugin = router?.plugin;
-                const dayStartHour = plugin ? getDayStartHour(plugin) : 4;
-                const dayEnd = getCurrentDayEnd(dayStartHour);
-                
-                if (newDueDate > dayEnd) {
-                    // 新日期超出今天范围，从队列移除
-                    await this.removeCard(cardId);
-                    console.log(`[RetrievalPracticeQueue] Card ${cardId} reviewed with rating ${rating}, new due date (${new Date(newDueDate).toISOString()}) is beyond today (${new Date(dayEnd).toISOString()}), removed from queue`);
-                } else {
-                    // 新日期在今天范围内，保留在队列中
-                    console.log(`[RetrievalPracticeQueue] Card ${cardId} reviewed with rating ${rating}, new due date (${new Date(newDueDate).toISOString()}) is within today (${new Date(dayEnd).toISOString()}), kept in queue`);
-                }
-                
-                // 自动添加到最终训练队列
+            // 评分 < 3 时自动添加到最终训练队列
+            if (rating < 3) {
                 const finalDrillQueue = this.manager.getQueue(QueueType.FinalDrill);
                 await finalDrillQueue.addCard(cardId, 'auto-failed');
             }
-            
-            // 通知观察者卡片已更新
-            this.manager.notifyObservers({
-                type: 'card-updated',
-                cardIds: [cardId],
-                timestamp: Date.now()
-            });
         } catch (error) {
             console.error('[RetrievalPracticeQueue] Failed to handle review:', error);
             throw error;

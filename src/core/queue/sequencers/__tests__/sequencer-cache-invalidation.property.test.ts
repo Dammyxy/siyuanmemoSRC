@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Property-Based Tests for Sequencer Cache Invalidation
  * 
  * Feature: architecture-optimization

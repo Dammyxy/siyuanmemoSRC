@@ -1,4 +1,4 @@
-import type { BrowserCard } from '../types';
+﻿import type { BrowserCard } from '../types';
 import { loadQueueCards } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
 import {

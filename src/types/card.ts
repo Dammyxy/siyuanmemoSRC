@@ -1,4 +1,4 @@
-/**
+﻿/**
  * FSRS Card Types
  * 基于 FSRS v6 算法的卡片数据结构
  */

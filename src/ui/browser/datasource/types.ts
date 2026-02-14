@@ -1,4 +1,4 @@
-
+﻿
 import type { BrowserCard } from '../types';
 
 export interface SortModel {

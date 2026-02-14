@@ -1,4 +1,4 @@
-/**
+﻿/**
  * UnifiedDataSourceManager 单元测试
  * 
  * 测试统一数据源管理器的核心功能。
@@ -8,6 +8,15 @@ import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import fc from 'fast-check';
 import { UnifiedDataSourceManager } from '../UnifiedDataSourceManager';
 import { IDataSourceObserver } from '../../types/unified-data-source';
+
+// Mock dependencies
+vi.mock('../../routers/AdvancedDataRouter', () => {
+    return {
+        AdvancedDataRouter: vi.fn().mockImplementation(() => ({
+            getCards: vi.fn().mockResolvedValue([]),
+        })),
+    };
+});
 
 describe('UnifiedDataSourceManager', () => {
     // 在每个测试前重置单例实例
@@ -391,6 +400,232 @@ describe('UnifiedDataSourceManager', () => {
             events.forEach(event => {
                 expect(observer.onDataChanged).toHaveBeenCalledWith(event);
             });
+        });
+    });
+    
+    describe('blockIds 过滤逻辑', () => {
+        /**
+         * 测试 blockIds 过滤功能
+         * 验证需求 3.1：扩展 CardFilter 接口，支持 blockIds 过滤
+         */
+        
+        it('应该只返回 blockId 在列表中的卡片', async () => {
+            // 验证需求 3.1：blockIds 过滤
+            const manager = UnifiedDataSourceManager.getInstance();
+            
+            // Mock router to return test cards
+            const mockCards = [
+                { id: 'card-1', blockId: 'block-1', type: 'item' },
+                { id: 'card-2', blockId: 'block-2', type: 'item' },
+                { id: 'card-3', blockId: 'block-3', type: 'item' },
+                { id: 'card-4', blockId: 'block-4', type: 'item' },
+            ];
+            
+            const mockRouter = {
+                getCards: vi.fn().mockImplementation(async (filter: any) => {
+                    let filtered = mockCards;
+                    if (filter?.blockIds && filter.blockIds.length > 0) {
+                        const blockIdSet = new Set(filter.blockIds);
+                        filtered = filtered.filter(c => blockIdSet.has(c.blockId));
+                    }
+                    return filtered;
+                }),
+            };
+            
+            manager.setAdvancedRouter(mockRouter as any);
+            
+            const filter = {
+                blockIds: ['block-1', 'block-3'],
+            };
+            
+            const result = await manager.getCards(filter);
+            
+            // 验证：只返回 blockId 在列表中的卡片
+            expect(result).toHaveLength(2);
+            expect(result.map(c => c.blockId).sort()).toEqual(['block-1', 'block-3']);
+        });
+        
+        it('应该使用 Set 进行 O(1) 查找优化', async () => {
+            // 验证需求 3.1：性能优化（使用 Set）
+            const manager = UnifiedDataSourceManager.getInstance();
+            
+            // 创建大量卡片来测试性能
+            const mockCards = Array.from({ length: 1000 }, (_, i) => ({
+                id: `card-${i}`,
+                blockId: `block-${i}`,
+                type: 'item',
+            }));
+            
+            const targetBlockIds = ['block-100', 'block-500', 'block-900'];
+            
+            const mockRouter = {
+                getCards: vi.fn().mockImplementation(async (filter: any) => {
+                    let filtered = mockCards;
+                    if (filter?.blockIds && filter.blockIds.length > 0) {
+                        const blockIdSet = new Set(filter.blockIds);
+                        filtered = filtered.filter(c => blockIdSet.has(c.blockId));
+                    }
+                    return filtered;
+                }),
+            };
+            
+            manager.setAdvancedRouter(mockRouter as any);
+            
+            const filter = {
+                blockIds: targetBlockIds,
+            };
+            
+            const startTime = performance.now();
+            const result = await manager.getCards(filter);
+            const endTime = performance.now();
+            
+            // 验证：返回正确的卡片
+            expect(result).toHaveLength(3);
+            expect(result.map(c => c.blockId).sort()).toEqual(targetBlockIds.sort());
+            
+            // 验证：性能应该很快（< 10ms）
+            const duration = endTime - startTime;
+            expect(duration).toBeLessThan(10);
+        });
+        
+        it('应该正确处理空 blockIds 数组', async () => {
+            // 验证需求 3.1：空数组处理
+            const manager = UnifiedDataSourceManager.getInstance();
+            
+            const mockCards = [
+                { id: 'card-1', blockId: 'block-1', type: 'item' },
+                { id: 'card-2', blockId: 'block-2', type: 'item' },
+            ];
+            
+            const mockRouter = {
+                getCards: vi.fn().mockImplementation(async (filter: any) => {
+                    let filtered = mockCards;
+                    if (filter?.blockIds && filter.blockIds.length > 0) {
+                        const blockIdSet = new Set(filter.blockIds);
+                        filtered = filtered.filter(c => blockIdSet.has(c.blockId));
+                    }
+                    return filtered;
+                }),
+            };
+            
+            manager.setAdvancedRouter(mockRouter as any);
+            
+            const filter = {
+                blockIds: [],
+            };
+            
+            const result = await manager.getCards(filter);
+            
+            // 验证：空数组应该返回所有卡片（不过滤）
+            expect(result).toHaveLength(2);
+        });
+        
+        it('应该支持 blockIds 与其他过滤条件的组合', async () => {
+            // 验证需求 3.1：组合过滤
+            const manager = UnifiedDataSourceManager.getInstance();
+            
+            const mockCards = [
+                { id: 'card-1', blockId: 'block-1', type: 'item' },
+                { id: 'card-2', blockId: 'block-2', type: 'topic' },
+            ];
+            
+            const mockRouter = {
+                getCards: vi.fn().mockImplementation(async (filter: any) => {
+                    let filtered = mockCards;
+                    
+                    // Apply blockIds filter
+                    if (filter?.blockIds && filter.blockIds.length > 0) {
+                        const blockIdSet = new Set(filter.blockIds);
+                        filtered = filtered.filter(c => blockIdSet.has(c.blockId));
+                    }
+                    
+                    // Apply cardType filter
+                    if (filter?.cardType) {
+                        const allowedTypes = Array.isArray(filter.cardType) ? filter.cardType : [filter.cardType];
+                        filtered = filtered.filter(c => allowedTypes.includes(c.type));
+                    }
+                    
+                    return filtered;
+                }),
+            };
+            
+            manager.setAdvancedRouter(mockRouter as any);
+            
+            const filter = {
+                blockIds: ['block-1', 'block-2'],
+                cardType: 'item' as const,
+            };
+            
+            const result = await manager.getCards(filter);
+            
+            // 验证：应该同时应用 blockIds 和 cardType 过滤
+            expect(result).toHaveLength(1);
+            expect(result[0].blockId).toBe('block-1');
+            expect(result[0].type).toBe('item');
+        });
+        
+        it('应该处理不存在的 blockIds', async () => {
+            // 验证需求 3.1：不存在的 blockIds
+            const manager = UnifiedDataSourceManager.getInstance();
+            
+            const mockCards = [
+                { id: 'card-1', blockId: 'block-1', type: 'item' },
+                { id: 'card-2', blockId: 'block-2', type: 'item' },
+            ];
+            
+            const mockRouter = {
+                getCards: vi.fn().mockImplementation(async (filter: any) => {
+                    let filtered = mockCards;
+                    if (filter?.blockIds && filter.blockIds.length > 0) {
+                        const blockIdSet = new Set(filter.blockIds);
+                        filtered = filtered.filter(c => blockIdSet.has(c.blockId));
+                    }
+                    return filtered;
+                }),
+            };
+            
+            manager.setAdvancedRouter(mockRouter as any);
+            
+            const filter = {
+                blockIds: ['block-999', 'block-888'],
+            };
+            
+            const result = await manager.getCards(filter);
+            
+            // 验证：不存在的 blockIds 应该返回空数组
+            expect(result).toHaveLength(0);
+        });
+        
+        it('应该处理重复的 blockIds', async () => {
+            // 验证需求 3.1：重复的 blockIds
+            const manager = UnifiedDataSourceManager.getInstance();
+            
+            const mockCards = [
+                { id: 'card-1', blockId: 'block-1', type: 'item' },
+            ];
+            
+            const mockRouter = {
+                getCards: vi.fn().mockImplementation(async (filter: any) => {
+                    let filtered = mockCards;
+                    if (filter?.blockIds && filter.blockIds.length > 0) {
+                        const blockIdSet = new Set(filter.blockIds);
+                        filtered = filtered.filter(c => blockIdSet.has(c.blockId));
+                    }
+                    return filtered;
+                }),
+            };
+            
+            manager.setAdvancedRouter(mockRouter as any);
+            
+            const filter = {
+                blockIds: ['block-1', 'block-1', 'block-1'],
+            };
+            
+            const result = await manager.getCards(filter);
+            
+            // 验证：重复的 blockIds 不应该导致重复的卡片
+            expect(result).toHaveLength(1);
+            expect(result[0].blockId).toBe('block-1');
         });
     });
 });

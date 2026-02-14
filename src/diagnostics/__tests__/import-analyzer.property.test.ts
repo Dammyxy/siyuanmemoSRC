@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Feature: queue-architecture-diagnosis, Property 1: Import identification completeness
  *
  * 对于任何 TypeScript 文件，如果它包含来自 src/core/queue/strategies/ 或 src/queues/

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Property-Based Tests for RiffDataSource
  * 
  * Feature: riff-decoupling

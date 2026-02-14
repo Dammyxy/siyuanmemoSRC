@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Queue Filters
  * 
  * Utility functions for filtering queue items based on various criteria.

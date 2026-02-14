@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Interface Validator
  * 接口验证器
  *

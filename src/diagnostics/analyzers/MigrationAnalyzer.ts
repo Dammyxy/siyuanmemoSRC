@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Migration Analyzer
  * 迁移分析器
  *

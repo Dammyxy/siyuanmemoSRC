@@ -1,4 +1,4 @@
-import { AsyncMutex } from './AsyncMutex.ts';
+﻿import { AsyncMutex } from './AsyncMutex.ts';
 import type { QueueEvent, QueueId, QueueInterface, QueueState } from './types';
 import type { QueueMonitor } from './monitors.ts';
 

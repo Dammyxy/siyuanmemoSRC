@@ -1,4 +1,4 @@
-import type { IScheduler } from '../abstraction/types';
+﻿import type { IScheduler } from '../abstraction/types';
 
 export class RiffScheduler<TCard, TGrade = number> implements IScheduler<TCard, TGrade> {
   private readonly scheduleFn: (card: TCard, grade: TGrade) => Promise<TCard>;

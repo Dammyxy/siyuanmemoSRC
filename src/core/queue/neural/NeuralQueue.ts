@@ -1,4 +1,4 @@
-/**
+﻿/**
  * NeuralQueue - 神经漫游队列主控制器
  * 
  * 实现 IReviewQueue 接口，协调 HistoryFilter、QueryEngine 和 WeightedWalkEngine

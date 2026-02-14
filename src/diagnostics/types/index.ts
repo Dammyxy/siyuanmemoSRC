@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Diagnostic Types
  * 诊断类型定义
  *

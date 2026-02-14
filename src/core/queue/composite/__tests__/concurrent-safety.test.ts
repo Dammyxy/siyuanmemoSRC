@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Concurrent Safety Tests for BaseCompositeQueue
  * Feature: architecture-optimization
  * Task 4.4: Test concurrent next() calls

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Tests for Observer Pattern Interfaces
  * 
  * Verifies that IDataSourceObserver and IObservableDataSource

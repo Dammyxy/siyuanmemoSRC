@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Feature: queue-architecture-diagnosis, Property 12: getAllCards inheritance
  *
  * 对于任何继承 BaseReviewQueue 的队列类，应具有可调用的 getAllCards()

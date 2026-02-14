@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Dialog Helper
  * 封装思源 Dialog API，方便在 Vue 组件中使用
  */
@@ -86,7 +86,7 @@ export function createVueDialog<T extends Component>(options: {
             try {
                 app.unmount();
             } catch (e) {
-                console.warn('[FSRS] Unmount error:', e);
+                console.warn('[SiyuanMemo] Unmount error:', e);
             }
             options.onClose?.();
         },
@@ -182,7 +182,7 @@ export function createVueDialog<T extends Component>(options: {
             dialog.element.firstElementChild.addEventListener('click', forwardEvent);
         }
     } else {
-        console.error('[FSRS] Container not found:', containerId);
+        console.error('[SiyuanMemo] Container not found:', containerId);
     }
 
     return {
@@ -191,7 +191,7 @@ export function createVueDialog<T extends Component>(options: {
             try {
                 app.unmount();
             } catch (e) {
-                console.warn('[FSRS] Unmount error:', e);
+                console.warn('[SiyuanMemo] Unmount error:', e);
             }
             dialog.destroy();
         },

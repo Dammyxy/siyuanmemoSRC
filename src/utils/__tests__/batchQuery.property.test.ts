@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Feature: architecture-optimization
  * Property 4: 批量操作结果正确性
  * 

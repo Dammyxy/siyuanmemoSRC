@@ -1,4 +1,4 @@
-/**
+﻿/**
  * BaseCompositeQueue Unit Tests
  * 
  * Tests the rotateToEnd method functionality and feedback operations

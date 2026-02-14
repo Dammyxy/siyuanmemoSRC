@@ -1,4 +1,4 @@
-/**
+﻿/**
  * QueueMigrationManager 单元测试
  * Phase 2d.5: 版本迁移测试
  */

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="reschedule-result-dialog">
     <div class="dialog__content">
       <!-- 成功状态 -->

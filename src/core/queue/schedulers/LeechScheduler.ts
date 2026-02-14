@@ -1,4 +1,4 @@
-import type { IScheduler } from '../abstraction/types';
+﻿import type { IScheduler } from '../abstraction/types';
 
 export class LeechScheduler<TCard, TGrade = number> implements IScheduler<TCard, TGrade> {
   private readonly base: IScheduler<TCard, TGrade>;

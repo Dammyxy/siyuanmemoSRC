@@ -1,4 +1,4 @@
-import type { FSRSCard } from '@/types';
+﻿import type { FSRSCard } from '@/types';
 
 export interface CardBuilderStrategy {
     strategyName: string;

@@ -1,4 +1,4 @@
-import type { IQueueCommand } from '../abstraction/Command';
+﻿import type { IQueueCommand } from '../abstraction/Command';
 import type { IAutoSortableTrait } from '../abstraction/types';
 
 export type AutoSortCommandContext = {

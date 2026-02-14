@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Mock for siyuan module
  * 
  * Provides mock implementations of siyuan API for testing

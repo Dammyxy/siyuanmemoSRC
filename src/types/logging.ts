@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Operation Logging Module
  * 
  * Provides interfaces and types for logging queue operations.

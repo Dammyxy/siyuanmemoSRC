@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="fsrs-review-v2-content">
     <Transition :name="transitionName">
       <div :key="contentKey" class="fsrs-review-v2-content__inner">

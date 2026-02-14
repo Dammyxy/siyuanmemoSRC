@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Dynamic Draw Sequencer
  *
  * Implements dynamic draw algorithms for queue sequencing.

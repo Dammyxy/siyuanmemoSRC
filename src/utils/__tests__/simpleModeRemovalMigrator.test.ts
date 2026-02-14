@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Unit Tests for SimpleModeRemovalMigrator
  * 
  * Tests the configuration migration logic for removing simple mode

@@ -1,4 +1,4 @@
-import {
+﻿import {
   Plugin,
 } from "siyuan";
 import { createApp } from 'vue'

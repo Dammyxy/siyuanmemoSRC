@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Conditional Scheduler
  *
  * Executes different logic based on conditions.

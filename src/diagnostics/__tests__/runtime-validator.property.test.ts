@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Feature: queue-architecture-diagnosis, Property 10-11: Runtime validation
  *
  * Property 10: 类型不匹配错误报告

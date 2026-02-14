@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Property-Based Tests for User-Friendly Error Messages
  * 
  * Feature: architecture-optimization

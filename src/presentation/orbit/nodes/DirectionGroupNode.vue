@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { Handle, Position } from '@vue-flow/core';
 import { computed } from 'vue';
 import { ChevronDown } from 'lucide-vue-next';

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Type checking test for ReviewCard interface and CardState enum
  * 
  * This test verifies that the new types are correctly defined and can be used.

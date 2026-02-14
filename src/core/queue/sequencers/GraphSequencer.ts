@@ -1,4 +1,4 @@
-import type { ISequencer } from '../abstraction/types';
+﻿import type { ISequencer } from '../abstraction/types';
 import type { QueueItem } from '../types';
 
 export type WeightedNeighbor<TNode, TEdge = unknown> = {

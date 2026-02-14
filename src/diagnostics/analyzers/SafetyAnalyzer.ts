@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Safety Analyzer
  * 安全性分析器
  *

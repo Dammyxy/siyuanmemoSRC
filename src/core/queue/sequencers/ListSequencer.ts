@@ -1,4 +1,4 @@
-import type { ISequencer } from '../abstraction/types';
+﻿import type { ISequencer } from '../abstraction/types';
 import type { QueueItem } from '../types';
 
 export class ListSequencer<TItem extends QueueItem> implements ISequencer<TItem> {

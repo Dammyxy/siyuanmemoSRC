@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="card-browser" :class="[
     `card-browser--${mode}`,
     showPreview ? 'card-browser--preview-open' : ''

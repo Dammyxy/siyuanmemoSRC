@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="card-browser__grid">
     <ag-grid-vue
       class="ag-theme-balham card-browser-grid"

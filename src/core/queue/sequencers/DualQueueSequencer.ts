@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Dual Queue Sequencer
  *
  * Merges two queues and selects items based on ratio.

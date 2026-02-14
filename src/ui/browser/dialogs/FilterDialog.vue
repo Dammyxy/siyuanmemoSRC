@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="filter-dialog" role="dialog" aria-modal="true" aria-labelledby="filter-dialog-title">
     <div class="dialog__header">
       <h3 id="filter-dialog-title" class="dialog__title">卡片筛选</h3>

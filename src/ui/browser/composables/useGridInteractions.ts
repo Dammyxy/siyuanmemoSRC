@@ -1,4 +1,4 @@
-import { ref, computed, nextTick } from 'vue';
+﻿import { ref, computed, nextTick } from 'vue';
 import type { GridApi, ColDef, CellContextMenuEvent, RowSelectionOptions } from 'ag-grid-community';
 import { BrowserCard } from '../types';
 

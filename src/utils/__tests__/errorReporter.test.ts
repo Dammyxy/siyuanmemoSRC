@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Error Reporter Tests
  * 
  * Tests for the error reporting system to ensure errors are properly

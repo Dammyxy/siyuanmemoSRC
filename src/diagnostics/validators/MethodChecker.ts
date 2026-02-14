@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Method Checker
  * 方法检查器
  *

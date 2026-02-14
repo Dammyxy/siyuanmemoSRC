@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div
     ref="rootRef"
     class="fsrs-review-v2"
@@ -101,6 +101,7 @@ const props = defineProps<{
   title?: string; // 队列标题（如"提取练习"）
   mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
   plugin?: any; // 🆕 插件实例，用于访问 hybridSyncService
+  onReview?: (cardId: string, rating: number) => void; // 🆕 复习回调（用于刻意练习黑名单）
 }>();
 
 const emit = defineEmits<{
@@ -210,7 +211,13 @@ const bridgedAdapter = props.provider && providerAdapter
     }
   : null;
 
-const hook = useReviewSession(providerQueue || props.queue, bridgedAdapter || props.adapter);
+const hook = useReviewSession(
+  providerQueue || props.queue, 
+  bridgedAdapter || props.adapter,
+  {
+    onReview: props.onReview, // 🆕 传递 onReview 回调
+  }
+);
 const state = hook.state;
 const app = props.app;
 const i18n = props.i18n;
@@ -576,7 +583,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
   const menu = new Menu();
 
   // 获取插件实例
-  const fsrsPlugin = (window as any).siyuanFsrsPlugin;
+  const fsrsPlugin = (window as any).siyuanMemoPlugin;
 
   if (!fsrsPlugin) {
     console.error('[FSRS ReviewView] FSRS plugin instance not found');
@@ -618,7 +625,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
       console.log('[FSRS ReviewView] Opening in tab and closing dialog');
 
       // 获取插件实例
-      const fsrsPlugin = (window as any).siyuanFsrsPlugin;
+      const fsrsPlugin = (window as any).siyuanMemoPlugin;
       if (!fsrsPlugin) {
         console.error('[FSRS ReviewView] Plugin instance not found');
         return;
@@ -647,7 +654,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
       console.log('[FSRS ReviewView] Opening review in new window');
       try {
         // 获取插件实例
-        const fsrsPlugin = (window as any).siyuanFsrsPlugin;
+        const fsrsPlugin = (window as any).siyuanMemoPlugin;
         if (!fsrsPlugin) {
           console.error('[FSRS ReviewView] Plugin instance not found');
           return;

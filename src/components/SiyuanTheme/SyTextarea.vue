@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <textarea
     class="b3-text-field fn__block"
     :value="modelValue"

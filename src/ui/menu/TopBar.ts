@@ -1,4 +1,4 @@
-import { Menu } from 'siyuan';
+﻿import { Menu } from 'siyuan';
 import type FSRSPlugin from '@/index';
 import { pushMsg } from '@/core/siyuan/api';
 
@@ -14,13 +14,13 @@ export class TopBarManager {
 
     public init() {
         this.plugin.addIcons(`<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
-  <symbol id="iconFSRS" viewBox="0 0 24 24">
+  <symbol id="iconSiyuanMemo" viewBox="0 0 24 24">
     <path d="M12 2a10 10 0 1 0 10 10A10.01 10.01 0 0 0 12 2Zm0 2a8 8 0 1 1-8 8 8.01 8.01 0 0 1 8-8Zm-1 3v5H8v2h5v3l5-4-5-4Z"/>
   </symbol>
 </svg>`);
 
         this.element = this.plugin.addTopBar({
-            icon: 'iconFSRS',
+            icon: 'iconSiyuanMemo',
             title: this.plugin.i18n?.topbarTitle || 'FSRS 闪卡 (左键卡片浏览器/右键菜单)',
             position: 'right',
             callback: () => {
@@ -65,7 +65,7 @@ export class TopBarManager {
                 return;
             } catch (err) {
                 if (!this.didWarnMount) {
-                    console.warn('[FSRS] Failed to remount topbar element:', err);
+                    console.warn('[SiyuanMemo] Failed to remount topbar element:', err);
                     this.didWarnMount = true;
                 }
                 return;
@@ -73,7 +73,7 @@ export class TopBarManager {
         }
 
         if (!this.didWarnMount) {
-            console.warn('[FSRS] Topbar container not found; topbar button may be hidden by layout');
+            console.warn('[SiyuanMemo] Topbar container not found; topbar button may be hidden by layout');
             this.didWarnMount = true;
         }
     }

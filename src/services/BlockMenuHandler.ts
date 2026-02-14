@@ -1,4 +1,4 @@
-/**
+﻿﻿/**
  * BlockMenuHandler - 处理块菜单相关的事件和操作
  * 从 index.ts 拆分出来的服务
  */
@@ -8,6 +8,7 @@ import type { StorageManager } from '@/core/storage';
 import { riff } from '@/core/siyuan';
 import { markBlockAsCard, unmarkBlockAsCard, ATTR_CARD_ID, getCardBlockIds } from '@/core/siyuan/block';
 import { pushErrMsg, pushMsg, sql } from '@/core/siyuan/api';
+import * as api from '@/core/siyuan/api';
 import { createVueDialog } from '@/utils/dialog';
 import { createDefaultCard } from '@/types';
 import { DEFAULT_PRIORITY } from '@/core/queue';
@@ -16,6 +17,12 @@ import type { CardAttributeRow } from '@/core/queue/types';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import type { ReviewDialogManager } from './ReviewDialogManager';
 import type { XiuyuanService } from '@/core/xiuyuan';
+
+// 🆕 导入复习入口类
+import { ReviewEntryBase } from './ReviewEntryBase';
+import { RetrievalPracticeEntry } from './RetrievalPracticeEntry';
+import { IncrementalLearningEntry } from './IncrementalLearningEntry';
+import { FinalDrillEntry } from './FinalDrillEntry';
 
 export interface BlockMenuHandlerDeps {
   app: App;
@@ -29,7 +36,29 @@ export interface BlockMenuHandlerDeps {
 }
 
 export class BlockMenuHandler {
-  constructor(private deps: BlockMenuHandlerDeps) {}
+  // 🆕 复习入口列表
+  private reviewEntries: ReviewEntryBase[];
+  
+  constructor(private deps: BlockMenuHandlerDeps) {
+    // 🆕 初始化复习入口（提取练习、渐进学习、刻意练习）
+    this.reviewEntries = [
+      new RetrievalPracticeEntry({
+        storage: deps.storage,
+        reviewDialogManager: deps.reviewDialogManager,
+        i18n: deps.i18n,
+      }),
+      new IncrementalLearningEntry({
+        storage: deps.storage,
+        reviewDialogManager: deps.reviewDialogManager,
+        i18n: deps.i18n,
+      }),
+      new FinalDrillEntry({
+        storage: deps.storage,
+        reviewDialogManager: deps.reviewDialogManager,
+        i18n: deps.i18n,
+      }),
+    ];
+  }
 
   /**
    * 处理块图标点击（添加闪卡菜单）
@@ -53,35 +82,26 @@ export class BlockMenuHandler {
 
     const hasUncarded = blockElements.some((el) => !el.hasAttribute(ATTR_CARD_ID));
     const hasCarded = blockElements.some((el) => el.hasAttribute(ATTR_CARD_ID));
-    const drillBlocks = this.getDrillBlockElements(blockElements);
-    const drillCount = drillBlocks.length;
-    const drillLabel = `<span title="${this.deps.i18n?.drillHint || '将当前块及子块中的闪卡加入机械练习队列'}">${this.deps.i18n?.blockModeLabel || '块练习'}</span> <span class="ft__secondary">(${drillCount})</span>`;
 
-    // 块练习菜单项
-    menu.addItem({
-      icon: 'iconRiffCard',
-      label: drillLabel,
-      click: async () => {
-        if (drillCount === 0) {
-          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
-          return;
-        }
-        try {
-          const cards = this.buildDrillCardsFromElements(drillBlocks);
-          if (cards.length === 0) {
-            await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
-            return;
-          }
-          this.deps.reviewDialogManager.openDrillWithCards(cards, 'block');
-        } catch (err) {
-          console.error('[FSRS] Failed to open drill from blocks:', err);
-          await pushErrMsg(this.deps.i18n?.drillFailed || '机械练习启动失败');
-        }
-      },
-    });
+    // 构建子菜单项数组
+    const submenu: any[] = [];
+
+    // 使用复习入口生成菜单项
+    for (let i = 0; i < this.reviewEntries.length; i++) {
+      const entry = this.reviewEntries[i];
+      const items = entry.createMenuItems(blockElements);
+      submenu.push(...items);
+      
+      // 添加分隔符（除了最后一个）
+      if (i < this.reviewEntries.length - 1) {
+        submenu.push({ type: 'separator' });
+      }
+    }
+    
+    submenu.push({ type: 'separator' });
 
     // 神经漫游菜单项
-    menu.addItem({
+    submenu.push({
       icon: 'iconRefresh',
       label: this.deps.i18n?.startNeuralReviewFromHere || '从此处开始神经漫游',
       click: async () => {
@@ -90,14 +110,18 @@ export class BlockMenuHandler {
         try {
           await this.deps.openNeuralReviewDialog({ seedBlockId, includeSeedAsFirst, resetHistory: true });
         } catch (err) {
-          console.error('[FSRS] Failed to open neural review from block:', err);
+          console.error('[SiyuanMemo] Failed to open neural review from block:', err);
           await pushErrMsg(this.deps.i18n?.neuralReviewFailed || '神经漫游启动失败');
         }
       },
     });
 
+    submenu.push({
+      type: 'separator',
+    });
+
     // 编辑 SRS 数据菜单项
-    menu.addItem({
+    submenu.push({
       icon: 'iconEdit',
       label: this.deps.i18n?.editSrsData || '编辑SRS数据',
       click: async () => {
@@ -108,18 +132,18 @@ export class BlockMenuHandler {
         // ✅ 新架构：从本地存储查询卡片
         if (!cardID && blockIds.length > 0) {
           try {
-            console.log('[FSRS] Querying local storage for blockIds:', blockIds);
+            console.log('[SiyuanMemo] Querying local storage for blockIds:', blockIds);
             for (const bid of blockIds) {
               const card = this.deps.storage.getCardByBlockId(bid);
               if (card) {
                 blockID = card.blockId;
                 cardID = card.id;
-                console.log('[FSRS] Found card in local storage:', blockID, cardID);
+                console.log('[SiyuanMemo] Found card in local storage:', blockID, cardID);
                 break;
               }
             }
           } catch (err) {
-            console.warn('[FSRS] Failed to query local storage:', err);
+            console.warn('[SiyuanMemo] Failed to query local storage:', err);
           }
         }
 
@@ -149,7 +173,7 @@ export class BlockMenuHandler {
 
     // 制卡菜单项
     if (hasUncarded) {
-      menu.addItem({
+      submenu.push({
         icon: 'iconAdd',
         label: this.deps.i18n?.makeCardFromSelection || '选中制卡',
         click: async () => {
@@ -169,7 +193,7 @@ export class BlockMenuHandler {
               this.deps.storage.setCard(card);
               createdCount++;
             } catch (err) {
-              console.error('[FSRS] Failed to create card from block:', blockId, err);
+              console.error('[SiyuanMemo] Failed to create card from block:', blockId, err);
             }
           }
 
@@ -183,7 +207,7 @@ export class BlockMenuHandler {
       });
 
       // 创建模板卡片（Xiuyuan）
-      menu.addItem({
+      submenu.push({
         icon: 'iconAdd',
         label: this.deps.i18n?.createTemplateCard || '创建模板卡片',
         click: async () => {
@@ -194,7 +218,7 @@ export class BlockMenuHandler {
 
     // 取消闪卡菜单项
     if (hasCarded) {
-      menu.addItem({
+      submenu.push({
         icon: 'iconTrashcan',
         label: '取消闪卡',
         click: async () => {
@@ -227,7 +251,7 @@ export class BlockMenuHandler {
                 }
               }
             } catch (err) {
-              console.error('[FSRS] Failed to remove card from block:', blockId, err);
+              console.error('[SiyuanMemo] Failed to remove card from block:', blockId, err);
             }
           }
 
@@ -241,15 +265,129 @@ export class BlockMenuHandler {
       });
     }
 
-    if (!hasUncarded && !hasCarded) {
-      pushErrMsg(this.deps.i18n?.msg_no_operable_blocks || '未找到可操作的块');
+    // 添加主菜单项，使用子菜单
+    menu.addItem({
+      icon: 'iconRiffCard',
+      label: 'SiyuanMemo',
+      submenu,
+    });
+  }
+
+  /**
+   * 为文档树生成复习菜单项（同步版本，用于事件处理）
+   * 
+   * @param docId 文档 ID
+   * @returns 菜单项数组
+   */
+  private generateReviewMenuForDocSync(docId: string): any[] {
+    const submenu: any[] = [];
+    
+    // 同步获取所有卡片
+    const allCards = this.deps.storage.getAllCards();
+    
+    // 使用 meta.rootId 匹配（卡片的 meta.rootId 字段表示所属文档）
+    const cardsInDoc = allCards.filter(card => {
+      const rootId = (card as any).meta?.rootId;
+      return rootId === docId || card.blockId === docId;
+    });
+    
+    // 为每个复习入口生成菜单项
+    for (let i = 0; i < this.reviewEntries.length; i++) {
+      const entry = this.reviewEntries[i];
+      
+      // 使用入口的过滤逻辑
+      const filteredCards = cardsInDoc.filter(card => (entry as any).filterCard(card));
+      const dueCount = (entry as any).countDueCards(filteredCards);
+      const totalCount = filteredCards.length;
+      
+      // 生成菜单项
+      const config = (entry as any).config;
+      
+      if (!config.supportDueMode) {
+        // 只支持"全部"模式（如刻意练习）
+        submenu.push({
+          icon: config.icon,
+          label: `${config.displayName} <span class="ft__secondary">(${totalCount})</span>`,
+          click: async () => {
+            if (totalCount === 0) {
+              await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+              return;
+            }
+            await (entry as any).openReviewDialog(filteredCards, 'all');
+          },
+        });
+      } else {
+        // 支持"到期"和"全部"两种模式
+        submenu.push({
+          icon: config.icon,
+          label: `${config.displayName} - 到期 <span class="ft__secondary">(${dueCount}/${totalCount})</span>`,
+          click: async () => {
+            if (dueCount === 0) {
+              await pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
+              return;
+            }
+            await (entry as any).openReviewDialog(filteredCards, 'due');
+          },
+        });
+        
+        submenu.push({
+          icon: config.icon,
+          label: `${config.displayName} - 全部 <span class="ft__secondary">(${totalCount})</span>`,
+          click: async () => {
+            if (totalCount === 0) {
+              await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+              return;
+            }
+            await (entry as any).openReviewDialog(filteredCards, 'all');
+          },
+        });
+      }
+      
+      // 添加分隔符（除了最后一个）
+      if (i < this.reviewEntries.length - 1) {
+        submenu.push({ type: 'separator' });
+      }
+    }
+    
+    return submenu;
+  }
+
+  /**
+   * 处理文档树菜单（文档块的块标菜单）
+   */
+  handleDocTreeMenu(e: any): void {
+    const detail = e?.detail ?? e;
+    const menu = detail?.menu;
+    const elements = detail?.elements;
+
+    if (!menu || !elements || elements.length === 0) {
+      return;
+    }
+
+    const firstElement = elements[0];
+    const docId = firstElement?.getAttribute('data-node-id');
+
+    if (!docId) {
+      return;
+    }
+
+    try {
+      const submenu = this.generateReviewMenuForDocSync(docId);
+      
+      menu.addItem({
+        icon: 'iconRiffCard',
+        label: 'SiyuanMemo',
+        submenu,
+      });
+    } catch (err) {
+      console.error('[SiyuanMemo] Failed to generate doctree menu:', err);
     }
   }
 
   /**
    * 处理编辑器标题图标点击
    */
-  async handleEditorTitleIconClick(e: any): Promise<void> {
+  handleEditorTitleIconClick(e: any): void {
     const detail = e?.detail ?? e;
     const menu = detail?.menu;
     const docInfo = detail?.data;
@@ -259,30 +397,23 @@ export class BlockMenuHandler {
       return;
     }
 
-    const drillLabel = this.deps.i18n?.blockModeLabel || '块练习';
-    menu.addItem({
-      icon: 'iconRiffCard',
-      label: drillLabel,
-      click: async () => {
-        try {
-          const cards = await this.getDrillCardsFromDocTree(docId);
-          if (cards.length === 0) {
-            await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
-            return;
-          }
-          this.deps.reviewDialogManager.openDrillWithCards(cards, 'block');
-        } catch (err) {
-          console.error('[FSRS] Failed to open drill from doc menu:', err);
-          await pushErrMsg(this.deps.i18n?.drillFailed || '机械练习启动失败');
-        }
-      },
-    });
+    try {
+      const submenu = this.generateReviewMenuForDocSync(docId);
+      
+      menu.addItem({
+        icon: 'iconRiffCard',
+        label: 'SiyuanMemo',
+        submenu,
+      });
+    } catch (err) {
+      console.error('[SiyuanMemo] Failed to generate doc menu:', err);
+    }
   }
 
   /**
    * 处理面包屑更多菜单
    */
-  async handleBreadcrumbMore(e: any): Promise<void> {
+  handleBreadcrumbMore(e: any): void {
     const detail = e?.detail ?? e;
     const menu = detail?.menu;
     const protyle = detail?.protyle;
@@ -292,24 +423,18 @@ export class BlockMenuHandler {
       return;
     }
 
-    const drillLabel = this.deps.i18n?.blockModeLabel || '块练习';
-    menu.addItem({
-      icon: 'iconRiffCard',
-      label: drillLabel,
-      click: async () => {
-        try {
-          const cards = await this.getDrillCardsFromDocTree(docId);
-          if (cards.length === 0) {
-            await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
-            return;
-          }
-          this.deps.reviewDialogManager.openDrillWithCards(cards, 'block');
-        } catch (err) {
-          console.error('[FSRS] Failed to open drill from breadcrumb menu:', err);
-          await pushErrMsg(this.deps.i18n?.drillFailed || '机械练习启动失败');
-        }
-      },
-    });
+    try {
+      const submenu = this.generateReviewMenuForDocSync(docId);
+      
+      // 添加菜单项
+      menu.addItem({
+        icon: 'iconRiffCard',
+        label: 'SiyuanMemo',
+        submenu,
+      });
+    } catch (err) {
+      console.error('[SiyuanMemo] Failed to generate breadcrumb menu:', err);
+    }
   }
 
   /**
@@ -322,17 +447,22 @@ export class BlockMenuHandler {
 
     for (const root of roots) {
       const nodes = [root, ...Array.from(root.querySelectorAll<HTMLElement>('[data-node-id]'))];
+      
       for (const node of nodes) {
-        const id = node.getAttribute('data-node-id');
-        if (!id || seen.has(id)) {
+        const blockId = node.getAttribute('data-node-id');
+        if (!blockId || seen.has(blockId)) {
           continue;
         }
-        seen.add(id);
-        if (node.hasAttribute(ATTR_CARD_ID)) {
+        seen.add(blockId);
+        
+        // 从本地存储查询卡片
+        const card = this.deps.storage.getCardByBlockId(blockId);
+        if (card) {
           result.push(node);
         }
       }
     }
+    
     return result;
   }
 
@@ -345,20 +475,31 @@ export class BlockMenuHandler {
 
     for (const el of elements) {
       const blockID = el.getAttribute('data-node-id');
-      const cardID = el.getAttribute(ATTR_CARD_ID);
-      if (!blockID || !cardID || seen.has(cardID)) {
+      if (!blockID || seen.has(blockID)) {
+        continue;
+      }
+      
+      // 从本地存储获取卡片信息
+      const card = this.deps.storage.getCardByBlockId(blockID);
+      if (!card) {
+        continue;
+      }
+      
+      const cardID = card.id;
+      if (seen.has(cardID)) {
         continue;
       }
       seen.add(cardID);
+      
       result.push({
         cardID,
         blockID,
         deckID: riff.BUILTIN_DECK_ID,
-        priority: DEFAULT_PRIORITY,
+        priority: card.priority || DEFAULT_PRIORITY,
         nextDues: { 1: '', 2: '', 3: '', 4: '' },
-        state: 0,
-        lapses: 0,
-        reps: 0,
+        state: card.state || 0,
+        lapses: card.lapses || 0,
+        reps: card.reps || 0,
       });
     }
     return result;
@@ -384,7 +525,6 @@ export class BlockMenuHandler {
     const result: any[] = [];
     const seen = new Set<string>();
 
-    // Extended interface for this specific query that includes card_type
     interface CardAttributeWithTypeRow extends CardAttributeRow {
       card_type?: string;
     }
@@ -393,7 +533,7 @@ export class BlockMenuHandler {
       const batch = uniqueIds.slice(i, i + 200);
       const idsStr = batch.map((id) => `'${id}'`).join(',');
       
-      // 🆕 查询卡片属性，包括卡片类型
+      // 查询卡片属性，包括卡片类型
       const rows = await sql(`
         SELECT 
           a1.block_id, 
@@ -415,10 +555,9 @@ export class BlockMenuHandler {
           continue;
         }
         
-        // 🆕 过滤：只接受 Item 类型的卡片（或未标记类型的卡片）
+        // 过滤：只接受 Item 类型的卡片（或未标记类型的卡片）
         // Topic 卡片不应该加入提取练习队列
         if (cardType === 'topic') {
-          console.log(`[BlockMenuHandler] Skipping Topic card: ${blockID}`);
           continue;
         }
         
@@ -436,7 +575,6 @@ export class BlockMenuHandler {
       }
     }
     
-    console.log(`[BlockMenuHandler] Built ${result.length} Item cards from ${uniqueIds.length} blocks`);
     return result;
   }
 }

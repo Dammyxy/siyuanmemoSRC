@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Insertion Performance Tests
  * 
  * Tests performance of inserting items into queues.

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Group Data Source
  *
  * Manages multiple groups of items independently.

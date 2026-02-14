@@ -1,4 +1,4 @@
-import type { FSRSCard } from '@/types';
+﻿import type { FSRSCard } from '@/types';
 import type { CardBuilderStrategy } from './types';
 import { DefaultBuilderStrategy } from './strategies/DefaultStrategy';
 import { ClozeBuilderStrategy } from './strategies/ClozeStrategy';

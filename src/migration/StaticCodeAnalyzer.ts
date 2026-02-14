@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Static Code Analyzer
  * 静态代码分析工具
  * 

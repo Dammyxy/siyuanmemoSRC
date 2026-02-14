@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Tests for QueueItem interface
  * 
  * Validates Requirement 6.1: THE System SHALL define a QueueItem interface requiring blockID field

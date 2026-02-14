@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Property Tests for LoggableQueue
  * 
  * These tests verify universal properties that should hold for all

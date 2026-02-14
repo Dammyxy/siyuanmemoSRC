@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Tests for Sequencer Observer Pattern Implementation
  * 
  * Verifies that PrioritySequencer and SortedSequencer correctly implement

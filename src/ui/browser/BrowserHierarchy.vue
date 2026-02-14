@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="fsrs-browser-hierarchy">
     <div class="fsrs-browser-hierarchy__section">
       <div class="fsrs-browser-hierarchy__title">{{ t('queues', '队列') }}</div>

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Orbit 轨道视图 - Domain 层核心状态接口
  *
  * @version 2.0

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Phase 4: Browser Integration Tests (SM-15 Pattern)
  * 
  * Tests for browser updates to use queue instances:

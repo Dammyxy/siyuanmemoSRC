@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SRS Browser Adapter
  * SRS 浏览器适配器
  * 

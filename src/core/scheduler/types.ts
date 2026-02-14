@@ -1,4 +1,4 @@
-import type { FSRSCard, FSRSParameters, Rating } from '@/types';
+﻿import type { FSRSCard, FSRSParameters, Rating } from '@/types';
 
 /**
  * 调度器适配器接口

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Simple Mode Removal Integration Tests
  * 
  * 测试移除简单模式后的插件初始化、配置迁移和数据访问

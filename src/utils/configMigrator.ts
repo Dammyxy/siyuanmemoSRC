@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Configuration Migrator
  * 
  * 负责将旧版 Riff 集成配置迁移到新版混合同步方案配置

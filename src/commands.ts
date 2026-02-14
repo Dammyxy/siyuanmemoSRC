@@ -1,4 +1,4 @@
-import type FSRSPlugin from '@/index';
+﻿import type FSRSPlugin from '@/index';
 
 export class CommandManager {
     constructor(private plugin: FSRSPlugin) { }

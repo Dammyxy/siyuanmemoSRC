@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Mixed Type Handling Tests
  */
 

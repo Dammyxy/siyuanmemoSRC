@@ -1,4 +1,4 @@
-export interface QueueStats {
+﻿export interface QueueStats {
   current: number;
   total: number;
   reviewed?: number;

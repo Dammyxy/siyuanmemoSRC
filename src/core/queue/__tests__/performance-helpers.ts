@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Performance Test Helpers
  * 
  * Provides utility functions for performance testing of queue operations.

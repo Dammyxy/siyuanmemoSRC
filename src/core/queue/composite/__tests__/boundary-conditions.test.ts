@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Boundary Conditions Tests for BaseCompositeQueue
  * Feature: architecture-optimization
  * Task 4.6: Add boundary condition tests

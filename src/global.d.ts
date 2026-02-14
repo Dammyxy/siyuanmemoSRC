@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Global type definitions for FSRS plugin
  * Re-exports types from siyuan package and petal directory
  */

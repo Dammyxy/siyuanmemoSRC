@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Type Usage Analyzer
  * 类型使用分析器
  *

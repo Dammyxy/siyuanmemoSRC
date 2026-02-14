@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Neural Roaming Queue - Type Definitions
  * 神经漫游队列 - 类型定义
  */

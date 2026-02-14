@@ -1,3 +1,3 @@
-// Test stub for siyuan package
+﻿// Test stub for siyuan package
 export {};
 

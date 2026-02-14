@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Property-Based Tests for Observer Pattern
  * 
  * Feature: architecture-optimization

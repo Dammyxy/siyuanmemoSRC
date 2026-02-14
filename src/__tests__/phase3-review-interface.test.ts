@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Phase 3: Review Interface Updates - Integration Tests
  * 
  * Tests for SM-15 pattern implementation in review interface:

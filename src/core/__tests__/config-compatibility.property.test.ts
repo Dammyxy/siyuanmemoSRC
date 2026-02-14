@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Property-Based Tests for Configuration and Compatibility
  * 
  * Feature: riff-decoupling

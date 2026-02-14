@@ -1,4 +1,4 @@
-/**
+﻿/**
  * GraphRenderService - vis-network 渲染管理服务
  * 
  * 负责 vis-network 的初始化、数据更新、节点聚焦等渲染操作。

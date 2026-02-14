@@ -1,4 +1,4 @@
-/**
+﻿/**
  * API Compatibility Checker Tests
  */
 

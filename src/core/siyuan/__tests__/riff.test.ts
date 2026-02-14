@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Unit Tests for Riff API - getRiffCards() decoupled version
  * 
  * Feature: riff-decoupling

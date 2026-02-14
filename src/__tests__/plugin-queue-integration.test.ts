@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Plugin Queue Integration Test (Phase 2)
  * 
  * Tests for SM-15 Pattern queue singleton management in Plugin class

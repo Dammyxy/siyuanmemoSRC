@@ -1,4 +1,4 @@
-import type FSRSPlugin from '@/index';
+﻿import type FSRSPlugin from '@/index';
 
 export class DockManager {
     constructor(private plugin: FSRSPlugin) { }
@@ -13,7 +13,7 @@ export class DockManager {
                 title: 'FSRS',
             },
             data: { plugin: this.plugin },
-            type: 'fsrs-dock',
+            type: 'siyuanmemo-dock',
             init: (dock) => {
                 this.initDockPanel(dock.element);
             },
@@ -28,10 +28,10 @@ export class DockManager {
         const totalCount = this.plugin.storage.getAllCards().length;
 
         element.innerHTML = `
-      <div class="fsrs-dock-container">
-        <div class="fsrs-dock-header">FSRS ${this.plugin.i18n?.flashcard || '闪卡'}</div>
-        <div class="fsrs-dock-content">
-          <div class="fsrs-dock-stats">
+      <div class="siyuanmemo-dock-container">
+        <div class="siyuanmemo-dock-header">FSRS ${this.plugin.i18n?.flashcard || '闪卡'}</div>
+        <div class="siyuanmemo-dock-content">
+          <div class="siyuanmemo-dock-stats">
             <div class="stat-item">
               <span class="stat-value">${dueCount}</span>
               <span class="stat-label">${this.plugin.i18n?.dueCountLabel || '待复习'}</span>
@@ -41,12 +41,12 @@ export class DockManager {
               <span class="stat-label">${this.plugin.i18n?.totalCountLabel || '总卡片'}</span>
             </div>
           </div>
-          <div class="fsrs-dock-buttons">
-            <button class="fsrs-dock-btn b3-button b3-button--outline" id="fsrs-start-review">
+          <div class="siyuanmemo-dock-buttons">
+            <button class="siyuanmemo-dock-btn b3-button b3-button--outline" id="fsrs-start-review">
               <svg class="b3-button__icon"><use xlink:href="#iconRiffCard"></use></svg>
               ${this.plugin.i18n?.startReview || '开始复习'}
             </button>
-            <button class="fsrs-dock-btn b3-button b3-button--outline" id="fsrs-card-browser">
+            <button class="siyuanmemo-dock-btn b3-button b3-button--outline" id="fsrs-card-browser">
               <svg class="b3-button__icon"><use xlink:href="#iconLayoutRight"></use></svg>
               ${this.plugin.i18n?.cardBrowser || '卡片浏览器'}
             </button>

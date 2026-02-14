@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Final Drill Sequencer
  *
  * Implements SuperMemo's FlipElement(5, 3, 6) dynamic shuffle algorithm.

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Group Sequencer
  *
  * Sequences through multiple groups based on a schedule.

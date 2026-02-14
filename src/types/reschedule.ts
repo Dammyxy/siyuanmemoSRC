@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SuperMemo Reschedule Operations Types
  * 基于 SuperMemo 设计的重新调度操作类型定义
  */

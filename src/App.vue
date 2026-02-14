@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="plugin-app-main">
 
     <div class="demo">

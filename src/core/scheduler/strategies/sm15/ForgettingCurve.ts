@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SM-15 Forgetting Curve
  *
  * 单条遗忘曲线，用于跟踪特定复习次数和 A-Factor 的遗忘模式

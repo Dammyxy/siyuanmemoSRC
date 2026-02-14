@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Integration Test: Advanced Mode Due Cards Fix and Custom Day Start
  * 
  * This test verifies that all components are correctly integrated:

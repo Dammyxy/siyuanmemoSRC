@@ -1,4 +1,4 @@
-import type FSRSPlugin from '../index';
+﻿import type FSRSPlugin from '../index';
 import { DialogService } from './DialogService';
 import { MenuService } from './MenuService';
 import { ReviewService } from './ReviewService';

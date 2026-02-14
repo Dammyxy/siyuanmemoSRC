@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="reschedule-dialog">
     <div class="dialog__content">
       <div class="dialog__info">

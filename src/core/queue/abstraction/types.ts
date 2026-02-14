@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Scheduler interface for updating card scheduling parameters
  * 
  * A scheduler is responsible for calculating the next review time and updating

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SM-15 Forgetting Curves
  *
  * 管理 400 条遗忘曲线 (20 repetition × 20 A-Factor)

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Tests for SQL Query Result Interfaces
  * 
  * Feature: architecture-optimization

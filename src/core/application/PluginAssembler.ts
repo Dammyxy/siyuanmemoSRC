@@ -1,4 +1,4 @@
-import FSRSPlugin from '../../index';
+﻿import FSRSPlugin from '../../index';
 import { pushMsg, pushErrMsg } from '@/core/siyuan/api';
 import { openTab, Menu } from 'siyuan';
 import { createVueDialog } from '@/utils/dialog';
@@ -30,12 +30,12 @@ export class PluginUIAssembler {
   setupTopBar() {
     try {
       this.plugin.addIcons(`<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
-  <symbol id="iconFSRS" viewBox="0 0 24 24">
+  <symbol id="iconSiyuanMemo" viewBox="0 0 24 24">
     <path d="M12 2a10 10 0 1 0 10 10A10.01 10.01 0 0 0 12 2Zm0 2a8 8 0 1 1-8 8 8.01 8.01 0 0 1 8-8Zm-1 3v5H8v2h5v3l5-4-5-4Z"/>
   </symbol>
 </svg>`);
       this.plugin.topBarElement = this.plugin.addTopBar({
-        icon: 'iconFSRS',
+        icon: 'iconSiyuanMemo',
         title: this.plugin.i18n?.topbarTitle || 'FSRS 闪卡 (左键卡片浏览器/右键菜单)',
         position: 'right',
         callback: () => {
@@ -54,7 +54,7 @@ export class PluginUIAssembler {
       };
       this.plugin.topBarElement!.addEventListener('contextmenu', this.plugin.topBarContextMenuHandler);
     } catch (err) {
-      console.error('[FSRS] Failed to register topbar:', err);
+      console.error('[SiyuanMemo] Failed to register topbar:', err);
     }
   }
 
@@ -75,7 +75,7 @@ export class PluginUIAssembler {
         return;
       } catch (err) {
         if (!this.plugin.didWarnTopbarMount) {
-          console.warn('[FSRS] Failed to remount topbar element:', err);
+          console.warn('[SiyuanMemo] Failed to remount topbar element:', err);
           this.plugin.didWarnTopbarMount = true;
         }
         return;
@@ -83,7 +83,7 @@ export class PluginUIAssembler {
     }
 
     if (!this.plugin.didWarnTopbarMount) {
-      console.warn('[FSRS] Topbar container not found; topbar button may be hidden by layout');
+      console.warn('[SiyuanMemo] Topbar container not found; topbar button may be hidden by layout');
       this.plugin.didWarnTopbarMount = true;
     }
   }
@@ -148,10 +148,10 @@ export class PluginUIAssembler {
     const totalCount = this.plugin.storage.getAllCards().length;
 
     element.innerHTML = `
-      <div class="fsrs-dock-container">
-        <div class="fsrs-dock-header">FSRS ${this.plugin.i18n?.flashcard || '闪卡'}</div>
-        <div class="fsrs-dock-content">
-          <div class="fsrs-dock-stats">
+      <div class="siyuanmemo-dock-container">
+        <div class="siyuanmemo-dock-header">FSRS ${this.plugin.i18n?.flashcard || '闪卡'}</div>
+        <div class="siyuanmemo-dock-content">
+          <div class="siyuanmemo-dock-stats">
             <div class="stat-item">
               <span class="stat-value">${dueCount}</span>
               <span class="stat-label">${this.plugin.i18n?.dueCountLabel || '待复习'}</span>
@@ -161,12 +161,12 @@ export class PluginUIAssembler {
               <span class="stat-label">${this.plugin.i18n?.totalCountLabel || '总卡片'}</span>
             </div>
           </div>
-          <div class="fsrs-dock-buttons">
-            <button class="fsrs-dock-btn b3-button b3-button--outline" id="fsrs-start-review">
+          <div class="siyuanmemo-dock-buttons">
+            <button class="siyuanmemo-dock-btn b3-button b3-button--outline" id="fsrs-start-review">
               <svg class="b3-button__icon"><use xlink:href="#iconRiffCard"></use></svg>
               ${this.plugin.i18n?.startReview || '开始复习'}
             </button>
-            <button class="fsrs-dock-btn b3-button b3-button--outline" id="fsrs-srs-browser">
+            <button class="siyuanmemo-dock-btn b3-button b3-button--outline" id="fsrs-srs-browser">
               <svg class="b3-button__icon"><use xlink:href="#iconLayoutRight"></use></svg>
               ${this.plugin.i18n?.srsBrowser || 'SRS 浏览器'}
             </button>

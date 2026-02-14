@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SessionManager - 管理复习会话的卡片列表
  * 
  * 使用 SortedSequencer 维护有序队列，支持：

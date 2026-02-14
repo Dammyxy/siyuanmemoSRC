@@ -1,4 +1,4 @@
-/**
+﻿/**
  * LoggableQueue - Queue Decorator with Operation Logging
  * 
  * This module implements a decorator pattern that wraps any queue implementation

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <button
     v-if="shouldShow"
     class="b3-button b3-button--outline filter-button"

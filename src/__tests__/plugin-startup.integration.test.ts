@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Plugin Startup Integration Test
  * 
  * 测试插件启动时 HybridSyncService 的初始化流程

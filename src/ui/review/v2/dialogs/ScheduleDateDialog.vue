@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="schedule-date-dialog">
     <div class="schedule-date-dialog__header">
       <svg><use xlink:href="#iconCalendar"></use></svg>

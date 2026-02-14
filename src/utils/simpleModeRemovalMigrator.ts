@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Simple Mode Removal Migrator
  * 
  * 负责将简单模式配置迁移到高级模式，作为移除简单模式功能的一部分

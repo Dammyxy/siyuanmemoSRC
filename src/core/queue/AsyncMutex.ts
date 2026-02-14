@@ -1,4 +1,4 @@
-export class AsyncMutex {
+﻿export class AsyncMutex {
   private chain: Promise<void> = Promise.resolve();
 
   runExclusive<T>(fn: () => Promise<T>): Promise<T> {

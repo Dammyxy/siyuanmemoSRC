@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Advanced Data Router
  * 高级模式数据路由器
  * 
@@ -180,15 +180,26 @@ export class AdvancedDataRouter implements IDataRouter {
     /**
      * 删除卡片
      * 
-     * 从本地存储中删除卡片。
+     * 从本地存储中删除卡片，并尝试从 Riff 删除（如果启用）。
      * 
      * @param cardId 要删除的卡片 ID
      * @see 需求 3.4
      */
     async deleteCard(cardId: string): Promise<void> {
-        // 从本地存储删除
+        // 1. 从本地存储删除
         this.storage.removeCard(cardId);
         await this.storage.saveCards();
+        
+        // 2. 尝试从 Riff 删除（如果启用）
+        if (this.plugin?.hybridSyncService) {
+            const riffConfig = this.storage.getSettings().riffIntegration;
+            if (riffConfig?.deleteSync?.enabled) {
+                // 后台执行删除同步，不阻塞 UI
+                void this.plugin.hybridSyncService.deleteSync(cardId).catch((err: Error) => {
+                    console.error('[AdvancedDataRouter] Delete sync failed for card:', cardId, err);
+                });
+            }
+        }
     }
     
     // ========================================================================
@@ -292,6 +303,16 @@ export class AdvancedDataRouter implements IDataRouter {
      */
     private applyFilter(cards: FSRSCard[], filter: CardFilter): FSRSCard[] {
         let filtered = cards;
+        
+        // 过滤块 ID（block-menu-review-entries 需求 3.1）
+        if (filter.blockIds && filter.blockIds.length > 0) {
+            const blockIdSet = new Set(filter.blockIds);
+            console.log(`[AdvancedDataRouter] 🔍 Filtering by blockIds: ${filter.blockIds.length} blocks`);
+            
+            filtered = filtered.filter(card => blockIdSet.has(card.blockId));
+            
+            console.log(`[AdvancedDataRouter] 🔍 After blockIds filter: ${filtered.length} cards`);
+        }
         
         // 过滤卡片类型
         if (filter.cardType) {

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Property-Based Tests for Error Reporting
  * 
  * Feature: architecture-optimization

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ReviewDialogManager - Unified Data Source Integration Tests
  * 验证 ReviewDialogManager 是否正确使用统一数据源架构
  */

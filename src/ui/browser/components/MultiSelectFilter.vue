@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="multi-select-filter">
     <div class="filter-header">
       <label class="filter-checkbox">

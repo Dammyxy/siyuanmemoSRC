@@ -1,4 +1,4 @@
-/**
+﻿/**
  * TypeUsageAnalyzer tests
  */
 

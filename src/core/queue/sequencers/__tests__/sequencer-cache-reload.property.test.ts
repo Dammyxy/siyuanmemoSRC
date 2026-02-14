@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Property-Based Tests for Sequencer Cache Reload
  * 
  * Feature: architecture-optimization

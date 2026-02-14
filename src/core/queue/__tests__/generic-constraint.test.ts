@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Generic Constraint Tests
  * 
  * Validates Requirement 6.2: WHEN defining IQueue interface, THE System SHALL

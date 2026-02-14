@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 快速禁用所有调试日志
  * 
  * 使用方法：
@@ -22,33 +22,33 @@ if (shouldDisableLogs) {
   const originalDebug = console.debug;
   const originalInfo = console.info;
 
-  // 只拦截 [FSRS] 开头的日志
+  // 只拦截 [SiyuanMemo] 开头的日志
   console.log = function(...args: any[]) {
-    if (typeof args[0] === 'string' && args[0].startsWith('[FSRS]')) {
+    if (typeof args[0] === 'string' && args[0].startsWith('[SiyuanMemo]')) {
       return; // 忽略
     }
     originalLog.apply(console, args);
   };
 
   console.debug = function(...args: any[]) {
-    if (typeof args[0] === 'string' && args[0].startsWith('[FSRS]')) {
+    if (typeof args[0] === 'string' && args[0].startsWith('[SiyuanMemo]')) {
       return; // 忽略
     }
     originalDebug.apply(console, args);
   };
 
   console.info = function(...args: any[]) {
-    if (typeof args[0] === 'string' && args[0].startsWith('[FSRS]')) {
+    if (typeof args[0] === 'string' && args[0].startsWith('[SiyuanMemo]')) {
       return; // 忽略
     }
     originalInfo.apply(console, args);
   };
 
-  console.log('[FSRS] Debug logs disabled');
+  console.log('[SiyuanMemo] Debug logs disabled');
 }
 
 // 提供全局方法来切换日志
 (window as any).toggleFSRSLogs = (enabled: boolean) => {
   (window as any).FSRS_DISABLE_LOGS = !enabled;
-  console.log(`[FSRS] Logs ${enabled ? 'enabled' : 'disabled'}. Please reload the plugin.`);
+  console.log(`[SiyuanMemo] Logs ${enabled ? 'enabled' : 'disabled'}. Please reload the plugin.`);
 };

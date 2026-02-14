@@ -1,13 +1,11 @@
-import type { FSRSParameters, SchedulerEngine } from '@/types';
+﻿import type { FSRSParameters, SchedulerEngine } from '@/types';
 import type { SchedulerEngineAdapter } from './types';
-import { SimpleFSRSScheduler } from './strategies/FSRSV5';
-import { SM2Scheduler } from './strategies/SM2';
+import { TSFSRSScheduler } from './strategies/TSFSRSScheduler';
 import { ImprovedTopicScheduler } from './strategies/ImprovedTopicScheduler';
 import { TopicScheduler } from './TopicScheduler';
 
 export * from './types';
-export * from './strategies/FSRSV5';
-export * from './strategies/SM2';
+export * from './strategies/TSFSRSScheduler';
 export * from './strategies/ImprovedTopicScheduler';
 export * from './TopicScheduler';
 export * from './rescheduleService';
@@ -19,15 +17,16 @@ export * from './SchedulerRouter';
  */
 export function createScheduler(params: FSRSParameters, engine: SchedulerEngine = 'simple-fsrs'): SchedulerEngineAdapter {
     switch (engine) {
-        case 'sm2':
-            console.log('[Scheduler] Using SM-2 Engine');
-            return new SM2Scheduler(params);
         case 'a-factor-v2':
             console.log('[Scheduler] Using A-Factor-v2 (ImprovedTopicScheduler) Engine');
             return new ImprovedTopicScheduler(params);
+        case 'sm2':
+        case 'sm15':
+            console.warn(`[Scheduler] Engine "${engine}" is deprecated, falling back to FSRS-6`);
+            return new TSFSRSScheduler(params);
         case 'simple-fsrs':
         default:
-            console.log('[Scheduler] Using FSRS-5 Engine');
-            return new SimpleFSRSScheduler(params);
+            console.log('[Scheduler] Using FSRS-6 Engine (TSFSRSScheduler)');
+            return new TSFSRSScheduler(params);
     }
 }

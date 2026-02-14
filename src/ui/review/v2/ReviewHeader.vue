@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="block__icons">
     <!-- Logo + 队列名称 -->
     <div class="block__logo">

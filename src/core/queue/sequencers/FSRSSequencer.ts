@@ -1,4 +1,4 @@
-import type { ISequencer, IDataSourceObserver } from '../abstraction/types';
+﻿import type { ISequencer, IDataSourceObserver } from '../abstraction/types';
 import type { QueueItem } from '../types';
 
 /**

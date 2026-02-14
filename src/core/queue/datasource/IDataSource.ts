@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Data Source Interface for Queue Strategies
  *
  * Provides abstraction over where queue items are stored and retrieved.

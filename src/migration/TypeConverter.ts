@@ -1,4 +1,4 @@
-/**
+﻿/**
  * TypeConverter - 类型转换器
  * 
  * 在队列架构迁移期间处理 QueueItem 和 FSRSCard 之间的转换。

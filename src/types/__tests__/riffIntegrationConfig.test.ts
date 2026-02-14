@@ -1,4 +1,4 @@
-/**
+﻿/**
  * RiffIntegrationConfig Unit Tests
  * 
  * 测试 Riff 集成配置接口和默认配置

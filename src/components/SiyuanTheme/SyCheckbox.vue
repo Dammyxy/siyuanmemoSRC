@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <input
     class="b3-switch fn__flex-center"
     type="checkbox"

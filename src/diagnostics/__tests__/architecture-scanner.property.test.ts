@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Feature: queue-architecture-diagnosis, Property 3: Architecture classification consistency
  *
  * 对于任何使用点，如果它只使用旧架构或新架构，应该被正确分类；

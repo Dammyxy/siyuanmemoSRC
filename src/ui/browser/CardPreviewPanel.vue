@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="card-browser__preview" :style="previewStyle">
     <div v-if="previewCard" class="preview__content">
       <div class="preview__header">

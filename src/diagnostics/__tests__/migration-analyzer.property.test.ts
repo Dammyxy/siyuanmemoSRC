@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Feature: queue-architecture-diagnosis, Property 13-16: Migration analysis
  *
  * Property 13: 迁移安全性分类

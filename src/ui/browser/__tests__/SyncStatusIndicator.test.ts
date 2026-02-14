@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SyncStatusIndicator 组件测试
  */
 

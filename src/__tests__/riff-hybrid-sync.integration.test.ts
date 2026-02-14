@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Riff Hybrid Sync Integration Test
  * 
  * 完整的集成测试，覆盖 Advanced 模式和 Simple 模式的完整流程

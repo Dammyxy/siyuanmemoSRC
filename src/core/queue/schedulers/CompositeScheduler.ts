@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Composite Scheduler
  *
  * Selects the appropriate scheduler based on item type.

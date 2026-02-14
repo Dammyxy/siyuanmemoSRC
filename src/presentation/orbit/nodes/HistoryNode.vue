@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { Handle, Position } from '@vue-flow/core';
 import { Circle } from 'lucide-vue-next';
 

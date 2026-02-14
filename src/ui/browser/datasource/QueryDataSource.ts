@@ -1,4 +1,4 @@
-import type { BrowserCard } from '../types';
+﻿import type { BrowserCard } from '../types';
 import { CardState, STATE_LABELS, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from '../types';
 import { sql } from '@/core/siyuan/api';
 import { loadQueueCards } from '../browserService';

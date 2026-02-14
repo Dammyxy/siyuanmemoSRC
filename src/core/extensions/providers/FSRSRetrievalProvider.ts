@@ -1,4 +1,4 @@
-import * as riff from '../../siyuan/riff.ts';
+﻿import * as riff from '../../siyuan/riff.ts';
 import { setBlockAttrs, sql } from '../../siyuan/api.ts';
 import { ATTR_PRIORITY } from '../../siyuan/block.ts';
 import { computeProtectionStats, clampPriority, DEFAULT_PRIORITY } from '../../queue/abstraction/IPriority.ts';

@@ -1,4 +1,4 @@
-export type Priority = number;
+﻿export type Priority = number;
 
 export const DEFAULT_PRIORITY: Priority = 50;
 export const HIGHEST_PRIORITY: Priority = 0;

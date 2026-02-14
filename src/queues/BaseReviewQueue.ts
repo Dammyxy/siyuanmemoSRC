@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Base Review Queue
  * 复习队列基类
  * 
@@ -214,6 +214,221 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @see 需求 7.1-7.7, 8.1-8.3, 9.1-9.3
      */
     public abstract handleReview(cardId: string, rating: number): Promise<void>;
+    
+    // ========================================================================
+    // 调度器集成辅助方法（队列-调度器职责分离）
+    // @see .kiro/specs/queue-scheduler-separation/requirements.md
+    // ========================================================================
+    
+    /**
+     * 获取 SchedulerRouter 实例
+     * 
+     * 通过 UnifiedDataSourceManager 访问 SchedulerRouter。
+     * 
+     * @returns SchedulerRouter 实例
+     * @throws Error 如果 SchedulerRouter 不可用
+     * @see 需求 8.3
+     */
+    protected getSchedulerRouter(): any {
+        const router = (this.manager as any).advancedRouter;
+        const plugin = router?.plugin;
+        const schedulerRouter = plugin?.schedulerRouter;
+        
+        if (!schedulerRouter) {
+            throw new Error(`[${this.type}] SchedulerRouter not available - plugin initialization failed`);
+        }
+        
+        return schedulerRouter;
+    }
+    
+    /**
+     * 获取一天开始的小时数
+     * 
+     * 从插件配置中获取 dayStartHour，用于计算当天结束时间。
+     * 
+     * @returns 一天开始的小时数（默认 4）
+     * @see 需求 2.2, 2.3
+     */
+    protected getDayStartHour(): number {
+        try {
+            const router = (this.manager as any).advancedRouter;
+            const plugin = router?.plugin;
+            
+            if (plugin && typeof plugin.storage?.getSettings === 'function') {
+                const settings = plugin.storage.getSettings();
+                return settings?.queues?.dayStartHour ?? 4;
+            }
+        } catch (error) {
+            console.warn(`[${this.type}] Failed to get dayStartHour from settings:`, error);
+        }
+        
+        return 4; // 默认值
+    }
+    
+    /**
+     * 判断卡片是否应该从队列中移除
+     * 
+     * 基于卡片的到期日期和当天结束时间判断。
+     * 这个方法是算法无关的，只依赖调度器输出的 due 值。
+     * 
+     * 判断逻辑：
+     * - 如果 due > dayEnd：卡片应该在未来复习，从队列移除
+     * - 如果 due <= dayEnd 但 scheduledDays >= 1：卡片间隔至少1天，从队列移除
+     * - 否则：卡片仍需今天复习，保留在队列中
+     * 
+     * 第二个条件是为了处理 FSRS 在短时间内重复复习的情况：
+     * 当用户在很短时间内（如几分钟）重复复习同一张卡片时，FSRS 会给出很短的间隔（如1小时）。
+     * 虽然 due 还在今天范围内，但 scheduledDays >= 1 表示这是一次"正式"的复习，
+     * 应该让卡片移出队列，避免在同一天内反复出现。
+     * 
+     * @param card 卡片对象
+     * @returns true 表示应该移除，false 表示应该保留
+     * @see 需求 2.1, 2.2, 2.3, 5.1
+     */
+    protected shouldRemoveFromQueue(card: FSRSCard): boolean {
+        const dayStartHour = this.getDayStartHour();
+        const dayEnd = this.getCurrentDayEnd(dayStartHour);
+        
+        // 验证 card.due 是否有效
+        if (!card.due || isNaN(card.due) || card.due <= 0) {
+            console.error(`[${this.type}] Invalid due date for card ${card.id}:`, {
+                due: card.due,
+                cardState: card.state,
+                reps: card.reps,
+            });
+            // 无效的 due 日期，默认保留在队列中（不移除）
+            return false;
+        }
+        
+        // 条件1：due 超出今天范围
+        const dueAfterDayEnd = card.due > dayEnd;
+        
+        // 条件2：scheduledDays >= 1（间隔至少1天）
+        // 这处理了 FSRS 在短时间内重复复习的情况
+        // 注意：SimpleFSRSScheduler 使用 Math.max(1, Math.round(interval)) 确保 scheduledDays 至少为 1
+        const hasMinimumInterval = (card.scheduledDays ?? 0) >= 1;
+        
+        const shouldRemove = dueAfterDayEnd || hasMinimumInterval;
+        
+        console.log(`[${this.type}] shouldRemoveFromQueue:`, {
+            cardId: card.id,
+            due: new Date(card.due).toISOString(),
+            dayEnd: new Date(dayEnd).toISOString(),
+            scheduledDays: card.scheduledDays,
+            dueAfterDayEnd,
+            hasMinimumInterval,
+            shouldRemove,
+        });
+        
+        return shouldRemove;
+    }
+    
+    /**
+     * 获取当天结束时间
+     * 
+     * 根据 dayStartHour 计算当天的结束时间戳。
+     * 
+     * @param dayStartHour 一天开始的小时数
+     * @returns 当天结束时间戳
+     * @private
+     */
+    private getCurrentDayEnd(dayStartHour: number): number {
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), dayStartHour, 0, 0, 0);
+        
+        if (now.getTime() < today.getTime()) {
+            // 当前时间在今天的开始时间之前，返回今天的结束时间
+            return today.getTime() + 24 * 60 * 60 * 1000;
+        } else {
+            // 当前时间在今天的开始时间之后，返回明天的开始时间
+            return today.getTime() + 24 * 60 * 60 * 1000;
+        }
+    }
+    
+    /**
+     * 使用调度器处理卡片复习（通用实现）
+     * 
+     * 这是一个通用的复习处理方法，实现了队列-调度器职责分离：
+     * 1. 队列负责：卡片生命周期管理（排序、过滤、移除）
+     * 2. 调度器负责：算法计算（到期日期、稳定性、难度）
+     * 
+     * 处理流程：
+     * 1. 获取卡片
+     * 2. 调用 SchedulerRouter.route() 更新卡片（应用 FSRS/SM-15/A-Factor 等算法）
+     * 3. 保存更新后的卡片
+     * 4. 调用 shouldRemoveFromQueue() 判断是否移除
+     * 5. 移除或保留卡片
+     * 6. 通知观察者
+     * 
+     * 子类使用方式：
+     * - 标准队列：直接调用此方法
+     * - 特殊队列：覆盖 handleReview() 实现自定义逻辑
+     * 
+     * @param cardId 卡片 ID
+     * @param rating 评分 (1-4)
+     * @throws Error 如果 SchedulerRouter 不可用
+     * @see 需求 1.1, 1.2, 1.3, 2.1
+     * @see .kiro/specs/queue-scheduler-separation/design.md
+     */
+    protected async handleReviewWithScheduler(cardId: string, rating: number): Promise<void> {
+        try {
+            // 1. 获取卡片
+            const card = await this.manager.getCard(cardId);
+            
+            console.log(`[${this.type}] handleReviewWithScheduler - Before scheduling:`, {
+                cardId: card.id,
+                rating,
+                due: card.due,
+                state: card.state,
+                reps: card.reps,
+            });
+            
+            // 2. 获取调度器并调度卡片
+            const schedulerRouter = this.getSchedulerRouter();
+            const updatedCard = await schedulerRouter.route(card, rating);
+            
+            console.log(`[${this.type}] handleReviewWithScheduler - After scheduling:`, {
+                cardId: updatedCard.id,
+                due: updatedCard.due,
+                state: updatedCard.state,
+                reps: updatedCard.reps,
+            });
+            
+            // 验证调度器返回的卡片数据
+            if (!updatedCard.due || isNaN(updatedCard.due) || updatedCard.due <= 0) {
+                console.error(`[${this.type}] Scheduler returned invalid due date:`, {
+                    cardId: updatedCard.id,
+                    due: updatedCard.due,
+                    rating,
+                });
+                throw new Error(`Scheduler returned invalid due date for card ${cardId}: ${updatedCard.due}`);
+            }
+            
+            // 3. 保存更新后的卡片
+            await this.manager.updateCard(updatedCard);
+            
+            // 4. 判断是否应该从队列移除
+            const shouldRemove = this.shouldRemoveFromQueue(updatedCard);
+            
+            // 5. 移除或保留卡片
+            if (shouldRemove) {
+                await this.removeCard(cardId);
+                console.log(`[${this.type}] Card ${cardId} reviewed with rating ${rating}, removed from queue`);
+            } else {
+                console.log(`[${this.type}] Card ${cardId} reviewed with rating ${rating}, kept in queue`);
+            }
+            
+            // 6. 通知观察者
+            this.manager.notifyObservers({
+                type: 'card-updated',
+                cardIds: [cardId],
+                timestamp: Date.now(),
+            });
+        } catch (error) {
+            console.error(`[${this.type}] Failed to handle review:`, error);
+            throw error;
+        }
+    }
     
     /**
      * 跳过卡片

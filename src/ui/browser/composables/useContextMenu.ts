@@ -1,4 +1,4 @@
-import { ref } from 'vue';
+﻿import { ref } from 'vue';
 import { Menu } from 'siyuan';
 import { BrowserCard } from '../types';
 import { createVueDialog } from '@/utils/dialog';

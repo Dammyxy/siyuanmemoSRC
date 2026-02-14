@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Feature: queue-architecture-diagnosis, Property 8-9: Type guards & conversion
  *
  * Property 8: 类型守卫准确性

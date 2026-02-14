@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="skip-menu-button">
     <!-- 左侧: 跳过按钮 -->
     <button

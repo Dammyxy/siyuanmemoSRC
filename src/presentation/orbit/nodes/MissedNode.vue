@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { Handle, Position } from '@vue-flow/core';
 
 defineProps<{ data: { label: string; assocType: string; reason: string } }>();

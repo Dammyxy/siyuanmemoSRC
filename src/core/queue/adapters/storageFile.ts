@@ -1,4 +1,4 @@
-import type { PersistenceAdapter } from '../persistence.ts';
+﻿import type { PersistenceAdapter } from '../persistence.ts';
 import type { StorageManager } from '../../storage/manager.ts';
 
 export class StorageFileJsonAdapter<TSnapshot extends object> implements PersistenceAdapter<TSnapshot> {

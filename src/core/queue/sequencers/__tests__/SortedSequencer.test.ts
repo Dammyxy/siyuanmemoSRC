@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SortedSequencer Tests
  * 
  * Verifies that the SM-15 style binary search insertion works correctly

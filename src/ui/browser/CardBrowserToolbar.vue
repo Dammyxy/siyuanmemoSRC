@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="card-browser__toolbar">
     <div class="toolbar__left">
       <!-- 搜索框 -->

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 批量查询配置
  */
 export interface BatchQueryConfig {

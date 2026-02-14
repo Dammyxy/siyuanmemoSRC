@@ -1,4 +1,4 @@
-/**
+﻿﻿/**
  * ReviewDialogManager - 管理所有复习对话框的打开
  * 从 index.ts 拆分出来的服务
  */
@@ -24,6 +24,7 @@ import { RetrievalPracticeProvider } from '@/ui/review/v2/providers/RetrievalPra
 // Queue strategies
 import { SubsetPracticeStrategy } from '@/core/queue/strategies';
 import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
+import { DEFAULT_PRIORITY } from '@/core/queue';
 
 // Types
 import type { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
@@ -32,6 +33,8 @@ import type { IncrementalLearningQueue } from '@/core/queue/strategies/Increment
 
 // 🆕 Unified Data Source
 import { createUnifiedReviewDialog } from '@/strategies/createUnifiedReviewDialog';
+import { UnifiedQueueStrategy } from '@/strategies/UnifiedQueueStrategy';
+import { UnifiedReviewAdapter } from '@/strategies/UnifiedReviewAdapter';
 import { QueueType } from '@/types/unified-data-source';
 
 export interface ReviewDialogManagerDeps {
@@ -167,7 +170,7 @@ export class ReviewDialogManager {
       
       console.log('[ReviewDialogManager] ✅ Retrieval practice dialog created with unified data source');
     } catch (err) {
-      console.error('[FSRS] Failed to open retrieval practice dialog:', err);
+      console.error('[SiyuanMemo] Failed to open retrieval practice dialog:', err);
       await pushErrMsg(this.deps.i18n?.loadFailed || '加载失败');
     }
   }
@@ -194,7 +197,7 @@ export class ReviewDialogManager {
         adapter: new LeechAdapter({ i18n: this.deps.i18n || {} }) as any,
       });
     } catch (err) {
-      console.error('[FSRS] Failed to open leech review dialog:', err);
+      console.error('[SiyuanMemo] Failed to open leech review dialog:', err);
       try { await pushErrMsg('难点攻坚启动失败'); } catch {}
     }
   }
@@ -220,7 +223,7 @@ export class ReviewDialogManager {
       
       console.log('[ReviewDialogManager] ✅ Final drill dialog created with unified data source');
     } catch (err) {
-      console.error('[FSRS] Failed to open final drill dialog:', err);
+      console.error('[SiyuanMemo] Failed to open final drill dialog:', err);
       await pushErrMsg(this.deps.i18n?.drillFailed || '机械练习启动失败');
     }
   }
@@ -246,7 +249,7 @@ export class ReviewDialogManager {
       
       console.log('[ReviewDialogManager] ✅ Incremental learning dialog created with unified data source');
     } catch (err) {
-      console.error('[FSRS] Failed to open incremental learning dialog:', err);
+      console.error('[SiyuanMemo] Failed to open incremental learning dialog:', err);
       await pushErrMsg(this.deps.i18n?.openFailed || '打开渐进学习失败');
     }
   }
@@ -272,8 +275,180 @@ export class ReviewDialogManager {
       
       console.log('[ReviewDialogManager] ✅ Filter group dialog created with unified data source');
     } catch (err) {
-      console.error('[FSRS] Failed to open filter group practice dialog:', err);
+      console.error('[SiyuanMemo] Failed to open filter group practice dialog:', err);
       await pushErrMsg(this.deps.i18n?.openFailed || '打开分组队列失败');
+    }
+  }
+
+  /**
+   * 打开渐进学习对话框（带过滤条件）
+   * 
+   * 用于块菜单中的渐进学习入口，支持按 blockIds 过滤卡片。
+   * 使用 FilterGroup 队列 + 临时过滤条件实现。
+   * 
+   * @param options 过滤选项
+   * @param options.blockIds 块 ID 列表
+   * @param options.dueOnly 是否只显示到期卡片
+   */
+  async openIncrementalLearningWithFilter(options: {
+    blockIds: string[];
+    dueOnly: boolean;
+  }): Promise<void> {
+    if (!(await this.checkInitialized())) return;
+    this.destroyCurrentDialog();
+
+    try {
+      // 🆕 使用 FilterGroup 队列 + 临时过滤条件
+      const manager = this.deps.plugin?.unifiedDataSourceManager;
+      if (!manager) {
+        console.error('[ReviewDialogManager] UnifiedDataSourceManager not found');
+        await pushErrMsg('无法打开渐进学习');
+        return;
+      }
+      
+      const filterGroupQueue = manager.getQueue(QueueType.FilterGroup);
+      
+      // 设置临时过滤条件
+      const filter: any = {
+        blockIds: options.blockIds,
+        // 渐进学习接受所有类型（Item + Topic）
+      };
+      
+      if (options.dueOnly) {
+        filter.dueDate = {
+          lte: new Date(),
+        };
+      }
+      
+      // 应用过滤条件
+      if (typeof (filterGroupQueue as any).setFilter === 'function') {
+        (filterGroupQueue as any).setFilter(filter);
+      }
+      
+      // 创建对话框（使用 FilterGroup 队列）
+      const queue = new UnifiedQueueStrategy(QueueType.FilterGroup);
+      const adapter = new UnifiedReviewAdapter();
+      
+      this.reviewDialog = createVueDialog({
+        hideTitle: true,
+        component: ReviewView,
+        dataKey: 'dialog-opencard',
+        transparent: true,
+        isReview: true,
+        props: {
+          app: this.deps.app,
+          i18n: this.deps.i18n || {},
+          title: this.deps.i18n?.incrementalLearning || '渐进学习',
+          queue: queue as any,
+          adapter: adapter as any,
+          plugin: this.deps.plugin,
+        },
+        events: {
+          close: () => {
+            // 清除过滤条件
+            if (typeof (filterGroupQueue as any).setFilter === 'function') {
+              (filterGroupQueue as any).setFilter({});
+            }
+            this.destroyCurrentDialog();
+          },
+        },
+        width: 'min(860px, 96vw)',
+        height: 'min(720px, 90vh)',
+        onClose: () => {
+          this.reviewDialog = null;
+        },
+      });
+      
+      console.log('[ReviewDialogManager] ✅ Incremental learning dialog created with blockIds filter');
+    } catch (err) {
+      console.error('[SiyuanMemo] Failed to open incremental learning dialog:', err);
+      await pushErrMsg(this.deps.i18n?.openFailed || '打开渐进学习失败');
+    }
+  }
+
+  /**
+   * 打开提取练习对话框（带过滤条件）
+   * 
+   * 用于块菜单中的提取练习入口，支持按 blockIds 过滤卡片。
+   * 使用 FilterGroup 队列 + 临时过滤条件实现。
+   * 
+   * @param options 过滤选项
+   * @param options.blockIds 块 ID 列表
+   * @param options.dueOnly 是否只显示到期卡片
+   */
+  async openRetrievalPracticeWithFilter(options: {
+    blockIds: string[];
+    dueOnly: boolean;
+  }): Promise<void> {
+    if (!(await this.checkInitialized())) return;
+    this.destroyCurrentDialog();
+
+    try {
+      // 🆕 使用 FilterGroup 队列 + 临时过滤条件
+      const manager = this.deps.plugin?.unifiedDataSourceManager;
+      if (!manager) {
+        console.error('[ReviewDialogManager] UnifiedDataSourceManager not found');
+        await pushErrMsg('无法打开提取练习');
+        return;
+      }
+      
+      const filterGroupQueue = manager.getQueue(QueueType.FilterGroup);
+      
+      // 设置临时过滤条件
+      const filter: any = {
+        blockIds: options.blockIds,
+        cardType: 'item',  // 只接受 Item
+      };
+      
+      if (options.dueOnly) {
+        filter.dueDate = {
+          lte: new Date(),
+        };
+      }
+      
+      // 应用过滤条件
+      if (typeof (filterGroupQueue as any).setFilter === 'function') {
+        (filterGroupQueue as any).setFilter(filter);
+      }
+      
+      // 创建对话框（使用 FilterGroup 队列）
+      const queue = new UnifiedQueueStrategy(QueueType.FilterGroup);
+      const adapter = new UnifiedReviewAdapter();
+      
+      this.reviewDialog = createVueDialog({
+        hideTitle: true,
+        component: ReviewView,
+        dataKey: 'dialog-opencard',
+        transparent: true,
+        isReview: true,
+        props: {
+          app: this.deps.app,
+          i18n: this.deps.i18n || {},
+          title: this.deps.i18n?.retrievalPractice || '提取练习',
+          queue: queue as any,
+          adapter: adapter as any,
+          plugin: this.deps.plugin,
+        },
+        events: {
+          close: () => {
+            // 清除过滤条件
+            if (typeof (filterGroupQueue as any).setFilter === 'function') {
+              (filterGroupQueue as any).setFilter({});
+            }
+            this.destroyCurrentDialog();
+          },
+        },
+        width: 'min(860px, 96vw)',
+        height: 'min(720px, 90vh)',
+        onClose: () => {
+          this.reviewDialog = null;
+        },
+      });
+      
+      console.log('[ReviewDialogManager] ✅ Retrieval practice dialog created with blockIds filter');
+    } catch (err) {
+      console.error('[SiyuanMemo] Failed to open retrieval practice dialog:', err);
+      await pushErrMsg(this.deps.i18n?.loadFailed || '加载失败');
     }
   }
 
@@ -298,7 +473,7 @@ export class ReviewDialogManager {
       
       console.log('[ReviewDialogManager] 鉁?Neural roam dialog created with unified data source');
     } catch (err) {
-      console.error('[FSRS] Failed to open neural roam dialog:', err);
+      console.error('[SiyuanMemo] Failed to open neural roam dialog:', err);
       await pushErrMsg(this.deps.i18n?.neuralReviewFailed || '绁炵粡澶嶄範鍚姩澶辫触');
     }
   }
@@ -325,8 +500,19 @@ export class ReviewDialogManager {
 
   /**
    * 打开练习对话框（基于卡片列表）
+   * 
+   * @param cards 卡片列表
+   * @param practiceMode 练习模式
+   * @param options 可选配置
+   * @param options.onReview 复习回调（cardId, rating）
    */
-  openDrillWithCards(cards: any[], practiceMode: 'queue' | 'block' = 'queue'): void {
+  openDrillWithCards(
+    cards: any[], 
+    practiceMode: 'queue' | 'block' = 'queue',
+    options?: {
+      onReview?: (cardId: string, rating: number) => void;
+    }
+  ): void {
     this.destroyCurrentDialog();
 
     const ids = Array.from(new Set((cards || []).map((c) => String(c?.blockID || c?.blockId || '')).filter(Boolean)));
@@ -358,6 +544,7 @@ export class ReviewDialogManager {
         plugin: this.deps.plugin,  // 🆕 传递 plugin 引用
         queue: session as any,
         adapter: adapter as any,
+        onReview: options?.onReview,  // 🆕 传递 onReview 回调
       },
       events: {
         close: () => this.destroyCurrentDialog(),

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 从 Riff 卡片数据中提取元数据
  * 用于补充 Provider 返回的 QueueItem
  *

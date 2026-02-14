@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <select
     class="b3-select fn__flex-center fn__size200"
     :value="modelValue"

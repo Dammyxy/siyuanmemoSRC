@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Topic/Item Card Filter Utility
  * 
  * Provides shared Topic filtering logic that can be reused by queues and browsers.

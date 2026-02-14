@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Property-Based Tests for Xiuyuan Type Safety
  * 
  * Feature: architecture-optimization

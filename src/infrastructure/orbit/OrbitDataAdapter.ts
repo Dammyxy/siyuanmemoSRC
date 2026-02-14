@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Orbit 轨道视图 - 数据适配器（Infrastructure 层）
  *
  * @description 负责从 NeuralQueue 获取数据并转换为 Domain 层的 OrbitState

@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { DIRECTION_COLORS } from '@/domain/orbit/constants';
 
 const props = defineProps<{

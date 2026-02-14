@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Hybrid Data Source
  *
  * @deprecated 此文件属于旧队列架构，将在未来版本中移除。

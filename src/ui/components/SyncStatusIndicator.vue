@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="sync-status-indicator">
     <!-- 同步状态显示 -->
     <div v-if="syncStatus.status === 'syncing'" class="status syncing">

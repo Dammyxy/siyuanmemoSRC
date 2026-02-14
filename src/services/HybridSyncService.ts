@@ -1,4 +1,4 @@
-/**
+﻿/**
  * HybridSyncService - 混合同步服务（优化版）
  * 
  * 管理 Riff 系统的混合同步方案：
@@ -452,10 +452,29 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
             ? cardTypeAttr 
             : 'item'; // 默认为 item
         
+        // 🔧 修复：验证 lastReview 日期的有效性
+        // Riff API 可能返回无效日期（如 "0001-01-01T00:00:00Z"），需要过滤
+        const parseValidDate = (dateStr: string | undefined): number => {
+            if (!dateStr) return 0;
+            const timestamp = new Date(dateStr).getTime();
+            // 检查是否为有效时间戳（大于 2000-01-01 且不是 NaN）
+            // 2000-01-01 ≈ 946684800000 ms
+            // 这样可以过滤掉 "0001-01-01" 这种无效日期（会被解析为负数或很小的正数）
+            const MIN_VALID_TIMESTAMP = 946684800000; // 2000-01-01
+            const isValid = timestamp >= MIN_VALID_TIMESTAMP && !isNaN(timestamp);
+            
+            // 🔍 调试：记录无效日期
+            if (!isValid && dateStr) {
+                console.warn(`[HybridSyncService] Invalid date detected: "${dateStr}" (timestamp: ${timestamp}) for card ${riffBlock.id}`);
+            }
+            
+            return isValid ? timestamp : 0;
+        };
+        
         return {
             id: riffBlock.id,
             blockId: riffBlock.id,
-            due: riffCard?.due ? new Date(riffCard.due).getTime() : now,
+            due: parseValidDate(riffCard?.due) || now,
             stability: riffCard?.stability || 0,
             difficulty: riffCard?.difficulty || 0,
             elapsedDays: riffCard?.elapsedDays || 0,
@@ -463,9 +482,7 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
             reps: riffCard?.reps || 0,
             lapses: riffCard?.lapses || 0,
             state: riffCard?.state || 0,
-            lastReview: riffCard?.lastReview 
-                ? new Date(riffCard.lastReview).getTime()
-                : 0,
+            lastReview: parseValidDate(riffCard?.lastReview),
             
             priority: 50, // 默认优先级（RiffCard 不包含 priority 字段）
             type: cardType as any,

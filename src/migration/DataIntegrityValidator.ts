@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Data Integrity Validator
  * 数据完整性验证工具
  * 

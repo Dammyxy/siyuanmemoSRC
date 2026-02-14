@@ -1,4 +1,4 @@
-/**
+﻿/**
  * RetrievalPracticeQueue 性能基准测试
  * Phase 2d.5: 性能测试
  */
@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { RetrievalPracticeQueue } from '@/core/queue/strategies/RetrievalPracticeQueue';
 import type { StorageManager } from '@/core/storage/manager';
-import { SimpleFSRSScheduler } from '@/core/scheduler/strategies/FSRSV5';
+import { TSFSRSScheduler } from '@/core/scheduler/strategies/TSFSRSScheduler';
 import type { QueueItem } from '@/core/queue/types';
 
 // Mock StorageManager
@@ -80,7 +80,7 @@ describe('Performance Benchmarks - RetrievalPracticeQueue', () => {
       deckID: 'test-deck',
       api: mockRiffApi,
       storage: mockStorage,
-      localScheduler: new SimpleFSRSScheduler(mockFSRSParams),
+      localScheduler: new TSFSRSScheduler(mockFSRSParams),
     });
   });
 
@@ -186,7 +186,7 @@ describe('Memory Leak Tests - RetrievalPracticeQueue', () => {
       deckID: 'test-deck',
       api: mockRiffApi,
       storage: mockStorage,
-      localScheduler: new SimpleFSRSScheduler(mockFSRSParams),
+      localScheduler: new TSFSRSScheduler(mockFSRSParams),
     });
 
     // 添加大量卡片

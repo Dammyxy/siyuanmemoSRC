@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <!-- 阶段1: 答案隐藏 - showAnswer 为 true 时显示"显示答案"按钮 (Topic 卡片跳过此阶段) -->
   <div v-if="actions.showAnswer && !isTopicCard" class="card__action fn__flex">
     <button
@@ -278,7 +278,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
     }
     
     // 从全局获取 manager 和 schedulerRouter
-    const fsrsPlugin = (window as any).siyuanFsrsPlugin;
+    const fsrsPlugin = (window as any).siyuanMemoPlugin;
     if (!fsrsPlugin) {
       console.error('[ReviewActions] FSRS plugin instance not found');
       return;

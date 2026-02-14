@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Architecture Scanner
  * 架构扫描器
  *

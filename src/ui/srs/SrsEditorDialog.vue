@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="srs-editor fn__flex-column">
     <div class="srs-editor__header fn__flex">
       <svg class="srs-editor__icon"><use xlink:href="#iconInfo"></use></svg>
@@ -669,7 +669,7 @@ async function handleReset() {
     await loadSelection();
     alert(t('resetDone', '已重置所选卡片'));
   } catch (err) {
-    console.error('[FSRS] reset error', err);
+    console.error('[SiyuanMemo] reset error', err);
     alert(t('resetFailed', '重置失败'));
   }
 }
@@ -722,7 +722,7 @@ async function applyReschedule() {
       type: 'success',
     });
   } catch (err) {
-    console.error('[FSRS] reschedule error', err);
+    console.error('[SiyuanMemo] reschedule error', err);
     showResultDialog({
       title: t('reschedule', '安排日期'),
       content: t('rescheduleFailed', '更新到期时间失败'),
@@ -775,7 +775,7 @@ async function applyReview() {
       type: 'success',
     });
   } catch (err) {
-    console.error('[FSRS] review error', err);
+    console.error('[SiyuanMemo] review error', err);
     showResultDialog({
       title: t('executeReview', '执行复习'),
       content: t('reviewFailed', '复习操作失败'),
@@ -823,7 +823,7 @@ async function applyPlan() {
     await loadSelection();
     alert(t('planApplied', '已应用复习计划'));
   } catch (err) {
-    console.error('[FSRS] plan error', err);
+    console.error('[SiyuanMemo] plan error', err);
     alert(t('planFailed', '复习计划应用失败'));
   }
 }

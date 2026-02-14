@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Feature: architecture-optimization
  * Task 8.6: 批量操作性能测试
  * 

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SchedulerRouter + RetrievalPracticeQueue 性能测试
  *
  * 测试集成后的性能开销
@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SchedulerRouter } from '@/core/scheduler/SchedulerRouter';
 import { RetrievalPracticeQueue } from '@/core/queue/strategies/RetrievalPracticeQueue';
-import { SimpleFSRSScheduler } from '@/core/scheduler/strategies/FSRSV5';
+import { TSFSRSScheduler } from '@/core/scheduler/strategies/TSFSRSScheduler';
 import type { StorageManager } from '@/core/storage/manager';
 import type { FSRSCard } from '@/types';
 import { CardState, Rating } from '@/types';
@@ -215,7 +215,7 @@ describe('Performance Tests - SchedulerRouter Integration', () => {
       const iterations = 100;
 
       // 不使用 SchedulerRouter（直接使用调度器）
-      const directScheduler = new SimpleFSRSScheduler(mockFSRSParams);
+      const directScheduler = new TSFSRSScheduler(mockFSRSParams);
       const startDirect = performance.now();
 
       for (let i = 0; i < iterations; i++) {

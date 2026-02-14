@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="settings-panel">
     <!-- 顶部标签页 -->
     <div class="settings-tabs">
@@ -139,6 +139,66 @@
             <code>{{ paramsPreview }}</code>
           </div>
           <p class="form-hint">{{ t('modelParamsHint', '使用优化器可以根据你的复习数据自动优化这些参数') }}</p>
+        </div>
+
+        <div class="fn__hr"></div>
+
+        <!-- 🆕 参数优化 -->
+        <h3>{{ t('parameterOptimization', '参数优化') }}</h3>
+        
+        <div class="form-item">
+          <label>{{ t('optimizeParameters', '优化 FSRS 参数') }}</label>
+          <p class="form-hint">{{ t('optimizeParametersHint', '根据你的复习历史数据自动优化 FSRS 参数，提高算法准确性。需要至少 100 条复习记录。') }}</p>
+          
+          <div class="form-control">
+            <button 
+              class="b3-button b3-button--outline" 
+              @click="handleOptimizeParameters"
+              :disabled="isOptimizing"
+            >
+              {{ isOptimizing ? t('optimizing', '优化中...') : t('startOptimization', '开始优化') }}
+            </button>
+          </div>
+          
+          <!-- 优化进度 -->
+          <div v-if="isOptimizing" class="optimization-progress">
+            <div class="progress-bar">
+              <div class="progress-bar__fill" :style="{ width: optimizationProgress + '%' }"></div>
+            </div>
+            <p class="progress-text">{{ t('optimizationProgress', '优化进度') }}: {{ optimizationProgress }}%</p>
+          </div>
+          
+          <!-- 优化结果 -->
+          <div v-if="optimizationResult" class="optimization-result">
+            <div class="result-header">
+              <span class="result-icon">✅</span>
+              <span class="result-title">{{ t('optimizationComplete', '优化完成') }}</span>
+            </div>
+            <div class="result-stats">
+              <div class="result-stat">
+                <span class="stat-label">{{ t('reviewCount', '复习记录数') }}:</span>
+                <span class="stat-value">{{ optimizationResult.reviewCount }}</span>
+              </div>
+              <div class="result-stat">
+                <span class="stat-label">{{ t('duration', '耗时') }}:</span>
+                <span class="stat-value">{{ formatDuration(optimizationResult.duration) }}</span>
+              </div>
+            </div>
+            <div class="result-params">
+              <label>{{ t('optimizedParams', '优化后的参数') }}:</label>
+              <div class="params-preview">
+                <code>{{ formatWeights(optimizationResult.weights) }}</code>
+              </div>
+            </div>
+            <div class="result-actions">
+              <button class="btn-primary" @click="applyOptimizedParams">
+                {{ t('applyParams', '应用优化参数') }}
+              </button>
+              <button class="btn-secondary" @click="discardOptimizedParams">
+                {{ t('discard', '放弃') }}
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="form-actions">
@@ -394,6 +454,33 @@
 
         <h4>{{ t('version', '版本') }}</h4>
         <p>FSRS-5 (ts-fsrs)</p>
+        
+        <div class="fn__hr"></div>
+        
+        <!-- 🆕 数据维护 -->
+        <h3>{{ t('dataMaintenance', '数据维护') }}</h3>
+        
+        <div class="form-item">
+          <label>{{ t('repairInvalidDates', '修复无效日期') }}</label>
+          <div class="form-control">
+            <button 
+              class="b3-button b3-button--outline" 
+              @click="handleRepairDates"
+              :disabled="isRepairing"
+            >
+              {{ isRepairing ? t('repairing', '修复中...') : t('repairNow', '立即修复') }}
+            </button>
+          </div>
+          <p class="form-hint">
+            {{ t('repairInvalidDatesHint', '扫描并修复所有卡片中的无效日期（如"上次复习"显示为1月1日的问题）。修复后会自动保存。') }}
+          </p>
+          <p v-if="repairResult" class="form-result" :class="{ 'form-result--success': repairResult.fixed > 0 }">
+            {{ repairResult.fixed > 0 
+              ? t('repairSuccess', `已修复 ${repairResult.fixed}/${repairResult.total} 张卡片`) 
+              : t('repairNoIssues', `检查完成，未发现问题（共 ${repairResult.total} 张卡片）`) 
+            }}
+          </p>
+        </div>
       </div>
     </div>
   </div>
@@ -417,6 +504,8 @@ const DEFAULT_PARAMS = [
 const emit = defineEmits<{
   (e: 'save', settings: any): void;
   (e: 'close'): void;
+  (e: 'repair-dates'): void;  // 🆕 数据修复事件
+  (e: 'optimize-parameters', config: any): Promise<any>;  // 🆕 参数优化事件
 }>();
 
 const props = defineProps<{
@@ -434,6 +523,9 @@ const props = defineProps<{
     add: (filter: { type: string; value: string }) => Promise<number>;
     start: () => Promise<void>;
     clear: () => Promise<void>;
+  };
+  optimizationHandlers?: {  // 🆕 参数优化处理器
+    optimize: (config: any) => Promise<any>;
   };
 }>();
 
@@ -722,7 +814,7 @@ function handleDebugLogsChange() {
       ? '调试日志已启用，刷新页面后生效'
       : '调试日志已禁用，刷新页面后生效';
     
-    console.log(`[FSRS] ${message}`);
+    console.log(`[SiyuanMemo] ${message}`);
     
     // 如果有 showMessage 方法，显示提示
     if (props.i18n) {
@@ -783,6 +875,95 @@ async function handleQueueClear() {
   if (!props.queueHandlers?.clear) return;
   await props.queueHandlers.clear();
   queueCount.value = 0;
+}
+
+// 🆕 数据修复相关
+const isRepairing = ref(false);
+const repairResult = ref<{ fixed: number; total: number } | null>(null);
+
+async function handleRepairDates() {
+  if (isRepairing.value) return;
+  
+  isRepairing.value = true;
+  repairResult.value = null;
+  
+  try {
+    // 调用插件的修复方法
+    // 注意：这里需要通过 emit 或其他方式调用插件的 storage.repairInvalidDates()
+    // 由于 SettingsPanel 是一个独立组件，我们需要通过 emit 传递修复请求
+    emit('repair-dates' as any);
+  } catch (err) {
+    console.error('[SettingsPanel] Failed to repair dates:', err);
+  } finally {
+    isRepairing.value = false;
+  }
+}
+
+// 🆕 参数优化相关
+const isOptimizing = ref(false);
+const optimizationProgress = ref(0);
+const optimizationResult = ref<{ weights: number[]; duration: number; reviewCount: number } | null>(null);
+
+async function handleOptimizeParameters() {
+  if (isOptimizing.value || !props.optimizationHandlers?.optimize) return;
+  
+  isOptimizing.value = true;
+  optimizationProgress.value = 0;
+  optimizationResult.value = null;
+  
+  try {
+    // 调用优化处理器
+    const result = await props.optimizationHandlers.optimize({
+      enableShortTerm: settings.value.enableShortTerm,
+      progress: (current: number, total: number) => {
+        optimizationProgress.value = Math.round((current / total) * 100);
+      },
+    });
+    
+    optimizationResult.value = result;
+    optimizationProgress.value = 100;
+  } catch (err) {
+    console.error('[SettingsPanel] Failed to optimize parameters:', err);
+    // 可以在这里显示错误提示
+    alert(t('optimizationFailed', '参数优化失败：') + (err as Error).message);
+  } finally {
+    isOptimizing.value = false;
+  }
+}
+
+function applyOptimizedParams() {
+  if (!optimizationResult.value) return;
+  
+  // 应用优化后的参数
+  settings.value.params = [...optimizationResult.value.weights];
+  
+  // 清除优化结果
+  optimizationResult.value = null;
+  optimizationProgress.value = 0;
+  
+  // 提示用户保存
+  alert(t('paramsApplied', '优化参数已应用，请点击"保存设置"按钮保存更改。'));
+}
+
+function discardOptimizedParams() {
+  optimizationResult.value = null;
+  optimizationProgress.value = 0;
+}
+
+function formatWeights(weights: number[]): string {
+  return weights.map(w => w.toFixed(4)).join(', ');
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) {
+    return `${ms}ms`;
+  } else if (ms < 60000) {
+    return `${(ms / 1000).toFixed(1)}s`;
+  } else {
+    const minutes = Math.floor(ms / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    return `${minutes}m ${seconds}s`;
+  }
 }
 </script>
 
@@ -1109,3 +1290,116 @@ async function handleQueueClear() {
   color: var(--b3-theme-on-surface-light);
 }
 </style>
+
+
+/* 🆕 数据修复结果样式 */
+.form-result {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  background: var(--b3-theme-surface);
+  color: var(--b3-theme-on-surface);
+}
+
+.form-result--success {
+  background: var(--b3-theme-success-lighter);
+  color: var(--b3-theme-success);
+}
+
+/* 🆕 参数优化样式 */
+.optimization-progress {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--b3-theme-surface);
+  border-radius: 6px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: var(--b3-theme-surface-lighter);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-bar__fill {
+  height: 100%;
+  background: var(--b3-theme-primary);
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  margin: 8px 0 0 0;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface-light);
+  text-align: center;
+}
+
+.optimization-result {
+  margin-top: 12px;
+  padding: 16px;
+  background: var(--b3-theme-surface);
+  border-radius: 8px;
+  border: 1px solid var(--b3-theme-primary-lighter);
+}
+
+.result-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.result-icon {
+  font-size: 20px;
+}
+
+.result-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--b3-theme-primary);
+}
+
+.result-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.result-stat {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+.stat-label {
+  color: var(--b3-theme-on-surface-light);
+}
+
+.stat-value {
+  font-weight: 600;
+  color: var(--b3-theme-on-background);
+}
+
+.result-params {
+  margin-bottom: 12px;
+}
+
+.result-params label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.result-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.result-actions .btn-primary,
+.result-actions .btn-secondary {
+  flex: 1;
+}

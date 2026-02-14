@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Diagnostics Test Setup
  * 诊断模块测试配置
  *

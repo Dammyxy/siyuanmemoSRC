@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 统一的日志管理工具
  * 
  * 使用方法：
@@ -18,7 +18,7 @@ export type LogLevel = 'debug' | 'log' | 'info' | 'warn' | 'error';
 class Logger {
   private enabled: boolean = true;
   private isDevelopment: boolean = import.meta.env.DEV;
-  private prefix: string = '[FSRS]';
+  private prefix: string = '[SiyuanMemo]';
 
   /**
    * 设置是否启用日志

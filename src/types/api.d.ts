@@ -1,4 +1,4 @@
-interface IResGetNotebookConf {
+﻿interface IResGetNotebookConf {
   box: string;
   conf: NotebookConf;
   name: string;

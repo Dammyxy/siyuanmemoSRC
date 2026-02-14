@@ -1,4 +1,4 @@
-import { ref, computed, watch, type Ref, type ComputedRef } from 'vue';
+﻿import { ref, computed, watch, type Ref, type ComputedRef } from 'vue';
 import { parseQuery } from '../browserService';
 import { matchesParsedQuery, extractSqlStatement } from '../utils/cardFilters';
 import { BrowserCard } from '../types';

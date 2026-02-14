@@ -1,4 +1,4 @@
-import type { IQueueCommand } from '@/core/queue/abstraction/Command';
+﻿import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import type { Ref } from 'vue';
 
 export interface ReviewUIState {

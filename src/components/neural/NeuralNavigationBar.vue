@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div v-if="visible" class="neural-navigation-bar">
     <div class="neural-trail">
       <span class="seed-icon" :title="t('neural.seedCard')">🌱</span>

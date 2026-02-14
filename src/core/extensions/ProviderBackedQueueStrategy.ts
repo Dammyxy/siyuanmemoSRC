@@ -1,4 +1,4 @@
-import type { IQueueStrategy, QueueFeedback } from '../queue/abstraction/Strategy.ts';
+﻿import type { IQueueStrategy, QueueFeedback } from '../queue/abstraction/Strategy.ts';
 import type { QueueStats, QueueUIConfig } from '../queue/types.ts';
 import type { QueueProvider } from './QueueProvider.ts';
 

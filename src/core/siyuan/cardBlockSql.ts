@@ -1,4 +1,4 @@
-import { ATTR_CARD_ID } from './block.ts';
+﻿import { ATTR_CARD_ID } from './block.ts';
 
 export type CardBlockFilter =
   | { type: 'doc'; docId: string }

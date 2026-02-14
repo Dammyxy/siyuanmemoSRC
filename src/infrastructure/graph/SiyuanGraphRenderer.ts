@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SiyuanGraphRenderer - 完全基于思源原生关系图的渲染器
  * 
  * 直接复制思源 Graph.ts 的 onGraph 方法逻辑，

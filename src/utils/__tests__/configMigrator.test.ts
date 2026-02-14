@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ConfigMigrator Unit Tests
  * 
  * 测试配置迁移逻辑

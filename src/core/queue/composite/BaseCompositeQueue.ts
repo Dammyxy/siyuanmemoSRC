@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Base Composite Queue
  *
  * Core abstraction for all queue types.

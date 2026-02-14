@@ -1,4 +1,4 @@
-/**
+﻿/**
  * InterfaceValidator, MethodChecker, TypeChecker tests
  */
 

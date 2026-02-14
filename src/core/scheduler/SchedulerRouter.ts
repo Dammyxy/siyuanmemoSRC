@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Scheduler Router - 调度器路由器
  *
  * 根据卡片类型和配置选择合适的调度器
@@ -8,22 +8,19 @@
 import type { FSRSCard, FSRSParameters, Rating, CardType } from '@/types';
 import type { SchedulerEngineAdapter } from './types';
 import type { StorageManager } from '../storage/manager';
-import { SimpleFSRSScheduler } from './strategies/FSRSV5';
-import { SM2Scheduler } from './strategies/SM2';
+import { TSFSRSScheduler } from './strategies/TSFSRSScheduler';
 import { SM15Scheduler } from './strategies/SM15Scheduler';
 import { ImprovedTopicScheduler } from './strategies/ImprovedTopicScheduler';
 import { TopicScheduler } from './TopicScheduler';
 import { createScheduler } from './index';
 import { migrateCard } from './strategies/sm15/migration';
-import { RiffSchedulerAdapter } from './adapters/RiffSchedulerAdapter';
 
 /** 调度器类型 */
-export type SchedulerType = 'fsrs-v5' | 'sm2' | 'sm15' | 'a-factor' | 'a-factor-v2' | 'riff';
+export type SchedulerType = 'fsrs-v5' | 'sm15' | 'a-factor' | 'a-factor-v2';
 
 /** Scheduler Router 配置 */
 export interface SchedulerRouterConfig {
     defaultScheduler: SchedulerType;
-    enableRiffSync: boolean;
     fsrsParams: FSRSParameters;
     schedulerOverrides?: Map<string, SchedulerType>;
 }
@@ -52,11 +49,8 @@ export class SchedulerRouter {
     private _initializeSchedulers(): void {
         const params = this.config.fsrsParams;
 
-        // FSRS v5 (默认)
-        this.schedulers.set('fsrs-v5', new SimpleFSRSScheduler(params));
-
-        // SM-2
-        this.schedulers.set('sm2', new SM2Scheduler(params));
+        // FSRS v6 (使用官方 ts-fsrs 库)
+        this.schedulers.set('fsrs-v5', new TSFSRSScheduler(params));
 
         // SM-15
         this.schedulers.set('sm15', new SM15Scheduler(params));
@@ -66,9 +60,6 @@ export class SchedulerRouter {
 
         // A-Factor v2 (ImprovedTopicScheduler)
         this.schedulers.set('a-factor-v2', new ImprovedTopicScheduler(params));
-
-        // Riff 调度器
-        this.schedulers.set('riff', new RiffSchedulerAdapter(params));
     }
 
     /**
@@ -79,31 +70,74 @@ export class SchedulerRouter {
      * @returns 更新后的卡片
      */
     async route(card: FSRSCard, rating: Rating): Promise<FSRSCard> {
-        // 1. 确定调度器类型
-        const schedulerType = this.getSchedulerType(card);
+        try {
+            console.log('[SchedulerRouter] route() called:', {
+                cardId: card.id,
+                rating,
+                cardType: card.type,
+                currentSchedulerType: card.schedulerType,
+                cardState: card.state,
+                stability: card.stability,
+                difficulty: card.difficulty,
+                due: card.due,
+                dueDate: new Date(card.due).toISOString(),
+                lastReview: card.lastReview,
+                lastReviewDate: new Date(card.lastReview).toISOString(),
+            });
+            
+            // 1. 确定调度器类型
+            const schedulerType = this.getSchedulerType(card);
+            console.log('[SchedulerRouter] Selected scheduler type:', schedulerType);
 
-        // 2. 获取调度器
-        const scheduler = this.schedulers.get(schedulerType);
-        if (!scheduler) {
-            throw new Error(`Scheduler not found: ${schedulerType}`);
+            // 2. 获取调度器
+            const scheduler = this.schedulers.get(schedulerType);
+            if (!scheduler) {
+                throw new Error(`Scheduler not found: ${schedulerType}`);
+            }
+            
+            console.log('[SchedulerRouter] Scheduler found:', {
+                schedulerType,
+                hasReviewMethod: typeof scheduler.review === 'function',
+            });
+
+            // 3. 执行复习
+            const updatedCard = scheduler.review(card, rating);
+            
+            console.log('[SchedulerRouter] After scheduler.review():', {
+                updatedCard: updatedCard ? {
+                    id: updatedCard.id,
+                    due: updatedCard.due,
+                    dueDate: new Date(updatedCard.due).toISOString(),
+                    state: updatedCard.state,
+                    reps: updatedCard.reps,
+                    stability: updatedCard.stability,
+                    difficulty: updatedCard.difficulty,
+                    scheduledDays: updatedCard.scheduledDays,
+                    elapsedDays: updatedCard.elapsedDays,
+                } : 'undefined',
+            });
+            
+            if (!updatedCard) {
+                throw new Error(`Scheduler ${schedulerType} returned undefined for card ${card.id}`);
+            }
+
+            // 4. 更新调度器类型
+            updatedCard.schedulerType = schedulerType;
+
+            // 5. 保存到本地数据库
+            this.storage.setCard(updatedCard);
+            await this.storage.saveCards();
+
+            return updatedCard;
+        } catch (error) {
+            console.error('[SchedulerRouter] route() failed:', {
+                cardId: card.id,
+                rating,
+                error: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : undefined,
+            });
+            throw error;
         }
-
-        // 3. 执行复习
-        const updatedCard = scheduler.review(card, rating);
-
-        // 4. 更新调度器类型
-        updatedCard.schedulerType = schedulerType;
-
-        // 5. 保存到本地数据库
-        this.storage.setCard(updatedCard);
-        await this.storage.saveCards();
-
-        // 6. 如果是 Riff 调度器且启用同步，标记同步状态
-        if (schedulerType === 'riff' && this.config.enableRiffSync) {
-            updatedCard.syncToRiff = true;
-        }
-
-        return updatedCard;
     }
 
     /**
@@ -183,14 +217,7 @@ export class SchedulerRouter {
         // 4. 更新调度器类型
         convertedCard.schedulerType = newScheduler;
 
-        // 5. 更新同步标志
-        if (newScheduler === 'riff') {
-            convertedCard.syncToRiff = this.config.enableRiffSync;
-        } else {
-            convertedCard.syncToRiff = false;
-        }
-
-        // 6. 保存到本地
+        // 5. 保存到本地
         this.storage.setCard(convertedCard);
         await this.storage.saveCards();
 

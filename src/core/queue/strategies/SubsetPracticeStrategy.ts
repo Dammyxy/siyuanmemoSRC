@@ -1,4 +1,4 @@
-import { riff } from '@/core/siyuan';
+﻿import { riff } from '@/core/siyuan';
 import { DEFAULT_PRIORITY } from '../abstraction/IPriority.ts';
 import { normalizeRiffCardId } from '../abstraction/QueueCardRef.ts';
 import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy.ts';

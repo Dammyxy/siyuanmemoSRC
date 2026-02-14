@@ -1,4 +1,4 @@
-/**
+﻿/**
  * FSRSSequencer Unit Tests
  * 
  * Tests for the FSRS-optimized sequencer with learning queue support.
