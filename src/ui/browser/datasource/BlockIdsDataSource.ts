@@ -1,5 +1,5 @@
 ﻿import type { BrowserCard } from '../types';
-import { loadQueueCards } from '../browserService';
+import { loadQueueCards, loadQueueCardsSimple } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
 import {
   BASE_ACTIONS,
@@ -54,7 +54,7 @@ export class BlockIdsDataSource implements ICardDataSource {
   }
 
   async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
-    const cards = await loadQueueCards(this.blockIds);
+    const cards = await loadQueueCardsSimple(this.blockIds);
     const sorted = applySort(cards, params?.sortModel || []);
     return { rows: sorted, totalCount: sorted.length };
   }

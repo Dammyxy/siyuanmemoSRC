@@ -177,6 +177,20 @@ export interface SyncProgressEvent {
 }
 
 /**
+ * WebSocket 同步事件数据
+ */
+export interface WsSyncEvent {
+    /** 是否成功 */
+    success: boolean;
+    /** 同步结果（成功时） */
+    result?: SyncResult;
+    /** 错误对象（失败时） */
+    error?: Error;
+    /** 时间戳 */
+    timestamp: number;
+}
+
+/**
  * HybridSyncService 事件映射
  */
 export interface HybridSyncEvents {
@@ -188,6 +202,8 @@ export interface HybridSyncEvents {
     syncError: SyncErrorEvent;
     /** 同步进度 */
     syncProgress: SyncProgressEvent;
+    /** 🆕 WebSocket 触发的同步完成 */
+    wsSync: WsSyncEvent;
 }
 
 // ==================== 错误类型 ====================

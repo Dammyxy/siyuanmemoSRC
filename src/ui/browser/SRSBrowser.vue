@@ -150,7 +150,7 @@ import { type RowSelectionOptions } from 'ag-grid-community';
 import { openTab, Menu, Protyle, type App } from 'siyuan';
 import { pushErrMsg, pushMsg, setBlockAttrs } from '@/core/siyuan/api';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
-import { parseQuery, loadCards, loadQueueCards, invalidateCardCache, getCacheStats, subscribeCacheUpdate } from './browserService';
+import { parseQuery, loadCards, loadQueueCards, loadQueueCardsSimple, setGlobalBrowserContext, clearGlobalBrowserContext, invalidateCardCache, getCacheStats, subscribeCacheUpdate } from './browserService';
 import { PerformanceMonitor } from '@/utils/performance';
 import { type BrowserCard, CardState } from './types';
 import { migrateExistingCards, checkMigrationNeeded } from '@/scripts/migrateToTopicItem';
@@ -613,6 +613,10 @@ function handleSearchInput() {
 // 监听 searchQuery 变化
 watch(searchQuery, () => {
   handleSearchInput();
+  // 🆕 更新全局上下文
+  if (props.plugin?.unifiedDataSourceManager) {
+    setGlobalBrowserContext(props.plugin.unifiedDataSourceManager, searchQuery.value);
+  }
 });
 
 // 监听 preset 和 cardType 变化
@@ -651,7 +655,7 @@ watch(() => loading.value, async (isLoading) => {
     await cardTypeDetection.detect();
 
     // 重新获取这些卡片的属性（同步更新 rows.value）
-    const updatedCards = await loadQueueCards(blockIds);
+    const updatedCards = await loadQueueCardsSimple(blockIds);
     const updatedMap = new Map(updatedCards.map(c => [c.blockId, c]));
 
     // 更新 rows.value 中对应的卡片
@@ -1360,7 +1364,7 @@ async function handleCardUpdatedIncremental(cardIds: string[]) {
     console.log(`[SRSBrowser] ⚡ Incremental update: ${cardIds.length} cards`);
     
     // 1. 从数据源获取更新后的卡片数据
-    const updatedCards = await loadQueueCards(cardIds);
+    const updatedCards = await loadQueueCardsSimple(cardIds);
     
     if (updatedCards.length === 0) {
       console.warn('[SRSBrowser] ⚠️ No updated cards returned, skipping update');
@@ -1510,6 +1514,10 @@ function showPerformanceReport() {
 let unsubscribe: (() => void) | null = null;
 
 onBeforeUnmount(() => {
+  // 🆕 清理全局浏览器上下文
+  clearGlobalBrowserContext();
+  console.log('[SRSBrowser] Global browser context cleared');
+  
   // 🆕 清理统一数据源适配器
   if (browserAdapter.value) {
     browserAdapter.value.destroy();
@@ -1532,6 +1540,14 @@ onMounted(() => {
       viewMode.value = stored;
     }
   } catch {}
+
+  // 🆕 初始化全局浏览器上下文
+  if (props.plugin?.unifiedDataSourceManager) {
+    setGlobalBrowserContext(props.plugin.unifiedDataSourceManager, searchQuery.value);
+    console.log('[SRSBrowser] Global browser context initialized');
+  } else {
+    console.warn('[SRSBrowser] UnifiedDataSourceManager not available, global context not initialized');
+  }
 
   // 🆕 初始化统一数据源适配器
   try {
@@ -1616,18 +1632,73 @@ onMounted(() => {
     }
   });
 
-  // 🆕 触发增量同步（如果启用）
+  // 🆕 监听 HybridSyncService 的 WebSocket 同步事件
   const plugin = props.plugin as any;
   if (plugin?.hybridSyncService) {
+    // 监听 wsSync 事件（WebSocket 触发的同步完成）
+    plugin.hybridSyncService.on('wsSync', (event: any) => {
+      console.log('[SRSBrowser] Received wsSync event:', event);
+      
+      if (event.success) {
+        console.log('[SRSBrowser] ⚡ Reloading data due to WebSocket sync...');
+        // 同步成功，刷新数据
+        void loadData(true); // 强制刷新缓存
+      } else {
+        console.error('[SRSBrowser] WebSocket sync failed:', event.error);
+        // 同步失败，也尝试刷新数据（使用缓存）
+        void loadData();
+      }
+    });
+    
+    console.log('[SRSBrowser] ✅ Subscribed to HybridSyncService wsSync events');
+  }
+
+  // 🆕 触发同步（如果启用）
+  if (plugin?.hybridSyncService) {
     const riffConfig = plugin.storage?.getSettings?.()?.riffIntegration;
-    if (riffConfig?.mode === 'advanced' && 
-        riffConfig?.incrementalSync?.enabled &&
-        riffConfig?.incrementalSync?.triggers?.includes('browser-open')) {
-      // 后台执行增量同步，不阻塞 UI
-      void plugin.hybridSyncService.incrementalSync().catch((err: Error) => {
-        console.error('[SRSBrowser] Incremental sync failed:', err);
+    
+    // 🔍 详细日志：诊断为什么自动同步没有触发
+    console.log('[SRSBrowser] 🔍 Checking auto-sync configuration:', {
+      hasHybridSyncService: !!plugin.hybridSyncService,
+      hasRiffConfig: !!riffConfig,
+      mode: riffConfig?.mode,
+      incrementalSyncEnabled: riffConfig?.incrementalSync?.enabled,
+      fullSyncEnabled: riffConfig?.fullSync?.enabled,
+      triggers: riffConfig?.incrementalSync?.triggers,
+      hasBrowserOpenTrigger: riffConfig?.incrementalSync?.triggers?.includes('browser-open')
+    });
+    
+    // 🔧 修复：mode 为 undefined 时默认为 advanced（简单模式已移除）
+    const isAdvancedMode = !riffConfig?.mode || riffConfig.mode === 'advanced';
+    
+    // 🔧 修复：浏览器打开时使用全量同步，确保获取所有新卡片
+    // 原因：增量同步依赖 lastSyncTime，可能因为时间戳不同步而漏掉卡片
+    if (isAdvancedMode && riffConfig?.fullSync?.enabled) {
+      console.log('[SRSBrowser] ✅ Triggering full sync on browser open...');
+      
+      // 使用立即执行的异步函数
+      void (async () => {
+        try {
+          await plugin.hybridSyncService.fullSync();
+          console.log('[SRSBrowser] ✅ Full sync completed, reloading data...');
+          // 同步完成后重新加载数据
+          await loadData(true); // 强制刷新缓存
+        } catch (err) {
+          console.error('[SRSBrowser] ❌ Full sync failed:', err);
+          // 同步失败也继续加载数据
+          await loadData();
+        }
+      })();
+      
+      return; // 不再执行下面的 loadData()
+    } else {
+      console.log('[SRSBrowser] ⚠️ Auto-sync not triggered, loading data without sync', {
+        isAdvancedMode,
+        fullSyncEnabled: riffConfig?.fullSync?.enabled
       });
     }
+  } else {
+    console.log('[SRSBrowser] ⚠️ HybridSyncService not available');
   }
 
   loadData();
@@ -1826,7 +1897,7 @@ async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {
   const blockIds = extractBlockIds(items);
   console.log('[SRSBrowser] Extracted blockIds:', blockIds);
 
-  const cards = await loadQueueCards(blockIds);
+  const cards = await loadQueueCardsSimple(blockIds);
   console.log('[SRSBrowser] Loaded cards:', cards.length);
   return cards;
 }

@@ -36,6 +36,43 @@ import {
 } from './types';
 
 // ============================================================================
+// 全局上下文（用于简化 loadQueueCards 调用）
+// ============================================================================
+
+let globalUnifiedDataSourceManager: UnifiedDataSourceManager | null = null;
+let globalQueryText: string = '';
+
+/**
+ * 设置全局浏览器上下文
+ * 
+ * 用于简化 loadQueueCards 的调用，避免在每个调用点都传递相同的参数。
+ * 应该在 SRSBrowser 组件初始化时调用。
+ * 
+ * @param manager 统一数据源管理器
+ * @param queryText 当前搜索查询文本（可选）
+ */
+export function setGlobalBrowserContext(
+    manager: UnifiedDataSourceManager,
+    queryText: string = ''
+): void {
+    globalUnifiedDataSourceManager = manager;
+    globalQueryText = queryText;
+    console.log('[browserService] Global context updated:', {
+        hasManager: !!manager,
+        queryText: queryText || '(empty)'
+    });
+}
+
+/**
+ * 清除全局浏览器上下文
+ */
+export function clearGlobalBrowserContext(): void {
+    globalUnifiedDataSourceManager = null;
+    globalQueryText = '';
+    console.log('[browserService] Global context cleared');
+}
+
+// ============================================================================
 // 缓存层实现
 // ============================================================================
 
@@ -806,6 +843,34 @@ export async function loadQueueCards(
         console.error('[CardBrowser] loadQueueCards error:', err);
         return [];
     }
+}
+
+/**
+ * 简化版的 loadQueueCards，使用全局上下文
+ * 
+ * 这是一个便捷包装函数，使用全局设置的 unifiedDataSourceManager 和 queryText。
+ * 在调用前必须先调用 setGlobalBrowserContext() 初始化全局上下文。
+ * 
+ * @param blockIds 要加载的卡片 ID 列表
+ * @returns 加载的卡片列表
+ * 
+ * @example
+ * ```typescript
+ * // 初始化全局上下文（在组件初始化时）
+ * setGlobalBrowserContext(unifiedDataSourceManager, searchQuery);
+ * 
+ * // 使用简化版本
+ * const cards = await loadQueueCardsSimple(['block-id-1', 'block-id-2']);
+ * ```
+ */
+export async function loadQueueCardsSimple(
+    blockIds: string[]
+): Promise<BrowserCard[]> {
+    if (!globalUnifiedDataSourceManager) {
+        console.error('[browserService] Global context not initialized. Call setGlobalBrowserContext() first.');
+        return [];
+    }
+    return loadQueueCards(blockIds, globalQueryText, globalUnifiedDataSourceManager);
 }
 
 

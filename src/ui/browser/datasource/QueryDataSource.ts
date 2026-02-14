@@ -1,7 +1,7 @@
 ﻿import type { BrowserCard } from '../types';
 import { CardState, STATE_LABELS, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from '../types';
 import { sql } from '@/core/siyuan/api';
-import { loadQueueCards } from '../browserService';
+import { loadQueueCards, loadQueueCardsSimple } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
 
 function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
@@ -83,7 +83,7 @@ export class QueryDataSource implements ICardDataSource {
       if (id) blockIds.push(id);
     }
 
-    const joined = await loadQueueCards(blockIds);
+    const joined = await loadQueueCardsSimple(blockIds);
     const byBlockId = new Map(joined.map((c) => [c.blockId, c]));
 
     const rows: BrowserCard[] = [];

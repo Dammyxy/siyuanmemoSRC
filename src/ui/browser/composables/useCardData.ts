@@ -3,6 +3,7 @@ import { PerformanceMonitor } from '@/utils/performance';
 import { 
   loadCards, 
   loadQueueCards, 
+  loadQueueCardsSimple,
   invalidateCardCache, 
   getCacheStats, 
   subscribeCacheUpdate 
@@ -193,7 +194,7 @@ export function useCardData(props: CardDataOptions) {
     const blockIds = extractBlockIds(items);
     console.log('[SRSBrowser] Extracted blockIds:', blockIds);
 
-    const cards = await loadQueueCards(blockIds);
+    const cards = await loadQueueCardsSimple(blockIds);
     console.log('[SRSBrowser] Loaded cards:', cards.length);
     return cards;
   }
