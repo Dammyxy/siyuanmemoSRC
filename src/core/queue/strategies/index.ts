@@ -8,3 +8,4 @@ export { IncrementalLearningQueue, type IncrementalLearningConfig } from './Incr
 
 // 其他导出
 export { SubsetPracticeStrategy } from './SubsetPracticeStrategy';
+export { TemporaryDrillStrategy } from './TemporaryDrillStrategy';

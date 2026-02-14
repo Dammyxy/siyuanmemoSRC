@@ -131,6 +131,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                 // 返回第一张卡片（队列已经处理了随机/加权逻辑）
                 const card = this.cachedCards[0];
                 
+                // 🔧 刻意练习队列不显示下次复习时间
                 console.log(`[UnifiedQueueStrategy] Next card (dynamic draw):`, {
                     queueType: this.queueType,
                     cardId: card.id,
@@ -147,11 +148,14 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                 if (this.queue && typeof (this.queue as any).getNextCard === 'function') {
                     const nextCard = await (this.queue as any).getNextCard();
                     if (nextCard) {
+                        // 🆕 计算 nextDues
+                        const cardWithNextDues = await this.addNextDues(nextCard);
+                        
                         console.log(`[UnifiedQueueStrategy] Next card (spreading activation):`, {
                             queueType: this.queueType,
                             cardId: nextCard.id
                         });
-                        return nextCard;
+                        return cardWithNextDues;
                     } else {
                         console.log(`[UnifiedQueueStrategy] No more cards from spreading activation`);
                         return null;
@@ -174,6 +178,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
             // 返回当前卡片并移动索引
             const card = this.cachedCards[this.currentIndex++];
             
+            // 🆕 计算 nextDues
+            const cardWithNextDues = await this.addNextDues(card);
+            
             console.log(`[UnifiedQueueStrategy] Next card:`, {
                 queueType: this.queueType,
                 cardId: card.id,
@@ -183,7 +190,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                 now: new Date(Date.now()).toISOString()
             });
             
-            return card;
+            return cardWithNextDues;
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error(`[UnifiedQueueStrategy] Failed to get next card:`, {
@@ -438,6 +445,81 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
     // ========================================================================
     // 私有方法
     // ========================================================================
+    
+    /**
+     * 为卡片添加 nextDues 字段
+     * 
+     * 使用调度器的 preview() 方法计算每个评分的下次复习时间。
+     * 
+     * @param card 原始卡片
+     * @returns 添加了 nextDues 字段的卡片
+     */
+    private async addNextDues(card: FSRSCard): Promise<any> {
+        try {
+            console.log('[UnifiedQueueStrategy] 🔍 Calculating nextDues for card:', card.id);
+            
+            // 从全局获取插件实例
+            const plugin = (window as any).siyuanMemoPlugin;
+            if (!plugin || !plugin.schedulerRouter) {
+                console.warn('[UnifiedQueueStrategy] ⚠️ Plugin or schedulerRouter not found');
+                return card;
+            }
+            
+            const schedulerRouter = plugin.schedulerRouter;
+            console.log('[UnifiedQueueStrategy] 📊 SchedulerRouter obtained:', !!schedulerRouter);
+            
+            // 使用 preview() 方法计算所有评分的结果
+            const previews = schedulerRouter.preview(card);
+            
+            console.log('[UnifiedQueueStrategy] 📊 Preview results:', previews.size);
+            
+            // 格式化 nextDues
+            const nextDues: Record<number, string> = {};
+            
+            for (const [rating, previewCard] of previews.entries()) {
+                // 计算下次复习时间
+                const nextDue = new Date(previewCard.due);
+                const now = new Date();
+                const diffMs = nextDue.getTime() - now.getTime();
+                
+                // 格式化时间差
+                let formatted: string;
+                if (diffMs < 60 * 1000) {
+                    // 小于 1 分钟
+                    formatted = '< 1 分钟';
+                } else if (diffMs < 60 * 60 * 1000) {
+                    // 小于 1 小时
+                    const minutes = Math.round(diffMs / (60 * 1000));
+                    formatted = `${minutes} 分钟`;
+                } else if (diffMs < 24 * 60 * 60 * 1000) {
+                    // 小于 1 天
+                    const hours = Math.round(diffMs / (60 * 60 * 1000));
+                    formatted = `${hours} 小时`;
+                } else {
+                    // 大于等于 1 天
+                    const days = Math.round(diffMs / (24 * 60 * 60 * 1000));
+                    formatted = `${days} 天`;
+                }
+                
+                nextDues[rating] = formatted;
+                console.log(`[UnifiedQueueStrategy]   Rating ${rating}: ${formatted} (due: ${nextDue.toISOString()})`);
+            }
+            
+            console.log('[UnifiedQueueStrategy] ✅ nextDues calculated:', nextDues);
+            
+            // 返回添加了 nextDues 的卡片
+            return {
+                ...card,
+                nextDues,
+            };
+        } catch (error) {
+            console.error('[UnifiedQueueStrategy] ❌ Failed to calculate nextDues:', error);
+            console.error('[UnifiedQueueStrategy] ❌ Error stack:', error instanceof Error ? error.stack : 'No stack');
+            console.error('[UnifiedQueueStrategy] ❌ Error message:', error instanceof Error ? error.message : String(error));
+            // 如果计算失败，返回原始卡片（不带 nextDues）
+            return card;
+        }
+    }
     
     /**
      * 重新加载卡片列表

@@ -317,7 +317,20 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
         const cards: FSRSCard[] = [];
         const toRemove: string[] = [];
         
+        // 🆕 对于 Xiuyuan 卡片，需要从所有卡片中查找
+        // 因为 Xiuyuan 卡片的 ID 格式特殊，无法直接通过 getCard(cardId) 查询
+        const allCards = await this.manager.getCards({ cardType: 'item' });
+        const cardMap = new Map(allCards.map(c => [c.id, c]));
+        
         for (const cardId of this.manuallyAddedCards) {
+            // 🆕 优先从 cardMap 中查找（支持 Xiuyuan 卡片）
+            const cardFromMap = cardMap.get(cardId);
+            if (cardFromMap) {
+                cards.push(cardFromMap);
+                continue;
+            }
+            
+            // 降级：尝试通过 manager.getCard 查找（普通卡片）
             try {
                 // 使用静默模式，避免记录预期的"卡片不存在"错误
                 const card = await this.manager.getCard(cardId, { silent: true });

@@ -148,10 +148,10 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
             actions: {
                 showAnswer: !context.showAnswer,  // 🔧 修复：反转 context.showAnswer 的值
                 grades: uiConfig.showRatingButtons ? [
-                    { label: '重来', value: 1, color: 'var(--b3-theme-error)', kb: '1', emoji: '🙈', nextDue: '' },
-                    { label: '困难', value: 2, color: 'var(--b3-theme-warning)', kb: '2', emoji: '😬', nextDue: '' },
-                    { label: '良好', value: 3, color: 'var(--b3-theme-info)', kb: '3', emoji: '😊', nextDue: '' },
-                    { label: '简单', value: 4, color: 'var(--b3-theme-success)', kb: '4', emoji: '🌈', nextDue: '' }
+                    { label: '重来', value: 1, color: 'var(--b3-theme-error)', kb: '1', emoji: '🙈', nextDue: (item as any)?.nextDues?.[1] || '' },
+                    { label: '困难', value: 2, color: 'var(--b3-theme-warning)', kb: '2', emoji: '😬', nextDue: (item as any)?.nextDues?.[2] || '' },
+                    { label: '良好', value: 3, color: 'var(--b3-theme-info)', kb: '3', emoji: '😊', nextDue: (item as any)?.nextDues?.[3] || '' },
+                    { label: '简单', value: 4, color: 'var(--b3-theme-success)', kb: '4', emoji: '🌈', nextDue: (item as any)?.nextDues?.[4] || '' }
                 ] : [],
                 menu: [],
                 cardMeta: {

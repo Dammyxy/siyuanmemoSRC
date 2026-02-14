@@ -5,10 +5,10 @@
  * - 复习所有类型的卡片（Item + Topic）
  * - 不记录作答，不影响排期
  * - 只支持"全部"模式（不区分到期/全部）
- * - 使用 FilterGroup 实现（临时队列，不持久化）
+ * - 使用临时队列（SubsetPracticeStrategy），不持久化
  * - 练习完成后自动销毁
  * 
- * 对应 SuperMemo 的 "Review all" 功能（但不影响调度）
+ * 对应 SuperMemo 的 "Drill" 功能（临时练习）
  * 
  * @see .kiro/specs/block-menu-review-entries/requirements.md
  * @see H:\project-F\flashcard\资料\supermemo\Subset operations - SuperMemo Help.md
@@ -18,12 +18,14 @@ import { ReviewEntryBase, type ReviewEntryBaseDeps } from './ReviewEntryBase';
 import { QueueType } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
 import { pushMsg } from '@/core/siyuan/api';
+import { riff } from '@/core/siyuan';
+import { DEFAULT_PRIORITY } from '@/core/queue/abstraction/IPriority';
 
 /**
  * 临时练习入口
  * 
- * 用于快速预览/测试当前文档的卡片，不影响任何调度。
- * 类似 SuperMemo 的 "Review all" 但不记录评分。
+ * 用于快速练习当前文档的卡片，不影响任何调度。
+ * 使用临时队列，练习完成后自动销毁。
  */
 export class TemporaryDrillEntry extends ReviewEntryBase {
   constructor(deps: ReviewEntryBaseDeps) {
@@ -31,7 +33,7 @@ export class TemporaryDrillEntry extends ReviewEntryBase {
       id: 'temporary-drill',
       displayName: '临时练习',
       icon: 'iconEye',
-      queueType: QueueType.FilterGroup,
+      queueType: QueueType.FilterGroup,  // 临时队列
       recordReview: false,  // 不记录作答
       cardTypeFilter: 'all',  // 接受所有类型
       supportDueMode: false,  // 只支持"全部"模式
@@ -43,9 +45,9 @@ export class TemporaryDrillEntry extends ReviewEntryBase {
    * 
    * 流程：
    * 1. 收集当前块及子块的所有卡片
-   * 2. 使用 FilterGroup 创建临时队列
-   * 3. 打开复习对话框（不记录评分）
-   * 4. 练习完成后自动销毁队列
+   * 2. 使用 TemporaryDrillStrategy 创建临时队列
+   * 3. 打开复习对话框（评分 4 移除，1/2/3 保留）
+   * 4. 练习完成后自动销毁
    * 
    * @param cards 卡片列表
    * @param mode 'due' | 'all'（临时练习忽略此参数，总是复习全部）
@@ -60,6 +62,8 @@ export class TemporaryDrillEntry extends ReviewEntryBase {
     }
     
     try {
+      console.log(`[TemporaryDrillEntry] Opening temporary drill with ${cards.length} cards`);
+      
       // 获取 blockIds
       const blockIds = [...new Set(cards.map(card => card.blockId).filter(Boolean))];
       
@@ -69,37 +73,48 @@ export class TemporaryDrillEntry extends ReviewEntryBase {
         return;
       }
       
-      // 创建临时过滤组配置
-      const filterGroupConfig = {
-        id: `temporary-drill-${Date.now()}`,
-        name: '临时练习',
-        blockIds: blockIds,
-        cardTypes: ['item', 'topic'] as const,
-        includeSubBlocks: true,
-      };
-      
-      console.log(`[TemporaryDrillEntry] Opening temporary drill with ${cards.length} cards`, {
-        blockIds: blockIds.length,
-        config: filterGroupConfig,
-      });
-      
-      // 打开 FilterGroup 复习对话框（不记录评分）
-      const reviewDialogManager = this.deps.reviewDialogManager as any;
-      
-      if (reviewDialogManager.openFilterGroup) {
-        await reviewDialogManager.openFilterGroup(filterGroupConfig, {
-          recordReview: false,  // 不记录评分
-          mode: 'all',
-        });
-      } else {
-        console.error('[TemporaryDrillEntry] openFilterGroup method not found');
-        await pushMsg('无法打开临时练习对话框');
-      }
+      // 调用新的 openTemporaryDrill 方法
+      await this.openTemporaryDrill(blockIds);
       
       console.log('[TemporaryDrillEntry] ✅ Temporary drill dialog opened');
     } catch (err) {
       console.error('[TemporaryDrillEntry] Failed to open temporary drill:', err);
       await pushMsg('打开临时练习失败');
+    }
+  }
+  
+  /**
+   * 打开临时练习对话框（使用 TemporaryDrillStrategy）
+   * 
+   * @param blockIds 块 ID 列表
+   */
+  private async openTemporaryDrill(blockIds: string[]): Promise<void> {
+    const reviewDialogManager = this.deps.reviewDialogManager as any;
+    
+    // 检查是否有 openTemporaryDrill 方法
+    if (typeof reviewDialogManager.openTemporaryDrill === 'function') {
+      await reviewDialogManager.openTemporaryDrill(blockIds);
+    } else {
+      // 降级：使用旧的 openDrillWithCards 方法
+      console.warn('[TemporaryDrillEntry] openTemporaryDrill not found, falling back to openDrillWithCards');
+      
+      // 转换为旧格式的卡片数据
+      const storage = (reviewDialogManager as any).deps?.plugin?.storageManager;
+      const cardData = blockIds.map(blockId => {
+        const card = storage?.getCardByBlockId?.(blockId);
+        return {
+          cardID: card?.id || '',
+          blockID: blockId,
+          deckID: riff.BUILTIN_DECK_ID,
+          priority: card?.priority || DEFAULT_PRIORITY,
+          nextDues: { 1: '', 2: '', 3: '', 4: '' },
+          state: card?.state || 0,
+          lapses: card?.lapses || 0,
+          reps: card?.reps || 0,
+        };
+      }).filter(c => c.cardID);
+      
+      reviewDialogManager.openDrillWithCards?.(cardData, 'block');
     }
   }
 }

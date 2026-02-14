@@ -834,10 +834,11 @@ export async function addToQueue(
       let added = 0;
       for (const item of itemsWithManualFlag) {
         try {
-          await queue.addCard(item.blockID, 'manual');
+          // 🔧 修复：使用 cardID 而不是 blockID（支持 Xiuyuan 卡片）
+          await queue.addCard(item.cardID, 'manual');
           added++;
         } catch (err) {
-          console.error(`[MenuActions] 添加卡片失败: ${item.blockID}`, err);
+          console.error(`[MenuActions] 添加卡片失败: ${item.cardID}`, err);
         }
       }
       console.log('[MenuActions] ✅ queue.addCard 完成，共添加:', added);

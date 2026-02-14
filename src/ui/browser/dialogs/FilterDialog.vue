@@ -209,23 +209,36 @@
     </div>
 
     <div class="dialog__footer">
-      <button class="b3-button b3-button--cancel" @click="handleCancel">
-        Cancel
-      </button>
-      <button
-        class="b3-button b3-button--text"
-        :disabled="!hasAnyFilter"
-        @click="handleClear"
-      >
-        Clear
-      </button>
-      <button
-        class="b3-button b3-button--text"
-        :disabled="!isValid"
-        @click="handleApply"
-      >
-        OK
-      </button>
+      <div class="footer__left">
+        <!-- Rebuild 按钮（类似 Anki 的设计） -->
+        <button
+          class="b3-button b3-button--outline"
+          @click="handleRebuild"
+          title="清除已复习的卡片，使用当前过滤条件重新加载"
+        >
+          <svg><use xlink:href="#iconRefresh"></use></svg>
+          Rebuild
+        </button>
+      </div>
+      <div class="footer__right">
+        <button class="b3-button b3-button--cancel" @click="handleCancel">
+          Cancel
+        </button>
+        <button
+          class="b3-button b3-button--text"
+          :disabled="!hasAnyFilter"
+          @click="handleClear"
+        >
+          Clear
+        </button>
+        <button
+          class="b3-button b3-button--text"
+          :disabled="!isValid"
+          @click="handleApply"
+        >
+          OK
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -244,6 +257,7 @@ const emit = defineEmits<{
   (e: 'apply', filter: CardFilter): void;
   (e: 'cancel'): void;
   (e: 'clear'): void;
+  (e: 'rebuild'): void;
 }>();
 
 interface NumericFieldConfig {
@@ -574,6 +588,20 @@ function deletePreset() {
   selectedPreset.value = '';
 }
 
+function handleRebuild() {
+  // 先应用当前过滤条件
+  if (isValid.value) {
+    const filter = filterService.toCardFilter(filterState.value);
+    filterService.saveFilter(filter);
+  }
+  
+  // 触发 rebuild 事件
+  emit('rebuild');
+  
+  // 关闭对话框
+  emit('cancel');
+}
+
 
 
 onMounted(() => {
@@ -827,9 +855,21 @@ watch(() => props.isOpen, (isOpen) => {
 .dialog__footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 8px;
   padding: 12px 20px;
   border-top: 1px solid var(--b3-border-color);
+  
+  .footer__left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .footer__right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
 }
 </style>

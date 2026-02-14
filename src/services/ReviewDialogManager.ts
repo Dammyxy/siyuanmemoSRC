@@ -1,4 +1,4 @@
-﻿﻿/**
+﻿﻿﻿﻿/**
  * ReviewDialogManager - 管理所有复习对话框的打开
  * 从 index.ts 拆分出来的服务
  */
@@ -575,4 +575,88 @@ export class ReviewDialogManager {
       }
     }, 100);
   }
+  /**
+     * 打开临时练习对话框（使用 TemporaryDrillStrategy）
+     *
+     * 特点：
+     * - 评分 4（简单）：从队列移除
+     * - 评分 1/2/3（困难/一般/良好）：保留在队列中
+     * - 不持久化到 localStorage
+     * - 不影响间隔重复算法
+     *
+     * @param blockIds 块 ID 列表
+     */
+    async openTemporaryDrill(blockIds: string[]): Promise<void> {
+      this.destroyCurrentDialog();
+
+      if (blockIds.length === 0) {
+        await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+        return;
+      }
+
+      try {
+        const { TemporaryDrillStrategy } = await import('@/core/queue/strategies/TemporaryDrillStrategy');
+        const { SubsetPracticeAdapter } = await import('@/ui/review/v2/adapters/SubsetPracticeAdapter');
+        const { createVueDialog } = await import('@/utils/dialog');
+        const { ReviewView } = await import('@/ui/review/v2');
+
+        const title = `临时练习 (${blockIds.length} 张)`;
+        const session = new TemporaryDrillStrategy({
+          blockIds,
+          deckID: riff.BUILTIN_DECK_ID,
+          storage: this.deps.storage
+        });
+        const adapter = new SubsetPracticeAdapter({
+          i18n: this.deps.i18n || {},
+          label: title,
+          queueName: 'temporary-drill'
+        });
+
+        this.reviewDialog = createVueDialog({
+          hideTitle: true,
+          component: ReviewView,
+          dataKey: 'dialog-temporary-drill',
+          props: {
+            app: this.deps.app,
+            i18n: this.deps.i18n || {},
+            title,
+            plugin: this.deps.plugin,
+            queue: session as any,
+            adapter: adapter as any,
+          },
+          events: {
+            close: () => this.destroyCurrentDialog(),
+          },
+          width: '80vw',
+          height: '70vh',
+          onClose: () => {
+            this.reviewDialog = null;
+          },
+        });
+
+        // 样式调整
+        const dialogEl = this.reviewDialog.dialog.element;
+        const scrim = dialogEl.querySelector('.b3-dialog__scrim') as HTMLElement;
+        const container = dialogEl.querySelector('.b3-dialog__container') as HTMLElement;
+
+        if (scrim) {
+          scrim.style.backgroundColor = 'var(--b3-theme-surface)';
+        }
+        if (container) {
+          container.style.maxWidth = '1024px';
+        }
+
+        setTimeout(() => {
+          const focusEl = dialogEl.querySelector('.block__icon') as HTMLElement;
+          if (focusEl) {
+            focusEl.focus();
+          }
+        }, 100);
+
+        console.log('[ReviewDialogManager] ✅ Temporary drill dialog opened with TemporaryDrillStrategy');
+      } catch (err) {
+        console.error('[ReviewDialogManager] Failed to open temporary drill:', err);
+        await pushErrMsg(this.deps.i18n?.drillFailed || '临时练习启动失败');
+      }
+    }
 }

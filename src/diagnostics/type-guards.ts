@@ -198,6 +198,17 @@ export function resolveCardId(card: FSRSCard | QueueItem | string): string {
     if (isQueueItem(card)) {
         // 🔧 处理大小写变体
         const cardID = (card as any).cardID || (card as any).cardId;
+        
+        // 🔍 调试：检查 Xiuyuan 卡片的 ID 解析
+        if (String(cardID).startsWith('xy_card_')) {
+            console.log('[resolveCardId] 🔍 Xiuyuan card detected:', {
+                cardID,
+                blockID: (card as any).blockID,
+                hasCardID: !!(card as any).cardID,
+                hasCardId: !!(card as any).cardId,
+            });
+        }
+        
         return String(cardID);
     }
 

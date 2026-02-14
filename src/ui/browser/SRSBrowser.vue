@@ -47,6 +47,7 @@
         @convertToTab="convertToTab"
         @openFilterDialog="showFilterDialog = true"
         @openSpreadDialog="handleOpenSpreadDialog"
+        @rebuildQueue="handleRebuildQueue"
       />
 
       <!-- 🆕 同步状态指示器（仅在 advanced 模式显示） -->
@@ -130,6 +131,7 @@
           @apply="handleApplyFilter"
           @cancel="showFilterDialog = false"
           @clear="handleClearFilter"
+          @rebuild="handleRebuildQueue"
         />
       </div>
     </div>
@@ -1578,9 +1580,13 @@ onMounted(() => {
             }
             break;
           case 'queue-changed':
-            // 队列变更：只刷新队列统计
-            console.log('[SRSBrowser] Refreshing queue counts due to queue changes');
+            // 队列变更：刷新队列统计和卡片列表
+            console.log('[SRSBrowser] Refreshing queue counts and data due to queue changes');
             void refreshQueueCounts();
+            // 如果当前显示的是队列视图，刷新卡片列表
+            if (activeQueueId.value) {
+              void refreshData(true); // 强制刷新缓存
+            }
             break;
           case 'mode-switched':
             // 模式切换：完全重新加载
@@ -1988,6 +1994,39 @@ async function handleClearFilter() {
   
   // 刷新数据以移除过滤
   await refreshData(false, true);
+}
+
+/**
+ * 重新加载筛选队列
+ * 
+ * 类似 Anki 的 Rebuild 功能：
+ * - 使用当前保存的过滤条件重新加载卡片
+ * - 清除临时黑名单
+ * - 刷新数据显示
+ */
+async function handleRebuildQueue() {
+  console.log('[SRSBrowser] Rebuilding filter queue');
+  
+  if (activeQueueId.value !== 'filter-group') {
+    console.warn('[SRSBrowser] Rebuild only works for filter-group queue');
+    return;
+  }
+  
+  try {
+    const queue = props.plugin.unifiedDataSourceManager.getQueue('filter-group' as any);
+    if (queue && 'rebuild' in queue && typeof (queue as any).rebuild === 'function') {
+      await (queue as any).rebuild();
+      console.log('[SRSBrowser] Queue rebuilt successfully');
+      
+      // 刷新数据显示
+      await refreshData(true); // 强制刷新缓存
+    } else {
+      console.error('[SRSBrowser] Queue does not support rebuild');
+    }
+  } catch (error) {
+    console.error('[SRSBrowser] Failed to rebuild queue:', error);
+    await pushMsg(t('rebuildFailed', '重新加载失败'), 3000, 'error');
+  }
 }
 
 /**

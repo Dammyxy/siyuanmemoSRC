@@ -135,7 +135,31 @@ async function fetchBreadcrumbs(blockId: string) {
     });
     const data = await response.json();
     if (data.code === 0 && data.data) {
-      breadcrumbs.value = data.data;
+      let rawBreadcrumbs = data.data;
+      
+      // 🔧 检查是否是 Xiuyuan 列表模板卡
+      const isXiuyuanListTemplate = props.card?.meta?.templateID === 'builtin-list-item';
+      
+      if (isXiuyuanListTemplate) {
+        // Xiuyuan 列表模板卡：排除最后两项（段落块 + 列表项块）
+        rawBreadcrumbs = rawBreadcrumbs.slice(0, -2);
+      }
+      
+      // 🔧 去重：使用 Map 按标准化后的 name 去重
+      const dedupMap = new Map<string, IBreadcrumbItem>();
+      
+      for (const item of rawBreadcrumbs) {
+        // 标准化文本：去掉列表符号
+        const normalizedName = item.name.replace(/^[•\-\d]+\.?\s*/, '').trim();
+        
+        // 使用标准化后的 name 作为 key，保留标准化后的名称
+        dedupMap.set(normalizedName, {
+          ...item,
+          name: normalizedName,
+        });
+      }
+      
+      breadcrumbs.value = Array.from(dedupMap.values());
     }
   } catch (err) {
     console.error('[BrowserPreview] Fetch breadcrumbs error:', err);

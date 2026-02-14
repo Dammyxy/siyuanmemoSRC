@@ -9,6 +9,15 @@
 
         <div v-else-if="content.type === 'html'" class="fsrs-review-v2-content__html" v-html="content.data"></div>
 
+        <!-- Xiuyuan 列表模版卡：自定义渲染 -->
+        <div v-else-if="content.isXiuyuanListTemplate && content.xiuyuanMeta" class="fsrs-review-v2-content__xiuyuan">
+          <XiuyuanListTemplateCard
+            :meta="content.xiuyuanMeta"
+            :show-answer="!showAnswer"
+            :question-block-id="content.id"
+          />
+        </div>
+
         <div v-else class="fsrs-review-v2-content__protyle">
           <!-- 正面：问题块 -->
           <div ref="hostRef" class="fsrs-review-v2-content__protyle-host"></div>
@@ -34,6 +43,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import * as siyuan from 'siyuan';
 import type { ReviewUIState } from './types';
 import { OVERLAY_REGISTRY } from './overlays/index';
+import XiuyuanListTemplateCard from './components/XiuyuanListTemplateCard.vue';
 
 const props = defineProps<{
   app: any;
@@ -503,6 +513,11 @@ const content = computed(() => props.content);
 }
 
 .fsrs-review-v2-content__protyle {
+  flex: 1;
+  overflow: auto;
+}
+
+.fsrs-review-v2-content__xiuyuan {
   flex: 1;
   overflow: auto;
 }

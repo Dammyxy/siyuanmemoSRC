@@ -47,6 +47,8 @@ export class FilterGroupQueue extends BaseReviewQueue {
      * 持久化存储键
      */
     private readonly STORAGE_KEY = 'filter-group-manual-cards';
+    private readonly FILTER_STORAGE_KEY = 'filter-group-filter-settings';
+    private readonly BLACKLIST_STORAGE_KEY = 'filter-group-temporary-blacklist';
     
     /**
      * 过滤条件
@@ -62,9 +64,17 @@ export class FilterGroupQueue extends BaseReviewQueue {
     constructor(manager: UnifiedDataSourceManager, filter: CardFilter = {}) {
         super(manager, QueueType.FilterGroup);
         
-        this.cardFilter = filter;
+        // 优先使用传入的过滤条件，否则从持久化存储加载
+        const savedFilter = this.loadFilterSettings();
+        this.cardFilter = Object.keys(filter).length > 0 ? filter : savedFilter;
+        
         this.manuallyAddedCards = new Set<string>();
         this.loadManuallyAddedCards();
+        
+        // 🆕 加载临时黑名单
+        this.loadTemporaryBlacklist();
+        
+        console.log('[FilterGroupQueue] Initialized with filter:', this.cardFilter);
     }
     
     /**
@@ -181,9 +191,7 @@ export class FilterGroupQueue extends BaseReviewQueue {
      * 移除逻辑：
      * 1. 从手动添加的卡片集合中移除（如果存在）
      * 2. 将卡片 ID 加入临时黑名单
-     * 3. 持久化手动添加的卡片列表
-     * 
-     * 注意：临时黑名单不持久化，关闭浏览器后自动清空。
+     * 3. 持久化手动添加的卡片列表和临时黑名单
      * 
      * @param cardIdOrBlockId 卡片 ID 或块 ID
      * @see 需求 5.5, 12.2
@@ -202,6 +210,9 @@ export class FilterGroupQueue extends BaseReviewQueue {
                 await this.persistManuallyAddedCards();
             }
             
+            // 4. 持久化临时黑名单
+            this.saveTemporaryBlacklist();
+            
             console.log(`[FilterGroupQueue] Card ${cardIdOrBlockId} removed`, {
                 wasManuallyAdded,
                 temporaryBlacklistSize: this.temporaryBlacklist.size
@@ -210,6 +221,7 @@ export class FilterGroupQueue extends BaseReviewQueue {
             console.error('[FilterGroupQueue] Failed to remove card:', error);
             // 即使出错，也要尝试加入临时黑名单
             this.temporaryBlacklist.add(cardIdOrBlockId);
+            this.saveTemporaryBlacklist();
             throw error;
         }
     }
@@ -262,12 +274,14 @@ export class FilterGroupQueue extends BaseReviewQueue {
      * 设置过滤条件
      * 
      * 更新过滤条件后，下次调用 getCards() 时会使用新的过滤条件。
+     * 过滤条件会自动持久化到 localStorage。
      * 
      * @param filter 新的过滤条件
      */
     public setFilter(filter: CardFilter): void {
         this.cardFilter = filter;
-        console.log('[FilterGroupQueue] Filter updated:', filter);
+        this.saveFilterSettings();
+        console.log('[FilterGroupQueue] Filter updated and saved:', filter);
     }
     
     /**
@@ -277,6 +291,57 @@ export class FilterGroupQueue extends BaseReviewQueue {
      */
     public getFilter(): CardFilter {
         return { ...this.cardFilter };
+    }
+    
+    /**
+     * 重新加载队列（Rebuild）
+     * 
+     * 类似 Anki 的 Rebuild 功能：
+     * - 使用当前保存的过滤条件重新加载卡片
+     * - 清除临时黑名单
+     * - 触发观察者通知
+     * 
+     * 使用场景：
+     * - 复习完后想再次复习相同范围的卡片
+     * - 修改过滤条件后重新加载
+     * 
+     * @see Anki Filtered Decks - Rebuild button
+     */
+    public async rebuild(): Promise<void> {
+        try {
+            console.log('[FilterGroupQueue] Rebuilding queue with filter:', this.cardFilter);
+            
+            // 清除临时黑名单（重新开始）
+            this.temporaryBlacklist.clear();
+            this.clearTemporaryBlacklist();
+            
+            // 触发观察者通知，让 UI 重新加载数据
+            this.manager.notifyObservers({
+                type: 'queue-changed',
+                queueType: this.getType(),
+                timestamp: Date.now()
+            });
+            
+            console.log('[FilterGroupQueue] Queue rebuilt successfully');
+        } catch (error) {
+            console.error('[FilterGroupQueue] Failed to rebuild queue:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * 清除临时黑名单（覆盖基类方法）
+     * 
+     * 清除内存中的黑名单，并删除持久化存储。
+     */
+    public clearTemporaryBlacklist(): void {
+        super.clearTemporaryBlacklist();
+        try {
+            localStorage.removeItem(this.BLACKLIST_STORAGE_KEY);
+            console.log('[FilterGroupQueue] Temporary blacklist cleared from storage');
+        } catch (error) {
+            console.error('[FilterGroupQueue] Failed to clear temporary blacklist from storage:', error);
+        }
     }
     
     // ========================================================================
@@ -372,6 +437,67 @@ export class FilterGroupQueue extends BaseReviewQueue {
         } catch (error) {
             console.error('[FilterGroupQueue] Failed to persist manually added cards:', error);
             throw error;
+        }
+    }
+    
+    /**
+     * 从持久化存储加载过滤条件
+     * 
+     * @returns 保存的过滤条件，如果没有则返回空对象
+     */
+    private loadFilterSettings(): CardFilter {
+        try {
+            const stored = localStorage.getItem(this.FILTER_STORAGE_KEY);
+            if (stored) {
+                const filter: CardFilter = JSON.parse(stored);
+                console.log('[FilterGroupQueue] Loaded filter settings from storage:', filter);
+                return filter;
+            }
+        } catch (error) {
+            console.error('[FilterGroupQueue] Failed to load filter settings:', error);
+        }
+        return {};
+    }
+    
+    /**
+     * 保存过滤条件到持久化存储
+     */
+    private saveFilterSettings(): void {
+        try {
+            localStorage.setItem(this.FILTER_STORAGE_KEY, JSON.stringify(this.cardFilter));
+            console.log('[FilterGroupQueue] Saved filter settings to storage');
+        } catch (error) {
+            console.error('[FilterGroupQueue] Failed to save filter settings:', error);
+        }
+    }
+    
+    /**
+     * 从持久化存储加载临时黑名单
+     */
+    private loadTemporaryBlacklist(): void {
+        try {
+            const stored = localStorage.getItem(this.BLACKLIST_STORAGE_KEY);
+            if (stored) {
+                const cardIds: string[] = JSON.parse(stored);
+                this.temporaryBlacklist = new Set(cardIds);
+                console.log(`[FilterGroupQueue] Loaded ${cardIds.length} cards from temporary blacklist`);
+            }
+        } catch (error) {
+            console.error('[FilterGroupQueue] Failed to load temporary blacklist:', error);
+            this.temporaryBlacklist = new Set();
+        }
+    }
+    
+    /**
+     * 保存临时黑名单到持久化存储
+     */
+    private saveTemporaryBlacklist(): void {
+        try {
+            const cardIds = Array.from(this.temporaryBlacklist);
+            localStorage.setItem(this.BLACKLIST_STORAGE_KEY, JSON.stringify(cardIds));
+            console.log(`[FilterGroupQueue] Saved ${cardIds.length} cards to temporary blacklist`);
+        } catch (error) {
+            console.error('[FilterGroupQueue] Failed to save temporary blacklist:', error);
         }
     }
 }
