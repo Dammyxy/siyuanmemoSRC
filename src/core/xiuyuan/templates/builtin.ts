@@ -98,10 +98,49 @@ export const LIST_ITEM_TEMPLATE: ICardTemplate = {
   ],
 };
 
+/**
+ * 概念-描述符模版
+ * 
+ * @description
+ * 用于概念及其属性描述的卡片。
+ * 当一个概念块（使用 :: 符号）有子块使用 ;; 符号时，自动识别为概念-描述符卡：
+ * - 概念块内容作为上下文
+ * - 描述符块内容作为问答对
+ * 
+ * @example
+ * ```markdown
+ * 线粒体 :: 细胞的能量工厂
+ *   ├─ 起源 ;; 被认为是通过内共生起源的
+ *   ├─ 功能 ;; 为细胞生成ATP
+ *   └─ 结构 ;; 具有双层膜结构
+ * ```
+ * 
+ * 生成的卡片：
+ * - 正面：线粒体 - 起源
+ * - 反面：线粒体 :: 细胞的能量工厂 + 起源 ;; 被认为是通过内共生起源的
+ */
+export const CONCEPT_DESCRIPTOR_TEMPLATE: ICardTemplate = {
+  id: 'builtin-concept-descriptor',
+  name: '概念-描述符',
+  description: '用于概念及其属性的卡片',
+  fields: [
+    { name: 'concept', description: '概念块' },
+    { name: 'descriptor', description: '描述符块' },
+  ],
+  cardRules: [
+    {
+      typeMarker: 'concept-descriptor',
+      frontFields: ['concept', 'descriptor'],
+      backFields: ['concept', 'descriptor'],
+    },
+  ],
+};
+
 /** 所有内置模板 */
 export const BUILTIN_TEMPLATES: ICardTemplate[] = [
   BASIC_QA_TEMPLATE,
   BIDIRECTIONAL_TEMPLATE,
   CLOZE_TEMPLATE,
   LIST_ITEM_TEMPLATE,
+  CONCEPT_DESCRIPTOR_TEMPLATE,
 ];

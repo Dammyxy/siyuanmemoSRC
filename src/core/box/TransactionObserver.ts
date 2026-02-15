@@ -1,4 +1,18 @@
-﻿import type FSRSPlugin from '@/index';
+﻿/**
+ * TransactionObserver
+ * 
+ * @deprecated 此类已被 AutoCardHandler 替代，将在未来版本中移除
+ * @see AutoCardHandler - 新的自动制卡处理器，使用统一的 WebSocket 架构
+ * @see .kiro/specs/quick-card-symbols/tasks.md - Task 2.8
+ * 
+ * 迁移说明：
+ * - TransactionObserver 通过 eventBus 间接监听 WebSocket 事件
+ * - AutoCardHandler 直接注册到 TransactionWebSocketService
+ * - AutoCardHandler 支持更多符号类型和更短的防抖时间
+ * - 列表模版功能已迁移到 AutoCardHandler
+ */
+
+import type FSRSPlugin from '@/index';
 import { CardBuilderContext, detectCardType, initializeAFactor } from '@/core/card-builder';
 import { getBlockKramdown, getBlockAttrs, setBlockAttrs, sql } from '@/core/siyuan/api';
 import { getRiffCardsByBlockIDs, addRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
@@ -21,6 +35,9 @@ interface TransactionDetail {
     }[];
 }
 
+/**
+ * @deprecated 使用 AutoCardHandler 替代
+ */
 export class TransactionObserver {
     private plugin: FSRSPlugin;
     private builder: CardBuilderContext;

@@ -25,3 +25,4 @@ export {
   type ProgressCallback
 } from './HybridSyncService';
 export type { HybridSyncEvents, SyncPhase } from './HybridSyncService.types';
+export { QuickCardWebSocketService, type QuickCardSettings } from './QuickCardWebSocketService';

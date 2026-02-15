@@ -107,6 +107,90 @@
           <p class="form-hint">{{ t('autoCardEnabledHint', '监听编辑操作，当输入特定内容（如高亮、问答）时自动创建闪卡') }}</p>
         </div>
 
+        <div class="fn__hr"></div>
+
+        <!-- 快速制卡符号 -->
+        <h3>{{ t('quickCardTitle', '快速制卡符号') }}</h3>
+        
+        <div class="form-item">
+          <label>{{ t('quickCardEnabled', '启用快速制卡') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="quickCardSettings.enabled">
+          </div>
+          <p class="form-hint">{{ t('quickCardEnabledHint', '使用符号快速创建闪卡，不打断写作流程') }}</p>
+        </div>
+
+        <div v-if="quickCardSettings.enabled" class="form-subsection">
+          <!-- 启用的符号类型 -->
+          <div class="form-item">
+            <label>{{ t('enabledSymbols', '启用的符号类型') }}</label>
+            <div class="checkbox-group">
+              <label class="checkbox-item">
+                <input type="checkbox" v-model="quickCardSettings.enabledSymbols.basic">
+                <span>{{ t('basicCards', '基础卡片') }} (<code>>></code> <code><<</code> <code><></code>)</span>
+              </label>
+              <label class="checkbox-item">
+                <input type="checkbox" v-model="quickCardSettings.enabledSymbols.concept">
+                <span>{{ t('conceptCards', '概念卡片') }} (<code>::</code>)</span>
+              </label>
+              <label class="checkbox-item">
+                <input type="checkbox" v-model="quickCardSettings.enabledSymbols.descriptor">
+                <span>{{ t('descriptorCards', '描述符卡片') }} (<code>;;</code>)</span>
+              </label>
+              <label class="checkbox-item">
+                <input type="checkbox" v-model="quickCardSettings.enabledSymbols.cloze">
+                <span>{{ t('clozeCards', '填空卡片') }} (<code v-text="'{' + '{' + '}' + '}'"></code>)</span>
+              </label>
+              <label class="checkbox-item">
+                <input type="checkbox" v-model="quickCardSettings.enabledSymbols.multiLine">
+                <span>{{ t('multiLineCards', '列表模版') }} (<code>>>></code>)</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 防抖时间 -->
+          <div class="form-item">
+            <label>{{ t('quickDebounceDelay', '快速符号防抖时间（毫秒）') }}</label>
+            <div class="form-control">
+              <input 
+                type="number" 
+                min="100" 
+                max="2000" 
+                step="100"
+                v-model.number="quickCardSettings.debounceDelay.quick"
+              >
+              <span class="form-unit">ms</span>
+            </div>
+            <p class="form-hint">{{ t('quickDebounceDelayHint', '编辑后延迟多久触发快速符号检测（推荐 300ms）') }}</p>
+          </div>
+
+          <div class="form-item">
+            <label>{{ t('listDebounceDelay', '列表模版防抖时间（毫秒）') }}</label>
+            <div class="form-control">
+              <input 
+                type="number" 
+                min="500" 
+                max="5000" 
+                step="500"
+                v-model.number="quickCardSettings.debounceDelay.list"
+              >
+              <span class="form-unit">ms</span>
+            </div>
+            <p class="form-hint">{{ t('listDebounceDelayHint', '编辑列表后延迟多久触发检测（推荐 2000ms）') }}</p>
+          </div>
+
+          <!-- Descriptor 使用 Xiuyuan -->
+          <div class="form-item">
+            <label>{{ t('descriptorUseXiuyuan', '描述符使用 Xiuyuan 模版') }}</label>
+            <div class="form-control">
+              <input type="checkbox" v-model="quickCardSettings.descriptorUseXiuyuan">
+            </div>
+            <p class="form-hint">{{ t('descriptorUseXiuyuanHint', '当父块是概念时，使用 Xiuyuan 模版创建描述符卡片') }}</p>
+          </div>
+        </div>
+
+        <div class="fn__hr"></div>
+
         <!-- 🆕 启用调试日志 -->
         <div class="form-item">
           <label>{{ t('enableDebugLogs', '启用调试日志') }}</label>
@@ -498,6 +582,7 @@ const props = defineProps<{
   schedulerSettings?: SchedulerConfig;  // 🆕 新增
   riffIntegrationSettings?: any;  // 🆕 Riff 集成配置
   incrementalSettings?: { autoCardEnabled: boolean };
+  quickCardSettings?: any;  // 🆕 快速制卡配置
   uiSettings?: { enableDebugLogs: boolean };  // 🆕 新增
   i18n?: Record<string, string>;
   defaultTab?: string;
@@ -572,6 +657,23 @@ const uiSettings = ref({
   enableDebugLogs: false,
 });
 
+// 🆕 快速制卡设置
+const quickCardSettings = ref({
+  enabled: true,
+  enabledSymbols: {
+    basic: true,
+    concept: true,
+    descriptor: true,
+    cloze: true,
+    multiLine: true,
+  },
+  debounceDelay: {
+    quick: 300,
+    list: 2000,
+  },
+  descriptorUseXiuyuan: true,
+});
+
 // 🆕 调度器配置
 const schedulerConfig = ref<SchedulerConfig>({
   defaultScheduler: 'fsrs-v5',
@@ -641,6 +743,25 @@ function loadSettings() {
   if (props.uiSettings) {
     uiSettings.value = {
       enableDebugLogs: props.uiSettings.enableDebugLogs ?? false,
+    };
+  }
+  
+  // 🆕 加载快速制卡设置
+  if (props.quickCardSettings) {
+    quickCardSettings.value = {
+      enabled: props.quickCardSettings.enabled ?? true,
+      enabledSymbols: {
+        basic: props.quickCardSettings.enabledSymbols?.basic ?? true,
+        concept: props.quickCardSettings.enabledSymbols?.concept ?? true,
+        descriptor: props.quickCardSettings.enabledSymbols?.descriptor ?? true,
+        cloze: props.quickCardSettings.enabledSymbols?.cloze ?? true,
+        multiLine: props.quickCardSettings.enabledSymbols?.multiLine ?? true,
+      },
+      debounceDelay: {
+        quick: props.quickCardSettings.debounceDelay?.quick ?? 300,
+        list: props.quickCardSettings.debounceDelay?.list ?? 2000,
+      },
+      descriptorUseXiuyuan: props.quickCardSettings.descriptorUseXiuyuan ?? true,
     };
   }
   
@@ -738,6 +859,13 @@ function saveSettings() {
     queues,
     incremental: {
       autoCardEnabled: settings.value.autoCardEnabled
+    },
+    // 🆕 保存快速制卡配置
+    quickCard: {
+      enabled: quickCardSettings.value.enabled,
+      enabledSymbols: quickCardSettings.value.enabledSymbols,
+      debounceDelay: quickCardSettings.value.debounceDelay,
+      descriptorUseXiuyuan: quickCardSettings.value.descriptorUseXiuyuan,
     },
     // 🆕 保存调度器配置
     scheduler: {
@@ -1268,6 +1396,41 @@ function formatDuration(ms: number): string {
 .form-unit {
   margin-left: 8px;
   color: var(--b3-theme-on-surface-light);
+}
+
+/* 🆕 快速制卡配置样式 */
+.form-subsection {
+  margin-left: 20px;
+  padding-left: 16px;
+  border-left: 2px solid var(--b3-border-color);
+}
+
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.checkbox-item input[type="checkbox"] {
+  margin: 0;
+}
+
+.checkbox-item code {
+  font-family: monospace;
+  font-size: 12px;
+  padding: 2px 6px;
+  background: var(--b3-theme-surface);
+  border-radius: 3px;
+  color: var(--b3-theme-primary);
 }
 </style>
 

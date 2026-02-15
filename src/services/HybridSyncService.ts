@@ -53,21 +53,12 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
     private lastSyncTime: number = 0;
     private lastFullSyncTime: number = 0;
     
-    // 🆕 WebSocket 连接相关
-    private ws: WebSocket | null = null;
-    private wsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-    private wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    private wsListenerRegistered: boolean = false;
-    
     // 默认重试配置
     private readonly DEFAULT_RETRY_CONFIG = {
         maxRetries: 3,
         retryDelay: 1000,
         backoffMultiplier: 2
     };
-    
-    // 🆕 WebSocket 防抖延迟（借鉴 SiReader）
-    private readonly WS_DEBOUNCE_DELAY = 300; // 300ms
     
     constructor(config: HybridSyncConfig) {
         super();
@@ -81,8 +72,7 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
     /**
      * 启动同步服务
      * 
-     * 1. 执行初始增量同步
-     * 2. 注册 WebSocket 监听器（实时感知 Riff 变化）
+     * 执行初始增量同步
      */
     async start(): Promise<void> {
         console.log('[HybridSync] Starting sync service...');
@@ -92,243 +82,21 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
             await this.incrementalSync();
         }
         
-        // 🆕 注册 WebSocket 监听器
-        this.registerWebSocketListener();
-        
         console.log('[HybridSync] Sync service started');
     }
     
     /**
      * 停止同步服务
      * 
-     * 1. 移除 WebSocket 监听器
-     * 2. 清理防抖定时器
-     * 3. 移除所有事件监听器
+     * 移除所有事件监听器
      */
     stop(): void {
         console.log('[HybridSync] Stopping sync service...');
-        
-        // 🆕 移除 WebSocket 监听器
-        this.unregisterWebSocketListener();
-        
-        // 🆕 清理防抖定时器
-        if (this.wsDebounceTimer) {
-            clearTimeout(this.wsDebounceTimer);
-            this.wsDebounceTimer = null;
-        }
         
         // 移除所有事件监听器
         this.removeAllListeners();
         
         console.log('[HybridSync] Sync service stopped');
-    }
-    
-    /**
-     * 🆕 注册 WebSocket 监听器
-     * 
-     * 创建 WebSocket 连接到思源服务器，监听 transactions 事件
-     * 借鉴 SiReader 的实现，使用 300ms 防抖机制
-     */
-    private registerWebSocketListener(): void {
-        if (this.wsListenerRegistered) {
-            console.log('[HybridSync] WebSocket listener already registered');
-            return;
-        }
-        
-        try {
-            // 创建 WebSocket 连接（借鉴 SiReader）
-            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${location.host}/ws?app=siyuan-memo&type=main`;
-            
-            console.log('[HybridSync] 🔍 Creating WebSocket connection:', wsUrl);
-            
-            this.ws = new WebSocket(wsUrl);
-            
-            this.ws.onopen = () => {
-                this.wsListenerRegistered = true;
-                console.log('[HybridSync] ✅ WebSocket connected successfully');
-                console.log('[HybridSync] 🔍 Waiting for transactions events...');
-                console.log('[HybridSync] 🔍 Please create a flashcard now to test');
-            };
-            
-            this.ws.onmessage = (e: MessageEvent) => {
-                try {
-                    const msg = JSON.parse(e.data);
-                    
-                    // 🔍 调试：打印所有消息
-                    console.log('[HybridSync] 🔍 WebSocket message received:', {
-                        cmd: msg.cmd,
-                        hasData: !!msg.data,
-                        dataType: Array.isArray(msg.data) ? 'array' : typeof msg.data,
-                        dataLength: Array.isArray(msg.data) ? msg.data.length : undefined
-                    });
-                    
-                    if (msg.cmd !== 'transactions' || !Array.isArray(msg.data)) {
-                        console.log('[HybridSync] 🔍 Skipping non-transactions message:', msg.cmd);
-                        return;
-                    }
-                    
-                    // 处理 transactions 事件
-                    this.handleWebSocketTransactions(msg.data);
-                } catch (err) {
-                    console.error('[HybridSync] ❌ Failed to parse WebSocket message:', err);
-                }
-            };
-            
-            this.ws.onerror = (err) => {
-                console.error('[HybridSync] ❌ WebSocket error:', err);
-                this.wsListenerRegistered = false;
-            };
-            
-            this.ws.onclose = (ev) => {
-                console.log('[HybridSync] WebSocket closed:', {
-                    code: ev.code,
-                    reason: ev.reason,
-                    wasClean: ev.wasClean
-                });
-                
-                this.wsListenerRegistered = false;
-                this.ws = null;
-                
-                // 自动重连（除非是正常关闭）
-                if (ev.code !== 1000 && !ev.reason.includes('close websocket')) {
-                    console.log('[HybridSync] 🔄 Reconnecting in 3 seconds...');
-                    this.wsReconnectTimer = setTimeout(() => {
-                        this.registerWebSocketListener();
-                    }, 3000);
-                }
-            };
-        } catch (err) {
-            console.error('[HybridSync] ❌ Failed to create WebSocket connection:', err);
-            this.wsListenerRegistered = false;
-        }
-    }
-    
-    /**
-     * 🆕 移除 WebSocket 监听器
-     */
-    private unregisterWebSocketListener(): void {
-        if (!this.wsListenerRegistered && !this.ws) {
-            return;
-        }
-        
-        // 关闭 WebSocket 连接
-        if (this.ws) {
-            this.ws.close(1000, 'close websocket');
-            this.ws = null;
-        }
-        
-        // 清除重连定时器
-        if (this.wsReconnectTimer) {
-            clearTimeout(this.wsReconnectTimer);
-            this.wsReconnectTimer = null;
-        }
-        
-        this.wsListenerRegistered = false;
-        
-        console.log('[HybridSync] WebSocket connection closed');
-    }
-    
-    /**
-     * 🆕 处理 WebSocket transactions 事件
-     * 
-     * 检测闪卡相关操作，触发增量同步
-     * 使用 300ms 防抖机制（借鉴 SiReader）
-     * 
-     * @param transactions 交易数组，每个交易包含 doOperations
-     */
-    private handleWebSocketTransactions(transactions: any[]): void {
-        // 🔍 调试：打印 transactions 数组
-        console.log('[HybridSync] 🔍 Processing transactions:', {
-            count: transactions.length,
-            transactions: transactions.map(tx => ({
-                hasDoOperations: !!tx.doOperations,
-                operationsCount: tx.doOperations?.length || 0
-            }))
-        });
-        
-        // 收集所有闪卡相关操作
-        let hasFlashcardOp = false;
-        
-        for (const tx of transactions) {
-            if (!tx.doOperations) continue;
-            
-            // 🔍 调试：打印操作详情
-            console.log('[HybridSync] 🔍 Transaction operations:', {
-                operationsCount: tx.doOperations.length,
-                operations: tx.doOperations.slice(0, 5).map((op: any) => ({
-                    action: op.action,
-                    id: op.id,
-                    hasData: !!op.data,
-                    dataKeys: op.data ? Object.keys(op.data) : [],
-                    hasNew: !!op.data?.new,
-                    newKeys: op.data?.new ? Object.keys(op.data.new) : [],
-                    hasCustomRiffDecks: !!op.data?.new?.['custom-riff-decks'],
-                    customRiffDecksValue: op.data?.new?.['custom-riff-decks'],
-                    blockIDs: op.blockIDs,
-                    ids: op.ids
-                })),
-                allActions: tx.doOperations.map((op: any) => op.action)
-            });
-            
-            // 检查是否有闪卡相关操作
-            for (const op of tx.doOperations) {
-                if (op.action === 'addFlashcards' || 
-                    op.action === 'removeFlashcards' ||
-                    (op.action === 'updateAttrs' && op.data?.new?.['custom-riff-decks'])) {
-                    hasFlashcardOp = true;
-                    console.log('[HybridSync] 🔔 Detected flashcard operation:', {
-                        action: op.action,
-                        id: op.id,
-                        customRiffDecks: op.data?.new?.['custom-riff-decks']
-                    });
-                    break;
-                }
-            }
-            
-            if (hasFlashcardOp) break;
-        }
-        
-        console.log('[HybridSync] 🔍 Has flashcard operation:', hasFlashcardOp);
-        
-        if (!hasFlashcardOp) {
-            console.log('[HybridSync] 🔍 No flashcard operation detected, skipping sync');
-            return;
-        }
-        
-        console.log('[HybridSync] 🔔 Detected flashcard changes via WebSocket');
-        
-        // 防抖 300ms（借鉴 SiReader）
-        if (this.wsDebounceTimer) {
-            clearTimeout(this.wsDebounceTimer);
-        }
-        
-        this.wsDebounceTimer = setTimeout(() => {
-            console.log('[HybridSync] ⚡ Triggering incremental sync due to WebSocket event...');
-            
-            // 触发增量同步
-            void this.incrementalSync()
-                .then((result) => {
-                    console.log('[HybridSync] ✅ WebSocket-triggered sync completed:', result);
-                    
-                    // 🆕 发射 WebSocket 同步完成事件
-                    this.emit('wsSync', {
-                        success: true,
-                        result,
-                        timestamp: Date.now()
-                    });
-                })
-                .catch((err: Error) => {
-                    console.error('[HybridSync] ❌ WebSocket-triggered sync failed:', err);
-                    
-                    // 🆕 发射 WebSocket 同步失败事件
-                    this.emit('wsSync', {
-                        success: false,
-                        error: err,
-                        timestamp: Date.now()
-                    });
-                });
-        }, this.WS_DEBOUNCE_DELAY);
     }
     
     /**

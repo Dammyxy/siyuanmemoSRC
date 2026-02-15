@@ -168,6 +168,55 @@ export class StorageManager {
     }
 
     /**
+     * 批量删除卡片（同时从本地和 Riff 删除）
+     * 
+     * @param blockIds 块 ID 列表
+     */
+    async deleteCards(blockIds: string[]): Promise<void> {
+        if (blockIds.length === 0) return;
+
+        console.log('[StorageManager] Deleting cards:', blockIds.length);
+
+        // 1. 从本地存储删除
+        let deletedCount = 0;
+        for (const blockId of blockIds) {
+            const card = this.getCardByBlockId(blockId);
+            if (card) {
+                this.removeCard(card.id);
+                deletedCount++;
+            }
+        }
+
+        // 2. 保存更改
+        if (deletedCount > 0) {
+            await this.saveCards();
+            console.log('[StorageManager] Deleted from local storage:', deletedCount);
+        }
+
+        // 3. 从 Riff 卡组删除
+        try {
+            const { removeRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
+            await removeRiffCards(BUILTIN_DECK_ID, blockIds);
+            console.log('[StorageManager] Deleted from Riff deck:', blockIds.length);
+        } catch (error) {
+            console.error('[StorageManager] Failed to delete from Riff:', error);
+            // 不抛出错误，因为本地已经删除成功
+        }
+
+        // 4. 取消块的卡片标记
+        try {
+            const { unmarkBlockAsCard } = await import('@/core/siyuan/block');
+            for (const blockId of blockIds) {
+                await unmarkBlockAsCard(blockId);
+            }
+            console.log('[StorageManager] Unmarked blocks:', blockIds.length);
+        } catch (error) {
+            console.error('[StorageManager] Failed to unmark blocks:', error);
+            // 不抛出错误
+        }
+    }
+
+    /**
      * 获取到期卡片
      */
     getDueCards(now: Date = new Date()): FSRSCard[] {

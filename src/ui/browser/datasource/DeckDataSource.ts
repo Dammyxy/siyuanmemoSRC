@@ -344,13 +344,19 @@ export class DeckDataSource implements ICardDataSource {
     if (actionId === 'delete-card') {
       const blockIds = selectedRows.map(row => row.blockId);
       
+      // 检查是否有 storage
+      if (!this.plugin?.storage) {
+        console.error('[DeckDataSource] Storage not available!');
+        return 0;
+      }
+      
       // 第一次尝试：常规删除
-      let deleted = await batchDelete(blockIds);
+      let deleted = await batchDelete(blockIds, this.plugin.storage);
       
       // 如果删除失败，自动尝试强制删除
       if (deleted === 0 && blockIds.length > 0) {
         console.warn('[DeckDataSource] 常规删除失败，自动尝试强制删除...');
-        deleted = await batchDelete(blockIds, { force: true });
+        deleted = await batchDelete(blockIds, this.plugin.storage);
       }
       
       return deleted;

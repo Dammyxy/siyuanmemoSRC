@@ -4,7 +4,7 @@
  * 列表模版卡的特殊性：
  * - 1 个 Xiuyuan → N 张 FSRSCard（N = 子列表项数量）
  * - 每张卡片的问题相同（父列表项），答案不同（各个子列表项）
- * - 支持提示功能：使用 `::` 分隔提示和答案
+ * - 支持提示功能：使用 `->` 分隔提示和答案
  * - 渐进式显示：复习时显示已学过的答案 + 当前提示
  */
 
@@ -25,27 +25,22 @@ import {
 /**
  * 解析子列表项文本，提取提示和答案
  * 
- * 格式：`? 提示 :: 答案` 或 `提示 :: 答案`
+ * 格式：`提示 -> 答案`
  * 
  * @param text 子列表项文本
  * @returns { cue: 提示文本, answer: 答案文本 }
  */
 function parseCueAndAnswer(text: string): { cue: string; answer: string } {
-  const parts = text.split('::');
+  const parts = text.split('->');
   
   if (parts.length >= 2) {
-    let cue = parts[0].trim();
-    const answer = parts.slice(1).join('::').trim();
-    
-    // 移除开头的 `?` 标记
-    if (cue.startsWith('?')) {
-      cue = cue.substring(1).trim();
-    }
+    const cue = parts[0].trim();
+    const answer = parts.slice(1).join('->').trim();
     
     return { cue, answer };
   }
   
-  // 没有 `::` 分隔符，整个文本作为答案
+  // 没有 `->` 分隔符，整个文本作为答案
   return { cue: '', answer: text.trim() };
 }
 

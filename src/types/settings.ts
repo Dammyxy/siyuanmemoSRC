@@ -3,6 +3,9 @@
  * 插件设置数据结构
  */
 
+/** 存储键名 */
+export const STORAGE_NAME = 'fsrs-config';
+
 /** FSRS 算法参数 */
 export interface FSRSParameters {
     requestRetention: number;  // 期望保留率 0.7-0.99，默认 0.9
@@ -85,6 +88,30 @@ export interface IncrementalSettings {
     extractPriority: number;   // 摘录卡片默认优先级
     autoAddToQueue: boolean;   // 自动加入复习队列
     autoCardEnabled: boolean;  // 自动制卡（实时监听）
+}
+
+/** 快速制卡设置 */
+export interface QuickCardSettings {
+    /** 启用快速制卡 */
+    enabled: boolean;
+    
+    /** 启用的符号类型 */
+    enabledSymbols: {
+        basic: boolean;        // >> << <>
+        concept: boolean;      // ::
+        descriptor: boolean;   // ;;
+        cloze: boolean;        // {{}}
+        multiLine: boolean;    // >>>
+    };
+    
+    /** 防抖时间（毫秒） */
+    debounceDelay: {
+        quick: number;         // 快速符号防抖时间（默认 300ms）
+        list: number;          // 列表模版防抖时间（默认 2000ms）
+    };
+    
+    /** Descriptor 是否使用 Xiuyuan */
+    descriptorUseXiuyuan: boolean;
 }
 
 /** 机械练习设置 */
@@ -187,6 +214,7 @@ export interface PluginSettings {
     leech: LeechSettings;
     ui: UISettings;
     incremental: IncrementalSettings;
+    quickCard: QuickCardSettings;
     drill: DrillSettings;
     queues: QueueSettings;
 
@@ -204,7 +232,7 @@ export const DEFAULT_RIFF_CONFIG: RiffIntegrationConfig = {
     
     incrementalSync: {
         enabled: true,
-        triggers: ['plugin-start', 'review-open'],  // 🆕 移除 browser-open，减少不必要的同步
+        triggers: ['plugin-start'],  // 🆕 移除 review-open，避免打开复习界面时触发快速制卡检查
         useBlacklist: true
     },
     
@@ -271,6 +299,21 @@ export const DEFAULT_SETTINGS: PluginSettings = {
         extractPriority: 40,
         autoAddToQueue: true,
         autoCardEnabled: false,
+    },
+    quickCard: {
+        enabled: true,
+        enabledSymbols: {
+            basic: true,
+            concept: true,
+            descriptor: true,
+            cloze: true,
+            multiLine: true,
+        },
+        debounceDelay: {
+            quick: 300,
+            list: 2000,
+        },
+        descriptorUseXiuyuan: true,
     },
     drill: {
         enabled: true,

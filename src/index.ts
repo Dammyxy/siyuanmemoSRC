@@ -57,6 +57,8 @@ import { NeuralQueueStorage } from '@/core/queue/neural';
 import { ExtractionNativeAdapter, FinalDrillNativeAdapter } from '@/core/native/adapter';
 // Services
 import { DialogService, MenuService, ReviewDialogManager, BlockMenuHandler, createQueueHandlers, clearPracticeQueue, HybridSyncService } from '@/services';
+import { TransactionWebSocketService } from '@/services/TransactionWebSocketService';
+import { RiffSyncHandler } from '@/services/handlers/RiffSyncHandler';
 import { NativeReviewSession } from '@/core/native/session';
 import { ConfigMigrator } from '@/utils/configMigrator';
 
@@ -94,13 +96,14 @@ export default class FSRSPlugin extends Plugin {
   // 🆕 Services
   private dialogService!: DialogService;
   private menuService!: MenuService;
-  private xiuyuanService!: XiuyuanService;
+  public xiuyuanService!: XiuyuanService; // 🆕 改为 public，供 AutoCardHandler 使用
   private xiuyuanStorage!: XiuyuanStorage;
   private reviewDialogManager!: ReviewDialogManager;
   private blockMenuHandler!: BlockMenuHandler;
   private transactionObserver!: TransactionObserver;
   private hybridSyncService?: HybridSyncService;
   private fullSyncTimer?: NodeJS.Timeout; // 🆕 全量同步定时器
+  private transactionWebSocketService?: TransactionWebSocketService; // 🆕 统一 WebSocket 服务
 
   // 为兼容性提供的别名访问器
   public get deliberateQueue(): FinalDrillQueue {
@@ -357,13 +360,18 @@ export default class FSRSPlugin extends Plugin {
       (this.blockMenuHandler as any).deps.xiuyuanService = this.xiuyuanService;
 
       // 🆕 初始化 TransactionObserver（自动制卡）
-      this.transactionObserver = new TransactionObserver(this);
-      this.transactionObserver.init();
+      // ⚠️ DEPRECATED: TransactionObserver 已被 AutoCardHandler 替代
+      // @see AutoCardHandler - 新的自动制卡处理器
+      // @see .kiro/specs/quick-card-symbols/tasks.md - Task 2.8
+      // 
+      // 保留代码以便回滚，但默认不启用
+      // this.transactionObserver = new TransactionObserver(this);
+      // this.transactionObserver.init();
+      // const autoCardEnabled = settings.incremental?.autoCardEnabled || false;
+      // this.transactionObserver.setEnabled(autoCardEnabled);
+      // console.log('[SiyuanMemo] ✅ TransactionObserver initialized, autoCardEnabled:', autoCardEnabled);
       
-      // 根据设置启用/禁用自动制卡
-      const autoCardEnabled = settings.incremental?.autoCardEnabled || false;
-      this.transactionObserver.setEnabled(autoCardEnabled);
-      console.log('[SiyuanMemo] ✅ TransactionObserver initialized, autoCardEnabled:', autoCardEnabled);
+      console.log('[SiyuanMemo] ⚠️ TransactionObserver is deprecated and not initialized. Use AutoCardHandler instead.');
 
       // 🆕 检测并执行配置迁移（旧版 disabled/data-only/full-scheduler）
       const riffConfig = settings.riffIntegration;
@@ -415,6 +423,31 @@ export default class FSRSPlugin extends Plugin {
         console.log('[SiyuanMemo] ✅ HybridSyncService initialized and started');
       } else {
         console.log('[SiyuanMemo] HybridSyncService not initialized (no riffIntegration config)');
+      }
+
+      // 🆕 初始化 TransactionWebSocketService（统一 WebSocket 服务）
+      if (currentRiffConfig && currentRiffConfig.incrementalSync?.enabled && this.hybridSyncService) {
+        console.log('[SiyuanMemo] Initializing TransactionWebSocketService...');
+        
+        // 创建 TransactionWebSocketService 实例
+        this.transactionWebSocketService = new TransactionWebSocketService(this);
+        
+        // 创建并注册 RiffSyncHandler
+        const riffSyncHandler = new RiffSyncHandler(this.hybridSyncService);
+        this.transactionWebSocketService.registerHandler(riffSyncHandler);
+        
+        // 🆕 创建并注册 AutoCardHandler（自动制卡处理器）
+        const { AutoCardHandler } = await import('@/services/handlers/AutoCardHandler');
+        const autoCardHandler = new AutoCardHandler(this);
+        this.transactionWebSocketService.registerHandler(autoCardHandler);
+        console.log('[SiyuanMemo] ✅ AutoCardHandler registered');
+        
+        // 启动服务
+        this.transactionWebSocketService.start();
+        
+        console.log('[SiyuanMemo] ✅ TransactionWebSocketService initialized and started');
+      } else {
+        console.log('[SiyuanMemo] TransactionWebSocketService not initialized (Riff incremental sync disabled)');
       }
 
       // 🆕 简单模式移除迁移（移除 mode 字段，自动切换到高级模式）
@@ -761,9 +794,10 @@ export default class FSRSPlugin extends Plugin {
     this.srsBrowserDialog?.destroy();
 
     // 卸载 TransactionObserver
-    if (this.transactionObserver) {
-      this.transactionObserver.unload();
-    }
+    // ⚠️ DEPRECATED: TransactionObserver 已被 AutoCardHandler 替代
+    // if (this.transactionObserver) {
+    //   this.transactionObserver.unload();
+    // }
 
     // 🆕 清理全量同步定时器
     if (this.fullSyncTimer) {
@@ -776,6 +810,12 @@ export default class FSRSPlugin extends Plugin {
     if (this.hybridSyncService) {
       this.hybridSyncService.stop();
       console.log('[SiyuanMemo] ✅ HybridSyncService stopped');
+    }
+
+    // 🆕 停止 TransactionWebSocketService
+    if (this.transactionWebSocketService) {
+      this.transactionWebSocketService.stop();
+      console.log('[SiyuanMemo] ✅ TransactionWebSocketService stopped');
     }
 
     try {
@@ -887,11 +927,12 @@ export default class FSRSPlugin extends Plugin {
           }
 
           // 🆕 更新 TransactionObserver 启用状态
-          if (this.transactionObserver && settings.incremental) {
-            const autoCardEnabled = settings.incremental.autoCardEnabled || false;
-            this.transactionObserver.setEnabled(autoCardEnabled);
-            console.log('[SiyuanMemo] ✅ TransactionObserver enabled:', autoCardEnabled);
-          }
+          // ⚠️ DEPRECATED: TransactionObserver 已被 AutoCardHandler 替代
+          // if (this.transactionObserver && settings.incremental) {
+          //   const autoCardEnabled = settings.incremental.autoCardEnabled || false;
+          //   this.transactionObserver.setEnabled(autoCardEnabled);
+          //   console.log('[SiyuanMemo] ✅ TransactionObserver enabled:', autoCardEnabled);
+          // }
 
           // 🆕 更新 HybridSyncService 配置（如果需要）
           if (settings.riffIntegration && this.hybridSyncService) {
@@ -949,6 +990,43 @@ export default class FSRSPlugin extends Plugin {
             }
             
             console.log('[SiyuanMemo] ✅ HybridSyncService initialized');
+          }
+
+          // 🆕 更新 TransactionWebSocketService 配置
+          if (settings.riffIntegration) {
+            const incrementalEnabled = settings.riffIntegration.incrementalSync?.enabled || false;
+            
+            if (incrementalEnabled && this.hybridSyncService) {
+              // 需要启用 TransactionWebSocketService
+              if (!this.transactionWebSocketService) {
+                // 初始化服务
+                console.log('[SiyuanMemo] Initializing TransactionWebSocketService...');
+                this.transactionWebSocketService = new TransactionWebSocketService(this);
+                
+                // 创建并注册 RiffSyncHandler
+                const riffSyncHandler = new RiffSyncHandler(this.hybridSyncService);
+                this.transactionWebSocketService.registerHandler(riffSyncHandler);
+                
+                // 🆕 创建并注册 AutoCardHandler（自动制卡处理器）
+                const { AutoCardHandler } = await import('@/services/handlers/AutoCardHandler');
+                const autoCardHandler = new AutoCardHandler(this);
+                this.transactionWebSocketService.registerHandler(autoCardHandler);
+                console.log('[SiyuanMemo] ✅ AutoCardHandler registered');
+                
+                // 启动服务
+                this.transactionWebSocketService.start();
+                console.log('[SiyuanMemo] ✅ TransactionWebSocketService initialized and started');
+              }
+              // 如果已经初始化，不需要重启（处理器会自动使用新的 HybridSyncService 实例）
+            } else {
+              // 需要停止 TransactionWebSocketService
+              if (this.transactionWebSocketService) {
+                console.log('[SiyuanMemo] Stopping TransactionWebSocketService...');
+                this.transactionWebSocketService.stop();
+                this.transactionWebSocketService = undefined;
+                console.log('[SiyuanMemo] ✅ TransactionWebSocketService stopped');
+              }
+            }
           }
         },
         close: () => {

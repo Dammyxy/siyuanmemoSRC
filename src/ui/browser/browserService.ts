@@ -133,6 +133,29 @@ class CardCacheManager {
         this.cache = null;
     }
 
+    /**
+     * 更新单个卡片的缓存
+     */
+    updateCard(blockId: string, updates: Partial<BrowserCard>): void {
+        if (!this.cache) return;
+        
+        const card = this.cache.cards.find(c => c.blockId === blockId);
+        if (card) {
+            Object.assign(card, updates);
+        }
+    }
+
+    /**
+     * 从缓存中移除多个卡片
+     */
+    removeCards(blockIds: string[]): void {
+        if (!this.cache) return;
+        
+        const blockIdSet = new Set(blockIds);
+        this.cache.cards = this.cache.cards.filter(c => !blockIdSet.has(c.blockId));
+        this.cache.blockIdSet = new Set(this.cache.cards.map(c => c.blockId));
+    }
+
     getStats(): { count: number; age: number; valid: boolean } {
         if (!this.cache) {
             return { count: 0, age: 0, valid: false };
