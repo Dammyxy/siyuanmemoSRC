@@ -22,7 +22,7 @@ export type IncrementalLearningDataSourceOptions = {
   docId?: string;      // 文档筛选
   preset?: string;     // Preset 筛选
   queryText?: string;  // 搜索查询
-  cardType?: 'all' | 'topic-only' | 'item-only';  // 卡片类型筛选
+  cardType?: CardTypeFilter;  // 卡片类型筛选
 };
 
 function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
@@ -164,9 +164,12 @@ export class IncrementalLearningDataSource implements ICardDataSource {
       result = result.filter(c => {
         switch (this.options.cardType) {
           case 'topic-only':
+            // Topic 类型包括：topic（增量阅读）
             return c.cardType === 'topic';
           case 'item-only':
-            return c.cardType === 'item';
+            // Item 类型包括：item（普通闪卡）、concept（概念卡）、descriptor（描述符卡）
+            // 因为 concept 和 descriptor 都使用 FSRS 调度器，在功能上属于 item 类别
+            return c.cardType === 'item' || c.cardType === 'concept' || c.cardType === 'descriptor';
           default:
             return true;
         }
@@ -225,11 +228,18 @@ export class IncrementalLearningDataSource implements ICardDataSource {
     const deckId = (card.meta?.deckId as string) || '';
     
     // 转换 CardType 枚举为字符串
-    // CardType 枚举的值本身就是字符串 ('item', 'topic', 'incremental', 'webpage')
-    const cardType = card.type as 'topic' | 'item' | 'incremental' | 'webpage' | undefined;
+    // CardType 枚举的值本身就是字符串 ('item', 'topic', 'concept', 'descriptor', 'incremental', 'webpage')
+    const cardType = card.type as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined;
     
     // 🔍 调试日志：检查 cardType 转换
-    if (!cardType || (cardType !== 'item' && cardType !== 'topic' && cardType !== 'incremental' && cardType !== 'webpage')) {
+    if (!cardType || (
+      cardType !== 'item' && 
+      cardType !== 'topic' && 
+      cardType !== 'concept' && 
+      cardType !== 'descriptor' && 
+      cardType !== 'incremental' && 
+      cardType !== 'webpage'
+    )) {
       console.warn('[IncrementalLearningDataSource] Invalid cardType:', {
         blockId: card.blockId,
         originalType: card.type,

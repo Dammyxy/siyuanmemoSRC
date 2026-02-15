@@ -37,6 +37,10 @@ export interface XiuyuanCardMeta {
   /** 背面要显示的块 ID 列表 */
   backBlockIDs: string[];
   
+  // === 卡片类型标记 ===
+  /** 卡片类型标记（如 'forward', 'reverse'），用于区分同一规则生成的不同卡片 */
+  typeMarker?: string;
+  
   // === 列表模版卡专用字段 ===
   /** 当前卡片的提示文本 */
   cue?: string;

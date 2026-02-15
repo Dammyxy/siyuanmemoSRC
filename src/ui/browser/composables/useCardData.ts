@@ -33,7 +33,7 @@ export function useCardData(props: CardDataOptions) {
   const allRows = ref<BrowserCard[]>([]);  // 所有卡片的完整数据（不受筛选影响，用于【全部】区统计）
   const currentDataSource = ref<ICardDataSource | null>(null);
   const currentPreset = ref('all');
-  const currentCardType = ref<'all' | 'topic-only' | 'item-only'>('all');  // 卡片类型筛选
+  const currentCardType = ref<CardTypeFilter>('all');  // 卡片类型筛选
   const activeQueueId = ref<string | null>(null);
   const activeDocId = ref<string | null>(null);
   const queueCounts = ref<Record<string, number>>({});

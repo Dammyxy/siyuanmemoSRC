@@ -15,6 +15,7 @@ import { AutoCardHandler } from '../AutoCardHandler';
 import type { Transaction } from '../../TransactionWebSocketService';
 import type FSRSPlugin from '@/index';
 import { STORAGE_NAME } from '@/types';
+import { CardType } from '@/types/card';
 
 // Mock 思源 API
 vi.mock('@/core/siyuan/api', () => ({
@@ -206,7 +207,7 @@ describe('AutoCardHandler', () => {
             expect(mockStorage.setCard).toHaveBeenCalled();
             const card = mockStorage.setCard.mock.calls[0][0];
             expect(card.meta.symbolType).toBe('::');
-            expect(card.type).toBe(1); // CardType.Topic
+            expect(card.type).toBe(CardType.Concept);
         });
 
         it('应该检测填空卡片符号 ({{}})', async () => {
@@ -512,7 +513,7 @@ describe('AutoCardHandler', () => {
             expect(markBlockAsCardMock).toHaveBeenCalled();
         });
         
-        it('应该创建概念卡片并标记为 Topic 类型', async () => {
+        it('应该创建概念卡片并标记为 Concept 类型', async () => {
             const { getBlockKramdown } = await import('@/core/siyuan/api');
             (getBlockKramdown as any).mockResolvedValue({
                 kramdown: 'FSRS :: Free Spaced Repetition Scheduler'
@@ -532,10 +533,10 @@ describe('AutoCardHandler', () => {
             
             expect(mockStorage.setCard).toHaveBeenCalled();
             const card = mockStorage.setCard.mock.calls[0][0];
-            expect(card.type).toBe(1); // CardType.Topic
+            expect(card.type).toBe(CardType.Concept);
             expect(card.meta.concept).toBe('FSRS');
             expect(card.meta.definition).toBe('Free Spaced Repetition Scheduler');
-            expect(card.aFactor).toBe(2.5);
+            expect(card.aFactor).toBeUndefined(); // 概念卡使用 FSRS，不使用 A-Factor
         });
         
         it('应该创建填空卡片并提取填空位置', async () => {

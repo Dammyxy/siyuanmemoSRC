@@ -13,7 +13,7 @@ export type FilterGroupDataSourceOptions = {
   docId?: string;      // 文档筛选
   preset?: string;     // Preset 筛选
   queryText?: string;  // 搜索查询
-  cardType?: 'all' | 'topic-only' | 'item-only';  // ✅ 卡片类型筛选
+  cardType?: CardTypeFilter;  // ✅ 卡片类型筛选
 };
 
 function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
@@ -116,6 +116,23 @@ export class FilterGroupDataSource implements ICardDataSource {
       }
     }
 
+    // 卡片类型筛选
+    if (this.options.cardType && this.options.cardType !== 'all') {
+      result = result.filter(c => {
+        switch (this.options.cardType) {
+          case 'topic-only':
+            // Topic 类型包括：topic（增量阅读）
+            return c.cardType === 'topic';
+          case 'item-only':
+            // Item 类型包括：item（普通闪卡）、concept（概念卡）、descriptor（描述符卡）
+            // 因为 concept 和 descriptor 都使用 FSRS 调度器，在功能上属于 item 类别
+            return c.cardType === 'item' || c.cardType === 'concept' || c.cardType === 'descriptor';
+          default:
+            return true;
+        }
+      });
+    }
+
     return result;
   }
 
@@ -195,8 +212,8 @@ export class FilterGroupDataSource implements ICardDataSource {
     const deckId = (card.meta?.deckId as string) || '';
     
     // 转换 CardType 枚举为字符串
-    // CardType 枚举的值本身就是字符串 ('item', 'topic', 'incremental', 'webpage')
-    const cardType = card.type as 'topic' | 'item' | 'incremental' | 'webpage' | undefined;
+    // CardType 枚举的值本身就是字符串 ('item', 'topic', 'concept', 'descriptor', 'incremental', 'webpage')
+    const cardType = card.type as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined;
     
     return {
       id: card.riffCardId || card.id,

@@ -22,11 +22,11 @@ export const BASIC_QA_TEMPLATE: ICardTemplate = {
   ],
 };
 
-/** 双向卡片模板 */
+/** 双向卡片模板（两个块） */
 export const BIDIRECTIONAL_TEMPLATE: ICardTemplate = {
   id: 'builtin-bidirectional',
   name: '双向卡片',
-  description: '生成正向和反向两张卡片',
+  description: '生成正向和反向两张卡片（需要两个块）',
   fields: [
     { name: 'term', description: '术语' },
     { name: 'definition', description: '定义' },
@@ -41,6 +41,49 @@ export const BIDIRECTIONAL_TEMPLATE: ICardTemplate = {
       typeMarker: 'reverse',
       frontFields: ['definition'],
       backFields: ['term'],
+    },
+  ],
+};
+
+/**
+ * 快速制卡双向模板（单块）
+ * 
+ * @description
+ * 用于快速制卡符号 `<>` 的双向卡片。
+ * 与 builtin-bidirectional 不同，这个模板只需要一个块，
+ * 块内容通过 `<>` 符号分割为两部分。
+ * 
+ * @example
+ * ```markdown
+ * DDD <> 领域驱动设计
+ * ```
+ * 
+ * 生成2张卡片：
+ * - 卡片1（正向）：正面显示 "DDD"，反面显示 "领域驱动设计"
+ * - 卡片2（反向）：正面显示 "领域驱动设计"，反面显示 "DDD"
+ * 
+ * 注意：
+ * - content 字段映射到同一个块
+ * - 渲染时需要解析块内容中的 `<>` 符号
+ * - typeMarker 用于区分正向和反向
+ */
+export const QUICK_BIDIRECTIONAL_TEMPLATE: ICardTemplate = {
+  id: 'builtin-quick-bidirectional',
+  name: '快速制卡双向',
+  description: '单块生成正向和反向两张卡片（用于 <> 符号）',
+  fields: [
+    { name: 'content', description: '包含 <> 符号的块内容' },
+  ],
+  cardRules: [
+    {
+      typeMarker: 'forward',
+      frontFields: ['content'],
+      backFields: ['content'],
+    },
+    {
+      typeMarker: 'reverse',
+      frontFields: ['content'],
+      backFields: ['content'],
     },
   ],
 };
@@ -136,11 +179,45 @@ export const CONCEPT_DESCRIPTOR_TEMPLATE: ICardTemplate = {
   ],
 };
 
+/**
+ * 多填空模板
+ * 
+ * @description
+ * 用于包含多个填空的块，每个填空生成一张独立的卡片。
+ * 支持两种填空符号：{{}} 和 ==
+ * 
+ * @example
+ * ```markdown
+ * ==线粒体==是细胞的==能量工厂==，负责生成==ATP==
+ * ```
+ * 
+ * 生成3张卡片：
+ * - 卡片1：[___]是细胞的能量工厂，负责生成ATP → 线粒体
+ * - �片2：线粒体是细胞的[___]，负责生成ATP → 能量工厂
+ * - 卡片3：线粒体是细胞的能量工厂，负责生成[___] → ATP
+ * 
+ * 注意：
+ * - content 字段映射到同一个块
+ * - 每张卡片通过 ruleIndex 区分是哪个填空
+ * - 渲染时需要解析块内容中的填空符号
+ */
+export const MULTI_CLOZE_TEMPLATE: ICardTemplate = {
+  id: 'builtin-multi-cloze',
+  name: '多填空卡片',
+  description: '每个填空生成一张独立的卡片',
+  fields: [
+    { name: 'content', description: '包含多个填空的内容' },
+  ],
+  cardRules: [], // 动态生成，根据填空数量
+};
+
 /** 所有内置模板 */
 export const BUILTIN_TEMPLATES: ICardTemplate[] = [
   BASIC_QA_TEMPLATE,
   BIDIRECTIONAL_TEMPLATE,
+  QUICK_BIDIRECTIONAL_TEMPLATE,
   CLOZE_TEMPLATE,
+  MULTI_CLOZE_TEMPLATE,
   LIST_ITEM_TEMPLATE,
   CONCEPT_DESCRIPTOR_TEMPLATE,
 ];

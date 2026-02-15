@@ -96,6 +96,41 @@ export const FILTER_PRESETS: FilterPreset[] = [
     { key: 'descriptor-only', label: '仅描述符卡', icon: 'iconTag' },
 ];
 
+/**
+ * 根据队列类型获取可用的卡片类型筛选选项
+ * 
+ * @param queueId 队列 ID（retrieval, final-drill, neural, incremental-learning 等）
+ * @returns 可用的卡片类型筛选选项数组
+ */
+export function getAvailableCardTypeFilters(queueId: string | null): Array<{ value: CardTypeFilter; label: string }> {
+    // 提取练习队列和最终训练队列：显示除了 topic-only 外的所有类型
+    if (queueId === 'retrieval' || queueId === 'final-drill') {
+        return [
+            { value: 'all', label: 'All Types' },
+            { value: 'item-only', label: 'Item Only' },
+            { value: 'concept-only', label: 'Concept Only' },
+            { value: 'descriptor-only', label: 'Descriptor Only' },
+        ];
+    }
+    
+    // 神经漫游队列：只显示 concept-only 和 descriptor-only
+    if (queueId === 'neural') {
+        return [
+            { value: 'concept-only', label: 'Concept Only' },
+            { value: 'descriptor-only', label: 'Descriptor Only' },
+        ];
+    }
+    
+    // 其他队列（渐进学习、筛选组、全部卡片等）：显示所有选项
+    return [
+        { value: 'all', label: 'All Types' },
+        { value: 'topic-only', label: 'Topic Only' },
+        { value: 'item-only', label: 'Item Only' },
+        { value: 'concept-only', label: 'Concept Only' },
+        { value: 'descriptor-only', label: 'Descriptor Only' },
+    ];
+}
+
 /** 批量操作类型 */
 export type BatchAction =
     | 'reschedule'

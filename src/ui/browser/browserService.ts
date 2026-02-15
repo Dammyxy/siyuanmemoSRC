@@ -225,7 +225,7 @@ function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>):
     const rootId = (card.meta?.rootId as string) || '';
     
     // 转换 CardType
-    const cardType = card.type as 'topic' | 'item' | 'incremental' | 'webpage' | undefined;
+    const cardType = card.type as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined;
     
     return {
         id: card.id,

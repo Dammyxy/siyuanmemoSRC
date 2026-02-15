@@ -522,6 +522,7 @@ export class XiuyuanService {
             fieldMapping,
             frontBlockIDs,
             backBlockIDs,
+            typeMarker: rule.typeMarker,
           };
 
           const fsrsCard: FSRSCard = {

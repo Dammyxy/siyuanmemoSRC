@@ -89,10 +89,10 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
         try {
             const now = Date.now();
             
-            // 获取所有到期的卡片（项目和主题）
-            // ✅ 明确指定获取所有类型的卡片
+            // 获取所有到期的卡片（所有类型）
+            // ✅ 包含所有类型：item、concept、descriptor、topic、incremental、webpage
             const dueCards = await this.manager.getCards({
-                cardType: ['item', 'topic'],  // 明确包含 item 和 topic
+                cardType: ['item', 'concept', 'descriptor', 'topic', 'incremental', 'webpage'],
                 dueDate: { lte: new Date(now) }
             });
             

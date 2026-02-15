@@ -7,7 +7,7 @@ export interface CardFilterOptions {
   scopedRows: ComputedRef<BrowserCard[]>;
   currentPreset: Ref<string>;
   searchQuery: Ref<string>;
-  currentCardType: Ref<'all' | 'topic-only' | 'item-only'>;
+  currentCardType: Ref<CardTypeFilter>;
   // 传递回调函数
   onSearchChange?: () => void;
   onPresetChange?: () => void;

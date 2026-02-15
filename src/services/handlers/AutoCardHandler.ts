@@ -45,6 +45,7 @@ export class AutoCardHandler implements ITransactionHandler {
         basicForward: /^(.+?)\s*>>\s*(.+)$/,    // 问题 >> 答案
         basicBackward: /^(.+?)\s*<<\s*(.+)$/,   // 答案 << 问题
         cloze: /\{\{(.+?)\}\}/g,                // {{填空}}
+        clozeEqual: /==(.+?)==/g,               // ==填空==（新增）
         multiLine: /(.+?)\s*>>>\s*$/,           // 问题 >>>
         listCue: /^(.+?)\s*->\s*(.+)$/,         // 提示 -> 答案（列表模版子项）
     };
@@ -114,9 +115,17 @@ export class AutoCardHandler implements ITransactionHandler {
      * 
      * 用于检测：>>> + 子列表项
      * 
+     * 🚫 已禁用：列表模板卡触发太快，容易误触
+     * 
      * @param blockId 块 ID
      */
     private queueListCheck(blockId: string): void {
+        // 🚫 禁用列表模板卡自动识别
+        // 原因：打出 >>> 后会立即触发，但用户还没来得及输入子列表项
+        // 建议：使用手动创建列表模板卡的方式（右键菜单）
+        return;
+        
+        /* 原代码保留以供参考
         this.listQueue.add(blockId);
         
         if (this.listTimer) {
@@ -130,6 +139,7 @@ export class AutoCardHandler implements ITransactionHandler {
         this.listTimer = setTimeout(() => {
             this.processListQueue();
         }, debounceDelay);
+        */
     }
     
     /**
@@ -244,7 +254,7 @@ export class AutoCardHandler implements ITransactionHandler {
             } else if (quickCardSettings.enabledSymbols.descriptor && this.patterns.descriptor.test(kramdown)) {
                 console.log('[AutoCard] Detected descriptor symbol:', blockId);
                 await this.createDescriptorCard(blockId, kramdown);
-            } else if (quickCardSettings.enabledSymbols.cloze && this.patterns.cloze.test(kramdown)) {
+            } else if (quickCardSettings.enabledSymbols.cloze && (this.patterns.cloze.test(kramdown) || this.patterns.clozeEqual.test(kramdown))) {
                 console.log('[AutoCard] Detected cloze symbol:', blockId);
                 await this.createClozeCard(blockId, kramdown);
             } else {
@@ -343,10 +353,13 @@ export class AutoCardHandler implements ITransactionHandler {
                     question = match[2].trim();
                 }
             } else if (direction === 'both') {
+                // 双向卡片：使用 Xiuyuan 系统
                 const match = content.match(this.patterns.basicBoth);
                 if (match) {
-                    question = match[1].trim();
-                    answer = match[2].trim();
+                    const term = match[1].trim();
+                    const definition = match[2].trim();
+                    await this.createBidirectionalCard(blockId, term, definition);
+                    return;
                 }
             }
             
@@ -366,7 +379,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 question,
                 answer,
                 cardSource: 'quick-symbol',
-                symbolType: direction === 'forward' ? '>>' : direction === 'backward' ? '<<' : '<>'
+                symbolType: direction === 'forward' ? '>>' : '<<'
             };
             
             // 4. 添加到 Riff 卡组
@@ -387,12 +400,91 @@ export class AutoCardHandler implements ITransactionHandler {
             
             // 7. 显示成功提示
             const { pushMsg } = await import('@/core/siyuan/api');
-            const symbolText = direction === 'forward' ? '>>' : direction === 'backward' ? '<<' : '<>';
-            await pushMsg(`✅ 已创建${direction === 'both' ? '双向' : direction === 'forward' ? '正向' : '反向'}卡片 (${symbolText})`);
+            const symbolText = direction === 'forward' ? '>>' : '<<';
+            await pushMsg(`✅ 已创建${direction === 'forward' ? '正向' : '反向'}卡片 (${symbolText})`);
         } catch (error) {
             console.error('[AutoCard] Failed to create basic card:', blockId, error);
             const { pushErrMsg } = await import('@/core/siyuan/api');
             await pushErrMsg(`创建基础卡片失败：${error.message}`);
+        }
+    }
+    
+    /**
+     * 创建双向卡片（使用 Xiuyuan 系统）
+     * 
+     * 双向卡片会通过 Xiuyuan 的 builtin-quick-bidirectional 模板创建两张卡片：
+     * - 卡片1：term -> definition (forward)
+     * - 卡片2：definition -> term (reverse)
+     * 
+     * 所有卡片共用同一个 blockId 作为代表块
+     * 
+     * @param blockId 块 ID
+     * @param term 术语
+     * @param definition 定义
+     */
+    private async createBidirectionalCard(blockId: string, term: string, definition: string): Promise<void> {
+        try {
+            console.log('[AutoCard] Creating bidirectional card using Xiuyuan:', blockId);
+            
+            // 1. 检查 XiuyuanService 是否可用
+            const xiuyuanService = this.plugin.xiuyuanService;
+            if (!xiuyuanService) {
+                console.error('[AutoCard] XiuyuanService not available, falling back to single card');
+                // 降级：只创建正向卡片
+                const { createDefaultCard } = await import('@/types/card');
+                const card = createDefaultCard(blockId);
+                card.meta = {
+                    ...card.meta,
+                    direction: 'forward',
+                    question: term,
+                    answer: definition,
+                    cardSource: 'quick-symbol',
+                    symbolType: '<>'
+                };
+                
+                const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
+                await addRiffCards(BUILTIN_DECK_ID, [blockId]);
+                
+                const { markBlockAsCard } = await import('@/core/siyuan/block');
+                await markBlockAsCard(blockId, card.id, card.priority, 'item');
+                
+                this.plugin.storage.setCard(card);
+                await this.plugin.storage.saveCards();
+                
+                const { pushMsg } = await import('@/core/siyuan/api');
+                await pushMsg(`✅ 已创建双向卡片 (<>) - 仅正向`);
+                return;
+            }
+            
+            // 2. 使用 Xiuyuan 的 builtin-quick-bidirectional 模板
+            // 注意：content 字段映射到同一个块，渲染时会解析 <> 符号
+            const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
+            const result = await xiuyuanService.createFromBlocks(
+                [blockId],  // 只有一个块
+                'builtin-quick-bidirectional',  // 使用快速制卡双向模板
+                {
+                    content: blockId  // content 字段映射到当前块
+                },
+                BUILTIN_DECK_ID
+            );
+            
+            if (!result.ok) {
+                throw result.error;
+            }
+            
+            console.log('[AutoCard] Bidirectional card created via Xiuyuan:', {
+                xiuyuanID: result.value.xiuyuan.id,
+                cardCount: result.value.cards.length,
+                blockId
+            });
+            
+            // 3. 显示成功提示
+            const { pushMsg } = await import('@/core/siyuan/api');
+            await pushMsg(`✅ 已创建双向卡片 (<>) - 共 ${result.value.cards.length} 张卡片`);
+        } catch (error) {
+            console.error('[AutoCard] Failed to create bidirectional card:', blockId, error);
+            const { pushErrMsg } = await import('@/core/siyuan/api');
+            await pushErrMsg(`创建双向卡片失败：${error.message}`);
         }
     }
     
@@ -425,8 +517,8 @@ export class AutoCardHandler implements ITransactionHandler {
             const { createDefaultCard, CardType } = await import('@/types/card');
             const card = createDefaultCard(blockId);
             
-            // 3. 标记为 Topic 类型
-            card.type = CardType.Topic;
+            // 3. 标记为 Concept 类型
+            card.type = CardType.Concept;
             
             // 4. 设置卡片元数据（默认双向）
             card.meta = {
@@ -438,29 +530,30 @@ export class AutoCardHandler implements ITransactionHandler {
                 symbolType: '::'
             };
             
-            // 5. 初始化 A-Factor（Topic 卡片特有）
-            card.aFactor = 2.5; // 默认 A-Factor
-            
-            // 6. 添加到 Riff 卡组
+            // 5. 添加到 Riff 卡组
             const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
             await addRiffCards(BUILTIN_DECK_ID, [blockId]);
             console.log('[AutoCard] Added to Riff deck:', blockId);
             
-            // 7. 标记 FSRS 属性（标记为 topic）
+            // 6. 标记 FSRS 属性（标记为 concept）
             const { markBlockAsCard } = await import('@/core/siyuan/block');
-            await markBlockAsCard(blockId, card.id, card.priority, 'topic');
-            console.log('[AutoCard] Marked block as topic card:', blockId);
+            await markBlockAsCard(blockId, card.id, card.priority, 'concept');
+            console.log('[AutoCard] Marked block as concept card:', blockId);
             
-            // 8. 检测并标记卡片类型（concept）
-            card.cardTypeMarker = 'concept';
+            // 7. 检测并标记卡片类型（concept）
+            // 🆕 使用 CardType 枚举标记为概念卡
+            const { setBlockAttrs } = await import('@/core/siyuan/api');
+            await setBlockAttrs(blockId, {
+                'custom-card-type-marker': 'concept'
+            });
             
-            // 9. 保存到存储
+            // 8. 保存到存储
             this.plugin.storage.setCard(card);
             await this.plugin.storage.saveCards();
             
             console.log('[AutoCard] Concept card created successfully:', blockId);
             
-            // 10. 显示成功提示
+            // 9. 显示成功提示
             const { pushMsg } = await import('@/core/siyuan/api');
             await pushMsg(`✅ 已创建概念卡片 (::)`);
         } catch (error) {
@@ -554,6 +647,12 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
             
+            // 🆕 标记为描述符卡类型
+            const { setBlockAttrs } = await import('@/core/siyuan/api');
+            await setBlockAttrs(blockId, {
+                'custom-card-type-marker': 'descriptor'
+            });
+            
             console.log('[AutoCard] Descriptor card created successfully:', blockId);
             
             // 4. 显示成功提示
@@ -616,7 +715,9 @@ export class AutoCardHandler implements ITransactionHandler {
     }
     
     /**
-     * 创建填空卡片（{{}}）
+     * 创建填空卡片（{{}} 或 ==）
+     * 
+     * 如果有多个填空，使用 Xiuyuan 系统创建多张卡片
      * 
      * @param blockId 块 ID
      * @param content 块内容
@@ -625,21 +726,25 @@ export class AutoCardHandler implements ITransactionHandler {
         try {
             console.log('[AutoCard] Creating cloze card:', blockId);
             
-            // 1. 提取所有填空
-            const clozes: string[] = [];
-            const clozePositions: Array<{ start: number; end: number; text: string }> = [];
+            // 1. 提取所有填空（支持 {{}} 和 ==）
+            const clozes: Array<{ text: string; type: 'brace' | 'equal' }> = [];
+            
+            // 提取 {{}} 填空
             let match;
-            
-            // 重置正则表达式的 lastIndex
             this.patterns.cloze.lastIndex = 0;
-            
             while ((match = this.patterns.cloze.exec(content)) !== null) {
-                const clozeText = match[1].trim();
-                clozes.push(clozeText);
-                clozePositions.push({
-                    start: match.index,
-                    end: match.index + match[0].length,
-                    text: clozeText
+                clozes.push({
+                    text: match[1].trim(),
+                    type: 'brace'
+                });
+            }
+            
+            // 提取 == 填空
+            this.patterns.clozeEqual.lastIndex = 0;
+            while ((match = this.patterns.clozeEqual.exec(content)) !== null) {
+                clozes.push({
+                    text: match[1].trim(),
+                    type: 'equal'
                 });
             }
             
@@ -650,44 +755,124 @@ export class AutoCardHandler implements ITransactionHandler {
             
             console.log('[AutoCard] Found clozes:', clozes.length, clozes);
             
-            // 2. 创建 FSRS Card
-            const { createDefaultCard } = await import('@/types/card');
-            const card = createDefaultCard(blockId);
+            // 2. 如果只有一个填空，创建单张卡片
+            if (clozes.length === 1) {
+                await this.createSingleClozeCard(blockId, content, clozes);
+                return;
+            }
             
-            // 3. 设置卡片元数据
-            card.meta = {
-                ...card.meta,
-                clozes,
-                clozePositions,
-                clozeCount: clozes.length,
-                cardSource: 'quick-symbol',
-                symbolType: '{{}}'
-            };
-            
-            // 4. 添加到 Riff 卡组
-            const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
-            await addRiffCards(BUILTIN_DECK_ID, [blockId]);
-            console.log('[AutoCard] Added to Riff deck:', blockId);
-            
-            // 5. 标记 FSRS 属性
-            const { markBlockAsCard } = await import('@/core/siyuan/block');
-            await markBlockAsCard(blockId, card.id, card.priority, 'item');
-            console.log('[AutoCard] Marked block as card:', blockId);
-            
-            // 6. 保存到存储
-            this.plugin.storage.setCard(card);
-            await this.plugin.storage.saveCards();
-            
-            console.log('[AutoCard] Cloze card created successfully:', blockId, 'clozes:', clozes.length);
-            
-            // 7. 显示成功提示
-            const { pushMsg } = await import('@/core/siyuan/api');
-            await pushMsg(`✅ 已创建填空卡片 ({{}}), ${clozes.length} 个填空`);
+            // 3. 多个填空：使用 Xiuyuan 创建多张卡片
+            await this.createMultipleClozeCards(blockId, content, clozes);
         } catch (error) {
             console.error('[AutoCard] Failed to create cloze card:', blockId, error);
             const { pushErrMsg } = await import('@/core/siyuan/api');
             await pushErrMsg(`创建填空卡片失败：${error.message}`);
         }
+    }
+    
+    /**
+     * 创建单张填空卡片
+     */
+    private async createSingleClozeCard(
+        blockId: string,
+        content: string,
+        clozes: Array<{ text: string; type: 'brace' | 'equal' }>
+    ): Promise<void> {
+        // 创建 FSRS Card
+        const { createDefaultCard } = await import('@/types/card');
+        const card = createDefaultCard(blockId);
+        
+        // 设置卡片元数据
+        card.meta = {
+            ...card.meta,
+            clozes: clozes.map(c => c.text),
+            clozeCount: 1,
+            cardSource: 'quick-symbol',
+            symbolType: clozes[0].type === 'brace' ? '{{}}' : '=='
+        };
+        
+        // 添加到 Riff 卡组
+        const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
+        await addRiffCards(BUILTIN_DECK_ID, [blockId]);
+        
+        // 标记 FSRS 属性
+        const { markBlockAsCard } = await import('@/core/siyuan/block');
+        await markBlockAsCard(blockId, card.id, card.priority, 'item');
+        
+        // 保存到存储
+        this.plugin.storage.setCard(card);
+        await this.plugin.storage.saveCards();
+        
+        console.log('[AutoCard] Single cloze card created:', blockId);
+        
+        // 显示成功提示
+        const { pushMsg } = await import('@/core/siyuan/api');
+        const symbolText = clozes[0].type === 'brace' ? '{{}}' : '==';
+        await pushMsg(`✅ 已创建填空卡片 (${symbolText})`);
+    }
+    
+    /**
+     * 创建多张填空卡片（使用 Xiuyuan）
+     */
+    private async createMultipleClozeCards(
+        blockId: string,
+        content: string,
+        clozes: Array<{ text: string; type: 'brace' | 'equal' }>
+    ): Promise<void> {
+        const xiuyuanService = this.plugin.xiuyuanService;
+        if (!xiuyuanService) {
+            console.error('[AutoCard] XiuyuanService not available, creating single card');
+            await this.createSingleClozeCard(blockId, content, clozes);
+            return;
+        }
+        
+        // 动态创建模板（每个填空一张卡片）
+        const template = {
+            id: 'builtin-multi-cloze',
+            name: '多填空卡片',
+            description: '每个填空生成一张独立的卡片',
+            fields: [
+                { name: 'content', description: '包含多个填空的内容' },
+            ],
+            cardRules: clozes.map((_, index) => ({
+                typeMarker: `cloze-${index}`,
+                frontFields: ['content'],
+                backFields: ['content'],
+            })),
+        };
+        
+        // 使用动态模板创建卡片
+        const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
+        const result = await (xiuyuanService as any).createFromBlocksWithTemplate(
+            [blockId],
+            template,
+            {
+                content: blockId
+            },
+            BUILTIN_DECK_ID
+        );
+        
+        if (!result.ok) {
+            console.error('[AutoCard] Failed to create Xiuyuan cloze cards, falling back to single card');
+            await this.createSingleClozeCard(blockId, content, clozes);
+            return;
+        }
+        
+        console.log('[AutoCard] Multiple cloze cards created:', blockId, 'count:', result.value.cards.length);
+        
+        // 显示成功提示
+        const { pushMsg } = await import('@/core/siyuan/api');
+        const hasEqual = clozes.some(c => c.type === 'equal');
+        const hasBrace = clozes.some(c => c.type === 'brace');
+        let symbolText = '';
+        if (hasEqual && hasBrace) {
+            symbolText = '{{}} / ==';
+        } else if (hasEqual) {
+            symbolText = '==';
+        } else {
+            symbolText = '{{}}';
+        }
+        await pushMsg(`✅ 已创建 ${clozes.length} 张填空卡片 (${symbolText})`);
     }
     
     /**

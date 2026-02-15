@@ -143,7 +143,7 @@ export interface PriorityRangeFilter {
  */
 export interface CardFilter {
     /** 卡片类型过滤（支持单个类型或多个类型） */
-    cardType?: 'item' | 'topic' | Array<'item' | 'topic'>;
+    cardType?: 'item' | 'topic' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | Array<'item' | 'topic' | 'concept' | 'descriptor' | 'incremental' | 'webpage'>;
     
     /** 到期日期过滤 */
     dueDate?: DateRangeFilter;

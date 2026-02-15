@@ -132,6 +132,22 @@
               />
               <span>Topic</span>
             </label>
+            <label class="checkbox-label">
+              <input
+                type="checkbox"
+                :checked="filterState.values.cardType.has('concept')"
+                @change="toggleCardType('concept')"
+              />
+              <span>Concept</span>
+            </label>
+            <label class="checkbox-label">
+              <input
+                type="checkbox"
+                :checked="filterState.values.cardType.has('descriptor')"
+                @change="toggleCardType('descriptor')"
+              />
+              <span>Descriptor</span>
+            </label>
           </div>
         </div>
 

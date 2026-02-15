@@ -142,6 +142,22 @@ export class StorageManager {
     }
 
     /**
+     * 根据块 ID 获取所有卡片（支持双向卡等多卡片场景）
+     * 
+     * @param blockId 块 ID
+     * @returns 该块对应的所有卡片数组
+     */
+    getCardsByBlockId(blockId: string): FSRSCard[] {
+        const cards: FSRSCard[] = [];
+        for (const card of this.cardsCache.values()) {
+            if (card.blockId === blockId) {
+                cards.push(card);
+            }
+        }
+        return cards;
+    }
+
+    /**
      * 获取所有卡片
      */
     getAllCards(): FSRSCard[] {

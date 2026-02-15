@@ -5,7 +5,7 @@
  * 动态队列，自动获取到期的项目卡片，支持手动添加卡片。
  * 
  * 核心功能：
- * - 自动包含所有到期的项目卡片
+ * - 自动包含所有到期的项目卡片（item、concept、descriptor）
  * - 支持手动添加未到期卡片
  * - 按到期日期和优先级排序
  * - 评分 3/4 移除卡片，1/2 保留并添加到最终训练
@@ -30,7 +30,7 @@ import { getDayStartHour } from '../utils/configUtils';
  * 动态队列，自动获取到期的项目卡片。
  * 
  * 队列行为：
- * - 自动包含所有到期的项目卡片（cardType === 'item'）
+ * - 自动包含所有到期的项目卡片（cardType === 'item' | 'concept' | 'descriptor'）
  * - 支持手动添加卡片（包括未到期卡片）
  * - 手动添加的卡片会被持久化
  * - 评分 3/4：更新到期日期，从队列移除
@@ -88,7 +88,7 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
      * 获取队列中的所有卡片
      * 
      * 获取逻辑：
-     * 1. 获取所有到期的项目卡片（cardType === 'item', due <= now）
+     * 1. 获取所有到期的项目卡片（cardType === 'item' | 'concept' | 'descriptor', due <= now）
      * 2. 获取手动添加的卡片
      * 3. 合并并去重
      * 4. 过滤临时黑名单中的卡片
@@ -114,8 +114,9 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
             console.log(`[RetrievalPracticeQueue] 🔍 Using dayStartHour=${dayStartHour}, dayEnd=${new Date(dayEnd).toISOString()}, now=${new Date(now).toISOString()}`);
             
             // 获取所有到期的项目卡片（使用 dayEnd 而不是 now）
+            // ✅ 包含 item、concept、descriptor 三种类型（都使用 FSRS 调度器）
             const dueCards = await this.manager.getCards({
-                cardType: 'item',
+                cardType: ['item', 'concept', 'descriptor'],
                 dueDate: { lte: new Date(dayEnd) }  // ✅ 使用 dayEnd
             });
             
@@ -319,7 +320,7 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
         
         // 🆕 对于 Xiuyuan 卡片，需要从所有卡片中查找
         // 因为 Xiuyuan 卡片的 ID 格式特殊，无法直接通过 getCard(cardId) 查询
-        const allCards = await this.manager.getCards({ cardType: 'item' });
+        const allCards = await this.manager.getCards({ cardType: ['item', 'concept', 'descriptor'] });
         const cardMap = new Map(allCards.map(c => [c.id, c]));
         
         for (const cardId of this.manuallyAddedCards) {

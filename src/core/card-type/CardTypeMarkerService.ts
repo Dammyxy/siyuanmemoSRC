@@ -104,8 +104,8 @@ export class CardTypeMarkerService {
    * 根据类型标记推导技术类型
    * 
    * 映射规则：
-   * - concept -> topic (使用 A-Factor 调度器)
-   * - descriptor -> item (使用 FSRS 调度器)
+   * - concept -> concept (使用 FSRS 调度器)
+   * - descriptor -> descriptor (使用 FSRS 调度器)
    * 
    * @param marker - 类型标记
    * @returns 技术类型
@@ -113,7 +113,7 @@ export class CardTypeMarkerService {
    * @example
    * ```typescript
    * const type = service.inferTechnicalType('concept');
-   * console.log(type); // 'topic'
+   * console.log(type); // 'concept'
    * ```
    */
   inferTechnicalType(marker: CardTypeMarker): CardType {

@@ -13,6 +13,7 @@ import { createVueDialog } from '@/utils/dialog';
 import { createDefaultCard } from '@/types';
 import { DEFAULT_PRIORITY } from '@/core/queue';
 import type { CardAttributeRow } from '@/core/queue/types';
+import { batchDelete } from '@/ui/browser/browserService';  // 🆕 导入 batchDelete
 
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import type { ReviewDialogManager } from './ReviewDialogManager';
@@ -177,114 +178,87 @@ export class BlockMenuHandler {
       },
     });
 
-    // 制卡菜单项
-    if (hasUncarded) {
-      submenu.push({
-        icon: 'iconAdd',
-        label: this.deps.i18n?.makeCardFromSelection || '选中制卡',
-        click: async () => {
-          let createdCount = 0;
+    submenu.push({
+      type: 'separator',
+    });
 
-          for (const element of blockElements) {
-            if (element.hasAttribute(ATTR_CARD_ID)) {
-              continue;
-            }
-            const blockId = element.getAttribute('data-node-id');
-            if (!blockId) {
-              continue;
-            }
-            try {
-              const card = createDefaultCard(blockId);
-              await markBlockAsCard(blockId, card.id, card.priority, 'item');
-              this.deps.storage.setCard(card);
-              createdCount++;
-            } catch (err) {
-              console.error('[SiyuanMemo] Failed to create card from block:', blockId, err);
-            }
+    // 选中制卡（始终显示）
+    submenu.push({
+      icon: 'iconAdd',
+      label: this.deps.i18n?.makeCardFromSelection || '选中制卡',
+      click: async () => {
+        let createdCount = 0;
+
+        for (const element of blockElements) {
+          if (element.hasAttribute(ATTR_CARD_ID)) {
+            continue;
           }
-
-          if (createdCount > 0) {
-            await this.deps.storage.saveCards();
-            await pushMsg((this.deps.i18n?.msg_created || '已创建 {n} 张闪卡').replace('{n}', String(createdCount)));
-          } else {
-            await pushMsg(this.deps.i18n?.msg_already_cards || '选中的块已经是闪卡');
+          const blockId = element.getAttribute('data-node-id');
+          if (!blockId) {
+            continue;
           }
-        },
-      });
-
-      // 创建模板卡片（Xiuyuan）
-      submenu.push({
-        icon: 'iconAdd',
-        label: this.deps.i18n?.createTemplateCard || '创建模板卡片',
-        click: async () => {
-          await this.deps.openCreateTemplateCardDialog(blockIds);
-        },
-      });
-
-      // 🆕 创建列表模版卡（自动检测，仅子级为有序列表）
-      submenu.push({
-        icon: 'iconList',
-        label: '创建列表模版卡',
-        click: async () => {
-          // 检查子级是否为有序列表项
-          const hasOrderedChildren = await this.hasOrderedListChildren(blockIds[0]);
-          if (!hasOrderedChildren) {
-            await pushErrMsg('只能对包含有序子列表项的块使用此功能');
-            return;
+          try {
+            const card = createDefaultCard(blockId);
+            await markBlockAsCard(blockId, card.id, card.priority, 'item');
+            this.deps.storage.setCard(card);
+            createdCount++;
+          } catch (err) {
+            console.error('[SiyuanMemo] Failed to create card from block:', blockId, err);
           }
-          await this.createListTemplateCards(blockIds);
-        },
-      });
-    }
+        }
 
-    // 取消闪卡菜单项
-    if (hasCarded) {
-      submenu.push({
-        icon: 'iconTrashcan',
-        label: '取消闪卡',
-        click: async () => {
-          let removedCount = 0;
+        if (createdCount > 0) {
+          await this.deps.storage.saveCards();
+          await pushMsg((this.deps.i18n?.msg_created || '已创建 {n} 张闪卡').replace('{n}', String(createdCount)));
+        } else {
+          await pushMsg(this.deps.i18n?.msg_already_cards || '选中的块已经是闪卡');
+        }
+      },
+    });
 
-          for (const element of blockElements) {
-            if (!element.hasAttribute(ATTR_CARD_ID)) {
-              continue;
-            }
-            const blockId = element.getAttribute('data-node-id');
-            const cardId = element.getAttribute(ATTR_CARD_ID);
-            if (!blockId || !cardId) {
-              continue;
-            }
-            try {
-              // 1. 从本地删除（必须成功）
-              await unmarkBlockAsCard(blockId);
-              this.deps.storage.removeCard(cardId);
-              removedCount++;
-              
-              // 🆕 2. 尝试从 Riff 删除（如果启用）
-              const plugin = (this.deps as any).plugin;
-              if (plugin?.hybridSyncService) {
-                const riffConfig = this.deps.storage.getSettings().riffIntegration;
-                if (riffConfig?.mode === 'advanced' && riffConfig?.deleteSync?.enabled) {
-                  // 后台执行删除同步，不阻塞 UI
-                  void plugin.hybridSyncService.deleteSync(cardId).catch((err: Error) => {
-                    console.error('[BlockMenuHandler] Delete sync failed for card:', cardId, err);
-                  });
-                }
-              }
-            } catch (err) {
-              console.error('[SiyuanMemo] Failed to remove card from block:', blockId, err);
-            }
-          }
+    // 创建模板卡片（始终显示）
+    submenu.push({
+      icon: 'iconAdd',
+      label: this.deps.i18n?.createTemplateCard || '创建模板卡片',
+      click: async () => {
+        await this.deps.openCreateTemplateCardDialog(blockIds);
+      },
+    });
 
-          if (removedCount > 0) {
-            await this.deps.storage.saveCards();
-            await pushMsg((this.deps.i18n?.msg_unmarked || '已取消 {n} 张闪卡').replace('{n}', String(removedCount)));
-          } else {
-            await pushMsg(this.deps.i18n?.msg_no_removable || '未找到可取消的闪卡');
-          }
-        },
-      });
-    }
+    // 创建列表模版卡（始终显示）
+    submenu.push({
+      icon: 'iconList',
+      label: '创建列表模版卡',
+      click: async () => {
+        // 检查子级是否为有序列表项
+        const hasOrderedChildren = await this.hasOrderedListChildren(blockIds[0]);
+        if (!hasOrderedChildren) {
+          await pushErrMsg('只能对包含有序子列表项的块使用此功能');
+          return;
+        }
+        await this.createListTemplateCards(blockIds);
+      },
+    });
+
+    submenu.push({
+      type: 'separator',
+    });
+
+    // 取消闪卡（始终显示）
+    submenu.push({
+      icon: 'iconTrashcan',
+      label: '取消闪卡',
+      click: async () => {
+        // 🆕 直接复用 SRS 浏览器的 batchDelete 函数
+        const deleted = await batchDelete(blockIds, this.deps.storage);
+        
+        if (deleted > 0) {
+          await pushMsg(`已取消 ${deleted} 张闪卡`);
+        } else {
+          await pushMsg('未找到可取消的闪卡');
+        }
+      },
+    });
 
     // 添加主菜单项，使用子菜单
     menu.addItem({

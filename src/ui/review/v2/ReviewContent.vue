@@ -18,6 +18,19 @@
           />
         </div>
 
+        <!-- 快速卡片渲染 -->
+        <div v-else-if="shouldUseQuickCardRenderer" class="fsrs-review-v2-content__quick-card">
+          <QuickCardRenderer
+            :block-id="content.id"
+            :card-id="content.card?.id"
+            :render-service="quickCardRenderService"
+            :show-answer="!showAnswer"
+            :i18n="i18n"
+            @loaded="handleQuickCardLoaded"
+            @error="handleQuickCardError"
+          />
+        </div>
+
         <div v-else class="fsrs-review-v2-content__protyle">
           <!-- 正面：问题块 -->
           <div ref="hostRef" class="fsrs-review-v2-content__protyle-host"></div>
@@ -44,6 +57,10 @@ import * as siyuan from 'siyuan';
 import type { ReviewUIState } from './types';
 import { OVERLAY_REGISTRY } from './overlays/index';
 import XiuyuanListTemplateCard from './components/XiuyuanListTemplateCard.vue';
+import QuickCardRenderer from '../components/QuickCardRenderer.vue';
+import { SiyuanBlockAdapter } from '@/core/card/quick-card/infrastructure/SiyuanBlockAdapter';
+import { QuickCardRepository } from '@/core/card/quick-card/infrastructure/QuickCardRepository';
+import { QuickCardRenderService } from '@/core/card/quick-card/application/QuickCardRenderService';
 
 const props = defineProps<{
   app: any;
@@ -77,6 +94,33 @@ const answerEditorRef = ref<any>(null);
 let renderSeq = 0;
 let answerRenderSeq = 0;
 let protyleInitialized = false;  // 🆕 跟踪 Protyle 是否已初始化
+
+// 快速卡片渲染服务
+const quickCardRenderService = ref(
+  new QuickCardRenderService(
+    new QuickCardRepository(
+      new SiyuanBlockAdapter()
+    )
+  )
+);
+const isQuickCard = ref(false);
+
+// 判断是否应该使用快速卡片渲染器
+const shouldUseQuickCardRenderer = computed(() => {
+  // 只有在 protyle 类型且检测到快速卡片时才使用
+  return props.content.type === 'protyle' && isQuickCard.value;
+});
+
+// 快速卡片加载成功
+function handleQuickCardLoaded(result: any) {
+  console.log('[ReviewContent] Quick card loaded:', result);
+}
+
+// 快速卡片加载失败，降级到普通渲染
+function handleQuickCardError(error: Error) {
+  console.warn('[ReviewContent] Quick card failed, fallback to normal render:', error);
+  isQuickCard.value = false;
+}
 
 // 计算答案块 ID（Xiuyuan 模板卡片）
 const answerBlockID = computed(() => props.content.answerBlockID || '');
@@ -163,6 +207,21 @@ function applyAnswerVisibility(): void {
 
 async function renderProtyle(blockId: string): Promise<void> {
   const seq = ++renderSeq;
+
+  // 🆕 检测是否为快速卡片
+  try {
+    const isQuick = await quickCardRenderService.value.isQuickCard(blockId);
+    if (isQuick) {
+      console.log('[ReviewContent] Detected quick card, using QuickCardRenderer');
+      isQuickCard.value = true;
+      return; // 使用快速卡片渲染器，不需要 Protyle
+    }
+  } catch (error) {
+    console.warn('[ReviewContent] Quick card detection failed:', error);
+  }
+  
+  // 降级到普通 Protyle 渲染
+  isQuickCard.value = false;
 
   console.log('[FSRS ReviewContent] renderProtyle called:', { blockId, seq });
 
@@ -518,6 +577,11 @@ const content = computed(() => props.content);
 }
 
 .fsrs-review-v2-content__xiuyuan {
+  flex: 1;
+  overflow: auto;
+}
+
+.fsrs-review-v2-content__quick-card {
   flex: 1;
   overflow: auto;
 }

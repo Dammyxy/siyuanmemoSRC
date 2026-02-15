@@ -17,7 +17,7 @@ type DeckDataSourceOptions = {
   preset: string;
   currentDocId?: string;
   queryText?: string;  // 添加查询文本参数
-  cardType?: 'all' | 'topic-only' | 'item-only';  // ✅ 添加卡片类型筛选参数
+  cardType?: 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only';  // ✅ 卡片类型筛选参数
 };
 
 type QueueLike = {
@@ -109,9 +109,11 @@ export class DeckDataSource implements ICardDataSource {
       // 应用 cardType 筛选
       if (this.options.cardType && this.options.cardType !== 'all') {
         if (this.options.cardType === 'topic-only') {
+          // Topic 类型包括：topic（增量阅读）
           rows = rows.filter(c => c.cardType === 'topic');
         } else if (this.options.cardType === 'item-only') {
-          rows = rows.filter(c => c.cardType === 'item');
+          // Item 类型包括：item（普通闪卡）、concept（概念卡）、descriptor（描述符卡）
+          rows = rows.filter(c => c.cardType === 'item' || c.cardType === 'concept' || c.cardType === 'descriptor');
           }
         }
         
@@ -192,7 +194,7 @@ export class DeckDataSource implements ICardDataSource {
     const fullContent = (card.meta?.content as string) || card.content || '';
     const content = this.truncateContent(fullContent, 100);
     const deckId = (card.meta?.deckId as string) || card.deckId || '';
-    const cardType = card.type as 'topic' | 'item' | 'incremental' | 'webpage' | undefined;
+    const cardType = card.type as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined;
     const extractedRootId = (card.meta?.rootId as string) || card.rootId || '';
     
     return {

@@ -14,7 +14,7 @@ export type FinalDrillDataSourceOptions = {
   docId?: string;      // 文档筛选
   preset?: string;     // Preset 筛选
   queryText?: string;  // 搜索查询
-  cardType?: 'all' | 'topic-only' | 'item-only';  // ✅ 卡片类型筛选
+  cardType?: CardTypeFilter;  // ✅ 卡片类型筛选
 };
 
 function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
@@ -42,10 +42,12 @@ export class FinalDrillDataSource implements ICardDataSource {
 
   private readonly manager: UnifiedDataSourceManager;
   private readonly options: FinalDrillDataSourceOptions;
+  private readonly storage?: any;  // 🆕 添加 storage 引用
 
-  constructor(manager: UnifiedDataSourceManager, options?: FinalDrillDataSourceOptions) {
+  constructor(manager: UnifiedDataSourceManager, options?: FinalDrillDataSourceOptions, storage?: any) {
     this.manager = manager;
     this.options = options || {};
+    this.storage = storage;  // 🆕 保存 storage 引用
   }
 
   async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
@@ -113,6 +115,23 @@ export class FinalDrillDataSource implements ICardDataSource {
       }
     }
 
+    // 卡片类型筛选
+    if (this.options.cardType && this.options.cardType !== 'all') {
+      result = result.filter(c => {
+        switch (this.options.cardType) {
+          case 'topic-only':
+            // Topic 类型包括：topic（增量阅读）
+            return c.cardType === 'topic';
+          case 'item-only':
+            // Item 类型包括：item（普通闪卡）、concept（概念卡）、descriptor（描述符卡）
+            // 因为 concept 和 descriptor 都使用 FSRS 调度器，在功能上属于 item 类别
+            return c.cardType === 'item' || c.cardType === 'concept' || c.cardType === 'descriptor';
+          default:
+            return true;
+        }
+      });
+    }
+
     return result;
   }
 
@@ -142,14 +161,19 @@ export class FinalDrillDataSource implements ICardDataSource {
 
       // 删除卡片（完全删除）
       if (actionId === 'delete-card') {
-        const blockIds = selectedRows.map(row => row.blockId);
+        if (!this.storage) {
+          console.error('[FinalDrillDataSource] Storage not available!');
+          return 0;
+        }
         
-        let deleted = await batchDelete(blockIds);
+        const blockIds = selectedRows.map(row => row.blockId);
+        let deleted = await batchDelete(blockIds, this.storage);
+        
         if (deleted === 0 && blockIds.length > 0) {
           console.warn('[FinalDrillDataSource] 常规删除失败，自动尝试强制删除...');
-          deleted = await batchDelete(blockIds, { force: true });
+          deleted = await batchDelete(blockIds, this.storage);
         }
-        return;
+        return deleted;
       }
 
       // 设置优先级
@@ -197,8 +221,8 @@ export class FinalDrillDataSource implements ICardDataSource {
     const deckId = (card.meta?.deckId as string) || '';
     
     // 转换 CardType 枚举为字符串
-    // CardType 枚举的值本身就是字符串 ('item', 'topic', 'incremental', 'webpage')
-    const cardType = card.type as 'topic' | 'item' | 'incremental' | 'webpage' | undefined;
+    // CardType 枚举的值本身就是字符串 ('item', 'topic', 'concept', 'descriptor', 'incremental', 'webpage')
+    const cardType = card.type as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined;
     
     return {
       id: card.riffCardId || card.id,

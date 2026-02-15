@@ -404,8 +404,8 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
         // 转换 CardType 枚举为字符串
         // FSRSCard.type 是 CardType 枚举，BrowserCard.cardType 是字符串字面量
         // 转换 CardType 枚举为字符串
-        // CardType 枚举的值本身就是字符串 ('item', 'topic', 'incremental', 'webpage')
-        const cardType = card.type as 'topic' | 'item' | 'incremental' | 'webpage' | undefined;
+        // CardType 枚举的值本身就是字符串 ('item', 'topic', 'concept', 'descriptor', 'incremental', 'webpage')
+        const cardType = card.type as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined;
         
         const result = {
             id: card.riffCardId || card.id,

@@ -244,7 +244,7 @@ const currentDataSource = ref<ICardDataSource | null>(null);
 // 🆕 统一数据源适配器
 const browserAdapter = ref<SRSBrowserAdapter | null>(null);
 const currentPreset = ref('all');
-const currentCardType = ref<'all' | 'topic-only' | 'item-only'>('all');  // ✅ 卡片类型筛选
+const currentCardType = ref<CardTypeFilter>('all');  // ✅ 卡片类型筛选
 const selectedRows = ref<BrowserCard[]>([]);
 const gridApi = ref<GridApi | null>(null);
 const currentSortModel = ref<any[]>([]);
@@ -1980,9 +1980,22 @@ async function handleSelectQueue(queueId: string) {
   // searchQuery.value → 保留搜索
   shouldFocusDocList.value = true;  // ✅ 选择队列后开启聚焦（文档区会自动聚焦到包含队列卡片的文档）
   
+  // 🆕 根据队列类型自动调整卡片类型筛选
+  if (queueId === 'neural') {
+    // 神经漫游队列：如果当前选择不是 concept-only 或 descriptor-only，默认设置为 concept-only
+    if (currentCardType.value !== 'concept-only' && currentCardType.value !== 'descriptor-only') {
+      currentCardType.value = 'concept-only';
+    }
+  } else if ((queueId === 'retrieval' || queueId === 'final-drill') && currentCardType.value === 'topic-only') {
+    // 提取练习和最终训练队列：如果当前是 topic-only，切换到 all（因为这些队列不支持 topic-only）
+    currentCardType.value = 'all';
+  }
+  // 其他情况保持当前选择
+  
   console.log('[SRSBrowser] 🔍 After clearing activeDocId:', {
     activeDocId: activeDocId.value,
     shouldFocusDocList: shouldFocusDocList.value,
+    currentCardType: currentCardType.value,
   });
   
   await loadData();

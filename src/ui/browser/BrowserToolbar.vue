@@ -22,9 +22,13 @@
         <option value="new">{{ t('new', 'New') }}</option>
       </select>
       <select :value="currentCardType" class="b3-select" @change="$emit('update:currentCardType', ($event.target as HTMLSelectElement).value)">
-        <option value="all">{{ t('allTypes', 'All Types') }}</option>
-        <option value="topic-only">{{ t('topicOnly', 'Topic Only') }}</option>
-        <option value="item-only">{{ t('itemOnly', 'Item Only') }}</option>
+        <option 
+          v-for="option in availableCardTypeFilters" 
+          :key="option.value" 
+          :value="option.value"
+        >
+          {{ t(option.value === 'all' ? 'allTypes' : option.value === 'topic-only' ? 'topicOnly' : option.value === 'item-only' ? 'itemOnly' : option.value === 'concept-only' ? 'conceptOnly' : 'descriptorOnly', option.label) }}
+        </option>
       </select>
 
       <!-- 过滤按钮 (需求 1.1, 1.2, 1.3) -->
@@ -166,6 +170,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import FilterButton from './components/FilterButton.vue';
 import type { CardFilter } from '@/types/unified-data-source';
+import { getAvailableCardTypeFilters } from './types';
 
 // Props
 const props = defineProps<{
@@ -185,6 +190,11 @@ const props = defineProps<{
   appliedFilter: CardFilter | null;
   activeQueueId: string | null;  // 🆕 添加当前队列 ID
 }>();
+
+// 🆕 根据队列类型计算可用的卡片类型筛选选项
+const availableCardTypeFilters = computed(() => {
+  return getAvailableCardTypeFilters(props.activeQueueId);
+});
 
 // 🆕 计算是否显示"分摊压力"按钮
 const showSpreadButton = computed(() => {
