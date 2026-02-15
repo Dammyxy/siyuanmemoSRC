@@ -645,8 +645,6 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    */
   private getCurrentCandidates(): import('./types.ts').CandidateNode[] {
     // 返回上次缓存的候选节点
-    // 实际候选节点从 GraphDataService.getCandidateNodes 获取
-    // 这里返回空数组，GraphDataService 会直接调用 queryEngine
     return (this.lastCandidates || []).map(candidate => ({
       id: candidate.id,
       associationType: candidate.associationType,

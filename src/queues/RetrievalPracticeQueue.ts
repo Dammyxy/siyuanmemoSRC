@@ -88,12 +88,14 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
      * 获取队列中的所有卡片
      * 
      * 获取逻辑：
-     * 1. 获取所有到期的项目卡片（cardType === 'item' | 'concept' | 'descriptor', due <= now）
+     * 1. 获取所有到期的项目卡片（cardType === 'item' | 'descriptor', due <= now）
      * 2. 获取手动添加的卡片
      * 3. 合并并去重
      * 4. 过滤临时黑名单中的卡片
      * 5. 按到期日期和优先级排序
      * 6. 应用自定义排序（如果存在）
+     * 
+     * 注意：不包括 concept 卡片，因为它们使用 A-Factor 调度器。
      * 
      * @returns 卡片数组
      * @see 需求 5.1, 5.4, 15.1, 15.4
@@ -114,9 +116,10 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
             console.log(`[RetrievalPracticeQueue] 🔍 Using dayStartHour=${dayStartHour}, dayEnd=${new Date(dayEnd).toISOString()}, now=${new Date(now).toISOString()}`);
             
             // 获取所有到期的项目卡片（使用 dayEnd 而不是 now）
-            // ✅ 包含 item、concept、descriptor 三种类型（都使用 FSRS 调度器）
+            // ✅ 只包含 item、descriptor 两种类型（使用 FSRS 调度器）
+            // ❌ 不包含 concept（使用 A-Factor 调度器）
             const dueCards = await this.manager.getCards({
-                cardType: ['item', 'concept', 'descriptor'],
+                cardType: ['item', 'descriptor'],
                 dueDate: { lte: new Date(dayEnd) }  // ✅ 使用 dayEnd
             });
             
@@ -312,6 +315,9 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
      * 
      * 从手动添加的卡片 ID 集合中获取完整的卡片数据。
      * 
+     * 注意：只获取 item 和 descriptor 类型的卡片，不包括 concept 卡片。
+     * 原因：concept 卡片使用 A-Factor 调度器，不应出现在 FSRS 练习队列中。
+     * 
      * @returns 手动添加的卡片数组
      */
     private async getManuallyAddedCards(): Promise<FSRSCard[]> {
@@ -320,7 +326,8 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
         
         // 🆕 对于 Xiuyuan 卡片，需要从所有卡片中查找
         // 因为 Xiuyuan 卡片的 ID 格式特殊，无法直接通过 getCard(cardId) 查询
-        const allCards = await this.manager.getCards({ cardType: ['item', 'concept', 'descriptor'] });
+        // ✅ 只获取 item 和 descriptor 类型（排除 concept，因为它使用 A-Factor 调度器）
+        const allCards = await this.manager.getCards({ cardType: ['item', 'descriptor'] });
         const cardMap = new Map(allCards.map(c => [c.id, c]));
         
         for (const cardId of this.manuallyAddedCards) {

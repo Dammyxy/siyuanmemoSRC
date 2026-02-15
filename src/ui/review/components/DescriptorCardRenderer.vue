@@ -14,7 +14,7 @@
 
     <!-- 描述符卡内容 -->
     <div v-else-if="viewModel" class="descriptor-card-renderer__content">
-      <!-- 父概念上下文栏 -->
+      <!-- 父概念上下文栏（始终显示） -->
       <div v-if="viewModel.parentConcept" class="descriptor-card-renderer__parent-concept">
         <div class="descriptor-card-renderer__parent-header">
           <span class="descriptor-card-renderer__parent-icon">🧠</span>
@@ -54,11 +54,32 @@
           <span class="descriptor-card-renderer__badge-label">描述符卡</span>
         </div>
 
-        <!-- 使用 v-html 渲染 HTML 内容 -->
+        <!-- 正面：概念 + 属性名 -->
         <div
-          class="descriptor-card-renderer__html-content"
-          v-html="viewModel.html"
+          v-if="!showAnswer"
+          class="descriptor-card-renderer__html-content descriptor-card-renderer__front"
+          v-html="viewModel.frontHtml"
         ></div>
+
+        <!-- 背面：属性值 -->
+        <div
+          v-else
+          class="descriptor-card-renderer__html-content descriptor-card-renderer__back"
+        >
+          <!-- 显示正面内容（灰色） -->
+          <div
+            class="descriptor-card-renderer__front-preview"
+            v-html="viewModel.frontHtml"
+          ></div>
+          
+          <!-- 答案分隔线 -->
+          <div class="descriptor-card-renderer__answer-divider">
+            <span>答案</span>
+          </div>
+          
+          <!-- 显示背面内容 -->
+          <div v-html="viewModel.backHtml"></div>
+        </div>
       </div>
 
       <!-- 同概念的其他描述符（可选） -->
@@ -116,7 +137,9 @@ import type { DescriptorCardRenderService } from '@/core/card/descriptor-card/ap
 const props = defineProps<{
   blockId: string;
   cardId?: string;
+  card?: any; // 🆕 FSRSCard，用于获取 fieldMapping
   renderService: DescriptorCardRenderService;
+  showAnswer?: boolean; // 是否显示答案（背面）
   i18n?: Record<string, string>;
 }>();
 
@@ -141,7 +164,8 @@ async function loadViewModel() {
     loading.value = true;
     error.value = null;
 
-    const vm = await props.renderService.prepareViewModel(props.blockId);
+    // 🆕 传递 FSRSCard 给 renderService
+    const vm = await props.renderService.prepareViewModel(props.blockId, props.card);
     if (!vm) {
       throw new Error('Failed to load descriptor card');
     }
@@ -365,6 +389,100 @@ onMounted(async () => {
 .descriptor-card-renderer__html-content {
   flex: 1;
   font-size: 16px;
+  line-height: 1.6;
+  color: var(--b3-theme-on-surface);
+}
+
+/* 正面样式 */
+.descriptor-card-renderer__front {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 48px 32px 32px;
+  min-height: 200px;
+}
+
+.descriptor-card-front__concept {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--b3-theme-primary);
+  margin-bottom: 4px;
+}
+
+.descriptor-card-front__divider {
+  font-size: 28px;
+  color: var(--b3-theme-on-surface-light);
+  margin-bottom: 4px;
+}
+
+.descriptor-card-front__attribute {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--b3-theme-on-surface);
+  margin-bottom: 4px;
+}
+
+.descriptor-card-front__question {
+  font-size: 28px;
+  color: var(--b3-theme-on-surface-light);
+}
+
+/* 背面样式 */
+.descriptor-card-renderer__back {
+  padding: 48px 32px 32px;
+}
+
+.descriptor-card-renderer__front-preview {
+  opacity: 0.4;
+  font-size: 16px;
+  margin-bottom: 24px;
+}
+
+.descriptor-card-renderer__front-preview .descriptor-card-front__concept,
+.descriptor-card-renderer__front-preview .descriptor-card-front__attribute {
+  font-size: 16px;
+  margin-bottom: 2px;
+}
+
+.descriptor-card-renderer__front-preview .descriptor-card-front__divider,
+.descriptor-card-renderer__front-preview .descriptor-card-front__question {
+  font-size: 16px;
+  margin-bottom: 2px;
+}
+
+.descriptor-card-renderer__answer-divider {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin: 16px 0 24px 0;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.descriptor-card-renderer__answer-divider::before {
+  content: '';
+  width: 60px;
+  height: 1px;
+  background: var(--b3-border-color);
+  margin-right: 12px;
+}
+
+.descriptor-card-renderer__answer-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--b3-border-color);
+  margin-left: 12px;
+}
+
+.descriptor-card-renderer__answer-divider span {
+  padding: 0;
+}
+
+.descriptor-card-back__value {
+  font-size: 28px;
   line-height: 1.6;
   color: var(--b3-theme-on-surface);
 }

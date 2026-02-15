@@ -23,7 +23,9 @@
           <DescriptorCardRenderer
             :block-id="content.id"
             :card-id="content.card?.id"
+            :card="content.card"
             :render-service="descriptorCardRenderService"
+            :show-answer="!showAnswer"
             :i18n="i18n"
             @loaded="handleDescriptorCardLoaded"
             @error="handleDescriptorCardError"
@@ -252,9 +254,13 @@ function applyAnswerVisibility(): void {
 async function renderProtyle(blockId: string): Promise<void> {
   const seq = ++renderSeq;
 
+  console.log('[FSRS ReviewContent] renderProtyle called with blockId:', blockId);
+  console.log('[FSRS ReviewContent] content.card type:', props.content.card?.type);
+
   // 🆕 检测是否为描述符卡（优先级最高）
   try {
     const isDescriptor = await descriptorCardRenderService.value.isDescriptorCard(blockId);
+    console.log('[FSRS ReviewContent] isDescriptorCard result:', isDescriptor);
     if (isDescriptor) {
       console.log('[ReviewContent] Detected descriptor card, using DescriptorCardRenderer');
       isDescriptorCard.value = true;
@@ -501,10 +507,10 @@ async function renderAnswerProtyle(blockId: string): Promise<void> {
 }
 
 watch(
-  () => props.content.data,
-  (data) => {
+  () => props.content.id,  // 改为监听 content.id 而不是 content.data
+  (id) => {
     if (props.content.type !== 'protyle') return;
-    const blockId = String(data || '');
+    const blockId = String(id || '');
     if (!blockId) return;
     console.log('[FSRS ReviewContent] Watch triggered, blockId:', blockId);
     void renderProtyle(blockId);

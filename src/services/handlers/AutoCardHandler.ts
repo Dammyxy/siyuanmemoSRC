@@ -779,35 +779,65 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
             
-            // 2. 检查父块是否为概念
+            // 2. 检查父块是否为概念（支持多层向上查找）
             const { sql } = await import('@/core/siyuan/api');
-            const parentResult = await sql(`
-                SELECT parent_id FROM blocks WHERE id = '${blockId}' LIMIT 1
-            `);
             
-            if (!parentResult || parentResult.length === 0 || !parentResult[0]?.parent_id) {
-                console.log('[AutoCard] No parent block, creating as basic card');
-                // 降级为普通卡片
-                await this.createBasicCardFromDescriptor(blockId, attribute, description);
-                return;
+            // 向上查找最多 4 层，寻找概念卡
+            let currentId = blockId;
+            let foundConceptId: string | null = null;
+            const maxDepth = 4;
+            
+            for (let depth = 0; depth < maxDepth; depth++) {
+                const parentQuery = `SELECT parent_id FROM blocks WHERE id = '${currentId}' LIMIT 1`;
+                const parentResult = await sql(parentQuery);
+                
+                if (!parentResult || parentResult.length === 0 || !parentResult[0]?.parent_id) {
+                    console.log(`[AutoCard] No parent at depth ${depth}`);
+                    break;
+                }
+                
+                const parentId = parentResult[0].parent_id;
+                console.log(`[AutoCard] Checking parent at depth ${depth}:`, parentId);
+                
+                // 检查父块是否是概念卡（两种方式）
+                const { getBlockKramdown } = await import('@/core/siyuan/api');
+                const { kramdown: parentContent } = await getBlockKramdown(parentId);
+                
+                console.log(`[AutoCard] Parent content at depth ${depth}:`, parentContent?.substring(0, 100));
+                
+                // 方式1：父块本身包含概念符号（::）
+                let isParentConcept = parentContent && this.patterns.concept.test(parentContent);
+                
+                console.log(`[AutoCard] Parent has concept symbol (::) at depth ${depth}:`, isParentConcept);
+                
+                if (isParentConcept) {
+                    foundConceptId = parentId;
+                    console.log(`[AutoCard] Found concept card at depth ${depth}:`, parentId);
+                    break;
+                }
+                
+                // 方式2：父块包含概念卡的块引用
+                if (parentContent) {
+                    console.log(`[AutoCard] Checking for block reference at depth ${depth}...`);
+                    const refConceptId = await this.findConceptCardInBlockRef(parentContent);
+                    if (refConceptId) {
+                        foundConceptId = refConceptId;
+                        console.log(`[AutoCard] Found concept card reference at depth ${depth}:`, refConceptId);
+                        break;
+                    }
+                }
+                
+                currentId = parentId;
             }
             
-            const parentId = parentResult[0].parent_id;
-            
-            // 检查父块是否有概念符号（::）
-            const { getBlockKramdown } = await import('@/core/siyuan/api');
-            const { kramdown: parentContent } = await getBlockKramdown(parentId);
-            
-            const isParentConcept = parentContent && this.patterns.concept.test(parentContent);
-            
-            if (!isParentConcept) {
-                console.log('[AutoCard] Parent is not a concept, creating as basic card');
+            if (!foundConceptId) {
+                console.log('[AutoCard] No concept card found in ancestor chain, creating as basic card');
                 // 降级为普通卡片
                 await this.createBasicCardFromDescriptor(blockId, attribute, description, actualSymbol);
                 return;
             }
             
-            console.log('[AutoCard] Parent is a concept, creating Xiuyuan descriptor card');
+            console.log('[AutoCard] Found concept card, creating Xiuyuan descriptor card');
             
             // 3. 使用 Xiuyuan 创建描述符卡片
             const xiuyuanService = this.plugin.xiuyuanService;
@@ -820,10 +850,10 @@ export class AutoCardHandler implements ITransactionHandler {
             // 使用 builtin-concept-descriptor 模版
             const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
             const result = await xiuyuanService.createFromBlocks(
-                [parentId, blockId],
+                [foundConceptId, blockId],  // 使用找到的概念卡 ID
                 'builtin-concept-descriptor',
                 {
-                    concept: parentId,
+                    concept: foundConceptId,  // 使用找到的概念卡 ID
                     descriptor: blockId
                 },
                 BUILTIN_DECK_ID
@@ -841,7 +871,7 @@ export class AutoCardHandler implements ITransactionHandler {
             // 🆕 标记为描述符卡类型
             const { setBlockAttrs } = await import('@/core/siyuan/api');
             await setBlockAttrs(blockId, {
-                'custom-card-type-marker': 'descriptor'
+                'custom-fsrs-card-type': 'descriptor'
             });
             
             console.log('[AutoCard] Descriptor card created successfully:', blockId);
@@ -1230,5 +1260,51 @@ export class AutoCardHandler implements ITransactionHandler {
         this.currentEditingBlock = null;
         
         console.log('[AutoCard] Handler disposed');
+    }
+
+    /**
+     * 从块内容中查找概念卡的块引用
+     * @param content 块内容（kramdown 格式）
+     * @returns 概念卡 ID，如果没找到返回 null
+     */
+    private async findConceptCardInBlockRef(content: string): Promise<string | null> {
+        try {
+            // 提取块引用 ID（格式：((20230101120000-abcdefg 'alias')) 或 ((20230101120000-abcdefg))）
+            const refPattern = /\(\((\d{14}-[a-z0-9]{7})/g;
+            const matches = [...content.matchAll(refPattern)];
+
+            console.log('[AutoCard] Block reference matches:', matches.length);
+            
+            if (matches.length === 0) {
+                return null;
+            }
+
+            // 检查每个引用是否是概念卡
+            const { sql } = await import('@/core/siyuan/api');
+            for (const match of matches) {
+                const refId = match[1];
+                console.log('[AutoCard] Checking block reference:', refId);
+                
+                const cardTypeQuery = `
+                    SELECT value 
+                    FROM attributes 
+                    WHERE block_id = '${refId}' 
+                      AND name = 'custom-fsrs-card-type'
+                `;
+                const result = await sql(cardTypeQuery);
+                
+                console.log('[AutoCard] Block reference card type:', result?.[0]?.value || 'none');
+                
+                if (result && result.length > 0 && result[0].value === 'concept') {
+                    console.log('[AutoCard] Found concept card in block reference:', refId);
+                    return refId;
+                }
+            }
+
+            return null;
+        } catch (error) {
+            console.error('[AutoCard] Error finding concept card in block ref:', error);
+            return null;
+        }
     }
 }

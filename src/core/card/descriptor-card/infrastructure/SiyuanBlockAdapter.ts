@@ -29,30 +29,34 @@ export interface QueryBlock {
 export class SiyuanBlockAdapter {
   /**
    * 获取块信息
+   * 使用 SQL 查询获取块的内容和父块 ID
    */
   async getBlock(blockId: string): Promise<SiyuanBlock | null> {
     try {
-      const response = await fetch('/api/block/getBlockInfo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: blockId }),
+      const query = `
+        SELECT id, content, parent_id
+        FROM blocks
+        WHERE id = '${blockId}'
+      `;
+
+      const results = await sql(query);
+      
+      if (!results || results.length === 0) {
+        console.warn('[SiyuanBlockAdapter] Block not found:', blockId);
+        return null;
+      }
+
+      const block = results[0];
+      console.log('[SiyuanBlockAdapter] getBlock result:', {
+        id: block.id,
+        content: block.content?.substring(0, 50),
+        parentId: block.parent_id
       });
 
-      if (!response.ok) {
-        console.error('[SiyuanBlockAdapter] Failed to get block info:', response.statusText);
-        return null;
-      }
-
-      const data = await response.json();
-      if (data.code !== 0 || !data.data) {
-        console.error('[SiyuanBlockAdapter] Invalid response:', data);
-        return null;
-      }
-
       return {
-        id: blockId,
-        content: data.data.content || '',
-        parentId: data.data.parentID,
+        id: block.id,
+        content: block.content || '',
+        parentId: block.parent_id,
       };
     } catch (error) {
       console.error('[SiyuanBlockAdapter] Error getting block:', error);
@@ -61,32 +65,59 @@ export class SiyuanBlockAdapter {
   }
 
   /**
-   * 获取块的 HTML 内容
-   * 使用 /api/export/exportMdContent 导出为 HTML
+   * 获取块的 kramdown 内容
+   * 使用 /api/block/getBlockKramdown 获取
    */
-  async getBlockHtml(blockId: string): Promise<string | null> {
+  async getBlockKramdown(blockId: string): Promise<string | null> {
     try {
-      const response = await fetch('/api/export/exportMdContent', {
+      const response = await fetch('/api/block/getBlockKramdown', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: blockId }),
       });
 
       if (!response.ok) {
-        console.error('[SiyuanBlockAdapter] Failed to export HTML:', response.statusText);
+        console.error('[SiyuanBlockAdapter] Failed to get kramdown:', response.statusText);
         return null;
       }
 
       const data = await response.json();
       if (data.code !== 0 || !data.data) {
-        console.error('[SiyuanBlockAdapter] Invalid export response:', data);
+        console.error('[SiyuanBlockAdapter] Invalid kramdown response:', data);
         return null;
       }
 
-      return data.data.content || '';
+      return data.data.kramdown || '';
     } catch (error) {
-      console.error('[SiyuanBlockAdapter] Error exporting HTML:', error);
+      console.error('[SiyuanBlockAdapter] Error getting kramdown:', error);
       return null;
+    }
+  }
+
+  /**
+   * 将 kramdown 转换为 HTML
+   * 使用思源的 Lute 引擎
+   */
+  kramdownToHtml(kramdown: string): string {
+    try {
+      const Lute = (window as any).Lute;
+      if (!Lute || typeof Lute.New !== 'function') {
+        console.error('[SiyuanBlockAdapter] Lute not available');
+        return kramdown; // 降级：直接返回 kramdown
+      }
+
+      const lute = Lute.New();
+      // 移除 kramdown 末尾的属性行（{: ...}）
+      const lines = kramdown.split('\n');
+      const contentLines = lines.filter(line => !line.trim().startsWith('{:'));
+      const content = contentLines.join('\n');
+      
+      // 转换为 HTML
+      const html = lute.Md2BlockDOM(content);
+      return html;
+    } catch (error) {
+      console.error('[SiyuanBlockAdapter] Error converting kramdown to HTML:', error);
+      return kramdown; // 降级：直接返回 kramdown
     }
   }
 

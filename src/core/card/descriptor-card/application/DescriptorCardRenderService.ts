@@ -17,7 +17,13 @@ import type { ParentConceptBlock, SiblingDescriptor } from '../infrastructure/De
 export interface DescriptorCardViewModel {
   // 描述符卡信息
   blockId: string;
-  html: string;
+  
+  // 正面内容（概念 + 属性名）
+  frontHtml: string;
+  
+  // 背面内容（属性值）
+  backHtml: string;
+  
   attribute: string;
   description: string;
 
@@ -46,12 +52,13 @@ export class DescriptorCardRenderService {
    * 准备描述符卡视图模型
    * 
    * @param blockId 描述符卡块 ID
+   * @param fsrsCard 可选的 FSRSCard，用于获取 fieldMapping
    * @returns 视图模型，如果加载失败返回 null
    */
-  async prepareViewModel(blockId: string): Promise<DescriptorCardViewModel | null> {
+  async prepareViewModel(blockId: string, fsrsCard?: any): Promise<DescriptorCardViewModel | null> {
     try {
       // 1. 从仓储加载数据
-      const data = await this.repository.loadDescriptorCard(blockId);
+      const data = await this.repository.loadDescriptorCard(blockId, fsrsCard);
       if (!data) {
         console.warn('[DescriptorCardRenderService] Failed to load descriptor card:', blockId);
         return null;
@@ -60,10 +67,14 @@ export class DescriptorCardRenderService {
       // 2. 创建领域实体
       const card = new DescriptorCard(data);
 
-      // 3. 构建视图模型
+      // 3. 分离正面和背面内容
+      const { frontHtml, backHtml } = this.splitDescriptorContent(card);
+
+      // 4. 构建视图模型
       const viewModel: DescriptorCardViewModel = {
         blockId: card.blockId,
-        html: card.html,
+        frontHtml,
+        backHtml,
         attribute: card.attribute,
         description: card.description,
         parentConcept: this.buildParentConceptViewModel(card),
@@ -76,6 +87,50 @@ export class DescriptorCardRenderService {
       console.error('[DescriptorCardRenderService] Error preparing view model:', error);
       return null;
     }
+  }
+
+  /**
+   * 分离描述符内容为正面和背面
+   * 
+   * 正面：概念标题 + 属性名（;; 前面的部分）
+   * 背面：属性值（;; 后面的部分）
+   */
+  private splitDescriptorContent(card: DescriptorCard): { frontHtml: string; backHtml: string } {
+    const content = card.html;
+    
+    // 解析描述符内容：属性名;;属性值
+    const match = content.match(/^(.+?)\s*;;\s*(.+)$/s);
+    
+    if (!match) {
+      // 如果没有 ;; 分隔符，整个内容作为正面
+      return {
+        frontHtml: content,
+        backHtml: '',
+      };
+    }
+
+    const attributeName = match[1].trim();
+    const attributeValue = match[2].trim();
+
+    // 构建正面 HTML：概念标题 + 属性名
+    const conceptTitle = card.getParentConceptTitle() || '概念'; // 如果没有父概念，使用默认值
+    const frontHtml = `
+      <div class="descriptor-card-front">
+        <div class="descriptor-card-front__concept">${conceptTitle}</div>
+        <div class="descriptor-card-front__divider">的</div>
+        <div class="descriptor-card-front__attribute">${attributeName}</div>
+        <div class="descriptor-card-front__question">是什么？</div>
+      </div>
+    `;
+
+    // 背面 HTML：属性值
+    const backHtml = `
+      <div class="descriptor-card-back">
+        <div class="descriptor-card-back__value">${attributeValue}</div>
+      </div>
+    `;
+
+    return { frontHtml, backHtml };
   }
 
   /**
@@ -103,8 +158,10 @@ export class DescriptorCardRenderService {
    */
   async isDescriptorCard(blockId: string): Promise<boolean> {
     try {
+      console.log('[DescriptorCardRenderService] Checking if descriptor card:', blockId);
       // 检查块属性中的 custom-fsrs-card-type
       const cardTypeMarker = await this.repository.getCardTypeMarker(blockId);
+      console.log('[DescriptorCardRenderService] Card type marker:', cardTypeMarker);
       return cardTypeMarker === 'descriptor';
     } catch (error) {
       console.error('[DescriptorCardRenderService] Error checking descriptor card:', error);

@@ -176,10 +176,40 @@ export class RetrievalPracticeAdapter implements IAdapter<QueueItem> {
       },
       content: {
         type: 'protyle',
-        data: String((item as any)?.blockID || ''),
+        data: (() => {
+          console.log('[RetrievalPracticeAdapter] Setting content.data:', {
+            itemType: (item as any)?.type,
+            isXiuyuan: isXiuyuanCard(item),
+            blockID: (item as any)?.blockID,
+            fieldMapping: isXiuyuanCard(item) ? item.meta.fieldMapping : undefined
+          });
+          
+          // 🆕 描述符卡：使用 fieldMapping 中的 descriptor 字段
+          if ((item as any)?.type === 'descriptor' && isXiuyuanCard(item)) {
+            const descriptorId = item.meta.fieldMapping?.descriptor || String((item as any)?.blockID || '');
+            console.log('[RetrievalPracticeAdapter] Descriptor card, using descriptor field:', descriptorId);
+            return descriptorId;
+          }
+          // 其他卡片：使用 blockID
+          return String((item as any)?.blockID || '');
+        })(),
         id: (() => {
+          console.log('[RetrievalPracticeAdapter] Setting content.id:', {
+            itemType: (item as any)?.type,
+            isXiuyuan: isXiuyuanCard(item),
+            blockID: (item as any)?.blockID,
+            fieldMapping: isXiuyuanCard(item) ? item.meta.fieldMapping : undefined
+          });
+          
+          // 🆕 描述符卡：使用 fieldMapping 中的 descriptor 字段
+          if ((item as any)?.type === 'descriptor' && isXiuyuanCard(item)) {
+            const descriptorId = item.meta.fieldMapping?.descriptor || String((item as any)?.blockID || '');
+            console.log('[RetrievalPracticeAdapter] Descriptor card, using descriptor field:', descriptorId);
+            return descriptorId;
+          }
           // 🆕 Xiuyuan 卡片：使用 frontBlockIDs 的第一个块
           if (isXiuyuanCard(item) && item.meta.frontBlockIDs.length > 0) {
+            console.log('[RetrievalPracticeAdapter] Xiuyuan card, using frontBlockIDs[0]:', item.meta.frontBlockIDs[0]);
             return item.meta.frontBlockIDs[0];
           }
           return String((item as any)?.blockID || (item as any)?.cardID || 'card');

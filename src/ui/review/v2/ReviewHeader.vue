@@ -92,16 +92,7 @@ const filteredToolbar = computed(() => {
     navigationState: props.navigationState,
   });
 
-  // 🌌 如果需要显示侧边栏切换按钮，添加到工具栏开头
-  if (props.showSidebarToggle) {
-    const sidebarButton = {
-      type: 'toggle-sidebar',
-      icon: props.sidebarCollapsed ? '#iconLayoutRight' : '#iconLayoutLeft',
-      ariaLabel: props.sidebarCollapsed ? '显示图谱' : '隐藏图谱',
-      disabled: false,
-    };
-    toolbar = [sidebarButton, ...toolbar];
-  }
+  // 🌌 如果需要显示侧边栏切换按钮（已删除）
 
   // 🆕 神经漫游导航按钮（Phase 3: UI 控件）
   const navState = props.navigationState;
@@ -128,13 +119,11 @@ const filteredToolbar = computed(() => {
       });
     }
 
-    // 插入到工具栏开头（侧边栏按钮之后）
+    // 插入到工具栏开头
     if (navButtons.length > 0) {
-      const insertIndex = props.showSidebarToggle ? 1 : 0;
       toolbar = [
-        ...toolbar.slice(0, insertIndex),
         ...navButtons,
-        ...toolbar.slice(insertIndex),
+        ...toolbar,
       ];
     }
   }

@@ -139,58 +139,12 @@ export default class FSRSPlugin extends Plugin {
     super(options);
   }
 
-  /**
-   * 加载 vis-network 库（用于神经漫游图谱可视化）
-   * 优先复用思源已加载的 vis-network，如果未加载则从思源 CDN 加载
-   */
-  private async loadVisNetwork(): Promise<void> {
-    // 检查是否已加载
-    if ((window as any).vis) {
-      console.log('[SiyuanMemo] vis-network already loaded (reusing Siyuan\'s instance)');
-      return;
-    }
-
-    console.log('[SiyuanMemo] Loading vis-network from Siyuan CDN...');
-
-    return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      // 使用思源的 CDN 和版本（9.1.13）
-      script.src = `${Constants.PROTYLE_CDN}/js/vis/vis-network.min.js?v=9.1.13`;
-      
-      script.onload = () => {
-        // 验证加载成功
-        if ((window as any).vis && (window as any).vis.Network) {
-          console.log('[SiyuanMemo] ✅ vis-network loaded successfully from Siyuan CDN');
-          console.log('[SiyuanMemo] vis.Network:', typeof (window as any).vis.Network);
-          console.log('[SiyuanMemo] vis.DataSet:', typeof (window as any).vis.DataSet);
-          resolve();
-        } else {
-          console.error('[SiyuanMemo] ❌ vis-network loaded but API not available');
-          reject(new Error('vis-network API not available'));
-        }
-      };
-      
-      script.onerror = (error) => {
-        console.error('[SiyuanMemo] ❌ Failed to load vis-network from Siyuan CDN:', error);
-        reject(new Error('Failed to load vis-network'));
-      };
-      
-      document.head.appendChild(script);
-    });
-  }
-
   async onload() {
     console.log('[SiyuanMemo] Plugin loading...');
 
     this.isInitialized = false;
 
-    // 🆕 加载 vis-network 库（用于神经漫游图谱可视化）
-    try {
-      await this.loadVisNetwork();
-    } catch (error) {
-      console.error('[SiyuanMemo] Failed to load vis-network:', error);
-      // 继续加载插件，但图谱功能将不可用
-    }
+    // 🆕 加载 vis-network 库（已删除）
 
     try {
       this.addIcons(`<svg xmlns="http://www.w3.org/2000/svg" style="display:none">

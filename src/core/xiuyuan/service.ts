@@ -361,6 +361,12 @@ export class XiuyuanService {
       throw new Error('blockIDs cannot be empty');
     }
 
+    console.log('[Xiuyuan] selectRepresentativeBlock called:', {
+      templateID,
+      blockIDs,
+      fieldMapping
+    });
+
     switch (templateID) {
       case 'builtin-list-item':
         // 列表模版：选择父列表项（第一个块）
@@ -369,7 +375,9 @@ export class XiuyuanService {
       case 'builtin-concept-descriptor':
         // 概念-描述符模版：选择描述符块
         // 如果 fieldMapping 中有 descriptor 字段，使用它；否则使用第一个块
-        return fieldMapping['descriptor'] || blockIDs[0];
+        const descriptorBlock = fieldMapping['descriptor'] || blockIDs[0];
+        console.log('[Xiuyuan] Concept-descriptor template, selecting descriptor block:', descriptorBlock);
+        return descriptorBlock;
 
       case 'builtin-bidirectional':
         // 双向卡片：选择第一个块
@@ -451,6 +459,8 @@ export class XiuyuanService {
         );
 
         console.log('[Xiuyuan] Selected representative block:', representativeBlockID);
+        console.log('[Xiuyuan] Field mapping:', fieldMapping);
+        console.log('[Xiuyuan] Block IDs:', blockIDs);
 
         // 4. 添加代表块到 Riff（错误不阻断流程）
         try {
@@ -538,7 +548,7 @@ export class XiuyuanService {
             elapsedDays: 0,
             scheduledDays: 0,
             priority: 50,
-            type: CardType.Item,
+            type: rule.typeMarker === 'concept-descriptor' ? CardType.Descriptor : CardType.Item,
             tags: [],
             leechCount: 0,
             isLeech: false,

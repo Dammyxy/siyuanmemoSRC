@@ -301,9 +301,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
             };
         }
         
-        // item 卡片显示评分按钮
+        // item 和 descriptor 卡片显示评分按钮
         const card = currentItem as FSRSCard;
-        if (card.type === 'item') {
+        if (card.type === 'item' || card.type === 'descriptor') {
             return {
                 statsType: 'queue-size',
                 showRatingButtons: true,

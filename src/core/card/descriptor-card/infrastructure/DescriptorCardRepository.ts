@@ -47,27 +47,42 @@ export class DescriptorCardRepository {
 
   /**
    * 加载描述符卡数据
+   * 
+   * @param blockId 描述符块 ID
+   * @param fsrsCard 可选的 FSRSCard，用于获取 fieldMapping
    */
-  async loadDescriptorCard(blockId: string): Promise<DescriptorCardData | null> {
+  async loadDescriptorCard(blockId: string, fsrsCard?: any): Promise<DescriptorCardData | null> {
     try {
-      // 1. 获取描述符块的 HTML
-      const descriptorHtml = await this.siyuanAdapter.getBlockHtml(blockId);
-      if (!descriptorHtml) {
-        console.warn('[DescriptorCardRepository] Failed to get descriptor HTML:', blockId);
+      // 1. 获取描述符块的 kramdown
+      const descriptorKramdown = await this.siyuanAdapter.getBlockKramdown(blockId);
+      if (!descriptorKramdown) {
+        console.warn('[DescriptorCardRepository] Failed to get descriptor kramdown:', blockId);
         return null;
       }
 
-      // 2. 获取描述符块内容
+      // 2. 转换为 HTML
+      const descriptorHtml = this.siyuanAdapter.kramdownToHtml(descriptorKramdown);
+
+      // 3. 获取描述符块内容
       const descriptorBlock = await this.siyuanAdapter.getBlock(blockId);
       if (!descriptorBlock) {
         console.warn('[DescriptorCardRepository] Failed to get descriptor block:', blockId);
         return null;
       }
 
-      // 3. 查询父概念
-      const parentConcept = await this.getParentConcept(blockId);
+      // 4. 查询父概念
+      // 🆕 优先使用 FSRSCard 的 fieldMapping.concept
+      let parentConcept: ParentConceptBlock | null = null;
+      
+      if (fsrsCard?.meta?.fieldMapping?.concept) {
+        console.log('[DescriptorCardRepository] Using concept from fieldMapping:', fsrsCard.meta.fieldMapping.concept);
+        parentConcept = await this.getConceptBlock(fsrsCard.meta.fieldMapping.concept);
+      } else {
+        console.log('[DescriptorCardRepository] No fieldMapping, searching parent chain');
+        parentConcept = await this.getParentConcept(blockId);
+      }
 
-      // 4. 查询同概念的其他描述符（如果有父概念）
+      // 5. 查询同概念的其他描述符（如果有父概念）
       const siblingDescriptors = parentConcept
         ? await this.getSiblingDescriptors(parentConcept.blockId, blockId)
         : [];
@@ -86,44 +101,110 @@ export class DescriptorCardRepository {
   }
 
   /**
-   * 查询父概念块
+   * 获取概念块（直接通过块 ID）
+   */
+  async getConceptBlock(conceptBlockId: string): Promise<ParentConceptBlock | null> {
+    try {
+      // 获取概念块内容和 kramdown
+      const conceptBlock = await this.siyuanAdapter.getBlock(conceptBlockId);
+      if (!conceptBlock) {
+        console.warn('[DescriptorCardRepository] Failed to get concept block:', conceptBlockId);
+        return null;
+      }
+
+      const conceptKramdown = await this.siyuanAdapter.getBlockKramdown(conceptBlockId);
+      if (!conceptKramdown) {
+        console.warn('[DescriptorCardRepository] Failed to get concept kramdown:', conceptBlockId);
+        return null;
+      }
+
+      const conceptHtml = this.siyuanAdapter.kramdownToHtml(conceptKramdown);
+
+      return {
+        blockId: conceptBlockId,
+        content: conceptBlock.content,
+        html: conceptHtml,
+        cardTypeMarker: 'concept',
+        isConceptCard: true,
+      };
+    } catch (error) {
+      console.error('[DescriptorCardRepository] Failed to get concept block:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 查询父概念块（支持多层向上查找和块引用）
    */
   async getParentConcept(descriptorBlockId: string): Promise<ParentConceptBlock | null> {
     try {
-      // 1. 获取父块 ID
-      const parentId = await this.siyuanAdapter.getParentBlockId(descriptorBlockId);
-      if (!parentId) {
-        console.warn('[DescriptorCardRepository] No parent block found for:', descriptorBlockId);
+      // 向上查找最多 4 层，寻找概念卡
+      let currentId = descriptorBlockId;
+      let foundConceptId: string | null = null;
+      const maxDepth = 4;
+      
+      for (let depth = 0; depth < maxDepth; depth++) {
+        // 获取父块 ID
+        const parentId = await this.siyuanAdapter.getParentBlockId(currentId);
+        if (!parentId) {
+          console.warn(`[DescriptorCardRepository] No parent at depth ${depth}`);
+          break;
+        }
+
+        console.log(`[DescriptorCardRepository] Checking parent at depth ${depth}:`, parentId);
+
+        // 检查父块是否是概念卡
+        const cardTypeMarker = await this.siyuanAdapter.getBlockAttribute(
+          parentId,
+          'custom-fsrs-card-type'
+        );
+        
+        if (cardTypeMarker === 'concept') {
+          foundConceptId = parentId;
+          console.log(`[DescriptorCardRepository] Found concept card at depth ${depth}:`, parentId);
+          break;
+        }
+
+        // 如果父块不是概念卡，检查是否包含概念卡的块引用
+        const parentBlock = await this.siyuanAdapter.getBlock(parentId);
+        if (parentBlock?.content) {
+          const refConceptId = await this.findConceptCardInBlockRef(parentBlock.content);
+          if (refConceptId) {
+            foundConceptId = refConceptId;
+            console.log(`[DescriptorCardRepository] Found concept card reference at depth ${depth}:`, refConceptId);
+            break;
+          }
+        }
+
+        currentId = parentId;
+      }
+
+      if (!foundConceptId) {
+        console.warn('[DescriptorCardRepository] No concept card found in ancestor chain');
         return null;
       }
 
-      // 2. 获取父块内容
-      const parentBlock = await this.siyuanAdapter.getBlock(parentId);
-      if (!parentBlock) {
-        console.warn('[DescriptorCardRepository] Failed to get parent block:', parentId);
+      // 获取概念块内容和 kramdown
+      const conceptBlock = await this.siyuanAdapter.getBlock(foundConceptId);
+      if (!conceptBlock) {
+        console.warn('[DescriptorCardRepository] Failed to get concept block:', foundConceptId);
         return null;
       }
 
-      // 3. 获取父块 HTML
-      const parentHtml = await this.siyuanAdapter.getBlockHtml(parentId);
-      if (!parentHtml) {
-        console.warn('[DescriptorCardRepository] Failed to get parent HTML:', parentId);
+      const conceptKramdown = await this.siyuanAdapter.getBlockKramdown(foundConceptId);
+      if (!conceptKramdown) {
+        console.warn('[DescriptorCardRepository] Failed to get concept kramdown:', foundConceptId);
         return null;
       }
 
-      // 4. 检查父块是否为概念卡
-      const cardTypeMarker = await this.siyuanAdapter.getBlockAttribute(
-        parentId,
-        'custom-fsrs-card-type'
-      );
-      const isConceptCard = cardTypeMarker === 'concept';
+      const conceptHtml = this.siyuanAdapter.kramdownToHtml(conceptKramdown);
 
       return {
-        blockId: parentId,
-        content: parentBlock.content,
-        html: parentHtml,
-        cardTypeMarker: isConceptCard ? 'concept' : undefined,
-        isConceptCard,
+        blockId: foundConceptId,
+        content: conceptBlock.content,
+        html: conceptHtml,
+        cardTypeMarker: 'concept',
+        isConceptCard: true,
       };
     } catch (error) {
       console.error('[DescriptorCardRepository] Failed to get parent concept:', error);
@@ -161,6 +242,37 @@ export class DescriptorCardRepository {
   private extractAttribute(content: string): string {
     const match = content.match(/^(.+?)\s*;;/);
     return match ? match[1].trim() : '属性';
+  }
+
+  /**
+   * 从块内容中查找概念卡的块引用
+   * @param content 块内容
+   * @returns 概念卡 ID，如果没找到返回 null
+   */
+  private async findConceptCardInBlockRef(content: string): Promise<string | null> {
+    try {
+      // 提取块引用 ID（格式：((20230101120000-abcdefg 'alias')) 或 ((20230101120000-abcdefg))）
+      const refPattern = /\(\((\d{14}-[a-z0-9]{7})/g;
+      const matches = [...content.matchAll(refPattern)];
+
+      if (matches.length === 0) {
+        return null;
+      }
+
+      // 检查每个引用是否是概念卡
+      for (const match of matches) {
+        const refId = match[1];
+        const cardType = await this.siyuanAdapter.getBlockAttribute(refId, 'custom-fsrs-card-type');
+        if (cardType === 'concept') {
+          return refId;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('[DescriptorCardRepository] Error finding concept card in block ref:', error);
+      return null;
+    }
   }
 
   /**

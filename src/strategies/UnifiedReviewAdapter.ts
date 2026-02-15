@@ -92,7 +92,6 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
         // 🆕 仅神经漫游队列显示锁定种子按钮和菜单
         if (isNeuralRoam) {
             toolbar.push(
-                { icon: '#iconGraph', type: 'open-graph', ariaLabel: '打开图谱 🗺️' },
                 { icon: '#iconLock', type: 'lock-seed', ariaLabel: '锁定为种子块 🌱' },
                 { icon: '#iconMenu', type: 'neural-menu', ariaLabel: '神经漫游菜单' }
             );
@@ -119,6 +118,19 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
             content: {
                 type: 'protyle',
                 data: (() => {
+                    console.log('[UnifiedReviewAdapter] Setting content.data:', {
+                        cardType: (card as any)?.type,
+                        isXiuyuan: isXiuyuanCard(card),
+                        blockId,
+                        fieldMapping: isXiuyuanCard(card) ? card.meta.fieldMapping : undefined
+                    });
+                    
+                    // 🆕 描述符卡：使用 fieldMapping 中的 descriptor 字段
+                    if ((card as any)?.type === 'descriptor' && isXiuyuanCard(card)) {
+                        const descriptorId = card.meta.fieldMapping?.descriptor || blockId;
+                        console.log('[UnifiedReviewAdapter] Descriptor card, using descriptor field:', descriptorId);
+                        return descriptorId;
+                    }
                     // 🆕 Xiuyuan 卡片：data 也使用 frontBlockIDs 的第一个块
                     if (isXiuyuanCard(card) && card.meta.frontBlockIDs.length > 0) {
                         return card.meta.frontBlockIDs[0];
@@ -126,6 +138,19 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                     return blockId;
                 })(),
                 id: (() => {
+                    console.log('[UnifiedReviewAdapter] Setting content.id:', {
+                        cardType: (card as any)?.type,
+                        isXiuyuan: isXiuyuanCard(card),
+                        blockId,
+                        fieldMapping: isXiuyuanCard(card) ? card.meta.fieldMapping : undefined
+                    });
+                    
+                    // 🆕 描述符卡：使用 fieldMapping 中的 descriptor 字段
+                    if ((card as any)?.type === 'descriptor' && isXiuyuanCard(card)) {
+                        const descriptorId = card.meta.fieldMapping?.descriptor || blockId;
+                        console.log('[UnifiedReviewAdapter] Descriptor card, using descriptor field:', descriptorId);
+                        return descriptorId;
+                    }
                     // 🆕 Xiuyuan 卡片：使用 frontBlockIDs 的第一个块
                     if (isXiuyuanCard(card) && card.meta.frontBlockIDs.length > 0) {
                         return card.meta.frontBlockIDs[0];

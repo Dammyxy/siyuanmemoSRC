@@ -2,29 +2,9 @@
   <div
     ref="rootRef"
     class="fsrs-review-v2"
-    :class="{ 'fsrs-review-v2--with-sidebar': isNeuralRoamMode && !sidebarCollapsed }"
     data-key="dialog-opencard"
     @click="handleRootClick"
   >
-    <!-- 🌌 Orbit 侧边栏（仅神经漫游模式 + 展开状态） -->
-    <OrbitSidebar
-      v-if="isNeuralRoamMode && !sidebarCollapsed"
-      ref="orbitSidebarRef"
-      :neural-queue="neuralQueueInstance"
-      :width="sidebarWidth"
-      :i18n="i18n"
-      @node-click="handleGraphNodeClick"
-      @navigate-to-block="handleGraphNavigateToBlock"
-    />
-
-    <!-- 🖱️ 拖拽分隔条（仅侧边栏展开时显示） -->
-    <div
-      v-if="isNeuralRoamMode && !sidebarCollapsed"
-      class="fsrs-review-v2__resizer"
-      :class="{ 'fsrs-review-v2__resizer--dragging': isResizingSidebar }"
-      @mousedown="startResizeSidebar"
-    ></div>
-
     <!-- 📝 复习内容区 -->
     <div class="fsrs-review-v2__content-wrapper">
       <ReviewHeader
@@ -32,8 +12,6 @@
         :is-tab-mode="!!props.reviewUI"
         :title="props.title"
         :mode="props.mode"
-        :show-sidebar-toggle="isNeuralRoamMode"
-        :sidebar-collapsed="sidebarCollapsed"
         :navigation-state="state.header.navigationState"
         @toolbar-action="handleToolbarAction"
         @action="hook.executeCommand"
@@ -87,8 +65,6 @@ import { ProviderBackedQueueStrategy } from '@/core/extensions';
 import { createVueDialog } from '@/utils/dialog';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import { riff } from '@/core/siyuan';
-// 🌌 Orbit 侧边栏 v2.0
-import OrbitSidebar from '@/presentation/orbit/OrbitSidebar.vue';
 import type { NeuralRoamQueue } from '@/queues/NeuralRoamQueue';
 
 const props = defineProps<{
@@ -111,12 +87,6 @@ const emit = defineEmits<{
 }>();
 
 const rootRef = ref<HTMLDivElement | null>(null);
-
-// 🌌 侧边栏状态
-const sidebarCollapsed = ref(true);  // 默认折叠
-const sidebarWidth = ref(1024);      // 默认宽度 1024px (与复习区域等宽)
-const isResizingSidebar = ref(false);
-const orbitSidebarRef = ref<InstanceType<typeof OrbitSidebar> | null>(null);
 
 // 判断是否为神经漫游模式
 const isNeuralRoamMode = computed(() => {
@@ -146,30 +116,7 @@ onMounted(() => {
     ourDialog: document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]'),
   });
 
-  // 🌌 恢复侧边栏状态
-  try {
-    const savedState = localStorage.getItem('fsrs-orbit-sidebar-state');
-    if (savedState) {
-      const state = JSON.parse(savedState);
-      sidebarCollapsed.value = state.collapsed ?? true;
-      sidebarWidth.value = state.width ?? 600;
-
-      // 🆕 只在神经漫游模式下调整对话框宽度
-      if (isNeuralRoamMode.value && !state.collapsed) {
-        setTimeout(() => {
-          const dialogContainer = document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]') as HTMLElement;
-          if (dialogContainer) {
-            // 复习区域固定 1024px + 侧边栏宽度
-            const totalWidth = 1024 + sidebarWidth.value;
-            dialogContainer.style.maxWidth = `${totalWidth}px`;
-            dialogContainer.style.width = `${totalWidth}px`;
-          }
-        }, 100);
-      }
-    }
-  } catch (error) {
-    console.warn('[ReviewView] Failed to load sidebar state:', error);
-  }
+  // 🌌 恢复侧边栏状态（已删除）
 
   // 🆕 触发增量同步（如果启用）
   const plugin = props.plugin as any;
@@ -523,10 +470,6 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
     ev.stopPropagation();
     ev.preventDefault();
     handleNeuralMenu(ev);
-  } else if (actionType === 'toggle-sidebar') {
-    // 🌌 切换侧边栏
-    console.log('[FSRS ReviewView] Toggle sidebar button clicked');
-    toggleSidebar();
   } else if (actionType === 'nav-toggle-mode') {
     // 🆕 导航模式切换（Phase 3: UI 控件）
     console.log('[FSRS ReviewView] Navigation mode toggle button clicked');
@@ -564,9 +507,6 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
 
         // 加载书签位置的卡片
         void hook.loadCardByBlockId(targetBlockId);
-
-        // 刷新图谱
-        orbitSidebarRef.value?.refresh(false);
 
         // 刷新导航状态
         refreshNavigationState();
@@ -925,178 +865,7 @@ function handleBreadcrumbClick(crumb: { icon?: string; text: string; id?: string
   }
 }
 
-// 🌐 Part 7: 侧边栏处理函数
-/**
- * 切换侧边栏显示/隐藏
- */
-function toggleSidebar() {
-  sidebarCollapsed.value = !sidebarCollapsed.value;
-  console.log('[FSRS ReviewView] Sidebar toggled:', sidebarCollapsed.value ? 'collapsed' : 'expanded');
-
-  // 🆕 只在神经漫游模式下调整对话框宽度
-  if (!isNeuralRoamMode.value) {
-    console.log('[FSRS ReviewView] Not neural roam mode, skipping dialog width adjustment');
-    return;
-  }
-
-  // 动态调整对话框宽度
-  const dialogContainer = document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]') as HTMLElement;
-  if (dialogContainer) {
-    if (sidebarCollapsed.value) {
-      // 折叠:清除固定宽度，让对话框恢复响应式
-      dialogContainer.style.maxWidth = '';
-      dialogContainer.style.width = '';
-    } else {
-      // 展开:复习区域 1024px + 侧边栏宽度
-      const totalWidth = 1024 + sidebarWidth.value;
-      dialogContainer.style.maxWidth = `${totalWidth}px`;
-      dialogContainer.style.width = `${totalWidth}px`;  // 强制固定宽度，避免被挤压
-    }
-  }
-
-  // 持久化状态
-  try {
-    const state = {
-      collapsed: sidebarCollapsed.value,
-      width: sidebarWidth.value,
-    };
-    localStorage.setItem('fsrs-orbit-sidebar-state', JSON.stringify(state));
-  } catch (error) {
-    console.warn('[ReviewView] Failed to save sidebar state:', error);
-  }
-}
-
-/**
- * 拖拽调整侧边栏宽度（参考 SRSBrowser）
- */
-function startResizeSidebar(e: MouseEvent) {
-  e.preventDefault();
-  isResizingSidebar.value = true;
-
-  // 🔑 防止拖拽时选中文字
-  document.body.style.userSelect = 'none';
-  document.body.style.cursor = 'col-resize';
-
-  const startX = e.clientX;
-  const startWidth = sidebarWidth.value;
-
-  // 🔑 使用全局监听，避免鼠标移出分隔条时停止
-  const onMouseMove = (moveEvent: MouseEvent) => {
-    moveEvent.preventDefault();
-    const delta = moveEvent.clientX - startX;
-    // 允许更大的侧边栏宽度（最大 1200px，最小 400px）
-    const newWidth = Math.min(1200, Math.max(400, startWidth + delta));
-    sidebarWidth.value = newWidth;
-
-    // 实时调整对话框宽度
-    const dialogContainer = document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]') as HTMLElement;
-    if (dialogContainer) {
-      const totalWidth = 1024 + newWidth;
-      dialogContainer.style.maxWidth = `${totalWidth}px`;
-      dialogContainer.style.width = `${totalWidth}px`;  // 强制固定宽度
-    }
-  };
-
-  const onMouseUp = () => {
-    // 🔑 清理全局样式和监听器
-    isResizingSidebar.value = false;
-    document.body.style.userSelect = '';
-    document.body.style.cursor = '';
-    document.removeEventListener('mousemove', onMouseMove);
-    document.removeEventListener('mouseup', onMouseUp);
-
-    // 持久化宽度
-    try {
-      const state = {
-        collapsed: sidebarCollapsed.value,
-        width: sidebarWidth.value,
-      };
-      localStorage.setItem('fsrs-orbit-sidebar-state', JSON.stringify(state));
-    } catch (error) {
-      console.warn('[ReviewView] Failed to save sidebar width:', error);
-    }
-  };
-
-  document.addEventListener('mousemove', onMouseMove);
-  document.addEventListener('mouseup', onMouseUp);
-}
-
-/**
- * 处理图谱节点点击
- *
- * 当用户在图谱中点击节点时，跳转到该节点对应的卡。
- */
-function handleGraphNodeClick(data: { nodeId: string; nodeType: string }) {
-  console.log('[FSRS ReviewView] Graph node clicked:', data.nodeId);
-  void handleGraphNavigateToBlock(data.nodeId);
-}
-
-/**
- * 🆕 处理图谱历史节点跳转（路径导航系统）
- *
- * 当用户在 Orbit 图谱中点击历史节点时，跳转到该节点对应的卡片。
- * 使用路径导航系统：保留完整路径，只改变当前位置。
- *
- * @param blockId 目标块 ID
- */
-async function handleGraphNavigateToBlock(blockId: string) {
-  console.log('[FSRS ReviewView] Navigating to history node:', blockId);
-
-  try {
-    const queueStrategy = hook.getQueueStrategy();
-    const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
-
-    // 🆕 神经漫游队列 - 使用路径导航系统
-    if (underlyingQueue?.name === 'NeuralRoamQueue') {
-      const neuralQueue = underlyingQueue.neuralQueue;
-
-      // 1. 跳转到历史节点（保留完整路径）
-      const success = neuralQueue.jumpToHistoryNode(blockId);
-
-      if (success) {
-        console.log('[FSRS ReviewView] Successfully jumped to history node:', blockId);
-
-        // 2. 直接加载该卡片到 UI（不调用 queue.next()）
-        await hook.loadCardByBlockId(blockId);
-
-        // 3. 刷新图谱（保持视野，不自动 fitView）
-        orbitSidebarRef.value?.refresh(false);
-
-        // 4. 刷新导航状态到 UI
-        refreshNavigationState();
-
-        // 5. 显示导航模式提示
-        const navState = neuralQueue.getNavigationState();
-        const modeText = navState.navigationMode === 'follow' ? '沿路径前进' : '探索新分支';
-        showMessage(`已跳转到历史节点 | 当前模式: ${modeText}`, 2000, 'info');
-
-        return;
-      } else {
-        // 节点不在路径中，降级为设置种子
-        console.warn('[FSRS ReviewView] Node not in path, fallback to setting seed');
-        if (typeof underlyingQueue.startRoamingFromSeed === 'function') {
-          await underlyingQueue.startRoamingFromSeed(blockId);
-          showMessage(`已设置漫游起点: ${blockId}`, 2000, 'info');
-        }
-        return;
-      }
-    }
-
-    // 其他队列类型 - 降级为打开新标签页
-    if (props.app) {
-      openTab({
-        app: props.app,
-        doc: { id: blockId },
-        openNewTab: true,
-      });
-    } else {
-      console.error('[FSRS ReviewView] app is not available');
-    }
-  } catch (error) {
-    console.error('[FSRS ReviewView] Failed to navigate to block:', error);
-    showMessage('切换失败', 3000, 'error');
-  }
-}
+// 🌐 Part 7: 侧边栏处理函数（已删除）
 
 /**
  * 🆕 获取当前队列的导航状态（仅神经漫游队列）
@@ -1143,18 +912,7 @@ function refreshNavigationState() {
   }
 }
 
-// 🌐 监听当前卡片变化,同步到侧边栏图谱
-watch(
-  () => state.value.content.data,
-  (newBlockId) => {
-    if (!sidebarCollapsed.value && orbitSidebarRef.value && newBlockId) {
-      // 🔑 只刷新图谱数据,保持用户设置的视野
-      if (typeof orbitSidebarRef.value.refresh === 'function') {
-        orbitSidebarRef.value.refresh(false);  // ← 禁用自动 fitView,不移动视野
-      }
-    }
-  }
-);
+// 🌐 监听当前卡片变化（已删除图谱同步）
 </script>
 
 <style scoped>
@@ -1167,11 +925,6 @@ watch(
   background: var(--b3-theme-background);
 }
 
-/* 🌌 带侧边栏时切换为横向布局 */
-.fsrs-review-v2--with-sidebar {
-  flex-direction: row;
-}
-
 /* 🌌 内容包装器（占据剩余空间） */
 .fsrs-review-v2__content-wrapper {
   flex: 1;
@@ -1180,27 +933,6 @@ watch(
   min-width: 0; /* 防止 flex 子元素溢出 */
   height: 100%; /* 确保容器有明确的高度 */
   overflow: hidden; /* 防止整体滚动，只允许 ReviewContent 滚动 */
-}
-
-/* 侧边栏展开时，内容区域固定宽度 */
-.fsrs-review-v2--with-sidebar .fsrs-review-v2__content-wrapper {
-  flex: 0 0 1024px; /* 固定宽度 1024px，不伸缩 */
-  width: 1024px;
-}
-
-/* 🌌 拖拽分隔条 */
-.fsrs-review-v2__resizer {
-  width: 4px;
-  background: var(--b3-theme-surface);
-  cursor: col-resize;
-  transition: background 0.2s;
-  flex-shrink: 0;
-  user-select: none;
-}
-
-.fsrs-review-v2__resizer:hover,
-.fsrs-review-v2__resizer--dragging {
-  background: var(--b3-theme-primary);
 }
 
 .fsrs-review-v2-resume {

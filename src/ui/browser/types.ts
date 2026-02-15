@@ -103,12 +103,12 @@ export const FILTER_PRESETS: FilterPreset[] = [
  * @returns 可用的卡片类型筛选选项数组
  */
 export function getAvailableCardTypeFilters(queueId: string | null): Array<{ value: CardTypeFilter; label: string }> {
-    // 提取练习队列和最终训练队列：显示除了 topic-only 外的所有类型
+    // 提取练习队列和刻意练习队列：只显示 all、item-only、descriptor-only
+    // 原因：concept 卡片使用 A-Factor 调度器，不应出现在 FSRS 练习队列中
     if (queueId === 'retrieval' || queueId === 'final-drill') {
         return [
             { value: 'all', label: 'All Types' },
             { value: 'item-only', label: 'Item Only' },
-            { value: 'concept-only', label: 'Concept Only' },
             { value: 'descriptor-only', label: 'Descriptor Only' },
         ];
     }
