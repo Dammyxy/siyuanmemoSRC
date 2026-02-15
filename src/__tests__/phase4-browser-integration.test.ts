@@ -63,7 +63,7 @@ describe('Phase 4: Browser Integration (SM-15 Pattern)', () => {
       getAllItems: vi.fn(() => mockRetrievalQueue.memoryQueue),
       discard: vi.fn((item: QueueItem) => {
         const index = mockRetrievalQueue.memoryQueue.findIndex(
-          (i) => i.cardID === item.cardID
+          (i) => i.id === item.id
         );
         if (index >= 0) {
           mockRetrievalQueue.memoryQueue.splice(index, 1);
@@ -84,7 +84,7 @@ describe('Phase 4: Browser Integration (SM-15 Pattern)', () => {
       getAllItems: vi.fn(() => mockIncrementalQueue.memoryQueue),
       discard: vi.fn((item: QueueItem) => {
         const index = mockIncrementalQueue.memoryQueue.findIndex(
-          (i) => i.cardID === item.cardID
+          (i) => i.id === item.id
         );
         if (index >= 0) {
           mockIncrementalQueue.memoryQueue.splice(index, 1);
@@ -278,8 +278,8 @@ describe('Phase 4: Browser Integration (SM-15 Pattern)', () => {
       const reviewQueue = mockPlugin.getRetrievalPracticeQueue();
 
       const newCard: QueueItem = {
-        cardID: 'card-4',
-        blockID: 'block-4',
+        id: 'card-4',
+        blockId: 'block-4',
         deckID: 'deck-1',
         priority: 40,
       };
@@ -322,8 +322,8 @@ describe('Phase 4: Browser Integration (SM-15 Pattern)', () => {
     it('should handle discarding non-existent card gracefully', () => {
       const queue = mockPlugin.getRetrievalPracticeQueue();
       const nonExistentCard: QueueItem = {
-        cardID: 'non-existent',
-        blockID: 'non-existent',
+        id: 'non-existent',
+        blockId: 'non-existent',
         deckID: 'deck-1',
         priority: 50,
       };

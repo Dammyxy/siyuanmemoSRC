@@ -37,7 +37,7 @@ interface FieldItem {
 }
 
 const props = defineProps<{
-  blockID: string;
+  blockId: string;
   i18n?: Record<string, string>;
   plugin?: FSRSPlugin;  // ✅ 添加 plugin prop
 }>();
@@ -71,7 +71,7 @@ const fmtDate = (d: Date | null) => d?.toLocaleString() || '-';
 onMounted(async () => {
   try {
     // 获取块信息
-    const rows = await sql(`SELECT created, updated, tag FROM blocks WHERE id = '${props.blockID}'`);
+    const rows = await sql(`SELECT created, updated, tag FROM blocks WHERE id = '${props.blockId}'`);
     const block = rows?.[0];
     if (!block) {
       error.value = t('blockNotFound', '未找到块信息');
@@ -79,8 +79,8 @@ onMounted(async () => {
     }
 
     // ✅ 新架构：从本地存储获取卡片数据
-    const attrs = await getBlockAttrs(props.blockID).catch(() => ({}));
-    const card = props.plugin?.storage.getCardByBlockId(props.blockID);
+    const attrs = await getBlockAttrs(props.blockId).catch(() => ({}));
+    const card = props.plugin?.storage.getCardByBlockId(props.blockId);
     
     // 获取卡片组名（暂时使用默认值，因为新架构中没有 deckID 概念）
     const deckName = '-';

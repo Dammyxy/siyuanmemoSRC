@@ -161,10 +161,10 @@ function applyAnswerVisibility(): void {
   }
 }
 
-async function renderProtyle(blockID: string): Promise<void> {
+async function renderProtyle(blockId: string): Promise<void> {
   const seq = ++renderSeq;
 
-  console.log('[FSRS ReviewContent] renderProtyle called:', { blockID, seq });
+  console.log('[FSRS ReviewContent] renderProtyle called:', { blockId, seq });
 
   // 等待 DOM 准备
   const ready = await ensureHostRef();
@@ -220,11 +220,11 @@ async function renderProtyle(blockID: string): Promise<void> {
     );
   }
 
-  console.log('[FSRS ReviewContent] Creating new Protyle with blockId:', blockID);
+  console.log('[FSRS ReviewContent] Creating new Protyle with blockId:', blockId);
 
   // Create new instance with blockId - Protyle will auto-load content
   editorRef.value = new ProtyleCtor(props.app, hostRef.value, {
-    blockId: blockID,
+    blockId: blockId,
     action: [cbGetAll].filter(Boolean),
     render: {
       background: false,
@@ -317,10 +317,10 @@ async function renderProtyle(blockID: string): Promise<void> {
 }
 
 // 渲染答案块（Xiuyuan 模板卡片）
-async function renderAnswerProtyle(blockID: string): Promise<void> {
+async function renderAnswerProtyle(blockId: string): Promise<void> {
   const seq = ++answerRenderSeq;
 
-  console.log('[FSRS ReviewContent] renderAnswerProtyle called:', { blockID, seq });
+  console.log('[FSRS ReviewContent] renderAnswerProtyle called:', { blockId, seq });
 
   // 等待 DOM 准备
   for (let i = 0; i < 20; i++) {
@@ -358,11 +358,11 @@ async function renderAnswerProtyle(blockID: string): Promise<void> {
   // Clear host
   answerHostRef.value.innerHTML = '';
 
-  console.log('[FSRS ReviewContent] Creating new Answer Protyle with blockId:', blockID);
+  console.log('[FSRS ReviewContent] Creating new Answer Protyle with blockId:', blockId);
 
   // Create new instance with blockId
   answerEditorRef.value = new ProtyleCtor(props.app, answerHostRef.value, {
-    blockId: blockID,
+    blockId: blockId,
     action: [cbGetAll].filter(Boolean),
     render: {
       background: false,
@@ -386,10 +386,10 @@ watch(
   () => props.content.data,
   (data) => {
     if (props.content.type !== 'protyle') return;
-    const blockID = String(data || '');
-    if (!blockID) return;
-    console.log('[FSRS ReviewContent] Watch triggered, blockID:', blockID);
-    void renderProtyle(blockID);
+    const blockId = String(data || '');
+    if (!blockId) return;
+    console.log('[FSRS ReviewContent] Watch triggered, blockId:', blockId);
+    void renderProtyle(blockId);
   },
   { immediate: true },
 );
@@ -442,9 +442,9 @@ watch(
 onMounted(() => {
   const { type, data } = props.content;
   if (type !== 'protyle') return;
-  const blockID = String(data || '');
-  if (!blockID) return;
-  void renderProtyle(blockID);
+  const blockId = String(data || '');
+  if (!blockId) return;
+  void renderProtyle(blockId);
 });
 
 onUnmounted(() => {

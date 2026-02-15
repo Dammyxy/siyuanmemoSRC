@@ -171,7 +171,7 @@ export type PluginLike = {
 };
 
 /**
- * 将 BrowserCard 转换为 QueueItem
+ * 将 BrowserCard 转换为队列项
  */
 export function cardsToQueueItems(cards: BrowserCard[]): any[] {
   console.log('[MenuActions] ========== cardsToQueueItems 转换开始 ==========');
@@ -229,7 +229,7 @@ export function cardsToQueueItems(cards: BrowserCard[]): any[] {
   });
   
   console.log('[MenuActions] ========== cardsToQueueItems 转换完成 ==========');
-  console.log('[MenuActions] 输出 QueueItem 数量:', result.length);
+  console.log('[MenuActions] 输出队列项数量:', result.length);
   
   return result;
 }

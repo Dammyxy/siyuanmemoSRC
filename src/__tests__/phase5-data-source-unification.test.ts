@@ -214,7 +214,7 @@ describe('Phase 5: Data Source Unification', () => {
         // Add items to local buffer
         const items: QueueItem[] = [
           {
-            cardID: 'local-1',
+            id: 'local-1',
             blockID: 'block-local-1',
             deckID: 'test-deck',
             priority: 50,
@@ -333,7 +333,7 @@ describe('Phase 5: Data Source Unification', () => {
 
         const items: QueueItem[] = [
           {
-            cardID: 'new-card-1',
+            id: 'new-card-1',
             blockID: 'new-block-1',
             deckID: 'test-deck',
             priority: 50,
@@ -408,7 +408,7 @@ describe('Phase 5: Data Source Unification', () => {
         // Simulate first plugin session
         const items: QueueItem[] = [
           {
-            cardID: 'persistent-card',
+            id: 'persistent-card',
             blockID: 'persistent-block',
             deckID: 'test-deck',
             priority: 50,
@@ -477,7 +477,7 @@ describe('Phase 5: Data Source Unification', () => {
 
         const items: QueueItem[] = [
           {
-            cardID: 'local-simple',
+            id: 'local-simple',
             blockID: 'local-simple-block',
             deckID: 'test-deck',
             priority: 50,
@@ -513,7 +513,7 @@ describe('Phase 5: Data Source Unification', () => {
 
         const items: QueueItem[] = [
           {
-            cardID: 'local-advanced',
+            id: 'local-advanced',
             blockID: 'local-advanced-block',
             deckID: 'test-deck',
             priority: 50,

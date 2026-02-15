@@ -705,9 +705,9 @@ function openSrsEditorDialog(blockId: string) {
     component: SrsEditorDialog,
     props: {
       card: {
-        cardID: blockId,
-        blockID: blockId,
-        deckID: riff.BUILTIN_DECK_ID,
+        id: blockId,
+        blockId: blockId,
+        deckId: riff.BUILTIN_DECK_ID,
       },
       deckID: riff.BUILTIN_DECK_ID,
       i18n: props.i18n || {},

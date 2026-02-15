@@ -221,7 +221,7 @@ function closeInsertDialog() {
 
 async function onInsertConfirm(position: number) {
   try {
-    const cardId = props.actions.cardMeta?.cardID || props.actions.cardMeta?.blockID;
+    const cardId = props.actions.cardMeta?.id || props.actions.cardMeta?.blockId;
     if (!cardId) {
       console.error('[ReviewActions] No card ID found');
       return;
@@ -271,7 +271,7 @@ function closeScheduleDialog() {
 
 async function onScheduleConfirm(options: ScheduleOptions) {
   try {
-    const cardId = props.actions.cardMeta?.cardID || props.actions.cardMeta?.blockID;
+    const cardId = props.actions.cardMeta?.id || props.actions.cardMeta?.blockId;
     if (!cardId) {
       console.error('[ReviewActions] No card ID found');
       return;

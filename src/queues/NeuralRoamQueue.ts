@@ -314,7 +314,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 }
 
                 // 🔑 混合架构：直接从 SQL 获取块数据，转换为 FSRSCard
-                const blockData = await this.fetchBlockDataFromSQL(queueItem.cardID);
+                const blockData = await this.fetchBlockDataFromSQL(queueItem.id);
 
                 if (blockData !== null) {
                     // 找到有效块，返回
@@ -328,7 +328,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 }
 
                 // 块被过滤，尝试下一个
-                console.log(`[NeuralRoamQueue] 块 ${queueItem.cardID} 被过滤，尝试下一个 (${attempts + 1}/${MAX_RETRIES})`);
+                console.log(`[NeuralRoamQueue] 块 ${queueItem.id} 被过滤，尝试下一个 (${attempts + 1}/${MAX_RETRIES})`);
                 attempts++;
             }
 

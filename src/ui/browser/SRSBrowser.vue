@@ -1905,9 +1905,9 @@ async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {
     queueId,
     itemsCount: items.length,
     items: items.map((it: any) => ({
-      cardID: it.cardID,
-      blockID: it.blockID,
-      deckID: it.deckID,
+      id: it.id,
+      blockId: it.blockId,
+      deckId: it.deckId,
     })),
   });
 

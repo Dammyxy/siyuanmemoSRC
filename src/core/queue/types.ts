@@ -50,7 +50,7 @@ export enum CardState {
  *   }
  *   
  *   async removeItem(item: ReviewCard): Promise<boolean> {
- *     const index = this.items.findIndex(i => i.blockID === item.blockID);
+ *     const index = this.items.findIndex(i => i.blockId === item.blockId);
  *     if (index !== -1) {
  *       this.items.splice(index, 1);
  *       return true;
@@ -103,17 +103,17 @@ export interface QueueInterface<TItem extends QueueItem> {
  * ```typescript
  * // Basic queue item with required fields
  * const item: QueueItem = {
- *   cardID: 'card-123',
- *   blockID: 'block-123',  // Required field
- *   deckID: 'deck-123',
+ *   id: 'card-123',
+ *   blockId: 'block-123',  // Required field
+ *   deckId: 'deck-123',
  *   priority: 50,
  * };
  * 
  * // Queue item with FSRS scheduling fields
  * const scheduledItem: QueueItem = {
- *   cardID: 'card-456',
- *   blockID: 'block-456',  // Required field
- *   deckID: 'deck-123',
+ *   id: 'card-456',
+ *   blockId: 'block-456',  // Required field
+ *   deckId: 'deck-123',
  *   priority: 50,
  *   state: 2,              // CardState.Review
  *   stability: 10.5,
@@ -130,7 +130,7 @@ export interface QueueItem {
   // === Identity Fields (Required) ===
   
   /** Card ID - Unique identifier for the card in the Riff system */
-  cardID: QueueCardRef['cardID'];
+  id: string;
   
   /** 
    * Block ID - Unique identifier for the block in SiYuan notes
@@ -140,10 +140,10 @@ export interface QueueItem {
    * 
    * @see Requirement 6.1
    */
-  blockID: QueueCardRef['blockID'];
+  blockId: string;
   
   /** Deck ID - Identifier for the deck this card belongs to */
-  deckID: QueueCardRef['deckID'];
+  deckId?: string;
   
   /** 
    * Priority - Normalized priority value (0-100)
@@ -151,7 +151,7 @@ export interface QueueItem {
    * - 100 = Lowest priority
    * - Default: 50 if undefined
    */
-  priority: QueueCardRef['priority'];
+  priority?: number;
   
   // === Riff Native Fields (Optional) ===
   
@@ -219,9 +219,9 @@ export interface QueueItem {
  * @example
  * ```typescript
  * const card: ReviewCard = {
- *   blockID: createBlockID('20230101120000-abc123'),
- *   cardID: createCardID('20230101120000-abc123'),
- *   deckID: '20230101000000-deck01',
+ *   blockId: createBlockID('20230101120000-abc123'),
+ *   id: createCardID('20230101120000-abc123'),
+ *   deckId: '20230101000000-deck01',
  *   priority: 50,
  *   due: Date.now(),
  *   lapses: 0,
@@ -237,10 +237,10 @@ export interface QueueItem {
  */
 export interface ReviewCard extends QueueItem {
   /** 块 ID - 思源笔记中的块标识符 (Branded Type) */
-  blockID: BlockID;
+  blockId: BlockID;
   
   /** 卡片 ID - Riff 系统中的卡片标识符 (Branded Type) */
-  cardID: CardID;
+  id: CardID;
   
   /** 到期时间戳 (毫秒) - 卡片应该被复习的时间 */
   due: number;

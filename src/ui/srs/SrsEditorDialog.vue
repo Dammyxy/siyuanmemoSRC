@@ -219,8 +219,8 @@ import FsrsSettingsPanel from './FsrsSettingsPanel.vue';
 import type FSRSPlugin from '@/index';
 
 const props = defineProps<{
-  card: { cardID: string; blockID: string; deckID: string };
-  deckID: string;
+  card: { id: string; blockId: string; deckId: string };
+  deckId: string;
   i18n?: Record<string, string>;
   plugin?: FSRSPlugin;  // ✅ 添加 plugin prop
 }>();
@@ -228,8 +228,8 @@ const props = defineProps<{
 const selectDocAll = ref(false);
 const selectedBlocks = ref<string[]>([]);
 const selectedCards = ref<string[]>([]);
-const firstBlock = ref<string>(props.card.blockID);
-const firstCardId = ref<string>(props.card.cardID);
+const firstBlock = ref<string>(props.card.blockId);
+const firstCardId = ref<string>(props.card.id);
 
 const frontText = ref('');
 const backText = ref('');
@@ -340,38 +340,38 @@ const curvePoints = computed(() => {
 
 async function loadSelection() {
   if (!selectDocAll.value) {
-    selectedBlocks.value = [props.card.blockID];
+    selectedBlocks.value = [props.card.blockId];
     
     // ✅ 新架构：从本地存储查询卡片
     try {
-      const card = props.plugin?.storage.getCardByBlockId(props.card.blockID);
+      const card = props.plugin?.storage.getCardByBlockId(props.card.blockId);
       
       if (card) {
         selectedCards.value = [card.id];
-        console.log('[SrsEditor] loadSelection: resolved cardID from storage:', card.id);
+        console.log('[SrsEditor] loadSelection: resolved id from storage:', card.id);
       } else {
-        selectedCards.value = [props.card.cardID];
-        console.log('[SrsEditor] loadSelection: fallback to props cardID:', props.card.cardID);
+        selectedCards.value = [props.card.id];
+        console.log('[SrsEditor] loadSelection: fallback to props id:', props.card.id);
       }
     } catch (err) {
       console.warn('[SrsEditor] Failed to query local storage:', err);
-      selectedCards.value = [props.card.cardID];
+      selectedCards.value = [props.card.id];
     }
     
-    await loadMeta(props.card.blockID, selectedCards.value[0]);
+    await loadMeta(props.card.blockId, selectedCards.value[0]);
     return;
   }
   try {
-    const info = await getBlockInfo(props.card.blockID);
+    const info = await getBlockInfo(props.card.blockId);
     const rootId = info?.root_id || info?.rootId || info?.root;
     if (!rootId) {
-      selectedBlocks.value = [props.card.blockID];
-      selectedCards.value = [props.card.cardID];
-      await loadMeta(props.card.blockID, props.card.cardID);
+      selectedBlocks.value = [props.card.blockId];
+      selectedCards.value = [props.card.id];
+      await loadMeta(props.card.blockId, props.card.id);
       return;
     }
     const blocks = await getCardBlockIds({ type: 'doc', value: rootId });
-    selectedBlocks.value = blocks.length ? blocks : [props.card.blockID];
+    selectedBlocks.value = blocks.length ? blocks : [props.card.blockId];
     
     // ✅ 新架构：从本地存储批量查询卡片
     const cardIds: string[] = [];
@@ -381,12 +381,12 @@ async function loadSelection() {
         cardIds.push(card.id);
       }
     }
-    selectedCards.value = cardIds.length ? cardIds : [props.card.cardID];
+    selectedCards.value = cardIds.length ? cardIds : [props.card.id];
     console.log('[SrsEditor] loadSelection doc cards:', selectedCards.value);
     await loadMeta(selectedBlocks.value[0], selectedCards.value[0]);
   } catch {
-    selectedBlocks.value = [props.card.blockID];
-    selectedCards.value = [props.card.cardID];
+    selectedBlocks.value = [props.card.blockId];
+    selectedCards.value = [props.card.id];
   }
 }
 
