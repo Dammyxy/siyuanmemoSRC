@@ -677,10 +677,11 @@ export async function addToQueue(
       let added = 0;
       for (const item of items) {
         try {
-          await queue.addCard(item.blockID, 'manual');
+          // 🔧 修复：使用 cardID 而不是 blockID，以支持模板卡（一个块对应多张卡片）
+          await queue.addCard(item.cardID, 'manual');
           added++;
         } catch (err) {
-          console.error(`[MenuActions] 添加卡片失败: ${item.blockID}`, err);
+          console.error(`[MenuActions] 添加卡片失败: ${item.cardID}`, err);
         }
       }
       const queueNames = {
@@ -736,10 +737,11 @@ export async function addToQueue(
       let added = 0;
       for (const item of filteredItems) {
         try {
-          await queue.addCard(item.blockID, 'manual');
+          // 🔧 修复：使用 cardID 而不是 blockID，以支持模板卡（一个块对应多张卡片）
+          await queue.addCard(item.cardID, 'manual');
           added++;
         } catch (err) {
-          console.error(`[MenuActions] 添加卡片失败: ${item.blockID}`, err);
+          console.error(`[MenuActions] 添加卡片失败: ${item.cardID}`, err);
         }
       }
       console.log('[MenuActions] 刻意练习队列添加完成，共添加:', added);

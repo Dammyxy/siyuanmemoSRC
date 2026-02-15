@@ -616,7 +616,7 @@ export class BlockMenuHandler {
    * 
    * @description
    * 自动检测列表项块，如果子级为有序列表项，则为每个子级创建一张卡片。
-   * 支持提示功能：子列表项使用 `::` 分隔提示和答案。
+   * 支持提示功能：子列表项使用 `→` 分隔提示和答案。
    * 
    * @param blockIds 选中的块 ID 列表
    */

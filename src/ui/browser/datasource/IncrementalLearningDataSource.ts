@@ -50,10 +50,12 @@ export class IncrementalLearningDataSource implements ICardDataSource {
 
   private readonly manager: UnifiedDataSourceManager;
   private readonly options: IncrementalLearningDataSourceOptions;
+  private readonly storage?: any;  // 🆕 添加 storage 引用
 
-  constructor(manager: UnifiedDataSourceManager, options?: IncrementalLearningDataSourceOptions) {
+  constructor(manager: UnifiedDataSourceManager, options?: IncrementalLearningDataSourceOptions, storage?: any) {
     this.manager = manager;
     this.options = options || {};
+    this.storage = storage;  // 🆕 保存 storage 引用
     
     console.log('[IncrementalLearningDataSource] Initialized with unified data source manager');
   }
@@ -376,7 +378,7 @@ export class IncrementalLearningDataSource implements ICardDataSource {
     ];
   }
 
-  async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<void> {
+  async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<any> {
     if (actionId === 'open') return;
 
     try {
@@ -396,19 +398,21 @@ export class IncrementalLearningDataSource implements ICardDataSource {
 
       // 删除卡片（完全删除）
       if (actionId === 'delete-card') {
+        if (!this.storage) {
+          console.error('[IncrementalLearningDataSource] Storage not available!');
+          return 0;
+        }
+        
         const blockIds = selectedRows.map(row => row.blockId);
+        let deleted = await batchDelete(blockIds, this.storage);
         
-        // 第一次尝试：常规删除
-        let deleted = await batchDelete(blockIds);
-        
-        // 如果删除失败，自动尝试强制删除
         if (deleted === 0 && blockIds.length > 0) {
           console.warn('[IncrementalLearningDataSource] 常规删除失败，自动尝试强制删除...');
-          deleted = await batchDelete(blockIds, { force: true });
+          deleted = await batchDelete(blockIds, this.storage);
         }
         
         console.log(`[IncrementalLearningDataSource] Deleted ${deleted} cards`);
-        return;
+        return deleted;
       }
 
       // 设置优先级

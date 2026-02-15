@@ -79,6 +79,7 @@ export abstract class ReviewEntryBase {
    * 从块元素收集闪卡
    * 
    * 支持当前块及所有子块的卡片收集。
+   * 支持模板卡（一个块对应多张卡片）。
    * 
    * @param blockElements 块元素列表
    * @returns 卡片列表
@@ -104,10 +105,12 @@ export abstract class ReviewEntryBase {
         }
         seen.add(blockId);
         
-        // 从本地存储查询卡片
-        const card = this.deps.storage.getCardByBlockId(blockId);
-        if (card && this.filterCard(card)) {
-          result.push(card);
+        // 从本地存储查询卡片（支持一个块对应多张卡片，如模板卡）
+        const cards = this.deps.storage.getCardsByBlockId(blockId);
+        for (const card of cards) {
+          if (this.filterCard(card)) {
+            result.push(card);
+          }
         }
       }
     }

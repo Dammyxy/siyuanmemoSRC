@@ -1,7 +1,7 @@
 /**
  * 快速制卡渲染器 - 填空卡片策略
  * 
- * 本文件实现填空卡片类型的正反面解析逻辑，支持 `{{}}` 符号。
+ * 本文件实现填空卡片类型的正反面解析逻辑，支持 `{{}}`、`==` 和思源标记符号。
  * 
  * @module ClozeCardStrategy
  */
@@ -13,74 +13,164 @@ import { removeIAL } from './utils';
 /**
  * 填空卡片策略
  * 
- * @description 实现填空卡片的解析逻辑，支持 `{{}}` 符号。
+ * @description 实现填空卡片的解析逻辑，支持 `{{}}`、`==` 和思源标记符号。
  * 
  * 填空卡片的特点：
- * - 正面将 `{{填空}}` 替换为 `[...]`
- * - 反面将 `{{填空}}` 替换为 `<mark>填空</mark>`
+ * - 正面将 `{{填空}}`、`==填空==` 或 `<span data-type="mark">填空</span>` 替换为 `[...]`
+ * - 反面将填空替换为 `<mark>填空</mark>`
  * - 正面隐藏标记（mark）内容
  * - 支持多个填空
+ * - 支持混合使用三种符号
+ * - 支持多填空卡片（根据 typeMarker 只隐藏特定填空）
  * 
  * @example
  * ```typescript
  * const strategy = new ClozeCardStrategy();
  * 
- * // 单个填空
+ * // 使用 {{}} 符号
  * const result1 = strategy.parse('DDD 的核心是{{领域模型}}', { symbol: '{{}}' });
  * // result1.front.html === 'DDD 的核心是[...]'
  * // result1.back.html === 'DDD 的核心是<mark>领域模型</mark>'
  * 
- * // 多个填空
- * const result2 = strategy.parse('{{DDD}}的核心是{{领域模型}}和{{通用语言}}', { symbol: '{{}}' });
- * // result2.front.html === '[...]的核心是[...]和[...]'
- * // result2.back.html === '<mark>DDD</mark>的核心是<mark>领域模型</mark>和<mark>通用语言</mark>'
+ * // 使用 == 符号
+ * const result2 = strategy.parse('DDD 的核心是==领域模型==', { symbol: '==' });
+ * // result2.front.html === 'DDD 的核心是[...]'
+ * // result2.back.html === 'DDD 的核心是<mark>领域模型</mark>'
+ * 
+ * // 使用思源标记
+ * const result3 = strategy.parse('DDD 的核心是<span data-type="mark">领域模型</span>', { symbol: 'mark' });
+ * // result3.front.html === 'DDD 的核心是[...]'
+ * // result3.back.html === 'DDD 的核心是<mark>领域模型</mark>'
+ * 
+ * // 多填空卡片（只隐藏第 2 个填空）
+ * const result4 = strategy.parse('{{A}}、{{B}}、{{C}}', { symbol: '{{}}', typeMarker: 'cloze-1' });
+ * // result4.front.html === '<mark>A</mark>、[...]、<mark>C</mark>'
+ * // result4.back.html === '<mark>A</mark>、<mark>B</mark>、<mark>C</mark>'
  * ```
  */
 export class ClozeCardStrategy implements ICardFaceStrategy {
   /**
+   * 提取所有填空
+   * 
+   * @param content - 块内容
+   * @returns 填空列表，包含文本和位置信息
+   */
+  private extractClozes(content: string): Array<{ text: string; start: number; end: number; type: 'brace' | 'equal' | 'mark' }> {
+    const clozes: Array<{ text: string; start: number; end: number; type: 'brace' | 'equal' | 'mark' }> = [];
+    
+    // 提取 {{}} 填空
+    const braceRegex = /\{\{([^}]*)\}\}/g;
+    let match;
+    while ((match = braceRegex.exec(content)) !== null) {
+      clozes.push({
+        text: match[1],
+        start: match.index,
+        end: match.index + match[0].length,
+        type: 'brace',
+      });
+    }
+    
+    // 提取 == 填空
+    const equalRegex = /==([^=]*)==/g;
+    while ((match = equalRegex.exec(content)) !== null) {
+      clozes.push({
+        text: match[1],
+        start: match.index,
+        end: match.index + match[0].length,
+        type: 'equal',
+      });
+    }
+    
+    // 提取思源标记填空
+    const markRegex = /<span data-type="mark">([^<]*)<\/span>/g;
+    while ((match = markRegex.exec(content)) !== null) {
+      clozes.push({
+        text: match[1],
+        start: match.index,
+        end: match.index + match[0].length,
+        type: 'mark',
+      });
+    }
+    
+    // 按位置排序
+    clozes.sort((a, b) => a.start - b.start);
+    
+    return clozes;
+  }
+  
+  /**
    * 解析块内容为正反面数据
    * 
-   * @description 将 `{{}}` 包裹的内容转换为填空或高亮标记。
+   * @description 将 `{{}}` 或 `==` 包裹的内容转换为填空或高亮标记。
    * 
    * 解析规则：
-   * - 正面：将所有 `{{内容}}` 替换为 `[...]`
-   * - 反面：将所有 `{{内容}}` 替换为 `<mark>内容</mark>`
-   * - 正面隐藏标记（mark）内容
+   * - 如果有 typeMarker（如 cloze-0, cloze-1），只隐藏对应索引的填空
+   * - 如果没有 typeMarker，隐藏所有填空
+   * - 正面：将填空替换为 `[...]` 或 `<mark>内容</mark>`
+   * - 反面：将所有填空替换为 `<mark>内容</mark>`
    * 
    * @param blockContent - 思源块的原始内容
-   * @param metadata - 卡片元数据（未使用）
+   * @param metadata - 卡片元数据
    * 
    * @returns 包含正反面数据的对象
-   * 
-   * @example
-   * ```typescript
-   * const strategy = new ClozeCardStrategy();
-   * const result = strategy.parse('DDD 的核心是{{领域模型}}', { symbol: '{{}}' });
-   * console.log(result.front.html); // 'DDD 的核心是[...]'
-   * console.log(result.back.html);  // 'DDD 的核心是<mark>领域模型</mark>'
-   * ```
    */
-  parse(blockContent: string, _metadata: QuickCardMetadata): {
+  parse(blockContent: string, metadata: QuickCardMetadata): {
     front: CardFaceData;
     back: CardFaceData;
   } {
     // 先移除 IAL 属性块
     const cleanContent = removeIAL(blockContent);
     
-    // 正面：将 {{内容}} 替换为 [...]
-    const frontHtml = cleanContent.replace(/\{\{[^}]*\}\}/g, '[...]');
+    // 提取所有填空
+    const clozes = this.extractClozes(cleanContent);
     
-    // 反面：将 {{内容}} 替换为 <mark>内容</mark>
-    const backHtml = cleanContent.replace(/\{\{([^}]*)\}\}/g, '<mark>$1</mark>');
+    // 检查是否是多填空卡片（有 typeMarker 且格式为 cloze-N）
+    const isMultiCloze = metadata.typeMarker && /^cloze-\d+$/.test(metadata.typeMarker);
+    const targetIndex = isMultiCloze ? parseInt(metadata.typeMarker!.replace('cloze-', '')) : -1;
+    
+    console.log('[ClozeCardStrategy] Parse:', {
+      typeMarker: metadata.typeMarker,
+      isMultiCloze,
+      targetIndex,
+      clozeCount: clozes.length,
+    });
+    
+    // 构建正面和反面 HTML
+    let frontHtml = cleanContent;
+    let backHtml = cleanContent;
+    
+    // 从后往前替换，避免位置偏移
+    for (let i = clozes.length - 1; i >= 0; i--) {
+      const cloze = clozes[i];
+      const before = cleanContent.substring(0, cloze.start);
+      const after = cleanContent.substring(cloze.end);
+      
+      if (isMultiCloze) {
+        // 多填空模式：只隐藏目标索引的填空
+        if (i === targetIndex) {
+          // 目标填空：正面显示淡绿色背景的 [...]，反面高亮显示答案
+          frontHtml = frontHtml.substring(0, cloze.start) + '<mark>[...]</mark>' + frontHtml.substring(cloze.end);
+          backHtml = backHtml.substring(0, cloze.start) + `<mark>${cloze.text}</mark>` + backHtml.substring(cloze.end);
+        } else {
+          // 其他填空：正反面都显示普通文本（不高亮）
+          frontHtml = frontHtml.substring(0, cloze.start) + cloze.text + frontHtml.substring(cloze.end);
+          backHtml = backHtml.substring(0, cloze.start) + cloze.text + backHtml.substring(cloze.end);
+        }
+      } else {
+        // 单填空模式：隐藏所有填空
+        frontHtml = frontHtml.substring(0, cloze.start) + '[...]' + frontHtml.substring(cloze.end);
+        backHtml = backHtml.substring(0, cloze.start) + `<mark>${cloze.text}</mark>` + backHtml.substring(cloze.end);
+      }
+    }
     
     return {
       front: {
         html: frontHtml,
-        hiddenTypes: ['mark'], // 正面隐藏标记内容
+        hiddenTypes: [], // 不使用 hiddenTypes，因为我们已经手动处理了
       },
       back: {
         html: backHtml,
-        hiddenTypes: [], // 反面显示所有内容
+        hiddenTypes: [],
       },
     };
   }
@@ -88,25 +178,18 @@ export class ClozeCardStrategy implements ICardFaceStrategy {
   /**
    * 判断是否应该隐藏特定类型的内容
    * 
-   * @description 填空卡片在正面隐藏标记（mark）内容。
+   * @description 填空卡片不使用 hiddenTypes 机制，因为已经在 parse 中处理了。
    * 
    * @param contentType - 内容类型
    * @param metadata - 卡片元数据（未使用）
    * 
-   * @returns 如果是 mark 类型返回 true，否则返回 false
-   * 
-   * @example
-   * ```typescript
-   * const strategy = new ClozeCardStrategy();
-   * console.log(strategy.shouldHideContent('mark', metadata));  // true
-   * console.log(strategy.shouldHideContent('list', metadata));  // false
-   * ```
+   * @returns 始终返回 false
    */
   shouldHideContent(
-    contentType: HiddenContentType,
+    _contentType: HiddenContentType,
     _metadata: QuickCardMetadata
   ): boolean {
-    // 填空卡片在正面隐藏标记内容
-    return contentType === 'mark';
+    // 不使用 hiddenTypes 机制
+    return false;
   }
 }

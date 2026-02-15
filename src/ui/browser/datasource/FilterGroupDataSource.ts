@@ -1,5 +1,6 @@
 ﻿import type { BrowserCard } from '../types';
 import { CardState, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from '../types';
+import { batchDelete } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
 import {
   buildQueueActions,
@@ -41,10 +42,12 @@ export class FilterGroupDataSource implements ICardDataSource {
 
   private readonly manager: UnifiedDataSourceManager;
   private readonly options: FilterGroupDataSourceOptions;
+  private readonly storage?: any;  // 🆕 添加 storage 引用
 
-  constructor(manager: UnifiedDataSourceManager, options?: FilterGroupDataSourceOptions) {
+  constructor(manager: UnifiedDataSourceManager, options?: FilterGroupDataSourceOptions, storage?: any) {
     this.manager = manager;
     this.options = options || {};
+    this.storage = storage;  // 🆕 保存 storage 引用
   }
 
   async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
@@ -142,10 +145,11 @@ export class FilterGroupDataSource implements ICardDataSource {
       withSort: false,
       withPriority: true,
       withTimeAdjust: true,
+      withDelete: true,  // 🆕 启用删除操作
     });
   }
 
-  async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<void> {
+  async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<any> {
     if (actionId === 'open') return;
 
     try {
@@ -157,6 +161,23 @@ export class FilterGroupDataSource implements ICardDataSource {
           await queue.removeCard(row.fsrsCardId || row.id);
         }
         return;
+      }
+
+      // 删除卡片（完全删除）
+      if (actionId === 'delete-card') {
+        if (!this.storage) {
+          console.error('[FilterGroupDataSource] Storage not available!');
+          return 0;
+        }
+        
+        const blockIds = selectedRows.map(row => row.blockId);
+        let deleted = await batchDelete(blockIds, this.storage);
+        
+        if (deleted === 0 && blockIds.length > 0) {
+          console.warn('[FilterGroupDataSource] 常规删除失败，自动尝试强制删除...');
+          deleted = await batchDelete(blockIds, this.storage);
+        }
+        return deleted;
       }
 
       // 设置优先级

@@ -179,13 +179,13 @@ export class QuickCardRepository {
    * @returns 卡片类型信息，如果不是快速卡片则返回 null
    * 
    * @description 按优先级检测卡片类型：
-   * 1. >>> (multiLine)
-   * 2. >> (basic)
-   * 3. << (basic)
-   * 4. <> (basic)
-   * 5. :: (concept)
-   * 6. ;; (descriptor)
-   * 7. {{}} (cloze)
+   * 1. >>> 或 》》》 (multiLine)
+   * 2. >> 或 》》 (basic)
+   * 3. << 或 《《 (basic)
+   * 4. <> 或 《》 (basic)
+   * 5. :: 或 ：： (concept)
+   * 6. ;; 或 ；； (descriptor)
+   * 7. {{}} 或 == (cloze)
    */
   private detectCardType(content: string): CardTypeInfo | null {
     // 添加空值检查
@@ -195,26 +195,30 @@ export class QuickCardRepository {
     }
 
     // 优先级从高到低检测
-    if (content.includes('>>>')) {
-      return { type: 'multiLine', symbol: '>>>' };
+    if (content.includes('>>>') || content.includes('》》》')) {
+      return { type: 'multiLine', symbol: content.includes('>>>') ? '>>>' : '》》》' };
     }
-    if (content.includes('>>')) {
-      return { type: 'basic', symbol: '>>' };
+    if (content.includes('>>') || content.includes('》》')) {
+      return { type: 'basic', symbol: content.includes('>>') ? '>>' : '》》' };
     }
-    if (content.includes('<<')) {
-      return { type: 'basic', symbol: '<<' };
+    if (content.includes('<<') || content.includes('《《')) {
+      return { type: 'basic', symbol: content.includes('<<') ? '<<' : '《《' };
     }
-    if (content.includes('<>')) {
-      return { type: 'basic', symbol: '<>' };
+    if (content.includes('<>') || content.includes('《》')) {
+      return { type: 'basic', symbol: content.includes('<>') ? '<>' : '《》' };
     }
-    if (content.includes('::')) {
-      return { type: 'concept', symbol: '::' };
+    if (content.includes('::') || content.includes('：：')) {
+      return { type: 'concept', symbol: content.includes('::') ? '::' : '：：' };
     }
-    if (content.includes(';;')) {
-      return { type: 'descriptor', symbol: ';;' };
+    if (content.includes(';;') || content.includes('；；')) {
+      return { type: 'descriptor', symbol: content.includes(';;') ? ';;' : '；；' };
     }
+    // 检测填空符号：{{}} 或 ==
     if (content.includes('{{') && content.includes('}}')) {
       return { type: 'cloze', symbol: '{{}}' };
+    }
+    if (content.match(/==[^=]+==/)) {
+      return { type: 'cloze', symbol: '==' };
     }
 
     return null;

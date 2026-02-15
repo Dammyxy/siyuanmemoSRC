@@ -239,11 +239,12 @@ onMounted(() => {
   border-radius: 3px;
 }
 
-/* 标记样式 */
+/* 标记样式 - 柔和的淡绿色高亮 */
 .quick-card-renderer__content :deep(mark) {
-  background-color: var(--b3-card-warning-background);
-  color: var(--b3-card-warning-color);
-  padding: 0 2px;
+  background-color: #C8E6C9; /* 柔和的淡绿色 (Material Green 100) */
+  color: #1B5E20; /* 深绿色文字以确保可读性 */
+  padding: 0 4px;
+  border-radius: 3px;
 }
 
 /* 隐藏标记 */

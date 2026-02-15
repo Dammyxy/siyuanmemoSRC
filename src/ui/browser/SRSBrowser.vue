@@ -444,7 +444,7 @@ async function loadData(forceRefresh = false) {
         activeQueueId.value,
         props.plugin.unifiedDataSourceManager,
         options,
-        () => getQueueById(activeQueueId.value)?.getAllItems?.() || []
+        props.plugin.storage  // 🆕 传递 storage 参数
       );
       
       if (!currentDataSource.value) {
@@ -563,7 +563,8 @@ async function executeFetchRows(forceRefresh = false) {
       activeQueueId.value,
       props.plugin.unifiedDataSourceManager,
       focusOptions,
-      () => getQueueById(activeQueueId.value)?.getAllItems?.() || []
+      () => getQueueById(activeQueueId.value)?.getAllItems?.() || [],
+      props.plugin.storage  // 🆕 传递 storage 参数
     );
 
     if (dataSourceForFocus) {

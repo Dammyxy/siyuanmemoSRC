@@ -7,8 +7,26 @@
  * - 创建各种类型的卡片
  * 
  * 两个队列：
- * 1. 快速符号队列（300ms 防抖）：>>, ::, ;;, {{}}
+ * 1. 快速符号队列（1000ms 防抖）：>>, ::, ;;, {{}}
  * 2. 列表模版队列（2000ms 防抖）：>>> + 子列表项
+ * 
+ * 🆕 方案 5 + 方案 3：智能检测 + 批量创建
+ * 
+ * 方案 5（智能检测块编辑完成）：
+ * - 正常编辑时：使用较长的防抖时间（1秒），支持多符号输入
+ * - 块失焦时：立即检测该块的所有符号，批量创建卡片
+ * - 检测失焦：当切换到其他块时，自动触发前一个块的制卡
+ * 
+ * 方案 3（批量检测模式）：
+ * - 一次扫描找出块内所有符号
+ * - 批量创建多张卡片
+ * - 避免遗漏任何符号
+ * 
+ * 优势：
+ * ✅ 支持在一个块里输入多个符号
+ * ✅ 响应及时（失焦时立即触发）
+ * ✅ 不会误触发（编辑过程中不会触发）
+ * ✅ 用户体验好（符合自然的编辑习惯）
  * 
  * @see .kiro/specs/quick-card-symbols/design.md - Section 2.3
  * @see .kiro/specs/quick-card-symbols/tasks.md - Task 2.1
@@ -34,20 +52,27 @@ export class AutoCardHandler implements ITransactionHandler {
     private quickTimer: NodeJS.Timeout | null = null;
     private listTimer: NodeJS.Timeout | null = null;
     
-    private readonly QUICK_DEBOUNCE = 300;   // 快速符号：300ms
+    // 🆕 记录最后编辑时间（用于智能防抖）
+    private lastEditTime: Map<string, number> = new Map();
+    
+    // 🆕 记录当前正在编辑的块（用于检测失焦）
+    private currentEditingBlock: string | null = null;
+    
+    private readonly QUICK_DEBOUNCE = 1000;   // 快速符号：1000ms（延长以支持多符号输入）
     private readonly LIST_DEBOUNCE = 2000;   // 列表模版：2000ms
     
     // 符号正则表达式（私有）
     private patterns = {
-        concept: /^(.+?)\s*::\s*(.+)$/,         // 概念 :: 定义
-        descriptor: /^(.+?)\s*;;\s*(.+)$/,      // 属性 ;; 描述
-        basicBoth: /^(.+?)\s*<>\s*(.+)$/,       // 问题 <> 答案
-        basicForward: /^(.+?)\s*>>\s*(.+)$/,    // 问题 >> 答案
-        basicBackward: /^(.+?)\s*<<\s*(.+)$/,   // 答案 << 问题
+        concept: /^(.+?)\s*(::|：：)\s*(.+)$/,         // 概念 :: 或 ：： 定义
+        descriptor: /^(.+?)\s*(;;|；；)\s*(.+)$/,      // 属性 ;; 或 ；； 描述
+        basicBoth: /^(.+?)\s*(<>|《》)\s*(.+)$/,       // 问题 <> 或 《》 答案
+        basicForward: /^(.+?)\s*(>>|》》)\s*(.+)$/,    // 问题 >> 或 》》 答案
+        basicBackward: /^(.+?)\s*(<<|《《)\s*(.+)$/,   // 答案 << 或 《《 问题
         cloze: /\{\{(.+?)\}\}/g,                // {{填空}}
-        clozeEqual: /==(.+?)==/g,               // ==填空==（新增）
-        multiLine: /(.+?)\s*>>>\s*$/,           // 问题 >>>
-        listCue: /^(.+?)\s*->\s*(.+)$/,         // 提示 -> 答案（列表模版子项）
+        clozeEqual: /==(.+?)==/g,               // ==填空==
+        clozeMark: /<span data-type="mark">(.+?)<\/span>/g,  // 思源标记
+        multiLine: /(.+?)\s*(>>>|》》》)\s*$/,           // 问题 >>> 或 》》》
+        listCue: /^(.+?)\s*→\s*(.+)$/,         // 提示 → 答案（列表模版子项）
     };
     
     constructor(plugin: FSRSPlugin) {
@@ -58,7 +83,11 @@ export class AutoCardHandler implements ITransactionHandler {
     /**
      * 处理 transactions
      * 
-     * 检测块内容变化（insert/update），加入对应的队列
+     * 检测块内容变化（insert/update），只在失焦时触发制卡
+     * 
+     * 🆕 方案 5：智能检测块编辑完成
+     * - 块失焦时：立即检测该块的所有符号
+     * - 不使用防抖：避免在编辑过程中误触发
      * 
      * @param transactions 事务列表
      */
@@ -73,29 +102,43 @@ export class AutoCardHandler implements ITransactionHandler {
             if (!tx.doOperations) continue;
             
             for (const op of tx.doOperations) {
+                const blockId = op.id;
+                
                 // 只处理 insert 和 update 操作
-                if (op.action === 'insert' || op.action === 'update') {
-                    const blockId = op.id;
+                if (op.action === 'update' || op.action === 'insert') {
+                    // 🆕 检测块失焦事件（切换到其他块）
+                    if (this.currentEditingBlock && this.currentEditingBlock !== blockId) {
+                        console.log('[AutoCard] Block unfocused:', this.currentEditingBlock);
+                        // 立即处理失焦的块
+                        this.processBlockImmediately(this.currentEditingBlock);
+                    }
                     
-                    // 加入两个队列（后续会判断具体类型）
-                    this.queueQuickCheck(blockId);
-                    this.queueListCheck(blockId);
+                    // 更新当前编辑的块
+                    this.currentEditingBlock = blockId;
                     
-                    console.log('[AutoCard] Block queued:', blockId, 'action:', op.action);
+                    console.log('[AutoCard] Current editing block:', blockId);
                 }
             }
         }
     }
     
     /**
-     * 快速符号检测队列（300ms 防抖）
+     * 快速符号检测队列（1000ms 防抖）
      * 
      * 用于检测：>>, <<, <>, ::, ;;, {{}}
+     * 
+     * 🆕 方案 5：智能防抖
+     * - 记录最后编辑时间
+     * - 延长防抖时间以支持多符号输入
+     * - 可选：完全禁用防抖，只依赖失焦检测
      * 
      * @param blockId 块 ID
      */
     private queueQuickCheck(blockId: string): void {
         this.quickQueue.add(blockId);
+        
+        // 🆕 记录最后编辑时间
+        this.lastEditTime.set(blockId, Date.now());
         
         if (this.quickTimer) {
             clearTimeout(this.quickTimer);
@@ -104,6 +147,12 @@ export class AutoCardHandler implements ITransactionHandler {
         // 从设置中获取防抖时间
         const quickCardSettings = this.plugin.storage.getSettings().quickCard;
         const debounceDelay = quickCardSettings?.debounceDelay?.quick || this.QUICK_DEBOUNCE;
+        
+        // 🆕 如果防抖时间设置为 0，则完全禁用防抖（只依赖失焦检测）
+        if (debounceDelay === 0) {
+            console.log('[AutoCard] Debounce disabled, only blur detection will trigger');
+            return;
+        }
         
         this.quickTimer = setTimeout(() => {
             this.processQuickQueue();
@@ -210,6 +259,10 @@ export class AutoCardHandler implements ITransactionHandler {
      * 
      * 注意：不包括 >>>，因为它需要更长的防抖时间
      * 
+     * 🆕 方案 3：批量检测模式
+     * - 一次扫描找出所有符号
+     * - 批量创建多张卡片
+     * 
      * @param blockId 块 ID
      */
     private async checkQuickSymbols(blockId: string): Promise<void> {
@@ -236,32 +289,167 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
             
-            // 3. 检测符号并创建卡片（排除 >>>）
-            // 优先级顺序：<> > >> > << > :: > ;; > {{}}
-            if (quickCardSettings.enabledSymbols.basic && this.patterns.basicBoth.test(kramdown)) {
-                console.log('[AutoCard] Detected basic both symbol:', blockId);
-                await this.createBasicCard(blockId, 'both', kramdown);
-            } else if (quickCardSettings.enabledSymbols.basic && this.patterns.basicForward.test(kramdown) && !this.patterns.multiLine.test(kramdown)) {
-                // 排除 >>> 符号（它在列表模版队列中处理）
-                console.log('[AutoCard] Detected basic forward symbol:', blockId);
-                await this.createBasicCard(blockId, 'forward', kramdown);
-            } else if (quickCardSettings.enabledSymbols.basic && this.patterns.basicBackward.test(kramdown)) {
-                console.log('[AutoCard] Detected basic backward symbol:', blockId);
-                await this.createBasicCard(blockId, 'backward', kramdown);
-            } else if (quickCardSettings.enabledSymbols.concept && this.patterns.concept.test(kramdown)) {
-                console.log('[AutoCard] Detected concept symbol:', blockId);
-                await this.createConceptCard(blockId, kramdown);
-            } else if (quickCardSettings.enabledSymbols.descriptor && this.patterns.descriptor.test(kramdown)) {
-                console.log('[AutoCard] Detected descriptor symbol:', blockId);
-                await this.createDescriptorCard(blockId, kramdown);
-            } else if (quickCardSettings.enabledSymbols.cloze && (this.patterns.cloze.test(kramdown) || this.patterns.clozeEqual.test(kramdown))) {
-                console.log('[AutoCard] Detected cloze symbol:', blockId);
-                await this.createClozeCard(blockId, kramdown);
-            } else {
+            // 🆕 3. 批量检测所有符号（方案 3）
+            const detectedSymbols = this.detectAllSymbols(kramdown, quickCardSettings);
+            
+            if (detectedSymbols.length === 0) {
                 console.log('[AutoCard] No quick symbol detected:', blockId);
+                return;
+            }
+            
+            console.log('[AutoCard] Detected symbols:', detectedSymbols);
+            
+            // 移除 IAL，用于后续的卡片创建
+            const cleanContent = kramdown.replace(/\{:[^}]*\}/g, '').trim();
+            
+            // 🆕 4. 批量创建卡片
+            for (const symbol of detectedSymbols) {
+                try {
+                    await this.createCardBySymbol(blockId, symbol, cleanContent);
+                } catch (error) {
+                    console.error('[AutoCard] Failed to create card for symbol:', symbol.type, error);
+                }
             }
         } catch (error) {
             console.error('[AutoCard] Error checking quick symbols:', blockId, error);
+        }
+    }
+    
+    /**
+     * 🆕 批量检测所有符号（方案 3）
+     * 
+     * 在一个块内检测所有符号类型，返回匹配列表
+     * 
+     * @param content 块内容
+     * @param settings 快速制卡设置
+     * @returns 检测到的符号列表
+     */
+    private detectAllSymbols(content: string, settings: any): Array<{
+        type: 'basic-both' | 'basic-forward' | 'basic-backward' | 'concept' | 'descriptor' | 'cloze';
+        match: RegExpMatchArray;
+    }> {
+        const symbols: Array<{
+            type: 'basic-both' | 'basic-forward' | 'basic-backward' | 'concept' | 'descriptor' | 'cloze';
+            match: RegExpMatchArray;
+        }> = [];
+        
+        // 先移除 IAL 属性块，避免干扰正则匹配
+        const cleanContent = content.replace(/\{:[^}]*\}/g, '').trim();
+        
+        // 检测顺序（优先级从高到低）
+        // 注意：排除 >>> 符号（它在列表模版队列中处理）
+        
+        // 1. 双向卡片 <>
+        if (settings.enabledSymbols.basic && this.patterns.basicBoth.test(cleanContent)) {
+            const match = cleanContent.match(this.patterns.basicBoth);
+            if (match) symbols.push({ type: 'basic-both', match });
+        }
+        
+        // 2. 正向卡片 >> (排除 >>>)
+        if (settings.enabledSymbols.basic && this.patterns.basicForward.test(cleanContent) && !this.patterns.multiLine.test(cleanContent)) {
+            const match = cleanContent.match(this.patterns.basicForward);
+            if (match) symbols.push({ type: 'basic-forward', match });
+        }
+        
+        // 3. 反向卡片 <<
+        if (settings.enabledSymbols.basic && this.patterns.basicBackward.test(cleanContent)) {
+            const match = cleanContent.match(this.patterns.basicBackward);
+            if (match) symbols.push({ type: 'basic-backward', match });
+        }
+        
+        // 4. 概念卡片 ::
+        if (settings.enabledSymbols.concept && this.patterns.concept.test(cleanContent)) {
+            const match = cleanContent.match(this.patterns.concept);
+            if (match) symbols.push({ type: 'concept', match });
+        }
+        
+        // 5. 描述符卡片 ;;
+        if (settings.enabledSymbols.descriptor && this.patterns.descriptor.test(cleanContent)) {
+            const match = cleanContent.match(this.patterns.descriptor);
+            if (match) symbols.push({ type: 'descriptor', match });
+        }
+        
+        // 6. 填空卡片 {{}} 或 == 或思源标记
+        if (settings.enabledSymbols.cloze && (this.patterns.cloze.test(cleanContent) || this.patterns.clozeEqual.test(cleanContent) || this.patterns.clozeMark.test(cleanContent))) {
+            const match = cleanContent.match(this.patterns.cloze) || cleanContent.match(this.patterns.clozeEqual) || cleanContent.match(this.patterns.clozeMark);
+            if (match) symbols.push({ type: 'cloze', match });
+        }
+        
+        return symbols;
+    }
+    
+    /**
+     * 🆕 根据符号类型创建卡片
+     * 
+     * @param blockId 块 ID
+     * @param symbol 检测到的符号
+     * @param content 块内容
+     */
+    private async createCardBySymbol(
+        blockId: string,
+        symbol: { type: string; match: RegExpMatchArray },
+        content: string
+    ): Promise<void> {
+        // 从 match[2] 提取实际使用的符号
+        const actualSymbol = symbol.match[2] || '';
+        
+        switch (symbol.type) {
+            case 'basic-both':
+                await this.createBasicCard(blockId, 'both', content, actualSymbol);
+                break;
+            case 'basic-forward':
+                await this.createBasicCard(blockId, 'forward', content, actualSymbol);
+                break;
+            case 'basic-backward':
+                await this.createBasicCard(blockId, 'backward', content, actualSymbol);
+                break;
+            case 'concept':
+                await this.createConceptCard(blockId, content, actualSymbol);
+                break;
+            case 'descriptor':
+                await this.createDescriptorCard(blockId, content, actualSymbol);
+                break;
+            case 'cloze':
+                await this.createClozeCard(blockId, content);
+                break;
+            default:
+                console.warn('[AutoCard] Unknown symbol type:', symbol.type);
+        }
+    }
+    
+    /**
+     * 🆕 立即处理块（方案 5）
+     * 
+     * 当块失焦时立即检测并创建卡片，不等待防抖
+     * 
+     * @param blockId 块 ID
+     */
+    private async processBlockImmediately(blockId: string): Promise<void> {
+        console.log('[AutoCard] Processing block immediately:', blockId);
+        
+        // 从队列中移除（避免重复处理）
+        this.quickQueue.delete(blockId);
+        this.listQueue.delete(blockId);
+        
+        // 避免重复处理
+        if (this.processing.has(blockId)) {
+            console.log('[AutoCard] Block already processing:', blockId);
+            return;
+        }
+        
+        this.processing.add(blockId);
+        
+        try {
+            // 检测快速符号
+            await this.checkQuickSymbols(blockId);
+            
+            // 检测列表模版
+            await this.checkListTemplate(blockId);
+        } catch (error) {
+            console.error('[AutoCard] Failed to process block immediately:', blockId, error);
+        } finally {
+            this.processing.delete(blockId);
+            this.lastEditTime.delete(blockId);
         }
     }
     
@@ -326,15 +514,16 @@ export class AutoCardHandler implements ITransactionHandler {
     // ==================== 卡片创建方法 ====================
     
     /**
-     * 创建基础卡片（>>, <<, <>）
+     * 创建基础卡片（>>, <<, <> 及其中文版本）
      * 
      * @param blockId 块 ID
      * @param direction 方向（forward/backward/both）
      * @param content 块内容
+     * @param actualSymbol 实际使用的符号（如 '>>' 或 '》》'）
      */
-    private async createBasicCard(blockId: string, direction: string, content: string): Promise<void> {
+    private async createBasicCard(blockId: string, direction: string, content: string, actualSymbol?: string): Promise<void> {
         try {
-            console.log('[AutoCard] Creating basic card:', blockId, direction);
+            console.log('[AutoCard] Creating basic card:', blockId, direction, 'symbol:', actualSymbol);
             
             // 1. 解析问题和答案
             let question = '';
@@ -344,20 +533,20 @@ export class AutoCardHandler implements ITransactionHandler {
                 const match = content.match(this.patterns.basicForward);
                 if (match) {
                     question = match[1].trim();
-                    answer = match[2].trim();
+                    answer = match[3].trim();  // 调整索引：match[2]是符号，match[3]是答案
                 }
             } else if (direction === 'backward') {
                 const match = content.match(this.patterns.basicBackward);
                 if (match) {
                     answer = match[1].trim();
-                    question = match[2].trim();
+                    question = match[3].trim();  // 调整索引：match[2]是符号，match[3]是问题
                 }
             } else if (direction === 'both') {
                 // 双向卡片：使用 Xiuyuan 系统
                 const match = content.match(this.patterns.basicBoth);
                 if (match) {
                     const term = match[1].trim();
-                    const definition = match[2].trim();
+                    const definition = match[3].trim();  // 调整索引：match[2]是符号，match[3]是定义
                     await this.createBidirectionalCard(blockId, term, definition);
                     return;
                 }
@@ -379,7 +568,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 question,
                 answer,
                 cardSource: 'quick-symbol',
-                symbolType: direction === 'forward' ? '>>' : '<<'
+                symbolType: actualSymbol || (direction === 'forward' ? '>>' : '<<')
             };
             
             // 4. 添加到 Riff 卡组
@@ -469,7 +658,7 @@ export class AutoCardHandler implements ITransactionHandler {
             );
             
             if (!result.ok) {
-                throw result.error;
+                throw new Error('Failed to create bidirectional card via Xiuyuan');
             }
             
             console.log('[AutoCard] Bidirectional card created via Xiuyuan:', {
@@ -489,14 +678,15 @@ export class AutoCardHandler implements ITransactionHandler {
     }
     
     /**
-     * 创建概念卡片（::）
+     * 创建概念卡片（:: 或 ：：）
      * 
      * @param blockId 块 ID
      * @param content 块内容
+     * @param actualSymbol 实际使用的符号（如 '::' 或 '：：'）
      */
-    private async createConceptCard(blockId: string, content: string): Promise<void> {
+    private async createConceptCard(blockId: string, content: string, actualSymbol?: string): Promise<void> {
         try {
-            console.log('[AutoCard] Creating concept card:', blockId);
+            console.log('[AutoCard] Creating concept card:', blockId, 'symbol:', actualSymbol);
             
             // 1. 解析概念和定义
             const match = content.match(this.patterns.concept);
@@ -506,7 +696,7 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             
             const concept = match[1].trim();
-            const definition = match[2].trim();
+            const definition = match[3].trim();  // 调整索引：match[2]是符号，match[3]是定义
             
             if (!concept || !definition) {
                 console.error('[AutoCard] Empty concept or definition:', content);
@@ -527,7 +717,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 concept,
                 definition,
                 cardSource: 'quick-symbol',
-                symbolType: '::'
+                symbolType: actualSymbol || '::'
             };
             
             // 5. 添加到 Riff 卡组
@@ -535,9 +725,9 @@ export class AutoCardHandler implements ITransactionHandler {
             await addRiffCards(BUILTIN_DECK_ID, [blockId]);
             console.log('[AutoCard] Added to Riff deck:', blockId);
             
-            // 6. 标记 FSRS 属性（标记为 concept）
+            // 6. 标记 FSRS 属性（标记为 topic，因为 concept 不是有效的类型）
             const { markBlockAsCard } = await import('@/core/siyuan/block');
-            await markBlockAsCard(blockId, card.id, card.priority, 'concept');
+            await markBlockAsCard(blockId, card.id, card.priority, 'topic');
             console.log('[AutoCard] Marked block as concept card:', blockId);
             
             // 7. 检测并标记卡片类型（concept）
@@ -564,14 +754,15 @@ export class AutoCardHandler implements ITransactionHandler {
     }
     
     /**
-     * 创建描述符卡片（;;）
+     * 创建描述符卡片（;; 或 ；；）
      * 
      * @param blockId 块 ID
      * @param content 块内容
+     * @param actualSymbol 实际使用的符号（如 ';;' 或 '；；'）
      */
-    private async createDescriptorCard(blockId: string, content: string): Promise<void> {
+    private async createDescriptorCard(blockId: string, content: string, actualSymbol?: string): Promise<void> {
         try {
-            console.log('[AutoCard] Creating descriptor card:', blockId);
+            console.log('[AutoCard] Creating descriptor card:', blockId, 'symbol:', actualSymbol);
             
             // 1. 解析属性和描述
             const match = content.match(this.patterns.descriptor);
@@ -581,7 +772,7 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             
             const attribute = match[1].trim();
-            const description = match[2].trim();
+            const description = match[3].trim();  // 调整索引：match[2]是符号，match[3]是描述
             
             if (!attribute || !description) {
                 console.error('[AutoCard] Empty attribute or description:', content);
@@ -612,7 +803,7 @@ export class AutoCardHandler implements ITransactionHandler {
             if (!isParentConcept) {
                 console.log('[AutoCard] Parent is not a concept, creating as basic card');
                 // 降级为普通卡片
-                await this.createBasicCardFromDescriptor(blockId, attribute, description);
+                await this.createBasicCardFromDescriptor(blockId, attribute, description, actualSymbol);
                 return;
             }
             
@@ -622,7 +813,7 @@ export class AutoCardHandler implements ITransactionHandler {
             const xiuyuanService = this.plugin.xiuyuanService;
             if (!xiuyuanService) {
                 console.error('[AutoCard] XiuyuanService not available, falling back to basic card');
-                await this.createBasicCardFromDescriptor(blockId, attribute, description);
+                await this.createBasicCardFromDescriptor(blockId, attribute, description, actualSymbol);
                 return;
             }
             
@@ -643,7 +834,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 const errorMsg = error instanceof Error ? error.message : String(error);
                 console.error('[AutoCard] Failed to create Xiuyuan descriptor card:', errorMsg);
                 // 降级为普通卡片
-                await this.createBasicCardFromDescriptor(blockId, attribute, description);
+                await this.createBasicCardFromDescriptor(blockId, attribute, description, actualSymbol);
                 return;
             }
             
@@ -671,10 +862,11 @@ export class AutoCardHandler implements ITransactionHandler {
      * @param blockId 块 ID
      * @param attribute 属性
      * @param description 描述
+     * @param actualSymbol 实际使用的符号（如 ';;' 或 '；；'）
      */
-    private async createBasicCardFromDescriptor(blockId: string, attribute: string, description: string): Promise<void> {
+    private async createBasicCardFromDescriptor(blockId: string, attribute: string, description: string, actualSymbol?: string): Promise<void> {
         try {
-            console.log('[AutoCard] Creating basic card from descriptor:', blockId);
+            console.log('[AutoCard] Creating basic card from descriptor:', blockId, 'symbol:', actualSymbol);
             
             // 1. 创建 FSRS Card
             const { createDefaultCard } = await import('@/types/card');
@@ -687,7 +879,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 question: attribute,
                 answer: description,
                 cardSource: 'quick-symbol',
-                symbolType: ';;',
+                symbolType: actualSymbol || ';;',
                 degradedFromDescriptor: true
             };
             
@@ -726,8 +918,8 @@ export class AutoCardHandler implements ITransactionHandler {
         try {
             console.log('[AutoCard] Creating cloze card:', blockId);
             
-            // 1. 提取所有填空（支持 {{}} 和 ==）
-            const clozes: Array<{ text: string; type: 'brace' | 'equal' }> = [];
+            // 1. 提取所有填空（支持 {{}}、== 和思源标记）
+            const clozes: Array<{ text: string; type: 'brace' | 'equal' | 'mark' }> = [];
             
             // 提取 {{}} 填空
             let match;
@@ -745,6 +937,15 @@ export class AutoCardHandler implements ITransactionHandler {
                 clozes.push({
                     text: match[1].trim(),
                     type: 'equal'
+                });
+            }
+            
+            // 提取思源标记填空
+            this.patterns.clozeMark.lastIndex = 0;
+            while ((match = this.patterns.clozeMark.exec(content)) !== null) {
+                clozes.push({
+                    text: match[1].trim(),
+                    type: 'mark'
                 });
             }
             
@@ -776,7 +977,7 @@ export class AutoCardHandler implements ITransactionHandler {
     private async createSingleClozeCard(
         blockId: string,
         content: string,
-        clozes: Array<{ text: string; type: 'brace' | 'equal' }>
+        clozes: Array<{ text: string; type: 'brace' | 'equal' | 'mark' }>
     ): Promise<void> {
         // 创建 FSRS Card
         const { createDefaultCard } = await import('@/types/card');
@@ -788,7 +989,7 @@ export class AutoCardHandler implements ITransactionHandler {
             clozes: clozes.map(c => c.text),
             clozeCount: 1,
             cardSource: 'quick-symbol',
-            symbolType: clozes[0].type === 'brace' ? '{{}}' : '=='
+            symbolType: clozes[0].type === 'brace' ? '{{}}' : (clozes[0].type === 'equal' ? '==' : 'mark')
         };
         
         // 添加到 Riff 卡组
@@ -807,12 +1008,14 @@ export class AutoCardHandler implements ITransactionHandler {
         
         // 显示成功提示
         const { pushMsg } = await import('@/core/siyuan/api');
-        const symbolText = clozes[0].type === 'brace' ? '{{}}' : '==';
+        const symbolText = clozes[0].type === 'brace' ? '{{}}' : (clozes[0].type === 'equal' ? '==' : '标记');
         await pushMsg(`✅ 已创建填空卡片 (${symbolText})`);
     }
     
     /**
      * 创建多张填空卡片（使用 Xiuyuan）
+     * 
+     * 使用 builtin-multi-cloze 模板，每个填空生成一张独立的卡片
      */
     private async createMultipleClozeCards(
         blockId: string,
@@ -826,53 +1029,72 @@ export class AutoCardHandler implements ITransactionHandler {
             return;
         }
         
-        // 动态创建模板（每个填空一张卡片）
-        const template = {
-            id: 'builtin-multi-cloze',
-            name: '多填空卡片',
-            description: '每个填空生成一张独立的卡片',
-            fields: [
-                { name: 'content', description: '包含多个填空的内容' },
-            ],
-            cardRules: clozes.map((_, index) => ({
-                typeMarker: `cloze-${index}`,
-                frontFields: ['content'],
-                backFields: ['content'],
-            })),
-        };
-        
-        // 使用动态模板创建卡片
-        const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
-        const result = await (xiuyuanService as any).createFromBlocksWithTemplate(
-            [blockId],
-            template,
-            {
-                content: blockId
-            },
-            BUILTIN_DECK_ID
-        );
-        
-        if (!result.ok) {
-            console.error('[AutoCard] Failed to create Xiuyuan cloze cards, falling back to single card');
+        try {
+            // 使用 builtin-multi-cloze 模板
+            // 注意：需要动态设置 cardRules，每个填空一个 rule
+            const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
+            
+            // 获取模板并动态设置 cardRules
+            const template = xiuyuanService.getTemplate('builtin-multi-cloze');
+            if (!template) {
+                console.error('[AutoCard] builtin-multi-cloze template not found');
+                await this.createSingleClozeCard(blockId, content, clozes);
+                return;
+            }
+            
+            // 动态生成 cardRules（每个填空一张卡片）
+            const dynamicTemplate = {
+                ...template,
+                cardRules: clozes.map((_, index) => ({
+                    typeMarker: `cloze-${index}`,
+                    frontFields: ['content'],
+                    backFields: ['content'],
+                })),
+            };
+            
+            // 临时注册动态模板
+            const tempTemplateId = `builtin-multi-cloze-${blockId}`;
+            const tempTemplate = {
+                ...dynamicTemplate,
+                id: tempTemplateId,
+            };
+            xiuyuanService.createTemplate(tempTemplate);
+            
+            // 使用动态模板创建卡片
+            const result = await xiuyuanService.createFromBlocks(
+                [blockId],
+                tempTemplateId,
+                {
+                    content: blockId
+                },
+                BUILTIN_DECK_ID
+            );
+            
+            if (!result.ok) {
+                console.error('[AutoCard] Failed to create Xiuyuan cloze cards, falling back to single card');
+                await this.createSingleClozeCard(blockId, content, clozes);
+                return;
+            }
+            
+            console.log('[AutoCard] Multiple cloze cards created:', blockId, 'count:', result.value.cards.length);
+            
+            // 显示成功提示
+            const { pushMsg } = await import('@/core/siyuan/api');
+            const hasEqual = clozes.some(c => c.type === 'equal');
+            const hasBrace = clozes.some(c => c.type === 'brace');
+            let symbolText = '';
+            if (hasEqual && hasBrace) {
+                symbolText = '{{}} / ==';
+            } else if (hasEqual) {
+                symbolText = '==';
+            } else {
+                symbolText = '{{}}';
+            }
+            await pushMsg(`✅ 已创建 ${clozes.length} 张填空卡片 (${symbolText})`);
+        } catch (error) {
+            console.error('[AutoCard] Error creating multiple cloze cards:', error);
             await this.createSingleClozeCard(blockId, content, clozes);
-            return;
         }
-        
-        console.log('[AutoCard] Multiple cloze cards created:', blockId, 'count:', result.value.cards.length);
-        
-        // 显示成功提示
-        const { pushMsg } = await import('@/core/siyuan/api');
-        const hasEqual = clozes.some(c => c.type === 'equal');
-        const hasBrace = clozes.some(c => c.type === 'brace');
-        let symbolText = '';
-        if (hasEqual && hasBrace) {
-            symbolText = '{{}} / ==';
-        } else if (hasEqual) {
-            symbolText = '==';
-        } else {
-            symbolText = '{{}}';
-        }
-        await pushMsg(`✅ 已创建 ${clozes.length} 张填空卡片 (${symbolText})`);
     }
     
     /**
@@ -1002,6 +1224,10 @@ export class AutoCardHandler implements ITransactionHandler {
         this.quickQueue.clear();
         this.listQueue.clear();
         this.processing.clear();
+        
+        // 🆕 清理新增的状态
+        this.lastEditTime.clear();
+        this.currentEditingBlock = null;
         
         console.log('[AutoCard] Handler disposed');
     }

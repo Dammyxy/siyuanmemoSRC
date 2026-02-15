@@ -145,7 +145,7 @@ export class FinalDrillDataSource implements ICardDataSource {
     });
   }
 
-  async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<void> {
+  async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<any> {
     if (actionId === 'open') return;
 
     try {

@@ -123,15 +123,23 @@ export class FinalDrillQueue extends BaseReviewQueue {
             
             // 获取所有卡片
             const cards: FSRSCard[] = [];
+            const cardsToRemove: string[] = [];
+            
             for (const entry of this.entries.values()) {
                 try {
-                    const card = await this.manager.getCard(entry.cardId);
+                    // 使用 silent 选项避免记录错误日志
+                    const card = await this.manager.getCard(entry.cardId, { silent: true });
                     cards.push(card);
                 } catch (error) {
-                    // 如果卡片不存在，从队列中移除
+                    // 如果卡片不存在，标记为待移除
                     console.warn(`[FinalDrillQueue] Card ${entry.cardId} not found, removing from queue`);
-                    this.entries.delete(entry.cardId);
+                    cardsToRemove.push(entry.cardId);
                 }
+            }
+            
+            // 批量移除不存在的卡片
+            for (const cardId of cardsToRemove) {
+                this.entries.delete(cardId);
             }
             
             // 持久化（如果有卡片被移除）

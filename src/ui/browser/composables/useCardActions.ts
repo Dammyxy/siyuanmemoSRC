@@ -37,8 +37,25 @@ export function useCardActions(options: UseCardActionsOptions) {
     console.log(`[useCardActions] Marking ${blockIds.length} cards as Topic:`, blockIds);
 
     try {
+      // 1. 更新块属性
       for (const blockId of blockIds) {
         await setBlockAttrs(blockId, { [ATTR_CARD_TYPE]: 'topic' });
+      }
+
+      // 2. 更新 StorageManager 中的卡片类型
+      if (storage) {
+        for (const card of cards) {
+          const cardId = card.fsrsCardId || card.id;
+          if (cardId) {
+            const fsrsCard = storage.getCard(cardId);
+            if (fsrsCard) {
+              fsrsCard.type = 'topic' as any;
+              storage.setCard(fsrsCard);
+              console.log(`[useCardActions] Updated card type in storage: ${cardId} -> topic`);
+            }
+          }
+        }
+        await storage.saveCards();
       }
 
       await pushMsg(`✅ 已将 ${blockIds.length} 张卡片标记为 Topic`, 3000);
@@ -61,8 +78,25 @@ export function useCardActions(options: UseCardActionsOptions) {
     console.log(`[useCardActions] Marking ${blockIds.length} cards as Item:`, blockIds);
 
     try {
+      // 1. 更新块属性
       for (const blockId of blockIds) {
         await setBlockAttrs(blockId, { [ATTR_CARD_TYPE]: 'item' });
+      }
+
+      // 2. 更新 StorageManager 中的卡片类型
+      if (storage) {
+        for (const card of cards) {
+          const cardId = card.fsrsCardId || card.id;
+          if (cardId) {
+            const fsrsCard = storage.getCard(cardId);
+            if (fsrsCard) {
+              fsrsCard.type = 'item' as any;
+              storage.setCard(fsrsCard);
+              console.log(`[useCardActions] Updated card type in storage: ${cardId} -> item`);
+            }
+          }
+        }
+        await storage.saveCards();
       }
 
       await pushMsg(`✅ 已将 ${blockIds.length} 张卡片标记为 Item`, 3000);

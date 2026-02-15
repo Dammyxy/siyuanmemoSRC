@@ -25,22 +25,22 @@ import {
 /**
  * 解析子列表项文本，提取提示和答案
  * 
- * 格式：`提示 -> 答案`
+ * 格式：`提示 → 答案`
  * 
  * @param text 子列表项文本
  * @returns { cue: 提示文本, answer: 答案文本 }
  */
 function parseCueAndAnswer(text: string): { cue: string; answer: string } {
-  const parts = text.split('->');
+  const parts = text.split('→');
   
   if (parts.length >= 2) {
     const cue = parts[0].trim();
-    const answer = parts.slice(1).join('->').trim();
+    const answer = parts.slice(1).join('→').trim();
     
     return { cue, answer };
   }
   
-  // 没有 `->` 分隔符，整个文本作为答案
+  // 没有 `→` 分隔符，整个文本作为答案
   return { cue: '', answer: text.trim() };
 }
 
