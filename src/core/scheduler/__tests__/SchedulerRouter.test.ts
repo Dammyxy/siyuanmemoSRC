@@ -88,6 +88,20 @@ describe('SchedulerRouter', () => {
             expect(schedulerType).toBe('a-factor-v2');
         });
 
+        it('Concept 卡片应该返回 a-factor-v2（文档块，支持反链）', () => {
+            const card = createTestCard({ type: CardType.Concept });
+            const schedulerType = router.getSchedulerType(card);
+
+            expect(schedulerType).toBe('a-factor-v2');
+        });
+
+        it('Descriptor 卡片应该返回 fsrs-v5（问答卡片）', () => {
+            const card = createTestCard({ type: CardType.Descriptor });
+            const schedulerType = router.getSchedulerType(card);
+
+            expect(schedulerType).toBe('fsrs-v5');
+        });
+
         it('Item 卡片应该返回默认调度器', () => {
             const card = createTestCard({ type: CardType.Item });
             const schedulerType = router.getSchedulerType(card);
@@ -192,6 +206,30 @@ describe('SchedulerRouter', () => {
             });
 
             const success = await router.switchScheduler(card, 'sm2' as any);
+
+            expect(success).toBe(false);
+            expect(mockStorage.setCard).not.toHaveBeenCalled();
+        });
+
+        it('应该拒绝 Concept 卡片切换到非 A-Factor 调度器', async () => {
+            const card = createTestCard({
+                type: CardType.Concept,
+                schedulerType: 'a-factor-v2',
+            });
+
+            const success = await router.switchScheduler(card, 'fsrs-v5' as any);
+
+            expect(success).toBe(false);
+            expect(mockStorage.setCard).not.toHaveBeenCalled();
+        });
+
+        it('应该拒绝 Descriptor 卡片切换到非 FSRS 调度器', async () => {
+            const card = createTestCard({
+                type: CardType.Descriptor,
+                schedulerType: 'fsrs-v5',
+            });
+
+            const success = await router.switchScheduler(card, 'a-factor-v2' as any);
 
             expect(success).toBe(false);
             expect(mockStorage.setCard).not.toHaveBeenCalled();

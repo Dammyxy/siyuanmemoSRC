@@ -63,21 +63,6 @@ export class CardService {
       },
     });
 
-    menu.addItem({
-      icon: 'iconRefresh',
-      label: this.plugin.i18n?.startNeuralReviewFromHere || '从此处开始神经漫游',
-      click: async () => {
-        const seedBlockId = blockIds[0];
-        const includeSeedAsFirst = Boolean(blockElements[0]?.hasAttribute?.(ATTR_CARD_ID));
-        try {
-          await this.plugin.openNeuralReviewDialog({ seedBlockId, includeSeedAsFirst, resetHistory: true });
-        } catch (err) {
-          console.error('[SiyuanMemo] Failed to open neural review from block:', err);
-          await pushErrMsg(this.plugin.i18n?.neuralReviewFailed || '神经漫游启动失败');
-        }
-      },
-    });
-
     // 编辑 SRS 数据 - 支持新卡（有 ATTR_CARD_ID）和老 riff 卡（只在 riff 数据库中）
     menu.addItem({
       icon: 'iconEdit',

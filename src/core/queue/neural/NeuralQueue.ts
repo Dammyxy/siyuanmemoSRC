@@ -110,6 +110,10 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       [AssociationType.HIERARCHY]: this.config.weights.hierarchy,
       [AssociationType.TAG]: this.config.weights.tag,
       [AssociationType.SIBLING]: this.config.weights.sibling,
+      // 🆕 概念卡专用权重
+      [AssociationType.BACKLINK]: this.config.weights.backlink,
+      [AssociationType.CONCEPT_LINK]: this.config.weights.conceptLink,
+      [AssociationType.DESCRIPTOR]: this.config.weights.descriptor,
     });
 
     // 保存用户指定的初始种子
@@ -196,12 +200,12 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       // 🆕 3. 更新路径指针（explore 模式下追加新节点）
       if (item) {
         // 🔧 检查节点是否已存在于路径中
-        const existingIndex = this.displayPath.indexOf(item.blockID);
+        const existingIndex = this.displayPath.indexOf(item.blockId);
 
         if (existingIndex !== -1) {
           // 节点已存在：跳转到该位置（不追加）
           this.currentPathIndex = existingIndex;
-          console.log(`[NeuralQueue] Node ${item.blockID.substring(0, 8)} already in path, jumped to index ${existingIndex} (total: ${this.displayPath.length})`);
+          console.log(`[NeuralQueue] Node ${item.blockId.substring(0, 8)} already in path, jumped to index ${existingIndex} (total: ${this.displayPath.length})`);
         } else {
           // 节点不存在：追加到路径
           // 如果当前不在路径末尾，截断后续路径（类似浏览器历史的"分支"行为）
@@ -210,7 +214,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
             console.log(`[NeuralQueue] Explore mode: truncated path to index ${this.currentPathIndex}`);
           }
 
-          this.displayPath.push(item.blockID);
+          this.displayPath.push(item.blockId);
           this.currentPathIndex = this.displayPath.length - 1;
           console.log(`[NeuralQueue] Explore mode: added new node to path (index: ${this.currentPathIndex}, total: ${this.displayPath.length})`);
         }
@@ -257,7 +261,20 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
 
     // 4. 处理死胡同情况
     if (unvisitedNeighbors.length === 0) {
-      console.log('[NeuralQueue] Dead end reached, picking new seed');
+      console.log('[NeuralQueue] Dead end reached');
+      
+      // 🔧 如果当前种子还没有被返回过（不在 displayPath 中），返回当前种子
+      if (!this.displayPath.includes(this.currentSeedId)) {
+        console.log(`[NeuralQueue] Returning current seed as it hasn't been displayed: ${this.currentSeedId}`);
+        const cardData = await this.fetchCardDetails(this.currentSeedId);
+        if (cardData) {
+          await this.addBlockAndDescendantsToHistory(this.currentSeedId);
+          return this.buildQueueItem(cardData, AssociationType.SEED, '种子节点');
+        }
+      }
+      
+      // 尝试选择新种子
+      console.log('[NeuralQueue] Picking new seed');
       const newSeed = await this.pickRandomSeed();
       if (!newSeed) {
         console.warn('[NeuralQueue] No more cards available');
@@ -327,9 +344,9 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     reason?: string
   ): QueueItem {
     return {
-      cardID: cardData.id,
-      blockID: cardData.id,
-      deckID: 'neural-roaming', // 神经漫游使用特殊的 deck ID
+      id: cardData.id,
+      blockId: cardData.id,
+      deckId: 'neural-roaming', // 神经漫游使用特殊的 deck ID
       priority: DEFAULT_PRIORITY,
       meta: {
         neuralContext: {
@@ -408,10 +425,34 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     try {
       // 优先使用用户指定的初始种子
       if (this.initialSeedId && !this.historyFilter.has(this.initialSeedId)) {
-        return this.initialSeedId;
+        // 🔒 检查初始种子是否为概念卡
+        const isConceptCard = await this.queryEngine.isConceptCard(this.initialSeedId);
+        if (isConceptCard) {
+          console.log(`[NeuralQueue] Using initial seed (concept card): ${this.initialSeedId}`);
+          return this.initialSeedId;
+        } else {
+          console.warn(`[NeuralQueue] Initial seed ${this.initialSeedId} is not a concept card, will pick random concept card`);
+        }
       }
 
-      // 随机选择一个未访问的卡片
+      // 🔧 优先从 seedNodes 中选择未访问的种子
+      if (this.seedNodes.size > 0) {
+        const unvisitedSeeds = Array.from(this.seedNodes).filter(
+          seedId => !this.historyFilter.has(seedId)
+        );
+        
+        if (unvisitedSeeds.length > 0) {
+          // 随机选择一个未访问的种子
+          const randomIndex = Math.floor(Math.random() * unvisitedSeeds.length);
+          const selectedSeed = unvisitedSeeds[randomIndex];
+          console.log(`[NeuralQueue] Selected unvisited seed from seedNodes: ${selectedSeed}`);
+          return selectedSeed;
+        } else {
+          console.log(`[NeuralQueue] All seeds in seedNodes have been visited`);
+        }
+      }
+
+      // 随机选择一个未访问的概念卡
       const randomCard = await this.queryEngine.fetchRandomCard();
       return randomCard;
     } catch (error) {
@@ -454,6 +495,11 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       [AssociationType.HIERARCHY]: '同文档',
       [AssociationType.TAG]: '标签关联',
       [AssociationType.SIBLING]: '兄弟块',
+      // 🆕 概念卡专用类型
+      [AssociationType.BACKLINK]: '反向链接',
+      [AssociationType.CONCEPT_LINK]: '概念关联',
+      [AssociationType.DESCRIPTOR]: '描述符卡',
+      [AssociationType.SEED]: '种子节点',
     };
     return reasonMap[type] || '未知关联';
   }

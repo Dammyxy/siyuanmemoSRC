@@ -21,6 +21,10 @@ const DEFAULT_WEIGHTS: WeightMap = {
   [AssociationType.HIERARCHY]: 5,
   [AssociationType.TAG]: 3,
   [AssociationType.SIBLING]: 1,
+  // 🆕 概念卡专用权重
+  [AssociationType.BACKLINK]: 15,
+  [AssociationType.CONCEPT_LINK]: 8,
+  [AssociationType.DESCRIPTOR]: 3,
 };
 
 export class WeightedWalkEngine {

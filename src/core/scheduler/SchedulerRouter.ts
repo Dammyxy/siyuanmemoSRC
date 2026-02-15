@@ -155,8 +155,13 @@ export class SchedulerRouter {
             return 'a-factor-v2';
         }
         
-        if (card.type === 'concept' || card.type === 'descriptor') {
-            // Concept 和 Descriptor 卡片强制使用 FSRS
+        // 🔧 修复：Concept 使用 A-Factor v2（文档块，支持反链）
+        if (card.type === 'concept') {
+            return 'a-factor-v2';
+        }
+        
+        // 🔧 修复：Descriptor 使用 FSRS v5（问答卡片）
+        if (card.type === 'descriptor') {
             return 'fsrs-v5';
         }
 
@@ -198,10 +203,18 @@ export class SchedulerRouter {
             }
         }
         
-        if (card.type === 'concept' || card.type === 'descriptor') {
-            // Concept 和 Descriptor 卡片只能使用 FSRS
+        // 🔧 修复：Concept 卡片只能使用 A-Factor v2
+        if (card.type === 'concept') {
+            if (newScheduler !== 'a-factor-v2') {
+                console.error('[SchedulerRouter] Concept cards must use A-Factor v2 scheduler');
+                return false;
+            }
+        }
+        
+        // 🔧 修复：Descriptor 卡片只能使用 FSRS
+        if (card.type === 'descriptor') {
             if (newScheduler !== 'fsrs-v5') {
-                console.error('[SchedulerRouter] Concept and Descriptor cards must use FSRS scheduler');
+                console.error('[SchedulerRouter] Descriptor cards must use FSRS scheduler');
                 return false;
             }
         }

@@ -713,13 +713,14 @@ export async function addToQueue(
     console.log('[MenuActions] queue.addCard 存在:', typeof queue?.addCard === 'function');
     console.log('[MenuActions] queue.addItems 存在:', typeof queue?.addItems === 'function');
     
-    // 🆕 过滤 Topic 卡片：刻意练习只接受 Item 卡片
+    // 🆕 过滤 Concept 卡片：刻意练习只接受 Item 和 Descriptor 卡片
     const filteredItems = items.filter((item) => {
       const row = selectedRows.find((r) => (r.fsrsCardId || r.id || r.blockId) === item.cardID);
       const cardType = (row as any)?.cardType;
       
-      if (cardType === 'topic') {
-        console.log(`[MenuActions] 过滤 Topic 卡片: ${item.blockID}`);
+      // 🔧 修复：过滤 Concept 卡片（不是 Topic）
+      if (cardType === 'concept') {
+        console.log(`[MenuActions] 过滤 Concept 卡片: ${item.blockID}`);
         return false;
       }
       return true;
@@ -728,7 +729,7 @@ export async function addToQueue(
     console.log(`[MenuActions] 过滤后：${filteredItems.length}/${items.length} 张卡片`);
     
     if (filteredItems.length === 0) {
-      return { added: 0, message: 'Topic 卡片不能加入刻意练习队列' };
+      return { added: 0, message: 'Concept 卡片不能加入刻意练习队列' };
     }
     
     // ✅ 新架构：使用 addCard 方法（单个添加）
@@ -747,7 +748,7 @@ export async function addToQueue(
       console.log('[MenuActions] 刻意练习队列添加完成，共添加:', added);
       const skipped = items.length - filteredItems.length;
       const message = skipped > 0
-        ? `已加入 ${added} 张卡片到刻意练习队列（过滤了 ${skipped} 张 Topic 卡片）`
+        ? `已加入 ${added} 张卡片到刻意练习队列（过滤了 ${skipped} 张 Concept 卡片）`
         : `已加入 ${added} 张卡片到刻意练习队列`;
       return { added, message };
     }
@@ -758,7 +759,7 @@ export async function addToQueue(
       console.log('[MenuActions] 刻意练习队列添加完成，共添加:', added);
       const skipped = items.length - filteredItems.length;
       const message = skipped > 0
-        ? `已加入 ${added} 张卡片到刻意练习队列（过滤了 ${skipped} 张 Topic 卡片）`
+        ? `已加入 ${added} 张卡片到刻意练习队列（过滤了 ${skipped} 张 Concept 卡片）`
         : `已加入 ${added} 张卡片到刻意练习队列`;
       return { added, message };
     } else {
@@ -794,13 +795,14 @@ export async function addToQueue(
       priority: item.priority,
     })));
     
-    // 🆕 过滤 Topic 卡片：提取练习只接受 Item 卡片
+    // 🆕 过滤 Concept 卡片：提取练习只接受 Item 和 Descriptor 卡片
     const filteredItems = items.filter((item) => {
       const row = selectedRows.find((r) => (r.fsrsCardId || r.id || r.blockId) === item.cardID);
       const cardType = (row as any)?.cardType;
       
-      if (cardType === 'topic') {
-        console.log(`[MenuActions] 过滤 Topic 卡片: ${item.blockID}`);
+      // 🔧 修复：过滤 Concept 卡片（不是 Topic）
+      if (cardType === 'concept') {
+        console.log(`[MenuActions] 过滤 Concept 卡片: ${item.blockID}`);
         return false;
       }
       return true;
@@ -827,7 +829,7 @@ export async function addToQueue(
     
     if (itemsWithManualFlag.length === 0) {
       console.log('[MenuActions] ❌ 没有有效卡片，返回失败');
-      return { added: 0, message: 'Topic 卡片不能加入提取练习队列' };
+      return { added: 0, message: 'Concept 卡片不能加入提取练习队列' };
     }
     
     // 新架构：使用 addCard 方法（逐个添加）
@@ -846,7 +848,7 @@ export async function addToQueue(
       console.log('[MenuActions] ✅ queue.addCard 完成，共添加:', added);
       const skipped = items.length - itemsWithManualFlag.length;
       const message = skipped > 0
-        ? `已加入 ${added} 张卡片到提取练习队列（过滤了 ${skipped} 张 Topic 卡片）`
+        ? `已加入 ${added} 张卡片到提取练习队列（过滤了 ${skipped} 张 Concept 卡片）`
         : `已加入 ${added} 张卡片到提取练习队列`;
       return { added, message };
     }
@@ -857,7 +859,7 @@ export async function addToQueue(
       console.log('[MenuActions] ✅ queue.addItems 返回结果:', added);
       const skipped = items.length - itemsWithManualFlag.length;
       const message = skipped > 0
-        ? `已加入 ${added} 张卡片到提取练习队列（过滤了 ${skipped} 张 Topic 卡片）`
+        ? `已加入 ${added} 张卡片到提取练习队列（过滤了 ${skipped} 张 Concept 卡片）`
         : `已加入 ${added} 张卡片到提取练习队列`;
       console.log('[MenuActions] ========== 处理完成，返回消息 ==========');
       return { added, message };

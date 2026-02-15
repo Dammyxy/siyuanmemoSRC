@@ -18,6 +18,18 @@
           />
         </div>
 
+        <!-- 描述符卡渲染 -->
+        <div v-else-if="shouldUseDescriptorCardRenderer" class="fsrs-review-v2-content__descriptor-card">
+          <DescriptorCardRenderer
+            :block-id="content.id"
+            :card-id="content.card?.id"
+            :render-service="descriptorCardRenderService"
+            :i18n="i18n"
+            @loaded="handleDescriptorCardLoaded"
+            @error="handleDescriptorCardError"
+          />
+        </div>
+
         <!-- 快速卡片渲染 -->
         <div v-else-if="shouldUseQuickCardRenderer" class="fsrs-review-v2-content__quick-card">
           <QuickCardRenderer
@@ -58,9 +70,13 @@ import type { ReviewUIState } from './types';
 import { OVERLAY_REGISTRY } from './overlays/index';
 import XiuyuanListTemplateCard from './components/XiuyuanListTemplateCard.vue';
 import QuickCardRenderer from '../components/QuickCardRenderer.vue';
+import DescriptorCardRenderer from '../components/DescriptorCardRenderer.vue';
 import { SiyuanBlockAdapter } from '@/core/card/quick-card/infrastructure/SiyuanBlockAdapter';
 import { QuickCardRepository } from '@/core/card/quick-card/infrastructure/QuickCardRepository';
 import { QuickCardRenderService } from '@/core/card/quick-card/application/QuickCardRenderService';
+import { SiyuanBlockAdapter as DescriptorBlockAdapter } from '@/core/card/descriptor-card/infrastructure/SiyuanBlockAdapter';
+import { DescriptorCardRepository } from '@/core/card/descriptor-card/infrastructure/DescriptorCardRepository';
+import { DescriptorCardRenderService } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 
 const props = defineProps<{
   app: any;
@@ -105,11 +121,39 @@ const quickCardRenderService = ref(
 );
 const isQuickCard = ref(false);
 
+// 描述符卡渲染服务
+const descriptorCardRenderService = ref(
+  new DescriptorCardRenderService(
+    new DescriptorCardRepository(
+      new DescriptorBlockAdapter()
+    )
+  )
+);
+const isDescriptorCard = ref(false);
+
+// 判断是否应该使用描述符卡渲染器
+const shouldUseDescriptorCardRenderer = computed(() => {
+  // 只有在 protyle 类型且检测到描述符卡时才使用
+  return props.content.type === 'protyle' && isDescriptorCard.value;
+});
+
 // 判断是否应该使用快速卡片渲染器
 const shouldUseQuickCardRenderer = computed(() => {
   // 只有在 protyle 类型且检测到快速卡片时才使用
-  return props.content.type === 'protyle' && isQuickCard.value;
+  // 描述符卡优先级更高
+  return props.content.type === 'protyle' && !isDescriptorCard.value && isQuickCard.value;
 });
+
+// 描述符卡加载成功
+function handleDescriptorCardLoaded(result: any) {
+  console.log('[ReviewContent] Descriptor card loaded:', result);
+}
+
+// 描述符卡加载失败，降级到普通渲染
+function handleDescriptorCardError(error: Error) {
+  console.warn('[ReviewContent] Descriptor card failed, fallback to normal render:', error);
+  isDescriptorCard.value = false;
+}
 
 // 快速卡片加载成功
 function handleQuickCardLoaded(result: any) {
@@ -208,12 +252,26 @@ function applyAnswerVisibility(): void {
 async function renderProtyle(blockId: string): Promise<void> {
   const seq = ++renderSeq;
 
+  // 🆕 检测是否为描述符卡（优先级最高）
+  try {
+    const isDescriptor = await descriptorCardRenderService.value.isDescriptorCard(blockId);
+    if (isDescriptor) {
+      console.log('[ReviewContent] Detected descriptor card, using DescriptorCardRenderer');
+      isDescriptorCard.value = true;
+      isQuickCard.value = false;
+      return; // 使用描述符卡渲染器，不需要 Protyle
+    }
+  } catch (error) {
+    console.warn('[ReviewContent] Descriptor card detection failed:', error);
+  }
+
   // 🆕 检测是否为快速卡片
   try {
     const isQuick = await quickCardRenderService.value.isQuickCard(blockId);
     if (isQuick) {
       console.log('[ReviewContent] Detected quick card, using QuickCardRenderer');
       isQuickCard.value = true;
+      isDescriptorCard.value = false;
       return; // 使用快速卡片渲染器，不需要 Protyle
     }
   } catch (error) {
@@ -222,6 +280,7 @@ async function renderProtyle(blockId: string): Promise<void> {
   
   // 降级到普通 Protyle 渲染
   isQuickCard.value = false;
+  isDescriptorCard.value = false;
 
   console.log('[FSRS ReviewContent] renderProtyle called:', { blockId, seq });
 
@@ -582,6 +641,11 @@ const content = computed(() => props.content);
 }
 
 .fsrs-review-v2-content__quick-card {
+  flex: 1;
+  overflow: auto;
+}
+
+.fsrs-review-v2-content__descriptor-card {
   flex: 1;
   overflow: auto;
 }

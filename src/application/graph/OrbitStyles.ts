@@ -106,6 +106,10 @@ export const ORBIT_CANDIDATE_COLORS: Record<AssociationType, string> = {
   [AssociationType.HIERARCHY]: '#FF9800',   // 橙色
   [AssociationType.TAG]: '#9C27B0',         // 紫色
   [AssociationType.SIBLING]: '#00BCD4',     // 青色
+  // 🆕 概念卡专用类型
+  [AssociationType.BACKLINK]: '#E91E63',    // 粉红色 - 反向链接（最高优先级）
+  [AssociationType.CONCEPT_LINK]: '#667eea', // 紫罗兰色 - 概念间链接
+  [AssociationType.DESCRIPTOR]: '#f59e0b',   // 琥珀色 - 描述符卡
 };
 
 /**

@@ -75,35 +75,214 @@ export class QueryEngine {
    * Requirements: 2.2, 3.1, 3.2, 3.3, 3.5
    */
   async fetchNeighbors(currentCardId: string): Promise<NeighborQueryResult[]> {
+    try {
+      // 🆕 检查是否为概念卡，使用专门的查询逻辑
+      const isConceptCard = await this.isConceptCard(currentCardId);
+      if (isConceptCard) {
+        return await this.fetchConceptNeighbors(currentCardId);
+      }
+
+      // 🔒 非概念卡不支持神经漫游，返回空数组
+      console.log(`[QueryEngine] Non-concept card ${currentCardId} is not supported in neural roaming`);
+      return [];
+    } catch (error) {
+      console.error('[QueryEngine] Failed to fetch neighbors:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 🆕 获取概念卡的邻居节点（专门的查询逻辑）
+   *
+   * 概念卡使用特殊的神经漫游增强机制：
+   * 1. 反向链接（BACKLINK）- 权重 15，隐式定义
+   * 2. 概念卡子块的出链（CONCEPT_LINK）- 权重 8
+   * 3. 描述符卡（DESCRIPTOR）- 权重 3，显式定义
+   *
+   * @param conceptBlockId 概念卡块 ID
+   * @returns 邻居节点列表
+   * Requirements: 3.2, 3.3, 3.4
+   */
+  async fetchConceptNeighbors(conceptBlockId: string): Promise<NeighborQueryResult[]> {
     const neighbors: NeighborQueryResult[] = [];
 
     try {
-      // 1. 获取双向链接（引用和反向链接）
-      const refLinks = await this.fetchRefLinks(currentCardId);
-      neighbors.push(...refLinks);
+      console.log(`[QueryEngine] Fetching concept neighbors for ${conceptBlockId}`);
 
-      // 2. 获取同文档卡片
-      const contextCards = await this.fetchContextCards(currentCardId);
-      neighbors.push(...contextCards);
+      // 1. 查询反向链接（最高优先级）
+      const backlinks = await this.fetchBacklinks(conceptBlockId);
+      neighbors.push(...backlinks);
+      console.log(`[QueryEngine] Found ${backlinks.length} backlinks`);
 
-      // 3. 获取标签关联卡片（如果启用）
-      if (this.config.features.enableTagAssociation) {
-        const tagCards = await this.fetchTagRelatedCards(currentCardId);
-        neighbors.push(...tagCards);
-      }
+      // 2. 查询概念卡子块的出链
+      const conceptLinks = await this.fetchConceptLinks(conceptBlockId);
+      neighbors.push(...conceptLinks);
+      console.log(`[QueryEngine] Found ${conceptLinks.length} concept links`);
 
-      // 4. 获取兄弟块（如果启用）
-      if (this.config.features.enableSiblingAssociation) {
-        const siblingCards = await this.fetchSiblingCards(currentCardId);
-        neighbors.push(...siblingCards);
-      }
+      // 3. 查询描述符卡
+      const descriptors = await this.fetchDescriptorCards(conceptBlockId);
+      neighbors.push(...descriptors);
+      console.log(`[QueryEngine] Found ${descriptors.length} descriptor cards`);
 
-      // 去重（同一个卡片可能通过多种关联方式找到）
+      // 去重
       const uniqueNeighbors = this.deduplicateNeighbors(neighbors);
+      console.log(`[QueryEngine] Total unique concept neighbors: ${uniqueNeighbors.length}`);
 
       return uniqueNeighbors;
     } catch (error) {
-      console.error('[QueryEngine] Failed to fetch neighbors:', error);
+      console.error('[QueryEngine] Failed to fetch concept neighbors:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 🆕 检查块是否为概念卡
+   *
+   * @param blockId 块 ID
+   * @returns 是否为概念卡
+   */
+  async isConceptCard(blockId: string): Promise<boolean> {
+    try {
+      const stmt = `
+        SELECT value
+        FROM attributes
+        WHERE block_id = '${this.escapeSQL(blockId)}'
+          AND name = 'custom-fsrs-card-type'
+      `;
+      const rows = await api.sql(stmt);
+      return rows.length > 0 && rows[0].value === 'concept';
+    } catch (error) {
+      console.error('[QueryEngine] Failed to check if concept card:', error);
+      return false;
+    }
+  }
+
+  /**
+   * 🆕 查询反向链接（使用 /api/ref/getBacklink2）
+   *
+   * 反向链接是概念卡神经漫游的核心，权重最高（15）。
+   * 表示"谁引用了这个概念"，提供隐式定义。
+   *
+   * @param blockId 块 ID
+   * @returns 反向链接邻居节点
+   * Requirements: 3.2
+   */
+  async fetchBacklinks(blockId: string): Promise<NeighborQueryResult[]> {
+    try {
+      // 使用思源 API 获取反向链接
+      const response = await fetch('/api/ref/getBacklink2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: blockId }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.code !== 0) {
+        throw new Error(`API error: ${data.msg}`);
+      }
+
+      const backlinks = data.data?.backlinks || [];
+      const backlinkIds = backlinks.map((bl: any) => bl.blockID || bl.id).filter(Boolean);
+
+      console.log(`[QueryEngine] Fetched ${backlinkIds.length} backlinks from API`);
+
+      // 返回所有反向链接节点（包括普通块，会创建虚拟卡）
+      return backlinkIds.map((id: string) => ({
+        id,
+        type: AssociationType.BACKLINK,
+      }));
+    } catch (error) {
+      console.error('[QueryEngine] Failed to fetch backlinks:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 🆕 查询概念卡子块的出链（指向其他概念卡）
+   *
+   * 查询当前概念卡及其子块中的所有出链，
+   * 筛选出指向其他概念卡的链接。
+   * 权重：8
+   *
+   * @param blockId 块 ID
+   * @returns 概念链接邻居节点
+   * Requirements: 3.3
+   */
+  async fetchConceptLinks(blockId: string): Promise<NeighborQueryResult[]> {
+    try {
+      // 查询当前块及其子块中的所有出链
+      const stmt = `
+        SELECT DISTINCT r.def_block_id as id
+        FROM refs r
+        WHERE r.block_id = '${this.escapeSQL(blockId)}'
+          OR r.block_id IN (
+            -- 查询所有子块
+            WITH RECURSIVE descendants AS (
+              SELECT id FROM blocks WHERE parent_id = '${this.escapeSQL(blockId)}'
+              UNION ALL
+              SELECT b.id FROM blocks b
+              INNER JOIN descendants d ON b.parent_id = d.id
+            )
+            SELECT id FROM descendants
+          )
+      `;
+
+      const rows = await api.sql(stmt);
+      
+      // 🔧 修复：检查 rows 是否为 null
+      if (!rows || !Array.isArray(rows)) {
+        console.log(`[QueryEngine] No concept links found (empty result)`);
+        return [];
+      }
+      
+      // 🔧 返回所有出链（包括普通块，会创建虚拟卡）
+      // 概念卡的邻居包括：反链、正链（所有出链）、描述符卡
+      const conceptLinks: NeighborQueryResult[] = rows.map(row => ({
+        id: row.id,
+        type: AssociationType.CONCEPT_LINK,
+      }));
+
+      console.log(`[QueryEngine] Found ${conceptLinks.length} concept links (all outgoing links)`);
+      return conceptLinks;
+    } catch (error) {
+      console.error('[QueryEngine] Failed to fetch concept links:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 🆕 查询描述符卡（概念的子块）
+   *
+   * 查询当前概念卡的子块，筛选出标记为 descriptor 的卡片。
+   * 权重：3（最低，显式定义）
+   *
+   * @param blockId 块 ID
+   * @returns 描述符卡邻居节点
+   * Requirements: 3.4
+   */
+  async fetchDescriptorCards(blockId: string): Promise<NeighborQueryResult[]> {
+    try {
+      // 查询子块中的描述符卡
+      const stmt = `
+        SELECT DISTINCT b.id
+        FROM blocks b
+        INNER JOIN attributes a ON b.id = a.block_id
+        WHERE b.parent_id = '${this.escapeSQL(blockId)}'
+          AND a.name = 'custom-fsrs-card-type'
+          AND a.value = 'descriptor'
+      `;
+
+      const rows = await api.sql(stmt);
+      return rows.map(row => ({
+        id: row.id,
+        type: AssociationType.DESCRIPTOR,
+      }));
+    } catch (error) {
+      console.error('[QueryEngine] Failed to fetch descriptor cards:', error);
       return [];
     }
   }
@@ -334,18 +513,26 @@ export class QueryEngine {
    */
   async fetchRandomCard(): Promise<string | null> {
     try {
+      // 🔒 只选择概念卡作为神经漫游的种子
       const stmt = `
         SELECT DISTINCT b.id
         FROM blocks b
-        INNER JOIN attributes a ON b.id = a.block_id
-        WHERE a.name = '${ATTR_CARD_ID}'
-          AND a.value != ''
+        INNER JOIN attributes a1 ON b.id = a1.block_id
+        INNER JOIN attributes a2 ON b.id = a2.block_id
+        WHERE a1.name = '${ATTR_CARD_ID}'
+          AND a1.value != ''
+          AND a2.name = 'custom-fsrs-card-type'
+          AND a2.value = 'concept'
         ORDER BY RANDOM()
         LIMIT 1
       `;
 
       const rows = await api.sql(stmt);
-      return rows.length > 0 ? rows[0].id : null;
+      if (rows.length === 0) {
+        console.warn('[QueryEngine] No concept cards found for neural roaming seed');
+        return null;
+      }
+      return rows[0].id;
     } catch (error) {
       console.error('[QueryEngine] Failed to fetch random card:', error);
       return null;

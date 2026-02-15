@@ -18,6 +18,7 @@ export enum NeuralBlockType {
  * Association types for neural wandering
  */
 export enum AssociationType {
+  // === 现有类型 ===
   /** 双向链接 (权重 10) */
   REF_LINK = 'ref',
   /** 文档层级 (权重 5) */
@@ -26,6 +27,16 @@ export enum AssociationType {
   TAG = 'tag',
   /** 兄弟块 (权重 1) */
   SIBLING = 'sibling',
+  
+  // === 🆕 概念卡专用类型 ===
+  /** 反向链接 (权重 15) - 隐式定义，最高优先级 */
+  BACKLINK = 'backlink',
+  /** 概念间链接 (权重 8) */
+  CONCEPT_LINK = 'concept',
+  /** 描述符卡 (权重 3) - 显式定义 */
+  DESCRIPTOR = 'descriptor',
+  /** 种子节点 - 当概念卡没有邻居时返回自身 */
+  SEED = 'seed',
 }
 
 /**
@@ -117,6 +128,14 @@ export interface NeuralQueueConfig {
     tag: number;
     /** 兄弟块权重 (默认 1) */
     sibling: number;
+    
+    // === 🆕 概念卡专用权重 ===
+    /** 反向链接权重 (默认 15) - 隐式定义 */
+    backlink: number;
+    /** 概念间链接权重 (默认 8) */
+    conceptLink: number;
+    /** 描述符卡权重 (默认 3) - 显式定义 */
+    descriptor: number;
   };
 
   /** 块类型权重配置 */
@@ -180,6 +199,10 @@ export const DEFAULT_NEURAL_QUEUE_CONFIG: NeuralQueueConfig = {
     hierarchy: 5,
     tag: 3,
     sibling: 1,
+    // 🆕 概念卡专用权重
+    backlink: 15,
+    conceptLink: 8,
+    descriptor: 3,
   },
   blockWeights: {
     flashcard: 10,

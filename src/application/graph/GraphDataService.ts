@@ -556,12 +556,16 @@ export class GraphDataService {
 
     private getAssociationLabel(type: AssociationType): string {
         const labelMap: Record<AssociationType, string> = {
-            [AssociationType.REF_LINK]: '????',
-            [AssociationType.HIERARCHY]: '????',
-            [AssociationType.TAG]: '????',
-            [AssociationType.SIBLING]: '???',
+            [AssociationType.REF_LINK]: '🔗',
+            [AssociationType.HIERARCHY]: '📄',
+            [AssociationType.TAG]: '🏷️',
+            [AssociationType.SIBLING]: '👥',
+            // 🆕 概念卡专用类型
+            [AssociationType.BACKLINK]: '←',
+            [AssociationType.CONCEPT_LINK]: '🧠',
+            [AssociationType.DESCRIPTOR]: '📝',
         };
-        return labelMap[type] || '????';
+        return labelMap[type] || '🔗';
     }
 
     private escapeSQL(value: string): string {

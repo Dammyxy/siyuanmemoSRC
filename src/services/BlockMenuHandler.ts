@@ -14,6 +14,7 @@ import { createDefaultCard } from '@/types';
 import { DEFAULT_PRIORITY } from '@/core/queue';
 import type { CardAttributeRow } from '@/core/queue/types';
 import { batchDelete } from '@/ui/browser/browserService';  // 🆕 导入 batchDelete
+import { QueueType } from '@/types/unified-data-source';  // 🆕 导入 QueueType
 
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import type { ReviewDialogManager } from './ReviewDialogManager';
@@ -107,19 +108,21 @@ export class BlockMenuHandler {
     
     submenu.push({ type: 'separator' });
 
-    // 神经漫游菜单项
+    // 制作为概念卡并加入队列
     submenu.push({
-      icon: 'iconRefresh',
-      label: this.deps.i18n?.startNeuralReviewFromHere || '从此处开始神经漫游',
+      icon: 'iconMark',
+      label: '📍 制作为概念卡并加入队列',
       click: async () => {
-        const seedBlockId = blockIds[0];
-        const includeSeedAsFirst = Boolean(blockElements[0]?.hasAttribute?.(ATTR_CARD_ID));
-        try {
-          await this.deps.openNeuralReviewDialog({ seedBlockId, includeSeedAsFirst, resetHistory: true });
-        } catch (err) {
-          console.error('[SiyuanMemo] Failed to open neural review from block:', err);
-          await pushErrMsg(this.deps.i18n?.neuralReviewFailed || '神经漫游启动失败');
-        }
+        await this.makeConceptAndAddToRoam(blockIds[0], 'normal');
+      },
+    });
+
+    // 制作为概念卡并立即漫游
+    submenu.push({
+      icon: 'iconFocus',
+      label: '🚀 制作为概念卡并立即漫游',
+      click: async () => {
+        await this.makeConceptAndAddToRoam(blockIds[0], 'high');
       },
     });
 
@@ -343,6 +346,27 @@ export class BlockMenuHandler {
         submenu.push({ type: 'separator' });
       }
     }
+    
+    // 添加神经漫游相关菜单项
+    submenu.push({ type: 'separator' });
+    
+    // 制作为概念卡并加入队列
+    submenu.push({
+      icon: 'iconMark',
+      label: '📍 制作为概念卡并加入队列',
+      click: async () => {
+        await this.makeConceptAndAddToRoam(docId, 'normal');
+      },
+    });
+    
+    // 制作为概念卡并立即漫游
+    submenu.push({
+      icon: 'iconFocus',
+      label: '🚀 制作为概念卡并立即漫游',
+      click: async () => {
+        await this.makeConceptAndAddToRoam(docId, 'high');
+      },
+    });
     
     return submenu;
   }
@@ -748,5 +772,110 @@ export class BlockMenuHandler {
       console.error('[SiyuanMemo] Failed to create list template cards:', err);
       await pushErrMsg(`创建失败：${(err as Error).message}`);
     }
+  }
+
+  /**
+   * 制作为概念卡并加入神经漫游队列
+   * 
+   * @param blockId 块 ID
+   * @param priority 优先级（'normal' | 'high'）
+   */
+  private async makeConceptAndAddToRoam(blockId: string, priority: 'normal' | 'high'): Promise<void> {
+    try {
+      // 1. 检查是否已经是卡片
+      const existingCard = this.deps.storage.getCardByBlockId(blockId);
+      
+      if (!existingCard) {
+        // 2. 创建新卡片
+        const card = createDefaultCard(blockId);
+        card.type = 'item'; // 概念卡使用 item 类型
+        
+        // 标记块为闪卡
+        await markBlockAsCard(blockId, card.id, card.priority, 'item');
+        
+        // 保存卡片到存储
+        this.deps.storage.setCard(card);
+        await this.deps.storage.saveCards();
+        
+        console.log(`[BlockMenuHandler] Created card for block: ${blockId}`);
+      }
+      
+      // 3. 设置概念卡类型属性
+      const isConcept = await this.isConceptCard(blockId);
+      if (!isConcept) {
+        await api.setBlockAttrs(blockId, {
+          'custom-fsrs-card-type': 'concept'
+        });
+        await pushMsg('✅ 已制作为概念卡');
+      }
+      
+      // 4. 获取神经漫游队列（通过 plugin.unifiedDataSourceManager）
+      if (!this.deps.plugin?.unifiedDataSourceManager) {
+        await pushErrMsg('❌ 统一数据源管理器未初始化');
+        return;
+      }
+      
+      const neuralQueue = this.deps.plugin.unifiedDataSourceManager.getQueue(QueueType.NeuralRoam);
+      
+      if (!neuralQueue) {
+        await pushErrMsg('❌ 神经漫游队列未初始化');
+        return;
+      }
+      
+      // 5. 添加到队列
+      await neuralQueue.addCard(blockId, priority);
+      
+      // 6. 如果是高优先级，自动打开神经漫游对话框
+      if (priority === 'high') {
+        await pushMsg('🚀 已加入漫游队列（高优先级），正在打开神经漫游...');
+        
+        // 打开神经漫游对话框
+        try {
+          await this.deps.reviewDialogManager.openNeuralRoam();
+        } catch (err) {
+          console.error('[BlockMenuHandler] Failed to open neural roam dialog:', err);
+          await pushErrMsg('❌ 打开神经漫游失败');
+        }
+      } else {
+        await pushMsg('📍 已加入漫游队列');
+      }
+      
+      console.log(`[BlockMenuHandler] Added concept card to neural roam: ${blockId} (priority: ${priority})`);
+    } catch (error) {
+      console.error('[BlockMenuHandler] Failed to make concept and add to roam:', error);
+      await pushErrMsg('❌ 操作失败：' + (error as Error).message);
+    }
+  }
+
+  /**
+   * 检查块是否为概念卡
+   * 
+   * @param blockId 块 ID
+   * @returns 是否为概念卡
+   */
+  private async isConceptCard(blockId: string): Promise<boolean> {
+    try {
+      const stmt = `
+        SELECT value
+        FROM attributes
+        WHERE block_id = '${this.escapeSQL(blockId)}'
+          AND name = 'custom-fsrs-card-type'
+      `;
+      const rows = await sql(stmt);
+      return rows && rows.length > 0 && rows[0].value === 'concept';
+    } catch (error) {
+      console.error('[BlockMenuHandler] Failed to check if concept card:', error);
+      return false;
+    }
+  }
+
+  /**
+   * SQL 转义
+   * 
+   * @param value 要转义的值
+   * @returns 转义后的值
+   */
+  private escapeSQL(value: string): string {
+    return value.replace(/'/g, "''");
   }
 }
