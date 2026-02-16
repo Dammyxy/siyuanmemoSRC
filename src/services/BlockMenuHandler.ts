@@ -167,16 +167,16 @@ export class BlockMenuHandler {
           component: SrsEditorDialog,
           props: {
             card: {
-              cardID,
-              blockID,
-              deckID: riff.BUILTIN_DECK_ID,
+              id: cardID,
+              blockId: blockID,
+              deckId: riff.BUILTIN_DECK_ID,
             },
-            deckID: riff.BUILTIN_DECK_ID,
+            deckId: riff.BUILTIN_DECK_ID,
             i18n: this.deps.i18n || {},
             plugin: this.deps.plugin,  // ✅ 传递 plugin 实例
           },
-          width: '760px',
-          height: '70vh',
+          width: '860px',
+          height: '80vh',
         });
       },
     });
@@ -185,48 +185,48 @@ export class BlockMenuHandler {
       type: 'separator',
     });
 
-    // 选中制卡（始终显示）
-    submenu.push({
-      icon: 'iconAdd',
-      label: this.deps.i18n?.makeCardFromSelection || '选中制卡',
-      click: async () => {
-        let createdCount = 0;
+    // 选中制卡（暂时隐藏）
+    // submenu.push({
+    //   icon: 'iconAdd',
+    //   label: this.deps.i18n?.makeCardFromSelection || '选中制卡',
+    //   click: async () => {
+    //     let createdCount = 0;
 
-        for (const element of blockElements) {
-          if (element.hasAttribute(ATTR_CARD_ID)) {
-            continue;
-          }
-          const blockId = element.getAttribute('data-node-id');
-          if (!blockId) {
-            continue;
-          }
-          try {
-            const card = createDefaultCard(blockId);
-            await markBlockAsCard(blockId, card.id, card.priority, 'item');
-            this.deps.storage.setCard(card);
-            createdCount++;
-          } catch (err) {
-            console.error('[SiyuanMemo] Failed to create card from block:', blockId, err);
-          }
-        }
+    //     for (const element of blockElements) {
+    //       if (element.hasAttribute(ATTR_CARD_ID)) {
+    //         continue;
+    //       }
+    //       const blockId = element.getAttribute('data-node-id');
+    //       if (!blockId) {
+    //         continue;
+    //       }
+    //       try {
+    //         const card = createDefaultCard(blockId);
+    //         await markBlockAsCard(blockId, card.id, card.priority, 'item');
+    //         this.deps.storage.setCard(card);
+    //         createdCount++;
+    //       } catch (err) {
+    //         console.error('[SiyuanMemo] Failed to create card from block:', blockId, err);
+    //       }
+    //     }
 
-        if (createdCount > 0) {
-          await this.deps.storage.saveCards();
-          await pushMsg((this.deps.i18n?.msg_created || '已创建 {n} 张闪卡').replace('{n}', String(createdCount)));
-        } else {
-          await pushMsg(this.deps.i18n?.msg_already_cards || '选中的块已经是闪卡');
-        }
-      },
-    });
+    //     if (createdCount > 0) {
+    //       await this.deps.storage.saveCards();
+    //       await pushMsg((this.deps.i18n?.msg_created || '已创建 {n} 张闪卡').replace('{n}', String(createdCount)));
+    //     } else {
+    //       await pushMsg(this.deps.i18n?.msg_already_cards || '选中的块已经是闪卡');
+    //     }
+    //   },
+    // });
 
-    // 创建模板卡片（始终显示）
-    submenu.push({
-      icon: 'iconAdd',
-      label: this.deps.i18n?.createTemplateCard || '创建模板卡片',
-      click: async () => {
-        await this.deps.openCreateTemplateCardDialog(blockIds);
-      },
-    });
+    // 创建模板卡片（暂时隐藏）
+    // submenu.push({
+    //   icon: 'iconAdd',
+    //   label: this.deps.i18n?.createTemplateCard || '创建模板卡片',
+    //   click: async () => {
+    //     await this.deps.openCreateTemplateCardDialog(blockIds);
+    //   },
+    // });
 
     // 创建列表模版卡（始终显示）
     submenu.push({
@@ -786,27 +786,44 @@ export class BlockMenuHandler {
       const existingCard = this.deps.storage.getCardByBlockId(blockId);
       
       if (!existingCard) {
-        // 2. 创建新卡片
+        // 2. 创建新卡片（类型为 concept）
         const card = createDefaultCard(blockId);
-        card.type = 'item'; // 概念卡使用 item 类型
+        card.type = 'concept'; // ✅ 修复：直接设置为 concept 类型
         
-        // 标记块为闪卡
-        await markBlockAsCard(blockId, card.id, card.priority, 'item');
+        // 标记块为闪卡（类型为 concept）
+        await markBlockAsCard(blockId, card.id, card.priority, 'concept');
+        
+        // ✅ 添加到 Riff（确保同步）
+        const riffAPI = await import('@/core/siyuan/riff');
+        await riffAPI.addRiffCards(riffAPI.BUILTIN_DECK_ID, [blockId]);
+        console.log(`[BlockMenuHandler] Added concept card to Riff: ${blockId}`);
         
         // 保存卡片到存储
         this.deps.storage.setCard(card);
         await this.deps.storage.saveCards();
         
-        console.log(`[BlockMenuHandler] Created card for block: ${blockId}`);
-      }
-      
-      // 3. 设置概念卡类型属性
-      const isConcept = await this.isConceptCard(blockId);
-      if (!isConcept) {
-        await api.setBlockAttrs(blockId, {
-          'custom-fsrs-card-type': 'concept'
-        });
+        console.log(`[BlockMenuHandler] Created concept card for block: ${blockId}`);
         await pushMsg('✅ 已制作为概念卡');
+      } else {
+        // 3. 如果已经是卡片，确保类型为 concept
+        const isConcept = await this.isConceptCard(blockId);
+        if (!isConcept) {
+          // 更新卡片类型
+          existingCard.type = 'concept';
+          this.deps.storage.setCard(existingCard);
+          await this.deps.storage.saveCards();
+          
+          // 更新块属性
+          await api.setBlockAttrs(blockId, {
+            'custom-fsrs-card-type': 'concept'
+          });
+          
+          // 等待属性写入完成
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          console.log(`[BlockMenuHandler] Updated card type to concept for block: ${blockId}`);
+          await pushMsg('✅ 已更新为概念卡');
+        }
       }
       
       // 4. 获取神经漫游队列（通过 plugin.unifiedDataSourceManager）

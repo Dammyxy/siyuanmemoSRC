@@ -77,7 +77,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
     constructor(manager: UnifiedDataSourceManager) {
         this.manager = manager;
         
-        console.log('[SRSBrowserAdapter] Adapter created');
+        console.log('[SiyuanMemo][SRSBrowserAdapter] Adapter created');
     }
     
     // ========================================================================
@@ -95,7 +95,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
     async initializeQueueView(queueType: QueueType): Promise<void> {
         try {
             // 记录初始化开始（需求 12.1：记录数据源类型）
-            console.log(`[SRSBrowserAdapter] Initializing queue view:`, {
+            console.log(`[SiyuanMemo][SRSBrowserAdapter] Initializing queue view:`, {
                 queueType,
                 dataSourceMode: 'advanced',
                 timestamp: new Date().toISOString()
@@ -108,11 +108,11 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             if (!this.isRegistered) {
                 this.manager.registerObserver(this);
                 this.isRegistered = true;
-                console.log('[SRSBrowserAdapter] Registered as observer');
+                console.log('[SiyuanMemo][SRSBrowserAdapter] Registered as observer');
             }
             
             // 记录初始化成功（需求 12.1）
-            console.log(`[SRSBrowserAdapter] Queue view initialized successfully:`, {
+            console.log(`[SiyuanMemo][SRSBrowserAdapter] Queue view initialized successfully:`, {
                 queueType,
                 dataSourceMode: 'advanced',
                 timestamp: new Date().toISOString()
@@ -122,7 +122,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             const errorMessage = error instanceof Error ? error.message : String(error);
             const errorStack = error instanceof Error ? error.stack : undefined;
             
-            console.error('[SRSBrowserAdapter] Failed to initialize queue view:', {
+            console.error('[SiyuanMemo][SRSBrowserAdapter] Failed to initialize queue view:', {
                 queueType,
                 error: errorMessage,
                 stack: errorStack,
@@ -147,7 +147,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
      */
     async fetchRows(_options: FetchRowsOptions): Promise<FetchRowsResult> {
         if (!this.currentQueueType) {
-            console.warn('[SRSBrowserAdapter] No queue type selected');
+            console.warn('[SiyuanMemo][SRSBrowserAdapter] No queue type selected');
             return { rows: [] };
         }
         
@@ -155,7 +155,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
         const startTime = Date.now();
         
         try {
-            console.log(`[SRSBrowserAdapter] Fetching rows for queue: ${this.currentQueueType}`);
+            console.log(`[SiyuanMemo][SRSBrowserAdapter] Fetching rows for queue: ${this.currentQueueType}`);
             
             // 获取队列实例
             const queue = this.manager.getQueue(this.currentQueueType);
@@ -163,9 +163,9 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             // 获取队列中的所有卡片
             // 注意：使用 getAllCards() 而不是 getCards()
             // getAllCards() 会调用 dataSource.getAll()，包含过滤逻辑
-            console.log(`[SRSBrowserAdapter] Calling getAllCards() on queue`);
+            console.log(`[SiyuanMemo][SRSBrowserAdapter] Calling getAllCards() on queue`);
             const cards = await queue.getAllCards();
-            console.log(`[SRSBrowserAdapter] getAllCards() returned ${cards.length} cards`);
+            console.log(`[SiyuanMemo][SRSBrowserAdapter] getAllCards() returned ${cards.length} cards`);
 
             // 运行时类型验证（开发模式）
             validateConsumerCardType('SRSBrowserAdapter', cards);
@@ -177,7 +177,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             const endTime = Date.now();
             const duration = endTime - startTime;
             
-            console.log(`[SRSBrowserAdapter] Fetched rows successfully:`, {
+            console.log(`[SiyuanMemo][SRSBrowserAdapter] Fetched rows successfully:`, {
                 queueType: this.currentQueueType,
                 cardCount: browserCards.length,
                 startTime: new Date(startTime).toISOString(),
@@ -197,7 +197,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             const endTime = Date.now();
             const duration = endTime - startTime;
             
-            console.error('[SRSBrowserAdapter] Failed to fetch rows:', {
+            console.error('[SiyuanMemo][SRSBrowserAdapter] Failed to fetch rows:', {
                 queueType: this.currentQueueType,
                 error: errorMessage,
                 stack: errorStack,
@@ -233,13 +233,13 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
      * 验证需求：3.5
      */
     destroy(): void {
-        console.log('[SRSBrowserAdapter] Destroying adapter');
+        console.log('[SiyuanMemo][SRSBrowserAdapter] Destroying adapter');
         
         // 取消注册观察者
         if (this.isRegistered) {
             this.manager.unregisterObserver(this);
             this.isRegistered = false;
-            console.log('[SRSBrowserAdapter] Unregistered as observer');
+            console.log('[SiyuanMemo][SRSBrowserAdapter] Unregistered as observer');
         }
         
         // 清理引用
@@ -262,7 +262,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
      */
     onDataChanged(event: DataChangeEvent): void {
         // 记录观察者通知（需求 12.3：记录事件类型、受影响的数据、通知时间）
-        console.log('[SRSBrowserAdapter] Data changed:', {
+        console.log('[SiyuanMemo][SRSBrowserAdapter] Data changed:', {
             eventType: event.type,
             queueType: event.queueType,
             cardIds: event.cardIds,
@@ -301,7 +301,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
      * @param cardIds 受影响的卡片 ID 列表
      */
     private handleCardUpdated(cardIds: string[]): void {
-        console.log(`[SRSBrowserAdapter] Handling card-updated event: ${cardIds.length} cards`);
+        console.log(`[SiyuanMemo][SRSBrowserAdapter] Handling card-updated event: ${cardIds.length} cards`);
         
         // 触发 Vue 组件刷新
         // 实际的刷新逻辑由 Vue 组件通过回调函数处理
@@ -315,7 +315,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
      * @param cardIds 受影响的卡片 ID 列表
      */
     private handleCardDeleted(cardIds: string[]): void {
-        console.log(`[SRSBrowserAdapter] Handling card-deleted event: ${cardIds.length} cards`);
+        console.log(`[SiyuanMemo][SRSBrowserAdapter] Handling card-deleted event: ${cardIds.length} cards`);
         
         // 触发 Vue 组件刷新
         // 实际的刷新逻辑由 Vue 组件通过回调函数处理
@@ -329,7 +329,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
      * @param queueType 受影响的队列类型
      */
     private handleQueueChanged(queueType?: QueueType): void {
-        console.log(`[SRSBrowserAdapter] Handling queue-changed event: ${queueType || 'all'}`);
+        console.log(`[SiyuanMemo][SRSBrowserAdapter] Handling queue-changed event: ${queueType || 'all'}`);
         
         // 如果是当前队列，刷新队列统计
         if (!queueType || queueType === this.currentQueueType) {
@@ -364,7 +364,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
         // 🔧 检查数据完整性
         const isIncomplete = card.meta?.isIncomplete === true;
         if (isIncomplete) {
-            console.warn('[SRSBrowserAdapter] ⚠️ Converting incomplete FSRSCard:', {
+            console.warn('[SiyuanMemo][SRSBrowserAdapter] ⚠️ Converting incomplete FSRSCard:', {
                 id: card.id,
                 blockId: card.blockId,
                 hasRiffCardId: !!card.riffCardId,
@@ -452,7 +452,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
         
         // 🔧 如果数据不完整，记录详细日志
         if (isIncomplete) {
-            console.log('[SRSBrowserAdapter] ⚠️ Converted incomplete card to BrowserCard:', {
+            console.log('[SiyuanMemo][SRSBrowserAdapter] ⚠️ Converted incomplete card to BrowserCard:', {
                 id: result.id,
                 fsrsCardId: result.fsrsCardId,
                 blockId: result.blockId,

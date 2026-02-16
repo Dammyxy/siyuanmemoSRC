@@ -110,14 +110,15 @@ export class TopBarManager {
             },
         });
 
-        menu.addItem({
-            icon: 'iconHot',
-            label: this.plugin.i18n?.startLeechPractice || '开始难点攻坚',
-            accelerator: 'Alt+L',
-            click: () => {
-                (this.plugin as any).openLeechPracticeDialog();
-            },
-        });
+        // 难点攻坚功能已隐藏
+        // menu.addItem({
+        //     icon: 'iconHot',
+        //     label: this.plugin.i18n?.startLeechPractice || '开始难点攻坚',
+        //     accelerator: 'Alt+L',
+        //     click: () => {
+        //         (this.plugin as any).openLeechPracticeDialog();
+        //     },
+        // });
 
         menu.addItem({
             icon: 'iconList',

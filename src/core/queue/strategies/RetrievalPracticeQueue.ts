@@ -473,7 +473,7 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
     // 🆕 Task 1.5: Register sequencer as observer of data source
     // This ensures the sequencer's cache is automatically invalidated when data changes
     hybridSource.addObserver(sequencer);
-    console.log('[RetrievalPracticeQueue] ✅ Registered sequencer as observer of data source');
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] ✅ Registered sequencer as observer of data source');
 
     // Create scheduler for review feedback
     const scheduler = new RiffScheduler<QueueItem, 1 | 2 | 3 | 4>(async (card, grade) => {
@@ -492,7 +492,7 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
           // 但仍需调用 Riff API 以同步 Riff 数据
           await api.reviewRiffCard(card.deckID || deckID, card.cardID, grade);
 
-          console.log('[RetrievalPracticeQueue] ✅ Used SchedulerRouter:', {
+          console.log('[SiyuanMemo][RetrievalPracticeQueue] ✅ Used SchedulerRouter:', {
             cardID: card.cardID,
             cardType: updatedCard.type,
             schedulerType: updatedCard.schedulerType,
@@ -604,9 +604,9 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
    * Items are inserted at the beginning of the local buffer
    */
   async addItems(items: QueueItem[]): Promise<number> {
-    console.log('[RetrievalPracticeQueue] ========== addItems 被调用 ==========');
-    console.log('[RetrievalPracticeQueue] 输入 items 数量:', items?.length || 0);
-    console.log('[RetrievalPracticeQueue] 输入 items 详情:', items?.map(item => ({
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] ========== addItems 被调用 ==========');
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] 输入 items 数量:', items?.length || 0);
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] 输入 items 详情:', items?.map(item => ({
       cardID: item.cardID,
       blockID: item.blockID,
       deckID: item.deckID,
@@ -615,17 +615,17 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
     })));
     
     if (!items || items.length === 0) {
-      console.log('[RetrievalPracticeQueue] ❌ items 为空，返回 0');
+      console.log('[SiyuanMemo][RetrievalPracticeQueue] ❌ items 为空，返回 0');
       return 0;
     }
     
     // 验证输入数据
     for (const item of items) {
       if (!item.cardID) {
-        console.error('[RetrievalPracticeQueue] ❌ 验证失败：cardID 为空', item);
+        console.error('[SiyuanMemo][RetrievalPracticeQueue] ❌ 验证失败：cardID 为空', item);
       }
       if (!item.blockID) {
-        console.error('[RetrievalPracticeQueue] ❌ 验证失败：blockID 为空', item);
+        console.error('[SiyuanMemo][RetrievalPracticeQueue] ❌ 验证失败：blockID 为空', item);
       }
     }
     
@@ -635,34 +635,34 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
       ...item,
       manuallyAdded: true,
     }));
-    console.log('[RetrievalPracticeQueue] ✅ 已为所有卡片设置 manuallyAdded = true');
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] ✅ 已为所有卡片设置 manuallyAdded = true');
     
-    console.log('[RetrievalPracticeQueue] ✅ 准备调用 hybridSource.insertAt()');
-    console.log('[RetrievalPracticeQueue] 当前 localBuffer 大小:', this.hybridSource['localBuffer'].length);
-    console.log('[RetrievalPracticeQueue] 当前 sequencer 大小:', (this.sequencer as SortedSequencer<QueueItem>).size());
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] ✅ 准备调用 hybridSource.insertAt()');
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] 当前 localBuffer 大小:', this.hybridSource['localBuffer'].length);
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] 当前 sequencer 大小:', (this.sequencer as SortedSequencer<QueueItem>).size());
     
     // Add to data source (for persistence)
     await this.hybridSource.insertAt(itemsWithFlag, 0);
-    console.log('[RetrievalPracticeQueue] ✅ hybridSource.insertAt() 完成');
-    console.log('[RetrievalPracticeQueue] 更新后 localBuffer 大小:', this.hybridSource['localBuffer'].length);
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] ✅ hybridSource.insertAt() 完成');
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] 更新后 localBuffer 大小:', this.hybridSource['localBuffer'].length);
     
     // Add to sequencer (for immediate availability)
-    console.log('[RetrievalPracticeQueue] ✅ 准备调用 sequencer.insertMany()');
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] ✅ 准备调用 sequencer.insertMany()');
     (this.sequencer as SortedSequencer<QueueItem>).insertMany(itemsWithFlag);
-    console.log('[RetrievalPracticeQueue] ✅ sequencer.insertMany() 完成');
-    console.log('[RetrievalPracticeQueue] 更新后 sequencer 大小:', (this.sequencer as SortedSequencer<QueueItem>).size());
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] ✅ sequencer.insertMany() 完成');
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] 更新后 sequencer 大小:', (this.sequencer as SortedSequencer<QueueItem>).size());
     
     // 验证插入结果
     const sequencerItems = (this.sequencer as SortedSequencer<QueueItem>).getAll();
     for (const item of items) {
       const found = sequencerItems.find(si => si.cardID === item.cardID);
       if (!found) {
-        console.error('[RetrievalPracticeQueue] ❌ 验证失败：卡片未在 sequencer 中找到', {
+        console.error('[SiyuanMemo][RetrievalPracticeQueue] ❌ 验证失败：卡片未在 sequencer 中找到', {
           cardID: item.cardID,
           blockID: item.blockID,
         });
       } else {
-        console.log('[RetrievalPracticeQueue] ✅ 验证成功：卡片已在 sequencer 中', {
+        console.log('[SiyuanMemo][RetrievalPracticeQueue] ✅ 验证成功：卡片已在 sequencer 中', {
           cardID: found.cardID,
           blockID: found.blockID,
           match: found.cardID === item.cardID && found.blockID === item.blockID,
@@ -670,8 +670,8 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
       }
     }
     
-    console.log('[RetrievalPracticeQueue] ========== addItems 完成，返回 ==========');
-    console.log('[RetrievalPracticeQueue] 返回值:', items.length);
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] ========== addItems 完成，返回 ==========');
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] 返回值:', items.length);
     
     return items.length;
   }
@@ -688,7 +688,7 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
     // 持久化（删除持久化文件）
     await this.hybridSource['_persistLocalQueue']();
 
-    console.log('[RetrievalPracticeQueue] Cleared', count, 'items from local queue');
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] Cleared', count, 'items from local queue');
     return count;
   }
 
@@ -723,15 +723,15 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
    * @protected
    */
   protected async rotateToEnd(item: QueueItem): Promise<void> {
-    console.log('[RetrievalPracticeQueue] ========== rotateToEnd START ==========');
-    console.log('[RetrievalPracticeQueue] Item to rotate:', {
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] ========== rotateToEnd START ==========');
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] Item to rotate:', {
       cardID: item.cardID,
       currentNextDues: item.nextDues,
     });
     
     // Step 1: Remove the item from the data source
     const removed = await this.hybridSource.remove([item]);
-    console.log(`[RetrievalPracticeQueue] Removed ${removed} item(s) from data source`);
+    console.log(`[SiyuanMemo][RetrievalPracticeQueue] Removed ${removed} item(s) from data source`);
 
     // Step 2: Set nextDues to current time (SM-15 style: dueDate = now)
     // This ensures the card is "immediately available" but doesn't always sort first
@@ -743,7 +743,7 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
       3: dueTimeISO,
       4: dueTimeISO,
     };
-    console.log(`[RetrievalPracticeQueue] Set nextDues to current time (SM-15 style)`, {
+    console.log(`[SiyuanMemo][RetrievalPracticeQueue] Set nextDues to current time (SM-15 style)`, {
       cardID: item.cardID,
       nextDues: item.nextDues,
       now,
@@ -753,18 +753,18 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
     // Step 3: Save the updated nextDues to Storage if available
     // Note: FSRSCard doesn't have nextDues field, so we don't update it in storage
     // The nextDues is only used by Riff and is stored in the queue data source
-    console.log(`[RetrievalPracticeQueue] ⚠️ nextDues is a Riff-specific field, not saved to FSRSCard storage`);
+    console.log(`[SiyuanMemo][RetrievalPracticeQueue] ⚠️ nextDues is a Riff-specific field, not saved to FSRSCard storage`);
 
     // Step 4: Re-insert into data source (for persistence)
     await this.hybridSource.insertAt([item], Number.MAX_SAFE_INTEGER);
-    console.log(`[RetrievalPracticeQueue] Re-inserted item into data source`);
+    console.log(`[SiyuanMemo][RetrievalPracticeQueue] Re-inserted item into data source`);
 
     // Step 5: Insert into sequencer using binary search (SM-15 style)
     // This is the key difference: SortedSequencer.insert() uses binary search
     // to find the correct position, just like SM-15's _findIndexToInsert()
     (this.sequencer as SortedSequencer<QueueItem>).insert(item);
-    console.log(`[RetrievalPracticeQueue] Inserted item into sequencer using binary search`);
+    console.log(`[SiyuanMemo][RetrievalPracticeQueue] Inserted item into sequencer using binary search`);
     
-    console.log('[RetrievalPracticeQueue] ========== rotateToEnd END ==========');
+    console.log('[SiyuanMemo][RetrievalPracticeQueue] ========== rotateToEnd END ==========');
   }
 }

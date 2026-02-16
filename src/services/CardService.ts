@@ -101,16 +101,16 @@ export class CardService {
           component: SrsEditorDialog,
           props: {
             card: {
-              cardID,
-              blockID,
-              deckID: riff.BUILTIN_DECK_ID,
+              id: cardID,
+              blockId: blockID,
+              deckId: riff.BUILTIN_DECK_ID,
             },
-            deckID: riff.BUILTIN_DECK_ID,
+            deckId: riff.BUILTIN_DECK_ID,
             plugin: this.plugin,  // ✅ 传递 plugin 实例
             i18n: this.plugin.i18n || {},
           },
-          width: '760px',
-          height: '70vh',
+          width: '860px',
+          height: '80vh',
         });
       },
     });

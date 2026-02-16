@@ -169,8 +169,13 @@ function handleCancel() {
   background-color: var(--b3-theme-background);
   border-radius: var(--b3-border-radius);
   padding: 16px;
-  min-width: 420px;
+  min-width: 480px;
+  min-height: 560px;
+  max-height: 90vh;
+  overflow-y: auto;
   box-shadow: var(--b3-dialog-shadow);
+  display: flex;
+  flex-direction: column;
 }
 
 .schedule-date-dialog__header {
@@ -181,6 +186,7 @@ function handleCancel() {
   font-size: 16px;
   margin-bottom: 16px;
   color: var(--b3-theme-on-background);
+  flex-shrink: 0;
 }
 
 .schedule-date-dialog__header svg {
@@ -191,10 +197,12 @@ function handleCancel() {
 
 .schedule-date-dialog__content {
   margin-bottom: 20px;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .schedule-date-dialog__section {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   padding: 12px;
   background-color: var(--b3-theme-surface);
   border-radius: var(--b3-border-radius);
@@ -205,7 +213,7 @@ function handleCancel() {
 }
 
 .schedule-date-dialog__field {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .schedule-date-dialog__field:last-child {
@@ -227,6 +235,17 @@ function handleCancel() {
   font-size: 14px;
   border-radius: var(--b3-border-radius);
   transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  line-height: 1.5;
+  min-height: 38px;
+}
+
+.schedule-date-dialog__field select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px;
+  padding-right: 36px;
 }
 
 .schedule-date-dialog__field input:focus,
@@ -239,8 +258,9 @@ function handleCancel() {
 .schedule-date-dialog__ratings {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 8px;
+  gap: 4px;
+  padding: 4px;
+  min-height: 180px;
 }
 
 .schedule-date-dialog__rating {
@@ -283,6 +303,7 @@ function handleCancel() {
   gap: 8px;
   padding-top: 12px;
   border-top: 1px solid var(--b3-theme-surface);
+  flex-shrink: 0;
 }
 
 .schedule-date-dialog__actions .b3-button {

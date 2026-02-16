@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 概念卡查询引擎
  * 
  * 专门为概念卡神经漫游设计的查询引擎，提供：
@@ -61,10 +61,10 @@ export class ConceptQueryEngine {
       // 去重（同一个块可能同时是反链和正链）
       const uniqueNeighbors = this.deduplicateNeighbors(neighbors);
       
-      console.log(`[ConceptQueryEngine] Found ${uniqueNeighbors.length} unique neighbors for ${conceptId}`);
+      console.log(`[SiyuanMemo] ConceptQueryEngine: Found ${uniqueNeighbors.length} unique neighbors for ${conceptId}`);
       return uniqueNeighbors;
     } catch (error) {
-      console.error('[ConceptQueryEngine] Failed to fetch neighbors:', error);
+      console.error('[SiyuanMemo][ConceptQueryEngine] Failed to fetch neighbors:', error);
       return [];
     }
   }
@@ -79,7 +79,7 @@ export class ConceptQueryEngine {
    */
   async fetchBacklinks(conceptId: string): Promise<string[]> {
     try {
-      console.log(`[ConceptQueryEngine] Fetching backlinks for: ${conceptId}`);
+      console.log(`[SiyuanMemo] ConceptQueryEngine: Fetching backlinks for: ${conceptId}`);
       
       // 使用 /api/ref/getBacklink API
       const response = await fetch('/api/ref/getBacklink', {
@@ -93,23 +93,23 @@ export class ConceptQueryEngine {
       });
 
       if (!response.ok) {
-        console.error(`[ConceptQueryEngine] API request failed: ${response.status}`);
+        console.error(`[SiyuanMemo][ConceptQueryEngine] API request failed: ${response.status}`);
         return [];
       }
 
       const data = await response.json();
       
       if (data.code !== 0) {
-        console.error(`[ConceptQueryEngine] API error: ${data.msg}`);
+        console.error(`[SiyuanMemo][ConceptQueryEngine] API error: ${data.msg}`);
         return [];
       }
 
       // 解析反链数据
       const backlinks = data.data?.backlinks || [];
-      console.log(`[ConceptQueryEngine] Raw backlinks count:`, backlinks.length);
+      console.log(`[SiyuanMemo] ConceptQueryEngine: Raw backlinks count:`, backlinks.length);
       
       if (backlinks.length > 0) {
-        console.log(`[ConceptQueryEngine] First backlink sample:`, backlinks[0]);
+        console.log(`[SiyuanMemo] ConceptQueryEngine: First backlink sample:`, backlinks[0]);
       }
       
       // 递归提取所有块 ID
@@ -134,11 +134,11 @@ export class ConceptQueryEngine {
         extractBlockIds(backlink);
       }
 
-      console.log(`[ConceptQueryEngine] Found ${backlinkIds.length} backlink blocks:`, backlinkIds.slice(0, 10));
+      console.log(`[SiyuanMemo] ConceptQueryEngine: Found ${backlinkIds.length} backlink blocks:`, backlinkIds.slice(0, 10));
       
       return backlinkIds;
     } catch (error) {
-      console.error('[ConceptQueryEngine] Failed to fetch backlinks:', error);
+      console.error('[SiyuanMemo][ConceptQueryEngine] Failed to fetch backlinks:', error);
       return [];
     }
   }
@@ -172,15 +172,15 @@ export class ConceptQueryEngine {
       const rows = await api.sql(stmt);
       
       if (!rows || !Array.isArray(rows)) {
-        console.log(`[ConceptQueryEngine] No outgoing links found`);
+        console.log(`[SiyuanMemo] ConceptQueryEngine: No outgoing links found`);
         return [];
       }
 
       const linkIds = rows.map(row => row.id);
-      console.log(`[ConceptQueryEngine] Found ${linkIds.length} outgoing links`);
+      console.log(`[SiyuanMemo] ConceptQueryEngine: Found ${linkIds.length} outgoing links`);
       return linkIds;
     } catch (error) {
-      console.error('[ConceptQueryEngine] Failed to fetch outgoing links:', error);
+      console.error('[SiyuanMemo][ConceptQueryEngine] Failed to fetch outgoing links:', error);
       return [];
     }
   }
@@ -211,10 +211,10 @@ export class ConceptQueryEngine {
       }
 
       const descriptorIds = rows.map(row => row.id);
-      console.log(`[ConceptQueryEngine] Found ${descriptorIds.length} descriptors`);
+      console.log(`[SiyuanMemo] ConceptQueryEngine: Found ${descriptorIds.length} descriptors`);
       return descriptorIds;
     } catch (error) {
-      console.error('[ConceptQueryEngine] Failed to fetch descriptors:', error);
+      console.error('[SiyuanMemo][ConceptQueryEngine] Failed to fetch descriptors:', error);
       return [];
     }
   }
@@ -237,7 +237,7 @@ export class ConceptQueryEngine {
       const rows = await api.sql(stmt);
       return rows && rows.length > 0 && rows[0].value === 'concept';
     } catch (error) {
-      console.error('[ConceptQueryEngine] Failed to check if concept card:', error);
+      console.error('[SiyuanMemo][ConceptQueryEngine] Failed to check if concept card:', error);
       return false;
     }
   }
@@ -268,7 +268,7 @@ export class ConceptQueryEngine {
 
       return rows[0];
     } catch (error) {
-      console.error('[ConceptQueryEngine] Failed to fetch block data:', error);
+      console.error('[SiyuanMemo][ConceptQueryEngine] Failed to fetch block data:', error);
       return null;
     }
   }

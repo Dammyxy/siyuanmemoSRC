@@ -167,7 +167,7 @@ describe('Invalid Date Fix - 集成测试', () => {
     // 验证日志包含正确的信息
     const warnCalls = consoleWarnSpy.mock.calls;
     const invalidDateWarnings = warnCalls.filter(call => 
-      call[0] === '[IncrementalLearningQueue] Invalid due time detected:'
+      call[0] === '[SiyuanMemo][IncrementalLearningQueue] Invalid due time detected:'
     );
     
     expect(invalidDateWarnings.length).toBeGreaterThan(0);

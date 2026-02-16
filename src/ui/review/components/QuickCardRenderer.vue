@@ -93,7 +93,7 @@ async function loadFace(side: 'front' | 'back') {
 
     const result = await props.renderService.render(props.blockId, side, props.cardId);
 
-    console.log('[QuickCardRenderer] Render result:', result);
+    console.log('[SiyuanMemo][QuickCardRenderer] Render result:', result);
 
     if (!result) {
       throw new Error('Failed to load card: not a quick card');
@@ -105,7 +105,10 @@ async function loadFace(side: 'front' | 'back') {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
     error.value = errorMessage;
     emit('error', err instanceof Error ? err : new Error(errorMessage));
-    console.error('[QuickCardRenderer] Failed to load face:', err);
+    // 只在非预期错误时显示错误日志
+    if (!errorMessage.includes('not a quick card')) {
+      console.error('[SiyuanMemo][QuickCardRenderer] Failed to load face:', err);
+    }
   } finally {
     loading.value = false;
   }

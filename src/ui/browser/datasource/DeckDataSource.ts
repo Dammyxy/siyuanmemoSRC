@@ -79,7 +79,7 @@ export class DeckDataSource implements ICardDataSource {
     this.plugin = plugin;  // 🔧 可选的 plugin 对象
     this.options = options;
 
-    console.log('[DeckDataSource] Constructor - Using unified data source manager:', {
+    console.log('[SiyuanMemo][DeckDataSource] Constructor - Using unified data source manager:', {
       hasManager: !!this.manager,
       hasPlugin: !!this.plugin,
       currentMode: 'advanced',
@@ -87,7 +87,7 @@ export class DeckDataSource implements ICardDataSource {
   }
 
   async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
-    console.log('[DeckDataSource] fetchRows called with:', {
+    console.log('[SiyuanMemo][DeckDataSource] fetchRows called with:', {
       preset: this.options.preset,
       currentDocId: this.options.currentDocId,
       queryText: this.options.queryText,
@@ -98,7 +98,7 @@ export class DeckDataSource implements ICardDataSource {
     // 使用统一数据源管理器（从本地存储获取）
     try {
       const allCards = await this.manager.getCards();
-      console.log('[DeckDataSource] manager.getCards returned:', allCards.length, 'cards (advanced mode)');
+      console.log('[SiyuanMemo][DeckDataSource] manager.getCards returned:', allCards.length, 'cards (advanced mode)');
       
       // 转换为 BrowserCard 格式
       let rows = allCards.map(card => this.convertToBrowserCard(card));
@@ -142,7 +142,7 @@ export class DeckDataSource implements ICardDataSource {
         const sorted = applySort(rows, params?.sortModel || []);
         return { rows: sorted, totalCount: sorted.length };
       } catch (error) {
-        console.error('[DeckDataSource] Failed to fetch from manager:', error);
+        console.error('[SiyuanMemo][DeckDataSource] Failed to fetch from manager:', error);
         throw error;
       }
   }
@@ -282,9 +282,9 @@ export class DeckDataSource implements ICardDataSource {
     ];
 
     // 🆕 使用统一数据源管理器检测可用队列
-    console.log('[DeckDataSource] ========== getSupportedActions 调试 ==========');
-    console.log('[DeckDataSource] Manager:', this.manager);
-    console.log('[DeckDataSource] Current mode: advanced');
+    console.log('[SiyuanMemo][DeckDataSource] ========== getSupportedActions 调试 ==========');
+    console.log('[SiyuanMemo][DeckDataSource] Manager:', this.manager);
+    console.log('[SiyuanMemo][DeckDataSource] Current mode: advanced');
     
     const hasQueues = {
       retrieval: !!this.manager,  // 所有模式都支持提取练习
@@ -294,20 +294,20 @@ export class DeckDataSource implements ICardDataSource {
       neuralRoam: !!this.manager,  // 所有模式都支持神经漫游
     };
     
-    console.log('[DeckDataSource] buildAddToQueueAction 参数:', hasQueues);
+    console.log('[SiyuanMemo][DeckDataSource] buildAddToQueueAction 参数:', hasQueues);
     
     const addToQueueAction = buildAddToQueueAction(hasQueues);
     
-    console.log('[DeckDataSource] buildAddToQueueAction 返回值:', addToQueueAction);
+    console.log('[SiyuanMemo][DeckDataSource] buildAddToQueueAction 返回值:', addToQueueAction);
 
     if (addToQueueAction) {
       actions.push(addToQueueAction);
-      console.log('[DeckDataSource] ✅ 已添加"加入队列"菜单');
+      console.log('[SiyuanMemo][DeckDataSource] ✅ 已添加"加入队列"菜单');
     } else {
-      console.log('[DeckDataSource] ❌ 没有添加"加入队列"菜单（返回值为 null）');
+      console.log('[SiyuanMemo][DeckDataSource] ❌ 没有添加"加入队列"菜单（返回值为 null）');
     }
     
-    console.log('[DeckDataSource] ========== 调试结束 ==========');
+    console.log('[SiyuanMemo][DeckDataSource] ========== 调试结束 ==========');
 
     // 其他操作
     actions.push(
@@ -321,9 +321,9 @@ export class DeckDataSource implements ICardDataSource {
 
     if (this.plugin?.openSubsetReviewDialog) {
       actions.unshift({ id: 'review-subset', label: 'Review Subset', icon: 'iconPlay' });
-      console.log('[DeckDataSource] ✅ 已添加"选中复习"菜单');
+      console.log('[SiyuanMemo][DeckDataSource] ✅ 已添加"选中复习"菜单');
     } else {
-      console.log('[DeckDataSource] ❌ 没有添加"选中复习"菜单', {
+      console.log('[SiyuanMemo][DeckDataSource] ❌ 没有添加"选中复习"菜单', {
         hasPlugin: !!this.plugin,
         hasOpenSubsetReviewDialog: !!this.plugin?.openSubsetReviewDialog,
         pluginKeys: this.plugin ? Object.keys(this.plugin) : [],
@@ -334,10 +334,10 @@ export class DeckDataSource implements ICardDataSource {
   }
 
   async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<any> {
-    console.log('[DeckDataSource] ========== performAction 被调用 ==========');
-    console.log('[DeckDataSource] actionId:', actionId);
-    console.log('[DeckDataSource] selectedRows 数量:', selectedRows?.length);
-    console.log('[DeckDataSource] context:', context);
+    console.log('[SiyuanMemo][DeckDataSource] ========== performAction 被调用 ==========');
+    console.log('[SiyuanMemo][DeckDataSource] actionId:', actionId);
+    console.log('[SiyuanMemo][DeckDataSource] selectedRows 数量:', selectedRows?.length);
+    console.log('[SiyuanMemo][DeckDataSource] context:', context);
     
     // 打开操作
     if (actionId === 'open') return;
@@ -348,7 +348,7 @@ export class DeckDataSource implements ICardDataSource {
       
       // 检查是否有 storage
       if (!this.plugin?.storage) {
-        console.error('[DeckDataSource] Storage not available!');
+        console.error('[SiyuanMemo][DeckDataSource] Storage not available!');
         return 0;
       }
       
@@ -357,7 +357,7 @@ export class DeckDataSource implements ICardDataSource {
       
       // 如果删除失败，自动尝试强制删除
       if (deleted === 0 && blockIds.length > 0) {
-        console.warn('[DeckDataSource] 常规删除失败，自动尝试强制删除...');
+        console.warn('[SiyuanMemo][DeckDataSource] 常规删除失败，自动尝试强制删除...');
         deleted = await batchDelete(blockIds, this.plugin.storage);
       }
       
@@ -367,47 +367,47 @@ export class DeckDataSource implements ICardDataSource {
     // ========== 队列操作（使用统一数据源管理器）==========
 
     if (!this.manager) {
-      console.error('[DeckDataSource] UnifiedDataSourceManager not available!');
+      console.error('[SiyuanMemo][DeckDataSource] UnifiedDataSourceManager not available!');
       return;
     }
 
     // 提取练习
     if (actionId === 'add-to-retrieval-queue') {
-      console.log('[DeckDataSource] 处理：加入提取练习队列');
+      console.log('[SiyuanMemo][DeckDataSource] 处理：加入提取练习队列');
       const queue = this.manager.getQueue(QueueType.RetrievalPractice);
       return await addToQueue(queue as any, selectedRows, 'retrieval');
     }
 
     // 渐进学习
     if (actionId === 'add-to-incremental-queue') {
-      console.log('[DeckDataSource] 处理：加入渐进学习队列');
+      console.log('[SiyuanMemo][DeckDataSource] 处理：加入渐进学习队列');
       const queue = this.manager.getQueue(QueueType.IncrementalLearning);
       return await addToQueue(queue as any, selectedRows, 'incremental');
     }
 
     // 刻意练习（支持新旧两种 action ID）
     if (actionId === 'add-to-deliberate-queue' || actionId === 'add-to-final-drill-queue') {
-      console.log('[DeckDataSource] 处理：加入刻意练习队列');
+      console.log('[SiyuanMemo][DeckDataSource] 处理：加入刻意练习队列');
       const queue = this.manager.getQueue(QueueType.FinalDrill);
-      console.log('[DeckDataSource] ✅ 调用 addToQueue');
+      console.log('[SiyuanMemo][DeckDataSource] ✅ 调用 addToQueue');
       const result = await addToQueue(queue as any, selectedRows, 'final-drill');
-      console.log('[DeckDataSource] addToQueue 返回结果:', result);
+      console.log('[SiyuanMemo][DeckDataSource] addToQueue 返回结果:', result);
       return result;
     }
 
     // 筛选复习
     if (actionId === 'add-to-filter-group-queue') {
-      console.log('[DeckDataSource] 处理：加入筛选复习队列');
+      console.log('[SiyuanMemo][DeckDataSource] 处理：加入筛选复习队列');
       const queue = this.manager.getQueue(QueueType.FilterGroup);
-      console.log('[DeckDataSource] ✅ 调用 addToQueue');
+      console.log('[SiyuanMemo][DeckDataSource] ✅ 调用 addToQueue');
       const result = await addToQueue(queue as any, selectedRows, 'filter-group');
-      console.log('[DeckDataSource] addToQueue 返回结果:', result);
+      console.log('[SiyuanMemo][DeckDataSource] addToQueue 返回结果:', result);
       return result;
     }
 
     // 神经漫游（使用新架构）
     if (actionId === 'add-to-neural-roam-queue') {
-      console.log('[DeckDataSource] 处理：加入神经漫游队列');
+      console.log('[SiyuanMemo][DeckDataSource] 处理：加入神经漫游队列');
       const queue = this.manager.getQueue(QueueType.NeuralRoam);
       return await addToQueue(queue as any, selectedRows, 'neural-roam');
     }
@@ -447,6 +447,6 @@ export class DeckDataSource implements ICardDataSource {
       return await adjustTime(this.plugin, selectedRows, actionId as any, context);
     }
 
-    console.warn('[DeckDataSource] Unknown action:', actionId);
+    console.warn('[SiyuanMemo][DeckDataSource] Unknown action:', actionId);
   }
 }

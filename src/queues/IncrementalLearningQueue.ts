@@ -96,17 +96,17 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
                 dueDate: { lte: new Date(now) }
             });
             
-            console.log(`[IncrementalLearningQueue] 🔍 Got ${dueCards.length} due cards from manager`);
+            console.log(`[SiyuanMemo][IncrementalLearningQueue] 🔍 Got ${dueCards.length} due cards from manager`);
             
             // 获取手动添加的卡片
             const manualCards = await this.getManuallyAddedCards();
             
-            console.log(`[IncrementalLearningQueue] 🔍 Got ${manualCards.length} manually added cards`);
+            console.log(`[SiyuanMemo][IncrementalLearningQueue] 🔍 Got ${manualCards.length} manually added cards`);
             
             // 合并并去重
             const allCards = this.mergeAndDeduplicate(dueCards, manualCards);
             
-            console.log(`[IncrementalLearningQueue] 🔍 After merge: ${allCards.length} cards`);
+            console.log(`[SiyuanMemo][IncrementalLearningQueue] 🔍 After merge: ${allCards.length} cards`);
             
             // 过滤临时黑名单中的卡片
             const filteredCards = allCards.filter(card => 
@@ -114,7 +114,7 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
             );
             
             if (filteredCards.length < allCards.length) {
-                console.log(`[IncrementalLearningQueue] 🔍 Filtered ${allCards.length - filteredCards.length} cards from temporary blacklist`);
+                console.log(`[SiyuanMemo][IncrementalLearningQueue] 🔍 Filtered ${allCards.length - filteredCards.length} cards from temporary blacklist`);
             }
             
             // 按到期日期和优先级排序
@@ -123,7 +123,7 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
             // 应用自定义排序（如果存在）
             return this.applyCustomOrder(sortedCards);
         } catch (error) {
-            console.error('[IncrementalLearningQueue] Failed to get cards:', error);
+            console.error('[SiyuanMemo][IncrementalLearningQueue] Failed to get cards:', error);
             throw error;
         }
     }
@@ -161,12 +161,12 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
                 timestamp: Date.now()
             });
             
-            console.log(`[IncrementalLearningQueue] Card ${cardId} added manually`, {
+            console.log(`[SiyuanMemo][IncrementalLearningQueue] Card ${cardId} added manually`, {
                 wasBlacklisted,
                 temporaryBlacklistSize: this.temporaryBlacklist.size
             });
         } catch (error) {
-            console.error('[IncrementalLearningQueue] Failed to add card:', error);
+            console.error('[SiyuanMemo][IncrementalLearningQueue] Failed to add card:', error);
             throw error;
         }
     }
@@ -199,12 +199,12 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
                 await this.persistManuallyAddedCards();
             }
             
-            console.log(`[IncrementalLearningQueue] Card ${cardIdOrBlockId} removed`, {
+            console.log(`[SiyuanMemo][IncrementalLearningQueue] Card ${cardIdOrBlockId} removed`, {
                 wasManuallyAdded,
                 temporaryBlacklistSize: this.temporaryBlacklist.size
             });
         } catch (error) {
-            console.error('[IncrementalLearningQueue] Failed to remove card:', error);
+            console.error('[SiyuanMemo][IncrementalLearningQueue] Failed to remove card:', error);
             // 即使出错，也要尝试加入临时黑名单
             this.temporaryBlacklist.add(cardIdOrBlockId);
             throw error;
@@ -235,10 +235,10 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
             if (rating < 3) {
                 const finalDrillQueue = this.manager.getQueue(QueueType.FinalDrill);
                 await finalDrillQueue.addCard(cardId, 'auto-failed');
-                console.log(`[IncrementalLearningQueue] Card ${cardId} with rating ${rating} added to FinalDrill`);
+                console.log(`[SiyuanMemo][IncrementalLearningQueue] Card ${cardId} with rating ${rating} added to FinalDrill`);
             }
         } catch (error) {
-            console.error('[IncrementalLearningQueue] Failed to handle review:', error);
+            console.error('[SiyuanMemo][IncrementalLearningQueue] Failed to handle review:', error);
             throw error;
         }
     }
@@ -295,7 +295,7 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
                 cards.push(card);
             } catch (error) {
                 // 卡片不存在是预期行为（可能已被删除），自动清理
-                console.log(`[IncrementalLearningQueue] Card ${cardId} not found, removing from manual additions`);
+                console.log(`[SiyuanMemo][IncrementalLearningQueue] Card ${cardId} not found, removing from manual additions`);
                 this.manuallyAddedCards.delete(cardId);
             }
         }
@@ -352,10 +352,10 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
             if (stored) {
                 const cardIds: string[] = JSON.parse(stored);
                 this.manuallyAddedCards = new Set(cardIds);
-                console.log(`[IncrementalLearningQueue] Loaded ${cardIds.length} manually added cards from storage`);
+                console.log(`[SiyuanMemo][IncrementalLearningQueue] Loaded ${cardIds.length} manually added cards from storage`);
             }
         } catch (error) {
-            console.error('[IncrementalLearningQueue] Failed to load manually added cards:', error);
+            console.error('[SiyuanMemo][IncrementalLearningQueue] Failed to load manually added cards:', error);
             this.manuallyAddedCards = new Set();
         }
     }
@@ -367,9 +367,9 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
         try {
             const cardIds = Array.from(this.manuallyAddedCards);
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(cardIds));
-            console.log(`[IncrementalLearningQueue] Persisted ${cardIds.length} manually added cards`);
+            console.log(`[SiyuanMemo][IncrementalLearningQueue] Persisted ${cardIds.length} manually added cards`);
         } catch (error) {
-            console.error('[IncrementalLearningQueue] Failed to persist manually added cards:', error);
+            console.error('[SiyuanMemo][IncrementalLearningQueue] Failed to persist manually added cards:', error);
             throw error;
         }
     }
@@ -383,7 +383,7 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
      * @deprecated 使用 getAllCards() 代替
      */
     public getAllItems(): any[] {
-        console.warn('[IncrementalLearningQueue] getAllItems() is deprecated, use getAllCards() instead');
+        console.warn('[SiyuanMemo][IncrementalLearningQueue] getAllItems() is deprecated, use getAllCards() instead');
         // 返回当前缓存的卡片
         return this.cards;
     }

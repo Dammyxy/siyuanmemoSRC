@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 概念卡神经漫游队列
  * 
  * 专门为概念卡设计的简化神经漫游实现：
@@ -52,8 +52,8 @@ export class ConceptNeuralQueue {
    */
   async getNextCard(): Promise<QueueItem | null> {
     try {
-      console.log('[ConceptNeuralQueue] getNextCard called');
-      console.log('[ConceptNeuralQueue] Current state:', {
+      console.log('[SiyuanMemo][ConceptNeuralQueue] getNextCard called');
+      console.log('[SiyuanMemo][ConceptNeuralQueue] Current state:', {
         currentSeed: this.currentSeed,
         seeds: Array.from(this.seeds.keys()),
         visitedBlocks: Array.from(this.visitedBlocks),
@@ -64,32 +64,32 @@ export class ConceptNeuralQueue {
       if (!this.currentSeed || this.shouldRotateSeed()) {
         this.currentSeed = this.selectNextSeed();
         if (!this.currentSeed) {
-          console.log('[ConceptNeuralQueue] No unvisited seeds available');
+          console.log('[SiyuanMemo][ConceptNeuralQueue] No unvisited seeds available');
           return null;
         }
-        console.log(`[ConceptNeuralQueue] Selected seed: ${this.currentSeed} (priority: ${this.seeds.get(this.currentSeed)?.priority})`);
+        console.log(`[SiyuanMemo][ConceptNeuralQueue] Selected seed: ${this.currentSeed} (priority: ${this.seeds.get(this.currentSeed)?.priority})`);
       }
 
       // 2. 获取当前种子的邻居
-      console.log(`[ConceptNeuralQueue] Fetching neighbors for seed: ${this.currentSeed}`);
+      console.log(`[SiyuanMemo][ConceptNeuralQueue] Fetching neighbors for seed: ${this.currentSeed}`);
       const neighbors = await this.queryEngine.fetchNeighbors(this.currentSeed);
-      console.log(`[ConceptNeuralQueue] Found ${neighbors.length} total neighbors`);
+      console.log(`[SiyuanMemo][ConceptNeuralQueue] Found ${neighbors.length} total neighbors`);
       
       // 3. 过滤掉已访问的邻居
       const unvisitedNeighbors = neighbors.filter(n => !this.visitedBlocks.has(n.id));
       
-      console.log(`[ConceptNeuralQueue] Found ${unvisitedNeighbors.length} unvisited neighbors (total: ${neighbors.length})`);
+      console.log(`[SiyuanMemo][ConceptNeuralQueue] Found ${unvisitedNeighbors.length} unvisited neighbors (total: ${neighbors.length})`);
 
       // 4. 如果有未访问的邻居，加权随机选择一个
       if (unvisitedNeighbors.length > 0) {
         const selected = this.weightedRandomSelect(unvisitedNeighbors);
-        console.log(`[ConceptNeuralQueue] Selected neighbor: ${selected.id} (type: ${selected.type}, weight: ${selected.weight})`);
+        console.log(`[SiyuanMemo][ConceptNeuralQueue] Selected neighbor: ${selected.id} (type: ${selected.type}, weight: ${selected.weight})`);
         
         const blockData = await this.queryEngine.fetchBlockData(selected.id);
         
         if (!blockData) {
           // 块不存在，标记为已访问并重试
-          console.warn(`[ConceptNeuralQueue] Block ${selected.id} not found, marking as visited`);
+          console.warn(`[SiyuanMemo][ConceptNeuralQueue] Block ${selected.id} not found, marking as visited`);
           this.visitedBlocks.add(selected.id);
           return this.getNextCard();
         }
@@ -102,21 +102,21 @@ export class ConceptNeuralQueue {
         const seedState = this.seeds.get(this.currentSeed);
         if (seedState) {
           seedState.neighborsViewed++;
-          console.log(`[ConceptNeuralQueue] Seed ${this.currentSeed} has viewed ${seedState.neighborsViewed} neighbors`);
+          console.log(`[SiyuanMemo][ConceptNeuralQueue] Seed ${this.currentSeed} has viewed ${seedState.neighborsViewed} neighbors`);
         }
         
-        console.log(`[ConceptNeuralQueue] Returning neighbor card: ${selected.id}`);
+        console.log(`[SiyuanMemo][ConceptNeuralQueue] Returning neighbor card: ${selected.id}`);
         
         return this.buildQueueItem(blockData, selected.type, this.getReasonText(selected.type));
       }
 
       // 5. 没有未访问的邻居，检查种子本身是否已展示
       if (!this.visitedBlocks.has(this.currentSeed)) {
-        console.log(`[ConceptNeuralQueue] No unvisited neighbors, returning seed itself: ${this.currentSeed}`);
+        console.log(`[SiyuanMemo][ConceptNeuralQueue] No unvisited neighbors, returning seed itself: ${this.currentSeed}`);
         
         const blockData = await this.queryEngine.fetchBlockData(this.currentSeed);
         if (!blockData) {
-          console.error(`[ConceptNeuralQueue] Seed ${this.currentSeed} not found`);
+          console.error(`[SiyuanMemo][ConceptNeuralQueue] Seed ${this.currentSeed} not found`);
           this.currentSeed = null;
           return this.getNextCard();
         }
@@ -129,13 +129,13 @@ export class ConceptNeuralQueue {
       }
 
       // 6. 种子和所有邻居都已访问，轮换到下一个种子
-      console.log(`[ConceptNeuralQueue] Seed ${this.currentSeed} exhausted, rotating to next seed`);
+      console.log(`[SiyuanMemo][ConceptNeuralQueue] Seed ${this.currentSeed} exhausted, rotating to next seed`);
       this.rotateSeed();
       
       // 递归调用
       return this.getNextCard();
     } catch (error) {
-      console.error('[ConceptNeuralQueue] Error in getNextCard:', error);
+      console.error('[SiyuanMemo][ConceptNeuralQueue] Error in getNextCard:', error);
       return null;
     }
   }
@@ -162,7 +162,7 @@ export class ConceptNeuralQueue {
       addedAt: Date.now(),
     });
     
-    console.log(`[ConceptNeuralQueue] Added seed: ${blockId} (priority: ${priorityValue}, total: ${this.seeds.size})`);
+    console.log(`[SiyuanMemo][ConceptNeuralQueue] Added seed: ${blockId} (priority: ${priorityValue}, total: ${this.seeds.size})`);
   }
 
   /**
@@ -172,7 +172,7 @@ export class ConceptNeuralQueue {
    */
   removeSeed(blockId: string): void {
     this.seeds.delete(blockId);
-    console.log(`[ConceptNeuralQueue] Removed seed: ${blockId} (remaining: ${this.seeds.size})`);
+    console.log(`[SiyuanMemo][ConceptNeuralQueue] Removed seed: ${blockId} (remaining: ${this.seeds.size})`);
   }
 
   /**
@@ -199,7 +199,7 @@ export class ConceptNeuralQueue {
         addedAt: Date.now(),
       });
     }
-    console.log(`[ConceptNeuralQueue] Restored ${seedIds.length} seeds`);
+    console.log(`[SiyuanMemo][ConceptNeuralQueue] Restored ${seedIds.length} seeds`);
   }
 
   /**
@@ -209,7 +209,7 @@ export class ConceptNeuralQueue {
     this.visitedBlocks.clear();
     this.displayPath = [];
     this.currentSeed = null;
-    console.log('[ConceptNeuralQueue] History cleared');
+    console.log('[SiyuanMemo][ConceptNeuralQueue] History cleared');
   }
 
   /**
@@ -249,7 +249,7 @@ export class ConceptNeuralQueue {
       }
     }
     this.currentSeed = null; // 下次调用时重新选择
-    console.log('[ConceptNeuralQueue] Rotated seed, will select new seed on next call');
+    console.log('[SiyuanMemo][ConceptNeuralQueue] Rotated seed, will select new seed on next call');
   }
 
   /**

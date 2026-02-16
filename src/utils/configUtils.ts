@@ -25,7 +25,7 @@ export function getDayStartHour(plugin: Plugin): number {
     
     return validateDayStartHour(dayStartHour);
   } catch (error) {
-    console.error('[Config] Failed to load dayStartHour:', error);
+    console.error('[SiyuanMemo][Config] Failed to load dayStartHour:', error);
     return 4;  // 使用默认值
   }
 }
@@ -59,9 +59,9 @@ export async function saveDayStartHour(plugin: Plugin, dayStartHour: number): Pr
     };
     
     await storage.saveSettings(newSettings);
-    console.log('[Config] Saved dayStartHour:', validated);
+    console.log('[SiyuanMemo][Config] Saved dayStartHour:', validated);
   } catch (error) {
-    console.error('[Config] Failed to save dayStartHour:', error);
+    console.error('[SiyuanMemo][Config] Failed to save dayStartHour:', error);
     throw error;
   }
 }
@@ -80,7 +80,7 @@ function validateDayStartHour(value: any): number {
     value < 0 ||
     value > 23
   ) {
-    console.warn('[Config] Invalid dayStartHour:', value, 'using default 4');
+    console.warn('[SiyuanMemo][Config] Invalid dayStartHour:', value, 'using default 4');
     return 4;  // 使用默认值
   }
   

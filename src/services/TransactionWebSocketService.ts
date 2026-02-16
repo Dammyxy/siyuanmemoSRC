@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 统一的 Transaction WebSocket 服务
  * 
  * 职责：
@@ -102,7 +102,7 @@ export class TransactionWebSocketService {
     public registerHandler(handler: ITransactionHandler): void {
         if (!this.handlers.includes(handler)) {
             this.handlers.push(handler);
-            console.log('[TransactionWS] Handler registered:', handler.constructor.name);
+            console.log('[SiyuanMemo][TransactionWS] Handler registered:', handler.constructor.name);
         }
     }
     
@@ -114,7 +114,7 @@ export class TransactionWebSocketService {
         const index = this.handlers.indexOf(handler);
         if (index !== -1) {
             this.handlers.splice(index, 1);
-            console.log('[TransactionWS] Handler unregistered:', handler.constructor.name);
+            console.log('[SiyuanMemo][TransactionWS] Handler unregistered:', handler.constructor.name);
         }
     }
     
@@ -123,11 +123,11 @@ export class TransactionWebSocketService {
      */
     public start(): void {
         if (this.ws) {
-            console.log('[TransactionWS] Service already started');
+            console.log('[SiyuanMemo][TransactionWS] Service already started');
             return;
         }
         
-        console.log('[TransactionWS] Starting service...');
+        console.log('[SiyuanMemo][TransactionWS] Starting service...');
         this.enabled = true;
         this.connect();
     }
@@ -136,7 +136,7 @@ export class TransactionWebSocketService {
      * 停止服务
      */
     public stop(): void {
-        console.log('[TransactionWS] Stopping service...');
+        console.log('[SiyuanMemo][TransactionWS] Stopping service...');
         this.enabled = false;
         
         // 清理定时器
@@ -151,7 +151,7 @@ export class TransactionWebSocketService {
             this.ws = null;
         }
         
-        console.log('[TransactionWS] Service stopped');
+        console.log('[SiyuanMemo][TransactionWS] Service stopped');
     }
     
     /**
@@ -160,7 +160,7 @@ export class TransactionWebSocketService {
     private connect(): void {
         try {
             const wsUrl = this.getWebSocketURL();
-            console.log('[TransactionWS] Connecting to WebSocket:', wsUrl);
+            console.log('[SiyuanMemo][TransactionWS] Connecting to WebSocket:', wsUrl);
             
             // 创建 WebSocket 连接
             // 参数：app=siyuanmemo&type=main
@@ -169,7 +169,7 @@ export class TransactionWebSocketService {
             
             // 连接成功
             this.ws.onopen = () => {
-                console.log('[TransactionWS] ✅ WebSocket connected');
+                console.log('[SiyuanMemo][TransactionWS] ✅ WebSocket connected');
             };
             
             // 接收消息
@@ -179,22 +179,22 @@ export class TransactionWebSocketService {
             
             // 连接错误
             this.ws.onerror = (error) => {
-                console.error('[TransactionWS] ❌ WebSocket error:', error);
+                console.error('[SiyuanMemo][TransactionWS] ❌ WebSocket error:', error);
             };
             
             // 连接关闭
             this.ws.onclose = (event) => {
-                console.log('[TransactionWS] WebSocket closed:', event.code, event.reason);
+                console.log('[SiyuanMemo][TransactionWS] WebSocket closed:', event.code, event.reason);
                 this.ws = null;
                 
                 // 非正常关闭，自动重连
                 if (event.code !== 1000 && this.enabled) {
-                    console.log('[TransactionWS] Connection closed abnormally, reconnecting...');
+                    console.log('[SiyuanMemo][TransactionWS] Connection closed abnormally, reconnecting...');
                     this.reconnect();
                 }
             };
         } catch (error) {
-            console.error('[TransactionWS] ❌ Failed to connect:', error);
+            console.error('[SiyuanMemo][TransactionWS] ❌ Failed to connect:', error);
             
             // 连接失败，自动重连
             if (this.enabled) {
@@ -211,7 +211,7 @@ export class TransactionWebSocketService {
             return; // 已经在重连中
         }
         
-        console.log(`[TransactionWS] Reconnecting in ${this.RECONNECT_DELAY}ms...`);
+        console.log(`[SiyuanMemo][TransactionWS] Reconnecting in ${this.RECONNECT_DELAY}ms...`);
         
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
@@ -236,7 +236,7 @@ export class TransactionWebSocketService {
             
             this.handleTransactions(message.data);
         } catch (error) {
-            console.error('[TransactionWS] ❌ Failed to parse message:', error);
+            console.error('[SiyuanMemo][TransactionWS] ❌ Failed to parse message:', error);
         }
     }
     
@@ -248,14 +248,14 @@ export class TransactionWebSocketService {
             return;
         }
         
-        console.log('[TransactionWS] Transaction received, count:', data.length);
+        console.log('[SiyuanMemo][TransactionWS] Transaction received, count:', data.length);
         
         // 分发给所有注册的处理器
         for (const handler of this.handlers) {
             try {
                 handler.handle(data);
             } catch (error) {
-                console.error('[TransactionWS] ❌ Handler error:', handler.constructor.name, error);
+                console.error('[SiyuanMemo][TransactionWS] ❌ Handler error:', handler.constructor.name, error);
                 // 继续处理其他处理器，不中断
             }
         }

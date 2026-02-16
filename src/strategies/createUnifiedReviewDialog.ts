@@ -56,7 +56,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
     const { plugin, queueType, title, onClose } = options;
     
     try {
-        console.log(`[createUnifiedReviewDialog] Creating dialog for queue: ${queueType}`);
+        console.log(`[SiyuanMemo][createUnifiedReviewDialog] Creating dialog for queue: ${queueType}`);
         
         // 创建统一队列策略
         const queue = new UnifiedQueueStrategy(queueType);
@@ -96,9 +96,9 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
                     if (syncManager.reviewCount > 0) {
                         try {
                             await plugin.hybridSyncService?.incrementalSync();
-                            console.log('[createUnifiedReviewDialog] Data synced on close');
+                            console.log('[SiyuanMemo][createUnifiedReviewDialog] Data synced on close');
                         } catch (err) {
-                            console.error('[createUnifiedReviewDialog] Sync failed on close:', err);
+                            console.error('[SiyuanMemo][createUnifiedReviewDialog] Sync failed on close:', err);
                         }
                     }
                 }
@@ -108,12 +108,12 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
             },
         });
         
-        console.log(`[createUnifiedReviewDialog] Dialog created successfully for queue: ${queueType}`);
+        console.log(`[SiyuanMemo][createUnifiedReviewDialog] Dialog created successfully for queue: ${queueType}`);
         
         return dialog;
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error(`[createUnifiedReviewDialog] Failed to create dialog:`, {
+        console.error(`[SiyuanMemo][createUnifiedReviewDialog] Failed to create dialog:`, {
             queueType,
             error: errorMessage
         });

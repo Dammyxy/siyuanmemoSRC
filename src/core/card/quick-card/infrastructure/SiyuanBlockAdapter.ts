@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 思源块适配器
  * 
  * @description 封装思源 API 调用，获取块数据
@@ -77,19 +77,19 @@ export class SiyuanBlockAdapter {
       });
 
       if (!infoResponse.ok) {
-        console.warn(`[SiyuanBlockAdapter] HTTP error: ${infoResponse.status} ${infoResponse.statusText}`);
+        console.warn(`[SiyuanMemo][SiyuanBlockAdapter] HTTP error: ${infoResponse.status} ${infoResponse.statusText}`);
         return null;
       }
 
       const infoResult: SiyuanApiResponse<BlockInfoData> = await infoResponse.json();
 
       if (infoResult.code !== 0) {
-        console.warn(`[SiyuanBlockAdapter] API error: ${infoResult.code} ${infoResult.msg}`);
+        console.warn(`[SiyuanMemo][SiyuanBlockAdapter] API error: ${infoResult.code} ${infoResult.msg}`);
         return null;
       }
 
       if (!infoResult.data) {
-        console.warn(`[SiyuanBlockAdapter] Block not found: ${blockId}`);
+        console.warn(`[SiyuanMemo][SiyuanBlockAdapter] Block not found: ${blockId}`);
         return null;
       }
 
@@ -103,14 +103,14 @@ export class SiyuanBlockAdapter {
       });
 
       if (!kramdownResponse.ok) {
-        console.warn(`[SiyuanBlockAdapter] Failed to get kramdown: ${kramdownResponse.status}`);
+        console.warn(`[SiyuanMemo][SiyuanBlockAdapter] Failed to get kramdown: ${kramdownResponse.status}`);
         return null;
       }
 
       const kramdownResult: SiyuanApiResponse<BlockKramdownData> = await kramdownResponse.json();
 
       if (kramdownResult.code !== 0 || !kramdownResult.data) {
-        console.warn(`[SiyuanBlockAdapter] Failed to get kramdown for block: ${blockId}`);
+        console.warn(`[SiyuanMemo][SiyuanBlockAdapter] Failed to get kramdown for block: ${blockId}`);
         return null;
       }
 
@@ -121,7 +121,7 @@ export class SiyuanBlockAdapter {
         parentID: infoResult.data.parentID,
       };
     } catch (error) {
-      console.error(`[SiyuanBlockAdapter] Failed to get block ${blockId}:`, error);
+      console.error(`[SiyuanMemo][SiyuanBlockAdapter] Failed to get block ${blockId}:`, error);
       return null;
     }
   }

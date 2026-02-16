@@ -109,13 +109,13 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
         // 🆕 验证种子块（异步，不阻塞构造函数）
         this.validateSeedBlocks().catch(error => {
-            console.warn('[NeuralRoamQueue] 种子块验证失败:', error);
+            console.warn('[SiyuanMemo][NeuralRoamQueue] 种子块验证失败:', error);
         });
 
         // 🔑 如果有种子块但没有当前种子，选择第一个种子块作为初始种子
         if (!this.currentSeed && this.seedBlocks.size > 0) {
             this.currentSeed = Array.from(this.seedBlocks)[0];
-            console.log(`[NeuralRoamQueue] Selected first seed block as initial seed: ${this.currentSeed}`);
+            console.log(`[SiyuanMemo][NeuralRoamQueue] Selected first seed block as initial seed: ${this.currentSeed}`);
         }
 
         // 创建神经队列实例
@@ -126,10 +126,10 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         if (this.seedBlocks.size > 0) {
             const seedIds = Array.from(this.seedBlocks);
             this.neuralQueue.restoreSeedNodes(seedIds);
-            console.log(`[NeuralRoamQueue] Synced ${seedIds.length} seed blocks to NeuralQueue`);
+            console.log(`[SiyuanMemo][NeuralRoamQueue] Synced ${seedIds.length} seed blocks to NeuralQueue`);
         }
 
-        console.log('[NeuralRoamQueue] Initialized with', this.seedBlocks.size, 'seed blocks');
+        console.log('[SiyuanMemo][NeuralRoamQueue] Initialized with', this.seedBlocks.size, 'seed blocks');
     }
 
     /**
@@ -160,13 +160,13 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                     const card = await this.manager.getCard(seedId);
                     cards.push(card);
                 } catch (error) {
-                    console.warn(`[NeuralRoamQueue] Seed block ${seedId} not found`);
+                    console.warn(`[SiyuanMemo][NeuralRoamQueue] Seed block ${seedId} not found`);
                 }
             }
 
             return cards;
         } catch (error) {
-            console.error('[NeuralRoamQueue] Failed to get cards:', error);
+            console.error('[SiyuanMemo][NeuralRoamQueue] Failed to get cards:', error);
             throw error;
         }
     }
@@ -192,9 +192,9 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 timestamp: Date.now()
             });
 
-            console.log(`[NeuralRoamQueue] Seed block added: ${cardId}`);
+            console.log(`[SiyuanMemo][NeuralRoamQueue] Seed block added: ${cardId}`);
         } catch (error) {
-            console.error('[NeuralRoamQueue] Failed to add seed block:', error);
+            console.error('[SiyuanMemo][NeuralRoamQueue] Failed to add seed block:', error);
             throw error;
         }
     }
@@ -215,9 +215,9 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             }
 
             await this.persistSeeds();
-            console.log(`[NeuralRoamQueue] Seed block removed: ${cardIdOrBlockId}`);
+            console.log(`[SiyuanMemo][NeuralRoamQueue] Seed block removed: ${cardIdOrBlockId}`);
         } catch (error) {
-            console.error('[NeuralRoamQueue] Failed to remove seed block:', error);
+            console.error('[SiyuanMemo][NeuralRoamQueue] Failed to remove seed block:', error);
             throw error;
         }
     }
@@ -246,14 +246,14 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 // 使用静默模式，不为主题块记录错误日志
                 card = await this.manager.getCard(cardId, { silent: true });
                 isFlashcard = true;
-                console.log(`[NeuralRoamQueue] Found flashcard in manager: ${cardId}`);
+                console.log(`[SiyuanMemo][NeuralRoamQueue] Found flashcard in manager: ${cardId}`);
             } catch (error) {
                 // 如果不是闪卡，从 SQL 获取块数据
-                console.log(`[NeuralRoamQueue] Card ${cardId} not in manager, fetching from SQL`);
+                console.log(`[SiyuanMemo][NeuralRoamQueue] Card ${cardId} not in manager, fetching from SQL`);
                 const blockData = await this.fetchBlockDataFromSQL(cardId);
 
                 if (!blockData) {
-                    console.warn(`[NeuralRoamQueue] Block ${cardId} not found in SQL either`);
+                    console.warn(`[SiyuanMemo][NeuralRoamQueue] Block ${cardId} not found in SQL either`);
                     return; // 静默失败，不抛出错误
                 }
 
@@ -263,7 +263,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             }
 
             if (!card) {
-                console.warn(`[NeuralRoamQueue] Failed to get card data for ${cardId}`);
+                console.warn(`[SiyuanMemo][NeuralRoamQueue] Failed to get card data for ${cardId}`);
                 return;
             }
 
@@ -272,7 +272,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 card.due = this.calculateNextDueDate(card, rating);
                 await this.manager.updateCard(card);
 
-                console.log(`[NeuralRoamQueue] Card ${cardId} reviewed with rating ${rating}`);
+                console.log(`[SiyuanMemo][NeuralRoamQueue] Card ${cardId} reviewed with rating ${rating}`);
 
                 // 通知观察者
                 this.manager.notifyObservers({
@@ -281,10 +281,10 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                     timestamp: Date.now()
                 });
             } else {
-                console.log(`[NeuralRoamQueue] Skipped rating for non-item card ${cardId} (type: ${card.type})`);
+                console.log(`[SiyuanMemo][NeuralRoamQueue] Skipped rating for non-item card ${cardId} (type: ${card.type})`);
             }
         } catch (error) {
-            console.error('[NeuralRoamQueue] Failed to handle review:', error);
+            console.error('[SiyuanMemo][NeuralRoamQueue] Failed to handle review:', error);
             // 不抛出错误，避免中断复习流程
         }
     }
@@ -315,7 +315,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 const queueItem = await this.neuralQueue.getNextItem();
 
                 if (!queueItem) {
-                    console.log('[NeuralRoamQueue] 神经队列已耗尽');
+                    console.log('[SiyuanMemo][NeuralRoamQueue] 神经队列已耗尽');
                     return null; // 正确标记队列结束
                 }
 
@@ -325,7 +325,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 if (blockData !== null) {
                     // 找到有效块，返回
                     if (attempts > 0) {
-                        console.log(`[NeuralRoamQueue] 尝试 ${attempts} 次后找到有效卡片`);
+                        console.log(`[SiyuanMemo][NeuralRoamQueue] 尝试 ${attempts} 次后找到有效卡片`);
                     }
 
                     // 转换为 FSRSCard 格式（包括非闪卡块）
@@ -334,15 +334,15 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 }
 
                 // 块被过滤，尝试下一个
-                console.log(`[NeuralRoamQueue] 块 ${queueItem.id} 被过滤，尝试下一个 (${attempts + 1}/${MAX_RETRIES})`);
+                console.log(`[SiyuanMemo][NeuralRoamQueue] 块 ${queueItem.id} 被过滤，尝试下一个 (${attempts + 1}/${MAX_RETRIES})`);
                 attempts++;
             }
 
             // 达到最大重试次数
-            console.warn('[NeuralRoamQueue] 达到最大重试次数，未找到有效卡片');
+            console.warn('[SiyuanMemo][NeuralRoamQueue] 达到最大重试次数，未找到有效卡片');
             return null;
         } catch (error) {
-            console.error('[NeuralRoamQueue] Failed to get next card:', error);
+            console.error('[SiyuanMemo][NeuralRoamQueue] Failed to get next card:', error);
             return null;
         }
     }
@@ -365,7 +365,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 if (currentCandidates.length > 0) {
                     // 记录遗落块
                     this.neuralQueue.setSeed(cardId, currentCandidates);
-                    console.log(`[NeuralRoamQueue] Recorded ${currentCandidates.length - 1} missed blocks for seed ${cardId}`);
+                    console.log(`[SiyuanMemo][NeuralRoamQueue] Recorded ${currentCandidates.length - 1} missed blocks for seed ${cardId}`);
                 }
 
                 // 🆕 保存当前路径状态（避免重建实例时丢失历史）
@@ -393,10 +393,10 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                         currentPathIndex,
                         navigationMode: 'explore',  // 锁定种子后切换到探索模式
                     });
-                    console.log(`[NeuralRoamQueue] Restored navigation state: index ${currentPathIndex}, total ${displayPath.length}`);
+                    console.log(`[SiyuanMemo][NeuralRoamQueue] Restored navigation state: index ${currentPathIndex}, total ${displayPath.length}`);
                 }
 
-                console.log(`[NeuralRoamQueue] Current block locked as seed: ${cardId}`);
+                console.log(`[SiyuanMemo][NeuralRoamQueue] Current block locked as seed: ${cardId}`);
             } else {
                 // 没有旧实例，直接初始化
                 this.currentSeed = cardId;
@@ -405,10 +405,10 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 const config = this.loadNeuralConfig();
                 this.neuralQueue = new NeuralQueue(config, this.currentSeed);
 
-                console.log(`[NeuralRoamQueue] Current block locked as seed: ${cardId}`);
+                console.log(`[SiyuanMemo][NeuralRoamQueue] Current block locked as seed: ${cardId}`);
             }
         } catch (error) {
-            console.error('[NeuralRoamQueue] Failed to lock current as seed:', error);
+            console.error('[SiyuanMemo][NeuralRoamQueue] Failed to lock current as seed:', error);
             throw error;
         }
     }
@@ -427,9 +427,9 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             const config = this.loadNeuralConfig();
             this.neuralQueue = new NeuralQueue(config, this.currentSeed);
 
-            console.log(`[NeuralRoamQueue] Started roaming from seed: ${seedId}`);
+            console.log(`[SiyuanMemo][NeuralRoamQueue] Started roaming from seed: ${seedId}`);
         } catch (error) {
-            console.error('[NeuralRoamQueue] Failed to start roaming from seed:', error);
+            console.error('[SiyuanMemo][NeuralRoamQueue] Failed to start roaming from seed:', error);
             throw error;
         }
     }
@@ -441,7 +441,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
      */
     public clearHistory(): void {
         this.neuralQueue.clearHistory();
-        console.log('[NeuralRoamQueue] History cleared');
+        console.log('[SiyuanMemo][NeuralRoamQueue] History cleared');
     }
 
     /**
@@ -515,7 +515,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
      */
     public setSeed(blockId: string, currentCandidates: import('../core/queue/neural/types').WeightedNeighbor[]): void {
         this.neuralQueue.setSeed(blockId, currentCandidates);
-        console.log(`[NeuralRoamQueue] Set seed via Orbit: ${blockId}`);
+        console.log(`[SiyuanMemo][NeuralRoamQueue] Set seed via Orbit: ${blockId}`);
     }
 
     /**
@@ -525,7 +525,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
      */
     public restoreHistory(snapshot: string[]): void {
         this.neuralQueue.restoreHistory(snapshot);
-        console.log(`[NeuralRoamQueue] History restored with ${snapshot.length} cards`);
+        console.log(`[SiyuanMemo][NeuralRoamQueue] History restored with ${snapshot.length} cards`);
     }
 
     /**
@@ -574,7 +574,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
      */
     public async reorder(orderedCards: FSRSCard[]): Promise<boolean> {
         try {
-            console.log(`[NeuralRoamQueue] Reordering ${orderedCards.length} seed blocks`);
+            console.log(`[SiyuanMemo][NeuralRoamQueue] Reordering ${orderedCards.length} seed blocks`);
 
             // 创建新的 Set 以保持顺序（虽然 Set 不保证顺序，但我们可以用数组）
             const newSeeds: string[] = [];
@@ -599,10 +599,10 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             // 持久化新顺序
             await this.persistSeeds();
 
-            console.log(`[NeuralRoamQueue] Reorder completed successfully`);
+            console.log(`[SiyuanMemo][NeuralRoamQueue] Reorder completed successfully`);
             return true;
         } catch (error) {
-            console.error('[NeuralRoamQueue] Failed to reorder:', error);
+            console.error('[SiyuanMemo][NeuralRoamQueue] Failed to reorder:', error);
             return false;
         }
     }
@@ -636,7 +636,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         const cached = this.blockMetadataCache.get(blockId);
         if (cached && (Date.now() - cached.timestamp < this.CACHE_TTL)) {
             this.cacheHits++;
-            console.log(`[NeuralRoamQueue] 从缓存获取块 ${blockId.slice(0, 8)}...`);
+            console.log(`[SiyuanMemo][NeuralRoamQueue] 从缓存获取块 ${blockId.slice(0, 8)}...`);
             return cached.data;
         }
         this.cacheMisses++;
@@ -695,7 +695,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 // 🆕 统计过滤（列表块）
                 this.filterStats.listBlocks++;
                 this.filterStats.total++;
-                console.log(`[NeuralRoamQueue] 块 ${blockId} 被过滤（列表块）。统计:`, {
+                console.log(`[SiyuanMemo][NeuralRoamQueue] 块 ${blockId} 被过滤（列表块）。统计:`, {
                     listBlocks: this.filterStats.listBlocks,
                     deletedBlocks: this.filterStats.deletedBlocks,
                     total: this.filterStats.total
@@ -709,14 +709,14 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
             // 如果返回的是父列表项，记录日志
             if (result.id !== blockId) {
-                console.log(`[NeuralRoamQueue] Replaced ${blockId} with parent list item ${result.id}`);
+                console.log(`[SiyuanMemo][NeuralRoamQueue] Replaced ${blockId} with parent list item ${result.id}`);
             }
 
             // 🆕 缓存有效结果
             this.updateCache(blockId, result);
             return result;
         } catch (error) {
-            console.error('[NeuralRoamQueue] Failed to fetch block data from SQL:', error);
+            console.error('[SiyuanMemo][NeuralRoamQueue] Failed to fetch block data from SQL:', error);
             return null;
         }
     }
@@ -758,9 +758,9 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             try {
                 // 异步获取，但我们需要同步返回，所以这里只能用默认值
                 // 实际的 FSRS 数据会在后续的 handleReview 中使用
-                console.log(`[NeuralRoamQueue] Block ${blockData.id} is a flashcard`);
+                console.log(`[SiyuanMemo][NeuralRoamQueue] Block ${blockData.id} is a flashcard`);
             } catch (error) {
-                console.warn(`[NeuralRoamQueue] Failed to get flashcard data for ${blockData.id}`);
+                console.warn(`[SiyuanMemo][NeuralRoamQueue] Failed to get flashcard data for ${blockData.id}`);
             }
         }
 
@@ -829,7 +829,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         try {
             return NeuralQueueStorage.loadConfig();
         } catch (error) {
-            console.error('[NeuralRoamQueue] Failed to load neural config:', error);
+            console.error('[SiyuanMemo][NeuralRoamQueue] Failed to load neural config:', error);
             return {};
         }
     }
@@ -848,7 +848,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     private async validateSeedBlocks(): Promise<void> {
         try {
             if (this.seedBlocks.size === 0) {
-                console.log('[NeuralRoamQueue] 没有种子块需要验证');
+                console.log('[SiyuanMemo][NeuralRoamQueue] 没有种子块需要验证');
                 return;
             }
 
@@ -865,7 +865,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                     validSeeds.push(seedId);
                 } else {
                     invalidSeeds.push(seedId);
-                    console.warn(`[NeuralRoamQueue] 种子块 ${seedId} 不存在或被过滤`);
+                    console.warn(`[SiyuanMemo][NeuralRoamQueue] 种子块 ${seedId} 不存在或被过滤`);
                 }
             }
 
@@ -875,7 +875,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
                 // 如果当前种子无效，清空
                 if (this.currentSeed && invalidSeeds.includes(this.currentSeed)) {
-                    console.warn(`[NeuralRoamQueue] 当前种子 ${this.currentSeed} 无效，已清空`);
+                    console.warn(`[SiyuanMemo][NeuralRoamQueue] 当前种子 ${this.currentSeed} 无效，已清空`);
                     this.currentSeed = null;
                 }
 
@@ -884,13 +884,13 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             }
 
             if (validSeeds.length === 0 && invalidSeeds.length > 0) {
-                console.warn('[NeuralRoamQueue] 警告：所有种子块都无效，请添加新的种子块');
+                console.warn('[SiyuanMemo][NeuralRoamQueue] 警告：所有种子块都无效，请添加新的种子块');
                 // 不抛出错误，允许用户继续使用（可以添加新种子）
             } else {
-                console.log(`[NeuralRoamQueue] 批量验证完成：${validSeeds.length} 有效，${invalidSeeds.length} 无效`);
+                console.log(`[SiyuanMemo][NeuralRoamQueue] 批量验证完成：${validSeeds.length} 有效，${invalidSeeds.length} 无效`);
             }
         } catch (error) {
-            console.error('[NeuralRoamQueue] 种子块验证失败:', error);
+            console.error('[SiyuanMemo][NeuralRoamQueue] 种子块验证失败:', error);
             // 不抛出错误，避免阻塞初始化
         }
     }
@@ -934,11 +934,11 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 resultMap.set(row.id, row);
             }
 
-            console.log(`[NeuralRoamQueue] 批量查询 ${blockIds.length} 个块，找到 ${resultMap.size} 个有效块`);
+            console.log(`[SiyuanMemo][NeuralRoamQueue] 批量查询 ${blockIds.length} 个块，找到 ${resultMap.size} 个有效块`);
 
             return resultMap;
         } catch (error) {
-            console.error('[NeuralRoamQueue] 批量查询失败:', error);
+            console.error('[SiyuanMemo][NeuralRoamQueue] 批量查询失败:', error);
             return new Map();
         }
     }
@@ -955,10 +955,10 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 const data: SeedBlockData = JSON.parse(stored);
                 this.seedBlocks = new Set(data.seeds || []);
                 this.currentSeed = data.currentSeed || null;
-                console.log(`[NeuralRoamQueue] Loaded ${this.seedBlocks.size} seed blocks from storage`);
+                console.log(`[SiyuanMemo][NeuralRoamQueue] Loaded ${this.seedBlocks.size} seed blocks from storage`);
             }
         } catch (error) {
-            console.error('[NeuralRoamQueue] Failed to load persisted seeds:', error);
+            console.error('[SiyuanMemo][NeuralRoamQueue] Failed to load persisted seeds:', error);
             this.seedBlocks = new Set();
             this.currentSeed = null;
         }
@@ -976,9 +976,9 @@ export class NeuralRoamQueue extends BaseReviewQueue {
                 currentSeed: this.currentSeed
             };
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(data));
-            console.log(`[NeuralRoamQueue] Persisted ${this.seedBlocks.size} seed blocks`);
+            console.log(`[SiyuanMemo][NeuralRoamQueue] Persisted ${this.seedBlocks.size} seed blocks`);
         } catch (error) {
-            console.error('[NeuralRoamQueue] Failed to persist seeds:', error);
+            console.error('[SiyuanMemo][NeuralRoamQueue] Failed to persist seeds:', error);
             throw error;
         }
     }
@@ -992,7 +992,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
      * @deprecated 使用 getAllCards() 代替
      */
     public getAllItems(): any[] {
-        console.warn('[NeuralRoamQueue] getAllItems() is deprecated, use getAllCards() instead');
+        console.warn('[SiyuanMemo][NeuralRoamQueue] getAllItems() is deprecated, use getAllCards() instead');
         // 返回当前缓存的卡片
         return this.cards;
     }

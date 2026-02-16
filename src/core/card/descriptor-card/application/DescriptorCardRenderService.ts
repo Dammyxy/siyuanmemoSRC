@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 描述符卡渲染服务
  * 
  * 职责：
@@ -60,7 +60,7 @@ export class DescriptorCardRenderService {
       // 1. 从仓储加载数据
       const data = await this.repository.loadDescriptorCard(blockId, fsrsCard);
       if (!data) {
-        console.warn('[DescriptorCardRenderService] Failed to load descriptor card:', blockId);
+        console.warn('[SiyuanMemo][DescriptorCardRenderService] Failed to load descriptor card:', blockId);
         return null;
       }
 
@@ -84,7 +84,7 @@ export class DescriptorCardRenderService {
 
       return viewModel;
     } catch (error) {
-      console.error('[DescriptorCardRenderService] Error preparing view model:', error);
+      console.error('[SiyuanMemo][DescriptorCardRenderService] Error preparing view model:', error);
       return null;
     }
   }
@@ -112,21 +112,21 @@ export class DescriptorCardRenderService {
     const attributeName = match[1].trim();
     const attributeValue = match[2].trim();
 
-    // 构建正面 HTML：概念标题 + 属性名
+    // 构建正面 HTML：概念标题 + 属性名（使用内联样式确保字体大小）
     const conceptTitle = card.getParentConceptTitle() || '概念'; // 如果没有父概念，使用默认值
     const frontHtml = `
-      <div class="descriptor-card-front">
-        <div class="descriptor-card-front__concept">${conceptTitle}</div>
-        <div class="descriptor-card-front__divider">的</div>
-        <div class="descriptor-card-front__attribute">${attributeName}</div>
-        <div class="descriptor-card-front__question">是什么？</div>
+      <div class="descriptor-card-front" style="font-size: 18px;">
+        <div class="descriptor-card-front__concept" style="font-size: 18px !important;">${conceptTitle}</div>
+        <div class="descriptor-card-front__divider" style="font-size: 18px !important;">的</div>
+        <div class="descriptor-card-front__attribute" style="font-size: 18px !important; font-weight: 700;">${attributeName}</div>
+        <div class="descriptor-card-front__question" style="font-size: 18px !important;">？</div>
       </div>
     `;
 
-    // 背面 HTML：属性值
+    // 背面 HTML：属性值（使用内联样式确保字体大小）
     const backHtml = `
-      <div class="descriptor-card-back">
-        <div class="descriptor-card-back__value">${attributeValue}</div>
+      <div class="descriptor-card-back" style="font-size: 18px;">
+        <div class="descriptor-card-back__value" style="font-size: 18px !important;">${attributeValue}</div>
       </div>
     `;
 
@@ -158,13 +158,13 @@ export class DescriptorCardRenderService {
    */
   async isDescriptorCard(blockId: string): Promise<boolean> {
     try {
-      console.log('[DescriptorCardRenderService] Checking if descriptor card:', blockId);
+      console.log('[SiyuanMemo][DescriptorCardRenderService] Checking if descriptor card:', blockId);
       // 检查块属性中的 custom-fsrs-card-type
       const cardTypeMarker = await this.repository.getCardTypeMarker(blockId);
-      console.log('[DescriptorCardRenderService] Card type marker:', cardTypeMarker);
+      console.log('[SiyuanMemo][DescriptorCardRenderService] Card type marker:', cardTypeMarker);
       return cardTypeMarker === 'descriptor';
     } catch (error) {
-      console.error('[DescriptorCardRenderService] Error checking descriptor card:', error);
+      console.error('[SiyuanMemo][DescriptorCardRenderService] Error checking descriptor card:', error);
       return false;
     }
   }

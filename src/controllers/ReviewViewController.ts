@@ -268,8 +268,8 @@ export class ReviewViewController {
     private displayCardWithButtons(card: FSRSCard, buttons: ReviewButtonConfig[]): void {
         // 占位实现
         // 实际应用中，此方法会被 UI 层覆盖
-        console.log('[ReviewViewController] Display card:', card.id);
-        console.log('[ReviewViewController] Buttons:', buttons);
+        console.log('[SiyuanMemo] ReviewViewController: Display card:', card.id);
+        console.log('[SiyuanMemo] ReviewViewController: Buttons:', buttons);
     }
     
     /**
@@ -281,7 +281,7 @@ export class ReviewViewController {
     private showEmptyState(): void {
         // 占位实现
         // 实际应用中，此方法会被 UI 层覆盖
-        console.log('[ReviewViewController] Queue is empty');
+        console.log('[SiyuanMemo] ReviewViewController: Queue is empty');
     }
     
     /**
@@ -311,7 +311,7 @@ export class ReviewViewController {
             // 调用队列的 handleReview() 方法
             await this.currentQueue.handleReview(this.currentCard.id, rating);
             
-            console.log(`[ReviewViewController] Card ${this.currentCard.id} rated: ${rating}`);
+            console.log(`[SiyuanMemo] ReviewViewController: Card ${this.currentCard.id} rated: ${rating}`);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error('[ReviewViewController] Failed to handle rating:', errorMessage);
@@ -346,10 +346,10 @@ export class ReviewViewController {
                 const position = await this.promptForPosition();
                 await this.insertCardAtPosition(this.currentCard.id, position);
                 
-                console.log(`[ReviewViewController] Card ${this.currentCard.id} inserted at position ${position}`);
+                console.log(`[SiyuanMemo] ReviewViewController: Card ${this.currentCard.id} inserted at position ${position}`);
             } else if (action === 'next') {
                 // 跳过操作：不做任何操作，直接加载下一张卡片
-                console.log(`[ReviewViewController] Card ${this.currentCard.id} skipped`);
+                console.log(`[SiyuanMemo] ReviewViewController: Card ${this.currentCard.id} skipped`);
             } else if (action === 'lock-seed') {
                 // 锁定种子操作：仅神经漫游队列支持
                 if (this.currentQueue.getType() === QueueType.NeuralRoam) {
@@ -359,9 +359,9 @@ export class ReviewViewController {
                     // 显示通知
                     this.showNotification('已锁定为种子块');
                     
-                    console.log(`[ReviewViewController] Card ${this.currentCard.id} locked as seed`);
+                    console.log(`[SiyuanMemo] ReviewViewController: Card ${this.currentCard.id} locked as seed`);
                 } else {
-                    console.warn('[ReviewViewController] Lock seed action is only available in Neural Roam queue');
+                    console.warn('[SiyuanMemo] ReviewViewController: Lock seed action is only available in Neural Roam queue');
                 }
             }
         } catch (error) {
@@ -402,7 +402,7 @@ export class ReviewViewController {
         // 占位实现
         // 实际应用中，此方法需要调用队列的插入方法
         // 当前的队列接口不支持指定位置插入
-        console.log(`[ReviewViewController] Insert card ${cardId} at position ${position}`);
+        console.log(`[SiyuanMemo] ReviewViewController: Insert card ${cardId} at position ${position}`);
         
         // TODO: 扩展队列接口以支持指定位置插入
         // await this.currentQueue.insertCardAt(cardId, position);
@@ -419,6 +419,6 @@ export class ReviewViewController {
     private showNotification(message: string): void {
         // 占位实现
         // 实际应用中，此方法会被 UI 层覆盖
-        console.log(`[ReviewViewController] Notification: ${message}`);
+        console.log(`[SiyuanMemo] ReviewViewController: Notification: ${message}`);
     }
 }

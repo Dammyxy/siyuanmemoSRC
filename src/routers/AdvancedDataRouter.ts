@@ -117,7 +117,7 @@ export class AdvancedDataRouter implements IDataRouter {
         // 获取所有卡片
         let cards = this.storage.getAllCards();
         
-        console.log(`[AdvancedDataRouter] 🔍 getAllCards() returned ${cards.length} cards`);
+        console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 getAllCards() returned ${cards.length} cards`);
         
         // 🔍 调试：统计卡片类型分布
         const typeStats = cards.reduce((acc, card) => {
@@ -125,28 +125,28 @@ export class AdvancedDataRouter implements IDataRouter {
             acc[type] = (acc[type] || 0) + 1;
             return acc;
         }, {} as Record<string, number>);
-        console.log(`[AdvancedDataRouter] 🔍 Card type distribution:`, typeStats);
+        console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 Card type distribution:`, typeStats);
         
         // ✅ 检查并填充缺失的 rootId 和 content
         const cardsNeedingData = cards.filter(c => !c.meta?.rootId || !c.meta?.content);
         if (cardsNeedingData.length > 0) {
-            console.log(`[AdvancedDataRouter] 🔧 Filling missing rootId/content for ${cardsNeedingData.length} cards`);
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔧 Filling missing rootId/content for ${cardsNeedingData.length} cards`);
             await this.fillMissingRootIds(cardsNeedingData);
         }
         
         // 应用过滤器
         if (filter) {
-            console.log(`[AdvancedDataRouter] 🔍 Applying filter:`, filter);
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 Applying filter:`, filter);
             cards = this.applyFilter(cards, filter);
-            console.log(`[AdvancedDataRouter] 🔍 After applyFilter: ${cards.length} cards`);
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 After applyFilter: ${cards.length} cards`);
         }
         
         // 过滤掉 blockId 无效的卡片（在应用其他过滤器之后）
         const invalidCards = cards.filter(card => !card.blockId || card.blockId === 'undefined' || card.blockId === '');
         if (invalidCards.length > 0) {
-            console.warn(`[AdvancedDataRouter] ⚠️ Filtering out ${invalidCards.length} cards with invalid blockId:`, invalidCards.map(c => ({ id: c.id, blockId: c.blockId })));
+            console.warn(`[SiyuanMemo][AdvancedDataRouter] ⚠️ Filtering out ${invalidCards.length} cards with invalid blockId:`, invalidCards.map(c => ({ id: c.id, blockId: c.blockId })));
             cards = cards.filter(card => card.blockId && card.blockId !== 'undefined' && card.blockId !== '');
-            console.log(`[AdvancedDataRouter] 🔍 After blockId filtering: ${cards.length} cards`);
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 After blockId filtering: ${cards.length} cards`);
         }
         
         // ✅ 应用迁移逻辑：确保所有卡片都有 learning_step 字段
@@ -196,7 +196,7 @@ export class AdvancedDataRouter implements IDataRouter {
             if (riffConfig?.deleteSync?.enabled) {
                 // 后台执行删除同步，不阻塞 UI
                 void this.plugin.hybridSyncService.deleteSync(cardId).catch((err: Error) => {
-                    console.error('[AdvancedDataRouter] Delete sync failed for card:', cardId, err);
+                    console.error('[SiyuanMemo][AdvancedDataRouter] Delete sync failed for card:', cardId, err);
                 });
             }
         }
@@ -241,10 +241,10 @@ export class AdvancedDataRouter implements IDataRouter {
                 { id: cardId, due: dueDate }
             ]);
             
-            console.log(`[AdvancedDataRouter] Synced card ${cardId} to Riff`);
+            console.log(`[SiyuanMemo][AdvancedDataRouter] Synced card ${cardId} to Riff`);
         } catch (error) {
             // 同步失败不应该影响本地操作
-            console.error(`[AdvancedDataRouter] Failed to sync card ${cardId} to Riff:`, error);
+            console.error(`[SiyuanMemo][AdvancedDataRouter] Failed to sync card ${cardId} to Riff:`, error);
         }
     }
     
@@ -307,18 +307,18 @@ export class AdvancedDataRouter implements IDataRouter {
         // 过滤块 ID（block-menu-review-entries 需求 3.1）
         if (filter.blockIds && filter.blockIds.length > 0) {
             const blockIdSet = new Set(filter.blockIds);
-            console.log(`[AdvancedDataRouter] 🔍 Filtering by blockIds: ${filter.blockIds.length} blocks`);
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 Filtering by blockIds: ${filter.blockIds.length} blocks`);
             
             filtered = filtered.filter(card => blockIdSet.has(card.blockId));
             
-            console.log(`[AdvancedDataRouter] 🔍 After blockIds filter: ${filtered.length} cards`);
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 After blockIds filter: ${filtered.length} cards`);
         }
         
         // 过滤卡片类型
         if (filter.cardType) {
             const allowedTypes = Array.isArray(filter.cardType) ? filter.cardType : [filter.cardType];
-            console.log(`[AdvancedDataRouter] 🔍 Filtering by cardType:`, allowedTypes);
-            console.log(`[AdvancedDataRouter] 🔍 Sample card types:`, cards.slice(0, 5).map(c => ({ id: c.id, type: c.type, typeOf: typeof c.type })));
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 Filtering by cardType:`, allowedTypes);
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 Sample card types:`, cards.slice(0, 5).map(c => ({ id: c.id, type: c.type, typeOf: typeof c.type })));
 
             // 🔍 调试：统计过滤前的类型分布
             const beforeTypeStats = cards.reduce((acc, card) => {
@@ -326,19 +326,19 @@ export class AdvancedDataRouter implements IDataRouter {
                 acc[type] = (acc[type] || 0) + 1;
                 return acc;
             }, {} as Record<string, number>);
-            console.log(`[AdvancedDataRouter] 🔍 Before cardType filter - type distribution:`, beforeTypeStats);
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 Before cardType filter - type distribution:`, beforeTypeStats);
 
             filtered = filtered.filter(card => {
                 // 高级模式严格区分主题/项目卡片（需求 3.2）
                 const matches = allowedTypes.includes(card.type);
                 if (!matches && cards.length <= 10) {
                     // 如果卡片很少,打印不匹配的卡片详情
-                    console.log(`[AdvancedDataRouter] 🔍 Card ${card.id} filtered out: type=${card.type}, allowed=`, allowedTypes);
+                    console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 Card ${card.id} filtered out: type=${card.type}, allowed=`, allowedTypes);
                 }
                 return matches;
             });
 
-            console.log(`[AdvancedDataRouter] 🔍 After cardType filter: ${filtered.length} cards`);
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 After cardType filter: ${filtered.length} cards`);
         }
         
         /**
@@ -353,7 +353,7 @@ export class AdvancedDataRouter implements IDataRouter {
          * @see .kiro/specs/advanced-mode-due-cards-fix-and-custom-day-start/requirements.md
          */
         if (filter.dueDate) {
-            console.log(`[AdvancedDataRouter] 🔍 Filtering by dueDate:`, filter.dueDate);
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 Filtering by dueDate:`, filter.dueDate);
             
             // 🔍 调试：统计过滤前的到期状态
             const now = Date.now();
@@ -371,10 +371,10 @@ export class AdvancedDataRouter implements IDataRouter {
                     beforeDueStats.dueFuture++;
                 }
             }
-            console.log(`[AdvancedDataRouter] 🔍 Before dueDate filter - due status:`, beforeDueStats);
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 Before dueDate filter - due status:`, beforeDueStats);
             
             // 🔍 调试：显示前5张卡片的到期时间
-            console.log(`[AdvancedDataRouter] 🔍 Sample due dates (first 5 cards):`, 
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 Sample due dates (first 5 cards):`, 
                 filtered.slice(0, 5).map(c => ({
                     id: c.id.substring(0, 8),
                     due: new Date(c.due).toISOString(),
@@ -386,7 +386,7 @@ export class AdvancedDataRouter implements IDataRouter {
             const dayStartHour = this.plugin ? getDayStartHour(this.plugin) : 4;
             const dayEnd = getCurrentDayEnd(dayStartHour);
             
-            console.log(`[AdvancedDataRouter] 🔍 Using dayStartHour=${dayStartHour}, dayEnd=${new Date(dayEnd).toISOString()}, now=${new Date(now).toISOString()}`);
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 Using dayStartHour=${dayStartHour}, dayEnd=${new Date(dayEnd).toISOString()}, now=${new Date(now).toISOString()}`);
             
             // 🔍 记录被过滤掉的卡片
             const filteredOutCards: any[] = [];
@@ -422,11 +422,11 @@ export class AdvancedDataRouter implements IDataRouter {
                 return true;
             });
             
-            console.log(`[AdvancedDataRouter] 🔍 After dueDate filter: ${filtered.length} cards`);
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 After dueDate filter: ${filtered.length} cards`);
             
             // 🔍 显示被过滤掉的卡片
             if (filteredOutCards.length > 0) {
-                console.log(`[AdvancedDataRouter] 🔍 Filtered out ${filteredOutCards.length} cards (due > dayEnd):`, filteredOutCards);
+                console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 Filtered out ${filteredOutCards.length} cards (due > dayEnd):`, filteredOutCards);
             }
         }
         
@@ -623,7 +623,7 @@ export class AdvancedDataRouter implements IDataRouter {
         // 过滤关键词（搜索卡片内容）
         if (filter.keyword && filter.keyword.trim()) {
             const keyword = filter.keyword.trim().toLowerCase();
-            console.log(`[AdvancedDataRouter] 🔍 Filtering by keyword: "${keyword}"`);
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 Filtering by keyword: "${keyword}"`);
             
             filtered = filtered.filter(card => {
                 // 搜索卡片内容（meta.content）
@@ -643,7 +643,7 @@ export class AdvancedDataRouter implements IDataRouter {
                        blockId.includes(keyword);
             });
             
-            console.log(`[AdvancedDataRouter] 🔍 After keyword filter: ${filtered.length} cards`);
+            console.log(`[SiyuanMemo][AdvancedDataRouter] 🔍 After keyword filter: ${filtered.length} cards`);
         }
         
         return filtered;
@@ -675,7 +675,7 @@ export class AdvancedDataRouter implements IDataRouter {
                 const content = await getBlockText(card.blockId);
                 return { blockId: card.blockId, content };
             } catch (error) {
-                console.warn(`[AdvancedDataRouter] Failed to get content for block ${card.blockId}:`, error);
+                console.warn(`[SiyuanMemo][AdvancedDataRouter] Failed to get content for block ${card.blockId}:`, error);
                 return { blockId: card.blockId, content: '' };
             }
         });
@@ -697,7 +697,7 @@ export class AdvancedDataRouter implements IDataRouter {
             this.storage.setCard(card);
         }
         
-        console.log(`[AdvancedDataRouter] ✅ Filled rootId and content for ${cards.length} cards`);
+        console.log(`[SiyuanMemo][AdvancedDataRouter] ✅ Filled rootId and content for ${cards.length} cards`);
     }
     
     /**
@@ -729,7 +729,7 @@ export class AdvancedDataRouter implements IDataRouter {
                     rootIdMap.set(row.id, row.root_id || '');
                 }
             } catch (error) {
-                console.error('[AdvancedDataRouter] Failed to query rootIds:', error);
+                console.error('[SiyuanMemo][AdvancedDataRouter] Failed to query rootIds:', error);
                 // 为失败的批次设置空字符串
                 for (const blockId of batchIds) {
                     if (!rootIdMap.has(blockId)) {

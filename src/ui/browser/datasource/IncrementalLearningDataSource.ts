@@ -57,14 +57,14 @@ export class IncrementalLearningDataSource implements ICardDataSource {
     this.options = options || {};
     this.storage = storage;  // 🆕 保存 storage 引用
     
-    console.log('[IncrementalLearningDataSource] Initialized with unified data source manager');
+    console.log('[SiyuanMemo][IncrementalLearningDataSource] Initialized with unified data source manager');
   }
 
   async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
     const startTime = Date.now();
     
     try {
-      console.log('[IncrementalLearningDataSource] Fetching rows from unified data source');
+      console.log('[SiyuanMemo][IncrementalLearningDataSource] Fetching rows from unified data source');
       
       // 通过统一数据源管理器获取队列实例
       const queue = this.manager.getQueue(QueueType.IncrementalLearning);
@@ -72,7 +72,7 @@ export class IncrementalLearningDataSource implements ICardDataSource {
       // 获取队列中的所有卡片（FSRSCard 格式）
       const cards = await queue.getCards();
       
-      console.log(`[IncrementalLearningDataSource] Loaded ${cards.length} cards from queue`);
+      console.log(`[SiyuanMemo][IncrementalLearningDataSource] Loaded ${cards.length} cards from queue`);
       
       // 运行时类型验证（开发模式）
       validateConsumerCardType('IncrementalLearningDataSource', cards);
@@ -90,7 +90,7 @@ export class IncrementalLearningDataSource implements ICardDataSource {
       const endTime = Date.now();
       const duration = endTime - startTime;
       
-      console.log(`[IncrementalLearningDataSource] Fetched rows successfully:`, {
+      console.log(`[SiyuanMemo][IncrementalLearningDataSource] Fetched rows successfully:`, {
         totalCards: cards.length,
         filteredCards: filtered.length,
         duration: `${duration}ms`,
@@ -105,7 +105,7 @@ export class IncrementalLearningDataSource implements ICardDataSource {
       const endTime = Date.now();
       const duration = endTime - startTime;
       
-      console.error('[IncrementalLearningDataSource] Failed to fetch rows:', {
+      console.error('[SiyuanMemo][IncrementalLearningDataSource] Failed to fetch rows:', {
         error: errorMessage,
         stack: errorStack,
         duration: `${duration}ms`,
@@ -160,8 +160,8 @@ export class IncrementalLearningDataSource implements ICardDataSource {
 
     // 卡片类型筛选
     if (this.options.cardType && this.options.cardType !== 'all') {
-      console.log(`[IncrementalLearningDataSource] Applying cardType filter: ${this.options.cardType}`);
-      console.log(`[IncrementalLearningDataSource] Sample cardTypes before filter:`, result.slice(0, 5).map(c => ({ blockId: c.blockId, cardType: c.cardType })));
+      console.log(`[SiyuanMemo][IncrementalLearningDataSource] Applying cardType filter: ${this.options.cardType}`);
+      console.log(`[SiyuanMemo][IncrementalLearningDataSource] Sample cardTypes before filter:`, result.slice(0, 5).map(c => ({ blockId: c.blockId, cardType: c.cardType })));
       
       result = result.filter(c => {
         switch (this.options.cardType) {
@@ -177,8 +177,8 @@ export class IncrementalLearningDataSource implements ICardDataSource {
         }
       });
       
-      console.log(`[IncrementalLearningDataSource] After cardType filter: ${result.length} cards`);
-      console.log(`[IncrementalLearningDataSource] Sample cardTypes after filter:`, result.slice(0, 5).map(c => ({ blockId: c.blockId, cardType: c.cardType })));
+      console.log(`[SiyuanMemo][IncrementalLearningDataSource] After cardType filter: ${result.length} cards`);
+      console.log(`[SiyuanMemo][IncrementalLearningDataSource] Sample cardTypes after filter:`, result.slice(0, 5).map(c => ({ blockId: c.blockId, cardType: c.cardType })));
     }
 
     return result;
@@ -194,7 +194,7 @@ export class IncrementalLearningDataSource implements ICardDataSource {
     // 检查数据完整性
     const isIncomplete = card.meta?.isIncomplete === true;
     if (isIncomplete) {
-      console.warn('[IncrementalLearningDataSource] Converting incomplete FSRSCard:', {
+      console.warn('[SiyuanMemo][IncrementalLearningDataSource] Converting incomplete FSRSCard:', {
         id: card.id,
         blockId: card.blockId,
         hasRiffCardId: !!card.riffCardId,
@@ -242,7 +242,7 @@ export class IncrementalLearningDataSource implements ICardDataSource {
       cardType !== 'incremental' && 
       cardType !== 'webpage'
     )) {
-      console.warn('[IncrementalLearningDataSource] Invalid cardType:', {
+      console.warn('[SiyuanMemo][IncrementalLearningDataSource] Invalid cardType:', {
         blockId: card.blockId,
         originalType: card.type,
         convertedType: cardType,
@@ -382,7 +382,7 @@ export class IncrementalLearningDataSource implements ICardDataSource {
     if (actionId === 'open') return;
 
     try {
-      console.log(`[IncrementalLearningDataSource] Performing action: ${actionId} on ${selectedRows.length} cards`);
+      console.log(`[SiyuanMemo][IncrementalLearningDataSource] Performing action: ${actionId} on ${selectedRows.length} cards`);
       
       // 获取队列实例
       const queue = this.manager.getQueue(QueueType.IncrementalLearning);
@@ -392,14 +392,14 @@ export class IncrementalLearningDataSource implements ICardDataSource {
         for (const row of selectedRows) {
           await queue.removeCard(row.fsrsCardId || row.id);
         }
-        console.log(`[IncrementalLearningDataSource] Removed ${selectedRows.length} cards from queue`);
+        console.log(`[SiyuanMemo][IncrementalLearningDataSource] Removed ${selectedRows.length} cards from queue`);
         return;
       }
 
       // 删除卡片（完全删除）
       if (actionId === 'delete-card') {
         if (!this.storage) {
-          console.error('[IncrementalLearningDataSource] Storage not available!');
+          console.error('[SiyuanMemo][IncrementalLearningDataSource] Storage not available!');
           return 0;
         }
         
@@ -407,11 +407,11 @@ export class IncrementalLearningDataSource implements ICardDataSource {
         let deleted = await batchDelete(blockIds, this.storage);
         
         if (deleted === 0 && blockIds.length > 0) {
-          console.warn('[IncrementalLearningDataSource] 常规删除失败，自动尝试强制删除...');
+          console.warn('[SiyuanMemo][IncrementalLearningDataSource] 常规删除失败，自动尝试强制删除...');
           deleted = await batchDelete(blockIds, this.storage);
         }
         
-        console.log(`[IncrementalLearningDataSource] Deleted ${deleted} cards`);
+        console.log(`[SiyuanMemo][IncrementalLearningDataSource] Deleted ${deleted} cards`);
         return deleted;
       }
 
@@ -423,7 +423,7 @@ export class IncrementalLearningDataSource implements ICardDataSource {
           card.priority = priority;
           await this.manager.updateCard(card);
         }
-        console.log(`[IncrementalLearningDataSource] Set priority to ${priority} for ${selectedRows.length} cards`);
+        console.log(`[SiyuanMemo][IncrementalLearningDataSource] Set priority to ${priority} for ${selectedRows.length} cards`);
         return;
       }
 
@@ -453,14 +453,14 @@ export class IncrementalLearningDataSource implements ICardDataSource {
           await this.manager.updateCard(card);
         }
         
-        console.log(`[IncrementalLearningDataSource] ${actionId} ${selectedRows.length} cards by ${days} days`);
+        console.log(`[SiyuanMemo][IncrementalLearningDataSource] ${actionId} ${selectedRows.length} cards by ${days} days`);
         return;
       }
       
-      console.warn(`[IncrementalLearningDataSource] Unknown action: ${actionId}`);
+      console.warn(`[SiyuanMemo][IncrementalLearningDataSource] Unknown action: ${actionId}`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[IncrementalLearningDataSource] Failed to perform action ${actionId}:`, errorMessage);
+      console.error(`[SiyuanMemo][IncrementalLearningDataSource] Failed to perform action ${actionId}:`, errorMessage);
       throw new Error(`执行操作失败 (${actionId}): ${errorMessage}`);
     }
   }

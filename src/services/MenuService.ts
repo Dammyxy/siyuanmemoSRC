@@ -57,26 +57,6 @@ export class MenuService {
       },
     });
 
-    // 刻意练习
-    menu.addItem({
-      icon: 'iconCards',
-      label: this.deps.i18n?.startQueuePractice || '开始刻意练习',
-      accelerator: 'Alt+D',
-      click: () => {
-        this.deps.openFinalDrillDialog();
-      },
-    });
-
-    // 筛选复习
-    menu.addItem({
-      icon: 'iconCards',
-      label: (this.deps.i18n as any)?.startFilterGroupPractice || '开始筛选复习',
-      accelerator: 'Alt+G',
-      click: () => {
-        this.deps.openFilterGroupPracticeDialog();
-      },
-    });
-
     // 渐进学习
     menu.addItem({
       icon: 'iconBook',
@@ -84,6 +64,16 @@ export class MenuService {
       accelerator: 'Alt+I',
       click: () => {
         this.deps.openIncrementalLearningDialog();
+      },
+    });
+
+    // 刻意练习
+    menu.addItem({
+      icon: 'iconCards',
+      label: this.deps.i18n?.startQueuePractice || '开始刻意练习',
+      accelerator: 'Alt+D',
+      click: () => {
+        this.deps.openFinalDrillDialog();
       },
     });
 
@@ -97,15 +87,25 @@ export class MenuService {
       },
     });
 
-    // 难点攻坚
+    // 筛选复习
     menu.addItem({
-      icon: 'iconBug',
-      label: (this.deps.i18n as any)?.startLeechPractice || '开始难点攻坚',
-      accelerator: 'Alt+L',
+      icon: 'iconCards',
+      label: (this.deps.i18n as any)?.startFilterGroupPractice || '开始筛选复习',
+      accelerator: 'Alt+G',
       click: () => {
-        this.deps.openLeechReviewDialog();
+        this.deps.openFilterGroupPracticeDialog();
       },
     });
+
+    // 难点攻坚（暂时隐藏）
+    // menu.addItem({
+    //   icon: 'iconBug',
+    //   label: (this.deps.i18n as any)?.startLeechPractice || '开始难点攻坚',
+    //   accelerator: 'Alt+L',
+    //   click: () => {
+    //     this.deps.openLeechReviewDialog();
+    //   },
+    // });
 
     // SRS 浏览器
     menu.addItem({

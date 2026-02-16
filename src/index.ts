@@ -185,6 +185,14 @@ export default class FSRSPlugin extends Plugin {
       this.storage = new StorageManager(this.name);
       await this.storage.init();
       
+      // 🆕 根据设置初始化调试日志开关
+      const settings = this.storage.getSettings();
+      const enableDebugLogs = settings.ui?.enableDebugLogs ?? false;
+      (window as any).FSRS_DISABLE_LOGS = !enableDebugLogs;
+      if (!enableDebugLogs) {
+        console.log('[SiyuanMemo] Debug logs disabled by settings');
+      }
+      
       // 🆕 自动修复无效日期（首次加载时）
       try {
         const repairResult = await this.storage.repairInvalidDates();
@@ -196,7 +204,6 @@ export default class FSRSPlugin extends Plugin {
         console.error('[SiyuanMemo] Failed to repair invalid dates:', err);
       }
 
-      const settings = this.storage.getSettings();
       this.rescheduleService = new RescheduleService(this.storage);
 
       // 🆕 创建 SchedulerRouter（根据卡片类型自动选择调度器）

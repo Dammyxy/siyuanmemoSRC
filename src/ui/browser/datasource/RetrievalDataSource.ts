@@ -60,7 +60,7 @@ export class RetrievalDataSource implements ICardDataSource {
       
       // 🔍 调试：检查第一张卡片的原始数据
       if (cards.length > 0) {
-        console.log('[RetrievalDataSource] 📊 Sample FSRSCard data:', {
+        console.log('[SiyuanMemo][RetrievalDataSource] 📊 Sample FSRSCard data:', {
           id: cards[0].id,
           blockId: cards[0].blockId,
           scheduledDays: cards[0].scheduledDays,
@@ -79,7 +79,7 @@ export class RetrievalDataSource implements ICardDataSource {
         });
         
         // 🔍 调试：显示所有卡片的 rootId
-        console.log('[RetrievalDataSource] 📊 All FSRSCard rootIds:', 
+        console.log('[SiyuanMemo][RetrievalDataSource] 📊 All FSRSCard rootIds:', 
           cards.map(c => ({ blockId: c.blockId, metaRootId: c.meta?.rootId }))
         );
       }
@@ -89,7 +89,7 @@ export class RetrievalDataSource implements ICardDataSource {
       
       // 🔍 调试：检查转换后的数据
       if (browserCards.length > 0) {
-        console.log('[RetrievalDataSource] 📊 Sample BrowserCard data:', {
+        console.log('[SiyuanMemo][RetrievalDataSource] 📊 Sample BrowserCard data:', {
           blockId: browserCards[0].blockId,
           interval: browserCards[0].interval,
           stability: browserCards[0].stability,
@@ -111,7 +111,7 @@ export class RetrievalDataSource implements ICardDataSource {
       
       return { rows: sorted, totalCount: sorted.length };
     } catch (error) {
-      console.error('[RetrievalDataSource] Failed to fetch rows:', error);
+      console.error('[SiyuanMemo][RetrievalDataSource] Failed to fetch rows:', error);
       throw error;
     }
   }
@@ -204,7 +204,7 @@ export class RetrievalDataSource implements ICardDataSource {
       // 删除卡片（完全删除）
       if (actionId === 'delete-card') {
         if (!this.storage) {
-          console.error('[RetrievalDataSource] Storage not available!');
+          console.error('[SiyuanMemo][RetrievalDataSource] Storage not available!');
           return 0;
         }
         
@@ -212,7 +212,7 @@ export class RetrievalDataSource implements ICardDataSource {
         let deleted = await batchDelete(blockIds, this.storage);
         
         if (deleted === 0 && blockIds.length > 0) {
-          console.warn('[RetrievalDataSource] 常规删除失败，自动尝试强制删除...');
+          console.warn('[SiyuanMemo][RetrievalDataSource] 常规删除失败，自动尝试强制删除...');
           deleted = await batchDelete(blockIds, this.storage);
         }
         return deleted;
@@ -252,7 +252,7 @@ export class RetrievalDataSource implements ICardDataSource {
         return;
       }
     } catch (error) {
-      console.error('[RetrievalDataSource] Failed to perform action:', error);
+      console.error('[SiyuanMemo][RetrievalDataSource] Failed to perform action:', error);
       throw error;
     }
   }
@@ -291,7 +291,7 @@ export class RetrievalDataSource implements ICardDataSource {
     // 🔍 调试：检查 rootId 提取
     const extractedRootId = (card.meta?.rootId as string) || '';
     if (!extractedRootId) {
-      console.warn('[RetrievalDataSource] ⚠️ Card missing rootId:', {
+      console.warn('[SiyuanMemo][RetrievalDataSource] ⚠️ Card missing rootId:', {
         blockId: card.blockId,
         hasMeta: !!card.meta,
         metaRootId: card.meta?.rootId,

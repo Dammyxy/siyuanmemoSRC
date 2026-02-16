@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 思源块适配器（描述符卡专用）
  * 
  * 职责：
@@ -42,12 +42,12 @@ export class SiyuanBlockAdapter {
       const results = await sql(query);
       
       if (!results || results.length === 0) {
-        console.warn('[SiyuanBlockAdapter] Block not found:', blockId);
+        console.warn('[SiyuanMemo][SiyuanBlockAdapter] Block not found:', blockId);
         return null;
       }
 
       const block = results[0];
-      console.log('[SiyuanBlockAdapter] getBlock result:', {
+      console.log('[SiyuanMemo][SiyuanBlockAdapter] getBlock result:', {
         id: block.id,
         content: block.content?.substring(0, 50),
         parentId: block.parent_id
@@ -59,7 +59,7 @@ export class SiyuanBlockAdapter {
         parentId: block.parent_id,
       };
     } catch (error) {
-      console.error('[SiyuanBlockAdapter] Error getting block:', error);
+      console.error('[SiyuanMemo][SiyuanBlockAdapter] Error getting block:', error);
       return null;
     }
   }
@@ -77,19 +77,19 @@ export class SiyuanBlockAdapter {
       });
 
       if (!response.ok) {
-        console.error('[SiyuanBlockAdapter] Failed to get kramdown:', response.statusText);
+        console.error('[SiyuanMemo][SiyuanBlockAdapter] Failed to get kramdown:', response.statusText);
         return null;
       }
 
       const data = await response.json();
       if (data.code !== 0 || !data.data) {
-        console.error('[SiyuanBlockAdapter] Invalid kramdown response:', data);
+        console.error('[SiyuanMemo][SiyuanBlockAdapter] Invalid kramdown response:', data);
         return null;
       }
 
       return data.data.kramdown || '';
     } catch (error) {
-      console.error('[SiyuanBlockAdapter] Error getting kramdown:', error);
+      console.error('[SiyuanMemo][SiyuanBlockAdapter] Error getting kramdown:', error);
       return null;
     }
   }
@@ -102,7 +102,7 @@ export class SiyuanBlockAdapter {
     try {
       const Lute = (window as any).Lute;
       if (!Lute || typeof Lute.New !== 'function') {
-        console.error('[SiyuanBlockAdapter] Lute not available');
+        console.error('[SiyuanMemo][SiyuanBlockAdapter] Lute not available');
         return kramdown; // 降级：直接返回 kramdown
       }
 
@@ -116,7 +116,7 @@ export class SiyuanBlockAdapter {
       const html = lute.Md2BlockDOM(content);
       return html;
     } catch (error) {
-      console.error('[SiyuanBlockAdapter] Error converting kramdown to HTML:', error);
+      console.error('[SiyuanMemo][SiyuanBlockAdapter] Error converting kramdown to HTML:', error);
       return kramdown; // 降级：直接返回 kramdown
     }
   }
@@ -129,7 +129,7 @@ export class SiyuanBlockAdapter {
       const block = await this.getBlock(blockId);
       return block?.parentId || null;
     } catch (error) {
-      console.error('[SiyuanBlockAdapter] Error getting parent block ID:', error);
+      console.error('[SiyuanMemo][SiyuanBlockAdapter] Error getting parent block ID:', error);
       return null;
     }
   }
@@ -153,7 +153,7 @@ export class SiyuanBlockAdapter {
 
       return null;
     } catch (error) {
-      console.error('[SiyuanBlockAdapter] Error getting block attribute:', error);
+      console.error('[SiyuanMemo][SiyuanBlockAdapter] Error getting block attribute:', error);
       return null;
     }
   }
@@ -179,7 +179,7 @@ export class SiyuanBlockAdapter {
       const results = await sql(query);
       return results || [];
     } catch (error) {
-      console.error('[SiyuanBlockAdapter] Error querying sibling descriptors:', error);
+      console.error('[SiyuanMemo][SiyuanBlockAdapter] Error querying sibling descriptors:', error);
       return [];
     }
   }

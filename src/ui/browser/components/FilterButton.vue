@@ -44,7 +44,7 @@ const emit = defineEmits<{
  */
 const shouldShow = computed(() => {
   const result = props.queueType === 'filter-group' || props.queueType === 'FilterGroup';
-  console.log('[FilterButton] shouldShow computed:', {
+  console.log('[SiyuanMemo][FilterButton] shouldShow computed:', {
     queueType: props.queueType,
     result,
   });
