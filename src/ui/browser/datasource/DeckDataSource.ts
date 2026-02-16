@@ -103,6 +103,30 @@ export class DeckDataSource implements ICardDataSource {
       // 转换为 BrowserCard 格式
       let rows = allCards.map(card => this.convertToBrowserCard(card));
       
+      // 🔧 修复：对于概念卡，批量更新内容（文档标题）
+      const conceptCards = rows.filter(r => {
+        const originalCard = allCards.find(c => c.blockId === r.blockId);
+        return originalCard?.type === 'concept';
+      });
+      
+      if (conceptCards.length > 0) {
+        console.log(`[SiyuanMemo][DeckDataSource] Found ${conceptCards.length} concept cards, fetching titles...`);
+        const blockIds = conceptCards.map(c => c.blockId);
+        
+        // 批量查询文档标题
+        const contentMap = await this.fetchBlockContent(blockIds);
+        
+        // 更新概念卡内容
+        for (const card of conceptCards) {
+          const dbContent = contentMap.get(card.blockId);
+          if (dbContent) {
+            card.fullContent = dbContent;
+            card.content = this.truncateContent(dbContent, 100);
+            console.log(`[SiyuanMemo][DeckDataSource] ✅ Updated concept card ${card.blockId}: "${card.content}"`);
+          }
+        }
+      }
+      
       // 应用 preset 筛选
       rows = this.applyPresetFilter(rows);
       
@@ -114,37 +138,72 @@ export class DeckDataSource implements ICardDataSource {
         } else if (this.options.cardType === 'item-only') {
           // Item 类型包括：item（普通闪卡）、concept（概念卡）、descriptor（描述符卡）
           rows = rows.filter(c => c.cardType === 'item' || c.cardType === 'concept' || c.cardType === 'descriptor');
-          }
         }
-        
-        // 应用搜索筛选
-        if (this.options.queryText) {
-          const query = this.options.queryText.toLowerCase().trim();
-          if (query && !query.startsWith('tag:') && !query.startsWith('deck:') && !query.startsWith('state:') && !query.startsWith('doc:')) {
-            rows = rows.filter(c => {
-              return c.content?.toLowerCase().includes(query) ||
-                     c.fullContent?.toLowerCase().includes(query);
-            });
-          }
+      }
+      
+      // 应用搜索筛选
+      if (this.options.queryText) {
+        const query = this.options.queryText.toLowerCase().trim();
+        if (query && !query.startsWith('tag:') && !query.startsWith('deck:') && !query.startsWith('state:') && !query.startsWith('doc:')) {
+          rows = rows.filter(c => {
+            return c.content?.toLowerCase().includes(query) ||
+                   c.fullContent?.toLowerCase().includes(query);
+          });
         }
-        
-        // ✅ 四重筛选：应用文档筛选
-        if (this.options.currentDocId) {
-          if (this.options.currentDocId === '__lost__') {
-            rows = rows.filter(c => !String((c as any)?.rootId || ''));
-          } else if (this.options.preset === 'current-doc') {
-            rows = rows.filter(c => c.rootId === this.options.currentDocId);
-          } else {
-            rows = rows.filter(c => c.rootId === this.options.currentDocId);
-          }
+      }
+      
+      // ✅ 四重筛选：应用文档筛选
+      if (this.options.currentDocId) {
+        if (this.options.currentDocId === '__lost__') {
+          rows = rows.filter(c => !String((c as any)?.rootId || ''));
+        } else if (this.options.preset === 'current-doc') {
+          rows = rows.filter(c => c.rootId === this.options.currentDocId);
+        } else {
+          rows = rows.filter(c => c.rootId === this.options.currentDocId);
         }
+      }
 
-        const sorted = applySort(rows, params?.sortModel || []);
-        return { rows: sorted, totalCount: sorted.length };
+      const sorted = applySort(rows, params?.sortModel || []);
+      return { rows: sorted, totalCount: sorted.length };
       } catch (error) {
         console.error('[SiyuanMemo][DeckDataSource] Failed to fetch from manager:', error);
         throw error;
       }
+  }
+  
+  /**
+   * 批量获取块内容（用于概念卡标题）
+   */
+  private async fetchBlockContent(blockIds: string[]): Promise<Map<string, string>> {
+    const contentMap = new Map<string, string>();
+    if (blockIds.length === 0) return contentMap;
+
+    try {
+      const { sql } = await import('@/core/siyuan/api');
+      const BATCH_SIZE = 500;
+      
+      for (let i = 0; i < blockIds.length; i += BATCH_SIZE) {
+        const batchIds = blockIds.slice(i, i + BATCH_SIZE);
+        const inClause = batchIds.map(id => `'${this.escapeSQL(id)}'`).join(',');
+        
+        const result = await sql(`SELECT id, content FROM blocks WHERE id IN (${inClause})`);
+        
+        for (const row of result || []) {
+          const content = String(row.content || '').trim();
+          if (content) {
+            contentMap.set(row.id, content);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[SiyuanMemo][DeckDataSource] Failed to fetch block content:', error);
+    }
+    
+    return contentMap;
+  }
+  
+  private escapeSQL(value: string): string {
+    return String(value || '').replace(/'/g, "''");
   }
   
   private applyPresetFilter(cards: BrowserCard[]): BrowserCard[] {

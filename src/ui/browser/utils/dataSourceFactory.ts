@@ -82,15 +82,20 @@ export function createQueueDataSource(
 
     case 'neural-roam':
       // 神经漫游队列：使用 BlockIds 数据源
-      // 获取种子块列表作为初始数据
-      const queue = manager.getQueue('neural-roam');
-      const seedBlocks = queue?.getSeedBlocks?.() || [];
+      // 🆕 使用动态获取函数，确保每次都获取最新的种子列表
+      const neuralQueue = manager.getQueue('neural-roam');
       return new BlockIdsDataSource({
         id: 'neural-roam',
         label: '神经漫游',
-        blockIds: seedBlocks,
-        plugin: manager.plugin || manager,
+        blockIds: [],  // 初始为空，使用动态获取函数
+        plugin: { neuralQueue },  // 🔧 直接传递 neuralQueue 对象
         queueId: 'neural-roam',
+        getBlockIdsFn: () => {
+          // 每次 fetchRows 时都获取最新的种子列表
+          const seeds = neuralQueue?.getSeedBlocks?.() || [];
+          console.log(`[SiyuanMemo][DataSourceFactory] Neural roam seeds: ${seeds.length}`, seeds);
+          return seeds;
+        },
       });
 
     default:
@@ -104,12 +109,14 @@ export function createQueueDataSource(
  * @param queueId - 队列 ID
  * @param blockIds - 块 ID 列表
  * @param plugin - 插件实例
+ * @param getBlockIdsFn - 可选的动态获取函数
  * @returns 数据源实例
  */
 export function createBlockIdsDataSource(
   queueId: string,
   blockIds: string[],
-  plugin: any
+  plugin: any,
+  getBlockIdsFn?: () => string[]
 ): ICardDataSource {
   return new BlockIdsDataSource({
     id: queueId,
@@ -117,6 +124,7 @@ export function createBlockIdsDataSource(
     blockIds,
     plugin,
     queueId,
+    getBlockIdsFn,
   });
 }
 
@@ -208,7 +216,24 @@ export function createFocusDataSource(
     }, storage);
   }
 
-  // 神经漫游队列：使用 BlockIds
+  // 神经漫游队列：使用 BlockIds，支持动态获取
+  if (queueId === 'neural-roam') {
+    const neuralQueue = manager.getQueue?.('neural-roam');
+    return new BlockIdsDataSource({
+      id: 'neural-roam',
+      label: '神经漫游',
+      blockIds: [],  // 初始为空，使用动态获取函数
+      plugin: { neuralQueue },  // 🔧 直接传递 neuralQueue 对象
+      queueId: 'neural-roam',
+      getBlockIdsFn: () => {
+        const seeds = neuralQueue?.getSeedBlocks?.() || [];
+        console.log(`[SiyuanMemo][DataSourceFactory] Neural roam seeds (focus): ${seeds.length}`, seeds);
+        return seeds;
+      },
+    });
+  }
+  
+  // 其他队列：使用 BlockIds（静态）
   if (queueId && getQueueItems) {
     const items = getQueueItems();
     const blockIds = items.map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);

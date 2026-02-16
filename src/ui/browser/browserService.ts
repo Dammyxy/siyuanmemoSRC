@@ -227,6 +227,10 @@ function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>):
     // 转换 CardType
     const cardType = card.type as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined;
     
+    // 🔧 修复：优先使用块属性，但如果块属性不存在，使用 FSRSCard.type
+    // 这样可以确保所有概念卡都能被正确识别
+    const finalCardType = (customAttrs[ATTR_CARD_TYPE] as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined) || cardType;
+    
     return {
         id: card.id,
         fsrsCardId: card.id,
@@ -257,7 +261,7 @@ function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>):
         priority: parseInt(customAttrs[ATTR_PRIORITY] || '50') || 50,
         suspended: customAttrs[ATTR_SUSPENDED] === 'true',
         
-        cardType: (customAttrs[ATTR_CARD_TYPE] as 'topic' | 'item' | undefined) || cardType as any,
+        cardType: finalCardType,
         aFactor: parseFloat(customAttrs[ATTR_A_FACTOR] || '') || undefined,
         
         tags: [],  // 将在后续步骤中填充
@@ -330,17 +334,31 @@ async function loadAllCardsRaw(
                         browserCard.rootId = rootIdMap.get(card.blockId) || browserCard.rootId || '';
                         browserCard.tags = tagsMap.get(card.blockId) || [];
                         
-                        // 🆕 如果是概念卡且 fullContent 为空或只有空白字符（包括零宽字符），使用从数据库获取的内容
+                        // 🔧 修复：对于概念卡，优先使用数据库的 content（文档标题）
+                        // 直接使用 FSRSCard.type，因为它是最可靠的来源
                         if (card.type === 'concept') {
-                            // 移除所有空白字符（包括零宽字符 \u200B）
-                            const currentContent = (browserCard.fullContent || '').replace(/[\s\u200B]/g, '');
                             const dbContent = contentMap.get(card.blockId);
                             
-                            // 如果当前内容为空或只有空白字符，使用数据库内容
-                            if (!currentContent && dbContent) {
+                            console.log(`[SiyuanMemo][CardBrowser] 🔍 Concept card ${card.blockId}:`, {
+                                fsrsType: card.type,
+                                browserCardType: browserCard.cardType,
+                                hasDbContent: !!dbContent,
+                                dbContent: dbContent?.substring(0, 50),
+                                beforeUpdate_content: browserCard.content?.substring(0, 50),
+                                beforeUpdate_fullContent: browserCard.fullContent?.substring(0, 50),
+                            });
+                            
+                            // 如果数据库有内容，直接使用（文档块的 content 就是标题）
+                            if (dbContent) {
                                 browserCard.fullContent = dbContent;
                                 browserCard.content = truncateContent(dbContent, 100);
-                                console.log(`[SiyuanMemo][CardBrowser] ✅ Updated content for ${card.blockId}: "${browserCard.content}"`);
+                                console.log(`[SiyuanMemo][CardBrowser] ✅ Updated concept card:`, {
+                                    blockId: card.blockId,
+                                    afterUpdate_content: browserCard.content,
+                                    afterUpdate_fullContent: browserCard.fullContent,
+                                });
+                            } else {
+                                console.warn(`[SiyuanMemo][CardBrowser] ⚠️ No dbContent for concept card ${card.blockId}`);
                             }
                         }
                         
@@ -508,6 +526,22 @@ export async function loadCards(
                 return String(a.blockId).localeCompare(String(b.blockId));
             });
 
+            // 🔍 调试：输出所有卡片的类型和内容
+            console.log('[SiyuanMemo][CardBrowser] 📊 Final cards summary:', {
+                total: cards.length,
+                byType: cards.reduce((acc, c) => {
+                    acc[c.cardType || 'unknown'] = (acc[c.cardType || 'unknown'] || 0) + 1;
+                    return acc;
+                }, {} as Record<string, number>),
+                conceptCards: cards.filter(c => c.cardType === 'concept').map(c => ({
+                    blockId: c.blockId,
+                    content: c.content?.substring(0, 30),
+                    fullContent: c.fullContent?.substring(0, 30),
+                    hasContent: !!c.content,
+                    hasFullContent: !!c.fullContent,
+                }))
+            });
+
             return cards;
         } catch (err) {
             console.error('[SiyuanMemo][CardBrowser] Load cards error:', err);
@@ -522,6 +556,16 @@ export async function loadCards(
 export function invalidateCardCache(): void {
     cardCache.clear();
     console.log('[SiyuanMemo][CardBrowser] 缓存已清除');
+}
+
+/**
+ * 🆕 强制清除所有缓存（包括浏览器缓存）
+ */
+export function forceInvalidateAllCache(): void {
+    cardCache.clear();
+    // 清除所有监听器，强制重新加载
+    listeners.clear();
+    console.log('[SiyuanMemo][CardBrowser] 所有缓存已强制清除');
 }
 
 /**
@@ -878,36 +922,87 @@ export async function loadQueueCards(
         
         const { attrsMap, rootIdMap, tagsMap, contentMap } = await fetchBlockInfoBatched(ids);
         
-        let cards: BrowserCard[] = ids
-            .map(id => cardMap.get(id))
-            .filter(Boolean)
-            .map(card => {
-                const customAttrs = attrsMap.get(card!.blockId) || {};
-                const browserCard = transformFSRSCard(card!, customAttrs);
-                browserCard.rootId = rootIdMap.get(card!.blockId) || browserCard.rootId || '';
-                browserCard.tags = tagsMap.get(card!.blockId) || [];
-                
-                // 🆕 如果是概念卡且 fullContent 为空或只有空白字符（包括零宽字符），使用从数据库获取的内容
-                if (card!.type === 'concept') {
-                    // 移除所有空白字符（包括零宽字符 \u200B）
-                    const currentContent = (browserCard.fullContent || '').replace(/[\s\u200B]/g, '');
-                    const dbContent = contentMap.get(card!.blockId);
-                    
-                    // 如果当前内容为空或只有空白字符，使用数据库内容
-                    if (!currentContent && dbContent) {
-                        console.log(`[SiyuanMemo][loadQueueCards] 📝 Updated content for concept card ${card!.blockId}: "${dbContent.substring(0, 50)}..."`);
-                        browserCard.fullContent = dbContent;
-                        browserCard.content = truncateContent(dbContent, 100);
-                    }
-                }
-                
-                return browserCard;
-            });
-
+        // 🆕 优化：合并多次遍历为一次，减少中间数组创建
         const parsed = parseQuery(queryText || '');
-        cards = applyParsedQuery(cards, parsed);
-        const byBlockId = new Map(cards.map((c) => [c.blockId, c]));
-        return ids.map((id) => byBlockId.get(id)).filter(Boolean) as BrowserCard[];
+        const cards: BrowserCard[] = [];
+        
+        for (const id of ids) {
+            const card = cardMap.get(id);
+            
+            // 🆕 如果块没有对应的 FSRS 卡片，创建虚拟卡片
+            if (!card) {
+                console.log(`[SiyuanMemo][loadQueueCards] Block ${id} has no FSRS card, creating virtual card`);
+                
+                const customAttrs = attrsMap.get(id) || {};
+                const dbContent = contentMap.get(id) || '';
+                const rootId = rootIdMap.get(id) || '';
+                const tags = tagsMap.get(id) || [];
+                
+                // 创建虚拟卡片（用于神经漫游等场景）
+                const virtualCard: BrowserCard = {
+                    id: id,
+                    fsrsCardId: id,
+                    blockId: id,
+                    deckId: '',
+                    content: truncateContent(dbContent, 100),
+                    fullContent: dbContent,
+                    rootId: rootId,
+                    state: 0,  // New
+                    stateLabel: '新卡',
+                    due: new Date(),
+                    dueFormatted: '-',
+                    stability: 0,
+                    difficulty: 0,
+                    retrievability: 0,
+                    reps: 0,
+                    lapses: 0,
+                    elapsedDays: 0,
+                    scheduledDays: 0,
+                    lastReview: null,
+                    lastReviewFormatted: '-',
+                    interval: 0,
+                    firstReview: null,
+                    firstReviewFormatted: '-',
+                    priority: Number(customAttrs[ATTR_PRIORITY]) || 50,
+                    suspended: customAttrs[ATTR_SUSPENDED] === 'true',
+                    tags: tags,
+                    note: '',
+                    cardType: customAttrs[ATTR_CARD_TYPE] as any || 'concept',  // 默认为概念卡
+                    aFactor: undefined,
+                };
+                
+                // 🔧 只在有查询文本时才应用筛选
+                if (!queryText || matchesParsedQuery(virtualCard, parsed)) {
+                    cards.push(virtualCard);
+                }
+                continue;
+            }
+            
+            const customAttrs = attrsMap.get(card.blockId) || {};
+            const browserCard = transformFSRSCard(card, customAttrs);
+            browserCard.rootId = rootIdMap.get(card.blockId) || browserCard.rootId || '';
+            browserCard.tags = tagsMap.get(card.blockId) || [];
+            
+            // 🔧 修复：对于概念卡，优先使用数据库的 content（文档标题）
+            // 直接使用 FSRSCard.type，因为它是最可靠的来源
+            if (card.type === 'concept') {
+                const dbContent = contentMap.get(card.blockId);
+                
+                // 如果数据库有内容，直接使用（文档块的 content 就是标题）
+                if (dbContent) {
+                    browserCard.fullContent = dbContent;
+                    browserCard.content = truncateContent(dbContent, 100);
+                }
+            }
+            
+            // 🔧 修复：只在有查询文本时才应用筛选，否则返回所有卡片
+            // 这样神经漫游队列的浏览器可以显示所有队列中的卡片
+            if (!queryText || matchesParsedQuery(browserCard, parsed)) {
+                cards.push(browserCard);
+            }
+        }
+        
+        return cards;
     } catch (err) {
         console.error('[SiyuanMemo][CardBrowser] loadQueueCards error:', err);
         return [];

@@ -50,12 +50,12 @@
         <span></span>
         <button
           data-type="3"
-          aria-label="N"
+          aria-label="Space"
           class="b3-button b3-button--info"
           @click="emit('grade', 3)"
         >
           <div class="card__icon">📖</div>
-          {{ t('nextCard', '下一张') }} (N)
+          {{ t('nextCard', '下一张') }} ({{ t('space', '空格') }})
         </button>
       </div>
     </template>

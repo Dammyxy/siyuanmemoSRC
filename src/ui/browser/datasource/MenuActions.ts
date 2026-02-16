@@ -253,9 +253,26 @@ export async function removeFromQueue(
     return result?.removedCount ?? 0;
   }
 
-  // 降级到直接调用
+  // 降级到直接调用 remove()
   if (queue.remove) {
     return await Promise.resolve(queue.remove(items));
+  }
+
+  // 🆕 降级到逐个调用 removeCard()（用于神经漫游等队列）
+  if (queue.removeCard) {
+    let removedCount = 0;
+    for (const row of selectedRows) {
+      try {
+        // 优先使用 blockId，因为神经漫游队列使用 blockId 作为种子
+        const id = row.blockId || row.fsrsCardId || row.id;
+        await queue.removeCard(id);
+        removedCount++;
+        console.log(`[MenuActions] Removed card ${id} from queue`);
+      } catch (error) {
+        console.error('[MenuActions] Failed to remove card:', error);
+      }
+    }
+    return removedCount;
   }
 
   console.warn('[MenuActions] No remove method found on queue');

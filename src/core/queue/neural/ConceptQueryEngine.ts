@@ -9,6 +9,9 @@
  */
 
 import * as api from '../../siyuan/api';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('ConceptQueryEngine');
 
 export interface Neighbor {
   id: string;
@@ -31,40 +34,27 @@ export class ConceptQueryEngine {
    * @returns 邻居列表（已去重）
    */
   async fetchNeighbors(conceptId: string): Promise<Neighbor[]> {
-    const neighbors: Neighbor[] = [];
-
     try {
-      // 1. 查询反链（权重 15）
-      const backlinks = await this.fetchBacklinks(conceptId);
-      neighbors.push(...backlinks.map(id => ({
-        id,
-        type: 'backlink' as const,
-        weight: 15,
-      })));
+      // 并行查询所有类型（性能提升 3 倍）
+      const [backlinks, outgoingLinks, descriptors] = await Promise.all([
+        this.fetchBacklinks(conceptId),
+        this.fetchOutgoingLinks(conceptId),
+        this.fetchDescriptors(conceptId),
+      ]);
 
-      // 2. 查询正链（权重 8）
-      const outgoingLinks = await this.fetchOutgoingLinks(conceptId);
-      neighbors.push(...outgoingLinks.map(id => ({
-        id,
-        type: 'outgoing' as const,
-        weight: 8,
-      })));
-
-      // 3. 查询描述符卡（权重 3）
-      const descriptors = await this.fetchDescriptors(conceptId);
-      neighbors.push(...descriptors.map(id => ({
-        id,
-        type: 'descriptor' as const,
-        weight: 3,
-      })));
+      const neighbors: Neighbor[] = [
+        ...backlinks.map(id => ({ id, type: 'backlink' as const, weight: 15 })),
+        ...outgoingLinks.map(id => ({ id, type: 'outgoing' as const, weight: 8 })),
+        ...descriptors.map(id => ({ id, type: 'descriptor' as const, weight: 3 })),
+      ];
 
       // 去重（同一个块可能同时是反链和正链）
       const uniqueNeighbors = this.deduplicateNeighbors(neighbors);
       
-      console.log(`[SiyuanMemo] ConceptQueryEngine: Found ${uniqueNeighbors.length} unique neighbors for ${conceptId}`);
+      logger.log(`Found ${uniqueNeighbors.length} unique neighbors for ${conceptId}`);
       return uniqueNeighbors;
     } catch (error) {
-      console.error('[SiyuanMemo][ConceptQueryEngine] Failed to fetch neighbors:', error);
+      logger.error('Failed to fetch neighbors:', error);
       return [];
     }
   }
@@ -79,7 +69,7 @@ export class ConceptQueryEngine {
    */
   async fetchBacklinks(conceptId: string): Promise<string[]> {
     try {
-      console.log(`[SiyuanMemo] ConceptQueryEngine: Fetching backlinks for: ${conceptId}`);
+      logger.debug(`Fetching backlinks for: ${conceptId}`);
       
       // 使用 /api/ref/getBacklink API
       const response = await fetch('/api/ref/getBacklink', {
@@ -93,23 +83,23 @@ export class ConceptQueryEngine {
       });
 
       if (!response.ok) {
-        console.error(`[SiyuanMemo][ConceptQueryEngine] API request failed: ${response.status}`);
+        logger.error(`API request failed: ${response.status}`);
         return [];
       }
 
       const data = await response.json();
       
       if (data.code !== 0) {
-        console.error(`[SiyuanMemo][ConceptQueryEngine] API error: ${data.msg}`);
+        logger.error(`API error: ${data.msg}`);
         return [];
       }
 
       // 解析反链数据
       const backlinks = data.data?.backlinks || [];
-      console.log(`[SiyuanMemo] ConceptQueryEngine: Raw backlinks count:`, backlinks.length);
+      logger.debug(`Raw backlinks count: ${backlinks.length}`);
       
       if (backlinks.length > 0) {
-        console.log(`[SiyuanMemo] ConceptQueryEngine: First backlink sample:`, backlinks[0]);
+        logger.debug('First backlink sample:', backlinks[0]);
       }
       
       // 递归提取所有块 ID
@@ -134,11 +124,11 @@ export class ConceptQueryEngine {
         extractBlockIds(backlink);
       }
 
-      console.log(`[SiyuanMemo] ConceptQueryEngine: Found ${backlinkIds.length} backlink blocks:`, backlinkIds.slice(0, 10));
+      logger.debug(`Found ${backlinkIds.length} backlink blocks`, backlinkIds.slice(0, 10));
       
       return backlinkIds;
     } catch (error) {
-      console.error('[SiyuanMemo][ConceptQueryEngine] Failed to fetch backlinks:', error);
+      logger.error('Failed to fetch backlinks:', error);
       return [];
     }
   }
@@ -172,15 +162,15 @@ export class ConceptQueryEngine {
       const rows = await api.sql(stmt);
       
       if (!rows || !Array.isArray(rows)) {
-        console.log(`[SiyuanMemo] ConceptQueryEngine: No outgoing links found`);
+        logger.debug('No outgoing links found');
         return [];
       }
 
       const linkIds = rows.map(row => row.id);
-      console.log(`[SiyuanMemo] ConceptQueryEngine: Found ${linkIds.length} outgoing links`);
+      logger.debug(`Found ${linkIds.length} outgoing links`);
       return linkIds;
     } catch (error) {
-      console.error('[SiyuanMemo][ConceptQueryEngine] Failed to fetch outgoing links:', error);
+      logger.error('Failed to fetch outgoing links:', error);
       return [];
     }
   }
@@ -211,16 +201,16 @@ export class ConceptQueryEngine {
       }
 
       const descriptorIds = rows.map(row => row.id);
-      console.log(`[SiyuanMemo] ConceptQueryEngine: Found ${descriptorIds.length} descriptors`);
+      logger.debug(`Found ${descriptorIds.length} descriptors`);
       return descriptorIds;
     } catch (error) {
-      console.error('[SiyuanMemo][ConceptQueryEngine] Failed to fetch descriptors:', error);
+      logger.error('Failed to fetch descriptors:', error);
       return [];
     }
   }
 
   /**
-   * 检查块是否为概念卡
+   * 检查块是否为概念卡（且卡片存在）
    * 
    * @param blockId 块 ID
    * @returns 是否为概念卡
@@ -228,16 +218,31 @@ export class ConceptQueryEngine {
   async isConceptCard(blockId: string): Promise<boolean> {
     try {
       const stmt = `
-        SELECT value
-        FROM attributes
-        WHERE block_id = '${this.escapeSQL(blockId)}'
-          AND name = 'custom-fsrs-card-type'
+        SELECT 
+          type.value as card_type,
+          card_id.value as card_id
+        FROM attributes type
+        LEFT JOIN attributes card_id 
+          ON card_id.block_id = type.block_id 
+          AND card_id.name = 'custom-fsrs-card-id'
+        WHERE type.block_id = '${this.escapeSQL(blockId)}'
+          AND type.name = 'custom-fsrs-card-type'
       `;
       
       const rows = await api.sql(stmt);
-      return rows && rows.length > 0 && rows[0].value === 'concept';
+      
+      if (!rows || rows.length === 0) {
+        return false;
+      }
+      
+      const row = rows[0];
+      const isConceptType = row.card_type === 'concept';
+      const hasCardId = !!row.card_id; // 🔧 修复：检查是否有 card_id（卡片是否存在）
+      
+      // 只返回有效的概念卡（类型是 concept 且有 card_id）
+      return isConceptType && hasCardId;
     } catch (error) {
-      console.error('[SiyuanMemo][ConceptQueryEngine] Failed to check if concept card:', error);
+      logger.error('Failed to check if concept card:', error);
       return false;
     }
   }
@@ -268,7 +273,7 @@ export class ConceptQueryEngine {
 
       return rows[0];
     } catch (error) {
-      console.error('[SiyuanMemo][ConceptQueryEngine] Failed to fetch block data:', error);
+      logger.error('Failed to fetch block data:', error);
       return null;
     }
   }

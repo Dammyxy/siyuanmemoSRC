@@ -88,6 +88,25 @@ const emit = defineEmits<{
 
 const rootRef = ref<HTMLDivElement | null>(null);
 
+// 🆕 防重复触发机制
+let lastKeyPressTime = 0;
+let lastKeyPressed = '';
+const KEY_PRESS_DEBOUNCE = 300; // 300ms 内的重复按键视为同一次
+
+function shouldIgnoreDuplicateKey(key: string): boolean {
+  const now = Date.now();
+  const timeSinceLastPress = now - lastKeyPressTime;
+  
+  if (key === lastKeyPressed && timeSinceLastPress < KEY_PRESS_DEBOUNCE) {
+    console.log('[SiyuanMemo][ReviewView] Ignoring duplicate key press:', key, 'timeSince:', timeSinceLastPress);
+    return true;
+  }
+  
+  lastKeyPressTime = now;
+  lastKeyPressed = key;
+  return false;
+}
+
 // 判断是否为神经漫游模式
 const isNeuralRoamMode = computed(() => {
   // 检查底层队列是否为神经漫游
@@ -116,6 +135,10 @@ onMounted(() => {
     ourDialog: document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]'),
   });
 
+  // 🆕 添加键盘事件监听器
+  document.addEventListener('keydown', handleKeyDown);
+  console.log('[SiyuanMemo][ReviewView] Keyboard event listener added');
+
   // 🌌 恢复侧边栏状态（已删除）
 
   // 🆕 触发增量同步（如果启用）
@@ -134,6 +157,12 @@ onMounted(() => {
 
   // 🆕 初始化导航状态（Phase 3: UI 控件）
   refreshNavigationState();
+});
+
+// 🆕 组件卸载时移除键盘事件监听器
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeyDown);
+  console.log('[SiyuanMemo][ReviewView] Keyboard event listener removed');
 });
 
 const providerAdapter = props.reviewUI?.adapter;
@@ -186,14 +215,92 @@ function handleRootClick(e: MouseEvent) {
   if (typeof e.detail !== 'string') return;
 
   const key = e.detail.toLowerCase();
+  
+  // 🆕 防重复触发检查
+  if (shouldIgnoreDuplicateKey(key)) {
+    return;
+  }
+  
   console.log('[SiyuanMemo][ReviewView] Hotkey detected:', key, 'answerShown:', hook.context.value.showAnswer);
 
-  // 显示答案（空格/回车） - 只在答案未显示时工作
+  // 检查是否为 Topic 卡片
+  const cardMeta = state.value.actions.cardMeta;
+  const isTopicCard = cardMeta?.type === 'topic' || cardMeta?.cardType === 'topic';
+
+  // 显示答案（空格/回车）
   if ((key === ' ' || key === 'enter') && !hook.context.value.showAnswer) {
     e.preventDefault();
     e.stopPropagation();
-    console.log('[SiyuanMemo][ReviewView] Revealing answer...');
-    hook.reveal();
+    
+    // Topic 卡片：直接评分为 Good (3)
+    if (isTopicCard) {
+      console.log('[SiyuanMemo][ReviewView] Topic card - grading with 3 (Good)');
+      void hook.grade(3);
+    } else {
+      // 普通卡片：显示答案
+      console.log('[SiyuanMemo][ReviewView] Revealing answer...');
+      hook.reveal();
+    }
+    return;
+  }
+
+  // 评分（1/2/3/4） - 只在答案已显示后才能评分
+  if (['1', '2', '3', '4'].includes(key)) {
+    if (hook.context.value.showAnswer) {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('[SiyuanMemo][ReviewView] Grading with rating:', key);
+      void hook.grade(Number(key));
+    } else {
+      console.log('[SiyuanMemo][ReviewView] Rating key pressed but answer not shown, ignoring');
+    }
+    return;
+  }
+
+  // 跳过（S键） - 任何时候都能工作
+  if (key === 's') {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('[SiyuanMemo][ReviewView] Skipping card...');
+    void hook.skip();
+  }
+}
+
+// 🆕 处理标准键盘事件
+function handleKeyDown(e: KeyboardEvent) {
+  // 忽略在输入框中的按键
+  const target = e.target as HTMLElement;
+  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+    return;
+  }
+
+  const key = e.key.toLowerCase();
+  
+  // 🆕 防重复触发检查
+  if (shouldIgnoreDuplicateKey(key)) {
+    return;
+  }
+  
+  console.log('[SiyuanMemo][ReviewView] KeyDown:', key, 'answerShown:', hook.context.value.showAnswer);
+
+  // 检查是否为 Topic 卡片
+  const cardMeta = state.value.actions.cardMeta;
+  const isTopicCard = cardMeta?.type === 'topic' || cardMeta?.cardType === 'topic';
+
+  // 显示答案（空格/回车）
+  if ((key === ' ' || key === 'enter') && !hook.context.value.showAnswer) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Topic 卡片：直接评分为 Good (3)
+    if (isTopicCard) {
+      console.log('[SiyuanMemo][ReviewView] Topic card - grading with 3 (Good)');
+      void hook.grade(3);
+    } else {
+      // 普通卡片：显示答案
+      console.log('[SiyuanMemo][ReviewView] Revealing answer...');
+      hook.reveal();
+    }
     return;
   }
 
