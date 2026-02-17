@@ -21,7 +21,6 @@ import { FSRSCard } from '../types/card';
 import type { QueueItem } from '../core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import { resolveCardId } from '../diagnostics/type-guards';
-import { DynamicDrawSequencer } from '../core/queue/sequencers/DynamicDrawSequencer';
 
 /**
  * 最终训练条目接口
@@ -60,18 +59,23 @@ export class FinalDrillQueue extends BaseReviewQueue {
     private entries: Map<string, FinalDrillEntry>;
     
     /**
-     * 动态抽牌排序器
-     * 
-     * 使用随机抽牌算法，确保每次评分后看到不同的卡片。
-     */
-    private sequencer: DynamicDrawSequencer<FSRSCard> | null = null;
-    
-    /**
      * 自动清理天数阈值
      * 
      * 超过此天数的自动失败卡片将被自动清理。
      */
     private readonly AUTO_CLEANUP_DAYS = 3;
+    
+    /**
+     * FlipElement 算法参数
+     * 
+     * 基于 SuperMemo 的 Final Drill 动态算法：
+     * FlipElement(5, 3, 6)
+     * 
+     * @see H:\project-F\flashcard\资料\supermemo\finaldrill.md
+     */
+    private readonly FLIP_LOWEST_PICK = 5;
+    private readonly FLIP_LOWEST_INSERT = 3;
+    private readonly FLIP_HIGHEST_INSERT = 6;
     
     /**
      * 持久化存储键
@@ -108,20 +112,28 @@ export class FinalDrillQueue extends BaseReviewQueue {
     /**
      * 获取队列中的所有卡片
      * 
-     * 使用动态抽牌算法：
+     * 使用 SuperMemo 的 FlipElement 动态算法：
      * 1. 清理过期的自动失败卡片
-     * 2. 获取所有条目对应的卡片数据
-     * 3. 使用 DynamicDrawSequencer 进行随机抽牌
+     * 2. 获取所有条目对应的卡片数据（按插入顺序）
+     * 3. 执行 FlipElement(5, 3, 6) 局部洗牌
      * 
-     * @returns 卡片数组（随机顺序）
+     * FlipElement 算法：
+     * - 从位置 5 或更后面随机选择一张卡片
+     * - 将它移动到位置 3-6 之间的随机位置
+     * - 保持大致顺序，但避免卡片一直待在队尾
+     * 
+     * 注意：每次调用都会执行 FlipElement，确保每次复习前都重新洗牌
+     * 
+     * @returns 卡片数组（经过 FlipElement 处理的顺序）
      * @see 需求 6.1, 9.4, 13.5
+     * @see H:\project-F\flashcard\资料\supermemo\finaldrill.md
      */
     public async getCards(): Promise<FSRSCard[]> {
         try {
             // 清理过期的自动失败卡片
             await this.cleanupExpiredAutoFailed();
             
-            // 获取所有卡片
+            // 获取所有卡片（按 Map 的插入顺序）
             const cards: FSRSCard[] = [];
             const cardsToRemove: string[] = [];
             
@@ -143,28 +155,15 @@ export class FinalDrillQueue extends BaseReviewQueue {
             }
             
             // 持久化（如果有卡片被移除）
-            await this.persistEntries();
+            if (cardsToRemove.length > 0) {
+                await this.persistEntries();
+            }
             
-            // 使用动态抽牌排序器打乱顺序
+            // ⚠️ 重要：每次调用都执行 FlipElement 算法
+            // 这样可以确保每次复习前都重新洗牌，避免总是复习同一张卡片
             if (cards.length > 0) {
-                // 创建新的排序器（每次都重新创建以确保随机性）
-                this.sequencer = new DynamicDrawSequencer<FSRSCard>({
-                    getAll: () => cards,
-                    strategy: 'random',
-                    removeAfterSelection: true // 移除已选择的项，避免重复
-                });
-                
-                // 使用排序器重新排列卡片
-                const shuffledCards: FSRSCard[] = [];
-                for (let i = 0; i < cards.length; i++) {
-                    const card = await this.sequencer.next();
-                    if (card) {
-                        shuffledCards.push(card);
-                    }
-                }
-                
-                console.log(`[SiyuanMemo][FinalDrillQueue] Cards shuffled using DynamicDrawSequencer: ${shuffledCards.length} cards`);
-                return shuffledCards;
+                this.applyFlipElement(cards);
+                console.log(`[SiyuanMemo][FinalDrillQueue] Applied FlipElement algorithm to ${cards.length} cards`);
             }
             
             return cards;
@@ -257,7 +256,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
      * 复习逻辑：
      * - 评分不计入调度算法（练习模式）
      * - 评分 4：从队列移除
-     * - 评分 1/2/3：保留在队列中
+     * - 评分 1/2/3：将卡片移到队列后面，确保下次 FlipElement 可以选中它
      * 
      * @param cardId 卡片 ID
      * @param rating 评分 (1-4)
@@ -273,8 +272,10 @@ export class FinalDrillQueue extends BaseReviewQueue {
                 await this.removeCard(cardId);
                 console.log(`[SiyuanMemo][FinalDrillQueue] Card ${cardId} reviewed with rating 4, removed from queue`);
             } else {
-                // 评分 1/2/3：保留在队列中
-                console.log(`[SiyuanMemo][FinalDrillQueue] Card ${cardId} reviewed with rating ${rating}, kept in queue`);
+                // 评分 1/2/3：将卡片移到队列后面
+                // 这样下次 FlipElement 可以选中它，避免总是复习同一张卡片
+                await this.moveCardToBack(cardId);
+                console.log(`[SiyuanMemo][FinalDrillQueue] Card ${cardId} reviewed with rating ${rating}, moved to back`);
             }
             
             // 通知观察者队列已变化
@@ -364,6 +365,94 @@ export class FinalDrillQueue extends BaseReviewQueue {
     // ========================================================================
     // 私有辅助方法
     // ========================================================================
+    
+    /**
+     * 将卡片移到队列后面
+     * 
+     * 将卡片从当前位置移除，然后添加到队列末尾。
+     * 这样可以确保下次 FlipElement 可以选中它，避免总是复习同一张卡片。
+     * 
+     * Map 保持插入顺序，所以删除后重新添加会将卡片移到末尾。
+     * 
+     * @param cardId 卡片 ID
+     */
+    private async moveCardToBack(cardId: string): Promise<void> {
+        const entry = this.entries.get(cardId);
+        if (!entry) {
+            console.warn(`[SiyuanMemo][FinalDrillQueue] Card ${cardId} not found in queue`);
+            return;
+        }
+        
+        // 从当前位置移除
+        this.entries.delete(cardId);
+        
+        // 重新添加到队列末尾（Map 保持插入顺序）
+        this.entries.set(cardId, entry);
+        
+        // 持久化
+        await this.persistEntries();
+        
+        console.log(`[SiyuanMemo][FinalDrillQueue] Card ${cardId} moved to back of queue`);
+    }
+    
+    /**
+     * 应用 SuperMemo 的 FlipElement 算法
+     * 
+     * FlipElement(lowestPick, lowestInsert, highestInsert)
+     * 
+     * 算法步骤：
+     * 1. 从位置 >= lowestPick 随机选择一张卡片
+     * 2. 将它移动到 [lowestInsert, highestInsert] 之间的随机位置
+     * 3. 如果原位置 == 新位置，向后移动 1 位
+     * 4. 如果移动后超出队列大小，则停止
+     * 
+     * 注意：位置从 1 开始计数（SuperMemo 规范），但数组索引从 0 开始
+     * 
+     * @param cards 卡片数组（会被原地修改）
+     * @see H:\project-F\flashcard\资料\supermemo\finaldrill.md
+     */
+    private applyFlipElement(cards: FSRSCard[]): void {
+        const queueSize = cards.length;
+        
+        // 需要至少 lowestPick 张卡片才能洗牌
+        if (queueSize < this.FLIP_LOWEST_PICK) {
+            return;
+        }
+        
+        // 从 [lowestPick, queueSize) 随机选择一个位置
+        // 注意：规范中位置从 1 开始，代码中从 0 开始
+        const pickStart = this.FLIP_LOWEST_PICK - 1; // 转换为 0 索引
+        const pickEnd = queueSize - 1;
+        const pickPos = pickStart + Math.floor(Math.random() * (pickEnd - pickStart + 1));
+        
+        // 从 [lowestInsert, highestInsert] 随机选择插入位置
+        const insertStart = this.FLIP_LOWEST_INSERT - 1; // 转换为 0 索引
+        const insertEnd = Math.min(this.FLIP_HIGHEST_INSERT - 1, queueSize - 1); // 不超过队列大小
+        let insertPos = insertStart + Math.floor(Math.random() * (insertEnd - insertStart + 1));
+        
+        // 重叠检查：如果 pick == insert，向后移动 1 位
+        if (pickPos === insertPos) {
+            insertPos = pickPos + 1;
+            // 如果移动后超出队列大小，停止
+            if (insertPos >= queueSize) {
+                return;
+            }
+        }
+        
+        // 执行洗牌
+        const card = cards[pickPos];
+        
+        // 从原位置移除
+        cards.splice(pickPos, 1);
+        
+        // 调整插入位置（如果在移除点之前移除了一个元素）
+        const adjustedInsertPos = pickPos < insertPos ? insertPos - 1 : insertPos;
+        
+        // 插入到新位置
+        cards.splice(adjustedInsertPos, 0, card);
+        
+        console.log(`[SiyuanMemo][FinalDrillQueue] FlipElement: picked pos ${pickPos + 1}, inserted at pos ${adjustedInsertPos + 1}, card ${card.id}`);
+    }
     
     /**
      * 清理过期的自动失败卡片
