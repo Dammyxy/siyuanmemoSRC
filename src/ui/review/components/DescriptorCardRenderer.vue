@@ -404,7 +404,6 @@ onMounted(async () => {
 
 /* 使用深度选择器确保样式生效 */
 .descriptor-card-renderer__front :deep(.descriptor-card-front__concept),
-.descriptor-card-renderer__front >>> .descriptor-card-front__concept,
 .descriptor-card-front__concept {
   font-size: 24px !important;
   font-weight: 600 !important;
@@ -414,7 +413,6 @@ onMounted(async () => {
 }
 
 .descriptor-card-renderer__front :deep(.descriptor-card-front__divider),
-.descriptor-card-renderer__front >>> .descriptor-card-front__divider,
 .descriptor-card-front__divider {
   font-size: 24px !important;
   color: var(--b3-theme-on-surface-light) !important;
@@ -423,7 +421,6 @@ onMounted(async () => {
 }
 
 .descriptor-card-renderer__front :deep(.descriptor-card-front__attribute),
-.descriptor-card-renderer__front >>> .descriptor-card-front__attribute,
 .descriptor-card-front__attribute {
   font-size: 24px !important;
   font-weight: 700 !important;
@@ -433,7 +430,6 @@ onMounted(async () => {
 }
 
 .descriptor-card-renderer__front :deep(.descriptor-card-front__question),
-.descriptor-card-renderer__front >>> .descriptor-card-front__question,
 .descriptor-card-front__question {
   font-size: 24px !important;
   color: var(--b3-theme-on-surface-light) !important;
@@ -452,20 +448,16 @@ onMounted(async () => {
 }
 
 .descriptor-card-renderer__front-preview :deep(.descriptor-card-front__concept),
-.descriptor-card-renderer__front-preview >>> .descriptor-card-front__concept,
 .descriptor-card-renderer__front-preview .descriptor-card-front__concept,
 .descriptor-card-renderer__front-preview :deep(.descriptor-card-front__attribute),
-.descriptor-card-renderer__front-preview >>> .descriptor-card-front__attribute,
 .descriptor-card-renderer__front-preview .descriptor-card-front__attribute {
   font-size: 16px !important;
   margin-bottom: 2px !important;
 }
 
 .descriptor-card-renderer__front-preview :deep(.descriptor-card-front__divider),
-.descriptor-card-renderer__front-preview >>> .descriptor-card-front__divider,
 .descriptor-card-renderer__front-preview .descriptor-card-front__divider,
 .descriptor-card-renderer__front-preview :deep(.descriptor-card-front__question),
-.descriptor-card-renderer__front-preview >>> .descriptor-card-front__question,
 .descriptor-card-renderer__front-preview .descriptor-card-front__question {
   font-size: 16px !important;
   margin-bottom: 2px !important;
@@ -502,7 +494,6 @@ onMounted(async () => {
 }
 
 .descriptor-card-renderer__back :deep(.descriptor-card-back__value),
-.descriptor-card-renderer__back >>> .descriptor-card-back__value,
 .descriptor-card-back__value {
   font-size: 24px !important;
   line-height: 1.6 !important;
@@ -511,7 +502,6 @@ onMounted(async () => {
 
 /* 覆盖 Lute 渲染的默认样式 */
 .descriptor-card-renderer__back :deep(.descriptor-card-back__value *),
-.descriptor-card-renderer__back >>> .descriptor-card-back__value *,
 .descriptor-card-back__value * {
   font-size: 24px !important;
   line-height: 1.6 !important;

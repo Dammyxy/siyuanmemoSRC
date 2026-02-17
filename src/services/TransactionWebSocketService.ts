@@ -2,13 +2,11 @@
  * 统一的 Transaction WebSocket 服务
  * 
  * 职责：
- * - 管理单一的 WebSocket 连接
- * - 监听 transactions 事件
+ * - 监听思源主 WebSocket 的 transactions 事件
  * - 分发事件给注册的处理器
- * - 自动重连机制
  * 
  * 架构：
- * - 单一 WebSocket 连接
+ * - 复用思源主 WebSocket 连接（不创建新连接）
  * - 支持多个处理器（RiffSyncHandler, AutoCardHandler）
  * - 每个处理器独立处理事件
  * 
@@ -60,39 +58,41 @@ export interface ITransactionHandler {
 
 /**
  * 统一的 Transaction WebSocket 服务
+ * 
+ * 🔧 重要变更：不再创建新的 WebSocket 连接，而是监听思源主 WebSocket
+ * 原因：思源只向主 WebSocket 广播 transaction 事件
  */
 export class TransactionWebSocketService {
-    private plugin: FSRSPlugin; // 保留供未来扩展使用
-    private ws: WebSocket | null = null;
-    private reconnectTimer: NodeJS.Timeout | null = null;
+    private plugin: FSRSPlugin;
     private enabled: boolean = false;
     
     // 注册的处理器列表
     private handlers: ITransactionHandler[] = [];
     
-    // 配置
-    private readonly RECONNECT_DELAY = 3000; // 3秒
+    // 保存原始的 onmessage 处理器
+    private originalOnMessage: ((event: MessageEvent) => void) | null = null;
     
-    /**
-     * 获取 WebSocket URL
-     * 动态从思源配置中获取,避免硬编码
-     */
-    private getWebSocketURL(): string {
-        // 尝试从 window.siyuan 获取
-        if (typeof window !== 'undefined' && (window as any).siyuan) {
-            const siyuan = (window as any).siyuan;
-            // 思源的 WebSocket 地址通常是 ws://127.0.0.1:6806/ws
-            const host = siyuan.config?.system?.host || '127.0.0.1';
-            const port = siyuan.config?.system?.httpPort || 6806;
-            return `ws://${host}:${port}/ws`;
-        }
-        
-        // 降级方案：使用 127.0.0.1 而不是 localhost
-        return 'ws://127.0.0.1:6806/ws';
-    }
+    // 🆕 WebSocket 健康检查
+    private lastMessageTime: number = 0;
+    private healthCheckTimer: NodeJS.Timeout | null = null;
+    private readonly HEALTH_CHECK_INTERVAL = 60000; // 60秒检查一次
+    private readonly MESSAGE_TIMEOUT = 300000; // 5分钟没有消息认为连接异常
     
     constructor(plugin: FSRSPlugin) {
         this.plugin = plugin;
+    }
+    
+    /**
+     * 获取思源主 WebSocket
+     */
+    private getMainWebSocket(): WebSocket | null {
+        try {
+            const siyuan = (window as any).siyuan;
+            return siyuan?.ws?.ws || null;
+        } catch (error) {
+            console.error('[SiyuanMemo][TransactionWS] ❌ Failed to get main WebSocket:', error);
+            return null;
+        }
     }
     
     /**
@@ -122,14 +122,15 @@ export class TransactionWebSocketService {
      * 启动服务
      */
     public start(): void {
-        if (this.ws) {
+        if (this.enabled) {
             console.log('[SiyuanMemo][TransactionWS] Service already started');
             return;
         }
         
         console.log('[SiyuanMemo][TransactionWS] Starting service...');
         this.enabled = true;
-        this.connect();
+        this.attachToMainWebSocket();
+        this.startHealthCheck();
     }
     
     /**
@@ -139,87 +140,64 @@ export class TransactionWebSocketService {
         console.log('[SiyuanMemo][TransactionWS] Stopping service...');
         this.enabled = false;
         
-        // 清理定时器
-        if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = null;
-        }
+        // 停止健康检查
+        this.stopHealthCheck();
         
-        // 关闭 WebSocket
-        if (this.ws) {
-            this.ws.close(1000, 'Service stopped');
-            this.ws = null;
-        }
+        // 恢复原始的 onmessage 处理器
+        this.detachFromMainWebSocket();
         
         console.log('[SiyuanMemo][TransactionWS] Service stopped');
     }
     
     /**
-     * 建立 WebSocket 连接
+     * 附加到思源主 WebSocket
      */
-    private connect(): void {
-        try {
-            const wsUrl = this.getWebSocketURL();
-            console.log('[SiyuanMemo][TransactionWS] Connecting to WebSocket:', wsUrl);
-            
-            // 创建 WebSocket 连接
-            // 参数：app=siyuanmemo&type=main
-            const url = `${wsUrl}?app=siyuanmemo&type=main`;
-            this.ws = new WebSocket(url);
-            
-            // 连接成功
-            this.ws.onopen = () => {
-                console.log('[SiyuanMemo][TransactionWS] ✅ WebSocket connected');
-            };
-            
-            // 接收消息
-            this.ws.onmessage = (event) => {
-                this.handleMessage(event);
-            };
-            
-            // 连接错误
-            this.ws.onerror = (error) => {
-                console.error('[SiyuanMemo][TransactionWS] ❌ WebSocket error:', error);
-            };
-            
-            // 连接关闭
-            this.ws.onclose = (event) => {
-                console.log('[SiyuanMemo][TransactionWS] WebSocket closed:', event.code, event.reason);
-                this.ws = null;
-                
-                // 非正常关闭，自动重连
-                if (event.code !== 1000 && this.enabled) {
-                    console.log('[SiyuanMemo][TransactionWS] Connection closed abnormally, reconnecting...');
-                    this.reconnect();
-                }
-            };
-        } catch (error) {
-            console.error('[SiyuanMemo][TransactionWS] ❌ Failed to connect:', error);
-            
-            // 连接失败，自动重连
-            if (this.enabled) {
-                this.reconnect();
-            }
+    private attachToMainWebSocket(): void {
+        const ws = this.getMainWebSocket();
+        
+        if (!ws) {
+            console.error('[SiyuanMemo][TransactionWS] ❌ Main WebSocket not found');
+            return;
         }
+        
+        console.log('[SiyuanMemo][TransactionWS] ✅ Attaching to main WebSocket');
+        console.log('[SiyuanMemo][TransactionWS]    URL:', ws.url);
+        console.log('[SiyuanMemo][TransactionWS]    State:', ws.readyState, '(1=OPEN)');
+        
+        // 保存原始的 onmessage 处理器
+        this.originalOnMessage = ws.onmessage;
+        
+        // 包装原始处理器
+        ws.onmessage = (event: MessageEvent) => {
+            // 先调用我们的处理器
+            this.handleMessage(event);
+            
+            // 再调用原始处理器
+            if (this.originalOnMessage) {
+                this.originalOnMessage.call(ws, event);
+            }
+        };
+        
+        console.log('[SiyuanMemo][TransactionWS] ✅ Attached to main WebSocket');
     }
     
     /**
-     * 重新连接
+     * 从思源主 WebSocket 分离
      */
-    private reconnect(): void {
-        if (this.reconnectTimer) {
-            return; // 已经在重连中
+    private detachFromMainWebSocket(): void {
+        const ws = this.getMainWebSocket();
+        
+        if (!ws) {
+            return;
         }
         
-        console.log(`[SiyuanMemo][TransactionWS] Reconnecting in ${this.RECONNECT_DELAY}ms...`);
+        // 恢复原始的 onmessage 处理器
+        if (this.originalOnMessage) {
+            ws.onmessage = this.originalOnMessage;
+            this.originalOnMessage = null;
+        }
         
-        this.reconnectTimer = setTimeout(() => {
-            this.reconnectTimer = null;
-            
-            if (this.enabled) {
-                this.connect();
-            }
-        }, this.RECONNECT_DELAY);
+        console.log('[SiyuanMemo][TransactionWS] Detached from main WebSocket');
     }
     
     /**
@@ -227,6 +205,9 @@ export class TransactionWebSocketService {
      */
     private handleMessage(event: MessageEvent): void {
         try {
+            // 🆕 更新最后消息时间
+            this.lastMessageTime = Date.now();
+            
             const message: WSMessage = JSON.parse(event.data);
             
             // 只处理 transactions 命令
@@ -258,6 +239,60 @@ export class TransactionWebSocketService {
                 console.error('[SiyuanMemo][TransactionWS] ❌ Handler error:', handler.constructor.name, error);
                 // 继续处理其他处理器，不中断
             }
+        }
+    }
+    
+    /**
+     * 启动健康检查
+     * 
+     * 定期检查 WebSocket 是否接收到消息
+     * 如果长时间没有消息，可能是"静默连接"问题
+     */
+    private startHealthCheck(): void {
+        // 清除旧的定时器
+        if (this.healthCheckTimer) {
+            clearInterval(this.healthCheckTimer);
+        }
+        
+        // 初始化最后消息时间
+        this.lastMessageTime = Date.now();
+        
+        // 启动定期检查
+        this.healthCheckTimer = setInterval(() => {
+            const now = Date.now();
+            const timeSinceLastMessage = now - this.lastMessageTime;
+            
+            if (timeSinceLastMessage > this.MESSAGE_TIMEOUT) {
+                const workspaceDir = (window as any).siyuan?.config?.system?.workspaceDir || 'unknown';
+                const ws = this.getMainWebSocket();
+                
+                console.warn(
+                    `[SiyuanMemo][TransactionWS] ⚠️ 健康检查警告：\n` +
+                    `  工作空间: ${workspaceDir}\n` +
+                    `  ${Math.floor(timeSinceLastMessage / 1000)}秒内没有收到任何消息\n` +
+                    `  WebSocket 状态: ${ws?.readyState || 'null'}\n` +
+                    `  这可能是"静默连接"问题，建议：\n` +
+                    `  1. 切换到其他工作空间测试\n` +
+                    `  2. 使用手动同步功能\n` +
+                    `  3. 重启思源笔记`
+                );
+                
+                // 重置计时器，避免重复警告
+                this.lastMessageTime = now;
+            }
+        }, this.HEALTH_CHECK_INTERVAL);
+        
+        console.log('[SiyuanMemo][TransactionWS] 健康检查已启动');
+    }
+    
+    /**
+     * 停止健康检查
+     */
+    private stopHealthCheck(): void {
+        if (this.healthCheckTimer) {
+            clearInterval(this.healthCheckTimer);
+            this.healthCheckTimer = null;
+            console.log('[SiyuanMemo][TransactionWS] 健康检查已停止');
         }
     }
 }

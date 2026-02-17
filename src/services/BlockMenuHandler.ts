@@ -457,6 +457,56 @@ export class BlockMenuHandler {
   }
 
   /**
+   * 处理块引用右键菜单
+   */
+  handleBlockRefMenu(e: any): void {
+    const detail = e?.detail ?? e;
+    const menu = detail?.menu;
+    const element = detail?.element;
+
+    if (!menu || !element) {
+      return;
+    }
+
+    // 获取块引用指向的块 ID
+    const blockId = element.dataset?.id;
+    if (!blockId) {
+      return;
+    }
+
+    try {
+      const submenu: any[] = [];
+
+      // 制作为概念卡并加入队列
+      submenu.push({
+        icon: 'iconMark',
+        label: '📍 制作为概念卡并加入队列',
+        click: async () => {
+          await this.makeConceptAndAddToRoam(blockId, 'normal');
+        },
+      });
+
+      // 制作为概念卡并立即漫游
+      submenu.push({
+        icon: 'iconFocus',
+        label: '🚀 制作为概念卡并立即漫游',
+        click: async () => {
+          await this.makeConceptAndAddToRoam(blockId, 'high');
+        },
+      });
+
+      // 添加菜单项
+      menu.addItem({
+        icon: 'iconRiffCard',
+        label: 'SiyuanMemo',
+        submenu,
+      });
+    } catch (err) {
+      console.error('[SiyuanMemo] Failed to generate blockref menu:', err);
+    }
+  }
+
+  /**
    * 获取包含闪卡的块元素
    */
   getDrillBlockElements(blockElements: HTMLElement[]): HTMLElement[] {
@@ -818,12 +868,27 @@ export class BlockMenuHandler {
             'custom-fsrs-card-type': 'concept'
           });
           
-          // 等待属性写入完成
-          await new Promise(resolve => setTimeout(resolve, 100));
-          
           console.log(`[BlockMenuHandler] Updated card type to concept for block: ${blockId}`);
           await pushMsg('✅ 已更新为概念卡');
         }
+      }
+      
+      // 🔧 等待属性写入完成（增加等待时间并添加重试逻辑）
+      let retries = 5;
+      let isConceptVerified = false;
+      
+      while (retries > 0 && !isConceptVerified) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+        isConceptVerified = await this.isConceptCard(blockId);
+        
+        if (!isConceptVerified) {
+          console.log(`[BlockMenuHandler] Waiting for concept card attribute to be written... (retries left: ${retries})`);
+          retries--;
+        }
+      }
+      
+      if (!isConceptVerified) {
+        console.warn(`[BlockMenuHandler] Concept card attribute verification failed after retries, but continuing...`);
       }
       
       // 4. 获取神经漫游队列（通过 plugin.unifiedDataSourceManager）

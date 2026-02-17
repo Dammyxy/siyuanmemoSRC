@@ -118,6 +118,7 @@ export type RiffDataSourceOptions = DataSourceOptions<QueueItem> & {
   schedulerRouter?: SchedulerRouter;  // 🆕 添加 schedulerRouter 参数
   api?: RiffApi;  // 🆕 添加 api 参数（可选，用于测试）
   errorReporter?: IErrorReporter;  // 🆕 Phase 1.6: 添加 errorReporter 参数
+  hybridSyncService?: any;  // 🆕 添加 hybridSyncService 参数（用于监听同步事件）
 };
 
 /**
@@ -141,6 +142,7 @@ export class RiffDataSource extends ObservableDataSource<QueueItem> {
   private readonly schedulerRouter?: SchedulerRouter;  // 🆕 添加 schedulerRouter 属性
   private readonly api: RiffApi;  // 🆕 添加 api 属性
   private readonly errorReporter?: IErrorReporter;  // 🆕 Phase 1.6: 添加 errorReporter 属性
+  private readonly hybridSyncService?: any;  // 🆕 添加 hybridSyncService 属性
   private cachedCards: QueueItem[] = [];  // 🆕 Phase 1.6: 重命名为 cachedCards 以符合规范
 
   /**
@@ -176,9 +178,21 @@ export class RiffDataSource extends ObservableDataSource<QueueItem> {
     this.blacklistProvider = options.blacklistProvider;
     this.storage = options.storage;  // 🆕 保存 storage
     this.schedulerRouter = options.schedulerRouter;  // 🆕 保存 schedulerRouter
+    this.hybridSyncService = options.hybridSyncService;  // 🆕 保存 hybridSyncService
     // 🆕 使用传入的 api 或默认的 getRiffDueCards
     this.api = options.api || { getRiffDueCards };
     this.errorReporter = options.errorReporter;  // 🆕 Phase 1.6: 保存 errorReporter
+    
+    // 🆕 监听同步成功事件，自动刷新缓存
+    if (this.hybridSyncService) {
+      this.hybridSyncService.on('syncSuccess', (event: any) => {
+        console.log('[RiffDataSource] Sync completed:', event.type);
+        // 清空缓存，强制下次重新获取
+        this.cachedCards = [];
+        // 通知所有观察者（Sequencer）刷新
+        this.notifyObservers();
+      });
+    }
   }
 
   /**

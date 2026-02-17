@@ -37,12 +37,13 @@ export class ConceptNeuralQueue {
   
   // 配置
   private neighborsPerRound = 5; // 每轮漫游 5 个邻居
+  private preloadQueueSize = 10; // 🆕 预加载队列大小
   
   // 依赖
   private queryEngine: ConceptQueryEngine;
   
-  // 🆕 预加载缓存
-  private preloadedCard: QueueItem | null = null;
+  // 🆕 预加载队列（改为数组）
+  private preloadedCards: QueueItem[] = [];
   private isPreloading = false;
   
   constructor() {
@@ -58,14 +59,29 @@ export class ConceptNeuralQueue {
     try {
       console.log('[SiyuanMemo][ConceptNeuralQueue] getNextCard called');
       
-      // 🆕 如果有预加载的卡片，直接返回
-      if (this.preloadedCard) {
-        console.log('[SiyuanMemo][ConceptNeuralQueue] Returning preloaded card');
-        const card = this.preloadedCard;
-        this.preloadedCard = null;
+      // 🆕 如果预加载队列有卡片，直接返回第一张
+      if (this.preloadedCards.length > 0) {
+        console.log(`[SiyuanMemo][ConceptNeuralQueue] Returning preloaded card (${this.preloadedCards.length} cards in queue)`);
+        const card = this.preloadedCards.shift()!; // 取出第一张
         
-        // 立即开始预加载下一张
-        this.preloadNextCard();
+        // 🔧 修复：将预加载的卡片标记为已访问
+        this.visitedBlocks.add(card.blockId);
+        this.displayPath.push(card.blockId);
+        
+        // 🔧 修复：更新种子状态（如果这是邻居卡片）
+        if (this.currentSeed && card.associationType !== 'seed') {
+          const seedState = this.seeds.get(this.currentSeed);
+          if (seedState) {
+            seedState.neighborsViewed++;
+          }
+        }
+        
+        console.log('[SiyuanMemo][ConceptNeuralQueue] Marked preloaded card as visited:', card.blockId);
+        
+        // 🆕 如果预加载队列少于一半，触发预加载
+        if (this.preloadedCards.length < this.preloadQueueSize / 2) {
+          this.preloadNextCards();
+        }
         
         return card;
       }
@@ -123,8 +139,10 @@ export class ConceptNeuralQueue {
           
           const card = this.buildQueueItem(blockData, selected.type, this.getReasonText(selected.type));
           
-          // 🆕 立即开始预加载下一张
-          this.preloadNextCard();
+          // 🆕 立即开始预加载（如果队列不足）
+          if (this.preloadedCards.length < this.preloadQueueSize / 2) {
+            this.preloadNextCards();
+          }
           
           return card;
         }
@@ -146,8 +164,10 @@ export class ConceptNeuralQueue {
           
           const card = this.buildQueueItem(blockData, 'seed', '种子节点');
           
-          // 🆕 立即开始预加载下一张
-          this.preloadNextCard();
+          // 🆕 立即开始预加载（如果队列不足）
+          if (this.preloadedCards.length < this.preloadQueueSize / 2) {
+            this.preloadNextCards();
+          }
           
           return card;
         }
@@ -165,12 +185,17 @@ export class ConceptNeuralQueue {
   }
 
   /**
-   * 🆕 预加载下一张卡片（后台执行）
+   * 🆕 预加载多张卡片（后台执行）
    * 
-   * 在返回当前卡片后立即调用，后台预加载下一张卡片，
+   * 在返回当前卡片后调用，后台预加载多张卡片到队列中，
    * 这样用户点击"下一张"时可以立即显示，无需等待。
+   * 
+   * 预加载逻辑：
+   * - 尝试预加载到 preloadQueueSize 张卡片
+   * - 如果队列中已有卡片，只补充到目标数量
+   * - 如果没有更多卡片可加载，停止预加载
    */
-  private preloadNextCard(): void {
+  private preloadNextCards(): void {
     // 如果已经在预加载，跳过
     if (this.isPreloading) {
       return;
@@ -181,9 +206,18 @@ export class ConceptNeuralQueue {
     // 异步预加载，不阻塞当前操作
     (async () => {
       try {
-        console.log('[SiyuanMemo][ConceptNeuralQueue] 🔄 Preloading next card...');
+        const targetSize = this.preloadQueueSize;
+        const currentSize = this.preloadedCards.length;
+        const needToLoad = targetSize - currentSize;
         
-        // 🔧 修复：保存当前完整状态（包括种子状态）
+        console.log(`[SiyuanMemo][ConceptNeuralQueue] 🔄 Preloading cards... (current: ${currentSize}, target: ${targetSize}, need: ${needToLoad})`);
+        
+        if (needToLoad <= 0) {
+          console.log('[SiyuanMemo][ConceptNeuralQueue] ✅ Preload queue is full, skipping');
+          return;
+        }
+        
+        // 🔧 保存当前完整状态（包括种子状态）
         const savedSeed = this.currentSeed;
         const savedVisited = new Set(this.visitedBlocks);
         const savedPath = [...this.displayPath];
@@ -194,22 +228,29 @@ export class ConceptNeuralQueue {
           ])
         );
         
-        // 临时修改状态来获取下一张卡片
-        const nextCard = await this.getNextCardInternal();
+        // 尝试预加载多张卡片
+        let loadedCount = 0;
+        for (let i = 0; i < needToLoad; i++) {
+          const nextCard = await this.getNextCardInternal();
+          
+          if (!nextCard) {
+            // 没有更多卡片可加载
+            console.log(`[SiyuanMemo][ConceptNeuralQueue] ⚠️ No more cards to preload (loaded ${loadedCount}/${needToLoad})`);
+            break;
+          }
+          
+          // 添加到预加载队列
+          this.preloadedCards.push(nextCard);
+          loadedCount++;
+        }
         
-        // 🔧 修复：无论是否成功，都恢复状态
+        // 🔧 恢复状态（预加载不应该影响实际状态）
         this.currentSeed = savedSeed;
         this.visitedBlocks = savedVisited;
         this.displayPath = savedPath;
         this.seeds = savedSeedsState;
         
-        if (nextCard) {
-          // 保存预加载的卡片
-          this.preloadedCard = nextCard;
-          console.log('[SiyuanMemo][ConceptNeuralQueue] ✅ Preloaded card:', nextCard.blockId);
-        } else {
-          console.log('[SiyuanMemo][ConceptNeuralQueue] ⚠️ No card to preload');
-        }
+        console.log(`[SiyuanMemo][ConceptNeuralQueue] ✅ Preloaded ${loadedCount} cards (queue size: ${this.preloadedCards.length})`);
       } catch (error) {
         console.error('[SiyuanMemo][ConceptNeuralQueue] Preload error:', error);
       } finally {
@@ -355,9 +396,14 @@ export class ConceptNeuralQueue {
     this.visitedBlocks.clear();
     this.displayPath = [];
     this.currentSeed = null;
-    // 🆕 清空预加载缓存
-    this.preloadedCard = null;
+    // 🆕 清空预加载队列
+    this.preloadedCards = [];
     this.isPreloading = false;
+    // 🆕 重置所有种子的 neighborsViewed 计数
+    for (const seed of this.seeds.values()) {
+      seed.neighborsViewed = 0;
+    }
+    console.log('[SiyuanMemo][ConceptNeuralQueue] History cleared, all seed counters reset');
   }
 
   /**

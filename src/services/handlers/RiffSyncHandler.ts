@@ -53,7 +53,13 @@ export class RiffSyncHandler implements ITransactionHandler {
             clearTimeout(this.debounceTimer);
         }
         
-        this.debounceTimer = setTimeout(() => {
+        this.debounceTimer = setTimeout(async () => {
+            console.log('[RiffSync] Waiting for Riff API to update...');
+            
+            // ⏰ 延迟 500ms，等待 Riff API 更新
+            // 这样可以确保 getRiffNewCards 能获取到最新的卡片
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
             console.log('[RiffSync] Triggering incremental sync...');
             this.hybridSyncService.incrementalSync()
                 .then((result) => {

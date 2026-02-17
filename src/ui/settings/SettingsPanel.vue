@@ -186,8 +186,247 @@
 
 
       <!-- 关于 -->
-      <div v-show="activeTab === 'about'" class="settings-section">
-        <!-- 内容已清空 -->
+      <div v-show="activeTab === 'about'" class="settings-section about-section">
+        <h3>📚 思源闪卡插件使用指南</h3>
+        
+        <!-- 闪卡类型 -->
+        <div class="guide-section">
+          <h4>🎴 闪卡类型</h4>
+          <p class="guide-intro">插件支持四种闪卡类型，适应不同的学习场景：</p>
+          
+          <div class="queue-list">
+            <div class="queue-item">
+              <div class="queue-header">
+                <span class="queue-icon">❓</span>
+                <span class="queue-name">Item 卡片（问答卡）</span>
+              </div>
+              <p class="queue-desc">传统的问答式闪卡，正面显示问题，背面显示答案。适合记忆具体知识点。</p>
+            </div>
+
+            <div class="queue-item">
+              <div class="queue-header">
+                <span class="queue-icon">📝</span>
+                <span class="queue-name">描述符卡片</span>
+              </div>
+              <p class="queue-desc">显示父块作为上下文，帮助理解知识点的层级关系。适合结构化笔记。</p>
+            </div>
+
+            <div class="queue-item">
+              <div class="queue-header">
+                <span class="queue-icon">🧠</span>
+                <span class="queue-name">概念卡片（Topic）</span>
+              </div>
+              <p class="queue-desc">用于概念性知识，复习时按空格直接进入下一张。适合快速浏览和建立知识网络。</p>
+            </div>
+
+            <div class="queue-item">
+              <div class="queue-header">
+                <span class="queue-icon">⬜</span>
+                <span class="queue-name">填空卡片（Cloze）</span>
+              </div>
+              <p class="queue-desc">在句子中挖空关键词，支持多个填空。适合记忆术语和定义。</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 队列系统 -->
+        <div class="guide-section">
+          <h4>🎯 队列系统</h4>
+          <p class="guide-intro">插件提供多种复习队列，满足不同的学习需求：</p>
+          
+          <div class="queue-list">
+            <div class="queue-item">
+              <div class="queue-header">
+                <span class="queue-icon">📚</span>
+                <span class="queue-name">渐进学习</span>
+              </div>
+              <p class="queue-desc">复习所有类型的闪卡，按到期时间排序。适合日常全面复习。</p>
+            </div>
+
+            <div class="queue-item">
+              <div class="queue-header">
+                <span class="queue-icon">🎯</span>
+                <span class="queue-name">提取练习</span>
+              </div>
+              <p class="queue-desc">专注于 Item 卡片和描述符卡片，强化知识点记忆和理解。</p>
+            </div>
+
+            <div class="queue-item">
+              <div class="queue-header">
+                <span class="queue-icon">🧠</span>
+                <span class="queue-name">神经漫游</span>
+              </div>
+              <p class="queue-desc">
+                <strong>智能探索概念卡片</strong>，通过反向链接和上下文关系建立知识网络。
+                <br>• 沿着知识图谱自动探索相关概念
+                <br>• 支持手动添加概念卡片（右键菜单 → 添加到神经漫游）
+                <br>• 适合构建系统化的概念理解
+              </p>
+            </div>
+
+            <div class="queue-item">
+              <div class="queue-header">
+                <span class="queue-icon">💪</span>
+                <span class="queue-name">刻意练习</span>
+              </div>
+              <p class="queue-desc">
+                <strong>自动收集困难卡片</strong>，帮助攻克薄弱环节。
+                <br>• 自动收集评分小于 4（Good）的闪卡
+                <br>• 评分为 4 时自动从队列移除
+                <br>• 适合针对性强化训练
+              </p>
+            </div>
+
+            <div class="queue-item">
+              <div class="queue-header">
+                <span class="queue-icon">🔖</span>
+                <span class="queue-name">Xiuyuan 系统</span>
+              </div>
+              <p class="queue-desc">与思源原生闪卡系统（Riff）同步，支持双向数据同步。</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 快速制卡 -->
+        <div class="guide-section">
+          <h4>⚡ 快速制卡</h4>
+          <p class="guide-intro">使用特殊符号快速创建不同类型的闪卡：</p>
+          
+          <div class="symbol-list">
+            <div class="symbol-item">
+              <code class="symbol-code">&gt;&gt;</code>
+              <div class="symbol-info">
+                <div class="symbol-name">基础问答卡（Item）</div>
+                <div class="symbol-example">问题 &gt;&gt; 答案</div>
+              </div>
+            </div>
+
+            <div class="symbol-item">
+              <code class="symbol-code">&lt;&lt;</code>
+              <div class="symbol-info">
+                <div class="symbol-name">反向问答卡</div>
+                <div class="symbol-example">答案 &lt;&lt; 问题</div>
+              </div>
+            </div>
+
+            <div class="symbol-item">
+              <code class="symbol-code">&lt;&gt;</code>
+              <div class="symbol-info">
+                <div class="symbol-name">双向问答卡</div>
+                <div class="symbol-example">问题 &lt;&gt; 答案（生成两张卡片）</div>
+              </div>
+            </div>
+
+            <div class="symbol-item">
+              <code class="symbol-code">::</code>
+              <div class="symbol-info">
+                <div class="symbol-name">概念卡（Topic）</div>
+                <div class="symbol-example">概念名称 :: 概念解释</div>
+              </div>
+            </div>
+
+            <div class="symbol-item">
+              <code class="symbol-code">;;</code>
+              <div class="symbol-info">
+                <div class="symbol-name">描述符卡（Descriptor）</div>
+                <div class="symbol-example">主题 ;; 描述内容</div>
+                <div class="symbol-note">💡 显示父块作为上下文</div>
+              </div>
+            </div>
+
+            <div class="symbol-item">
+              <code class="symbol-code">&#123;&#123;答案&#125;&#125;</code>
+              <div class="symbol-info">
+                <div class="symbol-name">填空卡（Cloze）</div>
+                <div class="symbol-example">这是一个&#123;&#123;填空题&#125;&#125;示例</div>
+                <div class="symbol-note">💡 也支持 ==高亮== 和思源标记作为填空</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="guide-tip">
+            <strong>💡 提示：</strong>输入符号和卡片内容后，让块失去焦点（如按回车键），即可自动创建闪卡。
+          </div>
+        </div>
+
+        <!-- 复习入口 -->
+        <div class="guide-section">
+          <h4>🚀 复习入口</h4>
+          
+          <div class="entry-list">
+            <div class="entry-item">
+              <div class="entry-header">
+                <span class="entry-icon">📱</span>
+                <span class="entry-name">顶栏图标</span>
+              </div>
+              <p class="entry-desc">点击顶栏闪卡图标，快速打开复习对话框。</p>
+            </div>
+
+            <div class="entry-item">
+              <div class="entry-header">
+                <span class="entry-icon">🗂️</span>
+                <span class="entry-name">浏览器面板</span>
+              </div>
+              <p class="entry-desc">
+                侧边栏 → 闪卡浏览器，查看所有队列和卡片。
+                <br>• 支持搜索、筛选、排序
+                <br>• 右键菜单可添加到神经漫游、刻意练习等队列
+                <br>• 双击卡片开始复习
+              </p>
+            </div>
+
+            <div class="entry-item">
+              <div class="entry-header">
+                <span class="entry-icon">🖱️</span>
+                <span class="entry-name">块右键菜单</span>
+              </div>
+              <p class="entry-desc">
+                在任意块上右键 → 闪卡 → 可进行以下操作：
+                <br>• 快速制卡：使用符号快速创建闪卡
+                <br>• 添加到队列：将概念卡添加到神经漫游等特殊队列
+                <br>• 编辑 SRS 数据：查看和修改卡片的复习数据
+              </p>
+            </div>
+
+            <div class="entry-item">
+              <div class="entry-header">
+                <span class="entry-icon">⌨️</span>
+                <span class="entry-name">命令面板</span>
+              </div>
+              <p class="entry-desc">Ctrl+P 打开命令面板，搜索"闪卡"或"复习"相关命令。</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 快捷键 -->
+        <div class="guide-section">
+          <h4>⌨️ 复习快捷键</h4>
+          
+          <div class="shortcut-list">
+            <div class="shortcut-item">
+              <kbd>空格</kbd> / <kbd>回车</kbd>
+              <span class="shortcut-desc">显示答案（Item 卡）/ 下一张（Topic 卡）</span>
+            </div>
+            <div class="shortcut-item">
+              <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd>
+              <span class="shortcut-desc">评分：Again / Hard / Good / Easy</span>
+            </div>
+            <div class="shortcut-item">
+              <kbd>S</kbd>
+              <span class="shortcut-desc">跳过当前卡片</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 版本信息 -->
+        <div class="guide-section">
+          <h4>ℹ️ 关于</h4>
+          <p class="about-info">
+            <strong>思源闪卡插件</strong>
+            <br>基于 FSRS 算法的智能间隔重复系统
+            <br>支持多种卡片类型和复习模式
+          </p>
+        </div>
       </div>
     </div>
   </div>
@@ -934,6 +1173,227 @@ async function handleRepairDates() {
   background: var(--b3-theme-surface);
   border-radius: 3px;
   color: var(--b3-theme-primary);
+}
+
+/* 🆕 关于页面样式 */
+.about-section {
+  max-width: 800px;
+}
+
+.guide-section {
+  margin-bottom: 32px;
+}
+
+.guide-section h4 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--b3-theme-on-background);
+}
+
+.guide-intro {
+  margin-bottom: 16px;
+  color: var(--b3-theme-on-surface-light);
+  line-height: 1.6;
+}
+
+/* 队列列表 */
+.queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.queue-item {
+  padding: 12px 16px;
+  background: var(--b3-theme-surface);
+  border-radius: 8px;
+  border-left: 3px solid var(--b3-theme-primary);
+}
+
+.queue-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.queue-icon {
+  font-size: 18px;
+}
+
+.queue-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--b3-theme-on-background);
+}
+
+.queue-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--b3-theme-on-surface-light);
+}
+
+/* 符号列表 */
+.symbol-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.symbol-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  background: var(--b3-theme-surface);
+  border-radius: 6px;
+}
+
+.symbol-code {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  background: var(--b3-theme-primary-lighter);
+  color: var(--b3-theme-primary);
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.symbol-info {
+  flex: 1;
+}
+
+.symbol-name {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--b3-theme-on-background);
+}
+
+.symbol-example {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface-light);
+  font-family: monospace;
+  line-height: 1.6;
+}
+
+.symbol-note {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--b3-theme-primary);
+  font-style: italic;
+}
+
+.guide-tip {
+  padding: 12px 16px;
+  background: var(--b3-theme-primary-lightest);
+  border-radius: 8px;
+  border-left: 3px solid var(--b3-theme-primary);
+}
+
+.guide-tip strong {
+  color: var(--b3-theme-primary);
+}
+
+.guide-tip ul {
+  margin: 8px 0 0 0;
+  padding-left: 20px;
+}
+
+.guide-tip li {
+  margin: 4px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--b3-theme-on-surface);
+}
+
+/* 入口列表 */
+.entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.entry-item {
+  padding: 12px 16px;
+  background: var(--b3-theme-surface);
+  border-radius: 8px;
+}
+
+.entry-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.entry-icon {
+  font-size: 18px;
+}
+
+.entry-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--b3-theme-on-background);
+}
+
+.entry-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--b3-theme-on-surface-light);
+}
+
+/* 快捷键列表 */
+.shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shortcut-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--b3-theme-surface);
+  border-radius: 6px;
+}
+
+.shortcut-item kbd {
+  padding: 4px 8px;
+  background: var(--b3-theme-background);
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.shortcut-desc {
+  flex: 1;
+  font-size: 13px;
+  color: var(--b3-theme-on-surface-light);
+}
+
+/* 关于信息 */
+.about-info {
+  padding: 16px;
+  background: var(--b3-theme-surface);
+  border-radius: 8px;
+  line-height: 1.8;
+  font-size: 13px;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.about-info strong {
+  color: var(--b3-theme-on-background);
+  font-size: 14px;
 }
 </style>
 

@@ -656,6 +656,7 @@ export default class FSRSPlugin extends Plugin {
     this.eventBus.on('click-editortitleicon', this.handleEditorTitleIconClick.bind(this));
     this.eventBus.on('open-menu-breadcrumbmore', this.handleBreadcrumbMore.bind(this));
     this.eventBus.on('open-menu-doctree', this.handleDocTreeMenu.bind(this));
+    this.eventBus.on('open-menu-blockref', this.handleBlockRefMenu.bind(this));
 
     // 将插件实例存储到全局变量，供 RestoreTab 访问
     (window as any).siyuanMemoPlugin = this;
@@ -1166,6 +1167,10 @@ export default class FSRSPlugin extends Plugin {
 
   private handleDocTreeMenu(e: any) {
     this.blockMenuHandler.handleDocTreeMenu(e);
+  }
+
+  private handleBlockRefMenu(e: any) {
+    this.blockMenuHandler.handleBlockRefMenu(e);
   }
 
   private getDrillBlockElements(blockElements: HTMLElement[]): HTMLElement[] {

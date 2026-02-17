@@ -1,6 +1,10 @@
 ﻿/**
  * Data Source Factory
  *
+ * @deprecated This factory is part of the legacy queue architecture and is no longer used.
+ * The new architecture (UnifiedDataSourceManager + AdvancedDataRouter) does not use this factory.
+ * This file is kept for backward compatibility and testing purposes only.
+ * 
  * Factory class for creating appropriate data sources based on configuration mode.
  * This factory implements the Factory Pattern to encapsulate data source creation logic
  * and provide a clean interface for mode-based data source selection.
@@ -162,7 +166,8 @@ export class DataSourceFactory {
     config: RiffIntegrationConfig,
     storage: StorageManager,
     schedulerRouter?: SchedulerRouter,
-    plugin?: any
+    plugin?: any,
+    hybridSyncService?: any  // 🆕 添加 hybridSyncService 参数
   ): IDataSource<QueueItem> {
     // Mode detection: advanced or simple
     if (config.mode === 'advanced') {
@@ -193,7 +198,8 @@ export class DataSourceFactory {
         deckId: BUILTIN_DECK_ID,
         mode: 'due-only',
         storage,
-        schedulerRouter
+        schedulerRouter,
+        hybridSyncService  // 🆕 传入 hybridSyncService
       });
     }
   }

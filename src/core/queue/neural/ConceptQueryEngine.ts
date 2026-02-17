@@ -15,7 +15,7 @@ const logger = createLogger('ConceptQueryEngine');
 
 export interface Neighbor {
   id: string;
-  type: 'backlink' | 'outgoing' | 'descriptor';
+  type: 'backlink' | 'outgoing-direct' | 'outgoing-indirect' | 'descriptor';
   weight: number;
 }
 
@@ -36,22 +36,24 @@ export class ConceptQueryEngine {
   async fetchNeighbors(conceptId: string): Promise<Neighbor[]> {
     try {
       // 并行查询所有类型（性能提升 3 倍）
-      const [backlinks, outgoingLinks, descriptors] = await Promise.all([
+      const [backlinks, directOutgoing, indirectOutgoing, descriptors] = await Promise.all([
         this.fetchBacklinks(conceptId),
-        this.fetchOutgoingLinks(conceptId),
+        this.fetchDirectOutgoingLinks(conceptId),
+        this.fetchIndirectOutgoingLinks(conceptId),
         this.fetchDescriptors(conceptId),
       ]);
 
       const neighbors: Neighbor[] = [
         ...backlinks.map(id => ({ id, type: 'backlink' as const, weight: 15 })),
-        ...outgoingLinks.map(id => ({ id, type: 'outgoing' as const, weight: 8 })),
+        ...directOutgoing.map(id => ({ id, type: 'outgoing-direct' as const, weight: 10 })),
+        ...indirectOutgoing.map(id => ({ id, type: 'outgoing-indirect' as const, weight: 6 })),
         ...descriptors.map(id => ({ id, type: 'descriptor' as const, weight: 3 })),
       ];
 
       // 去重（同一个块可能同时是反链和正链）
       const uniqueNeighbors = this.deduplicateNeighbors(neighbors);
       
-      logger.log(`Found ${uniqueNeighbors.length} unique neighbors for ${conceptId}`);
+      logger.log(`Found ${uniqueNeighbors.length} unique neighbors for ${conceptId} (backlinks: ${backlinks.length}, direct: ${directOutgoing.length}, indirect: ${indirectOutgoing.length}, descriptors: ${descriptors.length})`);
       return uniqueNeighbors;
     } catch (error) {
       logger.error('Failed to fetch neighbors:', error);
@@ -134,14 +136,14 @@ export class ConceptQueryEngine {
   }
 
   /**
-   * 查询正链（所有出链）
+   * 查询直接正链
    * 
-   * 查询概念卡及其子块中的所有出链
+   * 查询概念卡文档块里包含的正链（引用）
    * 
    * @param conceptId 概念卡 ID
-   * @returns 出链块 ID 列表
+   * @returns 直接出链块 ID 列表
    */
-  async fetchOutgoingLinks(conceptId: string): Promise<string[]> {
+  async fetchDirectOutgoingLinks(conceptId: string): Promise<string[]> {
     try {
       const stmt = `
         SELECT DISTINCT r.def_block_id as id
@@ -162,17 +164,68 @@ export class ConceptQueryEngine {
       const rows = await api.sql(stmt);
       
       if (!rows || !Array.isArray(rows)) {
-        logger.debug('No outgoing links found');
+        logger.debug('No direct outgoing links found');
         return [];
       }
 
       const linkIds = rows.map(row => row.id);
-      logger.debug(`Found ${linkIds.length} outgoing links`);
+      logger.debug(`Found ${linkIds.length} direct outgoing links`);
       return linkIds;
     } catch (error) {
-      logger.error('Failed to fetch outgoing links:', error);
+      logger.error('Failed to fetch direct outgoing links:', error);
       return [];
     }
+  }
+
+  /**
+   * 查询间接正链
+   * 
+   * 查询概念卡反链里出现的正链（引用）
+   * 
+   * @param conceptId 概念卡 ID
+   * @returns 间接出链块 ID 列表
+   */
+  async fetchIndirectOutgoingLinks(conceptId: string): Promise<string[]> {
+    try {
+      // 1. 先获取反链块 ID
+      const backlinkIds = await this.fetchBacklinks(conceptId);
+      
+      if (backlinkIds.length === 0) {
+        logger.debug('No backlinks, so no indirect outgoing links');
+        return [];
+      }
+
+      // 2. 查询这些反链块中的所有出链
+      const backlinkIdsStr = backlinkIds.map(id => `'${this.escapeSQL(id)}'`).join(',');
+      
+      const stmt = `
+        SELECT DISTINCT r.def_block_id as id
+        FROM refs r
+        WHERE r.block_id IN (${backlinkIdsStr})
+          AND r.def_block_id != '${this.escapeSQL(conceptId)}'
+      `;
+
+      const rows = await api.sql(stmt);
+      
+      if (!rows || !Array.isArray(rows)) {
+        logger.debug('No indirect outgoing links found');
+        return [];
+      }
+
+      const linkIds = rows.map(row => row.id);
+      logger.debug(`Found ${linkIds.length} indirect outgoing links from ${backlinkIds.length} backlinks`);
+      return linkIds;
+    } catch (error) {
+      logger.error('Failed to fetch indirect outgoing links:', error);
+      return [];
+    }
+  }
+
+  /**
+   * @deprecated 使用 fetchDirectOutgoingLinks 和 fetchIndirectOutgoingLinks 代替
+   */
+  async fetchOutgoingLinks(conceptId: string): Promise<string[]> {
+    return this.fetchDirectOutgoingLinks(conceptId);
   }
 
   /**

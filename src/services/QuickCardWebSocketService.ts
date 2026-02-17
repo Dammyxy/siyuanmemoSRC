@@ -81,9 +81,39 @@ export class QuickCardWebSocketService {
     private enabled: boolean = false;
     
     // 配置
-    private readonly WEBSOCKET_URL = 'ws://localhost:6806/ws';
     private readonly DEBOUNCE_DELAY = 300; // 300ms（可配置）
     private readonly RECONNECT_DELAY = 3000; // 3秒
+    
+    /**
+     * 获取 WebSocket URL
+     * 动态从思源配置中获取端口，支持多工作空间
+     */
+    private getWebSocketURL(): string {
+        const originalLog = (console as any).__originalLog || console.log;
+        
+        // 方法1: 从 window.location 获取（最可靠）
+        if (typeof window !== 'undefined' && window.location) {
+            const port = window.location.port || '6806';
+            const host = window.location.hostname || '127.0.0.1';
+            const wsUrl = `ws://${host}:${port}/ws`;
+            originalLog.call(console, `[QuickCard] Using window.location - port: ${port}, URL: ${wsUrl}`);
+            return wsUrl;
+        }
+        
+        // 方法2: 从 window.siyuan 获取（降级方案）
+        if (typeof window !== 'undefined' && (window as any).siyuan) {
+            const siyuan = (window as any).siyuan;
+            const host = siyuan.config?.system?.host || '127.0.0.1';
+            const port = siyuan.config?.system?.httpPort || 6806;
+            const wsUrl = `ws://${host}:${port}/ws`;
+            originalLog.call(console, `[QuickCard] Using window.siyuan - port: ${port}, URL: ${wsUrl}`);
+            return wsUrl;
+        }
+        
+        // 方法3: 最终降级方案
+        originalLog.call(console, '[QuickCard] Using fallback WebSocket URL: ws://127.0.0.1:6806/ws');
+        return 'ws://127.0.0.1:6806/ws';
+    }
     
     constructor(plugin: FSRSPlugin) {
         this.plugin = plugin;
@@ -152,11 +182,12 @@ export class QuickCardWebSocketService {
      */
     private connect(): void {
         try {
-            console.log('[QuickCard] Connecting to WebSocket:', this.WEBSOCKET_URL);
+            const wsUrl = this.getWebSocketURL();
+            console.log('[QuickCard] Connecting to WebSocket:', wsUrl);
             
             // 创建 WebSocket 连接
             // 参数：app=siyuanmemo&type=main
-            const url = `${this.WEBSOCKET_URL}?app=siyuanmemo&type=main`;
+            const url = `${wsUrl}?app=siyuanmemo&type=main`;
             this.ws = new WebSocket(url);
             
             // 连接成功

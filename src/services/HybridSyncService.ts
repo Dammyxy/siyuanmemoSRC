@@ -121,12 +121,23 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
             try {
                 // 1. 获取新卡片（since lastSyncTime）
                 this.reportProgress(onProgress, 'incremental', 'fetching', 0, 1, '正在获取新卡片...');
+                
+                // 🔧 禁用时间过滤
+                // 原因：时间过滤会导致新卡片被过滤掉，具体原因待调查：
+                // 1. 卡片的 created 时间可能有问题（如 "0001-01-01T00:00:00Z"）
+                // 2. lastSyncTime 更新时机可能不对
+                // 3. Riff API 延迟导致时间窗口不够
+                // 
+                // 当前方案：禁用时间过滤，通过 localCard 检查来避免重复添加
+                // 性能影响：每次获取所有卡片，但通过 skipped 机制避免重复
+                console.log(`[SiyuanMemo][HybridSync] lastSyncTime: ${this.lastSyncTime}, current: ${Date.now()}, diff: ${Math.floor((Date.now() - this.lastSyncTime) / 1000)}s`);
+                
                 const newCards = await getRiffNewCards(
                     this.config.deckId,
-                    this.lastSyncTime > 0 ? this.lastSyncTime : undefined
+                    undefined  // 禁用时间过滤，获取所有卡片
                 );
                 
-                console.log(`[SiyuanMemo][HybridSync] Fetched ${newCards.length} new cards from Riff`);
+                console.log(`[SiyuanMemo][HybridSync] Fetched ${newCards.length} cards from Riff (time filter disabled)`);
                 
                 // 2. 过滤黑名单
                 this.reportProgress(onProgress, 'incremental', 'filtering', 1, 7, '正在过滤黑名单...');
@@ -137,6 +148,8 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                     console.log(`[SiyuanMemo][HybridSync] Filtered ${newCards.length - filtered.length} blacklisted cards`);
                 }
                 
+                console.log(`[SiyuanMemo][HybridSync] Processing ${filtered.length} cards for incremental sync`);
+                
                 // 3. 只添加本地不存在的卡片
                 this.reportProgress(onProgress, 'incremental', 'adding', 2, 7, '正在添加新卡片...');
                 let addedCount = 0;
@@ -145,6 +158,8 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                 
                 for (const riffCard of filtered) {
                     const localCard = this.storage.getCard(riffCard.id);
+                    
+                    console.log(`[SiyuanMemo][HybridSync] Checking card ${riffCard.id}: localCard=${!!localCard}`);
                     
                     if (!localCard) {
                         // 检查是否有相同 blockId 的卡片（防止重复）
@@ -158,6 +173,7 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                         }
                         
                         // 本地没有，添加新卡片
+                        console.log(`[SiyuanMemo][HybridSync] Adding new card ${riffCard.id}`);
                         const fsrsCard = this.convertRiffCardToFSRSCard(riffCard);
                         this.storage.setCard(fsrsCard);
                         addedCards.push(riffCard);
@@ -168,26 +184,56 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                     }
                 }
                 
-                // 4. 保存
+                // 4. 检测并删除本地有但 Riff 没有的卡片
+                this.reportProgress(onProgress, 'incremental', 'deleting', 4, 7, '正在检测删除的卡片...');
+                let deletedCount = 0;
+                
+                // 获取所有本地卡片
+                const localCards = this.storage.getAllCards();
+                // 创建 Riff 卡片 ID 集合
+                const riffCardIds = new Set(filtered.map(c => c.id));
+                
+                // 找出本地有但 Riff 没有的卡片
+                const cardsToDelete = localCards.filter(localCard => {
+                    // ✅ 保护 Xiuyuan 卡片：Xiuyuan 卡片不在 Riff 中，不应该被删除
+                    if (localCard.meta?.xiuyuanID) {
+                        return false;  // 跳过 Xiuyuan 卡片
+                    }
+                    
+                    // 只删除不在 Riff 中的普通卡片
+                    return !riffCardIds.has(localCard.id);
+                });
+                
+                if (cardsToDelete.length > 0) {
+                    console.log(`[SiyuanMemo][HybridSync] Deleting ${cardsToDelete.length} cards that no longer exist in Riff`);
+                    
+                    for (const card of cardsToDelete) {
+                        this.storage.removeCard(card.id);  // 使用 removeCard 而不是 deleteCard
+                        deletedCount++;
+                        console.log(`[SiyuanMemo][HybridSync] Deleted card ${card.id}`);
+                    }
+                }
+                
+                // 5. 保存
                 this.reportProgress(onProgress, 'incremental', 'saving', 5, 7, '正在保存数据...');
-                if (addedCount > 0) {
+                if (addedCount > 0 || deletedCount > 0) {
                     await this.storage.saveCards();
                 }
                 
-                // 5. 自动检测卡片类型（如果启用）
+                // 6. 自动检测卡片类型（如果启用）
                 let detectedCount: number | undefined;
                 if (this.config.incrementalSync.autoDetectCardType && addedCards.length > 0) {
                     this.reportProgress(onProgress, 'incremental', 'detecting', 6, 7, '正在检测卡片类型...');
                     detectedCount = await this.detectCardTypesForNewCards(addedCards);
                 }
                 
-                // 6. 更新时间戳
+                // 7. 更新时间戳
                 this.lastSyncTime = Date.now();
                 
                 const result: SyncResult = {
                     success: true,
                     addedCount,
-                    deletedCount: 0,
+                    deletedCount,  // 🆕 返回删除数量
                     skippedCount,
                     detectedCount
                 };
@@ -200,7 +246,7 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                     duration: Date.now() - startTime
                 });
                 
-                console.log(`[SiyuanMemo][HybridSync] Incremental sync completed: added ${addedCount}, skipped ${skippedCount}, detected ${detectedCount || 0}`);
+                console.log(`[SiyuanMemo][HybridSync] Incremental sync completed: added ${addedCount}, deleted ${deletedCount}, skipped ${skippedCount}, detected ${detectedCount || 0}`);
                 
                 return result;
             } catch (error) {
@@ -676,8 +722,9 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
             const MIN_VALID_TIMESTAMP = 946684800000; // 2000-01-01
             const isValid = timestamp >= MIN_VALID_TIMESTAMP && !isNaN(timestamp);
             
-            // 🔍 调试：记录无效日期
-            if (!isValid && dateStr) {
+            // 🔍 调试：记录无效日期（仅在开发模式）
+            if (!isValid && dateStr && dateStr !== "0001-01-01T00:00:00Z") {
+                // 只警告非零值的无效日期，"0001-01-01" 是新卡片的正常零值
                 console.warn(`[HybridSyncService] Invalid date detected: "${dateStr}" (timestamp: ${timestamp}) for card ${riffBlock.id}`);
             }
             

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿/**
+﻿﻿﻿﻿﻿﻿/**
  * ReviewDialogManager - 管理所有复习对话框的打开
  * 从 index.ts 拆分出来的服务
  */
@@ -457,26 +457,34 @@ export class ReviewDialogManager {
    * 馃啎 浣跨敤缁熶竴鏁版嵁婧愭灦鏋?
    */
   async openNeuralRoam(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }): Promise<void> {
-    if (!(await this.checkInitialized())) return;
-    this.destroyCurrentDialog();
+      if (!(await this.checkInitialized())) return;
+      this.destroyCurrentDialog();
 
-    try {
-      // 馃啎 浣跨敤 createUnifiedReviewDialog 鍒涘缓瀵硅瘽妗?
-      this.reviewDialog = createUnifiedReviewDialog({
-        plugin: this.deps.plugin,
-        queueType: QueueType.NeuralRoam,
-        title: this.deps.i18n?.neuralReviewTitle || '神经漫游',
-        onClose: () => {
-          this.reviewDialog = null;
+      try {
+        // 🆕 清理神经漫游队列的历史记录
+        const neuralQueue = this.deps.plugin?.unifiedDataSourceManager?.getQueue(QueueType.NeuralRoam);
+        if (neuralQueue && typeof (neuralQueue as any).clearHistory === 'function') {
+          (neuralQueue as any).clearHistory();
+          console.log('[SiyuanMemo][ReviewDialogManager] ✅ Neural roam history cleared');
         }
-      });
-      
-      console.log('[SiyuanMemo][ReviewDialogManager] 鉁?Neural roam dialog created with unified data source');
-    } catch (err) {
-      console.error('[SiyuanMemo] Failed to open neural roam dialog:', err);
-      await pushErrMsg(this.deps.i18n?.neuralReviewFailed || '绁炵粡澶嶄範鍚姩澶辫触');
+
+        // 🆕 使用 createUnifiedReviewDialog 创建对话框
+        this.reviewDialog = createUnifiedReviewDialog({
+          plugin: this.deps.plugin,
+          queueType: QueueType.NeuralRoam,
+          title: this.deps.i18n?.neuralReviewTitle || '神经漫游',
+          onClose: () => {
+            this.reviewDialog = null;
+          }
+        });
+
+        console.log('[SiyuanMemo][ReviewDialogManager] ✅ Neural roam dialog created with unified data source');
+      } catch (err) {
+        console.error('[SiyuanMemo] Failed to open neural roam dialog:', err);
+        await pushErrMsg(this.deps.i18n?.neuralReviewFailed || '神经复习启动失败');
+      }
     }
-  }
+
 
   /**
    * 打开子集复习对话框
