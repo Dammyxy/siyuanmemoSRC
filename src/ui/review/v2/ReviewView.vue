@@ -88,15 +88,23 @@ const emit = defineEmits<{
 
 const rootRef = ref<HTMLDivElement | null>(null);
 
-// 🆕 防重复触发机制
+// 🆕 防重复触发机制 - 使用更智能的策略
 let lastKeyPressTime = 0;
 let lastKeyPressed = '';
-const KEY_PRESS_DEBOUNCE = 300; // 300ms 内的重复按键视为同一次
+let isProcessingKey = false; // 标记是否正在处理按键
+const KEY_PRESS_DEBOUNCE = 30; // 30ms 内的重复按键视为同一次（进一步降低延迟）
 
 function shouldIgnoreDuplicateKey(key: string): boolean {
   const now = Date.now();
   const timeSinceLastPress = now - lastKeyPressTime;
   
+  // 如果正在处理同一个按键，直接忽略
+  if (isProcessingKey && key === lastKeyPressed) {
+    console.log('[SiyuanMemo][ReviewView] Key is being processed, ignoring:', key);
+    return true;
+  }
+  
+  // 如果是相同按键且在防抖时间内，忽略
   if (key === lastKeyPressed && timeSinceLastPress < KEY_PRESS_DEBOUNCE) {
     console.log('[SiyuanMemo][ReviewView] Ignoring duplicate key press:', key, 'timeSince:', timeSinceLastPress);
     return true;
@@ -104,6 +112,13 @@ function shouldIgnoreDuplicateKey(key: string): boolean {
   
   lastKeyPressTime = now;
   lastKeyPressed = key;
+  isProcessingKey = true;
+  
+  // 30ms 后重置处理标记
+  setTimeout(() => {
+    isProcessingKey = false;
+  }, KEY_PRESS_DEBOUNCE);
+  
   return false;
 }
 
@@ -227,19 +242,24 @@ function handleRootClick(e: MouseEvent) {
   const cardMeta = state.value.actions.cardMeta;
   const isTopicCard = cardMeta?.type === 'topic' || cardMeta?.cardType === 'topic';
 
-  // 显示答案（空格/回车）
-  if ((key === ' ' || key === 'enter') && !hook.context.value.showAnswer) {
+  // 显示答案或评分（空格/回车）
+  if (key === ' ' || key === 'enter') {
     e.preventDefault();
     e.stopPropagation();
     
-    // Topic 卡片：直接评分为 Good (3)
-    if (isTopicCard) {
-      console.log('[SiyuanMemo][ReviewView] Topic card - grading with 3 (Good)');
-      void hook.grade(3);
+    if (!hook.context.value.showAnswer) {
+      // 答案未显示：显示答案或直接评分（Topic卡片）
+      if (isTopicCard) {
+        console.log('[SiyuanMemo][ReviewView] Topic card - grading with 3 (Good)');
+        void hook.grade(3);
+      } else {
+        console.log('[SiyuanMemo][ReviewView] Revealing answer...');
+        hook.reveal();
+      }
     } else {
-      // 普通卡片：显示答案
-      console.log('[SiyuanMemo][ReviewView] Revealing answer...');
-      hook.reveal();
+      // 答案已显示：评分为 Good (3)
+      console.log('[SiyuanMemo][ReviewView] Answer shown - grading with 3 (Good)');
+      void hook.grade(3);
     }
     return;
   }
@@ -257,8 +277,8 @@ function handleRootClick(e: MouseEvent) {
     return;
   }
 
-  // 跳过（S键） - 任何时候都能工作
-  if (key === 's') {
+  // 跳过（0/x/s键） - 任何时候都能工作（与思源保持一致）
+  if (key === '0' || key === 'x' || key === 's') {
     e.preventDefault();
     e.stopPropagation();
     console.log('[SiyuanMemo][ReviewView] Skipping card...');
@@ -287,19 +307,24 @@ function handleKeyDown(e: KeyboardEvent) {
   const cardMeta = state.value.actions.cardMeta;
   const isTopicCard = cardMeta?.type === 'topic' || cardMeta?.cardType === 'topic';
 
-  // 显示答案（空格/回车）
-  if ((key === ' ' || key === 'enter') && !hook.context.value.showAnswer) {
+  // 显示答案或评分（空格/回车）
+  if (key === ' ' || key === 'enter') {
     e.preventDefault();
     e.stopPropagation();
     
-    // Topic 卡片：直接评分为 Good (3)
-    if (isTopicCard) {
-      console.log('[SiyuanMemo][ReviewView] Topic card - grading with 3 (Good)');
-      void hook.grade(3);
+    if (!hook.context.value.showAnswer) {
+      // 答案未显示：显示答案或直接评分（Topic卡片）
+      if (isTopicCard) {
+        console.log('[SiyuanMemo][ReviewView] Topic card - grading with 3 (Good)');
+        void hook.grade(3);
+      } else {
+        console.log('[SiyuanMemo][ReviewView] Revealing answer...');
+        hook.reveal();
+      }
     } else {
-      // 普通卡片：显示答案
-      console.log('[SiyuanMemo][ReviewView] Revealing answer...');
-      hook.reveal();
+      // 答案已显示：评分为 Good (3)
+      console.log('[SiyuanMemo][ReviewView] Answer shown - grading with 3 (Good)');
+      void hook.grade(3);
     }
     return;
   }
@@ -317,8 +342,8 @@ function handleKeyDown(e: KeyboardEvent) {
     return;
   }
 
-  // 跳过（S键） - 任何时候都能工作
-  if (key === 's') {
+  // 跳过（0/x/s键） - 任何时候都能工作（与思源保持一致）
+  if (key === '0' || key === 'x' || key === 's') {
     e.preventDefault();
     e.stopPropagation();
     console.log('[SiyuanMemo][ReviewView] Skipping card...');

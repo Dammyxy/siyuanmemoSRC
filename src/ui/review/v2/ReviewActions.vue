@@ -12,12 +12,23 @@
     </button>
     <span class="fn__space"></span>
     <button
+      data-type="-3"
+      aria-label="0 / x"
+      class="b3-button b3-button--white b3-tooltips__n b3-tooltips"
+      @click="emit('skip')"
+    >
+      <div class="card__icon">💤</div>
+      {{ t('skip', '跳过') }} (0)
+    </button>
+    <span class="fn__space"></span>
+    <button
       data-type="-1"
-      class="b3-button fn__flex-1"
+      aria-label="Space/Enter"
+      class="b3-button b3-tooltips__n b3-tooltips"
       @click="emit('reveal')"
     >
+      <div class="card__icon">👀</div>
       {{ t('showAnswer', '显示答案') }}
-      ({{ t('space', '空格') }} / {{ t('enterKey', '回车') }})
     </button>
   </div>
 
