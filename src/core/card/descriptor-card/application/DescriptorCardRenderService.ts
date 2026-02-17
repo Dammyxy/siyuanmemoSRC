@@ -112,14 +112,13 @@ export class DescriptorCardRenderService {
     const attributeName = match[1].trim();
     const attributeValue = match[2].trim();
 
-    // 构建正面 HTML：概念标题 + 属性名（使用内联样式确保字体大小）
+    // 构建正面 HTML：概念标题 + 属性名 + 问号（使用内联样式确保字体大小）
     const conceptTitle = card.getParentConceptTitle() || '概念'; // 如果没有父概念，使用默认值
     const frontHtml = `
       <div class="descriptor-card-front" style="font-size: 18px;">
         <div class="descriptor-card-front__concept" style="font-size: 18px !important;">${conceptTitle}</div>
         <div class="descriptor-card-front__divider" style="font-size: 18px !important;">的</div>
-        <div class="descriptor-card-front__attribute" style="font-size: 18px !important; font-weight: 700;">${attributeName}</div>
-        <div class="descriptor-card-front__question" style="font-size: 18px !important;">？</div>
+        <div class="descriptor-card-front__attribute" style="font-size: 18px !important; font-weight: 700;">${attributeName}？</div>
       </div>
     `;
 

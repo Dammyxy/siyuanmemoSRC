@@ -290,6 +290,7 @@ export class DeckDataSource implements ICardDataSource {
       note: (card.meta?.note as string) || '',
       cardType,
       aFactor: card.aFactor,
+      meta: card.meta,  // ✅ 传递 meta 属性，包含 xiuyuanID 等信息
     };
   }
   
@@ -500,9 +501,24 @@ export class DeckDataSource implements ICardDataSource {
         }
       }
       
-      // 处理普通卡片：设置块属性
+      // 处理普通卡片：设置块属性 + 更新 FSRSCard
       if (normalCards.length > 0) {
         await batchSetBlockPriority(normalCards, priority);
+        
+        // ✅ 同时更新 FSRSCard.priority
+        if (this.manager) {
+          for (const card of normalCards) {
+            try {
+              const fsrsCard = await this.manager.getCard(card.fsrsCardId || card.id);
+              if (fsrsCard) {
+                fsrsCard.priority = priority;
+                await this.manager.updateCard(fsrsCard);
+              }
+            } catch (err) {
+              console.error('[SiyuanMemo][DeckDataSource] Failed to update FSRSCard priority:', card.id, err);
+            }
+          }
+        }
       }
       
       // 处理修缘卡片：更新 FSRSCard.meta.priority

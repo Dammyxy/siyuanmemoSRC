@@ -185,17 +185,24 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                         
                         // 1. 更新优先级
                         const newPriority = (() => {
-                            // 优先从块属性读取
-                            if (riffCard.ial?.['custom-fsrs-priority']) {
-                                const priority = parseInt(riffCard.ial['custom-fsrs-priority']);
-                                if (!isNaN(priority)) {
-                                    return priority;
+                            // 检查是否是修缘卡片
+                            const isXiuyuanCard = localCard.meta?.xiuyuanID !== undefined;
+                            
+                            if (isXiuyuanCard) {
+                                // 修缘卡片：优先读取 meta.priority（独立优先级）
+                                if (localCard.meta?.priority !== undefined) {
+                                    return localCard.meta.priority;
+                                }
+                            } else {
+                                // 普通卡片：优先读取块属性
+                                if (riffCard.ial?.['custom-fsrs-priority']) {
+                                    const priority = parseInt(riffCard.ial['custom-fsrs-priority']);
+                                    if (!isNaN(priority)) {
+                                        return priority;
+                                    }
                                 }
                             }
-                            // 从本地卡片的 meta 读取（修缘卡片）
-                            if (localCard.meta?.priority !== undefined) {
-                                return localCard.meta.priority;
-                            }
+                            
                             // 保持原值
                             return localCard.priority;
                         })();
@@ -818,23 +825,31 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
             state: riffCard?.state || 0,
             lastReview: parseValidDate(riffCard?.lastReview),
             
-            // 优先级读取优先级：
-            // 1. 从块属性 custom-fsrs-priority 读取（最新值，普通卡片）
-            // 2. 从本地 FSRSCard.meta.priority 读取（修缘卡片，不绑定块属性）
-            // 3. 默认值 50
+            // 优先级读取逻辑：
+            // 1. 检查是否是修缘卡片（通过 meta.xiuyuanID 判断）
+            // 2. 修缘卡片：优先读取 meta.priority（独立优先级，不绑定块属性）
+            // 3. 普通卡片：优先读取块属性 custom-fsrs-priority
+            // 4. 默认值 50
             priority: (() => {
-                // 优先从块属性读取（最新值）
-                if (riffBlock.ial?.['custom-fsrs-priority']) {
-                    const priority = parseInt(riffBlock.ial['custom-fsrs-priority']);
-                    if (!isNaN(priority)) {
-                        return priority;
+                // 检查是否是修缘卡片
+                const localCard = this.storage.getCard(riffBlock.id);
+                const isXiuyuanCard = localCard?.meta?.xiuyuanID !== undefined;
+                
+                if (isXiuyuanCard) {
+                    // 修缘卡片：优先读取 meta.priority
+                    if (localCard?.meta?.priority !== undefined) {
+                        return localCard.meta.priority;
+                    }
+                } else {
+                    // 普通卡片：优先读取块属性
+                    if (riffBlock.ial?.['custom-fsrs-priority']) {
+                        const priority = parseInt(riffBlock.ial['custom-fsrs-priority']);
+                        if (!isNaN(priority)) {
+                            return priority;
+                        }
                     }
                 }
-                // 尝试从本地卡片的 meta 读取（修缘卡片）
-                const localCard = this.storage.getCard(riffBlock.id);
-                if (localCard?.meta?.priority !== undefined) {
-                    return localCard.meta.priority;
-                }
+                
                 // 默认值
                 return 50;
             })(),

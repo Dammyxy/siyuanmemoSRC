@@ -186,8 +186,10 @@ export class FinalDrillDataSource implements ICardDataSource {
           const card = await this.manager.getCard(row.fsrsCardId || row.id);
           card.priority = priority;
           await this.manager.updateCard(card);
+          // 更新内存中的 priority
+          row.priority = priority;
         }
-        return;
+        return { updated: selectedRows, skipped: [] };
       }
 
       // 自动排序

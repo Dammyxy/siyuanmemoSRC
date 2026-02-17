@@ -425,14 +425,6 @@ onMounted(async () => {
   font-size: 24px !important;
   font-weight: 700 !important;
   color: var(--b3-theme-on-surface) !important;
-  margin-bottom: 4px !important;
-  line-height: 1.4 !important;
-}
-
-.descriptor-card-renderer__front :deep(.descriptor-card-front__question),
-.descriptor-card-front__question {
-  font-size: 24px !important;
-  color: var(--b3-theme-on-surface-light) !important;
   line-height: 1.4 !important;
 }
 
@@ -450,15 +442,9 @@ onMounted(async () => {
 .descriptor-card-renderer__front-preview :deep(.descriptor-card-front__concept),
 .descriptor-card-renderer__front-preview .descriptor-card-front__concept,
 .descriptor-card-renderer__front-preview :deep(.descriptor-card-front__attribute),
-.descriptor-card-renderer__front-preview .descriptor-card-front__attribute {
-  font-size: 16px !important;
-  margin-bottom: 2px !important;
-}
-
+.descriptor-card-renderer__front-preview .descriptor-card-front__attribute,
 .descriptor-card-renderer__front-preview :deep(.descriptor-card-front__divider),
-.descriptor-card-renderer__front-preview .descriptor-card-front__divider,
-.descriptor-card-renderer__front-preview :deep(.descriptor-card-front__question),
-.descriptor-card-renderer__front-preview .descriptor-card-front__question {
+.descriptor-card-renderer__front-preview .descriptor-card-front__divider {
   font-size: 16px !important;
   margin-bottom: 2px !important;
 }
@@ -807,13 +793,6 @@ onMounted(async () => {
   font-size: 32px !important;
   font-weight: 700;
   color: var(--b3-theme-on-surface);
-  margin-bottom: 4px;
-  line-height: 1.4;
-}
-
-.descriptor-card-front__question {
-  font-size: 32px !important;
-  color: var(--b3-theme-on-surface-light);
   line-height: 1.4;
 }
 
@@ -829,13 +808,8 @@ onMounted(async () => {
 }
 
 .descriptor-card-renderer__front-preview .descriptor-card-front__concept,
-.descriptor-card-renderer__front-preview .descriptor-card-front__attribute {
-  font-size: 16px !important;
-  margin-bottom: 2px;
-}
-
-.descriptor-card-renderer__front-preview .descriptor-card-front__divider,
-.descriptor-card-renderer__front-preview .descriptor-card-front__question {
+.descriptor-card-renderer__front-preview .descriptor-card-front__attribute,
+.descriptor-card-renderer__front-preview .descriptor-card-front__divider {
   font-size: 16px !important;
   margin-bottom: 2px;
 }
