@@ -514,7 +514,22 @@ export function parseQuery(input: string): ParsedBrowserQuery {
     };
 
     const parseNumberCondition = (token: string): boolean => {
-        const match = token.match(/^([a-zA-Z_]+)(<=|>=|<|>|=|!=)(-?\d+(\.\d+)?)$/);
+        // 🔧 修复：支持全角符号和 HTML 转义符号
+        // 将全角符号转换为半角符号
+        let normalizedToken = token
+            .replace(/＜/g, '<')
+            .replace(/＞/g, '>')
+            .replace(/＝/g, '=')
+            .replace(/！/g, '!');
+        
+        // 将 HTML 转义符号转换为半角符号
+        normalizedToken = normalizedToken
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&le;/g, '<=')
+            .replace(/&ge;/g, '>=');
+        
+        const match = normalizedToken.match(/^([a-zA-Z_]+)(<=|>=|<|>|=|!=)(-?\d+(\.\d+)?)$/);
         if (!match) return false;
 
         const [, field, operator, valueStr] = match;
@@ -671,10 +686,11 @@ function applyPresetFilter(cards: BrowserCard[], preset: string, currentDocId?: 
                 return cards.filter(c => c.rootId === currentDocId);
             }
             return cards;
-        case 'topic-only':
-            return cards.filter(c => c.cardType === 'topic');
-        case 'item-only':
-            return cards.filter(c => c.cardType === 'item' || !c.cardType);
+        // ❌ 移除：topic-only 和 item-only 应该由 cardType 筛选器处理，不是 preset
+        // case 'topic-only':
+        //     return cards.filter(c => c.cardType === 'topic');
+        // case 'item-only':
+        //     return cards.filter(c => c.cardType === 'item' || !c.cardType);
         case 'all':
         default:
             return cards;

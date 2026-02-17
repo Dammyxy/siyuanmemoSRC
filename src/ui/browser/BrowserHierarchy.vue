@@ -51,9 +51,6 @@
           <span class="b3-list-item__meta">{{ doc.count }}</span>
         </div>
       </div>
-      <div class="fsrs-browser-hierarchy__hint ft__secondary">
-        {{ t('hierarchyHint', '右键文档：按 doc:xxx 筛选') }}
-      </div>
     </div>
   </div>
 </template>

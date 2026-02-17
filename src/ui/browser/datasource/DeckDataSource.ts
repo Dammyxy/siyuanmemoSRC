@@ -136,8 +136,12 @@ export class DeckDataSource implements ICardDataSource {
           // Topic 类型包括：topic（增量阅读）
           rows = rows.filter(c => c.cardType === 'topic');
         } else if (this.options.cardType === 'item-only') {
-          // Item 类型包括：item（普通闪卡）、concept（概念卡）、descriptor（描述符卡）
-          rows = rows.filter(c => c.cardType === 'item' || c.cardType === 'concept' || c.cardType === 'descriptor');
+          // ✅ 修复：item-only 只显示 item 卡片，不包含 concept 和 descriptor
+          rows = rows.filter(c => c.cardType === 'item' || !c.cardType);  // 缺失 cardType 的默认为 item
+        } else if (this.options.cardType === 'concept-only') {
+          rows = rows.filter(c => c.cardType === 'concept');
+        } else if (this.options.cardType === 'descriptor-only') {
+          rows = rows.filter(c => c.cardType === 'descriptor');
         }
       }
       
@@ -482,8 +486,44 @@ export class DeckDataSource implements ICardDataSource {
     // ========== 优先级操作 ==========
 
     if (actionId === 'set-priority') {
-      await batchSetBlockPriority(selectedRows, Math.max(0, Math.min(100, Math.floor(Number(context?.priority ?? 50)))));
-      return;
+      const priority = Math.max(0, Math.min(100, Math.floor(Number(context?.priority ?? 50))));
+      
+      // 分离普通卡片和修缘卡片
+      const normalCards: BrowserCard[] = [];
+      const xiuyuanCards: BrowserCard[] = [];
+      
+      for (const card of selectedRows) {
+        if ((card as any).meta?.xiuyuanID) {
+          xiuyuanCards.push(card);
+        } else {
+          normalCards.push(card);
+        }
+      }
+      
+      // 处理普通卡片：设置块属性
+      if (normalCards.length > 0) {
+        await batchSetBlockPriority(normalCards, priority);
+      }
+      
+      // 处理修缘卡片：更新 FSRSCard.meta.priority
+      if (xiuyuanCards.length > 0 && this.plugin?.storage) {
+        for (const card of xiuyuanCards) {
+          try {
+            const fsrsCard = this.plugin.storage.getCard(card.id);
+            if (fsrsCard) {
+              fsrsCard.meta = fsrsCard.meta || {};
+              fsrsCard.meta.priority = priority;
+              await this.plugin.storage.updateCard(fsrsCard);
+            }
+            // 更新内存中的 priority
+            (card as any).priority = priority;
+          } catch (err) {
+            console.error('[SiyuanMemo][DeckDataSource] Failed to set priority for Xiuyuan card:', card.id, err);
+          }
+        }
+      }
+      
+      return { updated: selectedRows, skipped: [] };
     }
 
     // ========== 卡片操作 ==========

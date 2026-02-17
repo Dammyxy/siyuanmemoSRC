@@ -95,7 +95,7 @@
   "fullscreen": "Fullscreen",
   "more": "More",
   "openBy": "Open By",
-  "topbarTitle": "FSRS Flashcards (Left click: Card Browser / Right click: Menu)",
+  "topbarTitle": "SiyuanMemo (Left click: Card Browser / Right click: Menu)",
   "loading": "Initializing, please wait...",
   "initFailed": "FSRS initialization failed. Check console for details.",
   "featureRemoved": "This feature is temporarily removed",

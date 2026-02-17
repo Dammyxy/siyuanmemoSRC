@@ -150,9 +150,10 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                 
                 console.log(`[SiyuanMemo][HybridSync] Processing ${filtered.length} cards for incremental sync`);
                 
-                // 3. 只添加本地不存在的卡片
-                this.reportProgress(onProgress, 'incremental', 'adding', 2, 7, '正在添加新卡片...');
+                // 3. 只添加本地不存在的卡片，或更新已存在卡片的优先级
+                this.reportProgress(onProgress, 'incremental', 'adding', 2, 7, '正在同步卡片...');
                 let addedCount = 0;
+                let updatedCount = 0;
                 let skippedCount = 0;
                 const addedCards: RiffBlock[] = [];
                 
@@ -179,8 +180,81 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                         addedCards.push(riffCard);
                         addedCount++;
                     } else {
-                        // 本地已存在，跳过（保留本地数据）
-                        skippedCount++;
+                        // 本地已存在，更新块属性相关字段
+                        let needsUpdate = false;
+                        
+                        // 1. 更新优先级
+                        const newPriority = (() => {
+                            // 优先从块属性读取
+                            if (riffCard.ial?.['custom-fsrs-priority']) {
+                                const priority = parseInt(riffCard.ial['custom-fsrs-priority']);
+                                if (!isNaN(priority)) {
+                                    return priority;
+                                }
+                            }
+                            // 从本地卡片的 meta 读取（修缘卡片）
+                            if (localCard.meta?.priority !== undefined) {
+                                return localCard.meta.priority;
+                            }
+                            // 保持原值
+                            return localCard.priority;
+                        })();
+                        
+                        if (newPriority !== localCard.priority) {
+                            console.log(`[SiyuanMemo][HybridSync] Updating priority for card ${riffCard.id}: ${localCard.priority} -> ${newPriority}`);
+                            localCard.priority = newPriority;
+                            needsUpdate = true;
+                        }
+                        
+                        // 2. 更新卡片类型标记（concept/descriptor）
+                        const cardTypeMarkerAttr = riffCard.ial?.['custom-fsrs-card-type'];
+                        const newCardTypeMarker = (cardTypeMarkerAttr === 'concept' || cardTypeMarkerAttr === 'descriptor')
+                            ? cardTypeMarkerAttr as 'concept' | 'descriptor'
+                            : undefined;
+                        
+                        if (newCardTypeMarker && newCardTypeMarker !== localCard.cardTypeMarker) {
+                            console.log(`[SiyuanMemo][HybridSync] Updating cardTypeMarker for card ${riffCard.id}: ${localCard.cardTypeMarker} -> ${newCardTypeMarker}`);
+                            localCard.cardTypeMarker = newCardTypeMarker;
+                            // 同时更新 type 字段
+                            localCard.type = newCardTypeMarker as any;
+                            needsUpdate = true;
+                        }
+                        
+                        // 3. 更新技术类型（topic/item）
+                        if (!newCardTypeMarker) {
+                            const cardTypeAttr = riffCard.ial?.['custom-card-type'];
+                            const newCardType = (cardTypeAttr === 'topic' || cardTypeAttr === 'item' || cardTypeAttr === 'concept' || cardTypeAttr === 'descriptor') 
+                                ? cardTypeAttr 
+                                : undefined;
+                            
+                            if (newCardType && newCardType !== localCard.type) {
+                                console.log(`[SiyuanMemo][HybridSync] Updating type for card ${riffCard.id}: ${localCard.type} -> ${newCardType}`);
+                                localCard.type = newCardType as any;
+                                needsUpdate = true;
+                            }
+                        }
+                        
+                        // 4. 更新 Topic 卡片的 A-Factor
+                        if (localCard.type === 'topic') {
+                            const newAFactor = riffCard.ial?.['custom-fsrs-a-factor'] 
+                                ? parseFloat(riffCard.ial['custom-fsrs-a-factor']) 
+                                : undefined;
+                            
+                            if (newAFactor !== undefined && newAFactor !== localCard.aFactor) {
+                                console.log(`[SiyuanMemo][HybridSync] Updating aFactor for card ${riffCard.id}: ${localCard.aFactor} -> ${newAFactor}`);
+                                localCard.aFactor = newAFactor;
+                                needsUpdate = true;
+                            }
+                        }
+                        
+                        // 如果有任何字段发生变化，更新卡片
+                        if (needsUpdate) {
+                            localCard.updatedAt = Date.now();
+                            this.storage.setCard(localCard);
+                            updatedCount++;
+                        } else {
+                            skippedCount++;
+                        }
                     }
                 }
                 
@@ -216,7 +290,7 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                 
                 // 5. 保存
                 this.reportProgress(onProgress, 'incremental', 'saving', 5, 7, '正在保存数据...');
-                if (addedCount > 0 || deletedCount > 0) {
+                if (addedCount > 0 || updatedCount > 0 || deletedCount > 0) {
                     await this.storage.saveCards();
                 }
                 
@@ -246,7 +320,7 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                     duration: Date.now() - startTime
                 });
                 
-                console.log(`[SiyuanMemo][HybridSync] Incremental sync completed: added ${addedCount}, deleted ${deletedCount}, skipped ${skippedCount}, detected ${detectedCount || 0}`);
+                console.log(`[SiyuanMemo][HybridSync] Incremental sync completed: added ${addedCount}, updated ${updatedCount}, deleted ${deletedCount}, skipped ${skippedCount}, detected ${detectedCount || 0}`);
                 
                 return result;
             } catch (error) {
@@ -744,7 +818,26 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
             state: riffCard?.state || 0,
             lastReview: parseValidDate(riffCard?.lastReview),
             
-            priority: 50, // 默认优先级（RiffCard 不包含 priority 字段）
+            // 优先级读取优先级：
+            // 1. 从块属性 custom-fsrs-priority 读取（最新值，普通卡片）
+            // 2. 从本地 FSRSCard.meta.priority 读取（修缘卡片，不绑定块属性）
+            // 3. 默认值 50
+            priority: (() => {
+                // 优先从块属性读取（最新值）
+                if (riffBlock.ial?.['custom-fsrs-priority']) {
+                    const priority = parseInt(riffBlock.ial['custom-fsrs-priority']);
+                    if (!isNaN(priority)) {
+                        return priority;
+                    }
+                }
+                // 尝试从本地卡片的 meta 读取（修缘卡片）
+                const localCard = this.storage.getCard(riffBlock.id);
+                if (localCard?.meta?.priority !== undefined) {
+                    return localCard.meta.priority;
+                }
+                // 默认值
+                return 50;
+            })(),
             type: cardType as any,
             cardTypeMarker, // 添加卡片类型标记
             tags: [],

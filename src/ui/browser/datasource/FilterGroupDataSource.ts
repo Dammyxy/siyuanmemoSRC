@@ -127,9 +127,12 @@ export class FilterGroupDataSource implements ICardDataSource {
             // Topic 类型包括：topic（增量阅读）
             return c.cardType === 'topic';
           case 'item-only':
-            // Item 类型包括：item（普通闪卡）、concept（概念卡）、descriptor（描述符卡）
-            // 因为 concept 和 descriptor 都使用 FSRS 调度器，在功能上属于 item 类别
-            return c.cardType === 'item' || c.cardType === 'concept' || c.cardType === 'descriptor';
+            // ✅ 修复：item-only 只显示 item 卡片，不包含 concept 和 descriptor
+            return c.cardType === 'item' || !c.cardType;  // 缺失 cardType 的默认为 item
+          case 'concept-only':
+            return c.cardType === 'concept';
+          case 'descriptor-only':
+            return c.cardType === 'descriptor';
           default:
             return true;
         }

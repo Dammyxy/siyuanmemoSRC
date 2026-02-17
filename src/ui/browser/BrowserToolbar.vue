@@ -9,7 +9,7 @@
           class="b3-text-field b3-form__icon-input"
           :value="searchQuery"
           @input="$emit('update:searchQuery', ($event.target as HTMLInputElement).value)"
-          :placeholder="t('searchPlaceholderAdvanced', '搜索：tag:xxx deck:xxx state:new/review doc:xxx 或关键字')"
+          :placeholder="t('searchPlaceholderAdvanced', '')"
         />
       </div>
       

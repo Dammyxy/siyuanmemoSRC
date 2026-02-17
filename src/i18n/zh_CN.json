@@ -36,6 +36,7 @@
     "flashcard": "闪卡",
     "fullscreen": "全屏",
     "more": "更多",
+    "topbarTitle": "SiyuanMemo (左键卡片浏览器/右键菜单)",
     "loading": "插件初始化中，请稍后...",
     "initFailed": "FSRS 插件初始化失败，请打开控制台查看错误",
     "featureRemoved": "该功能已暂时移除",

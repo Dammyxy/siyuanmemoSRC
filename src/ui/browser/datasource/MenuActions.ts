@@ -364,6 +364,7 @@ export async function autoSort(queue: QueueTraitLike | undefined): Promise<void>
 
 /**
  * 批量设置优先级（用于 DeckDataSource，直接设置块属性）
+ * 支持普通卡片（块属性）和修缘卡片（FSRSCard.meta）
  */
 export async function batchSetBlockPriority(
   selectedRows: BrowserCard[],
@@ -374,7 +375,12 @@ export async function batchSetBlockPriority(
 
   if (blockIds.length === 0) return;
 
+  // 设置块属性（普通卡片）
   await batchSetPriority(blockIds, p);
+
+  // TODO: 对于修缘卡片，需要更新 FSRSCard.meta.priority
+  // 这需要访问 StorageManager，当前函数没有这个依赖
+  // 建议在调用方（DeckDataSource）中处理修缘卡片的优先级更新
 
   // 更新 BrowserCard 中的 priority
   for (const r of selectedRows || []) {

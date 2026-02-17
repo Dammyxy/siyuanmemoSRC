@@ -169,9 +169,12 @@ export class IncrementalLearningDataSource implements ICardDataSource {
             // Topic 类型包括：topic（增量阅读）
             return c.cardType === 'topic';
           case 'item-only':
-            // Item 类型包括：item（普通闪卡）、concept（概念卡）、descriptor（描述符卡）
-            // 因为 concept 和 descriptor 都使用 FSRS 调度器，在功能上属于 item 类别
-            return c.cardType === 'item' || c.cardType === 'concept' || c.cardType === 'descriptor';
+            // ✅ 修复：item-only 只显示 item 卡片，不包含 concept 和 descriptor
+            return c.cardType === 'item' || !c.cardType;  // 缺失 cardType 的默认为 item
+          case 'concept-only':
+            return c.cardType === 'concept';
+          case 'descriptor-only':
+            return c.cardType === 'descriptor';
           default:
             return true;
         }
@@ -370,11 +373,12 @@ export class IncrementalLearningDataSource implements ICardDataSource {
         label: '提前',
         icon: 'iconBack',
       },
-      {
-        id: 'spread',
-        label: '分散',
-        icon: 'iconSpread',
-      },
+      // ❌ 移除：分散功能已在工具栏上，不需要在右键菜单重复
+      // {
+      //   id: 'spread',
+      //   label: '分散',
+      //   icon: 'iconSpread',
+      // },
     ];
   }
 
@@ -428,7 +432,7 @@ export class IncrementalLearningDataSource implements ICardDataSource {
       }
 
       // 时间调整
-      if (actionId === 'postpone' || actionId === 'advance' || actionId === 'spread') {
+      if (actionId === 'postpone' || actionId === 'advance') {
         const days = Math.floor(Number(context?.days || 1));
         
         for (let i = 0; i < selectedRows.length; i++) {
@@ -443,11 +447,8 @@ export class IncrementalLearningDataSource implements ICardDataSource {
           } else if (actionId === 'advance') {
             // 提前：减少到期日期
             newDue = card.due - days * 24 * 60 * 60 * 1000;
-          } else if (actionId === 'spread') {
-            // 分散：在指定天数范围内均匀分布
-            const offset = Math.floor((i / selectedRows.length) * days * 24 * 60 * 60 * 1000);
-            newDue = card.due + offset;
           }
+          // ❌ 移除：spread 功能已在工具栏上，不需要在右键菜单重复
           
           card.due = newDue;
           await this.manager.updateCard(card);

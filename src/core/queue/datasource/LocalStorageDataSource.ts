@@ -209,16 +209,18 @@ export class LocalStorageDataSource extends ObservableDataSource<QueueItem> {
       // 🆕 2.5. Apply cardType filter
       if (options?.cardType) {
         if (options.cardType === 'item-only') {
-          // Item 类型包括：item（普通闪卡）、concept（概念卡）、descriptor（描述符卡）
-          // 因为 concept 和 descriptor 都使用 FSRS 调度器，在功能上属于 item 类别
+          // ✅ 修复：item-only 只显示 item 卡片，不包含 concept 和 descriptor
           cards = cards.filter(card => 
             card.type === 'item' || 
-            card.type === 'concept' || 
-            card.type === 'descriptor'
+            !card.type  // 缺失 type 的默认为 item
           );
         } else if (options.cardType === 'topic-only') {
           // Topic 类型包括：topic（增量阅读）
           cards = cards.filter(card => card.type === 'topic');
+        } else if (options.cardType === 'concept-only') {
+          cards = cards.filter(card => card.type === 'concept');
+        } else if (options.cardType === 'descriptor-only') {
+          cards = cards.filter(card => card.type === 'descriptor');
         }
         // 'all' - no filtering needed
       }

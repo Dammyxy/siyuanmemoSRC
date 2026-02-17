@@ -8,7 +8,7 @@
           type="text" 
           class="b3-text-field b3-form__icon-input"
           v-model="searchQuery" 
-          :placeholder="t('searchPlaceholderAdvanced', '搜索：tag:xxx deck:xxx state:new/review doc:xxx 或关键字')"
+          :placeholder="t('searchPlaceholderAdvanced', '')"
           @input="handleSearchInput"
         />
       </div>
