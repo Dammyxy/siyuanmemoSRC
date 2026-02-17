@@ -334,7 +334,13 @@ export class AutoCardHandler implements ITransactionHandler {
         }> = [];
         
         // 先移除 IAL 属性块，避免干扰正则匹配
-        const cleanContent = content.replace(/\{:[^}]*\}/g, '').trim();
+        let cleanContent = content.replace(/\{:[^}]*\}/g, '').trim();
+        
+        // 🆕 移除被反引号包裹的内容（代码块），避免误触发符号检测
+        // 例如：`这里有个 :: 符号` 不应该触发概念卡片
+        // 支持单行代码 `code` 和多行代码块 ```code```
+        cleanContent = cleanContent.replace(/`[^`]*`/g, '');
+        cleanContent = cleanContent.replace(/```[\s\S]*?```/g, '');
         
         // 检测顺序（优先级从高到低）
         // 注意：排除 >>> 符号（它在列表模版队列中处理）
@@ -357,11 +363,11 @@ export class AutoCardHandler implements ITransactionHandler {
             if (match) symbols.push({ type: 'basic-backward', match });
         }
         
-        // 4. 概念卡片 ::
-        if (settings.enabledSymbols.concept && this.patterns.concept.test(cleanContent)) {
-            const match = cleanContent.match(this.patterns.concept);
-            if (match) symbols.push({ type: 'concept', match });
-        }
+        // 4. 概念卡片 :: (已禁用 - 2026-02-17)
+        // if (settings.enabledSymbols.concept && this.patterns.concept.test(cleanContent)) {
+        //     const match = cleanContent.match(this.patterns.concept);
+        //     if (match) symbols.push({ type: 'concept', match });
+        // }
         
         // 5. 描述符卡片 ;;
         if (settings.enabledSymbols.descriptor && this.patterns.descriptor.test(cleanContent)) {

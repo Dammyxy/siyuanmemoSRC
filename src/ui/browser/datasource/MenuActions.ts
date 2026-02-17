@@ -667,23 +667,69 @@ export async function addToQueue(
   if (queueType === 'neural-roam') {
     console.log('[MenuActions] 处理神经漫游队列');
     
+    // 🆕 过滤非 Concept 卡片：神经漫游只接受 Concept 卡片
+    const filteredItems = items.filter((item) => {
+      const row = selectedRows.find((r) => (r.fsrsCardId || r.id || r.blockId) === item.cardID);
+      const cardType = (row as any)?.cardType;
+      
+      console.log(`[MenuActions] 检查卡片: blockID=${item.blockID}, cardID=${item.cardID}, cardType=${cardType}, row=`, row);
+      
+      if (cardType !== 'concept') {
+        console.log(`[MenuActions] 过滤非 Concept 卡片: ${item.blockID} (类型: ${cardType})`);
+        return false;
+      }
+      return true;
+    });
+    
+    console.log(`[MenuActions] 过滤后：${filteredItems.length}/${items.length} 张卡片`);
+    
+    if (filteredItems.length === 0) {
+      return { added: 0, message: '神经漫游队列只接受 Concept 卡片' };
+    }
+    
     // 新架构：使用 addCard 方法（逐个添加）
     if (queue?.addCard) {
       let added = 0;
-      for (const item of items) {
+      const errors: string[] = [];
+      
+      for (const item of filteredItems) {
         try {
           await queue.addCard(item.blockID, 'manual');
           added++;
         } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
           console.error(`[MenuActions] 添加种子块失败: ${item.blockID}`, err);
+          errors.push(`${item.blockID}: ${errorMsg}`);
         }
       }
-      return { added, message: `已将 ${added} 张卡片设置为神经漫游种子块` };
+      
+      const skipped = items.length - filteredItems.length;
+      let message = '';
+      
+      if (added > 0) {
+        message = `已将 ${added} 张卡片设置为神经漫游种子块`;
+        if (skipped > 0) {
+          message += `（过滤了 ${skipped} 张非 Concept 卡片）`;
+        }
+        if (errors.length > 0) {
+          message += `，${errors.length} 张添加失败`;
+        }
+      } else if (errors.length > 0) {
+        message = `添加失败：${errors[0]}`;
+      } else {
+        message = '没有有效的卡片可添加';
+      }
+      
+      return { added, message };
     }
     // 旧架构：fallback
     else if (queue?.addItems) {
-      const added = await Promise.resolve(queue.addItems(items));
-      return { added, message: `已将卡片设置为神经漫游种子块` };
+      const added = await Promise.resolve(queue.addItems(filteredItems));
+      const skipped = items.length - filteredItems.length;
+      const message = skipped > 0
+        ? `已将 ${added} 张卡片设置为神经漫游种子块（过滤了 ${skipped} 张非 Concept 卡片）`
+        : `已将卡片设置为神经漫游种子块`;
+      return { added, message };
     }
     
     return { added: 0, message: '神经漫游队列不可用' };

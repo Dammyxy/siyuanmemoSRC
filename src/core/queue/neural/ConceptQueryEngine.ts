@@ -263,37 +263,57 @@ export class ConceptQueryEngine {
   }
 
   /**
-   * 检查块是否为概念卡（且卡片存在）
+   * 检查块是否为概念卡
+   * 
+   * 只检查块是否标记为 concept 类型，不要求卡片已创建
+   * （神经漫游不需要 FSRS 数据，只需要知道这是概念块）
    * 
    * @param blockId 块 ID
    * @returns 是否为概念卡
    */
   async isConceptCard(blockId: string): Promise<boolean> {
     try {
-      const stmt = `
-        SELECT 
-          type.value as card_type,
-          card_id.value as card_id
-        FROM attributes type
-        LEFT JOIN attributes card_id 
-          ON card_id.block_id = type.block_id 
-          AND card_id.name = 'custom-fsrs-card-id'
-        WHERE type.block_id = '${this.escapeSQL(blockId)}'
-          AND type.name = 'custom-fsrs-card-type'
+      // 方法1：检查块属性（custom-fsrs-card-type）
+      const stmt1 = `
+        SELECT value as card_type
+        FROM attributes
+        WHERE block_id = '${this.escapeSQL(blockId)}'
+          AND name = 'custom-fsrs-card-type'
       `;
       
-      const rows = await api.sql(stmt);
+      const rows1 = await api.sql(stmt1);
       
-      if (!rows || rows.length === 0) {
-        return false;
+      logger.debug(`isConceptCard(${blockId}): 块属性查询结果 =`, rows1);
+      
+      if (rows1 && rows1.length > 0) {
+        const isConceptType = rows1[0].card_type === 'concept';
+        logger.debug(`isConceptCard(${blockId}): 从块属性判断 card_type=${rows1[0].card_type}, result=${isConceptType}`);
+        
+        if (isConceptType) {
+          return true;
+        }
       }
       
-      const row = rows[0];
-      const isConceptType = row.card_type === 'concept';
-      const hasCardId = !!row.card_id; // 🔧 修复：检查是否有 card_id（卡片是否存在）
+      // 方法2：如果块属性没有，查询 FSRSCard（Riff 数据源）
+      const stmt2 = `
+        SELECT 1
+        FROM fsrs_cards
+        WHERE block_id = '${this.escapeSQL(blockId)}'
+          AND type = 'concept'
+        LIMIT 1
+      `;
       
-      // 只返回有效的概念卡（类型是 concept 且有 card_id）
-      return isConceptType && hasCardId;
+      const rows2 = await api.sql(stmt2);
+      
+      logger.debug(`isConceptCard(${blockId}): FSRSCard 查询结果 =`, rows2);
+      
+      if (rows2 && rows2.length > 0) {
+        logger.debug(`isConceptCard(${blockId}): 从 FSRSCard 判断为 concept 卡`);
+        return true;
+      }
+      
+      logger.debug(`isConceptCard(${blockId}): 不是 concept 卡`);
+      return false;
     } catch (error) {
       logger.error('Failed to check if concept card:', error);
       return false;

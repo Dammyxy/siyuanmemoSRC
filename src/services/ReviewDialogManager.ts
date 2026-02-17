@@ -320,9 +320,31 @@ export class ReviewDialogManager {
         };
       }
       
+      console.log('[SiyuanMemo][ReviewDialogManager] 🔍 openIncrementalLearningWithFilter - Setting filter:', {
+        dueOnly: options.dueOnly,
+        blockIdsCount: options.blockIds.length,
+        hasDueDate: !!filter.dueDate,
+        filter: JSON.stringify(filter, null, 2)
+      });
+      
       // 应用过滤条件
       if (typeof (filterGroupQueue as any).setFilter === 'function') {
         (filterGroupQueue as any).setFilter(filter);
+        
+        // 🔍 验证过滤条件是否正确设置
+        const currentFilter = (filterGroupQueue as any).getFilter?.();
+        console.log('[SiyuanMemo][ReviewDialogManager] 🔍 After setFilter, current filter:', {
+          hasDueDate: !!currentFilter?.dueDate,
+          filter: JSON.stringify(currentFilter, null, 2)
+        });
+      }
+      
+      // ✅ 修复：当 dueOnly 为 false（全部模式）时，清除临时黑名单
+      // 临时黑名单用于"到期"模式下记录已复习的卡片，避免重复复习
+      // 但在"全部"模式下，用户希望看到所有卡片，包括已复习的
+      if (!options.dueOnly && typeof (filterGroupQueue as any).clearTemporaryBlacklist === 'function') {
+        (filterGroupQueue as any).clearTemporaryBlacklist();
+        console.log('[SiyuanMemo][ReviewDialogManager] ✅ Cleared temporary blacklist for "all" mode');
       }
       
       // 创建对话框（使用 FilterGroup 队列）
@@ -406,9 +428,31 @@ export class ReviewDialogManager {
         };
       }
       
+      console.log('[SiyuanMemo][ReviewDialogManager] 🔍 openRetrievalPracticeWithFilter - Setting filter:', {
+        dueOnly: options.dueOnly,
+        blockIdsCount: options.blockIds.length,
+        hasDueDate: !!filter.dueDate,
+        filter: JSON.stringify(filter, null, 2)
+      });
+      
       // 应用过滤条件
       if (typeof (filterGroupQueue as any).setFilter === 'function') {
         (filterGroupQueue as any).setFilter(filter);
+        
+        // 🔍 验证过滤条件是否正确设置
+        const currentFilter = (filterGroupQueue as any).getFilter?.();
+        console.log('[SiyuanMemo][ReviewDialogManager] 🔍 After setFilter, current filter:', {
+          hasDueDate: !!currentFilter?.dueDate,
+          filter: JSON.stringify(currentFilter, null, 2)
+        });
+      }
+      
+      // ✅ 修复：当 dueOnly 为 false（全部模式）时，清除临时黑名单
+      // 临时黑名单用于"到期"模式下记录已复习的卡片，避免重复复习
+      // 但在"全部"模式下，用户希望看到所有卡片，包括已复习的
+      if (!options.dueOnly && typeof (filterGroupQueue as any).clearTemporaryBlacklist === 'function') {
+        (filterGroupQueue as any).clearTemporaryBlacklist();
+        console.log('[SiyuanMemo][ReviewDialogManager] ✅ Cleared temporary blacklist for "all" mode');
       }
       
       // 创建对话框（使用 FilterGroup 队列）
