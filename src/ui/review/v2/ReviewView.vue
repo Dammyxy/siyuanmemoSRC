@@ -354,23 +354,24 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
   if (currentCard?.blockId) {
     menu.addItem({
       icon: 'iconOpen',
-      label: t('openCard', '打开'),
+      label: t('openCard', 'Open'),
       submenu: [
         {
           icon: 'iconTab',
-          label: t('openInNewTab', '新标签页'),
+          label: t('openInNewTab', 'New Tab'),
           click: () => openCardInTab(currentCard.blockId, false),
         },
         {
           icon: 'iconLayoutRight',
-          label: t('openInRight', '右侧'),
+          label: t('openInRight', 'Right Side'),
           click: () => openCardInTab(currentCard.blockId, true),
         },
-        {
-          icon: 'iconExport',
-          label: t('openInNewWindow', '新窗口'),
-          click: () => openCardInNewWindow(currentCard.blockId),
-        },
+        // 注释掉"使用新窗口打开"选项
+        // {
+        //   icon: 'iconExport',
+        //   label: t('openInNewWindow', 'New Window'),
+        //   click: () => openCardInNewWindow(currentCard.blockId),
+        // },
       ],
     });
     menu.addSeparator();
@@ -422,8 +423,8 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
 
 function buildCardStatsHTML(meta: NonNullable<ReviewUIState['actions']['cardMeta']>): string {
   const stateText = meta.isReviewCard
-    ? t('reviewCard', '复习卡')
-    : t('newCard', '新卡');
+    ? t('reviewCard', 'Review Card')
+    : t('newCard', 'New Card');
 
   const lastReview = meta.lastReview && meta.lastReview > 0
     ? new Date(meta.lastReview).toISOString().split('T')[0]
@@ -648,7 +649,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
       menu.addItem({
         id: 'openByNewWindow',
         icon: 'iconOpenWindow',
-        label: '使用新窗口打开',
+        label: t('openInNewWindow', 'Open in New Window'),
         click() {
           if (props.app) {
             openWindow({
@@ -669,11 +670,10 @@ function handleOpenAsMenu(ev: MouseEvent) {
   }
 
   // 🆕 在 Tab 中打开
-  // 🆕 在 Tab 中打开
   menu.addItem({
     id: 'openByTab',
     icon: 'iconLayoutRight',
-    label: '在 Tab 中打开',
+    label: t('openInTab', 'Open in Tab'),
     click() {
       console.log('[SiyuanMemo][ReviewView] Opening in tab and closing dialog');
 
@@ -689,7 +689,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
         provider: props.provider,
         queue: props.queue,
         adapter: props.adapter,
-        title: props.title || '复习',
+        title: props.title || t('reviewTitle', 'Review'),
       });
 
       // 关闭当前对话框
@@ -697,38 +697,38 @@ function handleOpenAsMenu(ev: MouseEvent) {
     },
   });
 
-  // 使用新窗口打开（打开独立窗口）
-  /// #if !BROWSER
-  menu.addItem({
-    id: 'openByNewWindow',
-    icon: 'iconOpenWindow',
-    label: '使用新窗口打开',
-    click() {
-      console.log('[SiyuanMemo][ReviewView] Opening review in new window');
-      try {
-        // 获取插件实例
-        const fsrsPlugin = (window as any).siyuanMemoPlugin;
-        if (!fsrsPlugin) {
-          console.error('[SiyuanMemo][ReviewView] Plugin instance not found');
-          return;
-        }
-
-        // 调用优雅的新窗口打开方法
-        fsrsPlugin.openReviewInNewWindow({
-          provider: props.provider,
-          queue: props.queue,
-          adapter: props.adapter,
-          title: props.title || '复习',
-        });
-
-        // 关闭当前对话框
-        emit('close');
-      } catch (err) {
-        console.error('[SiyuanMemo][ReviewView] Error opening review in new window:', err);
-      }
-    },
-  });
-  /// #endif
+  // 注释掉"使用新窗口打开"选项
+  // /// #if !BROWSER
+  // menu.addItem({
+  //   id: 'openByNewWindow',
+  //   icon: 'iconOpenWindow',
+  //   label: t('openInNewWindow', 'Open in New Window'),
+  //   click() {
+  //     console.log('[SiyuanMemo][ReviewView] Opening review in new window');
+  //     try {
+  //       // 获取插件实例
+  //       const fsrsPlugin = (window as any).siyuanMemoPlugin;
+  //       if (!fsrsPlugin) {
+  //         console.error('[SiyuanMemo][ReviewView] Plugin instance not found');
+  //         return;
+  //       }
+  //
+  //       // 调用优雅的新窗口打开方法
+  //       fsrsPlugin.openReviewInNewWindow({
+  //         provider: props.provider,
+  //         queue: props.queue,
+  //         adapter: props.adapter,
+  //         title: props.title || t('reviewTitle', 'Review'),
+  //       });
+  //
+  //       // 关闭当前对话框
+  //       emit('close');
+  //     } catch (err) {
+  //       console.error('[SiyuanMemo][ReviewView] Error opening review in new window:', err);
+  //     }
+  //   },
+  // });
+  // /// #endif
 
   // 打开菜单
   const target = ev.currentTarget as HTMLElement;
@@ -1086,11 +1086,11 @@ function refreshNavigationState() {
   gap: 8px;
 }
 
-/* 全屏样式 - 当对话框容器有 fullscreen 类时 */
+/* 全屏样式 - 只影响插件的复习对话框 */
 /* 参考思源原生实现：siyuan/app/src/assets/scss/main/_main.scss:28-56 */
 
 /* 1. 对话框容器全屏 */
-.b3-dialog__container.fullscreen {
+.b3-dialog__container[data-key="dialog-opencard"].fullscreen {
   position: fixed !important;
   top: 0 !important;
   left: 0 !important;

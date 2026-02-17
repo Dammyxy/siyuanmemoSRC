@@ -262,22 +262,13 @@ export interface ICardRenderData {
  * @constant
  * @description
  * Xiuyuan 数据存储的 MessagePack 文件名。
- * 完整路径：`storage/petal/{pluginName}/xiuyuan.msgpack`
+ * 使用插件的 saveData/loadData API，会自动保存到正确的工作空间目录。
  * 
  * 🆕 Phase 1.0.5: 迁移到 MessagePack 格式
  * - 性能提升：文件大小减少 40%，加载速度提升 60%
  * - 向后兼容：自动从 JSON 迁移
  */
 export const XIUYUAN_STORAGE_KEY = 'xiuyuan.msgpack';
-
-/**
- * 旧版 JSON 存储文件名（用于迁移）
- * 
- * @constant
- * @description
- * 用于从 JSON 格式迁移到 MessagePack 格式。
- */
-export const XIUYUAN_STORAGE_KEY_JSON = 'xiuyuan.json';
 
 /**
  * 当前存储版本号

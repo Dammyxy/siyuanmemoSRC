@@ -154,7 +154,7 @@ export default class FSRSPlugin extends Plugin {
 </svg>`);
       this.topBarElement = this.addTopBar({
         icon: 'iconSiyuanMemo',
-        title: this.i18n?.topbarTitle || 'FSRS 闪卡 (左键卡片浏览器/右键菜单)',
+        title: this.i18n?.topbarTitle || '间隔重复系统 (左键SRS浏览器/右键菜单)',
         position: 'right',
         callback: () => {
           if (!this.isInitialized) {
@@ -300,7 +300,7 @@ export default class FSRSPlugin extends Plugin {
       console.log('[SiyuanMemo] ✅ ReviewDialogManager & BlockMenuHandler initialized');
 
       // 🆕 初始化 XiuyuanService（修缘卡片来源抽象层）
-      this.xiuyuanStorage = new XiuyuanStorage(this.name);
+      this.xiuyuanStorage = new XiuyuanStorage(this);
       await this.xiuyuanStorage.load();
       this.xiuyuanService = new XiuyuanService(this.xiuyuanStorage, this.storage);
 
@@ -472,42 +472,7 @@ export default class FSRSPlugin extends Plugin {
       },
     });
 
-    // 注册快捷键 - 复习
-    this.addCommand({
-      langKey: 'startReview',
-      hotkey: 'Alt+R',
-      callback: () => {
-        this.openReviewDialog();
-      },
-    });
-
-    this.addCommand({
-      langKey: 'startDrill',
-      hotkey: 'Alt+D',
-      callback: () => {
-        this.openFinalDrillDialog();
-      },
-    });
-
-    // 渐进学习队列命令
-    this.addCommand({
-      langKey: 'startIncrementalLearning',
-      hotkey: '',
-      callback: async () => {
-        await this.openIncrementalLearningDialog();
-      },
-    });
-
-
-
-    // 注册快捷键 - 打开 SRS 浏览器
-    this.addCommand({
-      langKey: 'openSrsBrowser',
-      hotkey: 'Alt+B',
-      callback: () => {
-        this.openSRSBrowser();
-      },
-    });
+    // 命令面板已清空 - 所有功能通过顶栏图标、浏览器面板和右键菜单访问
 
     // 注册自定义 Tab
     const self = this;
@@ -706,10 +671,82 @@ export default class FSRSPlugin extends Plugin {
       }
     } catch {}
 
-    // 保存数据
-    this.storage?.saveCards?.();
+    // 注意：不在插件关闭时保存数据，避免同步冲突
+    // 数据应该在运行时实时保存（dirty flag 机制）
 
     console.log('[SiyuanMemo] Plugin unloaded');
+  }
+
+  /**
+   * 卸载插件时删除所有插件数据
+   * 
+   * @description
+   * 删除所有插件存储的文件，包括：
+   * - cards.msgpack / cards.json: 卡片数据
+   * - settings.json: 用户设置
+   * - xiuyuan.msgpack: 修缘卡片数据
+   * - reschedule-configs.json: 重新调度配置
+   * - riff-blacklist.msgpack / riff-blacklist.json: 用户黑名单
+   * - queue-*.json: 队列状态
+   * - review-v2-*.json: 复习进度
+   * - *.backup.*: 备份文件
+   * - practice-queue.msgpack / practice-queue.json: 练习队列
+   * - incremental-learning-queue.msgpack / incremental-learning-queue.json: 渐进学习队列
+   * 
+   * 注意：卸载后这些数据无法恢复，请谨慎操作
+   */
+  uninstall() {
+    console.log('[SiyuanMemo] Plugin uninstalling, removing all data...');
+
+    const allFiles = [
+      // 主要数据文件
+      'cards.msgpack',
+      'cards.json',
+      'settings.json',
+      'xiuyuan.msgpack',
+      'reschedule-configs.json',
+      
+      // 黑名单
+      'riff-blacklist.msgpack',
+      'riff-blacklist.json',
+      
+      // 队列文件
+      'practice-queue.msgpack',
+      'practice-queue.json',
+      'practice-queue-backup.msgpack',
+      'incremental-learning-queue.msgpack',
+      'incremental-learning-queue.json',
+      'queue-final-drill.json',
+      'queue-retrieval-practice.json',
+      'queue-neural-roam.json',
+      'queue-incremental-learning.json',
+      
+      // 复习进度
+      'review-v2-final-drill.json',
+      
+      // 备份文件
+      'queue-final-drill.backup.json',
+      'queue-retrieval-practice.backup.json',
+      'queue-neural-roam.backup.json',
+      'queue-incremental-learning.backup.json',
+    ];
+
+    let removedCount = 0;
+    let failedCount = 0;
+
+    allFiles.forEach(filename => {
+      this.removeData(filename)
+        .then(() => {
+          removedCount++;
+          console.log(`[SiyuanMemo] ✅ Removed: ${filename}`);
+        })
+        .catch(e => {
+          failedCount++;
+          console.warn(`[SiyuanMemo] ⚠️ Failed to remove [${filename}]:`, e);
+        });
+    });
+
+    console.log(`[SiyuanMemo] Uninstall cleanup: ${allFiles.length} files queued for removal`);
   }
 
   /**
@@ -1006,6 +1043,8 @@ export default class FSRSPlugin extends Plugin {
     try {
       const providerId = options.provider?.id || (options.queue ? 'queue-based' : 'retrieval');
       
+      // 🔧 修复循环引用问题：不直接传递对象，而是传递配置信息
+      // 在 Tab 的 onload 中重新创建这些对象
       openTab({
         app: this.app,
         custom: {
@@ -1013,11 +1052,11 @@ export default class FSRSPlugin extends Plugin {
           title: options.title,
           id: this.name + this.REVIEW_TAB_TYPE,
           data: {
-            provider: options.provider,
-            queue: options.queue,
-            adapter: options.adapter,
-            title: options.title,
+            // 只传递配置信息，不传递对象实例
             providerId: providerId,
+            title: options.title,
+            // 如果需要队列信息，传递队列类型而不是实例
+            queueType: options.queue?.getType?.() || null,
           },
         },
         position: 'right',

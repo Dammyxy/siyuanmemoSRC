@@ -17,7 +17,7 @@
  * 
  * @example
  * ```typescript
- * const storage = new XiuyuanStorage('siyuan-plugin-fsrs');
+ * const storage = new XiuyuanStorage(plugin);
  * const loadResult = await storage.load();
  * if (!loadResult.ok) {
  *   console.error('Load failed:', loadResult.error);
@@ -48,9 +48,9 @@ import type {
   ICardTemplate,
   IXiuyuanStore,
 } from './types';
-import { XIUYUAN_STORAGE_KEY, XIUYUAN_STORAGE_KEY_JSON, XIUYUAN_CURRENT_VERSION } from './types';
+import { XIUYUAN_STORAGE_KEY, XIUYUAN_CURRENT_VERSION } from './types';
 import { ok, err, type Result } from '@/types/result';
-import { encode, decode } from '@msgpack/msgpack';
+import type SiyuanMemoPlugin from '@/index';
 
 /**
  * 生成唯一 ID
@@ -74,8 +74,8 @@ function generateID(): string {
  * 提供 CRUD 操作和内存索引以提升查询性能。
  */
 export class XiuyuanStorage {
-  /** 插件名称，用于构建存储路径 */
-  private pluginName: string;
+  /** 插件实例，用于调用 saveData/loadData */
+  private plugin: SiyuanMemoPlugin;
   
   /** 内存中的数据存储 */
   private data: IXiuyuanStore;
@@ -92,14 +92,14 @@ export class XiuyuanStorage {
   /**
    * 创建 XiuyuanStorage 实例
    * 
-   * @param pluginName - 插件名称，用于构建存储路径
+   * @param plugin - 插件实例，用于调用 saveData/loadData
    * @example
    * ```typescript
-   * const storage = new XiuyuanStorage('siyuan-plugin-fsrs');
+   * const storage = new XiuyuanStorage(plugin);
    * ```
    */
-  constructor(pluginName: string) {
-    this.pluginName = pluginName;
+  constructor(plugin: SiyuanMemoPlugin) {
+    this.plugin = plugin;
     this.data = this.getDefaultStore();
   }
 
@@ -124,24 +124,23 @@ export class XiuyuanStorage {
    * 从文件系统加载 Xiuyuan 数据
    * 
    * @description
-   * 从思源笔记的存储目录加载 MessagePack 文件。
+   * 使用插件的 loadData() API 加载 MessagePack 数据。
    * 如果文件不存在，使用默认空数据（不视为错误）。
    * 加载后会自动重建内存索引。
    * 
    * 🆕 Phase 1.0.5: 使用 MessagePack 格式
    * - 性能提升：加载速度提升 60%
-   * - 向后兼容：自动从 JSON 迁移（如果存在）
+   * - 不持久化：仅在数据修改时保存，避免同步冲突
    * 
    * @returns Result<void>，成功时返回 ok(undefined)，失败时返回 err(Error)
    * 
    * **错误处理**：
    * - 文件不存在：返回 ok(undefined)，使用默认空数据
-   * - MessagePack 解析失败：尝试加载 JSON 备份
-   * - 网络请求失败：返回 err(Error)
+   * - 加载失败：返回 err(Error)
    * 
    * @example
    * ```typescript
-   * const storage = new XiuyuanStorage('siyuan-plugin-fsrs');
+   * const storage = new XiuyuanStorage(plugin);
    * const result = await storage.load();
    * if (result.ok) {
    *   console.log('Loaded:', storage.getStats());
@@ -157,33 +156,17 @@ export class XiuyuanStorage {
    */
   async load(): Promise<Result<void>> {
     try {
-      // 🆕 优先加载 MessagePack 格式
-      const msgpackPath = `storage/petal/${this.pluginName}/${XIUYUAN_STORAGE_KEY}`;
-      const msgpackData = await this.loadMsgpack(msgpackPath);
+      const msgpackData = await this.plugin.loadData(XIUYUAN_STORAGE_KEY);
       
       if (msgpackData) {
+        // MessagePack 数据已经被 plugin.loadData 自动解码
         this.data = this.migrate(msgpackData);
         this.rebuildIndex();
         console.log('[Xiuyuan] Loaded from msgpack:', this.getStats());
         return ok(undefined);
       }
       
-      // 后备：尝试加载 JSON 格式（向后兼容）
-      const jsonPath = `storage/petal/${this.pluginName}/${XIUYUAN_STORAGE_KEY_JSON}`;
-      const jsonData = await this.loadJson(jsonPath);
-      
-      if (jsonData) {
-        this.data = this.migrate(jsonData);
-        this.rebuildIndex();
-        console.log('[Xiuyuan] Migrated from JSON to msgpack:', this.getStats());
-        
-        // 自动保存为 MessagePack 格式
-        await this.save();
-        
-        return ok(undefined);
-      }
-      
-      // 都不存在，使用默认数据
+      // 文件不存在，使用默认数据
       console.log('[Xiuyuan] No existing data file, using defaults');
       this.rebuildIndex();
       return ok(undefined);
@@ -200,16 +183,17 @@ export class XiuyuanStorage {
    * @description
    * 仅在数据被修改时（dirty=true）才执行保存操作。
    * 保存成功后会清除 dirty 标记。
+   * 使用插件的 saveData() API，数据会自动保存到正确的工作空间目录。
    * 
    * 🆕 Phase 1.0.5: 使用 MessagePack 格式
    * - 性能提升：保存速度提升 50%，文件大小减少 40%
+   * - 自动同步：数据会被思源云同步到其他设备
    * 
    * @returns Result<void>，成功时返回 ok(undefined)，失败时返回 err(Error)
    * 
    * **错误处理**：
    * - 数据未修改：返回 ok(undefined)（跳过保存）
-   * - 网络请求失败：返回 err(Error)
-   * - 文件写入失败：返回 err(Error)
+   * - 保存失败：返回 err(Error)
    * 
    * @example
    * ```typescript
@@ -233,32 +217,9 @@ export class XiuyuanStorage {
     }
     
     try {
-      const path = `storage/petal/${this.pluginName}/${XIUYUAN_STORAGE_KEY}`;
-      
-      // 🆕 使用 MessagePack 编码
-      const buffer = encode(this.data);
-      
-      // 转换为 Base64（思源 API 需要）
-      const bytes = new Uint8Array(buffer);
-      let binaryString = '';
-      for (let i = 0; i < bytes.length; i++) {
-        binaryString += String.fromCharCode(bytes[i]);
-      }
-      const content = btoa(binaryString);
-      
-      // 保存文件
-      const formData = new FormData();
-      formData.append('path', path);
-      formData.append('file', new Blob([atob(content)], { type: 'application/octet-stream' }));
-
-      const response = await fetch('/api/file/putFile', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        return err(new Error(`Failed to save Xiuyuan data: ${response.statusText}`));
-      }
+      // 使用插件的 saveData API，会自动保存到正确的工作空间目录
+      // 数据会被自动编码为 MessagePack 格式
+      await this.plugin.saveData(XIUYUAN_STORAGE_KEY, this.data);
       
       this.dirty = false;
       console.log('[Xiuyuan] Saved to msgpack:', this.getStats());
@@ -321,82 +282,6 @@ export class XiuyuanStorage {
 
     for (const [id, mapping] of Object.entries(this.data.mappings)) {
       this.indexByCardID.set(mapping.cardID, id);
-    }
-  }
-
-  // ==================== MessagePack 辅助方法 🆕 ====================
-
-  /**
-   * 加载 MessagePack 数据
-   * 
-   * @param path - 文件路径
-   * @returns 解码后的数据，如果文件不存在或解析失败返回 null
-   * @private
-   */
-  private async loadMsgpack(path: string): Promise<any> {
-    try {
-      const response = await fetch('/api/file/getFile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path }),
-      });
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          return null; // 文件不存在
-        }
-        throw new Error(`Failed to load: ${response.statusText}`);
-      }
-      
-      const text = await response.text();
-      if (!text) return null;
-      
-      // 从 Base64 解码
-      const binaryString = atob(text);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      
-      // MessagePack 解码
-      return decode(bytes);
-      
-    } catch (error) {
-      console.error('[Xiuyuan] Failed to load msgpack:', error);
-      return null;
-    }
-  }
-
-  /**
-   * 加载 JSON 数据（用于向后兼容）
-   * 
-   * @param path - 文件路径
-   * @returns 解析后的数据，如果文件不存在或解析失败返回 null
-   * @private
-   */
-  private async loadJson(path: string): Promise<any> {
-    try {
-      const response = await fetch('/api/file/getFile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path }),
-      });
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          return null; // 文件不存在
-        }
-        throw new Error(`Failed to load: ${response.statusText}`);
-      }
-      
-      const text = await response.text();
-      if (!text) return null;
-      
-      return JSON.parse(text);
-      
-    } catch (error) {
-      console.error('[Xiuyuan] Failed to load JSON:', error);
-      return null;
     }
   }
 

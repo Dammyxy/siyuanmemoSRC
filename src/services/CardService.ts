@@ -38,7 +38,7 @@ export class CardService {
     const hasCarded = blockElements.some(el => el.hasAttribute(ATTR_CARD_ID));
     const drillBlocks = this.getDrillBlockElements(blockElements);
     const drillCount = drillBlocks.length;
-    const drillLabel = `<span title="${this.plugin.i18n?.drillHint || '将当前块及子块中的闪卡加入机械练习队列'}">${this.plugin.i18n?.blockModeLabel || '块练习'}</span> <span class="ft__secondary">(${drillCount})</span>`;
+    const drillLabel = `<span title="${this.plugin.i18n?.drillHint || 'Add flashcards in current block and sub-blocks to drill queue'}">${this.plugin.i18n?.blockModeLabel || 'Block Practice'}</span> <span class="ft__secondary">(${drillCount})</span>`;
 
     menu.addItem({
       icon: 'iconRiffCard',

@@ -2,10 +2,10 @@
   <div class="srs-editor fn__flex-column">
     <div class="srs-editor__header fn__flex">
       <svg class="srs-editor__icon"><use xlink:href="#iconInfo"></use></svg>
-      <span class="fn__flex-1">{{ t('srsEditorTitle', '编辑间隔重复数据') }}</span>
+      <span class="fn__flex-1">{{ t('srsEditorTitle', 'Edit SRS Data') }}</span>
       <div class="srs-editor__controls fn__flex">
         <button class="b3-button srs-btn" :class="buttonState(metadataVisible, false)" @click="toggleMetadata">
-          {{ t('toggleMeta', '卡片元数据') }}
+          {{ t('toggleMeta', 'Card Metadata') }}
         </button>
       </div>
     </div>
@@ -13,68 +13,68 @@
 
     <!-- 核心状态概览（始终显示） -->
     <div class="srs-section srs-section--overview">
-      <div class="srs-section__title">{{ t('cardOverview', '卡片状态') }}</div>
+      <div class="srs-section__title">{{ t('cardOverview', 'Card Status') }}</div>
       <div class="srs-grid srs-grid--overview">
         <div class="srs-overview-item">
-          <div class="srs-overview-item__label">{{ t('cardType', '卡片类型') }}</div>
+          <div class="srs-overview-item__label">{{ t('cardType', 'Card Type') }}</div>
           <div class="srs-overview-item__value">{{ cardTypeText }}</div>
         </div>
         <div class="srs-overview-item">
-          <div class="srs-overview-item__label">{{ t('state', '状态') }}</div>
+          <div class="srs-overview-item__label">{{ t('state', 'State') }}</div>
           <div class="srs-overview-item__value srs-overview-item__value--state">{{ stateText }}</div>
         </div>
         <div class="srs-overview-item srs-overview-item--highlight">
-          <div class="srs-overview-item__label">{{ t('nextReview', '下次复习') }}</div>
+          <div class="srs-overview-item__label">{{ t('nextReview', 'Next Review') }}</div>
           <div class="srs-overview-item__value">{{ nextReviewText }}</div>
         </div>
         <div class="srs-overview-item">
-          <div class="srs-overview-item__label">{{ t('reps', '复习次数') }}</div>
+          <div class="srs-overview-item__label">{{ t('reps', 'Reviews') }}</div>
           <div class="srs-overview-item__value">{{ repsText }}</div>
         </div>
         <div class="srs-overview-item">
-          <div class="srs-overview-item__label">{{ t('lapses', '遗忘次数') }}</div>
+          <div class="srs-overview-item__label">{{ t('lapses', 'Lapses') }}</div>
           <div class="srs-overview-item__value">{{ lapsesText }}</div>
         </div>
         <div class="srs-overview-item">
-          <div class="srs-overview-item__label">{{ t('stability', '稳定性') }}</div>
+          <div class="srs-overview-item__label">{{ t('stability', 'Stability') }}</div>
           <div class="srs-overview-item__value">{{ stabilityText }}</div>
         </div>
         <div class="srs-overview-item">
-          <div class="srs-overview-item__label">{{ t('difficulty', '难度') }}</div>
+          <div class="srs-overview-item__label">{{ t('difficulty', 'Difficulty') }}</div>
           <div class="srs-overview-item__value">{{ difficultyText }}</div>
         </div>
         <div class="srs-overview-item">
-          <div class="srs-overview-item__label">{{ t('priority', '优先级') }}</div>
+          <div class="srs-overview-item__label">{{ t('priority', 'Priority') }}</div>
           <div class="srs-overview-item__value">{{ priorityText }}</div>
         </div>
       </div>
     </div>
 
     <div v-show="metadataVisible" class="srs-section srs-section--collapsible">
-      <div class="srs-section__title">{{ t('cardMeta', '卡片元数据') }}</div>
+      <div class="srs-section__title">{{ t('cardMeta', 'Card Metadata') }}</div>
       <div class="srs-grid">
         <div>
-          <div class="srs-field__label">{{ t('cardId', '卡片 ID') }}</div>
+          <div class="srs-field__label">{{ t('cardId', 'Card ID') }}</div>
           <div class="srs-field__value srs-field__mono">{{ cardIdText }}</div>
         </div>
         <div>
-          <div class="srs-field__label">{{ t('blockId', '块 ID') }}</div>
+          <div class="srs-field__label">{{ t('blockId', 'Block ID') }}</div>
           <div class="srs-field__value srs-field__mono">{{ blockIdText }}</div>
         </div>
       </div>
       <div class="srs-grid">
         <div>
-          <div class="srs-field__label">{{ t('createdAt', '创建时间') }}</div>
+          <div class="srs-field__label">{{ t('createdAt', 'Created') }}</div>
           <div class="srs-field__value">{{ createdAtText }}</div>
         </div>
         <div>
-          <div class="srs-field__label">{{ t('updatedAt', '修改时间') }}</div>
+          <div class="srs-field__label">{{ t('updatedAt', 'Updated') }}</div>
           <div class="srs-field__value">{{ updatedAtText }}</div>
         </div>
       </div>
       <div class="srs-grid">
         <div>
-          <div class="srs-field__label">{{ t('lastReview', '上次复习时间') }}</div>
+          <div class="srs-field__label">{{ t('lastReview', 'Last Review') }}</div>
           <div class="srs-field__value srs-field__value--status">
             <span v-if="lastReviewState !== 'date'" class="srs-status" :class="statusClass(lastReviewState)" :title="statusTitle(lastReviewState)">
               <svg class="srs-status__icon"><use :xlink:href="statusIcon(lastReviewState)"></use></svg>
@@ -84,7 +84,7 @@
           </div>
         </div>
         <div>
-          <div class="srs-field__label">{{ t('nextReview', '下次复习时间') }}</div>
+          <div class="srs-field__label">{{ t('nextReview', 'Next Review') }}</div>
           <div class="srs-field__value srs-field__value--status">
             <span v-if="nextReviewState !== 'date'" class="srs-status" :class="statusClass(nextReviewState)" :title="statusTitle(nextReviewState)">
               <svg class="srs-status__icon"><use :xlink:href="statusIcon(nextReviewState)"></use></svg>
@@ -96,79 +96,79 @@
       </div>
       <div class="srs-grid">
         <div>
-          <div class="srs-field__label">{{ t('reps', '复习次数') }}</div>
+          <div class="srs-field__label">{{ t('reps', 'Reviews') }}</div>
           <div class="srs-field__value">{{ repsText }}</div>
         </div>
         <div>
-          <div class="srs-field__label">{{ t('lapses', '遗忘次数') }}</div>
+          <div class="srs-field__label">{{ t('lapses', 'Lapses') }}</div>
           <div class="srs-field__value">{{ lapsesText }}</div>
         </div>
       </div>
       <div class="srs-grid">
         <div>
-          <div class="srs-field__label">{{ t('stability', '记忆强度') }}</div>
+          <div class="srs-field__label">{{ t('stability', 'Stability') }}</div>
           <div class="srs-field__value">{{ stabilityText }}</div>
         </div>
         <div>
-          <div class="srs-field__label">{{ t('difficulty', '难度') }}</div>
+          <div class="srs-field__label">{{ t('difficulty', 'Difficulty') }}</div>
           <div class="srs-field__value">{{ difficultyText }}</div>
         </div>
       </div>
       <div class="srs-grid">
         <div>
-          <div class="srs-field__label">{{ t('state', '卡片状态') }}</div>
+          <div class="srs-field__label">{{ t('state', 'State') }}</div>
           <div class="srs-field__value">{{ stateText }}</div>
         </div>
         <div>
-          <div class="srs-field__label">{{ t('elapsedDays', '经过天数') }}</div>
+          <div class="srs-field__label">{{ t('elapsedDays', 'Elapsed Days') }}</div>
           <div class="srs-field__value">{{ elapsedDaysText }}</div>
         </div>
       </div>
       <div class="srs-grid">
         <div>
-          <div class="srs-field__label">{{ t('scheduledDays', '预定间隔') }}</div>
+          <div class="srs-field__label">{{ t('scheduledDays', 'Scheduled Days') }}</div>
           <div class="srs-field__value">{{ scheduledDaysText }}</div>
         </div>
         <div>
-          <div class="srs-field__label">{{ t('priority', '优先级') }}</div>
+          <div class="srs-field__label">{{ t('priority', 'Priority') }}</div>
           <div class="srs-field__value">{{ priorityText }}</div>
         </div>
       </div>
       <div class="srs-grid">
         <div>
-          <div class="srs-field__label">{{ t('cardType', '卡片类型') }}</div>
+          <div class="srs-field__label">{{ t('cardType', 'Card Type') }}</div>
           <div class="srs-field__value">{{ cardTypeText }}</div>
         </div>
         <div>
-          <div class="srs-field__label">{{ t('schedulerType', '调度器类型') }}</div>
+          <div class="srs-field__label">{{ t('schedulerType', 'Scheduler Type') }}</div>
           <div class="srs-field__value">{{ schedulerTypeText }}</div>
         </div>
       </div>
       <div v-if="leechCountText !== '0'" class="srs-grid">
         <div>
-          <div class="srs-field__label">{{ t('leechCount', '水蛭计数') }}</div>
+          <div class="srs-field__label">{{ t('leechCount', 'Leech Count') }}</div>
           <div class="srs-field__value">{{ leechCountText }}</div>
         </div>
         <div>
-          <div class="srs-field__label">{{ t('isLeech', '是否水蛭卡') }}</div>
+          <div class="srs-field__label">{{ t('isLeech', 'Is Leech') }}</div>
           <div class="srs-field__value">{{ isLeechText }}</div>
         </div>
       </div>
     </div>
 
     <div class="srs-section">
-      <div class="srs-section__title">{{ t('resetProgress', '重置学习进度') }}</div>
+      <div class="srs-section__title">{{ t('resetProgress', 'Reset Progress') }}</div>
       <div class="fn__flex srs-action-row">
-        <button class="b3-button srs-btn" @click="handleReset">{{ t('reset', '重置卡片') }}</button>
+        <button class="b3-button srs-btn" @click="handleReset">{{ t('reset', 'Reset Card') }}</button>
       </div>
     </div>
 
     <div class="srs-section">
-      <div class="srs-section__title">{{ t('scheduleDate', '安排复习日期') }}</div>
+      <div class="srs-section__title">{{ t('scheduleDate', 'Schedule Review Date') }}</div>
       <div class="fn__flex srs-action-row">
         <button class="b3-button srs-btn srs-btn--active" @click="openScheduleDateDialog">
           <svg class="srs-btn__icon"><use xlink:href="#iconCalendar"></use></svg>
-          {{ t('scheduleDate', '安排复习日期') }}
+          {{ t('scheduleDate', 'Schedule Review Date') }}
         </button>
       </div>
     </div>
@@ -252,12 +252,12 @@ async function loadMeta() {
     
     // 卡片类型
     const typeLabels: Record<CardType, string> = {
-      [CardType.Item]: t('itemCard', 'Item 卡片'),
-      [CardType.Topic]: t('topicCard', 'Topic 卡片'),
-      [CardType.Concept]: t('conceptCard', '概念卡'),
-      [CardType.Descriptor]: t('descriptorCard', '描述符卡'),
-      [CardType.Incremental]: t('incrementalCard', '增量内容'),
-      [CardType.Webpage]: t('webpageCard', '网页卡片'),
+      [CardType.Item]: t('itemCard', 'Item Card'),
+      [CardType.Topic]: t('topicCard', 'Topic Card'),
+      [CardType.Concept]: t('conceptCard', 'Concept Card'),
+      [CardType.Descriptor]: t('descriptorCard', 'Descriptor Card'),
+      [CardType.Incremental]: t('incrementalCard', 'Incremental Content'),
+      [CardType.Webpage]: t('webpageCard', 'Webpage Card'),
     };
     cardTypeText.value = typeLabels[card.type] || card.type;
     
@@ -277,7 +277,7 @@ async function loadMeta() {
     
     // 水蛭卡信息
     leechCountText.value = String(card.leechCount || 0);
-    isLeechText.value = card.isLeech ? t('yes', '是') : t('no', '否');
+    isLeechText.value = card.isLeech ? t('yes', 'Yes') : t('no', 'No');
     
     // 时间信息
     const info = await getBlockInfo(blockId);
@@ -297,40 +297,40 @@ async function loadMeta() {
     
     const lastReviewDate = card?.lastReview ? new Date(card.lastReview) : null;
     const nextReviewDate = card?.due ? new Date(card.due) : null;
-    lastReviewText.value = lastReviewDate ? lastReviewDate.toLocaleString() : t('pending', '待首次复习');
-    nextReviewText.value = nextReviewDate ? nextReviewDate.toLocaleString() : t('pending', '待安排');
+    lastReviewText.value = lastReviewDate ? lastReviewDate.toLocaleString() : t('pending', 'Pending');
+    nextReviewText.value = nextReviewDate ? nextReviewDate.toLocaleString() : t('pending', 'Pending');
     lastReviewState.value = lastReviewDate ? 'date' : card ? 'pending' : 'unknown';
     nextReviewState.value = nextReviewDate ? 'date' : card ? 'pending' : 'unknown';
     
     // 复习统计
     repsText.value = formatNumber(card?.reps);
     lapsesText.value = formatNumber(card?.lapses);
-    stabilityText.value = card?.stability ? `${card.stability.toFixed(1)} 天` : t('notLearned', '未学习');
+    stabilityText.value = card?.stability ? `${card.stability.toFixed(1)} ${t('days', 'days')}` : t('notLearned', 'Not learned');
     difficultyText.value = card?.difficulty ? card.difficulty.toFixed(2) : '-';
     elapsedDaysText.value = formatNumber(card?.elapsedDays);
     scheduledDaysText.value = formatNumber(card?.scheduledDays);
     
     // 卡片状态
-    if (card?.state === CardState.New) stateText.value = t('newCard', '新卡');
-    else if (card?.state === CardState.Learning) stateText.value = t('learning', '学习中');
-    else if (card?.state === CardState.Review) stateText.value = t('reviewCard', '复习');
-    else if (card?.state === CardState.Relearning) stateText.value = t('relearning', '重新学习');
-    else stateText.value = t('unknown', '未知');
+    if (card?.state === CardState.New) stateText.value = t('newCard', 'New');
+    else if (card?.state === CardState.Learning) stateText.value = t('learning', 'Learning');
+    else if (card?.state === CardState.Review) stateText.value = t('reviewCard', 'Review');
+    else if (card?.state === CardState.Relearning) stateText.value = t('relearning', 'Relearning');
+    else stateText.value = t('unknown', 'Unknown');
   } catch (err) {
     console.error('[SiyuanMemo][SrsEditor] Failed to load card meta:', err);
-    createdAtText.value = t('unknown', '未知');
-    updatedAtText.value = t('unknown', '未知');
-    lastReviewText.value = t('unknown', '未知');
-    nextReviewText.value = t('unknown', '未知');
+    createdAtText.value = t('unknown', 'Unknown');
+    updatedAtText.value = t('unknown', 'Unknown');
+    lastReviewText.value = t('unknown', 'Unknown');
+    nextReviewText.value = t('unknown', 'Unknown');
     lastReviewState.value = 'unknown';
     nextReviewState.value = 'unknown';
-    repsText.value = t('unknown', '未知');
-    lapsesText.value = t('unknown', '未知');
-    stabilityText.value = t('unknown', '未知');
-    difficultyText.value = t('unknown', '未知');
-    elapsedDaysText.value = t('unknown', '未知');
-    scheduledDaysText.value = t('unknown', '未知');
-    stateText.value = t('unknown', '未知');
+    repsText.value = t('unknown', 'Unknown');
+    lapsesText.value = t('unknown', 'Unknown');
+    stabilityText.value = t('unknown', 'Unknown');
+    difficultyText.value = t('unknown', 'Unknown');
+    elapsedDaysText.value = t('unknown', 'Unknown');
+    scheduledDaysText.value = t('unknown', 'Unknown');
+    stateText.value = t('unknown', 'Unknown');
   }
 }
 
@@ -374,7 +374,7 @@ function resolveTimeDate(candidates: unknown[], fallbackToNow: boolean): Date | 
 
 function formatNumber(value: unknown, digits?: number): string {
   const num = typeof value === 'string' ? Number(value) : (value as number);
-  if (num === null || num === undefined || Number.isNaN(num)) return t('unknown', '未知');
+  if (num === null || num === undefined || Number.isNaN(num)) return t('unknown', 'Unknown');
   return digits !== undefined ? num.toFixed(digits) : String(num);
 }
 
@@ -386,14 +386,14 @@ function statusClass(state: 'date' | 'pending' | 'unknown') {
 }
 
 function statusLabel(state: 'date' | 'pending' | 'unknown') {
-  if (state === 'pending') return t('unreviewed', '未复习');
-  if (state === 'unknown') return t('unknown', '未知');
+  if (state === 'pending') return t('unreviewed', 'Unreviewed');
+  if (state === 'unknown') return t('unknown', 'Unknown');
   return '';
 }
 
 function statusTitle(state: 'date' | 'pending' | 'unknown') {
-  if (state === 'pending') return t('unreviewedHint', '未复习：表示已学习但尚未进行复习的内容');
-  if (state === 'unknown') return t('unknownHint', '未知：表示尚未接触或学习的内容');
+  if (state === 'pending') return t('unreviewedHint', 'Unreviewed: Content that has been learned but not yet reviewed');
+  if (state === 'unknown') return t('unknownHint', 'Unknown: Content that has not been encountered or learned');
   return '';
 }
 
@@ -423,7 +423,7 @@ function showResultDialog(options: { title: string; content: string; type?: 'suc
       </div>
       <div class="b3-dialog__action">
         <div class="fn__space"></div>
-        <button class="b3-button b3-button--text">${t('ok', '确定')}</button>
+        <button class="b3-button b3-button--text">${t('ok', 'OK')}</button>
       </div>
     `,
     width: '360px',
@@ -440,10 +440,10 @@ function toggleMetadata() {
 
 async function handleReset() {
   const confirmed = await confirmDialog({
-    title: t('resetConfirmTitle', '确认重置学习进度'),
-    content: t('resetConfirmContent', '该操作将清除卡片的复习记录，且不可撤销。是否继续？'),
-    confirmText: t('confirm', '确认'),
-    cancelText: t('cancel', '取消'),
+    title: t('resetConfirmTitle', 'Confirm Reset Progress'),
+    content: t('resetConfirmContent', 'This will clear the card\'s review history and cannot be undone. Continue?'),
+    confirmText: t('confirm', 'Confirm'),
+    cancelText: t('cancel', 'Cancel'),
   });
   if (!confirmed) return;
   
@@ -466,16 +466,16 @@ async function handleReset() {
       await loadMeta();
       
       showResultDialog({
-        title: t('resetProgress', '重置学习进度'),
-        content: t('resetDone', '已重置卡片'),
+        title: t('resetProgress', 'Reset Progress'),
+        content: t('resetDone', 'Card reset'),
         type: 'success',
       });
     }
   } catch (err) {
     console.error('[SiyuanMemo] reset error', err);
     showResultDialog({
-      title: t('resetProgress', '重置学习进度'),
-      content: t('resetFailed', '重置失败'),
+      title: t('resetProgress', 'Reset Progress'),
+      content: t('resetFailed', 'Reset failed'),
       type: 'error',
     });
   }
@@ -485,8 +485,8 @@ function openScheduleDateDialog() {
   const card = props.plugin?.storage.getCardByBlockId(blockId);
   if (!card) {
     showResultDialog({
-      title: t('scheduleDate', '安排复习日期'),
-      content: t('cardNotFound', '未找到卡片'),
+      title: t('scheduleDate', 'Schedule Review Date'),
+      content: t('cardNotFound', 'Card not found'),
       type: 'error',
     });
     return;
@@ -495,7 +495,7 @@ function openScheduleDateDialog() {
   const cardType = card.type === CardType.Topic ? 'topic' : 'item';
   
   createVueDialog({
-    title: t('scheduleDate', '安排复习日期'),
+    title: t('scheduleDate', 'Schedule Review Date'),
     component: ScheduleDateDialog,
     props: {
       cardType,
@@ -514,8 +514,8 @@ async function handleScheduleDate(options: ScheduleOptions) {
     const card = props.plugin?.storage.getCardByBlockId(blockId);
     if (!card) {
       showResultDialog({
-        title: t('scheduleDate', '安排复习日期'),
-        content: t('cardNotFound', '未找到卡片'),
+        title: t('scheduleDate', 'Schedule Review Date'),
+        content: t('cardNotFound', 'Card not found'),
         type: 'error',
       });
       return;
@@ -532,8 +532,8 @@ async function handleScheduleDate(options: ScheduleOptions) {
       dueTimestamp = due.getTime();
     } else {
       showResultDialog({
-        title: t('scheduleDate', '安排复习日期'),
-        content: t('invalidDate', '请选择日期或输入天数'),
+        title: t('scheduleDate', 'Schedule Review Date'),
+        content: t('invalidDate', 'Please select a date or enter days'),
         type: 'error',
       });
       return;
@@ -560,17 +560,17 @@ async function handleScheduleDate(options: ScheduleOptions) {
     await loadMeta();
     
     showResultDialog({
-      title: t('scheduleDate', '安排复习日期'),
+      title: t('scheduleDate', 'Schedule Review Date'),
       content: options.mode === 'rating' 
-        ? t('scheduleWithRatingDone', '已执行复习并安排日期')
-        : t('scheduleDone', '已安排复习日期'),
+        ? t('scheduleWithRatingDone', 'Review executed and date scheduled')
+        : t('scheduleDone', 'Review date scheduled'),
       type: 'success',
     });
   } catch (err) {
     console.error('[SiyuanMemo] schedule error', err);
     showResultDialog({
-      title: t('scheduleDate', '安排复习日期'),
-      content: t('scheduleFailed', '安排日期失败'),
+      title: t('scheduleDate', 'Schedule Review Date'),
+      content: t('scheduleFailed', 'Failed to schedule date'),
       type: 'error',
     });
   }

@@ -25,7 +25,7 @@ export class FinalDrillEntry extends ReviewEntryBase {
   constructor(deps: ReviewEntryBaseDeps) {
     super({
       id: 'final-drill',
-      displayName: '刻意练习',
+      displayName: deps.i18n?.finalDrill || '刻意练习',
       icon: 'iconCards',
       queueType: QueueType.FinalDrill,
       recordReview: false,  // 不记录作答

@@ -62,7 +62,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
         const queue = new UnifiedQueueStrategy(queueType);
         
         // 创建统一复习适配器
-        const adapter = new UnifiedReviewAdapter();
+        const adapter = new UnifiedReviewAdapter({ i18n: plugin.i18n || {} });
         
         // 创建对话框
         const dialog = createVueDialog({

@@ -48,8 +48,10 @@ export function formatStability(stability: number | undefined): string {
 /**
  * 格式化相对时间（如"3天前"、"2小时后"）
  */
-export function formatRelativeTime(date: Date | null | undefined, now: Date = new Date()): string {
+export function formatRelativeTime(date: Date | null | undefined, now: Date = new Date(), i18n?: Record<string, string>): string {
   if (!date) return '-';
+
+  const t = (key: string, fallback: string) => i18n?.[key] || fallback;
 
   const diffMs = date.getTime() - now.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
@@ -59,18 +61,22 @@ export function formatRelativeTime(date: Date | null | undefined, now: Date = ne
   if (Math.abs(diffDays) === 0) {
     if (Math.abs(diffHours) === 0) {
       if (Math.abs(diffMinutes) < 1) {
-        return '刚刚';
+        return t('justNow', 'just now');
       }
-      return diffMinutes > 0 ? `${diffMinutes}分钟后` : `${Math.abs(diffMinutes)}分钟前`;
+      return diffMinutes > 0 
+        ? `${diffMinutes} ${t('minutesLater', 'minutes later')}` 
+        : `${Math.abs(diffMinutes)} ${t('minutesAgo', 'minutes ago')}`;
     }
-    return diffHours > 0 ? `${diffHours}小时后` : `${Math.abs(diffHours)}小时前`;
+    return diffHours > 0 
+      ? `${diffHours} ${t('hoursLater', 'hours later')}` 
+      : `${Math.abs(diffHours)} ${t('hoursAgo', 'hours ago')}`;
   }
 
-  if (diffDays === 0) return '今天';
-  if (diffDays === 1) return '明天';
-  if (diffDays === -1) return '昨天';
-  if (diffDays > 1 && diffDays <= 7) return `${diffDays}天后`;
-  if (diffDays < -1 && diffDays >= -7) return `${Math.abs(diffDays)}天前`;
+  if (diffDays === 0) return t('today', 'today');
+  if (diffDays === 1) return t('tomorrow', 'tomorrow');
+  if (diffDays === -1) return t('yesterday', 'yesterday');
+  if (diffDays > 1 && diffDays <= 7) return `${diffDays} ${t('daysLater', 'days later')}`;
+  if (diffDays < -1 && diffDays >= -7) return `${Math.abs(diffDays)} ${t('daysAgo', 'days ago')}`;
 
   return date.toLocaleDateString('zh-CN', {
     month: 'short',
@@ -130,25 +136,31 @@ export function formatFileSize(bytes: number | undefined): string {
 /**
  * 格式化时长（秒 -> 可读格式）
  */
-export function formatDuration(seconds: number | undefined): string {
+export function formatDuration(seconds: number | undefined, i18n?: Record<string, string>): string {
   if (typeof seconds !== 'number' || seconds < 0) return '-';
 
-  if (seconds < 60) return `${Math.round(seconds)}秒`;
+  const t = (key: string, fallback: string) => i18n?.[key] || fallback;
+
+  if (seconds < 60) return `${Math.round(seconds)} ${t('seconds', 'seconds')}`;
 
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}分钟`;
+  if (minutes < 60) return `${minutes} ${t('minutes', 'minutes')}`;
 
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
 
   if (hours < 24) {
-    return remainingMinutes > 0 ? `${hours}小时${remainingMinutes}分钟` : `${hours}小时`;
+    return remainingMinutes > 0 
+      ? `${hours} ${t('hoursMinutes', 'hours {minutes} minutes').replace('{minutes}', remainingMinutes.toString())}` 
+      : `${hours} ${t('hours', 'hours')}`;
   }
 
   const days = Math.floor(hours / 24);
   const remainingHours = hours % 24;
 
-  return remainingHours > 0 ? `${days}天${remainingHours}小时` : `${days}天`;
+  return remainingHours > 0 
+    ? `${days} ${t('daysUnit', 'days')} ${remainingHours} ${t('hours', 'hours')}` 
+    : `${days} ${t('daysUnit', 'days')}`;
 }
 
 /**

@@ -45,7 +45,7 @@
 
     <!-- 评分按钮列 (根据卡片类型动态显示) -->
     <template v-if="isTopicCard">
-      <!-- Topic 模式: 只显示【下一张】按钮 -->
+      <!-- Topic/Concept 模式: 只显示【下一张】按钮 -->
       <div>
         <span></span>
         <button
@@ -79,7 +79,7 @@
   
   <!-- 插入位置对话框 -->
   <teleport to="body">
-    <div v-if="showInsertDialog" class="b3-dialog b3-dialog--open" @mousedown.self="handleDialogMouseDown">
+    <div v-if="showInsertDialog" class="b3-dialog b3-dialog--open siyuanmemo-dialog" @mousedown.self="handleDialogMouseDown">
       <div class="b3-dialog__scrim" @click="closeInsertDialog"></div>
       <div class="b3-dialog__container" style="max-width: 400px;">
         <InsertPositionDialog
@@ -94,7 +94,7 @@
   
   <!-- 安排日期对话框 -->
   <teleport to="body">
-    <div v-if="showScheduleDialog" class="b3-dialog b3-dialog--open" @mousedown.self="handleDialogMouseDown">
+    <div v-if="showScheduleDialog" class="b3-dialog b3-dialog--open siyuanmemo-dialog" @mousedown.self="handleDialogMouseDown">
       <div class="b3-dialog__scrim" @click="closeScheduleDialog"></div>
       <div class="b3-dialog__container" style="max-width: 540px;">
         <ScheduleDateDialog
@@ -131,10 +131,11 @@ const emit = defineEmits<{
   (e: 'openMenu', menu: any[], ev: MouseEvent): void;
 }>();
 
-// 卡片类型检测
+// 卡片类型检测 - Topic 和 Concept 卡片都使用"下一张"模式
 const isTopicCard = computed(() => {
   const card = props.actions.cardMeta;
-  const result = card?.type === 'topic' || card?.cardType === 'topic';
+  const result = card?.type === 'topic' || card?.cardType === 'topic' 
+    || card?.type === 'concept' || card?.cardType === 'concept';
   console.log('[SiyuanMemo][ReviewActions] isTopicCard computed:', {
     cardMeta: card,
     type: card?.type,
@@ -144,7 +145,7 @@ const isTopicCard = computed(() => {
   return result;
 });
 
-// 卡片类型（用于对话框）
+// 卡片类型（用于对话框）- Concept 卡片也视为 topic 类型
 const cardType = computed<'item' | 'topic'>(() => {
   return isTopicCard.value ? 'topic' : 'item';
 });
@@ -385,8 +386,8 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   margin-bottom: 4px;
 }
 
-/* 对话框样式 */
-.b3-dialog {
+/* 对话框样式 - 只影响插件自己的对话框 */
+.siyuanmemo-dialog.b3-dialog {
   position: fixed;
   inset: 0;
   z-index: 200;
@@ -395,13 +396,13 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   justify-content: center;
 }
 
-.b3-dialog__scrim {
+.siyuanmemo-dialog .b3-dialog__scrim {
   position: absolute;
   inset: 0;
   background-color: rgba(0, 0, 0, 0.32);
 }
 
-.b3-dialog__container {
+.siyuanmemo-dialog .b3-dialog__container {
   position: relative;
   background-color: var(--b3-theme-background);
   border-radius: var(--b3-border-radius);

@@ -31,7 +31,7 @@ export class TemporaryDrillEntry extends ReviewEntryBase {
   constructor(deps: ReviewEntryBaseDeps) {
     super({
       id: 'temporary-drill',
-      displayName: '临时练习',
+      displayName: deps.i18n?.temporaryDrill || '临时练习',
       icon: 'iconEye',
       queueType: QueueType.FilterGroup,  // 临时队列
       recordReview: false,  // 不记录作答

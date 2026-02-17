@@ -21,7 +21,7 @@ export class TopBarManager {
 
         this.element = this.plugin.addTopBar({
             icon: 'iconSiyuanMemo',
-            title: this.plugin.i18n?.topbarTitle || 'FSRS 闪卡 (左键卡片浏览器/右键菜单)',
+            title: this.plugin.i18n?.topbarTitle || '间隔重复系统 (左键SRS浏览器/右键菜单)',
             position: 'right',
             callback: () => {
                 // @ts-ignore - accessing private or checking init status via public method if available,
@@ -85,7 +85,7 @@ export class TopBarManager {
         // 添加菜单项
         menu.addItem({
             icon: 'iconCards',
-            label: this.plugin.i18n?.startReview || '开始提取练习',
+            label: this.plugin.i18n?.startReview || 'Start Retrieval Practice',
             accelerator: 'Alt+R',
             click: () => {
                 this.plugin.openReviewDialog();
@@ -94,19 +94,29 @@ export class TopBarManager {
 
         menu.addItem({
             icon: 'iconRefresh',
-            label: this.plugin.i18n?.startNeuralReview || '开始神经漫游',
-            accelerator: 'Alt+N',
+            label: this.plugin.i18n?.startIncrementalLearning || 'Start Incremental Learning',
+            accelerator: 'Alt+I',
             click: () => {
-                (this.plugin as any).openNeuralRoamDialog();
+                // TODO: 实现渐进学习功能
+                pushMsg(this.plugin.i18n?.featureRemoved || 'This feature is temporarily removed');
             },
         });
 
         menu.addItem({
             icon: 'iconCards',
-            label: this.plugin.i18n?.startDeliberatePractice || '开始刻意练习',
+            label: this.plugin.i18n?.startDeliberatePractice || 'Start Deliberate Practice',
             accelerator: 'Alt+D',
             click: () => {
                 (this.plugin as any).openFinalDrillDialog();
+            },
+        });
+
+        menu.addItem({
+            icon: 'iconRefresh',
+            label: this.plugin.i18n?.startNeuralReview || 'Start Neural Roam',
+            accelerator: 'Alt+N',
+            click: () => {
+                (this.plugin as any).openNeuralRoamDialog();
             },
         });
 
@@ -122,7 +132,7 @@ export class TopBarManager {
 
         menu.addItem({
             icon: 'iconList',
-            label: this.plugin.i18n?.startFilterGroupPractice || '开始筛选复习',
+            label: this.plugin.i18n?.startFilterGroupPractice || 'Start Filtered Review',
             accelerator: 'Alt+G',
             click: () => {
                 this.plugin.openFilterGroupPracticeDialog();
@@ -131,7 +141,7 @@ export class TopBarManager {
 
         menu.addItem({
             icon: 'iconLayoutRight',
-            label: this.plugin.i18n?.srsBrowser || 'SRS 浏览器',
+            label: this.plugin.i18n?.srsBrowser || 'SRS Browser',
             accelerator: 'Alt+B',
             click: () => {
                 this.plugin.openSRSBrowser();
@@ -142,7 +152,7 @@ export class TopBarManager {
 
         menu.addItem({
             icon: 'iconSettings',
-            label: this.plugin.i18n?.settings || '设置',
+            label: this.plugin.i18n?.settings || 'Settings',
             click: () => {
                 this.plugin.openSetting();
             },
@@ -152,7 +162,7 @@ export class TopBarManager {
 
         menu.addItem({
             icon: 'iconInfo',
-            label: `${this.plugin.i18n?.dueCountLabel || '待复习'}: ${this.plugin.getDueCount()} / ${this.plugin.i18n?.totalCountLabel || '总卡片'}: ${this.plugin.storage.getAllCards().length}`,
+            label: `${this.plugin.i18n?.dueCountLabel || 'Due'}: ${this.plugin.getDueCount()} / ${this.plugin.i18n?.totalCountLabel || 'Total'}: ${this.plugin.storage.getAllCards().length}`,
             type: 'readonly',
         });
 

@@ -6,7 +6,7 @@
           type="checkbox" 
           :checked="enabled"
           @change="handleEnabledChange"
-          :aria-label="`启用${label}过滤`"
+          :aria-label="t('enableFilter', 'Enable {label} filter').replace('{label}', label)"
         />
         <span class="filter-label">{{ label }}</span>
       </label>
@@ -15,14 +15,14 @@
     <div v-if="enabled" class="filter-content">
       <div class="range-inputs">
         <div class="input-group">
-          <label class="input-label">最小日期</label>
+          <label class="input-label">{{ t('minDateLabel', 'Minimum Date') }}</label>
           <input 
             type="date"
             :value="formatDateForInput(minDate)"
             @input="handleMinDateInput"
             class="date-input"
             :class="{ 'input-error': hasError }"
-            :aria-label="`${label}最小日期`"
+            :aria-label="t('minDate', '{label} minimum date').replace('{label}', label)"
             :aria-describedby="hasError ? `${fieldId}-error` : undefined"
           />
         </div>
@@ -30,14 +30,14 @@
         <span class="range-separator">-</span>
         
         <div class="input-group">
-          <label class="input-label">最大日期</label>
+          <label class="input-label">{{ t('maxDateLabel', 'Maximum Date') }}</label>
           <input 
             type="date"
             :value="formatDateForInput(maxDate)"
             @input="handleMaxDateInput"
             class="date-input"
             :class="{ 'input-error': hasError }"
-            :aria-label="`${label}最大日期`"
+            :aria-label="t('maxDate', '{label} maximum date').replace('{label}', label)"
             :aria-describedby="hasError ? `${fieldId}-error` : undefined"
           />
         </div>
@@ -86,6 +86,12 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<Emits>();
+
+// i18n helper
+function t(key: string, fallback: string): string {
+  const i18n = (window as any)?.siyuan?.languages?.flashcard || {};
+  return (i18n as any)?.[key] || fallback;
+}
 
 // 生成唯一的字段 ID（用于 aria-describedby）
 const fieldId = computed(() => {

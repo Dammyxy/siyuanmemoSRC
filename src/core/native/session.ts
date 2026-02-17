@@ -28,12 +28,12 @@ function genCardCount(cardsData: ICardData, allIndex = 0): string {
   });
 
   const languages = (window as any)?.siyuan?.languages || {};
-  return `<span class="ariaLabel" aria-label="${languages.flashcardNewCard || '新卡'}">
+  return `<span class="ariaLabel" aria-label="${languages.flashcardNewCard || 'New Card'}">
     <span class="ft__error">${newIndex}</span> /
-    <span class="ariaLabel ft__primary" aria-label="${languages.flashcardNewCard || '新卡'}">${cardsData.unreviewedNewCardCount}</span>
+    <span class="ariaLabel ft__primary" aria-label="${languages.flashcardNewCard || 'New Card'}">${cardsData.unreviewedNewCardCount}</span>
 </span>
 <span class="fn__space"></span>+<span class="fn__space"></span>
-<span class="ariaLabel" aria-label="${languages.flashcardReviewCard || '复习卡'}">
+<span class="ariaLabel" aria-label="${languages.flashcardReviewCard || 'Review Card'}">
   <span class="ft__error">${oldIndex}</span> /
   <span class="ft__success">${cardsData.unreviewedOldCardCount}</span>
 </span>`;
@@ -50,7 +50,7 @@ function genCardHTML(options: {
   title?: string;
 }): string {
   const languages = (window as any)?.siyuan?.languages || {};
-  const titleText = options.title || languages.riffCard || '闪卡';
+  const titleText = options.title || languages.riffCard || 'Flashcard';
 
   const iconsHTML = `<div class="block__icons">
     <div class="block__logo">
@@ -61,11 +61,11 @@ function genCardHTML(options: {
     <div data-type="count" class="ft__on-surface ft__smaller fn__flex-center${options.cardsData.cards.length === 0 ? " fn__none" : " fn__flex"}">${genCardCount(options.cardsData)}</div>
     <div class="fn__space"></div>
     <div class="fn__space"></div>
-    <div data-type="fullscreen" class="b3-tooltips b3-tooltips__sw block__icon block__icon--show" aria-label="${languages.fullscreen || '全屏'}">
+    <div data-type="fullscreen" class="b3-tooltips b3-tooltips__sw block__icon block__icon--show" aria-label="${languages.fullscreen || 'Fullscreen'}">
       <svg><use xlink:href="#iconFullscreen"></use></svg>
     </div>
     <div class="fn__space${options.cardsData.cards.length === 0 ? " fn__none" : ""}"></div>
-    <div data-type="more" class="${options.cardsData.cards.length === 0 ? "fn__none " : ""}b3-tooltips b3-tooltips__sw block__icon block__icon--show" aria-label="${languages.more || '更多'}">
+    <div data-type="more" class="${options.cardsData.cards.length === 0 ? "fn__none " : ""}b3-tooltips b3-tooltips__sw block__icon block__icon--show" aria-label="${languages.more || 'More'}">
       <svg><use xlink:href="#iconMore"></use></svg>
     </div>
   </div>`;
@@ -445,7 +445,7 @@ export class NativeReviewSession {
         const menu = new Menu();
         menu.addItem({
           icon: 'iconPause',
-          label: languages.skip || '跳过',
+          label: languages.skip || 'Skip',
           click: () => {
             void this.handleSkip();
           },
@@ -453,7 +453,7 @@ export class NativeReviewSession {
         menu.addSeparator();
         menu.addItem({
           icon: 'iconFullscreen',
-          label: languages.fullscreen || '全屏',
+          label: languages.fullscreen || 'Fullscreen',
           click: () => {
             this.toggleFullscreen();
           },
@@ -756,7 +756,7 @@ export class NativeReviewSession {
     const menu = new Menu();
     menu.addItem({
       icon: 'iconPause',
-      label: languages.skip || '跳过',
+      label: languages.skip || 'Skip',
       click: () => {
         void this.handleSkip();
       },
@@ -764,7 +764,7 @@ export class NativeReviewSession {
     menu.addSeparator();
     menu.addItem({
       icon: 'iconFullscreen',
-      label: languages.fullscreen || '全屏',
+      label: languages.fullscreen || 'Fullscreen',
       click: () => {
         this.toggleFullscreen();
       },
@@ -808,7 +808,7 @@ export class NativeReviewSession {
         <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
           <div style="font-size: 64px;">🎉</div>
           <div style="font-size: 20px; margin-top: 16px; color: var(--b3-theme-on-surface);">
-            ${languages.allCardReviewsCompleted || '所有卡片已复习完成'}
+            ${languages.allCardReviewsCompleted || 'All cards reviewed'}
           </div>
         </div>
       `;

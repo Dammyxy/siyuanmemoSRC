@@ -379,8 +379,8 @@ export class DeckDataSource implements ICardDataSource {
       BASE_ACTIONS.postpone,
       BASE_ACTIONS.advance,
       BASE_ACTIONS.spread,
-      BASE_ACTIONS.reset,
-      BASE_ACTIONS.suspend
+      BASE_ACTIONS.reset
+      // 🆕 移除暂停按钮：暂停功能已不再使用
     );
 
     if (this.plugin?.openSubsetReviewDialog) {

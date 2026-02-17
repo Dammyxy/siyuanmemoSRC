@@ -124,6 +124,7 @@
       </button>
 
       <!-- 更多菜单按钮 -->
+      <!-- 🔇 已隐藏：更多菜单
       <button 
         class="b3-button b3-button--outline" 
         @click="toggleMoreMenu"
@@ -132,8 +133,10 @@
       >
         <svg><use xlink:href="#iconMore"></use></svg>
       </button>
+      -->
 
       <!-- 更多菜单下拉 -->
+      <!-- 🔇 已隐藏：更多菜单下拉
       <div v-if="showMoreMenu" class="toolbar__more-menu" ref="moreMenuRef">
         <div class="b3-menu__items">
           <button 
@@ -162,6 +165,7 @@
           </button>
         </div>
       </div>
+      -->
     </div>
   </div>
 </template>

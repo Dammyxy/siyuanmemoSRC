@@ -47,7 +47,7 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto; /* 允许滚动 */
 }
 
 .card-browser__toolbar {
@@ -58,8 +58,10 @@
   border-bottom: 1px solid var(--b3-border-color);
   background: var(--b3-theme-surface);
   gap: 8px;
-  flex-wrap: nowrap;  /* 禁止换行 */
+  flex-wrap: wrap;  /* 允许换行 */
   flex-shrink: 0;
+  overflow-x: auto; /* 允许横向滚动 */
+  overflow-y: visible; /* 允许下拉菜单显示 */
 }
 
 .toolbar__left,

@@ -482,23 +482,23 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                 const now = new Date();
                 const diffMs = nextDue.getTime() - now.getTime();
                 
-                // 格式化时间差
+                // 格式化时间差（使用英文，因为这是数据层）
                 let formatted: string;
                 if (diffMs < 60 * 1000) {
                     // 小于 1 分钟
-                    formatted = '< 1 分钟';
+                    formatted = '< 1 min';
                 } else if (diffMs < 60 * 60 * 1000) {
                     // 小于 1 小时
                     const minutes = Math.round(diffMs / (60 * 1000));
-                    formatted = `${minutes} 分钟`;
+                    formatted = `${minutes} min`;
                 } else if (diffMs < 24 * 60 * 60 * 1000) {
                     // 小于 1 天
                     const hours = Math.round(diffMs / (60 * 60 * 1000));
-                    formatted = `${hours} 小时`;
+                    formatted = `${hours} h`;
                 } else {
                     // 大于等于 1 天
                     const days = Math.round(diffMs / (24 * 60 * 60 * 1000));
-                    formatted = `${days} 天`;
+                    formatted = `${days} d`;
                 }
                 
                 nextDues[rating] = formatted;

@@ -30,7 +30,7 @@ export class AddToFinalDrillEntry extends ReviewEntryBase {
   constructor(deps: ReviewEntryBaseDeps) {
     super({
       id: 'add-to-final-drill',
-      displayName: '添加到刻意练习',
+      displayName: deps.i18n?.addToFinalDrillQueue || '添加到刻意练习',
       icon: 'iconAdd',
       queueType: QueueType.FinalDrill,
       recordReview: false,  // FinalDrill 有自己的评分逻辑

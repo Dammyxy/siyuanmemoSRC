@@ -17,8 +17,11 @@ export const STATE_COLORS: Record<string, string> = {
  * 创建列定义
  * 
  * SuperMemo 风格的列配置
+ * @param t - 翻译函数
  */
-export function createColumnDefs(): ColDef[] {
+export function createColumnDefs(t?: (key: string, fallback: string) => string): ColDef[] {
+  const translate = t || ((key: string, fallback: string) => fallback);
+  
   return [
     // No - 行号（第一列，AG-Grid 会在其前自动添加复选框列）
     {
@@ -98,6 +101,14 @@ export function createColumnDefs(): ColDef[] {
       field: 'stateLabel',
       headerName: 'Type',
       width: 65,
+      valueFormatter: (params) => {
+        const state = params.data?.state;
+        if (state === 0) return translate('stateNew', '新卡');
+        if (state === 1) return translate('stateLearning', '学习中');
+        if (state === 2) return translate('stateReview', '复习');
+        if (state === 3) return translate('stateRelearning', '重学');
+        return translate('stateUnknown', '未知');
+      },
       cellStyle: (params) => ({
         color: STATE_COLORS[params.data.state] || '',
         fontWeight: 500,

@@ -341,12 +341,18 @@ export class IncrementalLearningDataSource implements ICardDataSource {
 
   getSupportedActions(): CardBrowserAction[] {
     // 渐进学习队列支持的操作：
+    // - 打开
     // - 从队列移除
     // - 删除卡片
     // - 设置优先级
     // - 时间调整
     // 注意：不支持插入操作，因为渐进学习队列是动态队列
     return [
+      {
+        id: 'open',
+        label: 'Open',
+        icon: 'iconOpen',
+      },
       {
         id: 'remove-from-current-queue',
         label: '从队列移除',

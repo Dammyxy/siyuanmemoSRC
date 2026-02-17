@@ -19,7 +19,7 @@
  * import { XiuyuanStorage, XiuyuanService, BUILTIN_TEMPLATES } from '@/core/xiuyuan';
  * 
  * // 初始化
- * const storage = new XiuyuanStorage('siyuan-plugin-fsrs');
+ * const storage = new XiuyuanStorage(plugin);
  * const service = new XiuyuanService(storage, storageManager);
  * await service.init();
  * 

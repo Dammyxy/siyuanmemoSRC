@@ -111,7 +111,7 @@ export class BlockMenuHandler {
     // 制作为概念卡并加入队列
     submenu.push({
       icon: 'iconMark',
-      label: '📍 制作为概念卡并加入队列',
+      label: this.deps.i18n?.makeConceptAndAddToQueue || '📍 制作为概念卡并加入队列',
       click: async () => {
         await this.makeConceptAndAddToRoam(blockIds[0], 'normal');
       },
@@ -120,7 +120,7 @@ export class BlockMenuHandler {
     // 制作为概念卡并立即漫游
     submenu.push({
       icon: 'iconFocus',
-      label: '🚀 制作为概念卡并立即漫游',
+      label: this.deps.i18n?.makeConceptAndStartRoam || '🚀 制作为概念卡并立即漫游',
       click: async () => {
         await this.makeConceptAndAddToRoam(blockIds[0], 'high');
       },
@@ -231,7 +231,7 @@ export class BlockMenuHandler {
     // 创建列表模版卡（始终显示）
     submenu.push({
       icon: 'iconList',
-      label: '创建列表模版卡',
+      label: this.deps.i18n?.createListTemplateCard || '创建列表模版卡',
       click: async () => {
         // 检查子级是否为有序列表项
         const hasOrderedChildren = await this.hasOrderedListChildren(blockIds[0]);
@@ -250,7 +250,7 @@ export class BlockMenuHandler {
     // 取消闪卡（始终显示）
     submenu.push({
       icon: 'iconTrashcan',
-      label: '取消闪卡',
+      label: this.deps.i18n?.deleteCard || '取消闪卡',
       click: async () => {
         // 🆕 直接复用 SRS 浏览器的 batchDelete 函数
         const deleted = await batchDelete(blockIds, this.deps.storage);
@@ -318,7 +318,7 @@ export class BlockMenuHandler {
         // 支持"到期"和"全部"两种模式
         submenu.push({
           icon: config.icon,
-          label: `${config.displayName} - 到期 <span class="ft__secondary">(${dueCount}/${totalCount})</span>`,
+          label: `${config.displayName} - ${this.deps.i18n?.dueMode || '到期'} <span class="ft__secondary">(${dueCount}/${totalCount})</span>`,
           click: async () => {
             if (dueCount === 0) {
               await pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
@@ -330,7 +330,7 @@ export class BlockMenuHandler {
         
         submenu.push({
           icon: config.icon,
-          label: `${config.displayName} - 全部 <span class="ft__secondary">(${totalCount})</span>`,
+          label: `${config.displayName} - ${this.deps.i18n?.allMode || '全部'} <span class="ft__secondary">(${totalCount})</span>`,
           click: async () => {
             if (totalCount === 0) {
               await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
@@ -353,7 +353,7 @@ export class BlockMenuHandler {
     // 制作为概念卡并加入队列
     submenu.push({
       icon: 'iconMark',
-      label: '📍 制作为概念卡并加入队列',
+      label: this.deps.i18n?.makeConceptAndAddToQueue || '📍 制作为概念卡并加入队列',
       click: async () => {
         await this.makeConceptAndAddToRoam(docId, 'normal');
       },
@@ -362,7 +362,7 @@ export class BlockMenuHandler {
     // 制作为概念卡并立即漫游
     submenu.push({
       icon: 'iconFocus',
-      label: '🚀 制作为概念卡并立即漫游',
+      label: this.deps.i18n?.makeConceptAndStartRoam || '🚀 制作为概念卡并立即漫游',
       click: async () => {
         await this.makeConceptAndAddToRoam(docId, 'high');
       },
@@ -480,7 +480,7 @@ export class BlockMenuHandler {
       // 制作为概念卡并加入队列
       submenu.push({
         icon: 'iconMark',
-        label: '📍 制作为概念卡并加入队列',
+        label: this.deps.i18n?.makeConceptAndAddToQueue || '📍 制作为概念卡并加入队列',
         click: async () => {
           await this.makeConceptAndAddToRoam(blockId, 'normal');
         },
@@ -489,7 +489,7 @@ export class BlockMenuHandler {
       // 制作为概念卡并立即漫游
       submenu.push({
         icon: 'iconFocus',
-        label: '🚀 制作为概念卡并立即漫游',
+        label: this.deps.i18n?.makeConceptAndStartRoam || '🚀 制作为概念卡并立即漫游',
         click: async () => {
           await this.makeConceptAndAddToRoam(blockId, 'high');
         },

@@ -33,7 +33,7 @@
     </div>
     
     <div class="toolbar__center">
-      <span class="toolbar__count">{{ filteredCount }} {{ t('cards', '张卡片') }}</span>
+      <span class="toolbar__count">{{ filteredCount }} {{ t('cards', 'cards') }}</span>
     </div>
     
     <div class="toolbar__right">
@@ -268,8 +268,10 @@ const onConvertToTab = () => {
   border-bottom: 1px solid var(--b3-border-color);
   background: var(--b3-theme-surface);
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: wrap; /* 允许换行 */
   flex-shrink: 0;
+  overflow-x: auto; /* 允许横向滚动 */
+  min-height: 44px; /* 确保有足够的高度 */
 }
 
 .toolbar__left,
@@ -277,18 +279,36 @@ const onConvertToTab = () => {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0; /* 防止按钮被压缩 */
+  min-width: 0; /* 允许内容缩小但不会消失 */
 }
 
 .toolbar__center {
   font-size: 12px;
   color: var(--b3-theme-on-surface-light);
+  white-space: nowrap; /* 防止文字换行 */
+  flex-shrink: 0; /* 防止计数器被压缩 */
 }
 
 .toolbar__search {
   width: 160px;
+  flex-shrink: 0; /* 防止搜索框被压缩 */
+  min-width: 120px; /* 最小宽度 */
 }
 
 .toolbar__search .b3-text-field {
   width: 100%;
+}
+
+/* 确保按钮文字不换行 */
+.b3-button {
+  white-space: nowrap;
+  flex-shrink: 0; /* 防止按钮被压缩 */
+}
+
+/* 确保下拉框不被压缩 */
+.b3-select {
+  flex-shrink: 0;
+  min-width: 80px;
 }
 </style>

@@ -22,7 +22,7 @@ export class IncrementalLearningEntry extends ReviewEntryBase {
   constructor(deps: ReviewEntryBaseDeps) {
     super({
       id: 'incremental-learning',
-      displayName: '渐进学习',
+      displayName: deps.i18n?.incrementalLearning || '渐进学习',
       icon: 'iconBook',
       queueType: QueueType.IncrementalLearning,
       recordReview: true,  // 记录作答

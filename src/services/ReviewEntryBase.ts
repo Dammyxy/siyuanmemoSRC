@@ -171,9 +171,11 @@ export abstract class ReviewEntryBase {
     const name = this.config.displayName;
     
     if (mode === 'due') {
-      return `${name} - 到期 <span class="ft__secondary">(${dueCount}/${totalCount})</span>`;
+      const dueText = this.deps.i18n?.dueMode || '到期';
+      return `${name} - ${dueText} <span class="ft__secondary">(${dueCount}/${totalCount})</span>`;
     } else {
-      return `${name} - 全部 <span class="ft__secondary">(${totalCount})</span>`;
+      const allText = this.deps.i18n?.allMode || '全部';
+      return `${name} - ${allText} <span class="ft__secondary">(${totalCount})</span>`;
     }
   }
   

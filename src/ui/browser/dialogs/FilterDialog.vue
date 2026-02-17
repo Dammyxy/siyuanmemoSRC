@@ -1,7 +1,7 @@
 ﻿<template>
   <div class="filter-dialog" role="dialog" aria-modal="true" aria-labelledby="filter-dialog-title">
     <div class="dialog__header">
-      <h3 id="filter-dialog-title" class="dialog__title">卡片筛选</h3>
+      <h3 id="filter-dialog-title" class="dialog__title">{{ t('filterDialogTitle', '卡片筛选') }}</h3>
     </div>
 
     <div class="dialog__content">
@@ -9,13 +9,13 @@
       <div class="filter-section keyword-section">
         <h4 class="section-title">
           <svg class="section-icon"><use xlink:href="#iconSearch"></use></svg>
-          关键词搜索
+          {{ t('keywordSearch', '关键词搜索') }}
         </h4>
         <input
           type="text"
           class="b3-text-field keyword-input-large"
           v-model="filterState.values.keyword"
-          placeholder="输入关键词筛选卡片内容..."
+          :placeholder="t('keywordSearchPlaceholder', '输入关键词筛选卡片内容...')"
         />
       </div>
 
@@ -25,8 +25,8 @@
           <thead>
             <tr>
               <th class="field-column"></th>
-              <th class="input-column">Minimum</th>
-              <th class="input-column">Maximum</th>
+              <th class="input-column">{{ t('filterMinimum', 'Minimum') }}</th>
+              <th class="input-column">{{ t('filterMaximum', 'Maximum') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -43,7 +43,7 @@
                     :checked="filterState.enabled[field.key]"
                     @change="updateEnabled(field.key, ($event.target as HTMLInputElement).checked)"
                   />
-                  <span>{{ field.label }}</span>
+                  <span>{{ t(field.labelKey, field.labelKey) }}</span>
                 </label>
               </td>
               <td class="input-cell">
@@ -85,7 +85,7 @@
                     :checked="filterState.enabled[field.key]"
                     @change="updateEnabled(field.key, ($event.target as HTMLInputElement).checked)"
                   />
-                  <span>{{ field.label }}</span>
+                  <span>{{ t(field.labelKey, field.labelKey) }}</span>
                 </label>
               </td>
               <td class="input-cell">
@@ -114,7 +114,7 @@
       <!-- 底部：Type 和 Status -->
       <div class="filter-bottom">
         <div class="filter-bottom-section">
-          <h4 class="section-title">Type</h4>
+          <h4 class="section-title">{{ t('filterType', 'Type') }}</h4>
           <div class="checkbox-group">
             <label class="checkbox-label">
               <input
@@ -122,7 +122,7 @@
                 :checked="filterState.values.cardType.has('item')"
                 @change="toggleCardType('item')"
               />
-              <span>Item</span>
+              <span>{{ t('cardTypeItem', 'Item') }}</span>
             </label>
             <label class="checkbox-label">
               <input
@@ -130,7 +130,7 @@
                 :checked="filterState.values.cardType.has('topic')"
                 @change="toggleCardType('topic')"
               />
-              <span>Topic</span>
+              <span>{{ t('cardTypeTopic', 'Topic') }}</span>
             </label>
             <label class="checkbox-label">
               <input
@@ -138,7 +138,7 @@
                 :checked="filterState.values.cardType.has('concept')"
                 @change="toggleCardType('concept')"
               />
-              <span>Concept</span>
+              <span>{{ t('cardTypeConcept', 'Concept') }}</span>
             </label>
             <label class="checkbox-label">
               <input
@@ -146,13 +146,13 @@
                 :checked="filterState.values.cardType.has('descriptor')"
                 @change="toggleCardType('descriptor')"
               />
-              <span>Descriptor</span>
+              <span>{{ t('cardTypeDescriptor', 'Descriptor') }}</span>
             </label>
           </div>
         </div>
 
         <div class="filter-bottom-section">
-          <h4 class="section-title">Status</h4>
+          <h4 class="section-title">{{ t('filterStatus', 'Status') }}</h4>
           <div class="checkbox-group">
             <label class="checkbox-label">
               <input
@@ -160,7 +160,7 @@
                 :checked="filterState.values.cardStatus.has('new')"
                 @change="toggleCardStatus('new')"
               />
-              <span>新卡</span>
+              <span>{{ t('stateNew', 'New') }}</span>
             </label>
             <label class="checkbox-label">
               <input
@@ -168,7 +168,7 @@
                 :checked="filterState.values.cardStatus.has('learning')"
                 @change="toggleCardStatus('learning')"
               />
-              <span>学习中</span>
+              <span>{{ t('stateLearning', 'Learning') }}</span>
             </label>
             <label class="checkbox-label">
               <input
@@ -176,7 +176,7 @@
                 :checked="filterState.values.cardStatus.has('review')"
                 @change="toggleCardStatus('review')"
               />
-              <span>复习</span>
+              <span>{{ t('stateReview', 'Review') }}</span>
             </label>
             <label class="checkbox-label">
               <input
@@ -184,7 +184,7 @@
                 :checked="filterState.values.cardStatus.has('relearning')"
                 @change="toggleCardStatus('relearning')"
               />
-              <span>重学</span>
+              <span>{{ t('stateRelearning', 'Relearning') }}</span>
             </label>
           </div>
         </div>
@@ -230,7 +230,7 @@
         <button
           class="b3-button b3-button--outline"
           @click="handleRebuild"
-          title="清除已复习的卡片，使用当前过滤条件重新加载"
+          :title="t('filterRebuildTitle', 'Clear reviewed cards and reload with current filter conditions')"
         >
           <svg><use xlink:href="#iconRefresh"></use></svg>
           Rebuild
@@ -267,6 +267,7 @@ import { filterService } from '../services/FilterService';
 const props = defineProps<{
   isOpen: boolean;
   initialFilter?: CardFilter | null;
+  i18n?: Record<string, string>;
 }>();
 
 const emit = defineEmits<{
@@ -276,32 +277,37 @@ const emit = defineEmits<{
   (e: 'rebuild'): void;
 }>();
 
+// 国际化函数
+const t = (key: string, fallback: string): string => {
+  return props.i18n?.[key] || fallback;
+};
+
 interface NumericFieldConfig {
   key: string;
-  label: string;
+  labelKey: string;
   range: { min: number; max: number };
   allowDecimal?: boolean;
 }
 
 interface DateFieldConfig {
   key: string;
-  label: string;
+  labelKey: string;
 }
 
 const numericFields: NumericFieldConfig[] = [
-  { key: 'priority', label: 'Priority', range: { min: 0, max: 100 } },
-  { key: 'repetitions', label: 'Repetitions', range: { min: 0, max: 999 } },
-  { key: 'lapses', label: 'Lapses', range: { min: 0, max: 999 } },
-  { key: 'interval', label: 'Interval', range: { min: 0, max: 9999 } },
-  { key: 'difficulty', label: 'A-Factor', range: { min: 0, max: 10 }, allowDecimal: true },
-  { key: 'stability', label: 'Forgetting Index', range: { min: 0, max: 100 }, allowDecimal: true },
-  { key: 'retrievability', label: 'Ordinal number', range: { min: 0, max: 9999 } },
-  { key: 'postpones', label: 'U-Factor', range: { min: 0, max: 100 }, allowDecimal: true },
+  { key: 'priority', labelKey: 'filterPriority', range: { min: 0, max: 100 } },
+  { key: 'repetitions', labelKey: 'filterRepetitions', range: { min: 0, max: 999 } },
+  { key: 'lapses', labelKey: 'filterLapses', range: { min: 0, max: 999 } },
+  { key: 'interval', labelKey: 'filterInterval', range: { min: 0, max: 9999 } },
+  { key: 'difficulty', labelKey: 'filterDifficulty', range: { min: 0, max: 10 }, allowDecimal: true },
+  { key: 'stability', labelKey: 'filterStability', range: { min: 0, max: 9999 }, allowDecimal: true },
+  { key: 'retrievability', labelKey: 'filterRetrievability', range: { min: 0, max: 9999 } },
+  { key: 'postpones', labelKey: 'filterPostpones', range: { min: 0, max: 100 }, allowDecimal: true },
 ];
 
 const dateFields: DateFieldConfig[] = [
-  { key: 'lastReview', label: 'Last repetition' },
-  { key: 'nextReview', label: 'Next repetition' },
+  { key: 'lastReview', labelKey: 'filterLastReview' },
+  { key: 'nextReview', labelKey: 'filterNextReview' },
 ];
 
 interface FilterState {

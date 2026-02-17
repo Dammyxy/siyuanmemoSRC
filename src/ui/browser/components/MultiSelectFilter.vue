@@ -6,7 +6,7 @@
           type="checkbox" 
           :checked="enabled"
           @change="handleEnabledChange"
-          :aria-label="`启用${label}过滤`"
+          :aria-label="t('enableFilter', 'Enable {label} filter').replace('{label}', label)"
         />
         <span class="filter-label">{{ label }}</span>
       </label>
@@ -23,7 +23,7 @@
             type="checkbox" 
             :checked="selected.has(option.value)"
             @change="handleOptionChange(option.value, $event)"
-            :aria-label="`选择${option.label}`"
+            :aria-label="t('selectOption', 'Select {label}').replace('{label}', option.label)"
           />
           <span class="option-label">{{ option.label }}</span>
         </label>
@@ -60,6 +60,12 @@ interface Emits {
 
 const props = defineProps<Props>();
 const emit = defineEmits<Emits>();
+
+// i18n helper
+function t(key: string, fallback: string): string {
+  const i18n = (window as any)?.siyuan?.languages?.flashcard || {};
+  return (i18n as any)?.[key] || fallback;
+}
 
 /**
  * 处理启用/禁用变化

@@ -74,7 +74,7 @@
       <!-- 空状态 -->
       <div v-else-if="filteredCards.length === 0" class="card-browser__empty">
         <div>📭</div>
-        <span>{{ t('noCards', '没有卡片') }}</span>
+        <span>{{ t('noCards', 'No cards') }}</span>
       </div>
       
       <!-- AG-Grid 表格 -->
@@ -128,6 +128,7 @@
         <FilterDialog
           :is-open="showFilterDialog"
           :initial-filter="appliedFilter"
+          :i18n="i18n"
           @apply="handleApplyFilter"
           @cancel="showFilterDialog = false"
           @clear="handleClearFilter"
@@ -284,7 +285,7 @@ function t(key: string, fallback: string): string {
 }
 
 // ✅ 使用导入的配置
-const columnDefs = ref<ColDef[]>(createColumnDefs());
+const columnDefs = ref<ColDef[]>(createColumnDefs(t));
 
 // 判断是否为队列模式（队列模式启用客户端排序，Deck 模式禁用）
 const isQueueMode = computed(() => {
@@ -876,11 +877,12 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
     return new Promise((resolve) => {
       const configManager = new ConfigManager(props.plugin?.storage!);
       const dlg = createVueDialog({
-        title: t('postpone', '推迟'),
+        title: t('postpone', 'Postpone'),
         component: PostponeDialog,
         props: {
           count: cards.length,
           configManager,
+          i18n: props.i18n,
         },
         events: {
           confirm: async (config) => {
@@ -903,11 +905,12 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
     return new Promise((resolve) => {
       const configManager = new ConfigManager(props.plugin?.storage!);
       const dlg = createVueDialog({
-        title: t('advance', '提前复习'),
+        title: t('advance', 'Advance'),
         component: AdvanceDialog,
         props: {
           count: cards.length,
           configManager,
+          i18n: props.i18n,
         },
         events: {
           confirm: async (config) => {
@@ -930,12 +933,13 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
     return new Promise((resolve) => {
       const configManager = new ConfigManager(props.plugin?.storage!);
       const dlg = createVueDialog({
-        title: t('spread', '分摊复习压力'),
+        title: t('spread', 'Spread Workload'),
         component: SpreadDialog,
         props: {
           count: cards.length,
           configManager,
           allCards: allRows.value,  // 🆕 传入已加载的卡片数据，避免触发缓存更新回调
+          i18n: props.i18n,
         },
         events: {
           confirm: async (config) => {
@@ -955,9 +959,9 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
   'set-priority': async (cards) => {
     const row = cards?.[0] as any;
     const p = await openNumberDialog({
-      title: t('setPriority', '设置优先级'),
-      label: t('priorityLabel', '优先级'),
-      description: t('priorityHint', '0-100，越小越优先'),
+      title: t('setPriority', 'Set Priority'),
+      label: t('priorityLabel', 'Priority'),
+      description: t('priorityHint', '0-100, smaller = higher priority'),
       defaultValue: typeof row?.priority === 'number' ? row.priority : 50,
       min: 0,
       max: 100,
@@ -973,9 +977,9 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
       ? Number(q.size()) || 0
       : Array.isArray(q?.getAllItems?.()) ? q.getAllItems().length : 0;
     const pos = await openNumberDialog({
-      title: t('insertAt', '插入到位置...'),
-      label: t('positionLabel', '位置'),
-      description: t('insertAtHint', '输入 1~{max}，1 表示插到队首')
+      title: t('insertAt', 'Insert At Position'),
+      label: t('positionLabel', 'Position'),
+      description: t('insertAtHint', 'Enter 1~{max}, 1 means insert at top')
         .replace('{max}', String(len + 1)),
       defaultValue: 1,
       min: 1,
@@ -999,6 +1003,14 @@ function getActionLabel(action: { id: string; label: string }): string {
     reset: { key: 'resetCard', fallback: 'Reset' },
     suspend: { key: 'suspend', fallback: 'Suspend' },
     'remove-from-queue': { key: 'removeFromQueue', fallback: 'Remove from Queue' },
+    'remove-from-current-queue': { key: 'removeFromQueue', fallback: 'Remove from Queue' },
+    'delete-card': { key: 'deleteCard', fallback: '取消闪卡' },
+    'add-to-queue': { key: 'addToQueueMenu', fallback: '加入队列' },
+    'add-to-retrieval-queue': { key: 'addToRetrievalQueue', fallback: '提取练习' },
+    'add-to-incremental-queue': { key: 'addToIncrementalQueue', fallback: '渐进学习' },
+    'add-to-final-drill-queue': { key: 'addToFinalDrillQueue', fallback: '刻意练习' },
+    'add-to-filter-group-queue': { key: 'addToFilterGroupQueue', fallback: '筛选复习' },
+    'add-to-neural-roam-queue': { key: 'addToNeuralRoamQueue', fallback: '神经漫游' },
     dismiss: { key: 'dismiss', fallback: 'Dismiss' },
     'insert-at': { key: 'insertAt', fallback: 'Insert at' },
     'set-priority': { key: 'setPriority', fallback: 'Set Priority' },
@@ -1026,7 +1038,7 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
       openTab({ app: props.app, doc: { id: blockId } });
       return;
     }
-    await pushErrMsg(t('envNotInit', '当前环境未初始化，无法打开页签'));
+    await pushErrMsg(t('envNotInit', 'Environment not initialized, cannot open tab'));
     return;
   }
 
@@ -1041,9 +1053,9 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   if (actionId === 'reset') {
     const ok = await confirmDialog({
       title: t('resetCard', 'Reset'),
-      content: t('confirmReset', `确定要重置 ${targetCards.length} 张卡片吗？`),
-      confirmText: t('confirm', '确认'),
-      cancelText: t('cancel', '取消'),
+      content: t('confirmReset', `Are you sure you want to reset ${targetCards.length} cards?`),
+      confirmText: t('confirm', 'Confirm'),
+      cancelText: t('cancel', 'Cancel'),
     });
     if (!ok) return;
   }
@@ -1051,10 +1063,10 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   // 🆕 删除卡片确认
   if (actionId === 'delete-card') {
     const ok = await confirmDialog({
-      title: t('deleteCard', '取消闪卡'),
-      content: t('confirmDelete', `确定要取消 ${targetCards.length} 张闪卡吗？此操作不可撤销。`),
-      confirmText: t('confirm', '确认'),
-      cancelText: t('cancel', '取消'),
+      title: t('deleteCard', 'Remove Flashcard'),
+      content: t('confirmDelete', `Are you sure you want to remove ${targetCards.length} flashcards? This action cannot be undone.`),
+      confirmText: t('confirm', 'Confirm'),
+      cancelText: t('cancel', 'Cancel'),
     });
     if (!ok) return;
   }
@@ -1075,12 +1087,12 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
     const updated = Number(res?.updated?.length || 0);
     const skipped = Number(res?.skipped?.length || 0);
     if (updated <= 0 && skipped > 0) {
-      await pushErrMsg(t('batchNoEffect', '本次没有卡片被更新（可能存在未同步的新卡）'));
+      await pushErrMsg(t('batchNoEffect', 'No cards were updated (some cards may be unsynced)'));
       return;
     }
     if (skipped > 0) {
       await pushMsg(
-        t('batchSummary', '已更新 {updated} 张，跳过 {skipped} 张')
+        t('batchSummary', 'Updated {updated}, skipped {skipped}')
           .replace('{updated}', String(updated))
           .replace('{skipped}', String(skipped))
       );
@@ -1111,10 +1123,10 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
       gridApi.value?.refreshCells({ force: true });
     }
     await refreshQueueCounts();
-    await pushMsg(t('actionSuccess', '操作成功'));
+    await pushMsg(t('actionSuccess', 'Success'));
   } catch (err: any) {
     console.error('[SiyuanMemo][CardBrowser] action failed:', { actionId, err });
-    await pushErrMsg(err?.message || t('actionFailed', '操作失败'));
+    await pushErrMsg(err?.message || t('actionFailed', 'Action failed'));
   }
 }
 
@@ -1155,11 +1167,11 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   for (const field of SORT_FIELD_CONFIGS) {
     sortMenu.push({
       icon: field.icon || 'iconSort',
-      label: field.label,
+      label: t(field.i18nKey, field.label),
       submenu: [
         {
           icon: 'iconUp',
-          label: '升序',
+          label: t('sortAscending', 'Ascending'),
           click: () => {
             console.log('[SiyuanMemo][CardBrowser] Menu clicked: Sort by', field.colId, 'ASC');
             applySort(field.colId, 'asc');
@@ -1167,7 +1179,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
         },
         {
           icon: 'iconDown',
-          label: '降序',
+          label: t('sortDescending', 'Descending'),
           click: () => {
             console.log('[SiyuanMemo][CardBrowser] Menu clicked: Sort by', field.colId, 'DESC');
             applySort(field.colId, 'desc');
@@ -1183,7 +1195,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   // 添加随机排序
   sortMenu.push({
     icon: 'iconRefresh',
-    label: '随机排序',
+    label: t('sortRandom', 'Random Sort'),
     click: () => {
       console.log('[SiyuanMemo][CardBrowser] Menu clicked: Random sort');
       applyRandomSort();
@@ -1193,7 +1205,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   // 插入排序菜单
   menu.addItem({
     icon: 'iconSort',
-    label: '排序',
+    label: t('sortMenu', 'Sort'),
     submenu: sortMenu,
   });
 
@@ -1204,30 +1216,30 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   const cardTypeMenu: any[] = [
     {
       icon: 'iconFile',
-      label: '标记为 Topic',
+      label: t('markAsTopic', 'Mark as Topic'),
       click: () => void markCardsAsTopic(selected),
     },
     {
       icon: 'iconCheck',
-      label: '标记为 Item',
+      label: t('markAsItem', 'Mark as Item'),
       click: () => void markCardsAsItem(selected),
     },
     { type: 'separator' },  // 分隔线
     {
       icon: '🧠',
-      label: '标记为概念卡',
+      label: t('markAsConcept', 'Mark as Concept Card'),
       click: () => void markCardsAsConcept(selected),
     },
     {
       icon: '🏷️',
-      label: '标记为描述符卡',
+      label: t('markAsDescriptor', 'Mark as Descriptor Card'),
       click: () => void markCardsAsDescriptor(selected),
     },
   ];
 
   menu.addItem({
     icon: 'iconHR',
-    label: '卡片类型',
+    label: t('cardTypeMenu', 'Card Type'),
     submenu: cardTypeMenu,
   });
 
@@ -1293,11 +1305,11 @@ function onCellContextMenu(event: CellContextMenuEvent) {
 async function autoSortFinalDrillQueue() {
   const q = (props.plugin as any)?.finalDrillQueue;
   if (!q?.sort) {
-    await pushErrMsg(t('initFailed', 'FSRS 插件初始化失败，请打开控制台查看错误'));
+    await pushErrMsg(t('initFailed', 'FSRS plugin initialization failed, please check console for errors'));
     return;
   }
   await q.sort();
-  await pushMsg(t('queueSorted', '已按优先级重排队列'));
+  await pushMsg(t('queueSorted', 'Queue sorted by priority'));
   if (activeQueueId.value === 'final-drill') {
     await loadData();
   } else {
@@ -1740,7 +1752,7 @@ function openPracticeMenu(ev: MouseEvent) {
   // 1. 提取练习
   menu.addItem({
     icon: 'iconRiffCard',
-    label: t('practiceExtract', '提取练习'),
+    label: t('practiceExtract', 'Retrieval Practice'),
     click: () => {
       void plugin.openReviewDialog?.();
     },
@@ -1749,7 +1761,7 @@ function openPracticeMenu(ev: MouseEvent) {
   // 2. 渐进学习
   menu.addItem({
     icon: 'iconBook',
-    label: t('incrementalLearning', '渐进学习'),
+    label: t('incrementalLearning', 'Incremental Learning'),
     click: () => {
       void plugin.openIncrementalLearningDialog?.();
     },
@@ -1758,7 +1770,7 @@ function openPracticeMenu(ev: MouseEvent) {
   // 3. 刻意练习
   menu.addItem({
     icon: 'iconFlag',
-    label: t('practiceDeliberate', '刻意练习'),
+    label: t('practiceDeliberate', 'Deliberate Practice'),
     click: () => {
       void plugin.openFinalDrillDialog?.();
     },
@@ -1767,7 +1779,7 @@ function openPracticeMenu(ev: MouseEvent) {
   // 4. 神经漫游
   menu.addItem({
     icon: 'iconRefresh',
-    label: t('practiceNeural', '神经漫游'),
+    label: t('practiceNeural', 'Neural Roam'),
     click: () => {
       void (plugin as any).openNeuralRoamDialog?.();
     },
@@ -1776,7 +1788,7 @@ function openPracticeMenu(ev: MouseEvent) {
   // 5. 筛选复习
   menu.addItem({
     icon: 'iconList',
-    label: t('practiceFilterGroup', '筛选复习'),
+    label: t('practiceFilterGroup', 'Filtered Review'),
     click: () => {
       void plugin.openFilterGroupPracticeDialog?.();
     },
@@ -2125,7 +2137,7 @@ async function handleRebuildQueue() {
     }
   } catch (error) {
     console.error('[SiyuanMemo][SRSBrowser] Failed to rebuild queue:', error);
-    await pushMsg(t('rebuildFailed', '重新加载失败'), 3000, 'error');
+    await pushMsg(t('rebuildFailed', 'Failed to reload'), 3000, 'error');
   }
 }
 
@@ -2163,7 +2175,7 @@ async function handleOpenSpreadDialog() {
     
     // 检查是否有卡片
     if (cardsToSpread.length === 0) {
-      await pushMsg(t('noCards', '没有卡片'));
+      await pushMsg(t('noCards', 'No cards'));
       return;
     }
     
@@ -2189,6 +2201,7 @@ async function handleOpenSpreadDialog() {
         configManager,
         allCards: cardsToSpread,  // 🆕 传入当前模式的卡片数据
         queueMode: isQueueMode,  // 🆕 传入队列模式标志
+        i18n: props.i18n,
       },
       events: {
         confirm: async (config) => {

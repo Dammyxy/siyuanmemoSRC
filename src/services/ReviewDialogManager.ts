@@ -349,7 +349,7 @@ export class ReviewDialogManager {
       
       // 创建对话框（使用 FilterGroup 队列）
       const queue = new UnifiedQueueStrategy(QueueType.FilterGroup);
-      const adapter = new UnifiedReviewAdapter();
+      const adapter = new UnifiedReviewAdapter({ i18n: this.deps.i18n || {} });
       
       this.reviewDialog = createVueDialog({
         hideTitle: true,
@@ -457,7 +457,7 @@ export class ReviewDialogManager {
       
       // 创建对话框（使用 FilterGroup 队列）
       const queue = new UnifiedQueueStrategy(QueueType.FilterGroup);
-      const adapter = new UnifiedReviewAdapter();
+      const adapter = new UnifiedReviewAdapter({ i18n: this.deps.i18n || {} });
       
       this.reviewDialog = createVueDialog({
         hideTitle: true,

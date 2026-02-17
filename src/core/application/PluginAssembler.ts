@@ -36,7 +36,7 @@ export class PluginUIAssembler {
 </svg>`);
       this.plugin.topBarElement = this.plugin.addTopBar({
         icon: 'iconSiyuanMemo',
-        title: this.plugin.i18n?.topbarTitle || 'FSRS 闪卡 (左键卡片浏览器/右键菜单)',
+        title: this.plugin.i18n?.topbarTitle || '间隔重复系统 (左键SRS浏览器/右键菜单)',
         position: 'right',
         callback: () => {
           if (!this.plugin.isInitialized) {

@@ -50,7 +50,7 @@ export class MenuService {
     // 提取练习
     menu.addItem({
       icon: 'iconCards',
-      label: this.deps.i18n?.startReview || '开始提取练习',
+      label: this.deps.i18n?.startReview || 'Start Retrieval Practice',
       accelerator: 'Alt+R',
       click: () => {
         this.deps.openReviewDialog();
@@ -60,7 +60,7 @@ export class MenuService {
     // 渐进学习
     menu.addItem({
       icon: 'iconBook',
-      label: this.deps.i18n?.startIncrementalLearning || '开始渐进学习',
+      label: this.deps.i18n?.startIncrementalLearning || 'Start Incremental Learning',
       accelerator: 'Alt+I',
       click: () => {
         this.deps.openIncrementalLearningDialog();
@@ -70,7 +70,7 @@ export class MenuService {
     // 刻意练习
     menu.addItem({
       icon: 'iconCards',
-      label: this.deps.i18n?.startQueuePractice || '开始刻意练习',
+      label: this.deps.i18n?.startDeliberatePractice || 'Start Deliberate Practice',
       accelerator: 'Alt+D',
       click: () => {
         this.deps.openFinalDrillDialog();
@@ -80,7 +80,7 @@ export class MenuService {
     // 神经漫游
     menu.addItem({
       icon: 'iconRefresh',
-      label: this.deps.i18n?.startNeuralReview || '开始神经漫游',
+      label: this.deps.i18n?.startNeuralReview || 'Start Neural Roam',
       accelerator: 'Alt+N',
       click: () => {
         this.deps.openNeuralRoamDialog();
@@ -90,7 +90,7 @@ export class MenuService {
     // 筛选复习
     menu.addItem({
       icon: 'iconCards',
-      label: (this.deps.i18n as any)?.startFilterGroupPractice || '开始筛选复习',
+      label: (this.deps.i18n as any)?.startFilterGroupPractice || 'Start Filtered Review',
       accelerator: 'Alt+G',
       click: () => {
         this.deps.openFilterGroupPracticeDialog();
@@ -100,7 +100,7 @@ export class MenuService {
     // 难点攻坚（暂时隐藏）
     // menu.addItem({
     //   icon: 'iconBug',
-    //   label: (this.deps.i18n as any)?.startLeechPractice || '开始难点攻坚',
+    //   label: (this.deps.i18n as any)?.startLeechPractice || 'Start Leech Practice',
     //   accelerator: 'Alt+L',
     //   click: () => {
     //     this.deps.openLeechReviewDialog();
@@ -110,7 +110,7 @@ export class MenuService {
     // SRS 浏览器
     menu.addItem({
       icon: 'iconLayoutRight',
-      label: this.deps.i18n?.srsBrowser || 'SRS 浏览器',
+      label: this.deps.i18n?.srsBrowser || 'SRS Browser',
       accelerator: 'Alt+B',
       click: () => {
         this.deps.openSRSBrowser();
@@ -122,7 +122,7 @@ export class MenuService {
     // 设置
     menu.addItem({
       icon: 'iconSettings',
-      label: this.deps.i18n?.settings || '设置',
+      label: this.deps.i18n?.settings || 'Settings',
       click: () => {
         this.deps.openSetting();
       },
@@ -133,7 +133,7 @@ export class MenuService {
     // 统计信息
     menu.addItem({
       icon: 'iconInfo',
-      label: `${this.deps.i18n?.dueCountLabel || '待复习'}: ${this.deps.getDueCount()} / ${this.deps.i18n?.totalCountLabel || '总卡片'}: ${this.deps.storage.getAllCards().length}`,
+      label: `${this.deps.i18n?.dueCountLabel || 'Due'}: ${this.deps.getDueCount()} / ${this.deps.i18n?.totalCountLabel || 'Total'}: ${this.deps.storage.getAllCards().length}`,
       type: 'readonly',
     });
 

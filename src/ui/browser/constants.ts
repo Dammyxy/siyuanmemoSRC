@@ -253,20 +253,21 @@ export const DECIMAL_PLACES = {
 export interface SortFieldConfig {
   colId: string;
   label: string;
+  i18nKey: string;
   icon?: string;
 }
 
 export const SORT_FIELD_CONFIGS: SortFieldConfig[] = [
   // FSRS 参数
-  { colId: 'priority', label: '优先级', icon: 'iconStar' },
-  { colId: 'interval', label: '间隔', icon: 'iconHourGlass' },
-  { colId: 'reps', label: '复习次数', icon: 'iconRefresh' },
-  { colId: 'lapses', label: '遗忘次数', icon: 'iconWarn' },
-  { colId: 'difficulty', label: '难度', icon: 'iconGraph' },
-  { colId: 'retrievability', label: '可提取性', icon: 'iconEye' },
-  { colId: 'stability', label: '稳定性', icon: 'iconLock' },
+  { colId: 'priority', label: '优先级', i18nKey: 'sortByPriority', icon: 'iconStar' },
+  { colId: 'interval', label: '间隔', i18nKey: 'sortByInterval', icon: 'iconHourGlass' },
+  { colId: 'reps', label: '复习次数', i18nKey: 'sortByReps', icon: 'iconRefresh' },
+  { colId: 'lapses', label: '遗忘次数', i18nKey: 'sortByLapses', icon: 'iconWarn' },
+  { colId: 'difficulty', label: '难度', i18nKey: 'sortByDifficulty', icon: 'iconGraph' },
+  { colId: 'retrievability', label: '可提取性', i18nKey: 'sortByRetrievability', icon: 'iconEye' },
+  { colId: 'stability', label: '稳定性', i18nKey: 'sortByStability', icon: 'iconLock' },
   // 时间字段
-  { colId: 'lastReviewFormatted', label: '上次复习', icon: 'iconHistory' },
-  { colId: 'dueFormatted', label: '下次复习', icon: 'iconCalendar' },
-  { colId: 'firstReviewFormatted', label: '首次复习', icon: 'iconClock' },
+  { colId: 'lastReviewFormatted', label: '上次复习', i18nKey: 'sortByLastReview', icon: 'iconHistory' },
+  { colId: 'dueFormatted', label: '下次复习', i18nKey: 'sortByDueDate', icon: 'iconCalendar' },
+  { colId: 'firstReviewFormatted', label: '首次复习', i18nKey: 'sortByFirstReview', icon: 'iconClock' },
 ];

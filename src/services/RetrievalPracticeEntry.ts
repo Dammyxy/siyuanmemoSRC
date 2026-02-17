@@ -22,7 +22,7 @@ export class RetrievalPracticeEntry extends ReviewEntryBase {
   constructor(deps: ReviewEntryBaseDeps) {
     super({
       id: 'retrieval-practice',
-      displayName: '提取练习',
+      displayName: deps.i18n?.retrievalPractice || '提取练习',
       icon: 'iconRiffCard',
       queueType: QueueType.RetrievalPractice,
       recordReview: true,  // 记录作答

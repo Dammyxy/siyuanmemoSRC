@@ -1,5 +1,5 @@
 ﻿<template>
-  <div class="block__icons">
+  <div class="block__icons siyuanmemo-review-header">
     <!-- Logo + 队列名称 -->
     <div class="block__logo">
       <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>
@@ -9,7 +9,7 @@
     <!-- 拖拽区域 -->
     <span class="fn__flex-1 resize__move" style="min-height: 100%"></span>
 
-    <!-- 计数器: 新卡/总新卡 + 复习卡/总复习卡 (原生格式) -->
+    <!-- Counter: New Cards/Total New + Review Cards/Total Review (native format) -->
     <div
       data-type="count"
       class="ft__on-surface ft__smaller fn__flex-center"
@@ -148,8 +148,8 @@ function handleToolbarClick(btn: { type: string; icon?: string; ariaLabel?: stri
 </script>
 
 <style>
-/* 仅保留 Logo 样式，不使用 scoped，让思源全局样式生效 */
-.block__icons {
+/* 只影响插件复习界面的标题栏样式 */
+.block__icons.siyuanmemo-review-header {
   /* 添加标题栏背景色，与原生复习界面一致 */
   background-color: var(--b3-theme-surface) !important;
   border-bottom: 1px solid var(--b3-theme-background);

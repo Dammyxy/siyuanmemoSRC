@@ -61,35 +61,35 @@
 
         <div class="fn__hr"></div>
 
-        <h3>{{ t('schedulerSettingsTitle', '调度器设置') }}</h3>
+        <h3>{{ t('schedulerSettingsTitle', 'Scheduler Settings') }}</h3>
         
         <p class="form-hint" style="margin-bottom: 16px;">
           {{ t('schedulerArchitectureHint', '插件使用两套调度器：Item 卡片和描述符卡片使用同一个调度器（FSRS v6），概念卡片和 Topic 卡片使用同一个调度器（A-Factor v2）。') }}
         </p>
 
-        <!-- Item 调度器（默认调度器） -->
+        <!-- Item Scheduler (Default Scheduler) -->
         <div class="form-item">
-          <label>{{ t('itemScheduler', 'Item/描述符卡片调度器') }}</label>
+          <label>{{ t('itemScheduler', 'Item/Descriptor Card Scheduler') }}</label>
           <div class="form-control">
             <select v-model="schedulerConfig.defaultScheduler" class="scheduler-select" disabled>
               <option value="fsrs-v5">{{ t('schedulerFsrsV5', 'FSRS v6') }}</option>
             </select>
           </div>
           <p class="form-hint">
-            💡 {{ t('itemSchedulerHint', '用于 Item 卡片和描述符卡片，现代算法，准确预测遗忘曲线（固定使用 FSRS v6）') }}
+            💡 {{ t('itemSchedulerHint', 'For Item and Descriptor cards, modern algorithm, accurately predicts forgetting curve (fixed to FSRS v6)') }}
           </p>
         </div>
 
-        <!-- Topic 调度器 -->
+        <!-- Topic Scheduler -->
         <div class="form-item">
-          <label>{{ t('topicScheduler', '概念/Topic 卡片调度器') }}</label>
+          <label>{{ t('topicScheduler', 'Concept/Topic Card Scheduler') }}</label>
           <div class="form-control">
             <select v-model="schedulerConfig.topicScheduler" class="scheduler-select" disabled>
               <option value="a-factor-v2">{{ t('schedulerAFactorV2', 'A-Factor v2') }}</option>
             </select>
           </div>
           <p class="form-hint">
-            💡 {{ t('topicSchedulerHint', '用于概念卡片和 Topic 卡片，适合阅读材料，动态调整难度因子（固定使用 A-Factor v2）') }}
+            💡 {{ t('topicSchedulerHint', 'For Concept and Topic cards, suitable for reading materials, dynamically adjusts difficulty factor (fixed to A-Factor v2)') }}
           </p>
         </div>
 
@@ -99,11 +99,11 @@
 
         <div class="fn__hr"></div>
 
-        <!-- 快速制卡符号 -->
-        <h3>{{ t('quickCardTitle', '快速制卡符号') }}</h3>
+        <!-- Quick Card Symbols -->
+        <h3>{{ t('quickCardTitle', 'Quick Card Symbols') }}</h3>
         
         <p class="form-hint" style="margin-bottom: 16px;">
-          快速制卡符号功能已默认启用，支持所有符号类型（&gt;&gt;, &lt;&lt;, &lt;&gt;, ::, ;;, &#123;&#123;&#125;&#125;, &gt;&gt;&gt;）。
+          Quick card symbol feature is enabled by default, supporting all symbol types (&gt;&gt;, &lt;&lt;, &lt;&gt;, ::, ;;, &#123;&#123;&#125;&#125;, &gt;&gt;&gt;).
         </p>
 
         <div class="fn__hr"></div>
@@ -185,246 +185,264 @@
 
 
 
-      <!-- 关于 -->
+      <!-- About -->
       <div v-show="activeTab === 'about'" class="settings-section about-section">
-        <h3>📚 思源闪卡插件使用指南</h3>
+        <h3>📚 Spaced Repetition System Guide</h3>
         
-        <!-- 闪卡类型 -->
+        <!-- Card Types -->
         <div class="guide-section">
-          <h4>🎴 闪卡类型</h4>
-          <p class="guide-intro">插件支持四种闪卡类型，适应不同的学习场景：</p>
+          <h4>🎴 Four Card Types</h4>
           
           <div class="queue-list">
             <div class="queue-item">
               <div class="queue-header">
                 <span class="queue-icon">❓</span>
-                <span class="queue-name">Item 卡片（问答卡）</span>
+                <span class="queue-name">Practice (Item Card)</span>
               </div>
-              <p class="queue-desc">传统的问答式闪卡，正面显示问题，背面显示答案。适合记忆具体知识点。</p>
+              <p class="queue-desc">
+                Flashcards in the broad sense, with questions on the front and answers on the back, the purest form of retrieval practice.
+                <br>• Auto-created cards with back questions are recognized as Item
+                <br>• Can also be manually marked in the browser
+              </p>
             </div>
 
             <div class="queue-item">
               <div class="queue-header">
-                <span class="queue-icon">📝</span>
-                <span class="queue-name">描述符卡片</span>
+                <span class="queue-icon">📖</span>
+                <span class="queue-name">Material (Topic Card)</span>
               </div>
-              <p class="queue-desc">显示父块作为上下文，帮助理解知识点的层级关系。适合结构化笔记。</p>
+              <p class="queue-desc">
+                Reading material cards for incremental learning.
+                <br>• Auto-created cards without back questions are recognized as Topic
+                <br>• Press space during review to go directly to the next card
+              </p>
+            </div>
+
+            <div class="queue-item">
+              <div class="queue-header">
+                <span class="queue-icon">🏷️</span>
+                <span class="queue-name">Definition (Descriptor Card)</span>
+              </div>
+              <p class="queue-desc">
+                Descriptor cards, derived from RemNote's CDF framework (Concept/Descriptor Framework).
+                <br>• Use <code>;;</code> symbol to create: property;;description
+                <br>• Shows parent block as context, suitable for structured notes
+                <br>• Can create templates for commonly used descriptor combinations
+              </p>
             </div>
 
             <div class="queue-item">
               <div class="queue-header">
                 <span class="queue-icon">🧠</span>
-                <span class="queue-name">概念卡片（Topic）</span>
+                <span class="queue-name">Concept (Concept Card)</span>
               </div>
-              <p class="queue-desc">用于概念性知识，复习时按空格直接进入下一张。适合快速浏览和建立知识网络。</p>
-            </div>
-
-            <div class="queue-item">
-              <div class="queue-header">
-                <span class="queue-icon">⬜</span>
-                <span class="queue-name">填空卡片（Cloze）</span>
-              </div>
-              <p class="queue-desc">在句子中挖空关键词，支持多个填空。适合记忆术语和定义。</p>
+              <p class="queue-desc">
+                Core nodes for neural roaming, corresponding to SiYuan document blocks.
+                <br>• Right-click document block icon → Create as concept card
+                <br>• Used to build knowledge networks and concept associations
+              </p>
             </div>
           </div>
         </div>
 
-        <!-- 队列系统 -->
+        <!-- Queue System -->
         <div class="guide-section">
-          <h4>🎯 队列系统</h4>
-          <p class="guide-intro">插件提供多种复习队列，满足不同的学习需求：</p>
+          <h4>🎯 Five Review Queues</h4>
           
           <div class="queue-list">
             <div class="queue-item">
               <div class="queue-header">
-                <span class="queue-icon">📚</span>
-                <span class="queue-name">渐进学习</span>
-              </div>
-              <p class="queue-desc">复习所有类型的闪卡，按到期时间排序。适合日常全面复习。</p>
-            </div>
-
-            <div class="queue-item">
-              <div class="queue-header">
                 <span class="queue-icon">🎯</span>
-                <span class="queue-name">提取练习</span>
-              </div>
-              <p class="queue-desc">专注于 Item 卡片和描述符卡片，强化知识点记忆和理解。</p>
-            </div>
-
-            <div class="queue-item">
-              <div class="queue-header">
-                <span class="queue-icon">🧠</span>
-                <span class="queue-name">神经漫游</span>
+                <span class="queue-name">Retrieval Practice</span>
               </div>
               <p class="queue-desc">
-                <strong>智能探索概念卡片</strong>，通过反向链接和上下文关系建立知识网络。
-                <br>• 沿着知识图谱自动探索相关概念
-                <br>• 支持手动添加概念卡片（右键菜单 → 添加到神经漫游）
-                <br>• 适合构建系统化的概念理解
+                Gets Item and Descriptor cards due today and manually added.
+                <br>• Driven by FSRS algorithm
+                <br>• Focuses on knowledge point memorization and understanding
+              </p>
+            </div>
+
+            <div class="queue-item">
+              <div class="queue-header">
+                <span class="queue-icon">📚</span>
+                <span class="queue-name">Incremental Learning</span>
+              </div>
+              <p class="queue-desc">
+                Gets all types of cards due today and manually added.
+                <br>• Item/Descriptor uses FSRS algorithm
+                <br>• Topic/Concept uses another algorithm
+                <br>• Suitable for comprehensive review
+              </p>
+            </div>
+
+            <div class="queue-item">
+              <div class="queue-header">
+                <span class="queue-icon">🔍</span>
+                <span class="queue-name">Filtered Review</span>
+              </div>
+              <p class="queue-desc">
+                Gets cards for review based on filter conditions.
+                <br>• Normal rating removes cards
+                <br>• Click Rebuild to re-fetch cards
+                <br>• Suitable for targeted review
               </p>
             </div>
 
             <div class="queue-item">
               <div class="queue-header">
                 <span class="queue-icon">💪</span>
-                <span class="queue-name">刻意练习</span>
+                <span class="queue-name">Deliberate Practice (Static Queue)</span>
               </div>
               <p class="queue-desc">
-                <strong>自动收集困难卡片</strong>，帮助攻克薄弱环节。
-                <br>• 自动收集评分小于 4（Good）的闪卡
-                <br>• 评分为 4 时自动从队列移除
-                <br>• 适合针对性强化训练
+                From SuperMemo's Final Drill, tackles difficult cards.
+                <br>• Cards rated less than 3 are automatically added
+                <br>• Only rating 4 removes from queue
+                <br>• Uses local shuffle algorithm for sorting
               </p>
             </div>
 
             <div class="queue-item">
               <div class="queue-header">
-                <span class="queue-icon">🔖</span>
-                <span class="queue-name">Xiuyuan 系统</span>
+                <span class="queue-icon">🌐</span>
+                <span class="queue-name">Neural Roam</span>
               </div>
-              <p class="queue-desc">与思源原生闪卡系统（Riff）同步，支持双向数据同步。</p>
+              <p class="queue-desc">
+                Intelligent exploration based on SiYuan backlinks and SuperMemo neural review.
+                <br>• Automatically gets backlinks and descriptor cards of concept cards
+                <br>• Uses spreading activation algorithm
+                <br>• Right-click block reference to add forward link concepts
+              </p>
             </div>
           </div>
         </div>
 
-        <!-- 快速制卡 -->
+        <!-- Quick Card Creation -->
         <div class="guide-section">
-          <h4>⚡ 快速制卡</h4>
-          <p class="guide-intro">使用特殊符号快速创建不同类型的闪卡：</p>
+          <h4>⚡ Quick Card Creation</h4>
           
           <div class="symbol-list">
             <div class="symbol-item">
               <code class="symbol-code">&gt;&gt;</code>
               <div class="symbol-info">
-                <div class="symbol-name">基础问答卡（Item）</div>
-                <div class="symbol-example">问题 &gt;&gt; 答案</div>
+                <div class="symbol-name">Forward Card</div>
+                <div class="symbol-example">Question &gt;&gt; Answer</div>
               </div>
             </div>
 
             <div class="symbol-item">
               <code class="symbol-code">&lt;&lt;</code>
               <div class="symbol-info">
-                <div class="symbol-name">反向问答卡</div>
-                <div class="symbol-example">答案 &lt;&lt; 问题</div>
+                <div class="symbol-name">Reverse Card</div>
+                <div class="symbol-example">Answer &lt;&lt; Question</div>
               </div>
             </div>
 
             <div class="symbol-item">
               <code class="symbol-code">&lt;&gt;</code>
               <div class="symbol-info">
-                <div class="symbol-name">双向问答卡</div>
-                <div class="symbol-example">问题 &lt;&gt; 答案（生成两张卡片）</div>
-              </div>
-            </div>
-
-            <div class="symbol-item">
-              <code class="symbol-code">::</code>
-              <div class="symbol-info">
-                <div class="symbol-name">概念卡（Topic）</div>
-                <div class="symbol-example">概念名称 :: 概念解释</div>
+                <div class="symbol-name">Bidirectional Card</div>
+                <div class="symbol-example">Term &lt;&gt; Definition (generates two cards)</div>
               </div>
             </div>
 
             <div class="symbol-item">
               <code class="symbol-code">;;</code>
               <div class="symbol-info">
-                <div class="symbol-name">描述符卡（Descriptor）</div>
-                <div class="symbol-example">主题 ;; 描述内容</div>
-                <div class="symbol-note">💡 显示父块作为上下文</div>
+                <div class="symbol-name">Descriptor Card</div>
+                <div class="symbol-example">Property ;; Description</div>
+                <div class="symbol-note">💡 Requires parent block to reference concept document</div>
               </div>
             </div>
 
             <div class="symbol-item">
-              <code class="symbol-code">&#123;&#123;答案&#125;&#125;</code>
+              <code class="symbol-code">&#123;&#123;cloze&#125;&#125;</code>
               <div class="symbol-info">
-                <div class="symbol-name">填空卡（Cloze）</div>
-                <div class="symbol-example">这是一个&#123;&#123;填空题&#125;&#125;示例</div>
-                <div class="symbol-note">💡 也支持 ==高亮== 和思源标记作为填空</div>
+                <div class="symbol-name">Cloze Card</div>
+                <div class="symbol-example">Text&#123;&#123;blank&#125;&#125; or ==highlight== or SiYuan mark</div>
+                <div class="symbol-note">💡 Multiple clozes generate multiple cards</div>
               </div>
             </div>
           </div>
 
           <div class="guide-tip">
-            <strong>💡 提示：</strong>输入符号和卡片内容后，让块失去焦点（如按回车键），即可自动创建闪卡。
+            <strong>💡 Template Card Creation:</strong> Use ordered lists for batch card creation, sharing the same block ID.
+            <br>• Right-click parent list item → Block menu → Plugin → siyuanmemo → Create list template card
+            <br>• Supports question supplements and hints: hint→question
           </div>
         </div>
 
-        <!-- 复习入口 -->
+        <!-- Card Planning -->
         <div class="guide-section">
-          <h4>🚀 复习入口</h4>
+          <h4>📅 Card Planning</h4>
           
           <div class="entry-list">
             <div class="entry-item">
               <div class="entry-header">
-                <span class="entry-icon">📱</span>
-                <span class="entry-name">顶栏图标</span>
-              </div>
-              <p class="entry-desc">点击顶栏闪卡图标，快速打开复习对话框。</p>
-            </div>
-
-            <div class="entry-item">
-              <div class="entry-header">
-                <span class="entry-icon">🗂️</span>
-                <span class="entry-name">浏览器面板</span>
+                <span class="entry-icon">📊</span>
+                <span class="entry-name">Sort</span>
               </div>
               <p class="entry-desc">
-                侧边栏 → 闪卡浏览器，查看所有队列和卡片。
-                <br>• 支持搜索、筛选、排序
-                <br>• 右键菜单可添加到神经漫游、刻意练习等队列
-                <br>• 双击卡片开始复习
+                Sort queue cards in the browser, affecting review order.
+                <br>• Click field to sort or right-click to sort
               </p>
             </div>
 
             <div class="entry-item">
               <div class="entry-header">
-                <span class="entry-icon">🖱️</span>
-                <span class="entry-name">块右键菜单</span>
+                <span class="entry-icon">⏩</span>
+                <span class="entry-name">Advance</span>
               </div>
               <p class="entry-desc">
-                在任意块上右键 → 闪卡 → 可进行以下操作：
-                <br>• 快速制卡：使用符号快速创建闪卡
-                <br>• 添加到队列：将概念卡添加到神经漫游等特殊队列
-                <br>• 编辑 SRS 数据：查看和修改卡片的复习数据
+                Right-click card and select [Advance] to reduce due date.
               </p>
             </div>
 
             <div class="entry-item">
               <div class="entry-header">
-                <span class="entry-icon">⌨️</span>
-                <span class="entry-name">命令面板</span>
+                <span class="entry-icon">⏸️</span>
+                <span class="entry-name">Postpone</span>
               </div>
-              <p class="entry-desc">Ctrl+P 打开命令面板，搜索"闪卡"或"复习"相关命令。</p>
+              <p class="entry-desc">
+                Right-click card and select [Postpone] to increase due date.
+              </p>
+            </div>
+
+            <div class="entry-item">
+              <div class="entry-header">
+                <span class="entry-icon">📈</span>
+                <span class="entry-name">Spread Workload</span>
+              </div>
+              <p class="entry-desc">
+                Toolbar [Spread Workload] button evenly distributes review tasks.
+                <br>• All flashcards: Can choose to handle backlog or future reviews
+                <br>• Queue view: Collects due cards by default
+              </p>
             </div>
           </div>
         </div>
 
-        <!-- 快捷键 -->
+        <!-- SRS Browser -->
         <div class="guide-section">
-          <h4>⌨️ 复习快捷键</h4>
+          <h4>🗂️ SRS Browser</h4>
+          <p class="guide-intro">Sidebar flashcard browser, manages all cards and queues.</p>
           
-          <div class="shortcut-list">
-            <div class="shortcut-item">
-              <kbd>空格</kbd> / <kbd>回车</kbd>
-              <span class="shortcut-desc">显示答案（Item 卡）/ 下一张（Topic 卡）</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd>
-              <span class="shortcut-desc">评分：Again / Hard / Good / Easy</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>S</kbd>
-              <span class="shortcut-desc">跳过当前卡片</span>
+          <div class="entry-list">
+            <div class="entry-item">
+              <p class="entry-desc">
+                • Top left: Queue area, click queue to view cards
+                <br>• Bottom left: Document area, shows document containing cards
+                <br>• Right side: Preview area, previews blocks corresponding to cards (double-click to unlock)
+                <br>• Right-click menu: Remove, sort, postpone, advance, and other operations
+              </p>
             </div>
           </div>
         </div>
 
-        <!-- 版本信息 -->
+        <!-- Version Info -->
         <div class="guide-section">
-          <h4>ℹ️ 关于</h4>
+          <h4>ℹ️ About</h4>
           <p class="about-info">
-            <strong>思源闪卡插件</strong>
-            <br>基于 FSRS 算法的智能间隔重复系统
-            <br>支持多种卡片类型和复习模式
+            Dedicated to the past, present, and future of the SiYuan and spaced repetition community.
           </p>
         </div>
       </div>

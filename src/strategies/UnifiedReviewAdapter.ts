@@ -16,6 +16,10 @@ import type { FSRSCard } from '@/types/card';
 import type { IQueueStrategy } from '@/core/queue/abstraction/Strategy';
 import { isXiuyuanCard } from '@/core/xiuyuan/cardMeta';
 
+function t(i18n: Record<string, string> | undefined, key: string, fallback: string): string {
+  return i18n?.[key] || fallback;
+}
+
 /**
  * 统一复习适配器
  * 
@@ -24,6 +28,12 @@ import { isXiuyuanCard } from '@/core/xiuyuan/cardMeta';
  * 验证需求：4.1
  */
 export class UnifiedReviewAdapter implements IAdapter<any> {
+    private readonly i18n?: Record<string, string>;
+
+    constructor(options?: { i18n?: Record<string, string> }) {
+        this.i18n = options?.i18n;
+    }
+
     /**
      * 将卡片转换为 UI 状态
      * 
@@ -41,12 +51,12 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
         if (!item) {
             return {
                 header: {
-                    title: '复习',
+                    title: t(this.i18n, 'reviewTitle', 'Review'),
                     stats: { current: 0, total: 0, label: '', queueName: '', newCards: 0, reviewCards: 0 },
                     breadcrumbs: [],
                     toolbar: [
-                        { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: '全屏' },
-                        { icon: '#iconEdit', type: 'edit-srs', ariaLabel: '编辑SRS数据' },
+                        { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', 'Fullscreen') },
+                        { icon: '#iconEdit', type: 'edit-srs', ariaLabel: t(this.i18n, 'editSrsData', 'Edit SRS Data') },
                     ],
                 },
                 content: {
@@ -84,16 +94,16 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
         
         // 构建工具栏按钮
         const toolbar = [
-            { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: '全屏' },
-            { icon: '#iconEdit', type: 'edit-srs', ariaLabel: '编辑SRS数据' },
-            { icon: '#iconOpen', type: 'sticktab', ariaLabel: '打开为' },
+            { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', 'Fullscreen') },
+            { icon: '#iconEdit', type: 'edit-srs', ariaLabel: t(this.i18n, 'editSrsData', 'Edit SRS Data') },
+            { icon: '#iconOpen', type: 'sticktab', ariaLabel: t(this.i18n, 'openBy', 'Open By') },
         ];
         
         // 🆕 仅神经漫游队列显示锁定种子按钮和菜单
         if (isNeuralRoam) {
             toolbar.push(
-                { icon: '#iconLock', type: 'lock-seed', ariaLabel: '锁定为种子块 🌱' },
-                { icon: '#iconMenu', type: 'neural-menu', ariaLabel: '神经漫游菜单' }
+                { icon: '#iconLock', type: 'lock-seed', ariaLabel: t(this.i18n, 'lockAsSeed', 'Lock as Seed 🌱') },
+                { icon: '#iconMenu', type: 'neural-menu', ariaLabel: t(this.i18n, 'neuralRoamMenu', 'Neural Roam Menu') }
             );
         }
         
@@ -173,10 +183,10 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
             actions: {
                 showAnswer: !context.showAnswer,  // 🔧 修复：反转 context.showAnswer 的值
                 grades: uiConfig.showRatingButtons ? [
-                    { label: '重来', value: 1, color: 'var(--b3-theme-error)', kb: '1', emoji: '🙈', nextDue: (item as any)?.nextDues?.[1] || '' },
-                    { label: '困难', value: 2, color: 'var(--b3-theme-warning)', kb: '2', emoji: '😬', nextDue: (item as any)?.nextDues?.[2] || '' },
-                    { label: '良好', value: 3, color: 'var(--b3-theme-info)', kb: '3', emoji: '😊', nextDue: (item as any)?.nextDues?.[3] || '' },
-                    { label: '简单', value: 4, color: 'var(--b3-theme-success)', kb: '4', emoji: '🌈', nextDue: (item as any)?.nextDues?.[4] || '' }
+                    { label: t(this.i18n, 'cardRatingAgain', '重来'), value: 1, color: 'var(--b3-theme-error)', kb: '1', emoji: '🙈', nextDue: (item as any)?.nextDues?.[1] || '' },
+                    { label: t(this.i18n, 'cardRatingHard', '困难'), value: 2, color: 'var(--b3-theme-warning)', kb: '2', emoji: '😬', nextDue: (item as any)?.nextDues?.[2] || '' },
+                    { label: t(this.i18n, 'cardRatingGood', '良好'), value: 3, color: 'var(--b3-theme-info)', kb: '3', emoji: '😊', nextDue: (item as any)?.nextDues?.[3] || '' },
+                    { label: t(this.i18n, 'cardRatingEasy', '简单'), value: 4, color: 'var(--b3-theme-success)', kb: '4', emoji: '🌈', nextDue: (item as any)?.nextDues?.[4] || '' }
                 ] : [],
                 menu: [],
                 cardMeta: {

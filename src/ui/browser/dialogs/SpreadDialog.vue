@@ -2,22 +2,22 @@
   <div class="spread-dialog">
     <div class="dialog__content">
       <div class="dialog__info">
-        <span>将为 <strong>{{ collectedCount }}</strong> 张卡片执行分摊复习压力操作</span>
+        <span>{{ t('spreadDialogInfo', '将为 {n} 张卡片执行分摊复习压力操作').replace('{n}', String(collectedCount)) }}</span>
       </div>
       
       <!-- 基础参数 -->
       <div class="form-section">
-        <h4 class="section-title">基础参数</h4>
+        <h4 class="section-title">{{ t('spreadBasicParams', '基础参数') }}</h4>
         
         <!-- 🆕 队列模式下隐藏收集期 -->
         <div v-if="!queueMode" class="form-field">
-          <label>收集期（天）</label>
+          <label>{{ t('spreadCollectingPeriod', '收集期（天）') }}</label>
           <div class="input-with-buttons">
             <div class="quick-buttons">
-              <button class="btn-quick" @click="config.collectingPeriod = 7">7天</button>
-              <button class="btn-quick" @click="config.collectingPeriod = 14">14天</button>
-              <button class="btn-quick" @click="config.collectingPeriod = 30">30天</button>
-              <button class="btn-quick" @click="config.collectingPeriod = 60">60天</button>
+              <button class="btn-quick" @click="config.collectingPeriod = 7">{{ t('days7', '7天') }}</button>
+              <button class="btn-quick" @click="config.collectingPeriod = 14">{{ t('days14', '14天') }}</button>
+              <button class="btn-quick" @click="config.collectingPeriod = 30">{{ t('days30', '30天') }}</button>
+              <button class="btn-quick" @click="config.collectingPeriod = 60">{{ t('days60', '60天') }}</button>
             </div>
             <input 
               type="number" 
@@ -25,11 +25,11 @@
               min="1" 
               max="365"
               class="form-input"
-              placeholder="输入天数"
+              :placeholder="t('daysPlaceholder', '输入天数')"
             />
           </div>
           <p class="field-hint">
-            收集从现在到未来 {{ config.collectingPeriod }} 天内的卡片
+            {{ t('spreadCollectingPeriodHint', '收集从现在到未来 {n} 天内的卡片').replace('{n}', String(config.collectingPeriod)) }}
           </p>
         </div>
         
@@ -37,18 +37,18 @@
         <div v-if="queueMode" class="form-field">
           <div class="queue-mode-hint">
             <svg><use xlink:href="#iconInfo"></use></svg>
-            <span>队列模式：将分散当前队列中的所有卡片（{{ collectedCount }} 张）</span>
+            <span>{{ t('spreadQueueModeHint', '队列模式：将分散当前队列中的所有卡片（{n} 张）').replace('{n}', String(collectedCount)) }}</span>
           </div>
         </div>
         
         <div class="form-field">
-          <label>重新调度期（天）</label>
+          <label>{{ t('spreadReschedulingPeriod', '重新调度期（天）') }}</label>
           <div class="input-with-buttons">
             <div class="quick-buttons">
-              <button class="btn-quick" @click="config.reschedulingPeriod = 7">7天</button>
-              <button class="btn-quick" @click="config.reschedulingPeriod = 14">14天</button>
-              <button class="btn-quick" @click="config.reschedulingPeriod = 30">30天</button>
-              <button class="btn-quick" @click="config.reschedulingPeriod = 60">60天</button>
+              <button class="btn-quick" @click="config.reschedulingPeriod = 7">{{ t('days7', '7天') }}</button>
+              <button class="btn-quick" @click="config.reschedulingPeriod = 14">{{ t('days14', '14天') }}</button>
+              <button class="btn-quick" @click="config.reschedulingPeriod = 30">{{ t('days30', '30天') }}</button>
+              <button class="btn-quick" @click="config.reschedulingPeriod = 60">{{ t('days60', '60天') }}</button>
             </div>
             <input 
               type="number" 
@@ -56,11 +56,11 @@
               min="1" 
               max="365"
               class="form-input"
-              placeholder="输入天数"
+              :placeholder="t('daysPlaceholder', '输入天数')"
             />
           </div>
           <p class="field-hint">
-            将收集的卡片均匀分散到未来 {{ config.reschedulingPeriod }} 天内
+            {{ t('spreadReschedulingPeriodHint', '将收集的卡片均匀分散到未来 {n} 天内').replace('{n}', String(config.reschedulingPeriod)) }}
           </p>
         </div>
         
@@ -71,18 +71,21 @@
               type="checkbox" 
               v-model="config.considerFutureRepetitions"
             />
-            <span>考虑未来复习</span>
+            <span>{{ t('spreadConsiderFuture', '考虑未来复习') }}</span>
           </label>
           <p class="field-hint">
-            {{ config.considerFutureRepetitions ? '包括未到期的卡片（用于假期前提前复习）' : '仅包括已到期的卡片（用于减轻积压）' }}
+            {{ config.considerFutureRepetitions 
+              ? t('spreadConsiderFutureHintYes', '包括未到期的卡片（用于假期前提前复习）') 
+              : t('spreadConsiderFutureHintNo', '仅包括已到期的卡片（用于减轻积压）') 
+            }}
           </p>
         </div>
       </div>
       
       <!-- 排序标准 -->
       <div class="form-section">
-        <h4 class="section-title">排序标准</h4>
-        <p class="section-desc">决定卡片的重新调度顺序</p>
+        <h4 class="section-title">{{ t('spreadSortingCriterion', '排序标准') }}</h4>
+        <p class="section-desc">{{ t('spreadSortingCriterionDesc', '决定卡片的重新调度顺序') }}</p>
         
         <div class="sorting-options">
           <label 
@@ -109,42 +112,42 @@
       
       <!-- 高级选项 -->
       <div class="form-section">
-        <h4 class="section-title">高级选项</h4>
+        <h4 class="section-title">{{ t('spreadAdvancedOptions', '高级选项') }}</h4>
         
         <div class="form-field">
-          <label>每日卡片数量限制（可选）</label>
+          <label>{{ t('spreadMaxCardsPerDay', '每日卡片数量限制（可选）') }}</label>
           <input 
             type="number" 
             v-model.number="config.maxCardsPerDay" 
             min="1" 
             max="1000"
             class="form-input"
-            placeholder="留空表示不限制"
+            :placeholder="t('spreadMaxCardsPerDayPlaceholder', '留空表示不限制')"
           />
           <p class="field-hint">
-            限制每天分配的最大卡片数量，超出部分将延后
+            {{ t('spreadMaxCardsPerDayHint', '限制每天分配的最大卡片数量，超出部分将延后') }}
           </p>
         </div>
       </div>
       
       <!-- 预览效果 -->
       <div class="form-section">
-        <h4 class="section-title">预览效果</h4>
+        <h4 class="section-title">{{ t('spreadPreview', '预览效果') }}</h4>
         <div class="preview-box">
           <div class="preview-item">
-            <span class="preview-label">操作类型：</span>
+            <span class="preview-label">{{ t('spreadOperationType', '操作类型：') }}</span>
             <span class="preview-value">{{ operationType }}</span>
           </div>
           <div class="preview-item">
-            <span class="preview-label">收集范围：</span>
+            <span class="preview-label">{{ t('spreadCollectingRange', '收集范围：') }}</span>
             <span class="preview-value">{{ collectingRange }}</span>
           </div>
           <div class="preview-item">
-            <span class="preview-label">分散范围：</span>
+            <span class="preview-label">{{ t('spreadReschedulingRange', '分散范围：') }}</span>
             <span class="preview-value">{{ reschedulingRange }}</span>
           </div>
           <div class="preview-item">
-            <span class="preview-label">排序方式：</span>
+            <span class="preview-label">{{ t('spreadSortingMethod', '排序方式：') }}</span>
             <span class="preview-value">{{ sortingLabel }}</span>
           </div>
         </div>
@@ -152,12 +155,12 @@
       
       <!-- 配置管理 -->
       <div class="form-section">
-        <h4 class="section-title">配置管理</h4>
+        <h4 class="section-title">{{ t('spreadConfigManagement', '配置管理') }}</h4>
         
         <div class="config-actions">
           <div class="config-select">
             <select v-model="selectedConfigName" class="form-select">
-              <option value="">选择预设配置...</option>
+              <option value="">{{ t('spreadSelectConfig', '选择预设配置...') }}</option>
               <option v-for="name in configNames" :key="name" :value="name">
                 {{ name }}
               </option>
@@ -167,7 +170,7 @@
               @click="loadSelectedConfig"
               :disabled="!selectedConfigName"
             >
-              加载
+              {{ t('spreadLoadConfig', '加载') }}
             </button>
           </div>
           
@@ -175,7 +178,7 @@
             <input 
               type="text" 
               v-model="newConfigName" 
-              placeholder="输入配置名称..."
+              :placeholder="t('spreadConfigNamePlaceholder', '输入配置名称...')"
               class="form-input"
             />
             <button 
@@ -183,7 +186,7 @@
               @click="saveCurrentConfig"
               :disabled="!newConfigName.trim()"
             >
-              保存
+              {{ t('spreadSaveConfig', '保存') }}
             </button>
           </div>
         </div>
@@ -196,13 +199,13 @@
     </div>
     
     <div class="dialog__actions">
-      <button class="b3-button b3-button--cancel" @click="handleCancel">取消</button>
+      <button class="b3-button b3-button--cancel" @click="handleCancel">{{ t('cancel', '取消') }}</button>
       <button 
         class="b3-button b3-button--text" 
         @click="handleConfirm" 
         :disabled="!isValid"
       >
-        确认分散
+        {{ t('spreadConfirmButton', '确认分散') }}
       </button>
     </div>
   </div>
@@ -220,12 +223,18 @@ const props = defineProps<{
   configManager: ConfigManager;
   allCards?: BrowserCard[];  // 🆕 直接接收已加载的卡片数据，避免触发缓存更新回调
   queueMode?: boolean;  // 🆕 是否为队列模式（提取练习/渐进学习）
+  i18n?: Record<string, string>;  // 🆕 i18n 字典
 }>();
 
 const emit = defineEmits<{
   (e: 'confirm', config: SpreadConfig): void;
   (e: 'cancel'): void;
 }>();
+
+// 🆕 i18n 辅助函数
+function t(key: string, fallback: string): string {
+  return props.i18n?.[key] || fallback;
+}
 
 // 配置状态
 const config = ref<SpreadConfig>(props.configManager.getDefaultSpreadConfig());
@@ -267,53 +276,53 @@ const collectedCount = computed(() => {
 });
 
 // 排序选项
-const sortingOptions = [
+const sortingOptions = computed(() => [
   {
     value: SortingCriterion.Random,
-    label: '随机',
+    label: t('spreadSortRandom', '随机'),
     icon: '🎲',
-    description: '随机打乱顺序'
+    description: t('spreadSortRandomDesc', '随机打乱顺序')
   },
   {
     value: SortingCriterion.ByPriority,
-    label: '按优先级',
+    label: t('spreadSortPriority', '按优先级'),
     icon: '⭐',
-    description: '高优先级优先'
+    description: t('spreadSortPriorityDesc', '高优先级优先')
   },
   {
     value: SortingCriterion.ByInterval,
-    label: '按间隔',
+    label: t('spreadSortInterval', '按间隔'),
     icon: '📅',
-    description: '短间隔优先'
+    description: t('spreadSortIntervalDesc', '短间隔优先')
   },
   {
     value: SortingCriterion.ByLateness,
-    label: '按延迟程度',
+    label: t('spreadSortLateness', '按延迟程度'),
     icon: '⏰',
-    description: '越晚的越优先'
+    description: t('spreadSortLatenessDesc', '越晚的越优先')
   },
   {
     value: SortingCriterion.ByEasiness,
-    label: '按难度',
+    label: t('spreadSortEasiness', '按难度'),
     icon: '📊',
-    description: '简单的优先'
+    description: t('spreadSortEasinessDesc', '简单的优先')
   },
   {
     value: SortingCriterion.ByRecency,
-    label: '按添加时间',
+    label: t('spreadSortRecency', '按添加时间'),
     icon: '🆕',
-    description: '新添加的优先'
+    description: t('spreadSortRecencyDesc', '新添加的优先')
   }
-];
+]);
 
 // 操作类型
 const operationType = computed(() => {
   if (config.value.collectingPeriod > config.value.reschedulingPeriod) {
-    return '提前复习（考试前）';
+    return t('spreadOperationAdvance', '提前复习（考试前）');
   } else if (config.value.collectingPeriod < config.value.reschedulingPeriod) {
-    return '延后复习（减轻负担）';
+    return t('spreadOperationPostpone', '延后复习（减轻负担）');
   } else {
-    return '均匀分散';
+    return t('spreadOperationEven', '均匀分散');
   }
 });
 
@@ -321,20 +330,20 @@ const operationType = computed(() => {
 const collectingRange = computed(() => {
   const endDate = new Date();
   endDate.setDate(endDate.getDate() + config.value.collectingPeriod);
-  return `现在 到 ${formatDate(endDate)}`;
+  return `${t('now', '现在')} ${t('to', '到')} ${formatDate(endDate)}`;
 });
 
 // 分散范围
 const reschedulingRange = computed(() => {
   const endDate = new Date();
   endDate.setDate(endDate.getDate() + config.value.reschedulingPeriod);
-  return `现在 到 ${formatDate(endDate)}`;
+  return `${t('now', '现在')} ${t('to', '到')} ${formatDate(endDate)}`;
 });
 
 // 排序标签
 const sortingLabel = computed(() => {
-  const option = sortingOptions.find(o => o.value === config.value.sortingCriterion);
-  return option ? option.label : '未知';
+  const option = sortingOptions.value.find(o => o.value === config.value.sortingCriterion);
+  return option ? option.label : t('unknown', '未知');
 });
 
 function formatDate(date: Date): string {
@@ -349,18 +358,18 @@ const isValid = computed(() => {
   validationError.value = '';
   
   if (config.value.collectingPeriod < 1 || config.value.collectingPeriod > 365) {
-    validationError.value = '收集期必须在 1 到 365 天之间';
+    validationError.value = t('spreadValidationCollectingPeriod', '收集期必须在 1 到 365 天之间');
     return false;
   }
   
   if (config.value.reschedulingPeriod < 1 || config.value.reschedulingPeriod > 365) {
-    validationError.value = '重新调度期必须在 1 到 365 天之间';
+    validationError.value = t('spreadValidationReschedulingPeriod', '重新调度期必须在 1 到 365 天之间');
     return false;
   }
   
   if (config.value.maxCardsPerDay !== undefined && 
       (config.value.maxCardsPerDay < 1 || config.value.maxCardsPerDay > 1000)) {
-    validationError.value = '每日卡片数量限制必须在 1 到 1000 之间';
+    validationError.value = t('spreadValidationMaxCards', '每日卡片数量限制必须在 1 到 1000 之间');
     return false;
   }
   
@@ -388,7 +397,7 @@ async function loadSelectedConfig() {
     }
   } catch (error) {
     console.error('Failed to load config:', error);
-    validationError.value = '加载配置失败';
+    validationError.value = t('spreadLoadConfigFailed', '加载配置失败');
   }
 }
 
@@ -402,7 +411,7 @@ async function saveCurrentConfig() {
     newConfigName.value = '';
   } catch (error) {
     console.error('Failed to save config:', error);
-    validationError.value = '保存配置失败';
+    validationError.value = t('spreadSaveConfigFailed', '保存配置失败');
   }
 }
 

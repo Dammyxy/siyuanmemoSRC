@@ -2,21 +2,21 @@
   <div class="advance-dialog">
     <div class="dialog__content">
       <div class="dialog__info">
-        <span>将为 <strong>{{ count }}</strong> 张卡片执行提前操作</span>
+        <span>{{ t('advanceDialogInfo', '将为 {n} 张卡片执行提前操作').replace('{n}', String(count)) }}</span>
       </div>
       
       <!-- 基础参数 -->
       <div class="form-section">
-        <h4 class="section-title">基础参数</h4>
+        <h4 class="section-title">{{ t('advanceBasicParams', '基础参数') }}</h4>
         
         <div class="form-field">
-          <label>最大提前天数</label>
+          <label>{{ t('advanceMaxDays', '最大提前天数') }}</label>
           <div class="input-with-buttons">
             <div class="quick-buttons">
-              <button class="btn-quick" @click="config.maxDays = 7">7天</button>
-              <button class="btn-quick" @click="config.maxDays = 14">14天</button>
-              <button class="btn-quick" @click="config.maxDays = 30">30天</button>
-              <button class="btn-quick" @click="config.maxDays = 60">60天</button>
+              <button class="btn-quick" @click="config.maxDays = 7">{{ t('days7', '7天') }}</button>
+              <button class="btn-quick" @click="config.maxDays = 14">{{ t('days14', '14天') }}</button>
+              <button class="btn-quick" @click="config.maxDays = 30">{{ t('days30', '30天') }}</button>
+              <button class="btn-quick" @click="config.maxDays = 60">{{ t('days60', '60天') }}</button>
             </div>
             <input 
               type="number" 
@@ -24,11 +24,11 @@
               min="1" 
               max="365"
               class="form-input"
-              placeholder="输入天数"
+              :placeholder="t('advanceDaysPlaceholder', '输入天数')"
             />
           </div>
           <p class="field-hint">
-            卡片将被随机分散到今天后的 1 到 {{ config.maxDays }} 天内
+            {{ t('advanceMaxDaysHint', '卡片将被随机分散到今天后的 1 到 {n} 天内').replace('{n}', String(config.maxDays)) }}
           </p>
         </div>
         
@@ -38,10 +38,13 @@
               type="checkbox" 
               v-model="config.randomize"
             />
-            <span>随机分散到期时间</span>
+            <span>{{ t('advanceRandomize', '随机分散到期时间') }}</span>
           </label>
           <p class="field-hint">
-            {{ config.randomize ? '每张卡片将获得随机的到期时间，避免集中在同一天' : '所有卡片将使用相同的到期时间' }}
+            {{ config.randomize 
+              ? t('advanceRandomizeHintYes', '每张卡片将获得随机的到期时间，避免集中在同一天') 
+              : t('advanceRandomizeHintNo', '所有卡片将使用相同的到期时间') 
+            }}
           </p>
         </div>
         
@@ -51,41 +54,44 @@
               type="checkbox" 
               v-model="config.handleOverdueCards"
             />
-            <span>特殊处理极度过期的卡片</span>
+            <span>{{ t('advanceHandleOverdue', '特殊处理极度过期的卡片') }}</span>
           </label>
           <p class="field-hint">
-            {{ config.handleOverdueCards ? '上次复习距今超过最大提前天数的卡片将被安排到今天' : '所有卡片使用相同的提前逻辑' }}
+            {{ config.handleOverdueCards 
+              ? t('advanceHandleOverdueHintYes', '上次复习距今超过最大提前天数的卡片将被安排到今天') 
+              : t('advanceHandleOverdueHintNo', '所有卡片使用相同的提前逻辑') 
+            }}
           </p>
         </div>
       </div>
       
       <!-- 预览效果 -->
       <div class="form-section">
-        <h4 class="section-title">预览效果</h4>
+        <h4 class="section-title">{{ t('advancePreview', '预览效果') }}</h4>
         <div class="preview-box">
           <div class="preview-item">
-            <span class="preview-label">提前范围：</span>
+            <span class="preview-label">{{ t('advancePreviewRange', '提前范围：') }}</span>
             <span class="preview-value">{{ previewDateRange }}</span>
           </div>
           <div class="preview-item">
-            <span class="preview-label">分散方式：</span>
-            <span class="preview-value">{{ config.randomize ? '随机分散' : '统一时间' }}</span>
+            <span class="preview-label">{{ t('advancePreviewMethod', '分散方式：') }}</span>
+            <span class="preview-value">{{ config.randomize ? t('advanceRandomSpread', '随机分散') : t('advanceUniformTime', '统一时间') }}</span>
           </div>
           <div class="preview-item">
-            <span class="preview-label">过期卡片：</span>
-            <span class="preview-value">{{ config.handleOverdueCards ? '安排到今天' : '正常提前' }}</span>
+            <span class="preview-label">{{ t('advancePreviewOverdue', '过期卡片：') }}</span>
+            <span class="preview-value">{{ config.handleOverdueCards ? t('advanceScheduleToday', '安排到今天') : t('advanceNormalAdvance', '正常提前') }}</span>
           </div>
         </div>
       </div>
       
       <!-- 配置管理 -->
       <div class="form-section">
-        <h4 class="section-title">配置管理</h4>
+        <h4 class="section-title">{{ t('advanceConfigManagement', '配置管理') }}</h4>
         
         <div class="config-actions">
           <div class="config-select">
             <select v-model="selectedConfigName" class="form-select">
-              <option value="">选择预设配置...</option>
+              <option value="">{{ t('advanceSelectConfig', '选择预设配置...') }}</option>
               <option v-for="name in configNames" :key="name" :value="name">
                 {{ name }}
               </option>
@@ -95,7 +101,7 @@
               @click="loadSelectedConfig"
               :disabled="!selectedConfigName"
             >
-              加载
+              {{ t('advanceLoadConfig', '加载') }}
             </button>
           </div>
           
@@ -103,7 +109,7 @@
             <input 
               type="text" 
               v-model="newConfigName" 
-              placeholder="输入配置名称..."
+              :placeholder="t('advanceConfigNamePlaceholder', '输入配置名称...')"
               class="form-input"
             />
             <button 
@@ -111,7 +117,7 @@
               @click="saveCurrentConfig"
               :disabled="!newConfigName.trim()"
             >
-              保存
+              {{ t('advanceSaveConfig', '保存') }}
             </button>
           </div>
         </div>
@@ -124,13 +130,13 @@
     </div>
     
     <div class="dialog__actions">
-      <button class="b3-button b3-button--cancel" @click="handleCancel">取消</button>
+      <button class="b3-button b3-button--cancel" @click="handleCancel">{{ t('cancel', '取消') }}</button>
       <button 
         class="b3-button b3-button--text" 
         @click="handleConfirm" 
         :disabled="!isValid"
       >
-        确认提前
+        {{ t('advanceConfirmButton', '确认提前') }}
       </button>
     </div>
   </div>
@@ -144,7 +150,13 @@ import { ConfigManager } from '@/core/scheduler/ConfigManager';
 const props = defineProps<{
   count: number;
   configManager: ConfigManager;
+  i18n?: Record<string, string>;
 }>();
+
+// i18n helper
+function t(key: string, fallback: string): string {
+  return props.i18n?.[key] || fallback;
+}
 
 const emit = defineEmits<{
   (e: 'confirm', config: AdvanceConfig): void;
@@ -173,7 +185,7 @@ const previewDateRange = computed(() => {
     });
   };
   
-  return `明天 到 ${formatDate(endDate)}`;
+  return `${t('tomorrow', '明天')} ${t('to', '到')} ${formatDate(endDate)}`;
 });
 
 // 验证配置
@@ -181,7 +193,7 @@ const isValid = computed(() => {
   validationError.value = '';
   
   if (config.value.maxDays < 1 || config.value.maxDays > 365) {
-    validationError.value = '最大提前天数必须在 1 到 365 天之间';
+    validationError.value = t('advanceValidationMaxDays', '最大提前天数必须在 1 到 365 天之间');
     return false;
   }
   
@@ -209,7 +221,7 @@ async function loadSelectedConfig() {
     }
   } catch (error) {
     console.error('Failed to load config:', error);
-    validationError.value = '加载配置失败';
+    validationError.value = t('advanceLoadConfigFailed', '加载配置失败');
   }
 }
 
@@ -223,7 +235,7 @@ async function saveCurrentConfig() {
     newConfigName.value = '';
   } catch (error) {
     console.error('Failed to save config:', error);
-    validationError.value = '保存配置失败';
+    validationError.value = t('advanceSaveConfigFailed', '保存配置失败');
   }
 }
 

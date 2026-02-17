@@ -44,20 +44,20 @@
         class="sync-btn" 
         :disabled="syncStatus === 'syncing'"
         @click="handleManualSync"
-        :title="t('manualSyncHint', '手动触发增量同步')"
+        :title="t('manualSyncHint', 'Trigger incremental sync manually')"
       >
         <span class="icon">🔄</span>
-        {{ t('manualSync', '手动同步') }}
+        {{ t('manualSync', 'Quick Sync') }}
       </button>
       
       <button 
         class="sync-btn full-sync" 
         :disabled="syncStatus === 'syncing'"
         @click="handleFullSync"
-        :title="t('fullSyncHint', '手动触发全量同步（检测双向删除）')"
+        :title="t('fullSyncHint', 'Trigger full sync manually (detect bidirectional deletions)')"
       >
         <span class="icon">🔄</span>
-        {{ t('fullSync', '全量同步') }}
+        {{ t('fullSync', 'Full Sync') }}
       </button>
     </div>
   </div>

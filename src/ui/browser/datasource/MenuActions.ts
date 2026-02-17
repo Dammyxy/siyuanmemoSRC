@@ -16,41 +16,58 @@ import { InsertAtCommand, RemoveCommand, SetPriorityCommand, AutoSortCommand } f
 
 /**
  * 基础动作定义
+ * @param t - i18n 翻译函数
  */
-export const BASE_ACTIONS = {
-  open: { id: 'open', label: 'Open', icon: 'iconOpen' } as CardBrowserAction,
-  removeFromQueue: {
-    id: 'remove-from-current-queue',
-    label: '从当前队列移除',
-    icon: 'iconMin',
-    danger: true,
-  } as CardBrowserAction,
-  deleteCard: {
-    id: 'delete-card',
-    label: '取消闪卡',
-    icon: 'iconTrashcan',
-    danger: true,
-  } as CardBrowserAction,
-  insertAt: { id: 'insert-at', label: '插入到位置', icon: 'iconAlignLeft' } as CardBrowserAction,
-  setPriority: { id: 'set-priority', label: '设置优先级', icon: 'iconMark' } as CardBrowserAction,
-  autoSort: { id: 'auto-sort', label: '自动排序', icon: 'iconSort' } as CardBrowserAction,
-  postpone: { id: 'postpone', label: '推迟', icon: 'iconCalendar' } as CardBrowserAction,
-  advance: { id: 'advance', label: '提前', icon: 'iconCalendar' } as CardBrowserAction,
-  // spread 已移至工具栏独立按钮，不再出现在右键菜单
-  reset: { id: 'reset', label: '重置', icon: 'iconRefresh', danger: true } as CardBrowserAction,
-  suspend: { id: 'suspend', label: '暂停', icon: 'iconPause' } as CardBrowserAction,
-};
+export function getBaseActions(t?: (key: string, fallback: string) => string) {
+  const translate = t || ((key: string, fallback: string) => fallback);
+  
+  return {
+    open: { id: 'open', label: translate('openInTab', 'Open'), icon: 'iconOpen' } as CardBrowserAction,
+    removeFromQueue: {
+      id: 'remove-from-current-queue',
+      label: translate('removeFromQueue', '从当前队列移除'),
+      icon: 'iconMin',
+      danger: true,
+    } as CardBrowserAction,
+    deleteCard: {
+      id: 'delete-card',
+      label: translate('deleteCard', '取消闪卡'),
+      icon: 'iconTrashcan',
+      danger: true,
+    } as CardBrowserAction,
+    insertAt: { id: 'insert-at', label: translate('insertAt', '插入到位置'), icon: 'iconAlignLeft' } as CardBrowserAction,
+    setPriority: { id: 'set-priority', label: translate('setPriority', '设置优先级'), icon: 'iconMark' } as CardBrowserAction,
+    autoSort: { id: 'auto-sort', label: translate('autoSortQueue', '自动排序'), icon: 'iconSort' } as CardBrowserAction,
+    postpone: { id: 'postpone', label: translate('postpone', '推迟'), icon: 'iconCalendar' } as CardBrowserAction,
+    advance: { id: 'advance', label: translate('advance', '提前'), icon: 'iconCalendar' } as CardBrowserAction,
+    spread: { id: 'spread', label: translate('spread', '平摊复习'), icon: 'iconCalendar' } as CardBrowserAction,
+    reset: { id: 'reset', label: translate('reset', '重置'), icon: 'iconRefresh', danger: true } as CardBrowserAction,
+    suspend: { id: 'suspend', label: translate('suspend', '暂停'), icon: 'iconPause' } as CardBrowserAction,
+  };
+}
+
+/**
+ * 向后兼容：保留旧的 BASE_ACTIONS 常量
+ */
+export const BASE_ACTIONS = getBaseActions();
 
 /**
  * 构建"加入队列"子菜单
+ * @param hasQueues - 可用队列配置
+ * @param t - i18n 翻译函数
  */
-export function buildAddToQueueAction(hasQueues: {
-  retrieval?: boolean;
-  incremental?: boolean;
-  finalDrill?: boolean;  // ✅ 改名：deliberate → finalDrill
-  filterGroup?: boolean;
-  neuralRoam?: boolean;
-}): CardBrowserAction | null {
+export function buildAddToQueueAction(
+  hasQueues: {
+    retrieval?: boolean;
+    incremental?: boolean;
+    finalDrill?: boolean;
+    filterGroup?: boolean;
+    neuralRoam?: boolean;
+  },
+  t?: (key: string, fallback: string) => string
+): CardBrowserAction | null {
+  const translate = t || ((key: string, fallback: string) => fallback);
+  
   console.log('[MenuActions] buildAddToQueueAction 被调用，参数:', hasQueues);
   
   const queueActions: CardBrowserAction[] = [];
@@ -59,7 +76,7 @@ export function buildAddToQueueAction(hasQueues: {
     console.log('[MenuActions] ✅ 添加提取练习');
     queueActions.push({
       id: 'add-to-retrieval-queue',
-      label: '提取练习',
+      label: translate('addToRetrievalQueue', '提取练习'),
       icon: 'iconList',
     });
   }
@@ -67,15 +84,15 @@ export function buildAddToQueueAction(hasQueues: {
     console.log('[MenuActions] ✅ 添加渐进学习');
     queueActions.push({
       id: 'add-to-incremental-queue',
-      label: '渐进学习',
+      label: translate('addToIncrementalQueue', '渐进学习'),
       icon: 'iconBook',
     });
   }
-  if (hasQueues.finalDrill) {  // ✅ 改名：deliberate → finalDrill
+  if (hasQueues.finalDrill) {
     console.log('[MenuActions] ✅ 添加刻意练习');
     queueActions.push({
-      id: 'add-to-final-drill-queue',  // ✅ 改名：add-to-deliberate-queue → add-to-final-drill-queue
-      label: '刻意练习',
+      id: 'add-to-final-drill-queue',
+      label: translate('addToFinalDrillQueue', '刻意练习'),
       icon: 'iconCards',
     });
   } else {
@@ -85,7 +102,7 @@ export function buildAddToQueueAction(hasQueues: {
     console.log('[MenuActions] ✅ 添加筛选复习');
     queueActions.push({
       id: 'add-to-filter-group-queue',
-      label: '筛选复习',
+      label: translate('addToFilterGroupQueue', '筛选复习'),
       icon: 'iconFilter',
     });
   }
@@ -93,7 +110,7 @@ export function buildAddToQueueAction(hasQueues: {
     console.log('[MenuActions] ✅ 添加神经漫游');
     queueActions.push({
       id: 'add-to-neural-roam-queue',
-      label: '神经漫游',
+      label: translate('addToNeuralRoamQueue', '神经漫游'),
       icon: 'iconGraph',
     });
   }
@@ -102,7 +119,12 @@ export function buildAddToQueueAction(hasQueues: {
   console.log('[MenuActions] queueActions.length:', queueActions.length);
 
   const result = queueActions.length > 0
-    ? { id: 'add-to-queue', label: '加入队列', icon: 'iconDownload', submenu: queueActions }
+    ? { 
+        id: 'add-to-queue', 
+        label: translate('addToQueueMenu', '加入队列'), 
+        icon: 'iconDownload', 
+        submenu: queueActions 
+      }
     : null;
     
   console.log('[MenuActions] buildAddToQueueAction 返回值:', result);
@@ -112,34 +134,43 @@ export function buildAddToQueueAction(hasQueues: {
 
 /**
  * 构建队列专用动作列表（用于队列 DataSource）
+ * @param options - 动作选项
+ * @param t - i18n 翻译函数
  */
-export function buildQueueActions(options: {
-  withInsert?: boolean;
-  withSort?: boolean;
-  withPriority?: boolean;
-  withTimeAdjust?: boolean;
-  withDelete?: boolean;  // 🆕 是否包含删除操作
-}): CardBrowserAction[] {
+export function buildQueueActions(
+  options: {
+    withInsert?: boolean;
+    withSort?: boolean;
+    withPriority?: boolean;
+    withTimeAdjust?: boolean;
+    withDelete?: boolean;
+  },
+  t?: (key: string, fallback: string) => string
+): CardBrowserAction[] {
+  const BASE = getBaseActions(t);
+  
   const actions: CardBrowserAction[] = [
-    BASE_ACTIONS.open,
-    BASE_ACTIONS.removeFromQueue,
+    BASE.open,
+    BASE.removeFromQueue,
   ];
 
   if (options.withDelete) {
-    actions.push(BASE_ACTIONS.deleteCard);
+    actions.push(BASE.deleteCard);
   }
-  if (options.withInsert) {
-    actions.push(BASE_ACTIONS.insertAt);
-  }
+  // 🆕 隐藏"插入到位置"功能
+  // if (options.withInsert) {
+  //   actions.push(BASE.insertAt);
+  // }
   if (options.withPriority) {
-    actions.push(BASE_ACTIONS.setPriority);
+    actions.push(BASE.setPriority);
   }
-  if (options.withSort) {
-    actions.push(BASE_ACTIONS.autoSort);
-  }
+  // 🆕 移除"自动排序"功能（已有顶部的排序菜单）
+  // if (options.withSort) {
+  //   actions.push(BASE.autoSort);
+  // }
   if (options.withTimeAdjust) {
-    actions.push(BASE_ACTIONS.postpone);
-    actions.push(BASE_ACTIONS.advance);
+    actions.push(BASE.postpone);
+    actions.push(BASE.advance);
     // spread 已移至工具栏独立按钮，不再出现在右键菜单
   }
 

@@ -6,7 +6,7 @@
           type="checkbox" 
           :checked="enabled"
           @change="handleEnabledChange"
-          :aria-label="`启用${label}过滤`"
+          :aria-label="t('enableFilter', 'Enable {label} filter').replace('{label}', label)"
         />
         <span class="filter-label">{{ label }}</span>
       </label>
@@ -15,7 +15,7 @@
     <div v-if="enabled" class="filter-content">
       <div class="range-inputs">
         <div class="input-group">
-          <label class="input-label">最小值</label>
+          <label class="input-label">{{ t('minValueLabel', 'Minimum') }}</label>
           <input 
             type="number"
             :value="min"
@@ -25,7 +25,7 @@
             :step="allowDecimal ? '0.01' : '1'"
             class="range-input"
             :class="{ 'input-error': hasError }"
-            :aria-label="`${label}最小值`"
+            :aria-label="t('minValue', '{label} minimum value').replace('{label}', label)"
             :aria-describedby="hasError ? `${fieldId}-error` : undefined"
           />
         </div>
@@ -33,7 +33,7 @@
         <span class="range-separator">-</span>
         
         <div class="input-group">
-          <label class="input-label">最大值</label>
+          <label class="input-label">{{ t('maxValueLabel', 'Maximum') }}</label>
           <input 
             type="number"
             :value="max"
@@ -43,7 +43,7 @@
             :step="allowDecimal ? '0.01' : '1'"
             class="range-input"
             :class="{ 'input-error': hasError }"
-            :aria-label="`${label}最大值`"
+            :aria-label="t('maxValue', '{label} maximum value').replace('{label}', label)"
             :aria-describedby="hasError ? `${fieldId}-error` : undefined"
           />
         </div>
@@ -54,7 +54,7 @@
       </div>
       
       <div class="range-hint">
-        <span>范围: {{ range.min }} - {{ range.max }}</span>
+        <span>{{ t('rangeHint', 'Range: {min} - {max}').replace('{min}', String(range.min)).replace('{max}', String(range.max)) }}</span>
       </div>
     </div>
   </div>
@@ -101,6 +101,12 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<Emits>();
+
+// i18n helper
+function t(key: string, fallback: string): string {
+  const i18n = (window as any)?.siyuan?.languages?.flashcard || {};
+  return (i18n as any)?.[key] || fallback;
+}
 
 // 生成唯一的字段 ID（用于 aria-describedby）
 const fieldId = computed(() => {
