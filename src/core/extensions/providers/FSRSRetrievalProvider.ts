@@ -1,4 +1,13 @@
-﻿import * as riff from '../../siyuan/riff.ts';
+﻿/**
+ * FSRS Retrieval Provider
+ * 
+ * @deprecated 旧架构 Provider 层。
+ * 新代码请直接使用 RetrievalPracticeQueue（src/queues/RetrievalPracticeQueue.ts）
+ * 
+ * 参考迁移：src/index.ts 中的 TAB 恢复逻辑
+ */
+
+import * as riff from '../../siyuan/riff.ts';
 import { setBlockAttrs, sql } from '../../siyuan/api.ts';
 import { ATTR_PRIORITY } from '../../siyuan/block.ts';
 import { computeProtectionStats, clampPriority, DEFAULT_PRIORITY } from '../../queue/abstraction/IPriority.ts';

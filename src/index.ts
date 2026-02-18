@@ -542,8 +542,22 @@ export default class FSRSPlugin extends Plugin {
 
         if (!provider) {
           console.log('[FSRS Review Tab] No saved provider, creating new one for:', savedProviderId);
-          // 根据 providerId 创建对应的 provider
-          if (savedProviderId === 'final-drill') {
+          // 🆕 直接使用新架构的 Queue，跳过 Provider 层
+          if (savedProviderId === 'retrieval') {
+            // 提取练习：直接使用 RetrievalPracticeQueue
+            const queue = plugin.unifiedDataSourceManager?.getQueue(QueueType.RetrievalPractice);
+            if (queue) {
+              provider = {
+                id: 'retrieval',
+                displayName: plugin.i18n?.retrievalPractice || '提取练习',
+                getDueCards: () => queue.getAllCards(),
+                reviewCard: (cardId: string, rating: number) => queue.handleReview(cardId, rating),
+                skipReviewCard: (cardId: string) => queue.skip(cardId),
+                getStats: () => queue.getStats(),
+              };
+            }
+            adapter = new RetrievalPracticeAdapter({ i18n: plugin.i18n || {} });
+          } else if (savedProviderId === 'final-drill') {
             provider = new FinalDrillProvider({
               queue: plugin.finalDrillQueue,
               storage: plugin.storage,
@@ -568,10 +582,17 @@ export default class FSRSPlugin extends Plugin {
             adapter = new RetrievalPracticeAdapter({ i18n: plugin.i18n || {} });
           } else {
             // 默认：提取练习
-            provider = new RetrievalPracticeProvider({
-              storage: plugin.storage,
-              scheduler: plugin.scheduler,
-            });
+            const queue = plugin.unifiedDataSourceManager?.getQueue(QueueType.RetrievalPractice);
+            if (queue) {
+              provider = {
+                id: 'retrieval',
+                displayName: plugin.i18n?.retrievalPractice || '提取练习',
+                getDueCards: () => queue.getAllCards(),
+                reviewCard: (cardId: string, rating: number) => queue.handleReview(cardId, rating),
+                skipReviewCard: (cardId: string) => queue.skip(cardId),
+                getStats: () => queue.getStats(),
+              };
+            }
             adapter = new RetrievalPracticeAdapter({ i18n: plugin.i18n || {} });
           }
         } else {

@@ -1,6 +1,9 @@
 ﻿/**
  * 检索练习队列 Provider
  *
+ * @deprecated 旧架构 Provider 层，新代码请直接使用 RetrievalPracticeQueue
+ * TAB 模式已改为直接使用 Queue，不再需要 Provider 层
+ * 
  * 实现 Extensions Layer 的 QueueProvider 接口
  * 封装 RetrievalPracticeQueue 为外部提供标准 API
  */

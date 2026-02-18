@@ -1,4 +1,15 @@
-﻿import type { IQueueStrategy, QueueFeedback } from '../queue/abstraction/Strategy.ts';
+﻿/**
+ * Provider-backed Queue Strategy
+ * 
+ * @deprecated 旧架构适配器层，用于包装 Provider。
+ * 新架构请直接使用 BaseReviewQueue，不需要 Provider 层。
+ * 
+ * 参考：
+ * - 新架构：src/queues/BaseReviewQueue.ts
+ * - 迁移示例：src/index.ts 中的 TAB 恢复逻辑
+ */
+
+import type { IQueueStrategy, QueueFeedback } from '../queue/abstraction/Strategy.ts';
 import type { QueueStats, QueueUIConfig } from '../queue/types.ts';
 import type { QueueProvider } from './QueueProvider.ts';
 

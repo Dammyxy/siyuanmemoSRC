@@ -1,4 +1,13 @@
-﻿import type { QueueItem } from '../../../../core/queue/types.ts';
+﻿/**
+ * Final Drill Provider
+ * 
+ * @deprecated 旧架构 Provider 层。
+ * 新代码请直接使用 FinalDrillQueue（src/queues/FinalDrillQueue.ts）
+ * 
+ * 参考迁移：src/index.ts 中的 TAB 恢复逻辑
+ */
+
+import type { QueueItem } from '../../../../core/queue/types.ts';
 import type { QueueProvider } from '../../../../core/extensions/QueueProvider.ts';
 import type { QueueStats } from '../../../../core/extensions/types.ts';
 import { FinalDrillV2Session } from '../sessions/FinalDrillV2Session.ts';

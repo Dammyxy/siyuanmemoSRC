@@ -263,14 +263,15 @@ async function loadMeta() {
     
     // 调度器类型
     const schedulerTypeLabels: Record<string, string> = {
-      'fsrs-v5': 'FSRS v5 (ts-fsrs)',
+      'fsrs-v5': 'FSRS v6 (ts-fsrs 5.2.3)',
+      'fsrs-v6': 'FSRS v6 (ts-fsrs 5.2.3)',
       'sm2': 'SM-2',
       'sm15': 'SM-15',
       'a-factor': 'A-Factor',
       'a-factor-v2': 'A-Factor v2',
       'riff': 'Riff',
     };
-    schedulerTypeText.value = schedulerTypeLabels[card.schedulerType || 'fsrs-v5'] || card.schedulerType || 'FSRS v5 (ts-fsrs)';
+    schedulerTypeText.value = schedulerTypeLabels[card.schedulerType || 'fsrs-v5'] || card.schedulerType || 'FSRS v6 (ts-fsrs 5.2.3)';
     
     // 优先级
     priorityText.value = String(card.priority || 50);

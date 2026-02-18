@@ -1,6 +1,9 @@
 ﻿/**
  * 渐进学习队列 Provider
  *
+ * @deprecated 旧架构 Provider 层。
+ * 新代码请直接使用 IncrementalLearningQueue（src/queues/IncrementalLearningQueue.ts）
+ * 
  * 实现 Extensions Layer 的 QueueProvider 接口
  * 封装 IncrementalLearningQueue 为外部提供标准 API
  */

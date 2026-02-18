@@ -1,4 +1,15 @@
-﻿import type { QueueStats } from './types.ts';
+﻿/**
+ * Queue Provider Interface
+ * 
+ * @deprecated 旧架构接口，用于适配旧 Queue。
+ * 新架构的 BaseReviewQueue 已有统一接口，不需要 Provider 层。
+ * 
+ * 新代码请直接使用：
+ * - UnifiedDataSourceManager.getQueue(QueueType)
+ * - BaseReviewQueue 的方法（getAllCards, handleReview, skip, getStats 等）
+ */
+
+import type { QueueStats } from './types.ts';
 
 export interface QueueProvider<TItem = any> {
   readonly id: string;
