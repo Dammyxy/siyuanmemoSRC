@@ -3,9 +3,6 @@
  * 插件入口文件
  */
 
-// 🆕 快速禁用调试日志（在所有导入之前）
-import '@/utils/disableLogs';
-
 import {
   Plugin,
   getFrontend,
@@ -185,13 +182,8 @@ export default class FSRSPlugin extends Plugin {
       this.storage = new StorageManager(this.name);
       await this.storage.init();
       
-      // 🆕 根据设置初始化调试日志开关
+      // 日志始终启用（不再劫持全局 console）
       const settings = this.storage.getSettings();
-      const enableDebugLogs = settings.ui?.enableDebugLogs ?? false;
-      (window as any).FSRS_DISABLE_LOGS = !enableDebugLogs;
-      if (!enableDebugLogs) {
-        console.log('[SiYuanMemo] Debug logs disabled by settings');
-      }
       
       // 🆕 自动修复无效日期（首次加载时）
       try {

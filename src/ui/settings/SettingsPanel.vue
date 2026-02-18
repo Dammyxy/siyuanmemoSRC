@@ -108,15 +108,6 @@
 
         <div class="fn__hr"></div>
 
-        <!-- 🆕 启用调试日志 -->
-        <div class="form-item">
-          <label>{{ t('enableDebugLogs', '启用调试日志') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="uiSettings.enableDebugLogs" @change="handleDebugLogsChange">
-          </div>
-          <p class="form-hint">{{ t('enableDebugLogsHint', '在浏览器控制台显示详细的调试信息（开发用）。切换后立即生效，无需刷新。') }}</p>
-        </div>
-
         <!-- 🆕 每日刷新时间 -->
         <div class="form-item">
           <label>{{ t('dayStartHour', '每日刷新时间') }}</label>
@@ -479,7 +470,6 @@ const props = defineProps<{
   riffIntegrationSettings?: any;  // 🆕 Riff 集成配置
   incrementalSettings?: { autoCardEnabled: boolean };
   quickCardSettings?: any;  // 🆕 快速制卡配置
-  uiSettings?: { enableDebugLogs: boolean };  // 🆕 新增
   i18n?: Record<string, string>;
   defaultTab?: string;
   queueCount?: number;
@@ -536,11 +526,6 @@ const settings = ref<Settings>({
   enableShortTerm: true,
   params: [...DEFAULT_PARAMS],
   dayStartHour: 4,  // 🆕 默认值：凌晨4点
-});
-
-// 🆕 UI 设置
-const uiSettings = ref({
-  enableDebugLogs: false,
 });
 
 // 🆕 快速制卡设置
@@ -621,13 +606,6 @@ function loadSettings() {
       enableShortTerm: props.fsrsSettings.enableShortTerm,
       params: [...props.fsrsSettings.weights],
       dayStartHour: props.fsrsSettings.dayStartHour ?? 4,  // 🆕 加载 dayStartHour 配置
-    };
-  }
-  
-  // 🆕 加载 UI 设置
-  if (props.uiSettings) {
-    uiSettings.value = {
-      enableDebugLogs: props.uiSettings.enableDebugLogs ?? false,
     };
   }
   
@@ -736,10 +714,6 @@ function saveSettings() {
       topicScheduler: schedulerConfig.value.topicScheduler,
       itemScheduler: schedulerConfig.value.itemScheduler,
     },
-    // 🆕 保存 UI 设置
-    ui: {
-      enableDebugLogs: uiSettings.value.enableDebugLogs,
-    },
     // 🆕 保存 Riff 集成配置
     riffIntegration: {
       useLocalScheduler: riffIntegrationConfig.value.useLocalScheduler,
@@ -771,21 +745,6 @@ function resetSchedulerSettings() {
     topicScheduler: 'a-factor-v2',
     itemScheduler: 'fsrs-v5',
   };
-}
-
-// 🆕 处理调试日志开关变化
-function handleDebugLogsChange() {
-  // 立即应用日志设置（不需要刷新）
-  if (typeof window !== 'undefined') {
-    (window as any).FSRS_DISABLE_LOGS = !uiSettings.value.enableDebugLogs;
-    
-    // 提示用户
-    const message = uiSettings.value.enableDebugLogs 
-      ? '调试日志已启用'
-      : '调试日志已禁用';
-    
-    console.log(`[SiYuanMemo] ${message}`);
-  }
 }
 
 // 🆕 dayStartHour 变更处理
