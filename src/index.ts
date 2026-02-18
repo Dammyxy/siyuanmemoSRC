@@ -200,7 +200,7 @@ export default class FSRSPlugin extends Plugin {
 
       // 🆕 创建 SchedulerRouter（根据卡片类型自动选择调度器）
       this.schedulerRouter = new SchedulerRouter({
-        defaultScheduler: settings.scheduler?.defaultScheduler || 'fsrs-v5',
+        defaultScheduler: settings.scheduler?.defaultScheduler || 'fsrs-v6',
         enableRiffSync: settings.scheduler?.enableRiffSync || false,
         fsrsParams: settings.fsrs,
       }, this.storage);
@@ -812,6 +812,7 @@ export default class FSRSPlugin extends Plugin {
         schedulerSettings: currentSettings.scheduler,  // 🆕 新增
         riffIntegrationSettings: currentSettings.riffIntegration,  // 🆕 Riff 集成配置
         incrementalSettings: currentSettings.incremental,  // 🆕 新增
+        quickCardSettings: currentSettings.quickCard,  // 🆕 快速制卡配置
         uiSettings: { enableDebugLogs: currentSettings.ui?.enableDebugLogs ?? false },  // 🆕 新增
         i18n: this.i18n || {},
         defaultTab,
@@ -838,11 +839,13 @@ export default class FSRSPlugin extends Plugin {
               maximumInterval: settings.maximumInterval,
               enableShortTerm: settings.enableShortTerm,
               weights: settings.params,
+              dayStartHour: settings.dayStartHour ?? 4,  // 🆕 保存 dayStartHour
             },
             queues: settings.queues || currentSettings.queues,
             scheduler: settings.scheduler || currentSettings.scheduler,  // 🆕 保存调度器配置
             riffIntegration: settings.riffIntegration || currentSettings.riffIntegration,  // 🆕 保存 Riff 集成配置
             incremental: settings.incremental || currentSettings.incremental,  // 🆕 保存增量阅读配置
+            quickCard: settings.quickCard || currentSettings.quickCard,  // 🆕 保存快速制卡配置
             ui: settings.ui || currentSettings.ui,  // 🆕 保存 UI 设置
           };
           await this.storage.updateSettings(updatedSettings);

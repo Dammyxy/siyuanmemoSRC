@@ -175,7 +175,7 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                         
                         // 本地没有，添加新卡片
                         console.log(`[SiYuanMemo][HybridSync] Adding new card ${riffCard.id}`);
-                        const fsrsCard = this.convertRiffCardToFSRSCard(riffCard);
+                        const fsrsCard = await this.convertRiffCardToFSRSCard(riffCard);
                         this.storage.setCard(fsrsCard);
                         addedCards.push(riffCard);
                         addedCount++;
@@ -505,7 +505,7 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                 return;
             } else {
                 // 普通卡片：添加新卡片
-                const fsrsCard = this.convertRiffCardToFSRSCard(riffCard);
+                const fsrsCard = await this.convertRiffCardToFSRSCard(riffCard);
                 this.storage.setCard(fsrsCard);
                 console.log(`[SiYuanMemo][HybridSync] Added new card: ${blockId}`);
             }
@@ -762,13 +762,157 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
     }
     
     /**
+     * 智能检测卡片类型（用于快速制卡）
+     * 
+     * 规则：
+     * 1. 文档块 → topic
+     * 2. 有挖空符号（==、::）→ item
+     * 3. 标题块 → item
+     * 4. 列表项有子级 → item
+     * 5. 超级块有子级 → item
+     * 6. 其他 → topic
+     * 
+     * @param riffBlock Riff 卡片数据
+     * @returns 'topic' | 'item'
+     */
+    private async smartDetectCardType(riffBlock: RiffBlock): Promise<'topic' | 'item'> {
+        try {
+            const blockId = riffBlock.id;
+            
+            // 1. 获取块类型和内容
+            const blockData = await sql(`
+                SELECT type, markdown, content FROM blocks
+                WHERE id = '${blockId}'
+                LIMIT 1
+            `);
+            
+            if (!blockData || blockData.length === 0) {
+                console.log(`[HybridSyncService] Block ${blockId}: topic (block not found)`);
+                return 'topic';
+            }
+            
+            const type = blockData[0].type;
+            const markdown = blockData[0].markdown || '';
+            const content = blockData[0].content || '';
+            
+            // 2. 文档块 → topic
+            if (type === 'd') {
+                console.log(`[HybridSyncService] Block ${blockId}: topic (type: d = document)`);
+                return 'topic';
+            }
+            
+            // 3. 有挖空符号 → item
+            // 支持三种挖空语法：
+            // - ==文本== (Markdown 标记语法)
+            // - {{文本}} (双花括号)
+            // - <span data-type="mark">文本</span> (思源原生高亮)
+            if (/==([^=]+)==/.test(markdown) || /==([^=]+)==/.test(content)) {
+                console.log(`[HybridSyncService] Block ${blockId}: item (mark syntax == found)`);
+                return 'item';
+            }
+            
+            if (/\{\{.+?\}\}/.test(content)) {
+                console.log(`[HybridSyncService] Block ${blockId}: item (cloze syntax {{}} found)`);
+                return 'item';
+            }
+            
+            if (/<span data-type="mark">/.test(markdown) || /<span data-type="mark">/.test(content)) {
+                console.log(`[HybridSyncService] Block ${blockId}: item (siyuan mark found)`);
+                return 'item';
+            }
+            
+            // 4. 有分隔符 → item
+            // - :: (概念卡片)
+            // - ;; (描述符卡片)
+            // - >> (正向卡片)
+            // - << (反向卡片)
+            // - <> (双向卡片)
+            if (/::/.test(content) || /;;/.test(content)) {
+                console.log(`[HybridSyncService] Block ${blockId}: item (separator :: or ;; found)`);
+                return 'item';
+            }
+            
+            if (/>>/.test(content) || /<</.test(content) || /<>/.test(content)) {
+                console.log(`[HybridSyncService] Block ${blockId}: item (direction symbol found)`);
+                return 'item';
+            }
+            
+            // 4. 标题块 → item
+            if (type === 'h') {
+                console.log(`[HybridSyncService] Block ${blockId}: item (type: h = heading)`);
+                return 'item';
+            }
+            
+            // 5. 列表项有列表子级 → item
+            if (type === 'i') {
+                const hasListChildren = await this.checkHasChildren(blockId, ['i', 'l']);
+                console.log(`[HybridSyncService] Block ${blockId}: ${hasListChildren ? 'item' : 'topic'} (type: i = list item, hasListChildren: ${hasListChildren})`);
+                return hasListChildren ? 'item' : 'topic';
+            }
+            
+            // 6. 超级块有子级 → item
+            if (type === 's') {
+                const hasAnyChildren = await this.checkHasChildren(blockId);
+                console.log(`[HybridSyncService] Block ${blockId}: ${hasAnyChildren ? 'item' : 'topic'} (type: s = super block, hasAnyChildren: ${hasAnyChildren})`);
+                return hasAnyChildren ? 'item' : 'topic';
+            }
+            
+            // 7. 其他 → topic
+            console.log(`[HybridSyncService] Block ${blockId}: topic (type: ${type}, no answer blocks)`);
+            return 'topic';
+        } catch (err) {
+            console.error(`[HybridSyncService] Smart detect error for ${riffBlock.id}:`, err);
+            return 'topic'; // 出错默认为 topic
+        }
+    }
+    
+    /**
+     * 检查块是否有特定类型的子级
+     * 
+     * @param blockId 块 ID
+     * @param childTypes 需要检查的子级类型数组（如 ['i', 'l'] = 列表项或列表容器）
+     * @returns 是否有指定类型的子级
+     */
+    private async checkHasChildren(blockId: string, childTypes?: string[]): Promise<boolean> {
+        try {
+            let typeFilter = '';
+            if (childTypes && childTypes.length > 0) {
+                const typeList = childTypes.map(t => `'${t}'`).join(', ');
+                typeFilter = `AND type IN (${typeList})`;
+            }
+            
+            const childBlocks = await sql(`
+                SELECT id, type
+                FROM blocks
+                WHERE parent_id = '${blockId}'
+                AND type != 'd'  -- 排除删除的块
+                ${typeFilter}
+                LIMIT 1
+            `);
+            
+            return childBlocks && childBlocks.length > 0;
+        } catch (err) {
+            return false;
+        }
+    }
+    
+    /**
      * 转换 RiffBlock 为 FSRSCard
      * 
      * 从 Riff 数据和块属性中提取卡片信息。
      * 卡片类型优先从 cardTypeMarker 推导，其次从 custom-card-type 读取。
      * 卡片类型标记（concept/descriptor）从块属性 `custom-fsrs-card-type` 中读取。
+     * 
+     * 🆕 智能识别 Topic/Item（快速制卡）：
+     * - 如果没有块属性标记，自动检测：
+     *   1. 文档块 → topic
+     *   2. 有挖空符号（==、::）→ item
+     *   3. 标题块 → item
+     *   4. 列表项有子级 → item
+     *   5. 超级块有子级 → item
+     *   6. 其他 → topic
      */
-    private convertRiffCardToFSRSCard(riffBlock: RiffBlock): FSRSCard {
+    private async convertRiffCardToFSRSCard(riffBlock: RiffBlock): Promise<FSRSCard> {
         const riffCard = riffBlock.riffCard;
         const now = Date.now();
         
@@ -778,7 +922,7 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
             ? cardTypeMarkerAttr as 'concept' | 'descriptor'
             : undefined;
         
-        // 根据 cardTypeMarker 推导 CardType，或从块属性读取
+        // 根据 cardTypeMarker 推导 CardType，或从块属性读取，或智能识别
         let cardType: string;
         if (cardTypeMarker) {
             // 如果有 cardTypeMarker，使用对应的 CardType 枚举值
@@ -787,9 +931,12 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
         } else {
             // 否则从块属性中读取技术类型
             const cardTypeAttr = riffBlock.ial?.['custom-card-type'];
-            cardType = (cardTypeAttr === 'topic' || cardTypeAttr === 'item' || cardTypeAttr === 'concept' || cardTypeAttr === 'descriptor') 
-                ? cardTypeAttr 
-                : 'item'; // 默认为 item
+            if (cardTypeAttr === 'topic' || cardTypeAttr === 'item' || cardTypeAttr === 'concept' || cardTypeAttr === 'descriptor') {
+                cardType = cardTypeAttr;
+            } else {
+                // 🆕 智能识别：快速制卡没有块属性，需要自动检测
+                cardType = await this.smartDetectCardType(riffBlock);
+            }
         }
         
         // 🔧 修复：验证 lastReview 日期的有效性

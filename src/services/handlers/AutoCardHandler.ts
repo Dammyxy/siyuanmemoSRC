@@ -94,9 +94,13 @@ export class AutoCardHandler implements ITransactionHandler {
     handle(transactions: Transaction[]): void {
         // 检查快速制卡是否启用
         const quickCardSettings = this.plugin.storage.getSettings().quickCard;
+        console.log('[SiYuanMemo][AutoCard] Quick card settings:', quickCardSettings);
         if (!quickCardSettings?.enabled) {
+            console.log('[SiYuanMemo][AutoCard] Quick card is disabled, skipping');
             return;
         }
+        
+        console.log('[SiYuanMemo][AutoCard] Quick card is enabled, processing transactions');
         
         for (const tx of transactions) {
             if (!tx.doOperations) continue;
@@ -694,64 +698,198 @@ export class AutoCardHandler implements ITransactionHandler {
         try {
             console.log('[SiYuanMemo][AutoCard] Creating concept card:', blockId, 'symbol:', actualSymbol);
             
-            // 1. 解析概念和定义
-            const match = content.match(this.patterns.concept);
-            if (!match) {
-                console.error('[SiYuanMemo][AutoCard] Failed to parse concept card content:', content);
-                return;
+            // 1. 检查是否是块引用格式：((block-id))::定义
+            const blockRefPattern = /\(\((\d{14}-[a-z0-9]{7})[^\)]*\)\)\s*(::|：：)\s*(.+)/;
+            const blockRefMatch = content.match(blockRefPattern);
+            
+            if (blockRefMatch) {
+                // ✅ 块引用格式：[[概念]]::定义
+                const refId = blockRefMatch[1];
+                const definition = blockRefMatch[3].trim();
+                
+                console.log('[SiYuanMemo][AutoCard] Detected block reference format:', refId, definition);
+                
+                // 检查块引用是否指向文档块
+                const { sql } = await import('@/core/siyuan/api');
+                const blockTypeQuery = `
+                    SELECT type, content 
+                    FROM blocks 
+                    WHERE id = '${refId}' 
+                    LIMIT 1
+                `;
+                const typeResult = await sql(blockTypeQuery);
+                
+                if (!typeResult || typeResult.length === 0) {
+                    console.error('[SiYuanMemo][AutoCard] Block reference not found:', refId);
+                    return;
+                }
+                
+                if (typeResult[0].type !== 'd') {
+                    console.log('[SiYuanMemo][AutoCard] Block reference is not a document block, skipping:', refId);
+                    return;
+                }
+                
+                const conceptName = typeResult[0].content;
+                console.log('[SiYuanMemo][AutoCard] Concept name from document block:', conceptName);
+                
+                // ✅ 检测定义中是否包含挖空标记
+                const clozePattern = /==(.+?)==|\{\{(.+?)\}\}/g;
+                const clozes = [...definition.matchAll(clozePattern)];
+                
+                console.log('[SiYuanMemo][AutoCard] Detected clozes in definition:', clozes.length);
+                
+                // 使用 Xiuyuan 创建概念定义卡片
+                const xiuyuanService = this.plugin.xiuyuanService;
+                if (!xiuyuanService) {
+                    console.error('[SiYuanMemo][AutoCard] XiuyuanService not available');
+                    return;
+                }
+                
+                const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
+                
+                if (clozes.length > 0) {
+                    // ✅ 有挖空：使用动态模板，为每个挖空生成一张卡片
+                    console.log('[SiYuanMemo][AutoCard] Creating multi-cloze concept definition cards');
+                    
+                    // 动态生成 cardRules（每个挖空一张卡片）
+                    const dynamicCardRules = clozes.map((_, index) => ({
+                        typeMarker: `concept-definition-cloze-${index}`,
+                        frontFields: ['concept'],
+                        backFields: ['definition'],
+                    }));
+                    
+                    // 创建临时模板
+                    const tempTemplateId = `builtin-concept-definition-cloze-${blockId}`;
+                    const tempTemplate = {
+                        id: tempTemplateId,
+                        name: '概念定义（多挖空）',
+                        description: '概念定义卡片，支持多个挖空',
+                        fields: [
+                            { name: 'concept', description: '概念块' },
+                            { name: 'definition', description: '定义块（包含挖空）' },
+                        ],
+                        cardRules: dynamicCardRules,
+                    };
+                    
+                    // 临时注册模板
+                    xiuyuanService.createTemplate(tempTemplate);
+                    
+                    // 创建卡片
+                    const result = await xiuyuanService.createFromBlocks(
+                        [refId, blockId],
+                        tempTemplateId,
+                        {
+                            concept: refId,
+                            definition: blockId
+                        },
+                        BUILTIN_DECK_ID
+                    );
+                    
+                    if (!result.ok) {
+                        const error = (result as { ok: false; error: Error }).error;
+                        const errorMsg = error instanceof Error ? error.message : String(error);
+                        console.error('[SiYuanMemo][AutoCard] Failed to create multi-cloze concept card:', errorMsg);
+                        return;
+                    }
+                    
+                    console.log('[SiYuanMemo][AutoCard] Created', clozes.length, 'concept definition cards with cloze');
+                    
+                } else {
+                    // ✅ 无挖空：使用标准模板，生成一张卡片
+                    console.log('[SiYuanMemo][AutoCard] Creating single concept definition card');
+                    
+                    const result = await xiuyuanService.createFromBlocks(
+                        [refId, blockId],
+                        'builtin-concept-definition',
+                        {
+                            concept: refId,
+                            definition: blockId
+                        },
+                        BUILTIN_DECK_ID
+                    );
+                    
+                    if (!result.ok) {
+                        const error = (result as { ok: false; error: Error }).error;
+                        const errorMsg = error instanceof Error ? error.message : String(error);
+                        console.error('[SiYuanMemo][AutoCard] Failed to create Xiuyuan concept card:', errorMsg);
+                        return;
+                    }
+                }
+                
+                // 标记为概念卡类型
+                const { setBlockAttrs } = await import('@/core/siyuan/api');
+                await setBlockAttrs(blockId, {
+                    'custom-fsrs-card-type': 'concept'
+                });
+                
+                console.log('[SiYuanMemo][AutoCard] Concept definition card created successfully:', blockId);
+                
+                const { pushMsg } = await import('@/core/siyuan/api');
+                const message = clozes.length > 0 
+                    ? `✅ 已创建 ${clozes.length} 张概念定义卡片（含挖空）`
+                    : `✅ 已创建概念定义卡片 (::)`;
+                await pushMsg(message);
+                
+            } else {
+                // 原有的概念卡逻辑（非块引用格式）
+                const match = content.match(this.patterns.concept);
+                if (!match) {
+                    console.error('[SiYuanMemo][AutoCard] Failed to parse concept card content:', content);
+                    return;
+                }
+                
+                const concept = match[1].trim();
+                const definition = match[3].trim();
+                
+                if (!concept || !definition) {
+                    console.error('[SiYuanMemo][AutoCard] Empty concept or definition:', content);
+                    return;
+                }
+                
+                // 2. 创建 FSRS Card
+                const { createDefaultCard, CardType } = await import('@/types/card');
+                const card = createDefaultCard(blockId);
+                
+                // 3. 标记为 Concept 类型
+                card.type = CardType.Concept;
+                
+                // 4. 设置卡片元数据（默认双向）
+                card.meta = {
+                    ...card.meta,
+                    direction: 'both',
+                    concept,
+                    definition,
+                    cardSource: 'quick-symbol',
+                    symbolType: actualSymbol || '::'
+                };
+                
+                // 5. 添加到 Riff 卡组
+                const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
+                await addRiffCards(BUILTIN_DECK_ID, [blockId]);
+                console.log('[SiYuanMemo][AutoCard] Added to Riff deck:', blockId);
+                
+                // 6. 标记 FSRS 属性（标记为 topic，因为 concept 不是有效的类型）
+                const { markBlockAsCard } = await import('@/core/siyuan/block');
+                await markBlockAsCard(blockId, card.id, card.priority, 'topic');
+                console.log('[SiYuanMemo][AutoCard] Marked block as concept card:', blockId);
+                
+                // 7. 检测并标记卡片类型（concept）
+                // 🆕 使用 CardType 枚举标记为概念卡
+                const { setBlockAttrs } = await import('@/core/siyuan/api');
+                await setBlockAttrs(blockId, {
+                    'custom-card-type-marker': 'concept'
+                });
+                
+                // 8. 保存到存储
+                this.plugin.storage.setCard(card);
+                await this.plugin.storage.saveCards();
+                
+                console.log('[SiYuanMemo][AutoCard] Concept card created successfully:', blockId);
+                
+                // 9. 显示成功提示
+                const { pushMsg } = await import('@/core/siyuan/api');
+                await pushMsg(`✅ 已创建概念卡片 (::)`);
             }
-            
-            const concept = match[1].trim();
-            const definition = match[3].trim();  // 调整索引：match[2]是符号，match[3]是定义
-            
-            if (!concept || !definition) {
-                console.error('[SiYuanMemo][AutoCard] Empty concept or definition:', content);
-                return;
-            }
-            
-            // 2. 创建 FSRS Card
-            const { createDefaultCard, CardType } = await import('@/types/card');
-            const card = createDefaultCard(blockId);
-            
-            // 3. 标记为 Concept 类型
-            card.type = CardType.Concept;
-            
-            // 4. 设置卡片元数据（默认双向）
-            card.meta = {
-                ...card.meta,
-                direction: 'both',
-                concept,
-                definition,
-                cardSource: 'quick-symbol',
-                symbolType: actualSymbol || '::'
-            };
-            
-            // 5. 添加到 Riff 卡组
-            const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
-            await addRiffCards(BUILTIN_DECK_ID, [blockId]);
-            console.log('[SiYuanMemo][AutoCard] Added to Riff deck:', blockId);
-            
-            // 6. 标记 FSRS 属性（标记为 topic，因为 concept 不是有效的类型）
-            const { markBlockAsCard } = await import('@/core/siyuan/block');
-            await markBlockAsCard(blockId, card.id, card.priority, 'topic');
-            console.log('[SiYuanMemo][AutoCard] Marked block as concept card:', blockId);
-            
-            // 7. 检测并标记卡片类型（concept）
-            // 🆕 使用 CardType 枚举标记为概念卡
-            const { setBlockAttrs } = await import('@/core/siyuan/api');
-            await setBlockAttrs(blockId, {
-                'custom-card-type-marker': 'concept'
-            });
-            
-            // 8. 保存到存储
-            this.plugin.storage.setCard(card);
-            await this.plugin.storage.saveCards();
-            
-            console.log('[SiYuanMemo][AutoCard] Concept card created successfully:', blockId);
-            
-            // 9. 显示成功提示
-            const { pushMsg } = await import('@/core/siyuan/api');
-            await pushMsg(`✅ 已创建概念卡片 (::)`);
         } catch (error) {
             console.error('[SiYuanMemo][AutoCard] Failed to create concept card:', blockId, error);
             const { pushErrMsg } = await import('@/core/siyuan/api');
@@ -785,59 +923,24 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
             
-            // 2. 检查父块是否为概念（支持多层向上查找）
-            const { sql } = await import('@/core/siyuan/api');
+            // 2. ✅ 检查是否有列表项父级
+            const hasListParent = await this.hasListItemParent(blockId);
+            console.log('[SiYuanMemo][AutoCard] Has list item parent:', hasListParent);
             
-            // 向上查找最多 4 层，寻找概念卡
-            let currentId = blockId;
             let foundConceptId: string | null = null;
-            const maxDepth = 4;
             
-            for (let depth = 0; depth < maxDepth; depth++) {
-                const parentQuery = `SELECT parent_id FROM blocks WHERE id = '${currentId}' LIMIT 1`;
-                const parentResult = await sql(parentQuery);
-                
-                if (!parentResult || parentResult.length === 0 || !parentResult[0]?.parent_id) {
-                    console.log(`[SiYuanMemo][AutoCard] No parent at depth ${depth}`);
-                    break;
-                }
-                
-                const parentId = parentResult[0].parent_id;
-                console.log(`[SiYuanMemo][AutoCard] Checking parent at depth ${depth}:`, parentId);
-                
-                // 检查父块是否是概念卡（两种方式）
-                const { getBlockKramdown } = await import('@/core/siyuan/api');
-                const { kramdown: parentContent } = await getBlockKramdown(parentId);
-                
-                console.log(`[SiYuanMemo][AutoCard] Parent content at depth ${depth}:`, parentContent?.substring(0, 100));
-                
-                // 方式1：父块本身包含概念符号（::）
-                let isParentConcept = parentContent && this.patterns.concept.test(parentContent);
-                
-                console.log(`[SiYuanMemo][AutoCard] Parent has concept symbol (::) at depth ${depth}:`, isParentConcept);
-                
-                if (isParentConcept) {
-                    foundConceptId = parentId;
-                    console.log(`[SiYuanMemo][AutoCard] Found concept card at depth ${depth}:`, parentId);
-                    break;
-                }
-                
-                // 方式2：父块包含块引用
-                if (parentContent) {
-                    console.log(`[SiYuanMemo][AutoCard] Checking for block reference at depth ${depth}...`);
-                    const refResult = await this.findOrCreateConceptFromBlockRef(parentContent);
-                    if (refResult) {
-                        foundConceptId = refResult;
-                        console.log(`[SiYuanMemo][AutoCard] Found/created concept card from reference at depth ${depth}:`, refResult);
-                        break;
-                    }
-                }
-                
-                currentId = parentId;
+            if (hasListParent) {
+                // 情况 A：有列表项父级，正常向上探索（最多 4 层）
+                console.log('[SiYuanMemo][AutoCard] Case A: Has list parent, searching ancestors...');
+                foundConceptId = await this.findConceptInAncestors(blockId, 4);
+            } else {
+                // 情况 B：无列表项父级，查找最近的标题块或文档块
+                console.log('[SiYuanMemo][AutoCard] Case B: No list parent, searching heading/document...');
+                foundConceptId = await this.findConceptWithoutListParent(blockId);
             }
             
             if (!foundConceptId) {
-                console.log('[SiYuanMemo][AutoCard] No concept card found in ancestor chain, creating as basic card');
+                console.log('[SiYuanMemo][AutoCard] No concept card found, creating as basic card');
                 // 降级为普通卡片
                 await this.createBasicCardFromDescriptor(blockId, attribute, description, actualSymbol);
                 return;
@@ -1316,6 +1419,8 @@ export class AutoCardHandler implements ITransactionHandler {
     /**
      * 从块引用中查找或创建概念卡
      * 如果块引用不是概念卡，自动将其转换为概念卡
+     * 
+     * ✅ 新增限制：只处理指向文档块的块引用
      */
     private async findOrCreateConceptFromBlockRef(content: string): Promise<string | null> {
         try {
@@ -1335,6 +1440,22 @@ export class AutoCardHandler implements ITransactionHandler {
             for (const match of matches) {
                 const refId = match[1];
                 console.log('[SiYuanMemo][AutoCard] Checking block reference:', refId);
+                
+                // ✅ 新增：检查块引用是否指向文档块
+                const blockTypeQuery = `
+                    SELECT type 
+                    FROM blocks 
+                    WHERE id = '${refId}' 
+                    LIMIT 1
+                `;
+                const typeResult = await sql(blockTypeQuery);
+                
+                if (!typeResult || typeResult.length === 0 || typeResult[0].type !== 'd') {
+                    console.log('[SiYuanMemo][AutoCard] Block reference is not a document block, skipping:', refId);
+                    continue;  // 跳过非文档块的引用
+                }
+                
+                console.log('[SiYuanMemo][AutoCard] Block reference is a document block:', refId);
                 
                 // 检查是否已经是概念卡
                 const cardTypeQuery = `
@@ -1357,7 +1478,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     return refId;
                 }
                 
-                // 🆕 自动将块引用标记为概念卡（不创建实际卡片，只标记类型）
+                // 自动将块引用标记为概念卡（不创建实际卡片，只标记类型）
                 console.log('[SiYuanMemo][AutoCard] Auto-marking block as concept card:', refId);
                 
                 // 获取块内容作为概念名称
@@ -1372,16 +1493,47 @@ export class AutoCardHandler implements ITransactionHandler {
                 const conceptName = blockResult[0].content;
                 console.log('[SiYuanMemo][AutoCard] Marking as concept card:', conceptName);
                 
-                // 直接标记为概念卡（不需要创建 Xiuyuan 卡片）
+                // 标记为概念卡
                 await setBlockAttrs(refId, {
                     'custom-fsrs-card-type': 'concept'
                 });
                 
                 console.log('[SiYuanMemo][AutoCard] Successfully marked as concept card:', refId);
                 
+                // ✅ 创建空概念卡（使用 FSRS 卡片，不使用 Xiuyuan）
+                try {
+                    const { createDefaultCard, CardType } = await import('@/types/card');
+                    const card = createDefaultCard(refId);
+                    
+                    // 标记为概念卡类型
+                    card.type = CardType.Concept;
+                    card.meta = {
+                        ...card.meta,
+                        concept: conceptName,
+                        cardSource: 'auto-concept',
+                        hasDefinition: false  // 标记为空概念卡
+                    };
+                    
+                    // 添加到 Riff 卡组
+                    const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
+                    await addRiffCards(BUILTIN_DECK_ID, [refId]);
+                    
+                    // 标记 FSRS 属性
+                    const { markBlockAsCard } = await import('@/core/siyuan/block');
+                    await markBlockAsCard(refId, card.id, card.priority, 'topic');
+                    
+                    // 保存到存储
+                    this.plugin.storage.setCard(card);
+                    await this.plugin.storage.saveCards();
+                    
+                    console.log('[SiYuanMemo][AutoCard] Empty concept card created:', refId);
+                } catch (error) {
+                    console.error('[SiYuanMemo][AutoCard] Failed to create empty concept card:', error);
+                }
+                
                 // 显示提示
                 const { pushMsg } = await import('@/core/siyuan/api');
-                await pushMsg(`✅ 自动标记为概念卡：${conceptName}`);
+                await pushMsg(`✅ 自动创建概念卡：${conceptName}`);
                 
                 return refId;
             }
@@ -1391,5 +1543,243 @@ export class AutoCardHandler implements ITransactionHandler {
             console.error('[SiYuanMemo][AutoCard] Error finding/creating concept from block ref:', error);
             return null;
         }
+    }
+    
+    /**
+     * 检查块是否有列表项块父级
+     * @param blockId 块 ID
+     * @returns 是否有列表项父级
+     */
+    private async hasListItemParent(blockId: string): Promise<boolean> {
+        const { sql } = await import('@/core/siyuan/api');
+        
+        let currentId = blockId;
+        const maxDepth = 10;  // 向上查找最多 10 层
+        
+        for (let depth = 0; depth < maxDepth; depth++) {
+            const query = `
+                SELECT parent_id 
+                FROM blocks 
+                WHERE id = '${currentId}' 
+                LIMIT 1
+            `;
+            const result = await sql(query);
+            
+            if (!result || result.length === 0 || !result[0]?.parent_id) {
+                break;
+            }
+            
+            const parentId = result[0].parent_id;
+            
+            // 查询父块类型
+            const parentQuery = `
+                SELECT type 
+                FROM blocks 
+                WHERE id = '${parentId}' 
+                LIMIT 1
+            `;
+            const parentResult = await sql(parentQuery);
+            
+            if (parentResult && parentResult.length > 0) {
+                const parentType = parentResult[0].type;
+                
+                // 如果是列表项块，返回 true
+                if (parentType === 'i') {
+                    console.log('[SiYuanMemo][AutoCard] Found list item parent at depth', depth, ':', parentId);
+                    return true;
+                }
+                
+                // 如果到达文档块，停止查找
+                if (parentType === 'd') {
+                    console.log('[SiYuanMemo][AutoCard] Reached document block without finding list parent');
+                    break;
+                }
+            }
+            
+            currentId = parentId;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * 无列表项父级时查找概念卡
+     * 规则：
+     * 1. 向上查找最近的标题块 (type='h') → 标题块作为概念卡
+     * 2. 如果没有标题块 → 文档块 (type='d') 作为概念卡
+     * 
+     * @param blockId 块 ID
+     * @returns 概念卡 ID
+     */
+    private async findConceptWithoutListParent(blockId: string): Promise<string | null> {
+        const { sql, setBlockAttrs } = await import('@/core/siyuan/api');
+        
+        let currentId = blockId;
+        let firstHeadingId: string | null = null;
+        let documentId: string | null = null;
+        const maxDepth = 20;  // 向上查找最多 20 层
+        
+        for (let depth = 0; depth < maxDepth; depth++) {
+            const query = `
+                SELECT parent_id 
+                FROM blocks 
+                WHERE id = '${currentId}' 
+                LIMIT 1
+            `;
+            const result = await sql(query);
+            
+            if (!result || result.length === 0 || !result[0]?.parent_id) {
+                break;
+            }
+            
+            const parentId = result[0].parent_id;
+            
+            // 查询父块类型
+            const parentQuery = `
+                SELECT type, content 
+                FROM blocks 
+                WHERE id = '${parentId}' 
+                LIMIT 1
+            `;
+            const parentResult = await sql(parentQuery);
+            
+            if (parentResult && parentResult.length > 0) {
+                const parentType = parentResult[0].type;
+                const parentContent = parentResult[0].content;
+                
+                // 记录第一个标题块
+                if (parentType === 'h' && !firstHeadingId) {
+                    firstHeadingId = parentId;
+                    console.log('[SiYuanMemo][AutoCard] Found first heading block:', parentId, parentContent);
+                }
+                
+                // 记录文档块
+                if (parentType === 'd') {
+                    documentId = parentId;
+                    console.log('[SiYuanMemo][AutoCard] Found document block:', parentId);
+                    break;  // 到达文档块，停止查找
+                }
+            }
+            
+            currentId = parentId;
+        }
+        
+        // 决定使用哪个作为概念卡
+        let conceptId: string | null = null;
+        let conceptType: 'heading' | 'document' | null = null;
+        
+        if (firstHeadingId) {
+            conceptId = firstHeadingId;
+            conceptType = 'heading';
+            console.log('[SiYuanMemo][AutoCard] Using heading block as concept card:', conceptId);
+        } else if (documentId) {
+            conceptId = documentId;
+            conceptType = 'document';
+            console.log('[SiYuanMemo][AutoCard] Using document block as concept card:', conceptId);
+        }
+        
+        if (!conceptId) {
+            console.warn('[SiYuanMemo][AutoCard] No concept block found (no heading or document)');
+            return null;
+        }
+        
+        // 标记为概念卡
+        await setBlockAttrs(conceptId, {
+            'custom-fsrs-card-type': 'concept'
+        });
+        
+        // ✅ 创建空概念卡（使用 FSRS 卡片，不使用 Xiuyuan）
+        try {
+            // 获取概念名称
+            const blockQuery = `SELECT content FROM blocks WHERE id = '${conceptId}' LIMIT 1`;
+            const blockResult = await sql(blockQuery);
+            const conceptName = blockResult && blockResult.length > 0 ? blockResult[0].content : '未知概念';
+            
+            const { createDefaultCard, CardType } = await import('@/types/card');
+            const card = createDefaultCard(conceptId);
+            
+            // 标记为概念卡类型
+            card.type = CardType.Concept;
+            card.meta = {
+                ...card.meta,
+                concept: conceptName,
+                cardSource: 'auto-concept',
+                hasDefinition: false  // 标记为空概念卡
+            };
+            
+            // 添加到 Riff 卡组
+            const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
+            await addRiffCards(BUILTIN_DECK_ID, [conceptId]);
+            
+            // 标记 FSRS 属性
+            const { markBlockAsCard } = await import('@/core/siyuan/block');
+            await markBlockAsCard(conceptId, card.id, card.priority, 'topic');
+            
+            // 保存到存储
+            this.plugin.storage.setCard(card);
+            await this.plugin.storage.saveCards();
+            
+            console.log('[SiYuanMemo][AutoCard] Empty concept card created:', conceptId);
+        } catch (error) {
+            console.error('[SiYuanMemo][AutoCard] Failed to create empty concept card:', error);
+        }
+        
+        // 显示提示
+        const { pushMsg } = await import('@/core/siyuan/api');
+        const conceptTypeName = conceptType === 'heading' ? '标题块' : '文档块';
+        await pushMsg(`✅ 自动创建概念卡：${conceptTypeName}`);
+        
+        return conceptId;
+    }
+    
+    /**
+     * 在祖先链中查找概念卡（有列表项父级的情况）
+     * 
+     * ✅ 优化：只识别文档块的块引用，不识别概念符号 ::
+     * 
+     * 原因：
+     * - 概念符号 :: 是用来创建概念定义卡的，不是用来标识概念的
+     * - 描述符卡应该关联到概念文档（文档块），而不是定义块
+     * - 语义更清晰，逻辑更简单
+     * 
+     * @param blockId 块 ID
+     * @param maxDepth 最大深度
+     * @returns 概念卡 ID（文档块）
+     */
+    private async findConceptInAncestors(blockId: string, maxDepth: number): Promise<string | null> {
+        const { sql, getBlockKramdown } = await import('@/core/siyuan/api');
+        
+        let currentId = blockId;
+        
+        for (let depth = 0; depth < maxDepth; depth++) {
+            const parentQuery = `SELECT parent_id FROM blocks WHERE id = '${currentId}' LIMIT 1`;
+            const parentResult = await sql(parentQuery);
+            
+            if (!parentResult || parentResult.length === 0 || !parentResult[0]?.parent_id) {
+                console.log(`[SiYuanMemo][AutoCard] No parent at depth ${depth}`);
+                break;
+            }
+            
+            const parentId = parentResult[0].parent_id;
+            console.log(`[SiYuanMemo][AutoCard] Checking parent at depth ${depth}:`, parentId);
+            
+            // 检查父块内容
+            const { kramdown: parentContent } = await getBlockKramdown(parentId);
+            console.log(`[SiYuanMemo][AutoCard] Parent content at depth ${depth}:`, parentContent?.substring(0, 100));
+            
+            // ✅ 只识别块引用（必须指向文档块）
+            if (parentContent) {
+                console.log(`[SiYuanMemo][AutoCard] Checking for block reference at depth ${depth}...`);
+                const refResult = await this.findOrCreateConceptFromBlockRef(parentContent);
+                if (refResult) {
+                    console.log(`[SiYuanMemo][AutoCard] Found/created concept card from reference at depth ${depth}:`, refResult);
+                    return refResult;
+                }
+            }
+            
+            currentId = parentId;
+        }
+        
+        return null;
     }
 }

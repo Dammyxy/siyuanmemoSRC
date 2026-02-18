@@ -37,11 +37,11 @@ export type SchedulerEngine = 'simple-fsrs' | 'sm2' | 'sm15' | 'a-factor-v2';
 
 /** 🆕 调度器配置 */
 export interface SchedulerConfig {
-    defaultScheduler: 'fsrs-v5' | 'sm15' | 'a-factor-v2';
+    defaultScheduler: 'fsrs-v6' | 'sm15' | 'a-factor-v2';
 
     // 按卡片类型配置（可选）
     topicScheduler?: 'a-factor-v2';  // Topic 固定使用 A-Factor v2
-    itemScheduler?: 'fsrs-v5' | 'sm15';
+    itemScheduler?: 'fsrs-v6' | 'sm15';
 
     sm15?: {
         requestedFI: number;     // 遗忘指数 (0-100)
@@ -194,6 +194,10 @@ export interface RiffIntegrationConfig {
 export interface PluginSettings {
     // FSRS 算法
     fsrs: FSRSParameters;
+    
+    /**
+     * @deprecated 已废弃，保留用于向后兼容。请使用 scheduler.defaultScheduler
+     */
     schedulerEngine: SchedulerEngine;
 
     // 🆕 调度器配置
@@ -264,11 +268,11 @@ export const DEFAULT_SETTINGS: PluginSettings = {
         enableShortTerm: true,
         dayStartHour: 4,  // 🆕 默认凌晨4点
     },
-    schedulerEngine: 'simple-fsrs',
+    schedulerEngine: 'simple-fsrs',  // ⚠️ 已废弃，保留用于向后兼容
     scheduler: {
-        defaultScheduler: 'fsrs-v5',
+        defaultScheduler: 'fsrs-v6',
         topicScheduler: 'a-factor-v2',
-        itemScheduler: 'fsrs-v5',
+        itemScheduler: 'fsrs-v6',
         sm15: {
             requestedFI: 10,
             intervalBase: 1,
@@ -301,7 +305,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
         autoCardEnabled: false,
     },
     quickCard: {
-        enabled: true,
+        enabled: false,  // 🆕 默认关闭，避免误触发
         enabledSymbols: {
             basic: true,
             concept: true,

@@ -72,7 +72,7 @@
           <label>{{ t('itemScheduler', 'Item/Descriptor Card Scheduler') }}</label>
           <div class="form-control">
             <select v-model="schedulerConfig.defaultScheduler" class="scheduler-select" disabled>
-              <option value="fsrs-v5">{{ t('schedulerFsrsV5', 'FSRS v6') }}</option>
+              <option value="fsrs-v6">{{ t('schedulerFsrsV6', 'FSRS v6') }}</option>
             </select>
           </div>
           <p class="form-hint">
@@ -100,10 +100,21 @@
         <div class="fn__hr"></div>
 
         <!-- Quick Card Symbols -->
-        <h3>{{ t('quickCardTitle', 'Quick Card Symbols') }}</h3>
+        <h3>{{ t('quickCardTitle', '监听符号制卡') }}</h3>
         
-        <p class="form-hint" style="margin-bottom: 16px;">
-          Quick card symbol feature is enabled by default, supporting all symbol types (&gt;&gt;, &lt;&lt;, &lt;&gt;, ::, ;;, &#123;&#123;&#125;&#125;, &gt;&gt;&gt;).
+        <!-- 启用开关 -->
+        <div class="form-item">
+          <label>{{ t('quickCardEnabled', '启用监听符号制卡') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.quickCard.enabled">
+          </div>
+          <p class="form-hint">
+            {{ t('quickCardEnabledHint', '启用后，插件会监听块内容变化，自动检测符号并创建卡片。默认关闭，避免误触发。') }}
+          </p>
+        </div>
+        
+        <p class="form-hint" style="margin-bottom: 16px;" v-if="settings.quickCard.enabled">
+          ✅ {{ t('quickCardSymbolsInfo', '支持的符号类型') }}：&gt;&gt;, &lt;&lt;, &lt;&gt;, ::, ;;, &#123;&#123;&#125;&#125;, &gt;&gt;&gt;
         </p>
 
         <div class="fn__hr"></div>
@@ -518,6 +529,9 @@ interface Settings {
   enableShortTerm: boolean;
   params: number[];
   dayStartHour: number;  // 🆕 每日刷新时间
+  quickCard: {  // 🆕 快速制卡设置
+    enabled: boolean;
+  };
 }
 
 const settings = ref<Settings>({
@@ -526,6 +540,9 @@ const settings = ref<Settings>({
   enableShortTerm: true,
   params: [...DEFAULT_PARAMS],
   dayStartHour: 4,  // 🆕 默认值：凌晨4点
+  quickCard: {  // 🆕 默认值
+    enabled: false,
+  },
 });
 
 // 🆕 快速制卡设置
@@ -606,13 +623,16 @@ function loadSettings() {
       enableShortTerm: props.fsrsSettings.enableShortTerm,
       params: [...props.fsrsSettings.weights],
       dayStartHour: props.fsrsSettings.dayStartHour ?? 4,  // 🆕 加载 dayStartHour 配置
+      quickCard: {  // 🆕 初始化 quickCard 字段
+        enabled: props.quickCardSettings?.enabled ?? false,
+      },
     };
   }
   
   // 🆕 加载快速制卡设置
   if (props.quickCardSettings) {
     quickCardSettings.value = {
-      enabled: props.quickCardSettings.enabled ?? true,
+      enabled: props.quickCardSettings.enabled ?? false,  // 🔧 修改默认值为 false
       enabledSymbols: {
         basic: props.quickCardSettings.enabledSymbols?.basic ?? true,
         concept: props.quickCardSettings.enabledSymbols?.concept ?? true,
@@ -651,9 +671,9 @@ function loadSettings() {
   // 🆕 加载调度器配置
   if (props.schedulerSettings) {
     schedulerConfig.value = {
-      defaultScheduler: props.schedulerSettings.defaultScheduler || 'fsrs-v5',
+      defaultScheduler: props.schedulerSettings.defaultScheduler || 'fsrs-v6',
       topicScheduler: props.schedulerSettings.topicScheduler || 'a-factor-v2',
-      itemScheduler: props.schedulerSettings.itemScheduler || 'fsrs-v5',
+      itemScheduler: props.schedulerSettings.itemScheduler || 'fsrs-v6',
     };
   }
 
@@ -701,9 +721,9 @@ function saveSettings() {
   emit('save', {
     ...settings.value,
     queues,
-    // 🆕 保存快速制卡配置
+    // 🆕 保存快速制卡配置（使用 settings.quickCard，因为模板绑定的是这个）
     quickCard: {
-      enabled: quickCardSettings.value.enabled,
+      enabled: settings.value.quickCard.enabled,  // 🔧 修复：使用 settings.quickCard 而不是 quickCardSettings
       enabledSymbols: quickCardSettings.value.enabledSymbols,
       debounceDelay: quickCardSettings.value.debounceDelay,
       descriptorUseXiuyuan: quickCardSettings.value.descriptorUseXiuyuan,
@@ -735,15 +755,18 @@ function resetSettings() {
     enableShortTerm: true,
     params: [...DEFAULT_PARAMS],
     dayStartHour: 4,  // 🆕 重置为默认值4
+    quickCard: {  // 🆕 重置快速制卡设置
+      enabled: false,
+    },
   };
 }
 
 // 🆕 重置调度器设置
 function resetSchedulerSettings() {
   schedulerConfig.value = {
-    defaultScheduler: 'fsrs-v5',
+    defaultScheduler: 'fsrs-v6',
     topicScheduler: 'a-factor-v2',
-    itemScheduler: 'fsrs-v5',
+    itemScheduler: 'fsrs-v6',
   };
 }
 

@@ -211,6 +211,52 @@ export const MULTI_CLOZE_TEMPLATE: ICardTemplate = {
   cardRules: [], // 动态生成，根据填空数量
 };
 
+/**
+ * 概念定义模板
+ * 
+ * @description
+ * 用于概念及其定义的卡片。
+ * 当一个块引用（指向文档块）使用 :: 符号时，自动识别为概念定义卡：
+ * - 块引用的文档块标题作为概念名称
+ * - :: 后面的内容作为定义
+ * 
+ * @example
+ * ```markdown
+ * [[思源]]::本地 PKM 软件
+ * ```
+ * 
+ * 生成的卡片：
+ * - 正面：思源的定义？
+ * - 背面：本地 PKM 软件
+ * 
+ * 支持定义挖空：
+ * ```markdown
+ * [[思源]]::本地 ==PKM== 软件
+ * ```
+ * 
+ * 生成多张卡片（通过 Xiuyuan 的挖空功能）
+ * 
+ * 字段说明：
+ * - concept: 概念块（块引用指向的文档块）
+ * - definition: 定义块（包含 :: 符号的块）
+ */
+export const CONCEPT_DEFINITION_TEMPLATE: ICardTemplate = {
+  id: 'builtin-concept-definition',
+  name: '概念定义',
+  description: '用于概念及其定义的卡片',
+  fields: [
+    { name: 'concept', description: '概念块（块引用指向的文档块）' },
+    { name: 'definition', description: '定义块（包含 :: 符号的块）' },
+  ],
+  cardRules: [
+    {
+      typeMarker: 'concept-definition',
+      frontFields: ['concept'],
+      backFields: ['definition'],
+    },
+  ],
+};
+
 /** 所有内置模板 */
 export const BUILTIN_TEMPLATES: ICardTemplate[] = [
   BASIC_QA_TEMPLATE,
@@ -220,4 +266,5 @@ export const BUILTIN_TEMPLATES: ICardTemplate[] = [
   MULTI_CLOZE_TEMPLATE,
   LIST_ITEM_TEMPLATE,
   CONCEPT_DESCRIPTOR_TEMPLATE,
+  CONCEPT_DEFINITION_TEMPLATE,  // ← 新增
 ];

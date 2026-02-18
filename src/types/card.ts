@@ -78,7 +78,7 @@ export interface FSRSCard {
     aFactor?: number;     // A-Factor (仅 Topic 卡片，1.2-6.0)
 
     // === 🆕 调度器相关字段 ===
-    schedulerType?: 'fsrs-v5' | 'sm2' | 'sm15' | 'a-factor' | 'a-factor-v2' | 'riff';
+    schedulerType?: 'fsrs-v6' | 'sm2' | 'sm15' | 'a-factor' | 'a-factor-v2' | 'riff';
     syncToRiff?: boolean;     // 是否同步到 Riff
     riffCardId?: string;      // Riff 卡片 ID
     schedulerMeta?: {
