@@ -17,7 +17,7 @@ import type { StorageManager } from '@/core/storage/manager';
 import type { FSRSCard } from '@/types';
 import { getRiffCards, getRiffNewCards, removeRiffCards, type RiffBlock } from '@/core/siyuan/riff';
 import { batchDetectCardType, initializeAFactor } from '@/core/card-builder';
-import { setBlockAttrs, getBlockAttrs } from '@/core/siyuan/api';
+import { setBlockAttrs, getBlockAttrs, getBlockKramdown } from '@/core/siyuan/api';
 import { ATTR_CARD_TYPE, ATTR_A_FACTOR } from '@/core/siyuan/block';
 import { EventEmitter } from '@/utils/EventEmitter';
 import type {
@@ -495,13 +495,37 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
             
             if (xiuyuanID) {
                 // 这是一个 Xiuyuan 卡片
-                console.log(`[SiYuanMemo][HybridSync] Adding new Xiuyuan card: ${blockId}, xiuyuanID: ${xiuyuanID}`);
+                console.log(`[SiYuanMemo][HybridSync] Detected Xiuyuan card: ${blockId}, xiuyuanID: ${xiuyuanID}`);
                 
-                // 跨设备同步：本地没有该 Xiuyuan 的卡片
-                console.warn(`[SiYuanMemo][HybridSync] Xiuyuan ${xiuyuanID} not found locally. Cross-device rebuild not yet implemented.`);
-                console.warn(`[SiYuanMemo][HybridSync] Please manually create the Xiuyuan on this device, or wait for future implementation.`);
-                // TODO: 实现跨设备重建逻辑
-                // await this.rebuildXiuyuanFromBlock(blockId, xiuyuanID, attrs['custom-fsrs-template-id'], riffCard);
+                // 检查本地是否已有该卡片（文件可能已通过思源同步）
+                const existingCards = this.storage.getCardsByBlockId(blockId);
+                
+                if (existingCards.length > 0) {
+                    // 本地已有卡片，只需要同步 FSRS 调度数据
+                    console.log(`[SiYuanMemo][HybridSync] Xiuyuan card exists locally, updating FSRS data from Riff`);
+                    
+                    for (const card of existingCards) {
+                        // 更新 FSRS 调度数据
+                        card.due = riffCard.due;
+                        card.state = riffCard.state;
+                        card.stability = riffCard.stability;
+                        card.difficulty = riffCard.difficulty;
+                        card.reps = riffCard.reps;
+                        card.lapses = riffCard.lapses;
+                        card.lastReview = riffCard.lastReview;
+                        card.elapsedDays = riffCard.elapsedDays;
+                        card.scheduledDays = riffCard.scheduledDays;
+                        card.updatedAt = Date.now();
+                        
+                        this.storage.setCard(card);
+                    }
+                    
+                    console.log(`[SiYuanMemo][HybridSync] Updated ${existingCards.length} Xiuyuan card(s) FSRS data`);
+                    return;
+                }
+                
+                // 本地没有卡片：等待思源同步 msgpack 文件
+                console.log(`[SiYuanMemo][HybridSync] Xiuyuan ${xiuyuanID} not found locally, waiting for file sync from SiYuan`);
                 return;
             } else {
                 // 普通卡片：添加新卡片

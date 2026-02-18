@@ -823,11 +823,6 @@ export default class FSRSPlugin extends Plugin {
           start: () => this.startPracticeQueue(),
           clear: () => this.clearPracticeQueue(),
         },
-        optimizationHandlers: {  // 🆕 参数优化处理器
-          optimize: async (config: any) => {
-            return await this.optimizeParameters(config);
-          },
-        },
       },
       events: {
         save: async (settings: any) => {
@@ -1311,37 +1306,6 @@ export default class FSRSPlugin extends Plugin {
     
     this.openDrillDialogWithCards(cards, 'queue');
   }
-
-  /**
-   * 🆕 优化 FSRS 参数
-   * 
-   * 根据用户的复习历史数据优化 FSRS 参数
-   */
-  private async optimizeParameters(config: any): Promise<any> {
-    const { ParameterOptimizer } = await import('@/core/scheduler/services/ParameterOptimizer');
-    
-    // 获取所有复习历史
-    const reviewLogs = await this.storage.getAllReviewLogs();
-    
-    if (!reviewLogs || reviewLogs.length < 100) {
-      throw new Error(this.i18n?.notEnoughReviewData || '复习数据不足，需要至少 100 条复习记录才能进行参数优化。');
-    }
-    
-    // 创建优化器并执行优化
-    const optimizer = new ParameterOptimizer();
-    const result = await optimizer.optimize(reviewLogs, {
-      enableShortTerm: config.enableShortTerm,
-      progress: config.progress,
-      timeout: 300000, // 5分钟超时
-    });
-    
-    console.log('[Plugin] Parameter optimization completed:', result);
-    
-    return result;
-  }
-
-
-
 
   /**
    * 在新窗口中打开复习界面（优雅实现 - 参考思源原生）
