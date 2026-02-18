@@ -1,167 +1,95 @@
 ﻿/**
- * 统一的日志管理工具
+ * 插件日志工具
+ * 
+ * 特性：
+ * - 统一的日志接口，自动添加 [SiYuanMemo] 前缀
+ * - 开发环境：所有日志正常输出
+ * - 生产环境：由 Vite/Terser 自动移除（见 vite.config.ts）
+ * - 不劫持全局 console 对象
  * 
  * 使用方法：
+ * ```typescript
  * import { logger } from '@/utils/logger';
- * logger.log('My message', data);
- * logger.warn('Warning', data);
- * logger.error('Error', error);
  * 
- * 控制日志输出：
- * - 开发模式：所有日志都输出
- * - 生产模式：只输出 error 和 warn
- * - 可以通过 logger.setEnabled(false) 完全禁用
+ * logger.log('普通日志');
+ * logger.debug('调试信息');
+ * logger.info('提示信息');
+ * logger.warn('警告信息');
+ * logger.error('错误信息', error);
+ * ```
+ * 
+ * 带模块标签的日志：
+ * ```typescript
+ * import { createLogger } from '@/utils/logger';
+ * 
+ * const logger = createLogger('ModuleName');
+ * logger.log('模块日志'); // 输出: [SiYuanMemo][ModuleName] 模块日志
+ * ```
+ * 
+ * 日志级别说明：
+ * - log/debug/info: 开发环境输出，生产环境自动移除
+ * - warn/error: 所有环境都输出，用于重要提示
  */
-
-export type LogLevel = 'debug' | 'log' | 'info' | 'warn' | 'error';
-
 class Logger {
-  private enabled: boolean = true;
-  private isDevelopment: boolean = import.meta.env.DEV;
-  private prefix: string = '[SiYuanMemo]';
-
-  /**
-   * 设置是否启用日志
-   */
-  setEnabled(enabled: boolean): void {
-    this.enabled = enabled;
+  private readonly prefix: string;
+  
+  constructor(tag?: string) {
+    this.prefix = tag ? `[SiYuanMemo][${tag}]` : '[SiYuanMemo]';
   }
-
-  /**
-   * 检查是否应该输出日志
-   */
-  private shouldLog(level: LogLevel): boolean {
-    if (!this.enabled) return false;
-    
-    // 生产模式只输出 warn 和 error
-    if (!this.isDevelopment) {
-      return level === 'warn' || level === 'error';
-    }
-    
-    // 开发模式输出所有日志
-    return true;
-  }
-
-  /**
-   * 格式化日志前缀
-   */
-  private formatPrefix(level: LogLevel, tag?: string): string {
-    const parts = [this.prefix];
-    if (tag) parts.push(`[${tag}]`);
-    return parts.join(' ');
-  }
-
-  /**
-   * Debug 日志（仅开发模式）
-   */
-  debug(message: string, ...args: any[]): void {
-    if (this.shouldLog('debug')) {
-      console.debug(this.formatPrefix('debug'), message, ...args);
-    }
-  }
-
+  
   /**
    * 普通日志
+   * 生产环境会被 Terser 移除
    */
-  log(message: string, ...args: any[]): void {
-    if (this.shouldLog('log')) {
-      console.log(this.formatPrefix('log'), message, ...args);
-    }
+  log(...args: any[]): void {
+    console.log(this.prefix, ...args);
   }
-
+  
+  /**
+   * 调试日志
+   * 生产环境会被 Terser 移除
+   */
+  debug(...args: any[]): void {
+    console.debug(this.prefix, ...args);
+  }
+  
   /**
    * 信息日志
+   * 生产环境会被 Terser 移除
    */
-  info(message: string, ...args: any[]): void {
-    if (this.shouldLog('info')) {
-      console.info(this.formatPrefix('info'), message, ...args);
-    }
+  info(...args: any[]): void {
+    console.info(this.prefix, ...args);
   }
-
+  
   /**
-   * 警告日志（生产模式也会输出）
+   * 警告日志
+   * 生产环境保留，用于重要提示
    */
-  warn(message: string, ...args: any[]): void {
-    if (this.shouldLog('warn')) {
-      console.warn(this.formatPrefix('warn'), message, ...args);
-    }
+  warn(...args: any[]): void {
+    console.warn(this.prefix, ...args);
   }
-
+  
   /**
-   * 错误日志（生产模式也会输出）
+   * 错误日志
+   * 生产环境保留，用于错误报告
    */
-  error(message: string, ...args: any[]): void {
-    if (this.shouldLog('error')) {
-      console.error(this.formatPrefix('error'), message, ...args);
-    }
-  }
-
-  /**
-   * 分组日志
-   */
-  group(label: string): void {
-    if (this.shouldLog('log')) {
-      console.group(this.formatPrefix('log') + ' ' + label);
-    }
-  }
-
-  /**
-   * 结束分组
-   */
-  groupEnd(): void {
-    if (this.shouldLog('log')) {
-      console.groupEnd();
-    }
-  }
-
-  /**
-   * 创建带标签的日志器
-   */
-  withTag(tag: string): TaggedLogger {
-    return new TaggedLogger(this, tag);
+  error(...args: any[]): void {
+    console.error(this.prefix, ...args);
   }
 }
 
-/**
- * 带标签的日志器
- */
-class TaggedLogger {
-  constructor(
-    private logger: Logger,
-    private tag: string
-  ) {}
-
-  debug(message: string, ...args: any[]): void {
-    this.logger.debug(`[${this.tag}] ${message}`, ...args);
-  }
-
-  log(message: string, ...args: any[]): void {
-    this.logger.log(`[${this.tag}] ${message}`, ...args);
-  }
-
-  info(message: string, ...args: any[]): void {
-    this.logger.info(`[${this.tag}] ${message}`, ...args);
-  }
-
-  warn(message: string, ...args: any[]): void {
-    this.logger.warn(`[${this.tag}] ${message}`, ...args);
-  }
-
-  error(message: string, ...args: any[]): void {
-    this.logger.error(`[${this.tag}] ${message}`, ...args);
-  }
-
-  group(label: string): void {
-    this.logger.group(`[${this.tag}] ${label}`);
-  }
-
-  groupEnd(): void {
-    this.logger.groupEnd();
-  }
-}
-
-// 导出单例
+// 导出默认 logger 实例
 export const logger = new Logger();
 
-// 导出便捷方法
-export const createLogger = (tag: string) => logger.withTag(tag);
+/**
+ * 创建带标签的 logger 实例
+ * @param tag 模块标签，如 'StorageManager'
+ * @returns Logger 实例
+ * 
+ * @example
+ * const logger = createLogger('MyModule');
+ * logger.log('Hello'); // 输出: [SiYuanMemo][MyModule] Hello
+ */
+export function createLogger(tag: string): Logger {
+  return new Logger(tag);
+}

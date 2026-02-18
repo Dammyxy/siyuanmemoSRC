@@ -103,26 +103,28 @@ export class DeckDataSource implements ICardDataSource {
       // 转换为 BrowserCard 格式
       let rows = allCards.map(card => this.convertToBrowserCard(card));
       
-      // 🔧 修复：对于概念卡，批量更新内容（文档标题）
-      const conceptCards = rows.filter(r => {
-        const originalCard = allCards.find(c => c.blockId === r.blockId);
-        return originalCard?.type === 'concept';
+      // 🔧 修复：对于文档块卡片，批量更新内容（文档标题）
+      // 检查所有内容为空的卡片
+      const emptyContentCards = rows.filter(r => {
+        const currentContent = (r.fullContent || '').replace(/[\s\u200B]/g, '');
+        return !currentContent;
       });
       
-      if (conceptCards.length > 0) {
-        console.log(`[SiYuanMemo][DeckDataSource] Found ${conceptCards.length} concept cards, fetching titles...`);
-        const blockIds = conceptCards.map(c => c.blockId);
+      if (emptyContentCards.length > 0) {
+        console.log(`[SiYuanMemo][DeckDataSource] Found ${emptyContentCards.length} cards with empty content, fetching titles...`);
+        const blockIds = emptyContentCards.map(c => c.blockId);
         
         // 批量查询文档标题
         const contentMap = await this.fetchBlockContent(blockIds);
         
-        // 更新概念卡内容
-        for (const card of conceptCards) {
+        // 更新卡片内容
+        for (const card of emptyContentCards) {
           const dbContent = contentMap.get(card.blockId);
           if (dbContent) {
             card.fullContent = dbContent;
             card.content = this.truncateContent(dbContent, 100);
-            console.log(`[SiYuanMemo][DeckDataSource] ✅ Updated concept card ${card.blockId}: "${card.content}"`);
+            const originalCard = allCards.find(c => c.blockId === card.blockId);
+            console.log(`[SiYuanMemo][DeckDataSource] ✅ Updated ${originalCard?.type || 'unknown'} card ${card.blockId}: "${card.content}"`);
           }
         }
       }

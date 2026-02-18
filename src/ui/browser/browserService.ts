@@ -334,12 +334,13 @@ async function loadAllCardsRaw(
                         browserCard.rootId = rootIdMap.get(card.blockId) || browserCard.rootId || '';
                         browserCard.tags = tagsMap.get(card.blockId) || [];
                         
-                        // 🔧 修复：对于概念卡，优先使用数据库的 content（文档标题）
-                        // 直接使用 FSRSCard.type，因为它是最可靠的来源
-                        if (card.type === 'concept') {
-                            const dbContent = contentMap.get(card.blockId);
-                            
-                            console.log(`[SiYuanMemo][CardBrowser] 🔍 Concept card ${card.blockId}:`, {
+                        // 🔧 修复：对于文档块卡片，优先使用数据库的 content（文档标题）
+                        // 检查当前内容是否为空或只有空白字符（包括零宽字符）
+                        const currentContent = (browserCard.fullContent || '').replace(/[\s\u200B]/g, '');
+                        const dbContent = contentMap.get(card.blockId);
+                        
+                        if (!currentContent && dbContent) {
+                            console.log(`[SiYuanMemo][CardBrowser] 🔍 Document block card ${card.blockId}:`, {
                                 fsrsType: card.type,
                                 browserCardType: browserCard.cardType,
                                 hasDbContent: !!dbContent,
@@ -348,18 +349,15 @@ async function loadAllCardsRaw(
                                 beforeUpdate_fullContent: browserCard.fullContent?.substring(0, 50),
                             });
                             
-                            // 如果数据库有内容，直接使用（文档块的 content 就是标题）
-                            if (dbContent) {
-                                browserCard.fullContent = dbContent;
-                                browserCard.content = truncateContent(dbContent, 100);
-                                console.log(`[SiYuanMemo][CardBrowser] ✅ Updated concept card:`, {
-                                    blockId: card.blockId,
-                                    afterUpdate_content: browserCard.content,
-                                    afterUpdate_fullContent: browserCard.fullContent,
-                                });
-                            } else {
-                                console.warn(`[SiYuanMemo][CardBrowser] ⚠️ No dbContent for concept card ${card.blockId}`);
-                            }
+                            // 使用数据库内容（文档块的 content 就是标题）
+                            browserCard.fullContent = dbContent;
+                            browserCard.content = truncateContent(dbContent, 100);
+                            console.log(`[SiYuanMemo][CardBrowser] ✅ Updated document block card:`, {
+                                blockId: card.blockId,
+                                cardType: card.type,
+                                afterUpdate_content: browserCard.content,
+                                afterUpdate_fullContent: browserCard.fullContent,
+                            });
                         }
                         
                         return browserCard;
@@ -999,16 +997,15 @@ export async function loadQueueCards(
             browserCard.rootId = rootIdMap.get(card.blockId) || browserCard.rootId || '';
             browserCard.tags = tagsMap.get(card.blockId) || [];
             
-            // 🔧 修复：对于概念卡，优先使用数据库的 content（文档标题）
-            // 直接使用 FSRSCard.type，因为它是最可靠的来源
-            if (card.type === 'concept') {
-                const dbContent = contentMap.get(card.blockId);
-                
-                // 如果数据库有内容，直接使用（文档块的 content 就是标题）
-                if (dbContent) {
-                    browserCard.fullContent = dbContent;
-                    browserCard.content = truncateContent(dbContent, 100);
-                }
+            // 🔧 修复：对于文档块卡片，优先使用数据库的 content（文档标题）
+            // 检查当前内容是否为空或只有空白字符（包括零宽字符）
+            const currentContent = (browserCard.fullContent || '').replace(/[\s\u200B]/g, '');
+            const dbContent = contentMap.get(card.blockId);
+            
+            // 如果当前内容为空但数据库有内容，使用数据库内容（文档块的 content 就是标题）
+            if (!currentContent && dbContent) {
+                browserCard.fullContent = dbContent;
+                browserCard.content = truncateContent(dbContent, 100);
             }
             
             // 🔧 修复：只在有查询文本时才应用筛选，否则返回所有卡片
