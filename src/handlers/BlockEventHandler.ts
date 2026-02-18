@@ -44,7 +44,7 @@ export class BlockEventHandler {
           // await pushMsg((this.plugin.i18n?.drillAdded || '已加入 {n} 张闪卡').replace('{n}', String(cards.length)));
           this.openDrillDialogWithCards(cards, 'block');
         } catch (err) {
-          console.error('[SiyuanMemo] Failed to open drill from doc menu:', err);
+          console.error('[SiYuanMemo] Failed to open drill from doc menu:', err);
           await pushErrMsg(this.plugin.i18n?.drillFailed || '机械练习启动失败');
         }
       }
@@ -73,7 +73,7 @@ export class BlockEventHandler {
           // await pushMsg((this.plugin.i18n?.drillAdded || '已加入 {n} 张闪卡').replace('{n}', String(cards.length)));
           this.openDrillDialogWithCards(cards, 'block');
         } catch (err) {
-          console.error('[SiyuanMemo] Failed to open drill from breadcrumb menu:', err);
+          console.error('[SiYuanMemo] Failed to open drill from breadcrumb menu:', err);
           await pushErrMsg(this.plugin.i18n?.drillFailed || '机械练习启动失败');
         }
       }

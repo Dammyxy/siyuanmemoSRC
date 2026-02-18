@@ -147,7 +147,7 @@ const isTopicCard = computed(() => {
   const card = props.actions.cardMeta;
   const result = card?.type === 'topic' || card?.cardType === 'topic' 
     || card?.type === 'concept' || card?.cardType === 'concept';
-  console.log('[SiyuanMemo][ReviewActions] isTopicCard computed:', {
+  console.log('[SiYuanMemo][ReviewActions] isTopicCard computed:', {
     cardMeta: card,
     type: card?.type,
     cardType: card?.cardType,
@@ -178,7 +178,7 @@ function handleDialogMouseDown(ev: MouseEvent) {
 
 // 调试：监控 grades 变化
 watch(() => props.actions.grades, (grades) => {
-  console.log('[SiyuanMemo][ReviewActions] grades changed:', grades);
+  console.log('[SiYuanMemo][ReviewActions] grades changed:', grades);
 }, { immediate: true, deep: true });
 
 function t(key: string, fallback: string): string {
@@ -197,7 +197,7 @@ function getButtonVariant(value: number): string {
 
 // 插入位置逻辑
 function handleInsert() {
-  console.log('[SiyuanMemo][ReviewActions] handleInsert called', {
+  console.log('[SiYuanMemo][ReviewActions] handleInsert called', {
     remainingSize: remainingSize.value,
     metaRemainingSize: props.meta?.remainingSize,
     hasQueue: !!props.queue,
@@ -208,7 +208,7 @@ function handleInsert() {
   // remainingSize 为 0 可能是因为 Adapter 没有正确设置这个字段
   // 我们应该尝试从队列获取实际的剩余数量
   if (!props.queue) {
-    console.warn('[SiyuanMemo][ReviewActions] No queue available');
+    console.warn('[SiYuanMemo][ReviewActions] No queue available');
     return;
   }
   
@@ -216,11 +216,11 @@ function handleInsert() {
   let actualRemainingSize = remainingSize.value;
   if (actualRemainingSize === 0 && typeof props.queue.getRemainingSize === 'function') {
     actualRemainingSize = props.queue.getRemainingSize();
-    console.log('[SiyuanMemo][ReviewActions] Got remaining size from queue:', actualRemainingSize);
+    console.log('[SiYuanMemo][ReviewActions] Got remaining size from queue:', actualRemainingSize);
   }
   
   if (actualRemainingSize === 0) {
-    console.warn('[SiyuanMemo][ReviewActions] Queue is empty, cannot insert');
+    console.warn('[SiYuanMemo][ReviewActions] Queue is empty, cannot insert');
     return;
   }
   
@@ -235,12 +235,12 @@ async function onInsertConfirm(position: number) {
   try {
     const cardId = props.actions.cardMeta?.id || props.actions.cardMeta?.blockId;
     if (!cardId) {
-      console.error('[SiyuanMemo][ReviewActions] No card ID found');
+      console.error('[SiYuanMemo][ReviewActions] No card ID found');
       return;
     }
     
     // 详细的调试日志
-    console.log('[SiyuanMemo][ReviewActions] onInsertConfirm - Queue inspection:', {
+    console.log('[SiYuanMemo][ReviewActions] onInsertConfirm - Queue inspection:', {
       hasQueue: !!props.queue,
       queueType: props.queue?.constructor?.name,
       queueKeys: props.queue ? Object.keys(props.queue) : [],
@@ -251,7 +251,7 @@ async function onInsertConfirm(position: number) {
     });
     
     if (!props.queue || typeof props.queue.insertAt !== 'function') {
-      console.error('[SiyuanMemo][ReviewActions] Queue does not support insertAt', {
+      console.error('[SiYuanMemo][ReviewActions] Queue does not support insertAt', {
         queue: props.queue,
         hasInsertAt: !!props.queue?.insertAt,
         insertAtValue: props.queue?.insertAt,
@@ -260,14 +260,14 @@ async function onInsertConfirm(position: number) {
     }
     
     await props.queue.insertAt(cardId, position);
-    console.log(`[SiyuanMemo][ReviewActions] Card ${cardId} inserted at position ${position}`);
+    console.log(`[SiYuanMemo][ReviewActions] Card ${cardId} inserted at position ${position}`);
     
     closeInsertDialog();
     
     // 继续复习下一张
     emit('skip');
   } catch (error) {
-    console.error('[SiyuanMemo][ReviewActions] Failed to insert card:', error);
+    console.error('[SiYuanMemo][ReviewActions] Failed to insert card:', error);
     // TODO: 显示错误提示
   }
 }
@@ -285,14 +285,14 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   try {
     const cardId = props.actions.cardMeta?.id || props.actions.cardMeta?.blockId;
     if (!cardId) {
-      console.error('[SiyuanMemo][ReviewActions] No card ID found');
+      console.error('[SiYuanMemo][ReviewActions] No card ID found');
       return;
     }
     
     // 从全局获取 manager 和 schedulerRouter
     const fsrsPlugin = (window as any).siyuanMemoPlugin;
     if (!fsrsPlugin) {
-      console.error('[SiyuanMemo][ReviewActions] FSRS plugin instance not found');
+      console.error('[SiYuanMemo][ReviewActions] FSRS plugin instance not found');
       return;
     }
     
@@ -300,7 +300,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
     const schedulerRouter = fsrsPlugin.schedulerRouter;
     
     if (!manager) {
-      console.error('[SiyuanMemo][ReviewActions] Manager not available');
+      console.error('[SiYuanMemo][ReviewActions] Manager not available');
       return;
     }
     
@@ -330,9 +330,9 @@ async function onScheduleConfirm(options: ScheduleOptions) {
         updatedCard.due = targetDate;
         await manager.updateCard(updatedCard);
         
-        console.log(`[SiyuanMemo][ReviewActions] Card ${cardId} scheduled with rating ${rating} to ${new Date(targetDate)}`);
+        console.log(`[SiYuanMemo][ReviewActions] Card ${cardId} scheduled with rating ${rating} to ${new Date(targetDate)}`);
       } else {
-        console.warn('[SiyuanMemo][ReviewActions] Scheduler router not available, using direct mode');
+        console.warn('[SiYuanMemo][ReviewActions] Scheduler router not available, using direct mode');
         card.due = targetDate;
         await manager.updateCard(card);
       }
@@ -341,7 +341,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
       card.due = targetDate;
       await manager.updateCard(card);
       
-      console.log(`[SiyuanMemo][ReviewActions] Card ${cardId} due date updated to ${new Date(targetDate)}`);
+      console.log(`[SiYuanMemo][ReviewActions] Card ${cardId} due date updated to ${new Date(targetDate)}`);
     }
     
     // 4. 从队列移除
@@ -355,7 +355,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
     emit('skip');
     
   } catch (error) {
-    console.error('[SiyuanMemo][ReviewActions] Failed to schedule date:', error);
+    console.error('[SiYuanMemo][ReviewActions] Failed to schedule date:', error);
     // TODO: 显示错误提示
   }
 }

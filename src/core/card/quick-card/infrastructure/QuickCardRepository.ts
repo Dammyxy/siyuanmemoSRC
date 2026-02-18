@@ -67,31 +67,31 @@ export class QuickCardRepository {
    */
   async loadCard(blockId: string, cardId?: string): Promise<QuickCard | null> {
     try {
-      console.log('[SiyuanMemo][QuickCardRepository] loadCard called:', { blockId, cardId });
+      console.log('[SiYuanMemo][QuickCardRepository] loadCard called:', { blockId, cardId });
       
       // 1. 获取块数据
       const block = await this.adapter.getBlock(blockId);
       if (!block) {
-        console.warn(`[SiyuanMemo][QuickCardRepository] Block not found: ${blockId}`);
+        console.warn(`[SiYuanMemo][QuickCardRepository] Block not found: ${blockId}`);
         return null;
       }
 
       // 2. 验证块数据
       if (!block.content) {
-        console.warn(`[SiyuanMemo][QuickCardRepository] Block has no content: ${blockId}`);
+        console.warn(`[SiYuanMemo][QuickCardRepository] Block has no content: ${blockId}`);
         return null;
       }
 
-      console.log('[SiyuanMemo][QuickCardRepository] Block content:', block.content);
+      console.log('[SiYuanMemo][QuickCardRepository] Block content:', block.content);
 
       // 3. 检测卡片类型
       const cardInfo = this.detectCardType(block.content);
       if (!cardInfo) {
-        console.debug(`[SiyuanMemo][QuickCardRepository] Not a quick card: ${blockId}`);
+        console.debug(`[SiYuanMemo][QuickCardRepository] Not a quick card: ${blockId}`);
         return null;
       }
 
-      console.log('[SiyuanMemo][QuickCardRepository] Detected card type:', cardInfo);
+      console.log('[SiYuanMemo][QuickCardRepository] Detected card type:', cardInfo);
 
       // 4. 构建元数据
       const metadata: QuickCardMetadata = {
@@ -102,19 +102,19 @@ export class QuickCardRepository {
 
       // 5. 如果提供了 cardId，尝试从 FSRSCard 的 meta 中获取 typeMarker
       if (cardId) {
-        console.log('[SiyuanMemo][QuickCardRepository] Fetching FSRSCard for cardId:', cardId);
+        console.log('[SiYuanMemo][QuickCardRepository] Fetching FSRSCard for cardId:', cardId);
         const fsrsCard = await this.getFSRSCard(cardId);
-        console.log('[SiyuanMemo][QuickCardRepository] FSRSCard:', fsrsCard);
-        console.log('[SiyuanMemo][QuickCardRepository] FSRSCard meta:', fsrsCard?.meta);
+        console.log('[SiYuanMemo][QuickCardRepository] FSRSCard:', fsrsCard);
+        console.log('[SiYuanMemo][QuickCardRepository] FSRSCard meta:', fsrsCard?.meta);
         
         if (fsrsCard?.meta?.typeMarker) {
           metadata.typeMarker = fsrsCard.meta.typeMarker;
-          console.log(`[SiyuanMemo][QuickCardRepository] ✅ Found typeMarker: ${metadata.typeMarker} for cardId: ${cardId}`);
+          console.log(`[SiYuanMemo][QuickCardRepository] ✅ Found typeMarker: ${metadata.typeMarker} for cardId: ${cardId}`);
         } else {
-          console.log(`[SiyuanMemo][QuickCardRepository] ⚠️ No typeMarker found for cardId: ${cardId}`);
+          console.log(`[SiYuanMemo][QuickCardRepository] ⚠️ No typeMarker found for cardId: ${cardId}`);
         }
       } else {
-        console.log('[SiyuanMemo][QuickCardRepository] ⚠️ No cardId provided, cannot fetch typeMarker');
+        console.log('[SiYuanMemo][QuickCardRepository] ⚠️ No cardId provided, cannot fetch typeMarker');
       }
 
       // 6. 对于描述符卡片，判断是否使用 Xiuyuan 模版
@@ -122,13 +122,13 @@ export class QuickCardRepository {
         metadata.isXiuyuanTemplate = await this.shouldUseXiuyuanTemplate(block);
       }
 
-      console.log('[SiyuanMemo][QuickCardRepository] Final metadata:', metadata);
+      console.log('[SiYuanMemo][QuickCardRepository] Final metadata:', metadata);
 
       // 7. 获取策略并解析
       const strategy = CardFaceStrategyFactory.create(cardInfo.type);
       const { front, back } = strategy.parse(block.content, metadata);
 
-      console.log('[SiyuanMemo][QuickCardRepository] Parsed faces:', {
+      console.log('[SiYuanMemo][QuickCardRepository] Parsed faces:', {
         frontHtml: front.html.substring(0, 100),
         backHtml: back.html.substring(0, 100),
       });
@@ -147,7 +147,7 @@ export class QuickCardRepository {
         metadata,
       });
     } catch (error) {
-      console.error(`[SiyuanMemo][QuickCardRepository] Failed to load card ${blockId}:`, error);
+      console.error(`[SiYuanMemo][QuickCardRepository] Failed to load card ${blockId}:`, error);
       return null;
     }
   }
@@ -167,7 +167,7 @@ export class QuickCardRepository {
       }
       return plugin.storage.getCard(cardId) || null;
     } catch (error) {
-      console.error(`[SiyuanMemo][QuickCardRepository] Failed to get FSRSCard:`, error);
+      console.error(`[SiYuanMemo][QuickCardRepository] Failed to get FSRSCard:`, error);
       return null;
     }
   }
@@ -190,7 +190,7 @@ export class QuickCardRepository {
   private detectCardType(content: string): CardTypeInfo | null {
     // 添加空值检查
     if (!content || typeof content !== 'string') {
-      console.warn('[SiyuanMemo][QuickCardRepository] Invalid content:', content);
+      console.warn('[SiYuanMemo][QuickCardRepository] Invalid content:', content);
       return null;
     }
 

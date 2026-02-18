@@ -784,7 +784,7 @@ function handleDebugLogsChange() {
       ? '调试日志已启用'
       : '调试日志已禁用';
     
-    console.log(`[SiyuanMemo] ${message}`);
+    console.log(`[SiYuanMemo] ${message}`);
   }
 }
 
@@ -797,7 +797,7 @@ function handleDayStartHourChange() {
     settings.value.dayStartHour = 23;
   }
   
-  console.log('[SiyuanMemo][Settings] dayStartHour changed:', settings.value.dayStartHour);
+  console.log('[SiYuanMemo][Settings] dayStartHour changed:', settings.value.dayStartHour);
 }
 
 // 🆕 快速设置 dayStartHour
@@ -828,7 +828,7 @@ async function handleRepairDates() {
     // 由于 SettingsPanel 是一个独立组件，我们需要通过 emit 传递修复请求
     emit('repair-dates' as any);
   } catch (err) {
-    console.error('[SiyuanMemo][SettingsPanel] Failed to repair dates:', err);
+    console.error('[SiYuanMemo][SettingsPanel] Failed to repair dates:', err);
   } finally {
     isRepairing.value = false;
   }

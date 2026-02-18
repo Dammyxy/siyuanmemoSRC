@@ -24,7 +24,7 @@ async function getBlockType(blockId: string): Promise<string | null> {
         `);
         return result && result.length > 0 ? result[0].type : null;
     } catch (err) {
-        console.error(`[SiyuanMemo] Failed to get block type:`, err);
+        console.error(`[SiYuanMemo] Failed to get block type:`, err);
         return null;
     }
 }
@@ -62,26 +62,26 @@ export async function hasAnswerBlocks(blockId: string): Promise<boolean> {
         // 1. 内容包含标记语法（==文本==）→ Item
         // 标记通常用于强调答案或重要内容，是 Item 的特征
         if (/==([^=]+)==/.test(markdown) || /==([^=]+)==/.test(content)) {
-            console.log(`[SiyuanMemo] Block ${blockId}: Item (mark syntax == found)`);
+            console.log(`[SiYuanMemo] Block ${blockId}: Item (mark syntax == found)`);
             return true;
         }
         
         // 2. 内容包含 :: 分隔符 → Item（明确的问答卡片）
         if (/::/.test(content)) {
-            console.log(`[SiyuanMemo] Block ${blockId}: Item (:: separator found)`);
+            console.log(`[SiYuanMemo] Block ${blockId}: Item (:: separator found)`);
             return true;
         }
 
         // 2. 获取块类型（通过 SQL 查询）
         const type = await getBlockType(blockId);
         if (!type) {
-            console.log(`[SiyuanMemo] Block ${blockId}: Topic (block not found)`);
+            console.log(`[SiYuanMemo] Block ${blockId}: Topic (block not found)`);
             return false;
         }
 
         // 3. 标题块（'h'）→ Item（结构化知识）
         if (type === 'h') {
-            console.log(`[SiyuanMemo] Block ${blockId}: Item (type: h = NodeHeading)`);
+            console.log(`[SiYuanMemo] Block ${blockId}: Item (type: h = NodeHeading)`);
             return true;
         }
 
@@ -90,7 +90,7 @@ export async function hasAnswerBlocks(blockId: string): Promise<boolean> {
         // 只有列表子级才算（列表项或列表容器），段落子级忽略
         if (type === 'i') {
             const hasChildren = await checkHasChildren(blockId, ['i', 'l']);  // ← 检查列表项或列表容器
-            console.log(`[SiyuanMemo] Block ${blockId}: ${hasChildren ? 'Item' : 'Topic'} (type: i = NodeListItem, hasListChildren: ${hasChildren})`);
+            console.log(`[SiYuanMemo] Block ${blockId}: ${hasChildren ? 'Item' : 'Topic'} (type: i = NodeListItem, hasListChildren: ${hasChildren})`);
             return hasChildren;
         }
 
@@ -98,28 +98,28 @@ export async function hasAnswerBlocks(blockId: string): Promise<boolean> {
         // 不限制子级类型（段落、列表项、标题等都可以）
         if (type === 's') {
             const hasChildren = await checkHasChildren(blockId);  // ← 不传类型，检查任何子级
-            console.log(`[SiyuanMemo] Block ${blockId}: ${hasChildren ? 'Item' : 'Topic'} (type: s = NodeSuperBlock, hasAnyChildren: ${hasChildren})`);
+            console.log(`[SiYuanMemo] Block ${blockId}: ${hasChildren ? 'Item' : 'Topic'} (type: s = NodeSuperBlock, hasAnyChildren: ${hasChildren})`);
             return hasChildren;
         }
 
         // 6. 其他 → Topic（纯段落'p'、列表容器'l'、无子级的列表项/超级块等）
-        console.log(`[SiyuanMemo] Block ${blockId}: Topic (type: ${type}, no answer blocks)`);
+        console.log(`[SiYuanMemo] Block ${blockId}: Topic (type: ${type}, no answer blocks)`);
         return false;
     } catch (err: any) {
         const errorMsg = err?.message || String(err);
 
         // 区分不同类型的错误
         if (errorMsg.includes('tree not found') || errorMsg.includes('Not found entity')) {
-            console.warn(`[SiyuanMemo] Block ${blockId}: Topic (document tree deleted - "${errorMsg}")`);
+            console.warn(`[SiYuanMemo] Block ${blockId}: Topic (document tree deleted - "${errorMsg}")`);
             return false; // 已删除的文档默认为 Topic
         }
 
         if (errorMsg.includes('正在进行数据索引') || errorMsg.includes('索引')) {
-            console.warn(`[SiyuanMemo] Block ${blockId}: Topic (indexing in progress - "${errorMsg}")`);
+            console.warn(`[SiYuanMemo] Block ${blockId}: Topic (indexing in progress - "${errorMsg}")`);
             return false; // 正在索引的文档默认为 Topic
         }
 
-        console.error(`[SiyuanMemo] Block ${blockId}: Detection error - ${errorMsg}`);
+        console.error(`[SiYuanMemo] Block ${blockId}: Detection error - ${errorMsg}`);
         return false; // 其他错误也默认为 Topic
     }
 }
@@ -156,7 +156,7 @@ async function checkHasChildren(blockId: string, childTypes?: string[]): Promise
         if (childBlocks && childBlocks.length > 0) {
             // ✅ 显示子级信息（诊断）
             const childInfo = childBlocks.map((b: any) => `${b.type}:${b.content?.substring(0, 20) || '(empty)'}`).join(', ');
-            console.log(`[SiyuanMemo] Block ${blockId} has ${childBlocks.length} children (type: ${typeDesc}): ${childInfo}`);
+            console.log(`[SiYuanMemo] Block ${blockId} has ${childBlocks.length} children (type: ${typeDesc}): ${childInfo}`);
             return true;
         }
 

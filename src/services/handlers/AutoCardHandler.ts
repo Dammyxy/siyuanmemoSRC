@@ -77,7 +77,7 @@ export class AutoCardHandler implements ITransactionHandler {
     
     constructor(plugin: FSRSPlugin) {
         this.plugin = plugin;
-        console.log('[SiyuanMemo][AutoCard] Handler initialized');
+        console.log('[SiYuanMemo][AutoCard] Handler initialized');
     }
     
     /**
@@ -108,7 +108,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 if (op.action === 'update' || op.action === 'insert') {
                     // 🆕 检测块失焦事件（切换到其他块）
                     if (this.currentEditingBlock && this.currentEditingBlock !== blockId) {
-                        console.log('[SiyuanMemo][AutoCard] Block unfocused:', this.currentEditingBlock);
+                        console.log('[SiYuanMemo][AutoCard] Block unfocused:', this.currentEditingBlock);
                         // 立即处理失焦的块
                         this.processBlockImmediately(this.currentEditingBlock);
                     }
@@ -116,7 +116,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     // 更新当前编辑的块
                     this.currentEditingBlock = blockId;
                     
-                    console.log('[SiyuanMemo][AutoCard] Current editing block:', blockId);
+                    console.log('[SiYuanMemo][AutoCard] Current editing block:', blockId);
                 }
             }
         }
@@ -150,7 +150,7 @@ export class AutoCardHandler implements ITransactionHandler {
         
         // 🆕 如果防抖时间设置为 0，则完全禁用防抖（只依赖失焦检测）
         if (debounceDelay === 0) {
-            console.log('[SiyuanMemo][AutoCard] Debounce disabled, only blur detection will trigger');
+            console.log('[SiYuanMemo][AutoCard] Debounce disabled, only blur detection will trigger');
             return;
         }
         
@@ -200,12 +200,12 @@ export class AutoCardHandler implements ITransactionHandler {
         const blocks = Array.from(this.quickQueue);
         this.quickQueue.clear();
         
-        console.log('[SiyuanMemo][AutoCard] Processing quick queue, count:', blocks.length);
+        console.log('[SiYuanMemo][AutoCard] Processing quick queue, count:', blocks.length);
         
         for (const blockId of blocks) {
             // 避免重复处理
             if (this.processing.has(blockId)) {
-                console.log('[SiyuanMemo][AutoCard] Block already processing:', blockId);
+                console.log('[SiYuanMemo][AutoCard] Block already processing:', blockId);
                 continue;
             }
             
@@ -214,7 +214,7 @@ export class AutoCardHandler implements ITransactionHandler {
             try {
                 await this.checkQuickSymbols(blockId);
             } catch (error) {
-                console.error('[SiyuanMemo][AutoCard] Failed to check quick symbols:', blockId, error);
+                console.error('[SiYuanMemo][AutoCard] Failed to check quick symbols:', blockId, error);
             } finally {
                 this.processing.delete(blockId);
             }
@@ -230,12 +230,12 @@ export class AutoCardHandler implements ITransactionHandler {
         const blocks = Array.from(this.listQueue);
         this.listQueue.clear();
         
-        console.log('[SiyuanMemo][AutoCard] Processing list queue, count:', blocks.length);
+        console.log('[SiYuanMemo][AutoCard] Processing list queue, count:', blocks.length);
         
         for (const blockId of blocks) {
             // 避免重复处理
             if (this.processing.has(blockId)) {
-                console.log('[SiyuanMemo][AutoCard] Block already processing:', blockId);
+                console.log('[SiYuanMemo][AutoCard] Block already processing:', blockId);
                 continue;
             }
             
@@ -244,7 +244,7 @@ export class AutoCardHandler implements ITransactionHandler {
             try {
                 await this.checkListTemplate(blockId);
             } catch (error) {
-                console.error('[SiyuanMemo][AutoCard] Failed to check list template:', blockId, error);
+                console.error('[SiYuanMemo][AutoCard] Failed to check list template:', blockId, error);
             } finally {
                 this.processing.delete(blockId);
             }
@@ -276,16 +276,16 @@ export class AutoCardHandler implements ITransactionHandler {
             // 1. 获取块内容
             const { kramdown } = await getBlockKramdown(blockId);
             if (!kramdown) {
-                console.log('[SiyuanMemo][AutoCard] Block has no content:', blockId);
+                console.log('[SiYuanMemo][AutoCard] Block has no content:', blockId);
                 return;
             }
             
-            console.log('[SiyuanMemo][AutoCard] Checking quick symbols:', blockId, 'content:', kramdown);
+            console.log('[SiYuanMemo][AutoCard] Checking quick symbols:', blockId, 'content:', kramdown);
             
             // 2. 检查是否已制卡
             const existingCard = this.plugin.storage.getCardByBlockId(blockId);
             if (existingCard) {
-                console.log('[SiyuanMemo][AutoCard] Block already has card:', blockId);
+                console.log('[SiYuanMemo][AutoCard] Block already has card:', blockId);
                 return;
             }
             
@@ -293,11 +293,11 @@ export class AutoCardHandler implements ITransactionHandler {
             const detectedSymbols = this.detectAllSymbols(kramdown, quickCardSettings);
             
             if (detectedSymbols.length === 0) {
-                console.log('[SiyuanMemo][AutoCard] No quick symbol detected:', blockId);
+                console.log('[SiYuanMemo][AutoCard] No quick symbol detected:', blockId);
                 return;
             }
             
-            console.log('[SiyuanMemo][AutoCard] Detected symbols:', detectedSymbols);
+            console.log('[SiYuanMemo][AutoCard] Detected symbols:', detectedSymbols);
             
             // 移除 IAL，用于后续的卡片创建
             const cleanContent = kramdown.replace(/\{:[^}]*\}/g, '').trim();
@@ -307,11 +307,11 @@ export class AutoCardHandler implements ITransactionHandler {
                 try {
                     await this.createCardBySymbol(blockId, symbol, cleanContent);
                 } catch (error) {
-                    console.error('[SiyuanMemo][AutoCard] Failed to create card for symbol:', symbol.type, error);
+                    console.error('[SiYuanMemo][AutoCard] Failed to create card for symbol:', symbol.type, error);
                 }
             }
         } catch (error) {
-            console.error('[SiyuanMemo][AutoCard] Error checking quick symbols:', blockId, error);
+            console.error('[SiYuanMemo][AutoCard] Error checking quick symbols:', blockId, error);
         }
     }
     
@@ -419,7 +419,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 await this.createClozeCard(blockId, content);
                 break;
             default:
-                console.warn('[SiyuanMemo][AutoCard] Unknown symbol type:', symbol.type);
+                console.warn('[SiYuanMemo][AutoCard] Unknown symbol type:', symbol.type);
         }
     }
     
@@ -431,7 +431,7 @@ export class AutoCardHandler implements ITransactionHandler {
      * @param blockId 块 ID
      */
     private async processBlockImmediately(blockId: string): Promise<void> {
-        console.log('[SiyuanMemo][AutoCard] Processing block immediately:', blockId);
+        console.log('[SiYuanMemo][AutoCard] Processing block immediately:', blockId);
         
         // 从队列中移除（避免重复处理）
         this.quickQueue.delete(blockId);
@@ -439,7 +439,7 @@ export class AutoCardHandler implements ITransactionHandler {
         
         // 避免重复处理
         if (this.processing.has(blockId)) {
-            console.log('[SiyuanMemo][AutoCard] Block already processing:', blockId);
+            console.log('[SiYuanMemo][AutoCard] Block already processing:', blockId);
             return;
         }
         
@@ -452,7 +452,7 @@ export class AutoCardHandler implements ITransactionHandler {
             // 检测列表模版
             await this.checkListTemplate(blockId);
         } catch (error) {
-            console.error('[SiyuanMemo][AutoCard] Failed to process block immediately:', blockId, error);
+            console.error('[SiYuanMemo][AutoCard] Failed to process block immediately:', blockId, error);
         } finally {
             this.processing.delete(blockId);
             this.lastEditTime.delete(blockId);
@@ -475,15 +475,15 @@ export class AutoCardHandler implements ITransactionHandler {
             // 1. 获取块内容
             const { kramdown } = await getBlockKramdown(blockId);
             if (!kramdown) {
-                console.log('[SiyuanMemo][AutoCard] Block has no content:', blockId);
+                console.log('[SiYuanMemo][AutoCard] Block has no content:', blockId);
                 return;
             }
             
-            console.log('[SiyuanMemo][AutoCard] Checking list template:', blockId, 'content:', kramdown);
+            console.log('[SiYuanMemo][AutoCard] Checking list template:', blockId, 'content:', kramdown);
             
             // 2. 检测 >>> 符号
             if (!this.patterns.multiLine.test(kramdown)) {
-                console.log('[SiyuanMemo][AutoCard] No list template symbol detected:', blockId);
+                console.log('[SiYuanMemo][AutoCard] No list template symbol detected:', blockId);
                 return;
             }
             
@@ -493,7 +493,7 @@ export class AutoCardHandler implements ITransactionHandler {
             `);
             
             if (!typeResult || typeResult.length === 0 || typeResult[0]?.type !== 'i') {
-                console.log('[SiyuanMemo][AutoCard] Block is not a list item:', blockId);
+                console.log('[SiYuanMemo][AutoCard] Block is not a list item:', blockId);
                 return;
             }
             
@@ -504,16 +504,16 @@ export class AutoCardHandler implements ITransactionHandler {
             `);
             
             if (!childrenResult || childrenResult.length < 2) {
-                console.log('[SiyuanMemo][AutoCard] Not enough child list items:', blockId, 'count:', childrenResult?.length || 0);
+                console.log('[SiYuanMemo][AutoCard] Not enough child list items:', blockId, 'count:', childrenResult?.length || 0);
                 return;
             }
             
-            console.log('[SiyuanMemo][AutoCard] List template detected:', blockId, 'children:', childrenResult.length);
+            console.log('[SiYuanMemo][AutoCard] List template detected:', blockId, 'children:', childrenResult.length);
             
             // 5. 创建列表模版卡片
             await this.createListTemplateCards(blockId, childrenResult);
         } catch (error) {
-            console.error('[SiyuanMemo][AutoCard] Error checking list template:', blockId, error);
+            console.error('[SiYuanMemo][AutoCard] Error checking list template:', blockId, error);
         }
     }
     
@@ -529,7 +529,7 @@ export class AutoCardHandler implements ITransactionHandler {
      */
     private async createBasicCard(blockId: string, direction: string, content: string, actualSymbol?: string): Promise<void> {
         try {
-            console.log('[SiyuanMemo][AutoCard] Creating basic card:', blockId, direction, 'symbol:', actualSymbol);
+            console.log('[SiYuanMemo][AutoCard] Creating basic card:', blockId, direction, 'symbol:', actualSymbol);
             
             // 1. 解析问题和答案
             let question = '';
@@ -559,7 +559,7 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             
             if (!question || !answer) {
-                console.error('[SiyuanMemo][AutoCard] Failed to parse basic card content:', content);
+                console.error('[SiYuanMemo][AutoCard] Failed to parse basic card content:', content);
                 return;
             }
             
@@ -580,25 +580,25 @@ export class AutoCardHandler implements ITransactionHandler {
             // 4. 添加到 Riff 卡组
             const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
             await addRiffCards(BUILTIN_DECK_ID, [blockId]);
-            console.log('[SiyuanMemo][AutoCard] Added to Riff deck:', blockId);
+            console.log('[SiYuanMemo][AutoCard] Added to Riff deck:', blockId);
             
             // 5. 标记 FSRS 属性
             const { markBlockAsCard } = await import('@/core/siyuan/block');
             await markBlockAsCard(blockId, card.id, card.priority, 'item');
-            console.log('[SiyuanMemo][AutoCard] Marked block as card:', blockId);
+            console.log('[SiYuanMemo][AutoCard] Marked block as card:', blockId);
             
             // 6. 保存到存储
             this.plugin.storage.setCard(card);
             await this.plugin.storage.saveCards();
             
-            console.log('[SiyuanMemo][AutoCard] Basic card created successfully:', blockId, direction);
+            console.log('[SiYuanMemo][AutoCard] Basic card created successfully:', blockId, direction);
             
             // 7. 显示成功提示
             const { pushMsg } = await import('@/core/siyuan/api');
             const symbolText = direction === 'forward' ? '>>' : '<<';
             await pushMsg(`✅ 已创建${direction === 'forward' ? '正向' : '反向'}卡片 (${symbolText})`);
         } catch (error) {
-            console.error('[SiyuanMemo][AutoCard] Failed to create basic card:', blockId, error);
+            console.error('[SiYuanMemo][AutoCard] Failed to create basic card:', blockId, error);
             const { pushErrMsg } = await import('@/core/siyuan/api');
             await pushErrMsg(`创建基础卡片失败：${error.message}`);
         }
@@ -619,12 +619,12 @@ export class AutoCardHandler implements ITransactionHandler {
      */
     private async createBidirectionalCard(blockId: string, term: string, definition: string): Promise<void> {
         try {
-            console.log('[SiyuanMemo][AutoCard] Creating bidirectional card using Xiuyuan:', blockId);
+            console.log('[SiYuanMemo][AutoCard] Creating bidirectional card using Xiuyuan:', blockId);
             
             // 1. 检查 XiuyuanService 是否可用
             const xiuyuanService = this.plugin.xiuyuanService;
             if (!xiuyuanService) {
-                console.error('[SiyuanMemo][AutoCard] XiuyuanService not available, falling back to single card');
+                console.error('[SiYuanMemo][AutoCard] XiuyuanService not available, falling back to single card');
                 // 降级：只创建正向卡片
                 const { createDefaultCard } = await import('@/types/card');
                 const card = createDefaultCard(blockId);
@@ -667,7 +667,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 throw new Error('Failed to create bidirectional card via Xiuyuan');
             }
             
-            console.log('[SiyuanMemo][AutoCard] Bidirectional card created via Xiuyuan:', {
+            console.log('[SiYuanMemo][AutoCard] Bidirectional card created via Xiuyuan:', {
                 xiuyuanID: result.value.xiuyuan.id,
                 cardCount: result.value.cards.length,
                 blockId
@@ -677,7 +677,7 @@ export class AutoCardHandler implements ITransactionHandler {
             const { pushMsg } = await import('@/core/siyuan/api');
             await pushMsg(`✅ 已创建双向卡片 (<>) - 共 ${result.value.cards.length} 张卡片`);
         } catch (error) {
-            console.error('[SiyuanMemo][AutoCard] Failed to create bidirectional card:', blockId, error);
+            console.error('[SiYuanMemo][AutoCard] Failed to create bidirectional card:', blockId, error);
             const { pushErrMsg } = await import('@/core/siyuan/api');
             await pushErrMsg(`创建双向卡片失败：${error.message}`);
         }
@@ -692,12 +692,12 @@ export class AutoCardHandler implements ITransactionHandler {
      */
     private async createConceptCard(blockId: string, content: string, actualSymbol?: string): Promise<void> {
         try {
-            console.log('[SiyuanMemo][AutoCard] Creating concept card:', blockId, 'symbol:', actualSymbol);
+            console.log('[SiYuanMemo][AutoCard] Creating concept card:', blockId, 'symbol:', actualSymbol);
             
             // 1. 解析概念和定义
             const match = content.match(this.patterns.concept);
             if (!match) {
-                console.error('[SiyuanMemo][AutoCard] Failed to parse concept card content:', content);
+                console.error('[SiYuanMemo][AutoCard] Failed to parse concept card content:', content);
                 return;
             }
             
@@ -705,7 +705,7 @@ export class AutoCardHandler implements ITransactionHandler {
             const definition = match[3].trim();  // 调整索引：match[2]是符号，match[3]是定义
             
             if (!concept || !definition) {
-                console.error('[SiyuanMemo][AutoCard] Empty concept or definition:', content);
+                console.error('[SiYuanMemo][AutoCard] Empty concept or definition:', content);
                 return;
             }
             
@@ -729,12 +729,12 @@ export class AutoCardHandler implements ITransactionHandler {
             // 5. 添加到 Riff 卡组
             const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
             await addRiffCards(BUILTIN_DECK_ID, [blockId]);
-            console.log('[SiyuanMemo][AutoCard] Added to Riff deck:', blockId);
+            console.log('[SiYuanMemo][AutoCard] Added to Riff deck:', blockId);
             
             // 6. 标记 FSRS 属性（标记为 topic，因为 concept 不是有效的类型）
             const { markBlockAsCard } = await import('@/core/siyuan/block');
             await markBlockAsCard(blockId, card.id, card.priority, 'topic');
-            console.log('[SiyuanMemo][AutoCard] Marked block as concept card:', blockId);
+            console.log('[SiYuanMemo][AutoCard] Marked block as concept card:', blockId);
             
             // 7. 检测并标记卡片类型（concept）
             // 🆕 使用 CardType 枚举标记为概念卡
@@ -747,13 +747,13 @@ export class AutoCardHandler implements ITransactionHandler {
             this.plugin.storage.setCard(card);
             await this.plugin.storage.saveCards();
             
-            console.log('[SiyuanMemo][AutoCard] Concept card created successfully:', blockId);
+            console.log('[SiYuanMemo][AutoCard] Concept card created successfully:', blockId);
             
             // 9. 显示成功提示
             const { pushMsg } = await import('@/core/siyuan/api');
             await pushMsg(`✅ 已创建概念卡片 (::)`);
         } catch (error) {
-            console.error('[SiyuanMemo][AutoCard] Failed to create concept card:', blockId, error);
+            console.error('[SiYuanMemo][AutoCard] Failed to create concept card:', blockId, error);
             const { pushErrMsg } = await import('@/core/siyuan/api');
             await pushErrMsg(`创建概念卡片失败：${error.message}`);
         }
@@ -768,12 +768,12 @@ export class AutoCardHandler implements ITransactionHandler {
      */
     private async createDescriptorCard(blockId: string, content: string, actualSymbol?: string): Promise<void> {
         try {
-            console.log('[SiyuanMemo][AutoCard] Creating descriptor card:', blockId, 'symbol:', actualSymbol);
+            console.log('[SiYuanMemo][AutoCard] Creating descriptor card:', blockId, 'symbol:', actualSymbol);
             
             // 1. 解析属性和描述
             const match = content.match(this.patterns.descriptor);
             if (!match) {
-                console.error('[SiyuanMemo][AutoCard] Failed to parse descriptor card content:', content);
+                console.error('[SiYuanMemo][AutoCard] Failed to parse descriptor card content:', content);
                 return;
             }
             
@@ -781,7 +781,7 @@ export class AutoCardHandler implements ITransactionHandler {
             const description = match[3].trim();  // 调整索引：match[2]是符号，match[3]是描述
             
             if (!attribute || !description) {
-                console.error('[SiyuanMemo][AutoCard] Empty attribute or description:', content);
+                console.error('[SiYuanMemo][AutoCard] Empty attribute or description:', content);
                 return;
             }
             
@@ -798,37 +798,37 @@ export class AutoCardHandler implements ITransactionHandler {
                 const parentResult = await sql(parentQuery);
                 
                 if (!parentResult || parentResult.length === 0 || !parentResult[0]?.parent_id) {
-                    console.log(`[SiyuanMemo][AutoCard] No parent at depth ${depth}`);
+                    console.log(`[SiYuanMemo][AutoCard] No parent at depth ${depth}`);
                     break;
                 }
                 
                 const parentId = parentResult[0].parent_id;
-                console.log(`[SiyuanMemo][AutoCard] Checking parent at depth ${depth}:`, parentId);
+                console.log(`[SiYuanMemo][AutoCard] Checking parent at depth ${depth}:`, parentId);
                 
                 // 检查父块是否是概念卡（两种方式）
                 const { getBlockKramdown } = await import('@/core/siyuan/api');
                 const { kramdown: parentContent } = await getBlockKramdown(parentId);
                 
-                console.log(`[SiyuanMemo][AutoCard] Parent content at depth ${depth}:`, parentContent?.substring(0, 100));
+                console.log(`[SiYuanMemo][AutoCard] Parent content at depth ${depth}:`, parentContent?.substring(0, 100));
                 
                 // 方式1：父块本身包含概念符号（::）
                 let isParentConcept = parentContent && this.patterns.concept.test(parentContent);
                 
-                console.log(`[SiyuanMemo][AutoCard] Parent has concept symbol (::) at depth ${depth}:`, isParentConcept);
+                console.log(`[SiYuanMemo][AutoCard] Parent has concept symbol (::) at depth ${depth}:`, isParentConcept);
                 
                 if (isParentConcept) {
                     foundConceptId = parentId;
-                    console.log(`[SiyuanMemo][AutoCard] Found concept card at depth ${depth}:`, parentId);
+                    console.log(`[SiYuanMemo][AutoCard] Found concept card at depth ${depth}:`, parentId);
                     break;
                 }
                 
                 // 方式2：父块包含块引用
                 if (parentContent) {
-                    console.log(`[SiyuanMemo][AutoCard] Checking for block reference at depth ${depth}...`);
+                    console.log(`[SiYuanMemo][AutoCard] Checking for block reference at depth ${depth}...`);
                     const refResult = await this.findOrCreateConceptFromBlockRef(parentContent);
                     if (refResult) {
                         foundConceptId = refResult;
-                        console.log(`[SiyuanMemo][AutoCard] Found/created concept card from reference at depth ${depth}:`, refResult);
+                        console.log(`[SiYuanMemo][AutoCard] Found/created concept card from reference at depth ${depth}:`, refResult);
                         break;
                     }
                 }
@@ -837,18 +837,18 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             
             if (!foundConceptId) {
-                console.log('[SiyuanMemo][AutoCard] No concept card found in ancestor chain, creating as basic card');
+                console.log('[SiYuanMemo][AutoCard] No concept card found in ancestor chain, creating as basic card');
                 // 降级为普通卡片
                 await this.createBasicCardFromDescriptor(blockId, attribute, description, actualSymbol);
                 return;
             }
             
-            console.log('[SiyuanMemo][AutoCard] Found concept card, creating Xiuyuan descriptor card');
+            console.log('[SiYuanMemo][AutoCard] Found concept card, creating Xiuyuan descriptor card');
             
             // 3. 使用 Xiuyuan 创建描述符卡片
             const xiuyuanService = this.plugin.xiuyuanService;
             if (!xiuyuanService) {
-                console.error('[SiyuanMemo][AutoCard] XiuyuanService not available, falling back to basic card');
+                console.error('[SiYuanMemo][AutoCard] XiuyuanService not available, falling back to basic card');
                 await this.createBasicCardFromDescriptor(blockId, attribute, description, actualSymbol);
                 return;
             }
@@ -868,7 +868,7 @@ export class AutoCardHandler implements ITransactionHandler {
             if (!result.ok) {
                 const error = (result as { ok: false; error: Error }).error;
                 const errorMsg = error instanceof Error ? error.message : String(error);
-                console.error('[SiyuanMemo][AutoCard] Failed to create Xiuyuan descriptor card:', errorMsg);
+                console.error('[SiYuanMemo][AutoCard] Failed to create Xiuyuan descriptor card:', errorMsg);
                 // 降级为普通卡片
                 await this.createBasicCardFromDescriptor(blockId, attribute, description, actualSymbol);
                 return;
@@ -880,13 +880,13 @@ export class AutoCardHandler implements ITransactionHandler {
                 'custom-fsrs-card-type': 'descriptor'
             });
             
-            console.log('[SiyuanMemo][AutoCard] Descriptor card created successfully:', blockId);
+            console.log('[SiYuanMemo][AutoCard] Descriptor card created successfully:', blockId);
             
             // 4. 显示成功提示
             const { pushMsg } = await import('@/core/siyuan/api');
             await pushMsg(`✅ 已创建描述符卡片 (;;)`);
         } catch (error) {
-            console.error('[SiyuanMemo][AutoCard] Failed to create descriptor card:', blockId, error);
+            console.error('[SiYuanMemo][AutoCard] Failed to create descriptor card:', blockId, error);
             const { pushErrMsg } = await import('@/core/siyuan/api');
             await pushErrMsg(`创建描述符卡片失败：${error.message}`);
         }
@@ -902,7 +902,7 @@ export class AutoCardHandler implements ITransactionHandler {
      */
     private async createBasicCardFromDescriptor(blockId: string, attribute: string, description: string, actualSymbol?: string): Promise<void> {
         try {
-            console.log('[SiyuanMemo][AutoCard] Creating basic card from descriptor:', blockId, 'symbol:', actualSymbol);
+            console.log('[SiYuanMemo][AutoCard] Creating basic card from descriptor:', blockId, 'symbol:', actualSymbol);
             
             // 1. 创建 FSRS Card
             const { createDefaultCard } = await import('@/types/card');
@@ -931,13 +931,13 @@ export class AutoCardHandler implements ITransactionHandler {
             this.plugin.storage.setCard(card);
             await this.plugin.storage.saveCards();
             
-            console.log('[SiyuanMemo][AutoCard] Basic card created from descriptor:', blockId);
+            console.log('[SiYuanMemo][AutoCard] Basic card created from descriptor:', blockId);
             
             // 6. 显示成功提示
             const { pushMsg } = await import('@/core/siyuan/api');
             await pushMsg(`✅ 已创建卡片 (;;), 父块非概念，已降级为普通卡片`);
         } catch (error) {
-            console.error('[SiyuanMemo][AutoCard] Failed to create basic card from descriptor:', blockId, error);
+            console.error('[SiYuanMemo][AutoCard] Failed to create basic card from descriptor:', blockId, error);
             throw error;
         }
     }
@@ -952,7 +952,7 @@ export class AutoCardHandler implements ITransactionHandler {
      */
     private async createClozeCard(blockId: string, content: string): Promise<void> {
         try {
-            console.log('[SiyuanMemo][AutoCard] Creating cloze card:', blockId);
+            console.log('[SiYuanMemo][AutoCard] Creating cloze card:', blockId);
             
             // 1. 提取所有填空（支持 {{}}、== 和思源标记）
             const clozes: Array<{ text: string; type: 'brace' | 'equal' | 'mark' }> = [];
@@ -986,11 +986,11 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             
             if (clozes.length === 0) {
-                console.error('[SiyuanMemo][AutoCard] No cloze found in content:', content);
+                console.error('[SiYuanMemo][AutoCard] No cloze found in content:', content);
                 return;
             }
             
-            console.log('[SiyuanMemo][AutoCard] Found clozes:', clozes.length, clozes);
+            console.log('[SiYuanMemo][AutoCard] Found clozes:', clozes.length, clozes);
             
             // 2. 如果只有一个填空，创建单张卡片
             if (clozes.length === 1) {
@@ -1001,7 +1001,7 @@ export class AutoCardHandler implements ITransactionHandler {
             // 3. 多个填空：使用 Xiuyuan 创建多张卡片
             await this.createMultipleClozeCards(blockId, content, clozes);
         } catch (error) {
-            console.error('[SiyuanMemo][AutoCard] Failed to create cloze card:', blockId, error);
+            console.error('[SiYuanMemo][AutoCard] Failed to create cloze card:', blockId, error);
             const { pushErrMsg } = await import('@/core/siyuan/api');
             await pushErrMsg(`创建填空卡片失败：${error.message}`);
         }
@@ -1040,7 +1040,7 @@ export class AutoCardHandler implements ITransactionHandler {
         this.plugin.storage.setCard(card);
         await this.plugin.storage.saveCards();
         
-        console.log('[SiyuanMemo][AutoCard] Single cloze card created:', blockId);
+        console.log('[SiYuanMemo][AutoCard] Single cloze card created:', blockId);
         
         // 显示成功提示
         const { pushMsg } = await import('@/core/siyuan/api');
@@ -1060,7 +1060,7 @@ export class AutoCardHandler implements ITransactionHandler {
     ): Promise<void> {
         const xiuyuanService = this.plugin.xiuyuanService;
         if (!xiuyuanService) {
-            console.error('[SiyuanMemo][AutoCard] XiuyuanService not available, creating single card');
+            console.error('[SiYuanMemo][AutoCard] XiuyuanService not available, creating single card');
             await this.createSingleClozeCard(blockId, content, clozes);
             return;
         }
@@ -1073,7 +1073,7 @@ export class AutoCardHandler implements ITransactionHandler {
             // 获取模板并动态设置 cardRules
             const template = xiuyuanService.getTemplate('builtin-multi-cloze');
             if (!template) {
-                console.error('[SiyuanMemo][AutoCard] builtin-multi-cloze template not found');
+                console.error('[SiYuanMemo][AutoCard] builtin-multi-cloze template not found');
                 await this.createSingleClozeCard(blockId, content, clozes);
                 return;
             }
@@ -1107,12 +1107,12 @@ export class AutoCardHandler implements ITransactionHandler {
             );
             
             if (!result.ok) {
-                console.error('[SiyuanMemo][AutoCard] Failed to create Xiuyuan cloze cards, falling back to single card');
+                console.error('[SiYuanMemo][AutoCard] Failed to create Xiuyuan cloze cards, falling back to single card');
                 await this.createSingleClozeCard(blockId, content, clozes);
                 return;
             }
             
-            console.log('[SiyuanMemo][AutoCard] Multiple cloze cards created:', blockId, 'count:', result.value.cards.length);
+            console.log('[SiYuanMemo][AutoCard] Multiple cloze cards created:', blockId, 'count:', result.value.cards.length);
             
             // 显示成功提示
             const { pushMsg } = await import('@/core/siyuan/api');
@@ -1128,7 +1128,7 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             await pushMsg(`✅ 已创建 ${clozes.length} 张填空卡片 (${symbolText})`);
         } catch (error) {
-            console.error('[SiyuanMemo][AutoCard] Error creating multiple cloze cards:', error);
+            console.error('[SiYuanMemo][AutoCard] Error creating multiple cloze cards:', error);
             await this.createSingleClozeCard(blockId, content, clozes);
         }
     }
@@ -1141,12 +1141,12 @@ export class AutoCardHandler implements ITransactionHandler {
      */
     private async createListTemplateCards(blockId: string, children: any[]): Promise<void> {
         try {
-            console.log('[SiyuanMemo][AutoCard] Creating list template cards:', blockId, 'children:', children.length);
+            console.log('[SiYuanMemo][AutoCard] Creating list template cards:', blockId, 'children:', children.length);
             
             // 1. 检查是否已制卡
             const existingCard = this.plugin.storage.getCardByBlockId(blockId);
             if (existingCard) {
-                console.log('[SiyuanMemo][AutoCard] Block already has card:', blockId);
+                console.log('[SiYuanMemo][AutoCard] Block already has card:', blockId);
                 return;
             }
             
@@ -1154,14 +1154,14 @@ export class AutoCardHandler implements ITransactionHandler {
             const { getBlockKramdown } = await import('@/core/siyuan/api');
             const { kramdown: parentContent } = await getBlockKramdown(blockId);
             if (!parentContent) {
-                console.error('[SiyuanMemo][AutoCard] Parent block has no content:', blockId);
+                console.error('[SiYuanMemo][AutoCard] Parent block has no content:', blockId);
                 return;
             }
             
             // 提取问题（去掉 >>> 符号）
             const questionMatch = parentContent.match(this.patterns.multiLine);
             if (!questionMatch) {
-                console.error('[SiyuanMemo][AutoCard] Failed to parse list template question:', parentContent);
+                console.error('[SiYuanMemo][AutoCard] Failed to parse list template question:', parentContent);
                 return;
             }
             // Note: question is extracted but not used directly, as it's part of the parent block
@@ -1192,16 +1192,16 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             
             if (childBlocks.length < 2) {
-                console.error('[SiyuanMemo][AutoCard] Not enough valid child blocks:', blockId);
+                console.error('[SiYuanMemo][AutoCard] Not enough valid child blocks:', blockId);
                 return;
             }
             
-            console.log('[SiyuanMemo][AutoCard] Parsed child blocks:', childBlocks);
+            console.log('[SiYuanMemo][AutoCard] Parsed child blocks:', childBlocks);
             
             // 4. 使用 Xiuyuan 创建列表模版卡片
             const xiuyuanService = this.plugin.xiuyuanService;
             if (!xiuyuanService) {
-                console.error('[SiyuanMemo][AutoCard] XiuyuanService not available');
+                console.error('[SiYuanMemo][AutoCard] XiuyuanService not available');
                 return;
             }
             
@@ -1223,19 +1223,19 @@ export class AutoCardHandler implements ITransactionHandler {
             if (!result.ok) {
                 const error = (result as { ok: false; error: Error }).error;
                 const errorMsg = error instanceof Error ? error.message : String(error);
-                console.error('[SiyuanMemo][AutoCard] Failed to create Xiuyuan cards:', errorMsg);
+                console.error('[SiYuanMemo][AutoCard] Failed to create Xiuyuan cards:', errorMsg);
                 const { pushErrMsg } = await import('@/core/siyuan/api');
                 await pushErrMsg(`创建列表模版卡片失败：${errorMsg}`);
                 return;
             }
             
-            console.log('[SiyuanMemo][AutoCard] List template cards created successfully:', blockId, 'cards:', result.value.cards?.length);
+            console.log('[SiYuanMemo][AutoCard] List template cards created successfully:', blockId, 'cards:', result.value.cards?.length);
             
             // 5. 显示成功提示
             const { pushMsg } = await import('@/core/siyuan/api');
             await pushMsg(`✅ 已创建列表模版卡片 (>>>), ${childBlocks.length} 个子项`);
         } catch (error) {
-            console.error('[SiyuanMemo][AutoCard] Failed to create list template cards:', blockId, error);
+            console.error('[SiYuanMemo][AutoCard] Failed to create list template cards:', blockId, error);
             const { pushErrMsg } = await import('@/core/siyuan/api');
             await pushErrMsg(`创建列表模版卡片失败：${error.message}`);
         }
@@ -1265,7 +1265,7 @@ export class AutoCardHandler implements ITransactionHandler {
         this.lastEditTime.clear();
         this.currentEditingBlock = null;
         
-        console.log('[SiyuanMemo][AutoCard] Handler disposed');
+        console.log('[SiYuanMemo][AutoCard] Handler disposed');
     }
 
     /**
@@ -1279,7 +1279,7 @@ export class AutoCardHandler implements ITransactionHandler {
             const refPattern = /\(\((\d{14}-[a-z0-9]{7})/g;
             const matches = [...content.matchAll(refPattern)];
 
-            console.log('[SiyuanMemo][AutoCard] Block reference matches:', matches.length);
+            console.log('[SiYuanMemo][AutoCard] Block reference matches:', matches.length);
             
             if (matches.length === 0) {
                 return null;
@@ -1289,7 +1289,7 @@ export class AutoCardHandler implements ITransactionHandler {
             const { sql } = await import('@/core/siyuan/api');
             for (const match of matches) {
                 const refId = match[1];
-                console.log('[SiyuanMemo][AutoCard] Checking block reference:', refId);
+                console.log('[SiYuanMemo][AutoCard] Checking block reference:', refId);
                 
                 const cardTypeQuery = `
                     SELECT value 
@@ -1299,17 +1299,17 @@ export class AutoCardHandler implements ITransactionHandler {
                 `;
                 const result = await sql(cardTypeQuery);
                 
-                console.log('[SiyuanMemo][AutoCard] Block reference card type:', result?.[0]?.value || 'none');
+                console.log('[SiYuanMemo][AutoCard] Block reference card type:', result?.[0]?.value || 'none');
                 
                 if (result && result.length > 0 && result[0].value === 'concept') {
-                    console.log('[SiyuanMemo][AutoCard] Found concept card in block reference:', refId);
+                    console.log('[SiYuanMemo][AutoCard] Found concept card in block reference:', refId);
                     return refId;
                 }
             }
 
             return null;
         } catch (error) {
-            console.error('[SiyuanMemo][AutoCard] Error finding concept card in block ref:', error);
+            console.error('[SiYuanMemo][AutoCard] Error finding concept card in block ref:', error);
             return null;
         }
     }
@@ -1323,7 +1323,7 @@ export class AutoCardHandler implements ITransactionHandler {
             const refPattern = /\(\((\d{14}-[a-z0-9]{7})/g;
             const matches = [...content.matchAll(refPattern)];
 
-            console.log('[SiyuanMemo][AutoCard] Block reference matches:', matches.length);
+            console.log('[SiYuanMemo][AutoCard] Block reference matches:', matches.length);
             
             if (matches.length === 0) {
                 return null;
@@ -1334,7 +1334,7 @@ export class AutoCardHandler implements ITransactionHandler {
             // 检查每个引用
             for (const match of matches) {
                 const refId = match[1];
-                console.log('[SiyuanMemo][AutoCard] Checking block reference:', refId);
+                console.log('[SiYuanMemo][AutoCard] Checking block reference:', refId);
                 
                 // 检查是否已经是概念卡
                 const cardTypeQuery = `
@@ -1346,38 +1346,38 @@ export class AutoCardHandler implements ITransactionHandler {
                 const result = await sql(cardTypeQuery);
                 
                 if (result && result.length > 0 && result[0].value === 'concept') {
-                    console.log('[SiyuanMemo][AutoCard] Found existing concept card:', refId);
+                    console.log('[SiYuanMemo][AutoCard] Found existing concept card:', refId);
                     return refId;
                 }
                 
                 // 不是概念卡，检查是否包含概念符号
                 const { kramdown: refContent } = await getBlockKramdown(refId);
                 if (refContent && this.patterns.concept.test(refContent)) {
-                    console.log('[SiyuanMemo][AutoCard] Block has concept symbol, already a concept:', refId);
+                    console.log('[SiYuanMemo][AutoCard] Block has concept symbol, already a concept:', refId);
                     return refId;
                 }
                 
                 // 🆕 自动将块引用标记为概念卡（不创建实际卡片，只标记类型）
-                console.log('[SiyuanMemo][AutoCard] Auto-marking block as concept card:', refId);
+                console.log('[SiYuanMemo][AutoCard] Auto-marking block as concept card:', refId);
                 
                 // 获取块内容作为概念名称
                 const blockQuery = `SELECT content FROM blocks WHERE id = '${refId}' LIMIT 1`;
                 const blockResult = await sql(blockQuery);
                 
                 if (!blockResult || blockResult.length === 0) {
-                    console.warn('[SiyuanMemo][AutoCard] Block not found:', refId);
+                    console.warn('[SiYuanMemo][AutoCard] Block not found:', refId);
                     continue;
                 }
                 
                 const conceptName = blockResult[0].content;
-                console.log('[SiyuanMemo][AutoCard] Marking as concept card:', conceptName);
+                console.log('[SiYuanMemo][AutoCard] Marking as concept card:', conceptName);
                 
                 // 直接标记为概念卡（不需要创建 Xiuyuan 卡片）
                 await setBlockAttrs(refId, {
                     'custom-fsrs-card-type': 'concept'
                 });
                 
-                console.log('[SiyuanMemo][AutoCard] Successfully marked as concept card:', refId);
+                console.log('[SiYuanMemo][AutoCard] Successfully marked as concept card:', refId);
                 
                 // 显示提示
                 const { pushMsg } = await import('@/core/siyuan/api');
@@ -1388,7 +1388,7 @@ export class AutoCardHandler implements ITransactionHandler {
 
             return null;
         } catch (error) {
-            console.error('[SiyuanMemo][AutoCard] Error finding/creating concept from block ref:', error);
+            console.error('[SiYuanMemo][AutoCard] Error finding/creating concept from block ref:', error);
             return null;
         }
     }

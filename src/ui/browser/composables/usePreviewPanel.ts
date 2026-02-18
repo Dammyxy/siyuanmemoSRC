@@ -78,7 +78,7 @@ export function usePreviewPanel(props: PreviewPanelOptions) {
         breadcrumbs.value = data.data;
       }
     } catch (err) {
-      console.error('[SiyuanMemo][CardBrowser] Fetch breadcrumbs error:', err);
+      console.error('[SiYuanMemo][CardBrowser] Fetch breadcrumbs error:', err);
     }
   }
 
@@ -117,7 +117,7 @@ export function usePreviewPanel(props: PreviewPanelOptions) {
       });
 
     } catch (err) {
-      console.error('[SiyuanMemo][CardBrowser] Protyle load error:', err);
+      console.error('[SiYuanMemo][CardBrowser] Protyle load error:', err);
       previewBodyRef.value.innerHTML = `<div class="preview-error">加载失败</div>`;
     }
   }

@@ -94,7 +94,7 @@ function safeToISOString(
   // 检查 undefined 或 null
   if (timestamp === undefined || timestamp === null) {
     const fallback = new Date().toISOString();
-    console.warn('[SiyuanMemo][IncrementalLearningQueue] Invalid due time detected:', {
+    console.warn('[SiYuanMemo][IncrementalLearningQueue] Invalid due time detected:', {
       cardID: context.cardID,
       field: context.field,
       value: timestamp,
@@ -107,7 +107,7 @@ function safeToISOString(
   // 检查 NaN
   if (Number.isNaN(timestamp)) {
     const fallback = new Date().toISOString();
-    console.warn('[SiyuanMemo][IncrementalLearningQueue] Invalid due time detected:', {
+    console.warn('[SiYuanMemo][IncrementalLearningQueue] Invalid due time detected:', {
       cardID: context.cardID,
       field: context.field,
       value: timestamp,
@@ -120,7 +120,7 @@ function safeToISOString(
   // 检查是否为有限数字
   if (!Number.isFinite(timestamp)) {
     const fallback = new Date().toISOString();
-    console.warn('[SiyuanMemo][IncrementalLearningQueue] Invalid due time detected:', {
+    console.warn('[SiYuanMemo][IncrementalLearningQueue] Invalid due time detected:', {
       cardID: context.cardID,
       field: context.field,
       value: timestamp,
@@ -137,7 +137,7 @@ function safeToISOString(
     // 检查是否创建了 Invalid Date
     if (isNaN(date.getTime())) {
       const fallback = new Date().toISOString();
-      console.warn('[SiyuanMemo][IncrementalLearningQueue] Invalid due time detected:', {
+      console.warn('[SiYuanMemo][IncrementalLearningQueue] Invalid due time detected:', {
         cardID: context.cardID,
         field: context.field,
         value: timestamp,
@@ -151,7 +151,7 @@ function safeToISOString(
   } catch (error) {
     // 捕获任何未预期的异常
     const fallback = new Date().toISOString();
-    console.warn('[SiyuanMemo][IncrementalLearningQueue] Invalid due time detected:', {
+    console.warn('[SiYuanMemo][IncrementalLearningQueue] Invalid due time detected:', {
       cardID: context.cardID,
       field: context.field,
       value: timestamp,
@@ -272,7 +272,7 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
           if (localIndex !== -1) {
             this.localBuffer.splice(localIndex, 1);
             removedCount++;
-            console.log('[SiyuanMemo][IncrementalLearningQueue] Removed from local buffer:', cardID);
+            console.log('[SiYuanMemo][IncrementalLearningQueue] Removed from local buffer:', cardID);
           } else {
             // 🆕 Phase 2.3.1: 如果不在本地队列，说明是 Riff 卡片
             if (blockID) {
@@ -286,15 +286,15 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
           try {
             await riff.removeRiffCards(this.deckID, riffBlockIds);
             removedCount += riffBlockIds.length;
-            console.log('[SiyuanMemo][IncrementalLearningQueue] ✅ Removed from Riff:', riffBlockIds.length);
+            console.log('[SiYuanMemo][IncrementalLearningQueue] ✅ Removed from Riff:', riffBlockIds.length);
           } catch (error) {
             // 🆕 Phase 2.3.2: 错误处理 - 添加到黑名单
-            console.error('[SiyuanMemo][IncrementalLearningQueue] Failed to remove from Riff:', error);
+            console.error('[SiYuanMemo][IncrementalLearningQueue] Failed to remove from Riff:', error);
             if (this.storage) {
               for (const blockID of riffBlockIds) {
                 this.storage.addToRiffBlacklist(blockID);
               }
-              console.log('[SiyuanMemo][IncrementalLearningQueue] ✅ Added to blacklist (remove failed):', riffBlockIds.length);
+              console.log('[SiYuanMemo][IncrementalLearningQueue] ✅ Added to blacklist (remove failed):', riffBlockIds.length);
             }
           }
         }
@@ -305,7 +305,7 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
         }
 
         // 🆕 Phase 2.3.3: 添加日志输出
-        console.log('[SiyuanMemo][IncrementalLearningQueue] remove result:', {
+        console.log('[SiYuanMemo][IncrementalLearningQueue] remove result:', {
           total: items.length,
           removed: removedCount,
           local: removedCount - riffBlockIds.length,
@@ -347,13 +347,13 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
   }
 
   async next(): Promise<QueueItem | null> {
-    console.log('[SiyuanMemo][IncrementalLearningQueue] next() called');
+    console.log('[SiYuanMemo][IncrementalLearningQueue] next() called');
     await this._ensureRiffLoaded();
 
     // 合并本地卡片和 Riff 卡片
     const allItems = [...this.localBuffer, ...this.riffBuffer];
 
-    console.log('[SiyuanMemo][IncrementalLearningQueue] next():', {
+    console.log('[SiYuanMemo][IncrementalLearningQueue] next():', {
       localTotal: this.localBuffer.length,
       riffTotal: this.riffBuffer.length,
       allItems: allItems.length,
@@ -390,7 +390,7 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
       }
     }
 
-    console.log('[SiyuanMemo][IncrementalLearningQueue] next() returning card:', {
+    console.log('[SiYuanMemo][IncrementalLearningQueue] next() returning card:', {
       cardID: selectedCardID,
       remainingLocal: this.localBuffer.length,
       remainingRiff: this.riffBuffer.length,
@@ -432,7 +432,7 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
         // 🆕 Phase 2.2.4: Riff 卡片：添加到黑名单（不调用 Riff API）
         if (this.storage) {
           this.storage.addToRiffBlacklist(currentItem.blockID);
-          console.log('[SiyuanMemo][IncrementalLearningQueue] ✅ Added to blacklist (skip):', currentItem.blockID);
+          console.log('[SiYuanMemo][IncrementalLearningQueue] ✅ Added to blacklist (skip):', currentItem.blockID);
         }
         this._afterRiffConsumed(currentItem);
         this.riffCurrentRaw = null;
@@ -475,11 +475,11 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
           // 🆕 Phase 2.2.3: 如果是 Riff 卡片，可选同步到 Riff
           if (!isLocal && this.config?.enableRiffSync) {
             await this.api.reviewRiffCard(deckID, cardID, rating);
-            console.log('[SiyuanMemo][IncrementalLearningQueue] ✅ Synced to Riff:', cardID);
+            console.log('[SiYuanMemo][IncrementalLearningQueue] ✅ Synced to Riff:', cardID);
           }
 
           // 🆕 Phase 2.2.6: 添加详细日志
-          console.log('[SiyuanMemo][IncrementalLearningQueue] ✅ Used SchedulerRouter:', {
+          console.log('[SiYuanMemo][IncrementalLearningQueue] ✅ Used SchedulerRouter:', {
             cardID,
             isLocal,
             cardType: updatedCard.type,
@@ -488,7 +488,7 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
           });
         } else {
           // 🆕 Phase 2.2.5: 后备方案：直接调用 Riff API
-          console.warn('[SiyuanMemo][IncrementalLearningQueue] Card not found in storage, using Riff API:', cardID);
+          console.warn('[SiYuanMemo][IncrementalLearningQueue] Card not found in storage, using Riff API:', cardID);
           await this.api.reviewRiffCard(deckID, cardID, rating);
         }
       } else {
@@ -509,11 +509,11 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
           // 本地卡片：重新添加到队列末尾
           this.localBuffer.push(currentItem);
           await this._persistLocalQueue();
-          console.log('[SiyuanMemo][IncrementalLearningQueue] ✅ Rotated local card to end:', cardID);
+          console.log('[SiYuanMemo][IncrementalLearningQueue] ✅ Rotated local card to end:', cardID);
         } else {
           // Riff 卡片：重新添加到 Riff 队列末尾
           this.riffBuffer.push(currentItem);
-          console.log('[SiyuanMemo][IncrementalLearningQueue] ✅ Rotated Riff card to end:', cardID);
+          console.log('[SiYuanMemo][IncrementalLearningQueue] ✅ Rotated Riff card to end:', cardID);
           // 不调用 _afterRiffConsumed，因为卡片重新进入队列
         }
       } else {
@@ -522,7 +522,7 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
           this._afterRiffConsumed(currentItem);
           this.riffCurrentRaw = null;
         }
-        console.log('[SiyuanMemo][IncrementalLearningQueue] ✅ Card removed from queue (rating >= 3):', cardID);
+        console.log('[SiYuanMemo][IncrementalLearningQueue] ✅ Card removed from queue (rating >= 3):', cardID);
       }
 
       this.reviewedCount++;
@@ -534,8 +534,8 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
    * 手动添加卡片到本地队列
    */
   async addItems(items: QueueItem[]): Promise<number> {
-    console.log('[SiyuanMemo][IncrementalLearningQueue] addItems called with', items.length, 'items');
-    console.log('[SiyuanMemo][IncrementalLearningQueue] Input items:', items.map(i => ({
+    console.log('[SiYuanMemo][IncrementalLearningQueue] addItems called with', items.length, 'items');
+    console.log('[SiYuanMemo][IncrementalLearningQueue] Input items:', items.map(i => ({
       cardID: i.cardID,
       blockID: i.blockID,
       deckID: i.deckID,
@@ -555,7 +555,7 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
       meta: item?.meta || {},
     }));
 
-    console.log('[SiyuanMemo][IncrementalLearningQueue] Normalized items:', normalizedItems.map(i => ({
+    console.log('[SiYuanMemo][IncrementalLearningQueue] Normalized items:', normalizedItems.map(i => ({
       cardID: i.cardID,
       blockID: i.blockID,
       deckID: i.deckID,
@@ -566,7 +566,7 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
     const newItems = normalizedItems.filter(item => !existingCardIds.has(String(item.cardID)));
 
     if (newItems.length < normalizedItems.length) {
-      console.log('[SiyuanMemo][IncrementalLearningQueue] Filtered out', normalizedItems.length - newItems.length, 'duplicate items');
+      console.log('[SiYuanMemo][IncrementalLearningQueue] Filtered out', normalizedItems.length - newItems.length, 'duplicate items');
     }
 
     // 初始化调度状态（如果有调度器）
@@ -580,8 +580,8 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
     this.localBuffer.push(...newItems);
     await this._persistLocalQueue();
 
-    console.log('[SiyuanMemo][IncrementalLearningQueue] Added', newItems.length, 'items to local queue');
-    console.log('[SiyuanMemo][IncrementalLearningQueue] Local buffer size:', this.localBuffer.length);
+    console.log('[SiYuanMemo][IncrementalLearningQueue] Added', newItems.length, 'items to local queue');
+    console.log('[SiYuanMemo][IncrementalLearningQueue] Local buffer size:', this.localBuffer.length);
     return newItems.length;
   }
 
@@ -613,7 +613,7 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
       const allItems = this.getAllItems();
 
       if (orderedItems.length !== allItems.length) {
-        console.error('[SiyuanMemo][IncrementalLearningQueue] reorder - Count mismatch');
+        console.error('[SiYuanMemo][IncrementalLearningQueue] reorder - Count mismatch');
         return false;
       }
 
@@ -639,7 +639,7 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
 
       return true;
     } catch (err) {
-      console.error('[SiyuanMemo][IncrementalLearningQueue] reorder failed:', err);
+      console.error('[SiYuanMemo][IncrementalLearningQueue] reorder failed:', err);
       return false;
     }
   }
@@ -665,7 +665,7 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
       lastReview: item?.lastReview,
       meta: item?.meta || {},
     }));
-    console.log('[SiyuanMemo][IncrementalLearningQueue] Loaded local queue:', {
+    console.log('[SiYuanMemo][IncrementalLearningQueue] Loaded local queue:', {
       deckID: this.deckID,
       localCount: this.localBuffer.length,
       items: this.localBuffer.map(i => ({ cardID: i.cardID, blockID: i.blockID })),
@@ -715,14 +715,14 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
   private async _ensureRiffLoaded(): Promise<void> {
     if (this.riffLoaded) return;
     this.riffLoaded = true;
-    console.log('[SiyuanMemo][IncrementalLearningQueue] Loading Riff cards for deck:', this.deckID);
+    console.log('[SiYuanMemo][IncrementalLearningQueue] Loading Riff cards for deck:', this.deckID);
     const data = await this.api.getRiffDueCards(this.deckID);
     const cards = Array.isArray(data?.cards) ? data.cards : [];
     this.riffUnreviewedTotal = Number(data?.unreviewedCount) || cards.length || 0;
     this.riffUnreviewedNew = Number(data?.unreviewedNewCardCount) || 0;
     this.riffUnreviewedOld = Number(data?.unreviewedOldCardCount) || 0;
 
-    console.log('[SiyuanMemo][IncrementalLearningQueue] Riff cards loaded:', {
+    console.log('[SiYuanMemo][IncrementalLearningQueue] Riff cards loaded:', {
       deckID: this.deckID,
       total: this.riffUnreviewedTotal,
       new: this.riffUnreviewedNew,
@@ -805,7 +805,7 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
           this.storage.setCard(localCard);
           createdCount++;
           
-          console.log('[SiyuanMemo][IncrementalLearningQueue] Created default card for:', cardID);
+          console.log('[SiYuanMemo][IncrementalLearningQueue] Created default card for:', cardID);
         }
 
         // 使用 SchedulerRouter 预测四个选项的时间
@@ -835,21 +835,21 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
 
           recalculatedCount++;
         } catch (error) {
-          console.error('[SiyuanMemo][IncrementalLearningQueue] Failed to preview card:', cardID, error);
+          console.error('[SiYuanMemo][IncrementalLearningQueue] Failed to preview card:', cardID, error);
         }
       }
 
       // 如果创建了新卡片，保存到存储
       if (createdCount > 0) {
         await this.storage.saveCards();
-        console.log('[SiyuanMemo][IncrementalLearningQueue] ✅ Created', createdCount, 'default cards');
+        console.log('[SiYuanMemo][IncrementalLearningQueue] ✅ Created', createdCount, 'default cards');
       }
 
       if (recalculatedCount > 0) {
-        console.log('[SiyuanMemo][IncrementalLearningQueue] ✅ Recalculated nextDues for', recalculatedCount, 'cards');
+        console.log('[SiYuanMemo][IncrementalLearningQueue] ✅ Recalculated nextDues for', recalculatedCount, 'cards');
       }
     } catch (error) {
-      console.error('[SiyuanMemo][IncrementalLearningQueue] Failed to recalculate nextDues:', error);
+      console.error('[SiYuanMemo][IncrementalLearningQueue] Failed to recalculate nextDues:', error);
     }
   }
 }

@@ -123,7 +123,7 @@ export class ReviewService {
         },
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open review provider v2 dialog:', err);
+      console.error('[SiYuanMemo] Failed to open review provider v2 dialog:', err);
       await pushErrMsg(this.plugin.i18n?.loadFailed || '加载失败');
     }
   }
@@ -165,7 +165,7 @@ export class ReviewService {
         },
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open leech review dialog:', err);
+      console.error('[SiYuanMemo] Failed to open leech review dialog:', err);
       try {
         await pushErrMsg('难点攻坚启动失败');
       } catch {}
@@ -222,7 +222,7 @@ export class ReviewService {
         },
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open final drill provider v2 dialog:', err);
+      console.error('[SiYuanMemo] Failed to open final drill provider v2 dialog:', err);
       await pushErrMsg(this.plugin.i18n?.drillFailed || '机械练习启动失败');
     }
   }
@@ -277,7 +277,7 @@ export class ReviewService {
         },
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open incremental learning dialog:', err);
+      console.error('[SiYuanMemo] Failed to open incremental learning dialog:', err);
       await pushErrMsg(this.plugin.i18n?.openFailed || '打开渐进学习失败');
     }
   }
@@ -324,7 +324,7 @@ export class ReviewService {
         },
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open filter group practice dialog:', err);
+      console.error('[SiYuanMemo] Failed to open filter group practice dialog:', err);
       await pushErrMsg(this.plugin.i18n?.openFailed || '打开分组队列失败');
     }
   }
@@ -369,7 +369,7 @@ export class ReviewService {
         },
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open leech practice dialog:', err);
+      console.error('[SiYuanMemo] Failed to open leech practice dialog:', err);
       await pushErrMsg(this.plugin.i18n?.openFailed || '打开难点攻坚失败');
     }
   }
@@ -403,7 +403,7 @@ export class ReviewService {
       
       console.log('[ReviewService] ✅ Neural roam dialog created with unified data source');
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open neural review v2 dialog:', err);
+      console.error('[SiYuanMemo] Failed to open neural review v2 dialog:', err);
       await pushErrMsg(this.plugin.i18n?.neuralReviewFailed || '神经漫游启动失败');
     }
   }
@@ -521,7 +521,7 @@ export class ReviewService {
   }) {
     const { blockId, providerId, title } = options;
 
-    console.log('[SiyuanMemo] Opening review in new window for block:', blockId);
+    console.log('[SiYuanMemo] Opening review in new window for block:', blockId);
 
     // 保存复习类型到 localStorage（跨窗口共享）
     try {
@@ -531,9 +531,9 @@ export class ReviewService {
         timestamp: Date.now(),
       };
       localStorage.setItem('siyuanFsrsReviewMeta', JSON.stringify(reviewMeta));
-      console.log('[SiyuanMemo] Saved review meta to localStorage:', reviewMeta);
+      console.log('[SiYuanMemo] Saved review meta to localStorage:', reviewMeta);
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to save review meta:', err);
+      console.error('[SiYuanMemo] Failed to save review meta:', err);
     }
 
     // 打开自定义 Tab，然后在新窗口中打开
@@ -582,21 +582,21 @@ export class ReviewService {
     try {
       const metaStr = localStorage.getItem('siyuanFsrsReviewMeta');
       if (!metaStr) {
-        console.warn('[SiyuanMemo] No saved review meta found');
+        console.warn('[SiYuanMemo] No saved review meta found');
         return;
       }
       savedMeta = JSON.parse(metaStr);
 
       // 检查状态是否过期（5 分钟）
       if (Date.now() - savedMeta.timestamp > 5 * 60 * 1000) {
-        console.warn('[SiyuanMemo] Saved review meta is expired');
+        console.warn('[SiYuanMemo] Saved review meta is expired');
         localStorage.removeItem('siyuanFsrsReviewMeta');
         return;
       }
 
-      console.log('[SiyuanMemo] Restoring review dialog from saved meta:', savedMeta);
+      console.log('[SiYuanMemo] Restoring review dialog from saved meta:', savedMeta);
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to parse saved review meta:', err);
+      console.error('[SiYuanMemo] Failed to parse saved review meta:', err);
       return;
     }
 
@@ -623,7 +623,7 @@ export class ReviewService {
         this.openFilterGroupPracticeDialog();
         break;
       default:
-        console.log('[SiyuanMemo] Unknown provider ID, opening default review:', savedMeta.providerId);
+        console.log('[SiYuanMemo] Unknown provider ID, opening default review:', savedMeta.providerId);
         this.openReviewDialog();
     }
   }

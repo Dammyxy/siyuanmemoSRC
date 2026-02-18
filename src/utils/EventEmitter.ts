@@ -52,7 +52,7 @@ export class EventEmitter<TEvents extends Record<string, any> = Record<string, a
                 try {
                     listener(data);
                 } catch (error) {
-                    console.error(`[SiyuanMemo][EventEmitter] Error in listener for event "${String(event)}":`, error);
+                    console.error(`[SiYuanMemo][EventEmitter] Error in listener for event "${String(event)}":`, error);
                 }
             });
         }

@@ -74,7 +74,7 @@ export class FilterGroupQueue extends BaseReviewQueue {
         // 🆕 加载临时黑名单
         this.loadTemporaryBlacklist();
         
-        console.log('[SiyuanMemo][FilterGroupQueue] Initialized with filter:', this.cardFilter);
+        console.log('[SiYuanMemo][FilterGroupQueue] Initialized with filter:', this.cardFilter);
     }
     
     /**
@@ -104,24 +104,24 @@ export class FilterGroupQueue extends BaseReviewQueue {
     public async getCards(): Promise<FSRSCard[]> {
         try {
             // 🔍 调试：记录当前过滤条件
-            console.log(`[SiyuanMemo][FilterGroupQueue] 🔍 Current cardFilter:`, this.cardFilter);
+            console.log(`[SiYuanMemo][FilterGroupQueue] 🔍 Current cardFilter:`, this.cardFilter);
             
             // 根据过滤条件获取卡片
             // ✅ 修复：不强制添加 dueDate 过滤，只使用用户设置的过滤条件
             // 筛选复习队列应该显示所有符合过滤条件的卡片，而不是只显示到期的卡片
             const filteredCards = await this.manager.getCards(this.cardFilter);
             
-            console.log(`[SiyuanMemo][FilterGroupQueue] 🔍 Got ${filteredCards.length} filtered cards from manager`);
+            console.log(`[SiYuanMemo][FilterGroupQueue] 🔍 Got ${filteredCards.length} filtered cards from manager`);
             
             // 获取手动添加的卡片
             const manualCards = await this.getManuallyAddedCards();
             
-            console.log(`[SiyuanMemo][FilterGroupQueue] 🔍 Got ${manualCards.length} manually added cards`);
+            console.log(`[SiYuanMemo][FilterGroupQueue] 🔍 Got ${manualCards.length} manually added cards`);
             
             // 合并并去重
             const allCards = this.mergeAndDeduplicate(filteredCards, manualCards);
             
-            console.log(`[SiyuanMemo][FilterGroupQueue] 🔍 After merge: ${allCards.length} cards`);
+            console.log(`[SiYuanMemo][FilterGroupQueue] 🔍 After merge: ${allCards.length} cards`);
             
             // 过滤临时黑名单中的卡片
             const blacklistFiltered = allCards.filter(card => 
@@ -129,7 +129,7 @@ export class FilterGroupQueue extends BaseReviewQueue {
             );
             
             if (blacklistFiltered.length < allCards.length) {
-                console.log(`[SiyuanMemo][FilterGroupQueue] 🔍 Filtered ${allCards.length - blacklistFiltered.length} cards from temporary blacklist`);
+                console.log(`[SiYuanMemo][FilterGroupQueue] 🔍 Filtered ${allCards.length - blacklistFiltered.length} cards from temporary blacklist`);
             }
             
             // 按到期日期和优先级排序
@@ -138,7 +138,7 @@ export class FilterGroupQueue extends BaseReviewQueue {
             // 应用自定义排序（如果存在）
             return this.applyCustomOrder(sortedCards);
         } catch (error) {
-            console.error('[SiyuanMemo][FilterGroupQueue] Failed to get cards:', error);
+            console.error('[SiYuanMemo][FilterGroupQueue] Failed to get cards:', error);
             throw error;
         }
     }
@@ -175,12 +175,12 @@ export class FilterGroupQueue extends BaseReviewQueue {
                 timestamp: Date.now()
             });
             
-            console.log(`[SiyuanMemo][FilterGroupQueue] Card ${cardId} added manually`, {
+            console.log(`[SiYuanMemo][FilterGroupQueue] Card ${cardId} added manually`, {
                 wasBlacklisted,
                 temporaryBlacklistSize: this.temporaryBlacklist.size
             });
         } catch (error) {
-            console.error('[SiyuanMemo][FilterGroupQueue] Failed to add card:', error);
+            console.error('[SiYuanMemo][FilterGroupQueue] Failed to add card:', error);
             throw error;
         }
     }
@@ -213,12 +213,12 @@ export class FilterGroupQueue extends BaseReviewQueue {
             // 4. 持久化临时黑名单
             this.saveTemporaryBlacklist();
             
-            console.log(`[SiyuanMemo][FilterGroupQueue] Card ${cardIdOrBlockId} removed`, {
+            console.log(`[SiYuanMemo][FilterGroupQueue] Card ${cardIdOrBlockId} removed`, {
                 wasManuallyAdded,
                 temporaryBlacklistSize: this.temporaryBlacklist.size
             });
         } catch (error) {
-            console.error('[SiyuanMemo][FilterGroupQueue] Failed to remove card:', error);
+            console.error('[SiYuanMemo][FilterGroupQueue] Failed to remove card:', error);
             // 即使出错，也要尝试加入临时黑名单
             this.temporaryBlacklist.add(cardIdOrBlockId);
             this.saveTemporaryBlacklist();
@@ -250,10 +250,10 @@ export class FilterGroupQueue extends BaseReviewQueue {
             if (rating < 3) {
                 const finalDrillQueue = this.manager.getQueue(QueueType.FinalDrill);
                 await finalDrillQueue.addCard(cardId, 'auto-failed');
-                console.log(`[SiyuanMemo][FilterGroupQueue] Card ${cardId} with rating ${rating} added to FinalDrill`);
+                console.log(`[SiYuanMemo][FilterGroupQueue] Card ${cardId} with rating ${rating} added to FinalDrill`);
             }
         } catch (error) {
-            console.error('[SiyuanMemo][FilterGroupQueue] Failed to handle review:', error);
+            console.error('[SiYuanMemo][FilterGroupQueue] Failed to handle review:', error);
             throw error;
         }
     }
@@ -281,7 +281,7 @@ export class FilterGroupQueue extends BaseReviewQueue {
     public setFilter(filter: CardFilter): void {
         this.cardFilter = filter;
         this.saveFilterSettings();
-        console.log('[SiyuanMemo][FilterGroupQueue] Filter updated and saved:', filter);
+        console.log('[SiYuanMemo][FilterGroupQueue] Filter updated and saved:', filter);
     }
     
     /**
@@ -309,7 +309,7 @@ export class FilterGroupQueue extends BaseReviewQueue {
      */
     public async rebuild(): Promise<void> {
         try {
-            console.log('[SiyuanMemo][FilterGroupQueue] Rebuilding queue with filter:', this.cardFilter);
+            console.log('[SiYuanMemo][FilterGroupQueue] Rebuilding queue with filter:', this.cardFilter);
             
             // 清除临时黑名单（重新开始）
             this.temporaryBlacklist.clear();
@@ -322,9 +322,9 @@ export class FilterGroupQueue extends BaseReviewQueue {
                 timestamp: Date.now()
             });
             
-            console.log('[SiyuanMemo][FilterGroupQueue] Queue rebuilt successfully');
+            console.log('[SiYuanMemo][FilterGroupQueue] Queue rebuilt successfully');
         } catch (error) {
-            console.error('[SiyuanMemo][FilterGroupQueue] Failed to rebuild queue:', error);
+            console.error('[SiYuanMemo][FilterGroupQueue] Failed to rebuild queue:', error);
             throw error;
         }
     }
@@ -338,9 +338,9 @@ export class FilterGroupQueue extends BaseReviewQueue {
         super.clearTemporaryBlacklist();
         try {
             localStorage.removeItem(this.BLACKLIST_STORAGE_KEY);
-            console.log('[SiyuanMemo][FilterGroupQueue] Temporary blacklist cleared from storage');
+            console.log('[SiYuanMemo][FilterGroupQueue] Temporary blacklist cleared from storage');
         } catch (error) {
-            console.error('[SiyuanMemo][FilterGroupQueue] Failed to clear temporary blacklist from storage:', error);
+            console.error('[SiYuanMemo][FilterGroupQueue] Failed to clear temporary blacklist from storage:', error);
         }
     }
     
@@ -361,7 +361,7 @@ export class FilterGroupQueue extends BaseReviewQueue {
                 cards.push(card);
             } catch (error) {
                 // 卡片不存在是预期行为（可能已被删除），自动清理
-                console.log(`[SiyuanMemo][FilterGroupQueue] Card ${cardId} not found, removing from manual additions`);
+                console.log(`[SiYuanMemo][FilterGroupQueue] Card ${cardId} not found, removing from manual additions`);
                 this.manuallyAddedCards.delete(cardId);
             }
         }
@@ -418,10 +418,10 @@ export class FilterGroupQueue extends BaseReviewQueue {
             if (stored) {
                 const cardIds: string[] = JSON.parse(stored);
                 this.manuallyAddedCards = new Set(cardIds);
-                console.log(`[SiyuanMemo][FilterGroupQueue] Loaded ${cardIds.length} manually added cards from storage`);
+                console.log(`[SiYuanMemo][FilterGroupQueue] Loaded ${cardIds.length} manually added cards from storage`);
             }
         } catch (error) {
-            console.error('[SiyuanMemo][FilterGroupQueue] Failed to load manually added cards:', error);
+            console.error('[SiYuanMemo][FilterGroupQueue] Failed to load manually added cards:', error);
             this.manuallyAddedCards = new Set();
         }
     }
@@ -433,9 +433,9 @@ export class FilterGroupQueue extends BaseReviewQueue {
         try {
             const cardIds = Array.from(this.manuallyAddedCards);
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(cardIds));
-            console.log(`[SiyuanMemo][FilterGroupQueue] Persisted ${cardIds.length} manually added cards`);
+            console.log(`[SiYuanMemo][FilterGroupQueue] Persisted ${cardIds.length} manually added cards`);
         } catch (error) {
-            console.error('[SiyuanMemo][FilterGroupQueue] Failed to persist manually added cards:', error);
+            console.error('[SiYuanMemo][FilterGroupQueue] Failed to persist manually added cards:', error);
             throw error;
         }
     }
@@ -450,11 +450,11 @@ export class FilterGroupQueue extends BaseReviewQueue {
             const stored = localStorage.getItem(this.FILTER_STORAGE_KEY);
             if (stored) {
                 const filter: CardFilter = JSON.parse(stored);
-                console.log('[SiyuanMemo][FilterGroupQueue] Loaded filter settings from storage:', filter);
+                console.log('[SiYuanMemo][FilterGroupQueue] Loaded filter settings from storage:', filter);
                 return filter;
             }
         } catch (error) {
-            console.error('[SiyuanMemo][FilterGroupQueue] Failed to load filter settings:', error);
+            console.error('[SiYuanMemo][FilterGroupQueue] Failed to load filter settings:', error);
         }
         return {};
     }
@@ -465,9 +465,9 @@ export class FilterGroupQueue extends BaseReviewQueue {
     private saveFilterSettings(): void {
         try {
             localStorage.setItem(this.FILTER_STORAGE_KEY, JSON.stringify(this.cardFilter));
-            console.log('[SiyuanMemo][FilterGroupQueue] Saved filter settings to storage');
+            console.log('[SiYuanMemo][FilterGroupQueue] Saved filter settings to storage');
         } catch (error) {
-            console.error('[SiyuanMemo][FilterGroupQueue] Failed to save filter settings:', error);
+            console.error('[SiYuanMemo][FilterGroupQueue] Failed to save filter settings:', error);
         }
     }
     
@@ -480,10 +480,10 @@ export class FilterGroupQueue extends BaseReviewQueue {
             if (stored) {
                 const cardIds: string[] = JSON.parse(stored);
                 this.temporaryBlacklist = new Set(cardIds);
-                console.log(`[SiyuanMemo][FilterGroupQueue] Loaded ${cardIds.length} cards from temporary blacklist`);
+                console.log(`[SiYuanMemo][FilterGroupQueue] Loaded ${cardIds.length} cards from temporary blacklist`);
             }
         } catch (error) {
-            console.error('[SiyuanMemo][FilterGroupQueue] Failed to load temporary blacklist:', error);
+            console.error('[SiYuanMemo][FilterGroupQueue] Failed to load temporary blacklist:', error);
             this.temporaryBlacklist = new Set();
         }
     }
@@ -495,9 +495,9 @@ export class FilterGroupQueue extends BaseReviewQueue {
         try {
             const cardIds = Array.from(this.temporaryBlacklist);
             localStorage.setItem(this.BLACKLIST_STORAGE_KEY, JSON.stringify(cardIds));
-            console.log(`[SiyuanMemo][FilterGroupQueue] Saved ${cardIds.length} cards to temporary blacklist`);
+            console.log(`[SiYuanMemo][FilterGroupQueue] Saved ${cardIds.length} cards to temporary blacklist`);
         } catch (error) {
-            console.error('[SiyuanMemo][FilterGroupQueue] Failed to save temporary blacklist:', error);
+            console.error('[SiYuanMemo][FilterGroupQueue] Failed to save temporary blacklist:', error);
         }
     }
 }

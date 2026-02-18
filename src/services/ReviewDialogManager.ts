@@ -129,7 +129,7 @@ export class ReviewDialogManager {
               title: currentTitle,
             });
           } else {
-            console.warn('[SiyuanMemo][ReviewDialogManager] openReviewTab callback not provided');
+            console.warn('[SiYuanMemo][ReviewDialogManager] openReviewTab callback not provided');
           }
         },
       },
@@ -168,9 +168,9 @@ export class ReviewDialogManager {
         }
       });
       
-      console.log('[SiyuanMemo][ReviewDialogManager] ✅ Retrieval practice dialog created with unified data source');
+      console.log('[SiYuanMemo][ReviewDialogManager] ✅ Retrieval practice dialog created with unified data source');
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open retrieval practice dialog:', err);
+      console.error('[SiYuanMemo] Failed to open retrieval practice dialog:', err);
       await pushErrMsg(this.deps.i18n?.loadFailed || '加载失败');
     }
   }
@@ -197,7 +197,7 @@ export class ReviewDialogManager {
         adapter: new LeechAdapter({ i18n: this.deps.i18n || {} }) as any,
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open leech review dialog:', err);
+      console.error('[SiYuanMemo] Failed to open leech review dialog:', err);
       try { await pushErrMsg('难点攻坚启动失败'); } catch {}
     }
   }
@@ -221,9 +221,9 @@ export class ReviewDialogManager {
         }
       });
       
-      console.log('[SiyuanMemo][ReviewDialogManager] ✅ Final drill dialog created with unified data source');
+      console.log('[SiYuanMemo][ReviewDialogManager] ✅ Final drill dialog created with unified data source');
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open final drill dialog:', err);
+      console.error('[SiYuanMemo] Failed to open final drill dialog:', err);
       await pushErrMsg(this.deps.i18n?.drillFailed || '机械练习启动失败');
     }
   }
@@ -247,9 +247,9 @@ export class ReviewDialogManager {
         }
       });
       
-      console.log('[SiyuanMemo][ReviewDialogManager] ✅ Incremental learning dialog created with unified data source');
+      console.log('[SiYuanMemo][ReviewDialogManager] ✅ Incremental learning dialog created with unified data source');
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open incremental learning dialog:', err);
+      console.error('[SiYuanMemo] Failed to open incremental learning dialog:', err);
       await pushErrMsg(this.deps.i18n?.openFailed || '打开渐进学习失败');
     }
   }
@@ -273,9 +273,9 @@ export class ReviewDialogManager {
         }
       });
       
-      console.log('[SiyuanMemo][ReviewDialogManager] ✅ Filter group dialog created with unified data source');
+      console.log('[SiYuanMemo][ReviewDialogManager] ✅ Filter group dialog created with unified data source');
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open filter group practice dialog:', err);
+      console.error('[SiYuanMemo] Failed to open filter group practice dialog:', err);
       await pushErrMsg(this.deps.i18n?.openFailed || '打开分组队列失败');
     }
   }
@@ -301,7 +301,7 @@ export class ReviewDialogManager {
       // 🆕 使用 FilterGroup 队列 + 临时过滤条件
       const manager = this.deps.plugin?.unifiedDataSourceManager;
       if (!manager) {
-        console.error('[SiyuanMemo][ReviewDialogManager] UnifiedDataSourceManager not found');
+        console.error('[SiYuanMemo][ReviewDialogManager] UnifiedDataSourceManager not found');
         await pushErrMsg('无法打开渐进学习');
         return;
       }
@@ -320,7 +320,7 @@ export class ReviewDialogManager {
         };
       }
       
-      console.log('[SiyuanMemo][ReviewDialogManager] 🔍 openIncrementalLearningWithFilter - Setting filter:', {
+      console.log('[SiYuanMemo][ReviewDialogManager] 🔍 openIncrementalLearningWithFilter - Setting filter:', {
         dueOnly: options.dueOnly,
         blockIdsCount: options.blockIds.length,
         hasDueDate: !!filter.dueDate,
@@ -333,7 +333,7 @@ export class ReviewDialogManager {
         
         // 🔍 验证过滤条件是否正确设置
         const currentFilter = (filterGroupQueue as any).getFilter?.();
-        console.log('[SiyuanMemo][ReviewDialogManager] 🔍 After setFilter, current filter:', {
+        console.log('[SiYuanMemo][ReviewDialogManager] 🔍 After setFilter, current filter:', {
           hasDueDate: !!currentFilter?.dueDate,
           filter: JSON.stringify(currentFilter, null, 2)
         });
@@ -344,7 +344,7 @@ export class ReviewDialogManager {
       // 但在"全部"模式下，用户希望看到所有卡片，包括已复习的
       if (!options.dueOnly && typeof (filterGroupQueue as any).clearTemporaryBlacklist === 'function') {
         (filterGroupQueue as any).clearTemporaryBlacklist();
-        console.log('[SiyuanMemo][ReviewDialogManager] ✅ Cleared temporary blacklist for "all" mode');
+        console.log('[SiYuanMemo][ReviewDialogManager] ✅ Cleared temporary blacklist for "all" mode');
       }
       
       // 创建对话框（使用 FilterGroup 队列）
@@ -381,9 +381,9 @@ export class ReviewDialogManager {
         },
       });
       
-      console.log('[SiyuanMemo][ReviewDialogManager] ✅ Incremental learning dialog created with blockIds filter');
+      console.log('[SiYuanMemo][ReviewDialogManager] ✅ Incremental learning dialog created with blockIds filter');
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open incremental learning dialog:', err);
+      console.error('[SiYuanMemo] Failed to open incremental learning dialog:', err);
       await pushErrMsg(this.deps.i18n?.openFailed || '打开渐进学习失败');
     }
   }
@@ -409,7 +409,7 @@ export class ReviewDialogManager {
       // 🆕 使用 FilterGroup 队列 + 临时过滤条件
       const manager = this.deps.plugin?.unifiedDataSourceManager;
       if (!manager) {
-        console.error('[SiyuanMemo][ReviewDialogManager] UnifiedDataSourceManager not found');
+        console.error('[SiYuanMemo][ReviewDialogManager] UnifiedDataSourceManager not found');
         await pushErrMsg('无法打开提取练习');
         return;
       }
@@ -428,7 +428,7 @@ export class ReviewDialogManager {
         };
       }
       
-      console.log('[SiyuanMemo][ReviewDialogManager] 🔍 openRetrievalPracticeWithFilter - Setting filter:', {
+      console.log('[SiYuanMemo][ReviewDialogManager] 🔍 openRetrievalPracticeWithFilter - Setting filter:', {
         dueOnly: options.dueOnly,
         blockIdsCount: options.blockIds.length,
         hasDueDate: !!filter.dueDate,
@@ -441,7 +441,7 @@ export class ReviewDialogManager {
         
         // 🔍 验证过滤条件是否正确设置
         const currentFilter = (filterGroupQueue as any).getFilter?.();
-        console.log('[SiyuanMemo][ReviewDialogManager] 🔍 After setFilter, current filter:', {
+        console.log('[SiYuanMemo][ReviewDialogManager] 🔍 After setFilter, current filter:', {
           hasDueDate: !!currentFilter?.dueDate,
           filter: JSON.stringify(currentFilter, null, 2)
         });
@@ -452,7 +452,7 @@ export class ReviewDialogManager {
       // 但在"全部"模式下，用户希望看到所有卡片，包括已复习的
       if (!options.dueOnly && typeof (filterGroupQueue as any).clearTemporaryBlacklist === 'function') {
         (filterGroupQueue as any).clearTemporaryBlacklist();
-        console.log('[SiyuanMemo][ReviewDialogManager] ✅ Cleared temporary blacklist for "all" mode');
+        console.log('[SiYuanMemo][ReviewDialogManager] ✅ Cleared temporary blacklist for "all" mode');
       }
       
       // 创建对话框（使用 FilterGroup 队列）
@@ -489,9 +489,9 @@ export class ReviewDialogManager {
         },
       });
       
-      console.log('[SiyuanMemo][ReviewDialogManager] ✅ Retrieval practice dialog created with blockIds filter');
+      console.log('[SiYuanMemo][ReviewDialogManager] ✅ Retrieval practice dialog created with blockIds filter');
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open retrieval practice dialog:', err);
+      console.error('[SiYuanMemo] Failed to open retrieval practice dialog:', err);
       await pushErrMsg(this.deps.i18n?.loadFailed || '加载失败');
     }
   }
@@ -509,7 +509,7 @@ export class ReviewDialogManager {
         const neuralQueue = this.deps.plugin?.unifiedDataSourceManager?.getQueue(QueueType.NeuralRoam);
         if (neuralQueue && typeof (neuralQueue as any).clearHistory === 'function') {
           (neuralQueue as any).clearHistory();
-          console.log('[SiyuanMemo][ReviewDialogManager] ✅ Neural roam history cleared');
+          console.log('[SiYuanMemo][ReviewDialogManager] ✅ Neural roam history cleared');
         }
 
         // 🆕 使用 createUnifiedReviewDialog 创建对话框
@@ -522,9 +522,9 @@ export class ReviewDialogManager {
           }
         });
 
-        console.log('[SiyuanMemo][ReviewDialogManager] ✅ Neural roam dialog created with unified data source');
+        console.log('[SiYuanMemo][ReviewDialogManager] ✅ Neural roam dialog created with unified data source');
       } catch (err) {
-        console.error('[SiyuanMemo] Failed to open neural roam dialog:', err);
+        console.error('[SiYuanMemo] Failed to open neural roam dialog:', err);
         await pushErrMsg(this.deps.i18n?.neuralReviewFailed || '神经复习启动失败');
       }
     }
@@ -705,9 +705,9 @@ export class ReviewDialogManager {
           }
         }, 100);
 
-        console.log('[SiyuanMemo][ReviewDialogManager] ✅ Temporary drill dialog opened with TemporaryDrillStrategy');
+        console.log('[SiYuanMemo][ReviewDialogManager] ✅ Temporary drill dialog opened with TemporaryDrillStrategy');
       } catch (err) {
-        console.error('[SiyuanMemo][ReviewDialogManager] Failed to open temporary drill:', err);
+        console.error('[SiYuanMemo][ReviewDialogManager] Failed to open temporary drill:', err);
         await pushErrMsg(this.deps.i18n?.drillFailed || '临时练习启动失败');
       }
     }

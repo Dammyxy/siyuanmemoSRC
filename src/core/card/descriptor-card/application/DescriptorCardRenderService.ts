@@ -60,7 +60,7 @@ export class DescriptorCardRenderService {
       // 1. 从仓储加载数据
       const data = await this.repository.loadDescriptorCard(blockId, fsrsCard);
       if (!data) {
-        console.warn('[SiyuanMemo][DescriptorCardRenderService] Failed to load descriptor card:', blockId);
+        console.warn('[SiYuanMemo][DescriptorCardRenderService] Failed to load descriptor card:', blockId);
         return null;
       }
 
@@ -84,7 +84,7 @@ export class DescriptorCardRenderService {
 
       return viewModel;
     } catch (error) {
-      console.error('[SiyuanMemo][DescriptorCardRenderService] Error preparing view model:', error);
+      console.error('[SiYuanMemo][DescriptorCardRenderService] Error preparing view model:', error);
       return null;
     }
   }
@@ -157,13 +157,13 @@ export class DescriptorCardRenderService {
    */
   async isDescriptorCard(blockId: string): Promise<boolean> {
     try {
-      console.log('[SiyuanMemo][DescriptorCardRenderService] Checking if descriptor card:', blockId);
+      console.log('[SiYuanMemo][DescriptorCardRenderService] Checking if descriptor card:', blockId);
       // 检查块属性中的 custom-fsrs-card-type
       const cardTypeMarker = await this.repository.getCardTypeMarker(blockId);
-      console.log('[SiyuanMemo][DescriptorCardRenderService] Card type marker:', cardTypeMarker);
+      console.log('[SiYuanMemo][DescriptorCardRenderService] Card type marker:', cardTypeMarker);
       return cardTypeMarker === 'descriptor';
     } catch (error) {
-      console.error('[SiyuanMemo][DescriptorCardRenderService] Error checking descriptor card:', error);
+      console.error('[SiYuanMemo][DescriptorCardRenderService] Error checking descriptor card:', error);
       return false;
     }
   }

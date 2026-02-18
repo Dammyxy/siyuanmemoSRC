@@ -60,7 +60,7 @@ export class BlockIdsDataSource implements ICardDataSource {
     // 🆕 如果有动态获取函数，使用它获取最新的块 ID 列表
     const blockIds = this.getBlockIdsFn ? this.getBlockIdsFn() : this.blockIds;
     
-    console.log(`[SiyuanMemo][BlockIdsDataSource] fetchRows: ${blockIds.length} blocks`);
+    console.log(`[SiYuanMemo][BlockIdsDataSource] fetchRows: ${blockIds.length} blocks`);
     
     const cards = await loadQueueCardsSimple(blockIds);
     const sorted = applySort(cards, params?.sortModel || []);

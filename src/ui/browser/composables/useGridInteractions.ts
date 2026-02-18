@@ -29,7 +29,7 @@ export function useGridInteractions(props: GridInteractionsOptions) {
     // nextTick(() => {
     //   if (gridApi.value) {
     //     const columns = gridApi.value.getColumns?.();
-    //     console.log('[SiyuanMemo][CardBrowser] AG-Grid ready, columns:', columns?.map((c: any) => ({
+    //     console.log('[SiYuanMemo][CardBrowser] AG-Grid ready, columns:', columns?.map((c: any) => ({
     //       colId: c.getColId(),
     //       sortable: c.isSortable(),
     //     })));
@@ -38,7 +38,7 @@ export function useGridInteractions(props: GridInteractionsOptions) {
   };
 
   const onDisplayedColumnsChanged = (params: any) => {
-    console.log('[SiyuanMemo][CardBrowser] Displayed columns changed');
+    console.log('[SiYuanMemo][CardBrowser] Displayed columns changed');
   };
 
   const onSortChanged = (params: any) => {
@@ -52,7 +52,7 @@ export function useGridInteractions(props: GridInteractionsOptions) {
 
     // 检查排序是否真的改变了
     const api = params?.api || gridApi.value;
-    console.log('[SiyuanMemo][CardBrowser] onSortChanged:', {
+    console.log('[SiYuanMemo][CardBrowser] onSortChanged:', {
       sortModel: currentSortModel.value,
       sortModelLength: currentSortModel.value?.length,
       sortModelArray: sortArray,
@@ -96,7 +96,7 @@ export function useGridInteractions(props: GridInteractionsOptions) {
   const onRowDoubleClicked = (event: any) => {
     const blockId = event.data?.blockId;
     if (!blockId) {
-      console.warn('[SiyuanMemo][CardBrowser] No blockId found in row data:', event.data);
+      console.warn('[SiYuanMemo][CardBrowser] No blockId found in row data:', event.data);
       return;
     }
     if (props.plugin?.app) {
@@ -118,11 +118,11 @@ export function useGridInteractions(props: GridInteractionsOptions) {
   // 排序相关方法
   const applySort = (colId: string, sortDirection: 'asc' | 'desc', gridApi: any) => {
     if (!gridApi) {
-      console.error('[SiyuanMemo][CardBrowser] Grid API not ready');
+      console.error('[SiYuanMemo][CardBrowser] Grid API not ready');
       return;
     }
 
-    console.log('[SiyuanMemo][CardBrowser] Applying sort:', { colId, sortDirection });
+    console.log('[SiYuanMemo][CardBrowser] Applying sort:', { colId, sortDirection });
 
     try {
       // AG-Grid v35+ 直接使用 gridApi.applyColumnState
@@ -136,16 +136,16 @@ export function useGridInteractions(props: GridInteractionsOptions) {
         defaultState: { sort: null }, // 清除其他列的排序
       });
 
-      console.log('[SiyuanMemo][CardBrowser] Sort applied successfully');
+      console.log('[SiYuanMemo][CardBrowser] Sort applied successfully');
     } catch (err) {
-      console.error('[SiyuanMemo][CardBrowser] Apply sort failed:', err);
+      console.error('[SiYuanMemo][CardBrowser] Apply sort failed:', err);
     }
   };
 
   // 随机排序
   const applyRandomSort = (gridApi: any) => {
     if (!gridApi) {
-      console.error('[SiyuanMemo][CardBrowser] Grid API not ready for random sort');
+      console.error('[SiYuanMemo][CardBrowser] Grid API not ready for random sort');
       return;
     }
 
@@ -153,11 +153,11 @@ export function useGridInteractions(props: GridInteractionsOptions) {
       // 获取当前显示的所有行数据
       const rowCount = gridApi.getDisplayedRowCount?.() ?? 0;
       if (rowCount === 0) {
-        console.warn('[SiyuanMemo][CardBrowser] No rows to shuffle');
+        console.warn('[SiYuanMemo][CardBrowser] No rows to shuffle');
         return;
       }
 
-      console.log('[SiyuanMemo][CardBrowser] Shuffling', rowCount, 'rows');
+      console.log('[SiYuanMemo][CardBrowser] Shuffling', rowCount, 'rows');
 
       // 收集所有行数据
       const rows: any[] = [];
@@ -191,11 +191,11 @@ export function useGridInteractions(props: GridInteractionsOptions) {
       setTimeout(() => {
         if (gridApi) {
           gridApi.setGridOption?.('rowData', rows);
-          console.log('[SiyuanMemo][CardBrowser] Shuffle completed via setGridOption');
+          console.log('[SiYuanMemo][CardBrowser] Shuffle completed via setGridOption');
         }
       }, 0);
     } catch (err) {
-      console.error('[SiyuanMemo][CardBrowser] Random sort failed:', err);
+      console.error('[SiYuanMemo][CardBrowser] Random sort failed:', err);
     }
   };
 

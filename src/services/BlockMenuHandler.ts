@@ -142,18 +142,18 @@ export class BlockMenuHandler {
         // ✅ 新架构：从本地存储查询卡片
         if (!cardID && blockIds.length > 0) {
           try {
-            console.log('[SiyuanMemo] Querying local storage for blockIds:', blockIds);
+            console.log('[SiYuanMemo] Querying local storage for blockIds:', blockIds);
             for (const bid of blockIds) {
               const card = this.deps.storage.getCardByBlockId(bid);
               if (card) {
                 blockID = card.blockId;
                 cardID = card.id;
-                console.log('[SiyuanMemo] Found card in local storage:', blockID, cardID);
+                console.log('[SiYuanMemo] Found card in local storage:', blockID, cardID);
                 break;
               }
             }
           } catch (err) {
-            console.warn('[SiyuanMemo] Failed to query local storage:', err);
+            console.warn('[SiYuanMemo] Failed to query local storage:', err);
           }
         }
 
@@ -206,7 +206,7 @@ export class BlockMenuHandler {
     //         this.deps.storage.setCard(card);
     //         createdCount++;
     //       } catch (err) {
-    //         console.error('[SiyuanMemo] Failed to create card from block:', blockId, err);
+    //         console.error('[SiYuanMemo] Failed to create card from block:', blockId, err);
     //       }
     //     }
 
@@ -399,7 +399,7 @@ export class BlockMenuHandler {
         submenu,
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to generate doctree menu:', err);
+      console.error('[SiYuanMemo] Failed to generate doctree menu:', err);
     }
   }
 
@@ -425,7 +425,7 @@ export class BlockMenuHandler {
         submenu,
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to generate doc menu:', err);
+      console.error('[SiYuanMemo] Failed to generate doc menu:', err);
     }
   }
 
@@ -452,7 +452,7 @@ export class BlockMenuHandler {
         submenu,
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to generate breadcrumb menu:', err);
+      console.error('[SiYuanMemo] Failed to generate breadcrumb menu:', err);
     }
   }
 
@@ -502,7 +502,7 @@ export class BlockMenuHandler {
         submenu,
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to generate blockref menu:', err);
+      console.error('[SiYuanMemo] Failed to generate blockref menu:', err);
     }
   }
 
@@ -680,7 +680,7 @@ export class BlockMenuHandler {
       
       return childrenResult[0].subtype === 'o';
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to check list type:', err);
+      console.error('[SiYuanMemo] Failed to check list type:', err);
       return false;
     }
   }
@@ -703,7 +703,7 @@ export class BlockMenuHandler {
 
       // 只处理第一个块
       const parentBlockId = blockIds[0];
-      console.log(`[SiyuanMemo] 🎯 Creating list template cards for: ${parentBlockId}`);
+      console.log(`[SiYuanMemo] 🎯 Creating list template cards for: ${parentBlockId}`);
 
       // 1. 检查块类型
       const typeResult = await sql(`
@@ -734,7 +734,7 @@ export class BlockMenuHandler {
         ORDER BY id ASC
       `);
       
-      console.log(`[SiyuanMemo] All children of ${parentBlockId}:`, allChildrenResult);
+      console.log(`[SiYuanMemo] All children of ${parentBlockId}:`, allChildrenResult);
       
       // 找到列表容器
       const listContainer = allChildrenResult?.find((r: any) => r.type === 'l');
@@ -744,7 +744,7 @@ export class BlockMenuHandler {
         return;
       }
       
-      console.log(`[SiyuanMemo] Found list container:`, listContainer.id);
+      console.log(`[SiYuanMemo] Found list container:`, listContainer.id);
       
       // 查询列表容器的所有子级（不限制类型，看看实际结构）
       const allListChildren = await sql(`
@@ -753,7 +753,7 @@ export class BlockMenuHandler {
         ORDER BY id ASC
       `);
       
-      console.log(`[SiyuanMemo] All list container children:`, allListChildren);
+      console.log(`[SiYuanMemo] All list container children:`, allListChildren);
       
       // 查询列表容器的子级列表项（必须是有序列表）
       const childrenResult = await sql(`
@@ -764,12 +764,12 @@ export class BlockMenuHandler {
         ORDER BY id ASC
       `);
 
-      console.log(`[SiyuanMemo] Ordered list item children (type='i', subtype='o'):`, childrenResult);
+      console.log(`[SiYuanMemo] Ordered list item children (type='i', subtype='o'):`, childrenResult);
 
       // 如果没有找到直接子级，尝试查询所有后代列表项（必须是有序列表）
       let finalChildren = childrenResult;
       if (!finalChildren || finalChildren.length === 0) {
-        console.log(`[SiyuanMemo] No direct ordered children found, trying descendants...`);
+        console.log(`[SiYuanMemo] No direct ordered children found, trying descendants...`);
         
         // 使用递归查询找到所有后代列表项（有序列表）
         const descendantsResult = await sql(`
@@ -782,7 +782,7 @@ export class BlockMenuHandler {
           SELECT id, content FROM descendants WHERE type = 'i' AND subtype = 'o' ORDER BY id ASC
         `);
         
-        console.log(`[SiyuanMemo] Descendant ordered list items:`, descendantsResult);
+        console.log(`[SiYuanMemo] Descendant ordered list items:`, descendantsResult);
         finalChildren = descendantsResult;
       }
 
@@ -792,13 +792,13 @@ export class BlockMenuHandler {
       }
 
       const childBlockIds = finalChildren.map((row: any) => row.id);
-      console.log(`[SiyuanMemo] Found ${childBlockIds.length} children:`, childBlockIds);
+      console.log(`[SiYuanMemo] Found ${childBlockIds.length} children:`, childBlockIds);
 
       // 3. 确认创建
       await pushMsg(`检测到 ${childBlockIds.length} 个子级列表项，开始创建卡片...`);
 
       // 4. 为所有子级创建列表模版卡（一次性创建）
-      console.log(`[SiyuanMemo] Creating list template cards: ${blockContent} → ${childBlockIds.length} children`);
+      console.log(`[SiYuanMemo] Creating list template cards: ${blockContent} → ${childBlockIds.length} children`);
 
       // 🔧 使用专用的列表模版卡创建方法
       const { createListTemplateCards } = await import('@/core/xiuyuan/listTemplate');
@@ -813,13 +813,13 @@ export class BlockMenuHandler {
 
       if (result.ok) {
         await pushMsg(`✅ 成功创建 ${childBlockIds.length} 张列表模版卡！`);
-        console.log(`[SiyuanMemo] 🎉 List template cards creation complete:`, result.value);
+        console.log(`[SiYuanMemo] 🎉 List template cards creation complete:`, result.value);
       } else {
         await pushErrMsg(`创建失败：${result.error.message}`);
-        console.error(`[SiyuanMemo] ❌ List template cards creation failed:`, result.error);
+        console.error(`[SiYuanMemo] ❌ List template cards creation failed:`, result.error);
       }
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to create list template cards:', err);
+      console.error('[SiYuanMemo] Failed to create list template cards:', err);
       await pushErrMsg(`创建失败：${(err as Error).message}`);
     }
   }

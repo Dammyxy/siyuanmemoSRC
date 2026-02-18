@@ -54,7 +54,7 @@ export class PluginUIAssembler {
       };
       this.plugin.topBarElement!.addEventListener('contextmenu', this.plugin.topBarContextMenuHandler);
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to register topbar:', err);
+      console.error('[SiYuanMemo] Failed to register topbar:', err);
     }
   }
 
@@ -75,7 +75,7 @@ export class PluginUIAssembler {
         return;
       } catch (err) {
         if (!this.plugin.didWarnTopbarMount) {
-          console.warn('[SiyuanMemo] Failed to remount topbar element:', err);
+          console.warn('[SiYuanMemo] Failed to remount topbar element:', err);
           this.plugin.didWarnTopbarMount = true;
         }
         return;
@@ -83,7 +83,7 @@ export class PluginUIAssembler {
     }
 
     if (!this.plugin.didWarnTopbarMount) {
-      console.warn('[SiyuanMemo] Topbar container not found; topbar button may be hidden by layout');
+      console.warn('[SiYuanMemo] Topbar container not found; topbar button may be hidden by layout');
       this.plugin.didWarnTopbarMount = true;
     }
   }

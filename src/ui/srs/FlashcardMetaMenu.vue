@@ -125,7 +125,7 @@ onMounted(async () => {
 
     fields.value = items;
   } catch (e: any) {
-    console.error('[SiyuanMemo] Meta load error:', e);
+    console.error('[SiYuanMemo] Meta load error:', e);
     error.value = e?.message || t('loadError', '加载失败');
   } finally {
     loading.value = false;

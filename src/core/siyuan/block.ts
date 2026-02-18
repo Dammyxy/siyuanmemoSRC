@@ -93,7 +93,7 @@ export async function getBlockContent(blockId: string): Promise<string> {
         const { dom } = await api.getBlockDOM(blockId);
         return api.domToHtml(dom);
     } catch (err) {
-        console.error('[SiyuanMemo] Failed to get block content:', err);
+        console.error('[SiYuanMemo] Failed to get block content:', err);
         return `<p class="error">加载失败: ${blockId}</p>`;
     }
 }

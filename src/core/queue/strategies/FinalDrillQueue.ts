@@ -64,7 +64,7 @@ export class FinalDrillQueue extends BaseCompositeQueue<FinalDrillItem> {
       base: new NullScheduler<FinalDrillItem>(),
       condition: (_card, grade) => grade === 4, // Easy rating
       onCondition: async (card) => {
-        console.log('[SiyuanMemo][FinalDrillQueue] Card removed (rating=4):', card.cardID);
+        console.log('[SiYuanMemo][FinalDrillQueue] Card removed (rating=4):', card.cardID);
         // Return null to signal removal
         return null;
       },
@@ -172,7 +172,7 @@ export class FinalDrillQueue extends BaseCompositeQueue<FinalDrillItem> {
     if (feedback.action === 'rate' && feedback.rating === 4) {
       // Rating = 4: Remove from queue
       const removed = await this.removeItems([currentItem]);
-      console.log('[SiyuanMemo][FinalDrillQueue] Removed card (rating=4):', {
+      console.log('[SiYuanMemo][FinalDrillQueue] Removed card (rating=4):', {
         cardID: currentItem.cardID,
         removed,
       });
@@ -287,7 +287,7 @@ export class FinalDrillQueue extends BaseCompositeQueue<FinalDrillItem> {
       await this.save();
       return true;
     } catch (err) {
-      console.error('[SiyuanMemo][FinalDrillQueue] reorder failed:', err);
+      console.error('[SiYuanMemo][FinalDrillQueue] reorder failed:', err);
       return false;
     }
   }

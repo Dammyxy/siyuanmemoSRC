@@ -100,13 +100,13 @@ function shouldIgnoreDuplicateKey(key: string): boolean {
   
   // 如果正在处理同一个按键，直接忽略
   if (isProcessingKey && key === lastKeyPressed) {
-    console.log('[SiyuanMemo][ReviewView] Key is being processed, ignoring:', key);
+    console.log('[SiYuanMemo][ReviewView] Key is being processed, ignoring:', key);
     return true;
   }
   
   // 如果是相同按键且在防抖时间内，忽略
   if (key === lastKeyPressed && timeSinceLastPress < KEY_PRESS_DEBOUNCE) {
-    console.log('[SiyuanMemo][ReviewView] Ignoring duplicate key press:', key, 'timeSince:', timeSinceLastPress);
+    console.log('[SiYuanMemo][ReviewView] Ignoring duplicate key press:', key, 'timeSince:', timeSinceLastPress);
     return true;
   }
   
@@ -140,8 +140,8 @@ const neuralQueueInstance = computed<NeuralRoamQueue | null>(() => {
 
 // 组件挂载
 onMounted(() => {
-  console.log('[SiyuanMemo][ReviewView] Component mounted');
-  console.log('[SiyuanMemo][ReviewView] Checking environment:', {
+  console.log('[SiYuanMemo][ReviewView] Component mounted');
+  console.log('[SiYuanMemo][ReviewView] Checking environment:', {
     hasRootRef: !!rootRef.value,
     rootElement: rootRef.value,
     rootDataKey: rootRef.value?.getAttribute('data-key'),
@@ -152,7 +152,7 @@ onMounted(() => {
 
   // 🆕 添加键盘事件监听器
   document.addEventListener('keydown', handleKeyDown);
-  console.log('[SiyuanMemo][ReviewView] Keyboard event listener added');
+  console.log('[SiYuanMemo][ReviewView] Keyboard event listener added');
 
   // 🌌 恢复侧边栏状态（已删除）
 
@@ -177,7 +177,7 @@ onMounted(() => {
 // 🆕 组件卸载时移除键盘事件监听器
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyDown);
-  console.log('[SiyuanMemo][ReviewView] Keyboard event listener removed');
+  console.log('[SiYuanMemo][ReviewView] Keyboard event listener removed');
 });
 
 const providerAdapter = props.reviewUI?.adapter;
@@ -219,7 +219,7 @@ function t(key: string, fallback: string): string {
 
 // 处理来自思源热键系统的 CustomEvent
 function handleRootClick(e: MouseEvent) {
-  console.log('[SiyuanMemo][ReviewView] handleRootClick triggered:', {
+  console.log('[SiYuanMemo][ReviewView] handleRootClick triggered:', {
     detail: e.detail,
     detailType: typeof e.detail,
     target: e.target,
@@ -236,7 +236,7 @@ function handleRootClick(e: MouseEvent) {
     return;
   }
   
-  console.log('[SiyuanMemo][ReviewView] Hotkey detected:', key, 'answerShown:', hook.context.value.showAnswer);
+  console.log('[SiYuanMemo][ReviewView] Hotkey detected:', key, 'answerShown:', hook.context.value.showAnswer);
 
   // 检查是否为 Topic 卡片
   const cardMeta = state.value.actions.cardMeta;
@@ -250,15 +250,15 @@ function handleRootClick(e: MouseEvent) {
     if (!hook.context.value.showAnswer) {
       // 答案未显示：显示答案或直接评分（Topic卡片）
       if (isTopicCard) {
-        console.log('[SiyuanMemo][ReviewView] Topic card - grading with 3 (Good)');
+        console.log('[SiYuanMemo][ReviewView] Topic card - grading with 3 (Good)');
         void hook.grade(3);
       } else {
-        console.log('[SiyuanMemo][ReviewView] Revealing answer...');
+        console.log('[SiYuanMemo][ReviewView] Revealing answer...');
         hook.reveal();
       }
     } else {
       // 答案已显示：评分为 Good (3)
-      console.log('[SiyuanMemo][ReviewView] Answer shown - grading with 3 (Good)');
+      console.log('[SiYuanMemo][ReviewView] Answer shown - grading with 3 (Good)');
       void hook.grade(3);
     }
     return;
@@ -269,10 +269,10 @@ function handleRootClick(e: MouseEvent) {
     if (hook.context.value.showAnswer) {
       e.preventDefault();
       e.stopPropagation();
-      console.log('[SiyuanMemo][ReviewView] Grading with rating:', key);
+      console.log('[SiYuanMemo][ReviewView] Grading with rating:', key);
       void hook.grade(Number(key));
     } else {
-      console.log('[SiyuanMemo][ReviewView] Rating key pressed but answer not shown, ignoring');
+      console.log('[SiYuanMemo][ReviewView] Rating key pressed but answer not shown, ignoring');
     }
     return;
   }
@@ -281,7 +281,7 @@ function handleRootClick(e: MouseEvent) {
   if (key === '0' || key === 'x' || key === 's') {
     e.preventDefault();
     e.stopPropagation();
-    console.log('[SiyuanMemo][ReviewView] Skipping card...');
+    console.log('[SiYuanMemo][ReviewView] Skipping card...');
     void hook.skip();
   }
 }
@@ -301,7 +301,7 @@ function handleKeyDown(e: KeyboardEvent) {
     return;
   }
   
-  console.log('[SiyuanMemo][ReviewView] KeyDown:', key, 'answerShown:', hook.context.value.showAnswer);
+  console.log('[SiYuanMemo][ReviewView] KeyDown:', key, 'answerShown:', hook.context.value.showAnswer);
 
   // 检查是否为 Topic 卡片
   const cardMeta = state.value.actions.cardMeta;
@@ -315,15 +315,15 @@ function handleKeyDown(e: KeyboardEvent) {
     if (!hook.context.value.showAnswer) {
       // 答案未显示：显示答案或直接评分（Topic卡片）
       if (isTopicCard) {
-        console.log('[SiyuanMemo][ReviewView] Topic card - grading with 3 (Good)');
+        console.log('[SiYuanMemo][ReviewView] Topic card - grading with 3 (Good)');
         void hook.grade(3);
       } else {
-        console.log('[SiyuanMemo][ReviewView] Revealing answer...');
+        console.log('[SiYuanMemo][ReviewView] Revealing answer...');
         hook.reveal();
       }
     } else {
       // 答案已显示：评分为 Good (3)
-      console.log('[SiyuanMemo][ReviewView] Answer shown - grading with 3 (Good)');
+      console.log('[SiYuanMemo][ReviewView] Answer shown - grading with 3 (Good)');
       void hook.grade(3);
     }
     return;
@@ -334,10 +334,10 @@ function handleKeyDown(e: KeyboardEvent) {
     if (hook.context.value.showAnswer) {
       e.preventDefault();
       e.stopPropagation();
-      console.log('[SiyuanMemo][ReviewView] Grading with rating:', key);
+      console.log('[SiYuanMemo][ReviewView] Grading with rating:', key);
       void hook.grade(Number(key));
     } else {
-      console.log('[SiyuanMemo][ReviewView] Rating key pressed but answer not shown, ignoring');
+      console.log('[SiYuanMemo][ReviewView] Rating key pressed but answer not shown, ignoring');
     }
     return;
   }
@@ -346,13 +346,13 @@ function handleKeyDown(e: KeyboardEvent) {
   if (key === '0' || key === 'x' || key === 's') {
     e.preventDefault();
     e.stopPropagation();
-    console.log('[SiyuanMemo][ReviewView] Skipping card...');
+    console.log('[SiYuanMemo][ReviewView] Skipping card...');
     void hook.skip();
   }
 }
 
 function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) {
-  console.log('[SiyuanMemo][ReviewView] handleOpenMenu called:', {
+  console.log('[SiYuanMemo][ReviewView] handleOpenMenu called:', {
     currentTarget: ev.currentTarget,
     clientX: ev.clientX,
     clientY: ev.clientY,
@@ -432,7 +432,7 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
   const target = ev.currentTarget as HTMLElement;
   if (target) {
     const rect = target.getBoundingClientRect();
-    console.log('[SiyuanMemo][ReviewView] Opening menu at button position:', {
+    console.log('[SiYuanMemo][ReviewView] Opening menu at button position:', {
       rectLeft: rect.left,
       rectBottom: rect.bottom,
       rectTop: rect.top,
@@ -441,7 +441,7 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
     menu.open({ x: rect.left, y: rect.bottom });
   } else {
     // 降级：使用鼠标位置
-    console.log('[SiyuanMemo][ReviewView] currentTarget is null, using mouse position');
+    console.log('[SiYuanMemo][ReviewView] currentTarget is null, using mouse position');
     menu.open({ x: ev.clientX, y: ev.clientY });
   }
 }
@@ -494,22 +494,22 @@ function handleContext(payload: { id: string; openNewTab: boolean }) {
 }
 
 function handleToolbarAction(actionType: string, ev: MouseEvent) {
-  console.log('[SiyuanMemo][ReviewView] handleToolbarAction called:', actionType);
+  console.log('[SiYuanMemo][ReviewView] handleToolbarAction called:', actionType);
 
   if (actionType === 'fullscreen') {
     // 实现全屏功能（参考思源原生实现）
-    console.log('[SiyuanMemo][ReviewView] Fullscreen button clicked');
+    console.log('[SiYuanMemo][ReviewView] Fullscreen button clicked');
 
     // 查找对话框容器
     const dialogContainer = document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]');
     // 使用自定义类名查找内容区域
     const contentMain = rootRef.value?.querySelector('.fsrs-review-v2-content') || document.querySelector('.fsrs-review-v2-content');
-    console.log('[SiyuanMemo][ReviewView] dialogContainer found:', !!dialogContainer);
-    console.log('[SiyuanMemo][ReviewView] contentMain found:', !!contentMain);
+    console.log('[SiYuanMemo][ReviewView] dialogContainer found:', !!dialogContainer);
+    console.log('[SiYuanMemo][ReviewView] contentMain found:', !!contentMain);
 
     if (contentMain && dialogContainer) {
       const isFullscreen = contentMain.classList.contains('fullscreen');
-      console.log('[SiyuanMemo][ReviewView] Current fullscreen state:', isFullscreen);
+      console.log('[SiYuanMemo][ReviewView] Current fullscreen state:', isFullscreen);
 
       if (isFullscreen) {
         // 退出全屏
@@ -518,7 +518,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
         // 恢复 maxWidth
         (dialogContainer as HTMLElement).style.maxWidth = '1024px';
         document.getElementById('drag')?.classList.remove('fn__hidden');
-        console.log('[SiyuanMemo][ReviewView] Exited fullscreen');
+        console.log('[SiYuanMemo][ReviewView] Exited fullscreen');
       } else {
         // 进入全屏
         contentMain.classList.add('fullscreen');
@@ -526,47 +526,47 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
         // 设置为 100vw 以确保全屏效果(覆盖内联样式)
         (dialogContainer as HTMLElement).style.maxWidth = '100vw';
         document.getElementById('drag')?.classList.add('fn__hidden');
-        console.log('[SiyuanMemo][ReviewView] Entered fullscreen');
+        console.log('[SiYuanMemo][ReviewView] Entered fullscreen');
       }
 
       // 调整 protyle 尺寸
       setTimeout(() => {
         const protyleHost = contentMain.querySelector('.fsrs-review-v2-content__protyle-host');
-        console.log('[SiyuanMemo][ReviewView] protyleHost:', protyleHost);
+        console.log('[SiYuanMemo][ReviewView] protyleHost:', protyleHost);
 
         if (protyleHost) {
           // 查找 protyle 实例
           const protyle = (protyleHost as any)?.['__vnode__']?.['ctx']?.['protyle']
                          || (protyleHost as any)?.['__vueParentComponent']?.['protyle'];
-          console.log('[SiyuanMemo][ReviewView] protyle instance:', protyle);
+          console.log('[SiYuanMemo][ReviewView] protyle instance:', protyle);
 
           if (protyle && typeof protyle.resize === 'function') {
             protyle.resize();
-            console.log('[SiyuanMemo][ReviewView] Protyle resized');
+            console.log('[SiYuanMemo][ReviewView] Protyle resized');
           }
         }
       }, 0);
     } else {
-      console.log('[SiyuanMemo][ReviewView] ERROR: contentMain or dialogContainer not found!');
+      console.log('[SiYuanMemo][ReviewView] ERROR: contentMain or dialogContainer not found!');
     }
   } else if (actionType === 'edit-srs') {
     // 打开SRS编辑器
-    console.log('[SiyuanMemo][ReviewView] Edit SRS button clicked');
+    console.log('[SiYuanMemo][ReviewView] Edit SRS button clicked');
     const cardMeta = state.value.actions.cardMeta;
     const blockId = cardMeta?.blockID || state.value.content.data;
-    console.log('[SiyuanMemo][ReviewView] cardMeta:', cardMeta);
-    console.log('[SiyuanMemo][ReviewView] blockId:', blockId);
+    console.log('[SiYuanMemo][ReviewView] cardMeta:', cardMeta);
+    console.log('[SiYuanMemo][ReviewView] blockId:', blockId);
     if (blockId) {
       openSrsEditorDialog(blockId);
     } else {
-      console.error('[SiyuanMemo][ReviewView] ERROR: blockId is undefined!');
+      console.error('[SiYuanMemo][ReviewView] ERROR: blockId is undefined!');
     }
   } else if (actionType === 'sticktab') {
     // 打开为菜单
     handleOpenAsMenu(ev);
   } else if (actionType === 'lock-seed') {
     // Lock current block as seed (Neural Roam) - uses SeedService
-    console.log('[SiyuanMemo][ReviewView] Lock seed button clicked');
+    console.log('[SiYuanMemo][ReviewView] Lock seed button clicked');
     const cardMeta = state.value.actions.cardMeta;
     const blockId = cardMeta?.blockID || state.value.content.data;
 
@@ -581,31 +581,31 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
 
           seedService.lockAsSeed(blockId, currentCandidates)
             .then(() => {
-              console.log('[SiyuanMemo][ReviewView] Block locked as seed:', blockId);
+              console.log('[SiYuanMemo][ReviewView] Block locked as seed:', blockId);
               showMessage('Locked as seed', 3000, 'info');
             })
             .catch((error: Error) => {
-              console.error('[SiyuanMemo][ReviewView] Failed to lock seed:', error);
+              console.error('[SiYuanMemo][ReviewView] Failed to lock seed:', error);
               showMessage('Failed to lock seed', 3000, 'error');
             });
         });
       } else {
-        console.error('[SiyuanMemo][ReviewView] Queue does not support seed locking');
+        console.error('[SiYuanMemo][ReviewView] Queue does not support seed locking');
         showMessage('Queue does not support seed locking', 3000, 'error');
       }
     } else {
-      console.error('[SiyuanMemo][ReviewView] ERROR: blockId is undefined!');
+      console.error('[SiYuanMemo][ReviewView] ERROR: blockId is undefined!');
     }
   } else if (actionType === 'neural-menu') {
     // 🧠 神经漫游菜单
-    console.log('[SiyuanMemo][ReviewView] Neural menu button clicked');
+    console.log('[SiYuanMemo][ReviewView] Neural menu button clicked');
     // 阻止事件冒泡，防止菜单打开后又立即关闭菜单
     ev.stopPropagation();
     ev.preventDefault();
     handleNeuralMenu(ev);
   } else if (actionType === 'nav-toggle-mode') {
     // 🆕 导航模式切换（Phase 3: UI 控件）
-    console.log('[SiyuanMemo][ReviewView] Navigation mode toggle button clicked');
+    console.log('[SiYuanMemo][ReviewView] Navigation mode toggle button clicked');
     const queueStrategy = hook.getQueueStrategy();
     const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
 
@@ -629,7 +629,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
     }
   } else if (actionType === 'nav-return-bookmark') {
     // 🆕 返回书签（Phase 3: UI 控件）
-    console.log('[SiyuanMemo][ReviewView] Return to bookmark button clicked');
+    console.log('[SiYuanMemo][ReviewView] Return to bookmark button clicked');
     const queueStrategy = hook.getQueueStrategy();
     const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
 
@@ -657,7 +657,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
 }
 
 function handleOpenAsMenu(ev: MouseEvent) {
-  console.log('[SiyuanMemo][ReviewView] handleOpenAsMenu called', ev);
+  console.log('[SiYuanMemo][ReviewView] handleOpenAsMenu called', ev);
 
   const menu = new Menu();
 
@@ -665,7 +665,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
   const fsrsPlugin = (window as any).siyuanMemoPlugin;
 
   if (!fsrsPlugin) {
-    console.error('[SiyuanMemo][ReviewView] FSRS plugin instance not found');
+    console.error('[SiYuanMemo][ReviewView] FSRS plugin instance not found');
     // 降级方案：打开文档
     const cardMeta = state.value.actions.cardMeta;
     const blockId = cardMeta?.blockID || state.value.content.data;
@@ -700,12 +700,12 @@ function handleOpenAsMenu(ev: MouseEvent) {
     icon: 'iconLayoutRight',
     label: t('openInTab', 'Open in Tab'),
     click() {
-      console.log('[SiyuanMemo][ReviewView] Opening in tab and closing dialog');
+      console.log('[SiYuanMemo][ReviewView] Opening in tab and closing dialog');
 
       // 获取插件实例
       const fsrsPlugin = (window as any).siyuanMemoPlugin;
       if (!fsrsPlugin) {
-        console.error('[SiyuanMemo][ReviewView] Plugin instance not found');
+        console.error('[SiYuanMemo][ReviewView] Plugin instance not found');
         return;
       }
 
@@ -729,12 +729,12 @@ function handleOpenAsMenu(ev: MouseEvent) {
   //   icon: 'iconOpenWindow',
   //   label: t('openInNewWindow', 'Open in New Window'),
   //   click() {
-  //     console.log('[SiyuanMemo][ReviewView] Opening review in new window');
+  //     console.log('[SiYuanMemo][ReviewView] Opening review in new window');
   //     try {
   //       // 获取插件实例
   //       const fsrsPlugin = (window as any).siyuanMemoPlugin;
   //       if (!fsrsPlugin) {
-  //         console.error('[SiyuanMemo][ReviewView] Plugin instance not found');
+  //         console.error('[SiYuanMemo][ReviewView] Plugin instance not found');
   //         return;
   //       }
   //
@@ -749,7 +749,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
   //       // 关闭当前对话框
   //       emit('close');
   //     } catch (err) {
-  //       console.error('[SiyuanMemo][ReviewView] Error opening review in new window:', err);
+  //       console.error('[SiYuanMemo][ReviewView] Error opening review in new window:', err);
   //     }
   //   },
   // });
@@ -766,22 +766,22 @@ function handleOpenAsMenu(ev: MouseEvent) {
 
 // Part 4: 打开 SRS 编辑器对话框
 function openSrsEditorDialog(blockId: string) {
-  console.log('[SiyuanMemo][ReviewView] openSrsEditorDialog called with blockId:', blockId);
+  console.log('[SiYuanMemo][ReviewView] openSrsEditorDialog called with blockId:', blockId);
 
   if (!props.app) {
-    console.error('[SiyuanMemo][ReviewView] ERROR: props.app is undefined!');
+    console.error('[SiYuanMemo][ReviewView] ERROR: props.app is undefined!');
     return;
   }
 
   if (!blockId) {
-    console.error('[SiyuanMemo][ReviewView] ERROR: blockId is required but got undefined!');
+    console.error('[SiYuanMemo][ReviewView] ERROR: blockId is required but got undefined!');
     return;
   }
 
   // 从 storage 查询卡片获取 cardId
   const card = props.plugin?.storage.getCardByBlockId(blockId);
   if (!card) {
-    console.error('[SiyuanMemo][ReviewView] ERROR: Card not found for blockId:', blockId);
+    console.error('[SiYuanMemo][ReviewView] ERROR: Card not found for blockId:', blockId);
     return;
   }
 
@@ -827,52 +827,52 @@ function openCardInNewWindow(blockId: string) {
 
 // Part 5: 神经漫游菜单
 function handleNeuralMenu(ev: MouseEvent) {
-  console.log('[SiyuanMemo][ReviewView] handleNeuralMenu - start', { ev, target: ev.target });
+  console.log('[SiYuanMemo][ReviewView] handleNeuralMenu - start', { ev, target: ev.target });
 
   const queueStrategy = hook.getQueueStrategy();
-  console.log('[SiyuanMemo][ReviewView] queueStrategy:', queueStrategy);
+  console.log('[SiYuanMemo][ReviewView] queueStrategy:', queueStrategy);
 
   const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
-  console.log('[SiyuanMemo][ReviewView] underlyingQueue:', underlyingQueue);
+  console.log('[SiYuanMemo][ReviewView] underlyingQueue:', underlyingQueue);
 
   if (!underlyingQueue) {
-    console.error('[SiyuanMemo][ReviewView] Underlying queue not found');
+    console.error('[SiYuanMemo][ReviewView] Underlying queue not found');
     return;
   }
 
-  console.log('[SiyuanMemo][ReviewView] Creating menu...');
+  console.log('[SiYuanMemo][ReviewView] Creating menu...');
   const menu = new Menu('neural-roam-menu');
-  console.log('[SiyuanMemo][ReviewView] Menu created:', menu);
+  console.log('[SiYuanMemo][ReviewView] Menu created:', menu);
 
   // 1. 查看种子块列表
-  console.log('[SiyuanMemo][ReviewView] Adding menu item 1: 查看种子块列表');
+  console.log('[SiYuanMemo][ReviewView] Adding menu item 1: 查看种子块列表');
   const viewSeedsItem = menu.addItem({
     icon: 'iconList',
     label: '查看种子块列表',
     click: () => {
-      console.log('[SiyuanMemo][ReviewView] 查看种子块列表 clicked');
+      console.log('[SiYuanMemo][ReviewView] 查看种子块列表 clicked');
       try {
         const seeds = underlyingQueue.getSeedBlocks?.();
-        console.log('[SiyuanMemo][ReviewView] Got seeds:', seeds);
+        console.log('[SiYuanMemo][ReviewView] Got seeds:', seeds);
         if (seeds && seeds.length > 0) {
           const seedList = seeds.map((id: string, index: number) => `${index + 1}. ${id}`).join('\n');
-          console.log('[SiyuanMemo][ReviewView] Showing message with seed list');
+          console.log('[SiYuanMemo][ReviewView] Showing message with seed list');
           showMessage(`种子块列表 (${seeds.length}个):\n${seedList}`, 5000, 'info');
         } else {
-          console.log('[SiyuanMemo][ReviewView] No seeds, showing empty message');
+          console.log('[SiYuanMemo][ReviewView] No seeds, showing empty message');
           showMessage('暂无种子块', 3000, 'info');
         }
       } catch (error) {
-        console.error('[SiyuanMemo][ReviewView] Failed to get seed blocks:', error);
+        console.error('[SiYuanMemo][ReviewView] Failed to get seed blocks:', error);
       }
     }
   });
-  console.log('[SiyuanMemo][ReviewView] Menu item 1 added:', viewSeedsItem);
+  console.log('[SiYuanMemo][ReviewView] Menu item 1 added:', viewSeedsItem);
 
   // 2. 从种子块开始漫游（子菜单）
-  console.log('[SiyuanMemo][ReviewView] Getting seeds for submenu...');
+  console.log('[SiYuanMemo][ReviewView] Getting seeds for submenu...');
   const seeds = underlyingQueue.getSeedBlocks?.() || [];
-  console.log('[SiyuanMemo][ReviewView] Seeds:', seeds);
+  console.log('[SiYuanMemo][ReviewView] Seeds:', seeds);
 
   if (seeds.length > 0) {
     const seedSubmenuItems = seeds.map((seedId: string) => ({
@@ -884,20 +884,20 @@ function handleNeuralMenu(ev: MouseEvent) {
           // 刷新当前卡片
           await hook.executeCommand('next');
         } catch (error) {
-          console.error('[SiyuanMemo][ReviewView] Failed to start roaming from seed:', error);
+          console.error('[SiYuanMemo][ReviewView] Failed to start roaming from seed:', error);
           showMessage('开始漫游失败', 3000, 'error');
         }
       }
     }));
 
-    console.log('[SiyuanMemo][ReviewView] Adding menu item 2: 从种子块开始漫游 (with submenu)');
+    console.log('[SiYuanMemo][ReviewView] Adding menu item 2: 从种子块开始漫游 (with submenu)');
     menu.addItem({
       icon: 'iconPlay',
       label: '从种子块开始漫游',
       submenu: seedSubmenuItems
     });
   } else {
-    console.log('[SiyuanMemo][ReviewView] Adding menu item 2: 从种子块开始漫游 (disabled)');
+    console.log('[SiYuanMemo][ReviewView] Adding menu item 2: 从种子块开始漫游 (disabled)');
     menu.addItem({
       icon: 'iconPlay',
       label: '从种子块开始漫游',
@@ -916,20 +916,20 @@ function handleNeuralMenu(ev: MouseEvent) {
           await underlyingQueue.removeCard?.(seedId);
           showMessage(`已移除种子块 ${seedId}`, 3000, 'info');
         } catch (error) {
-          console.error('[SiyuanMemo][ReviewView] Failed to remove seed:', error);
+          console.error('[SiYuanMemo][ReviewView] Failed to remove seed:', error);
           showMessage('移除种子块失败', 3000, 'error');
         }
       }
     }));
 
-    console.log('[SiyuanMemo][ReviewView] Adding menu item 3: 移除种子块 (with submenu)');
+    console.log('[SiYuanMemo][ReviewView] Adding menu item 3: 移除种子块 (with submenu)');
     menu.addItem({
       icon: 'iconTrashcan',
       label: '移除种子块',
       submenu: removeSubmenuItems
     });
   } else {
-    console.log('[SiyuanMemo][ReviewView] Adding menu item 3: 移除种子块 (disabled)');
+    console.log('[SiYuanMemo][ReviewView] Adding menu item 3: 移除种子块 (disabled)');
     menu.addItem({
       icon: 'iconTrashcan',
       label: '移除种子块',
@@ -940,12 +940,12 @@ function handleNeuralMenu(ev: MouseEvent) {
   menu.addSeparator();
 
   // 4. 查看历史记录
-  console.log('[SiyuanMemo][ReviewView] Adding menu item 4: 查看历史记录');
+  console.log('[SiYuanMemo][ReviewView] Adding menu item 4: 查看历史记录');
   menu.addItem({
     icon: 'iconHistory',
     label: '查看历史记录',
     click: () => {
-      console.log('[SiyuanMemo][ReviewView] 查看历史记录 clicked');
+      console.log('[SiYuanMemo][ReviewView] 查看历史记录 clicked');
       try {
         const history = underlyingQueue.getHistorySnapshot?.();
         if (history && history.length > 0) {
@@ -957,37 +957,37 @@ function handleNeuralMenu(ev: MouseEvent) {
           showMessage('暂无历史记录', 3000, 'info');
         }
       } catch (error) {
-        console.error('[SiyuanMemo][ReviewView] Failed to get history:', error);
+        console.error('[SiYuanMemo][ReviewView] Failed to get history:', error);
       }
     }
   });
 
   // 5. 清空历史记录
-  console.log('[SiyuanMemo][ReviewView] Adding menu item 5: 清空历史记录');
+  console.log('[SiYuanMemo][ReviewView] Adding menu item 5: 清空历史记录');
   menu.addItem({
     icon: 'iconClear',
     label: '清空历史记录',
     click: () => {
-      console.log('[SiyuanMemo][ReviewView] 清空历史记录 clicked');
+      console.log('[SiYuanMemo][ReviewView] 清空历史记录 clicked');
       try {
         underlyingQueue.clearHistory?.();
         showMessage('历史记录已清空', 3000, 'info');
       } catch (error) {
-        console.error('[SiyuanMemo][ReviewView] Failed to clear history:', error);
+        console.error('[SiYuanMemo][ReviewView] Failed to clear history:', error);
         showMessage('清空历史记录失败', 3000, 'error');
       }
     }
   });
 
   // 显示菜单
-  console.log('[SiyuanMemo][ReviewView] Opening menu...');
+  console.log('[SiYuanMemo][ReviewView] Opening menu...');
   const target = ev.currentTarget as HTMLElement;
-  console.log('[SiyuanMemo][ReviewView] Target element:', target);
+  console.log('[SiYuanMemo][ReviewView] Target element:', target);
 
   if (target) {
     const rect = target.getBoundingClientRect();
-    console.log('[SiyuanMemo][ReviewView] Target rect:', rect);
-    console.log('[SiyuanMemo][ReviewView] Menu open position:', {
+    console.log('[SiYuanMemo][ReviewView] Target rect:', rect);
+    console.log('[SiYuanMemo][ReviewView] Menu open position:', {
       x: rect.left,
       y: rect.bottom
     });
@@ -996,9 +996,9 @@ function handleNeuralMenu(ev: MouseEvent) {
       x: rect.left,
       y: rect.bottom
     });
-    console.log('[SiyuanMemo][ReviewView] Menu.open() called');
+    console.log('[SiYuanMemo][ReviewView] Menu.open() called');
   } else {
-    console.error('[SiyuanMemo][ReviewView] Target element is null!');
+    console.error('[SiYuanMemo][ReviewView] Target element is null!');
   }
 }
 

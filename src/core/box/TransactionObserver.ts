@@ -52,7 +52,7 @@ export class TransactionObserver {
     }
 
     public init() {
-        console.log('[SiyuanMemo] TransactionObserver initialized');
+        console.log('[SiYuanMemo] TransactionObserver initialized');
         this.plugin.eventBus.on('ws-main', this.handleTransaction);
     }
 
@@ -61,7 +61,7 @@ export class TransactionObserver {
     }
 
     public setEnabled(enabled: boolean) {
-        console.log('[SiyuanMemo] TransactionObserver enabled:', enabled);
+        console.log('[SiYuanMemo] TransactionObserver enabled:', enabled);
         this.enabled = enabled;
     }
 
@@ -69,17 +69,17 @@ export class TransactionObserver {
         if (!this.enabled) return;
 
         const detail = event.detail as TransactionDetail;
-        console.log('[SiyuanMemo] WS Event:', detail.cmd);
+        console.log('[SiYuanMemo] WS Event:', detail.cmd);
 
         if (detail.cmd !== 'transactions' || !detail.data) return;
 
-        console.log('[SiyuanMemo] Transaction received:', detail.data.length);
+        console.log('[SiYuanMemo] Transaction received:', detail.data.length);
 
         detail.data.forEach(data => {
             data.doOperations.forEach(op => {
                 // We monitor insert and update actions
                 if (op.action === 'insert' || op.action === 'update') {
-                    console.log('[SiyuanMemo] Ops:', op.action, op.id);
+                    console.log('[SiYuanMemo] Ops:', op.action, op.id);
                     this.queueBlockCheck(op.id);
                 }
             });
@@ -87,7 +87,7 @@ export class TransactionObserver {
     }
 
     private queueBlockCheck(blockId: string) {
-        // console.log('[SiyuanMemo] Queueing check for block:', blockId);
+        // console.log('[SiYuanMemo] Queueing check for block:', blockId);
         this.pendingBlocks.add(blockId);
         if (this.debounceTimer) clearTimeout(this.debounceTimer);
 
@@ -99,14 +99,14 @@ export class TransactionObserver {
 
     private async processQueue() {
         const blocks = Array.from(this.pendingBlocks);
-        console.log('[SiyuanMemo] Processing queue, blocks:', blocks.length);
+        console.log('[SiYuanMemo] Processing queue, blocks:', blocks.length);
         this.pendingBlocks.clear();
 
         for (const blockId of blocks) {
             try {
                 await this.checkAndCreateCard(blockId);
             } catch (err) {
-                console.error(`[SiyuanMemo] Auto-card failed for block ${blockId}:`, err);
+                console.error(`[SiYuanMemo] Auto-card failed for block ${blockId}:`, err);
             }
         }
         // Save storage once after batch
@@ -117,17 +117,17 @@ export class TransactionObserver {
         if (this.processing.has(blockId)) return;
         this.processing.add(blockId);
 
-        console.log(`[SiyuanMemo] checkAndCreateCard called for ${blockId}`);
+        console.log(`[SiYuanMemo] checkAndCreateCard called for ${blockId}`);
 
         try {
             // 1. Get block markdown content
             const { kramdown } = await getBlockKramdown(blockId);
-            console.log(`[SiyuanMemo] Check block ${blockId}, content: ${kramdown}`);
+            console.log(`[SiYuanMemo] Check block ${blockId}, content: ${kramdown}`);
             if (!kramdown) return;
 
             // 2. Check if content matches any strategy (Excluding default)
             const strategy = this.builder.matchStrategy(blockId, kramdown, true);
-            console.log(`[SiyuanMemo] Strategy match result for ${blockId}:`, strategy ? strategy.strategyName : 'None');
+            console.log(`[SiYuanMemo] Strategy match result for ${blockId}:`, strategy ? strategy.strategyName : 'None');
             if (!strategy) {
                 return;
             }
@@ -142,7 +142,7 @@ export class TransactionObserver {
             // Check if plugin knows it (via FSRS block attrs)
             const isFsrsAttr = await isFlashcardBlock(blockId);
 
-            console.log(`[SiyuanMemo] Card Status for ${blockId}: RiffDB=${isRiffInDb}, RiffAttr=${hasRiffAttr}, FSRSAttr=${isFsrsAttr}`);
+            console.log(`[SiYuanMemo] Card Status for ${blockId}: RiffDB=${isRiffInDb}, RiffAttr=${hasRiffAttr}, FSRSAttr=${isFsrsAttr}`);
 
             // 检查卡片类型是否已标记
             const attrs = await getBlockAttrs(blockId);
@@ -150,11 +150,11 @@ export class TransactionObserver {
 
             if (isRiffInDb && hasRiffAttr && isFsrsAttr && hasCardType) {
                 // Completely done and synced (including card type)
-                console.log(`[SiyuanMemo] Card ${blockId} already fully synced with type: ${attrs['custom-fsrs-card-type']}`);
+                console.log(`[SiYuanMemo] Card ${blockId} already fully synced with type: ${attrs['custom-fsrs-card-type']}`);
                 return;
             }
 
-            console.log(`[SiyuanMemo] Syncing card for block ${blockId}... (hasCardType: ${hasCardType})`);
+            console.log(`[SiYuanMemo] Syncing card for block ${blockId}... (hasCardType: ${hasCardType})`);
 
             // 4. Build card object (generate metadata) - only if needed
             let card;
@@ -164,14 +164,14 @@ export class TransactionObserver {
 
             // 5. Add to Siyuan Riff Deck (Native) if not in DB OR missing attribute (repair UI)
             if (!isRiffInDb || !hasRiffAttr) {
-                console.log(`[SiyuanMemo] Adding to Riff Deck: ${BUILTIN_DECK_ID}`);
+                console.log(`[SiYuanMemo] Adding to Riff Deck: ${BUILTIN_DECK_ID}`);
                 const res = await addRiffCards(BUILTIN_DECK_ID, [blockId]);
-                console.log(`[SiyuanMemo] addRiffCards result:`, res);
+                console.log(`[SiYuanMemo] addRiffCards result:`, res);
                 
                 // 🆕 5.5. 检测是否为列表项模版卡
                 const isListTemplate = await this.checkListTemplate(blockId);
                 if (isListTemplate) {
-                    console.log(`[SiyuanMemo] Detected list template card: ${blockId}`);
+                    console.log(`[SiYuanMemo] Detected list template card: ${blockId}`);
                     await this.createListTemplateCards(blockId);
                     return; // 已处理，跳过常规流程
                 }
@@ -197,9 +197,9 @@ export class TransactionObserver {
                     const priority = card?.priority || parseInt(attrs?.['custom-fsrs-priority'] || '50', 10);
                     const aFactor = initializeAFactor(priority);
                     cardTypeAttrs['custom-fsrs-a-factor'] = aFactor.toString();
-                    console.log(`[SiyuanMemo] Topic card detected: blockID=${blockId}, aFactor=${aFactor}`);
+                    console.log(`[SiYuanMemo] Topic card detected: blockID=${blockId}, aFactor=${aFactor}`);
                 } else {
-                    console.log(`[SiyuanMemo] Item card detected: blockID=${blockId}`);
+                    console.log(`[SiYuanMemo] Item card detected: blockID=${blockId}`);
                 }
 
                 await setBlockAttrs(blockId, cardTypeAttrs);
@@ -211,7 +211,7 @@ export class TransactionObserver {
             }
 
         } catch (err) {
-            console.error(`[SiyuanMemo] Failed to auto-create card for ${blockId}:`, err);
+            console.error(`[SiYuanMemo] Failed to auto-create card for ${blockId}:`, err);
         } finally {
             this.processing.delete(blockId);
         }
@@ -230,7 +230,7 @@ export class TransactionObserver {
      */
     private async checkListTemplate(blockId: string): Promise<boolean> {
         try {
-            console.log(`[SiyuanMemo] 🔍 Checking if block ${blockId} is a list template...`);
+            console.log(`[SiYuanMemo] 🔍 Checking if block ${blockId} is a list template...`);
             
             // 1. 检查块类型
             const typeResult = await sql(`
@@ -239,18 +239,18 @@ export class TransactionObserver {
                 LIMIT 1
             `);
             
-            console.log(`[SiyuanMemo] Block type query result:`, typeResult);
+            console.log(`[SiYuanMemo] Block type query result:`, typeResult);
             
             if (!typeResult || typeResult.length === 0) {
-                console.log(`[SiyuanMemo] ❌ Block ${blockId} not found in database`);
+                console.log(`[SiYuanMemo] ❌ Block ${blockId} not found in database`);
                 return false;
             }
             
             const blockType = typeResult[0].type;
-            console.log(`[SiyuanMemo] Block ${blockId} type: ${blockType}`);
+            console.log(`[SiYuanMemo] Block ${blockId} type: ${blockType}`);
             
             if (blockType !== 'i') {
-                console.log(`[SiyuanMemo] ❌ Block ${blockId} is not a list item (type='${blockType}'), skipping list template check`);
+                console.log(`[SiYuanMemo] ❌ Block ${blockId} is not a list item (type='${blockType}'), skipping list template check`);
                 return false;
             }
             
@@ -262,22 +262,22 @@ export class TransactionObserver {
                 AND type != 'd'
             `);
             
-            console.log(`[SiyuanMemo] Children query result:`, childrenResult);
+            console.log(`[SiYuanMemo] Children query result:`, childrenResult);
             
             const childCount = childrenResult ? childrenResult.length : 0;
-            console.log(`[SiyuanMemo] Block ${blockId} has ${childCount} list item children`);
+            console.log(`[SiYuanMemo] Block ${blockId} has ${childCount} list item children`);
             
             const hasMultipleChildren = childCount >= 2;
             
             if (hasMultipleChildren) {
-                console.log(`[SiyuanMemo] ✅ Block ${blockId} is a list template with ${childCount} children`);
+                console.log(`[SiYuanMemo] ✅ Block ${blockId} is a list template with ${childCount} children`);
             } else {
-                console.log(`[SiyuanMemo] ❌ Block ${blockId} has only ${childCount} children (need ≥2), not a list template`);
+                console.log(`[SiYuanMemo] ❌ Block ${blockId} has only ${childCount} children (need ≥2), not a list template`);
             }
             
             return hasMultipleChildren;
         } catch (err) {
-            console.error(`[SiyuanMemo] ❌ Failed to check list template:`, err);
+            console.error(`[SiYuanMemo] ❌ Failed to check list template:`, err);
             return false;
         }
     }
@@ -294,7 +294,7 @@ export class TransactionObserver {
      */
     private async createListTemplateCards(parentBlockId: string): Promise<void> {
         try {
-            console.log(`[SiyuanMemo] 🎯 Starting to create list template cards for parent: ${parentBlockId}`);
+            console.log(`[SiYuanMemo] 🎯 Starting to create list template cards for parent: ${parentBlockId}`);
             
             // 1. 获取所有子级列表项
             const childrenResult = await sql(`
@@ -305,16 +305,16 @@ export class TransactionObserver {
                 ORDER BY id ASC
             `);
             
-            console.log(`[SiyuanMemo] Query children result:`, childrenResult);
+            console.log(`[SiYuanMemo] Query children result:`, childrenResult);
             
             if (!childrenResult || childrenResult.length < 2) {
-                console.warn(`[SiyuanMemo] ⚠️ Not enough children for list template: ${parentBlockId} (found: ${childrenResult?.length || 0})`);
+                console.warn(`[SiYuanMemo] ⚠️ Not enough children for list template: ${parentBlockId} (found: ${childrenResult?.length || 0})`);
                 return;
             }
             
             const childBlockIds = childrenResult.map((row: any) => row.id);
-            console.log(`[SiyuanMemo] 📝 Creating ${childBlockIds.length} list template cards for parent: ${parentBlockId}`);
-            console.log(`[SiyuanMemo] Child block IDs:`, childBlockIds);
+            console.log(`[SiYuanMemo] 📝 Creating ${childBlockIds.length} list template cards for parent: ${parentBlockId}`);
+            console.log(`[SiYuanMemo] Child block IDs:`, childBlockIds);
             
             // 2. 为每个子级创建 Xiuyuan 卡片
             let successCount = 0;
@@ -322,7 +322,7 @@ export class TransactionObserver {
             
             for (let i = 0; i < childBlockIds.length; i++) {
                 const childBlockId = childBlockIds[i];
-                console.log(`[SiyuanMemo] 📌 Creating card ${i + 1}/${childBlockIds.length} for child: ${childBlockId}`);
+                console.log(`[SiYuanMemo] 📌 Creating card ${i + 1}/${childBlockIds.length} for child: ${childBlockId}`);
                 
                 const blockIds = [parentBlockId, childBlockId];
                 const fieldMapping = {
@@ -330,7 +330,7 @@ export class TransactionObserver {
                     answer: childBlockId
                 };
                 
-                console.log(`[SiyuanMemo] Calling xiuyuanService.createFromBlocks with:`, {
+                console.log(`[SiYuanMemo] Calling xiuyuanService.createFromBlocks with:`, {
                     blockIds,
                     templateId: 'builtin-list-item',
                     fieldMapping,
@@ -346,21 +346,21 @@ export class TransactionObserver {
                 
                 if (result.ok) {
                     successCount++;
-                    console.log(`[SiyuanMemo] ✅ Created list template card ${i + 1}/${childBlockIds.length}: ${result.value.xiuyuan.id} (child: ${childBlockId})`);
-                    console.log(`[SiyuanMemo] Card details:`, result.value);
+                    console.log(`[SiYuanMemo] ✅ Created list template card ${i + 1}/${childBlockIds.length}: ${result.value.xiuyuan.id} (child: ${childBlockId})`);
+                    console.log(`[SiYuanMemo] Card details:`, result.value);
                 } else {
                     failCount++;
-                    console.error(`[SiyuanMemo] ❌ Failed to create list template card ${i + 1}/${childBlockIds.length} for child ${childBlockId}:`, result.error);
+                    console.error(`[SiYuanMemo] ❌ Failed to create list template card ${i + 1}/${childBlockIds.length} for child ${childBlockId}:`, result.error);
                 }
             }
             
-            console.log(`[SiyuanMemo] 🎉 List template cards creation complete: ${successCount} succeeded, ${failCount} failed`);
+            console.log(`[SiYuanMemo] 🎉 List template cards creation complete: ${successCount} succeeded, ${failCount} failed`);
             
             if (successCount > 0) {
-                console.log(`[SiyuanMemo] ✅ Successfully created ${successCount} list template cards`);
+                console.log(`[SiYuanMemo] ✅ Successfully created ${successCount} list template cards`);
             }
         } catch (err) {
-            console.error(`[SiyuanMemo] ❌ Failed to create list template cards:`, err);
+            console.error(`[SiYuanMemo] ❌ Failed to create list template cards:`, err);
         }
     }
 }

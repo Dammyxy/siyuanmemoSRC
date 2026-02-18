@@ -93,7 +93,7 @@ export function createQueueDataSource(
         getBlockIdsFn: () => {
           // 每次 fetchRows 时都获取最新的种子列表
           const seeds = neuralQueue?.getSeedBlocks?.() || [];
-          console.log(`[SiyuanMemo][DataSourceFactory] Neural roam seeds: ${seeds.length}`, seeds);
+          console.log(`[SiYuanMemo][DataSourceFactory] Neural roam seeds: ${seeds.length}`, seeds);
           return seeds;
         },
       });
@@ -227,7 +227,7 @@ export function createFocusDataSource(
       queueId: 'neural-roam',
       getBlockIdsFn: () => {
         const seeds = neuralQueue?.getSeedBlocks?.() || [];
-        console.log(`[SiyuanMemo][DataSourceFactory] Neural roam seeds (focus): ${seeds.length}`, seeds);
+        console.log(`[SiYuanMemo][DataSourceFactory] Neural roam seeds (focus): ${seeds.length}`, seeds);
         return seeds;
       },
     });

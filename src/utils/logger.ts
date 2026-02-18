@@ -18,7 +18,7 @@ export type LogLevel = 'debug' | 'log' | 'info' | 'warn' | 'error';
 class Logger {
   private enabled: boolean = true;
   private isDevelopment: boolean = import.meta.env.DEV;
-  private prefix: string = '[SiyuanMemo]';
+  private prefix: string = '[SiYuanMemo]';
 
   /**
    * 设置是否启用日志

@@ -57,7 +57,7 @@ export class CardService {
           // await pushMsg((this.plugin.i18n?.drillAdded || '已加入 {n} 张闪卡').replace('{n}', String(cards.length)));
           this.plugin.openDrillDialogWithCards(cards, 'block');
         } catch (err) {
-          console.error('[SiyuanMemo] Failed to open drill from blocks:', err);
+          console.error('[SiYuanMemo] Failed to open drill from blocks:', err);
           await pushErrMsg(this.plugin.i18n?.drillFailed || '机械练习启动失败');
         }
       },
@@ -76,19 +76,19 @@ export class CardService {
         // ✅ 新架构：从本地存储查询卡片
         if (!cardID && blockIds.length > 0) {
           try {
-            console.log('[SiyuanMemo] Querying local storage for blockIds:', blockIds);
+            console.log('[SiYuanMemo] Querying local storage for blockIds:', blockIds);
             // 尝试从本地存储获取卡片
             for (const bid of blockIds) {
               const card = this.plugin.storage.getCardByBlockId(bid);
               if (card) {
                 blockID = card.blockId;
                 cardID = card.id;
-                console.log('[SiyuanMemo] Found card in local storage:', blockID, cardID);
+                console.log('[SiYuanMemo] Found card in local storage:', blockID, cardID);
                 break;
               }
             }
           } catch (err) {
-            console.warn('[SiyuanMemo] Failed to query local storage:', err);
+            console.warn('[SiYuanMemo] Failed to query local storage:', err);
           }
         }
 
@@ -136,7 +136,7 @@ export class CardService {
               this.plugin.storage.setCard(card);
               createdCount++;
             } catch (err) {
-              console.error('[SiyuanMemo] Failed to create card from block:', blockId, err);
+              console.error('[SiYuanMemo] Failed to create card from block:', blockId, err);
             }
           }
 
@@ -171,7 +171,7 @@ export class CardService {
               this.plugin.storage.removeCard(cardId);
               removedCount++;
             } catch (err) {
-              console.error('[SiyuanMemo] Failed to remove card from block:', blockId, err);
+              console.error('[SiYuanMemo] Failed to remove card from block:', blockId, err);
             }
           }
 
@@ -261,7 +261,7 @@ export class CardService {
           // await pushMsg((this.plugin.i18n?.drillAdded || '已加入 {n} 张闪卡').replace('{n}', String(cards.length)));
           this.plugin.openDrillDialogWithCards(cards, 'block');
         } catch (err) {
-          console.error('[SiyuanMemo] Failed to open drill from doc menu:', err);
+          console.error('[SiYuanMemo] Failed to open drill from doc menu:', err);
           await pushErrMsg(this.plugin.i18n?.drillFailed || '机械练习启动失败');
         }
       }
@@ -290,7 +290,7 @@ export class CardService {
           // await pushMsg((this.plugin.i18n?.drillAdded || '已加入 {n} 张闪卡').replace('{n}', String(cards.length)));
           this.plugin.openDrillDialogWithCards(cards, 'block');
         } catch (err) {
-          console.error('[SiyuanMemo] Failed to open drill from breadcrumb menu:', err);
+          console.error('[SiYuanMemo] Failed to open drill from breadcrumb menu:', err);
           await pushErrMsg(this.plugin.i18n?.drillFailed || '机械练习启动失败');
         }
       }

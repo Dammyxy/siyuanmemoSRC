@@ -92,7 +92,7 @@ export class StorageManager {
                 if (dq === 'neural-wandering') (this.settings as any).queues.defaultQueue = 'neural-roam';
             }
         } catch (err) {
-            console.warn('[SiyuanMemo] Failed to load settings, using defaults:', err);
+            console.warn('[SiYuanMemo] Failed to load settings, using defaults:', err);
             this.settings = DEFAULT_SETTINGS;
         }
     }
@@ -191,7 +191,7 @@ export class StorageManager {
     async deleteCards(blockIds: string[]): Promise<void> {
         if (blockIds.length === 0) return;
 
-        console.log('[SiyuanMemo][StorageManager] Deleting cards:', blockIds.length);
+        console.log('[SiYuanMemo][StorageManager] Deleting cards:', blockIds.length);
 
         // 1. 从本地存储删除
         let deletedCount = 0;
@@ -206,16 +206,16 @@ export class StorageManager {
         // 2. 保存更改
         if (deletedCount > 0) {
             await this.saveCards();
-            console.log('[SiyuanMemo][StorageManager] Deleted from local storage:', deletedCount);
+            console.log('[SiYuanMemo][StorageManager] Deleted from local storage:', deletedCount);
         }
 
         // 3. 从 Riff 卡组删除
         try {
             const { removeRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
             await removeRiffCards(BUILTIN_DECK_ID, blockIds);
-            console.log('[SiyuanMemo][StorageManager] Deleted from Riff deck:', blockIds.length);
+            console.log('[SiYuanMemo][StorageManager] Deleted from Riff deck:', blockIds.length);
         } catch (error) {
-            console.error('[SiyuanMemo][StorageManager] Failed to delete from Riff:', error);
+            console.error('[SiYuanMemo][StorageManager] Failed to delete from Riff:', error);
             // 不抛出错误，因为本地已经删除成功
         }
 
@@ -225,9 +225,9 @@ export class StorageManager {
             for (const blockId of blockIds) {
                 await unmarkBlockAsCard(blockId);
             }
-            console.log('[SiyuanMemo][StorageManager] Unmarked blocks:', blockIds.length);
+            console.log('[SiYuanMemo][StorageManager] Unmarked blocks:', blockIds.length);
         } catch (error) {
-            console.error('[SiyuanMemo][StorageManager] Failed to unmark blocks:', error);
+            console.error('[SiYuanMemo][StorageManager] Failed to unmark blocks:', error);
             // 不抛出错误
         }
     }
@@ -260,7 +260,7 @@ export class StorageManager {
                 // 🔍 调试日志：检查加载的 Xiuyuan 卡片
                 const xiuyuanCards = cards.filter(c => c.id.startsWith('xy_card_'));
                 if (xiuyuanCards.length > 0) {
-                    console.log('[SiyuanMemo][StorageManager] 🔍 Loaded Xiuyuan cards from msgpack:', {
+                    console.log('[SiYuanMemo][StorageManager] 🔍 Loaded Xiuyuan cards from msgpack:', {
                         count: xiuyuanCards.length,
                         samples: xiuyuanCards.slice(0, 2).map(c => ({
                             id: c.id,
@@ -285,11 +285,11 @@ export class StorageManager {
                     }
                 }
                 
-                console.log(`[SiyuanMemo] Loaded ${cards.length} cards (msgpack)`);
+                console.log(`[SiYuanMemo] Loaded ${cards.length} cards (msgpack)`);
                 
                 // 如果有卡片被规范化，保存到磁盘
                 if (normalizedCount > 0) {
-                    console.log(`[SiyuanMemo] 🔧 Normalized ${normalizedCount} mixed-type cards, saving...`);
+                    console.log(`[SiYuanMemo] 🔧 Normalized ${normalizedCount} mixed-type cards, saving...`);
                     this.isDirty = true;
                     await this.saveCards();
                 }
@@ -314,17 +314,17 @@ export class StorageManager {
                     }
                 }
                 
-                console.log(`[SiyuanMemo] Loaded ${cards.length} cards (JSON, will migrate to msgpack)`);
+                console.log(`[SiYuanMemo] Loaded ${cards.length} cards (JSON, will migrate to msgpack)`);
                 
                 // 如果有卡片被规范化，保存到磁盘
                 if (normalizedCount > 0) {
-                    console.log(`[SiyuanMemo] 🔧 Normalized ${normalizedCount} mixed-type cards, saving...`);
+                    console.log(`[SiYuanMemo] 🔧 Normalized ${normalizedCount} mixed-type cards, saving...`);
                     this.isDirty = true;
                     await this.saveCards();
                 }
             }
         } catch (err) {
-            console.warn('[SiyuanMemo] Failed to load cards:', err);
+            console.warn('[SiYuanMemo] Failed to load cards:', err);
         }
     }
     
@@ -357,7 +357,7 @@ export class StorageManager {
                 if (!isNaN(timestamp) && timestamp >= MIN_VALID_TIMESTAMP) {
                     return timestamp;
                 }
-                console.warn(`[SiyuanMemo][StorageManager] Invalid date string in ${fieldName}: "${value}" (timestamp: ${timestamp}) for card ${id || blockId}`);
+                console.warn(`[SiYuanMemo][StorageManager] Invalid date string in ${fieldName}: "${value}" (timestamp: ${timestamp}) for card ${id || blockId}`);
                 return 0;
             }
             
@@ -366,7 +366,7 @@ export class StorageManager {
                 // 同样检查最小有效时间戳
                 const MIN_VALID_TIMESTAMP = 946684800000; // 2000-01-01
                 if (isNaN(value) || value < 0 || (value > 0 && value < MIN_VALID_TIMESTAMP)) {
-                    console.warn(`[SiyuanMemo][StorageManager] Invalid timestamp in ${fieldName}: ${value} for card ${id || blockId}`);
+                    console.warn(`[SiYuanMemo][StorageManager] Invalid timestamp in ${fieldName}: ${value} for card ${id || blockId}`);
                     return 0;
                 }
                 return value;
@@ -458,7 +458,7 @@ export class StorageManager {
         // 🔍 调试日志：检查 Xiuyuan 卡片的 meta
         const xiuyuanCards = cards.filter(c => c.id.startsWith('xy_card_'));
         if (xiuyuanCards.length > 0) {
-            console.log('[SiyuanMemo][StorageManager] 🔍 Saving Xiuyuan cards:', {
+            console.log('[SiYuanMemo][StorageManager] 🔍 Saving Xiuyuan cards:', {
                 count: xiuyuanCards.length,
                 samples: xiuyuanCards.slice(0, 2).map(c => ({
                     id: c.id,
@@ -474,7 +474,7 @@ export class StorageManager {
         // 🆕 使用 msgpack 格式保存
         await this.saveMsgpackData(STORAGE_FILES.CARDS, cards);
         this.isDirty = false;
-        console.log(`[SiyuanMemo] Saved ${cards.length} cards (msgpack)`);
+        console.log(`[SiYuanMemo] Saved ${cards.length} cards (msgpack)`);
     }
 
     getPracticeQueue(): any[] {
@@ -550,7 +550,7 @@ export class StorageManager {
                 return data as QueueData;
             }
         } catch (error) {
-            console.warn('[SiyuanMemo][StorageManager] Failed to load queue backup:', error);
+            console.warn('[SiYuanMemo][StorageManager] Failed to load queue backup:', error);
         }
         return null;
     }
@@ -561,7 +561,7 @@ export class StorageManager {
     async setQueueBackup(data: QueueData): Promise<void> {
         // 🆕 使用 msgpack 格式保存
         await this.saveMsgpackData(STORAGE_FILES.PRACTICE_QUEUE_BACKUP, data);
-        console.debug('[SiyuanMemo][StorageManager] Queue backup saved (msgpack)');
+        console.debug('[SiYuanMemo][StorageManager] Queue backup saved (msgpack)');
     }
 
     /**
@@ -671,7 +671,7 @@ export class StorageManager {
 
             // 安全限制：最多遍历 120 个月（10年）
             if (i >= 120) {
-                console.warn('[SiyuanMemo][StorageManager] Reached maximum month limit (120) for review logs');
+                console.warn('[SiYuanMemo][StorageManager] Reached maximum month limit (120) for review logs');
                 break;
             }
         }
@@ -679,7 +679,7 @@ export class StorageManager {
         // 按时间排序（最新的在前）
         allLogs.sort((a, b) => b.review - a.review);
 
-        console.log('[SiyuanMemo][StorageManager] Loaded', allLogs.length, 'review logs from', Math.floor((now.getTime() - Date.UTC(now.getFullYear() - 10, 0, 1)) / (30 * 24 * 60 * 60 * 1000)), 'months');
+        console.log('[SiYuanMemo][StorageManager] Loaded', allLogs.length, 'review logs from', Math.floor((now.getTime() - Date.UTC(now.getFullYear() - 10, 0, 1)) / (30 * 24 * 60 * 60 * 1000)), 'months');
         return allLogs;
     }
 
@@ -705,7 +705,7 @@ export class StorageManager {
                     this.practiceQueue = [];
                     this.practiceQueueLastAutoSortDay = '';
                 }
-                console.log(`[SiyuanMemo] Loaded practice queue (msgpack): ${this.practiceQueue.length} items`);
+                console.log(`[SiYuanMemo] Loaded practice queue (msgpack): ${this.practiceQueue.length} items`);
                 await this.autoSortPracticeQueueIfNeeded();
                 return;
             }
@@ -731,13 +731,13 @@ export class StorageManager {
                     this.practiceQueue = [];
                     this.practiceQueueLastAutoSortDay = '';
                 }
-                console.log(`[SiyuanMemo] Loaded practice queue (JSON, will migrate): ${this.practiceQueue.length} items`);
+                console.log(`[SiYuanMemo] Loaded practice queue (JSON, will migrate): ${this.practiceQueue.length} items`);
             } else {
                 this.practiceQueue = [];
                 this.practiceQueueLastAutoSortDay = '';
             }
         } catch (err) {
-            console.warn('[SiyuanMemo] Failed to load practice queue:', err);
+            console.warn('[SiYuanMemo] Failed to load practice queue:', err);
             this.practiceQueue = [];
             this.practiceQueueLastAutoSortDay = '';
         }
@@ -769,7 +769,7 @@ export class StorageManager {
             const data = await this.loadMsgpackData(STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE);
             if (data) {
                 this.incrementalLearningQueue = Array.isArray(data) ? data : [];
-                console.log(`[SiyuanMemo] Loaded incremental learning queue (msgpack): ${this.incrementalLearningQueue.length} items`);
+                console.log(`[SiYuanMemo] Loaded incremental learning queue (msgpack): ${this.incrementalLearningQueue.length} items`);
                 return;
             }
 
@@ -778,12 +778,12 @@ export class StorageManager {
             if (jsonData) {
                 const parsed = JSON.parse(jsonData);
                 this.incrementalLearningQueue = Array.isArray(parsed) ? parsed : [];
-                console.log(`[SiyuanMemo] Loaded incremental learning queue (JSON, will migrate): ${this.incrementalLearningQueue.length} items`);
+                console.log(`[SiYuanMemo] Loaded incremental learning queue (JSON, will migrate): ${this.incrementalLearningQueue.length} items`);
             } else {
                 this.incrementalLearningQueue = [];
             }
         } catch (err) {
-            console.warn('[SiyuanMemo] Failed to load incremental learning queue:', err);
+            console.warn('[SiYuanMemo] Failed to load incremental learning queue:', err);
             this.incrementalLearningQueue = [];
         }
     }
@@ -870,7 +870,7 @@ export class StorageManager {
 
             return JSON.parse(content);
         } catch (error) {
-            console.error(`[SiyuanMemo][StorageManager] Failed to load ${filename}:`, error);
+            console.error(`[SiYuanMemo][StorageManager] Failed to load ${filename}:`, error);
             return null;
         }
     }
@@ -883,7 +883,7 @@ export class StorageManager {
             const content = JSON.stringify(data, null, 2);
             await this.writePluginData(filename, content);
         } catch (error) {
-            console.error(`[SiyuanMemo][StorageManager] Failed to save ${filename}:`, error);
+            console.error(`[SiYuanMemo][StorageManager] Failed to save ${filename}:`, error);
             throw error;
         }
     }
@@ -910,11 +910,11 @@ export class StorageManager {
         } catch (error) {
             // 特别处理 Base64 解码错误（文件损坏）
             if (error instanceof DOMException && error.name === 'InvalidCharacterError') {
-                console.warn(`[SiyuanMemo][StorageManager] Corrupted msgpack file (invalid Base64): ${filename}, ignoring it`);
+                console.warn(`[SiYuanMemo][StorageManager] Corrupted msgpack file (invalid Base64): ${filename}, ignoring it`);
                 // 不尝试删除文件，因为可能会导致其他错误
                 // 下次保存时会自动覆盖损坏的文件
             } else {
-                console.error(`[SiyuanMemo][StorageManager] Failed to load msgpack ${filename}:`, error);
+                console.error(`[SiYuanMemo][StorageManager] Failed to load msgpack ${filename}:`, error);
             }
             return null;
         }
@@ -937,7 +937,7 @@ export class StorageManager {
             
             await this.writePluginData(filename, content);
         } catch (error) {
-            console.error(`[SiyuanMemo][StorageManager] Failed to save msgpack ${filename}:`, error);
+            console.error(`[SiYuanMemo][StorageManager] Failed to save msgpack ${filename}:`, error);
             throw error;
         }
     }
@@ -970,7 +970,7 @@ export class StorageManager {
                         continue; // 文件正常，跳过迁移
                     } catch (error) {
                         // 文件损坏，删除并重新迁移
-                        console.warn(`[SiyuanMemo][StorageManager] ⚠️ Corrupted msgpack file detected: ${to}, will re-migrate`);
+                        console.warn(`[SiYuanMemo][StorageManager] ⚠️ Corrupted msgpack file detected: ${to}, will re-migrate`);
                         cleanedCount++;
                     }
                 }
@@ -981,10 +981,10 @@ export class StorageManager {
                     // JSON 文件不存在
                     if (msgpackContent) {
                         // msgpack 损坏但 JSON 不存在，删除损坏的 msgpack 文件
-                        console.warn(`[SiyuanMemo][StorageManager] ⚠️ No JSON backup found for corrupted ${to}, will start fresh`);
+                        console.warn(`[SiYuanMemo][StorageManager] ⚠️ No JSON backup found for corrupted ${to}, will start fresh`);
                         // 注意：我们不主动删除文件，只是让它在下次保存时被覆盖
                     } else {
-                        console.log(`[SiyuanMemo][StorageManager] No data files found for ${name}, will create on first save`);
+                        console.log(`[SiYuanMemo][StorageManager] No data files found for ${name}, will create on first save`);
                     }
                     continue;
                 }
@@ -995,12 +995,12 @@ export class StorageManager {
                 await this.saveMsgpackData(to, data);
 
                 migratedCount++;
-                console.log(`[SiyuanMemo][StorageManager] ✅ Migrated ${name}: ${from} → ${to}`);
+                console.log(`[SiYuanMemo][StorageManager] ✅ Migrated ${name}: ${from} → ${to}`);
 
                 // 可选：删除旧文件（暂时保留，以便回滚）
                 // await siyuanApi.removeFile(`${this.basePath}/${from}`);
             } catch (error) {
-                console.error(`[SiyuanMemo][StorageManager] ❌ Failed to migrate ${name}:`, error);
+                console.error(`[SiYuanMemo][StorageManager] ❌ Failed to migrate ${name}:`, error);
             }
         }
 
@@ -1012,7 +1012,7 @@ export class StorageManager {
             if (cleanedCount > 0) {
                 messages.push(`cleaned ${cleanedCount} corrupted files`);
             }
-            console.log(`[SiyuanMemo][StorageManager] 🎉 Msgpack migration complete: ${messages.join(', ')}`);
+            console.log(`[SiYuanMemo][StorageManager] 🎉 Msgpack migration complete: ${messages.join(', ')}`);
         }
     }
 
@@ -1065,7 +1065,7 @@ export class StorageManager {
             const data = await this.loadMsgpackData(STORAGE_FILES.RIFF_BLACKLIST);
             if (data) {
                 this.riffBlacklist = new Set(Array.isArray(data) ? data : []);
-                console.log('[SiyuanMemo][StorageManager] Loaded Riff blacklist (msgpack):', this.riffBlacklist.size);
+                console.log('[SiYuanMemo][StorageManager] Loaded Riff blacklist (msgpack):', this.riffBlacklist.size);
                 return;
             }
 
@@ -1074,12 +1074,12 @@ export class StorageManager {
             if (jsonData) {
                 const parsed = JSON.parse(jsonData);
                 this.riffBlacklist = new Set(Array.isArray(parsed) ? parsed : []);
-                console.log('[SiyuanMemo][StorageManager] Loaded Riff blacklist (JSON, will migrate):', this.riffBlacklist.size);
+                console.log('[SiYuanMemo][StorageManager] Loaded Riff blacklist (JSON, will migrate):', this.riffBlacklist.size);
             } else {
                 this.riffBlacklist = new Set();
             }
         } catch (err) {
-            console.warn('[SiyuanMemo][StorageManager] Failed to load Riff blacklist:', err);
+            console.warn('[SiYuanMemo][StorageManager] Failed to load Riff blacklist:', err);
             this.riffBlacklist = new Set();
         }
     }
@@ -1092,9 +1092,9 @@ export class StorageManager {
             const data = Array.from(this.riffBlacklist);
             // 🆕 使用 msgpack 格式保存
             await this.saveMsgpackData(STORAGE_FILES.RIFF_BLACKLIST, data);
-            console.log('[SiyuanMemo][StorageManager] Saved Riff blacklist (msgpack):', data.length);
+            console.log('[SiYuanMemo][StorageManager] Saved Riff blacklist (msgpack):', data.length);
         } catch (err) {
-            console.error('[SiyuanMemo][StorageManager] Failed to save Riff blacklist:', err);
+            console.error('[SiYuanMemo][StorageManager] Failed to save Riff blacklist:', err);
         }
     }
     
@@ -1110,7 +1110,7 @@ export class StorageManager {
      * @returns 修复的卡片数量
      */
     async repairInvalidDates(): Promise<{ fixed: number; total: number }> {
-        console.log('[SiyuanMemo][StorageManager] 🔧 Starting date repair...');
+        console.log('[SiYuanMemo][StorageManager] 🔧 Starting date repair...');
         
         let fixedCount = 0;
         const totalCount = this.cardsCache.size;
@@ -1123,12 +1123,12 @@ export class StorageManager {
             if (typeof card.lastReview === 'number') {
                 // 修复无效时间戳：NaN、负数、或小于 2000-01-01 的值（如 0 或 "0001-01-01" 转换后的值）
                 if (isNaN(card.lastReview) || card.lastReview < 0 || (card.lastReview > 0 && card.lastReview < MIN_VALID_TIMESTAMP)) {
-                    console.warn(`[SiyuanMemo][StorageManager] Fixing invalid lastReview for card ${cardId}: ${card.lastReview} -> 0`);
+                    console.warn(`[SiYuanMemo][StorageManager] Fixing invalid lastReview for card ${cardId}: ${card.lastReview} -> 0`);
                     card.lastReview = 0;
                     needsFix = true;
                 }
             } else if (card.lastReview !== undefined && card.lastReview !== null) {
-                console.warn(`[SiyuanMemo][StorageManager] Fixing non-numeric lastReview for card ${cardId}: ${typeof card.lastReview} -> 0`);
+                console.warn(`[SiYuanMemo][StorageManager] Fixing non-numeric lastReview for card ${cardId}: ${typeof card.lastReview} -> 0`);
                 card.lastReview = 0;
                 needsFix = true;
             }
@@ -1137,12 +1137,12 @@ export class StorageManager {
             if (typeof card.due === 'number') {
                 // 修复无效时间戳：NaN、负数、或小于 2000-01-01 的值
                 if (isNaN(card.due) || card.due < 0 || (card.due > 0 && card.due < MIN_VALID_TIMESTAMP)) {
-                    console.warn(`[SiyuanMemo][StorageManager] Fixing invalid due for card ${cardId}: ${card.due} -> ${Date.now()}`);
+                    console.warn(`[SiYuanMemo][StorageManager] Fixing invalid due for card ${cardId}: ${card.due} -> ${Date.now()}`);
                     card.due = Date.now();
                     needsFix = true;
                 }
             } else if (card.due !== undefined && card.due !== null) {
-                console.warn(`[SiyuanMemo][StorageManager] Fixing non-numeric due for card ${cardId}: ${typeof card.due} -> ${Date.now()}`);
+                console.warn(`[SiYuanMemo][StorageManager] Fixing non-numeric due for card ${cardId}: ${typeof card.due} -> ${Date.now()}`);
                 card.due = Date.now();
                 needsFix = true;
             }
@@ -1155,11 +1155,11 @@ export class StorageManager {
         }
         
         if (fixedCount > 0) {
-            console.log(`[SiyuanMemo][StorageManager] 🔧 Fixed ${fixedCount} cards, saving...`);
+            console.log(`[SiYuanMemo][StorageManager] 🔧 Fixed ${fixedCount} cards, saving...`);
             this.isDirty = true;
             await this.saveCards();
         } else {
-            console.log('[SiyuanMemo][StorageManager] ✅ No invalid dates found');
+            console.log('[SiYuanMemo][StorageManager] ✅ No invalid dates found');
         }
         
         return { fixed: fixedCount, total: totalCount };

@@ -43,11 +43,11 @@ export function useContextMenu(options: ContextMenuOptions) {
   // 应用排序
   const applySort = (colId: string, sortDirection: 'asc' | 'desc', gridApi: any) => {
     if (!gridApi) {
-      console.error('[SiyuanMemo][CardBrowser] Grid API not ready');
+      console.error('[SiYuanMemo][CardBrowser] Grid API not ready');
       return;
     }
 
-    console.log('[SiyuanMemo][CardBrowser] Applying sort:', { colId, sortDirection });
+    console.log('[SiYuanMemo][CardBrowser] Applying sort:', { colId, sortDirection });
 
     try {
       // AG-Grid v35+ 直接使用 gridApi.applyColumnState
@@ -61,16 +61,16 @@ export function useContextMenu(options: ContextMenuOptions) {
         defaultState: { sort: null }, // 清除其他列的排序
       });
 
-      console.log('[SiyuanMemo][CardBrowser] Sort applied successfully');
+      console.log('[SiYuanMemo][CardBrowser] Sort applied successfully');
     } catch (err) {
-      console.error('[SiyuanMemo][CardBrowser] Apply sort failed:', err);
+      console.error('[SiYuanMemo][CardBrowser] Apply sort failed:', err);
     }
   };
 
   // 随机排序
   const applyRandomSort = (gridApi: any) => {
     if (!gridApi) {
-      console.error('[SiyuanMemo][CardBrowser] Grid API not ready for random sort');
+      console.error('[SiYuanMemo][CardBrowser] Grid API not ready for random sort');
       return;
     }
 
@@ -78,11 +78,11 @@ export function useContextMenu(options: ContextMenuOptions) {
       // 获取当前显示的所有行数据
       const rowCount = gridApi.getDisplayedRowCount?.() ?? 0;
       if (rowCount === 0) {
-        console.warn('[SiyuanMemo][CardBrowser] No rows to shuffle');
+        console.warn('[SiYuanMemo][CardBrowser] No rows to shuffle');
         return;
       }
 
-      console.log('[SiyuanMemo][CardBrowser] Shuffling', rowCount, 'rows');
+      console.log('[SiYuanMemo][CardBrowser] Shuffling', rowCount, 'rows');
 
       // 收集所有行数据
       const rows: any[] = [];
@@ -116,11 +116,11 @@ export function useContextMenu(options: ContextMenuOptions) {
       setTimeout(() => {
         if (gridApi) {
           gridApi.setGridOption?.('rowData', rows);
-          console.log('[SiyuanMemo][CardBrowser] Shuffle completed via setGridOption');
+          console.log('[SiYuanMemo][CardBrowser] Shuffle completed via setGridOption');
         }
       }, 0);
     } catch (err) {
-      console.error('[SiyuanMemo][CardBrowser] Random sort failed:', err);
+      console.error('[SiYuanMemo][CardBrowser] Random sort failed:', err);
     }
   };
 
@@ -151,7 +151,7 @@ export function useContextMenu(options: ContextMenuOptions) {
             icon: 'iconUp',
             label: '升序',
             click: () => {
-              console.log('[SiyuanMemo][CardBrowser] Menu clicked: Sort by', field.colId, 'ASC');
+              console.log('[SiYuanMemo][CardBrowser] Menu clicked: Sort by', field.colId, 'ASC');
               applySort(field.colId, 'asc', gridApi);
             },
           },
@@ -159,7 +159,7 @@ export function useContextMenu(options: ContextMenuOptions) {
             icon: 'iconDown',
             label: '降序',
             click: () => {
-              console.log('[SiyuanMemo][CardBrowser] Menu clicked: Sort by', field.colId, 'DESC');
+              console.log('[SiYuanMemo][CardBrowser] Menu clicked: Sort by', field.colId, 'DESC');
               applySort(field.colId, 'desc', gridApi);
             },
           },
@@ -175,7 +175,7 @@ export function useContextMenu(options: ContextMenuOptions) {
       icon: 'iconRefresh',
       label: '随机排序',
       click: () => {
-        console.log('[SiyuanMemo][CardBrowser] Menu clicked: Random sort');
+        console.log('[SiYuanMemo][CardBrowser] Menu clicked: Random sort');
         applyRandomSort(gridApi);
       },
     });
@@ -277,7 +277,7 @@ export function useContextMenu(options: ContextMenuOptions) {
     if (!cards?.length) return;
 
     const blockIds = cards.map(c => c.blockId);
-    console.log(`[SiyuanMemo][CardBrowser] Marking ${blockIds.length} cards as Topic:`, blockIds);
+    console.log(`[SiYuanMemo][CardBrowser] Marking ${blockIds.length} cards as Topic:`, blockIds);
 
     try {
       // 批量设置卡片类型为 topic
@@ -293,7 +293,7 @@ export function useContextMenu(options: ContextMenuOptions) {
       invalidateCardCache();
       await options.loadData();
     } catch (err: any) {
-      console.error('[SiyuanMemo][CardBrowser] Failed to mark cards as Topic:', err);
+      console.error('[SiYuanMemo][CardBrowser] Failed to mark cards as Topic:', err);
       await pushErrMsg(`标记失败：${err?.message || '未知错误'}`, 3000);
     }
   };
@@ -305,7 +305,7 @@ export function useContextMenu(options: ContextMenuOptions) {
     if (!cards?.length) return;
 
     const blockIds = cards.map(c => c.blockId);
-    console.log(`[SiyuanMemo][CardBrowser] Marking ${blockIds.length} cards as Item:`, blockIds);
+    console.log(`[SiYuanMemo][CardBrowser] Marking ${blockIds.length} cards as Item:`, blockIds);
 
     try {
       // 批量设置卡片类型为 item
@@ -321,7 +321,7 @@ export function useContextMenu(options: ContextMenuOptions) {
       invalidateCardCache();
       await options.loadData();
     } catch (err: any) {
-      console.error('[SiyuanMemo][CardBrowser] Failed to mark cards as Item:', err);
+      console.error('[SiYuanMemo][CardBrowser] Failed to mark cards as Item:', err);
       await pushErrMsg(`标记失败：${err?.message || '未知错误'}`, 3000);
     }
   };
@@ -548,7 +548,7 @@ export function useContextMenu(options: ContextMenuOptions) {
       await options.refreshQueueCounts();
       await pushMsg(t('actionSuccess', '操作成功'));
     } catch (err: any) {
-      console.error('[SiyuanMemo][CardBrowser] action failed:', { actionId, err });
+      console.error('[SiYuanMemo][CardBrowser] action failed:', { actionId, err });
       await pushErrMsg(err?.message || t('actionFailed', '操作失败'));
     }
   };

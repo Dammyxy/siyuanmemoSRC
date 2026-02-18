@@ -65,7 +65,7 @@ export class TopBarManager {
                 return;
             } catch (err) {
                 if (!this.didWarnMount) {
-                    console.warn('[SiyuanMemo] Failed to remount topbar element:', err);
+                    console.warn('[SiYuanMemo] Failed to remount topbar element:', err);
                     this.didWarnMount = true;
                 }
                 return;
@@ -73,7 +73,7 @@ export class TopBarManager {
         }
 
         if (!this.didWarnMount) {
-            console.warn('[SiyuanMemo] Topbar container not found; topbar button may be hidden by layout');
+            console.warn('[SiYuanMemo] Topbar container not found; topbar button may be hidden by layout');
             this.didWarnMount = true;
         }
     }

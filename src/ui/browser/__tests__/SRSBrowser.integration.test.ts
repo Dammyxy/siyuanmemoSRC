@@ -107,7 +107,7 @@ describe('SRSBrowser.vue Integration Tests', () => {
             
             // 验证记录了初始化日志
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Initializing queue view'),
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Initializing queue view'),
                 expect.objectContaining({
                     queueType: 'retrieval-practice',
                 })
@@ -115,7 +115,7 @@ describe('SRSBrowser.vue Integration Tests', () => {
             
             // 验证记录了初始化成功
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Queue view initialized successfully'),
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Queue view initialized successfully'),
                 expect.objectContaining({
                     queueType: 'retrieval-practice',
                 })
@@ -208,12 +208,12 @@ describe('SRSBrowser.vue Integration Tests', () => {
             
             // 验证记录了加载开始
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Fetching rows for queue')
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Fetching rows for queue')
             );
             
             // 验证记录了加载完成（包含时间、数据量、耗时）
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Fetched rows successfully'),
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Fetched rows successfully'),
                 expect.objectContaining({
                     queueType: 'retrieval-practice',
                     cardCount: 1,
@@ -235,7 +235,7 @@ describe('SRSBrowser.vue Integration Tests', () => {
             
             expect(result.rows).toEqual([]);
             expect(consoleSpy).toHaveBeenCalledWith(
-                '[SiyuanMemo][SRSBrowserAdapter] No queue type selected'
+                '[SiYuanMemo][SRSBrowserAdapter] No queue type selected'
             );
             
             consoleSpy.mockRestore();
@@ -260,7 +260,7 @@ describe('SRSBrowser.vue Integration Tests', () => {
             
             // 验证记录了错误日志
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Failed to fetch rows'),
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Failed to fetch rows'),
                 expect.objectContaining({
                     error: 'Failed to load cards',
                 })
@@ -290,7 +290,7 @@ describe('SRSBrowser.vue Integration Tests', () => {
             
             // 验证记录了错误日志（包含错误堆栈和耗时）
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Failed to fetch rows'),
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Failed to fetch rows'),
                 expect.objectContaining({
                     queueType: 'retrieval-practice',
                     error: errorMessage,
@@ -413,7 +413,7 @@ describe('SRSBrowser.vue Integration Tests', () => {
             
             // 验证记录了观察者通知日志
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Data changed'),
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Data changed'),
                 expect.objectContaining({
                     eventType: 'card-updated',
                     cardIds: ['test-block-1', 'test-block-2'],

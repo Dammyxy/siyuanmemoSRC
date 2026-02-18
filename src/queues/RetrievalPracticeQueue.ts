@@ -113,7 +113,7 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
             const dayStartHour = plugin ? getDayStartHour(plugin) : 4;
             const dayEnd = getCurrentDayEnd(dayStartHour);
             
-            console.log(`[SiyuanMemo][RetrievalPracticeQueue] 🔍 Using dayStartHour=${dayStartHour}, dayEnd=${new Date(dayEnd).toISOString()}, now=${new Date(now).toISOString()}`);
+            console.log(`[SiYuanMemo][RetrievalPracticeQueue] 🔍 Using dayStartHour=${dayStartHour}, dayEnd=${new Date(dayEnd).toISOString()}, now=${new Date(now).toISOString()}`);
             
             // 获取所有到期的项目卡片（使用 dayEnd 而不是 now）
             // ✅ 只包含 item、descriptor 两种类型（使用 FSRS 调度器）
@@ -123,17 +123,17 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
                 dueDate: { lte: new Date(dayEnd) }  // ✅ 使用 dayEnd
             });
             
-            console.log(`[SiyuanMemo][RetrievalPracticeQueue] 🔍 Got ${dueCards.length} due cards from manager`);
+            console.log(`[SiYuanMemo][RetrievalPracticeQueue] 🔍 Got ${dueCards.length} due cards from manager`);
             
             // 获取手动添加的卡片
             const manualCards = await this.getManuallyAddedCards();
             
-            console.log(`[SiyuanMemo][RetrievalPracticeQueue] 🔍 Got ${manualCards.length} manually added cards`);
+            console.log(`[SiYuanMemo][RetrievalPracticeQueue] 🔍 Got ${manualCards.length} manually added cards`);
             
             // 合并并去重
             const allCards = this.mergeAndDeduplicate(dueCards, manualCards);
             
-            console.log(`[SiyuanMemo][RetrievalPracticeQueue] 🔍 After merge: ${allCards.length} cards`);
+            console.log(`[SiYuanMemo][RetrievalPracticeQueue] 🔍 After merge: ${allCards.length} cards`);
             
             // 过滤临时黑名单中的卡片
             const filteredCards = allCards.filter(card => 
@@ -141,13 +141,13 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
             );
             
             if (filteredCards.length < allCards.length) {
-                console.log(`[SiyuanMemo][RetrievalPracticeQueue] 🔍 Filtered ${allCards.length - filteredCards.length} cards from temporary blacklist`);
+                console.log(`[SiYuanMemo][RetrievalPracticeQueue] 🔍 Filtered ${allCards.length - filteredCards.length} cards from temporary blacklist`);
             }
             
             // 检查无效卡片（blockId 为空或 undefined）
             const invalidCards = filteredCards.filter(card => !card.blockId || card.blockId === 'undefined');
             if (invalidCards.length > 0) {
-                console.warn(`[SiyuanMemo][RetrievalPracticeQueue] ⚠️ Found ${invalidCards.length} cards with invalid blockId:`, invalidCards.map(c => ({ id: c.id, blockId: c.blockId })));
+                console.warn(`[SiYuanMemo][RetrievalPracticeQueue] ⚠️ Found ${invalidCards.length} cards with invalid blockId:`, invalidCards.map(c => ({ id: c.id, blockId: c.blockId })));
             }
             
             // 按到期日期和优先级排序
@@ -156,7 +156,7 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
             // 应用自定义排序（如果存在）
             return this.applyCustomOrder(sortedCards);
         } catch (error) {
-            console.error('[SiyuanMemo][RetrievalPracticeQueue] Failed to get cards:', error);
+            console.error('[SiYuanMemo][RetrievalPracticeQueue] Failed to get cards:', error);
             throw error;
         }
     }
@@ -194,12 +194,12 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
                 timestamp: Date.now()
             });
             
-            console.log(`[SiyuanMemo][RetrievalPracticeQueue] Card ${cardId} added manually`, {
+            console.log(`[SiYuanMemo][RetrievalPracticeQueue] Card ${cardId} added manually`, {
                 wasBlacklisted,
                 temporaryBlacklistSize: this.temporaryBlacklist.size
             });
         } catch (error) {
-            console.error('[SiyuanMemo][RetrievalPracticeQueue] Failed to add card:', error);
+            console.error('[SiYuanMemo][RetrievalPracticeQueue] Failed to add card:', error);
             throw error;
         }
     }
@@ -232,12 +232,12 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
                 await this.persistManuallyAddedCards();
             }
             
-            console.log(`[SiyuanMemo][RetrievalPracticeQueue] Card ${cardIdOrBlockId} removed`, {
+            console.log(`[SiYuanMemo][RetrievalPracticeQueue] Card ${cardIdOrBlockId} removed`, {
                 wasManuallyAdded,
                 temporaryBlacklistSize: this.temporaryBlacklist.size
             });
         } catch (error) {
-            console.error('[SiyuanMemo][RetrievalPracticeQueue] Failed to remove card:', error);
+            console.error('[SiYuanMemo][RetrievalPracticeQueue] Failed to remove card:', error);
             // 即使出错，也要尝试加入临时黑名单
             this.temporaryBlacklist.add(cardIdOrBlockId);
             throw error;
@@ -271,7 +271,7 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
                 await finalDrillQueue.addCard(cardId, 'auto-failed');
             }
         } catch (error) {
-            console.error('[SiyuanMemo][RetrievalPracticeQueue] Failed to handle review:', error);
+            console.error('[SiYuanMemo][RetrievalPracticeQueue] Failed to handle review:', error);
             throw error;
         }
     }
@@ -297,7 +297,7 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
     protected shouldRemoveFromQueue(card: FSRSCard): boolean {
         // 手动添加的卡片：评分后立即移除
         if (this.manuallyAddedCards.has(card.id)) {
-            console.log(`[SiyuanMemo][RetrievalPracticeQueue] shouldRemoveFromQueue: Card ${card.id} is manually added, will be removed after review`);
+            console.log(`[SiYuanMemo][RetrievalPracticeQueue] shouldRemoveFromQueue: Card ${card.id} is manually added, will be removed after review`);
             return true;
         }
         
@@ -355,7 +355,7 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
                 this.manuallyAddedCards.delete(cardId);
             }
             await this.persistManuallyAddedCards();
-            console.log(`[SiyuanMemo][RetrievalPracticeQueue] Removed ${toRemove.length} non-existent cards from manual additions`);
+            console.log(`[SiYuanMemo][RetrievalPracticeQueue] Removed ${toRemove.length} non-existent cards from manual additions`);
         }
         
         return cards;
@@ -469,10 +469,10 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
             if (stored) {
                 const cardIds: string[] = JSON.parse(stored);
                 this.manuallyAddedCards = new Set(cardIds);
-                console.log(`[SiyuanMemo][RetrievalPracticeQueue] Loaded ${cardIds.length} manually added cards from storage`);
+                console.log(`[SiYuanMemo][RetrievalPracticeQueue] Loaded ${cardIds.length} manually added cards from storage`);
             }
         } catch (error) {
-            console.error('[SiyuanMemo][RetrievalPracticeQueue] Failed to load manually added cards:', error);
+            console.error('[SiYuanMemo][RetrievalPracticeQueue] Failed to load manually added cards:', error);
             this.manuallyAddedCards = new Set();
         }
     }
@@ -488,9 +488,9 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
         try {
             const cardIds = Array.from(this.manuallyAddedCards);
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(cardIds));
-            console.log(`[SiyuanMemo][RetrievalPracticeQueue] Persisted ${cardIds.length} manually added cards`);
+            console.log(`[SiYuanMemo][RetrievalPracticeQueue] Persisted ${cardIds.length} manually added cards`);
         } catch (error) {
-            console.error('[SiyuanMemo][RetrievalPracticeQueue] Failed to persist manually added cards:', error);
+            console.error('[SiYuanMemo][RetrievalPracticeQueue] Failed to persist manually added cards:', error);
             throw error;
         }
     }
@@ -504,7 +504,7 @@ export class RetrievalPracticeQueue extends BaseReviewQueue {
      * @deprecated 使用 getAllCards() 代替
      */
     public getAllItems(): any[] {
-        console.warn('[SiyuanMemo][RetrievalPracticeQueue] getAllItems() is deprecated, use getAllCards() instead');
+        console.warn('[SiYuanMemo][RetrievalPracticeQueue] getAllItems() is deprecated, use getAllCards() instead');
         // 返回当前缓存的卡片
         return this.cards;
     }

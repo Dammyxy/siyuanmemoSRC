@@ -240,11 +240,11 @@ async function loadMeta() {
     const card = props.plugin?.storage.getCardByBlockId(blockId);
     
     if (!card) {
-      console.warn('[SiyuanMemo][SrsEditor] Card not found in storage, blockId:', blockId);
+      console.warn('[SiYuanMemo][SrsEditor] Card not found in storage, blockId:', blockId);
       return;
     }
     
-    console.log('[SiyuanMemo][SrsEditor] Loaded card data:', card);
+    console.log('[SiYuanMemo][SrsEditor] Loaded card data:', card);
     
     // 卡片 ID 和块 ID
     cardIdText.value = card.id;
@@ -317,7 +317,7 @@ async function loadMeta() {
     else if (card?.state === CardState.Relearning) stateText.value = t('relearning', 'Relearning');
     else stateText.value = t('unknown', 'Unknown');
   } catch (err) {
-    console.error('[SiyuanMemo][SrsEditor] Failed to load card meta:', err);
+    console.error('[SiYuanMemo][SrsEditor] Failed to load card meta:', err);
     createdAtText.value = t('unknown', 'Unknown');
     updatedAtText.value = t('unknown', 'Unknown');
     lastReviewText.value = t('unknown', 'Unknown');
@@ -472,7 +472,7 @@ async function handleReset() {
       });
     }
   } catch (err) {
-    console.error('[SiyuanMemo] reset error', err);
+    console.error('[SiYuanMemo] reset error', err);
     showResultDialog({
       title: t('resetProgress', 'Reset Progress'),
       content: t('resetFailed', 'Reset failed'),
@@ -546,14 +546,14 @@ async function handleScheduleDate(options: ScheduleOptions) {
       updatedCard.updatedAt = Date.now();
       props.plugin.storage.setCard(updatedCard);
       
-      console.log('[SiyuanMemo][SrsEditor] Schedule with rating:', options.rating, 'to:', dueTimestamp);
+      console.log('[SiYuanMemo][SrsEditor] Schedule with rating:', options.rating, 'to:', dueTimestamp);
     } else {
       // 仅修改日期模式
       card.due = dueTimestamp;
       card.updatedAt = Date.now();
       props.plugin?.storage.setCard(card);
       
-      console.log('[SiyuanMemo][SrsEditor] Schedule direct to:', dueTimestamp);
+      console.log('[SiYuanMemo][SrsEditor] Schedule direct to:', dueTimestamp);
     }
     
     await props.plugin?.storage.saveCards();
@@ -567,7 +567,7 @@ async function handleScheduleDate(options: ScheduleOptions) {
       type: 'success',
     });
   } catch (err) {
-    console.error('[SiyuanMemo] schedule error', err);
+    console.error('[SiYuanMemo] schedule error', err);
     showResultDialog({
       title: t('scheduleDate', 'Schedule Review Date'),
       content: t('scheduleFailed', 'Failed to schedule date'),

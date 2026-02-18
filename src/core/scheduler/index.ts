@@ -16,15 +16,15 @@ export * from './SchedulerRouter';
 export function createScheduler(params: FSRSParameters, engine: SchedulerEngine = 'simple-fsrs'): SchedulerEngineAdapter {
     switch (engine) {
         case 'a-factor-v2':
-            console.log('[SiyuanMemo][Scheduler] Using A-Factor-v2 (ImprovedTopicScheduler) Engine');
+            console.log('[SiYuanMemo][Scheduler] Using A-Factor-v2 (ImprovedTopicScheduler) Engine');
             return new ImprovedTopicScheduler(params);
         case 'sm2':
         case 'sm15':
-            console.warn(`[SiyuanMemo][Scheduler] Engine "${engine}" is deprecated, falling back to FSRS-6`);
+            console.warn(`[SiYuanMemo][Scheduler] Engine "${engine}" is deprecated, falling back to FSRS-6`);
             return new TSFSRSScheduler(params);
         case 'simple-fsrs':
         default:
-            console.log('[SiyuanMemo][Scheduler] Using FSRS-6 Engine (TSFSRSScheduler)');
+            console.log('[SiYuanMemo][Scheduler] Using FSRS-6 Engine (TSFSRSScheduler)');
             return new TSFSRSScheduler(params);
     }
 }

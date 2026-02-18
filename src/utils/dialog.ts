@@ -25,7 +25,7 @@ export function createVueDialog<T extends Component>(options: {
 }): { dialog: Dialog; destroy: () => void } {
     const containerId = `fsrs-dialog-${Date.now()}`;
 
-    console.log('[SiyuanMemo][Dialog] Creating dialog with events:', options.events ? Object.keys(options.events) : 'none');
+    console.log('[SiYuanMemo][Dialog] Creating dialog with events:', options.events ? Object.keys(options.events) : 'none');
 
     // 将 events 转换为 onXxx 格式的 props
     const eventProps: Record<string, any> = {};
@@ -36,11 +36,11 @@ export function createVueDialog<T extends Component>(options: {
             const camelCase = key.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
             const propKey = `on${camelCase.charAt(0).toUpperCase()}${camelCase.slice(1)}`;
             eventProps[propKey] = handler;
-            console.log(`[SiyuanMemo][Dialog] Event mapping: ${key} -> ${propKey}`);
+            console.log(`[SiYuanMemo][Dialog] Event mapping: ${key} -> ${propKey}`);
         }
     }
 
-    console.log('[SiyuanMemo][Dialog] Final eventProps:', Object.keys(eventProps));
+    console.log('[SiYuanMemo][Dialog] Final eventProps:', Object.keys(eventProps));
 
     // 创建 Vue 应用
     const app = createApp(options.component, {
@@ -86,7 +86,7 @@ export function createVueDialog<T extends Component>(options: {
             try {
                 app.unmount();
             } catch (e) {
-                console.warn('[SiyuanMemo] Unmount error:', e);
+                console.warn('[SiYuanMemo] Unmount error:', e);
             }
             options.onClose?.();
         },
@@ -138,7 +138,7 @@ export function createVueDialog<T extends Component>(options: {
                         selection.addRange(range);
                     }
                 } catch (e) {
-                    console.warn('[SiyuanMemo][Dialog] Range selection error:', e);
+                    console.warn('[SiYuanMemo][Dialog] Range selection error:', e);
                 }
             } else {
                 // 如果没有按钮，聚焦到容器
@@ -182,7 +182,7 @@ export function createVueDialog<T extends Component>(options: {
             dialog.element.firstElementChild.addEventListener('click', forwardEvent);
         }
     } else {
-        console.error('[SiyuanMemo] Container not found:', containerId);
+        console.error('[SiYuanMemo] Container not found:', containerId);
     }
 
     return {
@@ -191,7 +191,7 @@ export function createVueDialog<T extends Component>(options: {
             try {
                 app.unmount();
             } catch (e) {
-                console.warn('[SiyuanMemo] Unmount error:', e);
+                console.warn('[SiYuanMemo] Unmount error:', e);
             }
             dialog.destroy();
         },

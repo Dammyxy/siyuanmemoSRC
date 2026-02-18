@@ -82,7 +82,7 @@ const emit = defineEmits<{
 // 🆕 根据 mode 和侧边栏状态过滤工具栏按钮
 const filteredToolbar = computed(() => {
   let toolbar = props.header?.toolbar || [];
-  console.log('[SiyuanMemo][ReviewHeader] filteredToolbar computed:', {
+  console.log('[SiYuanMemo][ReviewHeader] filteredToolbar computed:', {
     hasHeader: !!props.header,
     hasToolbar: !!props.header?.toolbar,
     toolbarLength: toolbar.length,

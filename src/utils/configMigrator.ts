@@ -51,7 +51,7 @@ export class ConfigMigrator {
      * @returns 新版配置
      */
     static migrate(oldConfig: LegacyRiffIntegrationConfig): RiffIntegrationConfig {
-        console.log('[SiyuanMemo][ConfigMigrator] Migrating old config:', oldConfig);
+        console.log('[SiYuanMemo][ConfigMigrator] Migrating old config:', oldConfig);
         
         let newConfig: RiffIntegrationConfig;
         
@@ -124,11 +124,11 @@ export class ConfigMigrator {
                 
             default:
                 // 未知模式，使用默认配置
-                console.warn('[SiyuanMemo][ConfigMigrator] Unknown mode, using default config');
+                console.warn('[SiYuanMemo][ConfigMigrator] Unknown mode, using default config');
                 newConfig = { ...DEFAULT_RIFF_CONFIG };
         }
         
-        console.log('[SiyuanMemo][ConfigMigrator] Migrated to new config:', newConfig);
+        console.log('[SiYuanMemo][ConfigMigrator] Migrated to new config:', newConfig);
         return newConfig;
     }
     

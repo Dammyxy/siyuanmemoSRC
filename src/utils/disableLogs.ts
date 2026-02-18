@@ -30,8 +30,8 @@ console.log = function(...args: any[]) {
   // 动态检查是否禁用日志
   if ((window as any).FSRS_DISABLE_LOGS === true) {
     if (typeof args[0] === 'string' && (
-      args[0].startsWith('[SiyuanMemo]') || 
-      args[0].includes('[SiyuanMemo][')
+      args[0].startsWith('[SiYuanMemo]') || 
+      args[0].includes('[SiYuanMemo][')
     )) {
       return; // 忽略
     }
@@ -42,8 +42,8 @@ console.log = function(...args: any[]) {
 console.debug = function(...args: any[]) {
   if ((window as any).FSRS_DISABLE_LOGS === true) {
     if (typeof args[0] === 'string' && (
-      args[0].startsWith('[SiyuanMemo]') || 
-      args[0].includes('[SiyuanMemo][')
+      args[0].startsWith('[SiYuanMemo]') || 
+      args[0].includes('[SiYuanMemo][')
     )) {
       return; // 忽略
     }
@@ -54,8 +54,8 @@ console.debug = function(...args: any[]) {
 console.info = function(...args: any[]) {
   if ((window as any).FSRS_DISABLE_LOGS === true) {
     if (typeof args[0] === 'string' && (
-      args[0].startsWith('[SiyuanMemo]') || 
-      args[0].includes('[SiyuanMemo][')
+      args[0].startsWith('[SiYuanMemo]') || 
+      args[0].includes('[SiYuanMemo][')
     )) {
       return; // 忽略
     }
@@ -66,8 +66,8 @@ console.info = function(...args: any[]) {
 console.warn = function(...args: any[]) {
   if ((window as any).FSRS_DISABLE_LOGS === true) {
     if (typeof args[0] === 'string' && (
-      args[0].startsWith('[SiyuanMemo]') || 
-      args[0].includes('[SiyuanMemo][')
+      args[0].startsWith('[SiYuanMemo]') || 
+      args[0].includes('[SiYuanMemo][')
     )) {
       return; // 忽略
     }
@@ -78,8 +78,8 @@ console.warn = function(...args: any[]) {
 console.error = function(...args: any[]) {
   if ((window as any).FSRS_DISABLE_LOGS === true) {
     if (typeof args[0] === 'string' && (
-      args[0].startsWith('[SiyuanMemo]') || 
-      args[0].includes('[SiyuanMemo][')
+      args[0].startsWith('[SiYuanMemo]') || 
+      args[0].includes('[SiYuanMemo][')
     )) {
       return; // 忽略
     }
@@ -91,11 +91,11 @@ console.error = function(...args: any[]) {
 (window as any).toggleFSRSLogs = (enabled: boolean) => {
   (window as any).FSRS_DISABLE_LOGS = !enabled;
   const message = enabled ? 'Debug logs enabled' : 'Debug logs disabled';
-  originalLog.call(console, `[SiyuanMemo] ${message}`);
+  originalLog.call(console, `[SiYuanMemo] ${message}`);
 };
 
 // 初始化时显示状态（使用原始 console.log）
 if ((window as any).FSRS_DISABLE_LOGS === true) {
-  originalLog.call(console, '[SiyuanMemo] Debug logs disabled by default');
+  originalLog.call(console, '[SiYuanMemo] Debug logs disabled by default');
 }
 

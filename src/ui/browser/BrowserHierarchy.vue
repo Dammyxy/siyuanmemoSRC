@@ -98,7 +98,7 @@ watchEffect(() => {
   const focusedIds = props.focusedDocIds;
   
   // ✅ 调试日志：记录接收到的数据
-  console.log('[SiyuanMemo][BrowserHierarchy] 🔍 watchEffect triggered:', {
+  console.log('[SiYuanMemo][BrowserHierarchy] 🔍 watchEffect triggered:', {
     cardsCount: cards.length,
     focusedIds,
     sampleCards: cards.slice(0, 3).map(c => ({ blockId: c.blockId, rootId: (c as any)?.rootId })),
@@ -108,7 +108,7 @@ watchEffect(() => {
     ? cards.filter(c => focusedIds.includes((c as any)?.rootId || ''))
     : cards;
   
-  console.log('[SiyuanMemo][BrowserHierarchy] 🔍 After filtering:', {
+  console.log('[SiYuanMemo][BrowserHierarchy] 🔍 After filtering:', {
     filteredCardsCount: filteredCards.length,
     sampleFiltered: filteredCards.slice(0, 3).map(c => ({ blockId: c.blockId, rootId: (c as any)?.rootId })),
   });
@@ -123,7 +123,7 @@ watchEffect(() => {
   const ids = Array.from(counts.keys());
   const current = ++loadSeq;
   
-  console.log('[SiyuanMemo][BrowserHierarchy] 🔍 Document IDs to load:', {
+  console.log('[SiYuanMemo][BrowserHierarchy] 🔍 Document IDs to load:', {
     idsCount: ids.length,
     ids,
     counts: Object.fromEntries(counts),
@@ -133,7 +133,7 @@ watchEffect(() => {
     const nodes = await getDocTree(ids);
     if (current !== loadSeq) return;
     
-    console.log('[SiyuanMemo][BrowserHierarchy] 🔍 getDocTree returned:', {
+    console.log('[SiYuanMemo][BrowserHierarchy] 🔍 getDocTree returned:', {
       nodesCount: nodes.length,
       nodes: nodes.map(n => ({ id: n.id, title: n.title })),
     });
@@ -146,7 +146,7 @@ watchEffect(() => {
       filterable: true
     }));
     
-    console.log('[SiyuanMemo][BrowserHierarchy] ✅ docs.value updated:', {
+    console.log('[SiYuanMemo][BrowserHierarchy] ✅ docs.value updated:', {
       docsCount: docs.value.length,
       docs: docs.value,
     });

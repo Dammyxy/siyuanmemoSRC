@@ -246,7 +246,7 @@ describe('Review Interface Integration', () => {
           riffConfig?.incrementalSync?.triggers?.includes('review-open')) {
         // Trigger sync without awaiting (background execution)
         void syncService.incrementalSync().catch((err: Error) => {
-          console.error('[SiyuanMemo][Test] Incremental sync failed:', err);
+          console.error('[SiYuanMemo][Test] Incremental sync failed:', err);
         });
       }
 

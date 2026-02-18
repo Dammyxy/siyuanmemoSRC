@@ -140,7 +140,7 @@ export default class FSRSPlugin extends Plugin {
   }
 
   async onload() {
-    console.log('[SiyuanMemo] Plugin loading...');
+    console.log('[SiYuanMemo] Plugin loading...');
 
     this.isInitialized = false;
 
@@ -172,7 +172,7 @@ export default class FSRSPlugin extends Plugin {
       };
       this.topBarElement.addEventListener('contextmenu', this.topBarContextMenuHandler);
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to register topbar:', err);
+      console.error('[SiYuanMemo] Failed to register topbar:', err);
     }
 
     // 检测运行环境
@@ -190,18 +190,18 @@ export default class FSRSPlugin extends Plugin {
       const enableDebugLogs = settings.ui?.enableDebugLogs ?? false;
       (window as any).FSRS_DISABLE_LOGS = !enableDebugLogs;
       if (!enableDebugLogs) {
-        console.log('[SiyuanMemo] Debug logs disabled by settings');
+        console.log('[SiYuanMemo] Debug logs disabled by settings');
       }
       
       // 🆕 自动修复无效日期（首次加载时）
       try {
         const repairResult = await this.storage.repairInvalidDates();
         if (repairResult.fixed > 0) {
-          console.log(`[SiyuanMemo] 🔧 Repaired ${repairResult.fixed}/${repairResult.total} cards with invalid dates`);
+          console.log(`[SiYuanMemo] 🔧 Repaired ${repairResult.fixed}/${repairResult.total} cards with invalid dates`);
           pushMsg(`已修复 ${repairResult.fixed} 张卡片的无效日期`, 3000);
         }
       } catch (err) {
-        console.error('[SiyuanMemo] Failed to repair invalid dates:', err);
+        console.error('[SiYuanMemo] Failed to repair invalid dates:', err);
       }
 
       this.rescheduleService = new RescheduleService(this.storage);
@@ -221,7 +221,7 @@ export default class FSRSPlugin extends Plugin {
       const advancedRouter = new AdvancedDataRouter(this.storage, this);  // 🆕 传递 plugin 实例
       
       this.unifiedDataSourceManager.setAdvancedRouter(advancedRouter);
-      console.log('[SiyuanMemo] ✅ UnifiedDataSourceManager initialized with Advanced mode');
+      console.log('[SiYuanMemo] ✅ UnifiedDataSourceManager initialized with Advanced mode');
 
       // ✅ 使用新架构队列（通过 UnifiedDataSourceManager）
       this.retrievalQueue = this.unifiedDataSourceManager.getQueue(QueueType.RetrievalPractice) as any;
@@ -244,8 +244,8 @@ export default class FSRSPlugin extends Plugin {
 
       // 🆕 神经漫游队列通过 UnifiedDataSourceManager 管理，无需手动初始化
 
-      console.log('[SiyuanMemo] ✅ SchedulerRouter initialized');
-      console.log('[SiyuanMemo] ✅ All queues initialized with new architecture');
+      console.log('[SiYuanMemo] ✅ SchedulerRouter initialized');
+      console.log('[SiYuanMemo] ✅ All queues initialized with new architecture');
 
       // 🆕 初始化 Services
       this.dialogService = new DialogService({
@@ -272,7 +272,7 @@ export default class FSRSPlugin extends Plugin {
         getDueCount: () => this.getDueCount(),
       });
 
-      console.log('[SiyuanMemo] ✅ Services initialized');
+      console.log('[SiYuanMemo] ✅ Services initialized');
 
       // 🆕 初始化 ReviewDialogManager（使用统一数据源架构）
       this.reviewDialogManager = new ReviewDialogManager({
@@ -297,7 +297,7 @@ export default class FSRSPlugin extends Plugin {
         plugin: this,  // 🆕 传入 plugin 引用，用于访问 hybridSyncService
       });
 
-      console.log('[SiyuanMemo] ✅ ReviewDialogManager & BlockMenuHandler initialized');
+      console.log('[SiYuanMemo] ✅ ReviewDialogManager & BlockMenuHandler initialized');
 
       // 🆕 初始化 XiuyuanService（修缘卡片来源抽象层）
       this.xiuyuanStorage = new XiuyuanStorage(this);
@@ -312,7 +312,7 @@ export default class FSRSPlugin extends Plugin {
         }
       }
       await this.xiuyuanStorage.save();
-      console.log('[SiyuanMemo] ✅ XiuyuanService initialized with', BUILTIN_TEMPLATES.length, 'builtin templates');
+      console.log('[SiYuanMemo] ✅ XiuyuanService initialized with', BUILTIN_TEMPLATES.length, 'builtin templates');
 
       // 🆕 更新 BlockMenuHandler 的 xiuyuanService 依赖
       (this.blockMenuHandler as any).deps.xiuyuanService = this.xiuyuanService;
@@ -327,14 +327,14 @@ export default class FSRSPlugin extends Plugin {
       // this.transactionObserver.init();
       // const autoCardEnabled = settings.incremental?.autoCardEnabled || false;
       // this.transactionObserver.setEnabled(autoCardEnabled);
-      // console.log('[SiyuanMemo] ✅ TransactionObserver initialized, autoCardEnabled:', autoCardEnabled);
+      // console.log('[SiYuanMemo] ✅ TransactionObserver initialized, autoCardEnabled:', autoCardEnabled);
       
-      console.log('[SiyuanMemo] ⚠️ TransactionObserver is deprecated and not initialized. Use AutoCardHandler instead.');
+      console.log('[SiYuanMemo] ⚠️ TransactionObserver is deprecated and not initialized. Use AutoCardHandler instead.');
 
       // 🆕 检测并执行配置迁移（旧版 disabled/data-only/full-scheduler）
       const riffConfig = settings.riffIntegration;
       if (riffConfig && ConfigMigrator.needsMigration(riffConfig)) {
-        console.log('[SiyuanMemo] Riff config migration needed');
+        console.log('[SiYuanMemo] Riff config migration needed');
         const migratedConfig = ConfigMigrator.migrate(riffConfig as any);
         const message = ConfigMigrator.getMigrationMessage((riffConfig as any).mode);
         
@@ -349,7 +349,7 @@ export default class FSRSPlugin extends Plugin {
           pushMsg(message);
         }, 1000);
         
-        console.log('[SiyuanMemo] ✅ Riff config migrated');
+        console.log('[SiYuanMemo] ✅ Riff config migrated');
       }
 
       // 🆕 初始化 HybridSyncService（始终初始化，不再检查 mode）
@@ -375,17 +375,17 @@ export default class FSRSPlugin extends Plugin {
             () => this.hybridSyncService!.fullSync(),
             currentRiffConfig.fullSync.interval
           );
-          console.log(`[SiyuanMemo] Full sync timer started (interval: ${currentRiffConfig.fullSync.interval}ms)`);
+          console.log(`[SiYuanMemo] Full sync timer started (interval: ${currentRiffConfig.fullSync.interval}ms)`);
         }
         
-        console.log('[SiyuanMemo] ✅ HybridSyncService initialized and started');
+        console.log('[SiYuanMemo] ✅ HybridSyncService initialized and started');
       } else {
-        console.log('[SiyuanMemo] HybridSyncService not initialized (no riffIntegration config)');
+        console.log('[SiYuanMemo] HybridSyncService not initialized (no riffIntegration config)');
       }
 
       // 🆕 初始化 TransactionWebSocketService（统一 WebSocket 服务）
       if (currentRiffConfig && currentRiffConfig.incrementalSync?.enabled && this.hybridSyncService) {
-        console.log('[SiyuanMemo] Initializing TransactionWebSocketService...');
+        console.log('[SiYuanMemo] Initializing TransactionWebSocketService...');
         
         // 创建 TransactionWebSocketService 实例
         this.transactionWebSocketService = new TransactionWebSocketService(this);
@@ -398,14 +398,14 @@ export default class FSRSPlugin extends Plugin {
         const { AutoCardHandler } = await import('@/services/handlers/AutoCardHandler');
         const autoCardHandler = new AutoCardHandler(this);
         this.transactionWebSocketService.registerHandler(autoCardHandler);
-        console.log('[SiyuanMemo] ✅ AutoCardHandler registered');
+        console.log('[SiYuanMemo] ✅ AutoCardHandler registered');
         
         // 启动服务
         this.transactionWebSocketService.start();
         
-        console.log('[SiyuanMemo] ✅ TransactionWebSocketService initialized and started');
+        console.log('[SiYuanMemo] ✅ TransactionWebSocketService initialized and started');
       } else {
-        console.log('[SiyuanMemo] TransactionWebSocketService not initialized (Riff incremental sync disabled)');
+        console.log('[SiYuanMemo] TransactionWebSocketService not initialized (Riff incremental sync disabled)');
       }
 
       // 🆕 简单模式移除迁移（移除 mode 字段，自动切换到高级模式）
@@ -413,7 +413,7 @@ export default class FSRSPlugin extends Plugin {
       const finalRiffConfig = this.storage.getSettings().riffIntegration;
       
       if (finalRiffConfig && SimpleModeRemovalMigrator.needsMigration(finalRiffConfig)) {
-        console.log('[SiyuanMemo] Simple mode removal migration needed');
+        console.log('[SiYuanMemo] Simple mode removal migration needed');
         
         try {
           // 执行迁移
@@ -428,11 +428,11 @@ export default class FSRSPlugin extends Plugin {
             riffIntegration: migrationResult.migratedConfig as any
           });
           
-          console.log('[SiyuanMemo] ✅ Simple mode removal migration completed');
-          console.log('[SiyuanMemo] Sync triggered:', migrationResult.syncTriggered);
-          console.log('[SiyuanMemo] Migration success:', migrationResult.success);
+          console.log('[SiYuanMemo] ✅ Simple mode removal migration completed');
+          console.log('[SiYuanMemo] Sync triggered:', migrationResult.syncTriggered);
+          console.log('[SiYuanMemo] Migration success:', migrationResult.success);
         } catch (error) {
-          console.error('[SiyuanMemo] ❌ Simple mode removal migration failed:', error);
+          console.error('[SiYuanMemo] ❌ Simple mode removal migration failed:', error);
           await SimpleModeRemovalMigrator.handleMigrationError(
             error as Error,
             'plugin initialization'
@@ -440,7 +440,7 @@ export default class FSRSPlugin extends Plugin {
         }
       } else if (finalRiffConfig && finalRiffConfig.mode) {
         // 即使不是简单模式，也移除 mode 字段以保持一致性
-        console.log('[SiyuanMemo] Removing mode field from config for consistency');
+        console.log('[SiYuanMemo] Removing mode field from config for consistency');
         const { mode, ...cleanConfig } = finalRiffConfig;
         await this.storage.updateSettings({
           ...this.storage.getSettings(),
@@ -451,7 +451,7 @@ export default class FSRSPlugin extends Plugin {
       this.isInitialized = true;
 
     } catch (err) {
-      console.error('[SiyuanMemo] Plugin initialization failed:', err);
+      console.error('[SiYuanMemo] Plugin initialization failed:', err);
       try {
         await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
       } catch {}
@@ -501,7 +501,7 @@ export default class FSRSPlugin extends Plugin {
       init() {
         const plugin = (window as any).siyuanMemoPlugin;
         if (!plugin) {
-          console.error('[SiyuanMemo] Plugin instance not found');
+          console.error('[SiYuanMemo] Plugin instance not found');
           return;
         }
 
@@ -626,7 +626,7 @@ export default class FSRSPlugin extends Plugin {
     // 将插件实例存储到全局变量，供 RestoreTab 访问
     (window as any).siyuanMemoPlugin = this;
 
-    console.log('[SiyuanMemo] Plugin loaded successfully');
+    console.log('[SiYuanMemo] Plugin loaded successfully');
   }
 
   onLayoutReady(): void {
@@ -634,7 +634,7 @@ export default class FSRSPlugin extends Plugin {
   }
 
   onunload() {
-    console.log('[SiyuanMemo] Plugin unloading...');
+    console.log('[SiYuanMemo] Plugin unloading...');
 
     // 关闭复习对话框和 SRS 浏览器
     this.reviewDialog?.destroy();
@@ -650,19 +650,19 @@ export default class FSRSPlugin extends Plugin {
     if (this.fullSyncTimer) {
       clearInterval(this.fullSyncTimer);
       this.fullSyncTimer = undefined;
-      console.log('[SiyuanMemo] ✅ Full sync timer cleared');
+      console.log('[SiYuanMemo] ✅ Full sync timer cleared');
     }
 
     // 🆕 停止 HybridSyncService
     if (this.hybridSyncService) {
       this.hybridSyncService.stop();
-      console.log('[SiyuanMemo] ✅ HybridSyncService stopped');
+      console.log('[SiYuanMemo] ✅ HybridSyncService stopped');
     }
 
     // 🆕 停止 TransactionWebSocketService
     if (this.transactionWebSocketService) {
       this.transactionWebSocketService.stop();
-      console.log('[SiyuanMemo] ✅ TransactionWebSocketService stopped');
+      console.log('[SiYuanMemo] ✅ TransactionWebSocketService stopped');
     }
 
     try {
@@ -674,7 +674,7 @@ export default class FSRSPlugin extends Plugin {
     // 注意：不在插件关闭时保存数据，避免同步冲突
     // 数据应该在运行时实时保存（dirty flag 机制）
 
-    console.log('[SiyuanMemo] Plugin unloaded');
+    console.log('[SiYuanMemo] Plugin unloaded');
   }
 
   /**
@@ -696,7 +696,7 @@ export default class FSRSPlugin extends Plugin {
    * 注意：卸载后这些数据无法恢复，请谨慎操作
    */
   uninstall() {
-    console.log('[SiyuanMemo] Plugin uninstalling, removing all data...');
+    console.log('[SiYuanMemo] Plugin uninstalling, removing all data...');
 
     const allFiles = [
       // 主要数据文件
@@ -738,15 +738,15 @@ export default class FSRSPlugin extends Plugin {
       this.removeData(filename)
         .then(() => {
           removedCount++;
-          console.log(`[SiyuanMemo] ✅ Removed: ${filename}`);
+          console.log(`[SiYuanMemo] ✅ Removed: ${filename}`);
         })
         .catch(e => {
           failedCount++;
-          console.warn(`[SiyuanMemo] ⚠️ Failed to remove [${filename}]:`, e);
+          console.warn(`[SiYuanMemo] ⚠️ Failed to remove [${filename}]:`, e);
         });
     });
 
-    console.log(`[SiyuanMemo] Uninstall cleanup: ${allFiles.length} files queued for removal`);
+    console.log(`[SiYuanMemo] Uninstall cleanup: ${allFiles.length} files queued for removal`);
   }
 
   /**
@@ -775,7 +775,7 @@ export default class FSRSPlugin extends Plugin {
         return;
       } catch (err) {
         if (!this.didWarnTopbarMount) {
-          console.warn('[SiyuanMemo] Failed to remount topbar element:', err);
+          console.warn('[SiYuanMemo] Failed to remount topbar element:', err);
           this.didWarnTopbarMount = true;
         }
         return;
@@ -783,7 +783,7 @@ export default class FSRSPlugin extends Plugin {
     }
 
     if (!this.didWarnTopbarMount) {
-      console.warn('[SiyuanMemo] Topbar container not found; topbar button may be hidden by layout');
+      console.warn('[SiYuanMemo] Topbar container not found; topbar button may be hidden by layout');
       this.didWarnTopbarMount = true;
     }
   }
@@ -842,7 +842,7 @@ export default class FSRSPlugin extends Plugin {
               enableRiffSync: settings.scheduler.enableRiffSync,
               fsrsParams: updatedSettings.fsrs,
             });
-            console.log('[SiyuanMemo] ✅ SchedulerRouter config updated');
+            console.log('[SiYuanMemo] ✅ SchedulerRouter config updated');
           }
 
           // 🆕 更新 TransactionObserver 启用状态
@@ -850,7 +850,7 @@ export default class FSRSPlugin extends Plugin {
           // if (this.transactionObserver && settings.incremental) {
           //   const autoCardEnabled = settings.incremental.autoCardEnabled || false;
           //   this.transactionObserver.setEnabled(autoCardEnabled);
-          //   console.log('[SiyuanMemo] ✅ TransactionObserver enabled:', autoCardEnabled);
+          //   console.log('[SiYuanMemo] ✅ TransactionObserver enabled:', autoCardEnabled);
           // }
 
           // 🆕 更新 HybridSyncService 配置（如果需要）
@@ -881,10 +881,10 @@ export default class FSRSPlugin extends Plugin {
                 () => this.hybridSyncService!.fullSync(),
                 settings.riffIntegration.fullSync.interval
               );
-              console.log(`[SiyuanMemo] Full sync timer restarted (interval: ${settings.riffIntegration.fullSync.interval}ms)`);
+              console.log(`[SiYuanMemo] Full sync timer restarted (interval: ${settings.riffIntegration.fullSync.interval}ms)`);
             }
             
-            console.log('[SiyuanMemo] ✅ HybridSyncService config updated');
+            console.log('[SiYuanMemo] ✅ HybridSyncService config updated');
           } else if (settings.riffIntegration && !this.hybridSyncService) {
             // 如果 HybridSyncService 未初始化，初始化它
             this.hybridSyncService = new HybridSyncService({
@@ -905,10 +905,10 @@ export default class FSRSPlugin extends Plugin {
                 () => this.hybridSyncService!.fullSync(),
                 settings.riffIntegration.fullSync.interval
               );
-              console.log(`[SiyuanMemo] Full sync timer started (interval: ${settings.riffIntegration.fullSync.interval}ms)`);
+              console.log(`[SiYuanMemo] Full sync timer started (interval: ${settings.riffIntegration.fullSync.interval}ms)`);
             }
             
-            console.log('[SiyuanMemo] ✅ HybridSyncService initialized');
+            console.log('[SiYuanMemo] ✅ HybridSyncService initialized');
           }
 
           // 🆕 更新 TransactionWebSocketService 配置
@@ -919,7 +919,7 @@ export default class FSRSPlugin extends Plugin {
               // 需要启用 TransactionWebSocketService
               if (!this.transactionWebSocketService) {
                 // 初始化服务
-                console.log('[SiyuanMemo] Initializing TransactionWebSocketService...');
+                console.log('[SiYuanMemo] Initializing TransactionWebSocketService...');
                 this.transactionWebSocketService = new TransactionWebSocketService(this);
                 
                 // 创建并注册 RiffSyncHandler
@@ -930,20 +930,20 @@ export default class FSRSPlugin extends Plugin {
                 const { AutoCardHandler } = await import('@/services/handlers/AutoCardHandler');
                 const autoCardHandler = new AutoCardHandler(this);
                 this.transactionWebSocketService.registerHandler(autoCardHandler);
-                console.log('[SiyuanMemo] ✅ AutoCardHandler registered');
+                console.log('[SiYuanMemo] ✅ AutoCardHandler registered');
                 
                 // 启动服务
                 this.transactionWebSocketService.start();
-                console.log('[SiyuanMemo] ✅ TransactionWebSocketService initialized and started');
+                console.log('[SiYuanMemo] ✅ TransactionWebSocketService initialized and started');
               }
               // 如果已经初始化，不需要重启（处理器会自动使用新的 HybridSyncService 实例）
             } else {
               // 需要停止 TransactionWebSocketService
               if (this.transactionWebSocketService) {
-                console.log('[SiyuanMemo] Stopping TransactionWebSocketService...');
+                console.log('[SiYuanMemo] Stopping TransactionWebSocketService...');
                 this.transactionWebSocketService.stop();
                 this.transactionWebSocketService = undefined;
-                console.log('[SiyuanMemo] ✅ TransactionWebSocketService stopped');
+                console.log('[SiYuanMemo] ✅ TransactionWebSocketService stopped');
               }
             }
           }
@@ -964,7 +964,7 @@ export default class FSRSPlugin extends Plugin {
             // 注意：由于 Vue 组件的限制，这里无法直接更新组件状态
             // 可以考虑使用事件总线或其他方式
           } catch (err) {
-            console.error('[SiyuanMemo] Failed to repair dates:', err);
+            console.error('[SiYuanMemo] Failed to repair dates:', err);
             pushErrMsg(`修复失败: ${err.message}`);
           }
         }
@@ -1062,7 +1062,7 @@ export default class FSRSPlugin extends Plugin {
         position: 'right',
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open review tab:', err);
+      console.error('[SiYuanMemo] Failed to open review tab:', err);
       void pushErrMsg(this.i18n?.openFailed || '打开标签页失败');
     }
   }
@@ -1363,14 +1363,14 @@ export default class FSRSPlugin extends Plugin {
         url: `${window.location.protocol}//${window.location.host}/stage/build/app/window.html?v=${Constants.SIYUAN_VERSION}&json=${encodeURIComponent(JSON.stringify(json))}`
       });
       
-      console.log('[SiyuanMemo] Opened review in new window (elegant implementation)');
+      console.log('[SiYuanMemo] Opened review in new window (elegant implementation)');
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open review in new window:', err);
+      console.error('[SiYuanMemo] Failed to open review in new window:', err);
       void pushErrMsg(this.i18n?.openFailed || '打开新窗口失败');
     }
     /// #else
     // 浏览器环境降级：使用 Tab 模式
-    console.warn('[SiyuanMemo] New window not supported in browser, using tab instead');
+    console.warn('[SiYuanMemo] New window not supported in browser, using tab instead');
     this.openReviewTab(options);
     /// #endif
   }
@@ -1425,14 +1425,14 @@ export default class FSRSPlugin extends Plugin {
               );
 
               if (!result.ok) {
-                console.error('[SiyuanMemo] Failed to create template card:', result.error);
+                console.error('[SiYuanMemo] Failed to create template card:', result.error);
                 pushErrMsg(`创建失败：${result.error.message}`);
                 templateSelectDialog.destroy();
                 return;
               }
 
               const { xiuyuan, cards } = result.value;
-              console.log('[SiyuanMemo] Xiuyuan created:', { xiuyuan, cards });
+              console.log('[SiYuanMemo] Xiuyuan created:', { xiuyuan, cards });
 
               pushMsg(
                 `✅ 模板卡片创建成功！\n` +
@@ -1440,7 +1440,7 @@ export default class FSRSPlugin extends Plugin {
                 `生成卡片：${cards.length} 张`
               );
             } catch (err) {
-              console.error('[SiyuanMemo] Failed to create template card:', err);
+              console.error('[SiYuanMemo] Failed to create template card:', err);
               pushErrMsg(`创建失败：${(err as Error).message}`);
             }
 
@@ -1452,7 +1452,7 @@ export default class FSRSPlugin extends Plugin {
         },
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open create template card dialog:', err);
+      console.error('[SiYuanMemo] Failed to open create template card dialog:', err);
       pushErrMsg(`打开对话框失败：${(err as Error).message}`);
     }
   }

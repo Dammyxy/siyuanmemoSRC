@@ -148,27 +148,27 @@ const shouldUseQuickCardRenderer = computed(() => {
 
 // 描述符卡加载成功
 function handleDescriptorCardLoaded(result: any) {
-  console.log('[SiyuanMemo][ReviewContent] Descriptor card loaded:', result);
+  console.log('[SiYuanMemo][ReviewContent] Descriptor card loaded:', result);
 }
 
 // 描述符卡加载失败，降级到普通渲染
 function handleDescriptorCardError(error: Error) {
-  console.warn('[SiyuanMemo][ReviewContent] Descriptor card failed, fallback to normal render:', error);
+  console.warn('[SiYuanMemo][ReviewContent] Descriptor card failed, fallback to normal render:', error);
   isDescriptorCard.value = false;
 }
 
 // 快速卡片加载成功
 function handleQuickCardLoaded(result: any) {
-  console.log('[SiyuanMemo][ReviewContent] Quick card loaded:', result);
+  console.log('[SiYuanMemo][ReviewContent] Quick card loaded:', result);
 }
 
 // 快速卡片加载失败，降级到普通渲染
 function handleQuickCardError(error: Error) {
   // 如果是 "not a quick card" 错误，这是预期的降级行为，不需要警告
   if (error.message && error.message.includes('not a quick card')) {
-    console.log('[SiyuanMemo][ReviewContent] Not a quick card, using normal Protyle render');
+    console.log('[SiYuanMemo][ReviewContent] Not a quick card, using normal Protyle render');
   } else {
-    console.warn('[SiyuanMemo][ReviewContent] Quick card failed, fallback to normal render:', error);
+    console.warn('[SiYuanMemo][ReviewContent] Quick card failed, fallback to normal render:', error);
   }
   isQuickCard.value = false;
 }
@@ -212,18 +212,18 @@ async function ensureHostRef(): Promise<boolean> {
 function applyAnswerVisibility(): void {
   const element = hostRef.value;
   if (!element) {
-    console.warn('[SiyuanMemo][SiyuanMemo][ReviewContent] Cannot apply answer visibility: hostRef.value is null');
+    console.warn('[SiYuanMemo][SiYuanMemo][ReviewContent] Cannot apply answer visibility: hostRef.value is null');
     return;
   }
   
   const hasHidden = props.hasHiddenContent;
   const showAnswerButton = props.showAnswer;  // 重命名以明确语义：是否显示"显示答案"按钮
   
-  console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] applyAnswerVisibility called:', { hasHidden, showAnswerButton });
+  console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] applyAnswerVisibility called:', { hasHidden, showAnswerButton });
   
   if (!hasHidden) {
     // 没有隐藏内容，移除所有隐藏类
-    console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] No hidden content, removing all hide classes');
+    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] No hidden content, removing all hide classes');
     element.classList.remove(
       'card__block--hidemark',
       'card__block--hideli',
@@ -237,7 +237,7 @@ function applyAnswerVisibility(): void {
   // showAnswerButton = false → 不显示"显示答案"按钮 → 答案应该显示
   if (showAnswerButton) {
     // 显示"显示答案"按钮 → 隐藏答案
-    console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Hiding answer (showAnswerButton=true), adding hide classes');
+    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Hiding answer (showAnswerButton=true), adding hide classes');
     element.classList.add(
       'card__block--hidemark',
       'card__block--hideli',
@@ -246,7 +246,7 @@ function applyAnswerVisibility(): void {
     );
   } else {
     // 不显示"显示答案"按钮 → 显示答案
-    console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Showing answer (showAnswerButton=false), removing all hide classes');
+    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Showing answer (showAnswerButton=false), removing all hide classes');
     element.classList.remove(
       'card__block--hidemark',
       'card__block--hideli',
@@ -259,51 +259,51 @@ function applyAnswerVisibility(): void {
 async function renderProtyle(blockId: string): Promise<void> {
   const seq = ++renderSeq;
 
-  console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] renderProtyle called with blockId:', blockId);
-  console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] content.card type:', props.content.card?.type);
+  console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] renderProtyle called with blockId:', blockId);
+  console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] content.card type:', props.content.card?.type);
 
   // 🆕 检测是否为描述符卡（优先级最高）
   try {
     const isDescriptor = await descriptorCardRenderService.value.isDescriptorCard(blockId);
-    console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] isDescriptorCard result:', isDescriptor);
+    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] isDescriptorCard result:', isDescriptor);
     if (isDescriptor) {
-      console.log('[SiyuanMemo][ReviewContent] Detected descriptor card, using DescriptorCardRenderer');
+      console.log('[SiYuanMemo][ReviewContent] Detected descriptor card, using DescriptorCardRenderer');
       isDescriptorCard.value = true;
       isQuickCard.value = false;
       return; // 使用描述符卡渲染器，不需要 Protyle
     }
   } catch (error) {
-    console.warn('[SiyuanMemo][ReviewContent] Descriptor card detection failed:', error);
+    console.warn('[SiYuanMemo][ReviewContent] Descriptor card detection failed:', error);
   }
 
   // 🆕 检测是否为快速卡片
   try {
     const isQuick = await quickCardRenderService.value.isQuickCard(blockId);
     if (isQuick) {
-      console.log('[SiyuanMemo][ReviewContent] Detected quick card, using QuickCardRenderer');
+      console.log('[SiYuanMemo][ReviewContent] Detected quick card, using QuickCardRenderer');
       isQuickCard.value = true;
       isDescriptorCard.value = false;
       return; // 使用快速卡片渲染器，不需要 Protyle
     }
   } catch (error) {
-    console.warn('[SiyuanMemo][ReviewContent] Quick card detection failed:', error);
+    console.warn('[SiYuanMemo][ReviewContent] Quick card detection failed:', error);
   }
   
   // 降级到普通 Protyle 渲染
   isQuickCard.value = false;
   isDescriptorCard.value = false;
 
-  console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] renderProtyle called:', { blockId, seq });
+  console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] renderProtyle called:', { blockId, seq });
 
   // 等待 DOM 准备
   const ready = await ensureHostRef();
   if (!ready) {
-    console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] hostRef not ready after waiting');
+    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] hostRef not ready after waiting');
     return;
   }
 
   if (seq !== renderSeq) {
-    console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Render cancelled, newer render pending');
+    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Render cancelled, newer render pending');
     return;
   }
 
@@ -316,7 +316,7 @@ async function renderProtyle(blockId: string): Promise<void> {
     return;
   }
 
-  console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Destroying old Protyle instance');
+  console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Destroying old Protyle instance');
 
   // Destroy old instance
   try {
@@ -332,7 +332,7 @@ async function renderProtyle(blockId: string): Promise<void> {
   // 🆕 预先应用隐藏类，避免闪烁
   // 如果有隐藏内容且需要显示"显示答案"按钮，立即添加隐藏类
   if (props.hasHiddenContent && props.showAnswer) {
-    console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Pre-applying hide classes to prevent flash');
+    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Pre-applying hide classes to prevent flash');
     hostRef.value.classList.add(
       'card__block--hidemark',
       'card__block--hideli',
@@ -349,7 +349,7 @@ async function renderProtyle(blockId: string): Promise<void> {
     );
   }
 
-  console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Creating new Protyle with blockId:', blockId);
+  console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Creating new Protyle with blockId:', blockId);
 
   // Create new instance with blockId - Protyle will auto-load content
   editorRef.value = new ProtyleCtor(props.app, hostRef.value, {
@@ -364,46 +364,46 @@ async function renderProtyle(blockId: string): Promise<void> {
     },
     typewriterMode: false,
     after: (protyle: any) => {
-      console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Protyle after callback called');
-      console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] protyle.disable exists:', typeof protyle.disable);
+      console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Protyle after callback called');
+      console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] protyle.disable exists:', typeof protyle.disable);
 
       // 使用 after 回调锁定编辑器（参考卡片浏览器实现）
       if (typeof protyle.disable === 'function') {
-        console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Locking editor with protyle.disable()...');
+        console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Locking editor with protyle.disable()...');
         protyle.disable();
 
         // 添加双击解锁功能
         const wysiwygElement = protyle.wysiwyg?.element;
         if (wysiwygElement) {
           const handleDoubleClick = () => {
-            console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Double-click detected, unlocking editor');
+            console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Double-click detected, unlocking editor');
             if (typeof protyle.enable === 'function') {
               protyle.enable();
-              console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Editor unlocked');
+              console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Editor unlocked');
             }
             wysiwygElement.removeEventListener('dblclick', handleDoubleClick);
           };
           wysiwygElement.addEventListener('dblclick', handleDoubleClick);
-          console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Added double-click listener for unlock');
+          console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Added double-click listener for unlock');
         }
       } else {
-        console.warn('[SiyuanMemo][SiyuanMemo][ReviewContent] protyle.disable() not available in after callback');
+        console.warn('[SiYuanMemo][SiYuanMemo][ReviewContent] protyle.disable() not available in after callback');
       }
       
       // 🆕 标记 Protyle 已初始化，延迟更长时间确保 protyle.element 完全初始化
       nextTick(() => {
         setTimeout(() => {
           protyleInitialized = true;
-          console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Protyle initialized, applying answer visibility');
-          console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] protyle object:', protyle);
-          console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] protyle.element:', protyle?.element);
-          console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] hostRef.value:', hostRef.value);
+          console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Protyle initialized, applying answer visibility');
+          console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] protyle object:', protyle);
+          console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] protyle.element:', protyle?.element);
+          console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] hostRef.value:', hostRef.value);
           
           // 🆕 使用 hostRef.value 而不是 protyle.element
           // 因为 protyle.element 在 after 回调中可能还未设置
           const element = hostRef.value;
           if (!element) {
-            console.warn('[SiyuanMemo][SiyuanMemo][ReviewContent] hostRef.value is null');
+            console.warn('[SiYuanMemo][SiYuanMemo][ReviewContent] hostRef.value is null');
             return;
           }
           
@@ -411,7 +411,7 @@ async function renderProtyle(blockId: string): Promise<void> {
           const hasHidden = props.hasHiddenContent;
           const showAnswerButton = props.showAnswer;
           
-          console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Applying CSS classes:', { hasHidden, showAnswerButton });
+          console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Applying CSS classes:', { hasHidden, showAnswerButton });
           
           if (!hasHidden) {
             element.classList.remove(
@@ -442,14 +442,14 @@ async function renderProtyle(blockId: string): Promise<void> {
     },
   });
 
-  console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Protyle instance created, waiting for after callback...');
+  console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Protyle instance created, waiting for after callback...');
 }
 
 // 渲染答案块（Xiuyuan 模板卡片）
 async function renderAnswerProtyle(blockId: string): Promise<void> {
   const seq = ++answerRenderSeq;
 
-  console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] renderAnswerProtyle called:', { blockId, seq });
+  console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] renderAnswerProtyle called:', { blockId, seq });
 
   // 等待 DOM 准备
   for (let i = 0; i < 20; i++) {
@@ -459,12 +459,12 @@ async function renderAnswerProtyle(blockId: string): Promise<void> {
   }
 
   if (!answerHostRef.value) {
-    console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] answerHostRef not ready after waiting');
+    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] answerHostRef not ready after waiting');
     return;
   }
 
   if (seq !== answerRenderSeq) {
-    console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Answer render cancelled, newer render pending');
+    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Answer render cancelled, newer render pending');
     return;
   }
 
@@ -477,7 +477,7 @@ async function renderAnswerProtyle(blockId: string): Promise<void> {
     return;
   }
 
-  console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Destroying old Answer Protyle instance');
+  console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Destroying old Answer Protyle instance');
 
   // Destroy old instance
   try {
@@ -487,7 +487,7 @@ async function renderAnswerProtyle(blockId: string): Promise<void> {
   // Clear host
   answerHostRef.value.innerHTML = '';
 
-  console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Creating new Answer Protyle with blockId:', blockId);
+  console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Creating new Answer Protyle with blockId:', blockId);
 
   // Create new instance with blockId
   answerEditorRef.value = new ProtyleCtor(props.app, answerHostRef.value, {
@@ -501,14 +501,14 @@ async function renderAnswerProtyle(blockId: string): Promise<void> {
     },
     typewriterMode: false,
     after: (protyle: any) => {
-      console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Answer Protyle after callback called');
+      console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Answer Protyle after callback called');
       if (typeof protyle.disable === 'function') {
         protyle.disable();
       }
     },
   });
 
-  console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Answer Protyle instance created');
+  console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Answer Protyle instance created');
 }
 
 watch(
@@ -517,7 +517,7 @@ watch(
     if (props.content.type !== 'protyle') return;
     const blockId = String(id || '');
     if (!blockId) return;
-    console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Watch triggered, blockId:', blockId);
+    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Watch triggered, blockId:', blockId);
     void renderProtyle(blockId);
   },
   { immediate: true },
@@ -526,20 +526,20 @@ watch(
 watch(
   () => [props.hasHiddenContent, props.showAnswer],
   ([hidden, show]) => {
-    console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Watch triggered:', { hidden, show, protyleInitialized });
+    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Watch triggered:', { hidden, show, protyleInitialized });
     
     // 🆕 只有在 Protyle 初始化后才应用 CSS 类
     if (!protyleInitialized) {
-      console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Protyle not initialized yet, skipping');
+      console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Protyle not initialized yet, skipping');
       return;
     }
     
     if (!hostRef.value) {
-      console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] No hostRef.value');
+      console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] No hostRef.value');
       return;
     }
     
-    console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Applying answer visibility from watch');
+    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Applying answer visibility from watch');
     // 调用统一的答案显示/隐藏逻辑
     applyAnswerVisibility();
   },
@@ -551,11 +551,11 @@ watch(
 watch(
   () => [props.showAnswer, answerBlockID.value],
   ([show, ansBlockID]) => {
-    console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Answer watch triggered:', { show, ansBlockID });
+    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Answer watch triggered:', { show, ansBlockID });
     
     // showAnswer=false 表示答案已显示，此时渲染答案块
     if (!show && ansBlockID) {
-      console.log('[SiyuanMemo][SiyuanMemo][ReviewContent] Rendering answer block:', ansBlockID);
+      console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Rendering answer block:', ansBlockID);
       void renderAnswerProtyle(ansBlockID as string);
     } else {
       // showAnswer=true 表示答案未显示，销毁答案 Protyle

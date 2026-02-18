@@ -147,15 +147,15 @@ export class FilterGroupQueue extends BaseCompositeQueue<QueueItem>
    * the add() method to properly persist the rotated item.
    */
   protected async rotateToEnd(item: QueueItem): Promise<void> {
-    console.log('[SiyuanMemo][FilterGroupQueue] Rotating item to end of queue');
+    console.log('[SiYuanMemo][FilterGroupQueue] Rotating item to end of queue');
     
     // Remove the item from the queue
     const removed = await this.groupDataSource.remove([item]);
-    console.log(`[SiyuanMemo][FilterGroupQueue] Removed ${removed} item(s) from queue`);
+    console.log(`[SiYuanMemo][FilterGroupQueue] Removed ${removed} item(s) from queue`);
 
     // Add the item back (it will go to the end of its group)
     const added = await this.groupDataSource.add([item]);
-    console.log(`[SiyuanMemo][FilterGroupQueue] Added ${added} item(s) back to queue`);
+    console.log(`[SiYuanMemo][FilterGroupQueue] Added ${added} item(s) back to queue`);
   }
 
   /**
@@ -263,7 +263,7 @@ export class FilterGroupQueue extends BaseCompositeQueue<QueueItem>
 
       return true;
     } catch (err) {
-      console.error('[SiyuanMemo][FilterGroupQueue] reorder failed:', err);
+      console.error('[SiYuanMemo][FilterGroupQueue] reorder failed:', err);
       return false;
     }
   }

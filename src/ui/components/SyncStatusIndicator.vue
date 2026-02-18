@@ -145,7 +145,7 @@ function updateSyncStatus() {
  */
 async function handleManualSync() {
   if (!props.hybridSyncService) {
-    console.warn('[SiyuanMemo][SyncStatusIndicator] HybridSyncService not available');
+    console.warn('[SiYuanMemo][SyncStatusIndicator] HybridSyncService not available');
     return;
   }
   
@@ -154,7 +154,7 @@ async function handleManualSync() {
     await props.hybridSyncService.incrementalSync();
     emit('sync', 'incremental');
   } catch (error) {
-    console.error('[SiyuanMemo][SyncStatusIndicator] Manual sync failed:', error);
+    console.error('[SiYuanMemo][SyncStatusIndicator] Manual sync failed:', error);
   }
 }
 
@@ -163,7 +163,7 @@ async function handleManualSync() {
  */
 async function handleFullSync() {
   if (!props.hybridSyncService) {
-    console.warn('[SiyuanMemo][SyncStatusIndicator] HybridSyncService not available');
+    console.warn('[SiYuanMemo][SyncStatusIndicator] HybridSyncService not available');
     return;
   }
   
@@ -172,7 +172,7 @@ async function handleFullSync() {
     await props.hybridSyncService.fullSync();
     emit('sync', 'full');
   } catch (error) {
-    console.error('[SiyuanMemo][SyncStatusIndicator] Full sync failed:', error);
+    console.error('[SiYuanMemo][SyncStatusIndicator] Full sync failed:', error);
   }
 }
 
@@ -191,13 +191,13 @@ onMounted(() => {
   
   // 🆕 监听同步事件
   const onSyncStart = (data: any) => {
-    console.log('[SiyuanMemo][SyncStatusIndicator] Sync started:', data.type);
+    console.log('[SiYuanMemo][SyncStatusIndicator] Sync started:', data.type);
     syncStatus.value.status = 'syncing';
     syncStatus.value.errorMessage = undefined;
   };
   
   const onSyncSuccess = (data: any) => {
-    console.log('[SiyuanMemo][SyncStatusIndicator] Sync success:', data);
+    console.log('[SiYuanMemo][SyncStatusIndicator] Sync success:', data);
     syncStatus.value.status = 'success';
     syncStatus.value.lastResult = data.result;
     
@@ -210,7 +210,7 @@ onMounted(() => {
   };
   
   const onSyncError = (data: any) => {
-    console.error('[SiyuanMemo][SyncStatusIndicator] Sync error:', data);
+    console.error('[SiYuanMemo][SyncStatusIndicator] Sync error:', data);
     if (!data.willRetry) {
       syncStatus.value.status = 'error';
       syncStatus.value.errorMessage = data.error.message;

@@ -147,7 +147,7 @@ let unsubscribe: (() => void) | null = null;
 async function handleManualSync() {
   if (!props.syncService || syncStatus.value === 'syncing') return;
   
-  console.log('[SiyuanMemo][SyncStatusIndicator] Manual sync triggered');
+  console.log('[SiYuanMemo][SyncStatusIndicator] Manual sync triggered');
   
   try {
     // 使用进度回调
@@ -157,7 +157,7 @@ async function handleManualSync() {
     
     emit('sync');
   } catch (error) {
-    console.error('[SiyuanMemo][SyncStatusIndicator] Manual sync failed:', error);
+    console.error('[SiYuanMemo][SyncStatusIndicator] Manual sync failed:', error);
   }
 }
 
@@ -165,7 +165,7 @@ async function handleManualSync() {
 async function handleFullSync() {
   if (!props.syncService || syncStatus.value === 'syncing') return;
   
-  console.log('[SiyuanMemo][SyncStatusIndicator] Full sync triggered');
+  console.log('[SiYuanMemo][SyncStatusIndicator] Full sync triggered');
   
   try {
     // 使用进度回调
@@ -175,13 +175,13 @@ async function handleFullSync() {
     
     emit('fullSync');
   } catch (error) {
-    console.error('[SiyuanMemo][SyncStatusIndicator] Full sync failed:', error);
+    console.error('[SiYuanMemo][SyncStatusIndicator] Full sync failed:', error);
   }
 }
 
 // 重试
 function handleRetry() {
-  console.log('[SiyuanMemo][SyncStatusIndicator] Retry triggered');
+  console.log('[SiYuanMemo][SyncStatusIndicator] Retry triggered');
   emit('retry');
   handleManualSync();
 }
@@ -197,14 +197,14 @@ onMounted(() => {
   
   // 🆕 监听同步事件
   const onSyncStart = (data: any) => {
-    console.log('[SiyuanMemo][SyncStatusIndicator] Sync started:', data.type);
+    console.log('[SiYuanMemo][SyncStatusIndicator] Sync started:', data.type);
     syncStatus.value = 'syncing';
     progress.value = '';
     errorMessage.value = '';
   };
   
   const onSyncSuccess = (data: any) => {
-    console.log('[SiyuanMemo][SyncStatusIndicator] Sync success:', data);
+    console.log('[SiYuanMemo][SyncStatusIndicator] Sync success:', data);
     syncStatus.value = 'success';
     lastResult.value = data.result;
     progress.value = '';
@@ -218,7 +218,7 @@ onMounted(() => {
   };
   
   const onSyncError = (data: any) => {
-    console.error('[SiyuanMemo][SyncStatusIndicator] Sync error:', data);
+    console.error('[SiYuanMemo][SyncStatusIndicator] Sync error:', data);
     if (!data.willRetry) {
       syncStatus.value = 'error';
       errorMessage.value = data.error.message;

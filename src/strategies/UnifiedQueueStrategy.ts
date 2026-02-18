@@ -84,13 +84,13 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
             onDataChanged: (event) => {
                 // 当队列变更时，失效缓存
                 if (event.type === 'queue-changed' && event.queueType === this.queueType) {
-                    console.log(`[SiyuanMemo][UnifiedQueueStrategy] Queue changed, invalidating cache: ${this.queueType}`);
+                    console.log(`[SiYuanMemo][UnifiedQueueStrategy] Queue changed, invalidating cache: ${this.queueType}`);
                     this.invalidateCache();
                 }
             }
         });
         
-        console.log(`[SiyuanMemo][UnifiedQueueStrategy] Created for queue: ${queueType}`);
+        console.log(`[SiYuanMemo][UnifiedQueueStrategy] Created for queue: ${queueType}`);
     }
     
     // ========================================================================
@@ -124,7 +124,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                 
                 // 如果队列为空，返回 null
                 if (this.cachedCards.length === 0) {
-                    console.log(`[SiyuanMemo][UnifiedQueueStrategy] Queue is empty: ${this.queueType}`);
+                    console.log(`[SiYuanMemo][UnifiedQueueStrategy] Queue is empty: ${this.queueType}`);
                     return null;
                 }
                 
@@ -132,7 +132,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                 const card = this.cachedCards[0];
                 
                 // 🔧 刻意练习队列不显示下次复习时间
-                console.log(`[SiyuanMemo][UnifiedQueueStrategy] Next card (dynamic draw):`, {
+                console.log(`[SiYuanMemo][UnifiedQueueStrategy] Next card (dynamic draw):`, {
                     queueType: this.queueType,
                     cardId: card.id,
                     total: this.cachedCards.length
@@ -151,13 +151,13 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                         // 🆕 计算 nextDues
                         const cardWithNextDues = await this.addNextDues(nextCard);
                         
-                        console.log(`[SiyuanMemo][UnifiedQueueStrategy] Next card (spreading activation):`, {
+                        console.log(`[SiYuanMemo][UnifiedQueueStrategy] Next card (spreading activation):`, {
                             queueType: this.queueType,
                             cardId: nextCard.id
                         });
                         return cardWithNextDues;
                     } else {
-                        console.log(`[SiyuanMemo][UnifiedQueueStrategy] No more cards from spreading activation`);
+                        console.log(`[SiYuanMemo][UnifiedQueueStrategy] No more cards from spreading activation`);
                         return null;
                     }
                 }
@@ -171,7 +171,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
             
             // 如果队列为空，返回 null
             if (this.cachedCards.length === 0) {
-                console.log(`[SiyuanMemo][UnifiedQueueStrategy] Queue is empty: ${this.queueType}`);
+                console.log(`[SiYuanMemo][UnifiedQueueStrategy] Queue is empty: ${this.queueType}`);
                 return null;
             }
             
@@ -181,7 +181,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
             // 🆕 计算 nextDues
             const cardWithNextDues = await this.addNextDues(card);
             
-            console.log(`[SiyuanMemo][UnifiedQueueStrategy] Next card:`, {
+            console.log(`[SiYuanMemo][UnifiedQueueStrategy] Next card:`, {
                 queueType: this.queueType,
                 cardId: card.id,
                 index: this.currentIndex - 1,
@@ -193,7 +193,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
             return cardWithNextDues;
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error(`[SiyuanMemo][UnifiedQueueStrategy] Failed to get next card:`, {
+            console.error(`[SiYuanMemo][UnifiedQueueStrategy] Failed to get next card:`, {
                 queueType: this.queueType,
                 error: errorMessage
             });
@@ -221,12 +221,12 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
      */
     async onFeedback(currentItem: FSRSCard | null, feedback: QueueFeedback): Promise<void> {
         if (!currentItem) {
-            console.warn(`[SiyuanMemo][UnifiedQueueStrategy] No current item for feedback`);
+            console.warn(`[SiYuanMemo][UnifiedQueueStrategy] No current item for feedback`);
             return;
         }
         
         try {
-            console.log(`[SiyuanMemo][UnifiedQueueStrategy] Processing feedback:`, {
+            console.log(`[SiYuanMemo][UnifiedQueueStrategy] Processing feedback:`, {
                 queueType: this.queueType,
                 cardId: currentItem.id,
                 action: feedback.action,
@@ -243,20 +243,20 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                     this.invalidateCache();
                 }
                 
-                console.log(`[SiyuanMemo][UnifiedQueueStrategy] Card rated:`, {
+                console.log(`[SiYuanMemo][UnifiedQueueStrategy] Card rated:`, {
                     queueType: this.queueType,
                     cardId: currentItem.id,
                     rating: feedback.rating
                 });
             } else if (feedback.action === 'skip') {
                 // 跳过卡片（不做任何操作，只是移动到下一张）
-                console.log(`[SiyuanMemo][UnifiedQueueStrategy] Card skipped:`, {
+                console.log(`[SiYuanMemo][UnifiedQueueStrategy] Card skipped:`, {
                     queueType: this.queueType,
                     cardId: currentItem.id
                 });
             } else if (feedback.action === 'custom' && feedback.customActionId) {
                 // 处理自定义操作
-                console.log(`[SiyuanMemo][UnifiedQueueStrategy] Custom action:`, {
+                console.log(`[SiYuanMemo][UnifiedQueueStrategy] Custom action:`, {
                     queueType: this.queueType,
                     cardId: currentItem.id,
                     actionId: feedback.customActionId
@@ -268,7 +268,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
             const errorMessage = error instanceof Error ? error.message : String(error);
             const errorStack = error instanceof Error ? error.stack : undefined;
             
-            console.error(`[SiyuanMemo][UnifiedQueueStrategy] Failed to process feedback:`, {
+            console.error(`[SiYuanMemo][UnifiedQueueStrategy] Failed to process feedback:`, {
                 queueType: this.queueType,
                 cardId: currentItem.id,
                 action: feedback.action,
@@ -350,7 +350,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                 extra: `共 ${cards.length} 张`
             };
             
-            console.log(`[SiyuanMemo][UnifiedQueueStrategy] Stats:`, {
+            console.log(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
                 queueType: this.queueType,
                 ...stats
             });
@@ -358,7 +358,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
             return stats;
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error(`[SiyuanMemo][UnifiedQueueStrategy] Failed to get stats:`, {
+            console.error(`[SiYuanMemo][UnifiedQueueStrategy] Failed to get stats:`, {
                 queueType: this.queueType,
                 error: errorMessage
             });
@@ -380,7 +380,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
      */
     async insertAt(cardId: string, position: number): Promise<void> {
         try {
-            console.log(`[SiyuanMemo][UnifiedQueueStrategy] insertAt called:`, {
+            console.log(`[SiYuanMemo][UnifiedQueueStrategy] insertAt called:`, {
                 queueType: this.queueType,
                 cardId,
                 position
@@ -393,13 +393,13 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                 // 失效缓存，下次 next() 会重新加载
                 this.invalidateCache();
                 
-                console.log(`[SiyuanMemo][UnifiedQueueStrategy] Card inserted via queue.insertAt:`, {
+                console.log(`[SiYuanMemo][UnifiedQueueStrategy] Card inserted via queue.insertAt:`, {
                     queueType: this.queueType,
                     cardId,
                     position
                 });
             } else {
-                console.error(`[SiyuanMemo][UnifiedQueueStrategy] Queue does not support insertAt:`, {
+                console.error(`[SiYuanMemo][UnifiedQueueStrategy] Queue does not support insertAt:`, {
                     queueType: this.queueType,
                     queueType_actual: this.queue.constructor.name
                 });
@@ -407,7 +407,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
             }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error(`[SiyuanMemo][UnifiedQueueStrategy] Failed to insert card:`, {
+            console.error(`[SiYuanMemo][UnifiedQueueStrategy] Failed to insert card:`, {
                 queueType: this.queueType,
                 cardId,
                 position,
@@ -434,7 +434,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
             return this.cachedCards.length;
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error(`[SiyuanMemo][UnifiedQueueStrategy] Failed to get remaining size:`, {
+            console.error(`[SiYuanMemo][UnifiedQueueStrategy] Failed to get remaining size:`, {
                 queueType: this.queueType,
                 error: errorMessage
             });
@@ -456,22 +456,22 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
      */
     private async addNextDues(card: FSRSCard): Promise<any> {
         try {
-            console.log('[SiyuanMemo][UnifiedQueueStrategy] 🔍 Calculating nextDues for card:', card.id);
+            console.log('[SiYuanMemo][UnifiedQueueStrategy] 🔍 Calculating nextDues for card:', card.id);
             
             // 从全局获取插件实例
             const plugin = (window as any).siyuanMemoPlugin;
             if (!plugin || !plugin.schedulerRouter) {
-                console.warn('[SiyuanMemo][UnifiedQueueStrategy] ⚠️ Plugin or schedulerRouter not found');
+                console.warn('[SiYuanMemo][UnifiedQueueStrategy] ⚠️ Plugin or schedulerRouter not found');
                 return card;
             }
             
             const schedulerRouter = plugin.schedulerRouter;
-            console.log('[SiyuanMemo][UnifiedQueueStrategy] 📊 SchedulerRouter obtained:', !!schedulerRouter);
+            console.log('[SiYuanMemo][UnifiedQueueStrategy] 📊 SchedulerRouter obtained:', !!schedulerRouter);
             
             // 使用 preview() 方法计算所有评分的结果
             const previews = schedulerRouter.preview(card);
             
-            console.log('[SiyuanMemo][UnifiedQueueStrategy] 📊 Preview results:', previews.size);
+            console.log('[SiYuanMemo][UnifiedQueueStrategy] 📊 Preview results:', previews.size);
             
             // 格式化 nextDues
             const nextDues: Record<number, string> = {};
@@ -502,10 +502,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                 }
                 
                 nextDues[rating] = formatted;
-                console.log(`[SiyuanMemo][UnifiedQueueStrategy]   Rating ${rating}: ${formatted} (due: ${nextDue.toISOString()})`);
+                console.log(`[SiYuanMemo][UnifiedQueueStrategy]   Rating ${rating}: ${formatted} (due: ${nextDue.toISOString()})`);
             }
             
-            console.log('[SiyuanMemo][UnifiedQueueStrategy] ✅ nextDues calculated:', nextDues);
+            console.log('[SiYuanMemo][UnifiedQueueStrategy] ✅ nextDues calculated:', nextDues);
             
             // 返回添加了 nextDues 的卡片
             return {
@@ -513,9 +513,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                 nextDues,
             };
         } catch (error) {
-            console.error('[SiyuanMemo][UnifiedQueueStrategy] ❌ Failed to calculate nextDues:', error);
-            console.error('[SiyuanMemo][UnifiedQueueStrategy] ❌ Error stack:', error instanceof Error ? error.stack : 'No stack');
-            console.error('[SiyuanMemo][UnifiedQueueStrategy] ❌ Error message:', error instanceof Error ? error.message : String(error));
+            console.error('[SiYuanMemo][UnifiedQueueStrategy] ❌ Failed to calculate nextDues:', error);
+            console.error('[SiYuanMemo][UnifiedQueueStrategy] ❌ Error stack:', error instanceof Error ? error.stack : 'No stack');
+            console.error('[SiYuanMemo][UnifiedQueueStrategy] ❌ Error message:', error instanceof Error ? error.message : String(error));
             // 如果计算失败，返回原始卡片（不带 nextDues）
             return card;
         }
@@ -528,7 +528,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
      */
     private async reloadCards(): Promise<void> {
         try {
-            console.log(`[SiyuanMemo][UnifiedQueueStrategy] Reloading cards: ${this.queueType}`);
+            console.log(`[SiYuanMemo][UnifiedQueueStrategy] Reloading cards: ${this.queueType}`);
             
             const startTime = Date.now();
             this.cachedCards = await this.queue.getCards();
@@ -536,14 +536,14 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
             this.cacheValid = true;
             const duration = Date.now() - startTime;
             
-            console.log(`[SiyuanMemo][UnifiedQueueStrategy] Cards reloaded:`, {
+            console.log(`[SiYuanMemo][UnifiedQueueStrategy] Cards reloaded:`, {
                 queueType: this.queueType,
                 cardCount: this.cachedCards.length,
                 duration: `${duration}ms`
             });
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error(`[SiyuanMemo][UnifiedQueueStrategy] Failed to reload cards:`, {
+            console.error(`[SiYuanMemo][UnifiedQueueStrategy] Failed to reload cards:`, {
                 queueType: this.queueType,
                 error: errorMessage
             });
@@ -564,7 +564,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
      */
     private invalidateCache(): void {
         this.cacheValid = false;
-        console.log(`[SiyuanMemo][UnifiedQueueStrategy] Cache invalidated: ${this.queueType}`);
+        console.log(`[SiYuanMemo][UnifiedQueueStrategy] Cache invalidated: ${this.queueType}`);
     }
     
     /**

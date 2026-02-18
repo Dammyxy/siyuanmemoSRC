@@ -107,7 +107,7 @@ describe('SRSBrowserAdapter', () => {
             const newAdapter = new SRSBrowserAdapter(mockManager);
             
             expect(consoleSpy).toHaveBeenCalledWith(
-                '[SiyuanMemo][SRSBrowserAdapter] Adapter created'
+                '[SiYuanMemo][SRSBrowserAdapter] Adapter created'
             );
             
             newAdapter.destroy();
@@ -135,7 +135,7 @@ describe('SRSBrowserAdapter', () => {
             
             // 验证记录了初始化日志
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Initializing queue view'),
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Initializing queue view'),
                 expect.objectContaining({
                     queueType,
                 })
@@ -143,7 +143,7 @@ describe('SRSBrowserAdapter', () => {
             
             // 验证记录了初始化成功
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Queue view initialized successfully'),
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Queue view initialized successfully'),
                 expect.objectContaining({
                     queueType,
                 })
@@ -204,7 +204,7 @@ describe('SRSBrowserAdapter', () => {
             
             // 验证记录了错误日志
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Failed to initialize queue view'),
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Failed to initialize queue view'),
                 expect.objectContaining({
                     queueType,
                     error: errorMessage,
@@ -282,12 +282,12 @@ describe('SRSBrowserAdapter', () => {
             
             // 验证记录了加载开始
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Fetching rows for queue')
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Fetching rows for queue')
             );
             
             // 验证记录了加载完成（包含时间、数据量、耗时）
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Fetched rows successfully'),
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Fetched rows successfully'),
                 expect.objectContaining({
                     queueType,
                     cardCount: 1,
@@ -308,7 +308,7 @@ describe('SRSBrowserAdapter', () => {
             
             expect(result.rows).toEqual([]);
             expect(consoleSpy).toHaveBeenCalledWith(
-                '[SiyuanMemo][SRSBrowserAdapter] No queue type selected'
+                '[SiYuanMemo][SRSBrowserAdapter] No queue type selected'
             );
             
             consoleSpy.mockRestore();
@@ -352,7 +352,7 @@ describe('SRSBrowserAdapter', () => {
             
             // 验证记录了错误日志（包含错误堆栈和耗时）
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Failed to fetch rows'),
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Failed to fetch rows'),
                 expect.objectContaining({
                     queueType,
                     error: errorMessage,
@@ -382,7 +382,7 @@ describe('SRSBrowserAdapter', () => {
             
             // 验证记录了事件日志
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Data changed'),
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Data changed'),
                 expect.objectContaining({
                     eventType: 'card-updated',
                     cardIds: ['test-block-1', 'test-block-2'],
@@ -391,7 +391,7 @@ describe('SRSBrowserAdapter', () => {
             );
             
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Handling card-updated event: 2 cards')
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Handling card-updated event: 2 cards')
             );
             
             consoleSpy.mockRestore();
@@ -413,7 +413,7 @@ describe('SRSBrowserAdapter', () => {
             adapter.onDataChanged(event);
             
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Handling card-deleted event: 1 cards')
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Handling card-deleted event: 1 cards')
             );
             
             consoleSpy.mockRestore();
@@ -435,7 +435,7 @@ describe('SRSBrowserAdapter', () => {
             adapter.onDataChanged(event);
             
             expect(consoleSpy).toHaveBeenCalledWith(
-                expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Handling queue-changed event: retrieval-practice')
+                expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Handling queue-changed event: retrieval-practice')
             );
             
             consoleSpy.mockRestore();
@@ -503,11 +503,11 @@ describe('SRSBrowserAdapter', () => {
             adapter.destroy();
             
             expect(consoleSpy).toHaveBeenCalledWith(
-                '[SiyuanMemo][SRSBrowserAdapter] Destroying adapter'
+                '[SiYuanMemo][SRSBrowserAdapter] Destroying adapter'
             );
             
             expect(consoleSpy).toHaveBeenCalledWith(
-                '[SiyuanMemo][SRSBrowserAdapter] Unregistered as observer'
+                '[SiYuanMemo][SRSBrowserAdapter] Unregistered as observer'
             );
             
             consoleSpy.mockRestore();
@@ -689,7 +689,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证记录了事件日志
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Data changed'),
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Data changed'),
                     expect.objectContaining({
                         eventType: 'card-updated',
                         cardIds: ['test-block-1'],
@@ -699,7 +699,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证调用了处理方法
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Handling card-updated event: 1 cards')
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Handling card-updated event: 1 cards')
                 );
                 
                 // 验证调用了回调函数
@@ -727,7 +727,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证记录了正确的卡片数量
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Data changed'),
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Data changed'),
                     expect.objectContaining({
                         eventType: 'card-updated',
                         cardCount: 3,
@@ -735,7 +735,7 @@ describe('SRSBrowserAdapter', () => {
                 );
                 
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Handling card-updated event: 3 cards')
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Handling card-updated event: 3 cards')
                 );
                 
                 // 验证调用了回调函数
@@ -763,7 +763,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证记录了 0 个卡片
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Data changed'),
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Data changed'),
                     expect.objectContaining({
                         eventType: 'card-updated',
                         cardCount: 0,
@@ -771,7 +771,7 @@ describe('SRSBrowserAdapter', () => {
                 );
                 
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Handling card-updated event: 0 cards')
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Handling card-updated event: 0 cards')
                 );
                 
                 // 验证仍然调用了回调函数
@@ -798,7 +798,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证记录了 0 个卡片
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Data changed'),
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Data changed'),
                     expect.objectContaining({
                         eventType: 'card-updated',
                         cardCount: 0,
@@ -806,7 +806,7 @@ describe('SRSBrowserAdapter', () => {
                 );
                 
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Handling card-updated event: 0 cards')
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Handling card-updated event: 0 cards')
                 );
                 
                 // 验证仍然调用了回调函数
@@ -836,7 +836,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证记录了事件日志
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Data changed'),
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Data changed'),
                     expect.objectContaining({
                         eventType: 'card-deleted',
                         cardIds: ['test-block-1'],
@@ -846,7 +846,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证调用了处理方法
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Handling card-deleted event: 1 cards')
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Handling card-deleted event: 1 cards')
                 );
                 
                 // 验证调用了回调函数
@@ -874,7 +874,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证记录了正确的卡片数量
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Data changed'),
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Data changed'),
                     expect.objectContaining({
                         eventType: 'card-deleted',
                         cardCount: 2,
@@ -882,7 +882,7 @@ describe('SRSBrowserAdapter', () => {
                 );
                 
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Handling card-deleted event: 2 cards')
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Handling card-deleted event: 2 cards')
                 );
                 
                 // 验证调用了回调函数
@@ -910,7 +910,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证记录了 0 个卡片
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Data changed'),
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Data changed'),
                     expect.objectContaining({
                         eventType: 'card-deleted',
                         cardCount: 0,
@@ -918,7 +918,7 @@ describe('SRSBrowserAdapter', () => {
                 );
                 
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Handling card-deleted event: 0 cards')
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Handling card-deleted event: 0 cards')
                 );
                 
                 // 验证仍然调用了回调函数
@@ -948,7 +948,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证记录了事件日志
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Data changed'),
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Data changed'),
                     expect.objectContaining({
                         eventType: 'queue-changed',
                         queueType: 'retrieval-practice',
@@ -957,7 +957,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证调用了处理方法
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Handling queue-changed event: retrieval-practice')
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Handling queue-changed event: retrieval-practice')
                 );
                 
                 // 验证调用了回调函数
@@ -985,7 +985,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证记录了事件日志
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Data changed'),
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Data changed'),
                     expect.objectContaining({
                         eventType: 'queue-changed',
                         queueType: 'final-drill',
@@ -994,7 +994,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证调用了处理方法
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Handling queue-changed event: final-drill')
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Handling queue-changed event: final-drill')
                 );
                 
                 // 验证调用了回调函数
@@ -1021,7 +1021,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证记录了事件日志（没有 queueType）
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Data changed'),
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Data changed'),
                     expect.objectContaining({
                         eventType: 'queue-changed',
                         queueType: undefined,
@@ -1030,7 +1030,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证调用了处理方法（显示 'all'）
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Handling queue-changed event: all')
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Handling queue-changed event: all')
                 );
                 
                 // 验证调用了回调函数
@@ -1058,7 +1058,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证仍然记录了日志
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Data changed'),
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Data changed'),
                     expect.any(Object)
                 );
                 
@@ -1086,7 +1086,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证仍然记录了日志
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Data changed'),
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Data changed'),
                     expect.any(Object)
                 );
                 
@@ -1111,7 +1111,7 @@ describe('SRSBrowserAdapter', () => {
                 
                 // 验证记录了时间戳
                 expect(consoleSpy).toHaveBeenCalledWith(
-                    expect.stringContaining('[SiyuanMemo][SRSBrowserAdapter] Data changed'),
+                    expect.stringContaining('[SiYuanMemo][SRSBrowserAdapter] Data changed'),
                     expect.objectContaining({
                         timestamp: new Date(timestamp).toISOString(),
                     })

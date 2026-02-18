@@ -13,7 +13,7 @@ export function warnDeprecatedQueueUsage(target: string, detail?: string): void 
     warnedTargets.add(target);
     const suffix = detail ? ` ${detail}` : '';
     console.warn(
-        `[SiyuanMemo][Deprecated Queue] ${target} belongs to old queue architecture and will be removed in a future release.${suffix}`
+        `[SiYuanMemo][Deprecated Queue] ${target} belongs to old queue architecture and will be removed in a future release.${suffix}`
     );
 }
 

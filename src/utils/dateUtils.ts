@@ -47,7 +47,7 @@ export interface TodayRange {
 export function getTodayRange(dayStartHour: number = 4): TodayRange {
   // 1. 验证输入
   if (dayStartHour < 0 || dayStartHour > 23 || !Number.isInteger(dayStartHour)) {
-    console.warn('[SiyuanMemo][dateUtils] Invalid dayStartHour:', dayStartHour, 'using default 4');
+    console.warn('[SiYuanMemo][dateUtils] Invalid dayStartHour:', dayStartHour, 'using default 4');
     dayStartHour = 4;
   }
 

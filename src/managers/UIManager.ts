@@ -84,9 +84,9 @@ export class UIManager {
           }
         },
       });
-      console.log('[SiyuanMemo] Review tab registered:', this.plugin.REVIEW_TAB_ID);
+      console.log('[SiYuanMemo] Review tab registered:', this.plugin.REVIEW_TAB_ID);
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to register review tab:', err);
+      console.error('[SiYuanMemo] Failed to register review tab:', err);
     }
 
     // 注册自定义 Tab
@@ -315,7 +315,7 @@ export class UIManager {
         },
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open review provider v2 dialog:', err);
+      console.error('[SiYuanMemo] Failed to open review provider v2 dialog:', err);
       await pushErrMsg(this.plugin.i18n?.loadFailed || '加载失败');
     }
   }
@@ -373,7 +373,7 @@ export class UIManager {
         },
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open leech review dialog:', err);
+      console.error('[SiYuanMemo] Failed to open leech review dialog:', err);
       try {
         await pushErrMsg('难点攻坚启动失败');
       } catch {}
@@ -442,7 +442,7 @@ export class UIManager {
         },
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open final drill provider v2 dialog:', err);
+      console.error('[SiYuanMemo] Failed to open final drill provider v2 dialog:', err);
       await pushErrMsg(this.plugin.i18n?.drillFailed || '机械练习启动失败');
     }
   }
@@ -511,7 +511,7 @@ export class UIManager {
         },
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open incremental learning dialog:', err);
+      console.error('[SiYuanMemo] Failed to open incremental learning dialog:', err);
       await pushErrMsg(this.plugin.i18n?.openFailed || '打开渐进学习失败');
     }
   }
@@ -572,7 +572,7 @@ export class UIManager {
         },
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open filter group practice dialog:', err);
+      console.error('[SiYuanMemo] Failed to open filter group practice dialog:', err);
       await pushErrMsg(this.plugin.i18n?.openFailed || '打开分组队列失败');
     }
   }
@@ -617,7 +617,7 @@ export class UIManager {
         },
       });
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open leech practice dialog:', err);
+      console.error('[SiYuanMemo] Failed to open leech practice dialog:', err);
       await pushErrMsg(this.plugin.i18n?.openFailed || '打开难点攻坚失败');
     }
   }
@@ -651,7 +651,7 @@ export class UIManager {
       
       console.log('[UIManager] ✅ Neural roam dialog created with unified data source');
     } catch (err) {
-      console.error('[SiyuanMemo] Failed to open neural review v2 dialog:', err);
+      console.error('[SiYuanMemo] Failed to open neural review v2 dialog:', err);
       await pushErrMsg(this.plugin.i18n?.neuralReviewFailed || '神经漫游启动失败');
     }
   }
@@ -802,7 +802,7 @@ export class UIManager {
               enableRiffSync: settings.scheduler.enableRiffSync,
               fsrsParams: updatedSettings.fsrs,
             });
-            console.log('[SiyuanMemo] ✅ SchedulerRouter config updated');
+            console.log('[SiYuanMemo] ✅ SchedulerRouter config updated');
           }
         },
         close: () => {

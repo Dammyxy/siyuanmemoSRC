@@ -296,7 +296,7 @@ const isQueueMode = computed(() => {
 // 🆕 当前队列类型 (filter-group-queue-ui)
 const currentQueueType = computed(() => {
   const qid = String(activeQueueId.value || '');
-  console.log('[SiyuanMemo][SRSBrowser] currentQueueType computed:', {
+  console.log('[SiYuanMemo][SRSBrowser] currentQueueType computed:', {
     activeQueueId: activeQueueId.value,
     qid,
   });
@@ -343,7 +343,7 @@ const scopedRows = computed(() => {
 const focusedDocIds = computed(() => {
   // 如果没有标记聚焦，返回 null（显示所有文档）
   if (!shouldFocusDocList.value) {
-    console.log('[SiyuanMemo][SRSBrowser] 🔍 focusedDocIds: shouldFocusDocList is false, returning null');
+    console.log('[SiYuanMemo][SRSBrowser] 🔍 focusedDocIds: shouldFocusDocList is false, returning null');
     return null;
   }
 
@@ -366,7 +366,7 @@ const focusedDocIds = computed(() => {
     }
   }
   
-  console.log('[SiyuanMemo][SRSBrowser] 🔍 focusedDocIds computed:', {
+  console.log('[SiYuanMemo][SRSBrowser] 🔍 focusedDocIds computed:', {
     shouldFocusDocList: shouldFocusDocList.value,
     rowsForFocusCount: rowsForFocus.value.length,
     cardsWithRootId: rowsForFocus.value.filter(c => c.rootId).length,
@@ -379,7 +379,7 @@ const focusedDocIds = computed(() => {
   
   // ✅ 警告日志：当所有卡片都缺少 rootId 时输出警告
   if (result === null && rowsForFocus.value.length > 0) {
-    console.warn('[SiyuanMemo][SRSBrowser] ⚠️ All cards missing rootId, cannot focus documents');
+    console.warn('[SiYuanMemo][SRSBrowser] ⚠️ All cards missing rootId, cannot focus documents');
   }
   
   return result;
@@ -407,7 +407,7 @@ async function loadData(forceRefresh = false) {
   // 取消之前的加载请求
   if (loadDataAbortController) {
     loadDataAbortController.abort();
-    console.log('[SiyuanMemo][SRSBrowser] Previous loadData() aborted');
+    console.log('[SiYuanMemo][SRSBrowser] Previous loadData() aborted');
   }
   
   // 创建新的 AbortController
@@ -419,7 +419,7 @@ async function loadData(forceRefresh = false) {
   try {
     // 检查是否已被取消
     if (currentController.signal.aborted) {
-      console.log('[SiyuanMemo][SRSBrowser] loadData() aborted before execution');
+      console.log('[SiYuanMemo][SRSBrowser] loadData() aborted before execution');
       return;
     }
     
@@ -430,8 +430,8 @@ async function loadData(forceRefresh = false) {
     // 队列模式：使用数据源工厂创建数据源（支持 cardType 筛选）
     // ========================================================================
     if (activeQueueId.value) {
-      console.log('[SiyuanMemo][SRSBrowser] 🔍 Using data source for queue:', activeQueueId.value);
-      console.log('[SiyuanMemo][SRSBrowser] 🔍 Current cardType filter:', currentCardType.value);
+      console.log('[SiYuanMemo][SRSBrowser] 🔍 Using data source for queue:', activeQueueId.value);
+      console.log('[SiYuanMemo][SRSBrowser] 🔍 Current cardType filter:', currentCardType.value);
       
       // 使用数据源工厂创建数据源（支持 cardType 筛选）
       const options = {
@@ -449,7 +449,7 @@ async function loadData(forceRefresh = false) {
       );
       
       if (!currentDataSource.value) {
-        console.error('[SiyuanMemo][SRSBrowser] Failed to create data source for queue:', activeQueueId.value);
+        console.error('[SiYuanMemo][SRSBrowser] Failed to create data source for queue:', activeQueueId.value);
         rows.value = [];
         rowsForFocus.value = [];
         return;
@@ -460,7 +460,7 @@ async function loadData(forceRefresh = false) {
       
       // 检查是否已被取消
       if (currentController.signal.aborted) {
-        console.log('[SiyuanMemo][SRSBrowser] loadData() aborted after executeFetchRows (queue mode)');
+        console.log('[SiYuanMemo][SRSBrowser] loadData() aborted after executeFetchRows (queue mode)');
         return;
       }
       
@@ -509,14 +509,14 @@ async function loadData(forceRefresh = false) {
 
     // 检查是否已被取消
     if (currentController.signal.aborted) {
-      console.log('[SiyuanMemo][SRSBrowser] loadData() aborted after executeFetchRows (non-queue mode)');
+      console.log('[SiYuanMemo][SRSBrowser] loadData() aborted after executeFetchRows (non-queue mode)');
       return;
     }
 
     // ❌ 移除：避免重复调用（观察者回调中会调用）
     // await refreshQueueCounts();
   } catch (err) {
-    console.error('[SiyuanMemo][CardBrowser] Load data error:', err);
+    console.error('[SiYuanMemo][CardBrowser] Load data error:', err);
     rows.value = [];
   } finally {
     // 只有当前 controller 没有被取消时才设置 loading = false
@@ -575,7 +575,7 @@ async function executeFetchRows(forceRefresh = false) {
       rowsForFocus.value = focusRows;
       
       // 🔍 调试：显示所有卡片的 rootId
-      console.log('[SiyuanMemo][SRSBrowser] 🔍 rowsForFocus after fetch:', {
+      console.log('[SiYuanMemo][SRSBrowser] 🔍 rowsForFocus after fetch:', {
         count: focusRows.length,
         allRootIds: focusRows.map(c => ({ blockId: c.blockId, rootId: c.rootId })),
       });
@@ -584,7 +584,7 @@ async function executeFetchRows(forceRefresh = false) {
     rowsForFocus.value = fetchedRows;
     
     // 🔍 调试：显示所有卡片的 rootId
-    console.log('[SiyuanMemo][SRSBrowser] 🔍 rowsForFocus (using fetchedRows):', {
+    console.log('[SiYuanMemo][SRSBrowser] 🔍 rowsForFocus (using fetchedRows):', {
       count: fetchedRows.length,
       allRootIds: fetchedRows.map(c => ({ blockId: c.blockId, rootId: c.rootId })),
     });
@@ -641,7 +641,7 @@ watch(() => loading.value, async (isLoading) => {
   if (!isLoading && !detectionTriggered && !cardTypeDetection.isDetecting.value && cardTypeDetection.unidentifiedCount.value > 0) {
     detectionTriggered = true; // 标记已触发
 
-    console.log('[SiyuanMemo][SRSBrowser] 🔄 Auto-detecting unidentified cards...');
+    console.log('[SiYuanMemo][SRSBrowser] 🔄 Auto-detecting unidentified cards...');
 
     // 获取未识别的卡片列表（检测前）
     const unidentified = cardTypeDetection.getUnidentifiedCards();
@@ -649,7 +649,7 @@ watch(() => loading.value, async (isLoading) => {
 
     // 二次确认：检查是否真的有卡片需要检测
     if (blockIds.length === 0) {
-      console.log('[SiyuanMemo][SRSBrowser] No cards to detect (race condition detected)');
+      console.log('[SiYuanMemo][SRSBrowser] No cards to detect (race condition detected)');
       return;
     }
 
@@ -700,7 +700,7 @@ function onGridReady(params: any) {
   nextTick(() => {
     if (gridApi.value) {
       const columns = gridApi.value.getColumns?.();
-      console.log('[SiyuanMemo][CardBrowser] AG-Grid ready, columns:', columns?.map((c: any) => ({
+      console.log('[SiYuanMemo][CardBrowser] AG-Grid ready, columns:', columns?.map((c: any) => ({
         colId: c.getColId(),
         sortable: c.isSortable(),
       })));
@@ -709,7 +709,7 @@ function onGridReady(params: any) {
 }
 
 function onDisplayedColumnsChanged(params: any) {
-  console.log('[SiyuanMemo][CardBrowser] Displayed columns changed');
+  console.log('[SiYuanMemo][CardBrowser] Displayed columns changed');
 }
 
 function onSortChanged(params: any) {
@@ -723,7 +723,7 @@ function onSortChanged(params: any) {
 
   // 检查排序是否真的改变了
   const api = params?.api || gridApi.value;
-  console.log('[SiyuanMemo][CardBrowser] onSortChanged:', {
+  console.log('[SiYuanMemo][CardBrowser] onSortChanged:', {
     sortModel: currentSortModel.value,
     sortModelLength: currentSortModel.value?.length,
     sortModelArray: sortArray,
@@ -766,7 +766,7 @@ function onRowClicked(event: any) {
 function onRowDoubleClicked(event: any) {
   const blockId = event.data?.blockId;
   if (!blockId) {
-    console.warn('[SiyuanMemo][CardBrowser] No blockId found in row data:', event.data);
+    console.warn('[SiYuanMemo][CardBrowser] No blockId found in row data:', event.data);
     return;
   }
   if (props.app) {
@@ -1022,13 +1022,13 @@ function getActionLabel(action: { id: string; label: string }): string {
 }
 
 async function handleAction(actionId: string, targetCards: BrowserCard[], anchorRow?: BrowserCard) {
-  console.log('[SiyuanMemo][CardBrowser] ========== handleAction 被调用 ==========');
-  console.log('[SiyuanMemo][CardBrowser] actionId:', actionId);
-  console.log('[SiyuanMemo][CardBrowser] targetCards 数量:', targetCards?.length);
-  console.log('[SiyuanMemo][CardBrowser] 卡片 IDs:', targetCards?.map(c => c.blockId));
+  console.log('[SiYuanMemo][CardBrowser] ========== handleAction 被调用 ==========');
+  console.log('[SiYuanMemo][CardBrowser] actionId:', actionId);
+  console.log('[SiYuanMemo][CardBrowser] targetCards 数量:', targetCards?.length);
+  console.log('[SiYuanMemo][CardBrowser] 卡片 IDs:', targetCards?.map(c => c.blockId));
   
   if (!targetCards?.length) {
-    console.log('[SiyuanMemo][CardBrowser] ❌ 没有选中的卡片，退出');
+    console.log('[SiYuanMemo][CardBrowser] ❌ 没有选中的卡片，退出');
     return;
   }
 
@@ -1043,10 +1043,10 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   }
 
   const ds = currentDataSource.value;
-  console.log('[SiyuanMemo][CardBrowser] 当前数据源:', ds?.constructor?.name, ds);
+  console.log('[SiYuanMemo][CardBrowser] 当前数据源:', ds?.constructor?.name, ds);
   
   if (!ds) {
-    console.log('[SiyuanMemo][CardBrowser] ❌ 没有数据源，退出');
+    console.log('[SiYuanMemo][CardBrowser] ❌ 没有数据源，退出');
     return;
   }
 
@@ -1072,18 +1072,18 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   }
 
   const builder = ACTION_PARAM_BUILDERS[actionId];
-  console.log('[SiyuanMemo][CardBrowser] 参数构建器:', builder ? '存在' : '不存在');
+  console.log('[SiYuanMemo][CardBrowser] 参数构建器:', builder ? '存在' : '不存在');
   
   const ctx = builder ? await builder(targetCards) : { refresh: () => void loadData() };
   if (builder && ctx == null) {
-    console.log('[SiyuanMemo][CardBrowser] ❌ 参数构建器返回 null，用户取消操作');
+    console.log('[SiYuanMemo][CardBrowser] ❌ 参数构建器返回 null，用户取消操作');
     return;
   }
 
   try {
-    console.log('[SiyuanMemo][CardBrowser] 调用 ds.performAction:', actionId);
+    console.log('[SiYuanMemo][CardBrowser] 调用 ds.performAction:', actionId);
     const res = await (ds.performAction(actionId, targetCards as any, ctx) as any);
-    console.log('[SiyuanMemo][CardBrowser] performAction 返回结果:', res);
+    console.log('[SiYuanMemo][CardBrowser] performAction 返回结果:', res);
     const updated = Number(res?.updated?.length || 0);
     const skipped = Number(res?.skipped?.length || 0);
     if (updated <= 0 && skipped > 0) {
@@ -1112,7 +1112,7 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
     ) {
       // 🆕 删除卡片后强制清除缓存
       if (actionId === 'delete-card') {
-        console.log('[SiyuanMemo][CardBrowser] 删除卡片后清除缓存');
+        console.log('[SiYuanMemo][CardBrowser] 删除卡片后清除缓存');
         invalidateCardCache();
       }
       
@@ -1125,7 +1125,7 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
     await refreshQueueCounts();
     await pushMsg(t('actionSuccess', 'Success'));
   } catch (err: any) {
-    console.error('[SiyuanMemo][CardBrowser] action failed:', { actionId, err });
+    console.error('[SiYuanMemo][CardBrowser] action failed:', { actionId, err });
     await pushErrMsg(err?.message || t('actionFailed', 'Action failed'));
   }
 }
@@ -1134,27 +1134,27 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
 function onCellContextMenu(event: CellContextMenuEvent) {
   event.event?.preventDefault();
 
-  console.log('[SiyuanMemo][CardBrowser] ========== 右键菜单调试 ==========');
+  console.log('[SiYuanMemo][CardBrowser] ========== 右键菜单调试 ==========');
   
   const ds = currentDataSource.value;
-  console.log('[SiyuanMemo][CardBrowser] 当前数据源:', ds);
-  console.log('[SiyuanMemo][CardBrowser] 数据源类型:', ds?.constructor?.name);
-  console.log('[SiyuanMemo][CardBrowser] 数据源 ID:', (ds as any)?.id);
+  console.log('[SiYuanMemo][CardBrowser] 当前数据源:', ds);
+  console.log('[SiYuanMemo][CardBrowser] 数据源类型:', ds?.constructor?.name);
+  console.log('[SiYuanMemo][CardBrowser] 数据源 ID:', (ds as any)?.id);
   
   // ✅ 过滤掉 undefined/null 的 action
   const rawActions = ds?.getSupportedActions?.() || [];
   const actions = rawActions.filter(a => a && a.id);
   
-  console.log('[SiyuanMemo][CardBrowser] getSupportedActions 返回的动作数量:', rawActions.length, '→ 过滤后:', actions.length);
-  console.log('[SiyuanMemo][CardBrowser] 所有动作:', actions.map(a => ({ id: a.id, label: a.label, hasSubmenu: !!a.submenu })));
+  console.log('[SiYuanMemo][CardBrowser] getSupportedActions 返回的动作数量:', rawActions.length, '→ 过滤后:', actions.length);
+  console.log('[SiYuanMemo][CardBrowser] 所有动作:', actions.map(a => ({ id: a.id, label: a.label, hasSubmenu: !!a.submenu })));
   
   const addToQueueAction = actions.find(a => a.id === 'add-to-queue');
-  console.log('[SiyuanMemo][CardBrowser] 找到"加入队列"动作:', addToQueueAction);
+  console.log('[SiYuanMemo][CardBrowser] 找到"加入队列"动作:', addToQueueAction);
   if (addToQueueAction && addToQueueAction.submenu) {
-    console.log('[SiyuanMemo][CardBrowser] "加入队列"子菜单:', addToQueueAction.submenu.map(s => ({ id: s.id, label: s.label })));
+    console.log('[SiYuanMemo][CardBrowser] "加入队列"子菜单:', addToQueueAction.submenu.map(s => ({ id: s.id, label: s.label })));
   }
   
-  console.log('[SiyuanMemo][CardBrowser] ========== 调试结束 ==========');
+  console.log('[SiYuanMemo][CardBrowser] ========== 调试结束 ==========');
   
   const menu = new Menu('card-browser-context');
   const rowData = event.data as BrowserCard;
@@ -1173,7 +1173,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
           icon: 'iconUp',
           label: t('sortAscending', 'Ascending'),
           click: () => {
-            console.log('[SiyuanMemo][CardBrowser] Menu clicked: Sort by', field.colId, 'ASC');
+            console.log('[SiYuanMemo][CardBrowser] Menu clicked: Sort by', field.colId, 'ASC');
             applySort(field.colId, 'asc');
           },
         },
@@ -1181,7 +1181,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
           icon: 'iconDown',
           label: t('sortDescending', 'Descending'),
           click: () => {
-            console.log('[SiyuanMemo][CardBrowser] Menu clicked: Sort by', field.colId, 'DESC');
+            console.log('[SiYuanMemo][CardBrowser] Menu clicked: Sort by', field.colId, 'DESC');
             applySort(field.colId, 'desc');
           },
         },
@@ -1197,7 +1197,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
     icon: 'iconRefresh',
     label: t('sortRandom', 'Random Sort'),
     click: () => {
-      console.log('[SiyuanMemo][CardBrowser] Menu clicked: Random sort');
+      console.log('[SiYuanMemo][CardBrowser] Menu clicked: Random sort');
       applyRandomSort();
     },
   });
@@ -1247,31 +1247,31 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   menu.addItem({ type: 'separator' });
 
   // ========== 原有的操作菜单 ==========
-  console.log('[SiyuanMemo][CardBrowser] 开始渲染操作菜单，共', actions.length, '个动作');
+  console.log('[SiYuanMemo][CardBrowser] 开始渲染操作菜单，共', actions.length, '个动作');
   
   for (const action of actions) {
     // ✅ 跳过无效的 action
     if (!action || !action.id) {
-      console.warn('[SiyuanMemo][CardBrowser] ⚠️ 跳过无效的 action:', action);
+      console.warn('[SiYuanMemo][CardBrowser] ⚠️ 跳过无效的 action:', action);
       continue;
     }
     
-    console.log('[SiyuanMemo][CardBrowser] 渲染动作:', action.id, action.label, '有子菜单:', !!action.submenu);
+    console.log('[SiYuanMemo][CardBrowser] 渲染动作:', action.id, action.label, '有子菜单:', !!action.submenu);
     
     if (action.submenu && action.submenu.length > 0) {
       // 处理子菜单
-      console.log('[SiyuanMemo][CardBrowser] 渲染子菜单，共', action.submenu.length, '项');
+      console.log('[SiYuanMemo][CardBrowser] 渲染子菜单，共', action.submenu.length, '项');
       
       // ✅ 过滤掉无效的子菜单项
       const validSubmenu = action.submenu.filter(sub => sub && sub.id);
       
       const submenuItems = validSubmenu.map(sub => {
-        console.log('[SiyuanMemo][CardBrowser] 子菜单项:', sub.id, sub.label);
+        console.log('[SiYuanMemo][CardBrowser] 子菜单项:', sub.id, sub.label);
         return {
           icon: sub.icon || 'iconMore',
           label: getActionLabel({ id: sub.id, label: sub.label }),
           click: () => {
-            console.log('[SiyuanMemo][CardBrowser] 子菜单项被点击:', sub.id, sub.label);
+            console.log('[SiYuanMemo][CardBrowser] 子菜单项被点击:', sub.id, sub.label);
             void handleAction(sub.id, selected, rowData);
           },
         };
@@ -1283,7 +1283,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
         submenu: submenuItems,
       });
       
-      console.log('[SiyuanMemo][CardBrowser] ✅ 已添加子菜单:', action.label);
+      console.log('[SiYuanMemo][CardBrowser] ✅ 已添加子菜单:', action.label);
     } else {
       // 处理普通菜单项
       menu.addItem({
@@ -1292,11 +1292,11 @@ function onCellContextMenu(event: CellContextMenuEvent) {
         click: () => void handleAction(action.id, selected, rowData),
       });
       
-      console.log('[SiyuanMemo][CardBrowser] ✅ 已添加普通菜单项:', action.label);
+      console.log('[SiYuanMemo][CardBrowser] ✅ 已添加普通菜单项:', action.label);
     }
   }
   
-  console.log('[SiyuanMemo][CardBrowser] 菜单渲染完成，准备打开菜单');
+  console.log('[SiYuanMemo][CardBrowser] 菜单渲染完成，准备打开菜单');
 
   const mouseEvent = event.event as MouseEvent;
   menu.open({ x: mouseEvent.clientX, y: mouseEvent.clientY });
@@ -1361,9 +1361,9 @@ async function refreshData(forceRefresh = false, preserveFocusState = false) {
   if (!forceRefresh) {
     const cacheStats = getCacheStats();
     if (cacheStats.valid) {
-      console.log(`[SiyuanMemo][CardBrowser] 缓存有效，${cacheStats.count} 张卡片，年龄 ${Math.round(cacheStats.age / 1000)}s`);
+      console.log(`[SiYuanMemo][CardBrowser] 缓存有效，${cacheStats.count} 张卡片，年龄 ${Math.round(cacheStats.age / 1000)}s`);
     } else {
-      console.log(`[SiyuanMemo][CardBrowser] 缓存无效或过期，将重新加载数据`);
+      console.log(`[SiYuanMemo][CardBrowser] 缓存无效或过期，将重新加载数据`);
     }
   }
   
@@ -1378,20 +1378,20 @@ let pendingUpdates: BrowserCard[] = [];
 async function handleCardUpdatedIncremental(cardIds: string[]) {
   if (!gridApi.value || cardIds.length === 0) {
     // 降级：如果 Grid 未初始化或没有卡片，完全重新加载
-    console.log('[SiyuanMemo][SRSBrowser] ⚠️ Falling back to full reload (no grid or no cards)');
+    console.log('[SiYuanMemo][SRSBrowser] ⚠️ Falling back to full reload (no grid or no cards)');
     await loadData(true);
     await refreshQueueCounts();
     return;
   }
   
   try {
-    console.log(`[SiyuanMemo][SRSBrowser] ⚡ Incremental update: ${cardIds.length} cards`);
+    console.log(`[SiYuanMemo][SRSBrowser] ⚡ Incremental update: ${cardIds.length} cards`);
     
     // 1. 从数据源获取更新后的卡片数据
     const updatedCards = await loadQueueCardsSimple(cardIds);
     
     if (updatedCards.length === 0) {
-      console.warn('[SiyuanMemo][SRSBrowser] ⚠️ No updated cards returned, skipping update');
+      console.warn('[SiYuanMemo][SRSBrowser] ⚠️ No updated cards returned, skipping update');
       return;
     }
     
@@ -1419,7 +1419,7 @@ async function handleCardUpdatedIncremental(cardIds: string[]) {
           if (gridApi.value && pendingUpdates.length > 0) {
             // 批量应用所有更新
             gridApi.value.applyTransaction({ update: pendingUpdates });
-            console.log(`[SiyuanMemo][SRSBrowser] ✅ Batch updated ${pendingUpdates.length} rows in grid`);
+            console.log(`[SiYuanMemo][SRSBrowser] ✅ Batch updated ${pendingUpdates.length} rows in grid`);
             pendingUpdates = [];
           }
           rafId = null;
@@ -1430,9 +1430,9 @@ async function handleCardUpdatedIncremental(cardIds: string[]) {
     // 4. 只刷新队列统计（不重新加载数据）
     await refreshQueueCounts();
     
-    console.log(`[SiyuanMemo][SRSBrowser] ✅ Incremental update completed: ${updateCount}/${cardIds.length} cards updated`);
+    console.log(`[SiYuanMemo][SRSBrowser] ✅ Incremental update completed: ${updateCount}/${cardIds.length} cards updated`);
   } catch (error) {
-    console.error('[SiyuanMemo][SRSBrowser] ❌ Incremental update failed, falling back to full reload:', error);
+    console.error('[SiYuanMemo][SRSBrowser] ❌ Incremental update failed, falling back to full reload:', error);
     await loadData(true);
     await refreshQueueCounts();
   }
@@ -1442,14 +1442,14 @@ async function handleCardUpdatedIncremental(cardIds: string[]) {
 async function handleCardDeletedIncremental(cardIds: string[]) {
   if (!gridApi.value || cardIds.length === 0) {
     // 降级：如果 Grid 未初始化或没有卡片，完全重新加载
-    console.log('[SiyuanMemo][SRSBrowser] ⚠️ Falling back to full reload (no grid or no cards)');
+    console.log('[SiYuanMemo][SRSBrowser] ⚠️ Falling back to full reload (no grid or no cards)');
     await loadData(true);
     await refreshQueueCounts();
     return;
   }
   
   try {
-    console.log(`[SiyuanMemo][SRSBrowser] ⚡ Incremental delete: ${cardIds.length} cards`);
+    console.log(`[SiYuanMemo][SRSBrowser] ⚡ Incremental delete: ${cardIds.length} cards`);
     
     // 1. 从 rows.value 中移除删除的卡片
     const rowsToRemove = rows.value.filter(c => cardIds.includes(c.blockId));
@@ -1473,7 +1473,7 @@ async function handleCardDeletedIncremental(cardIds: string[]) {
           
           // 然后删除行
           gridApi.value.applyTransaction({ remove: rowsToRemove });
-          console.log(`[SiyuanMemo][SRSBrowser] ✅ Batch removed ${rowsToRemove.length} rows from grid`);
+          console.log(`[SiYuanMemo][SRSBrowser] ✅ Batch removed ${rowsToRemove.length} rows from grid`);
         }
         rafId = null;
       });
@@ -1482,9 +1482,9 @@ async function handleCardDeletedIncremental(cardIds: string[]) {
     // 3. 只刷新队列统计（不重新加载数据）
     await refreshQueueCounts();
     
-    console.log(`[SiyuanMemo][SRSBrowser] ✅ Incremental delete completed: ${rowsToRemove.length}/${cardIds.length} cards removed`);
+    console.log(`[SiYuanMemo][SRSBrowser] ✅ Incremental delete completed: ${rowsToRemove.length}/${cardIds.length} cards removed`);
   } catch (error) {
-    console.error('[SiyuanMemo][SRSBrowser] ❌ Incremental delete failed, falling back to full reload:', error);
+    console.error('[SiYuanMemo][SRSBrowser] ❌ Incremental delete failed, falling back to full reload:', error);
     await loadData(true);
     await refreshQueueCounts();
   }
@@ -1518,7 +1518,7 @@ function forceRefreshData() {
 
 // 🆕 处理同步完成事件
 function handleSyncComplete(type: 'incremental' | 'full') {
-  console.log('[SiyuanMemo][SRSBrowser] Sync completed:', type);
+  console.log('[SiYuanMemo][SRSBrowser] Sync completed:', type);
   // 同步完成后刷新数据
   forceRefreshData();
 }
@@ -1540,13 +1540,13 @@ let unsubscribe: (() => void) | null = null;
 onBeforeUnmount(() => {
   // 🆕 清理全局浏览器上下文
   clearGlobalBrowserContext();
-  console.log('[SiyuanMemo][SRSBrowser] Global browser context cleared');
+  console.log('[SiYuanMemo][SRSBrowser] Global browser context cleared');
   
   // 🆕 清理统一数据源适配器
   if (browserAdapter.value) {
     browserAdapter.value.destroy();
     browserAdapter.value = null;
-    console.log('[SiyuanMemo][SRSBrowser] UnifiedDataSourceManager adapter destroyed');
+    console.log('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager adapter destroyed');
   }
   
   if (unsubscribe) {
@@ -1568,9 +1568,9 @@ onMounted(() => {
   // 🆕 初始化全局浏览器上下文
   if (props.plugin?.unifiedDataSourceManager) {
     setGlobalBrowserContext(props.plugin.unifiedDataSourceManager, searchQuery.value);
-    console.log('[SiyuanMemo][SRSBrowser] Global browser context initialized');
+    console.log('[SiYuanMemo][SRSBrowser] Global browser context initialized');
   } else {
-    console.warn('[SiyuanMemo][SRSBrowser] UnifiedDataSourceManager not available, global context not initialized');
+    console.warn('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available, global context not initialized');
   }
 
   // 🆕 初始化统一数据源适配器
@@ -1584,7 +1584,7 @@ onMounted(() => {
     
     // 设置数据变更回调（带防抖）
     browserAdapter.value.setOnDataChangeCallback((event: DataChangeEvent) => {
-      console.log('[SiyuanMemo][SRSBrowser] Data changed event received:', event);
+      console.log('[SiYuanMemo][SRSBrowser] Data changed event received:', event);
       
       // 收集待更新的卡片 ID
       if (event.cardIds) {
@@ -1602,7 +1602,7 @@ onMounted(() => {
         pendingCardIds.clear();
         
         if (cardIds.length > 0) {
-          console.log(`[SiyuanMemo][SRSBrowser] ⚡ Processing batched updates: ${cardIds.length} cards`);
+          console.log(`[SiYuanMemo][SRSBrowser] ⚡ Processing batched updates: ${cardIds.length} cards`);
         }
         
         // 根据事件类型处理
@@ -1621,7 +1621,7 @@ onMounted(() => {
             break;
           case 'queue-changed':
             // 队列变更：刷新队列统计和卡片列表
-            console.log('[SiyuanMemo][SRSBrowser] Refreshing queue counts and data due to queue changes');
+            console.log('[SiYuanMemo][SRSBrowser] Refreshing queue counts and data due to queue changes');
             void refreshQueueCounts();
             // 如果当前显示的是队列视图，刷新卡片列表
             if (activeQueueId.value) {
@@ -1630,16 +1630,16 @@ onMounted(() => {
             break;
           case 'mode-switched':
             // 模式切换：完全重新加载
-            console.log('[SiyuanMemo][SRSBrowser] Reloading data due to mode switch');
+            console.log('[SiYuanMemo][SRSBrowser] Reloading data due to mode switch');
             void loadData();
             break;
         }
       }, 300);
     });
     
-    console.log('[SiyuanMemo][SRSBrowser] UnifiedDataSourceManager adapter initialized with debouncing');
+    console.log('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager adapter initialized with debouncing');
   } catch (error) {
-    console.error('[SiyuanMemo][SRSBrowser] Failed to initialize UnifiedDataSourceManager adapter:', error);
+    console.error('[SiYuanMemo][SRSBrowser] Failed to initialize UnifiedDataSourceManager adapter:', error);
     // 降级到旧的实现，不影响正常使用
     browserAdapter.value = null;
   }
@@ -1661,20 +1661,20 @@ onMounted(() => {
   if (plugin?.hybridSyncService) {
     // 监听 wsSync 事件（WebSocket 触发的同步完成）
     plugin.hybridSyncService.on('wsSync', (event: any) => {
-      console.log('[SiyuanMemo][SRSBrowser] Received wsSync event:', event);
+      console.log('[SiYuanMemo][SRSBrowser] Received wsSync event:', event);
       
       if (event.success) {
-        console.log('[SiyuanMemo][SRSBrowser] ⚡ Reloading data due to WebSocket sync...');
+        console.log('[SiYuanMemo][SRSBrowser] ⚡ Reloading data due to WebSocket sync...');
         // 同步成功，刷新数据
         void loadData(true); // 强制刷新缓存
       } else {
-        console.error('[SiyuanMemo][SRSBrowser] WebSocket sync failed:', event.error);
+        console.error('[SiYuanMemo][SRSBrowser] WebSocket sync failed:', event.error);
         // 同步失败，也尝试刷新数据（使用缓存）
         void loadData();
       }
     });
     
-    console.log('[SiyuanMemo][SRSBrowser] ✅ Subscribed to HybridSyncService wsSync events');
+    console.log('[SiYuanMemo][SRSBrowser] ✅ Subscribed to HybridSyncService wsSync events');
   }
 
   // 🆕 触发同步（如果启用）
@@ -1682,7 +1682,7 @@ onMounted(() => {
     const riffConfig = plugin.storage?.getSettings?.()?.riffIntegration;
     
     // 🔍 详细日志：诊断为什么自动同步没有触发
-    console.log('[SiyuanMemo][SRSBrowser] 🔍 Checking auto-sync configuration:', {
+    console.log('[SiYuanMemo][SRSBrowser] 🔍 Checking auto-sync configuration:', {
       hasHybridSyncService: !!plugin.hybridSyncService,
       hasRiffConfig: !!riffConfig,
       mode: riffConfig?.mode,
@@ -1700,17 +1700,17 @@ onMounted(() => {
                                     riffConfig?.incrementalSync?.triggers?.includes('browser-open');
     
     if (isAdvancedMode && shouldSyncOnBrowserOpen) {
-      console.log('[SiyuanMemo][SRSBrowser] ✅ Triggering incremental sync on browser open...');
+      console.log('[SiYuanMemo][SRSBrowser] ✅ Triggering incremental sync on browser open...');
       
       // 使用立即执行的异步函数
       void (async () => {
         try {
           await plugin.hybridSyncService.incrementalSync();
-          console.log('[SiyuanMemo][SRSBrowser] ✅ Incremental sync completed, reloading data...');
+          console.log('[SiYuanMemo][SRSBrowser] ✅ Incremental sync completed, reloading data...');
           // 同步完成后重新加载数据
           await loadData(true); // 强制刷新缓存
         } catch (err) {
-          console.error('[SiyuanMemo][SRSBrowser] ❌ Incremental sync failed:', err);
+          console.error('[SiYuanMemo][SRSBrowser] ❌ Incremental sync failed:', err);
           // 同步失败也继续加载数据
           await loadData();
         }
@@ -1718,14 +1718,14 @@ onMounted(() => {
       
       return; // 不再执行下面的 loadData()
     } else {
-      console.log('[SiyuanMemo][SRSBrowser] ⚠️ Auto-sync not triggered, loading data without sync', {
+      console.log('[SiYuanMemo][SRSBrowser] ⚠️ Auto-sync not triggered, loading data without sync', {
         isAdvancedMode,
         shouldSyncOnBrowserOpen,
         reason: !shouldSyncOnBrowserOpen ? 'browser-open trigger not configured' : 'not advanced mode'
       });
     }
   } else {
-    console.log('[SiyuanMemo][SRSBrowser] ⚠️ HybridSyncService not available');
+    console.log('[SiYuanMemo][SRSBrowser] ⚠️ HybridSyncService not available');
   }
 
   loadData();
@@ -1823,14 +1823,14 @@ function openPracticeMenu(ev: MouseEvent) {
       })();
 
   if (String(process.env.DEV_MODE) === 'true') {
-    console.log('[SiyuanMemo][CardBrowser] openPracticeMenu', { pos, hasPlugin: Boolean(plugin) });
+    console.log('[SiYuanMemo][CardBrowser] openPracticeMenu', { pos, hasPlugin: Boolean(plugin) });
   }
 
   setTimeout(() => {
     try {
       menu.open({ x: pos.x, y: pos.y, isLeft: true });
     } catch (err) {
-      console.error('[SiyuanMemo][CardBrowser] openPracticeMenu failed:', err);
+      console.error('[SiYuanMemo][CardBrowser] openPracticeMenu failed:', err);
       void pushErrMsg('打开练习菜单失败');
     }
   }, 0);
@@ -1853,19 +1853,19 @@ function getQueueById(id: string) {
         const manager = UnifiedDataSourceManager.getInstance();
         const queue = manager.getQueue(queueType);
         if (queue) {
-          console.log(`[SiyuanMemo][SRSBrowser] getQueueById: Using UnifiedDataSourceManager queue for ${id}`);
+          console.log(`[SiYuanMemo][SRSBrowser] getQueueById: Using UnifiedDataSourceManager queue for ${id}`);
           return queue;
         }
       }
     } catch (error) {
-      console.error(`[SiyuanMemo][SRSBrowser] Failed to get queue from UnifiedDataSourceManager:`, error);
+      console.error(`[SiYuanMemo][SRSBrowser] Failed to get queue from UnifiedDataSourceManager:`, error);
       // ⚠️ 不再降级到旧队列系统，防止数据污染
       return null;
     }
   }
   
   // ⚠️ 如果 browserAdapter 未初始化，记录错误并返回 null
-  console.error(`[SiyuanMemo][SRSBrowser] browserAdapter not initialized, cannot get queue: ${id}`);
+  console.error(`[SiYuanMemo][SRSBrowser] browserAdapter not initialized, cannot get queue: ${id}`);
   return null;
 }
 
@@ -1914,7 +1914,7 @@ async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {
   if (!queue) return [];
 
   const items = queue?.getAllItems?.() || [];
-  console.log('[SiyuanMemo][SRSBrowser] loadQueueAllCards:', {
+  console.log('[SiYuanMemo][SRSBrowser] loadQueueAllCards:', {
     queueId,
     itemsCount: items.length,
     items: items.map((it: any) => ({
@@ -1925,10 +1925,10 @@ async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {
   });
 
   const blockIds = extractBlockIds(items);
-  console.log('[SiyuanMemo][SRSBrowser] Extracted blockIds:', blockIds);
+  console.log('[SiYuanMemo][SRSBrowser] Extracted blockIds:', blockIds);
 
   const cards = await loadQueueCardsSimple(blockIds);
-  console.log('[SiyuanMemo][SRSBrowser] Loaded cards:', cards.length);
+  console.log('[SiYuanMemo][SRSBrowser] Loaded cards:', cards.length);
   return cards;
 }
 
@@ -1937,7 +1937,7 @@ async function refreshQueueCounts() {
   const manager = (props.plugin as any)?.unifiedDataSourceManager;
   
   if (!manager) {
-    console.warn('[SiyuanMemo][SRSBrowser] UnifiedDataSourceManager not available, queue counts will be 0');
+    console.warn('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available, queue counts will be 0');
     queueCounts.value = {
       retrieval: 0,
       'final-drill': 0,
@@ -1965,9 +1965,9 @@ async function refreshQueueCounts() {
       'incremental-learning': incrementalQueue ? await incrementalQueue.getSize() : 0,
     };
     
-    console.log('[SiyuanMemo][SRSBrowser] Queue counts refreshed:', queueCounts.value);
+    console.log('[SiYuanMemo][SRSBrowser] Queue counts refreshed:', queueCounts.value);
   } catch (error) {
-    console.error('[SiyuanMemo][SRSBrowser] Failed to refresh queue counts:', error);
+    console.error('[SiYuanMemo][SRSBrowser] Failed to refresh queue counts:', error);
     queueCounts.value = {
       retrieval: 0,
       'final-drill': 0,
@@ -1979,7 +1979,7 @@ async function refreshQueueCounts() {
 }
 
 async function handleSelectQueue(queueId: string) {
-  console.log('[SiyuanMemo][SRSBrowser] 🔍 handleSelectQueue called:', {
+  console.log('[SiYuanMemo][SRSBrowser] 🔍 handleSelectQueue called:', {
     queueId,
     beforeActiveDocId: activeDocId.value,
   });
@@ -2003,7 +2003,7 @@ async function handleSelectQueue(queueId: string) {
   }
   // 其他情况保持当前选择
   
-  console.log('[SiyuanMemo][SRSBrowser] 🔍 After clearing activeDocId:', {
+  console.log('[SiYuanMemo][SRSBrowser] 🔍 After clearing activeDocId:', {
     activeDocId: activeDocId.value,
     shouldFocusDocList: shouldFocusDocList.value,
     currentCardType: currentCardType.value,
@@ -2059,7 +2059,7 @@ function handleFilterDoc(docId: string) {
  * @see filter-group-queue-ui 需求 6.1, 6.2, 6.3
  */
 async function handleApplyFilter(filter: CardFilter) {
-  console.log('[SiyuanMemo][SRSBrowser] Applying filter:', filter);
+  console.log('[SiYuanMemo][SRSBrowser] Applying filter:', filter);
   
   appliedFilter.value = filter;
   showFilterDialog.value = false;
@@ -2070,10 +2070,10 @@ async function handleApplyFilter(filter: CardFilter) {
       const queue = props.plugin.unifiedDataSourceManager.getQueue('filter-group' as any);
       if (queue && 'setFilter' in queue && typeof (queue as any).setFilter === 'function') {
         (queue as any).setFilter(filter);
-        console.log('[SiyuanMemo][SRSBrowser] Filter set on FilterGroupQueue');
+        console.log('[SiYuanMemo][SRSBrowser] Filter set on FilterGroupQueue');
       }
     } catch (error) {
-      console.error('[SiyuanMemo][SRSBrowser] Failed to set filter on queue:', error);
+      console.error('[SiYuanMemo][SRSBrowser] Failed to set filter on queue:', error);
     }
   }
   
@@ -2086,7 +2086,7 @@ async function handleApplyFilter(filter: CardFilter) {
  * @see filter-group-queue-ui 需求 7.1, 7.2
  */
 async function handleClearFilter() {
-  console.log('[SiyuanMemo][SRSBrowser] Clearing filter');
+  console.log('[SiYuanMemo][SRSBrowser] Clearing filter');
   
   appliedFilter.value = null;
   showFilterDialog.value = false;
@@ -2097,10 +2097,10 @@ async function handleClearFilter() {
       const queue = props.plugin.unifiedDataSourceManager.getQueue('filter-group' as any);
       if (queue && 'setFilter' in queue && typeof (queue as any).setFilter === 'function') {
         (queue as any).setFilter({});
-        console.log('[SiyuanMemo][SRSBrowser] Filter cleared on FilterGroupQueue');
+        console.log('[SiYuanMemo][SRSBrowser] Filter cleared on FilterGroupQueue');
       }
     } catch (error) {
-      console.error('[SiyuanMemo][SRSBrowser] Failed to clear filter on queue:', error);
+      console.error('[SiYuanMemo][SRSBrowser] Failed to clear filter on queue:', error);
     }
   }
   
@@ -2117,10 +2117,10 @@ async function handleClearFilter() {
  * - 刷新数据显示
  */
 async function handleRebuildQueue() {
-  console.log('[SiyuanMemo][SRSBrowser] Rebuilding filter queue');
+  console.log('[SiYuanMemo][SRSBrowser] Rebuilding filter queue');
   
   if (activeQueueId.value !== 'filter-group') {
-    console.warn('[SiyuanMemo][SRSBrowser] Rebuild only works for filter-group queue');
+    console.warn('[SiYuanMemo][SRSBrowser] Rebuild only works for filter-group queue');
     return;
   }
   
@@ -2128,15 +2128,15 @@ async function handleRebuildQueue() {
     const queue = props.plugin.unifiedDataSourceManager.getQueue('filter-group' as any);
     if (queue && 'rebuild' in queue && typeof (queue as any).rebuild === 'function') {
       await (queue as any).rebuild();
-      console.log('[SiyuanMemo][SRSBrowser] Queue rebuilt successfully');
+      console.log('[SiYuanMemo][SRSBrowser] Queue rebuilt successfully');
       
       // 刷新数据显示
       await refreshData(true); // 强制刷新缓存
     } else {
-      console.error('[SiyuanMemo][SRSBrowser] Queue does not support rebuild');
+      console.error('[SiYuanMemo][SRSBrowser] Queue does not support rebuild');
     }
   } catch (error) {
-    console.error('[SiyuanMemo][SRSBrowser] Failed to rebuild queue:', error);
+    console.error('[SiYuanMemo][SRSBrowser] Failed to rebuild queue:', error);
     await pushMsg(t('rebuildFailed', 'Failed to reload'), 3000, 'error');
   }
 }
@@ -2150,7 +2150,7 @@ async function handleRebuildQueue() {
  * @see supermemo-reschedule-operations 需求 8.2, 10.4
  */
 async function handleOpenSpreadDialog() {
-  console.log('[SiyuanMemo][SRSBrowser] Opening Spread dialog');
+  console.log('[SiYuanMemo][SRSBrowser] Opening Spread dialog');
   
   try {
     // 🆕 根据当前模式决定使用哪些卡片
@@ -2159,15 +2159,15 @@ async function handleOpenSpreadDialog() {
     
     if (isQueueMode) {
       // 队列模式：使用当前队列的卡片（到期 + 手动添加）
-      console.log('[SiyuanMemo][SRSBrowser] Queue mode - using queue cards:', activeQueueId.value);
+      console.log('[SiYuanMemo][SRSBrowser] Queue mode - using queue cards:', activeQueueId.value);
       cardsToSpread = rows.value;  // rows.value 已经是当前队列的卡片
     } else {
       // 全部闪卡模式：使用所有卡片
-      console.log('[SiyuanMemo][SRSBrowser] All cards mode - using allRows');
+      console.log('[SiYuanMemo][SRSBrowser] All cards mode - using allRows');
       cardsToSpread = allRows.value;
     }
     
-    console.log('[SiyuanMemo][SRSBrowser] Cards to spread:', {
+    console.log('[SiYuanMemo][SRSBrowser] Cards to spread:', {
       mode: activeQueueId.value || 'all',
       total: cardsToSpread.length,
       sample: cardsToSpread.slice(0, 3).map(c => ({ blockId: c.blockId, due: c.due })),
@@ -2186,7 +2186,7 @@ async function handleOpenSpreadDialog() {
       return dueTime <= now;
     });
     
-    console.log('[SiyuanMemo][SRSBrowser] Collected outstanding cards:', {
+    console.log('[SiYuanMemo][SRSBrowser] Collected outstanding cards:', {
       total: cardsToSpread.length,
       outstanding: outstandingCards.length,
     });
@@ -2249,7 +2249,7 @@ async function handleOpenSpreadDialog() {
             await refreshData(true);
             await pushMsg(t('spreadSuccess', '分散操作完成'));
           } catch (err: any) {
-            console.error('[SiyuanMemo][SRSBrowser] Spread operation failed:', err);
+            console.error('[SiYuanMemo][SRSBrowser] Spread operation failed:', err);
             await pushErrMsg(err?.message || t('spreadFailed', '分散操作失败'));
           }
         },
@@ -2262,7 +2262,7 @@ async function handleOpenSpreadDialog() {
       responsive: true,  // 🆕 启用响应式
     });
   } catch (err: any) {
-    console.error('[SiyuanMemo][SRSBrowser] Failed to open Spread dialog:', err);
+    console.error('[SiYuanMemo][SRSBrowser] Failed to open Spread dialog:', err);
     await pushErrMsg(err?.message || t('openDialogFailed', '打开对话框失败'));
   }
 }

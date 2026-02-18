@@ -125,7 +125,7 @@ export function useCardData(props: CardDataOptions) {
 
       await refreshQueueCounts();
     } catch (err) {
-      console.error('[SiyuanMemo][CardBrowser] Load data error:', err);
+      console.error('[SiYuanMemo][CardBrowser] Load data error:', err);
       rows.value = [];
     } finally {
       loading.value = false;
@@ -181,7 +181,7 @@ export function useCardData(props: CardDataOptions) {
     if (!queue) return [];
 
     const items = queue?.getAllItems?.() || [];
-    console.log('[SiyuanMemo][SRSBrowser] loadQueueAllCards:', {
+    console.log('[SiYuanMemo][SRSBrowser] loadQueueAllCards:', {
       queueId,
       itemsCount: items.length,
       items: items.map((it: any) => ({
@@ -192,10 +192,10 @@ export function useCardData(props: CardDataOptions) {
     });
 
     const blockIds = extractBlockIds(items);
-    console.log('[SiyuanMemo][SRSBrowser] Extracted blockIds:', blockIds);
+    console.log('[SiYuanMemo][SRSBrowser] Extracted blockIds:', blockIds);
 
     const cards = await loadQueueCardsSimple(blockIds);
-    console.log('[SiyuanMemo][SRSBrowser] Loaded cards:', cards.length);
+    console.log('[SiYuanMemo][SRSBrowser] Loaded cards:', cards.length);
     return cards;
   }
 
