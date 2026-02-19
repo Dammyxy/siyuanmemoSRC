@@ -4,7 +4,8 @@ import { BrowserCard } from '../types';
 
 export interface GridInteractionsOptions {
   plugin?: any;
-  tabManager?: any;  // ✅ 添加 tabManager
+  tabManager?: any;  // ⚠️ 已废弃，使用 tabApplicationService
+  tabApplicationService?: any;  // ✅ Phase 9: 使用 TabApplicationService
   i18n?: Record<string, string>;
 }
 
@@ -94,18 +95,21 @@ export function useGridInteractions(props: GridInteractionsOptions) {
   };
 
   // 行双击事件
-  const onRowDoubleClicked = (event: any) => {
+  const onRowDoubleClicked = async (event: any) => {
     const blockId = event.data?.blockId;
     if (!blockId) {
       console.warn('[SiYuanMemo][CardBrowser] No blockId found in row data:', event.data);
       return;
     }
     
-    // ✅ 优先使用 tabManager（DDD 架构）
-    if (props.tabManager) {
+    // ✅ Phase 9: 优先使用 TabApplicationService（DDD 架构）
+    if (props.tabApplicationService) {
+      await props.tabApplicationService.openDocumentTab({ docId: blockId });
+    } else if (props.tabManager) {
+      // ⚠️ 向后兼容：使用旧的 TabManager
       props.tabManager.openDocumentTab(blockId);
     } else if (props.plugin?.app) {
-      // 回退到旧方法（向后兼容）
+      // ⚠️ 回退到旧方法（向后兼容）
       (props.plugin.app as any).openTab({
         app: props.plugin.app,
         doc: { id: blockId },

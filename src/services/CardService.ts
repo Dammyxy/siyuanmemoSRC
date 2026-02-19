@@ -10,6 +10,9 @@ import { markBlockAsCard, unmarkBlockAsCard } from '@/core/siyuan/block';
 /**
  * 卡片服务类
  * 负责处理所有与卡片相关的操作
+ * 
+ * @deprecated 此服务正在逐步迁移到 DDD 架构
+ * 建议使用 CardApplicationService 和 ReviewApplicationService
  */
 export class CardService {
   constructor(private plugin: FSRSPlugin) {}
@@ -34,6 +37,23 @@ export class CardService {
     }
     // 回退到旧方法
     return this.plugin.storage;
+  }
+  
+  /**
+   * 获取 CardApplicationService
+   * 
+   * @private
+   * @returns CardApplicationService 实例，如果不可用则返回 null
+   */
+  private getCardService(): any | null {
+    try {
+      if (this.plugin && (this.plugin as any).context) {
+        return (this.plugin as any).context.getCardService();
+      }
+    } catch (error) {
+      console.warn('[CardService] Failed to get CardApplicationService:', error);
+    }
+    return null;
   }
   
   /**
@@ -112,13 +132,24 @@ export class CardService {
         let blockID = target?.getAttribute('data-node-id');
         let cardID = target?.getAttribute(ATTR_CARD_ID);
 
-        // ✅ 新架构：从本地存储查询卡片
+        // ✅ DDD 架构：优先使用 CardApplicationService
         if (!cardID && blockIds.length > 0) {
           try {
             console.log('[SiYuanMemo] Querying local storage for blockIds:', blockIds);
+            const cardService = this.getCardService();
+            
             // 尝试从本地存储获取卡片
             for (const bid of blockIds) {
-              const card = this.storage.getCardByBlockId(bid);
+              let card = null;
+              
+              if (cardService) {
+                // 使用 CardApplicationService（推荐）
+                card = cardService.getCardByBlockId(bid);
+              } else {
+                // 回退到直接 storage 访问（向后兼容）
+                card = this.storage.getCardByBlockId(bid);
+              }
+              
               if (card) {
                 blockID = card.blockId;
                 cardID = card.id;
@@ -161,6 +192,8 @@ export class CardService {
         label: this.plugin.i18n?.makeCardFromSelection || '选中制卡',
         click: async () => {
           let createdCount = 0;
+          const cardService = this.getCardService();
+          const cardsToCreate: any[] = [];
 
           for (const element of blockElements) {
             if (element.hasAttribute(ATTR_CARD_ID)) {
@@ -173,15 +206,36 @@ export class CardService {
             try {
               const card = createDefaultCard(blockId);
               await markBlockAsCard(blockId, card.id, card.priority, 'item');
-              this.storage.setCard(card);
+              
+              if (cardService) {
+                // 收集卡片，稍后批量创建
+                cardsToCreate.push(card);
+              } else {
+                // 回退到直接 storage 访问（向后兼容）
+                this.storage.setCard(card);
+              }
+              
               createdCount++;
             } catch (err) {
               console.error('[SiYuanMemo] Failed to create card from block:', blockId, err);
             }
           }
 
+          // 批量创建卡片（使用 CardApplicationService）
+          if (cardService && cardsToCreate.length > 0) {
+            try {
+              await cardService.batchCreateCardsWithoutEvents(cardsToCreate);
+            } catch (err) {
+              console.error('[SiYuanMemo] Failed to batch create cards:', err);
+            }
+          }
+
           if (createdCount > 0) {
-            await this.storage.saveCards();
+            if (cardService) {
+              await cardService.saveCards();
+            } else {
+              await this.storage.saveCards();
+            }
             await pushMsg((this.plugin.i18n?.msg_created || '已创建 {n} 张闪卡').replace('{n}', String(createdCount)));
           } else {
             await pushMsg(this.plugin.i18n?.msg_already_cards || '选中的块已经是闪卡');
@@ -195,10 +249,9 @@ export class CardService {
         icon: 'iconTrashcan',
         label: '取消闪卡',
         click: async () => {
-          // TODO: [DDD Migration - Task 15.3] This service uses direct storage calls.
-          // Consider migrating to CardApplicationService.deleteCard() or deprecating this service.
-          // Check if handleBlockIconClick is still actively used before migration.
           let removedCount = 0;
+          const cardService = this.getCardService();
+          const cardIdsToDelete: string[] = [];
 
           for (const element of blockElements) {
             if (!element.hasAttribute(ATTR_CARD_ID)) {
@@ -211,15 +264,36 @@ export class CardService {
             }
             try {
               await unmarkBlockAsCard(blockId);
-              this.storage.removeCard(cardId);
+              
+              if (cardService) {
+                // 收集卡片 ID，稍后批量删除
+                cardIdsToDelete.push(cardId);
+              } else {
+                // 回退到直接 storage 访问（向后兼容）
+                this.storage.removeCard(cardId);
+              }
+              
               removedCount++;
             } catch (err) {
               console.error('[SiYuanMemo] Failed to remove card from block:', blockId, err);
             }
           }
 
+          // 批量删除卡片（使用 CardApplicationService）
+          if (cardService && cardIdsToDelete.length > 0) {
+            try {
+              await cardService.batchDeleteCards(cardIdsToDelete);
+            } catch (err) {
+              console.error('[SiYuanMemo] Failed to batch delete cards:', err);
+            }
+          }
+
           if (removedCount > 0) {
-            await this.storage.saveCards();
+            if (cardService) {
+              await cardService.saveCards();
+            } else {
+              await this.storage.saveCards();
+            }
             await pushMsg((this.plugin.i18n?.msg_unmarked || '已取消 {n} 张闪卡').replace('{n}', String(removedCount)));
           } else {
             await pushMsg(this.plugin.i18n?.msg_no_removable || '未找到可取消的闪卡');

@@ -14,7 +14,8 @@ import ActionParamsDialog from '../ActionParamsDialog.vue';
 
 export interface ContextMenuOptions {
   plugin?: any;
-  tabManager?: any;  // ✅ 添加 tabManager
+  tabManager?: any;  // ⚠️ 已废弃，使用 tabApplicationService
+  tabApplicationService?: any;  // ✅ Phase 9: 使用 TabApplicationService
   i18n?: Record<string, string>;
   loadData: () => Promise<void>;
   refreshQueueCounts: () => Promise<void>;
@@ -490,11 +491,14 @@ export function useContextMenu(options: ContextMenuOptions) {
     if (actionId === 'open') {
       const blockId = String(anchorRow?.blockId || targetCards[0]?.blockId || '');
       if (blockId) {
-        // ✅ 优先使用 tabManager（DDD 架构）
-        if (options.tabManager) {
+        // ✅ Phase 9: 优先使用 TabApplicationService（DDD 架构）
+        if (options.tabApplicationService) {
+          await options.tabApplicationService.openDocumentTab({ docId: blockId });
+        } else if (options.tabManager) {
+          // ⚠️ 向后兼容：使用旧的 TabManager
           options.tabManager.openDocumentTab(blockId);
         } else if (options.plugin?.app) {
-          // 回退到旧方法（向后兼容）
+          // ⚠️ 回退到旧方法（向后兼容）
           (options.plugin.app as any).openTab({ 
             app: options.plugin.app, 
             doc: { id: blockId } 

@@ -218,7 +218,8 @@ const props = defineProps<{
   mode?: 'dialog' | 'tab' | 'dock';
   plugin?: any;
   browserService?: any;  // ✅ DDD 架构：浏览器应用服务
-  tabManager?: any;      // ✅ DDD 架构：Tab 管理器
+  tabManager?: any;      // ⚠️ 已废弃，使用 tabApplicationService
+  tabApplicationService?: any;  // ✅ Phase 9: Tab 应用服务
 }>();
 
 const mode = computed(() => props.mode || 'dialog');

@@ -54,6 +54,7 @@ export class CardApplicationService {
   private readonly getCardsQueryHandler: GetCardsQueryHandler;
   private readonly updateFSRSCardUseCase: UpdateFSRSCardUseCase;
   private readonly deleteFSRSCardUseCase: DeleteFSRSCardUseCase;
+  private readonly storage: StorageManager;
   
   /**
    * 构造函数
@@ -71,6 +72,7 @@ export class CardApplicationService {
     storageManager: StorageManager,
     scheduleService: CardScheduleService
   ) {
+    this.storage = storageManager;
     // 初始化查询处理器
     this.getDueCardsQueryHandler = new GetDueCardsQueryHandler(
       storageManager,
@@ -335,10 +337,9 @@ export class CardApplicationService {
    * ```
    */
   getCardByBlockId(blockId: string): any {
-    const query: GetCardQuery = { blockId };
     try {
-      const result = this.getCardQueryHandler.execute(query);
-      return result.card;
+      const card = this.storage.getCard(blockId);
+      return card || null;
     } catch (error) {
       // 卡片不存在
       return null;
@@ -364,14 +365,7 @@ export class CardApplicationService {
    * ```
    */
   setCard(card: any): void {
-    const command: UpdateFSRSCardCommand = {
-      cardId: card.id,
-      updates: card
-    };
-    // 同步执行，不等待结果
-    this.updateFSRSCardUseCase.execute(command).catch(error => {
-      console.error('[CardApplicationService] Failed to set card:', error);
-    });
+    this.storage.setCard(card);
   }
   
   /**
@@ -392,14 +386,7 @@ export class CardApplicationService {
    * ```
    */
   removeCard(cardId: string): void {
-    const command: DeleteFSRSCardCommand = {
-      cardId,
-      deleteFromRiff: false
-    };
-    // 同步执行，不等待结果
-    this.deleteFSRSCardUseCase.execute(command).catch(error => {
-      console.error('[CardApplicationService] Failed to remove card:', error);
-    });
+    this.storage.removeCard(cardId);
   }
   
   /**
@@ -417,10 +404,117 @@ export class CardApplicationService {
    * ```
    */
   async saveCards(): Promise<void> {
-    // 通过 StorageManager 保存
-    // 注意：这里需要访问 StorageManager，但我们没有直接引用
-    // 暂时通过 getCardsQueryHandler 访问
-    // TODO: 考虑添加 StorageManager 的引用
-    console.warn('[CardApplicationService] saveCards() is a legacy method, consider using updateFSRSCard() instead');
+    await this.storage.saveCards();
   }
+
+  /**
+   * 批量删除卡片
+   *
+   * 用于同步服务等需要批量删除卡片的场景。
+   * 注意：此方法会触发领域事件。
+   *
+   * @param cardIds 卡片 ID 列表
+   * @returns 删除结果
+   */
+  async batchDeleteCards(cardIds: string[]): Promise<{ ok: true; value: { deletedCount: number; failedCount: number } } | { ok: false; error: Error }> {
+    if (!cardIds || cardIds.length === 0) {
+      return { ok: true, value: { deletedCount: 0, failedCount: 0 } };
+    }
+
+    let deletedCount = 0;
+    let failedCount = 0;
+
+    for (const cardId of cardIds) {
+      try {
+        const result = await this.deleteCard({ cardId });
+        if (result.ok) {
+          deletedCount++;
+        } else {
+          failedCount++;
+          console.error(`[CardApplicationService] Failed to delete card ${cardId}:`, result.error);
+        }
+      } catch (error) {
+        failedCount++;
+        console.error(`[CardApplicationService] Error deleting card ${cardId}:`, error);
+      }
+    }
+
+    // 保存更改
+    await this.saveCards();
+
+    return { ok: true, value: { deletedCount, failedCount } };
+  }
+
+  /**
+   * 批量创建卡片（不触发领域事件）
+   *
+   * 用于同步服务等需要批量创建卡片的场景。
+   * 注意：此方法不会触发领域事件，适用于从外部数据源同步。
+   *
+   * @param cards FSRSCard 列表
+   * @returns 创建结果
+   */
+  async batchCreateCardsWithoutEvents(cards: any[]): Promise<{ ok: true; value: { createdCount: number; failedCount: number } } | { ok: false; error: Error }> {
+    if (!cards || cards.length === 0) {
+      return { ok: true, value: { createdCount: 0, failedCount: 0 } };
+    }
+
+    let createdCount = 0;
+    let failedCount = 0;
+
+    for (const card of cards) {
+      try {
+        this.storage.setCard(card);
+        createdCount++;
+      } catch (error) {
+        failedCount++;
+        console.error(`[CardApplicationService] Error creating card ${card.id}:`, error);
+      }
+    }
+
+    // 保存更改
+    await this.saveCards();
+
+    return { ok: true, value: { createdCount, failedCount } };
+  }
+
+  /**
+   * 批量更新卡片（不触发领域事件）
+   *
+   * 用于同步服务等需要批量更新卡片的场景。
+   * 注意：此方法不会触发领域事件，适用于从外部数据源同步。
+   *
+   * @param cards FSRSCard 列表
+   * @returns 更新结果
+   */
+  async batchUpdateCardsWithoutEvents(cards: any[]): Promise<{ ok: true; value: { updatedCount: number; failedCount: number } } | { ok: false; error: Error }> {
+    if (!cards || cards.length === 0) {
+      return { ok: true, value: { updatedCount: 0, failedCount: 0 } };
+    }
+
+    let updatedCount = 0;
+    let failedCount = 0;
+
+    for (const card of cards) {
+      try {
+        const existingCard = this.storage.getCard(card.id);
+        if (existingCard) {
+          this.storage.setCard(card);
+          updatedCount++;
+        } else {
+          failedCount++;
+          console.warn(`[CardApplicationService] Card ${card.id} not found for update`);
+        }
+      } catch (error) {
+        failedCount++;
+        console.error(`[CardApplicationService] Error updating card ${card.id}:`, error);
+      }
+    }
+
+    // 保存更改
+    await this.saveCards();
+
+    return { ok: true, value: { updatedCount, failedCount } };
+  }
+
 }

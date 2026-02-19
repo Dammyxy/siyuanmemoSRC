@@ -18,6 +18,7 @@ import { MenuManager } from '@/application/managers/MenuManager';
 import { TabManager } from '@/application/managers/TabManager';
 import { DockManager } from '@/application/managers/DockManager';
 import { PracticeQueueManager } from '@/application/managers/PracticeQueueManager';
+import { TabApplicationService } from '@/application/services/TabApplicationService';
 import { XiuyuanService, XiuyuanStorage } from '@/core/xiuyuan';
 import { DialogService, MenuService, ReviewDialogManager, BlockMenuHandler, HybridSyncService } from '@/services';
 import { TransactionWebSocketService } from '@/services/TransactionWebSocketService';
@@ -223,6 +224,10 @@ export class ApplicationContext {
     this.registerServiceFactory('tabManager', (context) => {
       return new TabManager(context, context.getPlugin());
     });
+    // ✅ Phase 9 Task 1.3: TabApplicationService 已注册
+    this.registerServiceFactory('tabApplicationService', (context) => {
+      return new TabApplicationService(context.getPlugin().app);
+    });
     // ✅ Task 3.4: DockManager 已注册
     this.registerServiceFactory('dockManager', (context) => {
       return new DockManager(context.getPlugin(), context.getStorage(), context.getI18n());
@@ -261,10 +266,15 @@ export class ApplicationContext {
 
       // 创建应用服务
       const { CardApplicationService } = require('@/application/services/CardApplicationService');
+      const { CardScheduleService } = require('@/core/card/domain/services/CardScheduleService');
+      const scheduleService = new CardScheduleService();
+      
       return new CardApplicationService(
         createCardUseCase,
         deleteCardUseCase,
-        updateCardUseCase
+        updateCardUseCase,
+        storageManager,
+        scheduleService
       );
     });
     
@@ -554,27 +564,24 @@ export class ApplicationContext {
     const riffConfig = settings.riffIntegration;
     if (riffConfig) {
       const { riff } = await import('@/core/siyuan');
-      hybridSyncService = new HybridSyncService({
-        deckId: riff.BUILTIN_DECK_ID,
-        storage: storageManager,
-        incrementalSync: {
-          ...riffConfig.incrementalSync,
-          autoDetectCardType: true,
-        },
-        fullSync: riffConfig.fullSync,
-        deleteSync: riffConfig.deleteSync,
-      });
       
-      await hybridSyncService.start();
+      // 先创建 HybridSyncService（不传 CardApplicationService）
+      // 将在 context 创建后再注入
+      hybridSyncService = new HybridSyncService(
+        {
+          deckId: riff.BUILTIN_DECK_ID,
+          storage: storageManager,
+          incrementalSync: {
+            ...riffConfig.incrementalSync,
+            autoDetectCardType: true,
+          },
+          fullSync: riffConfig.fullSync,
+          deleteSync: riffConfig.deleteSync,
+        }
+        // CardApplicationService 将在 context 创建后注入
+      );
       
-      // 启动全量同步定时器
-      if (riffConfig.fullSync.enabled) {
-        fullSyncTimer = setInterval(
-          () => hybridSyncService!.fullSync(),
-          riffConfig.fullSync.interval
-        );
-        console.log(`[ApplicationContext] Full sync timer started (interval: ${riffConfig.fullSync.interval}ms)`);
-      }
+      // start() 和定时器将在 context 创建后启动
       
       console.log('[ApplicationContext] ✅ HybridSyncService initialized');
       
@@ -621,6 +628,25 @@ export class ApplicationContext {
     
     // 13. 设置 ApplicationContext 引用（解决循环依赖）
     blockMenuHandler.setApplicationContext(context);
+    
+    // 14. 注入 CardApplicationService 到 HybridSyncService
+    if (hybridSyncService) {
+      const cardService = context.getCardService();
+      // 使用类型断言来访问私有属性（临时方案）
+      (hybridSyncService as any).cardApplicationService = cardService;
+      
+      // 启动同步服务
+      await hybridSyncService.start();
+      
+      // 启动全量同步定时器
+      if (riffConfig && riffConfig.fullSync.enabled) {
+        fullSyncTimer = setInterval(
+          () => hybridSyncService!.fullSync(),
+          riffConfig.fullSync.interval
+        );
+        console.log(`[ApplicationContext] Full sync timer started (interval: ${riffConfig.fullSync.interval}ms)`);
+      }
+    }
     
     console.log('[ApplicationContext] ✅ ApplicationContext created successfully');
     
@@ -885,6 +911,15 @@ export class ApplicationContext {
    */
   getTabManager(): any {
     return this.getService<any>('tabManager');
+  }
+  
+  /**
+   * 获取 Tab 应用服务
+   * 
+   * @returns TabApplicationService - Tab 应用服务实例
+   */
+  getTabApplicationService(): TabApplicationService {
+    return this.getService<TabApplicationService>('tabApplicationService');
   }
   
   /**

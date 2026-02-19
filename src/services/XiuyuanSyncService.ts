@@ -32,6 +32,14 @@ import type {
     SyncProgress
 } from './XiuyuanSyncService.types';
 
+// CardApplicationService 接口（用于依赖注入）
+interface CardApplicationServiceLike {
+    batchCreateCardsWithoutEvents(cards: any[]): Promise<{ ok: true; value: { createdCount: number; failedCount: number } } | { ok: false; error: Error }>;
+    batchUpdateCardsWithoutEvents(cards: any[]): Promise<{ ok: true; value: { updatedCount: number; failedCount: number } } | { ok: false; error: Error }>;
+    batchDeleteCards(cardIds: string[]): Promise<{ ok: true; value: { deletedCount: number; failedCount: number } } | { ok: false; error: Error }>;
+    saveCards(): Promise<void>;
+}
+
 // ==================== Xiuyuan 同步服务 ====================
 
 /**
@@ -51,6 +59,7 @@ import type {
 export class XiuyuanSyncService extends EventEmitter<HybridSyncEvents> {
     private config: HybridSyncConfig;
     private storage: StorageManager;
+    private cardApplicationService?: CardApplicationServiceLike;
     private lastSyncTime: number = 0;
     private lastFullSyncTime: number = 0;
     
@@ -61,13 +70,14 @@ export class XiuyuanSyncService extends EventEmitter<HybridSyncEvents> {
         backoffMultiplier: 2
     };
     
-    constructor(config: HybridSyncConfig) {
+    constructor(config: HybridSyncConfig, cardApplicationService?: CardApplicationServiceLike) {
         super();
         this.config = {
             ...config,
             retry: config.retry || this.DEFAULT_RETRY_CONFIG
         };
         this.storage = config.storage;
+        this.cardApplicationService = cardApplicationService;
     }
     
     /**
@@ -177,7 +187,14 @@ export class XiuyuanSyncService extends EventEmitter<HybridSyncEvents> {
                         // 本地没有，添加新卡片
                         console.log(`[SiYuanMemo][HybridSync] Adding new card ${riffCard.id}`);
                         const fsrsCard = await this.convertRiffCardToFSRSCard(riffCard);
-                        this.storage.setCard(fsrsCard);
+                        
+                        // 使用 CardApplicationService 或回退到直接 storage 访问
+                        if (this.cardApplicationService) {
+                            await this.cardApplicationService.batchCreateCardsWithoutEvents([fsrsCard]);
+                        } else {
+                            this.storage.setCard(fsrsCard);
+                        }
+                        
                         addedCards.push(riffCard);
                         addedCount++;
                     } else {
@@ -258,7 +275,14 @@ export class XiuyuanSyncService extends EventEmitter<HybridSyncEvents> {
                         // 如果有任何字段发生变化，更新卡片
                         if (needsUpdate) {
                             localCard.updatedAt = Date.now();
-                            this.storage.setCard(localCard);
+                            
+                            // 使用 CardApplicationService 或回退到直接 storage 访问
+                            if (this.cardApplicationService) {
+                                await this.cardApplicationService.batchUpdateCardsWithoutEvents([localCard]);
+                            } else {
+                                this.storage.setCard(localCard);
+                            }
+                            
                             updatedCount++;
                         } else {
                             skippedCount++;
@@ -289,20 +313,32 @@ export class XiuyuanSyncService extends EventEmitter<HybridSyncEvents> {
                 if (cardsToDelete.length > 0) {
                     console.log(`[SiYuanMemo][HybridSync] Deleting ${cardsToDelete.length} cards that no longer exist in Riff`);
                     
-                    // TODO: [DDD Migration - Task 15.3] Sync service uses direct storage calls.
-                    // Needs batch deletion support in CardApplicationService.
-                    // Consider sync-specific deletion logic to avoid infinite loops.
-                    for (const card of cardsToDelete) {
-                        this.storage.removeCard(card.id);  // 使用 removeCard 而不是 deleteCard
-                        deletedCount++;
-                        console.log(`[SiYuanMemo][HybridSync] Deleted card ${card.id}`);
+                    // 使用 CardApplicationService 或回退到直接 storage 访问
+                    if (this.cardApplicationService) {
+                        const cardIds = cardsToDelete.map(c => c.id);
+                        const result = await this.cardApplicationService.batchDeleteCards(cardIds);
+                        if (result.ok) {
+                            deletedCount = result.value.deletedCount;
+                            console.log(`[SiYuanMemo][HybridSync] Deleted ${deletedCount} cards via CardApplicationService`);
+                        }
+                    } else {
+                        for (const card of cardsToDelete) {
+                            this.storage.removeCard(card.id);
+                            deletedCount++;
+                            console.log(`[SiYuanMemo][HybridSync] Deleted card ${card.id}`);
+                        }
                     }
                 }
                 
                 // 5. 保存
                 this.reportProgress(onProgress, 'incremental', 'saving', 5, 7, '正在保存数据...');
                 if (addedCount > 0 || updatedCount > 0 || deletedCount > 0) {
-                    await this.storage.saveCards();
+                    // 使用 CardApplicationService 或回退到直接 storage 访问
+                    if (this.cardApplicationService) {
+                        await this.cardApplicationService.saveCards();
+                    } else {
+                        await this.storage.saveCards();
+                    }
                 }
                 
                 // 6. 自动检测卡片类型（如果启用）
@@ -377,6 +413,7 @@ export class XiuyuanSyncService extends EventEmitter<HybridSyncEvents> {
                 this.reportProgress(onProgress, 'full', 'adding', 2, 7, '正在添加新卡片...');
                 let addedCount = 0;
                 let skippedCount = 0;
+                const cardsToAdd: any[] = [];
                 
                 for (const riffCard of riffCards) {
                     const localCard = this.storage.getCard(riffCard.id);
@@ -385,11 +422,27 @@ export class XiuyuanSyncService extends EventEmitter<HybridSyncEvents> {
                         console.log(`[SiYuanMemo][HybridSync] Card exists locally, skipping: ${riffCard.id}`);
                         skippedCount++;
                     } else {
-                        // ✅ 不存在，添加新卡片
-                        await this.syncRiffCardToLocal(riffCard);
-                        addedCount++;
+                        // ✅ 不存在，准备添加新卡片
+                        const fsrsCard = await this.convertRiffCardToFSRSCard(riffCard);
+                        cardsToAdd.push(fsrsCard);
                     }
                 }
+                
+                // 批量添加新卡片
+                if (cardsToAdd.length > 0) {
+                    if (this.cardApplicationService) {
+                        const result = await this.cardApplicationService.batchCreateCardsWithoutEvents(cardsToAdd);
+                        if (result.ok) {
+                            addedCount = result.value.createdCount;
+                        }
+                    } else {
+                        for (const card of cardsToAdd) {
+                            this.storage.setCard(card);
+                            addedCount++;
+                        }
+                    }
+                }
+                
                 console.log(`[SiYuanMemo][HybridSync] Added ${addedCount} new cards, skipped ${skippedCount} existing cards`);
                 
                 // 3. 删除：本地有但 Riff 没有（通过 blockId 判断）
@@ -407,12 +460,24 @@ export class XiuyuanSyncService extends EventEmitter<HybridSyncEvents> {
                     // 其他情况，删除
                     return true;
                 });
-                // TODO: [DDD Migration - Task 15.3] Sync service uses direct storage calls.
-                // Needs batch deletion support in CardApplicationService.
-                for (const card of toDelete) {
-                    this.storage.removeCard(card.id);
+                
+                let deletedCount = 0;
+                if (toDelete.length > 0) {
+                    if (this.cardApplicationService) {
+                        const cardIds = toDelete.map(c => c.id);
+                        const result = await this.cardApplicationService.batchDeleteCards(cardIds);
+                        if (result.ok) {
+                            deletedCount = result.value.deletedCount;
+                        }
+                    } else {
+                        for (const card of toDelete) {
+                            this.storage.removeCard(card.id);
+                            deletedCount++;
+                        }
+                    }
                 }
-                console.log(`[SiYuanMemo][HybridSync] Deleted ${toDelete.length} cards not in Riff`);
+                
+                console.log(`[SiYuanMemo][HybridSync] Deleted ${deletedCount} cards not in Riff`);
                 
                 // 4. 清理黑名单：黑名单中 Riff 已不存在的 blockId
                 let blacklistCleanedCount = 0;
@@ -431,8 +496,12 @@ export class XiuyuanSyncService extends EventEmitter<HybridSyncEvents> {
                 
                 // 5. 保存
                 this.reportProgress(onProgress, 'full', 'saving', 5, 7, '正在保存数据...');
-                if (addedCount > 0 || toDelete.length > 0) {
-                    await this.storage.saveCards();
+                if (addedCount > 0 || deletedCount > 0) {
+                    if (this.cardApplicationService) {
+                        await this.cardApplicationService.saveCards();
+                    } else {
+                        await this.storage.saveCards();
+                    }
                 }
                 
                 // 6. 自动检测卡片类型（如果启用）
@@ -452,7 +521,7 @@ export class XiuyuanSyncService extends EventEmitter<HybridSyncEvents> {
                 const result: SyncResult = {
                     success: true,
                     addedCount,
-                    deletedCount: toDelete.length,
+                    deletedCount,
                     skippedCount, // 🔧 记录跳过的已有卡片数量
                     blacklistCleanedCount,
                     detectedCount
@@ -510,6 +579,7 @@ export class XiuyuanSyncService extends EventEmitter<HybridSyncEvents> {
                     // 本地已有卡片，只需要同步 FSRS 调度数据
                     console.log(`[SiYuanMemo][HybridSync] Xiuyuan card exists locally, updating FSRS data from Riff`);
                     
+                    const cardsToUpdate: any[] = [];
                     for (const card of existingCards) {
                         // 更新 FSRS 调度数据
                         card.due = riffCard.due;
@@ -523,7 +593,16 @@ export class XiuyuanSyncService extends EventEmitter<HybridSyncEvents> {
                         card.scheduledDays = riffCard.scheduledDays;
                         card.updatedAt = Date.now();
                         
-                        this.storage.setCard(card);
+                        cardsToUpdate.push(card);
+                    }
+                    
+                    // 批量更新
+                    if (this.cardApplicationService) {
+                        await this.cardApplicationService.batchUpdateCardsWithoutEvents(cardsToUpdate);
+                    } else {
+                        for (const card of cardsToUpdate) {
+                            this.storage.setCard(card);
+                        }
                     }
                     
                     console.log(`[SiYuanMemo][HybridSync] Updated ${existingCards.length} Xiuyuan card(s) FSRS data`);
@@ -536,7 +615,13 @@ export class XiuyuanSyncService extends EventEmitter<HybridSyncEvents> {
             } else {
                 // 普通卡片：添加新卡片
                 const fsrsCard = await this.convertRiffCardToFSRSCard(riffCard);
-                this.storage.setCard(fsrsCard);
+                
+                if (this.cardApplicationService) {
+                    await this.cardApplicationService.batchCreateCardsWithoutEvents([fsrsCard]);
+                } else {
+                    this.storage.setCard(fsrsCard);
+                }
+                
                 console.log(`[SiYuanMemo][HybridSync] Added new card: ${blockId}`);
             }
         } catch (error) {

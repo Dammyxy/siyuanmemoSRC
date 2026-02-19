@@ -434,8 +434,24 @@ export async function adjustTime(
     currentDue: r.due instanceof Date ? r.due : undefined,
   }));
 
-  const service = plugin?.rescheduleService
-    ?? (plugin?.storage ? new RescheduleService(plugin.storage) : null);
+  // 获取 RescheduleService
+  // 优先从 plugin.rescheduleService 获取（已注入）
+  // 其次从 ApplicationContext 获取
+  // 最后回退到直接创建（向后兼容）
+  let service = plugin?.rescheduleService;
+  
+  if (!service && plugin && (plugin as any).context) {
+    try {
+      service = (plugin as any).context.getRescheduleService?.();
+    } catch (error) {
+      console.warn('[MenuActions] Failed to get RescheduleService from context:', error);
+    }
+  }
+  
+  if (!service && plugin?.storage) {
+    // 回退到直接创建（向后兼容）
+    service = new RescheduleService(plugin.storage);
+  }
 
   if (!service) {
     return null;

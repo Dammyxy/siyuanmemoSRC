@@ -32,6 +32,10 @@ type FsrsPluginLike = {
   openSubsetReviewDialog?: (blockIds: string[]) => Promise<void> | void;
 };
 
+type CardApplicationServiceLike = {
+  batchUpdateCardsWithoutEvents?: (cards: any[]) => Promise<{ ok: boolean; value?: { updatedCount: number; failedCount: number }; error?: Error }>;
+};
+
 function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
   if (!sortModel?.length) return rows;
   const [{ colId, sort }] = sortModel;
@@ -73,16 +77,24 @@ export class DeckDataSource implements ICardDataSource {
 
   private readonly manager: UnifiedDataSourceManager;  // 🆕 新架构
   private readonly plugin?: FsrsPluginLike;  // 🔧 保留用于特殊功能（Review Subset、神经漫游、时间调整）
+  private readonly cardApplicationService?: CardApplicationServiceLike;  // ✅ Phase 9: 卡片应用服务
   private readonly options: DeckDataSourceOptions;
 
-  constructor(manager: UnifiedDataSourceManager, options: DeckDataSourceOptions, plugin?: FsrsPluginLike) {
+  constructor(
+    manager: UnifiedDataSourceManager, 
+    options: DeckDataSourceOptions, 
+    plugin?: FsrsPluginLike,
+    cardApplicationService?: CardApplicationServiceLike  // ✅ Phase 9: 注入卡片应用服务
+  ) {
     this.manager = manager;  // 🆕 直接接收 manager
     this.plugin = plugin;  // 🔧 可选的 plugin 对象
+    this.cardApplicationService = cardApplicationService;  // ✅ Phase 9
     this.options = options;
 
     console.log('[SiYuanMemo][DeckDataSource] Constructor - Using unified data source manager:', {
       hasManager: !!this.manager,
       hasPlugin: !!this.plugin,
+      hasCardApplicationService: !!this.cardApplicationService,
       currentMode: 'advanced',
     });
   }
@@ -536,19 +548,54 @@ export class DeckDataSource implements ICardDataSource {
       }
       
       // 处理修缘卡片：更新 FSRSCard.meta.priority
-      if (xiuyuanCards.length > 0 && this.plugin?.storage) {
-        for (const card of xiuyuanCards) {
+      if (xiuyuanCards.length > 0) {
+        // ✅ Phase 9: 使用 CardApplicationService 批量更新
+        if (this.cardApplicationService?.batchUpdateCardsWithoutEvents) {
           try {
-            const fsrsCard = this.plugin.storage.getCard(card.id);
-            if (fsrsCard) {
-              fsrsCard.meta = fsrsCard.meta || {};
-              fsrsCard.meta.priority = priority;
-              await this.plugin.storage.updateCard(fsrsCard);
+            // 准备更新数据
+            const updates = xiuyuanCards.map(card => {
+              const fsrsCard = {
+                id: card.id,
+                meta: {
+                  ...(card as any).meta,
+                  priority: priority
+                }
+              };
+              return fsrsCard;
+            });
+            
+            // 批量更新
+            const result = await this.cardApplicationService.batchUpdateCardsWithoutEvents(updates);
+            
+            if (result.ok) {
+              console.log(`[SiYuanMemo][DeckDataSource] ✅ Updated ${result.value?.updatedCount} Xiuyuan cards via CardApplicationService`);
+              
+              // 更新内存中的 priority
+              for (const card of xiuyuanCards) {
+                (card as any).priority = priority;
+              }
+            } else {
+              console.error('[SiYuanMemo][DeckDataSource] Failed to update Xiuyuan cards:', result.error);
             }
-            // 更新内存中的 priority
-            (card as any).priority = priority;
           } catch (err) {
-            console.error('[SiYuanMemo][DeckDataSource] Failed to set priority for Xiuyuan card:', card.id, err);
+            console.error('[SiYuanMemo][DeckDataSource] Failed to batch update Xiuyuan cards:', err);
+          }
+        } else if (this.plugin?.storage) {
+          // ⚠️ 向后兼容：回退到直接 storage 访问
+          console.warn('[SiYuanMemo][DeckDataSource] CardApplicationService not available, falling back to direct storage access');
+          for (const card of xiuyuanCards) {
+            try {
+              const fsrsCard = this.plugin.storage.getCard(card.id);
+              if (fsrsCard) {
+                fsrsCard.meta = fsrsCard.meta || {};
+                fsrsCard.meta.priority = priority;
+                await this.plugin.storage.updateCard(fsrsCard);
+              }
+              // 更新内存中的 priority
+              (card as any).priority = priority;
+            } catch (err) {
+              console.error('[SiYuanMemo][DeckDataSource] Failed to set priority for Xiuyuan card:', card.id, err);
+            }
           }
         }
       }

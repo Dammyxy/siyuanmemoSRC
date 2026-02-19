@@ -27,6 +27,22 @@ export class ReviewService {
   constructor(private plugin: FSRSPlugin) {}
 
   /**
+   * 获取 Siyuan App 实例
+   * 优先从 plugin.app 获取，回退到 window.siyuan?.app
+   */
+  private getApp() {
+    return this.plugin.app || (window as any).siyuan?.app;
+  }
+
+  /**
+   * 获取 StorageManager 实例
+   * 优先从 plugin.storage 获取
+   */
+  private getStorage() {
+    return this.plugin.storage;
+  }
+
+  /**
    * 打开复习面板（弹窗模式）- 使用 Vue UI 2.0
    */
   async openReviewDialog() {
@@ -88,7 +104,7 @@ export class ReviewService {
     try {
       // ✅ 使用 RetrievalPracticeProvider，传递 storage 和 scheduler
       const provider = new RetrievalPracticeProvider({
-        storage: this.plugin.storage,
+        storage: this.getStorage(),
         scheduler: this.plugin.scheduler,
       });
       const adapter = new RetrievalPracticeAdapter({ i18n: this.plugin.i18n || {} });
@@ -99,7 +115,7 @@ export class ReviewService {
         transparent: true,
         isReview: true,
         props: {
-          app: this.plugin.app,
+          app: this.getApp(),
           i18n: this.plugin.i18n || {},
           title: provider.displayName,  // 传递 title 给组件显示在 logo 区域
           provider: provider as any,
@@ -133,7 +149,7 @@ export class ReviewService {
       this.plugin.reviewDialog.destroy();
     }
     try {
-      const settings = this.plugin.storage?.getSettings?.();
+      const settings = this.getStorage()?.getSettings?.();
       const leech = (settings as any)?.leech || {};
       // ✅ 使用 队列（复合架构）
       const session = new LeechQueue({
@@ -148,7 +164,7 @@ export class ReviewService {
         dataKey: 'dialog-opencard', // 让思源热键系统能够识别
         isReview: true,
         props: {
-          app: this.plugin.app,
+          app: this.getApp(),
           i18n: this.plugin.i18n || {},
           queue: session as any,
           adapter: new LeechAdapter({ i18n: this.plugin.i18n || {} }) as any,
@@ -187,7 +203,7 @@ export class ReviewService {
     try {
       const provider = new ProviderFinalDrillProvider({
         queue: this.plugin.finalDrillQueue as any,
-        storage: this.plugin.storage,
+        storage: this.getStorage(),
         i18n: this.plugin.i18n || {},
       });
       await provider.init();
@@ -198,7 +214,7 @@ export class ReviewService {
         dataKey: 'dialog-opencard', // 让思源热键系统能够识别
         transparent: true,
         props: {
-          app: this.plugin.app,
+          app: this.getApp(),
           i18n: this.plugin.i18n || {},
           title: provider.displayName,  // 传递给 Vue 组件显示
           provider: provider as any,
@@ -259,7 +275,7 @@ export class ReviewService {
         transparent: true,
         isReview: true,
         props: {
-          app: this.plugin.app,
+          app: this.getApp(),
           i18n: this.plugin.i18n || {},
           title,  // 传递给 Vue 组件显示
           queue: this.plugin.incrementalQueue as any,
@@ -306,7 +322,7 @@ export class ReviewService {
         transparent: true,
         isReview: true,
         props: {
-          app: this.plugin.app,
+          app: this.getApp(),
           i18n: this.plugin.i18n || {},
           title,  // 传递给 Vue 组件显示
           queue: this.plugin.filterGroupQueue as any,
@@ -351,7 +367,7 @@ export class ReviewService {
         transparent: true,
         isReview: true,
         props: {
-          app: this.plugin.app,
+          app: this.getApp(),
           i18n: this.plugin.i18n || {},
           title,  // 传递给 Vue 组件显示
           queue: this.plugin.leechQueue as any,
@@ -430,7 +446,7 @@ export class ReviewService {
       dataKey: 'dialog-opencard', // 让思源热键系统能够识别
       transparent: true,
       props: {
-        app: this.plugin.app,
+        app: this.getApp(),
         i18n: this.plugin.i18n || {},
         title,  // 传递给 Vue 组件显示
         queue: session as any,
@@ -474,7 +490,7 @@ export class ReviewService {
       component: ReviewView,
       dataKey: 'dialog-opencard', // 让思源热键系统能够识别
       props: {
-        app: this.plugin.app,
+        app: this.getApp(),
         i18n: this.plugin.i18n || {},
         title,  // 传递给 Vue 组件显示
         queue: session as any,
@@ -538,7 +554,7 @@ export class ReviewService {
 
     // 打开自定义 Tab，然后在新窗口中打开
     const tab = await openTab({
-      app: this.plugin.app,
+      app: this.getApp(),
       custom: {
         icon: 'iconSiyuanMemo',
         title: title || '复习',

@@ -5,7 +5,7 @@ import { getRiffCardsByBlockIDs } from '@/core/siyuan/riff';
 import { riff } from '@/core/siyuan';
 import { DEFAULT_PRIORITY } from '@/core/queue';
 import { SubsetPracticeStrategy } from '@/core/queue/strategies';
-import { SubsetPracticeAdapter } from '@/ui/review/v2';
+import { SubsetPracticeAdapter, ReviewView } from '@/ui/review/v2';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import { createVueDialog } from '@/utils/dialog';
 import { createDefaultCard } from '@/types';
@@ -13,6 +13,32 @@ import { markBlockAsCard, unmarkBlockAsCard } from '@/core/siyuan/block';
 
 export class BlockEventHandler {
   constructor(private plugin: FSRSPlugin) {}
+
+  /**
+   * 获取 Siyuan App 实例
+   * 优先从 plugin.app 获取，回退到 window.siyuan?.app
+   */
+  private getApp() {
+    return this.plugin.app || (window as any).siyuan?.app;
+  }
+
+  /**
+   * 获取 i18n 实例
+   */
+  private getI18n() {
+    return this.plugin.i18n || {};
+  }
+
+  /**
+   * 获取或设置 reviewDialog
+   */
+  private getReviewDialog() {
+    return this.plugin.reviewDialog;
+  }
+
+  private setReviewDialog(dialog: any) {
+    this.plugin.reviewDialog = dialog;
+  }
 
   /**
    * 处理块图标点击（添加闪卡菜单）
@@ -29,7 +55,7 @@ export class BlockEventHandler {
     if (!menu || !docId) {
       return;
     }
-    const drillLabel = this.plugin.i18n?.blockModeLabel || '块练习';
+    const drillLabel = this.getI18n()?.blockModeLabel || '块练习';
     menu.addItem({
       icon: 'iconRiffCard',
       label: drillLabel,
@@ -37,14 +63,14 @@ export class BlockEventHandler {
         try {
           const cards = await this.getDrillCardsFromDocTree(docId);
           if (cards.length === 0) {
-            await pushMsg(this.plugin.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+            await pushMsg(this.getI18n()?.drillNoCards || '当前范围内没有可练习的闪卡');
             return;
           }
-          // await pushMsg((this.plugin.i18n?.drillAdded || '已加入 {n} 张闪卡').replace('{n}', String(cards.length)));
+          // await pushMsg((this.getI18n()?.drillAdded || '已加入 {n} 张闪卡').replace('{n}', String(cards.length)));
           this.openDrillDialogWithCards(cards, 'block');
         } catch (err) {
           console.error('[SiYuanMemo] Failed to open drill from doc menu:', err);
-          await pushErrMsg(this.plugin.i18n?.drillFailed || '机械练习启动失败');
+          await pushErrMsg(this.getI18n()?.drillFailed || '机械练习启动失败');
         }
       }
     });
@@ -58,7 +84,7 @@ export class BlockEventHandler {
     if (!menu || !docId) {
       return;
     }
-    const drillLabel = this.plugin.i18n?.blockModeLabel || '块练习';
+    const drillLabel = this.getI18n()?.blockModeLabel || '块练习';
     menu.addItem({
       icon: 'iconRiffCard',
       label: drillLabel,
@@ -66,14 +92,14 @@ export class BlockEventHandler {
         try {
           const cards = await this.getDrillCardsFromDocTree(docId);
           if (cards.length === 0) {
-            await pushMsg(this.plugin.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+            await pushMsg(this.getI18n()?.drillNoCards || '当前范围内没有可练习的闪卡');
             return;
           }
-          // await pushMsg((this.plugin.i18n?.drillAdded || '已加入 {n} 张闪卡').replace('{n}', String(cards.length)));
+          // await pushMsg((this.getI18n()?.drillAdded || '已加入 {n} 张闪卡').replace('{n}', String(cards.length)));
           this.openDrillDialogWithCards(cards, 'block');
         } catch (err) {
           console.error('[SiYuanMemo] Failed to open drill from breadcrumb menu:', err);
-          await pushErrMsg(this.plugin.i18n?.drillFailed || '机械练习启动失败');
+          await pushErrMsg(this.getI18n()?.drillFailed || '机械练习启动失败');
         }
       }
     });
@@ -162,49 +188,52 @@ export class BlockEventHandler {
   }
 
   private openDrillDialogWithCards(cards: any[], practiceMode: 'queue' | 'block' = 'queue') {
-    if (this.plugin.reviewDialog) {
-      this.plugin.reviewDialog.destroy();
+    const reviewDialog = this.getReviewDialog();
+    if (reviewDialog) {
+      reviewDialog.destroy();
     }
     const ids = Array.from(new Set((cards || []).map((c) => String(c?.blockID || c?.blockId || '')).filter(Boolean)));
     if (ids.length === 0) {
-      void pushMsg(this.plugin.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+      void pushMsg(this.getI18n()?.drillNoCards || '当前范围内没有可练习的闪卡');
       return;
     }
+    const i18n = this.getI18n();
     const modeLabel = practiceMode === 'block'
-      ? (this.plugin.i18n?.blockModeLabel || '块练习')
-      : (this.plugin.i18n?.queueModeLabel || '队列练习');
-    const blockTitleTemplate = this.plugin.i18n?.blockPracticeTitleWithCount || '当前练习队列：{n}张闪卡';
+      ? (i18n?.blockModeLabel || '块练习')
+      : (i18n?.queueModeLabel || '队列练习');
+    const blockTitleTemplate = i18n?.blockPracticeTitleWithCount || '当前练习队列：{n}张闪卡';
     const blockTitle = blockTitleTemplate.replace('{n}', String(cards.length));
     const title = practiceMode === 'block'
       ? blockTitle
       : (cards.length > 0 ? `${modeLabel} (${cards.length} 张)` : modeLabel);
 
     const session = new SubsetPracticeStrategy({ blockIds: ids, deckID: riff.BUILTIN_DECK_ID });
-    const adapter = new SubsetPracticeAdapter({ i18n: this.plugin.i18n || {}, label: title, queueName: practiceMode });
-    this.plugin.reviewDialog = createVueDialog({
+    const adapter = new SubsetPracticeAdapter({ i18n, label: title, queueName: practiceMode });
+    const dialog = createVueDialog({
       hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的 .block__icons 头部
       component: ReviewView,
       dataKey: 'dialog-opencard', // 让思源热键系统能够识别
       props: {
-        app: this.plugin.app,
-        i18n: this.plugin.i18n || {},
+        app: this.getApp(),
+        i18n,
         title,  // 传递给 Vue 组件显示
         queue: session as any,
         adapter: adapter as any,
       },
       events: {
         close: () => {
-          this.plugin.reviewDialog?.destroy();
+          this.getReviewDialog()?.destroy();
         },
       },
       width: '80vw',
       height: '70vh',
       onClose: () => {
-        this.plugin.reviewDialog = null;
+        this.setReviewDialog(null);
       },
     });
+    this.setReviewDialog(dialog);
 
-    const dialogEl = this.plugin.reviewDialog.dialog.element;
+    const dialogEl = dialog.dialog.element;
     const scrim = dialogEl.querySelector('.b3-dialog__scrim') as HTMLElement;
     const container = dialogEl.querySelector('.b3-dialog__container') as HTMLElement;
 

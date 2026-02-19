@@ -137,6 +137,28 @@ export class AutoCardHandler implements ITransactionHandler {
     }
     
     /**
+     * 保存单个卡片（使用 DDD 架构）
+     * 
+     * @private
+     * @param card 卡片对象
+     * @description
+     * 优先使用 CardApplicationService.batchCreateCardsWithoutEvents()
+     * 回退到直接 storage 访问（向后兼容）
+     */
+    private async saveCard(card: any): Promise<void> {
+        const cardService = this.getCardService();
+        
+        if (cardService) {
+            // 使用 CardApplicationService（推荐）
+            await cardService.batchCreateCardsWithoutEvents([card]);
+        } else {
+            // 回退到直接 storage 访问（向后兼容）
+            this.storage.setCard(card);
+            await this.storage.saveCards();
+        }
+    }
+    
+    /**
      * 使用 CardApplicationService 创建概念卡
      * 
      * @private
@@ -359,7 +381,12 @@ export class AutoCardHandler implements ITransactionHandler {
         }
         
         // 批量保存
-        await this.storage.saveCards();
+        const cardService = this.getCardService();
+        if (cardService) {
+            await cardService.saveCards();
+        } else {
+            await this.storage.saveCards();
+        }
     }
     
     /**
@@ -391,7 +418,15 @@ export class AutoCardHandler implements ITransactionHandler {
             console.log('[SiYuanMemo][AutoCard] Checking quick symbols:', blockId, 'content:', kramdown);
             
             // 2. 检查是否已制卡
-            const existingCard = this.storage.getCardByBlockId(blockId);
+            const cardService = this.getCardService();
+            let existingCard = null;
+            
+            if (cardService) {
+                existingCard = cardService.getCardByBlockId(blockId);
+            } else {
+                existingCard = this.storage.getCardByBlockId(blockId);
+            }
+            
             if (existingCard) {
                 console.log('[SiYuanMemo][AutoCard] Block already has card:', blockId);
                 return;
@@ -696,8 +731,7 @@ export class AutoCardHandler implements ITransactionHandler {
             console.log('[SiYuanMemo][AutoCard] Marked block as card:', blockId);
             
             // 6. 保存到存储
-            this.storage.setCard(card);
-            await this.storage.saveCards();
+            await this.saveCard(card);
             
             console.log('[SiYuanMemo][AutoCard] Basic card created successfully:', blockId, direction);
             
@@ -751,8 +785,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 const { markBlockAsCard } = await import('@/core/siyuan/block');
                 await markBlockAsCard(blockId, card.id, card.priority, 'item');
                 
-                this.storage.setCard(card);
-                await this.storage.saveCards();
+                await this.saveCard(card);
                 
                 const { pushMsg } = await import('@/core/siyuan/api');
                 await pushMsg(`✅ 已创建双向卡片 (<>) - 仅正向`);
@@ -994,8 +1027,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 });
                 
                 // 8. 保存到存储
-                this.storage.setCard(card);
-                await this.storage.saveCards();
+                await this.saveCard(card);
                 
                 console.log('[SiYuanMemo][AutoCard] Concept card created successfully:', blockId);
                 
@@ -1146,8 +1178,7 @@ export class AutoCardHandler implements ITransactionHandler {
             await markBlockAsCard(blockId, card.id, card.priority, 'item');
             
             // 5. 保存到存储
-            this.storage.setCard(card);
-            await this.storage.saveCards();
+            await this.saveCard(card);
             
             console.log('[SiYuanMemo][AutoCard] Basic card created from descriptor:', blockId);
             
@@ -1255,8 +1286,7 @@ export class AutoCardHandler implements ITransactionHandler {
         await markBlockAsCard(blockId, card.id, card.priority, 'item');
         
         // 保存到存储
-        this.storage.setCard(card);
-        await this.storage.saveCards();
+        await this.saveCard(card);
         
         console.log('[SiYuanMemo][AutoCard] Single cloze card created:', blockId);
         
@@ -1367,7 +1397,15 @@ export class AutoCardHandler implements ITransactionHandler {
             console.log('[SiYuanMemo][AutoCard] Creating list template cards:', blockId, 'children:', children.length);
             
             // 1. 检查是否已制卡
-            const existingCard = this.storage.getCardByBlockId(blockId);
+            const cardService = this.getCardService();
+            let existingCard = null;
+            
+            if (cardService) {
+                existingCard = cardService.getCardByBlockId(blockId);
+            } else {
+                existingCard = this.storage.getCardByBlockId(blockId);
+            }
+            
             if (existingCard) {
                 console.log('[SiYuanMemo][AutoCard] Block already has card:', blockId);
                 return;
@@ -1645,8 +1683,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     await markBlockAsCard(refId, card.id, card.priority, 'topic');
                     
                     // 保存到存储
-                    this.storage.setCard(card);
-                    await this.storage.saveCards();
+                    await this.saveCard(card);
                     
                     console.log('[SiYuanMemo][AutoCard] Empty concept card created:', refId);
                 } catch (error) {
@@ -1838,8 +1875,7 @@ export class AutoCardHandler implements ITransactionHandler {
             await markBlockAsCard(conceptId, card.id, card.priority, 'topic');
             
             // 保存到存储
-            this.storage.setCard(card);
-            await this.storage.saveCards();
+            await this.saveCard(card);
             
             console.log('[SiYuanMemo][AutoCard] Empty concept card created:', conceptId);
         } catch (error) {
