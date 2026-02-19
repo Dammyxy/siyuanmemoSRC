@@ -3,6 +3,9 @@
  */
 
 import type { ICardTemplate } from '../types';
+import { BUILTIN_CONCEPT_TEMPLATE } from './builtin-concept';
+import { BUILTIN_SYMBOL_TEMPLATE } from './builtin-symbol';
+import { BUILTIN_QUICK_TEMPLATE } from './builtin-quick';
 
 /** 基础问答模板 */
 export const BASIC_QA_TEMPLATE: ICardTemplate = {
@@ -266,5 +269,9 @@ export const BUILTIN_TEMPLATES: ICardTemplate[] = [
   MULTI_CLOZE_TEMPLATE,
   LIST_ITEM_TEMPLATE,
   CONCEPT_DESCRIPTOR_TEMPLATE,
-  CONCEPT_DEFINITION_TEMPLATE,  // ← 新增
+  CONCEPT_DEFINITION_TEMPLATE,
+  // 🆕 新增的统一架构模板
+  BUILTIN_CONCEPT_TEMPLATE,  // 概念卡（简单）
+  BUILTIN_SYMBOL_TEMPLATE,   // 符号问答卡
+  BUILTIN_QUICK_TEMPLATE,    // 快速卡片
 ];

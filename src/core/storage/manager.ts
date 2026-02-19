@@ -232,17 +232,7 @@ export class StorageManager {
         }
     }
 
-    /**
-     * 获取到期卡片
-     */
-    getDueCards(now: Date = new Date()): FSRSCard[] {
-        const nowMs = now.getTime();
-        return this.getAllCards().filter(card =>
-            card.due <= nowMs &&
-            !card.skipped &&
-            (!card.skipUntil || card.skipUntil <= nowMs)
-        );
-    }
+
 
     /**
      * 加载卡片

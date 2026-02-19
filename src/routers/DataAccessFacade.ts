@@ -1,9 +1,11 @@
 ﻿/**
- * Advanced Data Router
- * 高级模式数据路由器
+ * Data Access Facade
+ * 数据访问门面
  * 
- * 高级模式路由器，所有请求转发到本地存储。
- * 高级模式允许完全读写访问，支持所有队列类型和上下文菜单选项。
+ * 提供统一的数据访问接口，封装底层存储细节。
+ * 实现 Facade 模式，简化数据访问逻辑。
+ * 
+ * @deprecated 旧名称 AdvancedDataRouter 已废弃，请使用 DataAccessFacade
  * 
  * @see .kiro/specs/unified-data-source-architecture/requirements.md
  * @see .kiro/specs/unified-data-source-architecture/design.md
@@ -19,33 +21,44 @@ import {
 } from '../types/unified-data-source';
 import { FSRSCard } from '../types/card';
 import type { StorageManager } from '../core/storage/manager';
+import type { CardApplicationService } from '../application/services/CardApplicationService';
 import { batchSetRiffCardsDueTime } from '../core/siyuan/riff';
 import { sql } from '../core/siyuan/api';
 import { getCurrentDayEnd } from '../utils/dateUtils';
 import { getDayStartHour } from '../utils/configUtils';
 import { getBlockText } from '../core/siyuan/block';
-import { migrateCard } from '../utils/cardMigration';  // ✅ 添加迁移工具导入
+import { migrateCard } from '../utils/cardMigration';
 
 /**
- * AdvancedDataRouter 类
+ * DataAccessFacade 类
  * 
- * 高级模式数据路由器，负责：
+ * 数据访问门面，负责：
  * - 从本地存储获取卡片数据
  * - 更新和删除卡片
  * - 显式同步到 Riff（通过 syncToRiff 方法）
- * - 提供高级模式下的队列类型和上下文菜单选项
+ * - 提供可用的队列类型和上下文菜单选项
+ * 
+ * 采用 Facade 模式，为 UnifiedDataSourceManager 提供简化的数据访问接口。
  * 
  * @see 需求 3.1, 3.2, 3.3, 3.4, 3.5
  */
-export class AdvancedDataRouter implements IDataRouter {
+export class DataAccessFacade implements IDataRouter {
     // ========================================================================
     // 私有属性
     // ========================================================================
     
     /**
+     * 卡片应用服务
+     * 
+     * 用于访问卡片数据的 DDD 应用服务层
+     */
+    private cardService: CardApplicationService;
+    
+    /**
      * 本地存储管理器
      * 
      * 用于访问本地持久化的卡片数据
+     * @deprecated 逐步迁移到使用 cardService
      */
     private storage: StorageManager;
     
@@ -71,10 +84,12 @@ export class AdvancedDataRouter implements IDataRouter {
     /**
      * 构造函数
      * 
-     * @param storage 本地存储管理器实例
+     * @param cardService 卡片应用服务实例
+     * @param storage 本地存储管理器实例（向后兼容）
      * @param plugin 插件实例（用于访问配置）
      */
-    constructor(storage: StorageManager, plugin?: any) {
+    constructor(cardService: CardApplicationService, storage: StorageManager, plugin?: any) {
+        this.cardService = cardService;
         this.storage = storage;
         this.plugin = plugin;
     }
@@ -86,7 +101,7 @@ export class AdvancedDataRouter implements IDataRouter {
     /**
      * 获取单个卡片
      * 
-     * 通过本地存储获取卡片数据。
+     * 通过卡片应用服务获取卡片数据。
      * 
      * @param cardId 卡片 ID
      * @returns 卡片数据
@@ -94,30 +109,31 @@ export class AdvancedDataRouter implements IDataRouter {
      * @see 需求 3.5
      */
     async getCard(cardId: string): Promise<FSRSCard> {
-        const card = this.storage.getCard(cardId);
+        const result = await this.cardService.getCard({ cardId });
         
-        if (!card) {
+        if (!result.card) {
             throw new Error(`Card not found: ${cardId}`);
         }
         
         // ✅ 应用迁移逻辑：确保 learning_step 字段存在
-        return migrateCard(card);
+        return migrateCard(result.card);
     }
     
     /**
      * 获取卡片列表
      * 
-     * 通过本地存储获取卡片列表，支持过滤。
+     * 通过卡片应用服务获取卡片列表，支持过滤。
      * 
      * @param filter 可选的过滤条件
      * @returns 卡片数组
      * @see 需求 3.5
      */
     async getCards(filter?: CardFilter): Promise<FSRSCard[]> {
-        // 获取所有卡片
-        let cards = this.storage.getAllCards();
+        // 通过 CardApplicationService 获取所有卡片
+        const result = await this.cardService.getCards({});
+        let cards = result.cards;
         
-        console.log(`[SiYuanMemo][AdvancedDataRouter] 🔍 getAllCards() returned ${cards.length} cards`);
+        console.log(`[SiYuanMemo][AdvancedDataRouter] 🔍 getCards() returned ${cards.length} cards`);
         
         // 🔍 调试：统计卡片类型分布
         const typeStats = cards.reduce((acc, card) => {
@@ -159,7 +175,7 @@ export class AdvancedDataRouter implements IDataRouter {
      * 更新卡片
      * 
      * 高级模式允许完全读写访问，可以更新卡片数据。
-     * 更新后保存到本地存储。
+     * 通过卡片应用服务更新卡片。
      * 
      * 如果启用了 Riff 同步且卡片使用 Riff 调度器，则自动同步到 Riff。
      * 
@@ -167,9 +183,27 @@ export class AdvancedDataRouter implements IDataRouter {
      * @see 需求 3.4, 17.2, 17.3
      */
     async updateCard(card: FSRSCard): Promise<void> {
-        // 更新本地存储
-        this.storage.setCard(card);
-        await this.storage.saveCards();
+        // 通过 CardApplicationService 更新卡片
+        const result = await this.cardService.updateFSRSCard({
+            cardId: card.id,
+            updates: {
+                due: card.due,
+                stability: card.stability,
+                difficulty: card.difficulty,
+                elapsed_days: card.elapsed_days,
+                scheduled_days: card.scheduled_days,
+                reps: card.reps,
+                lapses: card.lapses,
+                state: card.state,
+                last_review: card.last_review,
+                priority: card.priority,
+                meta: card.meta,
+            }
+        });
+        
+        if (!result.ok) {
+            throw new Error(`Failed to update card ${card.id}: ${result.error}`);
+        }
         
         // 仅在用户明确选择 Riff 调度器时才同步
         if (this.riffSyncEnabled && card.schedulerType === 'riff') {
@@ -180,29 +214,27 @@ export class AdvancedDataRouter implements IDataRouter {
     /**
      * 删除卡片
      * 
-     * 从本地存储中删除卡片，并尝试从 Riff 删除（如果启用）。
+     * 通过卡片应用服务删除卡片，并尝试从 Riff 删除（如果启用）。
      * 
      * @param cardId 要删除的卡片 ID
      * @see 需求 3.4
-     * 
-     * TODO: [DDD Migration - Task 15.3] Router uses direct storage calls.
-     * Should delegate to CardApplicationService.deleteCard().
-     * Inject ApplicationContext or CardApplicationService.
      */
     async deleteCard(cardId: string): Promise<void> {
-        // 1. 从本地存储删除
-        this.storage.removeCard(cardId);
-        await this.storage.saveCards();
-        
-        // 2. 尝试从 Riff 删除（如果启用）
+        // 检查是否需要从 Riff 删除
+        let deleteFromRiff = false;
         if (this.plugin?.hybridSyncService) {
             const riffConfig = this.storage.getSettings().riffIntegration;
-            if (riffConfig?.deleteSync?.enabled) {
-                // 后台执行删除同步，不阻塞 UI
-                void this.plugin.hybridSyncService.deleteSync(cardId).catch((err: Error) => {
-                    console.error('[SiYuanMemo][AdvancedDataRouter] Delete sync failed for card:', cardId, err);
-                });
-            }
+            deleteFromRiff = riffConfig?.deleteSync?.enabled || false;
+        }
+        
+        // 通过 CardApplicationService 删除卡片
+        const result = await this.cardService.deleteFSRSCard({
+            cardId,
+            deleteFromRiff
+        });
+        
+        if (!result.ok) {
+            throw new Error(`Failed to delete card ${cardId}: ${result.error}`);
         }
     }
     
@@ -759,3 +791,21 @@ export class AdvancedDataRouter implements IDataRouter {
         return str.replace(/'/g, "''");
     }
 }
+
+// ==================== 向后兼容 ====================
+
+/**
+ * @deprecated 使用 DataAccessFacade 代替
+ * 
+ * 为了向后兼容，保留旧名称作为类型别名。
+ * 此别名将在下一个主版本中移除。
+ */
+export type AdvancedDataRouter = DataAccessFacade;
+
+/**
+ * @deprecated 使用 DataAccessFacade 代替
+ * 
+ * 为了向后兼容，导出类的别名。
+ * 此导出将在下一个主版本中移除。
+ */
+export const AdvancedDataRouter = DataAccessFacade;

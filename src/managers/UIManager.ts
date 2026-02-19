@@ -15,7 +15,6 @@ import { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
 import { RetrievalPracticeAdapter, ReviewView, SubsetPracticeAdapter, LeechAdapter, FinalDrillAdapter } from '@/ui/review/v2';
 import { RetrievalPracticeProvider } from '@/ui/review/v2/providers/RetrievalPracticeProvider';
 import { FinalDrillProvider } from '@/ui/review/v2/providers/FinalDrillProvider';
-import { PluginUIAssembler } from '@/core/application/PluginAssembler';
 // 🆕 Unified Data Source
 import { createUnifiedReviewDialog } from '@/strategies/createUnifiedReviewDialog';
 import { QueueType } from '@/types/unified-data-source';
@@ -23,11 +22,8 @@ import { QueueType } from '@/types/unified-data-source';
 type PracticeQueueFilter = { type: 'doc' | 'tree' | 'sql'; value: string };
 
 export class UIManager {
-  private assembler: PluginUIAssembler;
   
   constructor(private plugin: FSRSPlugin) {
-    // 初始化组装器
-    this.assembler = this.plugin.pluginService.uiAssembler;
   }
 
   initializeTabs() {
@@ -129,7 +125,12 @@ export class UIManager {
   }
 
   private initDockPanel(element: HTMLElement) {
-    this.assembler.initDockPanel(element);
+    // 使用 ApplicationContext 的 DockManager
+    this.plugin.context.getDockManager().initDockPanel(
+      element,
+      () => this.plugin.pluginService.openReviewDialog(),
+      () => this.plugin.pluginService.openSRSBrowser()
+    );
   }
 
   initializeCommands() {

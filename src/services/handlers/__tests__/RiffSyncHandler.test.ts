@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { RiffSyncHandler } from '../RiffSyncHandler';
 import type { Transaction } from '../../TransactionWebSocketService';
-import type { HybridSyncService } from '../../HybridSyncService';
+import type { HybridSyncService } from '../../XiuyuanSyncService';
 
 describe('RiffSyncHandler', () => {
     let handler: RiffSyncHandler;

@@ -1,0 +1,1219 @@
+﻿/**
+ * FSRS Plugin Entry
+ * 插件入口文件
+ */
+
+import {
+  Plugin,
+  getFrontend,
+  Menu,
+  openTab,
+  openWindow,
+  Constants,
+} from 'siyuan';
+/// #if !BROWSER
+import { ipcRenderer } from 'electron';
+/// #endif
+import { createApp } from 'vue';
+
+import { StorageManager } from '@/core/storage';
+import { type SchedulerEngineAdapter, SchedulerRouter } from '@/core/scheduler';
+import { RescheduleService } from '@/core/scheduler/rescheduleService';
+import { getCardBlockIds } from '@/core/siyuan/block';
+import { pushErrMsg, pushMsg } from '@/core/siyuan/api';
+import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
+import { SettingsPanel } from '@/ui/settings';
+import { createVueDialog } from '@/utils/dialog';
+
+import '@/index.scss';
+import { XiuyuanService, XiuyuanStorage } from '@/core/xiuyuan';
+import { TemplateSelectDialog } from '@/ui/xiuyuan';
+
+// 🆕 Debug tools (only in development)
+if (process.env.NODE_ENV === 'development') {
+  import('@/debug/fsrs-debug');
+}
+
+import { type QueueItem } from '@/core/queue';
+// 🆕 使用新架构队列（统一从 @/queues 导入）
+import { RetrievalPracticeQueue } from '@/queues/RetrievalPracticeQueue';
+import { FilterGroupQueue } from '@/queues/FilterGroupQueue';
+import { FinalDrillQueue } from '@/queues/FinalDrillQueue';
+import { IncrementalLearningQueue } from '@/queues/IncrementalLearningQueue';
+// 🔧 旧架构队列（仅用于难点攻坚）
+import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
+// Services
+import { DialogService, MenuService, ReviewDialogManager, BlockMenuHandler, clearPracticeQueue, HybridSyncService } from '@/services';
+import { TransactionWebSocketService } from '@/services/TransactionWebSocketService';
+import { ConfigMigrator } from '@/utils/configMigrator';
+
+// 🆕 Unified Data Source
+import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
+import { QueueType } from '@/types/unified-data-source';
+
+// 🆕 ApplicationContext (Phase 1 Task 3.1)
+import { ApplicationContext } from '@/application/ApplicationContext';
+import { QueueContext } from '@/core/queue';
+
+type PracticeQueueFilter = { type: 'doc' | 'tree' | 'sql'; value: string };
+
+export default class FSRSPlugin extends Plugin {
+  // 运行环境
+  public isMobile: boolean = false;
+  public isBrowser: boolean = false;
+
+  // 🆕 应用上下文（Phase 1 Task 3.1）
+  private context!: ApplicationContext;
+
+  // 向后兼容的访问器（保持现有代码可以继续工作）
+  public get storage(): StorageManager {
+    return this.context.getStorage();
+  }
+  
+  public get scheduler(): SchedulerEngineAdapter {
+    return this.context.getLegacyScheduler();
+  }
+  
+  public get schedulerRouter(): SchedulerRouter {
+    return this.context.getScheduler();
+  }
+  
+  public get rescheduleService(): RescheduleService {
+    return this.context.getRescheduleService();
+  }
+  
+  public get queueContext(): QueueContext<QueueItem> {
+    return this.context.getQueueContext();
+  }
+  
+  public get retrievalQueue(): RetrievalPracticeQueue {
+    return this.context.getRetrievalQueue() as any;
+  }
+  
+  public get finalDrillQueue(): FinalDrillQueue {
+    return this.context.getFinalDrillQueue();
+  }
+  
+  public get leechQueue(): LeechQueue {
+    return this.context.getLeechQueue();
+  }
+  
+  public get incrementalQueue(): IncrementalLearningQueue {
+    return this.context.getIncrementalQueue();
+  }
+  
+  public get subsetQueue(): FilterGroupQueue {
+    return this.context.getSubsetQueue();
+  }
+  
+  public get xiuyuanService(): XiuyuanService {
+    return this.context.getXiuyuanService();
+  }
+  
+  public get xiuyuanStorage(): XiuyuanStorage {
+    return this.context.getXiuyuanStorage();
+  }
+  
+  public get unifiedDataSourceManager(): UnifiedDataSourceManager {
+    return this.context.getUnifiedDataSourceManager();
+  }
+  
+  private get dialogService(): DialogService {
+    return this.context.getDialogService();
+  }
+  
+  private get menuService(): MenuService {
+    return this.context.getMenuService();
+  }
+  
+  private get reviewDialogManager(): ReviewDialogManager {
+    return this.context.getReviewDialogManager();
+  }
+  
+  private get blockMenuHandler(): BlockMenuHandler {
+    return this.context.getBlockMenuHandler();
+  }
+  
+  private get hybridSyncService(): HybridSyncService | undefined {
+    return this.context.getHybridSyncService();
+  }
+  
+  private get transactionWebSocketService(): TransactionWebSocketService | undefined {
+    return this.context.getTransactionWebSocketService();
+  }
+
+  // 为兼容性提供的别名访问器
+  public get deliberateQueue(): FinalDrillQueue {
+    return this.finalDrillQueue;
+  }
+
+  // 🆕 neuralQueue getter - 通过统一数据源管理器访问
+  public get neuralQueue() {
+    return this.unifiedDataSourceManager.getQueue(QueueType.NeuralRoam) as any;
+  }
+
+  // neuralRoamQueue 别名 → neuralQueue（保持兼容性）
+  public get neuralRoamQueue() {
+    return this.neuralQueue;
+  }
+
+  // filterGroupQueue 别名 → subsetQueue（保持兼容性）
+  public get filterGroupQueue(): FilterGroupQueue {
+    return this.subsetQueue;
+  }
+
+  // 🆕 UI 管理器（Phase 1 Task 2.4）
+  private get dialogManager(): any {
+    return this.context.getDialogManager();
+  }
+  
+  private get menuManager(): any {
+    return this.context.getMenuManager();
+  }
+  
+  private get tabManager(): any {
+    return this.context.getTabManager();
+  }
+
+  private TAB_TYPE = 'plugin-siyuanmemo-srs-browser';
+  private REVIEW_TAB_TYPE = 'plugin-siyuanmemo-review';  // 🆕 复习界面 Tab 类型
+
+  private topBarElement: HTMLElement | null = null;
+  private topBarContextMenuHandler: ((ev: MouseEvent) => void) | null = null;
+  private isInitialized = false;
+  private didWarnTopbarMount = false;
+
+
+  // UI 状态
+  private reviewDialog: { dialog: any; destroy: () => void } | null = null;
+  private srsBrowserDialog: { dialog: any; destroy: () => void } | null = null;
+
+  constructor(options: any) {
+    super(options);
+  }
+
+  async onload() {
+    console.log('[SiYuanMemo] Plugin loading...');
+
+    this.isInitialized = false;
+
+    // 🆕 加载 vis-network 库（已删除）
+
+    try {
+      this.addIcons(`<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <symbol id="iconSiyuanMemo" viewBox="0 0 24 24">
+    <path d="M12 2a10 10 0 1 0 10 10A10.01 10.01 0 0 0 12 2Zm0 2a8 8 0 1 1-8 8 8.01 8.01 0 0 1 8-8Zm-1 3v5H8v2h5v3l5-4-5-4Z"/>
+  </symbol>
+</svg>`);
+      this.topBarElement = this.addTopBar({
+        icon: 'iconSiyuanMemo',
+        title: this.i18n?.topbarTitle || '间隔重复系统 (左键SRS浏览器/右键菜单)',
+        position: 'right',
+        callback: () => {
+          if (!this.isInitialized) {
+            pushMsg(this.i18n?.loading || '插件初始化中，请稍后...');
+            return;
+          }
+          this.openSRSBrowser();
+        },
+      });
+      this.topBarElement.classList.add('fsrs-topbar');
+
+      this.topBarContextMenuHandler = (ev: MouseEvent) => {
+        ev.preventDefault();
+        this.openTopBarMenu(ev);
+      };
+      this.topBarElement.addEventListener('contextmenu', this.topBarContextMenuHandler);
+    } catch (err) {
+      console.error('[SiYuanMemo] Failed to register topbar:', err);
+    }
+
+    // 检测运行环境
+    const frontEnd = getFrontend();
+    this.isMobile = frontEnd === 'mobile' || frontEnd === 'browser-mobile';
+    this.isBrowser = frontEnd.includes('browser');
+
+    try {
+      // 🆕 Phase 1 Task 3.1: 使用 ApplicationContext 初始化所有服务
+      console.log('[SiYuanMemo] Creating ApplicationContext...');
+      this.context = await ApplicationContext.create({
+        plugin: this,
+        i18n: this.i18n || {},
+      });
+      console.log('[SiYuanMemo] ✅ ApplicationContext created successfully');
+      
+      // 🆕 配置迁移检查（旧版 disabled/data-only/full-scheduler）
+      const settings = this.storage.getSettings();
+      const riffConfig = settings.riffIntegration;
+      if (riffConfig && ConfigMigrator.needsMigration(riffConfig)) {
+        console.log('[SiYuanMemo] Riff config migration needed');
+        const migratedConfig = ConfigMigrator.migrate(riffConfig as any);
+        const message = ConfigMigrator.getMigrationMessage((riffConfig as any).mode);
+        
+        // 保存新配置
+        await this.storage.updateSettings({
+          ...settings,
+          riffIntegration: migratedConfig
+        });
+        
+        // 显示迁移提示
+        setTimeout(() => {
+          pushMsg(message);
+        }, 1000);
+        
+        console.log('[SiYuanMemo] ✅ Riff config migrated');
+      }
+
+      // 🆕 简单模式移除迁移（移除 mode 字段，自动切换到高级模式）
+      const { SimpleModeRemovalMigrator } = await import('./utils/simpleModeRemovalMigrator');
+      const finalRiffConfig = this.storage.getSettings().riffIntegration;
+      
+      if (finalRiffConfig && SimpleModeRemovalMigrator.needsMigration(finalRiffConfig)) {
+        console.log('[SiYuanMemo] Simple mode removal migration needed');
+        
+        try {
+          // 执行迁移
+          const migrationResult = await SimpleModeRemovalMigrator.performMigration(
+            finalRiffConfig,
+            this.hybridSyncService
+          );
+          
+          // 保存迁移后的配置
+          await this.storage.updateSettings({
+            ...this.storage.getSettings(),
+            riffIntegration: migrationResult.migratedConfig as any
+          });
+          
+          console.log('[SiYuanMemo] ✅ Simple mode removal migration completed');
+          console.log('[SiYuanMemo] Sync triggered:', migrationResult.syncTriggered);
+          console.log('[SiYuanMemo] Migration success:', migrationResult.success);
+        } catch (error) {
+          console.error('[SiYuanMemo] ❌ Simple mode removal migration failed:', error);
+          await SimpleModeRemovalMigrator.handleMigrationError(
+            error as Error,
+            'plugin initialization'
+          );
+        }
+      } else if (finalRiffConfig && finalRiffConfig.mode) {
+        // 即使不是简单模式，也移除 mode 字段以保持一致性
+        console.log('[SiYuanMemo] Removing mode field from config for consistency');
+        const { mode, ...cleanConfig } = finalRiffConfig;
+        await this.storage.updateSettings({
+          ...this.storage.getSettings(),
+          riffIntegration: cleanConfig as any
+        });
+      }
+
+      this.isInitialized = true;
+
+    } catch (err) {
+      console.error('[SiYuanMemo] Plugin initialization failed:', err);
+      try {
+        await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
+      } catch {}
+    }
+
+    // 注册 Dock 面板
+    this.addDock({
+      config: {
+        position: 'RightBottom',
+        size: { width: 400, height: 500 },
+        icon: 'iconCards',
+        title: 'FSRS',
+      },
+      data: { plugin: this },
+      type: 'siyuanmemo-dock',
+      init: (dock) => {
+        this.initDockPanel(dock.element);
+      },
+    });
+
+    // 命令面板已清空 - 所有功能通过顶栏图标、浏览器面板和右键菜单访问
+
+    // 🆕 Tab 注册已移至 TabManager（Phase 1 Task 2.4）
+    // TabManager.registerAll() 在初始化时已调用
+    // 旧的 Tab 注册代码已移除，现在由 TabManager 统一管理
+
+    // 注册块菜单
+    this.eventBus.on('click-blockicon', this.handleBlockIconClick.bind(this));
+    this.eventBus.on('click-editortitleicon', this.handleEditorTitleIconClick.bind(this));
+    this.eventBus.on('open-menu-breadcrumbmore', this.handleBreadcrumbMore.bind(this));
+    this.eventBus.on('open-menu-doctree', this.handleDocTreeMenu.bind(this));
+    this.eventBus.on('open-menu-blockref', this.handleBlockRefMenu.bind(this));
+
+    // 将插件实例存储到全局变量，供 RestoreTab 访问
+    (window as any).siyuanMemoPlugin = this;
+
+    console.log('[SiYuanMemo] Plugin loaded successfully');
+  }
+
+  onLayoutReady(): void {
+    this.ensureTopbarMounted();
+  }
+
+  onunload() {
+    console.log('[SiYuanMemo] Plugin unloading...');
+
+    // 关闭复习对话框和 SRS 浏览器
+    this.reviewDialog?.destroy();
+    this.srsBrowserDialog?.destroy();
+
+    // 🆕 Phase 1 Task 3.1: 使用 ApplicationContext 清理所有服务
+    if (this.context) {
+      this.context.dispose().catch(err => {
+        console.error('[SiYuanMemo] Error disposing ApplicationContext:', err);
+      });
+    }
+
+    try {
+      if (this.topBarElement && this.topBarContextMenuHandler) {
+        this.topBarElement.removeEventListener('contextmenu', this.topBarContextMenuHandler);
+      }
+    } catch {}
+
+    // 注意：不在插件关闭时保存数据，避免同步冲突
+    // 数据应该在运行时实时保存（dirty flag 机制）
+
+    console.log('[SiYuanMemo] Plugin unloaded');
+  }
+
+  /**
+   * 卸载插件时删除所有插件数据
+   * 
+   * @description
+   * 删除所有插件存储的文件，包括：
+   * - cards.msgpack / cards.json: 卡片数据
+   * - settings.json: 用户设置
+   * - xiuyuan.msgpack: 修缘卡片数据
+   * - reschedule-configs.json: 重新调度配置
+   * - riff-blacklist.msgpack / riff-blacklist.json: 用户黑名单
+   * - queue-*.json: 队列状态
+   * - review-v2-*.json: 复习进度
+   * - *.backup.*: 备份文件
+   * - practice-queue.msgpack / practice-queue.json: 练习队列
+   * - incremental-learning-queue.msgpack / incremental-learning-queue.json: 渐进学习队列
+   * 
+   * 注意：卸载后这些数据无法恢复，请谨慎操作
+   */
+  uninstall() {
+    console.log('[SiYuanMemo] Plugin uninstalling, removing all data...');
+
+    const allFiles = [
+      // 主要数据文件
+      'cards.msgpack',
+      'cards.json',
+      'settings.json',
+      'xiuyuan.msgpack',
+      'reschedule-configs.json',
+      
+      // 黑名单
+      'riff-blacklist.msgpack',
+      'riff-blacklist.json',
+      
+      // 队列文件
+      'practice-queue.msgpack',
+      'practice-queue.json',
+      'practice-queue-backup.msgpack',
+      'incremental-learning-queue.msgpack',
+      'incremental-learning-queue.json',
+      'queue-final-drill.json',
+      'queue-retrieval-practice.json',
+      'queue-neural-roam.json',
+      'queue-incremental-learning.json',
+      
+      // 复习进度
+      'review-v2-final-drill.json',
+      
+      // 备份文件
+      'queue-final-drill.backup.json',
+      'queue-retrieval-practice.backup.json',
+      'queue-neural-roam.backup.json',
+      'queue-incremental-learning.backup.json',
+    ];
+
+    let removedCount = 0;
+    let failedCount = 0;
+
+    allFiles.forEach(filename => {
+      this.removeData(filename)
+        .then(() => {
+          removedCount++;
+          console.log(`[SiYuanMemo] ✅ Removed: ${filename}`);
+        })
+        .catch(e => {
+          failedCount++;
+          console.warn(`[SiYuanMemo] ⚠️ Failed to remove [${filename}]:`, e);
+        });
+    });
+
+    console.log(`[SiYuanMemo] Uninstall cleanup: ${allFiles.length} files queued for removal`);
+  }
+
+  /**
+   * 打开顶栏右键菜单
+   */
+  private openTopBarMenu(ev: MouseEvent) {
+    this.ensureTopbarMounted();
+    // 🆕 使用 MenuManager（Phase 1 Task 2.4）
+    if (this.menuManager) {
+      this.menuManager.openTopBarMenu(ev);
+      return;
+    }
+    
+    // 向后兼容：使用 MenuService
+    this.menuService.openTopBarMenu(ev);
+  }
+
+  private ensureTopbarMounted(): void {
+    const el = this.topBarElement;
+    if (!el) return;
+    if (el.isConnected) return;
+
+    const right = document.querySelector('.toolbar__right') as HTMLElement | null;
+    const left = document.querySelector('.toolbar__left') as HTMLElement | null;
+    const container = right || left;
+    if (container) {
+      try {
+        container.appendChild(el);
+        el.style.display = '';
+        el.style.opacity = '1';
+        el.style.pointerEvents = '';
+        return;
+      } catch (err) {
+        if (!this.didWarnTopbarMount) {
+          console.warn('[SiYuanMemo] Failed to remount topbar element:', err);
+          this.didWarnTopbarMount = true;
+        }
+        return;
+      }
+    }
+
+    if (!this.didWarnTopbarMount) {
+      console.warn('[SiYuanMemo] Topbar container not found; topbar button may be hidden by layout');
+      this.didWarnTopbarMount = true;
+    }
+  }
+
+  openSetting(defaultTab?: string) {
+    // 🆕 使用 DialogManager（Phase 1 Task 2.4）
+    if (this.dialogManager) {
+      this.dialogManager.openSettingsDialog(defaultTab);
+      return;
+    }
+    
+    // 向后兼容：旧的实现（保留以防万一）
+    console.warn('[SiYuanMemo] DialogManager not initialized, using fallback');
+    const currentSettings = this.storage.getSettings();
+    const settingsDialog = createVueDialog({
+      title: this.i18n?.settings || '设置',
+      component: SettingsPanel,
+      props: {
+        fsrsSettings: currentSettings.fsrs,
+        queueSettings: currentSettings.queues,
+        schedulerSettings: currentSettings.scheduler,  // 🆕 新增
+        riffIntegrationSettings: currentSettings.riffIntegration,  // 🆕 Riff 集成配置
+        incrementalSettings: currentSettings.incremental,  // 🆕 新增
+        quickCardSettings: currentSettings.quickCard,  // 🆕 快速制卡配置
+        uiSettings: { enableDebugLogs: currentSettings.ui?.enableDebugLogs ?? false },  // 🆕 新增
+        i18n: this.i18n || {},
+        defaultTab,
+        queueCount: this.retrievalQueue['localBuffer']?.length || 0,
+        queueHandlers: {
+          preview: (filter: PracticeQueueFilter) => this.previewPracticeQueue(filter),
+          add: (filter: PracticeQueueFilter) => this.addPracticeQueue(filter),
+          start: () => this.startPracticeQueue(),
+          clear: () => this.clearPracticeQueue(),
+        },
+      },
+      events: {
+        save: async (settings: any) => {
+          const updatedSettings = {
+            ...currentSettings,
+            fsrs: {
+              ...currentSettings.fsrs,
+              requestRetention: settings.requestRetention,
+              maximumInterval: settings.maximumInterval,
+              enableShortTerm: settings.enableShortTerm,
+              weights: settings.params,
+              dayStartHour: settings.dayStartHour ?? 4,  // 🆕 保存 dayStartHour
+            },
+            queues: settings.queues || currentSettings.queues,
+            scheduler: settings.scheduler || currentSettings.scheduler,  // 🆕 保存调度器配置
+            riffIntegration: settings.riffIntegration || currentSettings.riffIntegration,  // 🆕 保存 Riff 集成配置
+            incremental: settings.incremental || currentSettings.incremental,  // 🆕 保存增量阅读配置
+            quickCard: settings.quickCard || currentSettings.quickCard,  // 🆕 保存快速制卡配置
+            ui: settings.ui || currentSettings.ui,  // 🆕 保存 UI 设置
+          };
+          await this.storage.updateSettings(updatedSettings);
+          this.scheduler.updateParams(updatedSettings.fsrs);
+
+          // 🆕 更新 SchedulerRouter 配置
+          if (this.schedulerRouter && settings.scheduler) {
+            this.schedulerRouter.updateConfig({
+              defaultScheduler: settings.scheduler.defaultScheduler,
+              enableRiffSync: settings.scheduler.enableRiffSync,
+              fsrsParams: updatedSettings.fsrs,
+            });
+            console.log('[SiYuanMemo] ✅ SchedulerRouter config updated');
+          }
+
+          // 🆕 更新 TransactionObserver 启用状态
+          // ⚠️ DEPRECATED: TransactionObserver 已被 AutoCardHandler 替代
+          // if (this.transactionObserver && settings.incremental) {
+          //   const autoCardEnabled = settings.incremental.autoCardEnabled || false;
+          //   this.transactionObserver.setEnabled(autoCardEnabled);
+          //   console.log('[SiYuanMemo] ✅ TransactionObserver enabled:', autoCardEnabled);
+          // }
+
+          // 🆕 更新 HybridSyncService 配置（如果需要）
+          if (settings.riffIntegration && this.hybridSyncService) {
+            // 清理旧定时器
+            if (this.fullSyncTimer) {
+              clearInterval(this.fullSyncTimer);
+              this.fullSyncTimer = undefined;
+            }
+            
+            // 重启服务以应用新配置
+            this.hybridSyncService.stop();
+            this.hybridSyncService = new HybridSyncService({
+              deckId: riff.BUILTIN_DECK_ID,
+              storage: this.storage,
+              incrementalSync: {
+                ...settings.riffIntegration.incrementalSync,
+                autoDetectCardType: true
+              },
+              fullSync: settings.riffIntegration.fullSync,
+              deleteSync: settings.riffIntegration.deleteSync
+            });
+            await this.hybridSyncService.start();
+            
+            // 重启定时器
+            if (settings.riffIntegration.fullSync.enabled) {
+              this.fullSyncTimer = setInterval(
+                () => this.hybridSyncService!.fullSync(),
+                settings.riffIntegration.fullSync.interval
+              );
+              console.log(`[SiYuanMemo] Full sync timer restarted (interval: ${settings.riffIntegration.fullSync.interval}ms)`);
+            }
+            
+            console.log('[SiYuanMemo] ✅ HybridSyncService config updated');
+          } else if (settings.riffIntegration && !this.hybridSyncService) {
+            // 如果 HybridSyncService 未初始化，初始化它
+            this.hybridSyncService = new HybridSyncService({
+              deckId: riff.BUILTIN_DECK_ID,
+              storage: this.storage,
+              incrementalSync: {
+                ...settings.riffIntegration.incrementalSync,
+                autoDetectCardType: true
+              },
+              fullSync: settings.riffIntegration.fullSync,
+              deleteSync: settings.riffIntegration.deleteSync
+            });
+            await this.hybridSyncService.start();
+            
+            // 启动定时器
+            if (settings.riffIntegration.fullSync.enabled) {
+              this.fullSyncTimer = setInterval(
+                () => this.hybridSyncService!.fullSync(),
+                settings.riffIntegration.fullSync.interval
+              );
+              console.log(`[SiYuanMemo] Full sync timer started (interval: ${settings.riffIntegration.fullSync.interval}ms)`);
+            }
+            
+            console.log('[SiYuanMemo] ✅ HybridSyncService initialized');
+          }
+
+          // 🆕 更新 TransactionWebSocketService 配置
+          if (settings.riffIntegration) {
+            const incrementalEnabled = settings.riffIntegration.incrementalSync?.enabled || false;
+            
+            if (incrementalEnabled && this.hybridSyncService) {
+              // 需要启用 TransactionWebSocketService
+              if (!this.transactionWebSocketService) {
+                // 初始化服务
+                console.log('[SiYuanMemo] Initializing TransactionWebSocketService...');
+                this.transactionWebSocketService = new TransactionWebSocketService(this);
+                
+                // 创建并注册 RiffSyncHandler
+                const riffSyncHandler = new RiffSyncHandler(this.hybridSyncService);
+                this.transactionWebSocketService.registerHandler(riffSyncHandler);
+                
+                // 🆕 创建并注册 AutoCardHandler（自动制卡处理器）
+                const { AutoCardHandler } = await import('@/services/handlers/AutoCardHandler');
+                const autoCardHandler = new AutoCardHandler(this);
+                this.transactionWebSocketService.registerHandler(autoCardHandler);
+                console.log('[SiYuanMemo] ✅ AutoCardHandler registered');
+                
+                // 启动服务
+                this.transactionWebSocketService.start();
+                console.log('[SiYuanMemo] ✅ TransactionWebSocketService initialized and started');
+              }
+              // 如果已经初始化，不需要重启（处理器会自动使用新的 HybridSyncService 实例）
+            } else {
+              // 需要停止 TransactionWebSocketService
+              if (this.transactionWebSocketService) {
+                console.log('[SiYuanMemo] Stopping TransactionWebSocketService...');
+                this.transactionWebSocketService.stop();
+                this.transactionWebSocketService = undefined;
+                console.log('[SiYuanMemo] ✅ TransactionWebSocketService stopped');
+              }
+            }
+          }
+        },
+        close: () => {
+          settingsDialog.destroy();
+        },
+        // 🆕 数据修复事件
+        'repair-dates': async () => {
+          try {
+            const result = await this.storage.repairInvalidDates();
+            if (result.fixed > 0) {
+              pushMsg(`已修复 ${result.fixed}/${result.total} 张卡片的无效日期`, 5000);
+            } else {
+              pushMsg(`检查完成，未发现问题（共 ${result.total} 张卡片）`, 3000);
+            }
+            // 通知设置面板更新结果显示
+            // 注意：由于 Vue 组件的限制，这里无法直接更新组件状态
+            // 可以考虑使用事件总线或其他方式
+          } catch (err) {
+            console.error('[SiYuanMemo] Failed to repair dates:', err);
+            pushErrMsg(`修复失败: ${err.message}`);
+          }
+        }
+      },
+      width: '700px',
+      height: '600px',
+    });
+  }
+
+
+
+
+
+
+  /**
+   * 打开卡片浏览器（Dialog 模式）
+   * 实现单例模式：避免重复打开多个浏览器窗口
+   */
+  openSRSBrowser() {
+    // 🆕 使用 DialogManager（Phase 1 Task 2.4）
+    if (this.dialogManager) {
+      this.dialogManager.openBrowserDialog();
+      return;
+    }
+    
+    // 向后兼容：旧的实现
+    // 如果已有打开的浏览器，先销毁
+    if (this.srsBrowserDialog) {
+      this.srsBrowserDialog.destroy();
+    }
+
+    this.srsBrowserDialog = createVueDialog({
+      title: this.i18n?.srsBrowser || 'SRS 浏览器',
+      component: SRSBrowser,
+      props: {
+        app: this.app,
+        i18n: this.i18n || {},
+        mode: 'dialog',
+        plugin: this,
+      },
+      events: {
+        convertToTab: () => {
+          // 关闭对话框并打开 Tab
+          this.srsBrowserDialog?.destroy();
+          this.srsBrowserDialog = null;
+          this.openSRSBrowserTab();
+        },
+      },
+      width: '90vw',
+      height: '80vh',
+      onClose: () => {
+        // 对话框关闭时清理引用
+        this.srsBrowserDialog = null;
+      },
+    });
+  }
+
+  /**
+   * 打开卡片浏览器（Tab 模式）
+   */
+  openSRSBrowserTab() {
+    // 🆕 使用 TabManager（Phase 1 Task 2.4）
+    if (this.tabManager) {
+      this.tabManager.openBrowserTab();
+      return;
+    }
+    
+    // 向后兼容：旧的实现
+    openTab({
+      app: this.app,
+      custom: {
+        icon: 'iconCard',
+        title: this.i18n?.srsBrowser || 'SRS 浏览器',
+        id: this.name + this.TAB_TYPE,
+        data: {},
+      },
+      position: 'right',
+    });
+  }
+
+  /**
+   * 打开复习界面（Tab 模式）
+   */
+  openReviewTab(options: {
+    provider?: any;
+    queue?: any;
+    adapter: any;
+    title: string;
+  }): void {
+    // 🆕 使用 TabManager（Phase 1 Task 2.4）
+    if (this.tabManager) {
+      this.tabManager.openReviewTab(options);
+      return;
+    }
+    
+    // 向后兼容：旧的实现
+    try {
+      const providerId = options.provider?.id || (options.queue ? 'queue-based' : 'retrieval');
+      
+      // 🔧 修复循环引用问题：不直接传递对象，而是传递配置信息
+      // 在 Tab 的 onload 中重新创建这些对象
+      openTab({
+        app: this.app,
+        custom: {
+          icon: 'iconSiyuanMemo',
+          title: options.title,
+          id: this.name + this.REVIEW_TAB_TYPE,
+          data: {
+            // 只传递配置信息，不传递对象实例
+            providerId: providerId,
+            title: options.title,
+            // 如果需要队列信息，传递队列类型而不是实例
+            queueType: options.queue?.getType?.() || null,
+          },
+        },
+        position: 'right',
+      });
+    } catch (err) {
+      console.error('[SiYuanMemo] Failed to open review tab:', err);
+      void pushErrMsg(this.i18n?.openFailed || '打开标签页失败');
+    }
+  }
+
+  /**
+   * 打开复习面板（弹窗模式）- 使用 Vue UI 2.0
+   */
+  async openReviewDialog() {
+    // 🆕 使用 DialogManager（Phase 1 Task 2.4）
+    if (this.dialogManager) {
+      await this.dialogManager.openReviewDialog();
+      return;
+    }
+    await this.reviewDialogManager.openRetrievalPractice();
+  }
+
+  async openReviewV2Dialog() {
+    await this.openReviewDialog();
+  }
+
+  async openReviewProviderV2Dialog() {
+    await this.openReviewDialog();
+  }
+
+  async openLeechReviewDialog() {
+    // 🆕 使用 DialogManager（Phase 1 Task 2.4）
+    if (this.dialogManager) {
+      await this.dialogManager.openLeechReviewDialog();
+      return;
+    }
+    await this.reviewDialogManager.openLeechReview();
+  }
+
+  async openFinalDrillV2Dialog() {
+    await this.openFinalDrillDialog();
+  }
+
+  async openFinalDrillProviderV2Dialog() {
+    await this.openFinalDrillDialog();
+  }
+
+  async openFinalDrillDialog() {
+    // 🆕 使用 DialogManager（Phase 1 Task 2.4）
+    if (this.dialogManager) {
+      await this.dialogManager.openFinalDrillDialog();
+      return;
+    }
+    await this.reviewDialogManager.openFinalDrill();
+  }
+
+  /**
+   * 打开渐进学习队列对话框
+   */
+  async openIncrementalLearningDialog() {
+    // 🆕 使用 DialogManager（Phase 1 Task 2.4）
+    if (this.dialogManager) {
+      await this.dialogManager.openIncrementalLearningDialog();
+      return;
+    }
+    await this.reviewDialogManager.openIncrementalLearning();
+  }
+
+  async openFilterGroupPracticeDialog() {
+    // 🆕 使用 DialogManager（Phase 1 Task 2.4）
+    if (this.dialogManager) {
+      await this.dialogManager.openFilterGroupPracticeDialog();
+      return;
+    }
+    await this.reviewDialogManager.openFilterGroupPractice();
+  }
+
+  async openLeechPracticeDialog() {
+    await this.openLeechReviewDialog();
+  }
+
+  async openNeuralRoamDialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) {
+    // 🆕 使用 DialogManager（Phase 1 Task 2.4）
+    if (this.dialogManager) {
+      await this.dialogManager.openNeuralRoamDialog(options);
+      return;
+    }
+    await this.reviewDialogManager.openNeuralRoam(options);
+  }
+
+  async openNeuralRoamV2Dialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) {
+    await this.openNeuralRoamDialog(options);
+  }
+
+  async openNeuralReviewDialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) {
+    await this.openNeuralRoamDialog(options);
+  }
+
+  async openSubsetReviewDialog(blockIds: string[]) {
+    // 🆕 使用 DialogManager（Phase 1 Task 2.4）
+    if (this.dialogManager) {
+      await this.dialogManager.openSubsetReviewDialog(blockIds);
+      return;
+    }
+    await this.reviewDialogManager.openSubsetReview(blockIds);
+  }
+
+  private openDrillDialogWithCards(cards: any[], practiceMode: 'queue' | 'block' = 'queue') {
+    this.reviewDialogManager.openDrillWithCards(cards, practiceMode);
+  }
+
+  /**
+   * 初始化 Dock 面板
+   */
+  private initDockPanel(element: HTMLElement) {
+    const dueCount = this.storage.getDueCards().length;
+    const totalCount = this.storage.getAllCards().length;
+
+    element.innerHTML = `
+      <div class="siyuanmemo-dock-container">
+        <div class="siyuanmemo-dock-header">FSRS ${this.i18n?.flashcard || '闪卡'}</div>
+        <div class="siyuanmemo-dock-content">
+          <div class="siyuanmemo-dock-stats">
+            <div class="stat-item">
+              <span class="stat-value">${dueCount}</span>
+              <span class="stat-label">${this.i18n?.dueCountLabel || '待复习'}</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-value">${totalCount}</span>
+              <span class="stat-label">${this.i18n?.totalCountLabel || '总卡片'}</span>
+            </div>
+          </div>
+          <div class="siyuanmemo-dock-buttons">
+            <button class="siyuanmemo-dock-btn b3-button b3-button--outline" id="fsrs-start-review">
+              <svg class="b3-button__icon"><use xlink:href="#iconRiffCard"></use></svg>
+              ${this.i18n?.startReview || '开始复习'}
+            </button>
+            <button class="siyuanmemo-dock-btn b3-button b3-button--outline" id="fsrs-srs-browser">
+              <svg class="b3-button__icon"><use xlink:href="#iconLayoutRight"></use></svg>
+              ${this.i18n?.srsBrowser || 'SRS 浏览器'}
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // 绑定按钮事件
+    element.querySelector('#fsrs-start-review')?.addEventListener('click', () => {
+      this.openReviewDialog();
+    });
+
+    element.querySelector('#fsrs-srs-browser')?.addEventListener('click', () => {
+      this.openSRSBrowser();
+    });
+  }
+
+
+
+
+
+
+
+
+
+
+
+
+  /**
+   * 处理块图标点击（添加闪卡菜单）
+   */
+  private handleBlockIconClick(e: any) {
+    this.blockMenuHandler.handleBlockIconClick(e);
+  }
+
+  private handleEditorTitleIconClick(e: any) {
+    this.blockMenuHandler.handleEditorTitleIconClick(e);
+  }
+
+  private handleBreadcrumbMore(e: any) {
+    this.blockMenuHandler.handleBreadcrumbMore(e);
+  }
+
+  private handleDocTreeMenu(e: any) {
+    this.blockMenuHandler.handleDocTreeMenu(e);
+  }
+
+  private handleBlockRefMenu(e: any) {
+    this.blockMenuHandler.handleBlockRefMenu(e);
+  }
+
+  private getDrillBlockElements(blockElements: HTMLElement[]): HTMLElement[] {
+    return this.blockMenuHandler.getDrillBlockElements(blockElements);
+  }
+
+  private buildDrillCardsFromElements(elements: HTMLElement[]) {
+    return this.blockMenuHandler.buildDrillCardsFromElements(elements);
+  }
+
+  private async getDrillCardsFromDocTree(docId: string) {
+    return this.blockMenuHandler.getDrillCardsFromDocTree(docId);
+  }
+
+  private async buildDrillCardsFromBlockIds(blockIds: string[]) {
+    return this.blockMenuHandler.buildDrillCardsFromBlockIds(blockIds);
+  }
+
+  private async getPracticeQueueBlockIds(filter: PracticeQueueFilter): Promise<string[]> {
+    return getCardBlockIds({ type: filter.type, value: filter.value });
+  }
+
+  private async previewPracticeQueue(filter: PracticeQueueFilter): Promise<number> {
+    const blockIds = await this.getPracticeQueueBlockIds(filter);
+    return blockIds.length;
+  }
+
+  private async addPracticeQueue(filter: PracticeQueueFilter): Promise<number> {
+    const blockIds = await this.getPracticeQueueBlockIds(filter);
+    if (blockIds.length === 0) return 0;
+    
+    // ✅ 新架构：使用 addCard 方法（逐个添加）
+    if (this.retrievalQueue?.addCard) {
+      let added = 0;
+      for (const blockId of blockIds) {
+        try {
+          await this.retrievalQueue.addCard(blockId, 'manual');
+          added++;
+        } catch (err) {
+          console.error(`[Plugin] 添加卡片失败: ${blockId}`, err);
+        }
+      }
+      return added;
+    }
+    
+    // ✅ 旧架构：使用 addItems 方法（批量添加）
+    if (this.retrievalQueue?.addItems) {
+      const cards = await this.blockMenuHandler.buildDrillCardsFromBlockIds(blockIds);
+      return this.retrievalQueue.addItems(cards as QueueItem[]);
+    }
+    
+    return 0;
+  }
+
+  private async clearPracticeQueue(): Promise<void> {
+    await clearPracticeQueue({
+      blockMenuHandler: this.blockMenuHandler,
+      retrievalQueue: this.retrievalQueue,
+    });
+  }
+
+  private async startPracticeQueue(): Promise<void> {
+    // ✅ 新架构：使用 getAllCards 或 getSize
+    let cards: any[] = [];
+    let isEmpty = false;
+    
+    if (this.retrievalQueue?.getAllCards) {
+      cards = await this.retrievalQueue.getAllCards();
+      isEmpty = cards.length === 0;
+    } else if (this.retrievalQueue?.getSize) {
+      const size = await this.retrievalQueue.getSize();
+      isEmpty = size === 0;
+    } else if (this.retrievalQueue?.getAllItems) {
+      // ✅ 旧架构：使用 getAllItems
+      cards = this.retrievalQueue.getAllItems();
+      isEmpty = cards.length === 0;
+    }
+    
+    if (isEmpty) {
+      await pushMsg(this.i18n?.practiceQueueEmpty || '练习队列为空');
+      return;
+    }
+    
+    this.openDrillDialogWithCards(cards, 'queue');
+  }
+
+  /**
+   * 在新窗口中打开复习界面（优雅实现 - 参考思源原生）
+   */
+  openReviewInNewWindow(options: {
+    provider?: any;
+    queue?: any;
+    adapter: any;
+    title: string;
+  }): void {
+    // 🆕 使用 TabManager（Phase 1 Task 2.4）
+    if (this.tabManager) {
+      this.tabManager.openReviewInNewWindow(options);
+      return;
+    }
+    
+    // 向后兼容：旧的实现
+    /// #if !BROWSER
+    try {
+      const providerId = options.provider?.id || (options.queue ? 'queue-based' : 'retrieval');
+      
+      // 🔧 修复：不传递完整对象，只传递必要的标识符
+      // 新窗口会重新创建 provider/queue/adapter
+      const json = [{
+        "title": options.title,
+        "icon": "iconSiyuanMemo",
+        "instance": "Tab",
+        "children": {
+          "instance": "Custom",
+          "customModelType": this.REVIEW_TAB_TYPE,
+          "customModelData": {
+            // 只传递标识符，不传递完整对象（避免循环引用）
+            "providerId": providerId,
+            "title": options.title,
+            // 新窗口会根据 providerId 重新创建 provider/queue/adapter
+          }
+        }
+      }];
+      
+      // 发送到主进程（参考思源原生实现）
+      ipcRenderer.send(Constants.SIYUAN_OPEN_WINDOW, {
+        url: `${window.location.protocol}//${window.location.host}/stage/build/app/window.html?v=${Constants.SIYUAN_VERSION}&json=${encodeURIComponent(JSON.stringify(json))}`
+      });
+      
+      console.log('[SiYuanMemo] Opened review in new window (elegant implementation)');
+    } catch (err) {
+      console.error('[SiYuanMemo] Failed to open review in new window:', err);
+      void pushErrMsg(this.i18n?.openFailed || '打开新窗口失败');
+    }
+    /// #else
+    // 浏览器环境降级：使用 Tab 模式
+    console.warn('[SiYuanMemo] New window not supported in browser, using tab instead');
+    this.openReviewTab(options);
+    /// #endif
+  }
+
+  /**
+   * 🆕 打开创建模板卡片对话框（Xiuyuan）- 带块 ID 列表
+   */
+  async openCreateTemplateCardDialogWithBlockIds(blockIds: string[]) {
+    // 🆕 使用 DialogManager（Phase 1 Task 2.4）
+    if (this.dialogManager) {
+      await this.dialogManager.openCreateTemplateCardDialog(blockIds);
+      return;
+    }
+    
+    // 向后兼容：旧的实现（保留以防万一）
+    console.warn('[SiYuanMemo] DialogManager not initialized, using fallback');
+    try {
+      if (!blockIds || blockIds.length === 0) {
+        pushMsg('未找到选中的块');
+        return;
+      }
+
+      // 获取所有可用模板
+      const templates = this.xiuyuanService.getAllTemplates();
+      if (templates.length === 0) {
+        pushMsg('暂无可用模板，请先创建模板');
+        return;
+      }
+
+      // 显示模板选择对话框
+      const templateSelectDialog = createVueDialog({
+        title: '选择卡片模板',
+        component: TemplateSelectDialog,
+        props: {
+          templates,
+          blockCount: blockIds.length,
+        },
+        width: '640px',
+        height: '650px',
+        events: {
+          confirm: async (templateId: string) => {
+            const template = this.xiuyuanService.getTemplate(templateId);
+            if (!template) return;
+
+            // 自动字段映射：按顺序映射块到字段
+            const fieldMapping: Record<string, string> = {};
+            template.fields.forEach((field, index) => {
+              if (index < blockIds.length) {
+                fieldMapping[field.name] = blockIds[index];
+              }
+            });
+
+            // 创建 Xiuyuan 和卡片
+            try {
+              const result = await this.xiuyuanService.createFromBlocks(
+                blockIds,
+                templateId,
+                fieldMapping,
+                riff.BUILTIN_DECK_ID
+              );
+
+              if (!result.ok) {
+                console.error('[SiYuanMemo] Failed to create template card:', result.error);
+                pushErrMsg(`创建失败：${result.error.message}`);
+                templateSelectDialog.destroy();
+                return;
+              }
+
+              const { xiuyuan, cards } = result.value;
+              console.log('[SiYuanMemo] Xiuyuan created:', { xiuyuan, cards });
+
+              pushMsg(
+                `✅ 模板卡片创建成功！\n` +
+                `模板：${template.name}\n` +
+                `生成卡片：${cards.length} 张`
+              );
+            } catch (err) {
+              console.error('[SiYuanMemo] Failed to create template card:', err);
+              pushErrMsg(`创建失败：${(err as Error).message}`);
+            }
+
+            templateSelectDialog.destroy();
+          },
+          cancel: () => {
+            templateSelectDialog.destroy();
+          },
+        },
+      });
+    } catch (err) {
+      console.error('[SiYuanMemo] Failed to open create template card dialog:', err);
+      pushErrMsg(`打开对话框失败：${(err as Error).message}`);
+    }
+  }
+
+
+  /**
+   * 获取到期卡片数量
+   */
+  getDueCount(): number {
+    return this.storage.getDueCards().length;
+  }
+}

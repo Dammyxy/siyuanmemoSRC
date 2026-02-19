@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
-import { AdvancedDataRouter } from '@/routers/AdvancedDataRouter';
+import { AdvancedDataRouter } from '@/routers/DataAccessFacade';
 import { QueueType } from '@/types/unified-data-source';
 
 describe('Queue Instance Sharing', () => {

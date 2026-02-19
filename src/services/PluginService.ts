@@ -3,7 +3,9 @@ import { DialogService } from './DialogService';
 import { MenuService } from './MenuService';
 import { ReviewService } from './ReviewService';
 import { CardService } from './CardService';
-import { PluginUIAssembler } from '../core/application/PluginAssembler';
+import { createVueDialog } from '@/utils/dialog';
+import { openTab } from 'siyuan';
+import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
 
 /**
  * 主插件服务类
@@ -15,9 +17,6 @@ export class PluginService {
   public menuService: MenuService;
   public reviewService: ReviewService;
   public cardService: CardService;
-  
-  // 组装器实例
-  public uiAssembler: PluginUIAssembler;
 
   constructor(private plugin: FSRSPlugin) {
     // 初始化所有服务
@@ -25,13 +24,6 @@ export class PluginService {
     this.menuService = new MenuService(plugin);
     this.reviewService = new ReviewService(plugin);
     this.cardService = new CardService(plugin);
-    
-    // 初始化组装器
-    this.uiAssembler = new PluginUIAssembler(
-      this.plugin,
-      this.reviewService,
-      this.cardService
-    );
   }
 
   /**
@@ -56,11 +48,48 @@ export class PluginService {
    * UI相关操作
    */
   openSRSBrowser() {
-    this.uiAssembler.openSRSBrowser();
+    // 如果已有打开的浏览器，先销毁
+    if (this.plugin.srsBrowserDialog) {
+      this.plugin.srsBrowserDialog.destroy();
+    }
+
+    this.plugin.srsBrowserDialog = createVueDialog({
+      title: this.plugin.i18n?.srsBrowser || 'SRS 浏览器',
+      component: SRSBrowser,
+      props: {
+        app: this.plugin.app,
+        i18n: this.plugin.i18n || {},
+        mode: 'dialog',
+        plugin: this.plugin,
+      },
+      events: {
+        convertToTab: () => {
+          // 关闭对话框并打开 Tab
+          this.plugin.srsBrowserDialog?.destroy();
+          this.plugin.srsBrowserDialog = null;
+          this.openSRSBrowserTab();
+        },
+      },
+      width: '90vw',
+      height: '80vh',
+      onClose: () => {
+        // 对话框关闭时清理引用
+        this.plugin.srsBrowserDialog = null;
+      },
+    });
   }
 
   openSRSBrowserTab() {
-    this.uiAssembler.openSRSBrowserTab();
+    openTab({
+      app: this.plugin.app,
+      custom: {
+        icon: 'iconCard',
+        title: this.plugin.i18n?.srsBrowser || 'SRS 浏览器',
+        id: this.plugin.name + this.plugin.TAB_TYPE,
+        data: {},
+      },
+      position: 'right',
+    });
   }
 
   /**

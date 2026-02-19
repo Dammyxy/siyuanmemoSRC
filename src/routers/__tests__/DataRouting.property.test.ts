@@ -17,7 +17,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fc from 'fast-check';
 import { UnifiedDataSourceManager } from '../../managers/UnifiedDataSourceManager';
-import { AdvancedDataRouter } from '../AdvancedDataRouter';
+import { AdvancedDataRouter } from '../DataAccessFacade';
 import type { FSRSCard } from '../../types/card';
 import { CardState, CardType } from '../../types/card';
 

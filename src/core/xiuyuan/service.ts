@@ -1,9 +1,16 @@
 ﻿﻿﻿﻿﻿﻿/**
  * Xiuyuan Service
  * 
+ * @deprecated 请使用 XiuyuanApplicationService 代替
+ * @see {@link XiuyuanApplicationService} - 新的应用服务层入口
+ * 
  * @module XiuyuanService
  * @description
  * Xiuyuan 服务层，负责业务逻辑的协调和执行。
+ * 
+ * **迁移指南**：
+ * - 旧代码：`xiuyuanService.createFromBlocks(blockIds, templateId, fieldMapping, deckId)`
+ * - 新代码：`xiuyuanApplicationService.createFromBlocks({ blockIds, templateId, fieldMapping, deckId })`
  * 
  * **核心职责**：
  * 1. 协调 Xiuyuan 与 FSRSCard 的关系
@@ -35,23 +42,23 @@
  * 
  * @example
  * ```typescript
+ * // ❌ 旧方式（已废弃）
  * const service = new XiuyuanService(storage, storageManager);
  * await service.init();
- * 
- * // 创建 Xiuyuan 和卡片
  * const result = await service.createFromBlocks(
  *   ['block-1', 'block-2'],
  *   'basic',
  *   { question: 'block-1', answer: 'block-2' }
  * );
- * console.log('Created:', result.xiuyuan.id);
  * 
- * // 查询
- * const xiuyuan = service.getXiuyuan(result.xiuyuan.id);
- * const mapping = service.getMappingByCardID('block-1');
- * 
- * // 删除
- * await service.deleteXiuyuan(result.xiuyuan.id);
+ * // ✅ 新方式（推荐）
+ * const appService = context.getXiuyuanApplicationService();
+ * const result = await appService.createFromBlocks({
+ *   blockIds: ['block-1', 'block-2'],
+ *   templateId: 'basic',
+ *   fieldMapping: { question: 'block-1', answer: 'block-2' },
+ *   deckId: riff.BUILTIN_DECK_ID
+ * });
  * ```
  */
 
@@ -419,7 +426,64 @@ export class XiuyuanService {
     return mapping;
   }
 
-    async createFromBlocks(
+  /**
+   * 从选中的块创建 Xiuyuan 和卡片
+   * 
+   * @deprecated 请使用 XiuyuanApplicationService.createFromBlocks() 代替
+   * @see {@link XiuyuanApplicationService.createFromBlocks}
+   * 
+   * @param blockIDs - 源块 ID 列表
+   * @param templateID - 模板 ID
+   * @param fieldMapping - 字段映射（字段名 → 块 ID）
+   * @param deckID - 卡包 ID，默认为内置卡包
+   * @returns Result，成功时包含创建的 Xiuyuan 和 CardMapping 数组，失败时包含错误信息
+   * 
+   * @description
+   * **迁移指南**：
+   * ```typescript
+   * // ❌ 旧方式（已废弃）
+   * await xiuyuanService.createFromBlocks(
+   *   ['block-1', 'block-2'],
+   *   'basic',
+   *   { question: 'block-1', answer: 'block-2' },
+   *   deckId
+   * );
+   * 
+   * // ✅ 新方式（推荐）
+   * await xiuyuanApplicationService.createFromBlocks({
+   *   blockIds: ['block-1', 'block-2'],
+   *   templateId: 'basic',
+   *   fieldMapping: { question: 'block-1', answer: 'block-2' },
+   *   deckId: deckId
+   * });
+   * ```
+   * 
+   * **新实现（Phase 1）**：
+   * - 根据 template.cardRules 创建多张 FSRSCard
+   * - 每张卡片有独立的 ID（不依赖块 ID）
+   * - 在 meta 中存储字段映射和渲染信息
+   * 
+   * **执行步骤**：
+   * 1. 验证模板存在
+   * 2. 构建字段映射
+   * 3. 创建 Xiuyuan
+   * 4. 为每个 cardRule 创建一张 FSRSCard
+   * 5. 持久化数据
+   * 
+   * @example
+   * ```typescript
+   * // 创建列表模版卡（1个 Xiuyuan → 3张 FSRSCard）
+   * const result = await service.createFromBlocks(
+   *   ['parent-id', 'child1-id', 'child2-id', 'child3-id'],
+   *   'builtin-list-item',
+   *   {
+   *     question: 'parent-id',
+   *     answer: 'child1-id'  // 第一张卡片的答案
+   *   }
+   * );
+   * ```
+   */
+  async createFromBlocks(
       blockIDs: string[],
       templateID: string,
       fieldMapping: Record<string, string>,
@@ -692,10 +756,22 @@ export class XiuyuanService {
   /**
    * 删除 Xiuyuan 及其所有关联卡片
    * 
+   * @deprecated 请使用 XiuyuanApplicationService.deleteXiuyuan() 代替
+   * @see {@link XiuyuanApplicationService.deleteXiuyuan}
+   * 
    * @param id - Xiuyuan ID
    * @returns Result<boolean>，成功时返回 true（删除成功）或 false（ID 不存在），失败时返回错误信息
    * 
    * @description
+   * **迁移指南**：
+   * ```typescript
+   * // ❌ 旧方式（已废弃）
+   * await xiuyuanService.deleteXiuyuan('xy_123');
+   * 
+   * // ✅ 新方式（推荐）
+   * await xiuyuanApplicationService.deleteXiuyuan('xy_123');
+   * ```
+   * 
    * 删除 Xiuyuan 时会：
    * 1. 删除所有关联的 CardMapping
    * 2. 从 StorageManager 中删除关联的 FSRSCard

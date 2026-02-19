@@ -23,6 +23,6 @@ export {
   type SyncType,
   type SyncProgress,
   type ProgressCallback
-} from './HybridSyncService';
-export type { HybridSyncEvents, SyncPhase } from './HybridSyncService.types';
+} from './XiuyuanSyncService';
+export type { HybridSyncEvents, SyncPhase } from './XiuyuanSyncService.types';
 export { QuickCardWebSocketService, type QuickCardSettings } from './QuickCardWebSocketService';

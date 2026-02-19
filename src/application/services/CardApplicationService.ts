@@ -26,10 +26,22 @@ import { Result } from '@/types/result';
 import { CreateCardCommand } from '../commands/card/CreateCardCommand';
 import { DeleteCardCommand } from '../commands/card/DeleteCardCommand';
 import { UpdateCardCommand } from '../commands/card/UpdateCardCommand';
+import { UpdateFSRSCardCommand, UpdateFSRSCardCommandResult } from '../commands/card/UpdateFSRSCardCommand';
+import { DeleteFSRSCardCommand, DeleteFSRSCardCommandResult } from '../commands/card/DeleteFSRSCardCommand';
 import { CreateCardUseCase } from '../usecases/card/CreateCardUseCase';
 import { DeleteCardUseCase } from '../usecases/card/DeleteCardUseCase';
 import { UpdateCardUseCase } from '../usecases/card/UpdateCardUseCase';
+import { UpdateFSRSCardUseCase } from '../usecases/card/UpdateFSRSCardUseCase';
+import { DeleteFSRSCardUseCase } from '../usecases/card/DeleteFSRSCardUseCase';
 import { Card } from '@/core/xiuyuan/domain/Card';
+import { GetDueCardsQuery, GetDueCardsQueryResult } from '../queries/card/GetDueCardsQuery';
+import { GetDueCardsQueryHandler } from '../queries/card/GetDueCardsQueryHandler';
+import { GetCardQuery, GetCardQueryResult } from '../queries/card/GetCardQuery';
+import { GetCardQueryHandler } from '../queries/card/GetCardQueryHandler';
+import { GetCardsQuery, GetCardsQueryResult } from '../queries/card/GetCardsQuery';
+import { GetCardsQueryHandler } from '../queries/card/GetCardsQueryHandler';
+import type { StorageManager } from '@/core/storage/manager';
+import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 
 /**
  * 卡片应用服务
@@ -37,18 +49,40 @@ import { Card } from '@/core/xiuyuan/domain/Card';
  * @class CardApplicationService
  */
 export class CardApplicationService {
+  private readonly getDueCardsQueryHandler: GetDueCardsQueryHandler;
+  private readonly getCardQueryHandler: GetCardQueryHandler;
+  private readonly getCardsQueryHandler: GetCardsQueryHandler;
+  private readonly updateFSRSCardUseCase: UpdateFSRSCardUseCase;
+  private readonly deleteFSRSCardUseCase: DeleteFSRSCardUseCase;
+  
   /**
    * 构造函数
    * 
    * @param createCardUseCase - 创建卡片用例
    * @param deleteCardUseCase - 删除卡片用例
    * @param updateCardUseCase - 更新卡片用例
+   * @param storageManager - 存储管理器（用于查询）
+   * @param scheduleService - 卡片调度服务（用于查询）
    */
   constructor(
     private readonly createCardUseCase: CreateCardUseCase,
     private readonly deleteCardUseCase: DeleteCardUseCase,
-    private readonly updateCardUseCase: UpdateCardUseCase
-  ) {}
+    private readonly updateCardUseCase: UpdateCardUseCase,
+    storageManager: StorageManager,
+    scheduleService: CardScheduleService
+  ) {
+    // 初始化查询处理器
+    this.getDueCardsQueryHandler = new GetDueCardsQueryHandler(
+      storageManager,
+      scheduleService
+    );
+    this.getCardQueryHandler = new GetCardQueryHandler(storageManager);
+    this.getCardsQueryHandler = new GetCardsQueryHandler(storageManager);
+    
+    // 初始化 FSRS 卡片用例
+    this.updateFSRSCardUseCase = new UpdateFSRSCardUseCase(storageManager);
+    this.deleteFSRSCardUseCase = new DeleteFSRSCardUseCase(storageManager);
+  }
 
   /**
    * 创建卡片
@@ -124,5 +158,157 @@ export class CardApplicationService {
    */
   async updateCard(command: UpdateCardCommand): Promise<Result<void>> {
     return this.updateCardUseCase.execute(command);
+  }
+  
+  // ========================================================================
+  // 查询方法
+  // ========================================================================
+  
+  /**
+   * 获取到期卡片
+   * 
+   * @param query - 查询对象（可选）
+   * @returns 查询结果，包含到期卡片列表和统计信息
+   * 
+   * @example
+   * ```typescript
+   * // 获取当前到期的卡片
+   * const result = await cardService.getDueCards();
+   * console.log(`到期卡片数量：${result.count} / ${result.total}`);
+   * 
+   * // 获取指定时间的到期卡片
+   * const result2 = await cardService.getDueCards({
+   *   now: new Date('2024-01-15T10:00:00Z')
+   * });
+   * ```
+   */
+  async getDueCards(query: GetDueCardsQuery = {}): Promise<GetDueCardsQueryResult> {
+    return this.getDueCardsQueryHandler.execute(query);
+  }
+  
+  /**
+   * 获取到期卡片数量
+   * 
+   * @returns 到期卡片数量
+   * 
+   * @example
+   * ```typescript
+   * const count = await cardService.getDueCount();
+   * console.log(`到期卡片数量：${count}`);
+   * ```
+   */
+  async getDueCount(): Promise<number> {
+    const result = await this.getDueCards();
+    return result.count;
+  }
+  
+  /**
+   * 获取单个卡片
+   * 
+   * @param query - 查询对象
+   * @returns 查询结果
+   * @throws Error 如果卡片不存在
+   * 
+   * @example
+   * ```typescript
+   * const result = await cardService.getCard({ cardId: 'card-123' });
+   * console.log('Card:', result.card);
+   * ```
+   */
+  async getCard(query: GetCardQuery): Promise<GetCardQueryResult> {
+    return this.getCardQueryHandler.execute(query);
+  }
+  
+  /**
+   * 获取卡片列表
+   * 
+   * @param query - 查询对象（可选）
+   * @returns 查询结果
+   * 
+   * @example
+   * ```typescript
+   * // 获取所有卡片
+   * const result = await cardService.getCards({});
+   * console.log(`总卡片数：${result.total}`);
+   * 
+   * // 按状态过滤
+   * const result2 = await cardService.getCards({
+   *   filter: { state: 0 }
+   * });
+   * ```
+   */
+  async getCards(query: GetCardsQuery = {}): Promise<GetCardsQueryResult> {
+    return this.getCardsQueryHandler.execute(query);
+  }
+  
+  /**
+   * 更新 FSRS 卡片
+   * 
+   * @param command - 更新命令
+   * @returns Result<UpdateFSRSCardCommandResult> - 成功返回更新后的卡片，失败返回错误
+   * 
+   * @description
+   * 更新 FSRS 卡片的字段。支持部分更新，只更新提供的字段。
+   * 
+   * **使用场景**：
+   * - 更新卡片的复习数据
+   * - 更新卡片的元数据
+   * - 批量更新多个字段
+   * 
+   * @example
+   * ```typescript
+   * const result = await cardService.updateFSRSCard({
+   *   cardId: 'card-123',
+   *   updates: {
+   *     due: new Date('2024-01-01'),
+   *     stability: 10.5,
+   *     priority: 8
+   *   }
+   * });
+   * 
+   * if (result.ok) {
+   *   console.log('Card updated:', result.value.card);
+   * } else {
+   *   console.error('Update failed:', result.error);
+   * }
+   * ```
+   */
+  async updateFSRSCard(command: UpdateFSRSCardCommand): Promise<Result<UpdateFSRSCardCommandResult>> {
+    return this.updateFSRSCardUseCase.execute(command);
+  }
+  
+  /**
+   * 删除 FSRS 卡片
+   * 
+   * @param command - 删除命令
+   * @returns Result<DeleteFSRSCardCommandResult> - 成功返回删除结果，失败返回错误
+   * 
+   * @description
+   * 删除 FSRS 卡片。支持可选地同时删除 Riff 卡片。
+   * 
+   * **使用场景**：
+   * - 删除单个卡片
+   * - 删除卡片并从 Riff 系统中移除
+   * 
+   * @example
+   * ```typescript
+   * const result = await cardService.deleteFSRSCard({
+   *   cardId: 'card-123',
+   *   deleteFromRiff: true
+   * });
+   * 
+   * if (result.ok) {
+   *   if (result.value.deleted) {
+   *     console.log('Card deleted');
+   *   } else {
+   *     console.log('Card not found');
+   *   }
+   * } else {
+   *   console.error('Delete failed:', result.error);
+   * }
+   * ```
+   */
+  async deleteFSRSCard(command: DeleteFSRSCardCommand): Promise<Result<DeleteFSRSCardCommandResult>> {
+    return this.deleteFSRSCardUseCase.execute(command);
   }
 }

@@ -14,7 +14,7 @@
  * - 静默失败，不打断用户操作
  */
 
-import type { HybridSyncService } from '@/services/HybridSyncService';
+import type { HybridSyncService } from '@/services/XiuyuanSyncService';
 import type { IDataSourceObserver, DataChangeEvent } from '@/types/unified-data-source';
 import type { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
 import { pushMsg } from '@/core/siyuan/api';

@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { HybridSyncService } from '@/services/HybridSyncService';
+import type { HybridSyncService } from '@/services/XiuyuanSyncService';
 import type { StorageManager } from '@/core/storage/manager';
 import { RetrievalPracticeProvider } from '@/ui/review/v2/providers/RetrievalPracticeProvider';
 import { DEFAULT_RIFF_CONFIG, type RiffIntegrationConfig } from '@/types/settings';
@@ -176,7 +176,7 @@ describe('Review Interface Integration', () => {
       ]);
 
       // Act
-      const { HybridSyncService } = await import('@/services/HybridSyncService');
+      const { HybridSyncService } = await import('@/services/XiuyuanSyncService');
       const syncService = new HybridSyncService({
         deckId: '20230218211946-2kw8jgx',
         storage: mockStorage as StorageManager,
@@ -227,7 +227,7 @@ describe('Review Interface Integration', () => {
       );
 
       // Create HybridSyncService
-      const { HybridSyncService } = await import('@/services/HybridSyncService');
+      const { HybridSyncService } = await import('@/services/XiuyuanSyncService');
       const syncService = new HybridSyncService({
         deckId: '20230218211946-2kw8jgx',
         storage: mockStorage as StorageManager,
@@ -296,7 +296,7 @@ describe('Review Interface Integration', () => {
       (getRiffNewCards as any).mockRejectedValue(new Error('Network error'));
 
       // Create HybridSyncService
-      const { HybridSyncService } = await import('@/services/HybridSyncService');
+      const { HybridSyncService } = await import('@/services/XiuyuanSyncService');
       const syncService = new HybridSyncService({
         deckId: '20230218211946-2kw8jgx',
         storage: mockStorage as StorageManager,
@@ -609,7 +609,7 @@ describe('Review Interface Integration', () => {
       mockSettings.scheduler.riffIntegration = simpleConfig;
 
       // Act
-      const { HybridSyncService } = await import('@/services/HybridSyncService');
+      const { HybridSyncService } = await import('@/services/XiuyuanSyncService');
       
       // In simple mode, HybridSyncService should not be initialized
       // This test verifies the configuration logic
@@ -808,7 +808,7 @@ describe('Review Interface Integration', () => {
       (getRiffNewCards as any).mockRejectedValue(new Error('Network error'));
 
       // Act
-      const { HybridSyncService } = await import('@/services/HybridSyncService');
+      const { HybridSyncService } = await import('@/services/XiuyuanSyncService');
       const syncService = new HybridSyncService({
         deckId: '20230218211946-2kw8jgx',
         storage: mockStorage as StorageManager,

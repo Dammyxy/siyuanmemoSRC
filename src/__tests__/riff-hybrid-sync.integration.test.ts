@@ -26,7 +26,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { HybridSyncService } from '@/services/HybridSyncService';
+import type { HybridSyncService } from '@/services/XiuyuanSyncService';
 import type { StorageManager } from '@/core/storage/manager';
 import { ConfigMigrator } from '@/utils/configMigrator';
 import { DEFAULT_RIFF_CONFIG, type RiffIntegrationConfig } from '@/types/settings';
@@ -203,7 +203,7 @@ describe('Riff Hybrid Sync - Integration Tests', () => {
 
       mockSettings.scheduler.riffIntegration = advancedConfig;
 
-      const { HybridSyncService } = await import('@/services/HybridSyncService');
+      const { HybridSyncService } = await import('@/services/XiuyuanSyncService');
       syncService = new HybridSyncService({
         deckId: '20230218211946-2kw8jgx',
         storage: mockStorage as StorageManager,
@@ -552,7 +552,7 @@ describe('Riff Hybrid Sync - Integration Tests', () => {
 
     it('should not initialize HybridSyncService in simple mode', async () => {
       // Arrange & Act
-      const { HybridSyncService } = await import('@/services/HybridSyncService');
+      const { HybridSyncService } = await import('@/services/XiuyuanSyncService');
       
       // In simple mode, the plugin should check config and not create service
       const shouldInitialize = simpleConfig.mode === 'advanced';
@@ -566,7 +566,7 @@ describe('Riff Hybrid Sync - Integration Tests', () => {
 
     it('should not trigger any sync operations in simple mode', async () => {
       // Arrange
-      const { HybridSyncService } = await import('@/services/HybridSyncService');
+      const { HybridSyncService } = await import('@/services/XiuyuanSyncService');
       const syncService = new HybridSyncService({
         deckId: '20230218211946-2kw8jgx',
         storage: mockStorage as StorageManager,
@@ -771,7 +771,7 @@ describe('Riff Hybrid Sync - Integration Tests', () => {
 
       mockSettings.scheduler.riffIntegration = advancedConfig;
 
-      const { HybridSyncService } = await import('@/services/HybridSyncService');
+      const { HybridSyncService } = await import('@/services/XiuyuanSyncService');
       syncService = new HybridSyncService({
         deckId: '20230218211946-2kw8jgx',
         storage: mockStorage as StorageManager,

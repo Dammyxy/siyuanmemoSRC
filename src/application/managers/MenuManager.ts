@@ -3,14 +3,21 @@
  * 
  * 职责：
  * - 管理所有菜单的注册和打开
- * - 统一菜单生命周期管理
- * - 提供菜单访问接口
+ * - 构建菜单项
+ * - 将用户操作委托给 DialogManager
+ * 
+ * 设计原则：
+ * - 单一职责：只负责菜单的构建和显示
+ * - 依赖注入：通过构造函数注入 DialogManager
+ * - 职责分离：不直接打开对话框，委托给 DialogManager
  * 
  * @see .kiro/specs/ddd-refactoring/design.md - Section 2.5
+ * @see .kiro/specs/ddd-refactoring/menu-manager-improvement.md
  */
 
 import type { Plugin } from 'siyuan';
 import type { ApplicationContext } from '../ApplicationContext';
+import type { DialogManager } from './DialogManager';
 import { Menu } from 'siyuan';
 
 /**
@@ -20,7 +27,8 @@ import { Menu } from 'siyuan';
  * 
  * 使用示例：
  * ```typescript
- * const menuManager = new MenuManager(context, plugin, i18n);
+ * const dialogManager = new DialogManager(context, plugin);
+ * const menuManager = new MenuManager(context, plugin, i18n, dialogManager);
  * 
  * // 注册所有菜单
  * menuManager.registerAll();
@@ -34,10 +42,19 @@ export class MenuManager {
   // 构造函数
   // ========================================================================
   
+  /**
+   * 创建 MenuManager 实例
+   * 
+   * @param context - 应用上下文
+   * @param plugin - 插件实例
+   * @param i18n - 国际化字典
+   * @param dialogManager - 对话框管理器（依赖注入）
+   */
   constructor(
     private context: ApplicationContext,
     private plugin: Plugin,
-    private i18n: Record<string, any>
+    private i18n: Record<string, any>,
+    private dialogManager: DialogManager
   ) {}
   
   // ========================================================================
@@ -97,9 +114,12 @@ export class MenuManager {
    * 
    * @param ev - 鼠标事件
    */
-  openTopBarMenu(ev: MouseEvent): void {
+  async openTopBarMenu(ev: MouseEvent): Promise<void> {
     const menu = new Menu('fsrs-topbar-menu');
-    const storage = this.context.getStorage();
+    
+    // 通过应用服务获取统计信息
+    const cardService = this.context.getCardService();
+    const dueResult = await cardService.getDueCards();
     
     // 提取练习
     menu.addItem({
@@ -174,12 +194,10 @@ export class MenuManager {
     
     menu.addSeparator();
     
-    // 统计信息
-    const dueCount = this.getDueCount();
-    const totalCount = storage.getAllCards().length;
+    // 统计信息（使用应用服务获取）
     menu.addItem({
       icon: 'iconInfo',
-      label: `${this.i18n?.dueCountLabel || 'Due'}: ${dueCount} / ${this.i18n?.totalCountLabel || 'Total'}: ${totalCount}`,
+      label: `${this.i18n?.dueCountLabel || 'Due'}: ${dueResult.count} / ${this.i18n?.totalCountLabel || 'Total'}: ${dueResult.total}`,
       type: 'readonly',
     });
     
@@ -212,84 +230,70 @@ export class MenuManager {
   }
   
   // ========================================================================
-  // 辅助方法 - 对话框打开
+  // 辅助方法 - 委托给 DialogManager
   // ========================================================================
   
   /**
    * 打开提取练习对话框
+   * 
+   * 委托给 DialogManager 处理
    */
   private openReviewDialog(): void {
-    // 委托给 DialogManager 或 ReviewDialogManager
-    const reviewDialogManager = (this.plugin as any).reviewDialogManager;
-    if (reviewDialogManager) {
-      reviewDialogManager.openRetrievalPractice();
-    } else {
-      console.error('[MenuManager] ReviewDialogManager not found');
-    }
+    this.dialogManager.openReviewDialog();
   }
   
   /**
    * 打开渐进学习对话框
+   * 
+   * 委托给 DialogManager 处理
    */
   private openIncrementalLearningDialog(): void {
-    const reviewDialogManager = (this.plugin as any).reviewDialogManager;
-    if (reviewDialogManager) {
-      reviewDialogManager.openIncrementalLearning();
-    } else {
-      console.error('[MenuManager] ReviewDialogManager not found');
-    }
+    this.dialogManager.openIncrementalLearningDialog();
   }
   
   /**
    * 打开刻意练习对话框
+   * 
+   * 委托给 DialogManager 处理
    */
   private openFinalDrillDialog(): void {
-    const reviewDialogManager = (this.plugin as any).reviewDialogManager;
-    if (reviewDialogManager) {
-      reviewDialogManager.openFinalDrill();
-    } else {
-      console.error('[MenuManager] ReviewDialogManager not found');
-    }
+    this.dialogManager.openFinalDrillDialog();
   }
   
   /**
    * 打开神经漫游对话框
+   * 
+   * 委托给 DialogManager 处理
    */
   private openNeuralRoamDialog(): void {
-    const reviewDialogManager = (this.plugin as any).reviewDialogManager;
-    if (reviewDialogManager) {
-      reviewDialogManager.openNeuralRoam();
-    } else {
-      console.error('[MenuManager] ReviewDialogManager not found');
-    }
+    this.dialogManager.openNeuralRoamDialog();
   }
   
   /**
    * 打开筛选复习对话框
+   * 
+   * 委托给 DialogManager 处理
    */
   private openFilterGroupPracticeDialog(): void {
-    const reviewDialogManager = (this.plugin as any).reviewDialogManager;
-    if (reviewDialogManager) {
-      reviewDialogManager.openFilterGroupPractice();
-    } else {
-      console.error('[MenuManager] ReviewDialogManager not found');
-    }
+    this.dialogManager.openFilterGroupPracticeDialog();
   }
   
   /**
    * 打开 SRS 浏览器
+   * 
+   * 委托给 DialogManager 处理
    */
   private openSRSBrowser(): void {
-    const dialogManager = this.context.getDialogManager();
-    dialogManager.openBrowserDialog();
+    this.dialogManager.openBrowserDialog();
   }
   
   /**
    * 打开设置对话框
+   * 
+   * 委托给 DialogManager 处理
    */
   private openSettings(): void {
-    const dialogManager = this.context.getDialogManager();
-    dialogManager.openSettingsDialog();
+    this.dialogManager.openSettingsDialog();
   }
   
   // ========================================================================
@@ -298,17 +302,23 @@ export class MenuManager {
   
   /**
    * 获取到期卡片数量
+   * 
+   * @deprecated 使用 CardApplicationService.getDueCount() 代替
+   * 
+   * 这个方法直接访问 Storage，跳过了应用服务层。
+   * 为了保持向后兼容，这个方法暂时保留，但建议使用 CardApplicationService。
+   * 
+   * @see CardApplicationService.getDueCount()
+   * @see .kiro/specs/ddd-refactoring/long-term-improvements.md - 阶段 2
    */
-  private getDueCount(): number {
-    const storage = this.context.getStorage();
-    const scheduler = this.context.getScheduler();
-    const now = new Date();
-    
-    return storage.getAllCards().filter(card => {
-      const scheduleInfo = scheduler.getScheduleInfo(card.id);
-      if (!scheduleInfo) return false;
-      return new Date(scheduleInfo.due) <= now;
-    }).length;
+  /**
+   * 获取到期卡片数量
+   * 
+   * @deprecated 使用 CardApplicationService.getDueCount() 代替
+   */
+  private async getDueCount(): Promise<number> {
+    const cardService = this.context.getCardService();
+    return await cardService.getDueCount();
   }
   
   // ========================================================================

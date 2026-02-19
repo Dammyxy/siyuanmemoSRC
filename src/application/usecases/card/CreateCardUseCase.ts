@@ -36,11 +36,13 @@ import { BlockId } from '@/core/xiuyuan/domain/BlockId';
 import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
 import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { Priority } from '@/core/xiuyuan/domain/Priority';
+import { EventBus } from '@/core/shared/domain/events/EventBus';
 
 export class CreateCardUseCase {
   constructor(
     private readonly xiuyuanRepo: IXiuyuanRepository,
-    private readonly cardCreationService: CardCreationService
+    private readonly cardCreationService: CardCreationService,
+    private readonly eventBus: EventBus
   ) {}
 
   /**
@@ -56,46 +58,81 @@ export class CreateCardUseCase {
       return err(new Error(`Invalid command: ${validationError}`));
     }
 
-    // 2. 将命令转换为领域对象
-    const conversionResult = this.convertCommandToDomain(command);
-    if (!conversionResult.ok) {
-      return err(conversionResult.error);
+    // 2. 如果没有指定模板，根据卡片类型选择默认模板
+    let templateId = command.templateId;
+    if (!templateId && command.cardType) {
+      templateId = this.getDefaultTemplateForType(command.cardType);
+    }
+    if (!templateId) {
+      return err(new Error('templateId is required'));
     }
 
-    const { blockIds, templateId, faces, priority } = conversionResult.value;
+    // 3. 将命令转换为领域对象
+    const conversionResult = this.convertCommandToDomain({
+      ...command,
+      templateId,
+    });
+    if (!conversionResult.ok) {
+      return conversionResult as Result<Card>;
+    }
 
-    // 3. 创建 Xiuyuan 聚合根
+    const { blockIds, templateIdObj, faces, priority } = conversionResult.value;
+
+    // 4. 创建 Xiuyuan 聚合根
     const xiuyuanResult = Xiuyuan.create({
       blockIDs: blockIds,
-      templateID: templateId,
+      templateID: templateIdObj,
       faces: faces,
       priority: priority,
       meta: command.meta || {}
     });
 
     if (!xiuyuanResult.ok) {
-      return err(xiuyuanResult.error);
+      return xiuyuanResult as Result<Card>;
     }
 
     const xiuyuan = xiuyuanResult.value;
 
-    // 4. 使用 CardCreationService 创建卡片
+    // 5. 使用 CardCreationService 创建卡片
     // 默认为第一个面创建卡片
     const cardResult = this.cardCreationService.createCard(xiuyuan, 0);
     if (!cardResult.ok) {
-      return err(cardResult.error);
+      return cardResult;
     }
 
     const card = cardResult.value;
 
-    // 5. 持久化 Xiuyuan（包括卡片）
+    // 6. 持久化 Xiuyuan（包括卡片）
     const saveResult = await this.xiuyuanRepo.save(xiuyuan);
     if (!saveResult.ok) {
-      return err(saveResult.error);
+      return saveResult as Result<Card>;
     }
 
-    // 6. 返回创建的卡片
+    // 7. 发布领域事件
+    const events = xiuyuan.getDomainEvents();
+    await this.eventBus.publishAll(events);
+    xiuyuan.clearDomainEvents();
+
+    // 8. 返回创建的卡片
     return ok(card);
+  }
+
+  /**
+   * 根据卡片类型获取默认模板
+   * 
+   * @private
+   * @param cardType - 卡片类型
+   * @returns 模板 ID
+   */
+  private getDefaultTemplateForType(cardType: string): string {
+    const typeToTemplate: Record<string, string> = {
+      'basic': 'builtin-quick-card',
+      'concept': 'builtin-concept-simple',
+      'qa': 'builtin-symbol-qa',
+      'cloze': 'builtin-cloze',
+      'bidirectional': 'builtin-bidirectional',
+    };
+    return typeToTemplate[cardType] || 'builtin-quick-card';
   }
 
   /**
@@ -107,46 +144,90 @@ export class CreateCardUseCase {
    */
   private convertCommandToDomain(command: CreateCardCommand): Result<{
     blockIds: BlockId[];
-    templateId: TemplateId;
+    templateIdObj: TemplateId;
     faces: CardFace[];
     priority: Priority;
   }> {
-    // 转换 BlockId
-    const blockIdResult = BlockId.create(command.blockId);
-    if (!blockIdResult.ok) {
-      return err(new Error(`Invalid blockId: ${blockIdResult.error.message}`));
+    // 转换 BlockId（支持单个或多个）
+    const blockIds: BlockId[] = [];
+    
+    if (command.blockId) {
+      const blockIdResult = BlockId.create(command.blockId);
+      if (!blockIdResult.ok) {
+        return blockIdResult as any;
+      }
+      blockIds.push(blockIdResult.value);
+    }
+    
+    if (command.blockIds) {
+      for (const blockIdStr of command.blockIds) {
+        const blockIdResult = BlockId.create(blockIdStr);
+        if (!blockIdResult.ok) {
+          return blockIdResult as any;
+        }
+        blockIds.push(blockIdResult.value);
+      }
+    }
+
+    if (blockIds.length === 0) {
+      return err(new Error('At least one blockId is required'));
     }
 
     // 转换 TemplateId
     const templateIdResult = TemplateId.create(command.templateId);
     if (!templateIdResult.ok) {
-      return err(new Error(`Invalid templateId: ${templateIdResult.error.message}`));
+      return templateIdResult as any;
     }
 
-    // 转换 CardFace 列表
+    // 转换 CardFace 列表（如果提供）
     const faces: CardFace[] = [];
-    for (let i = 0; i < command.faces.length; i++) {
-      const faceData = command.faces[i];
-      const faceResult = CardFace.create({
-        question: faceData.question,
-        answer: faceData.answer,
-        questionBlockId: faceData.questionBlockId,
-        answerBlockId: faceData.answerBlockId
+    if (command.faces) {
+      for (let i = 0; i < command.faces.length; i++) {
+        const faceData = command.faces[i];
+        const faceResult = CardFace.create({
+          question: faceData.question,
+          answer: faceData.answer,
+          questionBlockId: faceData.questionBlockId,
+          answerBlockId: faceData.answerBlockId
+        });
+
+        if (!faceResult.ok) {
+          return faceResult as any;
+        }
+
+        faces.push(faceResult.value);
+      }
+    } else {
+      // 如果没有提供 faces，创建默认的 face
+      // 使用第一个 blockId 作为问题和答案
+      const defaultFaceResult = CardFace.create({
+        question: blockIds[0].value,
+        answer: blockIds[0].value,
+        questionBlockId: blockIds[0].value,
+        answerBlockId: blockIds[0].value,
       });
 
-      if (!faceResult.ok) {
-        return err(new Error(`Invalid face[${i}]: ${faceResult.error.message}`));
+      if (!defaultFaceResult.ok) {
+        return defaultFaceResult as any;
       }
 
-      faces.push(faceResult.value);
+      faces.push(defaultFaceResult.value);
     }
 
     // 转换 Priority
     let priority: Priority;
     if (command.priority !== undefined) {
-      const priorityResult = Priority.create(command.priority);
+      // 处理字符串类型的优先级
+      let priorityValue: number;
+      if (typeof command.priority === 'string') {
+        priorityValue = command.priority === 'high' ? 1 : 0;
+      } else {
+        priorityValue = command.priority;
+      }
+      
+      const priorityResult = Priority.create(priorityValue);
       if (!priorityResult.ok) {
-        return err(new Error(`Invalid priority: ${priorityResult.error.message}`));
+        return priorityResult as any;
       }
       priority = priorityResult.value;
     } else {
@@ -154,8 +235,8 @@ export class CreateCardUseCase {
     }
 
     return ok({
-      blockIds: [blockIdResult.value],
-      templateId: templateIdResult.value,
+      blockIds: blockIds,
+      templateIdObj: templateIdResult.value,
       faces: faces,
       priority: priority
     });

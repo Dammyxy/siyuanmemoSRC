@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
 import { UnifiedQueueStrategy } from '@/strategies/UnifiedQueueStrategy';
-import { AdvancedDataRouter } from '@/routers/AdvancedDataRouter';
+import { AdvancedDataRouter } from '@/routers/DataAccessFacade';
 import { QueueType } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
 

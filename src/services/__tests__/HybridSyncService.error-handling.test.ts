@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { HybridSyncService, type HybridSyncConfig } from '../HybridSyncService';
+import { HybridSyncService, type HybridSyncConfig } from '../XiuyuanSyncService';
 import type { StorageManager } from '@/core/storage/manager';
 import * as riffApi from '@/core/siyuan/riff';
 

@@ -32,6 +32,8 @@ export default class FSRSPlugin extends Plugin {
   public get neuralQueue() { return this.unifiedDataSourceManager.getQueue('neural-roam' as any) as any; }
   public get neuralRoamQueue() { return this.neuralQueue; }
   public get filterGroupQueue() { return this.subsetQueue; }
+  public get reviewDialogManager() { return this.context.getReviewDialogManager(); }
+  public get hybridSyncService() { return this.context.getHybridSyncService(); }
 
   private topBarElement: HTMLElement | null = null;
   private topBarContextMenuHandler: ((ev: MouseEvent) => void) | null = null;
@@ -95,8 +97,9 @@ export default class FSRSPlugin extends Plugin {
     this.context.getDialogManager()?.openSettingsDialog(defaultTab);
   }
 
-  getDueCount(): number {
-    return this.storage.getDueCards().length;
+  async getDueCount(): Promise<number> {
+    const cardService = this.context.getCardService();
+    return await cardService.getDueCount();
   }
 
   private setupTopBar() {

@@ -21,41 +21,35 @@ describe('MenuManager', () => {
   let mockContext: ApplicationContext;
   let mockPlugin: Plugin;
   let mockI18n: Record<string, any>;
+  let mockDialogManager: any;
   
   beforeEach(() => {
+    // Mock DialogManager
+    mockDialogManager = {
+      openReviewDialog: vi.fn(),
+      openIncrementalLearningDialog: vi.fn(),
+      openFinalDrillDialog: vi.fn(),
+      openNeuralRoamDialog: vi.fn(),
+      openFilterGroupPracticeDialog: vi.fn(),
+      openBrowserDialog: vi.fn(),
+      openSettingsDialog: vi.fn(),
+    };
+    
     // Mock ApplicationContext
     mockContext = {
       getStorage: vi.fn().mockReturnValue({
+        getDueCards: vi.fn().mockReturnValue([{ id: 'card1' }]),
         getAllCards: vi.fn().mockReturnValue([
           { id: 'card1' },
           { id: 'card2' },
           { id: 'card3' },
         ]),
       }),
-      getScheduler: vi.fn().mockReturnValue({
-        getScheduleInfo: vi.fn().mockImplementation((cardId) => {
-          if (cardId === 'card1') {
-            return { due: new Date(Date.now() - 1000).toISOString() }; // 过期
-          }
-          return { due: new Date(Date.now() + 1000).toISOString() }; // 未过期
-        }),
-      }),
-      getDialogManager: vi.fn().mockReturnValue({
-        openBrowserDialog: vi.fn(),
-        openSettingsDialog: vi.fn(),
-      }),
+      getDialogManager: vi.fn().mockReturnValue(mockDialogManager),
     } as any;
     
     // Mock Plugin
-    mockPlugin = {
-      reviewDialogManager: {
-        openRetrievalPractice: vi.fn(),
-        openIncrementalLearning: vi.fn(),
-        openFinalDrill: vi.fn(),
-        openNeuralRoam: vi.fn(),
-        openFilterGroupPractice: vi.fn(),
-      },
-    } as any;
+    mockPlugin = {} as any;
     
     // Mock i18n
     mockI18n = {
@@ -70,7 +64,7 @@ describe('MenuManager', () => {
       totalCountLabel: '总计',
     };
     
-    menuManager = new MenuManager(mockContext, mockPlugin, mockI18n);
+    menuManager = new MenuManager(mockContext, mockPlugin, mockI18n, mockDialogManager);
   });
   
   describe('构造函数', () => {
@@ -110,6 +104,23 @@ describe('MenuManager', () => {
       
       // 不会抛出错误
       expect(() => menuManager.openTopBarMenu(mockEvent)).not.toThrow();
+    });
+    
+    it('应该委托给 DialogManager 打开对话框', () => {
+      const mockEvent = {
+        currentTarget: {
+          getBoundingClientRect: vi.fn().mockReturnValue({
+            right: 100,
+            bottom: 50,
+          }),
+        },
+      } as any;
+      
+      menuManager.openTopBarMenu(mockEvent);
+      
+      // 验证 DialogManager 的方法被调用（通过菜单项点击）
+      // 注意：由于菜单项的 click 回调是异步的，这里只验证菜单创建不报错
+      expect(mockDialogManager.openReviewDialog).not.toHaveBeenCalled(); // 还未点击菜单项
     });
   });
   

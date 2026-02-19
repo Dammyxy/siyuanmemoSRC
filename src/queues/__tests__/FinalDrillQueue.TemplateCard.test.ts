@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FinalDrillQueue } from '../FinalDrillQueue';
 import { UnifiedDataSourceManager } from '../../managers/UnifiedDataSourceManager';
-import { AdvancedDataRouter } from '../../routers/AdvancedDataRouter';
+import { AdvancedDataRouter } from '../../routers/DataAccessFacade';
 import { StorageManager } from '../../core/storage/manager';
 import { FSRSCard, CardState, CardType } from '../../types/card';
 

@@ -10,7 +10,6 @@ import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import { createVueDialog } from '@/utils/dialog';
 import { createDefaultCard } from '@/types';
 import { markBlockAsCard, unmarkBlockAsCard } from '@/core/siyuan/block';
-import { BlockMenuAssembler } from '@/core/application/PluginAssembler';
 
 export class BlockEventHandler {
   constructor(private plugin: FSRSPlugin) {}

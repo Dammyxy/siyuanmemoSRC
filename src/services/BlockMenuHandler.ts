@@ -904,10 +904,6 @@ export class BlockMenuHandler {
    * 
    * @param blockId 块 ID
    * @param priority 优先级（'normal' | 'high'）
-   * 
-   * @note 当前使用旧的 createDefaultCard 方式创建概念卡
-   * TODO: Phase 4 Task 14.x - 迁移到使用 CardApplicationService
-   * 概念卡需要一个专门的模板（如 builtin-concept-simple）来支持新架构
    */
   private async makeConceptAndAddToRoam(blockId: string, priority: 'normal' | 'high'): Promise<void> {
     try {
@@ -915,26 +911,55 @@ export class BlockMenuHandler {
       const existingCard = this.deps.storage.getCardByBlockId(blockId);
       
       if (!existingCard) {
-        // 2. 创建新卡片（类型为 concept）
-        // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
-        // 当前使用 createDefaultCard，需要创建专门的概念卡模板（如 builtin-concept-simple）
-        const card = createDefaultCard(blockId);
-        card.type = 'concept'; // ✅ 修复：直接设置为 concept 类型
+        // 2. 使用 CardApplicationService 创建概念卡
+        const cardService = this.getCardService();
         
-        // 标记块为闪卡（类型为 concept）
-        await markBlockAsCard(blockId, card.id, card.priority, 'concept');
-        
-        // ✅ 添加到 Riff（确保同步）
-        const riffAPI = await import('@/core/siyuan/riff');
-        await riffAPI.addRiffCards(riffAPI.BUILTIN_DECK_ID, [blockId]);
-        console.log(`[BlockMenuHandler] Added concept card to Riff: ${blockId}`);
-        
-        // 保存卡片到存储
-        this.deps.storage.setCard(card);
-        await this.deps.storage.saveCards();
-        
-        console.log(`[BlockMenuHandler] Created concept card for block: ${blockId}`);
-        await pushMsg('✅ 已制作为概念卡');
+        if (cardService) {
+          // 🆕 使用新架构创建概念卡
+          const result = await cardService.createCard({
+            blockId: blockId,
+            cardType: 'concept',  // 自动选择 builtin-concept-simple 模板
+            priority: priority,
+            meta: {
+              source: 'manual',
+            },
+          });
+          
+          if (result.ok) {
+            // 标记块为闪卡（类型为 concept）
+            await markBlockAsCard(blockId, result.value.id.value, priority === 'high' ? 1 : 0, 'concept');
+            
+            // ✅ 添加到 Riff（确保同步）
+            const riffAPI = await import('@/core/siyuan/riff');
+            await riffAPI.addRiffCards(riffAPI.BUILTIN_DECK_ID, [blockId]);
+            console.log(`[BlockMenuHandler] Added concept card to Riff: ${blockId}`);
+            
+            console.log(`[BlockMenuHandler] Created concept card via DDD: ${blockId}`);
+            await pushMsg('✅ 已制作为概念卡');
+          } else {
+            console.error(`[BlockMenuHandler] Failed to create concept card: ${result.error.message}`);
+            await pushErrMsg(`创建失败：${result.error.message}`);
+          }
+        } else {
+          // 降级：使用旧方法
+          console.warn('[BlockMenuHandler] CardApplicationService not available, using fallback');
+          const card = createDefaultCard(blockId);
+          card.type = 'concept';
+          
+          // 标记块为闪卡（类型为 concept）
+          await markBlockAsCard(blockId, card.id, card.priority, 'concept');
+          
+          // ✅ 添加到 Riff（确保同步）
+          const riffAPI = await import('@/core/siyuan/riff');
+          await riffAPI.addRiffCards(riffAPI.BUILTIN_DECK_ID, [blockId]);
+          
+          // 保存卡片到存储
+          this.deps.storage.setCard(card);
+          await this.deps.storage.saveCards();
+          
+          console.log(`[BlockMenuHandler] Created concept card (fallback): ${blockId}`);
+          await pushMsg('✅ 已制作为概念卡');
+        }
       } else {
         // 3. 如果已经是卡片，确保类型为 concept
         const isConcept = await this.isConceptCard(blockId);

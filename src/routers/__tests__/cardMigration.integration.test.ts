@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { AdvancedDataRouter } from '../AdvancedDataRouter';
+import { AdvancedDataRouter } from '../DataAccessFacade';
 import { FSRSCard, CardState, CardType } from '../../types/card';
 import type { StorageManager } from '../../core/storage/manager';
 

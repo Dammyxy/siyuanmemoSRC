@@ -1,8 +1,8 @@
 ﻿/**
- * AdvancedDataRouter Unit Tests
- * 高级模式数据路由器单元测试
+ * DataAccessFacade Unit Tests
+ * 数据访问门面单元测试
  * 
- * 测试 AdvancedDataRouter 的核心功能：
+ * 测试 DataAccessFacade 的核心功能：
  * - 获取卡片数据
  * - 更新和删除卡片
  * - 同步到 Riff
@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { AdvancedDataRouter } from '../AdvancedDataRouter';
+import { DataAccessFacade } from '../DataAccessFacade';
 import { QueueType } from '../../types/unified-data-source';
 import type { FSRSCard } from '../../types/card';
 import { CardState, CardType } from '../../types/card';
@@ -34,20 +34,17 @@ vi.mock('../../core/siyuan/riff', () => ({
 
 import * as riffApi from '../../core/siyuan/riff';
 
-describe('AdvancedDataRouter', () => {
-    let router: AdvancedDataRouter;
+describe('DataAccessFacade', () => {
+    let router: DataAccessFacade;
     
     beforeEach(() => {
-        router = new AdvancedDataRouter(mockStorageManager as any);
+        router = new DataAccessFacade(mockStorageManager as any);
         vi.clearAllMocks();
     });
     
     afterEach(() => {
         vi.restoreAllMocks();
     });
-    
-    // ========================================================================
-    // 队列类型测试
     // ========================================================================
     
     describe('getAvailableQueueTypes', () => {

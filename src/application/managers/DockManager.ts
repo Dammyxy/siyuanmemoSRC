@@ -3,21 +3,25 @@
  */
 
 import type { Plugin } from 'siyuan';
-import type { StorageManager } from '@/core/storage';
+import type { ApplicationContext } from '@/application/ApplicationContext';
 
 export class DockManager {
   constructor(
     private plugin: Plugin,
-    private storage: StorageManager,
+    private context: ApplicationContext,
     private i18n: Record<string, any>
   ) {}
 
   /**
    * 初始化 Dock 面板
    */
-  initDockPanel(element: HTMLElement, onStartReview: () => void, onOpenBrowser: () => void): void {
-    const dueCount = this.storage.getDueCards().length;
-    const totalCount = this.storage.getAllCards().length;
+  async initDockPanel(element: HTMLElement, onStartReview: () => void, onOpenBrowser: () => void): Promise<void> {
+    // 通过应用服务获取统计信息
+    const cardService = this.context.getCardService();
+    const dueCount = await cardService.getDueCount();
+    
+    const storage = this.context.getStorage();
+    const totalCount = storage.getAllCards().length;
 
     element.innerHTML = `
       <div class="siyuanmemo-dock-container">

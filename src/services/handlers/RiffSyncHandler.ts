@@ -17,7 +17,7 @@
  */
 
 import type { ITransactionHandler, Transaction } from '../TransactionWebSocketService';
-import type { HybridSyncService } from '../HybridSyncService';
+import type { HybridSyncService } from '../XiuyuanSyncService';
 
 /**
  * Riff 同步处理器

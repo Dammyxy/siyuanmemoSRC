@@ -81,6 +81,88 @@ export class AutoCardHandler implements ITransactionHandler {
     }
     
     /**
+     * 获取 CardApplicationService
+     * 
+     * @private
+     * @returns CardApplicationService 实例，如果不可用则返回 null
+     */
+    private getCardService(): any | null {
+        try {
+            if (this.plugin && (this.plugin as any).context) {
+                return (this.plugin as any).context.getCardService();
+            }
+        } catch (error) {
+            console.warn('[AutoCard] Failed to get CardApplicationService:', error);
+        }
+        return null;
+    }
+    
+    /**
+     * 获取 XiuyuanApplicationService
+     * 
+     * @private
+     * @returns XiuyuanApplicationService 实例，如果不可用则返回 null
+     */
+    private getXiuyuanApplicationService(): any | null {
+        try {
+            if (this.plugin && (this.plugin as any).context) {
+                return (this.plugin as any).context.getXiuyuanApplicationService();
+            }
+        } catch (error) {
+            console.warn('[AutoCard] Failed to get XiuyuanApplicationService:', error);
+        }
+        return null;
+    }
+    
+    /**
+     * 使用 CardApplicationService 创建概念卡
+     * 
+     * @private
+     * @param blockId 块 ID
+     * @param options 选项
+     * @returns 是否成功创建
+     */
+    private async createConceptCardViaDDD(
+        blockId: string,
+        options: {
+            priority?: 'normal' | 'high';
+            metadata?: Record<string, any>;
+        } = {}
+    ): Promise<boolean> {
+        try {
+            const cardService = this.getCardService();
+            if (!cardService) {
+                console.warn('[AutoCard] CardApplicationService not available, using fallback');
+                return false;
+            }
+
+            const { riff } = await import('@/core/siyuan/riff');
+            const result = await cardService.createCard({
+                blockId: blockId,
+                cardType: 'concept',  // 自动选择 builtin-concept-simple 模板
+                deckId: riff.BUILTIN_DECK_ID,
+                priority: options.priority || 'normal',
+                meta: {
+                    autoCreated: true,
+                    source: 'auto',
+                    ...options.metadata,
+                },
+            });
+
+            if (result.ok) {
+                console.log(`[AutoCard] Concept card created via DDD: ${blockId}`);
+                return true;
+            } else {
+                console.error(`[AutoCard] Failed to create concept card: ${result.error.message}`);
+                return false;
+            }
+        } catch (error) {
+            console.error('[AutoCard] Error creating concept card via DDD:', error);
+            return false;
+        }
+    }
+    
+    /**
      * 处理 transactions
      * 
      * 检测块内容变化（insert/update），只在失焦时触发制卡
@@ -625,10 +707,10 @@ export class AutoCardHandler implements ITransactionHandler {
         try {
             console.log('[SiYuanMemo][AutoCard] Creating bidirectional card using Xiuyuan:', blockId);
             
-            // 1. 检查 XiuyuanService 是否可用
-            const xiuyuanService = this.plugin.xiuyuanService;
-            if (!xiuyuanService) {
-                console.error('[SiYuanMemo][AutoCard] XiuyuanService not available, falling back to single card');
+            // 1. 检查 XiuyuanApplicationService 是否可用
+            const xiuyuanAppService = this.getXiuyuanApplicationService();
+            if (!xiuyuanAppService) {
+                console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available, falling back to single card');
                 // 降级：只创建正向卡片
                 const { createDefaultCard } = await import('@/types/card');
                 const card = createDefaultCard(blockId);
@@ -660,14 +742,14 @@ export class AutoCardHandler implements ITransactionHandler {
             // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
             // 需要先实现模板支持：扩展 CreateCardCommand 和 CreateCardUseCase
             const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
-            const result = await xiuyuanService.createFromBlocks(
-                [blockId],  // 只有一个块
-                'builtin-quick-bidirectional',  // 使用快速制卡双向模板
-                {
+            const result = await xiuyuanAppService.createFromBlocks({
+                blockIds: [blockId],  // 只有一个块
+                templateId: 'builtin-quick-bidirectional',  // 使用快速制卡双向模板
+                fieldMapping: {
                     content: blockId  // content 字段映射到当前块
                 },
-                BUILTIN_DECK_ID
-            );
+                deckId: BUILTIN_DECK_ID
+            });
             
             if (!result.ok) {
                 throw new Error('Failed to create bidirectional card via Xiuyuan');
@@ -741,9 +823,9 @@ export class AutoCardHandler implements ITransactionHandler {
                 console.log('[SiYuanMemo][AutoCard] Detected clozes in definition:', clozes.length);
                 
                 // 使用 Xiuyuan 创建概念定义卡片
-                const xiuyuanService = this.plugin.xiuyuanService;
-                if (!xiuyuanService) {
-                    console.error('[SiYuanMemo][AutoCard] XiuyuanService not available');
+                const xiuyuanAppService = this.getXiuyuanApplicationService();
+                if (!xiuyuanAppService) {
+                    console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available');
                     return;
                 }
                 
@@ -773,21 +855,24 @@ export class AutoCardHandler implements ITransactionHandler {
                         cardRules: dynamicCardRules,
                     };
                     
-                    // 临时注册模板
+                    // 临时注册模板（通过旧的 XiuyuanService）
                     // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
                     // 需要支持动态模板创建和注册
-                    xiuyuanService.createTemplate(tempTemplate);
+                    const xiuyuanService = this.plugin.xiuyuanService;
+                    if (xiuyuanService) {
+                        xiuyuanService.createTemplate(tempTemplate);
+                    }
                     
                     // 创建卡片
-                    const result = await xiuyuanService.createFromBlocks(
-                        [refId, blockId],
-                        tempTemplateId,
-                        {
+                    const result = await xiuyuanAppService.createFromBlocks({
+                        blockIds: [refId, blockId],
+                        templateId: tempTemplateId,
+                        fieldMapping: {
                             concept: refId,
                             definition: blockId
                         },
-                        BUILTIN_DECK_ID
-                    );
+                        deckId: BUILTIN_DECK_ID
+                    });
                     
                     if (!result.ok) {
                         const error = (result as { ok: false; error: Error }).error;
@@ -804,15 +889,15 @@ export class AutoCardHandler implements ITransactionHandler {
                     
                     // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
                     // 需要先实现模板支持
-                    const result = await xiuyuanService.createFromBlocks(
-                        [refId, blockId],
-                        'builtin-concept-definition',
-                        {
+                    const result = await xiuyuanAppService.createFromBlocks({
+                        blockIds: [refId, blockId],
+                        templateId: 'builtin-concept-definition',
+                        fieldMapping: {
                             concept: refId,
                             definition: blockId
                         },
-                        BUILTIN_DECK_ID
-                    );
+                        deckId: BUILTIN_DECK_ID
+                    });
                     
                     if (!result.ok) {
                         const error = (result as { ok: false; error: Error }).error;
@@ -955,9 +1040,9 @@ export class AutoCardHandler implements ITransactionHandler {
             console.log('[SiYuanMemo][AutoCard] Found concept card, creating Xiuyuan descriptor card');
             
             // 3. 使用 Xiuyuan 创建描述符卡片
-            const xiuyuanService = this.plugin.xiuyuanService;
-            if (!xiuyuanService) {
-                console.error('[SiYuanMemo][AutoCard] XiuyuanService not available, falling back to basic card');
+            const xiuyuanAppService = this.getXiuyuanApplicationService();
+            if (!xiuyuanAppService) {
+                console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available, falling back to basic card');
                 await this.createBasicCardFromDescriptor(blockId, attribute, description, actualSymbol);
                 return;
             }
@@ -966,15 +1051,15 @@ export class AutoCardHandler implements ITransactionHandler {
             // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
             // 需要先实现模板支持
             const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
-            const result = await xiuyuanService.createFromBlocks(
-                [foundConceptId, blockId],  // 使用找到的概念卡 ID
-                'builtin-concept-descriptor',
-                {
+            const result = await xiuyuanAppService.createFromBlocks({
+                blockIds: [foundConceptId, blockId],  // 使用找到的概念卡 ID
+                templateId: 'builtin-concept-descriptor',
+                fieldMapping: {
                     concept: foundConceptId,  // 使用找到的概念卡 ID
                     descriptor: blockId
                 },
-                BUILTIN_DECK_ID
-            );
+                deckId: BUILTIN_DECK_ID
+            });
             
             if (!result.ok) {
                 const error = (result as { ok: false; error: Error }).error;
@@ -1169,9 +1254,9 @@ export class AutoCardHandler implements ITransactionHandler {
         content: string,
         clozes: Array<{ text: string; type: 'brace' | 'equal' }>
     ): Promise<void> {
-        const xiuyuanService = this.plugin.xiuyuanService;
-        if (!xiuyuanService) {
-            console.error('[SiYuanMemo][AutoCard] XiuyuanService not available, creating single card');
+        const xiuyuanAppService = this.getXiuyuanApplicationService();
+        if (!xiuyuanAppService) {
+            console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available, creating single card');
             await this.createSingleClozeCard(blockId, content, clozes);
             return;
         }
@@ -1181,8 +1266,9 @@ export class AutoCardHandler implements ITransactionHandler {
             // 注意：需要动态设置 cardRules，每个填空一个 rule
             const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
             
-            // 获取模板并动态设置 cardRules
-            const template = xiuyuanService.getTemplate('builtin-multi-cloze');
+            // 获取模板并动态设置 cardRules（通过旧的 XiuyuanService）
+            const xiuyuanService = this.plugin.xiuyuanService;
+            const template = xiuyuanService?.getTemplate('builtin-multi-cloze');
             if (!template) {
                 console.error('[SiYuanMemo][AutoCard] builtin-multi-cloze template not found');
                 await this.createSingleClozeCard(blockId, content, clozes);
@@ -1207,17 +1293,19 @@ export class AutoCardHandler implements ITransactionHandler {
             };
             // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
             // 需要支持动态模板创建和注册
-            xiuyuanService.createTemplate(tempTemplate);
+            if (xiuyuanService) {
+                xiuyuanService.createTemplate(tempTemplate);
+            }
             
             // 使用动态模板创建卡片
-            const result = await xiuyuanService.createFromBlocks(
-                [blockId],
-                tempTemplateId,
-                {
+            const result = await xiuyuanAppService.createFromBlocks({
+                blockIds: [blockId],
+                templateId: tempTemplateId,
+                fieldMapping: {
                     content: blockId
                 },
-                BUILTIN_DECK_ID
-            );
+                deckId: BUILTIN_DECK_ID
+            });
             
             if (!result.ok) {
                 console.error('[SiYuanMemo][AutoCard] Failed to create Xiuyuan cloze cards, falling back to single card');
@@ -1312,9 +1400,9 @@ export class AutoCardHandler implements ITransactionHandler {
             console.log('[SiYuanMemo][AutoCard] Parsed child blocks:', childBlocks);
             
             // 4. 使用 Xiuyuan 创建列表模版卡片
-            const xiuyuanService = this.plugin.xiuyuanService;
-            if (!xiuyuanService) {
-                console.error('[SiYuanMemo][AutoCard] XiuyuanService not available');
+            const xiuyuanAppService = this.getXiuyuanApplicationService();
+            if (!xiuyuanAppService) {
+                console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available');
                 return;
             }
             
@@ -1325,15 +1413,15 @@ export class AutoCardHandler implements ITransactionHandler {
             // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
             // 需要先实现模板支持
             const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
-            const result = await xiuyuanService.createFromBlocks(
-                blockIDs,
-                'builtin-list-item',
-                {
+            const result = await xiuyuanAppService.createFromBlocks({
+                blockIds: blockIDs,
+                templateId: 'builtin-list-item',
+                fieldMapping: {
                     question: blockId,
                     items: childBlocks.map(c => c.id).join(',')
                 },
-                BUILTIN_DECK_ID
-            );
+                deckId: BUILTIN_DECK_ID
+            });
             
             if (!result.ok) {
                 const error = (result as { ok: false; error: Error }).error;

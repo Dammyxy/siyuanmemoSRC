@@ -5,7 +5,7 @@
  * 当 Card 被创建时发布的领域事件。
  */
 
-import { DomainEvent } from './DomainEvent';
+import { DomainEvent } from '@/core/shared/domain/events/DomainEvent';
 
 export class CardCreatedEvent extends DomainEvent {
   constructor(

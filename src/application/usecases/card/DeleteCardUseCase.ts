@@ -31,11 +31,13 @@ import { DeleteCardCommand, validateDeleteCardCommand } from '../../commands/car
 import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import { CardDeletionService } from '@/core/xiuyuan/domain/services/CardDeletionService';
 import { CardId } from '@/core/xiuyuan/domain/CardId';
+import { EventBus } from '@/core/shared/domain/events/EventBus';
 
 export class DeleteCardUseCase {
   constructor(
     private readonly xiuyuanRepo: IXiuyuanRepository,
-    private readonly cardDeletionService: CardDeletionService
+    private readonly cardDeletionService: CardDeletionService,
+    private readonly eventBus: EventBus
   ) {}
 
   /**
@@ -82,7 +84,12 @@ export class DeleteCardUseCase {
       return saveResult;
     }
 
-    // 6. 返回成功结果
+    // 6. 发布领域事件
+    const events = xiuyuan.getDomainEvents();
+    await this.eventBus.publishAll(events);
+    xiuyuan.clearDomainEvents();
+
+    // 7. 返回成功结果
     return ok(undefined);
   }
 

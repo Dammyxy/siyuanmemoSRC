@@ -1,7 +1,7 @@
 ﻿/**
- * HybridSyncService - 混合同步服务（优化版）
+ * XiuyuanSyncService - Xiuyuan 同步服务（优化版）
  * 
- * 管理 Riff 系统的混合同步方案：
+ * 管理 Riff 系统的 Xiuyuan 卡片同步：
  * - 增量同步：快速获取新卡片（日常使用）
  * - 全量同步：检测双向删除 + 清理黑名单（定期维护）
  * - 删除同步：双向删除同步（插件删除 → Riff 删除，Riff 删除 → 本地删除）
@@ -11,6 +11,8 @@
  * - 自动重试机制（最多 3 次，指数退避）
  * - 详细的进度回调（7 个阶段）
  * - 简化职责（定时器由外部管理）
+ * 
+ * @deprecated 旧名称 HybridSyncService 已废弃，请使用 XiuyuanSyncService
  */
 
 import type { StorageManager } from '@/core/storage/manager';
@@ -27,16 +29,15 @@ import type {
     SyncStatus,
     SyncType,
     ProgressCallback,
-    SyncPhase,
     SyncProgress
-} from './HybridSyncService.types';
+} from './XiuyuanSyncService.types';
 
-// ==================== 混合同步服务 ====================
+// ==================== Xiuyuan 同步服务 ====================
 
 /**
- * 混合同步服务（优化版）
+ * Xiuyuan 同步服务（优化版）
  * 
- * 负责管理 Riff 系统的混合同步方案：
+ * 负责管理 Riff 系统的 Xiuyuan 卡片同步：
  * - 增量同步：快速获取新卡片
  * - 全量同步：检测双向删除 + 清理黑名单
  * - 删除同步：双向删除同步
@@ -47,7 +48,7 @@ import type {
  * - 进度回调：详细的同步进度信息
  * - 简化职责：定时器由插件主类管理
  */
-export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
+export class XiuyuanSyncService extends EventEmitter<HybridSyncEvents> {
     private config: HybridSyncConfig;
     private storage: StorageManager;
     private lastSyncTime: number = 0;
@@ -1143,3 +1144,21 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 }
+
+// ==================== 向后兼容 ====================
+
+/**
+ * @deprecated 使用 XiuyuanSyncService 代替
+ * 
+ * 为了向后兼容，保留旧名称作为类型别名。
+ * 此别名将在下一个主版本中移除。
+ */
+export type HybridSyncService = XiuyuanSyncService;
+
+/**
+ * @deprecated 使用 XiuyuanSyncService 代替
+ * 
+ * 为了向后兼容，导出类的别名。
+ * 此导出将在下一个主版本中移除。
+ */
+export const HybridSyncService = XiuyuanSyncService;
