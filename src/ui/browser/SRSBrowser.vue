@@ -445,7 +445,7 @@ async function loadData(forceRefresh = false) {
         activeQueueId.value,
         props.plugin.unifiedDataSourceManager,
         options,
-        props.plugin.storage  // 🆕 传递 storage 参数
+        props.plugin  // 🆕 传递 plugin 参数以访问 ApplicationContext
       );
       
       if (!currentDataSource.value) {
@@ -565,7 +565,7 @@ async function executeFetchRows(forceRefresh = false) {
       props.plugin.unifiedDataSourceManager,
       focusOptions,
       () => getQueueById(activeQueueId.value)?.getAllItems?.() || [],
-      props.plugin.storage  // 🆕 传递 storage 参数
+      props.plugin  // 🆕 传递 plugin 参数以访问 ApplicationContext
     );
 
     if (dataSourceForFocus) {

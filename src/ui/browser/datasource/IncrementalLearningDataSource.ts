@@ -11,12 +11,12 @@
 
 import type { BrowserCard } from '../types';
 import { CardState, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from '../types';
-import { batchDelete } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
 import type { UnifiedDataSourceManager } from '../../../managers/UnifiedDataSourceManager';
 import { QueueType } from '../../../types/unified-data-source';
 import type { FSRSCard } from '../../../types/card';
 import { validateConsumerCardType } from '../../../diagnostics/type-guards';
+import { DeleteCardCommand } from '@/application/commands/card/DeleteCardCommand';
 
 export type IncrementalLearningDataSourceOptions = {
   docId?: string;      // 文档筛选
@@ -50,12 +50,12 @@ export class IncrementalLearningDataSource implements ICardDataSource {
 
   private readonly manager: UnifiedDataSourceManager;
   private readonly options: IncrementalLearningDataSourceOptions;
-  private readonly storage?: any;  // 🆕 添加 storage 引用
+  private readonly plugin?: any;  // 🆕 改为 plugin 引用以访问 ApplicationContext
 
-  constructor(manager: UnifiedDataSourceManager, options?: IncrementalLearningDataSourceOptions, storage?: any) {
+  constructor(manager: UnifiedDataSourceManager, options?: IncrementalLearningDataSourceOptions, plugin?: any) {
     this.manager = manager;
     this.options = options || {};
-    this.storage = storage;  // 🆕 保存 storage 引用
+    this.plugin = plugin;  // 🆕 保存 plugin 引用
     
     console.log('[SiYuanMemo][IncrementalLearningDataSource] Initialized with unified data source manager');
   }
@@ -406,23 +406,35 @@ export class IncrementalLearningDataSource implements ICardDataSource {
         return;
       }
 
-      // 删除卡片（完全删除）
+      // 删除卡片（使用 CardApplicationService）
       if (actionId === 'delete-card') {
-        if (!this.storage) {
-          console.error('[SiYuanMemo][IncrementalLearningDataSource] Storage not available!');
+        if (!this.plugin) {
+          console.error('[SiYuanMemo][IncrementalLearningDataSource] Plugin not available!');
+          return 0;
+        }
+        
+        const cardService = this.plugin.context?.getCardService?.();
+        if (!cardService) {
+          console.error('[SiYuanMemo][IncrementalLearningDataSource] CardApplicationService not available!');
           return 0;
         }
         
         const blockIds = selectedRows.map(row => row.blockId);
-        let deleted = await batchDelete(blockIds, this.storage);
+        let deletedCount = 0;
         
-        if (deleted === 0 && blockIds.length > 0) {
-          console.warn('[SiYuanMemo][IncrementalLearningDataSource] 常规删除失败，自动尝试强制删除...');
-          deleted = await batchDelete(blockIds, this.storage);
+        for (const blockId of blockIds) {
+          const command: DeleteCardCommand = { cardId: blockId };
+          const result = await cardService.deleteCard(command);
+          
+          if (result.ok) {
+            deletedCount++;
+          } else {
+            console.error(`[SiYuanMemo][IncrementalLearningDataSource] Failed to delete card ${blockId}:`, result.error);
+          }
         }
         
-        console.log(`[SiYuanMemo][IncrementalLearningDataSource] Deleted ${deleted} cards`);
-        return deleted;
+        console.log(`[SiYuanMemo][IncrementalLearningDataSource] Deleted ${deletedCount}/${blockIds.length} cards`);
+        return deletedCount;
       }
 
       // 设置优先级

@@ -19,6 +19,7 @@ import { QueueType } from '@/types/unified-data-source';  // 🆕 导入 QueueTy
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import type { ReviewDialogManager } from './ReviewDialogManager';
 import type { XiuyuanService } from '@/core/xiuyuan';
+import type { ApplicationContext } from '@/application/ApplicationContext';
 
 // 🆕 导入复习入口类
 import { ReviewEntryBase } from './ReviewEntryBase';
@@ -36,6 +37,7 @@ export interface BlockMenuHandlerDeps {
   openCreateTemplateCardDialog: (blockIds: string[]) => Promise<void>;
   openNeuralReviewDialog: (options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) => Promise<void>;
   plugin?: any;  // 🆕 添加 plugin 引用，用于访问 hybridSyncService
+  applicationContext?: ApplicationContext;  // 🆕 添加 ApplicationContext 引用，用于访问新架构服务
 }
 
 export class BlockMenuHandler {
@@ -66,6 +68,38 @@ export class BlockMenuHandler {
         i18n: deps.i18n,
       }),
     ];
+  }
+
+  /**
+   * 获取卡片应用服务（新架构）
+   * 
+   * @returns CardApplicationService 实例，如果 ApplicationContext 未注入则返回 null
+   * 
+   * @note 这是过渡期的辅助方法，用于逐步迁移到新架构
+   * 当 ApplicationContext 可用时，优先使用新架构的 CardApplicationService
+   */
+  private getCardService(): any | null {
+    if (!this.deps.applicationContext) {
+      return null;
+    }
+    
+    try {
+      return this.deps.applicationContext.getCardService();
+    } catch (error) {
+      console.warn('[BlockMenuHandler] Failed to get CardApplicationService:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 设置 ApplicationContext 引用
+   * 
+   * @param context ApplicationContext 实例
+   * 
+   * @note 由于循环依赖问题，ApplicationContext 需要在创建后通过此方法注入
+   */
+  setApplicationContext(context: ApplicationContext): void {
+    this.deps.applicationContext = context;
   }
 
   /**
@@ -219,14 +253,14 @@ export class BlockMenuHandler {
     //   },
     // });
 
-    // 创建模板卡片（暂时隐藏）
-    // submenu.push({
-    //   icon: 'iconAdd',
-    //   label: this.deps.i18n?.createTemplateCard || '创建模板卡片',
-    //   click: async () => {
-    //     await this.deps.openCreateTemplateCardDialog(blockIds);
-    //   },
-    // });
+    // 创建模板卡片
+    submenu.push({
+      icon: 'iconAdd',
+      label: this.deps.i18n?.createTemplateCard || '创建模板卡片',
+      click: async () => {
+        await this.deps.openCreateTemplateCardDialog(blockIds);
+      },
+    });
 
     // 创建列表模版卡（始终显示）
     submenu.push({
@@ -252,13 +286,52 @@ export class BlockMenuHandler {
       icon: 'iconTrashcan',
       label: this.deps.i18n?.deleteCard || '取消闪卡',
       click: async () => {
-        // 🆕 直接复用 SRS 浏览器的 batchDelete 函数
-        const deleted = await batchDelete(blockIds, this.deps.storage);
+        // 🆕 使用新架构的 CardApplicationService（如果可用）
+        const cardService = this.getCardService();
         
-        if (deleted > 0) {
-          await pushMsg(`已取消 ${deleted} 张闪卡`);
+        if (cardService) {
+          // 新架构：使用 CardApplicationService.deleteCard()
+          let deletedCount = 0;
+          let failedCount = 0;
+          
+          for (const blockId of blockIds) {
+            // 1. 从 storage 获取卡片以获得 cardId
+            const card = this.deps.storage.getCardByBlockId(blockId);
+            
+            if (!card) {
+              continue; // 跳过不存在的卡片
+            }
+            
+            // 2. 调用 CardApplicationService.deleteCard()
+            const result = await cardService.deleteCard({ cardId: card.id });
+            
+            if (result.ok) {
+              deletedCount++;
+            } else {
+              failedCount++;
+              console.error(`[BlockMenuHandler] Failed to delete card ${card.id}:`, result.error);
+            }
+          }
+          
+          // 3. 显示结果消息
+          if (deletedCount > 0) {
+            if (failedCount > 0) {
+              await pushMsg(`已取消 ${deletedCount} 张闪卡，${failedCount} 张失败`);
+            } else {
+              await pushMsg(`已取消 ${deletedCount} 张闪卡`);
+            }
+          } else {
+            await pushMsg('未找到可取消的闪卡');
+          }
         } else {
-          await pushMsg('未找到可取消的闪卡');
+          // 旧架构：回退到 batchDelete
+          const deleted = await batchDelete(blockIds, this.deps.storage);
+          
+          if (deleted > 0) {
+            await pushMsg(`已取消 ${deleted} 张闪卡`);
+          } else {
+            await pushMsg('未找到可取消的闪卡');
+          }
         }
       },
     });
@@ -801,6 +874,8 @@ export class BlockMenuHandler {
       console.log(`[SiYuanMemo] Creating list template cards: ${blockContent} → ${childBlockIds.length} children`);
 
       // 🔧 使用专用的列表模版卡创建方法
+      // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
+      // 需要先实现模板支持
       const { createListTemplateCards } = await import('@/core/xiuyuan/listTemplate');
       
       const result = await createListTemplateCards(
@@ -829,6 +904,10 @@ export class BlockMenuHandler {
    * 
    * @param blockId 块 ID
    * @param priority 优先级（'normal' | 'high'）
+   * 
+   * @note 当前使用旧的 createDefaultCard 方式创建概念卡
+   * TODO: Phase 4 Task 14.x - 迁移到使用 CardApplicationService
+   * 概念卡需要一个专门的模板（如 builtin-concept-simple）来支持新架构
    */
   private async makeConceptAndAddToRoam(blockId: string, priority: 'normal' | 'high'): Promise<void> {
     try {
@@ -837,6 +916,8 @@ export class BlockMenuHandler {
       
       if (!existingCard) {
         // 2. 创建新卡片（类型为 concept）
+        // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
+        // 当前使用 createDefaultCard，需要创建专门的概念卡模板（如 builtin-concept-simple）
         const card = createDefaultCard(blockId);
         card.type = 'concept'; // ✅ 修复：直接设置为 concept 类型
         

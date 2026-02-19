@@ -8,6 +8,7 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src'),
       siyuan: resolve(__dirname, 'src/test/mocks/siyuan.ts'),
+      electron: resolve(__dirname, 'src/test/mocks/electron.ts'),
     },
   },
   test: {

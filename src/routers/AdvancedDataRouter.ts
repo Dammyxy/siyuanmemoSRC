@@ -184,6 +184,10 @@ export class AdvancedDataRouter implements IDataRouter {
      * 
      * @param cardId 要删除的卡片 ID
      * @see 需求 3.4
+     * 
+     * TODO: [DDD Migration - Task 15.3] Router uses direct storage calls.
+     * Should delegate to CardApplicationService.deleteCard().
+     * Inject ApplicationContext or CardApplicationService.
      */
     async deleteCard(cardId: string): Promise<void> {
         // 1. 从本地存储删除

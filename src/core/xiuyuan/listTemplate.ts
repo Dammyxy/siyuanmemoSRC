@@ -240,6 +240,8 @@ export async function createListTemplateCards(
         allChildrenLength: (fsrsCard.meta as any)?.allChildren?.length,
       });
       
+      // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
+      // 这个辅助函数应该被 CardApplicationService 的模板支持替代
       storageManager.setCard(fsrsCard);
     }
 

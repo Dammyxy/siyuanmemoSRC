@@ -725,6 +725,10 @@ export class XiuyuanService {
    * - 8.1: Uses Result type pattern for operations that can fail
    * - 8.2: Returns { ok: true, value: T } on success
    * - 8.3: Returns { ok: false, error: Error } on failure
+   * 
+   * TODO: [DDD Migration - Task 15.3] This method uses direct storage manipulation.
+   * Should be migrated to use Repository pattern and DeleteXiuyuanUseCase.
+   * Complexity: High - involves multiple data sources and cleanup (Riff, block attributes, mappings).
    */
   async deleteXiuyuan(id: string): Promise<Result<boolean>> {
       try {
@@ -742,6 +746,7 @@ export class XiuyuanService {
         );
 
         // 2. 删除关联的 FSRSCard
+        // TODO: [DDD Migration - Task 15.3] Direct storage manipulation - should use Repository
         const mappings = this.storage.getMappingsByXiuyuanID(id);
         for (const mapping of mappings) {
           this.storageManager.removeCard(mapping.cardID);

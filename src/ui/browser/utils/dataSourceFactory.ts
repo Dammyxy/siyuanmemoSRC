@@ -35,14 +35,14 @@ export interface DataSourceOptionsWithDoc extends DataSourceOptions {
  * @param queueId - 队列 ID
  * @param manager - UnifiedDataSourceManager 实例
  * @param options - 筛选选项
- * @param storage - Storage 实例（用于删除操作）
+ * @param plugin - Plugin 实例（用于访问 ApplicationContext）
  * @returns 数据源实例或 null
  */
 export function createQueueDataSource(
   queueId: string,
   manager: any,
   options: DataSourceOptionsWithDoc,
-  storage?: any
+  plugin?: any
 ): ICardDataSource | null {
   const { docId, preset, queryText, cardType } = options;
 
@@ -54,7 +54,7 @@ export function createQueueDataSource(
         preset,
         queryText,
         cardType,
-      }, storage);
+      }, plugin);
 
     case 'retrieval':
       return new RetrievalDataSource(manager, {
@@ -62,7 +62,7 @@ export function createQueueDataSource(
         preset,
         queryText,
         cardType,
-      }, storage);
+      }, plugin);
 
     case 'filter-group':
       return new FilterGroupDataSource(manager, {
@@ -70,7 +70,7 @@ export function createQueueDataSource(
         preset,
         queryText,
         cardType,
-      }, storage);
+      }, plugin);
 
     case 'incremental-learning':
       return new IncrementalLearningDataSource(manager, {
@@ -78,7 +78,7 @@ export function createQueueDataSource(
         preset,
         queryText,
         cardType,
-      }, storage);
+      }, plugin);
 
     case 'neural-roam':
       // 神经漫游队列：使用 BlockIds 数据源
@@ -170,7 +170,7 @@ export function createQueryDataSource(sqlStmt: string): ICardDataSource {
  * @param manager - UnifiedDataSourceManager 实例
  * @param options - 筛选选项（不含 docId）
  * @param getQueueItems - 获取队列项的函数（仅队列模式需要）
- * @param storage - Storage 实例（用于删除操作）
+ * @param plugin - Plugin 实例（用于访问 ApplicationContext）
  * @returns 数据源实例或 null
  */
 export function createFocusDataSource(
@@ -178,7 +178,7 @@ export function createFocusDataSource(
   manager: any,
   options: DataSourceOptions,
   getQueueItems?: () => any[],
-  storage?: any
+  plugin?: any
 ): ICardDataSource | null {
   const { preset, queryText, cardType } = options;
 
@@ -188,7 +188,7 @@ export function createFocusDataSource(
       preset,
       queryText,
       cardType,
-    }, storage);
+    }, plugin);
   }
 
   if (queueId === 'retrieval') {
@@ -196,7 +196,7 @@ export function createFocusDataSource(
       preset,
       queryText,
       cardType,
-    }, storage);
+    }, plugin);
   }
 
   if (queueId === 'filter-group') {
@@ -204,7 +204,7 @@ export function createFocusDataSource(
       preset,
       queryText,
       cardType,
-    }, storage);
+    }, plugin);
   }
 
   // ✅ 新增：渐进学习队列
@@ -213,7 +213,7 @@ export function createFocusDataSource(
       preset,
       queryText,
       cardType,
-    }, storage);
+    }, plugin);
   }
 
   // 神经漫游队列：使用 BlockIds，支持动态获取

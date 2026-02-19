@@ -1,6 +1,6 @@
 ﻿import type { BrowserCard } from '../types';
 import { formatDate } from '../types';
-import { loadCards, batchReset, batchSuspend, batchDelete } from '../browserService';
+import { loadCards, batchReset, batchSuspend } from '../browserService';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
 import {
   BASE_ACTIONS,
@@ -12,6 +12,7 @@ import {
 import { RescheduleService } from '@/core/scheduler/rescheduleService';
 import type { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
 import { QueueType } from '@/types/unified-data-source';
+import { DeleteCardCommand } from '@/application/commands/card/DeleteCardCommand';
 
 type DeckDataSourceOptions = {
   preset: string;
@@ -408,26 +409,37 @@ export class DeckDataSource implements ICardDataSource {
     // 打开操作
     if (actionId === 'open') return;
 
-    // 🆕 删除卡片（支持强制删除）
+    // 🆕 删除卡片（使用 CardApplicationService）
     if (actionId === 'delete-card') {
       const blockIds = selectedRows.map(row => row.blockId);
       
-      // 检查是否有 storage
-      if (!this.plugin?.storage) {
-        console.error('[SiYuanMemo][DeckDataSource] Storage not available!');
+      // 检查是否有 plugin 和 ApplicationContext
+      if (!this.plugin) {
+        console.error('[SiYuanMemo][DeckDataSource] Plugin not available!');
         return 0;
       }
       
-      // 第一次尝试：常规删除
-      let deleted = await batchDelete(blockIds, this.plugin.storage);
-      
-      // 如果删除失败，自动尝试强制删除
-      if (deleted === 0 && blockIds.length > 0) {
-        console.warn('[SiYuanMemo][DeckDataSource] 常规删除失败，自动尝试强制删除...');
-        deleted = await batchDelete(blockIds, this.plugin.storage);
+      const cardService = (this.plugin as any).context?.getCardService?.();
+      if (!cardService) {
+        console.error('[SiYuanMemo][DeckDataSource] CardApplicationService not available!');
+        return 0;
       }
       
-      return deleted;
+      // 使用 CardApplicationService.deleteCard() 逐个删除卡片
+      let deletedCount = 0;
+      for (const blockId of blockIds) {
+        const command: DeleteCardCommand = { cardId: blockId };
+        const result = await cardService.deleteCard(command);
+        
+        if (result.ok) {
+          deletedCount++;
+        } else {
+          console.error(`[SiYuanMemo][DeckDataSource] Failed to delete card ${blockId}:`, result.error);
+        }
+      }
+      
+      console.log(`[SiYuanMemo][DeckDataSource] Deleted ${deletedCount}/${blockIds.length} cards`);
+      return deletedCount;
     }
 
     // ========== 队列操作（使用统一数据源管理器）==========

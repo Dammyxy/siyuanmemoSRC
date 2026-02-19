@@ -330,6 +330,8 @@ export class TransactionObserver {
                     answer: childBlockId
                 };
                 
+                // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
+                // 需要先实现模板支持
                 console.log(`[SiYuanMemo] Calling xiuyuanService.createFromBlocks with:`, {
                     blockIds,
                     templateId: 'builtin-list-item',

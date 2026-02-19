@@ -657,6 +657,8 @@ export class AutoCardHandler implements ITransactionHandler {
             
             // 2. 使用 Xiuyuan 的 builtin-quick-bidirectional 模板
             // 注意：content 字段映射到同一个块，渲染时会解析 <> 符号
+            // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
+            // 需要先实现模板支持：扩展 CreateCardCommand 和 CreateCardUseCase
             const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
             const result = await xiuyuanService.createFromBlocks(
                 [blockId],  // 只有一个块
@@ -772,6 +774,8 @@ export class AutoCardHandler implements ITransactionHandler {
                     };
                     
                     // 临时注册模板
+                    // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
+                    // 需要支持动态模板创建和注册
                     xiuyuanService.createTemplate(tempTemplate);
                     
                     // 创建卡片
@@ -798,6 +802,8 @@ export class AutoCardHandler implements ITransactionHandler {
                     // ✅ 无挖空：使用标准模板，生成一张卡片
                     console.log('[SiYuanMemo][AutoCard] Creating single concept definition card');
                     
+                    // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
+                    // 需要先实现模板支持
                     const result = await xiuyuanService.createFromBlocks(
                         [refId, blockId],
                         'builtin-concept-definition',
@@ -957,6 +963,8 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             
             // 使用 builtin-concept-descriptor 模版
+            // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
+            // 需要先实现模板支持
             const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
             const result = await xiuyuanService.createFromBlocks(
                 [foundConceptId, blockId],  // 使用找到的概念卡 ID
@@ -1197,6 +1205,8 @@ export class AutoCardHandler implements ITransactionHandler {
                 ...dynamicTemplate,
                 id: tempTemplateId,
             };
+            // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
+            // 需要支持动态模板创建和注册
             xiuyuanService.createTemplate(tempTemplate);
             
             // 使用动态模板创建卡片
@@ -1312,6 +1322,8 @@ export class AutoCardHandler implements ITransactionHandler {
             const blockIDs = [blockId, ...childBlocks.map(c => c.id)];
             
             // 使用 builtin-list-item 模版
+            // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
+            // 需要先实现模板支持
             const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
             const result = await xiuyuanService.createFromBlocks(
                 blockIDs,

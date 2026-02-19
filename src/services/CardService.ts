@@ -155,6 +155,9 @@ export class CardService {
         icon: 'iconTrashcan',
         label: '取消闪卡',
         click: async () => {
+          // TODO: [DDD Migration - Task 15.3] This service uses direct storage calls.
+          // Consider migrating to CardApplicationService.deleteCard() or deprecating this service.
+          // Check if handleBlockIconClick is still actively used before migration.
           let removedCount = 0;
 
           for (const element of blockElements) {

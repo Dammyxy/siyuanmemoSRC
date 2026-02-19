@@ -288,6 +288,9 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                 if (cardsToDelete.length > 0) {
                     console.log(`[SiYuanMemo][HybridSync] Deleting ${cardsToDelete.length} cards that no longer exist in Riff`);
                     
+                    // TODO: [DDD Migration - Task 15.3] Sync service uses direct storage calls.
+                    // Needs batch deletion support in CardApplicationService.
+                    // Consider sync-specific deletion logic to avoid infinite loops.
                     for (const card of cardsToDelete) {
                         this.storage.removeCard(card.id);  // 使用 removeCard 而不是 deleteCard
                         deletedCount++;
@@ -403,6 +406,8 @@ export class HybridSyncService extends EventEmitter<HybridSyncEvents> {
                     // 其他情况，删除
                     return true;
                 });
+                // TODO: [DDD Migration - Task 15.3] Sync service uses direct storage calls.
+                // Needs batch deletion support in CardApplicationService.
                 for (const card of toDelete) {
                     this.storage.removeCard(card.id);
                 }

@@ -1,0 +1,54 @@
+/**
+ * DockManager - 管理 Dock 面板
+ */
+
+import type { Plugin } from 'siyuan';
+import type { StorageManager } from '@/core/storage';
+
+export class DockManager {
+  constructor(
+    private plugin: Plugin,
+    private storage: StorageManager,
+    private i18n: Record<string, any>
+  ) {}
+
+  /**
+   * 初始化 Dock 面板
+   */
+  initDockPanel(element: HTMLElement, onStartReview: () => void, onOpenBrowser: () => void): void {
+    const dueCount = this.storage.getDueCards().length;
+    const totalCount = this.storage.getAllCards().length;
+
+    element.innerHTML = `
+      <div class="siyuanmemo-dock-container">
+        <div class="siyuanmemo-dock-header">FSRS ${this.i18n?.flashcard || '闪卡'}</div>
+        <div class="siyuanmemo-dock-content">
+          <div class="siyuanmemo-dock-stats">
+            <div class="stat-item">
+              <span class="stat-value">${dueCount}</span>
+              <span class="stat-label">${this.i18n?.dueCountLabel || '待复习'}</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-value">${totalCount}</span>
+              <span class="stat-label">${this.i18n?.totalCountLabel || '总卡片'}</span>
+            </div>
+          </div>
+          <div class="siyuanmemo-dock-buttons">
+            <button class="siyuanmemo-dock-btn b3-button b3-button--outline" id="fsrs-start-review">
+              <svg class="b3-button__icon"><use xlink:href="#iconRiffCard"></use></svg>
+              ${this.i18n?.startReview || '开始复习'}
+            </button>
+            <button class="siyuanmemo-dock-btn b3-button b3-button--outline" id="fsrs-srs-browser">
+              <svg class="b3-button__icon"><use xlink:href="#iconLayoutRight"></use></svg>
+              ${this.i18n?.srsBrowser || 'SRS 浏览器'}
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // 绑定按钮事件
+    element.querySelector('#fsrs-start-review')?.addEventListener('click', onStartReview);
+    element.querySelector('#fsrs-srs-browser')?.addEventListener('click', onOpenBrowser);
+  }
+}
