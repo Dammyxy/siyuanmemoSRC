@@ -269,6 +269,8 @@ export class DialogManager {
   openBrowserDialog(): void {
     const storage = this.context.getStorage();
     const scheduler = this.context.getScheduler();
+    const browserService = this.context.getBrowserService();
+    const tabManager = this.context.getTabManager();  // ✅ 获取 TabManager
     
     this.srsBrowserDialog = createVueDialog({
       dataKey: 'srs-browser-dialog',
@@ -278,6 +280,8 @@ export class DialogManager {
         plugin: this.plugin,
         storage,
         scheduler,
+        browserService,  // ✅ DDD 架构
+        tabManager,      // ✅ DDD 架构
         i18n: this.context.getI18n(),
       },
       events: {

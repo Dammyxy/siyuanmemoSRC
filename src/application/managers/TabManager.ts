@@ -287,6 +287,29 @@ export class TabManager {
     /// #endif
   }
   
+  /**
+   * 打开文档 Tab
+   * 
+   * 在编辑器中打开指定的文档块。
+   * 
+   * @param blockId - 块 ID
+   */
+  openDocumentTab(blockId: string): void {
+    if (!blockId) {
+      console.warn('[TabManager] Cannot open document: blockId is empty');
+      return;
+    }
+    
+    try {
+      (this.plugin.app as any).openTab({
+        app: this.plugin.app,
+        doc: { id: blockId },
+      });
+    } catch (err) {
+      console.error('[TabManager] Failed to open document tab:', err);
+    }
+  }
+  
   // ========================================================================
   // 生命周期管理
   // ========================================================================

@@ -217,6 +217,8 @@ const props = defineProps<{
   currentDocId?: string;
   mode?: 'dialog' | 'tab' | 'dock';
   plugin?: any;
+  browserService?: any;  // ✅ DDD 架构：浏览器应用服务
+  tabManager?: any;      // ✅ DDD 架构：Tab 管理器
 }>();
 
 const mode = computed(() => props.mode || 'dialog');
@@ -441,9 +443,19 @@ async function loadData(forceRefresh = false) {
         cardType: currentCardType.value as 'all' | 'topic-only' | 'item-only',
       };
       
+      // ✅ 优先使用 browserService 获取 UnifiedDataSourceManager
+      const unifiedDataSourceManager = props.browserService?.getUnifiedDataSourceManager?.() || props.plugin?.unifiedDataSourceManager;
+      
+      if (!unifiedDataSourceManager) {
+        console.error('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available');
+        rows.value = [];
+        rowsForFocus.value = [];
+        return;
+      }
+      
       currentDataSource.value = createQueueDataSource(
         activeQueueId.value,
-        props.plugin.unifiedDataSourceManager,
+        unifiedDataSourceManager,
         options,
         props.plugin  // 🆕 传递 plugin 参数以访问 ApplicationContext
       );
@@ -465,9 +477,16 @@ async function loadData(forceRefresh = false) {
       }
       
       // 更新全量统计数据（懒加载：后台加载，不阻塞 UI）
-      if (allRows.value.length === 0) {
-        void loadCards('all', undefined, '', forceRefresh, 'all', props.plugin)
-          .then(cards => { allRows.value = cards; });
+      if (allRows.value.length === 0 && props.browserService) {
+        void props.browserService.getBrowserCards({
+          preset: 'all',
+          forceRefresh,
+          pageSize: 10000,
+        }).then((result: any) => { 
+          allRows.value = result.cards; 
+        }).catch((err: any) => {
+          console.error('[SiYuanMemo][SRSBrowser] Failed to load allRows:', err);
+        });
       }
       
       // ❌ 移除：避免重复调用（观察者回调中会调用）
@@ -487,25 +506,52 @@ async function loadData(forceRefresh = false) {
       activeDocId.value = null;
       shouldFocusDocList.value = false;  // SQL 模式不聚焦
       currentDataSource.value = createQueryDataSource(sqlStmt);
+      
+      // 执行数据加载
+      await executeFetchRows(forceRefresh);
     } else {
-      // 全部卡片模式（五重筛选）
-      const options: DataSourceOptionsWithDoc = {
-        docId: activeDocId.value,
-        preset: currentPreset.value,
-        queryText: searchQuery.value,
-        cardType: currentCardType.value as 'all' | 'topic-only' | 'item-only',
-      };
-      currentDataSource.value = createDeckDataSource(props.plugin.unifiedDataSourceManager, options, props.currentDocId, props.plugin);
+      // ✅ 全部卡片模式：使用 browserService（完全 DDD 化）
+      console.log('[SiYuanMemo][SRSBrowser] 🆕 Using browserService for non-queue mode');
+      
+      if (!props.browserService) {
+        console.error('[SiYuanMemo][SRSBrowser] ❌ browserService is required!');
+        pushErrMsg('浏览器服务未初始化');
+        rows.value = [];
+        rowsForFocus.value = [];
+        allRows.value = [];
+        return;
+      }
+      
+      try {
+        const result = await props.browserService.getBrowserCards({
+          preset: currentPreset.value as any,
+          searchText: searchQuery.value,
+          cardTypes: currentCardType.value !== 'all' ? [currentCardType.value.replace('-only', '')] : undefined,
+          sortBy: currentSortField.value as any,
+          sortOrder: currentSortOrder.value as any,
+          forceRefresh,
+          pageSize: 10000,  // 获取所有卡片
+        });
+        
+        console.log('[SiYuanMemo][SRSBrowser] ✅ Loaded cards via browserService:', {
+          count: result.cards.length,
+          total: result.total,
+          stats: result.stats,
+        });
+        
+        rows.value = result.cards;
+        allRows.value = result.cards;  // 全量数据
+        rowsForFocus.value = result.cards;
+        
+        // 清除数据源（不再使用）
+        currentDataSource.value = null;
+      } catch (error) {
+        console.error('[SiYuanMemo][SRSBrowser] ❌ Failed to load cards via browserService:', error);
+        rows.value = [];
+        rowsForFocus.value = [];
+        allRows.value = [];
+      }
     }
-
-    if (!currentDataSource.value) {
-      rows.value = [];
-      rowsForFocus.value = [];
-      return;
-    }
-
-    // 执行数据加载
-    await executeFetchRows(forceRefresh);
 
     // 检查是否已被取消
     if (currentController.signal.aborted) {
@@ -547,10 +593,27 @@ async function executeFetchRows(forceRefresh = false) {
   );
   rows.value = fetchedRows;
 
-  // ✅ 更新全量统计数据
-  allRows.value = await PerformanceMonitor.measure('loadAllCards', () => 
-    loadCards('all', undefined, '', forceRefresh, 'all', props.plugin)
-  );
+  // ✅ 更新全量统计数据（使用 browserService）
+  if (props.browserService) {
+    allRows.value = await PerformanceMonitor.measure('loadAllCards', async () => {
+      try {
+        const result = await props.browserService.getBrowserCards({
+          preset: 'all',
+          forceRefresh,
+          pageSize: 10000,
+        });
+        return result.cards;
+      } catch (err) {
+        console.error('[SiYuanMemo][SRSBrowser] Failed to load allRows:', err);
+        return [];
+      }
+    });
+  } else {
+    // 回退到旧的实现
+    allRows.value = await PerformanceMonitor.measure('loadAllCards', () => 
+      loadCards('all', undefined, '', forceRefresh, 'all', props.plugin)
+    );
+  }
 
   // ✅ 四重筛选：如果开启了聚焦，额外获取不包含文档筛选的数据
   if (shouldFocusDocList.value) {
@@ -560,9 +623,18 @@ async function executeFetchRows(forceRefresh = false) {
       cardType: currentCardType.value as 'all' | 'topic-only' | 'item-only',
     };
 
+    // ✅ 优先使用 browserService 获取 UnifiedDataSourceManager
+    const unifiedDataSourceManager = props.browserService?.getUnifiedDataSourceManager?.() || props.plugin?.unifiedDataSourceManager;
+    
+    if (!unifiedDataSourceManager) {
+      console.warn('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available for focus data');
+      rowsForFocus.value = fetchedRows;
+      return;
+    }
+
     const dataSourceForFocus = createFocusDataSource(
       activeQueueId.value,
-      props.plugin.unifiedDataSourceManager,
+      unifiedDataSourceManager,
       focusOptions,
       () => getQueueById(activeQueueId.value)?.getAllItems?.() || [],
       props.plugin  // 🆕 传递 plugin 参数以访问 ApplicationContext
@@ -615,9 +687,10 @@ function handleSearchInput() {
 // 监听 searchQuery 变化
 watch(searchQuery, () => {
   handleSearchInput();
-  // 🆕 更新全局上下文
-  if (props.plugin?.unifiedDataSourceManager) {
-    setGlobalBrowserContext(props.plugin.unifiedDataSourceManager, searchQuery.value);
+  // 🆕 更新全局上下文（DDD 化）
+  const unifiedDataSourceManager = props.browserService?.getUnifiedDataSourceManager?.();
+  if (unifiedDataSourceManager) {
+    setGlobalBrowserContext(unifiedDataSourceManager, searchQuery.value);
   }
 });
 
@@ -769,7 +842,12 @@ function onRowDoubleClicked(event: any) {
     console.warn('[SiYuanMemo][CardBrowser] No blockId found in row data:', event.data);
     return;
   }
-  if (props.app) {
+  
+  // ✅ 优先使用 tabManager（DDD 架构）
+  if (props.tabManager) {
+    props.tabManager.openDocumentTab(blockId);
+  } else if (props.app) {
+    // 回退到旧方法（向后兼容）
     openTab({
       app: props.app,
       doc: { id: blockId },
@@ -1034,8 +1112,16 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
 
   if (actionId === 'open') {
     const blockId = String(anchorRow?.blockId || targetCards[0]?.blockId || '');
-    if (props.app && blockId) {
-      openTab({ app: props.app, doc: { id: blockId } });
+    if (blockId) {
+      // ✅ 优先使用 tabManager（DDD 架构）
+      if (props.tabManager) {
+        props.tabManager.openDocumentTab(blockId);
+      } else if (props.app) {
+        // 回退到旧方法（向后兼容）
+        openTab({ app: props.app, doc: { id: blockId } });
+      } else {
+        await pushErrMsg(t('envNotInit', 'Environment not initialized, cannot open tab'));
+      }
       return;
     }
     await pushErrMsg(t('envNotInit', 'Environment not initialized, cannot open tab'));
@@ -1565,9 +1651,10 @@ onMounted(() => {
     }
   } catch {}
 
-  // 🆕 初始化全局浏览器上下文
-  if (props.plugin?.unifiedDataSourceManager) {
-    setGlobalBrowserContext(props.plugin.unifiedDataSourceManager, searchQuery.value);
+  // 🆕 初始化全局浏览器上下文（DDD 化）
+  const unifiedDataSourceManager = props.browserService?.getUnifiedDataSourceManager?.();
+  if (unifiedDataSourceManager) {
+    setGlobalBrowserContext(unifiedDataSourceManager, searchQuery.value);
     console.log('[SiYuanMemo][SRSBrowser] Global browser context initialized');
   } else {
     console.warn('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available, global context not initialized');
@@ -2064,10 +2151,15 @@ async function handleApplyFilter(filter: CardFilter) {
   appliedFilter.value = filter;
   showFilterDialog.value = false;
   
-  // 如果当前是 filter-group 队列，设置队列的过滤条件
+  // 如果当前是 filter-group 队列，设置队列的过滤条件（DDD 化）
   if (activeQueueId.value === 'filter-group') {
     try {
-      const queue = props.plugin.unifiedDataSourceManager.getQueue('filter-group' as any);
+      const unifiedDataSourceManager = props.browserService?.getUnifiedDataSourceManager?.();
+      if (!unifiedDataSourceManager) {
+        console.error('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available');
+        return;
+      }
+      const queue = unifiedDataSourceManager.getQueue('filter-group' as any);
       if (queue && 'setFilter' in queue && typeof (queue as any).setFilter === 'function') {
         (queue as any).setFilter(filter);
         console.log('[SiYuanMemo][SRSBrowser] Filter set on FilterGroupQueue');
@@ -2091,10 +2183,15 @@ async function handleClearFilter() {
   appliedFilter.value = null;
   showFilterDialog.value = false;
   
-  // 如果当前是 filter-group 队列，清除队列的过滤条件
+  // 如果当前是 filter-group 队列，清除队列的过滤条件（DDD 化）
   if (activeQueueId.value === 'filter-group') {
     try {
-      const queue = props.plugin.unifiedDataSourceManager.getQueue('filter-group' as any);
+      const unifiedDataSourceManager = props.browserService?.getUnifiedDataSourceManager?.();
+      if (!unifiedDataSourceManager) {
+        console.error('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available');
+        return;
+      }
+      const queue = unifiedDataSourceManager.getQueue('filter-group' as any);
       if (queue && 'setFilter' in queue && typeof (queue as any).setFilter === 'function') {
         (queue as any).setFilter({});
         console.log('[SiYuanMemo][SRSBrowser] Filter cleared on FilterGroupQueue');
@@ -2125,7 +2222,13 @@ async function handleRebuildQueue() {
   }
   
   try {
-    const queue = props.plugin.unifiedDataSourceManager.getQueue('filter-group' as any);
+    const unifiedDataSourceManager = props.browserService?.getUnifiedDataSourceManager?.();
+    if (!unifiedDataSourceManager) {
+      console.error('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available');
+      await pushMsg(t('rebuildFailed', 'Failed to reload'), 3000, 'error');
+      return;
+    }
+    const queue = unifiedDataSourceManager.getQueue('filter-group' as any);
     if (queue && 'rebuild' in queue && typeof (queue as any).rebuild === 'function') {
       await (queue as any).rebuild();
       console.log('[SiYuanMemo][SRSBrowser] Queue rebuilt successfully');

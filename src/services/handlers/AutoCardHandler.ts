@@ -1,4 +1,4 @@
-﻿﻿/**
+﻿/**
  * 自动制卡处理器（统一版）
  * 
  * 职责：
@@ -78,6 +78,28 @@ export class AutoCardHandler implements ITransactionHandler {
     constructor(plugin: FSRSPlugin) {
         this.plugin = plugin;
         console.log('[SiYuanMemo][AutoCard] Handler initialized');
+    }
+    
+    /**
+     * 获取 StorageManager
+     * 
+     * @private
+     * @returns StorageManager 实例
+     * 
+     * @description
+     * ✅ DDD 架构：优先通过 ApplicationContext 获取
+     * 回退到 plugin.storage（向后兼容）
+     */
+    private get storage(): any {
+        try {
+            if (this.plugin && (this.plugin as any).context) {
+                return (this.plugin as any).context.getStorage();
+            }
+        } catch (error) {
+            console.warn('[AutoCard] Failed to get Storage from context:', error);
+        }
+        // 回退到旧方法
+        return this.plugin.storage;
     }
     
     /**
@@ -175,7 +197,7 @@ export class AutoCardHandler implements ITransactionHandler {
      */
     handle(transactions: Transaction[]): void {
         // 检查快速制卡是否启用
-        const quickCardSettings = this.plugin.storage.getSettings().quickCard;
+        const quickCardSettings = this.storage.getSettings().quickCard;
         console.log('[SiYuanMemo][AutoCard] Quick card settings:', quickCardSettings);
         if (!quickCardSettings?.enabled) {
             console.log('[SiYuanMemo][AutoCard] Quick card is disabled, skipping');
@@ -231,7 +253,7 @@ export class AutoCardHandler implements ITransactionHandler {
         }
         
         // 从设置中获取防抖时间
-        const quickCardSettings = this.plugin.storage.getSettings().quickCard;
+        const quickCardSettings = this.storage.getSettings().quickCard;
         const debounceDelay = quickCardSettings?.debounceDelay?.quick || this.QUICK_DEBOUNCE;
         
         // 🆕 如果防抖时间设置为 0，则完全禁用防抖（只依赖失焦检测）
@@ -268,7 +290,7 @@ export class AutoCardHandler implements ITransactionHandler {
         }
         
         // 从设置中获取防抖时间
-        const quickCardSettings = this.plugin.storage.getSettings().quickCard;
+        const quickCardSettings = this.storage.getSettings().quickCard;
         const debounceDelay = quickCardSettings?.debounceDelay?.list || this.LIST_DEBOUNCE;
         
         this.listTimer = setTimeout(() => {
@@ -337,7 +359,7 @@ export class AutoCardHandler implements ITransactionHandler {
         }
         
         // 批量保存
-        await this.plugin.storage.saveCards();
+        await this.storage.saveCards();
     }
     
     /**
@@ -354,7 +376,7 @@ export class AutoCardHandler implements ITransactionHandler {
     private async checkQuickSymbols(blockId: string): Promise<void> {
         try {
             // 获取设置
-            const quickCardSettings = this.plugin.storage.getSettings().quickCard;
+            const quickCardSettings = this.storage.getSettings().quickCard;
             if (!quickCardSettings?.enabled) {
                 return;
             }
@@ -369,7 +391,7 @@ export class AutoCardHandler implements ITransactionHandler {
             console.log('[SiYuanMemo][AutoCard] Checking quick symbols:', blockId, 'content:', kramdown);
             
             // 2. 检查是否已制卡
-            const existingCard = this.plugin.storage.getCardByBlockId(blockId);
+            const existingCard = this.storage.getCardByBlockId(blockId);
             if (existingCard) {
                 console.log('[SiYuanMemo][AutoCard] Block already has card:', blockId);
                 return;
@@ -553,7 +575,7 @@ export class AutoCardHandler implements ITransactionHandler {
     private async checkListTemplate(blockId: string): Promise<void> {
         try {
             // 获取设置
-            const quickCardSettings = this.plugin.storage.getSettings().quickCard;
+            const quickCardSettings = this.storage.getSettings().quickCard;
             if (!quickCardSettings?.enabled || !quickCardSettings.enabledSymbols.multiLine) {
                 return;
             }
@@ -674,8 +696,8 @@ export class AutoCardHandler implements ITransactionHandler {
             console.log('[SiYuanMemo][AutoCard] Marked block as card:', blockId);
             
             // 6. 保存到存储
-            this.plugin.storage.setCard(card);
-            await this.plugin.storage.saveCards();
+            this.storage.setCard(card);
+            await this.storage.saveCards();
             
             console.log('[SiYuanMemo][AutoCard] Basic card created successfully:', blockId, direction);
             
@@ -729,8 +751,8 @@ export class AutoCardHandler implements ITransactionHandler {
                 const { markBlockAsCard } = await import('@/core/siyuan/block');
                 await markBlockAsCard(blockId, card.id, card.priority, 'item');
                 
-                this.plugin.storage.setCard(card);
-                await this.plugin.storage.saveCards();
+                this.storage.setCard(card);
+                await this.storage.saveCards();
                 
                 const { pushMsg } = await import('@/core/siyuan/api');
                 await pushMsg(`✅ 已创建双向卡片 (<>) - 仅正向`);
@@ -972,8 +994,8 @@ export class AutoCardHandler implements ITransactionHandler {
                 });
                 
                 // 8. 保存到存储
-                this.plugin.storage.setCard(card);
-                await this.plugin.storage.saveCards();
+                this.storage.setCard(card);
+                await this.storage.saveCards();
                 
                 console.log('[SiYuanMemo][AutoCard] Concept card created successfully:', blockId);
                 
@@ -1124,8 +1146,8 @@ export class AutoCardHandler implements ITransactionHandler {
             await markBlockAsCard(blockId, card.id, card.priority, 'item');
             
             // 5. 保存到存储
-            this.plugin.storage.setCard(card);
-            await this.plugin.storage.saveCards();
+            this.storage.setCard(card);
+            await this.storage.saveCards();
             
             console.log('[SiYuanMemo][AutoCard] Basic card created from descriptor:', blockId);
             
@@ -1233,8 +1255,8 @@ export class AutoCardHandler implements ITransactionHandler {
         await markBlockAsCard(blockId, card.id, card.priority, 'item');
         
         // 保存到存储
-        this.plugin.storage.setCard(card);
-        await this.plugin.storage.saveCards();
+        this.storage.setCard(card);
+        await this.storage.saveCards();
         
         console.log('[SiYuanMemo][AutoCard] Single cloze card created:', blockId);
         
@@ -1345,7 +1367,7 @@ export class AutoCardHandler implements ITransactionHandler {
             console.log('[SiYuanMemo][AutoCard] Creating list template cards:', blockId, 'children:', children.length);
             
             // 1. 检查是否已制卡
-            const existingCard = this.plugin.storage.getCardByBlockId(blockId);
+            const existingCard = this.storage.getCardByBlockId(blockId);
             if (existingCard) {
                 console.log('[SiYuanMemo][AutoCard] Block already has card:', blockId);
                 return;
@@ -1623,8 +1645,8 @@ export class AutoCardHandler implements ITransactionHandler {
                     await markBlockAsCard(refId, card.id, card.priority, 'topic');
                     
                     // 保存到存储
-                    this.plugin.storage.setCard(card);
-                    await this.plugin.storage.saveCards();
+                    this.storage.setCard(card);
+                    await this.storage.saveCards();
                     
                     console.log('[SiYuanMemo][AutoCard] Empty concept card created:', refId);
                 } catch (error) {
@@ -1816,8 +1838,8 @@ export class AutoCardHandler implements ITransactionHandler {
             await markBlockAsCard(conceptId, card.id, card.priority, 'topic');
             
             // 保存到存储
-            this.plugin.storage.setCard(card);
-            await this.plugin.storage.saveCards();
+            this.storage.setCard(card);
+            await this.storage.saveCards();
             
             console.log('[SiYuanMemo][AutoCard] Empty concept card created:', conceptId);
         } catch (error) {

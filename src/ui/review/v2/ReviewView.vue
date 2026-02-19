@@ -796,7 +796,8 @@ function openSrsEditorDialog(blockId: string) {
       },
       deckId: riff.BUILTIN_DECK_ID,
       i18n: props.i18n || {},
-      plugin: props.plugin,  // ✅ 传递 plugin 实例
+      plugin: props.plugin,
+      reviewService: (props.plugin as any)?.context?.getReviewService?.(),
     },
     width: '860px',
     height: '80vh',

@@ -212,7 +212,12 @@ export class ApplicationContext {
     });
     // ✅ Task 2.2: MenuManager 已注册
     this.registerServiceFactory('menuManager', (context) => {
-      return new MenuManager(context, context.getPlugin(), context.getI18n());
+      return new MenuManager(
+        context, 
+        context.getPlugin(), 
+        context.getI18n(),
+        context.getDialogManager()  // ✅ 注入 DialogManager
+      );
     });
     // ✅ Task 2.3: TabManager 已注册
     this.registerServiceFactory('tabManager', (context) => {
@@ -263,10 +268,37 @@ export class ApplicationContext {
       );
     });
     
+    // ✅ 注册浏览器应用服务工厂
+    this.registerServiceFactory('browserService', (context) => {
+      // 创建领域服务
+      const { CardScheduleService } = require('@/core/card/domain/services/CardScheduleService');
+      const { CardFilterService } = require('@/core/card/domain/services/CardFilterService');
+      const { CardSortService } = require('@/core/card/domain/services/CardSortService');
+      const cardScheduleService = new CardScheduleService();
+      const cardFilterService = new CardFilterService();
+      const cardSortService = new CardSortService();
+
+      // 创建应用服务
+      const { BrowserApplicationService } = require('@/application/services/BrowserApplicationService');
+      return new BrowserApplicationService(
+        context.getStorage(),
+        cardScheduleService,
+        cardFilterService,
+        cardSortService,
+        context.getUnifiedDataSourceManager()  // ✅ 传入 UnifiedDataSourceManager
+      );
+    });
+    
+    // ✅ 注册复习应用服务工厂
+    this.registerServiceFactory('reviewService', (context) => {
+      const { ReviewApplicationService } = require('@/application/services/ReviewApplicationService');
+      return new ReviewApplicationService(
+        context.getStorage(),
+        context.getScheduler()
+      );
+    });
+    
     // TODO: Phase 3 - 注册其他应用服务工厂
-    // this.registerServiceFactory('reviewService', (context) => {
-    //   return new ReviewApplicationService(context);
-    // });
     // this.registerServiceFactory('syncService', (context) => {
     //   return new SyncApplicationService(context);
     // });
@@ -803,8 +835,25 @@ export class ApplicationContext {
     return this.getService<any>('cardService');
   }
   
+  /**
+   * 获取浏览器应用服务
+   * 
+   * @returns BrowserApplicationService - 浏览器应用服务实例
+   */
+  getBrowserService(): any {
+    return this.getService<any>('browserService');
+  }
+  
+  /**
+   * 获取复习应用服务
+   * 
+   * @returns ReviewApplicationService - 复习应用服务实例
+   */
+  getReviewService(): any {
+    return this.getService<any>('reviewService');
+  }
+  
   // TODO: Phase 3 - 实现其他应用服务访问方法
-  // getReviewService(): ReviewApplicationService
   // getSyncService(): SyncApplicationService
   
   // ========================================================================

@@ -14,6 +14,7 @@ import ActionParamsDialog from '../ActionParamsDialog.vue';
 
 export interface ContextMenuOptions {
   plugin?: any;
+  tabManager?: any;  // ✅ 添加 tabManager
   i18n?: Record<string, string>;
   loadData: () => Promise<void>;
   refreshQueueCounts: () => Promise<void>;
@@ -488,11 +489,19 @@ export function useContextMenu(options: ContextMenuOptions) {
 
     if (actionId === 'open') {
       const blockId = String(anchorRow?.blockId || targetCards[0]?.blockId || '');
-      if (options.plugin?.app && blockId) {
-        (options.plugin.app as any).openTab({ 
-          app: options.plugin.app, 
-          doc: { id: blockId } 
-        });
+      if (blockId) {
+        // ✅ 优先使用 tabManager（DDD 架构）
+        if (options.tabManager) {
+          options.tabManager.openDocumentTab(blockId);
+        } else if (options.plugin?.app) {
+          // 回退到旧方法（向后兼容）
+          (options.plugin.app as any).openTab({ 
+            app: options.plugin.app, 
+            doc: { id: blockId } 
+          });
+        } else {
+          await pushErrMsg(t('envNotInit', '当前环境未初始化，无法打开页签'));
+        }
         return;
       }
       await pushErrMsg(t('envNotInit', '当前环境未初始化，无法打开页签'));

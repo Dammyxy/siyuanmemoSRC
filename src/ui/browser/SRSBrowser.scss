@@ -236,8 +236,15 @@
 
 .preview__body {
   flex: 1;
+  overflow: hidden;  /* 改为 hidden,让 Protyle 自己管理滚动 */
+  min-height: 0;  /* 确保 flex 子元素可以收缩 */
+  position: relative;  /* 为 Protyle 提供定位上下文 */
+}
+
+/* Protyle 容器样式 */
+.preview__body :deep(.protyle) {
+  height: 100%;
   overflow: auto;
-  min-height: 0;
 }
 
 .preview__empty {

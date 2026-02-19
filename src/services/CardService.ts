@@ -13,6 +13,45 @@ import { markBlockAsCard, unmarkBlockAsCard } from '@/core/siyuan/block';
  */
 export class CardService {
   constructor(private plugin: FSRSPlugin) {}
+  
+  /**
+   * 获取 StorageManager
+   * 
+   * @private
+   * @returns StorageManager 实例
+   * 
+   * @description
+   * ✅ DDD 架构：优先通过 ApplicationContext 获取
+   * 回退到 plugin.storage（向后兼容）
+   */
+  private get storage(): any {
+    try {
+      if (this.plugin && (this.plugin as any).context) {
+        return (this.plugin as any).context.getStorage();
+      }
+    } catch (error) {
+      console.warn('[CardService] Failed to get Storage from context:', error);
+    }
+    // 回退到旧方法
+    return this.plugin.storage;
+  }
+  
+  /**
+   * 获取 ReviewApplicationService
+   * 
+   * @private
+   * @returns ReviewApplicationService 实例，如果不可用则返回 null
+   */
+  private getReviewService(): any | null {
+    try {
+      if (this.plugin && (this.plugin as any).context) {
+        return (this.plugin as any).context.getReviewService();
+      }
+    } catch (error) {
+      console.warn('[CardService] Failed to get ReviewApplicationService:', error);
+    }
+    return null;
+  }
 
   /**
    * 处理块图标点击（添加闪卡菜单）
@@ -79,7 +118,7 @@ export class CardService {
             console.log('[SiYuanMemo] Querying local storage for blockIds:', blockIds);
             // 尝试从本地存储获取卡片
             for (const bid of blockIds) {
-              const card = this.plugin.storage.getCardByBlockId(bid);
+              const card = this.storage.getCardByBlockId(bid);
               if (card) {
                 blockID = card.blockId;
                 cardID = card.id;
@@ -106,7 +145,8 @@ export class CardService {
               deckId: riff.BUILTIN_DECK_ID,
             },
             deckId: riff.BUILTIN_DECK_ID,
-            plugin: this.plugin,  // ✅ 传递 plugin 实例
+            plugin: this.plugin,
+            reviewService: this.getReviewService(),
             i18n: this.plugin.i18n || {},
           },
           width: '860px',
@@ -133,7 +173,7 @@ export class CardService {
             try {
               const card = createDefaultCard(blockId);
               await markBlockAsCard(blockId, card.id, card.priority, 'item');
-              this.plugin.storage.setCard(card);
+              this.storage.setCard(card);
               createdCount++;
             } catch (err) {
               console.error('[SiYuanMemo] Failed to create card from block:', blockId, err);
@@ -141,7 +181,7 @@ export class CardService {
           }
 
           if (createdCount > 0) {
-            await this.plugin.storage.saveCards();
+            await this.storage.saveCards();
             await pushMsg((this.plugin.i18n?.msg_created || '已创建 {n} 张闪卡').replace('{n}', String(createdCount)));
           } else {
             await pushMsg(this.plugin.i18n?.msg_already_cards || '选中的块已经是闪卡');
@@ -171,7 +211,7 @@ export class CardService {
             }
             try {
               await unmarkBlockAsCard(blockId);
-              this.plugin.storage.removeCard(cardId);
+              this.storage.removeCard(cardId);
               removedCount++;
             } catch (err) {
               console.error('[SiYuanMemo] Failed to remove card from block:', blockId, err);
@@ -179,7 +219,7 @@ export class CardService {
           }
 
           if (removedCount > 0) {
-            await this.plugin.storage.saveCards();
+            await this.storage.saveCards();
             await pushMsg((this.plugin.i18n?.msg_unmarked || '已取消 {n} 张闪卡').replace('{n}', String(removedCount)));
           } else {
             await pushMsg(this.plugin.i18n?.msg_no_removable || '未找到可取消的闪卡');
@@ -294,7 +334,7 @@ export class CardService {
           this.plugin.openDrillDialogWithCards(cards, 'block');
         } catch (err) {
           console.error('[SiYuanMemo] Failed to open drill from breadcrumb menu:', err);
-          await pushErrMsg(this.plugin.i18n?.drillFailed || '机械练习启动失败');
+          await pushErrMsg(this.plugin.i18n?.drillFailed || '刻意练习练习启动失败');
         }
       }
     });

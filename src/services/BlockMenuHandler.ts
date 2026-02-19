@@ -207,7 +207,8 @@ export class BlockMenuHandler {
             },
             deckId: riff.BUILTIN_DECK_ID,
             i18n: this.deps.i18n || {},
-            plugin: this.deps.plugin,  // ✅ 传递 plugin 实例
+            plugin: this.deps.plugin,  // 向后兼容
+            reviewService: this.deps.applicationContext?.getReviewService?.(),  // ✅ DDD 架构
           },
           width: '860px',
           height: '80vh',
@@ -997,13 +998,15 @@ export class BlockMenuHandler {
         console.warn(`[BlockMenuHandler] Concept card attribute verification failed after retries, but continuing...`);
       }
       
-      // 4. 获取神经漫游队列（通过 plugin.unifiedDataSourceManager）
-      if (!this.deps.plugin?.unifiedDataSourceManager) {
+      // 4. 获取神经漫游队列（✅ DDD 架构：通过 ApplicationContext）
+      const unifiedDataSourceManager = this.deps.applicationContext?.getUnifiedDataSourceManager?.() || this.deps.plugin?.unifiedDataSourceManager;
+      
+      if (!unifiedDataSourceManager) {
         await pushErrMsg('❌ 统一数据源管理器未初始化');
         return;
       }
       
-      const neuralQueue = this.deps.plugin.unifiedDataSourceManager.getQueue(QueueType.NeuralRoam);
+      const neuralQueue = unifiedDataSourceManager.getQueue(QueueType.NeuralRoam);
       
       if (!neuralQueue) {
         await pushErrMsg('❌ 神经漫游队列未初始化');

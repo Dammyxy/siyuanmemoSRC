@@ -4,6 +4,7 @@ import { BrowserCard } from '../types';
 
 export interface GridInteractionsOptions {
   plugin?: any;
+  tabManager?: any;  // ✅ 添加 tabManager
   i18n?: Record<string, string>;
 }
 
@@ -99,7 +100,12 @@ export function useGridInteractions(props: GridInteractionsOptions) {
       console.warn('[SiYuanMemo][CardBrowser] No blockId found in row data:', event.data);
       return;
     }
-    if (props.plugin?.app) {
+    
+    // ✅ 优先使用 tabManager（DDD 架构）
+    if (props.tabManager) {
+      props.tabManager.openDocumentTab(blockId);
+    } else if (props.plugin?.app) {
+      // 回退到旧方法（向后兼容）
       (props.plugin.app as any).openTab({
         app: props.plugin.app,
         doc: { id: blockId },

@@ -201,6 +201,7 @@ const props = defineProps<{
   deckID?: string;
   i18n?: Record<string, string>;
   plugin?: FSRSPlugin;
+  reviewService?: any;  // ✅ DDD 架构：复习应用服务
 }>();
 
 // 标准化 props 数据
@@ -541,23 +542,65 @@ async function handleScheduleDate(options: ScheduleOptions) {
     }
     
     // 评分模式：先执行复习，再修改日期
-    if (options.mode === 'rating' && options.rating && props.plugin?.schedulerRouter) {
-      const updatedCard = props.plugin.schedulerRouter.route(card, options.rating);
-      updatedCard.due = dueTimestamp;
-      updatedCard.updatedAt = Date.now();
-      props.plugin.storage.setCard(updatedCard);
-      
-      console.log('[SiYuanMemo][SrsEditor] Schedule with rating:', options.rating, 'to:', dueTimestamp);
+    if (options.mode === 'rating' && options.rating) {
+      // ✅ 优先使用 reviewService（DDD 架构）
+      if (props.reviewService) {
+        try {
+          await props.reviewService.rescheduleCard(card.id, {
+            mode: 'rating',
+            rating: options.rating,
+            dueTimestamp: dueTimestamp
+          });
+          console.log('[SiYuanMemo][SrsEditor] Schedule with rating via reviewService:', options.rating, 'to:', dueTimestamp);
+        } catch (error) {
+          console.error('[SiYuanMemo][SrsEditor] Failed to reschedule via reviewService:', error);
+          // 回退到旧方法
+          if (props.plugin?.schedulerRouter) {
+            const updatedCard = props.plugin.schedulerRouter.route(card, options.rating);
+            updatedCard.due = dueTimestamp;
+            updatedCard.updatedAt = Date.now();
+            props.plugin.storage.setCard(updatedCard);
+            await props.plugin.storage.saveCards();
+          }
+        }
+      } else if (props.plugin?.schedulerRouter) {
+        // 回退到旧方法（向后兼容）
+        const updatedCard = props.plugin.schedulerRouter.route(card, options.rating);
+        updatedCard.due = dueTimestamp;
+        updatedCard.updatedAt = Date.now();
+        props.plugin.storage.setCard(updatedCard);
+        await props.plugin.storage.saveCards();
+        console.log('[SiYuanMemo][SrsEditor] Schedule with rating (legacy):', options.rating, 'to:', dueTimestamp);
+      }
     } else {
       // 仅修改日期模式
-      card.due = dueTimestamp;
-      card.updatedAt = Date.now();
-      props.plugin?.storage.setCard(card);
-      
-      console.log('[SiYuanMemo][SrsEditor] Schedule direct to:', dueTimestamp);
+      // ✅ 优先使用 reviewService（DDD 架构）
+      if (props.reviewService) {
+        try {
+          await props.reviewService.rescheduleCard(card.id, {
+            mode: 'direct',
+            dueTimestamp: dueTimestamp
+          });
+          console.log('[SiYuanMemo][SrsEditor] Schedule direct via reviewService to:', dueTimestamp);
+        } catch (error) {
+          console.error('[SiYuanMemo][SrsEditor] Failed to reschedule via reviewService:', error);
+          // 回退到旧方法
+          if (props.plugin?.storage) {
+            card.due = dueTimestamp;
+            card.updatedAt = Date.now();
+            props.plugin.storage.setCard(card);
+            await props.plugin.storage.saveCards();
+          }
+        }
+      } else if (props.plugin?.storage) {
+        // 回退到旧方法（向后兼容）
+        card.due = dueTimestamp;
+        card.updatedAt = Date.now();
+        props.plugin.storage.setCard(card);
+        await props.plugin.storage.saveCards();
+        console.log('[SiYuanMemo][SrsEditor] Schedule direct (legacy) to:', dueTimestamp);
+      }
     }
-    
-    await props.plugin?.storage.saveCards();
     await loadMeta();
     
     showResultDialog({
