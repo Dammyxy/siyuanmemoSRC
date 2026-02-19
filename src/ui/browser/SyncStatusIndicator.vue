@@ -65,7 +65,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
-import type { SyncStatus, SyncResult } from '@/services/HybridSyncService';
+import type { SyncStatus, SyncResult } from '@/application/services/XiuyuanSyncService';
 
 // Props
 const props = defineProps<{

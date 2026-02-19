@@ -16,8 +16,8 @@ import {
     IDataRouter,
     IReviewQueue,
     CardFilter,
-} from '../types/unified-data-source';
-import { FSRSCard } from '../types/card';
+} from '@/types/unified-data-source';
+import { FSRSCard } from '@/types/card';
 import { QueueFactory } from '@/core/queue/factories/QueueFactory';
 
 /**

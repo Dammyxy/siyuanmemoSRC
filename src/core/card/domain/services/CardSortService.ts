@@ -17,7 +17,7 @@
  * @see .kiro/specs/ddd-refactoring/browser-ddd-migration.md - Phase 1
  */
 
-import type { Card } from '@/services/StorageManager';
+import type { FSRSCard } from '@/types';
 
 /**
  * 排序字段类型

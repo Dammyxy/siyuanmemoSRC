@@ -56,13 +56,17 @@ export default class FSRSPlugin extends Plugin {
       this.context = await ApplicationContext.create({ plugin: this, i18n: this.i18n || {} });
       await this.performConfigMigrations();
       this.isInitialized = true;
+      
+      // ✅ 只有在初始化成功后才注册事件处理器
+      this.registerDock();
+      this.registerEventHandlers();
     } catch (err) {
       console.error('[SiYuanMemo] Plugin initialization failed:', err);
       try { await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败'); } catch {}
+      // ❌ 初始化失败时不注册事件处理器
+      return;
     }
 
-    this.registerDock();
-    this.registerEventHandlers();
     (window as any).siyuanMemoPlugin = this;
     console.log('[SiYuanMemo] Plugin loaded successfully');
   }

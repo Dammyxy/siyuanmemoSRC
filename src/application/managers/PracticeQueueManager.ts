@@ -4,7 +4,7 @@
 
 import { getCardBlockIds } from '@/core/siyuan/block';
 import { pushMsg } from '@/core/siyuan/api';
-import type { BlockMenuHandler } from '@/services';
+import type { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
 import type { QueueItem } from '@/core/queue';
 
 export type PracticeQueueFilter = { type: 'doc' | 'tree' | 'sql'; value: string };
@@ -65,7 +65,7 @@ export class PracticeQueueManager {
    * 清空练习队列
    */
   async clearPracticeQueue(): Promise<void> {
-    const { clearPracticeQueue } = await import('@/services');
+    const { clearPracticeQueue } = await import('@/application/helpers/QueueHelpers');
     await clearPracticeQueue({
       blockMenuHandler: this.blockMenuHandler,
       retrievalQueue: this.retrievalQueue,

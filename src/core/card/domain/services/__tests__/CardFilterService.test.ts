@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { CardFilterService } from '../CardFilterService';
 import { CardState } from '../CardScheduleService';
-import type { Card } from '@/services/StorageManager';
+import type { FSRSCard } from '@/types';
 
 describe('CardFilterService', () => {
   const service = new CardFilterService();

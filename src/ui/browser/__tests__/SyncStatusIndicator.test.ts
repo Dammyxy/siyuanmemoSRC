@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import SyncStatusIndicator from '../SyncStatusIndicator.vue';
-import type { SyncStatus, SyncResult } from '@/services/XiuyuanSyncService';
+import type { SyncStatus, SyncResult } from '@/application/services/XiuyuanSyncService';
 
 describe('SyncStatusIndicator', () => {
   let mockSyncService: any;

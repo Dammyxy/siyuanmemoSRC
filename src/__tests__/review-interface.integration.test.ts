@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { HybridSyncService } from '@/services/XiuyuanSyncService';
+import type { HybridSyncService } from '@/application/services/XiuyuanSyncService';
 import type { StorageManager } from '@/core/storage/manager';
 import { RetrievalPracticeProvider } from '@/ui/review/v2/providers/RetrievalPracticeProvider';
 import { DEFAULT_RIFF_CONFIG, type RiffIntegrationConfig } from '@/types/settings';

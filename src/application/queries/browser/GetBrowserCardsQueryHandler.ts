@@ -19,7 +19,7 @@ import type { StorageManager } from '@/core/storage/manager';
 import { CardScheduleService, CardState } from '@/core/card/domain/services/CardScheduleService';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
-import type { Card } from '@/services/StorageManager';
+import type { FSRSCard } from '@/types';
 import type {
   GetBrowserCardsQuery,
   GetBrowserCardsQueryResult,

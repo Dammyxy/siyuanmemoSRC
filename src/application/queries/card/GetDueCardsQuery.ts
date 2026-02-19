@@ -6,7 +6,7 @@
  * @see .kiro/specs/ddd-refactoring/long-term-improvements.md - 阶段 2
  */
 
-import type { Card } from '@/services/StorageManager';
+import type { FSRSCard } from '@/types';
 
 /**
  * GetDueCardsQuery - 获取到期卡片查询

@@ -14,7 +14,7 @@
  * @see .kiro/specs/ddd-refactoring/long-term-improvements.md - 阶段 1
  */
 
-import type { Card } from '@/services/StorageManager';
+import type { FSRSCard } from '@/types';
 
 /**
  * 卡片状态枚举

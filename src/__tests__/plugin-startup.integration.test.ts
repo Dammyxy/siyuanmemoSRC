@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { HybridSyncService } from '@/services/XiuyuanSyncService';
+import type { HybridSyncService } from '@/application/services/XiuyuanSyncService';
 import type { StorageManager } from '@/core/storage/manager';
 import { ConfigMigrator } from '@/utils/configMigrator';
 import { DEFAULT_RIFF_CONFIG, type RiffIntegrationConfig } from '@/types/settings';
@@ -92,7 +92,7 @@ describe('Plugin Startup Integration', () => {
       mockSettings.scheduler.riffIntegration = advancedConfig;
 
       // Act
-      const { HybridSyncService } = await import('@/services/XiuyuanSyncService');
+      const { HybridSyncService } = await import('@/application/services/XiuyuanSyncService');
       const service = new HybridSyncService({
         deckId: '20230218211946-2kw8jgx',
         storage: mockStorage as StorageManager,
@@ -257,7 +257,7 @@ describe('Plugin Startup Integration', () => {
   describe('Service Lifecycle', () => {
     it('should start and stop HybridSyncService correctly', async () => {
       // Arrange
-      const { HybridSyncService } = await import('@/services/XiuyuanSyncService');
+      const { HybridSyncService } = await import('@/application/services/XiuyuanSyncService');
       const service = new HybridSyncService({
         deckId: '20230218211946-2kw8jgx',
         storage: mockStorage as StorageManager,
@@ -292,7 +292,7 @@ describe('Plugin Startup Integration', () => {
 
     it('should handle start errors gracefully', async () => {
       // Arrange
-      const { HybridSyncService } = await import('@/services/XiuyuanSyncService');
+      const { HybridSyncService } = await import('@/application/services/XiuyuanSyncService');
       
       // Mock getRiffNewCards to throw error
       const { getRiffNewCards } = await import('@/core/siyuan/riff');

@@ -252,6 +252,9 @@ const currentCardType = ref<CardTypeFilter>('all');  // ✅ 卡片类型筛选
 const selectedRows = ref<BrowserCard[]>([]);
 const gridApi = ref<GridApi | null>(null);
 const currentSortModel = ref<any[]>([]);
+// ✅ 排序字段和顺序（用于 browserService.getBrowserCards）
+const currentSortField = ref<string>('due');
+const currentSortOrder = ref<'asc' | 'desc'>('asc');
 const searchQuery = ref('');
 const viewMode = ref<'flat' | 'hierarchy'>('hierarchy');  // ✅ 默认使用层级视图
 const activeQueueId = ref<string | null>(null);
@@ -790,9 +793,16 @@ function onSortChanged(params: any) {
   currentSortModel.value = params?.api?.getSortModel?.() || [];
   const sortArray = Array.from(currentSortModel.value || []);
 
-  // ✅ 如果有列排序状态，清除随机排序标志
+  // ✅ 更新 currentSortField 和 currentSortOrder（用于 browserService.getBrowserCards）
   if (sortArray.length > 0) {
+    const firstSort = sortArray[0];
+    currentSortField.value = firstSort.colId || 'due';
+    currentSortOrder.value = firstSort.sort || 'asc';
     hasRandomSort.value = false;
+  } else {
+    // 没有排序时，使用默认值
+    currentSortField.value = 'due';
+    currentSortOrder.value = 'asc';
   }
 
   // 检查排序是否真的改变了
@@ -801,6 +811,8 @@ function onSortChanged(params: any) {
     sortModel: currentSortModel.value,
     sortModelLength: currentSortModel.value?.length,
     sortModelArray: sortArray,
+    currentSortField: currentSortField.value,
+    currentSortOrder: currentSortOrder.value,
     activeQueueId: activeQueueId.value,
     canApply: canApplySortToQueue.value,
     // 调试：检查 API 方法

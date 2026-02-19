@@ -20,7 +20,8 @@ import { DockManager } from '@/application/managers/DockManager';
 import { PracticeQueueManager } from '@/application/managers/PracticeQueueManager';
 import { TabApplicationService } from '@/application/services/TabApplicationService';
 import { XiuyuanService, XiuyuanStorage } from '@/core/xiuyuan';
-import { BlockMenuHandler, HybridSyncService } from '@/services';
+import { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
+import { HybridSyncService } from '@/application/services/XiuyuanSyncService';
 import { TransactionWebSocketService } from '@/core/infrastructure/websocket/TransactionWebSocketService';
 import { QueueContext, type QueueItem } from '@/core/queue';
 import { RetrievalPracticeQueue } from '@/core/queue/domain/RetrievalPracticeQueue';
@@ -30,6 +31,21 @@ import { IncrementalLearningQueue } from '@/core/queue/domain/IncrementalLearnin
 import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
 import { QueueType } from '@/types/unified-data-source';
 import { AdvancedDataRouter } from '@/application/queries/DataAccessFacade';
+
+// ✅ 静态导入所有服务工厂需要的类
+import { XiuyuanRepository } from '@/core/xiuyuan/infrastructure/XiuyuanRepository';
+import { CardCreationService } from '@/core/xiuyuan/domain/services/CardCreationService';
+import { CardDeletionService } from '@/core/xiuyuan/domain/services/CardDeletionService';
+import { CreateCardUseCase } from '@/application/usecases/card/CreateCardUseCase';
+import { DeleteCardUseCase } from '@/application/usecases/card/DeleteCardUseCase';
+import { UpdateCardUseCase } from '@/application/usecases/card/UpdateCardUseCase';
+import { CardApplicationService } from '@/application/services/CardApplicationService';
+import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
+import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
+import { CardSortService } from '@/core/card/domain/services/CardSortService';
+import { BrowserApplicationService } from '@/application/services/BrowserApplicationService';
+import { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
+import { EventBus } from '@/core/shared/domain/events/EventBus';
 
 /**
  * 应用配置接口
@@ -199,7 +215,6 @@ export class ApplicationContext {
     
     // ✅ 注册 EventBus（单例）
     this.registerServiceFactory('eventBus', (context) => {
-      const { EventBus } = require('@/core/shared/domain/events/EventBus');
       return new EventBus(false);  // false = 不启用调试日志
     });
     
@@ -241,36 +256,28 @@ export class ApplicationContext {
     // ✅ Task 13.1: 注册卡片应用服务工厂
     this.registerServiceFactory('cardService', (context) => {
       // 创建基础设施层：XiuyuanRepository
-      const { XiuyuanRepository } = require('@/core/xiuyuan/infrastructure/XiuyuanRepository');
       const xiuyuanRepo = new XiuyuanRepository(
         context.getXiuyuanStorage(),
         context.getPlugin()
       );
 
       // 创建领域服务
-      const { CardCreationService } = require('@/core/xiuyuan/domain/services/CardCreationService');
-      const { CardDeletionService } = require('@/core/xiuyuan/domain/services/CardDeletionService');
       const cardCreationService = new CardCreationService();
       const cardDeletionService = new CardDeletionService();
 
       // 创建用例
-      const { CreateCardUseCase } = require('@/application/usecases/card/CreateCardUseCase');
-      const { DeleteCardUseCase } = require('@/application/usecases/card/DeleteCardUseCase');
-      const { UpdateCardUseCase } = require('@/application/usecases/card/UpdateCardUseCase');
       const createCardUseCase = new CreateCardUseCase(xiuyuanRepo, cardCreationService);
       const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepo, cardDeletionService);
       const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepo);
 
       // 创建应用服务
-      const { CardApplicationService } = require('@/application/services/CardApplicationService');
-      const { CardScheduleService } = require('@/core/card/domain/services/CardScheduleService');
       const scheduleService = new CardScheduleService();
       
       return new CardApplicationService(
         createCardUseCase,
         deleteCardUseCase,
         updateCardUseCase,
-        storageManager,
+        context.getStorage(),
         scheduleService
       );
     });
@@ -278,15 +285,11 @@ export class ApplicationContext {
     // ✅ 注册浏览器应用服务工厂
     this.registerServiceFactory('browserService', (context) => {
       // 创建领域服务
-      const { CardScheduleService } = require('@/core/card/domain/services/CardScheduleService');
-      const { CardFilterService } = require('@/core/card/domain/services/CardFilterService');
-      const { CardSortService } = require('@/core/card/domain/services/CardSortService');
       const cardScheduleService = new CardScheduleService();
       const cardFilterService = new CardFilterService();
       const cardSortService = new CardSortService();
 
       // 创建应用服务
-      const { BrowserApplicationService } = require('@/application/services/BrowserApplicationService');
       return new BrowserApplicationService(
         context.getStorage(),
         cardScheduleService,
@@ -298,7 +301,6 @@ export class ApplicationContext {
     
     // ✅ 注册复习应用服务工厂
     this.registerServiceFactory('reviewService', (context) => {
-      const { ReviewApplicationService } = require('@/application/services/ReviewApplicationService');
       return new ReviewApplicationService(
         context.getStorage(),
         context.getScheduler()
@@ -443,20 +445,45 @@ export class ApplicationContext {
     // 5. 创建旧调度器（向后兼容）
     const scheduler = createScheduler(settings.fsrs, settings.schedulerEngine);
     
-    // 6. 初始化统一数据源管理器
+    // 6. 创建 CardApplicationService（DataAccessFacade 需要）
+    // 创建基础设施层：XiuyuanRepository（临时创建，后续会在服务容器中重新创建）
+    const xiuyuanStorageTemp = new XiuyuanStorage(config.plugin as any);
+    await xiuyuanStorageTemp.load();
+    const xiuyuanRepoTemp = new XiuyuanRepository(xiuyuanStorageTemp, config.plugin);
+    
+    // 创建领域服务
+    const cardCreationService = new CardCreationService();
+    const cardDeletionService = new CardDeletionService();
+    const cardScheduleService = new CardScheduleService();
+    
+    // 创建用例
+    const createCardUseCase = new CreateCardUseCase(xiuyuanRepoTemp, cardCreationService);
+    const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepoTemp, cardDeletionService);
+    const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepoTemp);
+    
+    // 创建 CardApplicationService
+    const cardApplicationService = new CardApplicationService(
+      createCardUseCase,
+      deleteCardUseCase,
+      updateCardUseCase,
+      storageManager,
+      cardScheduleService
+    );
+    
+    // 7. 初始化统一数据源管理器
     const unifiedDataSourceManager = UnifiedDataSourceManager.getInstance();
-    const advancedRouter = new AdvancedDataRouter(storageManager, config.plugin as any);
+    const advancedRouter = new AdvancedDataRouter(cardApplicationService, storageManager, config.plugin as any);
     unifiedDataSourceManager.setAdvancedRouter(advancedRouter);
     console.log('[ApplicationContext] ✅ UnifiedDataSourceManager initialized with Advanced mode');
     
-    // 7. 初始化队列
+    // 8. 初始化队列
     const retrievalQueue = unifiedDataSourceManager.getQueue(QueueType.RetrievalPractice) as any;
     const finalDrillQueue = unifiedDataSourceManager.getQueue(QueueType.FinalDrill) as any;
     const subsetQueue = unifiedDataSourceManager.getQueue(QueueType.FilterGroup) as any;
     const incrementalQueue = unifiedDataSourceManager.getQueue(QueueType.IncrementalLearning) as any;
     const leechQueue = new LeechQueue();
     
-    // 8. 初始化队列上下文
+    // 9. 初始化队列上下文
     const queueContext = new QueueContext<QueueItem>({
       initial: 'retrieval',
       monitors: [],
@@ -469,10 +496,8 @@ export class ApplicationContext {
     
     console.log('[ApplicationContext] ✅ All queues initialized');
     
-    // 9. 初始化 Xiuyuan 服务
-    const xiuyuanStorage = new XiuyuanStorage(config.plugin as any);
-    await xiuyuanStorage.load();
-    const xiuyuanService = new XiuyuanService(xiuyuanStorage, storageManager);
+    // 10. 初始化 Xiuyuan 服务（复用之前创建的 xiuyuanStorageTemp）
+    const xiuyuanService = new XiuyuanService(xiuyuanStorageTemp, storageManager);
     
     // 初始化内置模板
     const { BUILTIN_TEMPLATES } = await import('@/core/xiuyuan');
@@ -482,10 +507,10 @@ export class ApplicationContext {
         xiuyuanService.createTemplate(template);
       }
     }
-    await xiuyuanStorage.save();
+    await xiuyuanStorageTemp.save();
     console.log('[ApplicationContext] ✅ XiuyuanService initialized');
     
-    // 10. 初始化 BlockMenuHandler
+    // 11. 初始化 BlockMenuHandler
     // 创建一个临时变量来存储 context 引用（用于闭包）
     let contextRef: ApplicationContext | null = null;
     
@@ -525,42 +550,7 @@ export class ApplicationContext {
     let transactionWebSocketService: TransactionWebSocketService | undefined;
     
     const riffConfig = settings.riffIntegration;
-    if (riffConfig) {
-      const { riff } = await import('@/core/siyuan');
-      
-      // 先创建 HybridSyncService（不传 CardApplicationService）
-      // 将在 context 创建后再注入
-      hybridSyncService = new HybridSyncService(
-        {
-          deckId: riff.BUILTIN_DECK_ID,
-          storage: storageManager,
-          incrementalSync: {
-            ...riffConfig.incrementalSync,
-            autoDetectCardType: true,
-          },
-          fullSync: riffConfig.fullSync,
-          deleteSync: riffConfig.deleteSync,
-        }
-        // CardApplicationService 将在 context 创建后注入
-      );
-      
-      // start() 和定时器将在 context 创建后启动
-      
-      console.log('[ApplicationContext] ✅ HybridSyncService initialized');
-      
-      // 初始化 TransactionWebSocketService
-      if (riffConfig.incrementalSync?.enabled) {
-        const { RiffSyncHandler } = await import('@/application/handlers/RiffSyncHandler');
-        const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
-        
-        transactionWebSocketService = new TransactionWebSocketService(config.plugin as any);
-        transactionWebSocketService.registerHandler(new RiffSyncHandler(hybridSyncService));
-        transactionWebSocketService.registerHandler(new AutoCardHandler(config.plugin as any));
-        transactionWebSocketService.start();
-        
-        console.log('[ApplicationContext] ✅ TransactionWebSocketService initialized');
-      }
-    }
+    // HybridSyncService 将在 context 创建后初始化（需要 CardApplicationService 和 EventBus）
     
     // 12. 创建应用上下文
     const context = new ApplicationContext(config, {
@@ -575,12 +565,12 @@ export class ApplicationContext {
       leechQueue,
       incrementalQueue,
       subsetQueue,
-      xiuyuanStorage,
+      xiuyuanStorage: xiuyuanStorageTemp,  // ✅ 使用 xiuyuanStorageTemp
       xiuyuanService,
       blockMenuHandler,
-      hybridSyncService,
-      transactionWebSocketService,
-      fullSyncTimer,
+      hybridSyncService: undefined,  // 将在下面初始化
+      transactionWebSocketService: undefined,  // 将在下面初始化
+      fullSyncTimer: undefined,  // 将在下面初始化
     });
     
     // 设置 context 引用（用于 blockMenuHandler 的闭包）
@@ -590,22 +580,60 @@ export class ApplicationContext {
     blockMenuHandler.setApplicationContext(context);
     (blockMenuHandler.deps as any).dialogManager = context.getDialogManager();
     
-    // 14. 注入 CardApplicationService 到 HybridSyncService
-    if (hybridSyncService) {
+    // 14. 初始化 HybridSyncService（需要 CardApplicationService 和 EventBus）
+    if (riffConfig) {
+      const { riff } = await import('@/core/siyuan');
+      
+      // 获取依赖服务
       const cardService = context.getCardService();
-      // 使用类型断言来访问私有属性（临时方案）
-      (hybridSyncService as any).cardApplicationService = cardService;
+      const eventBus = context.getEventBus();
+      
+      // 创建 HybridSyncService
+      hybridSyncService = new HybridSyncService(
+        {
+          deckId: riff.BUILTIN_DECK_ID,
+          storage: storageManager,
+          incrementalSync: {
+            ...riffConfig.incrementalSync,
+            autoDetectCardType: true,
+          },
+          fullSync: riffConfig.fullSync,
+          deleteSync: riffConfig.deleteSync,
+        },
+        cardService,
+        eventBus
+      );
+      
+      // 将 HybridSyncService 设置到 context（使用类型断言）
+      (context as any).hybridSyncService = hybridSyncService;
+      
+      console.log('[ApplicationContext] ✅ HybridSyncService initialized');
       
       // 启动同步服务
       await hybridSyncService.start();
       
       // 启动全量同步定时器
-      if (riffConfig && riffConfig.fullSync.enabled) {
+      if (riffConfig.fullSync.enabled) {
         fullSyncTimer = setInterval(
           () => hybridSyncService!.fullSync(),
           riffConfig.fullSync.interval
         );
+        (context as any).fullSyncTimer = fullSyncTimer;
         console.log(`[ApplicationContext] Full sync timer started (interval: ${riffConfig.fullSync.interval}ms)`);
+      }
+      
+      // 初始化 TransactionWebSocketService
+      if (riffConfig.incrementalSync?.enabled) {
+        const { RiffSyncHandler } = await import('@/application/handlers/RiffSyncHandler');
+        const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
+        
+        transactionWebSocketService = new TransactionWebSocketService(config.plugin as any);
+        transactionWebSocketService.registerHandler(new RiffSyncHandler(hybridSyncService));
+        transactionWebSocketService.registerHandler(new AutoCardHandler(config.plugin as any));
+        transactionWebSocketService.start();
+        
+        (context as any).transactionWebSocketService = transactionWebSocketService;
+        console.log('[ApplicationContext] ✅ TransactionWebSocketService initialized');
       }
     }
     

@@ -140,7 +140,7 @@ export class DialogManager {
             
             // 重启服务以应用新配置
             plugin.hybridSyncService.stop();
-            const { HybridSyncService } = await import('@/services');
+            const { HybridSyncService } = await import('@/application/services/XiuyuanSyncService');
             plugin.hybridSyncService = new HybridSyncService({
               deckId: riff.BUILTIN_DECK_ID,
               storage: storage,
@@ -165,7 +165,7 @@ export class DialogManager {
             console.log('[DialogManager] ✅ HybridSyncService config updated');
           } else if (settings.riffIntegration && !plugin.hybridSyncService) {
             // 如果 HybridSyncService 未初始化，初始化它
-            const { HybridSyncService } = await import('@/services');
+            const { HybridSyncService } = await import('@/application/services/XiuyuanSyncService');
             plugin.hybridSyncService = new HybridSyncService({
               deckId: riff.BUILTIN_DECK_ID,
               storage: storage,

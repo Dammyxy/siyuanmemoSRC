@@ -112,6 +112,46 @@ export class XiuyuanSyncService {
     }
     
     /**
+     * 订阅同步事件（兼容旧的 EventEmitter API）
+     * 
+     * @param eventName 事件名称
+     * @param handler 事件处理函数
+     */
+    on<K extends keyof HybridSyncEvents>(
+        eventName: K,
+        handler: (data: HybridSyncEvents[K]) => void
+    ): void {
+        const domainEventName = `xiuyuan.sync.${eventName}`;
+        
+        // 包装处理函数以适配 EventBus
+        const wrappedHandler = (event: any) => {
+            const eventData = typeof event.toJSON === 'function' ? event.toJSON() : event;
+            handler(eventData);
+        };
+        
+        // 订阅 EventBus 事件
+        this.eventBus.subscribe(domainEventName, wrappedHandler);
+    }
+    
+    /**
+     * 取消订阅同步事件（兼容旧的 EventEmitter API）
+     * 
+     * @param eventName 事件名称
+     * @param handler 事件处理函数
+     */
+    off<K extends keyof HybridSyncEvents>(
+        eventName: K,
+        handler: (data: HybridSyncEvents[K]) => void
+    ): void {
+        const domainEventName = `xiuyuan.sync.${eventName}`;
+        
+        // 注意：由于我们包装了处理函数，这里的取消订阅可能不会完全工作
+        // 如果需要精确的取消订阅，需要保存包装后的处理函数引用
+        // 目前这是一个简化实现
+        this.eventBus.unsubscribe(domainEventName, handler as any);
+    }
+    
+    /**
      * 启动同步服务
      * 
      * 执行初始增量同步

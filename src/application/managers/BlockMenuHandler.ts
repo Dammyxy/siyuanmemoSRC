@@ -1,4 +1,4 @@
-﻿﻿/**
+﻿﻿﻿﻿/**
  * BlockMenuHandler - 处理块菜单相关的事件和操作
  * 从 index.ts 拆分出来的服务
  */
@@ -33,6 +33,15 @@ export interface BlockMenuHandlerDeps {
 export class BlockMenuHandler {
   constructor(private deps: BlockMenuHandlerDeps) {
     // ReviewEntry 类已删除，功能直接在 BlockMenuHandler 中实现
+  }
+
+  /**
+   * 设置 ApplicationContext（用于解决循环依赖）
+   * 
+   * @param context ApplicationContext 实例
+   */
+  setApplicationContext(context: ApplicationContext): void {
+    this.deps.applicationContext = context;
   }
 
   /**

@@ -10,8 +10,8 @@
 
 import { createVueDialog } from '@/utils/dialog';
 import ReviewView from '@/ui/review/v2/ReviewView.vue';
-import { UnifiedQueueStrategy } from '../application/adapters/UnifiedQueueStrategy';
-import { UnifiedReviewAdapter } from '../application/adapters/UnifiedReviewAdapter';
+import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
+import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
 import type { QueueType } from '@/types/unified-data-source';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';

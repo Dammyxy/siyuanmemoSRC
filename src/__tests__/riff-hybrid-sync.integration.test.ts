@@ -26,7 +26,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { HybridSyncService } from '@/services/XiuyuanSyncService';
+import type { HybridSyncService } from '@/application/services/XiuyuanSyncService';
 import type { StorageManager } from '@/core/storage/manager';
 import { ConfigMigrator } from '@/utils/configMigrator';
 import { DEFAULT_RIFF_CONFIG, type RiffIntegrationConfig } from '@/types/settings';

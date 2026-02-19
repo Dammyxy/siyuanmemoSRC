@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { CardScheduleService, CardState } from '../CardScheduleService';
-import type { Card } from '@/services/StorageManager';
+import type { FSRSCard } from '@/types';
 
 /**
  * 创建测试卡片的辅助函数
