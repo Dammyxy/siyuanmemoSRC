@@ -87,6 +87,8 @@ export type MigrationStats = {
 /**
  * MigrateQueueDataService 类
  *
+ * @deprecated 此服务为一次性迁移工具，未来可能移除
+ *
  * 负责将旧架构队列数据迁移到新架构。
  */
 export class MigrateQueueDataService {

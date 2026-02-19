@@ -1,6 +1,8 @@
 /**
  * MigrationService - Xiuyuan 卡片迁移服务
  * 
+ * @deprecated 此服务为一次性迁移工具，未来可能移除
+ * 
  * 负责将现有的 Xiuyuan 卡片迁移到新的 Riff 同步机制。
  * 
  * @module services/MigrationService

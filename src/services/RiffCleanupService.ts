@@ -1,6 +1,8 @@
 ﻿/**
  * RiffCleanupService - Riff 清理工具服务
  * 
+ * @deprecated 此服务为维护工具，未来可能移到应用层
+ * 
  * 提供扫描和清理 Riff 残留卡片的功能：
  * - 扫描：对比本地和 Riff 的卡片列表，找出 Riff 中有但本地没有的卡片
  * - 清理：批量删除 Riff 中的残留卡片

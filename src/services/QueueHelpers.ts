@@ -1,6 +1,8 @@
 ﻿/**
  * QueueHelpers - 队列相关的辅助函数
  * 从 index.ts 拆分出来的工具模块
+ * 
+ * @deprecated 此模块的功能应该迁移到应用层服务或 utils，将在未来版本中重构
  */
 
 import { getCardBlockIds } from '@/core/siyuan/block';

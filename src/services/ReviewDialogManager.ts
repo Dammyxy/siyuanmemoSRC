@@ -1,6 +1,10 @@
 ﻿﻿﻿﻿﻿﻿/**
  * ReviewDialogManager - 管理所有复习对话框的打开
  * 从 index.ts 拆分出来的服务
+ * 
+ * @deprecated 此服务的功能正在被 DialogManager 和 ReviewApplicationService 替代，将在未来版本中移除
+ * @see application/managers/DialogManager.ts
+ * @see application/services/ReviewApplicationService.ts
  */
 
 import type { App } from 'siyuan';

@@ -29,7 +29,7 @@ import { FinalDrillQueue } from '@/queues/FinalDrillQueue';
 import { IncrementalLearningQueue } from '@/queues/IncrementalLearningQueue';
 import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
 import { QueueType } from '@/types/unified-data-source';
-import { AdvancedDataRouter } from '@/routers/AdvancedDataRouter';
+import { AdvancedDataRouter } from '@/routers';
 
 /**
  * 应用配置接口
@@ -84,7 +84,7 @@ export class ApplicationContext {
   private xiuyuanStorage: XiuyuanStorage;
   private xiuyuanService: XiuyuanService;
   
-  // 应用服务
+  // 应用服务（过渡期 - 标记为 @deprecated）
   private dialogService: DialogService;
   private menuService: MenuService;
   private reviewDialogManager: ReviewDialogManager;

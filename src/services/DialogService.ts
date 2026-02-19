@@ -1,6 +1,9 @@
 ﻿/**
  * DialogService - 对话框管理服务
  * 
+ * @deprecated 此服务正在被 DialogManager 替代，将在未来版本中移除
+ * @see application/managers/DialogManager.ts
+ * 
  * 负责创建和管理所有复习相关的对话框
  * 从 index.ts 中抽取以提高代码可维护性
  */

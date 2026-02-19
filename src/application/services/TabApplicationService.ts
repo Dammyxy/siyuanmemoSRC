@@ -7,7 +7,7 @@
  */
 
 import type { App } from 'siyuan';
-import { openTab } from '@/core/siyuan/api';
+import { openTab } from 'siyuan';
 
 /**
  * 标签页位置

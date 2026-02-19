@@ -21,13 +21,6 @@ import type { ReviewDialogManager } from './ReviewDialogManager';
 import type { XiuyuanService } from '@/core/xiuyuan';
 import type { ApplicationContext } from '@/application/ApplicationContext';
 
-// 🆕 导入复习入口类
-import { ReviewEntryBase } from './ReviewEntryBase';
-import { RetrievalPracticeEntry } from './RetrievalPracticeEntry';
-import { IncrementalLearningEntry } from './IncrementalLearningEntry';
-import { TemporaryDrillEntry } from './TemporaryDrillEntry';
-import { AddToFinalDrillEntry } from './AddToFinalDrillEntry';
-
 export interface BlockMenuHandlerDeps {
   app: App;
   i18n: Record<string, string>;
@@ -41,33 +34,8 @@ export interface BlockMenuHandlerDeps {
 }
 
 export class BlockMenuHandler {
-  // 🆕 复习入口列表
-  private reviewEntries: ReviewEntryBase[];
-  
   constructor(private deps: BlockMenuHandlerDeps) {
-    // 🆕 初始化复习入口（提取练习、渐进学习、临时练习、添加到刻意练习）
-    this.reviewEntries = [
-      new RetrievalPracticeEntry({
-        storage: deps.storage,
-        reviewDialogManager: deps.reviewDialogManager,
-        i18n: deps.i18n,
-      }),
-      new IncrementalLearningEntry({
-        storage: deps.storage,
-        reviewDialogManager: deps.reviewDialogManager,
-        i18n: deps.i18n,
-      }),
-      new TemporaryDrillEntry({
-        storage: deps.storage,
-        reviewDialogManager: deps.reviewDialogManager,
-        i18n: deps.i18n,
-      }),
-      new AddToFinalDrillEntry({
-        storage: deps.storage,
-        reviewDialogManager: deps.reviewDialogManager,
-        i18n: deps.i18n,
-      }),
-    ];
+    // ReviewEntry 类已删除，功能直接在 BlockMenuHandler 中实现
   }
 
   /**
@@ -103,6 +71,279 @@ export class BlockMenuHandler {
   }
 
   /**
+   * 从块元素收集闪卡
+   * 
+   * @param blockElements 块元素列表
+   * @returns 卡片列表
+   */
+  private collectCardsFromElements(blockElements: HTMLElement[]): any[] {
+    const seen = new Set<string>();
+    const result: any[] = [];
+    const roots = blockElements.map((el) => 
+      (el.closest('[data-node-id]') as HTMLElement) || el
+    );
+
+    for (const root of roots) {
+      const nodes = [
+        root, 
+        ...Array.from(root.querySelectorAll<HTMLElement>('[data-node-id]'))
+      ];
+      
+      for (const node of nodes) {
+        const blockId = node.getAttribute('data-node-id');
+        if (!blockId || seen.has(blockId)) {
+          continue;
+        }
+        seen.add(blockId);
+        
+        const cards = this.deps.storage.getCardsByBlockId(blockId);
+        for (const card of cards) {
+          result.push(card);
+        }
+      }
+    }
+    
+    return result;
+  }
+
+  /**
+   * 过滤到期卡片
+   * 
+   * @param cards 卡片列表
+   * @returns 到期卡片列表
+   */
+  private filterDueCards(cards: any[]): any[] {
+    const now = Date.now();
+    return cards.filter(card => 
+      card.due <= now &&
+      !card.skipped &&
+      (!card.skipUntil || card.skipUntil <= now)
+    );
+  }
+
+  /**
+   * 打开提取练习对话框
+   * 
+   * @param cards 卡片列表
+   * @param dueOnly 是否只复习到期卡片
+   */
+  private async openRetrievalPractice(cards: any[], dueOnly: boolean): Promise<void> {
+    const blockIds = cards.map(c => c.blockId);
+    await (this.deps.reviewDialogManager as any).openRetrievalPracticeWithFilter?.({
+      blockIds,
+      dueOnly,
+    });
+  }
+
+  /**
+   * 打开渐进学习对话框
+   * 
+   * @param cards 卡片列表
+   * @param dueOnly 是否只复习到期卡片
+   */
+  private async openIncrementalLearning(cards: any[], dueOnly: boolean): Promise<void> {
+    const blockIds = cards.map(c => c.blockId);
+    await (this.deps.reviewDialogManager as any).openIncrementalLearningWithFilter?.({
+      blockIds,
+      dueOnly,
+    });
+  }
+
+  /**
+   * 打开临时练习对话框
+   * 
+   * @param cards 卡片列表
+   */
+  private async openTemporaryDrill(cards: any[]): Promise<void> {
+    const blockIds = [...new Set(cards.map(card => card.blockId).filter(Boolean))];
+    
+    if (blockIds.length === 0) {
+      await pushMsg('无法打开临时练习');
+      return;
+    }
+    
+    const reviewDialogManager = this.deps.reviewDialogManager as any;
+    
+    if (typeof reviewDialogManager.openTemporaryDrill === 'function') {
+      await reviewDialogManager.openTemporaryDrill(blockIds);
+    } else {
+      console.warn('[BlockMenuHandler] openTemporaryDrill not found, falling back to openDrillWithCards');
+      
+      const cardData = blockIds.map(blockId => {
+        const card = this.deps.storage.getCardByBlockId(blockId);
+        return {
+          cardID: card?.id || '',
+          blockID: blockId,
+          deckID: riff.BUILTIN_DECK_ID,
+          priority: card?.priority || DEFAULT_PRIORITY,
+          nextDues: { 1: '', 2: '', 3: '', 4: '' },
+          state: card?.state || 0,
+          lapses: card?.lapses || 0,
+          reps: card?.reps || 0,
+        };
+      }).filter(c => c.cardID);
+      
+      reviewDialogManager.openDrillWithCards?.(cardData, 'block');
+    }
+  }
+
+  /**
+   * 添加到刻意练习队列
+   * 
+   * @param cards 卡片列表
+   */
+  private async addToFinalDrill(cards: any[]): Promise<void> {
+    try {
+      const manager = (this.deps.reviewDialogManager as any).deps?.plugin?.unifiedDataSourceManager;
+      if (!manager) {
+        console.error('[BlockMenuHandler] UnifiedDataSourceManager not found');
+        await pushMsg('无法添加到刻意练习');
+        return;
+      }
+      
+      const finalDrillQueue = manager.getQueue(QueueType.FinalDrill);
+      if (!finalDrillQueue) {
+        console.error('[BlockMenuHandler] FinalDrill queue not found');
+        await pushMsg('无法找到刻意练习队列');
+        return;
+      }
+      
+      const existingCards = await finalDrillQueue.getCards();
+      const hasProgress = existingCards.length > 0;
+      
+      let action: 'continue' | 'replace' | 'append' | 'cancel' = 'append';
+      
+      if (hasProgress) {
+        action = await this.showFinalDrillActionDialog(existingCards.length, cards.length);
+        
+        if (action === 'cancel') {
+          return;
+        }
+        
+        if (action === 'continue') {
+          await (this.deps.reviewDialogManager as any).openFinalDrill?.();
+          return;
+        }
+        
+        if (action === 'replace') {
+          await finalDrillQueue.clear();
+        }
+      }
+      
+      let addedCount = 0;
+      for (const card of cards) {
+        try {
+          await finalDrillQueue.addCard(card.id, 'manual');
+          addedCount++;
+        } catch (err) {
+          console.error(`[BlockMenuHandler] Failed to add card ${card.id}:`, err);
+        }
+      }
+      
+      await pushMsg(`已添加 ${addedCount} 张卡片到刻意练习队列`);
+      
+      const shouldStart = await this.confirmStartFinalDrillDialog(addedCount);
+      if (shouldStart) {
+        await (this.deps.reviewDialogManager as any).openFinalDrill?.();
+      }
+    } catch (err) {
+      console.error('[BlockMenuHandler] Failed to add to FinalDrill:', err);
+      await pushMsg('添加到刻意练习失败');
+    }
+  }
+
+  /**
+   * 显示刻意练习操作选择对话框
+   */
+  private showFinalDrillActionDialog(
+    existingCount: number,
+    newCount: number
+  ): Promise<'continue' | 'replace' | 'append' | 'cancel'> {
+    return new Promise((resolve) => {
+      const { Dialog } = require('siyuan');
+      const dialog = new Dialog({
+        title: '刻意练习队列',
+        content: `
+          <div class="b3-dialog__content" style="padding: 16px;">
+            <div style="margin-bottom: 16px;">
+              队列中已有 <strong>${existingCount}</strong> 张卡片，你想：
+            </div>
+          </div>
+          <div class="b3-dialog__action">
+            <button class="b3-button b3-button--cancel">取消</button>
+            <div class="fn__space"></div>
+            <button class="b3-button" data-action="continue">继续练习</button>
+            <div class="fn__space"></div>
+            <button class="b3-button" data-action="replace">替换队列</button>
+            <div class="fn__space"></div>
+            <button class="b3-button b3-button--text" data-action="append">追加 ${newCount} 张</button>
+          </div>
+        `,
+        width: '520px',
+      });
+      
+      const element = dialog.element;
+      
+      element.querySelector('[data-action="continue"]')?.addEventListener('click', () => {
+        dialog.destroy();
+        resolve('continue');
+      });
+      
+      element.querySelector('[data-action="replace"]')?.addEventListener('click', () => {
+        dialog.destroy();
+        resolve('replace');
+      });
+      
+      element.querySelector('[data-action="append"]')?.addEventListener('click', () => {
+        dialog.destroy();
+        resolve('append');
+      });
+      
+      element.querySelector('.b3-button--cancel')?.addEventListener('click', () => {
+        dialog.destroy();
+        resolve('cancel');
+      });
+    });
+  }
+
+  /**
+   * 确认是否立即开始刻意练习
+   */
+  private confirmStartFinalDrillDialog(addedCount: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const { Dialog } = require('siyuan');
+      const dialog = new Dialog({
+        title: '开始练习？',
+        content: `
+          <div class="b3-dialog__content" style="padding: 16px;">
+            <div style="margin-bottom: 16px;">
+              已添加 <strong>${addedCount}</strong> 张卡片到刻意练习队列。要现在开始练习吗？
+            </div>
+          </div>
+          <div class="b3-dialog__action">
+            <button class="b3-button b3-button--cancel">稍后</button>
+            <div class="fn__space"></div>
+            <button class="b3-button b3-button--text">立即开始</button>
+          </div>
+        `,
+        width: '420px',
+      });
+      
+      const element = dialog.element;
+      
+      element.querySelector('.b3-button--cancel')?.addEventListener('click', () => {
+        dialog.destroy();
+        resolve(false);
+      });
+      
+      element.querySelector('.b3-button--text')?.addEventListener('click', () => {
+        dialog.destroy();
+        resolve(true);
+      });
+    });
+  }
+
+  /**
    * 处理块图标点击（添加闪卡菜单）
    */
   handleBlockIconClick(e: any): void {
@@ -128,17 +369,93 @@ export class BlockMenuHandler {
     // 构建子菜单项数组
     const submenu: any[] = [];
 
-    // 使用复习入口生成菜单项
-    for (let i = 0; i < this.reviewEntries.length; i++) {
-      const entry = this.reviewEntries[i];
-      const items = entry.createMenuItems(blockElements);
-      submenu.push(...items);
-      
-      // 添加分隔符（除了最后一个）
-      if (i < this.reviewEntries.length - 1) {
-        submenu.push({ type: 'separator' });
-      }
-    }
+    // ✅ Phase 10.6 - 直接实现复习菜单项（不依赖 ReviewEntry 抽象类）
+    const cards = this.collectCardsFromElements(blockElements);
+    const itemCards = cards.filter(c => c.type !== 'topic');
+    const dueItemCards = this.filterDueCards(itemCards);
+    const dueAllCards = this.filterDueCards(cards);
+    
+    // 1. 提取练习（只复习 Item 卡片）
+    submenu.push({
+      icon: 'iconRiffCard',
+      label: `${this.deps.i18n?.retrievalPractice || '提取练习'} - ${this.deps.i18n?.dueMode || '到期'} <span class="ft__secondary">(${dueItemCards.length}/${itemCards.length})</span>`,
+      click: async () => {
+        if (dueItemCards.length === 0) {
+          await pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
+          return;
+        }
+        await this.openRetrievalPractice(dueItemCards, true);
+      },
+    });
+    
+    submenu.push({
+      icon: 'iconRiffCard',
+      label: `${this.deps.i18n?.retrievalPractice || '提取练习'} - ${this.deps.i18n?.allMode || '全部'} <span class="ft__secondary">(${itemCards.length})</span>`,
+      click: async () => {
+        if (itemCards.length === 0) {
+          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+          return;
+        }
+        await this.openRetrievalPractice(itemCards, false);
+      },
+    });
+    
+    submenu.push({ type: 'separator' });
+    
+    // 2. 渐进学习（复习 Item + Topic）
+    submenu.push({
+      icon: 'iconBook',
+      label: `${this.deps.i18n?.incrementalLearning || '渐进学习'} - ${this.deps.i18n?.dueMode || '到期'} <span class="ft__secondary">(${dueAllCards.length}/${cards.length})</span>`,
+      click: async () => {
+        if (dueAllCards.length === 0) {
+          await pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
+          return;
+        }
+        await this.openIncrementalLearning(dueAllCards, true);
+      },
+    });
+    
+    submenu.push({
+      icon: 'iconBook',
+      label: `${this.deps.i18n?.incrementalLearning || '渐进学习'} - ${this.deps.i18n?.allMode || '全部'} <span class="ft__secondary">(${cards.length})</span>`,
+      click: async () => {
+        if (cards.length === 0) {
+          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+          return;
+        }
+        await this.openIncrementalLearning(cards, false);
+      },
+    });
+    
+    submenu.push({ type: 'separator' });
+    
+    // 3. 临时练习（不记录作答）
+    submenu.push({
+      icon: 'iconEye',
+      label: `${this.deps.i18n?.temporaryDrill || '临时练习'} <span class="ft__secondary">(${cards.length})</span>`,
+      click: async () => {
+        if (cards.length === 0) {
+          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+          return;
+        }
+        await this.openTemporaryDrill(cards);
+      },
+    });
+    
+    submenu.push({ type: 'separator' });
+    
+    // 4. 添加到刻意练习
+    submenu.push({
+      icon: 'iconAdd',
+      label: `${this.deps.i18n?.addToFinalDrillQueue || '添加到刻意练习'} <span class="ft__secondary">(${cards.length})</span>`,
+      click: async () => {
+        if (cards.length === 0) {
+          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可添加的闪卡');
+          return;
+        }
+        await this.addToFinalDrill(cards);
+      },
+    });
     
     submenu.push({ type: 'separator' });
 
@@ -363,63 +680,92 @@ export class BlockMenuHandler {
       return rootId === docId || card.blockId === docId;
     });
     
-    // 为每个复习入口生成菜单项
-    for (let i = 0; i < this.reviewEntries.length; i++) {
-      const entry = this.reviewEntries[i];
-      
-      // 使用入口的过滤逻辑
-      const filteredCards = cardsInDoc.filter(card => (entry as any).filterCard(card));
-      const dueCount = (entry as any).countDueCards(filteredCards);
-      const totalCount = filteredCards.length;
-      
-      // 生成菜单项
-      const config = (entry as any).config;
-      
-      if (!config.supportDueMode) {
-        // 只支持"全部"模式（如刻意练习）
-        submenu.push({
-          icon: config.icon,
-          label: `${config.displayName} <span class="ft__secondary">(${totalCount})</span>`,
-          click: async () => {
-            if (totalCount === 0) {
-              await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
-              return;
-            }
-            await (entry as any).openReviewDialog(filteredCards, 'all');
-          },
-        });
-      } else {
-        // 支持"到期"和"全部"两种模式
-        submenu.push({
-          icon: config.icon,
-          label: `${config.displayName} - ${this.deps.i18n?.dueMode || '到期'} <span class="ft__secondary">(${dueCount}/${totalCount})</span>`,
-          click: async () => {
-            if (dueCount === 0) {
-              await pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
-              return;
-            }
-            await (entry as any).openReviewDialog(filteredCards, 'due');
-          },
-        });
-        
-        submenu.push({
-          icon: config.icon,
-          label: `${config.displayName} - ${this.deps.i18n?.allMode || '全部'} <span class="ft__secondary">(${totalCount})</span>`,
-          click: async () => {
-            if (totalCount === 0) {
-              await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
-              return;
-            }
-            await (entry as any).openReviewDialog(filteredCards, 'all');
-          },
-        });
-      }
-      
-      // 添加分隔符（除了最后一个）
-      if (i < this.reviewEntries.length - 1) {
-        submenu.push({ type: 'separator' });
-      }
-    }
+    // ✅ Phase 10.6 - 直接实现复习菜单项
+    const itemCards = cardsInDoc.filter(c => c.type !== 'topic');
+    const dueItemCards = this.filterDueCards(itemCards);
+    const dueAllCards = this.filterDueCards(cardsInDoc);
+    
+    // 1. 提取练习
+    submenu.push({
+      icon: 'iconRiffCard',
+      label: `${this.deps.i18n?.retrievalPractice || '提取练习'} - ${this.deps.i18n?.dueMode || '到期'} <span class="ft__secondary">(${dueItemCards.length}/${itemCards.length})</span>`,
+      click: async () => {
+        if (dueItemCards.length === 0) {
+          await pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
+          return;
+        }
+        await this.openRetrievalPractice(dueItemCards, true);
+      },
+    });
+    
+    submenu.push({
+      icon: 'iconRiffCard',
+      label: `${this.deps.i18n?.retrievalPractice || '提取练习'} - ${this.deps.i18n?.allMode || '全部'} <span class="ft__secondary">(${itemCards.length})</span>`,
+      click: async () => {
+        if (itemCards.length === 0) {
+          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+          return;
+        }
+        await this.openRetrievalPractice(itemCards, false);
+      },
+    });
+    
+    submenu.push({ type: 'separator' });
+    
+    // 2. 渐进学习
+    submenu.push({
+      icon: 'iconBook',
+      label: `${this.deps.i18n?.incrementalLearning || '渐进学习'} - ${this.deps.i18n?.dueMode || '到期'} <span class="ft__secondary">(${dueAllCards.length}/${cardsInDoc.length})</span>`,
+      click: async () => {
+        if (dueAllCards.length === 0) {
+          await pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
+          return;
+        }
+        await this.openIncrementalLearning(dueAllCards, true);
+      },
+    });
+    
+    submenu.push({
+      icon: 'iconBook',
+      label: `${this.deps.i18n?.incrementalLearning || '渐进学习'} - ${this.deps.i18n?.allMode || '全部'} <span class="ft__secondary">(${cardsInDoc.length})</span>`,
+      click: async () => {
+        if (cardsInDoc.length === 0) {
+          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+          return;
+        }
+        await this.openIncrementalLearning(cardsInDoc, false);
+      },
+    });
+    
+    submenu.push({ type: 'separator' });
+    
+    // 3. 临时练习
+    submenu.push({
+      icon: 'iconEye',
+      label: `${this.deps.i18n?.temporaryDrill || '临时练习'} <span class="ft__secondary">(${cardsInDoc.length})</span>`,
+      click: async () => {
+        if (cardsInDoc.length === 0) {
+          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+          return;
+        }
+        await this.openTemporaryDrill(cardsInDoc);
+      },
+    });
+    
+    submenu.push({ type: 'separator' });
+    
+    // 4. 添加到刻意练习
+    submenu.push({
+      icon: 'iconAdd',
+      label: `${this.deps.i18n?.addToFinalDrillQueue || '添加到刻意练习'} <span class="ft__secondary">(${cardsInDoc.length})</span>`,
+      click: async () => {
+        if (cardsInDoc.length === 0) {
+          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可添加的闪卡');
+          return;
+        }
+        await this.addToFinalDrill(cardsInDoc);
+      },
+    });
     
     // 添加神经漫游相关菜单项
     submenu.push({ type: 'separator' });

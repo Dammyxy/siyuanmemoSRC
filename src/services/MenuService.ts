@@ -1,6 +1,9 @@
 ﻿/**
  * MenuService - 菜单管理服务
  * 
+ * @deprecated 此服务正在被 MenuManager 替代，将在未来版本中移除
+ * @see application/managers/MenuManager.ts
+ * 
  * 负责构建和管理插件的各类菜单
  * 从 index.ts 中抽取以提高代码可维护性
  */
