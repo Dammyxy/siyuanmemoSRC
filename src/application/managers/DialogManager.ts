@@ -17,6 +17,11 @@ import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
 import { TemplateSelectDialog } from '@/ui/xiuyuan';
 import { pushMsg, pushErrMsg } from '@/core/siyuan/api';
 import { riff } from '@/core/siyuan';
+import { createUnifiedReviewDialog } from '@/application/factories/createUnifiedReviewDialog';
+import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
+import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
+import { QueueType } from '@/types/unified-data-source';
+import { ReviewView } from '@/ui/review/v2';
 
 /**
  * DialogManager 类
@@ -42,6 +47,7 @@ export class DialogManager {
   private settingsDialog: { dialog: any; destroy: () => void } | null = null;
   private srsBrowserDialog: { dialog: any; destroy: () => void } | null = null;
   private templateSelectDialog: { dialog: any; destroy: () => void } | null = null;
+  private currentReviewDialog: { dialog: any; destroy: () => void } | null = null;
   
   // ========================================================================
   // 构造函数
@@ -193,9 +199,9 @@ export class DialogManager {
               if (!plugin.transactionWebSocketService) {
                 // 初始化服务
                 console.log('[DialogManager] Initializing TransactionWebSocketService...');
-                const { TransactionWebSocketService } = await import('@/services/TransactionWebSocketService');
-                const { RiffSyncHandler } = await import('@/services/handlers/RiffSyncHandler');
-                const { AutoCardHandler } = await import('@/services/handlers/AutoCardHandler');
+                const { TransactionWebSocketService } = await import('@/core/infrastructure/websocket/TransactionWebSocketService');
+                const { RiffSyncHandler } = await import('@/application/handlers/RiffSyncHandler');
+                const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
                 
                 plugin.transactionWebSocketService = new TransactionWebSocketService(plugin);
                 
@@ -306,23 +312,51 @@ export class DialogManager {
   }
   
   // ========================================================================
-  // 复习对话框（委托给 ReviewDialogManager）
+  // 复习对话框
   // ========================================================================
   
   /**
-   * 打开复习对话框
-   * 
-   * 注意：复习对话框由 ReviewDialogManager 管理，
-   * 这里只是提供一个便捷的访问方法。
+   * 销毁当前复习对话框
+   */
+  private destroyCurrentReviewDialog(): void {
+    if (this.currentReviewDialog) {
+      this.currentReviewDialog.destroy();
+      this.currentReviewDialog = null;
+    }
+  }
+  
+  /**
+   * 检查初始化状态
+   */
+  private async checkInitialized(): Promise<boolean> {
+    if (!this.context) {
+      await pushErrMsg(this.context.getI18n()?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
+      return false;
+    }
+    return true;
+  }
+  
+  /**
+   * 打开提取练习对话框
    */
   async openReviewDialog(): Promise<void> {
-    // 复习对话框由 ReviewDialogManager 管理
-    // 这里通过 plugin 访问 reviewDialogManager
-    const reviewDialogManager = (this.plugin as any).reviewDialogManager;
-    if (reviewDialogManager) {
-      await reviewDialogManager.openRetrievalPractice();
-    } else {
-      console.error('[DialogManager] ReviewDialogManager not found');
+    if (!(await this.checkInitialized())) return;
+    this.destroyCurrentReviewDialog();
+
+    try {
+      this.currentReviewDialog = createUnifiedReviewDialog({
+        plugin: this.plugin,
+        queueType: QueueType.RetrievalPractice,
+        title: this.context.getI18n()?.retrievalPractice || '提取练习',
+        onClose: () => {
+          this.currentReviewDialog = null;
+        }
+      });
+      
+      console.log('[DialogManager] ✅ Retrieval practice dialog created');
+    } catch (err) {
+      console.error('[DialogManager] Failed to open retrieval practice dialog:', err);
+      await pushErrMsg(this.context.getI18n()?.loadFailed || '加载失败');
     }
   }
   
@@ -330,11 +364,23 @@ export class DialogManager {
    * 打开渐进学习对话框
    */
   async openIncrementalLearningDialog(): Promise<void> {
-    const reviewDialogManager = (this.plugin as any).reviewDialogManager;
-    if (reviewDialogManager) {
-      await reviewDialogManager.openIncrementalLearning();
-    } else {
-      console.error('[DialogManager] ReviewDialogManager not found');
+    if (!(await this.checkInitialized())) return;
+    this.destroyCurrentReviewDialog();
+
+    try {
+      this.currentReviewDialog = createUnifiedReviewDialog({
+        plugin: this.plugin,
+        queueType: QueueType.IncrementalLearning,
+        title: this.context.getI18n()?.incrementalLearning || '渐进学习',
+        onClose: () => {
+          this.currentReviewDialog = null;
+        }
+      });
+      
+      console.log('[DialogManager] ✅ Incremental learning dialog created');
+    } catch (err) {
+      console.error('[DialogManager] Failed to open incremental learning dialog:', err);
+      await pushErrMsg(this.context.getI18n()?.openFailed || '打开渐进学习失败');
     }
   }
   
@@ -342,11 +388,23 @@ export class DialogManager {
    * 打开刻意练习对话框
    */
   async openFinalDrillDialog(): Promise<void> {
-    const reviewDialogManager = (this.plugin as any).reviewDialogManager;
-    if (reviewDialogManager) {
-      await reviewDialogManager.openFinalDrill();
-    } else {
-      console.error('[DialogManager] ReviewDialogManager not found');
+    if (!(await this.checkInitialized())) return;
+    this.destroyCurrentReviewDialog();
+
+    try {
+      this.currentReviewDialog = createUnifiedReviewDialog({
+        plugin: this.plugin,
+        queueType: QueueType.FinalDrill,
+        title: this.context.getI18n()?.finalDrill || '刻意练习',
+        onClose: () => {
+          this.currentReviewDialog = null;
+        }
+      });
+      
+      console.log('[DialogManager] ✅ Final drill dialog created');
+    } catch (err) {
+      console.error('[DialogManager] Failed to open final drill dialog:', err);
+      await pushErrMsg(this.context.getI18n()?.drillFailed || '机械练习启动失败');
     }
   }
   
@@ -354,23 +412,63 @@ export class DialogManager {
    * 打开筛选复习对话框
    */
   async openFilterGroupPracticeDialog(): Promise<void> {
-    const reviewDialogManager = (this.plugin as any).reviewDialogManager;
-    if (reviewDialogManager) {
-      await reviewDialogManager.openFilterGroupPractice();
-    } else {
-      console.error('[DialogManager] ReviewDialogManager not found');
+    if (!(await this.checkInitialized())) return;
+    this.destroyCurrentReviewDialog();
+
+    try {
+      this.currentReviewDialog = createUnifiedReviewDialog({
+        plugin: this.plugin,
+        queueType: QueueType.FilterGroup,
+        title: this.context.getI18n()?.filterGroupPractice || '分组队列',
+        onClose: () => {
+          this.currentReviewDialog = null;
+        }
+      });
+      
+      console.log('[DialogManager] ✅ Filter group dialog created');
+    } catch (err) {
+      console.error('[DialogManager] Failed to open filter group practice dialog:', err);
+      await pushErrMsg(this.context.getI18n()?.openFailed || '打开分组队列失败');
     }
   }
   
   /**
    * 打开神经漫游对话框
+   * 
+   * @param options 可选配置
+   * @param options.seedBlockId 种子块 ID
+   * @param options.includeSeedAsFirst 是否将种子块作为第一张卡片
+   * @param options.resetHistory 是否重置历史记录
    */
-  async openNeuralRoamDialog(options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }): Promise<void> {
-    const reviewDialogManager = (this.plugin as any).reviewDialogManager;
-    if (reviewDialogManager) {
-      await reviewDialogManager.openNeuralRoam(options);
-    } else {
-      console.error('[DialogManager] ReviewDialogManager not found');
+  async openNeuralRoamDialog(options?: { 
+    seedBlockId?: string; 
+    includeSeedAsFirst?: boolean; 
+    resetHistory?: boolean 
+  }): Promise<void> {
+    if (!(await this.checkInitialized())) return;
+    this.destroyCurrentReviewDialog();
+
+    try {
+      // 清理神经漫游队列的历史记录
+      const neuralQueue = this.context.getUnifiedDataSourceManager().getQueue(QueueType.NeuralRoam);
+      if (neuralQueue && typeof (neuralQueue as any).clearHistory === 'function') {
+        (neuralQueue as any).clearHistory();
+        console.log('[DialogManager] ✅ Neural roam history cleared');
+      }
+
+      this.currentReviewDialog = createUnifiedReviewDialog({
+        plugin: this.plugin,
+        queueType: QueueType.NeuralRoam,
+        title: this.context.getI18n()?.neuralReviewTitle || '神经漫游',
+        onClose: () => {
+          this.currentReviewDialog = null;
+        }
+      });
+
+      console.log('[DialogManager] ✅ Neural roam dialog created');
+    } catch (err) {
+      console.error('[DialogManager] Failed to open neural roam dialog:', err);
+      await pushErrMsg(this.context.getI18n()?.neuralReviewFailed || '神经复习启动失败');
     }
   }
   
@@ -378,11 +476,49 @@ export class DialogManager {
    * 打开难点攻坚对话框
    */
   async openLeechReviewDialog(): Promise<void> {
-    const reviewDialogManager = (this.plugin as any).reviewDialogManager;
-    if (reviewDialogManager) {
-      await reviewDialogManager.openLeechReview();
-    } else {
-      console.error('[DialogManager] ReviewDialogManager not found');
+    this.destroyCurrentReviewDialog();
+
+    try {
+      const storage = this.context.getStorage();
+      const settings = storage.getSettings();
+      const leech = (settings as any)?.leech || {};
+      
+      const { LeechQueue } = await import('@/core/queue/strategies/LeechQueue');
+      const { LeechAdapter } = await import('@/ui/review/v2');
+      
+      const queue = new LeechQueue({
+        deckID: riff.BUILTIN_DECK_ID,
+        threshold: Number(leech.threshold) || 8,
+        action: (leech.action || 'notify') as any,
+        tagName: String(leech.tagName || ''),
+      });
+
+      this.currentReviewDialog = createVueDialog({
+        hideTitle: true,
+        component: ReviewView,
+        dataKey: 'dialog-opencard',
+        transparent: true,
+        isReview: true,
+        props: {
+          app: this.plugin.app,
+          i18n: this.context.getI18n() || {},
+          title: this.context.getI18n()?.startLeechPractice || '难点攻坚',
+          queue: queue as any,
+          adapter: new LeechAdapter({ i18n: this.context.getI18n() || {} }) as any,
+          plugin: this.plugin,
+        },
+        events: {
+          close: () => this.destroyCurrentReviewDialog(),
+        },
+        width: 'min(860px, 96vw)',
+        height: 'min(720px, 90vh)',
+        onClose: () => {
+          this.currentReviewDialog = null;
+        },
+      });
+    } catch (err) {
+      console.error('[DialogManager] Failed to open leech review dialog:', err);
+      await pushErrMsg('难点攻坚启动失败');
     }
   }
   
@@ -390,11 +526,309 @@ export class DialogManager {
    * 打开子集复习对话框
    */
   async openSubsetReviewDialog(blockIds: string[]): Promise<void> {
-    const reviewDialogManager = (this.plugin as any).reviewDialogManager;
-    if (reviewDialogManager) {
-      await reviewDialogManager.openSubsetReview(blockIds);
-    } else {
-      console.error('[DialogManager] ReviewDialogManager not found');
+    this.destroyCurrentReviewDialog();
+
+    const ids = Array.from(new Set((blockIds || []).map((x) => String(x || '')).filter(Boolean)));
+    if (ids.length === 0) {
+      await pushMsg(this.context.getI18n()?.drillNoCards || '当前范围内没有可练习的闪卡');
+      return;
+    }
+
+    try {
+      const { SubsetPracticeStrategy } = await import('@/core/queue/strategies');
+      const { SubsetPracticeAdapter } = await import('@/ui/review/v2');
+      
+      const title = (this.context.getI18n()?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(ids.length));
+      
+      this.currentReviewDialog = createVueDialog({
+        hideTitle: true,
+        component: ReviewView,
+        dataKey: 'dialog-opencard',
+        transparent: true,
+        isReview: true,
+        props: {
+          app: this.plugin.app,
+          i18n: this.context.getI18n() || {},
+          title,
+          queue: new SubsetPracticeStrategy({ 
+            blockIds: ids, 
+            deckID: riff.BUILTIN_DECK_ID, 
+            storage: this.context.getStorage() 
+          }) as any,
+          adapter: new SubsetPracticeAdapter({ 
+            i18n: this.context.getI18n() || {}, 
+            label: title, 
+            queueName: 'subset' 
+          }) as any,
+          plugin: this.plugin,
+        },
+        events: {
+          close: () => this.destroyCurrentReviewDialog(),
+        },
+        width: 'min(860px, 96vw)',
+        height: 'min(720px, 90vh)',
+        onClose: () => {
+          this.currentReviewDialog = null;
+        },
+      });
+    } catch (err) {
+      console.error('[DialogManager] Failed to open subset review dialog:', err);
+      await pushErrMsg('打开子集复习失败');
+    }
+  }
+  
+  /**
+   * 打开提取练习对话框（带过滤条件）
+   * 
+   * @param options 过滤选项
+   * @param options.blockIds 块 ID 列表
+   * @param options.dueOnly 是否只显示到期卡片
+   */
+  async openRetrievalPracticeWithFilter(options: {
+    blockIds: string[];
+    dueOnly: boolean;
+  }): Promise<void> {
+    if (!(await this.checkInitialized())) return;
+    this.destroyCurrentReviewDialog();
+
+    try {
+      const manager = this.context.getUnifiedDataSourceManager();
+      const filterGroupQueue = manager.getQueue(QueueType.FilterGroup);
+      
+      // 设置临时过滤条件
+      const filter: any = {
+        blockIds: options.blockIds,
+        cardType: 'item',  // 只接受 Item
+      };
+      
+      if (options.dueOnly) {
+        filter.dueDate = {
+          lte: new Date(),
+        };
+      }
+      
+      console.log('[DialogManager] 🔍 openRetrievalPracticeWithFilter - Setting filter:', {
+        dueOnly: options.dueOnly,
+        blockIdsCount: options.blockIds.length,
+        hasDueDate: !!filter.dueDate,
+      });
+      
+      // 应用过滤条件
+      if (typeof (filterGroupQueue as any).setFilter === 'function') {
+        (filterGroupQueue as any).setFilter(filter);
+      }
+      
+      // 清除临时黑名单（全部模式）
+      if (!options.dueOnly && typeof (filterGroupQueue as any).clearTemporaryBlacklist === 'function') {
+        (filterGroupQueue as any).clearTemporaryBlacklist();
+        console.log('[DialogManager] ✅ Cleared temporary blacklist for "all" mode');
+      }
+      
+      // 创建对话框（使用依赖注入）
+      const eventBus = this.context.getEventBus();
+      const queue = new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus);
+      const adapter = new UnifiedReviewAdapter({ i18n: this.context.getI18n() || {} });
+      
+      this.currentReviewDialog = createVueDialog({
+        hideTitle: true,
+        component: ReviewView,
+        dataKey: 'dialog-opencard',
+        transparent: true,
+        isReview: true,
+        props: {
+          app: this.plugin.app,
+          i18n: this.context.getI18n() || {},
+          title: this.context.getI18n()?.retrievalPractice || '提取练习',
+          queue: queue as any,
+          adapter: adapter as any,
+          plugin: this.plugin,
+        },
+        events: {
+          close: () => {
+            // 清除过滤条件
+            if (typeof (filterGroupQueue as any).setFilter === 'function') {
+              (filterGroupQueue as any).setFilter({});
+            }
+            this.destroyCurrentReviewDialog();
+          },
+        },
+        width: 'min(860px, 96vw)',
+        height: 'min(720px, 90vh)',
+        onClose: () => {
+          this.currentReviewDialog = null;
+        },
+      });
+      
+      console.log('[DialogManager] ✅ Retrieval practice dialog created with blockIds filter');
+    } catch (err) {
+      console.error('[DialogManager] Failed to open retrieval practice dialog:', err);
+      await pushErrMsg(this.context.getI18n()?.loadFailed || '加载失败');
+    }
+  }
+  
+  /**
+   * 打开渐进学习对话框（带过滤条件）
+   * 
+   * @param options 过滤选项
+   * @param options.blockIds 块 ID 列表
+   * @param options.dueOnly 是否只显示到期卡片
+   */
+  async openIncrementalLearningWithFilter(options: {
+    blockIds: string[];
+    dueOnly: boolean;
+  }): Promise<void> {
+    if (!(await this.checkInitialized())) return;
+    this.destroyCurrentReviewDialog();
+
+    try {
+      const manager = this.context.getUnifiedDataSourceManager();
+      const filterGroupQueue = manager.getQueue(QueueType.FilterGroup);
+      
+      // 设置临时过滤条件
+      const filter: any = {
+        blockIds: options.blockIds,
+        // 渐进学习接受所有类型（Item + Topic）
+      };
+      
+      if (options.dueOnly) {
+        filter.dueDate = {
+          lte: new Date(),
+        };
+      }
+      
+      console.log('[DialogManager] 🔍 openIncrementalLearningWithFilter - Setting filter:', {
+        dueOnly: options.dueOnly,
+        blockIdsCount: options.blockIds.length,
+        hasDueDate: !!filter.dueDate,
+      });
+      
+      // 应用过滤条件
+      if (typeof (filterGroupQueue as any).setFilter === 'function') {
+        (filterGroupQueue as any).setFilter(filter);
+      }
+      
+      // 清除临时黑名单（全部模式）
+      if (!options.dueOnly && typeof (filterGroupQueue as any).clearTemporaryBlacklist === 'function') {
+        (filterGroupQueue as any).clearTemporaryBlacklist();
+        console.log('[DialogManager] ✅ Cleared temporary blacklist for "all" mode');
+      }
+      
+      // 创建对话框（使用依赖注入）
+      const eventBus = this.context.getEventBus();
+      const queue = new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus);
+      const adapter = new UnifiedReviewAdapter({ i18n: this.context.getI18n() || {} });
+      
+      this.currentReviewDialog = createVueDialog({
+        hideTitle: true,
+        component: ReviewView,
+        dataKey: 'dialog-opencard',
+        transparent: true,
+        isReview: true,
+        props: {
+          app: this.plugin.app,
+          i18n: this.context.getI18n() || {},
+          title: this.context.getI18n()?.incrementalLearning || '渐进学习',
+          queue: queue as any,
+          adapter: adapter as any,
+          plugin: this.plugin,
+        },
+        events: {
+          close: () => {
+            // 清除过滤条件
+            if (typeof (filterGroupQueue as any).setFilter === 'function') {
+              (filterGroupQueue as any).setFilter({});
+            }
+            this.destroyCurrentReviewDialog();
+          },
+        },
+        width: 'min(860px, 96vw)',
+        height: 'min(720px, 90vh)',
+        onClose: () => {
+          this.currentReviewDialog = null;
+        },
+      });
+      
+      console.log('[DialogManager] ✅ Incremental learning dialog created with blockIds filter');
+    } catch (err) {
+      console.error('[DialogManager] Failed to open incremental learning dialog:', err);
+      await pushErrMsg(this.context.getI18n()?.openFailed || '打开渐进学习失败');
+    }
+  }
+  
+  /**
+   * 打开临时练习对话框
+   * 
+   * @param blockIds 块 ID 列表
+   */
+  async openTemporaryDrill(blockIds: string[]): Promise<void> {
+    this.destroyCurrentReviewDialog();
+
+    if (blockIds.length === 0) {
+      await pushMsg(this.context.getI18n()?.drillNoCards || '当前范围内没有可练习的闪卡');
+      return;
+    }
+
+    try {
+      const { TemporaryDrillStrategy } = await import('@/core/queue/strategies/TemporaryDrillStrategy');
+      const { SubsetPracticeAdapter } = await import('@/ui/review/v2/adapters/SubsetPracticeAdapter');
+
+      const title = `临时练习 (${blockIds.length} 张)`;
+      const session = new TemporaryDrillStrategy({
+        blockIds,
+        deckID: riff.BUILTIN_DECK_ID,
+        storage: this.context.getStorage()
+      });
+      const adapter = new SubsetPracticeAdapter({
+        i18n: this.context.getI18n() || {},
+        label: title,
+        queueName: 'temporary-drill'
+      });
+
+      this.currentReviewDialog = createVueDialog({
+        hideTitle: true,
+        component: ReviewView,
+        dataKey: 'dialog-temporary-drill',
+        props: {
+          app: this.plugin.app,
+          i18n: this.context.getI18n() || {},
+          title,
+          plugin: this.plugin,
+          queue: session as any,
+          adapter: adapter as any,
+        },
+        events: {
+          close: () => this.destroyCurrentReviewDialog(),
+        },
+        width: '80vw',
+        height: '70vh',
+        onClose: () => {
+          this.currentReviewDialog = null;
+        },
+      });
+
+      // 样式调整
+      const dialogEl = this.currentReviewDialog.dialog.element;
+      const scrim = dialogEl.querySelector('.b3-dialog__scrim') as HTMLElement;
+      const container = dialogEl.querySelector('.b3-dialog__container') as HTMLElement;
+
+      if (scrim) {
+        scrim.style.backgroundColor = 'var(--b3-theme-surface)';
+      }
+      if (container) {
+        container.style.maxWidth = '1024px';
+      }
+
+      setTimeout(() => {
+        const focusEl = dialogEl.querySelector('.block__icon') as HTMLElement;
+        if (focusEl) {
+          focusEl.focus();
+        }
+      }, 100);
+
+      console.log('[DialogManager] ✅ Temporary drill dialog opened');
+    } catch (err) {
+      console.error('[DialogManager] Failed to open temporary drill:', err);
+      await pushErrMsg(this.context.getI18n()?.drillFailed || '临时练习启动失败');
     }
   }
   
@@ -521,6 +955,7 @@ export class DialogManager {
   dispose(): void {
     this.closeSettingsDialog();
     this.closeBrowserDialog();
+    this.destroyCurrentReviewDialog();
     if (this.templateSelectDialog) {
       this.templateSelectDialog.destroy();
       this.templateSelectDialog = null;

@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { BaseReviewQueue } from '../../queues/BaseReviewQueue';
+import { BaseReviewQueue } from '../../core/queue/domain/BaseReviewQueue';
 import { QueueType } from '../../types/unified-data-source';
 import type { FSRSCard } from '../../types/card';
 import type { QueueItem } from '../../core/queue/types';

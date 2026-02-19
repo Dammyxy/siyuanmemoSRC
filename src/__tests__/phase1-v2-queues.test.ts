@@ -10,7 +10,7 @@ import { FinalDrillQueue } from '@/core/queue/strategies/FinalDrillQueue';
 import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
 import { IncrementalLearningQueue } from '@/core/queue/strategies/IncrementalLearningQueue';
 import { FilterGroupQueue } from '@/core/queue/strategies/FilterGroupQueue';
-import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
+import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import { QueueType } from '@/types/unified-data-source';
 
 describe('Phase 1 - V2 Queues Validation', () => {

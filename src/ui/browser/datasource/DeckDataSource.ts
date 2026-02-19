@@ -10,7 +10,7 @@ import {
   addToQueue,
 } from './MenuActions';
 import { RescheduleService } from '@/core/scheduler/rescheduleService';
-import type { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
+import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import { QueueType } from '@/types/unified-data-source';
 import { DeleteCardCommand } from '@/application/commands/card/DeleteCardCommand';
 

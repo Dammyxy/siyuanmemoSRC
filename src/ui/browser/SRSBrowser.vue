@@ -180,7 +180,7 @@ import { ConfigManager } from '@/core/scheduler/ConfigManager';
 import { createColumnDefs } from './config';
 // 🆕 导入统一数据源适配器
 import { SRSBrowserAdapter } from './SRSBrowserAdapter';
-import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
+import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import { QueueType } from '@/types/unified-data-source';
 import type { DataChangeEvent, CardFilter } from '@/types/unified-data-source';
 import { filterService } from './services/FilterService';

@@ -16,7 +16,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ReviewViewAdapter } from '../ReviewViewAdapter';
-import { ReviewViewController } from '../../../controllers/ReviewViewController';
+import { ReviewViewController } from '../../../application/controllers/ReviewViewController';
 import type { UnifiedDataSourceManager } from '../../../managers/UnifiedDataSourceManager';
 import type { IReviewQueue, QueueType, DataChangeEvent } from '../../../types/unified-data-source';
 import type { FSRSCard } from '../../../types/card';

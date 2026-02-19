@@ -12,7 +12,7 @@
 import type { UnifiedDataSourceManager } from '../../managers/UnifiedDataSourceManager';
 import type { IDataSourceObserver, DataChangeEvent, QueueType, IReviewQueue } from '../../types/unified-data-source';
 import type { FSRSCard } from '../../types/card';
-import { ReviewViewController } from '../../controllers/ReviewViewController';
+import { ReviewViewController } from '../../application/controllers/ReviewViewController';
 
 /**
  * 复习界面适配器

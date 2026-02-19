@@ -12,7 +12,7 @@
 import type { Plugin } from 'siyuan';
 import { StorageManager } from '@/core/storage';
 import { SchedulerRouter, RescheduleService, createScheduler, type SchedulerEngineAdapter } from '@/core/scheduler';
-import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
+import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import { DialogManager } from '@/application/managers/DialogManager';
 import { MenuManager } from '@/application/managers/MenuManager';
 import { TabManager } from '@/application/managers/TabManager';
@@ -20,16 +20,16 @@ import { DockManager } from '@/application/managers/DockManager';
 import { PracticeQueueManager } from '@/application/managers/PracticeQueueManager';
 import { TabApplicationService } from '@/application/services/TabApplicationService';
 import { XiuyuanService, XiuyuanStorage } from '@/core/xiuyuan';
-import { DialogService, MenuService, ReviewDialogManager, BlockMenuHandler, HybridSyncService } from '@/services';
-import { TransactionWebSocketService } from '@/services/TransactionWebSocketService';
+import { BlockMenuHandler, HybridSyncService } from '@/services';
+import { TransactionWebSocketService } from '@/core/infrastructure/websocket/TransactionWebSocketService';
 import { QueueContext, type QueueItem } from '@/core/queue';
-import { RetrievalPracticeQueue } from '@/queues/RetrievalPracticeQueue';
-import { FilterGroupQueue } from '@/queues/FilterGroupQueue';
-import { FinalDrillQueue } from '@/queues/FinalDrillQueue';
-import { IncrementalLearningQueue } from '@/queues/IncrementalLearningQueue';
+import { RetrievalPracticeQueue } from '@/core/queue/domain/RetrievalPracticeQueue';
+import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
+import { FinalDrillQueue } from '@/core/queue/domain/FinalDrillQueue';
+import { IncrementalLearningQueue } from '@/core/queue/domain/IncrementalLearningQueue';
 import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
 import { QueueType } from '@/types/unified-data-source';
-import { AdvancedDataRouter } from '@/routers';
+import { AdvancedDataRouter } from '@/application/queries/DataAccessFacade';
 
 /**
  * 应用配置接口
@@ -84,10 +84,7 @@ export class ApplicationContext {
   private xiuyuanStorage: XiuyuanStorage;
   private xiuyuanService: XiuyuanService;
   
-  // 应用服务（过渡期 - 标记为 @deprecated）
-  private dialogService: DialogService;
-  private menuService: MenuService;
-  private reviewDialogManager: ReviewDialogManager;
+  // 应用服务
   private blockMenuHandler: BlockMenuHandler;
   
   // 基础设施服务
@@ -155,9 +152,6 @@ export class ApplicationContext {
       subsetQueue: FilterGroupQueue;
       xiuyuanStorage: XiuyuanStorage;
       xiuyuanService: XiuyuanService;
-      dialogService: DialogService;
-      menuService: MenuService;
-      reviewDialogManager: ReviewDialogManager;
       blockMenuHandler: BlockMenuHandler;
       hybridSyncService?: HybridSyncService;
       transactionWebSocketService?: TransactionWebSocketService;
@@ -178,9 +172,6 @@ export class ApplicationContext {
     this.subsetQueue = services.subsetQueue;
     this.xiuyuanStorage = services.xiuyuanStorage;
     this.xiuyuanService = services.xiuyuanService;
-    this.dialogService = services.dialogService;
-    this.menuService = services.menuService;
-    this.reviewDialogManager = services.reviewDialogManager;
     this.blockMenuHandler = services.blockMenuHandler;
     this.hybridSyncService = services.hybridSyncService;
     this.transactionWebSocketService = services.transactionWebSocketService;
@@ -205,6 +196,12 @@ export class ApplicationContext {
     this.serviceContainer.set('storage', this.storageManager);
     this.serviceContainer.set('scheduler', this.schedulerRouter);
     this.serviceContainer.set('unifiedDataSource', this.unifiedDataSourceManager);
+    
+    // ✅ 注册 EventBus（单例）
+    this.registerServiceFactory('eventBus', (context) => {
+      const { EventBus } = require('@/core/shared/domain/events/EventBus');
+      return new EventBus(false);  // false = 不启用调试日志
+    });
     
     // TODO: Phase 1 Task 2 - 注册 UI 管理器工厂
     // ✅ Task 2.1: DialogManager 已注册
@@ -488,49 +485,7 @@ export class ApplicationContext {
     await xiuyuanStorage.save();
     console.log('[ApplicationContext] ✅ XiuyuanService initialized');
     
-    // 10. 初始化应用服务（需要临时上下文）
-    const tempContext = {
-      getStorage: () => storageManager,
-      getScheduler: () => schedulerRouter,
-      getUnifiedDataSourceManager: () => unifiedDataSourceManager,
-      getPlugin: () => config.plugin,
-      getI18n: () => config.i18n,
-    } as any;
-    
-    const dialogService = new DialogService({
-      app: (config.plugin as any).app,
-      i18n: config.i18n,
-      storage: storageManager,
-      scheduler: scheduler,
-      isInitialized: true,
-      finalDrillQueue: finalDrillQueue,
-      incrementalQueue: incrementalQueue,
-    });
-    
-    const menuService = new MenuService({
-      i18n: config.i18n,
-      storage: storageManager,
-      openReviewDialog: () => {}, // 将在后面设置
-      openFinalDrillDialog: () => {},
-      openFilterGroupPracticeDialog: () => {},
-      openIncrementalLearningDialog: () => {},
-      openNeuralRoamDialog: () => {},
-      openLeechReviewDialog: () => {},
-      openSRSBrowser: () => {},
-      openSetting: () => {},
-      getDueCount: () => storageManager.getDueCards().length,
-    });
-    
-    const reviewDialogManager = new ReviewDialogManager({
-      app: (config.plugin as any).app,
-      i18n: config.i18n,
-      storage: storageManager,
-      scheduler: scheduler,
-      isInitialized: () => true,
-      plugin: config.plugin as any,
-      openReviewTab: (options) => {}, // 将在后面设置
-    });
-    
+    // 10. 初始化 BlockMenuHandler
     // 创建一个临时变量来存储 context 引用（用于闭包）
     let contextRef: ApplicationContext | null = null;
     
@@ -538,7 +493,7 @@ export class ApplicationContext {
       app: (config.plugin as any).app,
       i18n: config.i18n,
       storage: storageManager,
-      reviewDialogManager: reviewDialogManager,
+      dialogManager: null as any, // 将在 ApplicationContext 创建后设置
       xiuyuanService: xiuyuanService,
       openCreateTemplateCardDialog: async (blockIds) => {
         // 使用闭包延迟获取 DialogManager
@@ -549,12 +504,20 @@ export class ApplicationContext {
           }
         }
       },
-      openNeuralReviewDialog: (options) => reviewDialogManager.openNeuralRoam(options),
+      openNeuralReviewDialog: async (options) => {
+        // 使用闭包延迟获取 DialogManager
+        if (contextRef) {
+          const dialogManager = contextRef.getDialogManager();
+          if (dialogManager) {
+            await dialogManager.openNeuralRoamDialog(options);
+          }
+        }
+      },
       plugin: config.plugin as any,
       applicationContext: undefined, // 🆕 将在 ApplicationContext 创建后设置
     });
     
-    console.log('[ApplicationContext] ✅ Application services initialized');
+    console.log('[ApplicationContext] ✅ BlockMenuHandler initialized');
     
     // 11. 初始化 HybridSyncService（如果配置启用）
     let hybridSyncService: HybridSyncService | undefined;
@@ -587,8 +550,8 @@ export class ApplicationContext {
       
       // 初始化 TransactionWebSocketService
       if (riffConfig.incrementalSync?.enabled) {
-        const { RiffSyncHandler } = await import('@/services/handlers/RiffSyncHandler');
-        const { AutoCardHandler } = await import('@/services/handlers/AutoCardHandler');
+        const { RiffSyncHandler } = await import('@/application/handlers/RiffSyncHandler');
+        const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
         
         transactionWebSocketService = new TransactionWebSocketService(config.plugin as any);
         transactionWebSocketService.registerHandler(new RiffSyncHandler(hybridSyncService));
@@ -614,9 +577,6 @@ export class ApplicationContext {
       subsetQueue,
       xiuyuanStorage,
       xiuyuanService,
-      dialogService,
-      menuService,
-      reviewDialogManager,
       blockMenuHandler,
       hybridSyncService,
       transactionWebSocketService,
@@ -626,8 +586,9 @@ export class ApplicationContext {
     // 设置 context 引用（用于 blockMenuHandler 的闭包）
     contextRef = context;
     
-    // 13. 设置 ApplicationContext 引用（解决循环依赖）
+    // 13. 设置 ApplicationContext 和 DialogManager 引用（解决循环依赖）
     blockMenuHandler.setApplicationContext(context);
+    (blockMenuHandler.deps as any).dialogManager = context.getDialogManager();
     
     // 14. 注入 CardApplicationService 到 HybridSyncService
     if (hybridSyncService) {
@@ -775,33 +736,6 @@ export class ApplicationContext {
   }
   
   /**
-   * 获取对话框服务
-   * 
-   * @returns DialogService - 对话框服务实例
-   */
-  getDialogService(): DialogService {
-    return this.dialogService;
-  }
-  
-  /**
-   * 获取菜单服务
-   * 
-   * @returns MenuService - 菜单服务实例
-   */
-  getMenuService(): MenuService {
-    return this.menuService;
-  }
-  
-  /**
-   * 获取复习对话框管理器
-   * 
-   * @returns ReviewDialogManager - 复习对话框管理器实例
-   */
-  getReviewDialogManager(): ReviewDialogManager {
-    return this.reviewDialogManager;
-  }
-  
-  /**
    * 获取块菜单处理器
    * 
    * @returns BlockMenuHandler - 块菜单处理器实例
@@ -938,6 +872,15 @@ export class ApplicationContext {
    */
   getPracticeQueueManager(): PracticeQueueManager {
     return this.getService<PracticeQueueManager>('practiceQueueManager');
+  }
+  
+  /**
+   * 获取事件总线
+   * 
+   * @returns EventBus - 事件总线实例
+   */
+  getEventBus(): any {
+    return this.getService<any>('eventBus');
   }
   
   // ========================================================================

@@ -10,7 +10,7 @@
  */
 
 import type { Plugin } from 'siyuan';
-import type { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
+import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { StorageManager } from '@/core/storage/manager';
 import type { FSRSCard } from '@/types';
 import { PerformanceMonitor } from '@/utils/performance';

@@ -1,53 +1,36 @@
 /**
  * CardFilterService - 卡片过滤领域服务
  * 
- * 职责：
+ * 职责:
  * - 按状态过滤卡片
  * - 按卡片类型过滤卡片
  * - 按搜索文本过滤卡片
  * - 按标签过滤卡片
  * - 统计卡片数量
+ * - 高级过滤(用于 DataAccessFacade)
  * 
- * 设计原则：
- * - 单一职责：只负责卡片过滤相关的业务逻辑
- * - 无状态：所有方法都是纯函数
- * - 领域层：不依赖基础设施层
+ * 设计原则:
+ * - 单一职责:只负责卡片过滤相关的业务逻辑
+ * - 无状态:所有方法都是纯函数
+ * - 领域层:不依赖基础设施层
  * 
  * @see .kiro/specs/ddd-refactoring/browser-ddd-migration.md - Phase 1
  */
 
-import type { Card } from '@/services/StorageManager';
+import type { FSRSCard } from '@/types/card';
 import { CardState } from './CardScheduleService';
+
+// 为了向后兼容,创建 Card 类型别名
+type Card = FSRSCard;
 
 /**
  * CardFilterService 类
  * 
  * 提供卡片过滤相关的业务逻辑。
- * 
- * 使用示例：
- * ```typescript
- * const service = new CardFilterService();
- * 
- * // 按状态过滤
- * const newCards = service.filterByStates(allCards, [CardState.New]);
- * 
- * // 按卡片类型过滤
- * const conceptCards = service.filterByCardTypes(allCards, ['concept']);
- * 
- * // 按搜索文本过滤
- * const searchResults = service.filterBySearchText(allCards, 'DDD');
- * 
- * // 统计指定状态的卡片数量
- * const newCount = service.countByState(allCards, CardState.New);
- * ```
  */
 export class CardFilterService {
   /**
    * 按状态过滤卡片
-   * 
-   * @param cards - 卡片列表
-   * @param states - 要过滤的状态列表
-   * @returns 匹配指定状态的卡片列表
    */
   filterByStates(cards: Card[], states: CardState[]): Card[] {
     if (!states || states.length === 0) {
@@ -60,10 +43,6 @@ export class CardFilterService {
   
   /**
    * 按卡片类型过滤
-   * 
-   * @param cards - 卡片列表
-   * @param cardTypes - 要过滤的卡片类型列表
-   * @returns 匹配指定类型的卡片列表
    */
   filterByCardTypes(cards: Card[], cardTypes: string[]): Card[] {
     if (!cardTypes || cardTypes.length === 0) {
@@ -79,14 +58,6 @@ export class CardFilterService {
   
   /**
    * 按搜索文本过滤
-   * 
-   * 搜索范围：
-   * - 卡片内容（meta.content）
-   * - 块 ID
-   * 
-   * @param cards - 卡片列表
-   * @param searchText - 搜索文本
-   * @returns 匹配搜索文本的卡片列表
    */
   filterBySearchText(cards: Card[], searchText: string): Card[] {
     if (!searchText || searchText.trim() === '') {
@@ -96,13 +67,11 @@ export class CardFilterService {
     const lowerSearch = searchText.toLowerCase().trim();
     
     return cards.filter(card => {
-      // 搜索内容
       const content = (card.meta?.content as string || '').toLowerCase();
       if (content.includes(lowerSearch)) {
         return true;
       }
       
-      // 搜索块 ID
       const blockId = card.blockId.toLowerCase();
       if (blockId.includes(lowerSearch)) {
         return true;
@@ -114,11 +83,6 @@ export class CardFilterService {
   
   /**
    * 按标签过滤
-   * 
-   * @param cards - 卡片列表
-   * @param tags - 要过滤的标签列表
-   * @param matchAll - 是否需要匹配所有标签（默认为 false，匹配任意一个即可）
-   * @returns 匹配指定标签的卡片列表
    */
   filterByTags(cards: Card[], tags: string[], matchAll: boolean = false): Card[] {
     if (!tags || tags.length === 0) {
@@ -131,10 +95,8 @@ export class CardFilterService {
       const cardTags = (card.meta?.tags as string[]) || [];
       
       if (matchAll) {
-        // 需要匹配所有标签
         return tags.every(tag => cardTags.includes(tag));
       } else {
-        // 匹配任意一个标签即可
         return cardTags.some(tag => tagSet.has(tag));
       }
     });
@@ -142,10 +104,6 @@ export class CardFilterService {
   
   /**
    * 按 Deck ID 过滤
-   * 
-   * @param cards - 卡片列表
-   * @param deckIds - 要过滤的 Deck ID 列表
-   * @returns 匹配指定 Deck 的卡片列表
    */
   filterByDeckIds(cards: Card[], deckIds: string[]): Card[] {
     if (!deckIds || deckIds.length === 0) {
@@ -161,10 +119,6 @@ export class CardFilterService {
   
   /**
    * 统计指定状态的卡片数量
-   * 
-   * @param cards - 卡片列表
-   * @param state - 卡片状态
-   * @returns 指定状态的卡片数量
    */
   countByState(cards: Card[], state: CardState): number {
     return cards.filter(card => card.state === state).length;
@@ -172,10 +126,6 @@ export class CardFilterService {
   
   /**
    * 统计指定类型的卡片数量
-   * 
-   * @param cards - 卡片列表
-   * @param cardType - 卡片类型
-   * @returns 指定类型的卡片数量
    */
   countByCardType(cards: Card[], cardType: string): number {
     return cards.filter(card => card.type === cardType).length;
@@ -183,12 +133,6 @@ export class CardFilterService {
   
   /**
    * 组合过滤器
-   * 
-   * 按照指定的条件组合过滤卡片。
-   * 
-   * @param cards - 卡片列表
-   * @param filters - 过滤条件
-   * @returns 过滤后的卡片列表
    */
   applyFilters(
     cards: Card[],
@@ -223,5 +167,284 @@ export class CardFilterService {
     }
     
     return result;
+  }
+  
+  // ========================================================================
+  // 高级过滤方法(用于 DataAccessFacade)
+  // ========================================================================
+  
+  /**
+   * 按块 ID 过滤
+   */
+  filterByBlockIds(cards: Card[], blockIds: string[]): Card[] {
+    if (!blockIds || blockIds.length === 0) {
+      return cards;
+    }
+    
+    const blockIdSet = new Set(blockIds);
+    return cards.filter(card => blockIdSet.has(card.blockId));
+  }
+  
+  /**
+   * 按到期日期过滤
+   */
+  filterByDueDate(
+    cards: Card[],
+    dueDate: { lte?: Date; gte?: Date },
+    dayEnd?: number
+  ): Card[] {
+    return cards.filter(card => {
+      const cardDueDate = new Date(card.due);
+      
+      if (dueDate.lte) {
+        const endTime = dayEnd || dueDate.lte.getTime();
+        if (card.due > endTime) {
+          return false;
+        }
+      }
+      
+      if (dueDate.gte) {
+        const filterGteOnly = new Date(dueDate.gte);
+        filterGteOnly.setHours(0, 0, 0, 0);
+        
+        if (cardDueDate < filterGteOnly) {
+          return false;
+        }
+      }
+      
+      return true;
+    });
+  }
+  
+  /**
+   * 按优先级过滤
+   */
+  filterByPriority(cards: Card[], priority: { min?: number; max?: number }): Card[] {
+    return cards.filter(card => {
+      const cardPriority = card.priority;
+      
+      if (priority.min !== undefined && cardPriority < priority.min) {
+        return false;
+      }
+      
+      if (priority.max !== undefined && cardPriority > priority.max) {
+        return false;
+      }
+      
+      return true;
+    });
+  }
+  
+  /**
+   * 按复习次数过滤
+   */
+  filterByRepetitions(cards: Card[], repetitions: { min?: number; max?: number }): Card[] {
+    return cards.filter(card => {
+      const reps = card.reps;
+      
+      if (repetitions.min !== undefined && reps < repetitions.min) {
+        return false;
+      }
+      
+      if (repetitions.max !== undefined && reps > repetitions.max) {
+        return false;
+      }
+      
+      return true;
+    });
+  }
+  
+  /**
+   * 按遗忘次数过滤
+   */
+  filterByLapses(cards: Card[], lapses: { min?: number; max?: number }): Card[] {
+    return cards.filter(card => {
+      const cardLapses = card.lapses;
+      
+      if (lapses.min !== undefined && cardLapses < lapses.min) {
+        return false;
+      }
+      
+      if (lapses.max !== undefined && cardLapses > lapses.max) {
+        return false;
+      }
+      
+      return true;
+    });
+  }
+  
+  /**
+   * 按间隔天数过滤
+   */
+  filterByInterval(cards: Card[], interval: { min?: number; max?: number }): Card[] {
+    const now = new Date();
+    
+    return cards.filter(card => {
+      const dueDate = new Date(card.due);
+      const intervalDays = Math.floor((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      
+      if (interval.min !== undefined && intervalDays < interval.min) {
+        return false;
+      }
+      
+      if (interval.max !== undefined && intervalDays > interval.max) {
+        return false;
+      }
+      
+      return true;
+    });
+  }
+  
+  /**
+   * 按上次复习日期过滤
+   */
+  filterByLastReview(cards: Card[], lastReview: { lte?: Date; gte?: Date }): Card[] {
+    return cards.filter(card => {
+      const lastReviewDate = new Date(card.updatedAt);
+      
+      if (lastReview.lte && lastReviewDate > lastReview.lte) {
+        return false;
+      }
+      
+      if (lastReview.gte && lastReviewDate < lastReview.gte) {
+        return false;
+      }
+      
+      return true;
+    });
+  }
+  
+  /**
+   * 按难度过滤
+   */
+  filterByDifficulty(cards: Card[], difficulty: { min?: number; max?: number }): Card[] {
+    return cards.filter(card => {
+      const cardDifficulty = card.difficulty;
+      
+      if (difficulty.min !== undefined && cardDifficulty < difficulty.min) {
+        return false;
+      }
+      
+      if (difficulty.max !== undefined && cardDifficulty > difficulty.max) {
+        return false;
+      }
+      
+      return true;
+    });
+  }
+  
+  /**
+   * 按稳定性过滤
+   */
+  filterByStability(cards: Card[], stability: { min?: number; max?: number }): Card[] {
+    return cards.filter(card => {
+      const cardStability = card.stability;
+      
+      if (stability.min !== undefined && cardStability < stability.min) {
+        return false;
+      }
+      
+      if (stability.max !== undefined && cardStability > stability.max) {
+        return false;
+      }
+      
+      return true;
+    });
+  }
+  
+  /**
+   * 按可提取性过滤
+   */
+  filterByRetrievability(cards: Card[], retrievability: { min?: number; max?: number }): Card[] {
+    const now = new Date();
+    
+    return cards.filter(card => {
+      const lastReview = new Date(card.updatedAt);
+      const elapsedDays = (now.getTime() - lastReview.getTime()) / (1000 * 60 * 60 * 24);
+      const cardRetrievability = Math.exp(-elapsedDays / card.stability);
+      
+      if (retrievability.min !== undefined && cardRetrievability < retrievability.min) {
+        return false;
+      }
+      
+      if (retrievability.max !== undefined && cardRetrievability > retrievability.max) {
+        return false;
+      }
+      
+      return true;
+    });
+  }
+  
+  /**
+   * 按卡片状态过滤
+   */
+  filterByCardStatus(cards: Card[], cardStatus: Array<'new' | 'learning' | 'review' | 'relearning'>): Card[] {
+    if (!cardStatus || cardStatus.length === 0) {
+      return cards;
+    }
+    
+    return cards.filter(card => {
+      let status: 'new' | 'learning' | 'review' | 'relearning';
+      
+      switch (card.state) {
+        case 0:
+          status = 'new';
+          break;
+        case 1:
+          status = 'learning';
+          break;
+        case 2:
+          status = 'review';
+          break;
+        case 3:
+          status = 'relearning';
+          break;
+        default:
+          status = 'new';
+      }
+      
+      return cardStatus.includes(status);
+    });
+  }
+  
+  /**
+   * 按关键词过滤(搜索卡片内容)
+   */
+  filterByKeyword(cards: Card[], keyword: string): Card[] {
+    if (!keyword || keyword.trim() === '') {
+      return cards;
+    }
+    
+    const lowerKeyword = keyword.trim().toLowerCase();
+    
+    return cards.filter(card => {
+      const content = (card.meta?.content as string || '').toLowerCase();
+      if (content.includes(lowerKeyword)) {
+        return true;
+      }
+      
+      const title = (card.meta?.title as string || '').toLowerCase();
+      if (title.includes(lowerKeyword)) {
+        return true;
+      }
+      
+      const blockId = card.blockId || '';
+      if (blockId.includes(lowerKeyword)) {
+        return true;
+      }
+      
+      return false;
+    });
+  }
+  
+  /**
+   * 过滤无效的块 ID
+   */
+  filterValidBlockIds(cards: Card[]): Card[] {
+    return cards.filter(card => 
+      card.blockId && 
+      card.blockId !== 'undefined' && 
+      card.blockId !== ''
+    );
   }
 }

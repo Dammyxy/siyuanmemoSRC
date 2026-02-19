@@ -10,7 +10,7 @@
  */
 
 import { addRiffCards, BUILTIN_DECK_ID, getRiffCardsByBlockIDs } from '@/core/siyuan/riff';
-import type { NeuralRoamQueue } from '@/queues/NeuralRoamQueue';
+import type { NeuralRoamQueue } from '@/core/queue/domain/NeuralRoamQueue';
 import type { WeightedNeighbor } from '@/core/queue/neural/types';
 
 export class SeedService {

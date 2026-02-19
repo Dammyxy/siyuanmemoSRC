@@ -12,8 +12,8 @@ import { riff } from '@/core/siyuan';
 import type { QueueProvider } from '@/core/extensions';
 import type { BrowserCard } from '@/ui/browser/browserService';
 // 🔧 使用新架构的 IncrementalLearningQueue
-import { IncrementalLearningQueue } from '@/queues/IncrementalLearningQueue';
-import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
+import { IncrementalLearningQueue } from '@/core/queue/domain/IncrementalLearningQueue';
+import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import { QueueType } from '@/types/unified-data-source';
 
 /**

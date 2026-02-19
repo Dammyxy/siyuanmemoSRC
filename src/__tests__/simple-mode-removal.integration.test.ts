@@ -9,8 +9,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { UnifiedDataSourceManager } from '@/managers/UnifiedDataSourceManager';
-import { AdvancedDataRouter } from '@/routers/DataAccessFacade';
+import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
+import { AdvancedDataRouter } from '@/application/queries/DataAccessFacade';
 import { SimpleModeRemovalMigrator } from '@/utils/simpleModeRemovalMigrator';
 import { QueueType } from '@/types/unified-data-source';
 import type { StorageManager } from '@/core/storage/manager';

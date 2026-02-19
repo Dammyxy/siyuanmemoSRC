@@ -32,7 +32,6 @@ export default class FSRSPlugin extends Plugin {
   public get neuralQueue() { return this.unifiedDataSourceManager.getQueue('neural-roam' as any) as any; }
   public get neuralRoamQueue() { return this.neuralQueue; }
   public get filterGroupQueue() { return this.subsetQueue; }
-  public get reviewDialogManager() { return this.context.getReviewDialogManager(); }
   public get hybridSyncService() { return this.context.getHybridSyncService(); }
 
   private topBarElement: HTMLElement | null = null;
