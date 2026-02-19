@@ -306,6 +306,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   private cardToFSRSCard(card: Card, xiuyuan: Xiuyuan): any {
     const scheduleInfo = card.getScheduleInfo();
     const blockIDs = xiuyuan.getBlockIDs();
+    const meta = xiuyuan.getMeta();
+    
+    // Get schedulerType from meta, default to 'fsrs-v6' (Requirement 5.5)
+    const schedulerType = (meta.schedulerType as 'fsrs-v6' | 'a-factor' | 'sm2') || 'fsrs-v6';
     
     return {
       id: card.getId().getValue(),
@@ -327,7 +331,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       // 类型和模板
       type: 'item' as const,
       templateID: xiuyuan.getTemplateID().getValue(),
-      schedulerType: 'fsrs-v6' as const,
+      schedulerType: schedulerType, // Use schedulerType from meta (Requirement 5.5)
       
       // 优先级
       priority: xiuyuan.getPriority().getValue(),

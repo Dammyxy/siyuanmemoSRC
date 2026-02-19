@@ -13,11 +13,18 @@ import { CardCreationService } from '@/core/xiuyuan/domain/services/CardCreation
 import { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
 import { Card } from '@/core/xiuyuan/domain/Card';
 import { ok, err } from '@/types/result';
+import { EventBus } from '@/core/shared/domain/events/EventBus';
+
+// Mock getBlockText
+vi.mock('@/core/siyuan/block', () => ({
+  getBlockText: vi.fn(() => Promise.resolve('Mock block content')),
+}));
 
 describe('CreateCardUseCase', () => {
   let useCase: CreateCardUseCase;
   let mockRepo: IXiuyuanRepository;
   let cardCreationService: CardCreationService;
+  let mockEventBus: EventBus;
 
   beforeEach(() => {
     // 创建 mock repository
@@ -34,8 +41,16 @@ describe('CreateCardUseCase', () => {
     // 创建真实的 CardCreationService
     cardCreationService = new CardCreationService();
 
+    // 创建 mock EventBus
+    mockEventBus = {
+      publishAll: vi.fn().mockResolvedValue(undefined),
+      publish: vi.fn().mockResolvedValue(undefined),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    } as any;
+
     // 创建用例
-    useCase = new CreateCardUseCase(mockRepo, cardCreationService);
+    useCase = new CreateCardUseCase(mockRepo, cardCreationService, mockEventBus);
   });
 
   describe('execute', () => {
@@ -163,7 +178,7 @@ describe('CreateCardUseCase', () => {
       // Assert
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.message).toContain('blockId cannot be empty');
+        expect(result.error.message).toContain('blockId or blockIds must be provided');
       }
       expect(mockRepo.save).not.toHaveBeenCalled();
     });
@@ -279,7 +294,7 @@ describe('CreateCardUseCase', () => {
       // Assert
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.message).toContain('priority must be >= 0');
+        expect(result.error.message).toContain('priority must be between 0 and 100');
       }
       expect(mockRepo.save).not.toHaveBeenCalled();
     });

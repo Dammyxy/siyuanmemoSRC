@@ -39,9 +39,10 @@ export class CardFace {
       return err(new Error('Question cannot be empty'));
     }
 
-    // 验证：答案不能为空
-    if (!props.answer || props.answer.trim().length === 0) {
-      return err(new Error('Answer cannot be empty'));
+    // 注意：答案可以为空字符串（例如概念卡无定义时）
+    // 只验证答案字段存在
+    if (props.answer === undefined || props.answer === null) {
+      return err(new Error('Answer must be provided (can be empty string)'));
     }
 
     // 验证：如果提供了 blockId，需要验证格式
@@ -61,7 +62,7 @@ export class CardFace {
 
     return ok(new CardFace(
       props.question.trim(),
-      props.answer.trim(),
+      props.answer, // 不 trim，保留空字符串
       props.questionBlockId,
       props.answerBlockId
     ));

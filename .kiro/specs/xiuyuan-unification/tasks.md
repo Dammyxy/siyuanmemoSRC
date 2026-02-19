@@ -93,11 +93,11 @@
 - [x] 1.13 Checkpoint - 确保所有测试通过
   - 确保所有测试通过，询问用户是否有问题
 
-- [ ] 2. Day 2: 创建流程统一
+- [-] 2. Day 2: 创建流程统一
   - 扩展命令和用例，实现自动模板选择，创建辅助类，迁移旧代码
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 4.1, 4.2, 4.3, 5.1, 5.2, 5.3, 5.4, 5.5, 6.1, 6.2, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6_
 
-- [~] 2.1 扩展 CreateCardCommand
+- [x] 2.1 扩展 CreateCardCommand
   - 修改 `src/application/commands/card/CreateCardCommand.ts`
   - 添加 cardType 字段（可选）
   - 添加 schedulerType 字段（可选）
@@ -110,7 +110,7 @@
   - **Property 11: CardType validation**
   - **Validates: Requirements 4.3**
 
-- [~] 2.3 实现自动模板选择逻辑
+- [x] 2.3 实现自动模板选择逻辑
   - 修改 `src/application/usecases/card/CreateCardUseCase.ts`
   - 实现 selectTemplate(command)：根据 cardType、blockCount、符号检测自动选择模板
   - 实现 detectSymbol(blockId)：检测块内容是否包含 <>
@@ -122,7 +122,7 @@
   - **Property 10: Explicit template overrides automatic selection**
   - **Validates: Requirements 2.2, 8.1, 8.6**
 
-- [~] 2.5 扩展 CreateCardUseCase 支持调度器类型
+- [x] 2.5 扩展 CreateCardUseCase 支持调度器类型
   - 在 execute() 中设置 schedulerType
   - 实现 Concept 卡的默认调度器选择（有描述符 → FSRS v6，无描述符 → A-Factor）
   - _Requirements: 5.1, 5.3, 5.4, 5.5_
@@ -132,7 +132,7 @@
   - **Property 21: Type-template independence**
   - **Validates: Requirements 5.1, 5.2, 5.5**
 
-- [~] 2.7 实现 CardCreationHelper
+- [x] 2.7 实现 CardCreationHelper
   - 创建文件 `src/application/helpers/CardCreationHelper.ts`
   - 实现 createConceptCard(blockId, options)
   - 实现 createSymbolCard(blockId, options)
@@ -148,7 +148,7 @@
   - **Property 13: List template generates N cards**
   - **Validates: Requirements 2.3, 2.4, 2.6, 6.1, 6.2**
 
-- [~] 2.9 迁移 AutoCardHandler
+- [x] 2.9 迁移 AutoCardHandler
   - 修改 `src/application/handlers/AutoCardHandler.ts`
   - 添加 CardCreationHelper 依赖
   - 替换所有 createDefaultCard 调用为 helper 方法
@@ -190,7 +190,7 @@
 - [~] 2.14 Checkpoint - 确保所有测试通过
   - 确保所有测试通过，询问用户是否有问题
 
-- [ ] 3. Day 3: 清理和优化
+- [~] 3. Day 3: 清理和优化
   - 删除旧代码，统一优先级存储，简化 CardType，集成测试，手动测试
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 4.1, 4.2, 9.1, 9.2, 9.3, 9.4, 9.5_
 

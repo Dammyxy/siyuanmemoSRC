@@ -17,8 +17,14 @@
 
 /**
  * 卡片类型枚举
+ * 根据 xiuyuan-unification 规范，只支持 4 种类型
  */
-export type CardType = 'basic' | 'concept' | 'qa' | 'cloze' | 'bidirectional';
+export type CardType = 'item' | 'topic' | 'concept' | 'descriptor';
+
+/**
+ * 调度器类型枚举
+ */
+export type SchedulerType = 'fsrs-v6' | 'a-factor' | 'sm2';
 
 /**
  * 卡片来源
@@ -37,8 +43,8 @@ export interface CreateCardCommand {
   /** 块 ID 列表（多个块，用于模板卡片） */
   blockIds?: string[];
   
-  /** 模板 ID */
-  templateId: string;
+  /** 模板 ID（可选，如果未指定则自动选择） */
+  templateId?: string;
   
   /** 卡片面列表（v1 格式，向后兼容） */
   faces?: Array<{
@@ -58,13 +64,28 @@ export interface CreateCardCommand {
   /** 卡组 ID（可选，默认使用内置卡组） */
   deckId?: string;
   
-  /** 卡片类型（可选，用于自动选择模板） */
+  /** 卡片类型（可选，用于自动选择模板，默认为 'item'） */
   cardType?: CardType;
   
-  /** 优先级（可选，默认为 0） */
-  priority?: number | 'normal' | 'high';
+  /** 调度器类型（可选，默认根据卡片类型自动选择） */
+  schedulerType?: SchedulerType;
+  
+  /** 优先级（可选，默认为 50） */
+  priority?: number;
   
   /** 扩展元数据（可选） */
+  metadata?: {
+    /** 是否自动创建 */
+    autoCreated?: boolean;
+    /** 是否符号检测 */
+    symbolDetected?: boolean;
+    /** 卡片来源 */
+    source?: CardSource;
+    /** 其他元数据 */
+    [key: string]: unknown;
+  };
+  
+  /** 旧版元数据字段（向后兼容） */
   meta?: {
     /** 是否自动创建 */
     autoCreated?: boolean;
@@ -92,9 +113,26 @@ export function validateCreateCardCommand(command: CreateCardCommand): string | 
     return 'blockId or blockIds must be provided';
   }
 
-  // 验证 templateId
-  if (!command.templateId || command.templateId.trim().length === 0) {
-    return 'templateId cannot be empty';
+  // templateId 现在是可选的（自动选择）
+  // 如果提供了 templateId，验证它不为空
+  if (command.templateId !== undefined && command.templateId.trim().length === 0) {
+    return 'templateId cannot be empty string';
+  }
+
+  // 验证 cardType（如果提供）
+  if (command.cardType !== undefined) {
+    const validTypes: CardType[] = ['item', 'topic', 'concept', 'descriptor'];
+    if (!validTypes.includes(command.cardType)) {
+      return `cardType must be one of: ${validTypes.join(', ')}`;
+    }
+  }
+
+  // 验证 schedulerType（如果提供）
+  if (command.schedulerType !== undefined) {
+    const validSchedulers: SchedulerType[] = ['fsrs-v6', 'a-factor', 'sm2'];
+    if (!validSchedulers.includes(command.schedulerType)) {
+      return `schedulerType must be one of: ${validSchedulers.join(', ')}`;
+    }
   }
 
   // 验证 faces（如果使用 v1 格式）
@@ -119,11 +157,11 @@ export function validateCreateCardCommand(command: CreateCardCommand): string | 
 
   // 验证 priority（如果提供）
   if (command.priority !== undefined) {
-    if (typeof command.priority === 'number' && command.priority < 0) {
-      return 'priority must be >= 0';
+    if (typeof command.priority !== 'number') {
+      return 'priority must be a number';
     }
-    if (typeof command.priority === 'string' && !['normal', 'high'].includes(command.priority)) {
-      return 'priority must be "normal" or "high"';
+    if (command.priority < 0 || command.priority > 100) {
+      return 'priority must be between 0 and 100';
     }
   }
 

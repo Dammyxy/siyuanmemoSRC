@@ -35,6 +35,7 @@
 import type { ITransactionHandler, Transaction } from '../../core/infrastructure/websocket/TransactionWebSocketService';
 import type FSRSPlugin from '@/index';
 import { getBlockKramdown, sql } from '@/core/siyuan/api';
+import { CardCreationHelper } from '../helpers/CardCreationHelper';
 
 /**
  * 自动制卡处理器（统一版）
@@ -43,6 +44,9 @@ import { getBlockKramdown, sql } from '@/core/siyuan/api';
  */
 export class AutoCardHandler implements ITransactionHandler {
     private plugin: FSRSPlugin;
+    
+    // 🆕 CardCreationHelper for unified card creation
+    private cardHelper: CardCreationHelper | null = null;
     
     // 两个独立的防抖队列
     private quickQueue: Set<string> = new Set();  // 快速符号
@@ -134,6 +138,23 @@ export class AutoCardHandler implements ITransactionHandler {
             console.warn('[AutoCard] Failed to get XiuyuanApplicationService:', error);
         }
         return null;
+    }
+    
+    /**
+     * 获取 CardCreationHelper
+     * 
+     * @private
+     * @returns CardCreationHelper 实例，如果不可用则返回 null
+     */
+    private getCardHelper(): CardCreationHelper | null {
+        // 懒加载：只在第一次使用时初始化
+        if (!this.cardHelper) {
+            const cardService = this.getCardService();
+            if (cardService) {
+                this.cardHelper = new CardCreationHelper(cardService);
+            }
+        }
+        return this.cardHelper;
     }
     
     /**

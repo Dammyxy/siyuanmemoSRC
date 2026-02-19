@@ -37,6 +37,7 @@ import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
 import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { Priority } from '@/core/xiuyuan/domain/Priority';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
+import { getBlockText } from '@/core/siyuan/block';
 
 export class CreateCardUseCase {
   constructor(
@@ -58,16 +59,13 @@ export class CreateCardUseCase {
       return err(new Error(`Invalid command: ${validationError}`));
     }
 
-    // 2. 如果没有指定模板，根据卡片类型选择默认模板
-    let templateId = command.templateId;
-    if (!templateId && command.cardType) {
-      templateId = this.getDefaultTemplateForType(command.cardType);
-    }
+    // 2. 自动选择模板（如果未指定）
+    const templateId = await this.selectTemplate(command);
     if (!templateId) {
-      return err(new Error('templateId is required'));
+      return err(new Error('Failed to select template'));
     }
 
-    // 3. 将命令转换为领域对象
+    // 3. 将命令转换为领域对象（需要先转换以获取 faces）
     const conversionResult = this.convertCommandToDomain({
       ...command,
       templateId,
@@ -78,13 +76,20 @@ export class CreateCardUseCase {
 
     const { blockIds, templateIdObj, faces, priority } = conversionResult.value;
 
-    // 4. 创建 Xiuyuan 聚合根
+    // 4. 自动选择调度器类型（基于 faces 和 cardType）
+    const schedulerType = this.selectSchedulerType(command, faces);
+
+    // 5. 创建 Xiuyuan 聚合根
     const xiuyuanResult = Xiuyuan.create({
       blockIDs: blockIds,
       templateID: templateIdObj,
       faces: faces,
       priority: priority,
-      meta: command.meta || {}
+      meta: {
+        ...(command.meta || {}),
+        ...(command.metadata || {}),
+        schedulerType: schedulerType, // Store schedulerType in meta (Requirement 5.5)
+      }
     });
 
     if (!xiuyuanResult.ok) {
@@ -93,7 +98,7 @@ export class CreateCardUseCase {
 
     const xiuyuan = xiuyuanResult.value;
 
-    // 5. 使用 CardCreationService 创建卡片
+    // 6. 使用 CardCreationService 创建卡片
     // 默认为第一个面创建卡片
     const cardResult = this.cardCreationService.createCard(xiuyuan, 0);
     if (!cardResult.ok) {
@@ -102,37 +107,198 @@ export class CreateCardUseCase {
 
     const card = cardResult.value;
 
-    // 6. 持久化 Xiuyuan（包括卡片）
+    // 7. 持久化 Xiuyuan（包括卡片）
     const saveResult = await this.xiuyuanRepo.save(xiuyuan);
     if (!saveResult.ok) {
       return saveResult as Result<Card>;
     }
 
-    // 7. 发布领域事件
+    // 8. 发布领域事件
     const events = xiuyuan.getDomainEvents();
     await this.eventBus.publishAll(events);
     xiuyuan.clearDomainEvents();
 
-    // 8. 返回创建的卡片
+    // 9. 返回创建的卡片
     return ok(card);
   }
 
   /**
-   * 根据卡片类型获取默认模板
+   * 自动选择模板
+   * 
+   * 根据以下规则选择模板：
+   * 1. 如果显式指定了 templateId，直接使用
+   * 2. 检测块内容是否包含 <> 符号
+   *    - 单块 + 符号 → builtin-symbol-qa
+   *    - 多块 + 符号 → builtin-quick-bidirectional
+   * 3. 根据 cardType 和 blockCount 选择默认模板
+   * 
+   * @private
+   * @param command - 创建卡片命令
+   * @returns 模板 ID
+   */
+  private async selectTemplate(command: CreateCardCommand): Promise<string | null> {
+    // 1. 如果显式指定了模板，直接使用（Requirement 8.6）
+    if (command.templateId) {
+      return command.templateId;
+    }
+
+    // 2. 获取所有 blockIds
+    const blockIds: string[] = [];
+    if (command.blockId) {
+      blockIds.push(command.blockId);
+    }
+    if (command.blockIds) {
+      blockIds.push(...command.blockIds);
+    }
+
+    if (blockIds.length === 0) {
+      return null;
+    }
+
+    // 3. 检测第一个块是否包含 <> 符号（Requirement 8.1）
+    const hasSymbol = await this.detectSymbol(blockIds[0]);
+    if (hasSymbol) {
+      // 单块 + 符号 → builtin-symbol-qa
+      // 多块 + 符号 → builtin-quick-bidirectional
+      return blockIds.length === 1 
+        ? 'builtin-symbol-qa' 
+        : 'builtin-quick-bidirectional';
+    }
+
+    // 4. 根据 cardType 和 blockCount 选择默认模板（Requirements 8.2-8.5）
+    const cardType = command.cardType || 'item';
+    const blockCount = blockIds.length;
+    
+    return this.getDefaultTemplateForType(cardType, blockCount);
+  }
+
+  /**
+   * 检测块内容是否包含 <> 符号
+   * 
+   * @private
+   * @param blockId - 块 ID
+   * @returns 是否包含 <> 符号
+   */
+  private async detectSymbol(blockId: string): Promise<boolean> {
+    try {
+      const content = await getBlockText(blockId);
+      return content.includes('<>');
+    } catch (error) {
+      console.error('[CreateCardUseCase] Failed to detect symbol:', error);
+      return false;
+    }
+  }
+
+  /**
+   * 根据卡片类型和块数量获取默认模板
+   * 
+   * 规则：
+   * - Concept + 2块 → builtin-concept-descriptor (Requirement 8.2)
+   * - Concept + 1块 → builtin-concept-simple (Requirement 8.3)
+   * - Item + 1块 → builtin-quick-card (Requirement 8.4)
+   * - Item + 2块 → builtin-basic-qa (Requirement 8.5)
+   * - Descriptor → builtin-concept-descriptor
+   * - Topic → builtin-topic
    * 
    * @private
    * @param cardType - 卡片类型
+   * @param blockCount - 块数量
    * @returns 模板 ID
    */
-  private getDefaultTemplateForType(cardType: string): string {
-    const typeToTemplate: Record<string, string> = {
-      'basic': 'builtin-quick-card',
-      'concept': 'builtin-concept-simple',
-      'qa': 'builtin-symbol-qa',
-      'cloze': 'builtin-cloze',
-      'bidirectional': 'builtin-bidirectional',
-    };
-    return typeToTemplate[cardType] || 'builtin-quick-card';
+  private getDefaultTemplateForType(cardType: string, blockCount: number): string {
+    switch (cardType) {
+      case 'concept':
+        // Concept 卡：2块用 descriptor 模板，1块用 simple 模板
+        return blockCount > 1
+          ? 'builtin-concept-descriptor'
+          : 'builtin-concept-simple';
+      
+      case 'descriptor':
+        // Descriptor 卡：总是使用 concept-descriptor 模板
+        return 'builtin-concept-descriptor';
+      
+      case 'topic':
+        // Topic 卡：使用 topic 模板
+        return 'builtin-topic';
+      
+      case 'item':
+      default:
+        // Item 卡：1块用 quick-card，2块用 basic-qa
+        return blockCount === 1
+          ? 'builtin-quick-card'
+          : 'builtin-basic-qa';
+    }
+  }
+
+  /**
+   * 自动选择调度器类型
+   * 
+   * 根据以下规则选择调度器：
+   * 1. 如果显式指定了 schedulerType，直接使用（Requirement 5.5）
+   * 2. Item → FSRS v6（总是有答案）
+   * 3. Topic → A-Factor（总是无答案）
+   * 4. Descriptor → FSRS v6（永远有答案）
+   * 5. Concept → 有答案 ? FSRS v6 : A-Factor
+   * 
+   * 扩展点：未来可以添加新的卡片类型和调度器映射
+   * 
+   * @private
+   * @param command - 创建卡片命令
+   * @param faces - 卡片面列表
+   * @returns 调度器类型
+   */
+  private selectSchedulerType(command: CreateCardCommand, faces: CardFace[]): 'fsrs-v6' | 'a-factor' | 'sm2' {
+    // 1. 如果显式指定了调度器类型，直接使用（Requirement 5.5）
+    if (command.schedulerType) {
+      return command.schedulerType;
+    }
+
+    // 2. 获取卡片类型
+    const cardType = command.cardType || 'item';
+
+    // 3. 根据卡片类型选择调度器
+    switch (cardType) {
+      case 'item':
+        // Item 卡总是有答案，使用 FSRS v6
+        return 'fsrs-v6';
+      
+      case 'topic':
+        // Topic 卡总是无答案，使用 A-Factor
+        return 'a-factor';
+      
+      case 'descriptor':
+        // Descriptor 卡永远有答案，使用 FSRS v6
+        return 'fsrs-v6';
+      
+      case 'concept':
+        // Concept 卡：检查是否有非空答案
+        // 有答案 → FSRS v6，无答案 → A-Factor
+        const hasAnswer = this.hasValidAnswer(faces);
+        return hasAnswer ? 'fsrs-v6' : 'a-factor';
+      
+      default:
+        // 默认使用 FSRS v6（扩展点：未来新卡片类型）
+        return 'fsrs-v6';
+    }
+  }
+
+  /**
+   * 检查 faces 是否有有效的答案
+   * 
+   * @private
+   * @param faces - 卡片面列表
+   * @returns 是否有有效答案
+   */
+  private hasValidAnswer(faces: CardFace[]): boolean {
+    if (!faces || faces.length === 0) {
+      return false;
+    }
+
+    // 检查是否至少有一个 face 有非空答案
+    return faces.some(face => {
+      const answer = face.answer;
+      return answer && answer.trim().length > 0;
+    });
   }
 
   /**
@@ -173,7 +339,10 @@ export class CreateCardUseCase {
       return err(new Error('At least one blockId is required'));
     }
 
-    // 转换 TemplateId
+    // 转换 TemplateId (templateId should be set by selectTemplate in execute())
+    if (!command.templateId) {
+      return err(new Error('templateId is required'));
+    }
     const templateIdResult = TemplateId.create(command.templateId);
     if (!templateIdResult.ok) {
       return templateIdResult as any;
