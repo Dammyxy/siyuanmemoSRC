@@ -11,6 +11,7 @@ export enum CardState {
     Learning = 1,   // 学习中
     Review = 2,     // 复习阶段
     Relearning = 3, // 重新学习
+    Suspended = 4,  // 暂停
 }
 
 /** 卡片类型 */

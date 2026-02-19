@@ -485,4 +485,13 @@ export class IncrementalLearningDataSource implements ICardDataSource {
       throw new Error(`执行操作失败 (${actionId}): ${errorMessage}`);
     }
   }
+  
+  /**
+   * 获取数据源 ID
+   * 
+   * @returns 数据源 ID
+   */
+  getId(): string {
+    return this.id;
+  }
 }

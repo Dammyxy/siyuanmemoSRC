@@ -29,6 +29,9 @@ export interface CreateUnifiedReviewDialogOptions {
     /** 对话框标题 */
     title: string;
     
+    /** 事件总线（必需，用于依赖注入） */
+    eventBus: EventBus;
+    
     /** 关闭回调 */
     onClose?: () => void;
 }
@@ -55,21 +58,23 @@ export interface CreateUnifiedReviewDialogOptions {
  * @returns 对话框实例
  */
 export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOptions) {
-    const { plugin, queueType, title, onClose } = options;
+    const { plugin, queueType, title, eventBus, onClose } = options;
     
     try {
         console.log(`[SiYuanMemo][createUnifiedReviewDialog] Creating dialog for queue: ${queueType}`);
         
         // 获取依赖
         const manager = UnifiedDataSourceManager.getInstance();
-        const eventBus: EventBus = (plugin as any).eventBus || (window as any).siyuanMemoPlugin?.eventBus;
         
-        if (!eventBus) {
-            throw new Error('EventBus not found. Please ensure the plugin is properly initialized.');
+        // ✅ 修复：从 plugin.context 获取 ApplicationContext
+        const context = plugin.context;
+        if (!context) {
+            throw new Error('ApplicationContext not found in plugin.context');
         }
         
         // 创建统一队列策略（使用依赖注入）
-        const queue = new UnifiedQueueStrategy(queueType, manager, eventBus);
+        const schedulerRouter = context.getSchedulerRouter();
+        const queue = new UnifiedQueueStrategy(queueType, manager, eventBus, schedulerRouter);
         
         // 创建统一复习适配器
         const adapter = new UnifiedReviewAdapter({ i18n: plugin.i18n || {} });

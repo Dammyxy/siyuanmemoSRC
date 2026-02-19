@@ -125,6 +125,25 @@ export class ApplicationContext {
    */
   private serviceFactories: Map<string, (context: ApplicationContext) => any> = new Map();
   
+  /**
+   * 正在创建的服务集合 - 用于检测循环依赖
+   * Phase 8: 性能优化 - 循环依赖检测
+   */
+  private creatingServices = new Set<string>();
+  
+  /**
+   * 失败的服务记录 - 用于错误恢复
+   * Phase 8: 性能优化 - 错误恢复机制
+   */
+  private failedServices = new Map<string, Error>();
+  
+  /**
+   * 性能监控配置
+   * Phase 8: 性能优化 - 性能监控
+   */
+  private readonly enablePerformanceMonitoring = process.env.NODE_ENV === 'development';
+  private readonly performanceThreshold = 100; // ms
+  
   // ========================================================================
   // 应用服务（懒加载）
   // ========================================================================
@@ -342,9 +361,14 @@ export class ApplicationContext {
    * 支持懒加载：服务只在第一次访问时才会被创建。
    * 工厂函数会接收 ApplicationContext 作为参数，实现依赖注入。
    * 
+   * Phase 8 优化:
+   * - 循环依赖检测：防止栈溢出
+   * - 性能监控：发现慢服务
+   * - 错误恢复：允许重试失败的服务
+   * 
    * @param serviceName - 服务名称
    * @returns T - 服务实例
-   * @throws Error - 如果服务未注册
+   * @throws Error - 如果服务未注册或存在循环依赖
    * 
    * @example
    * ```typescript
@@ -354,22 +378,71 @@ export class ApplicationContext {
   getService<T>(serviceName: string): T {
     this.ensureNotDisposed();
     
-    // 如果服务已创建，直接返回
+    // ✅ 检查缓存 - 如果服务已创建，直接返回
     if (this.serviceContainer.has(serviceName)) {
       return this.serviceContainer.get(serviceName) as T;
     }
     
-    // 如果有工厂函数，使用工厂创建服务
-    const factory = this.serviceFactories.get(serviceName);
-    if (factory) {
-      // 将 ApplicationContext 传递给工厂函数，实现依赖注入
-      const service = factory(this);
-      this.serviceContainer.set(serviceName, service);
-      return service as T;
+    // ⚠️ 检查是否之前创建失败 - Phase 8: 错误恢复
+    if (this.failedServices.has(serviceName)) {
+      const previousError = this.failedServices.get(serviceName)!;
+      console.warn(
+        `[ApplicationContext] Service '${serviceName}' failed to create previously. ` +
+        `Retrying... Previous error: ${previousError.message}`
+      );
+      // 允许重试,但记录警告
     }
     
-    // 服务未注册
-    throw new Error(`Service '${serviceName}' is not registered in the service container`);
+    // 🔍 检查循环依赖 - Phase 8: 循环依赖检测
+    if (this.creatingServices.has(serviceName)) {
+      const chain = Array.from(this.creatingServices).join(' -> ');
+      throw new Error(
+        `Circular dependency detected: ${chain} -> ${serviceName}\n` +
+        `Please check your service dependencies and break the cycle.`
+      );
+    }
+    
+    // 获取工厂函数
+    const factory = this.serviceFactories.get(serviceName);
+    if (!factory) {
+      throw new Error(`Service '${serviceName}' is not registered in the service container`);
+    }
+    
+    // 标记正在创建
+    this.creatingServices.add(serviceName);
+    
+    try {
+      // 📊 性能监控 - Phase 8: 性能监控
+      const startTime = this.enablePerformanceMonitoring ? performance.now() : 0;
+      
+      // 创建服务
+      const service = factory(this);
+      this.serviceContainer.set(serviceName, service);
+      
+      // 清除失败记录
+      this.failedServices.delete(serviceName);
+      
+      // 记录慢服务
+      if (this.enablePerformanceMonitoring) {
+        const duration = performance.now() - startTime;
+        if (duration > this.performanceThreshold) {
+          console.warn(
+            `[ApplicationContext] Service '${serviceName}' took ${duration.toFixed(2)}ms to create ` +
+            `(threshold: ${this.performanceThreshold}ms)`
+          );
+        }
+      }
+      
+      return service as T;
+    } catch (error) {
+      // 记录失败
+      this.failedServices.set(serviceName, error as Error);
+      console.error(`[ApplicationContext] Failed to create service '${serviceName}':`, error);
+      throw error;
+    } finally {
+      // 清理标记
+      this.creatingServices.delete(serviceName);
+    }
   }
   
   /**
@@ -909,6 +982,24 @@ export class ApplicationContext {
    */
   getEventBus(): any {
     return this.getService<any>('eventBus');
+  }
+
+  /**
+   * 获取卡片存储接口
+   * 
+   * @returns 卡片存储实例
+   */
+  getCardStorage(): any {
+    return this.getStorage(); // StorageManager 实现了 ICardStorage 接口
+  }
+
+  /**
+   * 获取调度器路由接口
+   * 
+   * @returns 调度器路由实例
+   */
+  getSchedulerRouter(): any {
+    return this.getScheduler(); // SchedulerRouter 实现了 ISchedulerRouter 接口
   }
   
   // ========================================================================

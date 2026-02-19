@@ -12,6 +12,7 @@ import { CardFaceStrategyFactory } from '../domain/strategies/CardFaceStrategyFa
 import { SiyuanBlockAdapter } from './SiyuanBlockAdapter';
 import type { IQuickCardConfigProvider } from './QuickCardConfigProvider';
 import { DefaultQuickCardConfigProvider } from './QuickCardConfigProvider';
+import type { ICardStorage } from '../../../../application/interfaces/ICardStorage';
 
 /**
  * 卡片类型检测结果
@@ -40,10 +41,12 @@ export class QuickCardRepository {
    * 构造函数
    * 
    * @param adapter - 思源块适配器
+   * @param cardStorage - 卡片存储接口（用于获取 FSRSCard）
    * @param configProvider - 配置提供者（可选，默认使用 DefaultQuickCardConfigProvider）
    */
   constructor(
     private adapter: SiyuanBlockAdapter,
+    private cardStorage: ICardStorage | null = null,
     private configProvider: IQuickCardConfigProvider = new DefaultQuickCardConfigProvider(),
   ) {}
 
@@ -160,12 +163,12 @@ export class QuickCardRepository {
    */
   private async getFSRSCard(cardId: string): Promise<any | null> {
     try {
-      // 通过全局插件实例获取 storage
-      const plugin = (window as any).siyuanMemoPlugin;
-      if (!plugin?.storage) {
+      // 通过依赖注入的 cardStorage 获取卡片
+      if (!this.cardStorage) {
+        console.warn('[SiYuanMemo][QuickCardRepository] CardStorage not available');
         return null;
       }
-      return plugin.storage.getCard(cardId) || null;
+      return await this.cardStorage.getCard(cardId);
     } catch (error) {
       console.error(`[SiYuanMemo][QuickCardRepository] Failed to get FSRSCard:`, error);
       return null;

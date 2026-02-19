@@ -65,11 +65,18 @@ export class PracticeQueueManager {
    * 清空练习队列
    */
   async clearPracticeQueue(): Promise<void> {
-    const { clearPracticeQueue } = await import('@/application/helpers/QueueHelpers');
-    await clearPracticeQueue({
-      blockMenuHandler: this.blockMenuHandler,
-      retrievalQueue: this.retrievalQueue,
-    });
+    try {
+      // 清空队列
+      await this.retrievalQueue.clear();
+      
+      // 显示成功消息
+      const { pushMsg } = await import('@/core/siyuan/api');
+      await pushMsg('✅ 已清空练习队列');
+    } catch (error) {
+      console.error('[PracticeQueueManager] Failed to clear queue:', error);
+      const { pushErrMsg } = await import('@/core/siyuan/api');
+      await pushErrMsg('清空队列失败，请查看控制台');
+    }
   }
 
   /**

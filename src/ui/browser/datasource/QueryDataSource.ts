@@ -2,7 +2,8 @@
 import { CardState, STATE_LABELS, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from '../types';
 import { sql } from '@/core/siyuan/api';
 import { loadQueueCards, loadQueueCardsSimple } from '../browserService';
-import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
+import type { ICardDataSource } from '@/application/interfaces/ICardDataSource';
+import type { CardBrowserAction, SortModel } from './types';
 
 function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
   if (!sortModel?.length) return rows;
@@ -64,6 +65,11 @@ function toBrowserCardFromRow(row: any): BrowserCard | null {
   };
 }
 
+/**
+ * QueryDataSource - SQL 查询数据源实现
+ * 
+ * @implements {ICardDataSource}
+ */
 export class QueryDataSource implements ICardDataSource {
   id = 'query';
   label = 'Query';
@@ -112,5 +118,14 @@ export class QueryDataSource implements ICardDataSource {
     void selectedRows;
     void context;
     if (actionId === 'open') return;
+  }
+  
+  /**
+   * 获取数据源 ID
+   * 
+   * @returns 数据源 ID
+   */
+  getId(): string {
+    return this.id;
   }
 }

@@ -11,6 +11,7 @@
 
 import type { Plugin } from 'siyuan';
 import type { ApplicationContext } from '../ApplicationContext';
+import type { IDialogManager } from '../interfaces/IDialogManager';
 import { createVueDialog } from '@/utils/dialog';
 import { SettingsPanel } from '@/ui/settings';
 import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
@@ -38,8 +39,10 @@ import { ReviewView } from '@/ui/review/v2';
  * // 打开浏览器对话框
  * dialogManager.openBrowserDialog();
  * ```
+ * 
+ * @implements {IDialogManager}
  */
-export class DialogManager {
+export class DialogManager implements IDialogManager {
   // ========================================================================
   // 对话框实例
   // ========================================================================
@@ -141,16 +144,28 @@ export class DialogManager {
             // 重启服务以应用新配置
             plugin.hybridSyncService.stop();
             const { HybridSyncService } = await import('@/application/services/XiuyuanSyncService');
-            plugin.hybridSyncService = new HybridSyncService({
-              deckId: riff.BUILTIN_DECK_ID,
-              storage: storage,
-              incrementalSync: {
-                ...settings.riffIntegration.incrementalSync,
-                autoDetectCardType: true
+            const cardService = plugin.context?.getCardService?.();
+            const eventBus = plugin.context?.getEventBus?.();
+            
+            if (!cardService || !eventBus) {
+              console.error('[DialogManager] CardApplicationService or EventBus not available');
+              return;
+            }
+            
+            plugin.hybridSyncService = new HybridSyncService(
+              {
+                deckId: riff.BUILTIN_DECK_ID,
+                storage: storage,
+                incrementalSync: {
+                  ...settings.riffIntegration.incrementalSync,
+                  autoDetectCardType: true
+                },
+                fullSync: settings.riffIntegration.fullSync,
+                deleteSync: settings.riffIntegration.deleteSync
               },
-              fullSync: settings.riffIntegration.fullSync,
-              deleteSync: settings.riffIntegration.deleteSync
-            });
+              cardService,
+              eventBus
+            );
             await plugin.hybridSyncService.start();
             
             // 重启定时器
@@ -166,16 +181,28 @@ export class DialogManager {
           } else if (settings.riffIntegration && !plugin.hybridSyncService) {
             // 如果 HybridSyncService 未初始化，初始化它
             const { HybridSyncService } = await import('@/application/services/XiuyuanSyncService');
-            plugin.hybridSyncService = new HybridSyncService({
-              deckId: riff.BUILTIN_DECK_ID,
-              storage: storage,
-              incrementalSync: {
-                ...settings.riffIntegration.incrementalSync,
-                autoDetectCardType: true
+            const cardService = plugin.context?.getCardService?.();
+            const eventBus = plugin.context?.getEventBus?.();
+            
+            if (!cardService || !eventBus) {
+              console.error('[DialogManager] CardApplicationService or EventBus not available');
+              return;
+            }
+            
+            plugin.hybridSyncService = new HybridSyncService(
+              {
+                deckId: riff.BUILTIN_DECK_ID,
+                storage: storage,
+                incrementalSync: {
+                  ...settings.riffIntegration.incrementalSync,
+                  autoDetectCardType: true
+                },
+                fullSync: settings.riffIntegration.fullSync,
+                deleteSync: settings.riffIntegration.deleteSync
               },
-              fullSync: settings.riffIntegration.fullSync,
-              deleteSync: settings.riffIntegration.deleteSync
-            });
+              cardService,
+              eventBus
+            );
             await plugin.hybridSyncService.start();
             
             // 启动定时器
@@ -372,6 +399,7 @@ export class DialogManager {
         plugin: this.plugin,
         queueType: QueueType.RetrievalPractice,
         title: this.context.getI18n()?.retrievalPractice || '提取练习',
+        eventBus: this.context.getEventBus(),  // ✅ 显式传递 EventBus
         onClose: () => {
           this.currentReviewDialog = null;
         }
@@ -396,6 +424,7 @@ export class DialogManager {
         plugin: this.plugin,
         queueType: QueueType.IncrementalLearning,
         title: this.context.getI18n()?.incrementalLearning || '渐进学习',
+        eventBus: this.context.getEventBus(),  // ✅ 显式传递 EventBus
         onClose: () => {
           this.currentReviewDialog = null;
         }
@@ -420,6 +449,7 @@ export class DialogManager {
         plugin: this.plugin,
         queueType: QueueType.FinalDrill,
         title: this.context.getI18n()?.finalDrill || '刻意练习',
+        eventBus: this.context.getEventBus(),  // ✅ 显式传递 EventBus
         onClose: () => {
           this.currentReviewDialog = null;
         }
@@ -444,6 +474,7 @@ export class DialogManager {
         plugin: this.plugin,
         queueType: QueueType.FilterGroup,
         title: this.context.getI18n()?.filterGroupPractice || '分组队列',
+        eventBus: this.context.getEventBus(),  // ✅ 显式传递 EventBus
         onClose: () => {
           this.currentReviewDialog = null;
         }
@@ -484,6 +515,7 @@ export class DialogManager {
         plugin: this.plugin,
         queueType: QueueType.NeuralRoam,
         title: this.context.getI18n()?.neuralReviewTitle || '神经漫游',
+        eventBus: this.context.getEventBus(),  // ✅ 显式传递 EventBus
         onClose: () => {
           this.currentReviewDialog = null;
         }
@@ -508,7 +540,7 @@ export class DialogManager {
       const leech = (settings as any)?.leech || {};
       
       const { LeechQueue } = await import('@/core/queue/strategies/LeechQueue');
-      const { LeechAdapter } = await import('@/ui/review/v2');
+      const { UnifiedReviewAdapter } = await import('@/application/adapters/UnifiedReviewAdapter');
       
       const queue = new LeechQueue({
         deckID: riff.BUILTIN_DECK_ID,
@@ -528,7 +560,7 @@ export class DialogManager {
           i18n: this.context.getI18n() || {},
           title: this.context.getI18n()?.startLeechPractice || '难点攻坚',
           queue: queue as any,
-          adapter: new LeechAdapter({ i18n: this.context.getI18n() || {} }) as any,
+          adapter: new UnifiedReviewAdapter({ i18n: this.context.getI18n() || {} }) as any,
           plugin: this.plugin,
         },
         events: {
@@ -650,7 +682,8 @@ export class DialogManager {
       
       // 创建对话框（使用依赖注入）
       const eventBus = this.context.getEventBus();
-      const queue = new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus);
+      const schedulerRouter = this.context.getSchedulerRouter();
+      const queue = new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus, schedulerRouter);
       const adapter = new UnifiedReviewAdapter({ i18n: this.context.getI18n() || {} });
       
       this.currentReviewDialog = createVueDialog({
@@ -739,7 +772,8 @@ export class DialogManager {
       
       // 创建对话框（使用依赖注入）
       const eventBus = this.context.getEventBus();
-      const queue = new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus);
+      const schedulerRouter = this.context.getSchedulerRouter();
+      const queue = new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus, schedulerRouter);
       const adapter = new UnifiedReviewAdapter({ i18n: this.context.getI18n() || {} });
       
       this.currentReviewDialog = createVueDialog({

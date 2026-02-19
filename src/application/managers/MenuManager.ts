@@ -297,30 +297,6 @@ export class MenuManager {
   }
   
   // ========================================================================
-  // 辅助方法 - 统计
-  // ========================================================================
-  
-  /**
-   * 获取到期卡片数量
-   * 
-   * @deprecated 使用 CardApplicationService.getDueCount() 代替
-   * 
-   * 这个方法直接访问 Storage，跳过了应用服务层。
-   * 为了保持向后兼容，这个方法暂时保留，但建议使用 CardApplicationService。
-   * 
-   * @see CardApplicationService.getDueCount()
-   * @see .kiro/specs/ddd-refactoring/long-term-improvements.md - 阶段 2
-   */
-  /**
-   * 获取到期卡片数量
-   * 
-   * @deprecated 使用 CardApplicationService.getDueCount() 代替
-   */
-  private async getDueCount(): Promise<number> {
-    const cardService = this.context.getCardService();
-    return await cardService.getDueCount();
-  }
-  
   // ========================================================================
   // 生命周期管理
   // ========================================================================

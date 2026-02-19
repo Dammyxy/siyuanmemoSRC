@@ -289,15 +289,17 @@ async function onScheduleConfirm(options: ScheduleOptions) {
       return;
     }
     
-    // 从全局获取 manager 和 schedulerRouter
+    // 从全局获取 plugin 实例
     const fsrsPlugin = (window as any).siyuanMemoPlugin;
     if (!fsrsPlugin) {
       console.error('[SiYuanMemo][ReviewActions] FSRS plugin instance not found');
       return;
     }
     
-    const manager = fsrsPlugin.unifiedDataSourceManager;
-    const schedulerRouter = fsrsPlugin.schedulerRouter;
+    // 通过 ApplicationContext 获取服务
+    const context = fsrsPlugin.getContext();
+    const manager = context.getUnifiedDataSourceManager();
+    const schedulerRouter = context.getScheduler();
     
     if (!manager) {
       console.error('[SiYuanMemo][ReviewActions] Manager not available');

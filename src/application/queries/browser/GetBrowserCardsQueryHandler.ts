@@ -29,7 +29,6 @@ import type {
 } from './GetBrowserCardsQuery';
 import { sql } from '@/core/siyuan/api';
 import {
-  ATTR_CARD_ID,
   ATTR_PRIORITY,
   ATTR_SUSPENDED,
   ATTR_CARD_TYPE,
@@ -132,7 +131,7 @@ export class GetBrowserCardsQueryHandler {
    * @param preset - 预设过滤器
    * @returns 过滤后的卡片列表
    */
-  private applyPresetFilter(cards: Card[], preset?: PresetFilter): Card[] {
+  private applyPresetFilter(cards: FSRSCard[], preset?: PresetFilter): FSRSCard[] {
     if (!preset || preset === 'all') {
       return cards;
     }
@@ -155,7 +154,7 @@ export class GetBrowserCardsQueryHandler {
         return cards.filter(card => {
           // 这里简化处理，实际应该从块属性中读取
           // 在 transformToBrowserCards 中会正确处理
-          return card.state === 4; // Suspended
+          return card.state === CardState.Suspended;
         });
         
       default:
@@ -169,14 +168,14 @@ export class GetBrowserCardsQueryHandler {
    * @param cards - 所有卡片
    * @returns 统计信息
    */
-  private calculateStats(cards: Card[]): BrowserStats {
+  private calculateStats(cards: FSRSCard[]): BrowserStats {
     return {
       totalCards: cards.length,
       dueCards: this.cardScheduleService.countDueCards(cards),
       newCards: this.cardFilterService.countByState(cards, CardState.New),
       learningCards: this.cardFilterService.countByState(cards, CardState.Learning),
       reviewCards: this.cardFilterService.countByState(cards, CardState.Review),
-      suspendedCards: this.cardFilterService.countByState(cards, 4 as CardState), // Suspended
+      suspendedCards: this.cardFilterService.countByState(cards, CardState.Suspended),
     };
   }
   
@@ -186,7 +185,7 @@ export class GetBrowserCardsQueryHandler {
    * @param cards - FSRS 卡片列表
    * @returns BrowserCard 列表
    */
-  private async transformToBrowserCards(cards: Card[]): Promise<BrowserCard[]> {
+  private async transformToBrowserCards(cards: FSRSCard[]): Promise<BrowserCard[]> {
     if (cards.length === 0) {
       return [];
     }
@@ -221,7 +220,7 @@ export class GetBrowserCardsQueryHandler {
    * @param customAttrs - 自定义属性
    * @returns BrowserCard
    */
-  private transformFSRSCard(card: Card, customAttrs: Record<string, string>): BrowserCard {
+  private transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>): BrowserCard {
     const now = Date.now();
     const MS_PER_DAY = 86400000;
     

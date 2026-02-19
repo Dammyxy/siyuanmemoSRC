@@ -49,6 +49,8 @@ export class SchedulerRouter {
         const params = this.config.fsrsParams;
 
         // FSRS v6 (使用官方 ts-fsrs 库)
+        this.schedulers.set('fsrs-v6', new TSFSRSScheduler(params));
+        // ✅ 向后兼容：fsrs-v5 映射到 fsrs-v6
         this.schedulers.set('fsrs-v5', new TSFSRSScheduler(params));
 
         // SM-15
@@ -160,9 +162,9 @@ export class SchedulerRouter {
             return 'a-factor-v2';
         }
         
-        // 🔧 修复：Descriptor 使用 FSRS v5（问答卡片）
+        // 🔧 修复：Descriptor 使用 FSRS v6（问答卡片）
         if (card.type === 'descriptor') {
-            return 'fsrs-v5';
+            return 'fsrs-v6';
         }
 
         // 2. 检查用户覆盖配置

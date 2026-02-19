@@ -160,7 +160,7 @@ import type { ICardDataSource } from './datasource/types';
 import { FinalDrillDataSource } from './datasource/FinalDrillDataSource';
 import { FilterGroupDataSource } from './datasource/FilterGroupDataSource';
 import { RetrievalDataSource } from './datasource/RetrievalDataSource';
-import { DeckDataSource } from './datasource/DeckDataSource';
+// DeckDataSource 现在通过 BrowserApplicationService.createDataSource() 创建，不需要直接导入
 import { QueryDataSource } from './datasource/QueryDataSource';
 import { BlockIdsDataSource } from './datasource/BlockIdsDataSource';
 import { adjustTime } from './datasource/MenuActions';  // 🆕 导入 adjustTime
@@ -228,10 +228,14 @@ const mode = computed(() => props.mode || 'dialog');
 const hybridSyncService = computed(() => (props.plugin as any)?.hybridSyncService);
 const showSyncIndicator = computed(() => {
   const plugin = props.plugin as any;
-  if (!plugin?.storage) return false;
+  if (!plugin) return false;
+  
+  // 通过 ApplicationContext 获取 storage
+  const storage = plugin.getContext?.()?.getStorage?.();
+  if (!storage) return false;
   
   // ✅ 简单模式已移除，只要有 riffIntegration 配置且 hybridSyncService 存在就显示
-  const riffConfig = plugin.storage.getSettings?.()?.riffIntegration;
+  const riffConfig = storage.getSettings?.()?.riffIntegration;
   return !!riffConfig && !!hybridSyncService.value;
 });
 
@@ -574,8 +578,19 @@ async function loadData(forceRefresh = false) {
         allRows.value = result.cards;  // 全量数据
         rowsForFocus.value = result.cards;
         
-        // 清除数据源（不再使用）
-        currentDataSource.value = null;
+        // ✅ 使用 BrowserApplicationService 的工厂方法创建数据源
+        // 符合 DDD 架构：UI 层不直接 new 对象，而是通过应用服务的工厂方法
+        if (props.browserService) {
+          currentDataSource.value = props.browserService.createDataSource({
+            type: 'deck',
+            preset: currentPreset.value,
+            queryText: searchQuery.value,
+            cardType: currentCardType.value as 'all' | 'topic-only' | 'item-only',
+            plugin: props.plugin,
+          });
+        } else {
+          currentDataSource.value = null;
+        }
       } catch (error) {
         console.error('[SiYuanMemo][SRSBrowser] ❌ Failed to load cards via browserService:', error);
         rows.value = [];
@@ -1806,7 +1821,9 @@ onMounted(() => {
 
   // 🆕 触发同步（如果启用）
   if (plugin?.hybridSyncService) {
-    const riffConfig = plugin.storage?.getSettings?.()?.riffIntegration;
+    // 通过 ApplicationContext 获取 storage
+    const storage = plugin.getContext?.()?.getStorage?.();
+    const riffConfig = storage?.getSettings?.()?.riffIntegration;
     
     // 🔍 详细日志：诊断为什么自动同步没有触发
     console.log('[SiYuanMemo][SRSBrowser] 🔍 Checking auto-sync configuration:', {

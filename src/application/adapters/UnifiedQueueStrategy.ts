@@ -22,6 +22,7 @@ import type { IReviewQueue } from '@/types/unified-data-source';
 import { QueueType } from '@/types/unified-data-source';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
+import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
 
 /**
  * 统一队列策略
@@ -56,6 +57,11 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
     private eventBus: EventBus;
     
     /**
+     * 调度器路由（依赖注入）
+     */
+    private schedulerRouter: ISchedulerRouter | null;
+    
+    /**
      * 当前队列实例
      */
     private queue: IReviewQueue;
@@ -86,15 +92,18 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
      * @param queueType 队列类型
      * @param manager 统一数据源管理器（依赖注入）
      * @param eventBus 事件总线（依赖注入）
+     * @param schedulerRouter 调度器路由（依赖注入，可选）
      */
     constructor(
         queueType: QueueType,
         manager: UnifiedDataSourceManager,
-        eventBus: EventBus
+        eventBus: EventBus,
+        schedulerRouter: ISchedulerRouter | null = null
     ) {
         this.queueType = queueType;
         this.manager = manager;
         this.eventBus = eventBus;
+        this.schedulerRouter = schedulerRouter;
         this.queue = this.manager.getQueue(queueType);
         
         // 订阅队列变更事件
@@ -484,18 +493,16 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
         try {
             console.log('[SiYuanMemo][UnifiedQueueStrategy] 🔍 Calculating nextDues for card:', card.id);
             
-            // 从全局获取插件实例
-            const plugin = (window as any).siyuanMemoPlugin;
-            if (!plugin || !plugin.schedulerRouter) {
-                console.warn('[SiYuanMemo][UnifiedQueueStrategy] ⚠️ Plugin or schedulerRouter not found');
+            // 通过依赖注入获取 schedulerRouter
+            if (!this.schedulerRouter) {
+                console.warn('[SiYuanMemo][UnifiedQueueStrategy] ⚠️ SchedulerRouter not available');
                 return card;
             }
             
-            const schedulerRouter = plugin.schedulerRouter;
-            console.log('[SiYuanMemo][UnifiedQueueStrategy] 📊 SchedulerRouter obtained:', !!schedulerRouter);
+            console.log('[SiYuanMemo][UnifiedQueueStrategy] 📊 SchedulerRouter obtained:', !!this.schedulerRouter);
             
             // 使用 preview() 方法计算所有评分的结果
-            const previews = schedulerRouter.preview(card);
+            const previews = this.schedulerRouter.preview(card);
             
             console.log('[SiYuanMemo][UnifiedQueueStrategy] 📊 Preview results:', previews.size);
             

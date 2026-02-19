@@ -1,7 +1,8 @@
 ﻿import type { BrowserCard } from '../types';
 import { formatDate } from '../types';
 import { loadCards, batchReset, batchSuspend } from '../browserService';
-import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
+import type { ICardDataSource } from '@/application/interfaces/ICardDataSource';
+import type { CardBrowserAction, SortModel } from './types';
 import {
   BASE_ACTIONS,
   buildAddToQueueAction,
@@ -71,6 +72,11 @@ function parseSiyuanTime14(timeStr: string | undefined): Date | null {
   return null;
 }
 
+/**
+ * DeckDataSource - Deck 数据源实现
+ * 
+ * @implements {ICardDataSource}
+ */
 export class DeckDataSource implements ICardDataSource {
   id = 'deck';
   label = 'Deck';
@@ -580,22 +586,29 @@ export class DeckDataSource implements ICardDataSource {
           } catch (err) {
             console.error('[SiYuanMemo][DeckDataSource] Failed to batch update Xiuyuan cards:', err);
           }
-        } else if (this.plugin?.storage) {
-          // ⚠️ 向后兼容：回退到直接 storage 访问
-          console.warn('[SiYuanMemo][DeckDataSource] CardApplicationService not available, falling back to direct storage access');
-          for (const card of xiuyuanCards) {
-            try {
-              const fsrsCard = this.plugin.storage.getCard(card.id);
-              if (fsrsCard) {
-                fsrsCard.meta = fsrsCard.meta || {};
-                fsrsCard.meta.priority = priority;
-                await this.plugin.storage.updateCard(fsrsCard);
+        } else if (this.plugin) {
+          // ⚠️ 向后兼容：回退到通过 ApplicationContext 访问 storage
+          console.warn('[SiYuanMemo][DeckDataSource] CardApplicationService not available, falling back to storage access via context');
+          try {
+            const storage = (this.plugin as any).getContext?.()?.getStorage?.();
+            if (storage) {
+              for (const card of xiuyuanCards) {
+                try {
+                  const fsrsCard = storage.getCard(card.id);
+                  if (fsrsCard) {
+                    fsrsCard.meta = fsrsCard.meta || {};
+                    fsrsCard.meta.priority = priority;
+                    await storage.updateCard(fsrsCard);
+                  }
+                  // 更新内存中的 priority
+                  (card as any).priority = priority;
+                } catch (err) {
+                  console.error('[SiYuanMemo][DeckDataSource] Failed to set priority for Xiuyuan card:', card.id, err);
+                }
               }
-              // 更新内存中的 priority
-              (card as any).priority = priority;
-            } catch (err) {
-              console.error('[SiYuanMemo][DeckDataSource] Failed to set priority for Xiuyuan card:', card.id, err);
             }
+          } catch (err) {
+            console.error('[SiYuanMemo][DeckDataSource] Failed to access storage:', err);
           }
         }
       }
@@ -624,5 +637,14 @@ export class DeckDataSource implements ICardDataSource {
     }
 
     console.warn('[SiYuanMemo][DeckDataSource] Unknown action:', actionId);
+  }
+  
+  /**
+   * 获取数据源 ID
+   * 
+   * @returns 数据源 ID
+   */
+  getId(): string {
+    return this.id;
   }
 }

@@ -33,28 +33,31 @@ onMounted(async () => {
       throw new Error('FSRS 插件未找到');
     }
 
+    // 获取对话框管理器
+    const dialogManager = fsrsPlugin.getContext().getDialogManager();
+
     // 根据复习类型调用对应的方法
     const { reviewType, seedBlockId, blockIds } = props.data;
 
     switch (reviewType) {
       case 'retrieval':
-        fsrsPlugin.openReviewDialog();
+        dialogManager.openReviewDialog();
         break;
       case 'final-drill':
-        fsrsPlugin.openFinalDrillDialog();
+        dialogManager.openFinalDrillDialog();
         break;
       case 'neural-roam':
-        fsrsPlugin.openNeuralRoamDialog({ seedBlockId });
+        dialogManager.openNeuralRoamDialog({ seedBlockId });
         break;
       case 'leech':
-        fsrsPlugin.openLeechPracticeDialog();
+        dialogManager.openLeechReviewDialog();
         break;
       case 'filter-group':
-        fsrsPlugin.openFilterGroupPracticeDialog();
+        dialogManager.openFilterGroupPracticeDialog();
         break;
       case 'subset':
         if (blockIds && blockIds.length > 0) {
-          fsrsPlugin.openSubsetPracticeDialog(blockIds);
+          dialogManager.openSubsetReviewDialog(blockIds);
         }
         break;
       default:

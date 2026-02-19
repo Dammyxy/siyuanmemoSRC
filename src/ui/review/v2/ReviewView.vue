@@ -159,7 +159,9 @@ onMounted(() => {
   // 🆕 触发增量同步（如果启用）
   const plugin = props.plugin as any;
   if (plugin?.hybridSyncService) {
-    const riffConfig = plugin.storage?.getSettings?.()?.riffIntegration;
+    // 通过 ApplicationContext 获取 storage
+    const storage = plugin.getContext?.()?.getStorage?.();
+    const riffConfig = storage?.getSettings?.()?.riffIntegration;
     if (riffConfig?.mode === 'advanced' &&
         riffConfig?.incrementalSync?.enabled &&
         riffConfig?.incrementalSync?.triggers?.includes('review-open')) {

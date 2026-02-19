@@ -81,6 +81,11 @@ export class TopBarManager {
     private openMenu(ev: MouseEvent) {
         this.ensureMounted();
         const menu = new Menu('fsrs-topbar-menu');
+        
+        // 获取上下文以访问服务
+        const context = this.plugin.getContext();
+        const dialogManager = context.getDialogManager();
+        const storage = context.getStorage();
 
         // 添加菜单项
         menu.addItem({
@@ -88,7 +93,7 @@ export class TopBarManager {
             label: this.plugin.i18n?.startReview || 'Start Retrieval Practice',
             accelerator: 'Alt+R',
             click: () => {
-                this.plugin.openReviewDialog();
+                dialogManager.openReviewDialog();
             },
         });
 
@@ -107,7 +112,7 @@ export class TopBarManager {
             label: this.plugin.i18n?.startDeliberatePractice || 'Start Deliberate Practice',
             accelerator: 'Alt+D',
             click: () => {
-                (this.plugin as any).openFinalDrillDialog();
+                dialogManager.openFinalDrillDialog();
             },
         });
 
@@ -116,7 +121,7 @@ export class TopBarManager {
             label: this.plugin.i18n?.startNeuralReview || 'Start Neural Roam',
             accelerator: 'Alt+N',
             click: () => {
-                (this.plugin as any).openNeuralRoamDialog();
+                dialogManager.openNeuralRoamDialog();
             },
         });
 
@@ -126,7 +131,7 @@ export class TopBarManager {
         //     label: this.plugin.i18n?.startLeechPractice || '开始难点攻坚',
         //     accelerator: 'Alt+L',
         //     click: () => {
-        //         (this.plugin as any).openLeechPracticeDialog();
+        //         dialogManager.openLeechReviewDialog();
         //     },
         // });
 
@@ -135,7 +140,7 @@ export class TopBarManager {
             label: this.plugin.i18n?.startFilterGroupPractice || 'Start Filtered Review',
             accelerator: 'Alt+G',
             click: () => {
-                this.plugin.openFilterGroupPracticeDialog();
+                dialogManager.openFilterGroupPracticeDialog();
             },
         });
 
@@ -154,7 +159,7 @@ export class TopBarManager {
             icon: 'iconSettings',
             label: this.plugin.i18n?.settings || 'Settings',
             click: () => {
-                this.plugin.openSetting();
+                this.plugin.openSettings();
             },
         });
 
@@ -162,7 +167,7 @@ export class TopBarManager {
 
         menu.addItem({
             icon: 'iconInfo',
-            label: `${this.plugin.i18n?.dueCountLabel || 'Due'}: ${this.plugin.getDueCount()} / ${this.plugin.i18n?.totalCountLabel || 'Total'}: ${this.plugin.storage.getAllCards().length}`,
+            label: `${this.plugin.i18n?.dueCountLabel || 'Due'}: ${this.plugin.getDueCount()} / ${this.plugin.i18n?.totalCountLabel || 'Total'}: ${storage.getAllCards().length}`,
             type: 'readonly',
         });
 

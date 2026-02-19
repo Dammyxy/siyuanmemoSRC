@@ -384,4 +384,13 @@ export class RetrievalDataSource implements ICardDataSource {
       default: return '未知';
     }
   }
+  
+  /**
+   * 获取数据源 ID
+   * 
+   * @returns 数据源 ID
+   */
+  getId(): string {
+    return this.id;
+  }
 }

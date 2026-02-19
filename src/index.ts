@@ -1,38 +1,113 @@
 /**
  * FSRS Plugin Entry - 简化版（< 200 行）
  * 职责：插件生命周期、UI 事件路由、最小胶水代码
+ * 
+ * @implements {IPluginFacade}
  */
 
 import { Plugin, getFrontend } from 'siyuan';
 import { pushErrMsg, pushMsg } from '@/core/siyuan/api';
 import { ApplicationContext } from '@/application/ApplicationContext';
+import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import { ConfigMigrator } from '@/utils/configMigrator';
 import '@/index.scss';
 
-export default class FSRSPlugin extends Plugin {
+export default class FSRSPlugin extends Plugin implements IPluginFacade {
   public isMobile: boolean = false;
   public isBrowser: boolean = false;
   private context!: ApplicationContext;
 
-  // 向后兼容访问器
+  // ========================================================================
+  // IPluginFacade 实现
+  // ========================================================================
+  
+  /**
+   * 获取应用上下文
+   * 
+   * 推荐使用此方法访问所有应用服务。
+   * 
+   * @returns 应用上下文实例
+   */
+  getContext(): ApplicationContext {
+    return this.context;
+  }
+  
+  /**
+   * 打开设置对话框
+   * 
+   * @param defaultTab - 默认打开的标签页（可选）
+   */
+  openSettings(defaultTab?: string): void {
+    this.context.getDialogManager()?.openSettingsDialog(defaultTab);
+  }
+  
+  /**
+   * 获取到期卡片数量
+   * 
+   * @returns 到期卡片数量
+   */
+  async getDueCount(): Promise<number> {
+    const cardService = this.context.getCardService();
+    return await cardService.getDueCount();
+  }
+  
+  // ========================================================================
+  // 向后兼容访问器（将在下一个主版本中移除）
+  // ========================================================================
+  /** @deprecated 使用 context.getStorage() 代替 */
   public get storage() { return this.context.getStorage(); }
+  /** @deprecated 使用 context.getLegacyScheduler() 代替 */
   public get scheduler() { return this.context.getLegacyScheduler(); }
+  /** @deprecated 使用 context.getScheduler() 代替 */
   public get schedulerRouter() { return this.context.getScheduler(); }
+  /** @deprecated 使用 context.getRescheduleService() 代替 */
   public get rescheduleService() { return this.context.getRescheduleService(); }
+  /** @deprecated 使用 context.getQueueContext() 代替 */
   public get queueContext() { return this.context.getQueueContext(); }
+  /** @deprecated 使用 context.getRetrievalQueue() 代替 */
   public get retrievalQueue() { return this.context.getRetrievalQueue() as any; }
+  /** @deprecated 使用 context.getFinalDrillQueue() 代替 */
   public get finalDrillQueue() { return this.context.getFinalDrillQueue(); }
+  /** @deprecated 使用 context.getLeechQueue() 代替 */
   public get leechQueue() { return this.context.getLeechQueue(); }
+  /** @deprecated 使用 context.getIncrementalQueue() 代替 */
   public get incrementalQueue() { return this.context.getIncrementalQueue(); }
+  /** @deprecated 使用 context.getSubsetQueue() 代替 */
   public get subsetQueue() { return this.context.getSubsetQueue(); }
+  /** @deprecated 使用 context.getXiuyuanService() 代替 */
   public get xiuyuanService() { return this.context.getXiuyuanService(); }
+  /** @deprecated 使用 context.getXiuyuanStorage() 代替 */
   public get xiuyuanStorage() { return this.context.getXiuyuanStorage(); }
+  /** @deprecated 使用 context.getUnifiedDataSourceManager() 代替 */
   public get unifiedDataSourceManager() { return this.context.getUnifiedDataSourceManager(); }
+  /** @deprecated 使用 finalDrillQueue 代替 */
   public get deliberateQueue() { return this.finalDrillQueue; }
+  /** @deprecated 使用 context.getUnifiedDataSourceManager().getQueue('neural-roam') 代替 */
   public get neuralQueue() { return this.unifiedDataSourceManager.getQueue('neural-roam' as any) as any; }
+  /** @deprecated 使用 neuralQueue 代替 */
   public get neuralRoamQueue() { return this.neuralQueue; }
+  /** @deprecated 使用 subsetQueue 代替 */
   public get filterGroupQueue() { return this.subsetQueue; }
+  /** @deprecated 使用 context.getHybridSyncService() 代替 */
   public get hybridSyncService() { return this.context.getHybridSyncService(); }
+  
+  // DialogManager 方法代理
+  /** @deprecated 使用 context.getDialogManager().openReviewDialog() 代替 */
+  public openReviewDialog() { return this.context.getDialogManager()?.openReviewDialog(); }
+  /** @deprecated 使用 context.getDialogManager().openIncrementalLearningDialog() 代替 */
+  public openIncrementalLearningDialog() { return this.context.getDialogManager()?.openIncrementalLearningDialog(); }
+  /** @deprecated 使用 context.getDialogManager().openFinalDrillDialog() 代替 */
+  public openFinalDrillDialog() { return this.context.getDialogManager()?.openFinalDrillDialog(); }
+  /** @deprecated 使用 context.getDialogManager().openNeuralRoamDialog() 代替 */
+  public openNeuralRoamDialog(options?: any) { return this.context.getDialogManager()?.openNeuralRoamDialog(options); }
+  /** @deprecated 使用 context.getDialogManager().openFilterGroupPracticeDialog() 代替 */
+  public openFilterGroupPracticeDialog() { return this.context.getDialogManager()?.openFilterGroupPracticeDialog(); }
+  /** @deprecated 使用 context.getDialogManager().openLeechReviewDialog() 代替 */
+  public openLeechReviewDialog() { return this.context.getDialogManager()?.openLeechReviewDialog(); }
+  
+  // EventBus 访问方法（不使用 getter，避免与父类冲突）
+  /** @deprecated 使用 context.getEventBus() 代替 */
+  public getEventBus() { return this.context.getEventBus(); }
 
   private topBarElement: HTMLElement | null = null;
   private topBarContextMenuHandler: ((ev: MouseEvent) => void) | null = null;
@@ -67,7 +142,10 @@ export default class FSRSPlugin extends Plugin {
       return;
     }
 
-    (window as any).siyuanMemoPlugin = this;
+    // ❌ 移除全局状态（Phase 3: DDD 重构）
+    // 不再将插件实例暴露到全局，使用依赖注入代替
+    // (window as any).siyuanMemoPlugin = this;
+    
     console.log('[SiYuanMemo] Plugin loaded successfully');
   }
 
@@ -96,14 +174,18 @@ export default class FSRSPlugin extends Plugin {
     files.forEach(f => this.removeData(f).catch(() => {}));
   }
 
+  // ========================================================================
+  // 向后兼容方法（将在下一个主版本中移除）
+  // ========================================================================
+  
+  /** @deprecated 使用 openSettings() 代替 */
   openSetting(defaultTab?: string) {
-    this.context.getDialogManager()?.openSettingsDialog(defaultTab);
+    this.openSettings(defaultTab);
   }
 
-  async getDueCount(): Promise<number> {
-    const cardService = this.context.getCardService();
-    return await cardService.getDueCount();
-  }
+  // ========================================================================
+  // 私有方法
+  // ========================================================================
 
   private setupTopBar() {
     this.addIcons(`<svg xmlns="http://www.w3.org/2000/svg" style="display:none"><symbol id="iconSiyuanMemo" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10.01 10.01 0 0 0 12 2Zm0 2a8 8 0 1 1-8 8 8.01 8.01 0 0 1 8-8Zm-1 3v5H8v2h5v3l5-4-5-4Z"/></symbol></svg>`);

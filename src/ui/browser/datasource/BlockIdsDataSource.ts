@@ -152,5 +152,14 @@ export class BlockIdsDataSource implements ICardDataSource {
     console.warn('[BlockIdsDataSource] Queue not found for queueId:', queueId);
     return null;
   }
+  
+  /**
+   * 获取数据源 ID
+   * 
+   * @returns 数据源 ID
+   */
+  getId(): string {
+    return this.id;
+  }
 }
 

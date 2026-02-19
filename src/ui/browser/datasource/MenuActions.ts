@@ -448,9 +448,16 @@ export async function adjustTime(
     }
   }
   
-  if (!service && plugin?.storage) {
-    // 回退到直接创建（向后兼容）
-    service = new RescheduleService(plugin.storage);
+  if (!service && plugin) {
+    // 回退到通过 ApplicationContext 获取 storage（向后兼容）
+    try {
+      const storage = (plugin as any).getContext?.()?.getStorage?.();
+      if (storage) {
+        service = new RescheduleService(storage);
+      }
+    } catch (error) {
+      console.warn('[MenuActions] Failed to create RescheduleService:', error);
+    }
   }
 
   if (!service) {

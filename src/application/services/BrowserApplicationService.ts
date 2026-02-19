@@ -12,7 +12,9 @@
  * - 薄包装：不包含业务逻辑，仅委托给查询处理器和用例
  * - 统一接口：为表现层提供一致的 API
  * 
+ * @implements {IBrowserApplicationService}
  * @see .kiro/specs/ddd-refactoring/browser-ddd-migration.md - Phase 2
+ * @see .kiro/specs/ddd-refactoring/COMPREHENSIVE-DDD-REFACTORING-PLAN.md - 阶段 1
  */
 
 import type { StorageManager } from '@/core/storage/manager';
@@ -24,6 +26,15 @@ import type {
   GetBrowserCardsQuery,
   GetBrowserCardsQueryResult,
 } from '../queries/browser/GetBrowserCardsQuery';
+import type {
+  IBrowserApplicationService,
+  DataSourceOptions,
+} from '../interfaces/IBrowserApplicationService';
+// ✅ 统一接口：使用应用层的 ICardDataSource 接口
+import type { ICardDataSource } from '../interfaces/ICardDataSource';
+// ✅ 修复：静态导入数据源，避免运行时模块加载失败
+import { DeckDataSource } from '@/ui/browser/datasource/DeckDataSource';
+import { createQueueDataSource, createQueryDataSource } from '@/ui/browser/utils/dataSourceFactory';
 
 /**
  * BrowserApplicationService 类
@@ -47,8 +58,10 @@ import type {
  *   sortOrder: 'asc',
  * });
  * ```
+ * 
+ * @implements {IBrowserApplicationService}
  */
-export class BrowserApplicationService {
+export class BrowserApplicationService implements IBrowserApplicationService {
   private readonly getBrowserCardsQueryHandler: GetBrowserCardsQueryHandler;
   private readonly unifiedDataSourceManager: any;  // UnifiedDataSourceManager
   
@@ -155,6 +168,60 @@ export class BrowserApplicationService {
   async getStats() {
     const result = await this.getBrowserCards({ pageSize: 1 });
     return result.stats;
+  }
+  
+  // ========================================================================
+  // 数据源工厂方法
+  // ========================================================================
+  
+  /**
+   * 创建数据源
+   * 
+   * 工厂方法，用于创建不同类型的数据源。
+   * 这是 DDD 架构中推荐的方式，避免 UI 层直接 new 对象。
+   * 
+   * @param options - 数据源选项
+   * @returns 数据源实例
+   * 
+   * @example
+   * ```typescript
+   * // 创建 Deck 数据源
+   * const dataSource = browserService.createDataSource({
+   *   type: 'deck',
+   *   preset: 'due',
+   *   queryText: '',
+   *   cardType: 'all',
+   * });
+   * ```
+   */
+  createDataSource(options: DataSourceOptions): ICardDataSource {
+    const { type, preset, queryText, cardType, queueId, plugin } = options;
+    
+    if (type === 'deck') {
+      // ✅ 修复：使用静态导入，避免运行时模块加载失败
+      return new DeckDataSource(
+        this.unifiedDataSourceManager,
+        { preset, queryText, cardType },
+        plugin
+      );
+    }
+    
+    if (type === 'queue') {
+      // ✅ 修复：使用静态导入
+      return createQueueDataSource(
+        queueId!,
+        this.unifiedDataSourceManager,
+        { preset, queryText, cardType },
+        plugin
+      );
+    }
+    
+    if (type === 'query') {
+      // ✅ 修复：使用静态导入
+      return createQueryDataSource(queryText!);
+    }
+    
+    throw new Error(`Unknown data source type: ${type}`);
   }
   
   // ========================================================================

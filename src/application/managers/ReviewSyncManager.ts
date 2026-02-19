@@ -131,15 +131,6 @@ export class ReviewSyncManager implements IDataSourceObserver {
   }
   
   /**
-   * 复习过程中的自动同步（已废弃，由观察者模式替代）
-   * 
-   * @deprecated 使用观察者模式自动响应数据变更
-   */
-  async onCardReviewed(): Promise<void> {
-    console.warn('[ReviewSyncManager] onCardReviewed is deprecated, use observer pattern instead');
-  }
-  
-  /**
    * 复习完成时的同步
    * 
    * 当队列为空,复习完成时调用。

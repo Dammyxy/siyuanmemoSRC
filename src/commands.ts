@@ -9,7 +9,7 @@ export class CommandManager {
             langKey: 'startReview',
             hotkey: 'Alt+R',
             callback: () => {
-                this.plugin.openReviewDialog();
+                this.plugin.getContext().getDialogManager().openReviewDialog();
             },
         });
 
@@ -17,7 +17,7 @@ export class CommandManager {
             langKey: 'startDrill',
             hotkey: 'Alt+D',
             callback: () => {
-                this.plugin.openFinalDrillDialog();
+                this.plugin.getContext().getDialogManager().openFinalDrillDialog();
             },
         });
 
