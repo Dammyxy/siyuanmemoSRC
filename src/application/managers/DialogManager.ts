@@ -278,11 +278,35 @@ export class DialogManager {
     const browserService = this.context.getBrowserService();
     const tabManager = this.context.getTabManager();  // ✅ 获取 TabManager
     
+    // ✅ 响应式宽度计算 - 接近全屏，确保所有字段都能显示
+    const screenWidth = window.innerWidth;
+    let dialogWidth: string;
+    let dialogHeight: string;
+    
+    if (screenWidth < 1024) {
+      // 小屏幕（平板）：使用 94% 宽度
+      dialogWidth = '94vw';
+      dialogHeight = '90vh';
+    } else if (screenWidth < 1440) {
+      // 中等屏幕（笔记本）：使用 92% 宽度
+      dialogWidth = '92vw';
+      dialogHeight = '90vh';
+    } else if (screenWidth < 1920) {
+      // 大屏幕（桌面）：使用 90% 宽度
+      dialogWidth = '90vw';
+      dialogHeight = '90vh';
+    } else {
+      // 超大屏幕（4K）：使用 88% 宽度
+      dialogWidth = '88vw';
+      dialogHeight = '90vh';
+    }
+    
     this.srsBrowserDialog = createVueDialog({
       dataKey: 'srs-browser-dialog',
       title: this.context.getI18n()?.srsBrowser || 'SRS 浏览器',
       component: SRSBrowser,
       props: {
+        app: this.plugin.app,  // ✅ 添加 app prop（预览区需要）
         plugin: this.plugin,
         storage,
         scheduler,
@@ -293,8 +317,8 @@ export class DialogManager {
       events: {
         close: () => this.closeBrowserDialog(),
       },
-      width: 'min(1200px, 96vw)',
-      height: 'min(800px, 90vh)',
+      width: dialogWidth,
+      height: dialogHeight,
       onClose: () => {
         this.srsBrowserDialog = null;
       },

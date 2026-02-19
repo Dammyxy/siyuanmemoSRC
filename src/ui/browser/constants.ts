@@ -20,13 +20,13 @@ export const DEFAULT_LEECH_THRESHOLD = 8;
 
 /** 预览面板默认尺寸 */
 export const DEFAULT_PREVIEW_SIZE = {
-  dialog: 500,
+  dialog: 300,  // ✅ 进一步减小默认宽度，从 350px 改为 300px
   tab: 300,
   dock: 300,
 };
 
 /** 预览面板尺寸范围 */
-export const PREVIEW_SIZE_MIN = 150;
+export const PREVIEW_SIZE_MIN = 200;  // ✅ 降低最小值，从 150px 改为 200px
 export const PREVIEW_SIZE_MAX = 800;
 
 /** 缓存过期时间（毫秒） */

@@ -274,7 +274,34 @@ const previewCard = ref<BrowserCard | null>(null);
 
 // 拖拽调整状态
 const isResizing = ref(false);
-const previewSize = ref(mode.value === 'dialog' ? DEFAULT_PREVIEW_SIZE.dialog : DEFAULT_PREVIEW_SIZE.tab);
+
+// ✅ 智能计算预览区初始大小
+const calculateInitialPreviewSize = (): number => {
+  if (mode.value !== 'dialog') {
+    return DEFAULT_PREVIEW_SIZE.tab;
+  }
+  
+  // 获取对话框容器宽度（如果可用）
+  const dialogWidth = window.innerWidth;
+  
+  // ✅ 预览区适中大小，平衡表格和预览的需求
+  // 用户可以通过拖拽调整预览区宽度
+  if (dialogWidth < 1024) {
+    // 小屏幕：预览区 280px
+    return 280;
+  } else if (dialogWidth < 1440) {
+    // 中等屏幕：预览区 320px
+    return 320;
+  } else if (dialogWidth < 1920) {
+    // 大屏幕：预览区 360px
+    return 360;
+  } else {
+    // 超大屏幕：预览区 400px
+    return 400;
+  }
+};
+
+const previewSize = ref(calculateInitialPreviewSize());
 
 // 预览区域样式
 const previewStyle = computed(() => {
