@@ -37,10 +37,10 @@ import { Priority } from '../domain/Priority';
 import { Card } from '../domain/Card';
 import { CardId } from '../domain/CardId';
 import { ScheduleInfo } from '../domain/ScheduleInfo';
-import { XiuyuanStorage } from '../storage';
 import { IXiuyuan } from '../types';
-import type SiyuanMemoPlugin from '../../../index';
 import { CardState } from '../../../types/card';
+import { UnifiedStorageManager } from '../../storage/UnifiedStorageManager';
+import { setBlockAttrs } from '../../siyuan/api';
 
 /**
  * XiuyuanRepository 实现
@@ -50,8 +50,7 @@ import { CardState } from '../../../types/card';
  */
 export class XiuyuanRepository implements IXiuyuanRepository {
   constructor(
-    private readonly storage: XiuyuanStorage,
-    private readonly plugin: SiyuanMemoPlugin
+    private readonly storage: UnifiedStorageManager
   ) {}
 
   /**
@@ -64,40 +63,44 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     try {
       const xiuyuanId = xiuyuan.getId().getValue();
       
-      // 1. 检查是否已存在
-      const existing = this.storage.getXiuyuan(xiuyuanId);
+      // 1. 转换为持久化模型
+      const persistenceModel = this.toPersistenceWithId(xiuyuan);
+      
+      // 2. 检查是否已存在
+      const existing = this.storage.getXiuYuan(xiuyuanId);
       
       if (existing) {
-        // 更新现有 Xiuyuan
-        const updates = this.toPersistence(xiuyuan);
-        this.storage.updateXiuyuan(xiuyuanId, updates);
+        // 更新现有 XiuYuan - 直接更新 Map 中的数据
+        (this.storage as any).xiuyuans.set(xiuyuanId, persistenceModel);
       } else {
-        // 创建新 Xiuyuan - 使用完整的持久化模型
-        const persistenceModel = this.toPersistenceWithId(xiuyuan);
-        // 直接插入到 storage 的内部数据结构
-        (this.storage as any).data.xiuyuans[xiuyuanId] = persistenceModel;
-        (this.storage as any).dirty = true;
+        // 创建新 XiuYuan - 添加到 Map
+        (this.storage as any).xiuyuans.set(xiuyuanId, persistenceModel);
+      }
+
+      // 3. 保存所有关联的卡片
+      const cards = xiuyuan.getCards();
+      for (const card of cards) {
+        const fsrsCard = this.cardToFSRSCard(card, xiuyuan);
+        const existingCard = this.storage.getCard(card.getId().getValue());
         
-        // 更新索引
-        for (const blockID of persistenceModel.blockIDs) {
-          const list = (this.storage as any).indexByBlockID.get(blockID) || [];
-          list.push(xiuyuanId);
-          (this.storage as any).indexByBlockID.set(blockID, list);
+        if (existingCard) {
+          // 更新现有卡片
+          await this.storage.updateCard(fsrsCard);
+        } else {
+          // 创建新卡片
+          await this.storage.createCard(persistenceModel, fsrsCard);
         }
       }
 
-      // 2. 保存到 msgpack
-      const saveResult = await this.storage.save();
-      if (!saveResult.ok) {
-        return err(new Error(`Failed to save to storage: ${saveResult.error.message}`));
-      }
+      // 4. 触发保存（UnifiedStorageManager 会自动防抖保存）
+      // 不需要显式调用 save()，因为 createCard/updateCard 会自动调度保存
 
-      // 3. 写入块属性（使用第一个块作为代表块）
+      // 5. 写入块属性（使用第一个块作为代表块）
       const blockIDs = xiuyuan.getBlockIDs();
       if (blockIDs.length > 0) {
         const representativeBlockId = blockIDs[0].getValue();
         try {
-          await this.plugin.setBlockAttrs(representativeBlockId, {
+          await setBlockAttrs(representativeBlockId, {
             'custom-xiuyuan-id': xiuyuan.getId().getValue(),
             'custom-xiuyuan-template': xiuyuan.getTemplateID().getValue(),
           });
@@ -107,16 +110,12 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         }
       }
 
-      // 4. 同步到 Riff（为每个卡片添加到 Riff）
-      const cards = xiuyuan.getCards();
+      // 6. 同步到 Riff（为每个卡片添加到 Riff）
       if (cards.length > 0) {
         try {
-          const cardBlockIds = cards.map(card => {
-            // 使用卡片 ID 作为 Riff 卡片 ID
-            return card.getId().getValue();
-          });
           // Note: 实际的 Riff 同步需要根据项目的 API 实现
           // 这里假设有 addRiffCards 方法
+          // const cardBlockIds = cards.map(card => card.getId().getValue());
           // await this.plugin.addRiffCards(cardBlockIds);
         } catch (error) {
           // Riff 同步失败不应该阻止保存
@@ -124,7 +123,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         }
       }
 
-      // 5. 发布领域事件
+      // 7. 发布领域事件
       await this.publishDomainEvents(xiuyuan);
 
       return ok(undefined);
@@ -141,7 +140,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    */
   async findById(id: XiuyuanId): Promise<Result<Xiuyuan | null>> {
     try {
-      const data = this.storage.getXiuyuan(id.getValue());
+      const data = this.storage.getXiuYuan(id.getValue());
       if (!data) {
         return ok(null);
       }
@@ -160,13 +159,17 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    */
   async findByBlockId(blockId: BlockId): Promise<Result<Xiuyuan[]>> {
     try {
-      const dataList = this.storage.getXiuyuansByBlockID(blockId.getValue());
+      // 通过 UnifiedStorageManager 查询所有 XiuYuans
+      const allXiuyuans = this.storage.getAllXiuYuans();
       const xiuyuans: Xiuyuan[] = [];
 
-      for (const data of dataList) {
-        const result = this.toDomain(data);
-        if (result.ok && result.value) {
-          xiuyuans.push(result.value);
+      // 过滤包含指定 blockID 的 XiuYuans
+      for (const data of allXiuyuans) {
+        if (data.blockIDs.includes(blockId.getValue())) {
+          const result = this.toDomain(data);
+          if (result.ok && result.value) {
+            xiuyuans.push(result.value);
+          }
         }
       }
 
@@ -183,7 +186,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    */
   async findAll(): Promise<Result<Xiuyuan[]>> {
     try {
-      const dataList = this.storage.getAllXiuyuans();
+      const dataList = this.storage.getAllXiuYuans();
       const xiuyuans: Xiuyuan[] = [];
 
       for (const data of dataList) {
@@ -207,15 +210,12 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    */
   async delete(xiuyuan: Xiuyuan): Promise<Result<void>> {
     try {
-      // 1. 从 msgpack 存储删除
-      const deleted = this.storage.deleteXiuyuan(xiuyuan.getId().getValue());
-      if (!deleted) {
-        return err(new Error(`Xiuyuan not found: ${xiuyuan.getId().getValue()}`));
-      }
-
-      const saveResult = await this.storage.save();
-      if (!saveResult.ok) {
-        return err(new Error(`Failed to save after delete: ${saveResult.error.message}`));
+      const xiuyuanId = xiuyuan.getId().getValue();
+      
+      // 1. 使用 UnifiedStorageManager 删除 XiuYuan（会级联删除所有关联卡片）
+      const deleteResult = await this.storage.deleteXiuYuan(xiuyuanId);
+      if (!deleteResult.ok) {
+        return deleteResult;
       }
 
       // 2. 删除块属性
@@ -223,7 +223,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       if (blockIDs.length > 0) {
         const representativeBlockId = blockIDs[0].getValue();
         try {
-          await this.plugin.setBlockAttrs(representativeBlockId, {
+          await setBlockAttrs(representativeBlockId, {
             'custom-xiuyuan-id': '',
             'custom-xiuyuan-template': '',
           });
@@ -236,8 +236,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       const cards = xiuyuan.getCards();
       if (cards.length > 0) {
         try {
-          const cardBlockIds = cards.map(card => card.getId().getValue());
           // Note: 实际的 Riff 删除需要根据项目的 API 实现
+          // const cardBlockIds = cards.map(card => card.getId().getValue());
           // await this.plugin.removeRiffCards(cardBlockIds);
         } catch (error) {
           console.warn('Failed to remove from Riff:', error);
@@ -294,6 +294,67 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   // ============ 私有方法 ============
+
+  /**
+   * 将 Card 领域实体转换为 FSRSCard
+   * 
+   * @param card - Card 领域实体
+   * @param xiuyuan - 关联的 Xiuyuan 聚合根
+   * @returns FSRSCard
+   * @private
+   */
+  private cardToFSRSCard(card: Card, xiuyuan: Xiuyuan): any {
+    const scheduleInfo = card.getScheduleInfo();
+    const blockIDs = xiuyuan.getBlockIDs();
+    
+    return {
+      id: card.getId().getValue(),
+      xiuyuanID: card.getXiuyuanId().getValue(),
+      blockId: blockIDs[0]?.getValue() || '',
+      
+      // FSRS 核心字段
+      due: scheduleInfo.due.getTime(),
+      stability: scheduleInfo.stability,
+      difficulty: scheduleInfo.difficulty,
+      reps: scheduleInfo.reps,
+      lapses: scheduleInfo.lapses,
+      state: scheduleInfo.state,
+      lastReview: scheduleInfo.lastReview.getTime(),
+      elapsedDays: scheduleInfo.elapsedDays,
+      scheduledDays: scheduleInfo.scheduledDays,
+      learning_step: scheduleInfo.learning_step,
+      
+      // 类型和模板
+      type: 'item' as const,
+      templateID: xiuyuan.getTemplateID().getValue(),
+      schedulerType: 'fsrs-v6' as const,
+      
+      // 优先级
+      priority: xiuyuan.getPriority().getValue(),
+      
+      // 扩展功能
+      tags: [],
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      
+      // 元数据
+      meta: {
+        xiuyuanID: card.getXiuyuanId().getValue(),
+        templateID: xiuyuan.getTemplateID().getValue(),
+        ruleIndex: card.getFaceIndex(),
+        frontBlockIDs: blockIDs.map(b => b.getValue()),
+        backBlockIDs: blockIDs.map(b => b.getValue()),
+        fieldMapping: {},
+        frontFields: [],
+        backFields: [],
+      },
+      
+      // 时间戳
+      createdAt: card.getCreatedAt().getTime(),
+      updatedAt: card.getUpdatedAt().getTime(),
+    };
+  }
 
   /**
    * 将领域模型转换为持久化模型（不包含 ID 和时间戳）
@@ -372,17 +433,17 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     try {
       // 1. 转换 ID
       const idResult = XiuyuanId.create(data.id);
-      if (!idResult.ok) return err(idResult.error);
+      if (!idResult.ok) return err(new Error(`Invalid XiuyuanId: ${data.id}`));
 
       // 2. 转换 BlockIDs
       const blockIDResults = data.blockIDs.map(id => BlockId.create(id));
       const failedBlockId = blockIDResults.find(r => !r.ok);
-      if (failedBlockId && !failedBlockId.ok) return err(failedBlockId.error);
+      if (failedBlockId) return err(new Error(`Invalid BlockId in blockIDs`));
       const blockIDs = blockIDResults.map(r => r.ok ? r.value : null).filter((v): v is BlockId => v !== null);
 
       // 3. 转换 TemplateID
       const templateIDResult = TemplateId.create(data.templateID);
-      if (!templateIDResult.ok) return err(templateIDResult.error);
+      if (!templateIDResult.ok) return err(new Error(`Invalid TemplateId: ${data.templateID}`));
 
       // 4. 转换 Faces（从 meta 中恢复）
       const facesData = (data.meta?.faces as any[]) || [];
@@ -393,7 +454,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         answerBlockId: f.answerBlockId
       }));
       const failedFace = faceResults.find(r => !r.ok);
-      if (failedFace && !failedFace.ok) return err(failedFace.error);
+      if (failedFace) return err(new Error(`Invalid CardFace in faces`));
       const faces = faceResults.map(r => r.ok ? r.value : null).filter((v): v is CardFace => v !== null);
 
       // 5. 转换 Priority
