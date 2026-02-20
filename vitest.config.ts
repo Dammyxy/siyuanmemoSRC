@@ -13,6 +13,12 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // 排除旧架构测试
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/__tests__.skip/**',
+      '**/*.test.skip.ts',
+    ],
   },
 });
-

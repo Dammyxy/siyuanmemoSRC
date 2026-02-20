@@ -90,5 +90,6 @@ function createEmptyStore(): UnifiedCardStore {
     version: 1,
     xiuyuans: {},
     cards: {},
+    cardDTOs: {},
   };
 }

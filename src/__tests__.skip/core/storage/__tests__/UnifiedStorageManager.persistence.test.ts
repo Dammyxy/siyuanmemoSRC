@@ -29,6 +29,7 @@ describe('UnifiedStorageManager Persistence', () => {
         version: 1,
         xiuyuans: {},
         cards: {},
+        cardDTOs: {},
       };
     };
     

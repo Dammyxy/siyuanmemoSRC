@@ -20,7 +20,20 @@ import { QueueType, CardFilter } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
+import type { IQueuePersistenceService } from '../../../infrastructure/services/QueuePersistenceService';
 import { resolveCardId } from '../../../diagnostics/type-guards';
+
+/**
+ * 过滤组队列持久化数据结构
+ */
+interface FilterGroupQueueData {
+    /** 手动添加的卡片 ID 列表 */
+    manuallyAddedCards: string[];
+    /** 过滤条件 */
+    filter: CardFilter;
+    /** 临时黑名单 */
+    temporaryBlacklist: string[];
+}
 
 /**
  * 过滤组队列类
@@ -46,9 +59,12 @@ export class FilterGroupQueue extends BaseReviewQueue {
     /**
      * 持久化存储键
      */
-    private readonly STORAGE_KEY = 'filter-group-manual-cards';
-    private readonly FILTER_STORAGE_KEY = 'filter-group-filter-settings';
-    private readonly BLACKLIST_STORAGE_KEY = 'filter-group-temporary-blacklist';
+    private readonly STORAGE_KEY = 'filterGroupQueue';
+    
+    /**
+     * 队列持久化服务
+     */
+    private readonly queuePersistence: IQueuePersistenceService;
     
     /**
      * 过滤条件
@@ -59,22 +75,93 @@ export class FilterGroupQueue extends BaseReviewQueue {
      * 构造函数
      * 
      * @param manager 统一数据源管理器实例
+     * @param queuePersistence 队列持久化服务（依赖注入）
      * @param filter 过滤条件（可选）
      */
-    constructor(manager: UnifiedDataSourceManager, filter: CardFilter = {}) {
+    constructor(manager: UnifiedDataSourceManager, queuePersistence: IQueuePersistenceService, filter: CardFilter = {}) {
         super(manager, QueueType.FilterGroup);
         
-        // 优先使用传入的过滤条件，否则从持久化存储加载
-        const savedFilter = this.loadFilterSettings();
-        this.cardFilter = Object.keys(filter).length > 0 ? filter : savedFilter;
-        
+        this.queuePersistence = queuePersistence;
         this.manuallyAddedCards = new Set<string>();
-        this.loadManuallyAddedCards();
         
-        // 🆕 加载临时黑名单
-        this.loadTemporaryBlacklist();
+        // 优先使用传入的过滤条件，否则使用空对象（将在 load() 中加载）
+        this.cardFilter = Object.keys(filter).length > 0 ? filter : {};
+        
+        // 注意：不在构造函数中调用 load()，由外部调用
+        // this.loadManuallyAddedCards();
+        // this.loadTemporaryBlacklist();
         
         console.log('[SiYuanMemo][FilterGroupQueue] Initialized with filter:', this.cardFilter);
+    }
+    
+    /**
+     * 从持久化服务加载状态
+     * 
+     * 加载手动添加的卡片、过滤条件和临时黑名单。
+     * 如果没有保存的数据，初始化为空集合。
+     * 
+     * @see 需求 4.2, 4.5
+     */
+    async load(): Promise<void> {
+        try {
+            const data = this.queuePersistence.get<FilterGroupQueueData>(this.STORAGE_KEY);
+            
+            if (data) {
+                // 加载手动添加的卡片
+                if (data.manuallyAddedCards && Array.isArray(data.manuallyAddedCards)) {
+                    this.manuallyAddedCards = new Set(data.manuallyAddedCards);
+                } else {
+                    this.manuallyAddedCards = new Set();
+                }
+                
+                // 加载过滤条件（如果构造函数没有提供）
+                if (Object.keys(this.cardFilter).length === 0 && data.filter) {
+                    this.cardFilter = data.filter;
+                }
+                
+                // 加载临时黑名单
+                if (data.temporaryBlacklist && Array.isArray(data.temporaryBlacklist)) {
+                    this.temporaryBlacklist = new Set(data.temporaryBlacklist);
+                } else {
+                    this.temporaryBlacklist = new Set();
+                }
+                
+                console.log(`[FilterGroupQueue] Loaded ${this.manuallyAddedCards.size} manually added cards, ${this.temporaryBlacklist.size} blacklisted cards`);
+            } else {
+                this.manuallyAddedCards = new Set();
+                this.temporaryBlacklist = new Set();
+                console.log('[FilterGroupQueue] No saved data found, starting with empty sets');
+            }
+        } catch (error) {
+            console.error('[FilterGroupQueue] Failed to load state:', error);
+            this.manuallyAddedCards = new Set();
+            this.temporaryBlacklist = new Set();
+        }
+    }
+    
+    /**
+     * 保存状态到持久化服务
+     * 
+     * 保存手动添加的卡片、过滤条件和临时黑名单。
+     * 使用键名 "filterGroupQueue"。
+     * 
+     * @see 需求 4.2, 4.5, 4.6
+     */
+    async save(): Promise<void> {
+        try {
+            const data: FilterGroupQueueData = {
+                manuallyAddedCards: Array.from(this.manuallyAddedCards),
+                filter: this.cardFilter,
+                temporaryBlacklist: Array.from(this.temporaryBlacklist)
+            };
+            
+            await this.queuePersistence.set(this.STORAGE_KEY, data);
+            
+            console.log(`[FilterGroupQueue] Saved ${data.manuallyAddedCards.length} manually added cards, ${data.temporaryBlacklist.length} blacklisted cards`);
+        } catch (error) {
+            console.error('[FilterGroupQueue] Failed to save state:', error);
+            throw error;
+        }
     }
     
     /**
@@ -166,7 +253,7 @@ export class FilterGroupQueue extends BaseReviewQueue {
             this.manuallyAddedCards.add(cardId);
             
             // 持久化
-            await this.persistManuallyAddedCards();
+            await this.save();
             
             // 触发观察者通知
             this.manager.notifyObservers({
@@ -207,11 +294,11 @@ export class FilterGroupQueue extends BaseReviewQueue {
             
             // 3. 持久化手动添加的卡片列表（如果有变化）
             if (wasManuallyAdded) {
-                await this.persistManuallyAddedCards();
+                await this.save();
             }
             
             // 4. 持久化临时黑名单
-            this.saveTemporaryBlacklist();
+            await this.save();
             
             console.log(`[SiYuanMemo][FilterGroupQueue] Card ${cardIdOrBlockId} removed`, {
                 wasManuallyAdded,
@@ -274,13 +361,13 @@ export class FilterGroupQueue extends BaseReviewQueue {
      * 设置过滤条件
      * 
      * 更新过滤条件后，下次调用 getCards() 时会使用新的过滤条件。
-     * 过滤条件会自动持久化到 localStorage。
+     * 过滤条件会自动持久化。
      * 
      * @param filter 新的过滤条件
      */
-    public setFilter(filter: CardFilter): void {
+    public async setFilter(filter: CardFilter): Promise<void> {
         this.cardFilter = filter;
-        this.saveFilterSettings();
+        await this.save();
         console.log('[SiYuanMemo][FilterGroupQueue] Filter updated and saved:', filter);
     }
     
@@ -313,7 +400,7 @@ export class FilterGroupQueue extends BaseReviewQueue {
             
             // 清除临时黑名单（重新开始）
             this.temporaryBlacklist.clear();
-            this.clearTemporaryBlacklist();
+            await this.save();
             
             // 触发观察者通知，让 UI 重新加载数据
             this.manager.notifyObservers({
@@ -332,15 +419,15 @@ export class FilterGroupQueue extends BaseReviewQueue {
     /**
      * 清除临时黑名单（覆盖基类方法）
      * 
-     * 清除内存中的黑名单，并删除持久化存储。
+     * 清除内存中的黑名单，并持久化。
      */
-    public clearTemporaryBlacklist(): void {
+    public async clearTemporaryBlacklist(): Promise<void> {
         super.clearTemporaryBlacklist();
         try {
-            localStorage.removeItem(this.BLACKLIST_STORAGE_KEY);
-            console.log('[SiYuanMemo][FilterGroupQueue] Temporary blacklist cleared from storage');
+            await this.save();
+            console.log('[SiYuanMemo][FilterGroupQueue] Temporary blacklist cleared and saved');
         } catch (error) {
-            console.error('[SiYuanMemo][FilterGroupQueue] Failed to clear temporary blacklist from storage:', error);
+            console.error('[SiYuanMemo][FilterGroupQueue] Failed to clear temporary blacklist:', error);
         }
     }
     
@@ -407,97 +494,5 @@ export class FilterGroupQueue extends BaseReviewQueue {
             // 最后按卡片 ID 排序（确保稳定排序）
             return a.id.localeCompare(b.id);
         });
-    }
-    
-    /**
-     * 从持久化存储加载手动添加的卡片
-     */
-    private loadManuallyAddedCards(): void {
-        try {
-            const stored = localStorage.getItem(this.STORAGE_KEY);
-            if (stored) {
-                const cardIds: string[] = JSON.parse(stored);
-                this.manuallyAddedCards = new Set(cardIds);
-                console.log(`[SiYuanMemo][FilterGroupQueue] Loaded ${cardIds.length} manually added cards from storage`);
-            }
-        } catch (error) {
-            console.error('[SiYuanMemo][FilterGroupQueue] Failed to load manually added cards:', error);
-            this.manuallyAddedCards = new Set();
-        }
-    }
-    
-    /**
-     * 持久化手动添加的卡片
-     */
-    private async persistManuallyAddedCards(): Promise<void> {
-        try {
-            const cardIds = Array.from(this.manuallyAddedCards);
-            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(cardIds));
-            console.log(`[SiYuanMemo][FilterGroupQueue] Persisted ${cardIds.length} manually added cards`);
-        } catch (error) {
-            console.error('[SiYuanMemo][FilterGroupQueue] Failed to persist manually added cards:', error);
-            throw error;
-        }
-    }
-    
-    /**
-     * 从持久化存储加载过滤条件
-     * 
-     * @returns 保存的过滤条件，如果没有则返回空对象
-     */
-    private loadFilterSettings(): CardFilter {
-        try {
-            const stored = localStorage.getItem(this.FILTER_STORAGE_KEY);
-            if (stored) {
-                const filter: CardFilter = JSON.parse(stored);
-                console.log('[SiYuanMemo][FilterGroupQueue] Loaded filter settings from storage:', filter);
-                return filter;
-            }
-        } catch (error) {
-            console.error('[SiYuanMemo][FilterGroupQueue] Failed to load filter settings:', error);
-        }
-        return {};
-    }
-    
-    /**
-     * 保存过滤条件到持久化存储
-     */
-    private saveFilterSettings(): void {
-        try {
-            localStorage.setItem(this.FILTER_STORAGE_KEY, JSON.stringify(this.cardFilter));
-            console.log('[SiYuanMemo][FilterGroupQueue] Saved filter settings to storage');
-        } catch (error) {
-            console.error('[SiYuanMemo][FilterGroupQueue] Failed to save filter settings:', error);
-        }
-    }
-    
-    /**
-     * 从持久化存储加载临时黑名单
-     */
-    private loadTemporaryBlacklist(): void {
-        try {
-            const stored = localStorage.getItem(this.BLACKLIST_STORAGE_KEY);
-            if (stored) {
-                const cardIds: string[] = JSON.parse(stored);
-                this.temporaryBlacklist = new Set(cardIds);
-                console.log(`[SiYuanMemo][FilterGroupQueue] Loaded ${cardIds.length} cards from temporary blacklist`);
-            }
-        } catch (error) {
-            console.error('[SiYuanMemo][FilterGroupQueue] Failed to load temporary blacklist:', error);
-            this.temporaryBlacklist = new Set();
-        }
-    }
-    
-    /**
-     * 保存临时黑名单到持久化存储
-     */
-    private saveTemporaryBlacklist(): void {
-        try {
-            const cardIds = Array.from(this.temporaryBlacklist);
-            localStorage.setItem(this.BLACKLIST_STORAGE_KEY, JSON.stringify(cardIds));
-            console.log(`[SiYuanMemo][FilterGroupQueue] Saved ${cardIds.length} cards to temporary blacklist`);
-        } catch (error) {
-            console.error('[SiYuanMemo][FilterGroupQueue] Failed to save temporary blacklist:', error);
-        }
     }
 }

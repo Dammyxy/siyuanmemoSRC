@@ -167,28 +167,29 @@ export default class FSRSPlugin extends Plugin {
   }
 
   private async performConfigMigrations() {
-    const settings = this.storage.getSettings();
+    const settingsService = this.context.getSettingsService();
+    const settings = settingsService.getSettings();
     const riffConfig = settings.riffIntegration;
 
     if (riffConfig && ConfigMigrator.needsMigration(riffConfig)) {
       const migratedConfig = ConfigMigrator.migrate(riffConfig as any);
-      await this.storage.updateSettings({ ...settings, riffIntegration: migratedConfig });
+      await settingsService.updateSettings({ ...settings, riffIntegration: migratedConfig });
       setTimeout(() => pushMsg(ConfigMigrator.getMigrationMessage((riffConfig as any).mode)), 1000);
     }
 
     const { SimpleModeRemovalMigrator } = await import('./utils/simpleModeRemovalMigrator');
-    const finalConfig = this.storage.getSettings().riffIntegration;
+    const finalConfig = settingsService.getSettings().riffIntegration;
     
     if (finalConfig && SimpleModeRemovalMigrator.needsMigration(finalConfig)) {
       try {
         const result = await SimpleModeRemovalMigrator.performMigration(finalConfig, this.context.getHybridSyncService());
-        await this.storage.updateSettings({ ...this.storage.getSettings(), riffIntegration: result.migratedConfig as any });
+        await settingsService.updateSettings({ ...settingsService.getSettings(), riffIntegration: result.migratedConfig as any });
       } catch (error) {
         await SimpleModeRemovalMigrator.handleMigrationError(error as Error, 'plugin initialization');
       }
     } else if (finalConfig && finalConfig.mode) {
       const { mode, ...cleanConfig } = finalConfig;
-      await this.storage.updateSettings({ ...this.storage.getSettings(), riffIntegration: cleanConfig as any });
+      await settingsService.updateSettings({ ...settingsService.getSettings(), riffIntegration: cleanConfig as any });
     }
   }
 }

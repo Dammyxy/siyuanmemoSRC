@@ -146,6 +146,72 @@ The github action is included in this sample, you can use it to publish your new
 
 More other plugin info, please check in [siyuan/plugin-sample](https://github.com/siyuan-note/plugin-sample).
 
+## Architecture
+
+### DDD Layered Architecture
+
+This plugin follows Domain-Driven Design (DDD) principles, organizing the system into four clear layers:
+
+```
+Presentation Layer
+    ↓
+Application Layer
+    ↓
+Domain Layer
+    ↓
+Infrastructure Layer
+```
+
+#### Core Services
+
+**Application Layer Services**:
+- `SettingsService`: Manages plugin settings and Riff integration config
+- `ReviewLogService`: Manages review and reschedule logs
+- `RiffBlacklistService`: Manages Riff blacklist
+
+**Infrastructure Layer Services**:
+- `FileService`: Unified file read/write interface
+- `QueuePersistenceService`: Generic key-value storage for all queue types
+- `UnifiedStorageManager`: Unified storage for cards and XiuYuan
+
+**Domain Layer Objects**:
+- Queue objects: `RetrievalPracticeQueue`, `FinalDrillQueue`, `IncrementalLearningQueue`, etc.
+- Card domain objects
+- XiuYuan domain objects
+
+#### Design Principles
+
+1. **Single Responsibility**: Each service handles one clear domain
+2. **Dependency Injection**: Services managed through `ApplicationContext`
+3. **Queue Autonomy**: Queue objects manage their own state and logic
+4. **Generic Storage**: Persistence service doesn't need to know queue structure
+5. **Debounced Saves**: All write operations use 300ms debounce to avoid frequent I/O
+
+#### Usage Example
+
+```typescript
+// Get services
+const context = await ApplicationContext.create(plugin);
+const settingsService = context.getSettingsService();
+const queuePersistence = context.getQueuePersistenceService();
+
+// Use settings service
+const settings = settingsService.getSettings();
+await settingsService.updateSettings({ newCardsPerDay: 20 });
+
+// Use queue
+const queue = new RetrievalPracticeQueue(queuePersistence);
+await queue.load();
+queue.add(item);
+await queue.save();
+```
+
+#### Documentation
+
+- [Architecture Documentation](./.kiro/specs/storage-manager-ddd-refactoring/ARCHITECTURE.md)
+- [Refactoring Guide](./.kiro/specs/storage-manager-ddd-refactoring/REFACTORING-GUIDE.md)
+- [ADR-001: StorageManager DDD Refactoring](./.kiro/specs/storage-manager-ddd-refactoring/ADR-001-storage-manager-refactoring.md)
+
 ## API Notes
 
 - /riff/getRiffCardsByBlockIDs returns created/updated mapped to block created_time/last_edited_time

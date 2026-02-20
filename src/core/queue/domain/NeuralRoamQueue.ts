@@ -17,6 +17,7 @@ import { BaseReviewQueue } from './BaseReviewQueue';
 import { QueueType } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
+import type { IQueuePersistenceService } from '../../../infrastructure/services/QueuePersistenceService';
 import { ConceptNeuralQueue } from '../neural/ConceptNeuralQueue';
 import { resolveCardId } from '../../../diagnostics/type-guards';
 import * as api from '../../siyuan/api';
@@ -45,25 +46,80 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     /**
      * 持久化存储键
      */
-    private readonly STORAGE_KEY = 'neural-roam-seeds';
+    private readonly STORAGE_KEY = 'neuralRoamQueue';
+    
+    /**
+     * 队列持久化服务
+     */
+    private readonly queuePersistence: IQueuePersistenceService;
 
     /**
      * 构造函数
      *
      * @param manager 统一数据源管理器实例
+     * @param queuePersistence 队列持久化服务（依赖注入）
      */
-    constructor(manager: UnifiedDataSourceManager) {
+    constructor(manager: UnifiedDataSourceManager, queuePersistence: IQueuePersistenceService) {
         super(manager, QueueType.NeuralRoam);
 
+        this.queuePersistence = queuePersistence;
+        
         // 创建概念神经队列实例
         this.conceptQueue = new ConceptNeuralQueue();
 
-        // 加载持久化的种子块
-        this.loadPersistedSeeds();
+        // 注意：不在构造函数中调用 load()，由外部调用
+        // this.loadPersistedSeeds();
 
         console.log('[SiYuanMemo][NeuralRoamQueue] Initialized with ConceptNeuralQueue');
     }
 
+    /**
+     * 从持久化服务加载状态
+     * 
+     * 加载种子块列表。
+     * 如果没有保存的数据，初始化为空列表。
+     * 
+     * @see 需求 4.2, 4.5
+     */
+    async load(): Promise<void> {
+        try {
+            const data = this.queuePersistence.get<SeedBlockData>(this.STORAGE_KEY);
+            
+            if (data && data.seeds && Array.isArray(data.seeds)) {
+                this.conceptQueue.restoreSeeds(data.seeds);
+                console.log(`[NeuralRoamQueue] Loaded ${data.seeds.length} persisted seeds`);
+            } else {
+                console.log('[NeuralRoamQueue] No saved data found, starting with empty seeds');
+            }
+        } catch (error) {
+            console.error('[NeuralRoamQueue] Failed to load state:', error);
+        }
+    }
+    
+    /**
+     * 保存状态到持久化服务
+     * 
+     * 保存种子块列表。
+     * 使用键名 "neuralRoamQueue"。
+     * 
+     * @see 需求 4.2, 4.5, 4.6
+     */
+    async save(): Promise<void> {
+        try {
+            const data: SeedBlockData = {
+                seeds: this.conceptQueue.getSeeds(),
+                currentSeed: null
+            };
+            
+            await this.queuePersistence.set(this.STORAGE_KEY, data);
+            
+            console.log(`[NeuralRoamQueue] Saved ${data.seeds.length} seeds`);
+        } catch (error) {
+            console.error('[NeuralRoamQueue] Failed to save state:', error);
+            throw error;
+        }
+    }
+    
     /**
      * 判断是否为动态队列
      * 
@@ -102,7 +158,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
             }
 
             await this.conceptQueue.addSeed(blockId, priority);
-            await this.persistSeeds();
+            await this.save();
             
             console.log(`[SiYuanMemo][NeuralRoamQueue] Added seed: ${blockId} (priority: ${priority})`);
         } catch (error) {
@@ -121,7 +177,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     public async removeCard(cardIdOrBlockId: string): Promise<void> {
         try {
             this.conceptQueue.removeSeed(cardIdOrBlockId);
-            await this.persistSeeds();
+            await this.save();
             
             console.log(`[SiYuanMemo][NeuralRoamQueue] Removed seed: ${cardIdOrBlockId}`);
         } catch (error) {
@@ -182,7 +238,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     public async lockCurrentAsSeed(cardId: string, priority: 'normal' | 'high' = 'normal'): Promise<void> {
         try {
             await this.conceptQueue.addSeed(cardId, priority);
-            await this.persistSeeds();
+            await this.save();
             
             console.log(`[SiYuanMemo][NeuralRoamQueue] Locked as seed: ${cardId} (priority: ${priority})`);
         } catch (error) {
@@ -333,49 +389,5 @@ export class NeuralRoamQueue extends BaseReviewQueue {
      */
     private escapeSQL(value: string): string {
         return value.replace(/'/g, "''");
-    }
-
-    /**
-     * 加载持久化的种子块
-     */
-    private loadPersistedSeeds(): void {
-        try {
-            console.log('[SiYuanMemo][NeuralRoamQueue] Loading persisted seeds from:', this.STORAGE_KEY);
-            const dataStr = localStorage.getItem(this.STORAGE_KEY);
-            
-            if (!dataStr) {
-                console.log('[SiYuanMemo][NeuralRoamQueue] No persisted seeds found');
-                return;
-            }
-            
-            const data: SeedBlockData = JSON.parse(dataStr);
-            console.log('[SiYuanMemo][NeuralRoamQueue] Parsed seed data:', data);
-            
-            if (data && data.seeds && Array.isArray(data.seeds)) {
-                this.conceptQueue.restoreSeeds(data.seeds);
-                console.log(`[SiYuanMemo][NeuralRoamQueue] Loaded ${data.seeds.length} persisted seeds:`, data.seeds);
-            } else {
-                console.warn('[SiYuanMemo][NeuralRoamQueue] Invalid seed data format');
-            }
-        } catch (error) {
-            console.error('[SiYuanMemo][NeuralRoamQueue] Failed to load persisted seeds:', error);
-        }
-    }
-
-    /**
-     * 持久化种子块
-     */
-    private async persistSeeds(): Promise<void> {
-        try {
-            const data: SeedBlockData = {
-                seeds: this.conceptQueue.getSeeds(),
-                currentSeed: null,
-            };
-            
-            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(data));
-            console.log(`[SiYuanMemo][NeuralRoamQueue] Persisted ${data.seeds.length} seeds`);
-        } catch (error) {
-            console.error('[SiYuanMemo][NeuralRoamQueue] Failed to persist seeds:', error);
-        }
     }
 }

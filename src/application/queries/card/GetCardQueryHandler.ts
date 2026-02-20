@@ -20,18 +20,15 @@ export class GetCardQueryHandler {
    * 执行查询
    * 
    * @param query - 查询对象
-   * @returns 查询结果
-   * @throws Error 如果卡片不存在
+   * @returns 查询结果，如果卡片不存在则 card 为 null
    */
   async execute(query: GetCardQuery): Promise<GetCardQueryResult> {
     const card = this.storageManager.getCard(query.cardId);
     
-    if (!card) {
-      throw new Error(`Card not found: ${query.cardId}`);
-    }
-    
+    // ✅ DDD 原则：查询不存在的资源是正常业务场景，不应抛出异常
+    // 返回 null 让调用者决定如何处理
     return {
-      card
+      card: card || null
     };
   }
 }

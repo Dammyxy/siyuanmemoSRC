@@ -2,14 +2,25 @@
  * Queue Factory
  * 队列工厂
  * 
- * 负责创建和管理队列实例，实现懒加载和缓存失效。
+ * ⚠️ DEPRECATED: 此类已废弃，不再使用
  * 
- * @see .kiro/specs/unified-data-source-architecture/requirements.md
- * @see .kiro/specs/unified-data-source-architecture/design.md
+ * 原因：违反 DDD 分层原则
+ * - QueueFactory 位于基础设施层（infrastructure）
+ * - 但它试图创建需要应用层服务（UnifiedDataSourceManager）的队列
+ * - 这导致基础设施层依赖应用层，违反了 DDD 分层规则
+ * 
+ * 新架构：
+ * - UnifiedDataSourceManager（应用层）直接创建和管理队列
+ * - 队列通过 UnifiedDataSourceManager.getQueue() 访问
+ * - 符合 DDD 分层原则：应用层 → 领域层 → 基础设施层
+ * 
+ * @deprecated 使用 UnifiedDataSourceManager.getQueue() 代替
+ * @see UnifiedDataSourceManager
+ * @see .kiro/specs/bugfix/queue-initialization-ddd-refactoring.md
  */
 
 import { IReviewQueue, QueueType, QueueError } from '../../../types/unified-data-source';
-import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
+import type { IQueuePersistenceService } from '../../../infrastructure/services/QueuePersistenceService';
 import { RetrievalPracticeQueue } from '../domain/RetrievalPracticeQueue';
 import { IncrementalLearningQueue } from '../domain/IncrementalLearningQueue';
 import { FilterGroupQueue } from '../domain/FilterGroupQueue';
@@ -25,9 +36,9 @@ import { NeuralRoamQueue } from '../domain/NeuralRoamQueue';
  */
 export class QueueFactory {
     /**
-     * 数据源管理器引用
+     * 队列持久化服务引用
      */
-    private manager: UnifiedDataSourceManager;
+    private queuePersistence: IQueuePersistenceService;
     
     /**
      * 队列实例缓存
@@ -39,10 +50,10 @@ export class QueueFactory {
     /**
      * 构造函数
      * 
-     * @param manager 统一数据源管理器实例
+     * @param queuePersistence 队列持久化服务实例
      */
-    constructor(manager: UnifiedDataSourceManager) {
-        this.manager = manager;
+    constructor(queuePersistence: IQueuePersistenceService) {
+        this.queuePersistence = queuePersistence;
         this.queueInstances = new Map();
     }
     
@@ -80,19 +91,21 @@ export class QueueFactory {
     private createQueue(type: QueueType): IReviewQueue {
         switch (type) {
             case QueueType.RetrievalPractice:
-                return new RetrievalPracticeQueue(this.manager);
+                return new RetrievalPracticeQueue(this.queuePersistence);
             
             case QueueType.IncrementalLearning:
-                return new IncrementalLearningQueue(this.manager);
+                return new IncrementalLearningQueue(this.queuePersistence);
             
             case QueueType.FilterGroup:
-                return new FilterGroupQueue(this.manager);
+                return new FilterGroupQueue(this.queuePersistence);
             
             case QueueType.FinalDrill:
-                return new FinalDrillQueue(this.manager);
+                return new FinalDrillQueue(this.queuePersistence);
             
             case QueueType.NeuralRoam:
-                return new NeuralRoamQueue(this.manager);
+                // Note: NeuralRoamQueue not yet refactored, needs manager
+                // TODO: Refactor NeuralRoamQueue to use QueuePersistenceService
+                throw new QueueError(`NeuralRoamQueue not yet refactored to use QueuePersistenceService`);
             
             default:
                 throw new QueueError(`Unknown queue type: ${type}`);

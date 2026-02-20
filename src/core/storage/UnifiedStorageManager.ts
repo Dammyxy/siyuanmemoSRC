@@ -24,6 +24,8 @@ import type { FSRSCard, CardType } from '../../types/card';
 import type { IXiuyuan } from '../xiuyuan/types';
 import type { Result } from '../../types/result';
 import { ok, err } from '../../types/result';
+import type { CardPersistenceDTO } from '../../infrastructure/persistence/dto/CardPersistenceDTO';
+import { CardMapper } from '../../infrastructure/persistence/mappers/CardMapper';
 
 /**
  * 统一存储数据结构
@@ -32,6 +34,7 @@ export interface UnifiedCardStore {
   version: number;
   xiuyuans: Record<string, IXiuyuan>;
   cards: Record<string, FSRSCard>;
+  cardDTOs?: Record<string, CardPersistenceDTO>;
 }
 
 /**
@@ -54,6 +57,7 @@ export class UnifiedStorageManager {
   // === 数据存储 ===
   private xiuyuans: Map<string, IXiuyuan> = new Map();
   private cards: Map<string, FSRSCard> = new Map();
+  private cardDTOs: Map<string, CardPersistenceDTO> = new Map();
 
   // === 内存索引 ===
   private indexByBlockID: Map<string, string[]> = new Map();
@@ -98,6 +102,7 @@ export class UnifiedStorageManager {
       // 清空现有数据
       this.xiuyuans.clear();
       this.cards.clear();
+      this.cardDTOs.clear();
 
       // 加载 XiuYuans
       for (const [id, xiuyuan] of Object.entries(store.xiuyuans)) {
@@ -107,6 +112,13 @@ export class UnifiedStorageManager {
       // 加载 Cards
       for (const [id, card] of Object.entries(store.cards)) {
         this.cards.set(id, card);
+      }
+
+      // 加载 CardDTOs
+      if (store.cardDTOs) {
+        for (const [id, dto] of Object.entries(store.cardDTOs)) {
+          this.cardDTOs.set(id, dto);
+        }
       }
 
       // 重建索引
@@ -296,10 +308,16 @@ export class UnifiedStorageManager {
       cards[id] = card;
     }
 
+    const cardDTOs: Record<string, CardPersistenceDTO> = {};
+    for (const [id, dto] of this.cardDTOs.entries()) {
+      cardDTOs[id] = dto;
+    }
+
     return {
       version: 1,
       xiuyuans,
       cards,
+      cardDTOs,
     };
   }
 
@@ -312,24 +330,11 @@ export class UnifiedStorageManager {
    */
   async createCard(xiuyuan: IXiuyuan, card: FSRSCard): Promise<Result<void>> {
     try {
-      // 保存 XiuYuan（如果不存在）
-      if (!this.xiuyuans.has(xiuyuan.id)) {
-        this.xiuyuans.set(xiuyuan.id, xiuyuan);
-      }
-
-      // 保存 Card
-      this.cards.set(card.id, card);
-
-      // 更新索引
-      this.updateIndexesForCard(card, 'add');
-
-      // 重新排序 due 索引以保持一致性
-      this.indexByDue.sort((a, b) => a.due - b.due);
-
-      // 调度保存
-      this.scheduleSave();
-
-      return ok(undefined);
+      // 转换 FSRSCard 为 DTO
+      const dto = CardMapper.toPersistence(card);
+      
+      // 调用 DTO 方法（保持向后兼容）
+      return await this.createCardDTO(xiuyuan, dto);
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
     }
@@ -365,8 +370,9 @@ export class UnifiedStorageManager {
         if (!card.id) {
           return err(new Error('Invalid card: missing id'));
         }
-        if (card.xiuyuanID !== xiuyuan.id) {
-          return err(new Error(`Card ${card.id} xiuyuanID mismatch: expected ${xiuyuan.id}, got ${card.xiuyuanID}`));
+        const cardXiuyuanID = card.meta?.xiuyuanID as string | undefined;
+        if (cardXiuyuanID && cardXiuyuanID !== xiuyuan.id) {
+          return err(new Error(`Card ${card.id} xiuyuanID mismatch: expected ${xiuyuan.id}, got ${cardXiuyuanID}`));
         }
         if (this.cards.has(card.id)) {
           return err(new Error(`Card ${card.id} already exists`));
@@ -433,6 +439,276 @@ export class UnifiedStorageManager {
       }
     }
 
+    // === DTO CRUD 操作 ===
+
+    /**
+     * 创建卡片（使用 DTO）
+     * @param xiuyuan XiuYuan 实体
+     * @param dto CardPersistenceDTO
+     */
+    async createCardDTO(xiuyuan: IXiuyuan, dto: CardPersistenceDTO): Promise<Result<void>> {
+      try {
+        // 保存 XiuYuan（如果不存在）
+        if (!this.xiuyuans.has(xiuyuan.id)) {
+          this.xiuyuans.set(xiuyuan.id, xiuyuan);
+        }
+
+        // 保存 DTO
+        this.cardDTOs.set(dto.id, dto);
+
+        // 同时保存 FSRSCard（向后兼容）
+        const fsrsCard = CardMapper.toDomain(dto);
+        this.cards.set(dto.id, fsrsCard);
+
+        // 更新索引（使用 DTO 的顶层字段）
+        this.updateIndexesForDTO(dto, 'add');
+
+        // 重新排序 due 索引以保持一致性
+        this.indexByDue.sort((a, b) => a.due - b.due);
+
+        // 调度保存
+        this.scheduleSave();
+
+        return ok(undefined);
+      } catch (error) {
+        return err(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+
+    /**
+     * 获取卡片 DTO
+     * @param cardId 卡片 ID
+     */
+    getCardDTO(cardId: string): CardPersistenceDTO | undefined {
+      return this.cardDTOs.get(cardId);
+    }
+
+    /**
+     * 更新卡片（使用 DTO）
+     * @param dto 更新后的 DTO
+     */
+    async updateCardDTO(dto: CardPersistenceDTO): Promise<Result<void>> {
+      try {
+        const oldDTO = this.cardDTOs.get(dto.id);
+        if (!oldDTO) {
+          return err(new Error(`Card not found: ${dto.id}`));
+        }
+
+        // 移除旧索引
+        this.updateIndexesForDTO(oldDTO, 'remove');
+
+        // 更新 DTO
+        this.cardDTOs.set(dto.id, dto);
+
+        // 同时更新 FSRSCard（向后兼容）
+        const fsrsCard = CardMapper.toDomain(dto);
+        this.cards.set(dto.id, fsrsCard);
+
+        // 添加新索引
+        this.updateIndexesForDTO(dto, 'add');
+
+        // 重新排序 due 索引
+        this.indexByDue.sort((a, b) => a.due - b.due);
+
+        // 调度保存
+        this.scheduleSave();
+
+        return ok(undefined);
+      } catch (error) {
+        return err(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+
+    /**
+     * 批量创建卡片（使用 DTO，原子性操作）
+     * @param xiuyuan XiuYuan 实体
+     * @param dtos CardPersistenceDTO 数组
+     */
+    async batchCreateCardsDTO(xiuyuan: IXiuyuan, dtos: CardPersistenceDTO[]): Promise<Result<void>> {
+      // 验证输入
+      if (!xiuyuan || !xiuyuan.id) {
+        return err(new Error('Invalid xiuyuan: missing id'));
+      }
+      if (!dtos || dtos.length === 0) {
+        return err(new Error('Invalid dtos: empty array'));
+      }
+
+      // 验证所有 DTO
+      for (const dto of dtos) {
+        if (!dto.id) {
+          return err(new Error('Invalid dto: missing id'));
+        }
+        if (dto.xiuyuanID && dto.xiuyuanID !== xiuyuan.id) {
+          return err(new Error(`DTO ${dto.id} xiuyuanID mismatch: expected ${xiuyuan.id}, got ${dto.xiuyuanID}`));
+        }
+        if (this.cardDTOs.has(dto.id)) {
+          return err(new Error(`Card ${dto.id} already exists`));
+        }
+      }
+
+      // 保存原始状态用于回滚
+      const xiuyuanExisted = this.xiuyuans.has(xiuyuan.id);
+      const originalXiuyuan = xiuyuanExisted ? this.xiuyuans.get(xiuyuan.id) : undefined;
+
+      // 保存原始索引状态（用于回滚）
+      const originalIndexByBlockID = new Map(this.indexByBlockID);
+      const originalIndexByXiuyuanID = new Map(this.indexByXiuyuanID);
+      const originalIndexByType = new Map(this.indexByType);
+      const originalIndexByPriority = new Map(this.indexByPriority);
+      const originalIndexByDue = [...this.indexByDue];
+
+      try {
+        // 1. 保存 XiuYuan（如果不存在）
+        if (!xiuyuanExisted) {
+          this.xiuyuans.set(xiuyuan.id, xiuyuan);
+        }
+
+        // 2. 批量保存 DTOs 和 FSRSCards
+        for (const dto of dtos) {
+          this.cardDTOs.set(dto.id, dto);
+          const fsrsCard = CardMapper.toDomain(dto);
+          this.cards.set(dto.id, fsrsCard);
+        }
+
+        // 3. 一次性更新所有索引
+        for (const dto of dtos) {
+          this.updateIndexesForDTO(dto, 'add');
+        }
+
+        // 4. 重新排序 due 索引（只排序一次）
+        this.indexByDue.sort((a, b) => a.due - b.due);
+
+        // 5. 调度保存（只保存一次）
+        this.scheduleSave();
+
+        return ok(undefined);
+      } catch (error) {
+        // 回滚所有更改
+
+        // 回滚 XiuYuan
+        if (!xiuyuanExisted) {
+          this.xiuyuans.delete(xiuyuan.id);
+        } else if (originalXiuyuan) {
+          this.xiuyuans.set(xiuyuan.id, originalXiuyuan);
+        }
+
+        // 回滚 DTOs 和 Cards
+        for (const dto of dtos) {
+          this.cardDTOs.delete(dto.id);
+          this.cards.delete(dto.id);
+        }
+
+        // 回滚索引
+        this.indexByBlockID = originalIndexByBlockID;
+        this.indexByXiuyuanID = originalIndexByXiuyuanID;
+        this.indexByType = originalIndexByType;
+        this.indexByPriority = originalIndexByPriority;
+        this.indexByDue = originalIndexByDue;
+
+        return err(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+
+    /**
+     * 更新索引（使用 DTO 的顶层字段）
+     * @param dto CardPersistenceDTO
+     * @param action 操作类型（add 或 remove）
+     */
+    private updateIndexesForDTO(dto: CardPersistenceDTO, action: 'add' | 'remove'): void {
+      if (action === 'add') {
+        // blockID 索引
+        const blockCards = this.indexByBlockID.get(dto.blockId) || [];
+        if (!blockCards.includes(dto.id)) {
+          blockCards.push(dto.id);
+          this.indexByBlockID.set(dto.blockId, blockCards);
+        }
+
+        // xiuyuanID 索引（使用顶层字段，避免解析 meta）
+        if (dto.xiuyuanID) {
+          const xiuyuanCards = this.indexByXiuyuanID.get(dto.xiuyuanID) || [];
+          if (!xiuyuanCards.includes(dto.id)) {
+            xiuyuanCards.push(dto.id);
+            this.indexByXiuyuanID.set(dto.xiuyuanID, xiuyuanCards);
+          }
+        }
+
+        // type 索引
+        const typeCards = this.indexByType.get(dto.type) || [];
+        if (!typeCards.includes(dto.id)) {
+          typeCards.push(dto.id);
+          this.indexByType.set(dto.type, typeCards);
+        }
+
+        // priority 索引
+        const priorityCards = this.indexByPriority.get(dto.priority) || [];
+        if (!priorityCards.includes(dto.id)) {
+          priorityCards.push(dto.id);
+          this.indexByPriority.set(dto.priority, priorityCards);
+        }
+
+        // due 索引（使用 FSRSCard，因为 indexByDue 存储的是 FSRSCard）
+        const fsrsCard = CardMapper.toDomain(dto);
+        this.indexByDue.push(fsrsCard);
+      } else {
+        // 移除 blockID 索引
+        const blockCards = this.indexByBlockID.get(dto.blockId);
+        if (blockCards) {
+          const index = blockCards.indexOf(dto.id);
+          if (index !== -1) {
+            blockCards.splice(index, 1);
+          }
+          if (blockCards.length === 0) {
+            this.indexByBlockID.delete(dto.blockId);
+          }
+        }
+
+        // 移除 xiuyuanID 索引
+        if (dto.xiuyuanID) {
+          const xiuyuanCards = this.indexByXiuyuanID.get(dto.xiuyuanID);
+          if (xiuyuanCards) {
+            const index = xiuyuanCards.indexOf(dto.id);
+            if (index !== -1) {
+              xiuyuanCards.splice(index, 1);
+            }
+            if (xiuyuanCards.length === 0) {
+              this.indexByXiuyuanID.delete(dto.xiuyuanID);
+            }
+          }
+        }
+
+        // 移除 type 索引
+        const typeCards = this.indexByType.get(dto.type);
+        if (typeCards) {
+          const index = typeCards.indexOf(dto.id);
+          if (index !== -1) {
+            typeCards.splice(index, 1);
+          }
+          if (typeCards.length === 0) {
+            this.indexByType.delete(dto.type);
+          }
+        }
+
+        // 移除 priority 索引
+        const priorityCards = this.indexByPriority.get(dto.priority);
+        if (priorityCards) {
+          const index = priorityCards.indexOf(dto.id);
+          if (index !== -1) {
+            priorityCards.splice(index, 1);
+          }
+          if (priorityCards.length === 0) {
+            this.indexByPriority.delete(dto.priority);
+          }
+        }
+
+        // 移除 due 索引
+        const dueIndex = this.indexByDue.findIndex(c => c.id === dto.id);
+        if (dueIndex !== -1) {
+          this.indexByDue.splice(dueIndex, 1);
+        }
+      }
+    }
+
+
 
   /**
    * 获取卡片
@@ -448,27 +724,11 @@ export class UnifiedStorageManager {
    */
   async updateCard(card: FSRSCard): Promise<Result<void>> {
     try {
-      const oldCard = this.cards.get(card.id);
-      if (!oldCard) {
-        return err(new Error(`Card not found: ${card.id}`));
-      }
-
-      // 移除旧索引
-      this.updateIndexesForCard(oldCard, 'remove');
-
-      // 更新卡片
-      this.cards.set(card.id, card);
-
-      // 添加新索引
-      this.updateIndexesForCard(card, 'add');
-
-      // 重新排序 due 索引
-      this.indexByDue.sort((a, b) => a.due - b.due);
-
-      // 调度保存
-      this.scheduleSave();
-
-      return ok(undefined);
+      // 转换 FSRSCard 为 DTO
+      const dto = CardMapper.toPersistence(card);
+      
+      // 调用 DTO 方法（保持向后兼容）
+      return await this.updateCardDTO(dto);
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
     }

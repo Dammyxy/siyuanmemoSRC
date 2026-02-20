@@ -196,8 +196,8 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             const router = (this.manager as any).advancedRouter;
             const plugin = router?.plugin;
             
-            if (plugin && typeof plugin.storage?.getSettings === 'function') {
-                const settings = plugin.storage.getSettings();
+            if (plugin && typeof plugin.context?.getSettingsService === 'function') {
+                const settings = plugin.context.getSettingsService().getSettings();
                 return settings?.queues?.dayStartHour ?? 4;
             }
         } catch (error) {

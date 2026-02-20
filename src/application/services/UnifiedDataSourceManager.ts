@@ -16,9 +16,16 @@ import {
     IDataRouter,
     IReviewQueue,
     CardFilter,
+    QueueError,
 } from '@/types/unified-data-source';
 import { FSRSCard } from '@/types/card';
-import { QueueFactory } from '@/core/queue/factories/QueueFactory';
+// ✅ DDD 架构：UnifiedDataSourceManager（应用层）直接创建队列，不依赖 QueueFactory（基础设施层）
+import { RetrievalPracticeQueue } from '@/core/queue/domain/RetrievalPracticeQueue';
+import { IncrementalLearningQueue } from '@/core/queue/domain/IncrementalLearningQueue';
+import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
+import { FinalDrillQueue } from '@/core/queue/domain/FinalDrillQueue';
+import { NeuralRoamQueue } from '@/core/queue/domain/NeuralRoamQueue';
+import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
 
 /**
  * UnifiedDataSourceManager 类
@@ -94,13 +101,22 @@ export class UnifiedDataSourceManager {
     private advancedRouter: IDataRouter | null;
     
     /**
-     * 队列工厂
+     * 队列实例缓存
      * 
-     * 负责创建和管理队列实例。
+     * ✅ DDD 架构改进：UnifiedDataSourceManager（应用层）直接管理队列实例
+     * 移除了 QueueFactory（基础设施层），避免分层违规
      * 
      * @see 需求 5.1, 15.3
+     * @see .kiro/specs/bugfix/queue-initialization-ddd-refactoring.md
      */
-    private queueFactory: QueueFactory;
+    private queueInstances: Map<QueueType, IReviewQueue>;
+    
+    /**
+     * 队列持久化服务
+     * 
+     * 用于队列数据的持久化（传递给队列构造函数）
+     */
+    private queuePersistence: any | null;
     
     // ========================================================================
     // 构造函数
@@ -121,8 +137,21 @@ export class UnifiedDataSourceManager {
         // 初始化路由器（将通过 setAdvancedRouter 设置）
         this.advancedRouter = null;
         
-        // 初始化队列工厂
-        this.queueFactory = new QueueFactory(this);
+        // 初始化队列实例缓存
+        this.queueInstances = new Map<QueueType, IReviewQueue>();
+        this.queuePersistence = null;
+    }
+    
+    /**
+     * 设置队列持久化服务
+     * 
+     * 必须在使用队列之前调用此方法设置队列持久化服务。
+     * 
+     * @param queuePersistence 队列持久化服务实例
+     */
+    public setQueuePersistence(queuePersistence: any): void {
+        this.queuePersistence = queuePersistence;
+        console.log('[UnifiedDataSourceManager] ✅ QueuePersistence service set');
     }
     
     /**
@@ -309,9 +338,9 @@ export class UnifiedDataSourceManager {
             
             // 2. 使受影响的队列缓存失效
             // 卡片更新可能影响所有动态队列（检索练习、渐进学习、过滤组）
-            this.queueFactory.invalidateQueue(QueueType.RetrievalPractice);
-            this.queueFactory.invalidateQueue(QueueType.IncrementalLearning);
-            this.queueFactory.invalidateQueue(QueueType.FilterGroup);
+            this.invalidateQueue(QueueType.RetrievalPractice);
+            this.invalidateQueue(QueueType.IncrementalLearning);
+            this.invalidateQueue(QueueType.FilterGroup);
             
             // 3. 通知所有观察者
             this.notifyObservers({
@@ -353,7 +382,7 @@ export class UnifiedDataSourceManager {
             
             // 2. 使受影响的队列缓存失效
             // 卡片删除可能影响所有队列
-            this.queueFactory.invalidateAllQueues();
+            this.invalidateAllQueues();
             
             // 3. 通知所有观察者
             this.notifyObservers({
@@ -375,18 +404,99 @@ export class UnifiedDataSourceManager {
     // ========================================================================
     
     /**
-     * 获取队列实例
+     * 获取队列实例（懒加载）
      * 
-     * 通过队列工厂获取指定类型的队列实例。
-     * 队列实例会被缓存，避免重复创建。
+     * ✅ DDD 架构改进：UnifiedDataSourceManager 直接创建队列
+     * - 应用层服务负责队列访问和生命周期管理
+     * - 队列实例会被缓存，避免重复创建
+     * - 队列构造函数接收 manager（this）作为第一个参数
      * 
      * @param type 队列类型
      * @returns 队列实例
-     * @throws {QueueError} 如果队列类型未知或未实现
+     * @throws {QueueError} 如果队列类型未知或 QueuePersistence 未初始化
      * @see 需求 1.1, 2.1, 3.1
+     * @see .kiro/specs/bugfix/queue-initialization-ddd-refactoring.md
      */
     public getQueue(type: QueueType): IReviewQueue {
-        return this.queueFactory.getQueue(type);
+        // 检查缓存
+        if (this.queueInstances.has(type)) {
+            return this.queueInstances.get(type)!;
+        }
+        
+        // 创建新队列实例
+        const queue = this.createQueue(type);
+        this.queueInstances.set(type, queue);
+        
+        console.log(`[UnifiedDataSourceManager] ✅ Queue created: ${type}`);
+        return queue;
+    }
+    
+    /**
+     * 创建队列实例（私有工厂方法）
+     * 
+     * 根据队列类型创建相应的队列实例。
+     * 所有队列（除了 LeechQueue）都需要：
+     * 1. manager: UnifiedDataSourceManager（this）
+     * 2. queuePersistence: QueuePersistenceService（可选，某些队列不需要）
+     * 
+     * @param type 队列类型
+     * @returns 队列实例
+     * @throws {QueueError} 如果队列类型未知
+     */
+    private createQueue(type: QueueType): IReviewQueue {
+        switch (type) {
+            case QueueType.RetrievalPractice:
+                return new RetrievalPracticeQueue(this);
+            
+            case QueueType.IncrementalLearning:
+                return new IncrementalLearningQueue(this);
+            
+            case QueueType.FilterGroup:
+                return new FilterGroupQueue(this);
+            
+            case QueueType.FinalDrill:
+                if (!this.queuePersistence) {
+                    throw new QueueError('QueuePersistence not initialized. Call setQueuePersistence() first.');
+                }
+                return new FinalDrillQueue(this, this.queuePersistence);
+            
+            case QueueType.NeuralRoam:
+                if (!this.queuePersistence) {
+                    throw new QueueError('QueuePersistence not initialized. Call setQueuePersistence() first.');
+                }
+                return new NeuralRoamQueue(this, this.queuePersistence);
+            
+            case QueueType.Leech:
+                // LeechQueue 是旧架构，不需要 manager 参数
+                return new LeechQueue();
+            
+            default:
+                throw new QueueError(`Unknown queue type: ${type}`);
+        }
+    }
+    
+    /**
+     * 使队列缓存失效
+     * 
+     * 删除指定队列的缓存实例，下次访问时将重新创建。
+     * 用于在卡片数据变化时刷新队列。
+     * 
+     * @param type 队列类型
+     * @see 需求 15.3
+     */
+    public invalidateQueue(type: QueueType): void {
+        this.queueInstances.delete(type);
+        console.log(`[UnifiedDataSourceManager] Queue cache invalidated: ${type}`);
+    }
+    
+    /**
+     * 使所有队列缓存失效
+     * 
+     * 清空所有队列缓存，用于模式切换等场景。
+     */
+    public invalidateAllQueues(): void {
+        this.queueInstances.clear();
+        console.log('[UnifiedDataSourceManager] All queue caches invalidated');
     }
     
     /**

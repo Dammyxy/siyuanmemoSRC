@@ -59,6 +59,7 @@ interface CardApplicationServiceLike {
 export class XiuyuanSyncService {
     private config: HybridSyncConfig;
     private storage: StorageManager;
+    private riffBlacklistService: any | null;
     private cardApplicationService: CardApplicationServiceLike;
     private eventBus: EventBus;
     private lastSyncTime: number = 0;
@@ -81,6 +82,7 @@ export class XiuyuanSyncService {
             retry: config.retry || this.DEFAULT_RETRY_CONFIG
         };
         this.storage = config.storage;
+        this.riffBlacklistService = config.riffBlacklistService || null;
         this.cardApplicationService = cardApplicationService;
         this.eventBus = eventBus;
     }
@@ -234,7 +236,8 @@ export class XiuyuanSyncService {
                 const addedCards: RiffBlock[] = [];
                 
                 for (const riffCard of filtered) {
-                    const localCard = this.storage.getCard(riffCard.id);
+                    const result = await this.cardApplicationService.getCard({ cardId: riffCard.id });
+                    const localCard = result.card;
                     
                     console.log(`[SiYuanMemo][HybridSync] Checking card ${riffCard.id}: localCard=${!!localCard}`);
                     
@@ -453,7 +456,8 @@ export class XiuyuanSyncService {
                 const cardsToAdd: any[] = [];
                 
                 for (const riffCard of riffCards) {
-                    const localCard = this.storage.getCard(riffCard.id);
+                    const result = await this.cardApplicationService.getCard({ cardId: riffCard.id });
+                    const localCard = result.card;
                     if (localCard) {
                         // ✅ 已存在，跳过（不覆盖本地复习数据）
                         console.log(`[SiYuanMemo][HybridSync] Card exists locally, skipping: ${riffCard.id}`);
@@ -528,7 +532,12 @@ export class XiuyuanSyncService {
                 if (this.config.incrementalSync.autoDetectCardType && addedCount > 0) {
                     this.reportProgress(onProgress, 'full', 'detecting', 6, 7, '正在检测卡片类型...');
                     // 只检测新添加的卡片
-                    const newCards = riffCards.filter(card => !this.storage.getCard(card.id));
+                    const newCardsPromises = riffCards.map(async (card) => {
+                        const result = await this.cardApplicationService.getCard({ cardId: card.id });
+                        return !result.card ? card : null;
+                    });
+                    const newCardsResults = await Promise.all(newCardsPromises);
+                    const newCards = newCardsResults.filter((card): card is RiffBlock => card !== null);
                     if (newCards.length > 0) {
                         detectedCount = await this.detectCardTypesForNewCards(newCards);
                     }
@@ -760,7 +769,11 @@ export class XiuyuanSyncService {
             
             // 失败时加入黑名单（如果启用）
             if (this.config.deleteSync.useBlacklistFallback) {
-                this.storage.addToRiffBlacklist(cardID);
+                if (this.riffBlacklistService) {
+                    await this.riffBlacklistService.addToBlacklist(cardID);
+                } else {
+                    this.storage.addToRiffBlacklist(cardID);
+                }
                 console.log(`[SiYuanMemo][HybridSync] Added card to blacklist as fallback: ${cardID}`);
             }
             

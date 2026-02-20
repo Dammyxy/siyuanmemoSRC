@@ -85,22 +85,21 @@ export class AutoCardHandler implements ITransactionHandler {
     }
     
     /**
-     * 获取 StorageManager
+     * 获取 SettingsService
      * 
      * @private
-     * @returns StorageManager 实例
+     * @returns SettingsService 实例
      * 
      * @description
-     * ✅ DDD 架构：优先通过 ApplicationContext 获取
-     * 回退到 plugin.storage（向后兼容）
+     * ✅ DDD 架构：通过 ApplicationContext 获取 SettingsService
      */
-    private get storage(): any {
+    private get settingsService(): any {
         try {
             if (this.plugin && (this.plugin as any).context) {
-                return (this.plugin as any).context.getStorage();
+                return (this.plugin as any).context.getSettingsService();
             }
         } catch (error) {
-            console.warn('[AutoCard] Failed to get Storage from context:', error);
+            console.warn('[AutoCard] Failed to get SettingsService from context:', error);
         }
         // 回退到旧方法
         return this.plugin.storage;
@@ -240,7 +239,7 @@ export class AutoCardHandler implements ITransactionHandler {
      */
     handle(transactions: Transaction[]): void {
         // 检查快速制卡是否启用
-        const quickCardSettings = this.storage.getSettings().quickCard;
+        const quickCardSettings = this.settingsService.getSettings().quickCard;
         console.log('[SiYuanMemo][AutoCard] Quick card settings:', quickCardSettings);
         if (!quickCardSettings?.enabled) {
             console.log('[SiYuanMemo][AutoCard] Quick card is disabled, skipping');
@@ -296,7 +295,7 @@ export class AutoCardHandler implements ITransactionHandler {
         }
         
         // 从设置中获取防抖时间
-        const quickCardSettings = this.storage.getSettings().quickCard;
+        const quickCardSettings = this.settingsService.getSettings().quickCard;
         const debounceDelay = quickCardSettings?.debounceDelay?.quick || this.QUICK_DEBOUNCE;
         
         // 🆕 如果防抖时间设置为 0，则完全禁用防抖（只依赖失焦检测）
@@ -333,7 +332,7 @@ export class AutoCardHandler implements ITransactionHandler {
         }
         
         // 从设置中获取防抖时间
-        const quickCardSettings = this.storage.getSettings().quickCard;
+        const quickCardSettings = this.settingsService.getSettings().quickCard;
         const debounceDelay = quickCardSettings?.debounceDelay?.list || this.LIST_DEBOUNCE;
         
         this.listTimer = setTimeout(() => {
@@ -424,7 +423,7 @@ export class AutoCardHandler implements ITransactionHandler {
     private async checkQuickSymbols(blockId: string): Promise<void> {
         try {
             // 获取设置
-            const quickCardSettings = this.storage.getSettings().quickCard;
+            const quickCardSettings = this.settingsService.getSettings().quickCard;
             if (!quickCardSettings?.enabled) {
                 return;
             }
@@ -631,7 +630,7 @@ export class AutoCardHandler implements ITransactionHandler {
     private async checkListTemplate(blockId: string): Promise<void> {
         try {
             // 获取设置
-            const quickCardSettings = this.storage.getSettings().quickCard;
+            const quickCardSettings = this.settingsService.getSettings().quickCard;
             if (!quickCardSettings?.enabled || !quickCardSettings.enabledSymbols.multiLine) {
                 return;
             }

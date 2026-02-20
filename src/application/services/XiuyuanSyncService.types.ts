@@ -14,6 +14,9 @@ export interface HybridSyncConfig {
     /** 存储管理器 */
     storage: any; // StorageManager
     
+    /** Riff 黑名单服务 */
+    riffBlacklistService?: any; // RiffBlacklistService (optional for backward compatibility)
+    
     /** 增量同步配置 */
     incrementalSync: {
         /** 是否启用增量同步 */

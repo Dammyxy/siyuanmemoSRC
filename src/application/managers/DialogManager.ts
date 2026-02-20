@@ -71,8 +71,8 @@ export class DialogManager implements IDialogManager {
    * @param defaultTab - 默认打开的标签页（可选）
    */
   openSettingsDialog(defaultTab?: string): void {
-    const storage = this.context.getStorage();
-    const currentSettings = storage.getSettings();
+    const settingsService = this.context.getSettingsService();
+    const currentSettings = settingsService.getSettings();
     const plugin = this.plugin as any;
     
     // 如果已有打开的设置对话框，先销毁
@@ -120,7 +120,7 @@ export class DialogManager implements IDialogManager {
             quickCard: settings.quickCard || currentSettings.quickCard,
             ui: settings.ui || currentSettings.ui,
           };
-          await storage.updateSettings(updatedSettings);
+          await settingsService.updateSettings(updatedSettings);
           plugin.scheduler.updateParams(updatedSettings.fsrs);
 
           // 更新 SchedulerRouter 配置
@@ -535,8 +535,8 @@ export class DialogManager implements IDialogManager {
     this.destroyCurrentReviewDialog();
 
     try {
-      const storage = this.context.getStorage();
-      const settings = storage.getSettings();
+      const settingsService = this.context.getSettingsService();
+      const settings = settingsService.getSettings();
       const leech = (settings as any)?.leech || {};
       
       const { LeechQueue } = await import('@/core/queue/strategies/LeechQueue');

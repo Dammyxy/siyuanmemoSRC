@@ -33,6 +33,7 @@ export enum QueueType {
     IncrementalLearning = 'incremental-learning',
     FilterGroup = 'filter-group',
     NeuralRoam = 'neural-roam',
+    Leech = 'leech', // 难点攻坚队列
 }
 
 // ============================================================================

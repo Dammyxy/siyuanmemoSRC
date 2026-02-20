@@ -20,6 +20,7 @@ import { QueueType } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
+import type { IQueuePersistenceService } from '../../../infrastructure/services/QueuePersistenceService';
 import { resolveCardId } from '../../../diagnostics/type-guards';
 
 /**
@@ -80,23 +81,81 @@ export class FinalDrillQueue extends BaseReviewQueue {
     /**
      * 持久化存储键
      */
-    private readonly STORAGE_KEY = 'final-drill-entries';
+    private readonly STORAGE_KEY = 'finalDrillQueue';
+    
+    /**
+     * 队列持久化服务
+     */
+    private readonly queuePersistence: IQueuePersistenceService;
     
     /**
      * 构造函数
      * 
      * @param manager 统一数据源管理器实例
+     * @param queuePersistence 队列持久化服务（依赖注入）
      */
-    constructor(manager: UnifiedDataSourceManager) {
+    constructor(manager: UnifiedDataSourceManager, queuePersistence: IQueuePersistenceService) {
         super(manager, QueueType.FinalDrill);
         
+        this.queuePersistence = queuePersistence;
         this.entries = new Map<string, FinalDrillEntry>();
-        this.loadPersistedEntries();
+        
+        // 注意：不在构造函数中调用 load()，由外部调用
+        // this.loadPersistedEntries();
         
         // 启动时自动清理过期的自动失败卡片
         this.cleanupExpiredAutoFailed().catch(error => {
             console.error('[SiYuanMemo][FinalDrillQueue] Failed to cleanup expired auto-failed cards on startup:', error);
         });
+    }
+    
+    /**
+     * 从持久化服务加载状态
+     * 
+     * 加载队列条目（包括来源和时间戳）。
+     * 如果没有保存的数据，初始化为空 Map。
+     * 
+     * @see 需求 4.2, 4.5, 13.1, 13.3
+     */
+    async load(): Promise<void> {
+        try {
+            const data = this.queuePersistence.get<FinalDrillEntry[]>(this.STORAGE_KEY);
+            
+            if (data && Array.isArray(data)) {
+                this.entries = new Map();
+                for (const entry of data) {
+                    this.entries.set(entry.cardId, entry);
+                }
+                console.log(`[FinalDrillQueue] Loaded ${this.entries.size} entries`);
+            } else {
+                this.entries = new Map();
+                console.log('[FinalDrillQueue] No saved data found, starting with empty queue');
+            }
+        } catch (error) {
+            console.error('[FinalDrillQueue] Failed to load state:', error);
+            this.entries = new Map();
+        }
+    }
+    
+    /**
+     * 保存状态到持久化服务
+     * 
+     * 保存队列条目列表。
+     * 使用键名 "finalDrillQueue"。
+     * 
+     * @see 需求 4.2, 4.5, 4.6, 13.1
+     */
+    async save(): Promise<void> {
+        try {
+            const data = Array.from(this.entries.values());
+            
+            await this.queuePersistence.set(this.STORAGE_KEY, data);
+            
+            console.log(`[FinalDrillQueue] Saved ${data.length} entries`);
+        } catch (error) {
+            console.error('[FinalDrillQueue] Failed to save state:', error);
+            throw error;
+        }
     }
     
     /**
@@ -156,7 +215,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
             
             // 持久化（如果有卡片被移除）
             if (cardsToRemove.length > 0) {
-                await this.persistEntries();
+                await this.save();
             }
             
             // ⚠️ 重要：每次调用都执行 FlipElement 算法
@@ -217,7 +276,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
             });
             
             // 持久化
-            await this.persistEntries();
+            await this.save();
             
             // 触发观察者通知（需求 6.4：卡片添加的队列统计更新）
             this.manager.notifyObservers({
@@ -242,7 +301,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
     public async removeCard(cardIdOrBlockId: string): Promise<void> {
         try {
             this.entries.delete(cardIdOrBlockId);
-            await this.persistEntries();
+            await this.save();
             console.log(`[SiYuanMemo][FinalDrillQueue] Card ${cardIdOrBlockId} removed`);
         } catch (error) {
             console.error('[SiYuanMemo][FinalDrillQueue] Failed to remove card:', error);
@@ -352,7 +411,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
             this.entries = newEntries;
             
             // 持久化新顺序
-            await this.persistEntries();
+            await this.save();
             
             console.log(`[SiYuanMemo][FinalDrillQueue] Reorder completed successfully`);
             return true;
@@ -390,7 +449,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
         this.entries.set(cardId, entry);
         
         // 持久化
-        await this.persistEntries();
+        await this.save();
         
         console.log(`[SiYuanMemo][FinalDrillQueue] Card ${cardId} moved to back of queue`);
     }
@@ -476,48 +535,11 @@ export class FinalDrillQueue extends BaseReviewQueue {
             }
             
             if (cleanedCount > 0) {
-                await this.persistEntries();
+                await this.save();
                 console.log(`[SiYuanMemo][FinalDrillQueue] Cleaned up ${cleanedCount} expired auto-failed cards`);
             }
         } catch (error) {
             console.error('[SiYuanMemo][FinalDrillQueue] Failed to cleanup expired auto-failed cards:', error);
-            throw error;
-        }
-    }
-    
-    /**
-     * 从持久化存储加载条目
-     * 
-     * @see 需求 13.1, 13.3
-     */
-    private loadPersistedEntries(): void {
-        try {
-            const stored = localStorage.getItem(this.STORAGE_KEY);
-            if (stored) {
-                const entries: FinalDrillEntry[] = JSON.parse(stored);
-                for (const entry of entries) {
-                    this.entries.set(entry.cardId, entry);
-                }
-                console.log(`[SiYuanMemo][FinalDrillQueue] Loaded ${entries.length} entries from storage`);
-            }
-        } catch (error) {
-            console.error('[SiYuanMemo][FinalDrillQueue] Failed to load persisted entries:', error);
-            this.entries = new Map();
-        }
-    }
-    
-    /**
-     * 持久化条目到存储
-     * 
-     * @see 需求 13.1
-     */
-    private async persistEntries(): Promise<void> {
-        try {
-            const entries = Array.from(this.entries.values());
-            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(entries));
-            console.log(`[SiYuanMemo][FinalDrillQueue] Persisted ${entries.length} entries`);
-        } catch (error) {
-            console.error('[SiYuanMemo][FinalDrillQueue] Failed to persist entries:', error);
             throw error;
         }
     }

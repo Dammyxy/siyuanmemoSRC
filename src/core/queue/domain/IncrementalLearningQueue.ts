@@ -20,6 +20,7 @@ import { QueueType, QueueUIConfig, ReviewButtonConfig } from '../../../types/uni
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
+import type { IQueuePersistenceService } from '../../../infrastructure/services/QueuePersistenceService';
 import { resolveCardId } from '../../../diagnostics/type-guards';
 
 /**
@@ -46,18 +47,73 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
     /**
      * 持久化存储键
      */
-    private readonly STORAGE_KEY = 'incremental-learning-manual-cards';
+    private readonly STORAGE_KEY = 'incrementalLearningQueue';
+    
+    /**
+     * 队列持久化服务
+     */
+    private readonly queuePersistence: IQueuePersistenceService;
     
     /**
      * 构造函数
      * 
      * @param manager 统一数据源管理器实例
+     * @param queuePersistence 队列持久化服务（依赖注入）
      */
-    constructor(manager: UnifiedDataSourceManager) {
+    constructor(manager: UnifiedDataSourceManager, queuePersistence: IQueuePersistenceService) {
         super(manager, QueueType.IncrementalLearning);
         
+        this.queuePersistence = queuePersistence;
         this.manuallyAddedCards = new Set<string>();
-        this.loadManuallyAddedCards();
+        
+        // 注意：不在构造函数中调用 load()，由外部调用
+        // this.loadManuallyAddedCards();
+    }
+    
+    /**
+     * 从持久化服务加载状态
+     * 
+     * 加载手动添加的卡片 ID 列表。
+     * 如果没有保存的数据，初始化为空集合。
+     * 
+     * @see 需求 4.2, 4.5
+     */
+    async load(): Promise<void> {
+        try {
+            const data = this.queuePersistence.get<string[]>(this.STORAGE_KEY);
+            
+            if (data && Array.isArray(data)) {
+                this.manuallyAddedCards = new Set(data);
+                console.log(`[IncrementalLearningQueue] Loaded ${this.manuallyAddedCards.size} manually added cards`);
+            } else {
+                this.manuallyAddedCards = new Set();
+                console.log('[IncrementalLearningQueue] No saved data found, starting with empty set');
+            }
+        } catch (error) {
+            console.error('[IncrementalLearningQueue] Failed to load state:', error);
+            this.manuallyAddedCards = new Set();
+        }
+    }
+    
+    /**
+     * 保存状态到持久化服务
+     * 
+     * 保存手动添加的卡片 ID 列表。
+     * 使用键名 "incrementalLearningQueue"。
+     * 
+     * @see 需求 4.2, 4.5, 4.6
+     */
+    async save(): Promise<void> {
+        try {
+            const data = Array.from(this.manuallyAddedCards);
+            
+            await this.queuePersistence.set(this.STORAGE_KEY, data);
+            
+            console.log(`[IncrementalLearningQueue] Saved ${data.length} manually added cards`);
+        } catch (error) {
+            console.error('[IncrementalLearningQueue] Failed to save state:', error);
+            throw error;
+        }
     }
     
     /**
@@ -152,7 +208,7 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
             this.manuallyAddedCards.add(cardId);
             
             // 持久化
-            await this.persistManuallyAddedCards();
+            await this.save();
             
             // 触发观察者通知（需求 6.4：卡片添加的队列统计更新）
             this.manager.notifyObservers({
@@ -196,7 +252,7 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
             
             // 3. 持久化手动添加的卡片列表（如果有变化）
             if (wasManuallyAdded) {
-                await this.persistManuallyAddedCards();
+                await this.save();
             }
             
             console.log(`[SiYuanMemo][IncrementalLearningQueue] Card ${cardIdOrBlockId} removed`, {
@@ -341,37 +397,6 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
             // 最后按卡片 ID 排序（确保稳定排序）
             return a.id.localeCompare(b.id);
         });
-    }
-    
-    /**
-     * 从持久化存储加载手动添加的卡片
-     */
-    private loadManuallyAddedCards(): void {
-        try {
-            const stored = localStorage.getItem(this.STORAGE_KEY);
-            if (stored) {
-                const cardIds: string[] = JSON.parse(stored);
-                this.manuallyAddedCards = new Set(cardIds);
-                console.log(`[SiYuanMemo][IncrementalLearningQueue] Loaded ${cardIds.length} manually added cards from storage`);
-            }
-        } catch (error) {
-            console.error('[SiYuanMemo][IncrementalLearningQueue] Failed to load manually added cards:', error);
-            this.manuallyAddedCards = new Set();
-        }
-    }
-    
-    /**
-     * 持久化手动添加的卡片
-     */
-    private async persistManuallyAddedCards(): Promise<void> {
-        try {
-            const cardIds = Array.from(this.manuallyAddedCards);
-            localStorage.setItem(this.STORAGE_KEY, JSON.stringify(cardIds));
-            console.log(`[SiYuanMemo][IncrementalLearningQueue] Persisted ${cardIds.length} manually added cards`);
-        } catch (error) {
-            console.error('[SiYuanMemo][IncrementalLearningQueue] Failed to persist manually added cards:', error);
-            throw error;
-        }
     }
     
     /**

@@ -15,7 +15,8 @@ import type { Plugin } from 'siyuan';
  */
 export function getDayStartHour(plugin: Plugin): number {
   try {
-    const settings = (plugin as any).storage?.getSettings() as PluginSettings | undefined;
+    const context = (plugin as any).context;
+    const settings = context?.getSettingsService?.()?.getSettings() as PluginSettings | undefined;
     const dayStartHour = settings?.fsrs?.dayStartHour;
     
     if (dayStartHour === undefined) {
@@ -44,12 +45,13 @@ export async function saveDayStartHour(plugin: Plugin, dayStartHour: number): Pr
   }
   
   try {
-    const storage = (plugin as any).storage;
-    if (!storage) {
-      throw new Error('Storage not initialized');
+    const context = (plugin as any).context;
+    const settingsService = context?.getSettingsService?.();
+    if (!settingsService) {
+      throw new Error('SettingsService not initialized');
     }
     
-    const settings = storage.getSettings() as PluginSettings;
+    const settings = settingsService.getSettings() as PluginSettings;
     const newSettings: PluginSettings = {
       ...settings,
       fsrs: {
@@ -58,7 +60,7 @@ export async function saveDayStartHour(plugin: Plugin, dayStartHour: number): Pr
       },
     };
     
-    await storage.saveSettings(newSettings);
+    await settingsService.updateSettings(newSettings);
     console.log('[SiYuanMemo][Config] Saved dayStartHour:', validated);
   } catch (error) {
     console.error('[SiYuanMemo][Config] Failed to save dayStartHour:', error);

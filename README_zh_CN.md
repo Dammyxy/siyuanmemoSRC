@@ -213,6 +213,72 @@
 - **性能测试**：关键路径性能基准测试
 - **边界条件测试**：20+ 边界条件测试用例
 
+## 架构说明
+
+### DDD 分层架构
+
+本插件采用领域驱动设计（DDD）原则，将系统分为四个清晰的层次：
+
+```
+表现层 (Presentation)
+    ↓
+应用层 (Application)
+    ↓
+领域层 (Domain)
+    ↓
+基础设施层 (Infrastructure)
+```
+
+#### 核心服务
+
+**应用层服务**：
+- `SettingsService`：管理插件设置和 Riff 集成配置
+- `ReviewLogService`：管理复习和重新调度日志
+- `RiffBlacklistService`：管理 Riff 黑名单
+
+**基础设施层服务**：
+- `FileService`：统一的文件读写接口
+- `QueuePersistenceService`：通用键值存储，支持所有队列类型
+- `UnifiedStorageManager`：卡片和 XiuYuan 统一存储
+
+**领域层对象**：
+- 队列对象：`RetrievalPracticeQueue`、`FinalDrillQueue`、`IncrementalLearningQueue` 等
+- 卡片领域对象
+- XiuYuan 领域对象
+
+#### 设计原则
+
+1. **单一职责**：每个服务只负责一个明确的领域
+2. **依赖注入**：通过 `ApplicationContext` 管理服务生命周期
+3. **队列自治**：队列对象自己管理状态和逻辑
+4. **通用存储**：持久化服务不需要知道队列的具体结构
+5. **防抖保存**：所有写操作使用 300ms 防抖，避免频繁 I/O
+
+#### 使用示例
+
+```typescript
+// 获取服务
+const context = await ApplicationContext.create(plugin);
+const settingsService = context.getSettingsService();
+const queuePersistence = context.getQueuePersistenceService();
+
+// 使用设置服务
+const settings = settingsService.getSettings();
+await settingsService.updateSettings({ newCardsPerDay: 20 });
+
+// 使用队列
+const queue = new RetrievalPracticeQueue(queuePersistence);
+await queue.load();
+queue.add(item);
+await queue.save();
+```
+
+#### 相关文档
+
+- [架构文档](./.kiro/specs/storage-manager-ddd-refactoring/ARCHITECTURE.md)
+- [重构指南](./.kiro/specs/storage-manager-ddd-refactoring/REFACTORING-GUIDE.md)
+- [ADR-001: StorageManager DDD 重构](./.kiro/specs/storage-manager-ddd-refactoring/ADR-001-storage-manager-refactoring.md)
+
 ## API 说明
 
 - /riff/getRiffCardsByBlockIDs 返回的 created/updated 现在对应块的 created_time/last_edited_time

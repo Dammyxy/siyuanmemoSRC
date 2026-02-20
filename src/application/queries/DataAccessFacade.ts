@@ -83,6 +83,13 @@ export class DataAccessFacade implements IDataRouter {
     private storage: StorageManager;
     
     /**
+     * 设置服务
+     * 
+     * 用于访问插件设置
+     */
+    private settingsService: any;
+    
+    /**
      * 插件实例
      * 
      * 用于访问插件配置(如 dayStartHour)
@@ -107,13 +114,15 @@ export class DataAccessFacade implements IDataRouter {
      * @param cardService 卡片应用服务实例
      * @param storage 本地存储管理器实例(用于 fillMissingRootIds)
      * @param plugin 插件实例(用于访问配置)
+     * @param settingsService 设置服务实例(用于访问设置)
      */
-    constructor(cardService: CardApplicationService, storage: StorageManager, plugin?: any) {
+    constructor(cardService: CardApplicationService, storage: StorageManager, plugin?: any, settingsService?: any) {
         this.cardService = cardService;
         this.cardFilterService = new CardFilterService();
         this.blockRepository = new BlockRepository();
         this.storage = storage;
         this.plugin = plugin;
+        this.settingsService = settingsService;
     }
     
     // ========================================================================
@@ -237,7 +246,7 @@ export class DataAccessFacade implements IDataRouter {
         // 检查是否需要从 Riff 删除
         let deleteFromRiff = false;
         if (this.plugin?.hybridSyncService) {
-            const riffConfig = this.storage.getSettings().riffIntegration;
+            const riffConfig = this.settingsService?.getSettings?.()?.riffIntegration || this.storage.getSettings().riffIntegration;
             deleteFromRiff = riffConfig?.deleteSync?.enabled || false;
         }
         

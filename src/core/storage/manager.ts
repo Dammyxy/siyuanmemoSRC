@@ -290,7 +290,9 @@ export class StorageManager {
             // 后备：尝试加载 JSON 格式（向后兼容）
             const jsonData = await this.readPluginData(STORAGE_FILES.CARDS_JSON);
             if (jsonData) {
-                const cards: FSRSCard[] = JSON.parse(jsonData);
+                const parsed = JSON.parse(jsonData);
+                // ✅ 确保解析结果是数组
+                const cards: FSRSCard[] = Array.isArray(parsed) ? parsed : [];
                 this.cardsCache.clear();
                 
                 // 🔧 规范化每张卡片
@@ -312,9 +314,15 @@ export class StorageManager {
                     this.isDirty = true;
                     await this.saveCards();
                 }
+            } else {
+                // ✅ 如果没有任何数据文件，初始化为空
+                console.log('[SiYuanMemo] No card data found, starting with empty collection');
+                this.cardsCache.clear();
             }
         } catch (err) {
-            console.warn('[SiYuanMemo] Failed to load cards:', err);
+            console.error('[SiYuanMemo] Failed to load cards:', err);
+            // ✅ 确保即使出错也有一个有效的空缓存
+            this.cardsCache.clear();
         }
     }
     

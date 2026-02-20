@@ -431,4 +431,202 @@ describe('ApplicationContext - 服务容器', () => {
       await newContext.dispose();
     });
   });
+
+  describe('DDD 重构服务集成', () => {
+    it('应该能够获取 FileService', () => {
+      const fileService = context.getFileService();
+      
+      expect(fileService).toBeDefined();
+      expect(fileService).toHaveProperty('readFile');
+      expect(fileService).toHaveProperty('writeFile');
+      expect(fileService).toHaveProperty('readJSON');
+      expect(fileService).toHaveProperty('writeJSON');
+      expect(fileService).toHaveProperty('readMsgpack');
+      expect(fileService).toHaveProperty('writeMsgpack');
+    });
+
+    it('FileService 应该是懒加载的', async () => {
+      const newContext = await ApplicationContext.create({
+        plugin: mockPlugin,
+        i18n: {}
+      });
+      
+      // 服务应该已注册但未创建
+      expect(newContext.hasService('fileService')).toBe(true);
+      expect(newContext.isServiceCreated('fileService')).toBe(false);
+      
+      // 第一次访问时创建
+      const fileService = newContext.getFileService();
+      expect(fileService).toBeDefined();
+      expect(newContext.isServiceCreated('fileService')).toBe(true);
+      
+      // 第二次访问返回同一实例
+      const fileService2 = newContext.getFileService();
+      expect(fileService2).toBe(fileService);
+      
+      await newContext.dispose();
+    });
+
+    it('应该能够获取 QueuePersistenceService', () => {
+      const queuePersistence = context.getQueuePersistenceService();
+      
+      expect(queuePersistence).toBeDefined();
+      expect(queuePersistence).toHaveProperty('init');
+      expect(queuePersistence).toHaveProperty('get');
+      expect(queuePersistence).toHaveProperty('set');
+      expect(queuePersistence).toHaveProperty('delete');
+      expect(queuePersistence).toHaveProperty('keys');
+      expect(queuePersistence).toHaveProperty('flush');
+    });
+
+    it('QueuePersistenceService 应该是懒加载的', async () => {
+      const newContext = await ApplicationContext.create({
+        plugin: mockPlugin,
+        i18n: {}
+      });
+      
+      // 服务应该已注册但未创建
+      expect(newContext.hasService('queuePersistenceService')).toBe(true);
+      expect(newContext.isServiceCreated('queuePersistenceService')).toBe(false);
+      
+      // 第一次访问时创建
+      const queuePersistence = newContext.getQueuePersistenceService();
+      expect(queuePersistence).toBeDefined();
+      expect(newContext.isServiceCreated('queuePersistenceService')).toBe(true);
+      
+      // 第二次访问返回同一实例
+      const queuePersistence2 = newContext.getQueuePersistenceService();
+      expect(queuePersistence2).toBe(queuePersistence);
+      
+      await newContext.dispose();
+    });
+
+    it('应该能够获取 SettingsService', () => {
+      const settingsService = context.getSettingsService();
+      
+      expect(settingsService).toBeDefined();
+      expect(settingsService).toHaveProperty('init');
+      expect(settingsService).toHaveProperty('getSettings');
+      expect(settingsService).toHaveProperty('updateSettings');
+      expect(settingsService).toHaveProperty('getRiffIntegrationConfig');
+      expect(settingsService).toHaveProperty('updateRiffIntegrationConfig');
+    });
+
+    it('SettingsService 应该是懒加载的', async () => {
+      const newContext = await ApplicationContext.create({
+        plugin: mockPlugin,
+        i18n: {}
+      });
+      
+      // 服务应该已注册但未创建
+      expect(newContext.hasService('settingsService')).toBe(true);
+      expect(newContext.isServiceCreated('settingsService')).toBe(false);
+      
+      // 第一次访问时创建
+      const settingsService = newContext.getSettingsService();
+      expect(settingsService).toBeDefined();
+      expect(newContext.isServiceCreated('settingsService')).toBe(true);
+      
+      // 第二次访问返回同一实例
+      const settingsService2 = newContext.getSettingsService();
+      expect(settingsService2).toBe(settingsService);
+      
+      await newContext.dispose();
+    });
+
+    it('应该能够获取 ReviewLogService', () => {
+      const reviewLogService = context.getReviewLogService();
+      
+      expect(reviewLogService).toBeDefined();
+      expect(reviewLogService).toHaveProperty('addReviewLog');
+      expect(reviewLogService).toHaveProperty('addRescheduleLog');
+      expect(reviewLogService).toHaveProperty('getReviewLogs');
+      expect(reviewLogService).toHaveProperty('getAllReviewLogs');
+    });
+
+    it('ReviewLogService 应该是懒加载的', async () => {
+      const newContext = await ApplicationContext.create({
+        plugin: mockPlugin,
+        i18n: {}
+      });
+      
+      // 服务应该已注册但未创建
+      expect(newContext.hasService('reviewLogService')).toBe(true);
+      expect(newContext.isServiceCreated('reviewLogService')).toBe(false);
+      
+      // 第一次访问时创建
+      const reviewLogService = newContext.getReviewLogService();
+      expect(reviewLogService).toBeDefined();
+      expect(newContext.isServiceCreated('reviewLogService')).toBe(true);
+      
+      // 第二次访问返回同一实例
+      const reviewLogService2 = newContext.getReviewLogService();
+      expect(reviewLogService2).toBe(reviewLogService);
+      
+      await newContext.dispose();
+    });
+
+    it('应该能够获取 RiffBlacklistService', () => {
+      const riffBlacklistService = context.getRiffBlacklistService();
+      
+      expect(riffBlacklistService).toBeDefined();
+      expect(riffBlacklistService).toHaveProperty('init');
+      expect(riffBlacklistService).toHaveProperty('addToBlacklist');
+      expect(riffBlacklistService).toHaveProperty('removeFromBlacklist');
+      expect(riffBlacklistService).toHaveProperty('isInBlacklist');
+      expect(riffBlacklistService).toHaveProperty('getBlacklist');
+      expect(riffBlacklistService).toHaveProperty('clearBlacklist');
+    });
+
+    it('RiffBlacklistService 应该是懒加载的', async () => {
+      const newContext = await ApplicationContext.create({
+        plugin: mockPlugin,
+        i18n: {}
+      });
+      
+      // 服务应该已注册但未创建
+      expect(newContext.hasService('riffBlacklistService')).toBe(true);
+      expect(newContext.isServiceCreated('riffBlacklistService')).toBe(false);
+      
+      // 第一次访问时创建
+      const riffBlacklistService = newContext.getRiffBlacklistService();
+      expect(riffBlacklistService).toBeDefined();
+      expect(newContext.isServiceCreated('riffBlacklistService')).toBe(true);
+      
+      // 第二次访问返回同一实例
+      const riffBlacklistService2 = newContext.getRiffBlacklistService();
+      expect(riffBlacklistService2).toBe(riffBlacklistService);
+      
+      await newContext.dispose();
+    });
+
+    it('DDD 服务应该正确处理依赖注入', () => {
+      // FileService 不依赖其他服务
+      const fileService = context.getFileService();
+      expect(fileService).toBeDefined();
+      
+      // QueuePersistenceService 依赖 FileService
+      const queuePersistence = context.getQueuePersistenceService();
+      expect(queuePersistence).toBeDefined();
+      
+      // SettingsService 依赖 FileService
+      const settingsService = context.getSettingsService();
+      expect(settingsService).toBeDefined();
+      
+      // ReviewLogService 依赖 FileService
+      const reviewLogService = context.getReviewLogService();
+      expect(reviewLogService).toBeDefined();
+      
+      // RiffBlacklistService 依赖 FileService
+      const riffBlacklistService = context.getRiffBlacklistService();
+      expect(riffBlacklistService).toBeDefined();
+      
+      // 验证所有服务都已创建
+      expect(context.isServiceCreated('fileService')).toBe(true);
+      expect(context.isServiceCreated('queuePersistenceService')).toBe(true);
+      expect(context.isServiceCreated('settingsService')).toBe(true);
+      expect(context.isServiceCreated('reviewLogService')).toBe(true);
+      expect(context.isServiceCreated('riffBlacklistService')).toBe(true);
+    });
+  });
 });

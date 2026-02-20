@@ -24,12 +24,7 @@ import { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
 import { HybridSyncService } from '@/application/services/XiuyuanSyncService';
 import { TransactionWebSocketService } from '@/core/infrastructure/websocket/TransactionWebSocketService';
 import { QueueContext, type QueueItem } from '@/core/queue';
-import { RetrievalPracticeQueue } from '@/core/queue/domain/RetrievalPracticeQueue';
-import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
-import { FinalDrillQueue } from '@/core/queue/domain/FinalDrillQueue';
-import { IncrementalLearningQueue } from '@/core/queue/domain/IncrementalLearningQueue';
-import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
-import { QueueType } from '@/types/unified-data-source';
+import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
 import { AdvancedDataRouter } from '@/application/queries/DataAccessFacade';
 
 // ✅ 静态导入所有服务工厂需要的类
@@ -47,6 +42,13 @@ import { CardSortService } from '@/core/card/domain/services/CardSortService';
 import { BrowserApplicationService } from '@/application/services/BrowserApplicationService';
 import { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
+
+// ✅ DDD 重构服务导入
+import { FileService } from '@/infrastructure/services/FileService';
+import { QueuePersistenceService } from '@/infrastructure/services/QueuePersistenceService';
+import { SettingsService } from '@/application/services/SettingsService';
+import { ReviewLogService } from '@/application/services/ReviewLogService';
+import { RiffBlacklistService } from '@/application/services/RiffBlacklistService';
 
 /**
  * 应用配置接口
@@ -89,13 +91,8 @@ export class ApplicationContext {
   private rescheduleService: RescheduleService;
   private unifiedDataSourceManager: UnifiedDataSourceManager;
   
-  // 队列
+  // 队列上下文（不再直接持有具体队列实例）
   private queueContext: QueueContext<QueueItem>;
-  private retrievalQueue: RetrievalPracticeQueue;
-  private finalDrillQueue: FinalDrillQueue;
-  private leechQueue: LeechQueue;
-  private incrementalQueue: IncrementalLearningQueue;
-  private subsetQueue: FilterGroupQueue;
   
   // Xiuyuan 服务
   private xiuyuanStorage: XiuyuanStorage;
@@ -181,11 +178,6 @@ export class ApplicationContext {
       rescheduleService: RescheduleService;
       unifiedDataSourceManager: UnifiedDataSourceManager;
       queueContext: QueueContext<QueueItem>;
-      retrievalQueue: RetrievalPracticeQueue;
-      finalDrillQueue: FinalDrillQueue;
-      leechQueue: LeechQueue;
-      incrementalQueue: IncrementalLearningQueue;
-      subsetQueue: FilterGroupQueue;
       xiuyuanStorage: XiuyuanStorage;
       xiuyuanService: XiuyuanService;
       blockMenuHandler: BlockMenuHandler;
@@ -201,11 +193,6 @@ export class ApplicationContext {
     this.rescheduleService = services.rescheduleService;
     this.unifiedDataSourceManager = services.unifiedDataSourceManager;
     this.queueContext = services.queueContext;
-    this.retrievalQueue = services.retrievalQueue;
-    this.finalDrillQueue = services.finalDrillQueue;
-    this.leechQueue = services.leechQueue;
-    this.incrementalQueue = services.incrementalQueue;
-    this.subsetQueue = services.subsetQueue;
     this.xiuyuanStorage = services.xiuyuanStorage;
     this.xiuyuanService = services.xiuyuanService;
     this.blockMenuHandler = services.blockMenuHandler;
@@ -236,6 +223,33 @@ export class ApplicationContext {
     // ✅ 注册 EventBus（单例）
     this.registerServiceFactory('eventBus', (context) => {
       return new EventBus(false);  // false = 不启用调试日志
+    });
+    
+    // ✅ 注册 DDD 重构服务工厂
+    // 基础设施层服务
+    this.registerServiceFactory('fileService', (context) => {
+      return new FileService(context.getPlugin() as any);
+    });
+    
+    this.registerServiceFactory('queuePersistenceService', (context) => {
+      const fileService = context.getFileService();
+      return new QueuePersistenceService(fileService);
+    });
+    
+    // 应用层服务
+    this.registerServiceFactory('settingsService', (context) => {
+      const fileService = context.getFileService();
+      return new SettingsService(fileService);
+    });
+    
+    this.registerServiceFactory('reviewLogService', (context) => {
+      const fileService = context.getFileService();
+      return new ReviewLogService(fileService);
+    });
+    
+    this.registerServiceFactory('riffBlacklistService', (context) => {
+      const fileService = context.getFileService();
+      return new RiffBlacklistService(fileService);
     });
     
     // TODO: Phase 1 Task 2 - 注册 UI 管理器工厂
@@ -276,8 +290,10 @@ export class ApplicationContext {
     // ✅ Task 13.1: 注册卡片应用服务工厂
     this.registerServiceFactory('cardService', (context) => {
       // 创建基础设施层：XiuyuanRepository
+      // ✅ DDD 架构修复：使用 UnifiedStorageManager 而不是 XiuyuanStorage
+      // UnifiedStorageManager 是统一的数据访问层，符合 DDD 原则
       const xiuyuanRepo = new XiuyuanRepository(
-        context.getXiuyuanStorage(),
+        context.getStorage(),  // ✅ 使用 UnifiedStorageManager
         context.getPlugin()
       );
 
@@ -287,7 +303,7 @@ export class ApplicationContext {
 
       // 创建用例
       const createCardUseCase = new CreateCardUseCase(xiuyuanRepo, cardCreationService);
-      const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepo, cardDeletionService);
+      const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepo, cardDeletionService, context.getEventBus());
       const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepo);
 
       // 创建应用服务
@@ -519,20 +535,20 @@ export class ApplicationContext {
     // 5. 创建旧调度器（向后兼容）
     const scheduler = createScheduler(settings.fsrs, settings.schedulerEngine);
     
-    // 6. 创建 CardApplicationService（DataAccessFacade 需要）
-    // 创建基础设施层：XiuyuanRepository（临时创建，后续会在服务容器中重新创建）
-    const xiuyuanStorageTemp = new XiuyuanStorage(config.plugin as any);
-    await xiuyuanStorageTemp.load();
-    const xiuyuanRepoTemp = new XiuyuanRepository(xiuyuanStorageTemp, config.plugin);
+    // 6. 创建 CardApplicationService（DataAccessFacade 和 BlockMenuHandler 需要）
+    // ✅ DDD 架构修复：使用 UnifiedStorageManager 创建 XiuyuanRepository
+    // 确保所有地方使用统一的数据访问层，避免数据不一致
+    const xiuyuanRepoTemp = new XiuyuanRepository(storageManager, config.plugin);
     
     // 创建领域服务
     const cardCreationService = new CardCreationService();
     const cardDeletionService = new CardDeletionService();
     const cardScheduleService = new CardScheduleService();
+    const eventBus = new EventBus(false);  // false = 不启用调试日志
     
     // 创建用例
     const createCardUseCase = new CreateCardUseCase(xiuyuanRepoTemp, cardCreationService);
-    const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepoTemp, cardDeletionService);
+    const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepoTemp, cardDeletionService, eventBus);
     const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepoTemp);
     
     // 创建 CardApplicationService
@@ -550,31 +566,17 @@ export class ApplicationContext {
     
     // 7. 初始化统一数据源管理器
     const unifiedDataSourceManager = UnifiedDataSourceManager.getInstance();
-    const advancedRouter = new AdvancedDataRouter(cardApplicationService, storageManager, config.plugin as any);
-    unifiedDataSourceManager.setAdvancedRouter(advancedRouter);
-    console.log('[ApplicationContext] ✅ UnifiedDataSourceManager initialized with Advanced mode');
     
-    // 8. 初始化队列
-    const retrievalQueue = unifiedDataSourceManager.getQueue(QueueType.RetrievalPractice) as any;
-    const finalDrillQueue = unifiedDataSourceManager.getQueue(QueueType.FinalDrill) as any;
-    const subsetQueue = unifiedDataSourceManager.getQueue(QueueType.FilterGroup) as any;
-    const incrementalQueue = unifiedDataSourceManager.getQueue(QueueType.IncrementalLearning) as any;
-    const leechQueue = new LeechQueue();
-    
-    // 9. 初始化队列上下文
+    // 8. 初始化队列上下文（空的，稍后注册队列）
     const queueContext = new QueueContext<QueueItem>({
       initial: 'retrieval',
       monitors: [],
     });
-    queueContext.register('retrieval', retrievalQueue as any);
-    queueContext.register('final-drill', finalDrillQueue as any);
-    queueContext.register('filter-group', subsetQueue as any);
-    queueContext.register('incremental-learning' as any, incrementalQueue as any);
-    queueContext.register('leech' as any, leechQueue as any);
     
-    console.log('[ApplicationContext] ✅ All queues initialized');
-    
-    // 10. 初始化 Xiuyuan 服务（复用之前创建的 xiuyuanStorageTemp）
+    // 10. 初始化 Xiuyuan 服务（使用 XiuyuanStorage 用于模板管理）
+    // 注意：XiuyuanStorage 只用于模板管理，卡片数据使用 UnifiedStorageManager
+    const xiuyuanStorageTemp = new XiuyuanStorage(config.plugin as any);
+    await xiuyuanStorageTemp.load();
     const xiuyuanService = new XiuyuanService(xiuyuanStorageTemp, storageManager);
     
     // 初始化内置模板
@@ -631,7 +633,7 @@ export class ApplicationContext {
     const riffConfig = settings.riffIntegration;
     // HybridSyncService 将在 context 创建后初始化（需要 CardApplicationService 和 EventBus）
     
-    // 12. 创建应用上下文
+    // 12. 创建应用上下文（不需要队列实例，队列通过 UnifiedDataSourceManager 延迟获取）
     const context = new ApplicationContext(config, {
       storageManager,
       schedulerRouter,
@@ -639,11 +641,6 @@ export class ApplicationContext {
       rescheduleService,
       unifiedDataSourceManager,
       queueContext,
-      retrievalQueue,
-      finalDrillQueue,
-      leechQueue,
-      incrementalQueue,
-      subsetQueue,
       xiuyuanStorage: xiuyuanStorageTemp,  // ✅ 使用 xiuyuanStorageTemp
       xiuyuanService,
       blockMenuHandler,
@@ -659,6 +656,24 @@ export class ApplicationContext {
     blockMenuHandler.setApplicationContext(context);
     (blockMenuHandler.deps as any).dialogManager = context.getDialogManager();
     
+    // 13.5. 初始化 UnifiedDataSourceManager 的延迟依赖
+    const settingsService = context.getSettingsService();
+    const advancedRouter = new AdvancedDataRouter(cardApplicationService, storageManager, config.plugin as any, settingsService);
+    unifiedDataSourceManager.setAdvancedRouter(advancedRouter);
+    
+    const queuePersistenceService = context.getQueuePersistenceService();
+    unifiedDataSourceManager.setQueuePersistence(queuePersistenceService);
+    console.log('[ApplicationContext] ✅ UnifiedDataSourceManager initialized with Advanced mode and QueuePersistence');
+    
+    // 13.6. 注册队列到 QueueContext（延迟获取队列实例）
+    // 只注册实际使用的队列类型
+    queueContext.register('retrieval', context.getRetrievalQueue() as any);
+    queueContext.register('final-drill', context.getFinalDrillQueue() as any);
+    queueContext.register('filter-group', context.getSubsetQueue() as any);
+    queueContext.register('incremental-learning', context.getIncrementalQueue() as any);
+    // 注意：leech 队列是旧架构，仅在 DialogManager 中按需加载，不在这里注册
+    console.log('[ApplicationContext] ✅ Core queues registered to QueueContext');
+    
     // 14. 初始化 HybridSyncService（需要 CardApplicationService 和 EventBus）
     if (riffConfig) {
       const { riff } = await import('@/core/siyuan');
@@ -672,6 +687,7 @@ export class ApplicationContext {
         {
           deckId: riff.BUILTIN_DECK_ID,
           storage: storageManager,
+          riffBlacklistService: context.getRiffBlacklistService(),
           incrementalSync: {
             ...riffConfig.incrementalSync,
             autoDetectCardType: true,
@@ -782,46 +798,50 @@ export class ApplicationContext {
   /**
    * 获取检索练习队列
    * 
-   * @returns RetrievalPracticeQueue - 检索练习队列实例
+   * @returns IReviewQueue - 检索练习队列实例（通过 UnifiedDataSourceManager）
    */
-  getRetrievalQueue(): RetrievalPracticeQueue {
-    return this.retrievalQueue;
+  getRetrievalQueue(): IReviewQueue {
+    return this.unifiedDataSourceManager.getQueue(QueueType.RetrievalPractice);
   }
   
   /**
    * 获取最终演练队列
    * 
-   * @returns FinalDrillQueue - 最终演练队列实例
+   * @returns IReviewQueue - 最终演练队列实例（通过 UnifiedDataSourceManager）
    */
-  getFinalDrillQueue(): FinalDrillQueue {
-    return this.finalDrillQueue;
+  getFinalDrillQueue(): IReviewQueue {
+    return this.unifiedDataSourceManager.getQueue(QueueType.FinalDrill);
   }
   
   /**
-   * 获取难点攻坚队列
+   * 获取难点攻坚队列（可选，旧架构）
    * 
-   * @returns LeechQueue - 难点攻坚队列实例
+   * 注意：LeechQueue 是旧架构的队列，仅在特定场景下使用（如 Leech 复习对话框）。
+   * 如果你不使用 Leech 功能，可以不调用此方法。
+   * 
+   * @returns IReviewQueue - 难点攻坚队列实例（通过 UnifiedDataSourceManager）
+   * @deprecated 旧架构队列，仅在需要时使用
    */
-  getLeechQueue(): LeechQueue {
-    return this.leechQueue;
+  getLeechQueue(): IReviewQueue {
+    return this.unifiedDataSourceManager.getQueue(QueueType.Leech);
   }
   
   /**
    * 获取渐进学习队列
    * 
-   * @returns IncrementalLearningQueue - 渐进学习队列实例
+   * @returns IReviewQueue - 渐进学习队列实例（通过 UnifiedDataSourceManager）
    */
-  getIncrementalQueue(): IncrementalLearningQueue {
-    return this.incrementalQueue;
+  getIncrementalQueue(): IReviewQueue {
+    return this.unifiedDataSourceManager.getQueue(QueueType.IncrementalLearning);
   }
   
   /**
    * 获取子集队列
    * 
-   * @returns FilterGroupQueue - 子集队列实例
+   * @returns IReviewQueue - 子集队列实例（通过 UnifiedDataSourceManager）
    */
-  getSubsetQueue(): FilterGroupQueue {
-    return this.subsetQueue;
+  getSubsetQueue(): IReviewQueue {
+    return this.unifiedDataSourceManager.getQueue(QueueType.FilterGroup);
   }
   
   /**
@@ -988,6 +1008,55 @@ export class ApplicationContext {
    */
   getEventBus(): any {
     return this.getService<any>('eventBus');
+  }
+  
+  // ========================================================================
+  // DDD 重构服务访问（懒加载）
+  // ========================================================================
+  
+  /**
+   * 获取文件服务
+   * 
+   * @returns FileService - 文件服务实例
+   */
+  getFileService(): FileService {
+    return this.getService<FileService>('fileService');
+  }
+  
+  /**
+   * 获取队列持久化服务
+   * 
+   * @returns QueuePersistenceService - 队列持久化服务实例
+   */
+  getQueuePersistenceService(): QueuePersistenceService {
+    return this.getService<QueuePersistenceService>('queuePersistenceService');
+  }
+  
+  /**
+   * 获取设置服务
+   * 
+   * @returns SettingsService - 设置服务实例
+   */
+  getSettingsService(): SettingsService {
+    return this.getService<SettingsService>('settingsService');
+  }
+  
+  /**
+   * 获取复习日志服务
+   * 
+   * @returns ReviewLogService - 复习日志服务实例
+   */
+  getReviewLogService(): ReviewLogService {
+    return this.getService<ReviewLogService>('reviewLogService');
+  }
+  
+  /**
+   * 获取 Riff 黑名单服务
+   * 
+   * @returns RiffBlacklistService - Riff 黑名单服务实例
+   */
+  getRiffBlacklistService(): RiffBlacklistService {
+    return this.getService<RiffBlacklistService>('riffBlacklistService');
   }
 
   /**
