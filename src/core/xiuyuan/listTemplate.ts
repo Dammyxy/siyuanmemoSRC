@@ -1,11 +1,24 @@
 /**
  * 列表模版卡专用创建方法
  * 
+ * @deprecated 此函数直接操作 StorageManager，不符合 DDD 架构
+ * @see XiuyuanApplicationService.createListTemplateCards() - 推荐使用新方法
+ * 
  * 列表模版卡的特殊性：
  * - 1 个 Xiuyuan → N 张 FSRSCard（N = 子列表项数量）
  * - 每张卡片的问题相同（父列表项），答案不同（各个子列表项）
  * - 支持提示功能：使用 `->` 分隔提示和答案
  * - 渐进式显示：复习时显示已学过的答案 + 当前提示
+ * 
+ * **DDD 架构问题**：
+ * - ❌ 直接操作 StorageManager（应该通过 Repository）
+ * - ❌ 直接调用 setBlockAttrs（应该通过 Repository.save）
+ * - ❌ 直接调用 addRiffCards（应该通过应用服务协调）
+ * 
+ * **迁移计划**：
+ * - Phase 2: 创建 XiuyuanApplicationService.createListTemplateCards()
+ * - Phase 3: 迁移所有调用方
+ * - Phase 4: 删除此函数
  */
 
 import type { IXiuyuan, ICardMapping, IXiuyuanField } from './types';
@@ -135,10 +148,11 @@ export async function createListTemplateCards(
     }
 
     // 🆕 5. 标记代表块属性（错误不阻断流程）
+    // ✅ 使用新架构的块属性命名（与 XiuyuanRepository 保持一致）
     try {
       await setBlockAttrs(representativeBlockID, {
-        'custom-fsrs-xiuyuan-id': xiuyuan.id,
-        'custom-fsrs-template-id': templateID,
+        'custom-xiuyuan-id': xiuyuan.id,
+        'custom-xiuyuan-template': templateID,
       });
       console.log('[Xiuyuan] Marked block attributes');
     } catch (err) {

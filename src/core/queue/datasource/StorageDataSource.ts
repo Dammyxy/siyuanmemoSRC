@@ -6,22 +6,22 @@
 
 import type { IDataSource, DataSourceOptions } from './IDataSource';
 import type { QueueItem } from '../types';
-import type { StorageManager } from '../../storage/StorageManager';
+import type { UnifiedStorageManager } from '../../storage/UnifiedStorageManager';
 import type { FSRSCard } from '@/types/card';
 import { CardType } from '@/types/card';
 import { ok, err, type Result } from '@/types/result';
 
 export type StorageDataSourceOptions = DataSourceOptions<QueueItem> & {
-  storage?: StorageManager;
+  storage?: UnifiedStorageManager;  // ✅ 使用 UnifiedStorageManager
   deckId?: string;
   state?: number; // Filter by state (0=New, 1=Learning, 2=Review, 3=Relearning)
 };
 
 /**
- * Data source that reads from StorageManager
+ * Data source that reads from UnifiedStorageManager
  */
 export class StorageDataSource implements IDataSource<QueueItem> {
-  private readonly storage?: StorageManager;
+  private readonly storage?: UnifiedStorageManager;  // ✅ 使用 UnifiedStorageManager
   private readonly deckId?: string;
   private readonly stateFilter?: number;
   private readonly filterFn?: (item: QueueItem) => boolean;
@@ -114,7 +114,7 @@ export class StorageDataSource implements IDataSource<QueueItem> {
       let addedCount = 0;
       for (const item of items) {
         // Try to get existing card
-        let card = this.storage.getCardByBlockId(item.blockID);
+        let card = this.storage.getCard(item.cardID);  // ✅ 使用 cardID 而不是 blockID
 
         if (card) {
           console.log('[StorageDataSource] Updating existing card:', item.blockID);
@@ -162,7 +162,8 @@ export class StorageDataSource implements IDataSource<QueueItem> {
           };
         }
 
-        this.storage.setCard(card);
+        // ✅ 使用 UnifiedStorageManager 的 setCard 方法
+        (this.storage as any).setCard?.(card);
         addedCount++;
       }
 

@@ -53,13 +53,27 @@ import { ok, err, type Result } from '@/types/result';
 import type SiyuanMemoPlugin from '@/index';
 
 /**
- * 生成唯一 ID
+ * 生成唯一 ID（用户手动创建）
+ * 
+ * @description
+ * 为用户手动创建的 Xiuyuan 生成唯一标识符。
+ * 
+ * **命名规则**：
+ * - 格式：`xy_{timestamp}_{random}`
+ * - 示例：`xy_1234567890_abc123`
+ * - 特点：时间戳 + 随机字符串，保证全局唯一
+ * 
+ * **与 Riff 同步的区别**：
+ * - Riff 同步使用：`xy_riff_{blockId}`（见 XiuyuanSyncService）
+ * - 手动创建使用：`xy_{timestamp}_{random}`（本函数）
  * 
  * @returns 格式为 `xy_{timestamp}_{random}` 的唯一标识符
  * @example
  * ```typescript
  * const id = generateID(); // "xy_1234567890_abc123"
  * ```
+ * 
+ * @see XiuyuanSyncService.convertRiffCardToFSRSCard() - Riff 同步的 ID 生成
  */
 function generateID(): string {
   return `xy_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

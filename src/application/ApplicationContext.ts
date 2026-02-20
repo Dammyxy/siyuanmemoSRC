@@ -11,6 +11,8 @@
 
 import type { Plugin } from 'siyuan';
 import { StorageManager } from '@/core/storage';
+import { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
+import { createPersistenceCallbacks } from '@/core/storage/UnifiedStoragePersistence';
 import { SchedulerRouter, RescheduleService, createScheduler, type SchedulerEngineAdapter } from '@/core/scheduler';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import { DialogManager } from '@/application/managers/DialogManager';
@@ -20,6 +22,7 @@ import { DockManager } from '@/application/managers/DockManager';
 import { PracticeQueueManager } from '@/application/managers/PracticeQueueManager';
 import { TabApplicationService } from '@/application/services/TabApplicationService';
 import { XiuyuanService, XiuyuanStorage } from '@/core/xiuyuan';
+import { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
 import { HybridSyncService } from '@/application/services/XiuyuanSyncService';
 import { TransactionWebSocketService } from '@/core/infrastructure/websocket/TransactionWebSocketService';
@@ -86,6 +89,7 @@ export class ApplicationContext {
   // ========================================================================
   
   private storageManager: StorageManager;
+  private unifiedStorageManager: UnifiedStorageManager;  // 🆕 统一存储管理器
   private schedulerRouter: SchedulerRouter;
   private scheduler: SchedulerEngineAdapter; // 向后兼容的旧调度器
   private rescheduleService: RescheduleService;
@@ -97,6 +101,7 @@ export class ApplicationContext {
   // Xiuyuan 服务
   private xiuyuanStorage: XiuyuanStorage;
   private xiuyuanService: XiuyuanService;
+  private xiuyuanApplicationService?: XiuyuanApplicationService;  // 懒加载
   
   // 应用服务
   private blockMenuHandler: BlockMenuHandler;
@@ -173,6 +178,7 @@ export class ApplicationContext {
     config: ApplicationConfig,
     services: {
       storageManager: StorageManager;
+      unifiedStorageManager: UnifiedStorageManager;  // 🆕 统一存储管理器
       schedulerRouter: SchedulerRouter;
       scheduler: SchedulerEngineAdapter;
       rescheduleService: RescheduleService;
@@ -181,6 +187,7 @@ export class ApplicationContext {
       xiuyuanStorage: XiuyuanStorage;
       xiuyuanService: XiuyuanService;
       blockMenuHandler: BlockMenuHandler;
+      sharedEventBus?: EventBus;  // ✅ 新增：共享的 EventBus 实例
       hybridSyncService?: HybridSyncService;
       transactionWebSocketService?: TransactionWebSocketService;
       fullSyncTimer?: NodeJS.Timeout;
@@ -188,6 +195,7 @@ export class ApplicationContext {
   ) {
     this.config = config;
     this.storageManager = services.storageManager;
+    this.unifiedStorageManager = services.unifiedStorageManager;  // 🆕 统一存储管理器
     this.schedulerRouter = services.schedulerRouter;
     this.scheduler = services.scheduler;
     this.rescheduleService = services.rescheduleService;
@@ -199,6 +207,11 @@ export class ApplicationContext {
     this.hybridSyncService = services.hybridSyncService;
     this.transactionWebSocketService = services.transactionWebSocketService;
     this.fullSyncTimer = services.fullSyncTimer;
+    
+    // ✅ 保存 sharedEventBus 引用（如果提供）
+    if (services.sharedEventBus) {
+      this.serviceContainer.set('eventBus', services.sharedEventBus);
+    }
     
     // 初始化服务容器
     this.initializeServiceContainer();
@@ -217,13 +230,17 @@ export class ApplicationContext {
   private initializeServiceContainer(): void {
     // 注册核心服务（已经创建，直接存储）
     this.serviceContainer.set('storage', this.storageManager);
+    this.serviceContainer.set('unifiedStorage', this.unifiedStorageManager);  // 🆕 注册统一存储
     this.serviceContainer.set('scheduler', this.schedulerRouter);
     this.serviceContainer.set('unifiedDataSource', this.unifiedDataSourceManager);
     
-    // ✅ 注册 EventBus（单例）
-    this.registerServiceFactory('eventBus', (context) => {
-      return new EventBus(false);  // false = 不启用调试日志
-    });
+    // ✅ EventBus 已经在构造函数中设置（如果提供了 sharedEventBus）
+    // 如果没有提供，则懒加载创建
+    if (!this.serviceContainer.has('eventBus')) {
+      this.registerServiceFactory('eventBus', (context) => {
+        return new EventBus(false);  // false = 不启用调试日志
+      });
+    }
     
     // ✅ 注册 DDD 重构服务工厂
     // 基础设施层服务
@@ -293,8 +310,7 @@ export class ApplicationContext {
       // ✅ DDD 架构修复：使用 UnifiedStorageManager 而不是 XiuyuanStorage
       // UnifiedStorageManager 是统一的数据访问层，符合 DDD 原则
       const xiuyuanRepo = new XiuyuanRepository(
-        context.getStorage(),  // ✅ 使用 UnifiedStorageManager
-        context.getPlugin()
+        context.getUnifiedStorage()  // ✅ 使用 UnifiedStorageManager
       );
 
       // 创建领域服务
@@ -313,7 +329,7 @@ export class ApplicationContext {
         createCardUseCase,
         deleteCardUseCase,
         updateCardUseCase,
-        context.getStorage(),
+        context.getUnifiedStorage() as any,  // ✅ 使用 UnifiedStorageManager（实现了 StorageManager 接口）
         scheduleService
       );
     });
@@ -327,7 +343,7 @@ export class ApplicationContext {
 
       // 创建应用服务
       return new BrowserApplicationService(
-        context.getStorage(),
+        context.getUnifiedStorage() as any,  // ✅ 使用 UnifiedStorageManager
         cardScheduleService,
         cardFilterService,
         cardSortService,
@@ -338,7 +354,7 @@ export class ApplicationContext {
     // ✅ 注册复习应用服务工厂
     this.registerServiceFactory('reviewService', (context) => {
       return new ReviewApplicationService(
-        context.getStorage(),
+        context.getUnifiedStorage() as any,  // ✅ 使用 UnifiedStorageManager
         context.getScheduler()
       );
     });
@@ -507,6 +523,141 @@ export class ApplicationContext {
     const storageManager = new StorageManager(config.plugin.name);
     await storageManager.init();
     
+    // 🆕 1.1 初始化统一存储管理器
+    const unifiedStorageManager = new UnifiedStorageManager();
+    const { save, load } = createPersistenceCallbacks(config.plugin);
+    unifiedStorageManager.setPersistenceCallbacks(save, load);
+    
+    // 尝试加载数据，如果文件不存在则初始化为空
+    const loadResult = await unifiedStorageManager.load();
+    if (!loadResult.ok) {
+      console.log('[ApplicationContext] UnifiedStorageManager: No existing data, starting fresh');
+    } else {
+      const stats = unifiedStorageManager.getStats();
+      console.log('[ApplicationContext] ✅ UnifiedStorageManager loaded:', {
+        xiuyuans: stats.totalXiuYuans,
+        cards: stats.totalCards,
+      });
+      
+      // 🔧 修复：检查并创建缺失的 Xiuyuan（历史遗留数据迁移）
+      const allCards = unifiedStorageManager.getAllCards();
+      const orphanCards = allCards.filter(card => !card.meta?.xiuyuanID);
+      
+      if (orphanCards.length > 0) {
+        console.warn(`[ApplicationContext] Found ${orphanCards.length} orphan cards without Xiuyuan, creating Xiuyuans...`);
+        
+        // 动态导入所需的类
+        const { XiuyuanId } = await import('@/core/xiuyuan/domain/XiuyuanId');
+        const { BlockId } = await import('@/core/xiuyuan/domain/BlockId');
+        const { TemplateId } = await import('@/core/xiuyuan/domain/TemplateId');
+        const { Priority } = await import('@/core/xiuyuan/domain/Priority');
+        const { CardFace } = await import('@/core/xiuyuan/domain/CardFace');
+        const { Xiuyuan } = await import('@/core/xiuyuan/domain/Xiuyuan');
+        const { CardId } = await import('@/core/xiuyuan/domain/CardId');
+        const { ScheduleInfo } = await import('@/core/xiuyuan/domain/ScheduleInfo');
+        const { Card } = await import('@/core/xiuyuan/domain/Card');
+        
+        let fixedCount = 0;
+        for (const orphanCard of orphanCards) {
+          try {
+            // 为每个孤儿卡片创建 Xiuyuan
+            const xiuyuanIdStr = `xy_migrated_${orphanCard.id}`;
+            const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
+            const blockIdResult = BlockId.create(orphanCard.blockId);
+            const templateIdResult = TemplateId.create('builtin-riff-sync');
+            const priorityResult = Priority.create(orphanCard.priority || 50);
+            const cardFaceResult = CardFace.create({
+              question: `Card ${orphanCard.id}`,
+              answer: '',
+              questionBlockId: orphanCard.blockId,
+              answerBlockId: orphanCard.blockId
+            });
+            
+            if (!xiuyuanIdResult.ok || !blockIdResult.ok || !templateIdResult.ok || !cardFaceResult.ok) {
+              console.error(`[ApplicationContext] Failed to create value objects for card ${orphanCard.id}`);
+              continue;
+            }
+            
+            // 创建 Xiuyuan
+            const xiuyuanResult = Xiuyuan.create({
+              id: xiuyuanIdResult.value,
+              blockIDs: [blockIdResult.value],
+              templateID: templateIdResult.value,
+              faces: [cardFaceResult.value],
+              priority: priorityResult.ok ? priorityResult.value : Priority.createDefault(),
+              meta: { schedulerType: 'fsrs-v6' }
+            });
+            
+            if (!xiuyuanResult.ok) {
+              console.error(`[ApplicationContext] Failed to create Xiuyuan for card ${orphanCard.id}`);
+              continue;
+            }
+            
+            const xiuyuan = xiuyuanResult.value;
+            
+            // 创建 Card 实体
+            const cardIdResult = CardId.create(orphanCard.id);
+            const scheduleInfoResult = ScheduleInfo.create({
+              due: new Date(orphanCard.due),
+              stability: orphanCard.stability,
+              difficulty: orphanCard.difficulty,
+              reps: orphanCard.reps,
+              lapses: orphanCard.lapses,
+              state: orphanCard.state,
+              lastReview: new Date(orphanCard.lastReview || Date.now()),
+              elapsedDays: orphanCard.elapsedDays || 0,
+              scheduledDays: orphanCard.scheduledDays || 0,
+              learning_step: 0
+            });
+            
+            if (!cardIdResult.ok || !scheduleInfoResult.ok) {
+              console.error(`[ApplicationContext] Failed to create Card entity for ${orphanCard.id}`);
+              continue;
+            }
+            
+            const cardResult = Card.create({
+              id: cardIdResult.value,
+              xiuyuanId: xiuyuanIdResult.value,
+              faceIndex: 0,
+              scheduleInfo: scheduleInfoResult.value,
+              createdAt: new Date(orphanCard.createdAt || Date.now()),
+              updatedAt: new Date(orphanCard.updatedAt || Date.now())
+            });
+            
+            if (!cardResult.ok) {
+              console.error(`[ApplicationContext] Failed to create Card for ${orphanCard.id}`);
+              continue;
+            }
+            
+            // 添加 Card 到 Xiuyuan
+            const addResult = xiuyuan.addCard(cardResult.value);
+            if (!addResult.ok) {
+              console.error(`[ApplicationContext] Failed to add Card to Xiuyuan for ${orphanCard.id}`);
+              continue;
+            }
+            
+            // 保存 Xiuyuan（这会自动保存 Card 并更新 meta.xiuyuanID）
+            const xiuyuanRepo = new (await import('@/core/xiuyuan/infrastructure/XiuyuanRepository')).XiuyuanRepository(unifiedStorageManager);
+            const saveResult = await xiuyuanRepo.save(xiuyuan);
+            
+            if (saveResult.ok) {
+              fixedCount++;
+            } else {
+              console.error(`[ApplicationContext] Failed to save Xiuyuan for card ${orphanCard.id}:`, saveResult.error);
+            }
+          } catch (error) {
+            console.error(`[ApplicationContext] Error fixing orphan card ${orphanCard.id}:`, error);
+          }
+        }
+        
+        if (fixedCount > 0) {
+          console.log(`[ApplicationContext] ✅ Fixed ${fixedCount}/${orphanCards.length} orphan cards`);
+          // 立即保存
+          await unifiedStorageManager.save();
+        }
+      }
+    }
+    
     const settings = storageManager.getSettings();
     
     // 2. 自动修复无效日期（首次加载时）
@@ -519,46 +670,53 @@ export class ApplicationContext {
       console.error('[ApplicationContext] Failed to repair invalid dates:', err);
     }
     
-    // 3. 初始化 RescheduleService
-    const rescheduleService = new RescheduleService(storageManager);
+    // 3. 创建 CardApplicationService 相关组件
+    // ✅ DDD 架构修复：使用 UnifiedStorageManager 创建 XiuyuanRepository
+    // 确保所有地方使用统一的数据访问层，避免数据不一致
+    const xiuyuanRepoTemp = new XiuyuanRepository(unifiedStorageManager);
     
-    // 4. 初始化调度器路由
+    // 创建领域服务
+    const cardCreationService = new CardCreationService();
+    const cardDeletionService = new CardDeletionService();
+    const cardScheduleService = new CardScheduleService();
+    
+    // ⚠️ 注意：此时 context 还未创建，所以先创建一个临时的 EventBus
+    // 这个 EventBus 将被 DeleteCardUseCase 和 RiffSyncEventHandler 共享
+    const sharedEventBus = new EventBus(false);
+    
+    // 创建用例
+    const createCardUseCase = new CreateCardUseCase(xiuyuanRepoTemp, cardCreationService);
+    const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepoTemp, cardDeletionService, sharedEventBus);
+    const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepoTemp);
+    
+    // ✅ 创建 CardApplicationService（使用 UnifiedStorageManager）
+    const cardApplicationService = new CardApplicationService(
+      createCardUseCase,
+      deleteCardUseCase,
+      updateCardUseCase,
+      unifiedStorageManager as any,
+      cardScheduleService
+    );
+    
+    // 4. 初始化 RescheduleService（使用新架构）
+    const rescheduleService = new RescheduleService(
+      unifiedStorageManager,
+      cardApplicationService
+    );
+    
+    // 5. 初始化调度器路由（使用新架构）
     const schedulerRouter = new SchedulerRouter(
       {
         defaultScheduler: settings.scheduler?.defaultScheduler || 'fsrs-v6',
         enableRiffSync: settings.scheduler?.enableRiffSync || false,
         fsrsParams: settings.fsrs,
       },
-      storageManager
+      unifiedStorageManager,
+      cardApplicationService
     );
     
-    // 5. 创建旧调度器（向后兼容）
+    // 6. 创建旧调度器（向后兼容）
     const scheduler = createScheduler(settings.fsrs, settings.schedulerEngine);
-    
-    // 6. 创建 CardApplicationService（DataAccessFacade 和 BlockMenuHandler 需要）
-    // ✅ DDD 架构修复：使用 UnifiedStorageManager 创建 XiuyuanRepository
-    // 确保所有地方使用统一的数据访问层，避免数据不一致
-    const xiuyuanRepoTemp = new XiuyuanRepository(storageManager, config.plugin);
-    
-    // 创建领域服务
-    const cardCreationService = new CardCreationService();
-    const cardDeletionService = new CardDeletionService();
-    const cardScheduleService = new CardScheduleService();
-    const eventBus = new EventBus(false);  // false = 不启用调试日志
-    
-    // 创建用例
-    const createCardUseCase = new CreateCardUseCase(xiuyuanRepoTemp, cardCreationService);
-    const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepoTemp, cardDeletionService, eventBus);
-    const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepoTemp);
-    
-    // 创建 CardApplicationService
-    const cardApplicationService = new CardApplicationService(
-      createCardUseCase,
-      deleteCardUseCase,
-      updateCardUseCase,
-      storageManager,
-      cardScheduleService
-    );
     
     // 创建 CardCreationHelper
     const cardCreationHelper = new CardCreationHelper(cardApplicationService);
@@ -636,6 +794,7 @@ export class ApplicationContext {
     // 12. 创建应用上下文（不需要队列实例，队列通过 UnifiedDataSourceManager 延迟获取）
     const context = new ApplicationContext(config, {
       storageManager,
+      unifiedStorageManager,  // 🆕 传入统一存储管理器
       schedulerRouter,
       scheduler,
       rescheduleService,
@@ -644,6 +803,7 @@ export class ApplicationContext {
       xiuyuanStorage: xiuyuanStorageTemp,  // ✅ 使用 xiuyuanStorageTemp
       xiuyuanService,
       blockMenuHandler,
+      sharedEventBus,  // ✅ 传入 sharedEventBus
       hybridSyncService: undefined,  // 将在下面初始化
       transactionWebSocketService: undefined,  // 将在下面初始化
       fullSyncTimer: undefined,  // 将在下面初始化
@@ -658,7 +818,12 @@ export class ApplicationContext {
     
     // 13.5. 初始化 UnifiedDataSourceManager 的延迟依赖
     const settingsService = context.getSettingsService();
-    const advancedRouter = new AdvancedDataRouter(cardApplicationService, storageManager, config.plugin as any, settingsService);
+    const advancedRouter = new AdvancedDataRouter(
+      cardApplicationService, 
+      unifiedStorageManager as any,  // ✅ 使用 UnifiedStorageManager
+      config.plugin as any, 
+      settingsService
+    );
     unifiedDataSourceManager.setAdvancedRouter(advancedRouter);
     
     const queuePersistenceService = context.getQueuePersistenceService();
@@ -674,13 +839,18 @@ export class ApplicationContext {
     // 注意：leech 队列是旧架构，仅在 DialogManager 中按需加载，不在这里注册
     console.log('[ApplicationContext] ✅ Core queues registered to QueueContext');
     
-    // 14. 初始化 HybridSyncService（需要 CardApplicationService 和 EventBus）
+    // 14. 初始化 HybridSyncService（需要 CardApplicationService、EventBus 和 XiuyuanRepository）
+    console.log('[ApplicationContext] Checking riffConfig:', { hasRiffConfig: !!riffConfig });
     if (riffConfig) {
+      console.log('[ApplicationContext] Initializing HybridSyncService...');
       const { riff } = await import('@/core/siyuan');
       
       // 获取依赖服务
       const cardService = context.getCardService();
       const eventBus = context.getEventBus();
+      
+      // ✅ 创建 XiuyuanRepository
+      const xiuyuanRepository = new XiuyuanRepository(unifiedStorageManager);
       
       // 创建 HybridSyncService
       hybridSyncService = new HybridSyncService(
@@ -696,13 +866,25 @@ export class ApplicationContext {
           deleteSync: riffConfig.deleteSync,
         },
         cardService,
-        eventBus
+        eventBus,
+        xiuyuanRepository,  // ✅ 注入 Repository
+        unifiedStorageManager  // ✅ 注入 UnifiedStorageManager
       );
       
       // 将 HybridSyncService 设置到 context（使用类型断言）
       (context as any).hybridSyncService = hybridSyncService;
       
-      console.log('[ApplicationContext] ✅ HybridSyncService initialized');
+      console.log('[ApplicationContext] ✅ HybridSyncService initialized with XiuyuanRepository');
+      
+      // ✅ 注册 RiffSyncEventHandler（监听领域事件并同步到 Riff）
+      // 使用 sharedEventBus 而不是 context.getEventBus()，确保与 DeleteCardUseCase 使用同一个 EventBus
+      console.log('[ApplicationContext] Importing RiffSyncEventHandler...');
+      const { RiffSyncEventHandler } = await import('@/infrastructure/events/RiffSyncEventHandler');
+      console.log('[ApplicationContext] Creating RiffSyncEventHandler...');
+      const riffSyncEventHandler = new RiffSyncEventHandler(sharedEventBus, hybridSyncService);
+      (context as any).riffSyncEventHandler = riffSyncEventHandler;
+      console.log('[ApplicationContext] ✅ RiffSyncEventHandler registered');
+      console.log('[ApplicationContext] EventBus subscriber count for CardDeleted:', sharedEventBus.getSubscriberCount('CardDeleted'));
       
       // 启动同步服务
       await hybridSyncService.start();
@@ -748,6 +930,15 @@ export class ApplicationContext {
    */
   getStorage(): StorageManager {
     return this.storageManager;
+  }
+  
+  /**
+   * 获取统一存储管理器
+   * 
+   * @returns UnifiedStorageManager - 统一存储管理器实例
+   */
+  getUnifiedStorage(): UnifiedStorageManager {
+    return this.unifiedStorageManager;
   }
   
   /**
@@ -856,10 +1047,24 @@ export class ApplicationContext {
   /**
    * 获取 Xiuyuan 服务
    * 
+   * @deprecated 请使用 getXiuyuanApplicationService() 代替
    * @returns XiuyuanService - Xiuyuan 服务实例
    */
   getXiuyuanService(): XiuyuanService {
     return this.xiuyuanService;
+  }
+  
+  /**
+   * 获取 Xiuyuan 应用服务（DDD 架构）
+   * 
+   * @returns XiuyuanApplicationService - Xiuyuan 应用服务实例
+   */
+  getXiuyuanApplicationService(): XiuyuanApplicationService {
+    if (!this.xiuyuanApplicationService) {
+      // 懒加载：首次调用时创建
+      this.xiuyuanApplicationService = new XiuyuanApplicationService(this.xiuyuanService);
+    }
+    return this.xiuyuanApplicationService;
   }
   
   /**

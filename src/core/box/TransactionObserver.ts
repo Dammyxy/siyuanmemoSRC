@@ -330,21 +330,21 @@ export class TransactionObserver {
                     answer: childBlockId
                 };
                 
-                // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
-                // 需要先实现模板支持
-                console.log(`[SiYuanMemo] Calling xiuyuanService.createFromBlocks with:`, {
+                // ✅ 使用 XiuyuanApplicationService（符合 DDD 架构）
+                console.log(`[SiYuanMemo] Calling xiuyuanApplicationService.createFromBlocks with:`, {
                     blockIds,
                     templateId: 'builtin-list-item',
                     fieldMapping,
                     deckId: BUILTIN_DECK_ID
                 });
                 
-                const result = await this.plugin.xiuyuanService.createFromBlocks(
+                const xiuyuanAppService = this.plugin.context.getXiuyuanApplicationService();
+                const result = await xiuyuanAppService.createFromBlocks({
                     blockIds,
-                    'builtin-list-item',
+                    templateId: 'builtin-list-item',
                     fieldMapping,
-                    BUILTIN_DECK_ID
-                );
+                    deckId: BUILTIN_DECK_ID
+                });
                 
                 if (result.ok) {
                     successCount++;

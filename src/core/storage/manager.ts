@@ -33,6 +33,15 @@ const STORAGE_FILES = {
 
 /**
  * 存储管理器类
+ * 
+ * @deprecated 此类已废弃，请使用 UnifiedStorageManager + Repository 模式
+ * 
+ * 迁移指南：
+ * - 查询操作：使用 UnifiedStorageManager.getCard() 等方法
+ * - 写操作：使用 CardApplicationService.batchUpdateCardsWithoutEvents() 等方法
+ * - 业务逻辑：使用领域服务和应用服务
+ * 
+ * 此类仅保留用于向后兼容，将在未来版本中移除。
  */
 export class StorageManager {
     private basePath: string;

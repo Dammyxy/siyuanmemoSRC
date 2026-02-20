@@ -56,7 +56,7 @@
 import { ObservableDataSource } from './ObservableDataSource';
 import type { DataSourceOptions } from './IDataSource';
 import type { QueueItem } from '../types';
-import type { StorageManager } from '../../storage/manager';
+import type { UnifiedStorageManager } from '../../storage/UnifiedStorageManager';  // ✅ 使用 UnifiedStorageManager
 import type { SchedulerRouter } from '../../scheduler/SchedulerRouter';
 import type { FSRSCard } from '@/types';
 import { getRiffDueCards, reviewRiffCard, skipReviewRiffCard } from '../../siyuan/riff';
@@ -114,7 +114,7 @@ export type RiffDataSourceOptions = DataSourceOptions<QueueItem> & {
   notebook?: string;
   rootID?: string;
   blacklistProvider?: () => Set<string>;
-  storage?: StorageManager;  // 🆕 添加 storage 参数
+  storage?: UnifiedStorageManager;  // ✅ 使用 UnifiedStorageManager
   schedulerRouter?: SchedulerRouter;  // 🆕 添加 schedulerRouter 参数
   api?: RiffApi;  // 🆕 添加 api 参数（可选，用于测试）
   errorReporter?: IErrorReporter;  // 🆕 Phase 1.6: 添加 errorReporter 参数
@@ -138,7 +138,7 @@ export class RiffDataSource extends ObservableDataSource<QueueItem> {
   private readonly filterFn?: (item: QueueItem) => boolean;
   private readonly limit?: number;
   private readonly blacklistProvider?: () => Set<string>;
-  private readonly storage?: StorageManager;  // 🆕 添加 storage 属性
+  private readonly storage?: UnifiedStorageManager;  // ✅ 使用 UnifiedStorageManager
   private readonly schedulerRouter?: SchedulerRouter;  // 🆕 添加 schedulerRouter 属性
   private readonly api: RiffApi;  // 🆕 添加 api 属性
   private readonly errorReporter?: IErrorReporter;  // 🆕 Phase 1.6: 添加 errorReporter 属性

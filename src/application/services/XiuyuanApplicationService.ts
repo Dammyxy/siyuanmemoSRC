@@ -8,24 +8,36 @@
  * **设计原则**：
  * - 应用服务模式：协调用例执行
  * - 依赖注入：通过构造函数注入依赖
- * - 薄包装：不包含业务逻辑，仅委托
+ * - 薄包装：不包含业务逻辑，仅委托给 UseCase
  * - 统一接口：为表现层提供一致的 API
  * 
  * **职责**：
  * - 提供 Xiuyuan 创建、查询、删除的统一接口
- * - 委托具体业务逻辑给 XiuyuanService（临时方案）
+ * - 委托具体业务逻辑给专门的 UseCase 类
  * - 处理用例之间的协调
  * 
- * **注意**：
- * 当前实现是过渡方案，直接委托给 XiuyuanService。
- * 未来会创建独立的 UseCase 类来实现业务逻辑。
+ * **架构改进**：
+ * ✅ 已创建专门的 UseCase 类
+ * ✅ 应用服务作为纯粹的协调器
+ * ✅ 符合 DDD 分层架构
  */
 
 import { Result } from '@/types/result';
 import { CreateXiuyuanFromBlocksCommand } from '../commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
+import { CreateListTemplateCardsCommand } from '../commands/xiuyuan/CreateListTemplateCardsCommand';
 import { GetXiuyuanQuery, GetXiuyuanQueryResult } from '../queries/xiuyuan/GetXiuyuanQuery';
 import { GetAllXiuyuansQuery, GetAllXiuyuansQueryResult } from '../queries/xiuyuan/GetAllXiuyuansQuery';
 import type { XiuyuanService } from '@/core/xiuyuan/service';
+import {
+  CreateXiuyuanFromBlocksUseCase,
+  DeleteXiuyuanUseCase,
+  GetXiuyuanQueryHandler,
+  GetAllXiuyuansQueryHandler,
+  CreateListTemplateCardsUseCase,
+  CreateTemplateUseCase,
+  GetTemplateQueryHandler,
+  GetAllTemplatesQueryHandler
+} from '../usecases/xiuyuan';
 
 /**
  * Xiuyuan 应用服务
@@ -33,14 +45,34 @@ import type { XiuyuanService } from '@/core/xiuyuan/service';
  * @class XiuyuanApplicationService
  */
 export class XiuyuanApplicationService {
+  // UseCase 实例
+  private readonly createXiuyuanFromBlocksUseCase: CreateXiuyuanFromBlocksUseCase;
+  private readonly deleteXiuyuanUseCase: DeleteXiuyuanUseCase;
+  private readonly getXiuyuanQueryHandler: GetXiuyuanQueryHandler;
+  private readonly getAllXiuyuansQueryHandler: GetAllXiuyuansQueryHandler;
+  private readonly createListTemplateCardsUseCase: CreateListTemplateCardsUseCase;
+  private readonly createTemplateUseCase: CreateTemplateUseCase;
+  private readonly getTemplateQueryHandler: GetTemplateQueryHandler;
+  private readonly getAllTemplatesQueryHandler: GetAllTemplatesQueryHandler;
+
   /**
    * 构造函数
    * 
-   * @param xiuyuanService - Xiuyuan 领域服务（临时依赖，未来会替换为 UseCase）
+   * @param xiuyuanService - Xiuyuan 领域服务
    */
   constructor(
     private readonly xiuyuanService: XiuyuanService
-  ) {}
+  ) {
+    // 初始化 UseCase 实例
+    this.createXiuyuanFromBlocksUseCase = new CreateXiuyuanFromBlocksUseCase(xiuyuanService);
+    this.deleteXiuyuanUseCase = new DeleteXiuyuanUseCase(xiuyuanService);
+    this.getXiuyuanQueryHandler = new GetXiuyuanQueryHandler(xiuyuanService);
+    this.getAllXiuyuansQueryHandler = new GetAllXiuyuansQueryHandler(xiuyuanService);
+    this.createListTemplateCardsUseCase = new CreateListTemplateCardsUseCase(xiuyuanService);
+    this.createTemplateUseCase = new CreateTemplateUseCase(xiuyuanService);
+    this.getTemplateQueryHandler = new GetTemplateQueryHandler(xiuyuanService);
+    this.getAllTemplatesQueryHandler = new GetAllTemplatesQueryHandler(xiuyuanService);
+  }
 
   /**
    * 从块创建 Xiuyuan
@@ -67,15 +99,7 @@ export class XiuyuanApplicationService {
    * ```
    */
   async createFromBlocks(command: CreateXiuyuanFromBlocksCommand): Promise<Result<any>> {
-    // 临时实现：直接委托给 XiuyuanService
-    // TODO: 创建 CreateXiuyuanFromBlocksUseCase
-    // 注意：当前 XiuyuanService.createFromBlocks 不支持 priority 参数
-    return this.xiuyuanService.createFromBlocks(
-      command.blockIds,
-      command.templateId,
-      command.fieldMapping || {},
-      command.deckId
-    );
+    return this.createXiuyuanFromBlocksUseCase.execute(command);
   }
 
   /**
@@ -92,15 +116,7 @@ export class XiuyuanApplicationService {
    * ```
    */
   async getXiuyuan(query: GetXiuyuanQuery): Promise<GetXiuyuanQueryResult> {
-    // 临时实现：直接委托给 XiuyuanService
-    // TODO: 创建 GetXiuyuanQueryHandler
-    const xiuyuan = this.xiuyuanService.getXiuyuan(query.xiuyuanId);
-    
-    if (!xiuyuan) {
-      throw new Error(`Xiuyuan not found: ${query.xiuyuanId}`);
-    }
-    
-    return { xiuyuan };
+    return this.getXiuyuanQueryHandler.handle(query);
   }
 
   /**
@@ -117,14 +133,7 @@ export class XiuyuanApplicationService {
    * ```
    */
   async getAllXiuyuans(_query: GetAllXiuyuansQuery = {}): Promise<GetAllXiuyuansQueryResult> {
-    // 临时实现：直接委托给 XiuyuanService
-    // TODO: 创建 GetAllXiuyuansQueryHandler
-    const xiuyuans = this.xiuyuanService.getAllXiuyuans();
-    
-    return {
-      xiuyuans,
-      total: xiuyuans.length
-    };
+    return this.getAllXiuyuansQueryHandler.handle(_query);
   }
 
   /**
@@ -145,9 +154,7 @@ export class XiuyuanApplicationService {
    * ```
    */
   async deleteXiuyuan(xiuyuanId: string): Promise<Result<boolean>> {
-    // 临时实现：直接委托给 XiuyuanService
-    // TODO: 创建 DeleteXiuyuanUseCase
-    return this.xiuyuanService.deleteXiuyuan(xiuyuanId);
+    return this.deleteXiuyuanUseCase.execute(xiuyuanId);
   }
 
   /**
@@ -164,14 +171,8 @@ export class XiuyuanApplicationService {
    * ```
    */
   async getTemplate(templateId: string): Promise<any> {
-    // 临时实现：直接委托给 XiuyuanService
-    const template = this.xiuyuanService.getTemplate(templateId);
-    
-    if (!template) {
-      throw new Error(`Template not found: ${templateId}`);
-    }
-    
-    return template;
+    const result = await this.getTemplateQueryHandler.handle({ templateId });
+    return result.template;
   }
 
   /**
@@ -186,7 +187,78 @@ export class XiuyuanApplicationService {
    * ```
    */
   async getAllTemplates(): Promise<any[]> {
-    // 临时实现：直接委托给 XiuyuanService
-    return this.xiuyuanService.getAllTemplates();
+    const result = await this.getAllTemplatesQueryHandler.handle({});
+    return result.templates;
+  }
+
+  /**
+   * 创建模板
+   * 
+   * @param template - 模板定义
+   * 
+   * @description
+   * 动态创建并注册一个新的卡片模板。
+   * 
+   * @example
+   * ```typescript
+   * await xiuyuanService.createTemplate({
+   *   id: 'my-template',
+   *   name: '我的模板',
+   *   fields: [
+   *     { name: 'question', description: '问题' },
+   *     { name: 'answer', description: '答案' }
+   *   ],
+   *   cardRules: [
+   *     {
+   *       typeMarker: 'basic',
+   *       frontFields: ['question'],
+   *       backFields: ['answer']
+   *     }
+   *   ]
+   * });
+   * ```
+   */
+  async createTemplate(template: any): Promise<void> {
+    return this.createTemplateUseCase.execute(template);
+  }
+
+  /**
+   * 创建列表模板卡片
+   * 
+   * @param command - 创建命令
+   * @returns Result<any> - 成功返回创建的 Xiuyuan 和卡片，失败返回错误
+   * 
+   * @description
+   * 列表模板的特点：
+   * - 1 个 Xiuyuan → N 张 FSRSCard（N = 子列表项数量）
+   * - 每张卡片的问题相同（父列表项），答案不同（各个子列表项）
+   * - 支持提示功能：使用 `→` 分隔提示和答案
+   * - 渐进式显示：复习时显示已学过的答案 + 当前提示
+   * 
+   * **DDD 架构优势**：
+   * - ✅ 通过应用服务统一入口
+   * - ✅ 使用专门的 UseCase 封装业务逻辑
+   * - ✅ 便于添加事务、日志、权限等横切关注点
+   * 
+   * @example
+   * ```typescript
+   * const result = await xiuyuanService.createListTemplateCards({
+   *   parentBlockId: '20230101120000-parent',
+   *   childBlockIds: ['20230101120001-child1', '20230101120002-child2'],
+   *   templateId: 'builtin-list-item',
+   *   deckId: 'default-deck',
+   *   priority: 5
+   * });
+   * 
+   * if (result.ok) {
+   *   console.log('Created Xiuyuan:', result.value.xiuyuan.id);
+   *   console.log('Created Cards:', result.value.cards.length);
+   * } else {
+   *   console.error('Failed:', result.error);
+   * }
+   * ```
+   */
+  async createListTemplateCards(command: CreateListTemplateCardsCommand): Promise<Result<any>> {
+    return this.createListTemplateCardsUseCase.execute(command);
   }
 }

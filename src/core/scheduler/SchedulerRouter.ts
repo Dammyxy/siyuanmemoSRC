@@ -7,7 +7,8 @@
 
 import type { FSRSCard, FSRSParameters, Rating, CardType } from '@/types';
 import type { SchedulerEngineAdapter } from './types';
-import type { StorageManager } from '../storage/manager';
+import type { UnifiedStorageManager } from '../storage/UnifiedStorageManager';
+import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import { TSFSRSScheduler } from './strategies/TSFSRSScheduler';
 import { SM15Scheduler } from './strategies/SM15Scheduler';
 import { ImprovedTopicScheduler } from './strategies/ImprovedTopicScheduler';
@@ -28,15 +29,25 @@ export interface SchedulerRouterConfig {
  * 调度器路由器
  *
  * 根据卡片类型和配置选择合适的调度器并执行复习
+ * 
+ * 使用 DDD 架构：
+ * - 依赖 UnifiedStorageManager 进行数据查询
+ * - 依赖 CardApplicationService 进行数据更新
  */
 export class SchedulerRouter {
     private config: SchedulerRouterConfig;
     private schedulers: Map<SchedulerType, SchedulerEngineAdapter>;
-    private storage: StorageManager;
+    private unifiedStorage: UnifiedStorageManager;
+    private cardApplicationService: CardApplicationService;
 
-    constructor(config: SchedulerRouterConfig, storage: StorageManager) {
+    constructor(
+        config: SchedulerRouterConfig,
+        unifiedStorage: UnifiedStorageManager,
+        cardApplicationService: CardApplicationService
+    ) {
         this.config = config;
-        this.storage = storage;
+        this.unifiedStorage = unifiedStorage;
+        this.cardApplicationService = cardApplicationService;
         this.schedulers = new Map();
 
         this._initializeSchedulers();
@@ -122,9 +133,8 @@ export class SchedulerRouter {
             // 4. 更新调度器类型
             updatedCard.schedulerType = schedulerType;
 
-            // 5. 保存到本地数据库
-            this.storage.setCard(updatedCard);
-            await this.storage.saveCards();
+            // 5. 保存到本地数据库（使用 CardApplicationService）
+            await this.cardApplicationService.batchUpdateCardsWithoutEvents([updatedCard]);
 
             return updatedCard;
         } catch (error) {
@@ -237,9 +247,8 @@ export class SchedulerRouter {
         // 4. 更新调度器类型
         convertedCard.schedulerType = newScheduler;
 
-        // 5. 保存到本地
-        this.storage.setCard(convertedCard);
-        await this.storage.saveCards();
+        // 5. 保存到本地（使用 CardApplicationService）
+        await this.cardApplicationService.batchUpdateCardsWithoutEvents([convertedCard]);
 
         console.log(`[SchedulerRouter] Switched card ${card.id} from ${card.schedulerType} to ${newScheduler}`);
         return true;

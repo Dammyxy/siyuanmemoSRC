@@ -46,7 +46,7 @@
 
 import { ObservableDataSource } from './ObservableDataSource';
 import type { QueueItem } from '../types';
-import type { StorageManager } from '../../storage/manager';
+import type { UnifiedStorageManager } from '../../storage/UnifiedStorageManager';  // ✅ 使用 UnifiedStorageManager
 import type { SchedulerRouter } from '../../scheduler/SchedulerRouter';
 import type { FSRSCard } from '@/types/card';
 import { ok, type Result } from '@/types/result';
@@ -61,7 +61,7 @@ import { ok, type Result } from '@/types/result';
  * @property plugin - Optional: Plugin instance for accessing configuration (e.g., dayStartHour)
  */
 export interface LocalStorageDataSourceOptions {
-  storage: StorageManager;
+  storage: UnifiedStorageManager;  // ✅ 使用 UnifiedStorageManager
   filter?: (card: FSRSCard) => boolean;
   sort?: (a: FSRSCard, b: FSRSCard) => number;
   schedulerRouter?: SchedulerRouter;
@@ -77,7 +77,7 @@ export interface LocalStorageDataSourceOptions {
  * 
  * ## Architecture
  * ```
- * StorageManager (Memory)
+ * UnifiedStorageManager (Memory)
  *   ↓ Direct read
  * LocalStorageDataSource
  *   ↓ Filter & Sort
@@ -85,7 +85,7 @@ export interface LocalStorageDataSourceOptions {
  * ```
  * 
  * ## Data Flow
- * 1. Read all cards from StorageManager
+ * 1. Read all cards from UnifiedStorageManager
  * 2. Apply filter function (if provided)
  * 3. Apply sort function (if provided)
  * 4. Convert FSRSCard to QueueItem
@@ -95,7 +95,7 @@ export interface LocalStorageDataSourceOptions {
  * @see ObservableDataSource
  */
 export class LocalStorageDataSource extends ObservableDataSource<QueueItem> {
-  private readonly storage: StorageManager;
+  private readonly storage: UnifiedStorageManager;  // ✅ 使用 UnifiedStorageManager
   private readonly filterFn?: (card: FSRSCard) => boolean;
   private readonly sortFn?: (a: FSRSCard, b: FSRSCard) => number;
   private readonly schedulerRouter?: SchedulerRouter;

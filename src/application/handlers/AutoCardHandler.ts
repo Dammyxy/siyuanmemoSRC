@@ -947,13 +947,9 @@ export class AutoCardHandler implements ITransactionHandler {
                         cardRules: dynamicCardRules,
                     };
                     
-                    // 临时注册模板（通过旧的 XiuyuanService）
-                    // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
-                    // 需要支持动态模板创建和注册
-                    const xiuyuanService = this.plugin.xiuyuanService;
-                    if (xiuyuanService) {
-                        xiuyuanService.createTemplate(tempTemplate);
-                    }
+                    // ✅ 临时注册模板（通过 XiuyuanApplicationService）
+                    const xiuyuanAppService = this.plugin.context.getXiuyuanApplicationService();
+                    await xiuyuanAppService.createTemplate(tempTemplate);
                     
                     // 创建卡片
                     const result = await xiuyuanAppService.createFromBlocks({
@@ -1379,9 +1375,9 @@ export class AutoCardHandler implements ITransactionHandler {
             // 注意：需要动态设置 cardRules，每个填空一个 rule
             const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
             
-            // 获取模板并动态设置 cardRules（通过旧的 XiuyuanService）
-            const xiuyuanService = this.plugin.xiuyuanService;
-            const template = xiuyuanService?.getTemplate('builtin-multi-cloze');
+            // ✅ 获取模板（通过 XiuyuanApplicationService）
+            const xiuyuanAppService = this.plugin.context.getXiuyuanApplicationService();
+            const template = await xiuyuanAppService.getTemplate('builtin-multi-cloze');
             if (!template) {
                 console.error('[SiYuanMemo][AutoCard] builtin-multi-cloze template not found');
                 await this.createSingleClozeCard(blockId, content, clozes);

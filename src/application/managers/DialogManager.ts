@@ -906,17 +906,17 @@ export class DialogManager implements IDialogManager {
         return;
       }
 
-      const plugin = this.plugin as any;
-      const xiuyuanService = plugin.xiuyuanService;
+      // ✅ 使用 XiuyuanApplicationService（符合 DDD 架构）
+      const xiuyuanAppService = this.plugin.context.getXiuyuanApplicationService();
       
-      if (!xiuyuanService) {
-        console.error('[DialogManager] XiuyuanService not found');
-        pushErrMsg('XiuyuanService 未初始化');
+      if (!xiuyuanAppService) {
+        console.error('[DialogManager] XiuyuanApplicationService not found');
+        pushErrMsg('XiuyuanApplicationService 未初始化');
         return;
       }
 
       // 获取所有可用模板
-      const templates = xiuyuanService.getAllTemplates();
+      const templates = await xiuyuanAppService.getAllTemplates();
       if (templates.length === 0) {
         pushMsg('暂无可用模板，请先创建模板');
         return;

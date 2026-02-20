@@ -1179,18 +1179,13 @@ export class BlockMenuHandler {
       // 4. 为所有子级创建列表模版卡（一次性创建）
       console.log(`[SiYuanMemo] Creating list template cards: ${blockContent} → ${childBlockIds.length} children`);
 
-      // 🔧 使用专用的列表模版卡创建方法
-      // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
-      // 需要先实现模板支持
-      const { createListTemplateCards } = await import('@/core/xiuyuan/listTemplate');
-      
-      const result = await createListTemplateCards(
+      // ✅ 使用 XiuyuanApplicationService（符合 DDD 架构）
+      const xiuyuanAppService = this.deps.applicationContext.getXiuyuanApplicationService();
+      const result = await xiuyuanAppService.createListTemplateCards({
         parentBlockId,
         childBlockIds,
-        'builtin-list-item',
-        (this.deps.xiuyuanService as any).storage,
-        this.getStorage()
-      );
+        templateId: 'builtin-list-item'
+      });
 
       if (result.ok) {
         await pushMsg(`✅ 成功创建 ${childBlockIds.length} 张列表模版卡！`);

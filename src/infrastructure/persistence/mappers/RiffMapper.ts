@@ -137,10 +137,10 @@ export class RiffMapper {
     templateID?: string;
   } {
     const ial = riffBlock.ial || {};
-    
+    // ✅ 兼容新旧两种块属性命名
     return {
-      xiuyuanID: ial['custom-fsrs-xiuyuan-id'],
-      templateID: ial['custom-fsrs-template-id'],
+      xiuyuanID: ial['custom-xiuyuan-id'] || ial['custom-fsrs-xiuyuan-id'],
+      templateID: ial['custom-xiuyuan-template'] || ial['custom-fsrs-template-id'],
     };
   }
 

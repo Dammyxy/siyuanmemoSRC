@@ -27,7 +27,8 @@
  */
 
 import type { PostponeConfig, AdvanceConfig, SpreadConfig, SortingCriterion } from '@/types/reschedule';
-import type { StorageManager } from '@/core/storage/manager';
+import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
+import type { CardApplicationService } from '@/application/services/CardApplicationService';
 
 /** 配置存储格式 */
 export interface RescheduleConfigs {
@@ -36,10 +37,19 @@ export interface RescheduleConfigs {
     spread: Record<string, SpreadConfig>;
 }
 
+/**
+ * ConfigManager - 管理重新调度操作的配置持久化
+ * 
+ * 使用 DDD 架构：
+ * - 依赖 UnifiedStorageManager 进行配置存储
+ */
 export class ConfigManager {
     private static readonly CONFIG_FILE = 'reschedule-configs.json';
     
-    constructor(private storage: StorageManager) {}
+    constructor(
+        private unifiedStorage: UnifiedStorageManager,
+        private cardApplicationService: CardApplicationService
+    ) {}
     
     /**
      * 保存配置
@@ -143,7 +153,9 @@ export class ConfigManager {
      */
     private async loadAllConfigs(): Promise<RescheduleConfigs> {
         try {
-            const data = await this.storage.loadData(ConfigManager.CONFIG_FILE);
+            // TODO: 将配置存储迁移到应用服务层
+            const storage = this.unifiedStorage as any;
+            const data = await storage.loadData?.(ConfigManager.CONFIG_FILE);
             if (data) {
                 return data as RescheduleConfigs;
             }
@@ -165,7 +177,9 @@ export class ConfigManager {
      */
     private async saveAllConfigs(configs: RescheduleConfigs): Promise<void> {
         try {
-            await this.storage.saveData(ConfigManager.CONFIG_FILE, configs);
+            // TODO: 将配置存储迁移到应用服务层
+            const storage = this.unifiedStorage as any;
+            await storage.saveData?.(ConfigManager.CONFIG_FILE, configs);
         } catch (error) {
             console.error('[ConfigManager] Failed to save configs:', error);
             throw error;

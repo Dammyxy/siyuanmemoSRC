@@ -1,4 +1,5 @@
-﻿import type { StorageManager } from '@/core/storage';
+﻿import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
+import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import { pushErrMsg } from '@/core/siyuan/api';
 import type { RescheduleLog, RescheduleResult, ActionMeta } from '@/types';
 import type { FSRSCard } from '@/types/card';
@@ -10,17 +11,28 @@ import { SpreadEngine } from './SpreadEngine';
 import { ConfigManager } from './ConfigManager';
 import { ConfigValidator } from './ConfigValidator';
 
+/**
+ * RescheduleService - 重新调度服务
+ * 
+ * 使用 DDD 架构：
+ * - 依赖 UnifiedStorageManager 进行数据查询
+ * - 依赖 CardApplicationService 进行数据更新
+ * - 协调各个 Engine 执行具体的调度算法
+ */
 export class RescheduleService {
     private postponeEngine: PostponeEngine;
     private advanceEngine: AdvanceEngine;
     private spreadEngine: SpreadEngine;
     private configManager: ConfigManager;
 
-    constructor(private storage: StorageManager) {
-        this.postponeEngine = new PostponeEngine(storage);
-        this.advanceEngine = new AdvanceEngine(storage);
-        this.spreadEngine = new SpreadEngine(storage);
-        this.configManager = new ConfigManager(storage);
+    constructor(
+        private unifiedStorage: UnifiedStorageManager,
+        private cardApplicationService: CardApplicationService
+    ) {
+        this.postponeEngine = new PostponeEngine(unifiedStorage, cardApplicationService);
+        this.advanceEngine = new AdvanceEngine(unifiedStorage, cardApplicationService);
+        this.spreadEngine = new SpreadEngine(unifiedStorage, cardApplicationService);
+        this.configManager = new ConfigManager(unifiedStorage, cardApplicationService);
     }
 
     /**
@@ -81,11 +93,12 @@ export class RescheduleService {
         const unique = Array.from(new Set(blockIds.filter(Boolean)));
         if (unique.length === 0) return resolvedByBlockId;
 
-        // ✅ 使用 StorageManager 查询卡片
-        const cards = await this.storage.getCardsByBlockIds(unique);
-        for (const card of cards) {
-            if (card.blockId && card.id) {
-                resolvedByBlockId.set(card.blockId, card.id);
+        // ✅ 使用 UnifiedStorageManager 查询卡片
+        for (const blockId of unique) {
+            const cards = this.unifiedStorage.getCardsByBlockId(blockId);
+            if (cards.length > 0) {
+                // 取第一张卡片的 ID
+                resolvedByBlockId.set(blockId, cards[0].id);
             }
         }
 
@@ -160,33 +173,56 @@ export class RescheduleService {
         }
 
         try {
-            // ✅ 使用 StorageManager 批量更新
-            await this.storage.batchUpdateCards(cardsToUpdate as any);
+            // ✅ 通过 CardApplicationService 批量更新
+            const cardsToUpdateFull: FSRSCard[] = [];
+            
+            for (const update of cardsToUpdate) {
+                const cards = this.unifiedStorage.getCardsByBlockId(update.blockId);
+                for (const card of cards) {
+                    cardsToUpdateFull.push({
+                        ...card,
+                        due: new Date(update.due)
+                    });
+                }
+            }
+            
+            if (cardsToUpdateFull.length > 0) {
+                await this.cardApplicationService.batchUpdateCardsWithoutEvents(cardsToUpdateFull);
+            }
 
             console.log(`[RescheduleService] Batch update success: ${cardsToUpdate.length} items, skipped: ${result.skipped.length}`);
-            await this.storage.addRescheduleLog({
-                ts: Date.now(),
-                action: type,
-                source: meta.source,
-                targets: cardsToUpdate.map(c => c.blockId),
-                result: { updated: cardsToUpdate.length, skipped: result.skipped.length },
-                sample: logSample
-            });
+            
+            // 记录日志（需要 UnifiedStorageManager 支持 addRescheduleLog）
+            // TODO: 将 addRescheduleLog 迁移到应用服务层
+            const storage = this.unifiedStorage as any;
+            if (storage.addRescheduleLog) {
+                await storage.addRescheduleLog({
+                    ts: Date.now(),
+                    action: type,
+                    source: meta.source,
+                    targets: cardsToUpdate.map(c => c.blockId),
+                    result: { updated: cardsToUpdate.length, skipped: result.skipped.length },
+                    sample: logSample
+                });
+            }
 
         } catch (err: any) {
             console.error('[RescheduleService] Batch update failed', err);
             await pushErrMsg(`Reschedule failed: ${err.message}`);
             result.errors = [{ message: err.message }];
 
-            await this.storage.addRescheduleLog({
-                ts: Date.now(),
-                action: type,
-                source: meta.source,
-                targets: cardsToUpdate.map(c => c.blockId),
-                result: { updated: 0, skipped: cardsToUpdate.length + result.skipped.length },
-                sample: [],
-                error: { code: 'API_ERROR', message: err.message }
-            });
+            const storage = this.unifiedStorage as any;
+            if (storage.addRescheduleLog) {
+                await storage.addRescheduleLog({
+                    ts: Date.now(),
+                    action: type,
+                    source: meta.source,
+                    targets: cardsToUpdate.map(c => c.blockId),
+                    result: { updated: 0, skipped: cardsToUpdate.length + result.skipped.length },
+                    sample: [],
+                    error: { code: 'API_ERROR', message: err.message }
+                });
+            }
             throw err;
         }
 

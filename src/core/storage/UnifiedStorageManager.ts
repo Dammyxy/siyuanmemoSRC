@@ -989,4 +989,105 @@ export class UnifiedStorageManager {
 
     return stats;
   }
+
+  // ========================================================================
+  // StorageManager 兼容接口（适配器方法）
+  // ========================================================================
+
+  /**
+   * 设置卡片（StorageManager 兼容方法）
+   * 内部调用 updateCard 或 createCard
+   * 
+   * **DDD 架构要求**：所有卡片必须属于 Xiuyuan 聚合根
+   * - 如果卡片没有 xiuyuanID，会抛出错误
+   * - 如果 xiuyuan 不存在，会抛出错误
+   */
+  setCard(card: FSRSCard): void {
+    const existing = this.cards.get(card.id);
+    if (existing) {
+      // 更新现有卡片
+      this.updateCard(card);
+    } else {
+      // 创建新卡片 - 必须有 xiuyuanID
+      const xiuyuanId = (card.meta as any)?.xiuyuanID;
+      if (!xiuyuanId) {
+        throw new Error(`[UnifiedStorageManager] Cannot create card without xiuyuanID: ${card.id}. All cards must belong to a Xiuyuan aggregate.`);
+      }
+      
+      const xiuyuan = this.xiuyuans.get(xiuyuanId);
+      if (!xiuyuan) {
+        throw new Error(`[UnifiedStorageManager] Xiuyuan not found: ${xiuyuanId}. Cannot create card ${card.id}.`);
+      }
+      
+      this.createCard(xiuyuan, card);
+    }
+  }
+
+  /**
+   * 移除卡片（StorageManager 兼容方法）
+   * 内部调用 deleteCard（同步版本）
+   */
+  removeCard(cardId: string): boolean {
+    const card = this.cards.get(cardId);
+    if (!card) {
+      return false;
+    }
+
+    // 从 Map 中删除
+    this.cards.delete(cardId);
+    this.cardDTOs.delete(cardId);
+
+    // 更新索引
+    this.updateIndexesForCard(card, 'remove');
+
+    // 标记为脏
+    this.dirty = true;
+    this.scheduleSave();
+
+    return true;
+  }
+
+  /**
+   * 保存卡片（StorageManager 兼容方法）
+   * 内部调用 save
+   */
+  async saveCards(): Promise<void> {
+    const result = await this.save();
+    if (!result.ok) {
+      const errorMsg = result.ok === false && 'error' in result 
+        ? (result as any).error?.message 
+        : 'Failed to save cards';
+      throw new Error(errorMsg);
+    }
+  }
+
+  /**
+   * 通过 blockId 获取卡片（StorageManager 兼容方法）
+   * 注意：返回第一个匹配的卡片
+   */
+  getCardByBlockId(blockId: string): FSRSCard | undefined {
+    const cards = this.getCardsByBlockId(blockId);
+    return cards[0];
+  }
+
+  // ========================================================================
+  // StorageStats 兼容接口
+  // ========================================================================
+
+  /**
+   * 获取统计信息（扩展版本）
+   */
+  getStatsExtended(): StorageStats & {
+    xiuyuanCount: number;
+    cardCount: number;
+    cardDTOCount: number;
+  } {
+    const baseStats = this.getStats();
+    return {
+      ...baseStats,
+      xiuyuanCount: this.xiuyuans.size,
+      cardCount: this.cards.size,
+      cardDTOCount: this.cardDTOs.size,
+    };
+  }
 }

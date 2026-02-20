@@ -2,7 +2,7 @@ import { riff } from '@/core/siyuan';
 import { DEFAULT_PRIORITY } from '../abstraction/IPriority.ts';
 import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy.ts';
 import type { QueueItem } from '../types.ts';
-import type { StorageManager } from '@/core/storage/manager';
+import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';  // ✅ 使用 UnifiedStorageManager
 import { getHiddenContentTypes } from '../utils/hiddenContentTypes.ts';
 import { warnDeprecatedQueueUsage } from '../deprecation';
 import { FinalDrillSequencer } from '../sequencers/FinalDrillSequencer';
@@ -32,9 +32,9 @@ export class TemporaryDrillStrategy implements IQueueStrategy<QueueItem> {
   private readonly queue: TemporaryDrillItem[];
   private readonly sequencer: FinalDrillSequencer<TemporaryDrillItem>;
   private readonly resolveMap = new Map<string, Promise<string | null>>();
-  private readonly storage?: StorageManager;
+  private readonly storage?: UnifiedStorageManager;  // ✅ 使用 UnifiedStorageManager
 
-  constructor(options: { blockIds: string[]; deckID?: string; storage?: StorageManager }) {
+  constructor(options: { blockIds: string[]; deckID?: string; storage?: UnifiedStorageManager }) {  // ✅ 使用 UnifiedStorageManager
     warnDeprecatedQueueUsage(this.constructor.name);
     this.deckID = options.deckID || riff.BUILTIN_DECK_ID;
     this.storage = options.storage;
@@ -104,7 +104,8 @@ export class TemporaryDrillStrategy implements IQueueStrategy<QueueItem> {
         
         // 如果没有找到，尝试用 blockID 查询
         if (!meta.answerBlockID) {
-          const card = this.storage.getCardByBlockId(head.blockID);
+          const cards = this.storage.getCardsByBlockId(head.blockID);  // ✅ 使用 getCardsByBlockId
+          const card = cards[0];
           if (card?.meta) {
             meta = { ...meta, ...card.meta };
           }
@@ -174,7 +175,7 @@ export class TemporaryDrillStrategy implements IQueueStrategy<QueueItem> {
     }
 
     for (const blockID of blockIds) {
-      const card = this.storage.getCardByBlockId(blockID);
+      const card = this.storage.getCardsByBlockId(blockID)[0];  // ✅ 使用 getCardsByBlockId
       if (card) {
         const it = this.queue.find((x) => x.blockID === blockID);
         if (it && !it.cardID) {
@@ -201,7 +202,7 @@ export class TemporaryDrillStrategy implements IQueueStrategy<QueueItem> {
       return null;
     }
 
-    const card = this.storage.getCardByBlockId(blockID);
+    const card = this.storage.getCardsByBlockId(blockID)[0];  // ✅ 使用 getCardsByBlockId
     if (card) {
       const it = this.queue.find((x) => x.blockID === blockID);
       if (it) it.cardID = card.id;

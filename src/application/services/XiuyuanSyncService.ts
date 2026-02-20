@@ -15,11 +15,10 @@
  * @deprecated 旧名称 HybridSyncService 已废弃，请使用 XiuyuanSyncService
  */
 
-import type { StorageManager } from '@/core/storage/manager';
 import type { FSRSCard } from '@/types';
 import { getRiffCards, getRiffNewCards, removeRiffCards, type RiffBlock } from '@/core/siyuan/riff';
-import { batchDetectCardType, initializeAFactor } from '@/core/card-builder';
-import { setBlockAttrs, getBlockAttrs, getBlockKramdown, sql } from '@/core/siyuan/api';
+import { initializeAFactor } from '@/core/card-builder';
+import { setBlockAttrs, getBlockAttrs } from '@/core/siyuan/api';
 import { ATTR_CARD_TYPE, ATTR_A_FACTOR } from '@/core/siyuan/block';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import type {
@@ -29,16 +28,18 @@ import type {
     SyncStatus,
     SyncType,
     ProgressCallback,
-    SyncProgress
+    SyncProgress,
+    SyncPhase
 } from './XiuyuanSyncService.types';
-
-// CardApplicationService 接口（用于依赖注入）
-interface CardApplicationServiceLike {
-    batchCreateCardsWithoutEvents(cards: any[]): Promise<{ ok: true; value: { createdCount: number; failedCount: number } } | { ok: false; error: Error }>;
-    batchUpdateCardsWithoutEvents(cards: any[]): Promise<{ ok: true; value: { updatedCount: number; failedCount: number } } | { ok: false; error: Error }>;
-    batchDeleteCards(cardIds: string[]): Promise<{ ok: true; value: { deletedCount: number; failedCount: number } } | { ok: false; error: Error }>;
-    saveCards(): Promise<void>;
-}
+import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
+import { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
+import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
+import { BlockId } from '@/core/xiuyuan/domain/BlockId';
+import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
+import { CardFace } from '@/core/xiuyuan/domain/CardFace';
+import { Priority } from '@/core/xiuyuan/domain/Priority';
+import { RiffBlacklistService } from './RiffBlacklistService';
+import { CardTypeDetectionService } from '@/core/xiuyuan/domain/services/CardTypeDetectionService';
 
 // ==================== Xiuyuan 同步服务 ====================
 
@@ -58,10 +59,10 @@ interface CardApplicationServiceLike {
  */
 export class XiuyuanSyncService {
     private config: HybridSyncConfig;
-    private storage: StorageManager;
-    private riffBlacklistService: any | null;
-    private cardApplicationService: CardApplicationServiceLike;
+    private riffBlacklistService: RiffBlacklistService;
+    private cardTypeDetectionService: CardTypeDetectionService;
     private eventBus: EventBus;
+    private xiuyuanRepository: IXiuyuanRepository;
     private lastSyncTime: number = 0;
     private lastFullSyncTime: number = 0;
     
@@ -74,17 +75,19 @@ export class XiuyuanSyncService {
     
     constructor(
         config: HybridSyncConfig,
-        cardApplicationService: CardApplicationServiceLike,
-        eventBus: EventBus
+        eventBus: EventBus,
+        xiuyuanRepository: IXiuyuanRepository,
+        riffBlacklistService: RiffBlacklistService,
+        cardTypeDetectionService: CardTypeDetectionService
     ) {
         this.config = {
             ...config,
             retry: config.retry || this.DEFAULT_RETRY_CONFIG
         };
-        this.storage = config.storage;
-        this.riffBlacklistService = config.riffBlacklistService || null;
-        this.cardApplicationService = cardApplicationService;
+        this.riffBlacklistService = riffBlacklistService;
+        this.cardTypeDetectionService = cardTypeDetectionService;
         this.eventBus = eventBus;
+        this.xiuyuanRepository = xiuyuanRepository;
     }
     
     /**
@@ -221,8 +224,7 @@ export class XiuyuanSyncService {
                 this.reportProgress(onProgress, 'incremental', 'filtering', 1, 7, '正在过滤黑名单...');
                 let filtered = newCards;
                 if (this.config.incrementalSync.useBlacklist) {
-                    const blacklist = this.storage.getRiffBlacklist();
-                    filtered = newCards.filter(card => !blacklist.has(card.id));
+                    filtered = await this.riffBlacklistService.filterBlacklist(newCards);
                     console.log(`[SiYuanMemo][HybridSync] Filtered ${newCards.length - filtered.length} blacklisted cards`);
                 }
                 
@@ -236,150 +238,205 @@ export class XiuyuanSyncService {
                 const addedCards: RiffBlock[] = [];
                 
                 for (const riffCard of filtered) {
-                    const result = await this.cardApplicationService.getCard({ cardId: riffCard.id });
-                    const localCard = result.card;
+                    // ✅ 使用 Repository 查询，符合 DDD 架构
+                    const xiuyuanIdStr = `xy_riff_${riffCard.id}`;
+                    const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
                     
-                    console.log(`[SiYuanMemo][HybridSync] Checking card ${riffCard.id}: localCard=${!!localCard}`);
+                    if (!xiuyuanIdResult.ok) {
+                        console.error(`[SiYuanMemo][HybridSync] Invalid Xiuyuan ID: ${xiuyuanIdStr}`);
+                        skippedCount++;
+                        continue;
+                    }
                     
-                    if (!localCard) {
-                        // 检查是否有相同 blockId 的卡片（防止重复）
-                        const existingCardWithSameBlock = this.storage.getAllCards()
-                            .find(c => c.blockId === riffCard.id);
+                    const existingXiuyuanResult = await this.xiuyuanRepository.findById(xiuyuanIdResult.value);
+                    
+                    if (!existingXiuyuanResult.ok) {
+                        const errorMsg = 'error' in existingXiuyuanResult ? existingXiuyuanResult.error : 'Unknown error';
+                        console.error(`[SiYuanMemo][HybridSync] Failed to query Xiuyuan:`, errorMsg);
+                        skippedCount++;
+                        continue;
+                    }
+                    
+                    const existingXiuyuan = existingXiuyuanResult.value;
+                    
+                    console.log(`[SiYuanMemo][HybridSync] Checking card ${riffCard.id}: existingXiuyuan=${!!existingXiuyuan}`);
+                    
+                    if (!existingXiuyuan) {
+                        // ✅ 本地没有，通过 Repository 保存（完全符合 DDD）
+                        console.log(`[SiYuanMemo][HybridSync] Adding new card ${riffCard.id}`);
+                        const { xiuyuanEntity } = await this.convertRiffCardToFSRSCard(riffCard);
                         
-                        if (existingCardWithSameBlock) {
-                            console.log(`[SiYuanMemo][HybridSync] Skipping ${riffCard.id}: block already has card ${existingCardWithSameBlock.id}`);
-                            skippedCount++;
+                        console.log(`[SiYuanMemo][HybridSync] Created Xiuyuan ${xiuyuanEntity.getId().getValue()} with ${xiuyuanEntity.getCards().length} cards`);
+                        
+                        // ✅ 通过 Repository 保存 Xiuyuan（会自动保存关联的 Card）
+                        const saveResult = await this.xiuyuanRepository.save(xiuyuanEntity);
+                        if (!saveResult.ok) {
+                            const errorMsg = saveResult.ok === false ? saveResult.error.message : 'Unknown error';
+                            console.error(`[SiYuanMemo][HybridSync] Failed to save Xiuyuan ${xiuyuanEntity.getId().getValue()}: ${errorMsg}`);
                             continue;
                         }
                         
-                        // 本地没有，添加新卡片
-                        console.log(`[SiYuanMemo][HybridSync] Adding new card ${riffCard.id}`);
-                        const fsrsCard = await this.convertRiffCardToFSRSCard(riffCard);
-                        
-                        // 使用 CardApplicationService 添加新卡片
-                        await this.cardApplicationService.batchCreateCardsWithoutEvents([fsrsCard]);
+                        console.log(`[SiYuanMemo][HybridSync] Successfully saved Xiuyuan ${xiuyuanEntity.getId().getValue()}`);
                         
                         addedCards.push(riffCard);
                         addedCount++;
                     } else {
-                        // 本地已存在，更新块属性相关字段
+                        // ✅ 本地已存在 Xiuyuan，更新其属性
+                        console.log(`[SiYuanMemo][HybridSync] Updating existing Xiuyuan ${xiuyuanIdStr}`);
+                        
                         let needsUpdate = false;
                         
-                        // 1. 更新优先级
-                        const newPriority = (() => {
-                            // 检查是否是修缘卡片
-                            const isXiuyuanCard = localCard.meta?.xiuyuanID !== undefined;
-                            
-                            if (isXiuyuanCard) {
-                                // 修缘卡片：优先读取 meta.priority（独立优先级）
-                                if (localCard.meta?.priority !== undefined) {
-                                    return localCard.meta.priority;
-                                }
-                            }
-                            // 注意：不再从块属性读取优先级，统一使用 FSRSCard.priority
-                            
-                            // 保持原值
-                            return localCard.priority;
-                        })();
+                        // 1. 提取 Riff 卡片的属性
+                        // 1.1 优先级（从现有 Xiuyuan 获取，保持不变）
+                        const newPriorityValue = existingXiuyuan.getPriority().getValue();
                         
-                        if (newPriority !== localCard.priority) {
-                            console.log(`[SiYuanMemo][HybridSync] Updating priority for card ${riffCard.id}: ${localCard.priority} -> ${newPriority}`);
-                            localCard.priority = newPriority;
-                            needsUpdate = true;
-                        }
-                        
-                        // 2. 更新卡片类型标记（concept/descriptor）
+                        // 1.2 卡片类型标记（concept/descriptor）
                         const cardTypeMarkerAttr = riffCard.ial?.['custom-fsrs-card-type'];
                         const newCardTypeMarker = (cardTypeMarkerAttr === 'concept' || cardTypeMarkerAttr === 'descriptor')
                             ? cardTypeMarkerAttr as 'concept' | 'descriptor'
                             : undefined;
                         
-                        if (newCardTypeMarker && newCardTypeMarker !== localCard.cardTypeMarker) {
-                            console.log(`[SiYuanMemo][HybridSync] Updating cardTypeMarker for card ${riffCard.id}: ${localCard.cardTypeMarker} -> ${newCardTypeMarker}`);
-                            localCard.cardTypeMarker = newCardTypeMarker;
-                            // 同时更新 type 字段
-                            localCard.type = newCardTypeMarker as any;
-                            needsUpdate = true;
-                        }
-                        
-                        // 3. 更新技术类型（topic/item）
-                        if (!newCardTypeMarker) {
-                            const cardTypeAttr = riffCard.ial?.['custom-card-type'];
-                            const newCardType = (cardTypeAttr === 'topic' || cardTypeAttr === 'item' || cardTypeAttr === 'concept' || cardTypeAttr === 'descriptor') 
-                                ? cardTypeAttr 
-                                : undefined;
-                            
-                            if (newCardType && newCardType !== localCard.type) {
-                                console.log(`[SiYuanMemo][HybridSync] Updating type for card ${riffCard.id}: ${localCard.type} -> ${newCardType}`);
-                                localCard.type = newCardType as any;
-                                needsUpdate = true;
-                            }
-                        }
-                        
-                        // 4. 更新 Topic 卡片的 A-Factor
-                        if (localCard.type === 'topic') {
-                            const newAFactor = riffCard.ial?.['custom-fsrs-a-factor'] 
-                                ? parseFloat(riffCard.ial['custom-fsrs-a-factor']) 
-                                : undefined;
-                            
-                            if (newAFactor !== undefined && newAFactor !== localCard.aFactor) {
-                                console.log(`[SiYuanMemo][HybridSync] Updating aFactor for card ${riffCard.id}: ${localCard.aFactor} -> ${newAFactor}`);
-                                localCard.aFactor = newAFactor;
-                                needsUpdate = true;
-                            }
-                        }
-                        
-                        // 如果有任何字段发生变化，更新卡片
-                        if (needsUpdate) {
-                            localCard.updatedAt = Date.now();
-                            
-                            // 使用 CardApplicationService 更新卡片
-                            await this.cardApplicationService.batchUpdateCardsWithoutEvents([localCard]);
-                            
-                            updatedCount++;
+                        // 1.3 卡片类型（topic/item）
+                        let newCardType: 'topic' | 'item' | 'concept' | 'descriptor' | undefined;
+                        if (newCardTypeMarker) {
+                            newCardType = newCardTypeMarker;
                         } else {
+                            const cardTypeAttr = riffCard.ial?.['custom-card-type'];
+                            if (cardTypeAttr === 'topic' || cardTypeAttr === 'item' || cardTypeAttr === 'concept' || cardTypeAttr === 'descriptor') {
+                                newCardType = cardTypeAttr;
+                            }
+                        }
+                        
+                        // 1.4 A-Factor（从块属性读取）
+                        const aFactorAttr = riffCard.ial?.['custom-fsrs-a-factor'];
+                        const newAFactor = aFactorAttr ? parseFloat(aFactorAttr) : undefined;
+                        
+                        // 2. 比较并更新
+                        // 2.1 更新优先级
+                        const currentPriority = existingXiuyuan.getPriority().getValue();
+                        if (currentPriority !== newPriorityValue) {
+                            const priorityResult = Priority.create(newPriorityValue);
+                            if (priorityResult.ok) {
+                                const updateResult = existingXiuyuan.updatePriority(priorityResult.value);
+                                if (updateResult.ok) {
+                                    console.log(`[SiYuanMemo][HybridSync] Updated priority: ${currentPriority} -> ${newPriorityValue}`);
+                                    needsUpdate = true;
+                                }
+                            }
+                        }
+                        
+                        // 2.2 更新卡片类型标记
+                        if (newCardTypeMarker) {
+                            const currentCardTypeMarker = existingXiuyuan.getMeta().cardTypeMarker;
+                            if (currentCardTypeMarker !== newCardTypeMarker) {
+                                const updateResult = existingXiuyuan.updateCardTypeMarker(newCardTypeMarker);
+                                if (updateResult.ok) {
+                                    console.log(`[SiYuanMemo][HybridSync] Updated cardTypeMarker: ${currentCardTypeMarker} -> ${newCardTypeMarker}`);
+                                    needsUpdate = true;
+                                }
+                            }
+                        }
+                        
+                        // 2.3 更新卡片类型
+                        if (newCardType) {
+                            const currentCardType = existingXiuyuan.getMeta().cardType;
+                            if (currentCardType !== newCardType) {
+                                const updateResult = existingXiuyuan.updateCardType(newCardType);
+                                if (updateResult.ok) {
+                                    console.log(`[SiYuanMemo][HybridSync] Updated cardType: ${currentCardType} -> ${newCardType}`);
+                                    needsUpdate = true;
+                                }
+                            }
+                        }
+                        
+                        // 2.4 更新 A-Factor（仅 Topic 卡片）
+                        if (newAFactor && !isNaN(newAFactor) && newCardType === 'topic') {
+                            const currentAFactor = existingXiuyuan.getMeta().aFactor;
+                            if (currentAFactor !== newAFactor) {
+                                const updateResult = existingXiuyuan.updateAFactor(newAFactor);
+                                if (updateResult.ok) {
+                                    console.log(`[SiYuanMemo][HybridSync] Updated aFactor: ${currentAFactor} -> ${newAFactor}`);
+                                    needsUpdate = true;
+                                } else {
+                                    const errorMsg = updateResult.ok === false ? updateResult.error.message : 'Unknown error';
+                                    console.error(`[SiYuanMemo][HybridSync] Failed to update aFactor: ${errorMsg}`);
+                                }
+                            }
+                        }
+                        
+                        // 3. 保存更新
+                        if (needsUpdate) {
+                            const saveResult = await this.xiuyuanRepository.save(existingXiuyuan);
+                            if (saveResult.ok) {
+                                console.log(`[SiYuanMemo][HybridSync] Successfully updated Xiuyuan ${xiuyuanIdStr}`);
+                                updatedCount++;
+                            } else {
+                                const errorMsg = saveResult.ok === false ? saveResult.error.message : 'Unknown error';
+                                console.error(`[SiYuanMemo][HybridSync] Failed to save updated Xiuyuan: ${errorMsg}`);
+                                skippedCount++;
+                            }
+                        } else {
+                            console.log(`[SiYuanMemo][HybridSync] No changes detected for Xiuyuan ${xiuyuanIdStr}`);
                             skippedCount++;
                         }
                     }
                 }
                 
-                // 4. 检测并删除本地有但 Riff 没有的卡片
+                // 4. 检测并删除本地有但 Riff 没有的 Xiuyuan
                 this.reportProgress(onProgress, 'incremental', 'deleting', 4, 7, '正在检测删除的卡片...');
                 let deletedCount = 0;
                 
-                // 获取所有本地卡片
-                const localCards = this.storage.getAllCards();
-                // 创建 Riff 卡片 ID 集合
-                const riffCardIds = new Set(filtered.map(c => c.id));
-                
-                // 找出本地有但 Riff 没有的卡片
-                const cardsToDelete = localCards.filter(localCard => {
-                    // ✅ 保护 Xiuyuan 卡片：Xiuyuan 卡片不在 Riff 中，不应该被删除
-                    if (localCard.meta?.xiuyuanID) {
-                        return false;  // 跳过 Xiuyuan 卡片
-                    }
+                // ✅ 使用 Repository 查询所有 Xiuyuan（符合 DDD 架构）
+                const allXiuyuansResult = await this.xiuyuanRepository.findAll();
+                if (!allXiuyuansResult.ok) {
+                    const errorMsg = 'error' in allXiuyuansResult ? allXiuyuansResult.error : 'Unknown error';
+                    console.error(`[SiYuanMemo][HybridSync] Failed to get all Xiuyuans:`, errorMsg);
+                } else {
+                    const allXiuyuans = allXiuyuansResult.value;
                     
-                    // 只删除不在 Riff 中的普通卡片
-                    return !riffCardIds.has(localCard.id);
-                });
-                
-                if (cardsToDelete.length > 0) {
-                    console.log(`[SiYuanMemo][HybridSync] Deleting ${cardsToDelete.length} cards that no longer exist in Riff`);
+                    // 创建 Riff 块 ID 集合
+                    const riffBlockIds = new Set(filtered.map(c => c.id));
                     
-                    // 使用 CardApplicationService 删除卡片
-                    const cardIds = cardsToDelete.map(c => c.id);
-                    const result = await this.cardApplicationService.batchDeleteCards(cardIds);
-                    if (result.ok) {
-                        deletedCount = result.value.deletedCount;
-                        console.log(`[SiYuanMemo][HybridSync] Deleted ${deletedCount} cards via CardApplicationService`);
+                    // 找出本地有但 Riff 没有的 Xiuyuan（只删除 Riff 同步创建的）
+                    const xiuyuansToDelete = allXiuyuans.filter(xiuyuan => {
+                        const xiuyuanId = xiuyuan.getId().getValue();
+                        
+                        // 只删除 Riff 同步创建的 Xiuyuan（以 xy_riff_ 开头）
+                        if (!xiuyuanId.startsWith('xy_riff_')) {
+                            return false;
+                        }
+                        
+                        // 检查对应的块是否还在 Riff 中
+                        const blockIds = xiuyuan.getBlockIDs();
+                        if (blockIds.length === 0) {
+                            return false;
+                        }
+                        
+                        const blockId = blockIds[0].getValue();
+                        return !riffBlockIds.has(blockId);
+                    });
+                    
+                    if (xiuyuansToDelete.length > 0) {
+                        console.log(`[SiYuanMemo][HybridSync] Deleting ${xiuyuansToDelete.length} Xiuyuans that no longer exist in Riff`);
+                        
+                        // ✅ 使用 Repository 删除（符合 DDD 架构）
+                        for (const xiuyuan of xiuyuansToDelete) {
+                            const deleteResult = await this.xiuyuanRepository.delete(xiuyuan);
+                            if (deleteResult.ok) {
+                                deletedCount++;
+                            } else {
+                                const errorMsg = 'error' in deleteResult ? deleteResult.error : 'Unknown error';
+                                console.error(`[SiYuanMemo][HybridSync] Failed to delete Xiuyuan ${xiuyuan.getId().getValue()}:`, errorMsg);
+                            }
+                        }
+                        
+                        console.log(`[SiYuanMemo][HybridSync] Deleted ${deletedCount} Xiuyuans via Repository`);
                     }
                 }
                 
-                // 5. 保存
+                // 5. 保存（Repository.delete() 已经自动保存，不需要额外调用）
                 this.reportProgress(onProgress, 'incremental', 'saving', 5, 7, '正在保存数据...');
-                if (addedCount > 0 || updatedCount > 0 || deletedCount > 0) {
-                    await this.cardApplicationService.saveCards();
-                }
+                // ✅ Repository 操作已经自动保存，移除 saveCards() 调用
                 
                 // 6. 自动检测卡片类型（如果启用）
                 let detectedCount: number | undefined;
@@ -443,101 +500,135 @@ export class XiuyuanSyncService {
                     dueOnly: false,
                     includeNew: true
                 });
-                // 🔧 修改：使用 blockId 而不是 cardId
+                // 🔧 修改：使用 Repository 查询所有 Xiuyuan
                 const riffBlockIds = new Set(riffCards.map(c => c.id));
-                const localCards = this.storage.getAllCards();
                 
-                console.log(`[SiYuanMemo][HybridSync] Riff: ${riffBlockIds.size} blocks, Local: ${localCards.length} cards`);
+                // ✅ 使用 Repository 查询所有 Xiuyuan（符合 DDD 架构）
+                const allXiuyuansResult = await this.xiuyuanRepository.findAll();
+                if (!allXiuyuansResult.ok) {
+                    const errorMsg = 'error' in allXiuyuansResult ? allXiuyuansResult.error : 'Unknown error';
+                    console.error(`[SiYuanMemo][HybridSync] Failed to get all Xiuyuans:`, errorMsg);
+                    throw new Error(`Failed to get all Xiuyuans: ${errorMsg}`);
+                }
+                
+                const allXiuyuans = allXiuyuansResult.value;
+                console.log(`[SiYuanMemo][HybridSync] Riff: ${riffBlockIds.size} blocks, Local: ${allXiuyuans.length} Xiuyuans`);
                 
                 // 2. 🔧 只添加新卡片（本地没有的），不更新已有卡片的复习数据
                 this.reportProgress(onProgress, 'full', 'adding', 2, 7, '正在添加新卡片...');
                 let addedCount = 0;
                 let skippedCount = 0;
-                const cardsToAdd: any[] = [];
                 
                 for (const riffCard of riffCards) {
-                    const result = await this.cardApplicationService.getCard({ cardId: riffCard.id });
-                    const localCard = result.card;
-                    if (localCard) {
+                    // ✅ 使用 Repository 查询（符合 DDD 架构）
+                    const xiuyuanIdStr = `xy_riff_${riffCard.id}`;
+                    const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
+                    
+                    if (!xiuyuanIdResult.ok) {
+                        console.error(`[SiYuanMemo][HybridSync] Invalid Xiuyuan ID: ${xiuyuanIdStr}`);
+                        continue;
+                    }
+                    
+                    const existingXiuyuanResult = await this.xiuyuanRepository.findById(xiuyuanIdResult.value);
+                    
+                    if (!existingXiuyuanResult.ok) {
+                        const errorMsg = 'error' in existingXiuyuanResult ? existingXiuyuanResult.error : 'Unknown error';
+                        console.error(`[SiYuanMemo][HybridSync] Failed to query Xiuyuan:`, errorMsg);
+                        continue;
+                    }
+                    
+                    const existingXiuyuan = existingXiuyuanResult.value;
+                    
+                    if (existingXiuyuan) {
                         // ✅ 已存在，跳过（不覆盖本地复习数据）
-                        console.log(`[SiYuanMemo][HybridSync] Card exists locally, skipping: ${riffCard.id}`);
+                        console.log(`[SiYuanMemo][HybridSync] Xiuyuan exists locally, skipping: ${riffCard.id}`);
                         skippedCount++;
                     } else {
-                        // ✅ 不存在，准备添加新卡片
-                        const fsrsCard = await this.convertRiffCardToFSRSCard(riffCard);
-                        cardsToAdd.push(fsrsCard);
+                        // ✅ 不存在，通过 Repository 保存（完全符合 DDD）
+                        const { xiuyuanEntity } = await this.convertRiffCardToFSRSCard(riffCard);
+                        
+                        // ✅ 通过 Repository 保存 Xiuyuan（会自动保存关联的 Card）
+                        const saveResult = await this.xiuyuanRepository.save(xiuyuanEntity);
+                        if (saveResult.ok) {
+                            addedCount++;
+                        } else {
+                            const errorMsg = saveResult.ok === false ? saveResult.error.message : 'Unknown error';
+                            console.error(`[SiYuanMemo][HybridSync] Failed to save Xiuyuan ${xiuyuanEntity.getId().getValue()}: ${errorMsg}`);
+                        }
                     }
                 }
                 
-                // 批量添加新卡片
-                if (cardsToAdd.length > 0) {
-                    const result = await this.cardApplicationService.batchCreateCardsWithoutEvents(cardsToAdd);
-                    if (result.ok) {
-                        addedCount = result.value.createdCount;
-                    }
-                }
-                
-                console.log(`[SiYuanMemo][HybridSync] Added ${addedCount} new cards, skipped ${skippedCount} existing cards`);
+                console.log(`[SiYuanMemo][HybridSync] Added ${addedCount} new Xiuyuans, skipped ${skippedCount} existing Xiuyuans`);
                 
                 // 3. 删除：本地有但 Riff 没有（通过 blockId 判断）
                 this.reportProgress(onProgress, 'full', 'deleting', 3, 7, '正在删除过期卡片...');
-                const toDelete = localCards.filter(card => {
-                    // 在Riff中，保留
-                    if (riffBlockIds.has(card.blockId)) return false;
+                
+                // ✅ 使用 Repository 查询和删除（符合 DDD 架构）
+                const xiuyuansToDelete = allXiuyuans.filter(xiuyuan => {
+                    const xiuyuanId = xiuyuan.getId().getValue();
                     
-                    // 🆕 秀元卡片，保留（多卡片共用一个blockId）
-                    if (card.meta?.xiuyuanID) {
-                        console.log(`[SiYuanMemo][HybridSync] Skipping Xiuyuan card: ${card.id} (xiuyuanID: ${card.meta.xiuyuanID})`);
+                    // 只删除 Riff 同步创建的 Xiuyuan（以 xy_riff_ 开头）
+                    if (!xiuyuanId.startsWith('xy_riff_')) {
                         return false;
                     }
                     
-                    // 其他情况，删除
-                    return true;
+                    // 检查对应的块是否还在 Riff 中
+                    const blockIds = xiuyuan.getBlockIDs();
+                    if (blockIds.length === 0) {
+                        return false;
+                    }
+                    
+                    const blockId = blockIds[0].getValue();
+                    return !riffBlockIds.has(blockId);
                 });
                 
                 let deletedCount = 0;
-                if (toDelete.length > 0) {
-                    const cardIds = toDelete.map(c => c.id);
-                    const result = await this.cardApplicationService.batchDeleteCards(cardIds);
-                    if (result.ok) {
-                        deletedCount = result.value.deletedCount;
+                if (xiuyuansToDelete.length > 0) {
+                    console.log(`[SiYuanMemo][HybridSync] Deleting ${xiuyuansToDelete.length} Xiuyuans that no longer exist in Riff`);
+                    
+                    for (const xiuyuan of xiuyuansToDelete) {
+                        const deleteResult = await this.xiuyuanRepository.delete(xiuyuan);
+                        if (deleteResult.ok) {
+                            deletedCount++;
+                        } else {
+                            const errorMsg = 'error' in deleteResult ? deleteResult.error : 'Unknown error';
+                            console.error(`[SiYuanMemo][HybridSync] Failed to delete Xiuyuan ${xiuyuan.getId().getValue()}:`, errorMsg);
+                        }
                     }
                 }
                 
-                console.log(`[SiYuanMemo][HybridSync] Deleted ${deletedCount} cards not in Riff`);
+                console.log(`[SiYuanMemo][HybridSync] Deleted ${deletedCount} Xiuyuans not in Riff`);
                 
                 // 4. 清理黑名单：黑名单中 Riff 已不存在的 blockId
                 let blacklistCleanedCount = 0;
                 if (this.config.fullSync.cleanupBlacklist) {
                     this.reportProgress(onProgress, 'full', 'cleanup', 4, 7, '正在清理黑名单...');
-                    const blacklist = this.storage.getRiffBlacklist();
-                    const toRemoveFromBlacklist = Array.from(blacklist).filter(id => !riffBlockIds.has(id));
-                    
-                    for (const id of toRemoveFromBlacklist) {
-                        this.storage.removeFromRiffBlacklist(id);
-                        blacklistCleanedCount++;
-                    }
-                    
+                    blacklistCleanedCount = await this.riffBlacklistService.cleanupBlacklist(riffBlockIds);
                     console.log(`[SiYuanMemo][HybridSync] Cleaned ${blacklistCleanedCount} IDs from blacklist`);
                 }
                 
                 // 5. 保存
                 this.reportProgress(onProgress, 'full', 'saving', 5, 7, '正在保存数据...');
-                if (addedCount > 0 || deletedCount > 0) {
-                    await this.cardApplicationService.saveCards();
-                }
+                // ✅ Repository.save() 和 Repository.delete() 已经自动保存
+                // 不需要额外调用 saveCards()
                 
                 // 6. 自动检测卡片类型（如果启用）
                 let detectedCount: number | undefined;
                 if (this.config.incrementalSync.autoDetectCardType && addedCount > 0) {
                     this.reportProgress(onProgress, 'full', 'detecting', 6, 7, '正在检测卡片类型...');
                     // 只检测新添加的卡片
-                    const newCardsPromises = riffCards.map(async (card) => {
-                        const result = await this.cardApplicationService.getCard({ cardId: card.id });
-                        return !result.card ? card : null;
-                    });
-                    const newCardsResults = await Promise.all(newCardsPromises);
-                    const newCards = newCardsResults.filter((card): card is RiffBlock => card !== null);
+                    const newCards: RiffBlock[] = [];
+                    for (const riffCard of riffCards) {
+                        const xiuyuanIdStr = `xy_riff_${riffCard.id}`;
+                        const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
+                        if (!xiuyuanIdResult.ok) continue;
+                        
+                        const existingXiuyuanResult = await this.xiuyuanRepository.findById(xiuyuanIdResult.value);
+                        if (!existingXiuyuanResult.ok || !existingXiuyuanResult.value) {
+                            newCards.push(riffCard);
+                        }
+                    }
+                    
                     if (newCards.length > 0) {
                         detectedCount = await this.detectCardTypesForNewCards(newCards);
                     }
@@ -581,70 +672,15 @@ export class XiuyuanSyncService {
      * @param riffCard Riff 卡片数据
      */
     /**
-     * 🔧 从 Riff 同步卡片到本地（仅用于添加新卡片）
+     * 🔧 从 Riff 同步卡片到本地（已废弃）
      * 
-     * 注意：此方法现在只用于添加本地不存在的新卡片。
-     * fullSync 会在调用前检查卡片是否存在，已存在的卡片会被跳过。
+     * @deprecated 此方法已不再使用，所有同步逻辑已迁移到 incrementalSync 和 fullSync
      * 
      * @param riffCard Riff 卡片数据
      */
     private async syncRiffCardToLocal(riffCard: RiffBlock): Promise<void> {
-        const blockId = riffCard.id;
-        
-        try {
-            // 1. 检查是否为 Xiuyuan 卡片（通过块属性）
-            const attrs = await getBlockAttrs(blockId);
-            const xiuyuanID = attrs['custom-fsrs-xiuyuan-id'];
-            
-            if (xiuyuanID) {
-                // 这是一个 Xiuyuan 卡片
-                console.log(`[SiYuanMemo][HybridSync] Detected Xiuyuan card: ${blockId}, xiuyuanID: ${xiuyuanID}`);
-                
-                // 检查本地是否已有该卡片（文件可能已通过思源同步）
-                const existingCards = this.storage.getCardsByBlockId(blockId);
-                
-                if (existingCards.length > 0) {
-                    // 本地已有卡片，只需要同步 FSRS 调度数据
-                    console.log(`[SiYuanMemo][HybridSync] Xiuyuan card exists locally, updating FSRS data from Riff`);
-                    
-                    const cardsToUpdate: any[] = [];
-                    for (const card of existingCards) {
-                        // 更新 FSRS 调度数据
-                        card.due = riffCard.due;
-                        card.state = riffCard.state;
-                        card.stability = riffCard.stability;
-                        card.difficulty = riffCard.difficulty;
-                        card.reps = riffCard.reps;
-                        card.lapses = riffCard.lapses;
-                        card.lastReview = riffCard.lastReview;
-                        card.elapsedDays = riffCard.elapsedDays;
-                        card.scheduledDays = riffCard.scheduledDays;
-                        card.updatedAt = Date.now();
-                        
-                        cardsToUpdate.push(card);
-                    }
-                    
-                    // 批量更新
-                    await this.cardApplicationService.batchUpdateCardsWithoutEvents(cardsToUpdate);
-                    
-                    console.log(`[SiYuanMemo][HybridSync] Updated ${existingCards.length} Xiuyuan card(s) FSRS data`);
-                    return;
-                }
-                
-                // 本地没有卡片：等待思源同步 msgpack 文件
-                console.log(`[SiYuanMemo][HybridSync] Xiuyuan ${xiuyuanID} not found locally, waiting for file sync from SiYuan`);
-                return;
-            } else {
-                // 普通卡片:添加新卡片
-                const fsrsCard = await this.convertRiffCardToFSRSCard(riffCard);
-                await this.cardApplicationService.batchCreateCardsWithoutEvents([fsrsCard]);
-                
-                console.log(`[SiYuanMemo][HybridSync] Added new card: ${blockId}`);
-            }
-        } catch (error) {
-            console.error(`[SiYuanMemo][HybridSync] Failed to add card ${blockId}:`, error);
-            // 不抛出错误，继续处理其他卡片
-        }
+        console.warn('[SiYuanMemo][HybridSync] syncRiffCardToLocal is deprecated and should not be called');
+        // 此方法已废弃，所有同步逻辑已迁移到 incrementalSync 和 fullSync
     }
     
     // ==================== 跨设备重建逻辑（TODO）====================
@@ -769,11 +805,7 @@ export class XiuyuanSyncService {
             
             // 失败时加入黑名单（如果启用）
             if (this.config.deleteSync.useBlacklistFallback) {
-                if (this.riffBlacklistService) {
-                    await this.riffBlacklistService.addToBlacklist(cardID);
-                } else {
-                    this.storage.addToRiffBlacklist(cardID);
-                }
+                await this.riffBlacklistService.addToBlacklist(cardID);
                 console.log(`[SiYuanMemo][HybridSync] Added card to blacklist as fallback: ${cardID}`);
             }
             
@@ -850,7 +882,7 @@ export class XiuyuanSyncService {
             
             // 1. 批量检测类型
             const blockIds = cardsToDetect.map(c => c.id);
-            const typeMap = await batchDetectCardType(blockIds);
+            const typeMap = await this.cardTypeDetectionService.batchDetectCardTypes(blockIds);
             
             // 2. 批量更新块属性（每批 50 张，避免阻塞）
             let updated = 0;
@@ -900,142 +932,32 @@ export class XiuyuanSyncService {
     /**
      * 智能检测卡片类型（用于快速制卡）
      * 
-     * 规则：
-     * 1. 文档块 → topic
-     * 2. 有挖空符号（==、::）→ item
-     * 3. 标题块 → item
-     * 4. 列表项有子级 → item
-     * 5. 超级块有子级 → item
-     * 6. 其他 → topic
+     * @deprecated 使用 CardTypeDetectionService.detectCardType() 代替
      * 
      * @param riffBlock Riff 卡片数据
      * @returns 'topic' | 'item'
      */
     private async smartDetectCardType(riffBlock: RiffBlock): Promise<'topic' | 'item'> {
-        try {
-            const blockId = riffBlock.id;
-            
-            // 1. 获取块类型和内容
-            const blockData = await sql(`
-                SELECT type, markdown, content FROM blocks
-                WHERE id = '${blockId}'
-                LIMIT 1
-            `);
-            
-            if (!blockData || blockData.length === 0) {
-                console.log(`[HybridSyncService] Block ${blockId}: topic (block not found)`);
-                return 'topic';
-            }
-            
-            const type = blockData[0].type;
-            const markdown = blockData[0].markdown || '';
-            const content = blockData[0].content || '';
-            
-            // 2. 文档块 → topic
-            if (type === 'd') {
-                console.log(`[HybridSyncService] Block ${blockId}: topic (type: d = document)`);
-                return 'topic';
-            }
-            
-            // 3. 有挖空符号 → item
-            // 支持三种挖空语法：
-            // - ==文本== (Markdown 标记语法)
-            // - {{文本}} (双花括号)
-            // - <span data-type="mark">文本</span> (思源原生高亮)
-            if (/==([^=]+)==/.test(markdown) || /==([^=]+)==/.test(content)) {
-                console.log(`[HybridSyncService] Block ${blockId}: item (mark syntax == found)`);
-                return 'item';
-            }
-            
-            if (/\{\{.+?\}\}/.test(content)) {
-                console.log(`[HybridSyncService] Block ${blockId}: item (cloze syntax {{}} found)`);
-                return 'item';
-            }
-            
-            if (/<span data-type="mark">/.test(markdown) || /<span data-type="mark">/.test(content)) {
-                console.log(`[HybridSyncService] Block ${blockId}: item (siyuan mark found)`);
-                return 'item';
-            }
-            
-            // 4. 有分隔符 → item
-            // - :: (概念卡片)
-            // - ;; (描述符卡片)
-            // - >> (正向卡片)
-            // - << (反向卡片)
-            // - <> (双向卡片)
-            if (/::/.test(content) || /;;/.test(content)) {
-                console.log(`[HybridSyncService] Block ${blockId}: item (separator :: or ;; found)`);
-                return 'item';
-            }
-            
-            if (/>>/.test(content) || /<</.test(content) || /<>/.test(content)) {
-                console.log(`[HybridSyncService] Block ${blockId}: item (direction symbol found)`);
-                return 'item';
-            }
-            
-            // 4. 标题块 → item
-            if (type === 'h') {
-                console.log(`[HybridSyncService] Block ${blockId}: item (type: h = heading)`);
-                return 'item';
-            }
-            
-            // 5. 列表项有列表子级 → item
-            if (type === 'i') {
-                const hasListChildren = await this.checkHasChildren(blockId, ['i', 'l']);
-                console.log(`[HybridSyncService] Block ${blockId}: ${hasListChildren ? 'item' : 'topic'} (type: i = list item, hasListChildren: ${hasListChildren})`);
-                return hasListChildren ? 'item' : 'topic';
-            }
-            
-            // 6. 超级块有子级 → item
-            if (type === 's') {
-                const hasAnyChildren = await this.checkHasChildren(blockId);
-                console.log(`[HybridSyncService] Block ${blockId}: ${hasAnyChildren ? 'item' : 'topic'} (type: s = super block, hasAnyChildren: ${hasAnyChildren})`);
-                return hasAnyChildren ? 'item' : 'topic';
-            }
-            
-            // 7. 其他 → topic
-            console.log(`[HybridSyncService] Block ${blockId}: topic (type: ${type}, no answer blocks)`);
-            return 'topic';
-        } catch (err) {
-            console.error(`[HybridSyncService] Smart detect error for ${riffBlock.id}:`, err);
-            return 'topic'; // 出错默认为 topic
-        }
+        return await this.cardTypeDetectionService.detectCardType(riffBlock.id);
     }
     
     /**
-     * 检查块是否有特定类型的子级
+     * 转换 RiffBlock 为 Xiuyuan 领域实体
      * 
-     * @param blockId 块 ID
-     * @param childTypes 需要检查的子级类型数组（如 ['i', 'l'] = 列表项或列表容器）
-     * @returns 是否有指定类型的子级
-     */
-    private async checkHasChildren(blockId: string, childTypes?: string[]): Promise<boolean> {
-        try {
-            let typeFilter = '';
-            if (childTypes && childTypes.length > 0) {
-                const typeList = childTypes.map(t => `'${t}'`).join(', ');
-                typeFilter = `AND type IN (${typeList})`;
-            }
-            
-            const childBlocks = await sql(`
-                SELECT id, type
-                FROM blocks
-                WHERE parent_id = '${blockId}'
-                AND type != 'd'  -- 排除删除的块
-                ${typeFilter}
-                LIMIT 1
-            `);
-            
-            return childBlocks && childBlocks.length > 0;
-        } catch (err) {
-            return false;
-        }
-    }
-    
-    /**
-     * 转换 RiffBlock 为 FSRSCard
+     * 从 Riff 数据和块属性中提取卡片信息，并创建对应的 Xiuyuan 聚合根。
      * 
-     * 从 Riff 数据和块属性中提取卡片信息。
+     * **DDD 架构要求**：所有卡片必须属于 Xiuyuan 聚合根
+     * - 为每个 Riff 卡片创建一个独立的 Xiuyuan
+     * - 使用特殊模板 `builtin-riff-sync` 标记从 Riff 同步的卡片
+     * - ✅ 创建完整的 Card 领域实体（包含 FSRS 数据）
+     * 
+     * **Xiuyuan ID 命名规则**：
+     * - 格式：`xy_riff_{blockId}`
+     * - 目的：
+     *   1. 幂等性：同一个块多次同步生成相同 ID，避免重复创建
+     *   2. 可追溯性：通过前缀 "riff" 可以识别来源（区别于用户手动创建的 `xy_{timestamp}_{random}`）
+     *   3. 防止冲突：与手动创建的 ID 格式不同，不会产生冲突
+     * 
      * 卡片类型优先从 cardTypeMarker 推导，其次从 custom-card-type 读取。
      * 卡片类型标记（concept/descriptor）从块属性 `custom-fsrs-card-type` 中读取。
      * 
@@ -1047,18 +969,30 @@ export class XiuyuanSyncService {
      *   4. 列表项有子级 → item
      *   5. 超级块有子级 → item
      *   6. 其他 → topic
+     * 
+     * @returns { xiuyuanEntity } - Xiuyuan 领域实体（包含 Card）
      */
-    private async convertRiffCardToFSRSCard(riffBlock: RiffBlock): Promise<FSRSCard> {
+    private async convertRiffCardToFSRSCard(riffBlock: RiffBlock): Promise<{
+        xiuyuanEntity: Xiuyuan;  // ✅ 返回完整的领域实体（包含 Card）
+    }> {
         const riffCard = riffBlock.riffCard;
         const now = Date.now();
         
-        // 从块属性中读取卡片类型标记（concept/descriptor）
+        // 1. 生成 Xiuyuan ID（使用 blockId 作为唯一标识）
+        // 格式：xy_riff_{blockId}
+        // 目的：
+        // - 幂等性：同一个块多次同步生成相同 ID，避免重复创建
+        // - 可追溯性：通过前缀 "riff" 可以识别来源
+        // - 防止冲突：与手动创建的 ID（xy_{timestamp}_{random}）不冲突
+        const xiuyuanIdStr = `xy_riff_${riffBlock.id}`;
+        
+        // 2. 从块属性中读取卡片类型标记（concept/descriptor）
         const cardTypeMarkerAttr = riffBlock.ial?.['custom-fsrs-card-type'];
         const cardTypeMarker = (cardTypeMarkerAttr === 'concept' || cardTypeMarkerAttr === 'descriptor')
             ? cardTypeMarkerAttr as 'concept' | 'descriptor'
             : undefined;
         
-        // 根据 cardTypeMarker 推导 CardType，或从块属性读取，或智能识别
+        // 3. 根据 cardTypeMarker 推导 CardType，或从块属性读取，或智能识别
         let cardType: string;
         if (cardTypeMarker) {
             // 如果有 cardTypeMarker，使用对应的 CardType 枚举值
@@ -1095,61 +1029,123 @@ export class XiuyuanSyncService {
             return isValid ? timestamp : 0;
         };
         
-        return {
-            id: riffBlock.id,
-            blockId: riffBlock.id,
-            due: parseValidDate(riffCard?.due) || now,
+        // 4. 获取优先级
+        // ✅ 通过 Repository 查询现有 Xiuyuan（如果存在）
+        const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
+        if (!xiuyuanIdResult.ok) {
+            const errorMsg = xiuyuanIdResult.ok === false ? xiuyuanIdResult.error.message : 'Invalid XiuyuanId';
+            throw new Error(`Failed to create XiuyuanId: ${errorMsg}`);
+        }
+        
+        const existingXiuyuanResult = await this.xiuyuanRepository.findById(xiuyuanIdResult.value);
+        const priorityValue = (() => {
+            // 如果本地已有 Xiuyuan，保持原有优先级
+            if (existingXiuyuanResult.ok && existingXiuyuanResult.value) {
+                return existingXiuyuanResult.value.getPriority().getValue();
+            }
+            
+            // 默认值
+            return 50;
+        })();
+        
+        // ✅ 创建其他值对象
+        const blockIdResult = BlockId.create(riffBlock.id);
+        if (!blockIdResult.ok) {
+            const errorMsg = blockIdResult.ok === false ? blockIdResult.error.message : 'Invalid BlockId';
+            throw new Error(`Failed to create BlockId: ${errorMsg}`);
+        }
+        
+        const templateIdResult = TemplateId.create('builtin-riff-sync');
+        if (!templateIdResult.ok) {
+            const errorMsg = templateIdResult.ok === false ? templateIdResult.error.message : 'Invalid TemplateId';
+            throw new Error(`Failed to create TemplateId: ${errorMsg}`);
+        }
+        
+        const priorityResult = Priority.create(priorityValue);
+        const priority = priorityResult.ok ? priorityResult.value : Priority.createDefault();
+        
+        const cardFaceResult = CardFace.create({
+            question: riffBlock.content || `Block ${riffBlock.id}`,  // ✅ 使用块内容作为 question
+            answer: '',  // Riff 卡片没有独立的 answer
+            questionBlockId: riffBlock.id,
+            answerBlockId: riffBlock.id
+        });
+        if (!cardFaceResult.ok) {
+            const errorMsg = cardFaceResult.ok === false ? cardFaceResult.error.message : 'Invalid CardFace';
+            throw new Error(`Failed to create CardFace: ${errorMsg}`);
+        }
+        
+        // ✅ 创建 Xiuyuan 领域实体
+        const xiuyuanResult = Xiuyuan.create({
+            id: xiuyuanIdResult.value,
+            blockIDs: [blockIdResult.value],
+            templateID: templateIdResult.value,
+            faces: [cardFaceResult.value],
+            priority,
+            meta: {
+                schedulerType: 'fsrs-v6'
+            }
+        });
+        
+        if (!xiuyuanResult.ok) {
+            const errorMsg = xiuyuanResult.ok === false ? xiuyuanResult.error.message : 'Invalid Xiuyuan';
+            throw new Error(`Failed to create Xiuyuan: ${errorMsg}`);
+        }
+        
+        const xiuyuanEntity = xiuyuanResult.value;
+        
+        // ✅ 创建 Card 实体（通过 Card.create，包含完整的 FSRS 数据）
+        const { CardId } = await import('@/core/xiuyuan/domain/CardId');
+        const { ScheduleInfo } = await import('@/core/xiuyuan/domain/ScheduleInfo');
+        const { Card } = await import('@/core/xiuyuan/domain/Card');
+        
+        const cardIdResult = CardId.create(riffBlock.id);
+        if (!cardIdResult.ok) {
+            const errorMsg = cardIdResult.ok === false ? cardIdResult.error.message : 'Invalid CardId';
+            throw new Error(`Failed to create CardId: ${errorMsg}`);
+        }
+        
+        const scheduleInfoResult = ScheduleInfo.create({
+            due: new Date(parseValidDate(riffCard?.due) || now),
             stability: riffCard?.stability || 0,
             difficulty: riffCard?.difficulty || 0,
-            elapsedDays: riffCard?.elapsedDays || 0,
-            scheduledDays: riffCard?.scheduledDays || 0,
             reps: riffCard?.reps || 0,
             lapses: riffCard?.lapses || 0,
-            state: riffCard?.state || 0,
-            lastReview: parseValidDate(riffCard?.lastReview),
-            
-            // 优先级读取逻辑：
-            // 1. 检查是否是修缘卡片（通过 meta.xiuyuanID 判断）
-            // 2. 修缘卡片：优先读取 meta.priority（独立优先级）
-            // 3. 如果本地已有卡片，保持原有优先级
-            // 4. 默认值 50
-            // 注意：不再从块属性读取优先级，统一使用 FSRSCard.priority
-            priority: (() => {
-                // 检查是否是修缘卡片
-                const localCard = this.storage.getCard(riffBlock.id);
-                const isXiuyuanCard = localCard?.meta?.xiuyuanID !== undefined;
-                
-                if (isXiuyuanCard) {
-                    // 修缘卡片：优先读取 meta.priority
-                    if (localCard?.meta?.priority !== undefined) {
-                        return localCard.meta.priority;
-                    }
-                }
-                
-                // 如果本地已有卡片，保持原有优先级
-                if (localCard?.priority !== undefined) {
-                    return localCard.priority;
-                }
-                
-                // 默认值
-                return 50;
-            })(),
-            type: cardType as any,
-            cardTypeMarker, // 添加卡片类型标记
-            tags: [],
-            leechCount: 0,
-            isLeech: false,
-            skipped: false,
-            createdAt: now,
-            updatedAt: now,
-            
-            // Topic 卡片的 A-Factor
-            aFactor: cardType === 'topic' 
-                ? (riffBlock.ial?.['custom-fsrs-a-factor'] 
-                    ? parseFloat(riffBlock.ial['custom-fsrs-a-factor']) 
-                    : undefined)
-                : undefined,
-        };
+            state: (riffCard?.state || 0) as any,
+            lastReview: new Date(parseValidDate(riffCard?.lastReview) || now),
+            elapsedDays: riffCard?.elapsedDays || 0,
+            scheduledDays: riffCard?.scheduledDays || 0,
+            learning_step: 0
+        });
+        
+        if (!scheduleInfoResult.ok) {
+            const errorMsg = scheduleInfoResult.ok === false ? scheduleInfoResult.error.message : 'Invalid ScheduleInfo';
+            throw new Error(`Failed to create ScheduleInfo: ${errorMsg}`);
+        }
+        
+        const cardResult = Card.create({
+            id: cardIdResult.value,
+            xiuyuanId: xiuyuanIdResult.value,
+            faceIndex: 0,
+            scheduleInfo: scheduleInfoResult.value,
+            createdAt: new Date(now),
+            updatedAt: new Date(now)
+        });
+        
+        if (!cardResult.ok) {
+            const errorMsg = cardResult.ok === false ? cardResult.error.message : 'Invalid Card';
+            throw new Error(`Failed to create Card: ${errorMsg}`);
+        }
+        
+        // ✅ 将 Card 添加到 Xiuyuan（使用新的 addCard 方法）
+        const addResult = xiuyuanEntity.addCard(cardResult.value);
+        if (!addResult.ok) {
+            const errorMsg = addResult.ok === false ? addResult.error.message : 'Failed to add card';
+            throw new Error(`Failed to add Card to Xiuyuan: ${errorMsg}`);
+        }
+        
+        // ✅ 返回完整的 Xiuyuan 实体（包含 Card）
+        return { xiuyuanEntity };
     }
     
     /**

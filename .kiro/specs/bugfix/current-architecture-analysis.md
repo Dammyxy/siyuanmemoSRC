@@ -552,3 +552,138 @@ const xiuyuanRepo = new XiuyuanRepository(
 - [Xiuyuan 统一架构设计](../xiuyuan-unification/design.md)
 - [XiuyuanRepository Storage 修复](./xiuyuan-repository-storage-fix.md)
 - [DDD 架构文档](../storage-manager-ddd-refactoring/ARCHITECTURE.md)
+
+
+---
+
+## 补充说明：文件存储方式
+
+### 问题：卡片是单独存储在不同文件吗？
+
+**答案：不是！所有数据存储在同一个文件中。**
+
+### 实际的文件结构
+
+**文件名**：`unified-cards.msgpack`
+
+**文件内容**：
+```json
+{
+  "version": 1,
+  "xiuyuans": {
+    "xy_123": {
+      "id": "xy_123",
+      "blockIDs": ["block-1"],
+      "templateID": "builtin-quick-bidirectional",
+      "fields": [...],
+      "meta": { "priority": 50 }
+    }
+  },
+  "cards": {
+    "card-1": {
+      "id": "card-1",
+      "xiuyuanID": "xy_123",
+      "blockId": "block-1",
+      "due": 1704153600000,
+      ...
+    },
+    "card-2": {
+      "id": "card-2",
+      "xiuyuanID": "xy_123",
+      "blockId": "block-1",
+      "due": 1704153600000,
+      ...
+    }
+  },
+  "cardDTOs": {
+    "card-1": { ... },
+    "card-2": { ... }
+  }
+}
+```
+
+### 关键点
+
+1. **单文件存储**：
+   - ❌ 不是分开存储在 `xiuyuan.msgpack` 和 `cards.msgpack`
+   - ✅ 存储在同一个文件 `unified-cards.msgpack` 中
+
+2. **平级字段**：
+   - 在文件内部，`xiuyuans` 和 `cards` 是平级的独立字段
+   - 不是嵌套关系（cards 不在 xiuyuans 内部）
+
+3. **关联方式**：
+   - 通过 `card.xiuyuanID` 关联到 `xiuyuan.id`
+   - 通过 `card.blockId` 关联到思源块
+
+### 为什么用一个文件？
+
+**优势**：
+1. **原子性**：保存时要么全部成功，要么全部失败
+2. **一致性**：避免 xiuyuan 和 cards 文件不同步
+3. **简化管理**：只需要管理一个文件的读写
+4. **性能**：一次 I/O 操作加载所有数据
+
+**实现**：
+```typescript
+// UnifiedStoragePersistence.ts
+export const UNIFIED_STORAGE_KEY = 'unified-cards.msgpack';
+
+// 保存时
+await plugin.saveData(UNIFIED_STORAGE_KEY, {
+  version: 1,
+  xiuyuans: {...},
+  cards: {...},
+  cardDTOs: {...}
+});
+
+// 加载时
+const data = await plugin.loadData(UNIFIED_STORAGE_KEY);
+```
+
+### 内存中的结构
+
+虽然存储在一个文件中，但在内存中是完全独立的：
+
+```typescript
+class UnifiedStorageManager {
+  // 独立的 Map
+  private xiuyuans: Map<string, IXiuyuan> = new Map();
+  private cards: Map<string, FSRSCard> = new Map();
+  private cardDTOs: Map<string, CardPersistenceDTO> = new Map();
+  
+  // 内存索引（只为 cards 建立）
+  private indexByBlockID: Map<string, string[]> = new Map();
+  private indexByXiuyuanID: Map<string, string[]> = new Map();
+  private indexByType: Map<CardType, string[]> = new Map();
+  private indexByDue: FSRSCard[] = [];
+  private indexByPriority: Map<number, string[]> = new Map();
+}
+```
+
+### 查询性能
+
+即使存储在一个文件中，查询性能仍然很高：
+
+1. **加载时**：一次性加载到内存，构建索引
+2. **查询时**：直接从内存 Map 查询，O(1) 时间复杂度
+3. **保存时**：防抖保存（1 秒延迟），避免频繁 I/O
+
+**示例**：
+```typescript
+// O(1) 查询
+const card = storage.getCard('card-1');
+
+// O(1) 查询（通过索引）
+const cards = storage.getCardsByXiuyuanId('xy_123');
+
+// O(log n) 查询（通过排序索引）
+const dueCards = storage.getDueCards(100);
+```
+
+### 总结
+
+- **文件层面**：所有数据存储在 `unified-cards.msgpack` 一个文件中
+- **数据层面**：`xiuyuans` 和 `cards` 是平级的独立字段
+- **内存层面**：使用独立的 Map 和索引，支持高性能查询
+- **关联方式**：通过 `xiuyuanID` 建立关联，不是嵌套存储

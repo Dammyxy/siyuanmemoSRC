@@ -452,7 +452,10 @@ export class UnifiedDataSourceManager {
                 return new IncrementalLearningQueue(this);
             
             case QueueType.FilterGroup:
-                return new FilterGroupQueue(this);
+                if (!this.queuePersistence) {
+                    throw new QueueError('QueuePersistence not initialized. Call setQueuePersistence() first.');
+                }
+                return new FilterGroupQueue(this, this.queuePersistence);
             
             case QueueType.FinalDrill:
                 if (!this.queuePersistence) {

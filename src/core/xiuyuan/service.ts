@@ -80,9 +80,36 @@ import {
 /**
  * Xiuyuan 服务
  * 
+ * @deprecated 此类已废弃，请使用 {@link XiuyuanApplicationService} 代替
+ * 
  * @class XiuyuanService
  * @description
  * 提供 Xiuyuan 的高级业务操作，封装复杂的业务逻辑。
+ * 
+ * **⚠️ 废弃说明**：
+ * - 此类不符合 DDD 架构原则（应用服务直接操作基础设施）
+ * - 所有功能已迁移到 `XiuyuanApplicationService`
+ * - 此类仅作为 `XiuyuanApplicationService` 的内部依赖保留
+ * - 不应在新代码中直接使用此类
+ * 
+ * **迁移指南**：
+ * ```typescript
+ * // ❌ 旧方式（已废弃）
+ * const service = new XiuyuanService(storage, storageManager);
+ * await service.createFromBlocks(blockIds, templateId, fieldMapping, deckId);
+ * 
+ * // ✅ 新方式（推荐）
+ * const appService = context.getXiuyuanApplicationService();
+ * await appService.createFromBlocks({
+ *   blockIds,
+ *   templateId,
+ *   fieldMapping,
+ *   deckId
+ * });
+ * ```
+ * 
+ * @see {@link XiuyuanApplicationService} - 新的应用服务层入口
+ * @see {@link ../../../.kiro/specs/bugfix/xiuyuan-architecture-improvements.md} - 架构改进方案
  */
 export class XiuyuanService {
   /** Xiuyuan 存储管理器 */
@@ -94,13 +121,19 @@ export class XiuyuanService {
   /**
    * 创建 XiuyuanService 实例
    * 
+   * @deprecated 请使用 {@link XiuyuanApplicationService} 代替直接实例化此类
+   * 
    * @param storage - Xiuyuan 存储管理器
    * @param storageManager - 卡片存储管理器
    * 
    * @example
    * ```typescript
+   * // ❌ 旧方式（已废弃）
    * const storage = new XiuyuanStorage('siyuan-plugin-fsrs');
    * const service = new XiuyuanService(storage, storageManager);
+   * 
+   * // ✅ 新方式（推荐）
+   * const appService = context.getXiuyuanApplicationService();
    * ```
    */
   constructor(storage: XiuyuanStorage, storageManager: StorageManager) {
@@ -112,6 +145,8 @@ export class XiuyuanService {
 
   /**
    * 初始化服务
+   * 
+   * @deprecated 请使用 XiuyuanApplicationService 的相应方法
    * 
    * @description
    * 加载 Xiuyuan 数据并打印统计信息。
@@ -146,6 +181,8 @@ export class XiuyuanService {
   /**
    * 保存 Xiuyuan 数据
    * 
+   * @deprecated 请使用 XiuyuanApplicationService 的相应方法
+   * 
    * @description
    * 将 Xiuyuan 数据持久化到文件系统。
    * 
@@ -173,6 +210,8 @@ export class XiuyuanService {
   /**
    * 获取卡片模板
    * 
+   * @deprecated 请使用 XiuyuanApplicationService 的相应方法
+   * 
    * @param id - 模板 ID
    * @returns CardTemplate 对象，如果不存在返回 undefined
    * 
@@ -191,6 +230,8 @@ export class XiuyuanService {
   /**
    * 获取所有卡片模板
    * 
+   * @deprecated 请使用 XiuyuanApplicationService 的相应方法
+   * 
    * @returns CardTemplate 数组
    * 
    * @example
@@ -205,6 +246,8 @@ export class XiuyuanService {
 
   /**
    * 创建卡片模板
+   * 
+   * @deprecated 请使用 XiuyuanApplicationService.createTemplate() 代替
    * 
    * @param template - CardTemplate 数据
    * 
@@ -536,10 +579,11 @@ export class XiuyuanService {
         }
 
         // 5. 标记代表块属性（错误不阻断流程）
+        // ✅ 使用新架构的块属性命名（与 XiuyuanRepository 保持一致）
         try {
           await setBlockAttrs(representativeBlockID, {
-            'custom-fsrs-xiuyuan-id': xiuyuan.id,
-            'custom-fsrs-template-id': templateID,
+            'custom-xiuyuan-id': xiuyuan.id,
+            'custom-xiuyuan-template': templateID,
           });
           console.log('[Xiuyuan] Marked block attributes');
         } catch (err) {
@@ -629,7 +673,8 @@ export class XiuyuanService {
         // 7. 持久化
         const saveResult = await this.save();
         if (!saveResult.ok) {
-          console.warn('[Xiuyuan] Save failed:', saveResult.error);
+          const errorMsg = 'error' in saveResult ? saveResult.error : 'Unknown error';
+          console.warn('[Xiuyuan] Save failed:', errorMsg);
         }
         await this.storageManager.saveCards();
 
@@ -650,6 +695,8 @@ export class XiuyuanService {
   /**
    * 根据 ID 获取 Xiuyuan
    * 
+   * @deprecated 请使用 XiuyuanApplicationService 的相应方法
+   * 
    * @param id - Xiuyuan ID
    * @returns Xiuyuan 对象，如果不存在返回 undefined
    * 
@@ -668,6 +715,8 @@ export class XiuyuanService {
 
   /**
    * 根据块 ID 查询关联的所有 Xiuyuan
+   * 
+   * @deprecated 请使用 XiuyuanApplicationService 的相应方法
    * 
    * @param blockID - 块 ID
    * @returns Xiuyuan 数组
@@ -690,6 +739,8 @@ export class XiuyuanService {
 
   /**
    * 根据卡片 ID 获取 CardMapping
+   * 
+   * @deprecated 请使用 XiuyuanApplicationService 的相应方法
    * 
    * @param cardID - 卡片 ID（思源 Riff 卡片 ID）
    * @returns CardMapping 对象，如果不存在返回 undefined
@@ -715,6 +766,8 @@ export class XiuyuanService {
   /**
    * 根据 Xiuyuan ID 获取所有关联的 CardMapping
    * 
+   * @deprecated 请使用 XiuyuanApplicationService 的相应方法
+   * 
    * @param xiuyuanID - Xiuyuan ID
    * @returns CardMapping 数组
    * 
@@ -738,6 +791,8 @@ export class XiuyuanService {
 
   /**
    * 获取所有 Xiuyuan
+   * 
+   * @deprecated 请使用 XiuyuanApplicationService 的相应方法
    * 
    * @returns Xiuyuan 数组
    * 
@@ -836,11 +891,11 @@ export class XiuyuanService {
           // 不阻断流程，继续删除
         }
 
-        // 4. 清除代表块属性
+        // 4. 清除代表块属性（使用新架构的块属性命名）
         try {
           await setBlockAttrs(representativeBlockID, {
-            'custom-fsrs-xiuyuan-id': '',
-            'custom-fsrs-template-id': '',
+            'custom-xiuyuan-id': '',
+            'custom-xiuyuan-template': '',
           });
         } catch (err) {
           console.error('[Xiuyuan] Failed to clear block attributes:', err);
@@ -852,7 +907,8 @@ export class XiuyuanService {
         if (result) {
           const saveResult = await this.save();
           if (!saveResult.ok) {
-            console.warn('[Xiuyuan] Save failed after delete:', saveResult.error);
+            const errorMsg = 'error' in saveResult ? saveResult.error : 'Unknown error';
+            console.warn('[Xiuyuan] Save failed after delete:', errorMsg);
             // Continue anyway - data is deleted in memory
           }
           await this.storageManager.saveCards();
@@ -869,6 +925,8 @@ export class XiuyuanService {
 
   /**
    * 获取 Xiuyuan 统计信息
+   * 
+   * @deprecated 请使用 XiuyuanApplicationService 的相应方法
    * 
    * @returns 包含 Xiuyuan、Mapping 和 Template 数量的统计对象
    * 

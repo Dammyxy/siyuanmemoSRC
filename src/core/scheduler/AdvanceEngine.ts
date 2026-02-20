@@ -11,14 +11,25 @@
 
 import type { FSRSCard } from '@/types/card';
 import type { AdvanceConfig, AdvanceResult } from '@/types/reschedule';
-import type { StorageManager } from '@/core/storage/manager';
+import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
+import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import type { RescheduleLog } from '@/types/scheduler';
 import { BatchProcessor } from './BatchProcessor';
 
+/**
+ * AdvanceEngine - 实现 SuperMemo Advance 算法
+ * 
+ * 使用 DDD 架构：
+ * - 依赖 UnifiedStorageManager 进行数据查询
+ * - 依赖 CardApplicationService 进行数据更新
+ */
 export class AdvanceEngine {
     private batchProcessor: BatchProcessor;
     
-    constructor(private storage: StorageManager) {
+    constructor(
+        private unifiedStorage: UnifiedStorageManager,
+        private cardApplicationService: CardApplicationService
+    ) {
         this.batchProcessor = new BatchProcessor();
     }
 
@@ -176,15 +187,10 @@ export class AdvanceEngine {
             return;
         }
 
-        // 1. 更新卡片到缓存
-        for (const card of cards) {
-            this.storage.setCard(card);
-        }
+        // ✅ 通过 CardApplicationService 批量更新
+        await this.cardApplicationService.batchUpdateCardsWithoutEvents(cards);
 
-        // 2. 持久化到存储
-        await this.storage.saveCards();
-
-        // 3. 记录操作日志
+        // 记录操作日志
         await this.logOperation(cards, source);
     }
     
@@ -233,6 +239,10 @@ export class AdvanceEngine {
             })
         };
 
-        await this.storage.addRescheduleLog(log);
+        // TODO: 将 addRescheduleLog 迁移到应用服务层
+        const storage = this.unifiedStorage as any;
+        if (storage.addRescheduleLog) {
+            await storage.addRescheduleLog(log);
+        }
     }
 }

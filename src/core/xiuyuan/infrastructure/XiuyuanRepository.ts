@@ -77,8 +77,22 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         (this.storage as any).xiuyuans.set(xiuyuanId, persistenceModel);
       }
 
-      // 3. 保存所有关联的卡片
+      // 3. 同步卡片状态：保存现有卡片，删除已移除的卡片
       const cards = xiuyuan.getCards();
+      const currentCardIds = new Set(cards.map(card => card.getId().getValue()));
+      
+      // 3.1 查找需要删除的卡片（存在于 storage 但不在 xiuyuan 中）
+      const allStorageCards = this.storage.getAllCards();
+      const cardsToDelete = allStorageCards.filter(
+        storageCard => storageCard.xiuyuanID === xiuyuanId && !currentCardIds.has(storageCard.id)
+      );
+      
+      // 3.2 删除已移除的卡片
+      for (const cardToDelete of cardsToDelete) {
+        await this.storage.deleteCard(cardToDelete.id);
+      }
+      
+      // 3.3 保存/更新当前卡片
       for (const card of cards) {
         const fsrsCard = this.cardToFSRSCard(card, xiuyuan);
         const existingCard = this.storage.getCard(card.getId().getValue());
@@ -92,8 +106,15 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         }
       }
 
-      // 4. 触发保存（UnifiedStorageManager 会自动防抖保存）
-      // 不需要显式调用 save()，因为 createCard/updateCard 会自动调度保存
+      // 4. 🔧 立即保存（删除操作需要立即持久化，避免被后续操作覆盖）
+      if (cardsToDelete.length > 0) {
+        console.log(`[XiuyuanRepository] Deleted ${cardsToDelete.length} cards, forcing immediate save`);
+        const saveResult = await this.storage.save();
+        if (!saveResult.ok) {
+          console.error('[XiuyuanRepository] Failed to save after deletion:', saveResult.error);
+          return saveResult;
+        }
+      }
 
       // 5. 写入块属性（使用第一个块作为代表块）
       const blockIDs = xiuyuan.getBlockIDs();
@@ -106,24 +127,19 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           });
         } catch (error) {
           // 块属性写入失败不应该阻止保存
-          console.warn('Failed to write block attributes:', error);
+          // 常见原因：块已被删除、移动或不存在
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          if (errorMsg.includes('未找到') || errorMsg.includes('not found')) {
+            // 块不存在，这是正常情况（用户可能删除了块）
+            console.debug(`[XiuyuanRepository] Block ${representativeBlockId} not found, skipping attribute write`);
+          } else {
+            // 其他错误，记录警告
+            console.warn('[XiuyuanRepository] Failed to write block attributes:', error);
+          }
         }
       }
 
-      // 6. 同步到 Riff（为每个卡片添加到 Riff）
-      if (cards.length > 0) {
-        try {
-          // Note: 实际的 Riff 同步需要根据项目的 API 实现
-          // 这里假设有 addRiffCards 方法
-          // const cardBlockIds = cards.map(card => card.getId().getValue());
-          // await this.plugin.addRiffCards(cardBlockIds);
-        } catch (error) {
-          // Riff 同步失败不应该阻止保存
-          console.warn('Failed to sync to Riff:', error);
-        }
-      }
-
-      // 7. 发布领域事件
+      // 6. 发布领域事件
       await this.publishDomainEvents(xiuyuan);
 
       return ok(undefined);
@@ -536,14 +552,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   private async publishDomainEvents(xiuyuan: Xiuyuan): Promise<void> {
     const events = xiuyuan.getDomainEvents();
     
-    // TODO: 实现事件总线
-    // 目前只是清除事件，避免重复发布
-    // 未来可以集成事件总线来处理事件
-    
+    // ✅ 只记录事件，不清除
+    // 事件的发布和清除由 UseCase 负责
     for (const event of events) {
-      console.log('Domain event:', event);
+      console.log('[XiuyuanRepository] Domain event:', event.getEventName());
     }
-    
-    xiuyuan.clearDomainEvents();
   }
 }

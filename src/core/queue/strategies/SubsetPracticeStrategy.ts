@@ -3,7 +3,7 @@ import { DEFAULT_PRIORITY } from '../abstraction/IPriority.ts';
 import { normalizeRiffCardId } from '../abstraction/QueueCardRef.ts';
 import type { IQueueStrategy, QueueFeedback } from '../abstraction/Strategy.ts';
 import type { QueueItem } from '../types.ts';
-import type { StorageManager } from '@/core/storage/manager';
+import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';  // ✅ 使用 UnifiedStorageManager
 import { getHiddenContentTypes } from '../utils/hiddenContentTypes.ts';
 import { warnDeprecatedQueueUsage } from '../deprecation';
 
@@ -20,9 +20,9 @@ export class SubsetPracticeStrategy implements IQueueStrategy<QueueItem> {
   private readonly deckID: string;
   private readonly queue: SubsetQueueItem[];
   private readonly resolveMap = new Map<string, Promise<string | null>>();
-  private readonly storage?: StorageManager;  // 🆕 添加 storage 参数
+  private readonly storage?: UnifiedStorageManager;  // ✅ 使用 UnifiedStorageManager
 
-  constructor(options: { blockIds: string[]; deckID?: string; storage?: StorageManager }) {
+  constructor(options: { blockIds: string[]; deckID?: string; storage?: UnifiedStorageManager }) {  // ✅ 使用 UnifiedStorageManager
     warnDeprecatedQueueUsage(this.constructor.name);
     this.deckID = options.deckID || riff.BUILTIN_DECK_ID;
     this.storage = options.storage;  // 🆕 保存 storage
@@ -153,7 +153,7 @@ export class SubsetPracticeStrategy implements IQueueStrategy<QueueItem> {
       this.queue.splice(idx, 1);
     }
 
-    // ✅ 新架构：使用 StorageManager（如果可用）
+    // ✅ 新架构：使用 UnifiedStorageManager（如果可用）
     // 注意：这是废弃的队列策略，只做最小化修改
     if (!this.storage) {
       console.warn('[SubsetPracticeStrategy] No storage available, skipping feedback');
@@ -161,7 +161,7 @@ export class SubsetPracticeStrategy implements IQueueStrategy<QueueItem> {
     }
 
     try {
-      const card = this.storage.getCardByBlockId(blockID);
+      const card = this.storage.getCard(blockID);  // ✅ 使用 getCard 而不是 getCardByBlockId
       if (!card) {
         console.warn('[SubsetPracticeStrategy] Card not found in storage:', blockID);
         return;
@@ -187,7 +187,7 @@ export class SubsetPracticeStrategy implements IQueueStrategy<QueueItem> {
   }
 
   private async prefetch(blockIds: string[]): Promise<void> {
-    // ✅ 新架构：从 StorageManager 预取卡片 ID
+    // ✅ 新架构：从 UnifiedStorageManager 预取卡片 ID
     if (blockIds.length === 0) return;
     if (!this.storage) {
       console.warn('[SubsetPracticeStrategy] No storage available for prefetch');
@@ -195,7 +195,7 @@ export class SubsetPracticeStrategy implements IQueueStrategy<QueueItem> {
     }
 
     for (const blockID of blockIds) {
-      const card = this.storage.getCardByBlockId(blockID);
+      const card = this.storage.getCardsByBlockId(blockID)[0];  // ✅ 使用 getCardsByBlockId
       if (card) {
         const it = this.queue.find((x) => x.blockID === blockID);
         if (it && !it.cardID) {
@@ -217,13 +217,13 @@ export class SubsetPracticeStrategy implements IQueueStrategy<QueueItem> {
     const existing = this.queue.find((it) => it.blockID === blockID)?.cardID;
     if (existing) return existing;
 
-    // ✅ 新架构：从 StorageManager 解析卡片 ID
+    // ✅ 新架构：从 UnifiedStorageManager 解析卡片 ID
     if (!this.storage) {
       console.warn('[SubsetPracticeStrategy] No storage available for resolveCardId');
       return null;
     }
 
-    const card = this.storage.getCardByBlockId(blockID);
+    const card = this.storage.getCardsByBlockId(blockID)[0];  // ✅ 使用 getCardsByBlockId
     if (card) {
       const it = this.queue.find((x) => x.blockID === blockID);
       if (it) it.cardID = card.id;

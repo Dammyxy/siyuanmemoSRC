@@ -437,7 +437,9 @@ export async function adjustTime(
   // 获取 RescheduleService
   // 优先从 plugin.rescheduleService 获取（已注入）
   // 其次从 ApplicationContext 获取
-  // 最后回退到直接创建（向后兼容）
+  // 获取 RescheduleService
+  // 优先从 plugin.rescheduleService 获取（已注入）
+  // 其次从 ApplicationContext 获取
   let service = plugin?.rescheduleService;
   
   if (!service && plugin && (plugin as any).context) {
@@ -447,20 +449,9 @@ export async function adjustTime(
       console.warn('[MenuActions] Failed to get RescheduleService from context:', error);
     }
   }
-  
-  if (!service && plugin) {
-    // 回退到通过 ApplicationContext 获取 storage（向后兼容）
-    try {
-      const storage = (plugin as any).getContext?.()?.getStorage?.();
-      if (storage) {
-        service = new RescheduleService(storage);
-      }
-    } catch (error) {
-      console.warn('[MenuActions] Failed to create RescheduleService:', error);
-    }
-  }
 
   if (!service) {
+    console.error('[MenuActions] RescheduleService not available');
     return null;
   }
 
@@ -502,10 +493,10 @@ export async function adjustTime(
       // 检查是否使用新的配置对象
       if (context?.config) {
         // 🆕 使用新的 postponeWithConfig 方法
-        // 先从存储加载完整的 FSRSCard 对象
-        const storage = plugin?.storage;
-        if (!storage) {
-          console.error('[MenuActions] No storage available for postponeWithConfig');
+        // 从 ApplicationContext 获取 UnifiedStorageManager
+        const unifiedStorage = (plugin as any)?.context?.getUnifiedStorage?.();
+        if (!unifiedStorage) {
+          console.error('[MenuActions] No UnifiedStorageManager available for postponeWithConfig');
           result = { updated: [], skipped: [] };
           break;
         }
@@ -518,7 +509,7 @@ export async function adjustTime(
             console.warn('[MenuActions] Row missing cardId, skipping:', row);
             continue;
           }
-          const card = storage.getCard(row.cardId);
+          const card = unifiedStorage.getCard(row.cardId);
           console.log('[MenuActions] Got card from storage:', card ? 'found' : 'not found', row.cardId);
           if (card) {
             fsrsCards.push(card);
@@ -564,10 +555,10 @@ export async function adjustTime(
       // 检查是否使用新的配置对象
       if (context?.config) {
         // 🆕 使用新的 advanceWithConfig 方法
-        // 先从存储加载完整的 FSRSCard 对象
-        const storage = plugin?.storage;
-        if (!storage) {
-          console.error('[MenuActions] No storage available for advanceWithConfig');
+        // 从 ApplicationContext 获取 UnifiedStorageManager
+        const unifiedStorage = (plugin as any)?.context?.getUnifiedStorage?.();
+        if (!unifiedStorage) {
+          console.error('[MenuActions] No UnifiedStorageManager available for advanceWithConfig');
           result = { updated: [], skipped: [] };
           break;
         }
@@ -578,7 +569,7 @@ export async function adjustTime(
             console.warn('[MenuActions] Row missing cardId for advance, skipping:', row);
             continue;
           }
-          const card = storage.getCard(row.cardId);
+          const card = unifiedStorage.getCard(row.cardId);
           if (card) {
             fsrsCards.push(card);
           } else {
@@ -615,10 +606,10 @@ export async function adjustTime(
       // 检查是否使用新的配置对象
       if (context?.config) {
         // 🆕 使用新的 spreadWithConfig 方法
-        // 先从存储加载完整的 FSRSCard 对象
-        const storage = plugin?.storage;
-        if (!storage) {
-          console.error('[MenuActions] No storage available for spreadWithConfig');
+        // 从 ApplicationContext 获取 UnifiedStorageManager
+        const unifiedStorage = (plugin as any)?.context?.getUnifiedStorage?.();
+        if (!unifiedStorage) {
+          console.error('[MenuActions] No UnifiedStorageManager available for spreadWithConfig');
           result = { updated: 0, skipped: 0, averageCardsPerDay: 0 };
           break;
         }
@@ -631,7 +622,7 @@ export async function adjustTime(
             console.warn('[MenuActions] Row missing cardId, skipping:', row);
             continue;
           }
-          const card = storage.getCard(row.cardId);
+          const card = unifiedStorage.getCard(row.cardId);
           console.log('[MenuActions] Got card from storage:', card ? 'found' : 'not found', row.cardId);
           if (card) {
             fsrsCards.push(card);

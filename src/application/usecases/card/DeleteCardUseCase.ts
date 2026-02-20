@@ -68,8 +68,40 @@ export class DeleteCardUseCase {
     }
 
     const { xiuyuan, actualCardId } = searchResult.value;
+    
+    // 🔧 降级处理：如果卡片没有 Xiuyuan（历史遗留数据），直接删除
     if (!xiuyuan || !actualCardId) {
-      return err(new Error(`Card with ID ${cardId.getValue()} not found in any Xiuyuan`));
+      console.warn(`[DeleteCardUseCase] Card ${cardId.getValue()} not found in any Xiuyuan - using fallback deletion`);
+      
+      // 1. 从 storage 删除卡片
+      const storage = (this.xiuyuanRepo as any).storage;
+      if (storage) {
+        const deleteResult = await storage.deleteCard(cardId.getValue());
+        if (!deleteResult.ok) {
+          console.error(`[DeleteCardUseCase] Failed to delete card from storage:`, deleteResult.error);
+          return deleteResult;
+        }
+        console.log(`[DeleteCardUseCase] Deleted card from storage: ${cardId.getValue()}`);
+        
+        // 2. 立即保存
+        const saveResult = await storage.save();
+        if (!saveResult.ok) {
+          console.error(`[DeleteCardUseCase] Failed to save after deletion:`, saveResult.error);
+          return saveResult;
+        }
+      }
+      
+      // 3. 从 Riff 删除
+      try {
+        const { removeRiffCards } = await import('@/core/siyuan/riff');
+        await removeRiffCards('', [cardId.getValue()]);
+        console.log(`[DeleteCardUseCase] Deleted card from Riff: ${cardId.getValue()}`);
+      } catch (error) {
+        console.error(`[DeleteCardUseCase] Failed to delete card from Riff:`, error);
+        // Riff 删除失败不应该阻止整个删除操作
+      }
+      
+      return ok(undefined);
     }
 
     // 4. 使用 CardDeletionService 删除卡片（使用实际的 CardId 实例）
@@ -84,9 +116,15 @@ export class DeleteCardUseCase {
       return saveResult;
     }
 
-    // 6. 发布领域事件
+    // 6. 发布领域事件（包括 CardDeletedEvent）
+    // RiffSyncEventHandler 会监听这个事件并同步到 Riff
     const events = xiuyuan.getDomainEvents();
+    console.log(`[DeleteCardUseCase] Publishing ${events.length} domain events...`);
+    for (const event of events) {
+      console.log(`[DeleteCardUseCase] Event: ${event.getEventName()}`);
+    }
     await this.eventBus.publishAll(events);
+    console.log(`[DeleteCardUseCase] Events published successfully`);
     xiuyuan.clearDomainEvents();
 
     // 7. 返回成功结果

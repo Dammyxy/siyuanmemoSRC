@@ -199,6 +199,48 @@ export class Xiuyuan {
   }
 
   /**
+   * 添加已创建的卡片到 Xiuyuan
+   * 
+   * 用于将外部创建的 Card 实体添加到聚合根中。
+   * 与 createCard() 不同，此方法接受已经创建好的 Card 实例。
+   * 
+   * @param card - 已创建的卡片实体
+   * @returns Result<void> - 成功返回 void，失败返回错误
+   */
+  addCard(card: Card): Result<void> {
+    // 验证：卡片必须属于当前 Xiuyuan
+    if (!card.getXiuyuanId().equals(this.id)) {
+      return err(new Error('Card does not belong to this Xiuyuan'));
+    }
+
+    // 验证：卡片不能已存在
+    if (this.cards.has(card.getId())) {
+      return err(new Error(`Card already exists: ${card.getId().getValue()}`));
+    }
+
+    // 验证：faceIndex 必须有效
+    const faceIndex = card.getFaceIndex();
+    if (faceIndex < 0 || faceIndex >= this.faces.length) {
+      return err(new Error(`Invalid faceIndex: ${faceIndex}. Must be between 0 and ${this.faces.length - 1}`));
+    }
+
+    // 添加到卡片集合
+    this.cards.set(card.getId(), card);
+
+    // 更新时间戳
+    this.updatedAt = new Date();
+
+    // 发布领域事件
+    this.addDomainEvent(new CardCreatedEvent(
+      this.id.getValue(),
+      card.getId().getValue(),
+      faceIndex
+    ));
+
+    return ok(undefined);
+  }
+
+  /**
    * 删除卡片
    * 
    * @param cardId - 卡片 ID
@@ -379,6 +421,62 @@ export class Xiuyuan {
    */
   updateMeta(meta: Record<string, unknown>): Result<void> {
     this.meta = { ...this.meta, ...meta };
+    this.updatedAt = new Date();
+    return ok(undefined);
+  }
+
+  /**
+   * 更新卡片类型标记
+   * 
+   * 用于同步时更新卡片的类型标记（concept/descriptor）
+   * 
+   * @param cardTypeMarker - 卡片类型标记
+   * @returns Result<void>
+   */
+  updateCardTypeMarker(cardTypeMarker: 'concept' | 'descriptor'): Result<void> {
+    this.meta = {
+      ...this.meta,
+      cardTypeMarker
+    };
+    this.updatedAt = new Date();
+    return ok(undefined);
+  }
+
+  /**
+   * 更新卡片类型
+   * 
+   * 用于同步时更新卡片的技术类型（topic/item）
+   * 
+   * @param cardType - 卡片类型
+   * @returns Result<void>
+   */
+  updateCardType(cardType: 'topic' | 'item' | 'concept' | 'descriptor'): Result<void> {
+    this.meta = {
+      ...this.meta,
+      cardType
+    };
+    this.updatedAt = new Date();
+    return ok(undefined);
+  }
+
+  /**
+   * 更新 A-Factor（Topic 卡片的难度因子）
+   * 
+   * 用于同步时更新 Topic 卡片的 A-Factor
+   * 
+   * @param aFactor - A-Factor 值
+   * @returns Result<void>
+   */
+  updateAFactor(aFactor: number): Result<void> {
+    // 验证：A-Factor 必须在合理范围内（通常 1.3 - 2.5）
+    if (aFactor < 1.0 || aFactor > 3.0) {
+      return err(new Error(`Invalid A-Factor: ${aFactor}. Must be between 1.0 and 3.0`));
+    }
+
+    this.meta = {
+      ...this.meta,
+      aFactor
+    };
     this.updatedAt = new Date();
     return ok(undefined);
   }

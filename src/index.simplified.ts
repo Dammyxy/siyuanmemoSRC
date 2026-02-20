@@ -27,7 +27,7 @@ export default class FSRSPlugin extends Plugin {
   public get leechQueue() { return this.context.getLeechQueue(); }
   public get incrementalQueue() { return this.context.getIncrementalQueue(); }
   public get subsetQueue() { return this.context.getSubsetQueue(); }
-  public get xiuyuanService() { return this.context.getXiuyuanService(); }
+  // ✅ xiuyuanService getter 已移除，请使用 context.getXiuyuanApplicationService()
   public get xiuyuanStorage() { return this.context.getXiuyuanStorage(); }
   public get unifiedDataSourceManager() { return this.context.getUnifiedDataSourceManager(); }
   public get deliberateQueue() { return this.finalDrillQueue; }
