@@ -209,7 +209,16 @@ export class FSRSRetrievalProvider implements QueueProvider<QueueItem> {
     const blockID = this.blockIdByCardId.get(id);
     if (!blockID) return;
     const p = clampPriority(priority, DEFAULT_PRIORITY);
-    await setBlockAttrs(blockID, { [ATTR_PRIORITY]: String(p) } as any);
+    
+    // 更新 FSRSCard.priority（统一优先级存储）
+    const card = this.storage.getCard(id);
+    if (card) {
+      card.priority = p;
+      this.storage.setCard(card);
+      await this.storage.saveCards();
+    }
+    
+    // 注意：不再写入块属性 custom-fsrs-priority
   }
 
   private afterConsumed(cardId: string): void {

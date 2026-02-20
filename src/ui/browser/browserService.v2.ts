@@ -927,7 +927,13 @@ export async function batchSetPriority(
 
     for (const blockId of blockIds) {
         try {
-            await setBlockAttrs(blockId, { [ATTR_PRIORITY]: String(clampedPriority) });
+            // 更新 FSRSCard.priority（统一优先级存储）
+            const card = storageManager.getCardByBlockId(blockId);
+            if (card) {
+                card.priority = clampedPriority;
+                storageManager.setCard(card);
+            }
+            
             successCount++;
             
             // 增量更新缓存
@@ -935,6 +941,13 @@ export async function batchSetPriority(
         } catch (err) {
             console.error('[SiYuanMemo][CardBrowser] Set priority error:', blockId, err);
         }
+    }
+    
+    // 保存所有更新
+    try {
+        await storageManager.saveCards();
+    } catch (err) {
+        console.error('[SiYuanMemo][CardBrowser] Save cards error:', err);
     }
 
     return successCount;

@@ -80,28 +80,47 @@ describe('BlockMenuHandler - 菜单项生成', () => {
           },
         }),
       } as any,
-      reviewDialogManager: {
+      dialogManager: {
         openRetrievalPracticeWithFilter: vi.fn().mockResolvedValue(undefined),
         openIncrementalLearningWithFilter: vi.fn().mockResolvedValue(undefined),
         openFinalDrill: vi.fn().mockResolvedValue(undefined),
         openDrillWithCards: vi.fn(),
-        deps: {
-          plugin: {
-            unifiedDataSourceManager: {
-              getQueue: vi.fn().mockReturnValue({
-                getCards: vi.fn().mockResolvedValue([]),
-                clear: vi.fn().mockResolvedValue(undefined),
-                addCard: vi.fn().mockResolvedValue(undefined),
-              }),
-            },
-          },
-        },
       } as any,
       xiuyuanService: {} as any,
+      cardCreationHelper: {
+        createConceptCard: vi.fn().mockResolvedValue({ ok: true, value: { id: { value: 'card-1' } } }),
+        createSymbolCard: vi.fn().mockResolvedValue({ ok: true, value: { id: { value: 'card-1' } } }),
+        createQuickCard: vi.fn().mockResolvedValue({ ok: true, value: { id: { value: 'card-1' } } }),
+        createBidirectionalCard: vi.fn().mockResolvedValue({ ok: true, value: { id: { value: 'card-1' } } }),
+        createListTemplateCard: vi.fn().mockResolvedValue({ ok: true, value: { id: { value: 'card-1' } } }),
+      } as any,
       openCreateTemplateCardDialog: vi.fn().mockResolvedValue(undefined),
       openNeuralReviewDialog: vi.fn().mockResolvedValue(undefined),
+      applicationContext: {
+        getStorage: vi.fn().mockReturnValue({
+          getCardByBlockId: vi.fn(),
+          getCardsByBlockId: vi.fn().mockReturnValue([]),
+        }),
+        getCardService: vi.fn().mockReturnValue({
+          createCard: vi.fn().mockResolvedValue({ ok: true, value: { id: { value: 'card-1' } } }),
+        }),
+        getUnifiedDataSourceManager: vi.fn().mockReturnValue({
+          getQueue: vi.fn().mockReturnValue({
+            getCards: vi.fn().mockResolvedValue([]),
+            clear: vi.fn().mockResolvedValue(undefined),
+            addCard: vi.fn().mockResolvedValue(undefined),
+          }),
+        }),
+      } as any,
       plugin: {
         hybridSyncService: null,
+        unifiedDataSourceManager: {
+          getQueue: vi.fn().mockReturnValue({
+            getCards: vi.fn().mockResolvedValue([]),
+            clear: vi.fn().mockResolvedValue(undefined),
+            addCard: vi.fn().mockResolvedValue(undefined),
+          }),
+        },
       },
     };
     

@@ -340,30 +340,99 @@ export class UnifiedStorageManager {
    * @param xiuyuan XiuYuan 实体
    * @param cards FSRSCard 实体数组
    */
-  async batchCreateCards(xiuyuan: IXiuyuan, cards: FSRSCard[]): Promise<Result<void>> {
-    try {
-      // 保存 XiuYuan（如果不存在）
-      if (!this.xiuyuans.has(xiuyuan.id)) {
-        this.xiuyuans.set(xiuyuan.id, xiuyuan);
+  /**
+     * 批量创建卡片（原子性操作）
+     * @param xiuyuan XiuYuan 实体
+     * @param cards 卡片数组
+     * @returns 成功或失败结果
+     * 
+     * 特性：
+     * - 原子性：要么全部成功，要么全部失败
+     * - 失败回滚：如果任何操作失败，回滚所有更改
+     * - 性能优化：一次性更新索引，一次保存
+     */
+    async batchCreateCards(xiuyuan: IXiuyuan, cards: FSRSCard[]): Promise<Result<void>> {
+      // 验证输入
+      if (!xiuyuan || !xiuyuan.id) {
+        return err(new Error('Invalid xiuyuan: missing id'));
+      }
+      if (!cards || cards.length === 0) {
+        return err(new Error('Invalid cards: empty array'));
       }
 
-      // 批量保存 Cards
+      // 验证所有卡片
       for (const card of cards) {
-        this.cards.set(card.id, card);
-        this.updateIndexesForCard(card, 'add');
+        if (!card.id) {
+          return err(new Error('Invalid card: missing id'));
+        }
+        if (card.xiuyuanID !== xiuyuan.id) {
+          return err(new Error(`Card ${card.id} xiuyuanID mismatch: expected ${xiuyuan.id}, got ${card.xiuyuanID}`));
+        }
+        if (this.cards.has(card.id)) {
+          return err(new Error(`Card ${card.id} already exists`));
+        }
       }
 
-      // 重新排序 due 索引
-      this.indexByDue.sort((a, b) => a.due - b.due);
+      // 保存原始状态用于回滚
+      const xiuyuanExisted = this.xiuyuans.has(xiuyuan.id);
+      const originalXiuyuan = xiuyuanExisted ? this.xiuyuans.get(xiuyuan.id) : undefined;
 
-      // 调度保存
-      this.scheduleSave();
+      // 保存原始索引状态（用于回滚）
+      const originalIndexByBlockID = new Map(this.indexByBlockID);
+      const originalIndexByXiuyuanID = new Map(this.indexByXiuyuanID);
+      const originalIndexByType = new Map(this.indexByType);
+      const originalIndexByPriority = new Map(this.indexByPriority);
+      const originalIndexByDue = [...this.indexByDue];
 
-      return ok(undefined);
-    } catch (error) {
-      return err(error instanceof Error ? error : new Error(String(error)));
+      try {
+        // 1. 保存 XiuYuan（如果不存在）
+        if (!xiuyuanExisted) {
+          this.xiuyuans.set(xiuyuan.id, xiuyuan);
+        }
+
+        // 2. 批量保存 Cards（不更新索引）
+        for (const card of cards) {
+          this.cards.set(card.id, card);
+        }
+
+        // 3. 一次性更新所有索引
+        for (const card of cards) {
+          this.updateIndexesForCard(card, 'add');
+        }
+
+        // 4. 重新排序 due 索引（只排序一次）
+        this.indexByDue.sort((a, b) => a.due - b.due);
+
+        // 5. 调度保存（只保存一次）
+        this.scheduleSave();
+
+        return ok(undefined);
+      } catch (error) {
+        // 回滚所有更改
+
+        // 回滚 XiuYuan
+        if (!xiuyuanExisted) {
+          this.xiuyuans.delete(xiuyuan.id);
+        } else if (originalXiuyuan) {
+          this.xiuyuans.set(xiuyuan.id, originalXiuyuan);
+        }
+
+        // 回滚 Cards
+        for (const card of cards) {
+          this.cards.delete(card.id);
+        }
+
+        // 回滚索引
+        this.indexByBlockID = originalIndexByBlockID;
+        this.indexByXiuyuanID = originalIndexByXiuyuanID;
+        this.indexByType = originalIndexByType;
+        this.indexByPriority = originalIndexByPriority;
+        this.indexByDue = originalIndexByDue;
+
+        return err(error instanceof Error ? error : new Error(String(error)));
+      }
     }
-  }
+
 
   /**
    * 获取卡片

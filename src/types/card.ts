@@ -20,8 +20,10 @@ export enum CardType {
     Topic = 'topic',             // 主题（增量阅读）
     Concept = 'concept',         // 概念卡（使用 FSRS 调度器）
     Descriptor = 'descriptor',   // 描述符卡（使用 FSRS 调度器）
-    Incremental = 'incremental', // 增量内容
-    Webpage = 'webpage',         // 网页卡片（渐进阅读）
+    // Incremental 和 Webpage 类型已在 XiuYuan 统一化中移除
+    // @deprecated Use Item or Topic instead
+    // Incremental = 'incremental',
+    // Webpage = 'webpage',
 }
 
 /** 评分 */
@@ -122,49 +124,40 @@ export interface WebpageCard extends FSRSCard {
     clozeIds?: string[];      // 关联的挖空闪卡 ID
 }
 
-/** 创建新卡片的默认值 */
+/**
+ * 创建新卡片的默认值
+ * 
+ * @deprecated 此函数已废弃，请使用 CardApplicationService.createCard() 或 CardCreationHelper
+ * @see CardApplicationService.createCard()
+ * @see CardCreationHelper
+ * @throws {Error} 抛出 DeprecationError，提示使用新的 API
+ * @example
+ * // 旧代码（已废弃）
+ * const card = createDefaultCard(blockId);
+ * 
+ * // 新代码（推荐）
+ * const helper = new CardCreationHelper(cardService);
+ * const result = await helper.createQuickCard(blockId);
+ */
 export function createDefaultCard(blockId: string): FSRSCard {
-    const now = Date.now();
-    return {
-        id: generateCardId(),
-        blockId,
-        due: now,
-        stability: 0,
-        difficulty: 0,
-        reps: 0,
-        lapses: 0,
-        state: CardState.New,
-        lastReview: 0,
-        elapsedDays: 0,
-        scheduledDays: 0,
-        learning_step: 0,  // ✅ 默认 learning step 为 0
-        priority: 50,
-        type: CardType.Item,
-        tags: [],
-        cardTypeMarker: undefined,  // 卡片类型标记（默认未设置）
-        neuralRoamSeed: undefined,  // 神经漫游种子标记（默认未设置）
-        leechCount: 0,
-        isLeech: false,
-        skipped: false,
-        createdAt: now,
-        updatedAt: now,
-    };
+    throw new Error(
+        'DeprecationError: createDefaultCard() is deprecated. ' +
+        'Please use CardApplicationService.createCard() or CardCreationHelper instead. ' +
+        'See migration guide: .kiro/specs/xiuyuan-unification/04-implementation-plan.md'
+    );
 }
 
-/** 创建网页卡片 */
+/**
+ * 创建网页卡片
+ * 
+ * @deprecated Webpage 卡片类型已被移除，此函数已废弃
+ * @throws {Error} 抛出 DeprecationError
+ */
 export function createWebpageCard(url: string, title: string): WebpageCard {
-    const card = createDefaultCard('') as WebpageCard;
-
-    card.type = CardType.Webpage;
-    card.url = url;
-    card.title = title;
-    card.blockId = ''; // 网页卡片没有关联块
-    card.scrollPosition = 0;
-    card.readingTime = 0;
-    card.extractIds = [];
-    card.clozeIds = [];
-
-    return card;
+    throw new Error(
+        'DeprecationError: createWebpageCard() is deprecated. ' +
+        'Webpage card type has been removed in XiuYuan unification.'
+    );
 }
 
 /** 判断是否为网页卡片 */

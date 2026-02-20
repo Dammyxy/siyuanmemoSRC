@@ -19,7 +19,7 @@ import type { StorageManager } from '@/core/storage/manager';
 import type { FSRSCard } from '@/types';
 import { getRiffCards, getRiffNewCards, removeRiffCards, type RiffBlock } from '@/core/siyuan/riff';
 import { batchDetectCardType, initializeAFactor } from '@/core/card-builder';
-import { setBlockAttrs, getBlockAttrs, getBlockKramdown } from '@/core/siyuan/api';
+import { setBlockAttrs, getBlockAttrs, getBlockKramdown, sql } from '@/core/siyuan/api';
 import { ATTR_CARD_TYPE, ATTR_A_FACTOR } from '@/core/siyuan/block';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import type {
@@ -272,15 +272,8 @@ export class XiuyuanSyncService {
                                 if (localCard.meta?.priority !== undefined) {
                                     return localCard.meta.priority;
                                 }
-                            } else {
-                                // 普通卡片：优先读取块属性
-                                if (riffCard.ial?.['custom-fsrs-priority']) {
-                                    const priority = parseInt(riffCard.ial['custom-fsrs-priority']);
-                                    if (!isNaN(priority)) {
-                                        return priority;
-                                    }
-                                }
                             }
+                            // 注意：不再从块属性读取优先级，统一使用 FSRSCard.priority
                             
                             // 保持原值
                             return localCard.priority;
@@ -1104,9 +1097,10 @@ export class XiuyuanSyncService {
             
             // 优先级读取逻辑：
             // 1. 检查是否是修缘卡片（通过 meta.xiuyuanID 判断）
-            // 2. 修缘卡片：优先读取 meta.priority（独立优先级，不绑定块属性）
-            // 3. 普通卡片：优先读取块属性 custom-fsrs-priority
+            // 2. 修缘卡片：优先读取 meta.priority（独立优先级）
+            // 3. 如果本地已有卡片，保持原有优先级
             // 4. 默认值 50
+            // 注意：不再从块属性读取优先级，统一使用 FSRSCard.priority
             priority: (() => {
                 // 检查是否是修缘卡片
                 const localCard = this.storage.getCard(riffBlock.id);
@@ -1117,14 +1111,11 @@ export class XiuyuanSyncService {
                     if (localCard?.meta?.priority !== undefined) {
                         return localCard.meta.priority;
                     }
-                } else {
-                    // 普通卡片：优先读取块属性
-                    if (riffBlock.ial?.['custom-fsrs-priority']) {
-                        const priority = parseInt(riffBlock.ial['custom-fsrs-priority']);
-                        if (!isNaN(priority)) {
-                            return priority;
-                        }
-                    }
+                }
+                
+                // 如果本地已有卡片，保持原有优先级
+                if (localCard?.priority !== undefined) {
+                    return localCard.priority;
                 }
                 
                 // 默认值

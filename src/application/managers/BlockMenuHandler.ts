@@ -18,6 +18,7 @@ import type { XiuyuanService } from '@/core/xiuyuan';
 import type { ApplicationContext } from '@/application/ApplicationContext';
 import type { DialogManager } from '@/application/managers/DialogManager';
 import type { StorageManager } from '@/core/storage';
+import { CardCreationHelper } from '@/application/helpers/CardCreationHelper';
 
 export interface BlockMenuHandlerDeps {
   app: App;
@@ -27,6 +28,7 @@ export interface BlockMenuHandlerDeps {
   openCreateTemplateCardDialog: (blockIds: string[]) => Promise<void>;
   openNeuralReviewDialog: (options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) => Promise<void>;
   applicationContext: ApplicationContext;  // ✅ 必需：用于访问所有 DDD 架构服务
+  cardCreationHelper: CardCreationHelper;  // ✅ 卡片创建辅助类
   plugin?: any;  // 🔧 向后兼容：用于访问遗留服务（将逐步移除）
 }
 
@@ -1216,15 +1218,12 @@ export class BlockMenuHandler {
       const existingCard = this.getStorage().getCardByBlockId(blockId);
       
       if (!existingCard) {
-        // 2. 使用 CardApplicationService 创建概念卡
-        const cardService = this.getCardService();
+        // 2. 使用 CardCreationHelper 创建概念卡
+        const priorityValue = priority === 'high' ? 100 : 50;
         
-        // 🆕 使用新架构创建概念卡
-        const result = await cardService.createCard({
-          blockId: blockId,
-          cardType: 'concept',  // 自动选择 builtin-concept-simple 模板
-          priority: priority,
-          meta: {
+        const result = await this.deps.cardCreationHelper.createConceptCard(blockId, {
+          priority: priorityValue,
+          metadata: {
             source: 'manual',
           },
         });
@@ -1243,7 +1242,7 @@ export class BlockMenuHandler {
           await riffAPI.addRiffCards(riffAPI.BUILTIN_DECK_ID, [blockId]);
           console.log(`[BlockMenuHandler] Added concept card to Riff: ${blockId}`);
           
-          console.log(`[BlockMenuHandler] Created concept card via DDD: ${blockId}`);
+          console.log(`[BlockMenuHandler] Created concept card via CardCreationHelper: ${blockId}`);
           await pushMsg('✅ 已制作为概念卡');
         } else {
           console.error(`[BlockMenuHandler] Failed to create concept card: ${result.error.message}`);

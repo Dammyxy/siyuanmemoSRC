@@ -40,6 +40,7 @@ import { CreateCardUseCase } from '@/application/usecases/card/CreateCardUseCase
 import { DeleteCardUseCase } from '@/application/usecases/card/DeleteCardUseCase';
 import { UpdateCardUseCase } from '@/application/usecases/card/UpdateCardUseCase';
 import { CardApplicationService } from '@/application/services/CardApplicationService';
+import { CardCreationHelper } from '@/application/helpers/CardCreationHelper';
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
@@ -543,6 +544,10 @@ export class ApplicationContext {
       cardScheduleService
     );
     
+    // 创建 CardCreationHelper
+    const cardCreationHelper = new CardCreationHelper(cardApplicationService);
+    console.log('[ApplicationContext] ✅ CardCreationHelper initialized');
+    
     // 7. 初始化统一数据源管理器
     const unifiedDataSourceManager = UnifiedDataSourceManager.getInstance();
     const advancedRouter = new AdvancedDataRouter(cardApplicationService, storageManager, config.plugin as any);
@@ -593,6 +598,7 @@ export class ApplicationContext {
       storage: storageManager,
       dialogManager: null as any, // 将在 ApplicationContext 创建后设置
       xiuyuanService: xiuyuanService,
+      cardCreationHelper: cardCreationHelper,  // ✅ 注入 CardCreationHelper
       openCreateTemplateCardDialog: async (blockIds) => {
         // 使用闭包延迟获取 DialogManager
         if (contextRef) {

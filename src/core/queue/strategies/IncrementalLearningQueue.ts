@@ -237,7 +237,16 @@ export class IncrementalLearningQueue implements IQueueStrategy<QueueItem> {
       setPriority: async (item, priority) => {
         const blockID = String(item?.blockID || '');
         if (!blockID) return false;
-        await setBlockAttrs(blockID, { 'custom-fsrs-priority': String(priority) } as any);
+        
+        // 更新 FSRSCard.priority（统一优先级存储）
+        const card = this.storage.getCardByBlockId(blockID);
+        if (card) {
+          card.priority = priority;
+          this.storage.setCard(card);
+          await this.storage.saveCards();
+        }
+        
+        // 注意：不再写入块属性 custom-fsrs-priority
         return true;
       },
     };

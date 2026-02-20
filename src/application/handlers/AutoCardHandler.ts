@@ -727,32 +727,39 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
             
-            // 2. 创建 FSRS Card
-            const { createDefaultCard } = await import('@/types/card');
-            const card = createDefaultCard(blockId);
+            // 2. 使用 CardCreationHelper 创建符号检测卡
+            const helper = this.getCardHelper();
+            if (!helper) {
+                console.error('[SiYuanMemo][AutoCard] CardCreationHelper not available');
+                const { pushErrMsg } = await import('@/core/siyuan/api');
+                await pushErrMsg('卡片创建服务不可用');
+                return;
+            }
             
-            // 3. 设置卡片元数据
-            card.meta = {
-                ...card.meta,
-                direction,
-                question,
-                answer,
-                cardSource: 'quick-symbol',
-                symbolType: actualSymbol || (direction === 'forward' ? '>>' : '<<')
-            };
+            const result = await helper.createSymbolCard(blockId, {
+                metadata: {
+                    direction,
+                    question,
+                    answer,
+                    cardSource: 'quick-symbol',
+                    symbolType: actualSymbol || (direction === 'forward' ? '>>' : '<<')
+                }
+            });
             
-            // 4. 添加到 Riff 卡组
+            if (!result.ok) {
+                throw new Error(`Failed to create symbol card: ${result.error}`);
+            }
+            
+            // 3. 添加到 Riff 卡组
             const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
             await addRiffCards(BUILTIN_DECK_ID, [blockId]);
             console.log('[SiYuanMemo][AutoCard] Added to Riff deck:', blockId);
             
-            // 5. 标记 FSRS 属性
+            // 4. 标记 FSRS 属性
             const { markBlockAsCard } = await import('@/core/siyuan/block');
+            const card = result.value;
             await markBlockAsCard(blockId, card.id, card.priority, 'item');
             console.log('[SiYuanMemo][AutoCard] Marked block as card:', blockId);
-            
-            // 6. 保存到存储
-            await this.saveCard(card);
             
             console.log('[SiYuanMemo][AutoCard] Basic card created successfully:', blockId, direction);
             
@@ -788,25 +795,35 @@ export class AutoCardHandler implements ITransactionHandler {
             const xiuyuanAppService = this.getXiuyuanApplicationService();
             if (!xiuyuanAppService) {
                 console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available, falling back to single card');
-                // 降级：只创建正向卡片
-                const { createDefaultCard } = await import('@/types/card');
-                const card = createDefaultCard(blockId);
-                card.meta = {
-                    ...card.meta,
-                    direction: 'forward',
-                    question: term,
-                    answer: definition,
-                    cardSource: 'quick-symbol',
-                    symbolType: '<>'
-                };
+                // 降级：使用 CardCreationHelper 创建符号检测卡
+                const helper = this.getCardHelper();
+                if (!helper) {
+                    console.error('[SiYuanMemo][AutoCard] CardCreationHelper not available');
+                    const { pushErrMsg } = await import('@/core/siyuan/api');
+                    await pushErrMsg('卡片创建服务不可用');
+                    return;
+                }
+                
+                const result = await helper.createSymbolCard(blockId, {
+                    metadata: {
+                        direction: 'forward',
+                        question: term,
+                        answer: definition,
+                        cardSource: 'quick-symbol',
+                        symbolType: '<>'
+                    }
+                });
+                
+                if (!result.ok) {
+                    throw new Error(`Failed to create symbol card: ${result.error}`);
+                }
                 
                 const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
                 await addRiffCards(BUILTIN_DECK_ID, [blockId]);
                 
                 const { markBlockAsCard } = await import('@/core/siyuan/block');
+                const card = result.value;
                 await markBlockAsCard(blockId, card.id, card.priority, 'item');
-                
-                await this.saveCard(card);
                 
                 const { pushMsg } = await import('@/core/siyuan/api');
                 await pushMsg(`✅ 已创建双向卡片 (<>) - 仅正向`);
@@ -1013,42 +1030,47 @@ export class AutoCardHandler implements ITransactionHandler {
                     return;
                 }
                 
-                // 2. 创建 FSRS Card
-                const { createDefaultCard, CardType } = await import('@/types/card');
-                const card = createDefaultCard(blockId);
+                // 2. 使用 CardCreationHelper 创建概念卡
+                const helper = this.getCardHelper();
+                if (!helper) {
+                    console.error('[SiYuanMemo][AutoCard] CardCreationHelper not available');
+                    const { pushErrMsg } = await import('@/core/siyuan/api');
+                    await pushErrMsg('卡片创建服务不可用');
+                    return;
+                }
                 
-                // 3. 标记为 Concept 类型
-                card.type = CardType.Concept;
+                const result = await helper.createConceptCard(blockId, {
+                    metadata: {
+                        direction: 'both',
+                        concept,
+                        definition,
+                        cardSource: 'quick-symbol',
+                        symbolType: actualSymbol || '::'
+                    }
+                });
                 
-                // 4. 设置卡片元数据（默认双向）
-                card.meta = {
-                    ...card.meta,
-                    direction: 'both',
-                    concept,
-                    definition,
-                    cardSource: 'quick-symbol',
-                    symbolType: actualSymbol || '::'
-                };
+                if (!result.ok) {
+                    throw new Error(`Failed to create concept card: ${result.error}`);
+                }
                 
-                // 5. 添加到 Riff 卡组
+                const card = result.value;
+                
+                // 3. 添加到 Riff 卡组
                 const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
                 await addRiffCards(BUILTIN_DECK_ID, [blockId]);
                 console.log('[SiYuanMemo][AutoCard] Added to Riff deck:', blockId);
                 
-                // 6. 标记 FSRS 属性（标记为 topic，因为 concept 不是有效的类型）
+                // 4. 标记 FSRS 属性（标记为 topic，因为 concept 不是有效的类型）
                 const { markBlockAsCard } = await import('@/core/siyuan/block');
                 await markBlockAsCard(blockId, card.id, card.priority, 'topic');
                 console.log('[SiYuanMemo][AutoCard] Marked block as concept card:', blockId);
                 
-                // 7. 检测并标记卡片类型（concept）
+                // 5. 检测并标记卡片类型（concept）
                 // 🆕 使用 CardType 枚举标记为概念卡
                 const { setBlockAttrs } = await import('@/core/siyuan/api');
                 await setBlockAttrs(blockId, {
                     'custom-card-type-marker': 'concept'
                 });
-                
-                // 8. 保存到存储
-                await this.saveCard(card);
                 
                 console.log('[SiYuanMemo][AutoCard] Concept card created successfully:', blockId);
                 
@@ -1175,31 +1197,39 @@ export class AutoCardHandler implements ITransactionHandler {
         try {
             console.log('[SiYuanMemo][AutoCard] Creating basic card from descriptor:', blockId, 'symbol:', actualSymbol);
             
-            // 1. 创建 FSRS Card
-            const { createDefaultCard } = await import('@/types/card');
-            const card = createDefaultCard(blockId);
+            // 1. 使用 CardCreationHelper 创建符号检测卡
+            const helper = this.getCardHelper();
+            if (!helper) {
+                console.error('[SiYuanMemo][AutoCard] CardCreationHelper not available');
+                const { pushErrMsg } = await import('@/core/siyuan/api');
+                await pushErrMsg('卡片创建服务不可用');
+                return;
+            }
             
-            // 2. 设置卡片元数据（作为正向卡片）
-            card.meta = {
-                ...card.meta,
-                direction: 'forward',
-                question: attribute,
-                answer: description,
-                cardSource: 'quick-symbol',
-                symbolType: actualSymbol || ';;',
-                degradedFromDescriptor: true
-            };
+            const result = await helper.createSymbolCard(blockId, {
+                metadata: {
+                    direction: 'forward',
+                    question: attribute,
+                    answer: description,
+                    cardSource: 'quick-symbol',
+                    symbolType: actualSymbol || ';;',
+                    degradedFromDescriptor: true
+                }
+            });
             
-            // 3. 添加到 Riff 卡组
+            if (!result.ok) {
+                throw new Error(`Failed to create symbol card: ${result.error}`);
+            }
+            
+            const card = result.value;
+            
+            // 2. 添加到 Riff 卡组
             const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
             await addRiffCards(BUILTIN_DECK_ID, [blockId]);
             
-            // 4. 标记 FSRS 属性
+            // 3. 标记 FSRS 属性
             const { markBlockAsCard } = await import('@/core/siyuan/block');
             await markBlockAsCard(blockId, card.id, card.priority, 'item');
-            
-            // 5. 保存到存储
-            await this.saveCard(card);
             
             console.log('[SiYuanMemo][AutoCard] Basic card created from descriptor:', blockId);
             
@@ -1285,18 +1315,32 @@ export class AutoCardHandler implements ITransactionHandler {
         content: string,
         clozes: Array<{ text: string; type: 'brace' | 'equal' | 'mark' }>
     ): Promise<void> {
-        // 创建 FSRS Card
-        const { createDefaultCard } = await import('@/types/card');
-        const card = createDefaultCard(blockId);
+        // 使用 CardCreationHelper 创建快速卡片
+        const helper = this.getCardHelper();
+        if (!helper) {
+            console.error('[SiYuanMemo][AutoCard] CardCreationHelper not available');
+            const { pushErrMsg } = await import('@/core/siyuan/api');
+            await pushErrMsg('卡片创建服务不可用');
+            return;
+        }
         
-        // 设置卡片元数据
-        card.meta = {
-            ...card.meta,
-            clozes: clozes.map(c => c.text),
-            clozeCount: 1,
-            cardSource: 'quick-symbol',
-            symbolType: clozes[0].type === 'brace' ? '{{}}' : (clozes[0].type === 'equal' ? '==' : 'mark')
-        };
+        const result = await helper.createQuickCard(blockId, {
+            metadata: {
+                clozes: clozes.map(c => c.text),
+                clozeCount: 1,
+                cardSource: 'quick-symbol',
+                symbolType: clozes[0].type === 'brace' ? '{{}}' : (clozes[0].type === 'equal' ? '==' : 'mark')
+            }
+        });
+        
+        if (!result.ok) {
+            console.error('[SiYuanMemo][AutoCard] Failed to create cloze card:', result.error);
+            const { pushErrMsg } = await import('@/core/siyuan/api');
+            await pushErrMsg(`创建填空卡片失败：${result.error}`);
+            return;
+        }
+        
+        const card = result.value;
         
         // 添加到 Riff 卡组
         const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
@@ -1305,9 +1349,6 @@ export class AutoCardHandler implements ITransactionHandler {
         // 标记 FSRS 属性
         const { markBlockAsCard } = await import('@/core/siyuan/block');
         await markBlockAsCard(blockId, card.id, card.priority, 'item');
-        
-        // 保存到存储
-        await this.saveCard(card);
         
         console.log('[SiYuanMemo][AutoCard] Single cloze card created:', blockId);
         
@@ -1681,19 +1722,28 @@ export class AutoCardHandler implements ITransactionHandler {
                 
                 console.log('[SiYuanMemo][AutoCard] Successfully marked as concept card:', refId);
                 
-                // ✅ 创建空概念卡（使用 FSRS 卡片，不使用 Xiuyuan）
+                // ✅ 创建空概念卡（使用 CardCreationHelper）
                 try {
-                    const { createDefaultCard, CardType } = await import('@/types/card');
-                    const card = createDefaultCard(refId);
+                    const helper = this.getCardHelper();
+                    if (!helper) {
+                        console.error('[SiYuanMemo][AutoCard] CardCreationHelper not available');
+                        continue;
+                    }
                     
-                    // 标记为概念卡类型
-                    card.type = CardType.Concept;
-                    card.meta = {
-                        ...card.meta,
-                        concept: conceptName,
-                        cardSource: 'auto-concept',
-                        hasDefinition: false  // 标记为空概念卡
-                    };
+                    const result = await helper.createConceptCard(refId, {
+                        metadata: {
+                            concept: conceptName,
+                            cardSource: 'auto-concept',
+                            hasDefinition: false  // 标记为空概念卡
+                        }
+                    });
+                    
+                    if (!result.ok) {
+                        console.error('[SiYuanMemo][AutoCard] Failed to create empty concept card:', result.error);
+                        continue;
+                    }
+                    
+                    const card = result.value;
                     
                     // 添加到 Riff 卡组
                     const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
@@ -1702,9 +1752,6 @@ export class AutoCardHandler implements ITransactionHandler {
                     // 标记 FSRS 属性
                     const { markBlockAsCard } = await import('@/core/siyuan/block');
                     await markBlockAsCard(refId, card.id, card.priority, 'topic');
-                    
-                    // 保存到存储
-                    await this.saveCard(card);
                     
                     console.log('[SiYuanMemo][AutoCard] Empty concept card created:', refId);
                 } catch (error) {
@@ -1868,24 +1915,33 @@ export class AutoCardHandler implements ITransactionHandler {
             'custom-fsrs-card-type': 'concept'
         });
         
-        // ✅ 创建空概念卡（使用 FSRS 卡片，不使用 Xiuyuan）
+        // ✅ 创建空概念卡（使用 CardCreationHelper）
         try {
             // 获取概念名称
             const blockQuery = `SELECT content FROM blocks WHERE id = '${conceptId}' LIMIT 1`;
             const blockResult = await sql(blockQuery);
             const conceptName = blockResult && blockResult.length > 0 ? blockResult[0].content : '未知概念';
             
-            const { createDefaultCard, CardType } = await import('@/types/card');
-            const card = createDefaultCard(conceptId);
+            const helper = this.getCardHelper();
+            if (!helper) {
+                console.error('[SiYuanMemo][AutoCard] CardCreationHelper not available');
+                return null;
+            }
             
-            // 标记为概念卡类型
-            card.type = CardType.Concept;
-            card.meta = {
-                ...card.meta,
-                concept: conceptName,
-                cardSource: 'auto-concept',
-                hasDefinition: false  // 标记为空概念卡
-            };
+            const result = await helper.createConceptCard(conceptId, {
+                metadata: {
+                    concept: conceptName,
+                    cardSource: 'auto-concept',
+                    hasDefinition: false  // 标记为空概念卡
+                }
+            });
+            
+            if (!result.ok) {
+                console.error('[SiYuanMemo][AutoCard] Failed to create empty concept card:', result.error);
+                return null;
+            }
+            
+            const card = result.value;
             
             // 添加到 Riff 卡组
             const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
@@ -1894,9 +1950,6 @@ export class AutoCardHandler implements ITransactionHandler {
             // 标记 FSRS 属性
             const { markBlockAsCard } = await import('@/core/siyuan/block');
             await markBlockAsCard(conceptId, card.id, card.priority, 'topic');
-            
-            // 保存到存储
-            await this.saveCard(card);
             
             console.log('[SiYuanMemo][AutoCard] Empty concept card created:', conceptId);
         } catch (error) {

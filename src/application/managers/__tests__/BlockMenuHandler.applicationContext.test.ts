@@ -26,13 +26,15 @@ describe('BlockMenuHandler - ApplicationContext Integration', () => {
     blockMenuHandler = new BlockMenuHandler({
       app: {} as any,
       i18n: {},
-      storage: {
-        getAllCards: vi.fn().mockReturnValue([]),
-        getCardByBlockId: vi.fn().mockReturnValue(null),
-        getCardsByBlockId: vi.fn().mockReturnValue([]),
-      } as any,
-      reviewDialogManager: {} as any,
+      dialogManager: {} as any,
       xiuyuanService: {} as any,
+      cardCreationHelper: {
+        createConceptCard: vi.fn().mockResolvedValue({ ok: true, value: { id: { value: 'card-1' } } }),
+        createSymbolCard: vi.fn().mockResolvedValue({ ok: true, value: { id: { value: 'card-1' } } }),
+        createQuickCard: vi.fn().mockResolvedValue({ ok: true, value: { id: { value: 'card-1' } } }),
+        createBidirectionalCard: vi.fn().mockResolvedValue({ ok: true, value: { id: { value: 'card-1' } } }),
+        createListTemplateCard: vi.fn().mockResolvedValue({ ok: true, value: { id: { value: 'card-1' } } }),
+      } as any,
       openCreateTemplateCardDialog: vi.fn(),
       openNeuralReviewDialog: vi.fn(),
       plugin: {},

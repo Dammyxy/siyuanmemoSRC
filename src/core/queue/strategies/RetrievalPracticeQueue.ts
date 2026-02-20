@@ -516,7 +516,16 @@ export class RetrievalPracticeQueue extends BaseCompositeQueue<QueueItem> {
         const blockID = String((item as any)?.blockID || '');
         if (!blockID) return false;
         const p = clampPriority(priority, DEFAULT_PRIORITY);
-        await setBlockAttrs(blockID, { [ATTR_PRIORITY]: String(p) } as any);
+        
+        // 更新 FSRSCard.priority（统一优先级存储）
+        const card = storage.getCardByBlockId(blockID);
+        if (card) {
+          card.priority = p;
+          storage.setCard(card);
+          await storage.saveCards();
+        }
+        
+        // 注意：不再写入块属性 custom-fsrs-priority
         return true;
       },
     };
