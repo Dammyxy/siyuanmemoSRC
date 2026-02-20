@@ -22,7 +22,8 @@
  */
 
 import { GetXiuyuanQuery, GetXiuyuanQueryResult } from '../../queries/xiuyuan/GetXiuyuanQuery';
-import type { XiuyuanService } from '@/core/xiuyuan/service';
+import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
+import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
 
 /**
  * 获取单个 Xiuyuan 查询处理器
@@ -33,10 +34,10 @@ export class GetXiuyuanQueryHandler {
   /**
    * 构造函数
    * 
-   * @param xiuyuanService - Xiuyuan 领域服务（临时依赖）
+   * @param xiuyuanRepository - Xiuyuan 仓储
    */
   constructor(
-    private readonly xiuyuanService: XiuyuanService
+    private readonly xiuyuanRepository: IXiuyuanRepository
   ) {}
 
   /**
@@ -48,18 +49,44 @@ export class GetXiuyuanQueryHandler {
    * 
    * @example
    * ```typescript
-   * const handler = new GetXiuyuanQueryHandler(xiuyuanService);
+   * const handler = new GetXiuyuanQueryHandler(xiuyuanRepository);
    * const result = await handler.handle({ xiuyuanId: 'xiuyuan-123' });
    * console.log('Xiuyuan:', result.xiuyuan);
    * ```
    */
   async handle(query: GetXiuyuanQuery): Promise<GetXiuyuanQueryResult> {
-    const xiuyuan = this.xiuyuanService.getXiuyuan(query.xiuyuanId);
-    
-    if (!xiuyuan) {
+    // 1. 创建 XiuyuanId 值对象
+    const idResult = XiuyuanId.create(query.xiuyuanId);
+    if (!idResult.ok) {
+      throw new Error(`Invalid xiuyuanId: ${query.xiuyuanId}`);
+    }
+
+    // 2. 从 Repository 查询
+    const findResult = await this.xiuyuanRepository.findById(idResult.value);
+    if (!findResult.ok) {
+      throw findResult.error;
+    }
+
+    if (!findResult.value) {
       throw new Error(`Xiuyuan not found: ${query.xiuyuanId}`);
     }
-    
-    return { xiuyuan };
+
+    // 3. 转换为 DTO 返回
+    const xiuyuan = findResult.value;
+    return {
+      xiuyuan: {
+        id: xiuyuan.getId().getValue(),
+        blockIDs: xiuyuan.getBlockIDs().map(b => b.getValue()),
+        templateID: xiuyuan.getTemplateID().getValue(),
+        fields: xiuyuan.getFaces().map((face, index) => ({
+          name: `face-${index}`,
+          blockID: face.questionBlockId || xiuyuan.getBlockIDs()[0]?.getValue() || '',
+          marker: 'question'
+        })),
+        meta: xiuyuan.getMeta(),
+        createdAt: xiuyuan.getCreatedAt().getTime(),
+        updatedAt: xiuyuan.getUpdatedAt().getTime()
+      }
+    };
   }
 }

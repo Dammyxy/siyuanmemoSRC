@@ -20,7 +20,7 @@
  */
 
 import { GetAllXiuyuansQuery, GetAllXiuyuansQueryResult } from '../../queries/xiuyuan/GetAllXiuyuansQuery';
-import type { XiuyuanService } from '@/core/xiuyuan/service';
+import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 
 /**
  * 获取所有 Xiuyuan 查询处理器
@@ -31,10 +31,10 @@ export class GetAllXiuyuansQueryHandler {
   /**
    * 构造函数
    * 
-   * @param xiuyuanService - Xiuyuan 领域服务（临时依赖）
+   * @param xiuyuanRepository - Xiuyuan 仓储
    */
   constructor(
-    private readonly xiuyuanService: XiuyuanService
+    private readonly xiuyuanRepository: IXiuyuanRepository
   ) {}
 
   /**
@@ -45,14 +45,33 @@ export class GetAllXiuyuansQueryHandler {
    * 
    * @example
    * ```typescript
-   * const handler = new GetAllXiuyuansQueryHandler(xiuyuanService);
+   * const handler = new GetAllXiuyuansQueryHandler(xiuyuanRepository);
    * const result = await handler.handle({});
    * console.log(`Total: ${result.total}`);
    * result.xiuyuans.forEach(x => console.log(x.id));
    * ```
    */
   async handle(_query: GetAllXiuyuansQuery = {}): Promise<GetAllXiuyuansQueryResult> {
-    const xiuyuans = this.xiuyuanService.getAllXiuyuans();
+    // 1. 从 Repository 查询所有 Xiuyuan
+    const findResult = await this.xiuyuanRepository.findAll();
+    if (!findResult.ok) {
+      throw findResult.error;
+    }
+
+    // 2. 转换为 DTO
+    const xiuyuans = findResult.value.map(xiuyuan => ({
+      id: xiuyuan.getId().getValue(),
+      blockIDs: xiuyuan.getBlockIDs().map(b => b.getValue()),
+      templateID: xiuyuan.getTemplateID().getValue(),
+      fields: xiuyuan.getFaces().map((face, index) => ({
+        name: `face-${index}`,
+        blockID: face.questionBlockId || xiuyuan.getBlockIDs()[0]?.getValue() || '',
+        marker: 'question'
+      })),
+      meta: xiuyuan.getMeta(),
+      createdAt: xiuyuan.getCreatedAt().getTime(),
+      updatedAt: xiuyuan.getUpdatedAt().getTime()
+    }));
     
     return {
       xiuyuans,

@@ -21,7 +21,7 @@
  * 4. 返回模板
  */
 
-import type { XiuyuanService } from '@/core/xiuyuan/service';
+import type { ICardTemplate } from '@/core/xiuyuan/types';
 
 /**
  * 获取模板查询
@@ -34,7 +34,7 @@ export interface GetTemplateQuery {
  * 获取模板查询结果
  */
 export interface GetTemplateQueryResult {
-  template: any;
+  template: ICardTemplate;
 }
 
 /**
@@ -46,10 +46,10 @@ export class GetTemplateQueryHandler {
   /**
    * 构造函数
    * 
-   * @param xiuyuanService - Xiuyuan 领域服务（临时依赖）
+   * @param templateRegistry - 模板注册表
    */
   constructor(
-    private readonly xiuyuanService: XiuyuanService
+    private readonly templateRegistry: Map<string, ICardTemplate>
   ) {}
 
   /**
@@ -61,13 +61,13 @@ export class GetTemplateQueryHandler {
    * 
    * @example
    * ```typescript
-   * const handler = new GetTemplateQueryHandler(xiuyuanService);
+   * const handler = new GetTemplateQueryHandler(templateRegistry);
    * const result = await handler.handle({ templateId: 'basic' });
    * console.log('Template:', result.template);
    * ```
    */
   async handle(query: GetTemplateQuery): Promise<GetTemplateQueryResult> {
-    const template = this.xiuyuanService.getTemplate(query.templateId);
+    const template = this.templateRegistry.get(query.templateId);
     
     if (!template) {
       throw new Error(`Template not found: ${query.templateId}`);

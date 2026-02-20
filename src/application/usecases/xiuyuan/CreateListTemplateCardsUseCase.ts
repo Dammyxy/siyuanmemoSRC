@@ -31,9 +31,40 @@
  * 6. 返回创建的 Xiuyuan 和卡片
  */
 
-import { Result } from '@/types/result';
+import { Result, ok, err } from '@/types/result';
 import { CreateListTemplateCardsCommand } from '../../commands/xiuyuan/CreateListTemplateCardsCommand';
-import type { XiuyuanService } from '@/core/xiuyuan/service';
+import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
+import { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
+import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
+import { BlockId } from '@/core/xiuyuan/domain/BlockId';
+import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
+import { CardFace } from '@/core/xiuyuan/domain/CardFace';
+import { Priority } from '@/core/xiuyuan/domain/Priority';
+import { sql } from '@/core/siyuan/api';
+import { addRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
+import type { ICardTemplate } from '@/core/xiuyuan/types';
+
+/**
+ * 解析子列表项文本，提取提示和答案
+ * 
+ * 格式：`提示 → 答案`
+ * 
+ * @param text 子列表项文本
+ * @returns { cue: 提示文本, answer: 答案文本 }
+ */
+function parseCueAndAnswer(text: string): { cue: string; answer: string } {
+  const parts = text.split('→');
+  
+  if (parts.length >= 2) {
+    const cue = parts[0].trim();
+    const answer = parts.slice(1).join('→').trim();
+    
+    return { cue, answer };
+  }
+  
+  // 没有 `→` 分隔符，整个文本作为答案
+  return { cue: '', answer: text.trim() };
+}
 
 /**
  * 创建列表模板卡片用例
@@ -44,10 +75,12 @@ export class CreateListTemplateCardsUseCase {
   /**
    * 构造函数
    * 
-   * @param xiuyuanService - Xiuyuan 领域服务（临时依赖）
+   * @param xiuyuanRepository - Xiuyuan 仓储
+   * @param templateRegistry - 模板注册表
    */
   constructor(
-    private readonly xiuyuanService: XiuyuanService
+    private readonly xiuyuanRepository: IXiuyuanRepository,
+    private readonly templateRegistry: Map<string, ICardTemplate>
   ) {}
 
   /**
@@ -58,7 +91,7 @@ export class CreateListTemplateCardsUseCase {
    * 
    * @example
    * ```typescript
-   * const useCase = new CreateListTemplateCardsUseCase(xiuyuanService);
+   * const useCase = new CreateListTemplateCardsUseCase(xiuyuanRepository, templateRegistry);
    * const result = await useCase.execute({
    *   parentBlockId: '20230101120000-parent',
    *   childBlockIds: ['20230101120001-child1', '20230101120002-child2'],
@@ -76,22 +109,154 @@ export class CreateListTemplateCardsUseCase {
    * ```
    */
   async execute(command: CreateListTemplateCardsCommand): Promise<Result<any>> {
-    // 委托给旧的 listTemplate.ts 函数
-    // TODO: 未来完全重构为符合 DDD 的实现
-    
-    const { createListTemplateCards } = await import('@/core/xiuyuan/listTemplate');
-    
-    // 注意：旧函数需要 XiuyuanStorage 和 StorageManager
-    // 这里暂时通过 XiuyuanService 获取
-    const xiuyuanStorage = (this.xiuyuanService as any).storage;
-    const storageManager = (this.xiuyuanService as any).storageManager;
-    
-    return createListTemplateCards(
-      command.parentBlockId,
-      command.childBlockIds,
-      command.templateId,
-      xiuyuanStorage,
-      storageManager
-    );
+    try {
+      // 1. 验证模板
+      const template = this.templateRegistry.get(command.templateId);
+      if (!template) {
+        return err(new Error(`Template not found: ${command.templateId}`));
+      }
+
+      if (!template.cardRules || template.cardRules.length === 0) {
+        return err(new Error('Template has no card rules'));
+      }
+
+      // 2. 获取父列表项的段落块 ID（用于问题显示）
+      // 思源结构：列表项(i) → 段落(p) + 列表容器(l)
+      const paragraphResult = await sql(`
+        SELECT id FROM blocks
+        WHERE parent_id = '${command.parentBlockId}'
+        AND type = 'p'
+        LIMIT 1
+      `);
+      
+      if (!paragraphResult || paragraphResult.length === 0) {
+        return err(new Error('Parent list item has no paragraph block'));
+      }
+      
+      const parentParagraphId = paragraphResult[0].id;
+
+      // 3. 获取所有子列表项的文本内容
+      const childrenContentResult = await sql(`
+        SELECT id, content FROM blocks
+        WHERE id IN (${command.childBlockIds.map(id => `'${id}'`).join(',')})
+        ORDER BY id ASC
+      `);
+      
+      if (!childrenContentResult || childrenContentResult.length === 0) {
+        return err(new Error('Failed to fetch children content'));
+      }
+      
+      // 解析每个子列表项的提示和答案
+      const childrenData = childrenContentResult.map((row: any) => ({
+        id: row.id,
+        cue: parseCueAndAnswer(row.content).cue,
+        answer: parseCueAndAnswer(row.content).answer,
+        content: row.content
+      }));
+
+      // 4. 创建值对象
+      const xiuyuanIdResult = XiuyuanId.create(`xy_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`);
+      if (!xiuyuanIdResult.ok) {
+        return xiuyuanIdResult as Result<any>;
+      }
+
+      const allBlockIds = [parentParagraphId, ...command.childBlockIds];
+      const blockIdResults = allBlockIds.map(id => BlockId.create(id));
+      const failedBlockId = blockIdResults.find(r => !r.ok);
+      if (failedBlockId && !failedBlockId.ok) {
+        return failedBlockId as Result<any>;
+      }
+      const blockIds = blockIdResults.map(r => (r as any).value);
+
+      const templateIdResult = TemplateId.create(command.templateId);
+      if (!templateIdResult.ok) {
+        return templateIdResult as Result<any>;
+      }
+
+      const priorityResult = Priority.create(command.priority || 50);
+      const priority = priorityResult.ok ? priorityResult.value : Priority.createDefault();
+
+      // 5. 为每个子列表项创建 CardFace
+      const faces: CardFace[] = [];
+      
+      for (const childData of childrenData) {
+        const faceResult = CardFace.create({
+          question: parentParagraphId, // 问题是父段落
+          answer: childData.content,   // 答案是子列表项内容
+          questionBlockId: parentParagraphId,
+          answerBlockId: childData.id
+        });
+
+        if (!faceResult.ok) {
+          return faceResult as Result<any>;
+        }
+
+        faces.push(faceResult.value);
+      }
+
+      // 6. 创建 Xiuyuan 聚合根（包含列表模板的元数据）
+      const xiuyuanResult = Xiuyuan.create({
+        id: xiuyuanIdResult.value,
+        blockIDs: blockIds,
+        templateID: templateIdResult.value,
+        faces,
+        priority,
+        meta: {
+          schedulerType: 'fsrs-v6',
+          // 列表模板特有的元数据
+          listTemplate: {
+            parentBlockId: command.parentBlockId,
+            parentParagraphId,
+            childrenData: childrenData.map((c, idx) => ({
+              id: c.id,
+              cue: c.cue,
+              answer: c.answer,
+              index: idx
+            }))
+          }
+        }
+      });
+
+      if (!xiuyuanResult.ok) {
+        return xiuyuanResult as Result<any>;
+      }
+
+      const xiuyuan = xiuyuanResult.value;
+
+      // 7. 添加到 Riff（可选，错误不阻断）
+      const deckId = command.deckId || BUILTIN_DECK_ID;
+      const representativeBlockId = command.parentBlockId;
+      
+      try {
+        await addRiffCards(deckId, [representativeBlockId]);
+        console.log('[CreateListTemplateCardsUseCase] Added to Riff:', representativeBlockId);
+      } catch (error) {
+        console.warn('[CreateListTemplateCardsUseCase] Failed to add to Riff:', error);
+        // 不阻断流程
+      }
+
+      // 8. 通过 Repository 持久化
+      const saveResult = await this.xiuyuanRepository.save(xiuyuan);
+      if (!saveResult.ok) {
+        return saveResult as Result<any>;
+      }
+
+      // 9. 返回结果
+      return ok({
+        xiuyuan: {
+          id: xiuyuan.getId().getValue(),
+          blockIDs: xiuyuan.getBlockIDs().map(id => id.getValue()),
+          templateID: xiuyuan.getTemplateID().getValue(),
+        },
+        cards: xiuyuan.getCards().map(card => ({
+          id: card.getId().getValue(),
+          xiuyuanId: card.getXiuyuanId().getValue(),
+          faceIndex: card.getFaceIndex()
+        }))
+      });
+    } catch (error) {
+      console.error('[CreateListTemplateCardsUseCase] Failed:', error);
+      return err(error as Error);
+    }
   }
 }

@@ -1400,11 +1400,9 @@ export class AutoCardHandler implements ITransactionHandler {
                 ...dynamicTemplate,
                 id: tempTemplateId,
             };
-            // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
-            // 需要支持动态模板创建和注册
-            if (xiuyuanService) {
-                xiuyuanService.createTemplate(tempTemplate);
-            }
+            
+            // 使用 XiuyuanApplicationService 创建模板
+            await xiuyuanAppService.createTemplate(tempTemplate);
             
             // 使用动态模板创建卡片
             const result = await xiuyuanAppService.createFromBlocks({

@@ -18,7 +18,7 @@
  * 2. 返回模板列表
  */
 
-import type { XiuyuanService } from '@/core/xiuyuan/service';
+import type { ICardTemplate } from '@/core/xiuyuan/types';
 
 /**
  * 获取所有模板查询
@@ -31,7 +31,7 @@ export interface GetAllTemplatesQuery {
  * 获取所有模板查询结果
  */
 export interface GetAllTemplatesQueryResult {
-  templates: any[];
+  templates: ICardTemplate[];
 }
 
 /**
@@ -43,10 +43,10 @@ export class GetAllTemplatesQueryHandler {
   /**
    * 构造函数
    * 
-   * @param xiuyuanService - Xiuyuan 领域服务（临时依赖）
+   * @param templateRegistry - 模板注册表
    */
   constructor(
-    private readonly xiuyuanService: XiuyuanService
+    private readonly templateRegistry: Map<string, ICardTemplate>
   ) {}
 
   /**
@@ -57,13 +57,13 @@ export class GetAllTemplatesQueryHandler {
    * 
    * @example
    * ```typescript
-   * const handler = new GetAllTemplatesQueryHandler(xiuyuanService);
+   * const handler = new GetAllTemplatesQueryHandler(templateRegistry);
    * const result = await handler.handle({});
    * console.log('Templates:', result.templates);
    * ```
    */
   async handle(_query: GetAllTemplatesQuery = {}): Promise<GetAllTemplatesQueryResult> {
-    const templates = this.xiuyuanService.getAllTemplates();
+    const templates = Array.from(this.templateRegistry.values());
     
     return { templates };
   }

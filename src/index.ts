@@ -74,8 +74,10 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   public get incrementalQueue() { return this.context.getIncrementalQueue(); }
   /** @deprecated 使用 context.getSubsetQueue() 代替 */
   public get subsetQueue() { return this.context.getSubsetQueue(); }
-  /** @deprecated 使用 context.getXiuyuanService() 代替 */
-  public get xiuyuanService() { return this.context.getXiuyuanService(); }
+  /** @deprecated XiuyuanService 已移除，请使用 context.getXiuyuanApplicationService() 代替 */
+  public get xiuyuanService() { 
+    throw new Error('XiuyuanService has been removed. Use context.getXiuyuanApplicationService() instead.');
+  }
   /** @deprecated 使用 context.getXiuyuanStorage() 代替 */
   public get xiuyuanStorage() { return this.context.getXiuyuanStorage(); }
   /** @deprecated 使用 context.getUnifiedDataSourceManager() 代替 */

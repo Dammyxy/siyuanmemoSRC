@@ -14,7 +14,6 @@ import type { CardAttributeRow } from '@/core/queue/types';
 import { QueueType } from '@/types/unified-data-source';
 
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
-import type { XiuyuanService } from '@/core/xiuyuan';
 import type { ApplicationContext } from '@/application/ApplicationContext';
 import type { DialogManager } from '@/application/managers/DialogManager';
 import type { StorageManager } from '@/core/storage';
@@ -24,7 +23,6 @@ export interface BlockMenuHandlerDeps {
   app: App;
   i18n: Record<string, string>;
   dialogManager: DialogManager;
-  xiuyuanService: XiuyuanService;
   openCreateTemplateCardDialog: (blockIds: string[]) => Promise<void>;
   openNeuralReviewDialog: (options?: { seedBlockId?: string; includeSeedAsFirst?: boolean; resetHistory?: boolean }) => Promise<void>;
   applicationContext: ApplicationContext;  // ✅ 必需：用于访问所有 DDD 架构服务

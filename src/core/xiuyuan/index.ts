@@ -12,39 +12,42 @@
  * 
  * **核心类**：
  * - `XiuyuanStorage`: 存储管理器，负责 CRUD 操作
- * - `XiuyuanService`: 服务层，负责业务逻辑
+ * - `XiuyuanApplicationService`: 应用服务层，负责业务逻辑（推荐使用）
  * 
  * **使用示例**：
  * ```typescript
- * import { XiuyuanStorage, XiuyuanService, BUILTIN_TEMPLATES } from '@/core/xiuyuan';
+ * import { XiuyuanStorage, BUILTIN_TEMPLATES } from '@/core/xiuyuan';
+ * import { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
  * 
- * // 初始化
+ * // 初始化存储
  * const storage = new XiuyuanStorage(plugin);
- * const service = new XiuyuanService(storage, storageManager);
- * await service.init();
+ * await storage.load();
  * 
  * // 加载内置模板
  * BUILTIN_TEMPLATES.forEach(template => {
- *   service.createTemplate(template);
+ *   storage.createTemplate(template);
  * });
  * 
+ * // 使用应用服务（推荐）
+ * const xiuyuanAppService = context.getXiuyuanApplicationService();
+ * 
  * // 创建卡片
- * const result = await service.createFromBlocks(
- *   ['block-1', 'block-2'],
- *   'basic',
- *   { question: 'block-1', answer: 'block-2' }
- * );
+ * const result = await xiuyuanAppService.createFromBlocks({
+ *   blockIds: ['block-1', 'block-2'],
+ *   templateId: 'basic',
+ *   fieldMapping: { question: 'block-1', answer: 'block-2' },
+ *   deckId: 'default-deck'
+ * });
  * 
  * // 查询
- * const xiuyuan = service.getXiuyuan(result.xiuyuan.id);
- * const mapping = service.getMappingByCardID('block-1');
+ * const xiuyuan = await xiuyuanAppService.getXiuyuan({ xiuyuanId: result.value.xiuyuan.id });
  * 
  * // 删除
- * await service.deleteXiuyuan(result.xiuyuan.id);
+ * await xiuyuanAppService.deleteXiuyuan(result.value.xiuyuan.id);
  * ```
  * 
  * @see {@link XiuyuanStorage} 存储管理器
- * @see {@link XiuyuanService} 服务层
+ * @see {@link XiuyuanApplicationService} 应用服务层（推荐）
  * @see {@link IXiuyuan} Xiuyuan 数据结构
  * @see {@link ICardMapping} 卡片映射数据结构
  * @see {@link ICardTemplate} 卡片模板数据结构
@@ -52,5 +55,8 @@
 
 export * from './types';
 export { XiuyuanStorage } from './storage';
-export { XiuyuanService } from './service';
 export { BUILTIN_TEMPLATES } from './templates/builtin';
+
+// ⚠️ XiuyuanService 已移除，请使用 XiuyuanApplicationService
+// export { XiuyuanService } from './service';  // ❌ 已废弃并移除
+

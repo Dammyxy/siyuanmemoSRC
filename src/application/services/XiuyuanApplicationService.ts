@@ -2,13 +2,13 @@
  * XiuyuanApplicationService - Xiuyuan 应用服务
  * 
  * @description
- * Xiuyuan 相关操作的主要入口点，提供统一的 API。
+ * Xiuyuan 相关操作的主要入口点,提供统一的 API。
  * 作为表现层和应用层之间的桥梁。
  * 
  * **设计原则**：
  * - 应用服务模式：协调用例执行
  * - 依赖注入：通过构造函数注入依赖
- * - 薄包装：不包含业务逻辑，仅委托给 UseCase
+ * - 薄包装：不包含业务逻辑,仅委托给 UseCase
  * - 统一接口：为表现层提供一致的 API
  * 
  * **职责**：
@@ -27,7 +27,8 @@ import { CreateXiuyuanFromBlocksCommand } from '../commands/xiuyuan/CreateXiuyua
 import { CreateListTemplateCardsCommand } from '../commands/xiuyuan/CreateListTemplateCardsCommand';
 import { GetXiuyuanQuery, GetXiuyuanQueryResult } from '../queries/xiuyuan/GetXiuyuanQuery';
 import { GetAllXiuyuansQuery, GetAllXiuyuansQueryResult } from '../queries/xiuyuan/GetAllXiuyuansQuery';
-import type { XiuyuanService } from '@/core/xiuyuan/service';
+import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
+import type { ICardTemplate } from '@/core/xiuyuan/types';
 import {
   CreateXiuyuanFromBlocksUseCase,
   DeleteXiuyuanUseCase,
@@ -58,27 +59,35 @@ export class XiuyuanApplicationService {
   /**
    * 构造函数
    * 
-   * @param xiuyuanService - Xiuyuan 领域服务
+   * @param xiuyuanRepository - Xiuyuan 仓储
+   * @param templateRegistry - 模板注册表
    */
   constructor(
-    private readonly xiuyuanService: XiuyuanService
+    xiuyuanRepository: IXiuyuanRepository,
+    templateRegistry: Map<string, ICardTemplate>
   ) {
     // 初始化 UseCase 实例
-    this.createXiuyuanFromBlocksUseCase = new CreateXiuyuanFromBlocksUseCase(xiuyuanService);
-    this.deleteXiuyuanUseCase = new DeleteXiuyuanUseCase(xiuyuanService);
-    this.getXiuyuanQueryHandler = new GetXiuyuanQueryHandler(xiuyuanService);
-    this.getAllXiuyuansQueryHandler = new GetAllXiuyuansQueryHandler(xiuyuanService);
-    this.createListTemplateCardsUseCase = new CreateListTemplateCardsUseCase(xiuyuanService);
-    this.createTemplateUseCase = new CreateTemplateUseCase(xiuyuanService);
-    this.getTemplateQueryHandler = new GetTemplateQueryHandler(xiuyuanService);
-    this.getAllTemplatesQueryHandler = new GetAllTemplatesQueryHandler(xiuyuanService);
+    this.createXiuyuanFromBlocksUseCase = new CreateXiuyuanFromBlocksUseCase(
+      xiuyuanRepository,
+      templateRegistry
+    );
+    this.deleteXiuyuanUseCase = new DeleteXiuyuanUseCase(xiuyuanRepository);
+    this.getXiuyuanQueryHandler = new GetXiuyuanQueryHandler(xiuyuanRepository);
+    this.getAllXiuyuansQueryHandler = new GetAllXiuyuansQueryHandler(xiuyuanRepository);
+    this.createListTemplateCardsUseCase = new CreateListTemplateCardsUseCase(
+      xiuyuanRepository,
+      templateRegistry
+    );
+    this.createTemplateUseCase = new CreateTemplateUseCase(templateRegistry);
+    this.getTemplateQueryHandler = new GetTemplateQueryHandler(templateRegistry);
+    this.getAllTemplatesQueryHandler = new GetAllTemplatesQueryHandler(templateRegistry);
   }
 
   /**
    * 从块创建 Xiuyuan
    * 
    * @param command - 创建命令
-   * @returns Result<any> - 成功返回创建的 Xiuyuan 和卡片，失败返回错误
+   * @returns Result<any> - 成功返回创建的 Xiuyuan 和卡片,失败返回错误
    * 
    * @example
    * ```typescript
@@ -122,7 +131,7 @@ export class XiuyuanApplicationService {
   /**
    * 获取所有 Xiuyuan
    * 
-   * @param _query - 查询对象（可选，当前未使用）
+   * @param _query - 查询对象（可选,当前未使用）
    * @returns GetAllXiuyuansQueryResult - 查询结果
    * 
    * @example
@@ -140,7 +149,7 @@ export class XiuyuanApplicationService {
    * 删除 Xiuyuan
    * 
    * @param xiuyuanId - Xiuyuan ID
-   * @returns Result<boolean> - 成功返回 true，失败返回错误
+   * @returns Result<boolean> - 成功返回 true,失败返回错误
    * 
    * @example
    * ```typescript
@@ -170,7 +179,7 @@ export class XiuyuanApplicationService {
    * console.log('Template:', template.name);
    * ```
    */
-  async getTemplate(templateId: string): Promise<any> {
+  async getTemplate(templateId: string): Promise<ICardTemplate> {
     const result = await this.getTemplateQueryHandler.handle({ templateId });
     return result.template;
   }
@@ -186,7 +195,7 @@ export class XiuyuanApplicationService {
    * templates.forEach(t => console.log(t.id, t.name));
    * ```
    */
-  async getAllTemplates(): Promise<any[]> {
+  async getAllTemplates(): Promise<ICardTemplate[]> {
     const result = await this.getAllTemplatesQueryHandler.handle({});
     return result.templates;
   }
@@ -195,13 +204,14 @@ export class XiuyuanApplicationService {
    * 创建模板
    * 
    * @param template - 模板定义
+   * @returns Result<void> - 成功返回 ok,失败返回错误
    * 
    * @description
    * 动态创建并注册一个新的卡片模板。
    * 
    * @example
    * ```typescript
-   * await xiuyuanService.createTemplate({
+   * const result = await xiuyuanService.createTemplate({
    *   id: 'my-template',
    *   name: '我的模板',
    *   fields: [
@@ -218,7 +228,7 @@ export class XiuyuanApplicationService {
    * });
    * ```
    */
-  async createTemplate(template: any): Promise<void> {
+  async createTemplate(template: ICardTemplate): Promise<Result<void>> {
     return this.createTemplateUseCase.execute(template);
   }
 
@@ -226,12 +236,12 @@ export class XiuyuanApplicationService {
    * 创建列表模板卡片
    * 
    * @param command - 创建命令
-   * @returns Result<any> - 成功返回创建的 Xiuyuan 和卡片，失败返回错误
+   * @returns Result<any> - 成功返回创建的 Xiuyuan 和卡片,失败返回错误
    * 
    * @description
    * 列表模板的特点：
    * - 1 个 Xiuyuan → N 张 FSRSCard（N = 子列表项数量）
-   * - 每张卡片的问题相同（父列表项），答案不同（各个子列表项）
+   * - 每张卡片的问题相同（父列表项）,答案不同（各个子列表项）
    * - 支持提示功能：使用 `→` 分隔提示和答案
    * - 渐进式显示：复习时显示已学过的答案 + 当前提示
    * 

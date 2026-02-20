@@ -24,8 +24,9 @@
  * 5. 返回删除结果
  */
 
-import { Result } from '@/types/result';
-import type { XiuyuanService } from '@/core/xiuyuan/service';
+import { Result, ok, err } from '@/types/result';
+import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
+import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
 
 /**
  * 删除 Xiuyuan 用例
@@ -36,32 +37,66 @@ export class DeleteXiuyuanUseCase {
   /**
    * 构造函数
    * 
-   * @param xiuyuanService - Xiuyuan 领域服务（临时依赖）
+   * @param xiuyuanRepository - Xiuyuan 仓储
    */
   constructor(
-    private readonly xiuyuanService: XiuyuanService
+    private readonly xiuyuanRepository: IXiuyuanRepository
   ) {}
 
   /**
    * 执行用例
    * 
    * @param xiuyuanId - Xiuyuan ID
-   * @returns Result<boolean> - 成功返回 true，失败返回错误
+   * @returns Result<boolean> - 成功返回 true（删除成功）或 false（不存在），失败返回错误
    * 
    * @example
    * ```typescript
-   * const useCase = new DeleteXiuyuanUseCase(xiuyuanService);
+   * const useCase = new DeleteXiuyuanUseCase(xiuyuanRepository);
    * const result = await useCase.execute('xiuyuan-123');
    * 
    * if (result.ok) {
-   *   console.log('Deleted successfully');
+   *   if (result.value) {
+   *     console.log('Deleted successfully');
+   *   } else {
+   *     console.log('Xiuyuan not found');
+   *   }
    * } else {
    *   console.error('Failed:', result.error);
    * }
    * ```
    */
   async execute(xiuyuanId: string): Promise<Result<boolean>> {
-    // 委托给 XiuyuanService
-    return this.xiuyuanService.deleteXiuyuan(xiuyuanId);
+    try {
+      // 1. 创建 XiuyuanId 值对象
+      const idResult = XiuyuanId.create(xiuyuanId);
+      if (!idResult.ok) {
+        return idResult as Result<boolean>;
+      }
+
+      // 2. 查找 Xiuyuan
+      const findResult = await this.xiuyuanRepository.findById(idResult.value);
+      if (!findResult.ok) {
+        return err(findResult.error);
+      }
+
+      if (!findResult.value) {
+        // Xiuyuan 不存在
+        return ok(false);
+      }
+
+      const xiuyuan = findResult.value;
+
+      // 3. 通过 Repository 删除（会级联删除卡片、清理块属性）
+      const deleteResult = await this.xiuyuanRepository.delete(xiuyuan);
+      if (!deleteResult.ok) {
+        return err(deleteResult.error);
+      }
+
+      // 4. 返回成功
+      return ok(true);
+    } catch (error) {
+      console.error('[DeleteXiuyuanUseCase] Failed:', error);
+      return err(error as Error);
+    }
   }
 }

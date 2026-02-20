@@ -21,7 +21,8 @@
  * 4. 返回结果
  */
 
-import type { XiuyuanService } from '@/core/xiuyuan/service';
+import { Result, ok, err } from '@/types/result';
+import type { ICardTemplate } from '@/core/xiuyuan/types';
 
 /**
  * 创建模板用例
@@ -32,24 +33,25 @@ export class CreateTemplateUseCase {
   /**
    * 构造函数
    * 
-   * @param xiuyuanService - Xiuyuan 领域服务（临时依赖）
+   * @param templateRegistry - 模板注册表
    */
   constructor(
-    private readonly xiuyuanService: XiuyuanService
+    private readonly templateRegistry: Map<string, ICardTemplate>
   ) {}
 
   /**
    * 执行用例
    * 
    * @param template - 模板定义
+   * @returns Result<void> - 成功返回 ok，失败返回错误
    * 
    * @description
    * 动态创建并注册一个新的卡片模板。
    * 
    * @example
    * ```typescript
-   * const useCase = new CreateTemplateUseCase(xiuyuanService);
-   * await useCase.execute({
+   * const useCase = new CreateTemplateUseCase(templateRegistry);
+   * const result = await useCase.execute({
    *   id: 'my-template',
    *   name: '我的模板',
    *   fields: [
@@ -64,10 +66,41 @@ export class CreateTemplateUseCase {
    *     }
    *   ]
    * });
+   * 
+   * if (result.ok) {
+   *   console.log('Template created successfully');
+   * } else {
+   *   console.error('Failed:', result.error);
+   * }
    * ```
    */
-  async execute(template: any): Promise<void> {
-    // 委托给 XiuyuanService
-    this.xiuyuanService.createTemplate(template);
+  async execute(template: ICardTemplate): Promise<Result<void>> {
+    try {
+      // 1. 验证模板定义
+      if (!template.id || !template.name) {
+        return err(new Error('Template must have id and name'));
+      }
+
+      if (!template.fields || template.fields.length === 0) {
+        return err(new Error('Template must have at least one field'));
+      }
+
+      if (!template.cardRules || template.cardRules.length === 0) {
+        return err(new Error('Template must have at least one card rule'));
+      }
+
+      // 2. 检查模板 ID 是否已存在
+      if (this.templateRegistry.has(template.id)) {
+        return err(new Error(`Template already exists: ${template.id}`));
+      }
+
+      // 3. 注册模板
+      this.templateRegistry.set(template.id, template);
+
+      return ok(undefined);
+    } catch (error) {
+      console.error('[CreateTemplateUseCase] Failed:', error);
+      return err(error as Error);
+    }
   }
 }

@@ -939,7 +939,9 @@ export class DialogManager implements IDialogManager {
         height: '650px',
         events: {
           confirm: async (templateId: string) => {
-            const template = xiuyuanService.getTemplate(templateId);
+            // 使用 XiuyuanApplicationService 获取模板
+            const xiuyuanAppService = this.context.getXiuyuanApplicationService();
+            const template = await xiuyuanAppService.getTemplate(templateId);
             if (!template) return;
 
             // 自动字段映射：按顺序映射块到字段
@@ -950,19 +952,14 @@ export class DialogManager implements IDialogManager {
               }
             });
 
-            // 创建 Xiuyuan 和卡片
-            // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
-            // 当前使用 XiuyuanService.createFromBlocks，因为：
-            // 1. 模板卡片创建涉及复杂的字段映射和多卡片生成
-            // 2. CardApplicationService 还不支持模板功能
-            // 3. 需要先扩展 CreateCardCommand 和 CreateCardUseCase 以支持模板
+            // 创建 Xiuyuan 和卡片（使用 XiuyuanApplicationService）
             try {
-              const result = await xiuyuanService.createFromBlocks(
+              const result = await xiuyuanAppService.createFromBlocks({
                 blockIds,
                 templateId,
                 fieldMapping,
-                riff.BUILTIN_DECK_ID
-              );
+                deckId: riff.BUILTIN_DECK_ID
+              });
 
               if (!result.ok) {
                 console.error('[DialogManager] Failed to create template card:', result.error);
