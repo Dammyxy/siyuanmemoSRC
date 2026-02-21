@@ -53,6 +53,7 @@ import { QueuePersistenceService } from '@/infrastructure/services/QueuePersiste
 import { SettingsService } from '@/application/services/SettingsService';
 import { ReviewLogService } from '@/application/services/ReviewLogService';
 import { RiffBlacklistService } from '@/application/services/RiffBlacklistService';
+import { CardContentQueryService } from '@/application/queries/CardContentQueryService';
 
 /**
  * 应用配置接口
@@ -248,7 +249,10 @@ export class ApplicationContext {
     
     this.registerServiceFactory('queuePersistenceService', (context) => {
       const fileService = context.getFileService();
-      return new QueuePersistenceService(fileService);
+      const service = new QueuePersistenceService(fileService);
+      // 🔧 修复：延迟初始化（在首次使用前）
+      // 注意：init() 会在 ApplicationContext.init() 中调用
+      return service;
     });
     
     // 应用层服务
@@ -265,6 +269,11 @@ export class ApplicationContext {
     this.registerServiceFactory('riffBlacklistService', (context) => {
       const fileService = context.getFileService();
       return new RiffBlacklistService(fileService);
+    });
+    
+    // ✅ 卡片内容查询服务
+    this.registerServiceFactory('cardContentQueryService', (context) => {
+      return new CardContentQueryService();
     });
     
     // TODO: Phase 1 Task 2 - 注册 UI 管理器工厂
@@ -321,7 +330,7 @@ export class ApplicationContext {
       const cardDeletionService = new CardDeletionService();
 
       // 创建用例
-      const createCardUseCase = new CreateCardUseCase(xiuyuanRepo, cardCreationService);
+      const createCardUseCase = new CreateCardUseCase(xiuyuanRepo, cardCreationService, context.getEventBus());
       const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepo, cardDeletionService, context.getEventBus());
       const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepo);
 
@@ -698,7 +707,7 @@ export class ApplicationContext {
     const sharedEventBus = new EventBus(false);
     
     // 创建用例
-    const createCardUseCase = new CreateCardUseCase(xiuyuanRepoTemp, cardCreationService);
+    const createCardUseCase = new CreateCardUseCase(xiuyuanRepoTemp, cardCreationService, sharedEventBus);
     const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepoTemp, cardDeletionService, sharedEventBus);
     const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepoTemp);
     
@@ -835,9 +844,15 @@ export class ApplicationContext {
       config.plugin as any, 
       settingsService
     );
+    // ✅ 设置 ApplicationContext 引用，使 advancedRouter 可以访问 CardContentQueryService
+    advancedRouter.setApplicationContext(context);
     unifiedDataSourceManager.setAdvancedRouter(advancedRouter);
     
     const queuePersistenceService = context.getQueuePersistenceService();
+    // 🔧 修复：初始化 QueuePersistenceService
+    await queuePersistenceService.init();
+    console.log('[ApplicationContext] ✅ QueuePersistenceService initialized');
+    
     unifiedDataSourceManager.setQueuePersistence(queuePersistenceService);
     console.log('[ApplicationContext] ✅ UnifiedDataSourceManager initialized with Advanced mode and QueuePersistence');
     
@@ -1297,6 +1312,15 @@ export class ApplicationContext {
    */
   getRiffBlacklistService(): RiffBlacklistService {
     return this.getService<RiffBlacklistService>('riffBlacklistService');
+  }
+  
+  /**
+   * 获取卡片内容查询服务
+   * 
+   * @returns CardContentQueryService - 卡片内容查询服务实例
+   */
+  getCardContentQueryService(): any {
+    return this.getService<any>('cardContentQueryService');
   }
 
   /**

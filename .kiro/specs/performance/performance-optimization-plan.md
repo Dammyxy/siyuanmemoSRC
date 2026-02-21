@@ -82,44 +82,111 @@ function getOrCreateProtyle(blockId: string): Protyle {
 }
 ```
 
-#### 1.4 队列统计优化
+#### 1.4 队列统计优化（保持实时性）
 ```typescript
-// 目标：减少队列统计刷新频率
+// 目标：减少不必要的刷新，但保持关键操作的实时反馈
 // 文件：src/ui/browser/SRSBrowser.vue
 
-// 🆕 使用节流，避免频繁刷新
+// ✅ 区分关键操作和非关键操作
+const CRITICAL_ACTIONS = [
+  'delete-card',
+  'remove-from-queue',
+  'remove-from-current-queue',
+  'dismiss',
+  'reset',
+];
+
+async function handleAction(actionId: string, cards: BrowserCard[]) {
+  await performAction(actionId, cards);
+  
+  // ✅ 关键操作：立即刷新队列统计
+  if (CRITICAL_ACTIONS.includes(actionId)) {
+    await refreshQueueCounts();
+    return;
+  }
+  
+  // ✅ 非关键操作：延迟刷新（使用节流）
+  await refreshQueueCountsThrottled();
+}
+
+// 🆕 节流版本（仅用于非关键操作）
 const refreshQueueCountsThrottled = throttle(refreshQueueCounts, 2000);
 
-// 🆕 批量操作后只刷新一次
+// 🆕 批量操作：根据操作类型决定刷新策略
 async function handleBatchAction(actionId: string, cards: BrowserCard[]) {
   await performAction(actionId, cards);
-  // 延迟刷新，等待所有操作完成
+  
+  // 批量操作通常是关键操作，立即刷新
   await nextTick();
-  await refreshQueueCountsThrottled();
+  await refreshQueueCounts();
 }
 ```
 
-#### 1.5 缓存策略优化
+#### 1.5 缓存策略优化（精细化失效）
 ```typescript
-// 目标：精细化缓存失效策略
+// 目标：精细化缓存失效策略，避免过度失效
 // 文件：src/ui/browser/browserService.ts
 
-// 🆕 按操作类型决定是否清除缓存
-function shouldInvalidateCache(actionId: string): boolean {
-  const invalidatingActions = [
-    'delete-card',
-    'reset',
-    'suspend',
+// ✅ 按操作类型决定缓存失效范围
+function getCacheInvalidationScope(actionId: string): 'none' | 'partial' | 'full' {
+  // 不影响缓存的操作
+  const nonInvalidatingActions = [
+    'open',
+    'review-subset',
+  ];
+  
+  // 只影响特定卡片的操作
+  const partialInvalidatingActions = [
     'postpone',
     'advance',
+    'set-priority',
+    'suspend',
   ];
-  return invalidatingActions.includes(actionId);
+  
+  // 影响全局的操作
+  const fullInvalidatingActions = [
+    'delete-card',
+    'reset',
+    'spread',
+    'auto-sort',
+  ];
+  
+  if (nonInvalidatingActions.includes(actionId)) return 'none';
+  if (partialInvalidatingActions.includes(actionId)) return 'partial';
+  if (fullInvalidatingActions.includes(actionId)) return 'full';
+  
+  // 默认：部分失效（保守策略）
+  return 'partial';
 }
 
-// 🆕 部分缓存失效（只清除受影响的卡片）
+// ✅ 部分缓存失效（只清除受影响的卡片）
 function invalidateCardCachePartial(cardIds: string[]): void {
   for (const cardId of cardIds) {
     cardCache.delete(cardId);
+    // 同时清除相关的计算缓存
+    nextDuesCache.delete(cardId);
+  }
+}
+
+// ✅ 在操作后根据范围失效缓存
+async function handleActionWithCache(
+  actionId: string,
+  cards: BrowserCard[]
+): Promise<void> {
+  await performAction(actionId, cards);
+  
+  const scope = getCacheInvalidationScope(actionId);
+  
+  if (scope === 'none') {
+    // 不失效缓存
+    return;
+  } else if (scope === 'partial') {
+    // 只失效受影响的卡片
+    const cardIds = cards.map(c => c.id);
+    invalidateCardCachePartial(cardIds);
+  } else {
+    // 全量失效
+    invalidateCardCache();
   }
 }
 ```
@@ -160,50 +227,101 @@ private async addNextDues(card: FSRSCard): Promise<any> {
 }
 ```
 
-#### 2.2 队列变更监听优化
+#### 2.2 队列变更监听优化（保持动态性）
 ```typescript
-// 目标：减少不必要的重新加载
+// 目标：优化监听器，但保持队列的实时响应
 // 文件：src/application/adapters/UnifiedQueueStrategy.ts
 
 private subscribeToQueueChanges(): void {
-  // 🆕 使用防抖，避免频繁触发
-  const debouncedReload = debounce(() => {
-    this.invalidateCache();
-    void this.reloadCards();
-  }, 500);
-  
   this.unsubscribe = this.queue.subscribe((event) => {
-    // 🆕 只在必要时重新加载
-    if (event.type === 'card-updated' || event.type === 'card-removed') {
-      debouncedReload();
+    // ✅ 关键事件立即响应，不使用防抖
+    if (event.type === 'card-removed' || event.type === 'queue-cleared') {
+      // 立即失效缓存并重新加载
+      this.invalidateCache();
+      void this.reloadCards();
+      return;
+    }
+    
+    // ✅ 卡片更新事件：只失效缓存，不立即重新加载
+    // 下次 next() 调用时会自动重新加载
+    if (event.type === 'card-updated') {
+      this.invalidateCache();
+      // 不调用 reloadCards()，保持队列连续性
+      return;
+    }
+    
+    // 其他事件：根据需要处理
+    if (event.type === 'card-added') {
+      this.invalidateCache();
+      // 可选：立即重新加载以显示新卡片
+      // void this.reloadCards();
     }
   });
 }
 ```
 
-#### 2.3 队列项缓存
+#### 2.3 智能缓存策略（不影响动态性）
 ```typescript
-// 目标：缓存队列项，减少存储层读取
+// 目标：缓存计算结果，但不缓存队列数据本身
 // 文件：src/application/adapters/UnifiedQueueStrategy.ts
 
-private queueItemsCache: FSRSCard[] | null = null;
-private cacheTimestamp: number = 0;
-private readonly CACHE_TTL = 5000; // 5秒
+// ❌ 不缓存队列项本身（保持动态性）
+// private queueItemsCache: FSRSCard[] | null = null;
+
+// ✅ 只缓存计算密集型的结果（如 nextDues）
+private nextDuesCache = new Map<string, {
+  result: Record<number, string>;
+  cardState: string;  // 用于验证缓存是否有效
+}>();
 
 private async getQueueItems(): Promise<FSRSCard[]> {
-  const now = Date.now();
+  // ✅ 直接从队列获取，不使用缓存
+  // 这样可以保证队列的动态性
+  return await this.queue.getAllItems();
+}
+
+private getCacheKey(card: FSRSCard): string {
+  // 使用卡片的关键状态生成缓存键
+  return `${card.id}-${card.state}-${card.due}-${card.reps}`;
+}
+
+private async addNextDues(card: FSRSCard): Promise<any> {
+  const cacheKey = this.getCacheKey(card);
   
-  // 🆕 检查缓存是否有效
-  if (this.queueItemsCache && (now - this.cacheTimestamp) < this.CACHE_TTL) {
-    return this.queueItemsCache;
+  // 检查缓存
+  const cached = this.nextDuesCache.get(cacheKey);
+  if (cached) {
+    return {
+      ...card,
+      nextDues: cached.result,
+    };
   }
   
-  // 重新加载
-  const items = await this.queue.getAllItems();
-  this.queueItemsCache = items;
-  this.cacheTimestamp = now;
+  // 计算 nextDues
+  const nextDues = await this.calculateNextDues(card);
   
-  return items;
+  // 缓存结果
+  this.nextDuesCache.set(cacheKey, {
+    result: nextDues,
+    cardState: cacheKey,
+  });
+  
+  // 限制缓存大小
+  if (this.nextDuesCache.size > 100) {
+    const firstKey = this.nextDuesCache.keys().next().value;
+    this.nextDuesCache.delete(firstKey);
+  }
+  
+  return { ...card, nextDues };
+}
+
+// ✅ 当卡片更新时，清除该卡片的缓存
+private invalidateCardCache(cardId: string): void {
+  for (const [key, value] of this.nextDuesCache.entries()) {
+    if (key.startsWith(cardId)) {
+      this.nextDuesCache.delete(key);
+    }
+  }
 }
 ```
 
@@ -459,11 +577,105 @@ class LRUCache<K, V> {
 
 ## 注意事项
 
-1. **缓存失效策略**：确保缓存在数据更新后正确失效
-2. **内存管理**：限制缓存大小，避免内存泄漏
-3. **用户体验**：优化不应影响功能正确性
-4. **向后兼容**：保持 API 兼容性
-5. **测试覆盖**：添加性能测试用例
+### 1. 动态队列保护（最重要）
+
+**核心原则：永远不缓存队列数据本身，只缓存计算结果**
+
+#### 1.1 什么可以缓存
+- ✅ nextDues 计算结果（基于卡片状态）
+- ✅ 卡片类型检测结果（快速卡片/描述符卡）
+- ✅ Protyle 实例（UI 层）
+- ✅ 格式化后的显示数据
+
+#### 1.2 什么不能缓存
+- ❌ 队列项列表（`queue.getAllItems()`）
+- ❌ 队列大小（`queue.size()`）
+- ❌ 队列统计（`queue.getStats()`）
+- ❌ 当前卡片（`queue.next()`）
+
+#### 1.3 缓存失效策略
+```typescript
+// ✅ 正确：根据操作类型精细化失效
+if (actionId === 'delete-card') {
+  // 删除卡片：全量失效
+  invalidateAllCache();
+} else if (actionId === 'postpone') {
+  // 推迟卡片：只失效该卡片的缓存
+  invalidateCardCache(cardId);
+}
+
+// ❌ 错误：所有操作都全量失效
+invalidateAllCache();  // 太激进
+
+// ❌ 错误：所有操作都不失效
+// 不调用任何失效方法  // 太保守
+```
+
+#### 1.4 队列监听器
+```typescript
+// ✅ 正确：关键事件立即响应
+queue.subscribe((event) => {
+  if (event.type === 'card-removed') {
+    // 立即失效缓存
+    invalidateCache();
+    // 立即重新加载
+    void reloadCards();
+  } else if (event.type === 'card-updated') {
+    // 只失效缓存，不重新加载
+    // 下次 next() 会自动获取最新数据
+    invalidateCache();
+  }
+});
+
+// ❌ 错误：使用防抖延迟响应
+const debouncedReload = debounce(reloadCards, 500);
+queue.subscribe(() => debouncedReload());  // 会导致队列不同步
+```
+
+#### 1.5 测试动态性
+```typescript
+// 测试用例：验证队列的动态性
+describe('Queue Dynamic Behavior', () => {
+  it('should reflect card removal immediately', async () => {
+    const queue = createQueue();
+    const initialSize = await queue.size();
+    
+    // 删除一张卡片
+    await queue.remove(cardId);
+    
+    // 立即检查大小（不应该使用缓存）
+    const newSize = await queue.size();
+    expect(newSize).toBe(initialSize - 1);
+  });
+  
+  it('should reflect card update immediately', async () => {
+    const queue = createQueue();
+    const card = await queue.next();
+    
+    // 更新卡片
+    await updateCard(card.id, { priority: 100 });
+    
+    // 下次获取应该是更新后的数据
+    const updatedCard = await queue.getById(card.id);
+    expect(updatedCard.priority).toBe(100);
+  });
+});
+```
+
+### 2. 缓存失效策略
+确保缓存在数据更新后正确失效
+
+### 3. 内存管理
+限制缓存大小，避免内存泄漏
+
+### 4. 用户体验
+优化不应影响功能正确性
+
+### 5. 向后兼容
+保持 API 兼容性
+
+### 6. 测试覆盖
+添加性能测试用例
 
 ## 参考资料
 

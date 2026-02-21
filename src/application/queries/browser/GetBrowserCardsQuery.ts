@@ -98,6 +98,9 @@ export interface GetBrowserCardsQuery {
   /** 标签过滤 */
   tags?: string[];
   
+  /** 🆕 文档 ID 过滤（根文档 ID） */
+  docId?: string;
+  
   /** 排序字段 */
   sortBy?: SortField;
   

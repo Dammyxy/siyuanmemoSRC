@@ -410,6 +410,7 @@ export class UnifiedDataSourceManager {
      * - 应用层服务负责队列访问和生命周期管理
      * - 队列实例会被缓存，避免重复创建
      * - 队列构造函数接收 manager（this）作为第一个参数
+     * - 🆕 创建后自动调用 load() 加载持久化数据（同步等待）
      * 
      * @param type 队列类型
      * @returns 队列实例
@@ -425,6 +426,20 @@ export class UnifiedDataSourceManager {
         
         // 创建新队列实例
         const queue = this.createQueue(type);
+        
+        // 🆕 标记队列需要加载（延迟加载）
+        // 使用 Promise 异步加载，但不阻塞返回
+        // 队列的 getCards() 方法会在首次调用时等待加载完成
+        if (typeof (queue as any).load === 'function') {
+            // 创建一个加载 Promise 并存储
+            const loadPromise = (queue as any).load().catch((error: Error) => {
+                console.error(`[UnifiedDataSourceManager] Failed to load queue ${type}:`, error);
+            });
+            
+            // 将加载 Promise 附加到队列对象上，供 getCards() 使用
+            (queue as any)._loadPromise = loadPromise;
+        }
+        
         this.queueInstances.set(type, queue);
         
         console.log(`[UnifiedDataSourceManager] ✅ Queue created: ${type}`);
@@ -449,7 +464,10 @@ export class UnifiedDataSourceManager {
                 return new RetrievalPracticeQueue(this);
             
             case QueueType.IncrementalLearning:
-                return new IncrementalLearningQueue(this);
+                if (!this.queuePersistence) {
+                    throw new QueueError('QueuePersistence not initialized. Call setQueuePersistence() first.');
+                }
+                return new IncrementalLearningQueue(this, this.queuePersistence);
             
             case QueueType.FilterGroup:
                 if (!this.queuePersistence) {

@@ -23,6 +23,7 @@ import { QueueType } from '@/types/unified-data-source';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
+import { CacheManagerObserver } from '../observers/CacheManagerObserver';
 
 /**
  * 统一队列策略
@@ -87,6 +88,11 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
     private cacheValid: boolean = false;
     
     /**
+     * 缓存管理观察者（性能优化）
+     */
+    private cacheManager: CacheManagerObserver;
+    
+    /**
      * 构造函数
      * 
      * @param queueType 队列类型
@@ -106,7 +112,18 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
         this.schedulerRouter = schedulerRouter;
         this.queue = this.manager.getQueue(queueType);
         
-        // 订阅队列变更事件
+        // 🆕 创建缓存管理观察者
+        this.cacheManager = new CacheManagerObserver({
+            nextDuesCacheSize: 100,
+            cardTypeCacheSize: 50,
+            formattedDataCacheSize: 50,
+            debugMode: false,  // 生产环境关闭调试
+        });
+        
+        // 🆕 订阅队列变更（使用观察者模式）
+        this.queue.subscribe(this.cacheManager);
+        
+        // 订阅队列变更事件（使用事件总线）
         this.subscribeToQueueChanges();
         
         console.log(`[SiYuanMemo][UnifiedQueueStrategy] Created for queue: ${queueType}`);
@@ -486,11 +503,27 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
      * 
      * 使用调度器的 preview() 方法计算每个评分的下次复习时间。
      * 
+     * 🆕 性能优化：使用缓存管理观察者缓存计算结果
+     * 
      * @param card 原始卡片
      * @returns 添加了 nextDues 字段的卡片
      */
     private async addNextDues(card: FSRSCard): Promise<any> {
         try {
+            // 🆕 生成缓存键（基于卡片状态）
+            const cacheKey = `${card.id}-${card.state}-${card.due}-${card.reps}`;
+            const cache = this.cacheManager.getNextDuesCache();
+            
+            // 🆕 检查缓存
+            const cached = cache.get(cacheKey);
+            if (cached) {
+                console.log('[SiYuanMemo][UnifiedQueueStrategy] ✅ nextDues from cache:', card.id);
+                return {
+                    ...card,
+                    nextDues: cached,
+                };
+            }
+            
             console.log('[SiYuanMemo][UnifiedQueueStrategy] 🔍 Calculating nextDues for card:', card.id);
             
             // 通过依赖注入获取 schedulerRouter
@@ -499,12 +532,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                 return card;
             }
             
-            console.log('[SiYuanMemo][UnifiedQueueStrategy] 📊 SchedulerRouter obtained:', !!this.schedulerRouter);
-            
             // 使用 preview() 方法计算所有评分的结果
             const previews = this.schedulerRouter.preview(card);
-            
-            console.log('[SiYuanMemo][UnifiedQueueStrategy] 📊 Preview results:', previews.size);
             
             // 格式化 nextDues
             const nextDues: Record<number, string> = {};
@@ -535,10 +564,12 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                 }
                 
                 nextDues[rating] = formatted;
-                console.log(`[SiYuanMemo][UnifiedQueueStrategy]   Rating ${rating}: ${formatted} (due: ${nextDue.toISOString()})`);
             }
             
-            console.log('[SiYuanMemo][UnifiedQueueStrategy] ✅ nextDues calculated:', nextDues);
+            // 🆕 缓存结果
+            cache.set(cacheKey, nextDues);
+            
+            console.log('[SiYuanMemo][UnifiedQueueStrategy] ✅ nextDues calculated and cached:', nextDues);
             
             // 返回添加了 nextDues 的卡片
             return {
@@ -619,5 +650,31 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
      */
     getUnderlyingQueue(): IReviewQueue {
         return this.queue;
+    }
+    
+    /**
+     * 获取缓存统计信息
+     * 
+     * 🆕 性能优化：提供缓存统计信息
+     * 
+     * @returns 缓存统计
+     */
+    getCacheStats() {
+        return this.cacheManager.getStats();
+    }
+    
+    /**
+     * 清理资源
+     * 
+     * 🆕 性能优化：取消订阅观察者，清理缓存
+     */
+    cleanup(): void {
+        // 取消订阅队列观察者
+        this.queue.unsubscribe(this.cacheManager);
+        
+        // 清空缓存
+        this.cacheManager.clear();
+        
+        console.log(`[SiYuanMemo][UnifiedQueueStrategy] Cleaned up: ${this.queueType}`);
     }
 }

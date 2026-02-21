@@ -19,6 +19,7 @@ export interface ContextMenuOptions {
   i18n?: Record<string, string>;
   loadData: () => Promise<void>;
   refreshQueueCounts: () => Promise<void>;
+  storage?: any;  // ✅ 添加 StorageManager 依赖，用于同步卡片数据
 }
 
 export interface SortFieldConfig {
@@ -282,11 +283,27 @@ export function useContextMenu(options: ContextMenuOptions) {
     console.log(`[SiYuanMemo][CardBrowser] Marking ${blockIds.length} cards as Topic:`, blockIds);
 
     try {
-      // 批量设置卡片类型为 topic
+      // 1. 更新块属性
       for (const blockId of blockIds) {
         await setBlockAttrs(blockId, {
           [ATTR_CARD_TYPE]: 'topic',
         });
+      }
+
+      // 2. 更新 StorageManager 中的卡片类型
+      if (options.storage) {
+        for (const card of cards) {
+          const cardId = card.fsrsCardId || card.id;
+          if (cardId) {
+            const fsrsCard = options.storage.getCard(cardId);
+            if (fsrsCard) {
+              fsrsCard.type = 'topic' as any;
+              options.storage.setCard(fsrsCard);
+              console.log(`[SiYuanMemo][CardBrowser] Updated card type in storage: ${cardId} -> topic`);
+            }
+          }
+        }
+        await options.storage.saveCards();
       }
 
       await pushMsg(`✅ 已将 ${blockIds.length} 张卡片标记为 Topic`, 3000);
@@ -310,11 +327,27 @@ export function useContextMenu(options: ContextMenuOptions) {
     console.log(`[SiYuanMemo][CardBrowser] Marking ${blockIds.length} cards as Item:`, blockIds);
 
     try {
-      // 批量设置卡片类型为 item
+      // 1. 更新块属性
       for (const blockId of blockIds) {
         await setBlockAttrs(blockId, {
           [ATTR_CARD_TYPE]: 'item',
         });
+      }
+
+      // 2. 更新 StorageManager 中的卡片类型
+      if (options.storage) {
+        for (const card of cards) {
+          const cardId = card.fsrsCardId || card.id;
+          if (cardId) {
+            const fsrsCard = options.storage.getCard(cardId);
+            if (fsrsCard) {
+              fsrsCard.type = 'item' as any;
+              options.storage.setCard(fsrsCard);
+              console.log(`[SiYuanMemo][CardBrowser] Updated card type in storage: ${cardId} -> item`);
+            }
+          }
+        }
+        await options.storage.saveCards();
       }
 
       await pushMsg(`✅ 已将 ${blockIds.length} 张卡片标记为 Item`, 3000);

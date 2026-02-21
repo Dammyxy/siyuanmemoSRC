@@ -172,9 +172,10 @@ export class FinalDrillQueue extends BaseReviewQueue {
      * 获取队列中的所有卡片
      * 
      * 使用 SuperMemo 的 FlipElement 动态算法：
-     * 1. 清理过期的自动失败卡片
-     * 2. 获取所有条目对应的卡片数据（按插入顺序）
-     * 3. 执行 FlipElement(5, 3, 6) 局部洗牌
+     * 1. 🆕 等待持久化数据加载完成（如果还未加载）
+     * 2. 清理过期的自动失败卡片
+     * 3. 获取所有条目对应的卡片数据（按插入顺序）
+     * 4. 执行 FlipElement(5, 3, 6) 局部洗牌
      * 
      * FlipElement 算法：
      * - 从位置 5 或更后面随机选择一张卡片
@@ -189,6 +190,13 @@ export class FinalDrillQueue extends BaseReviewQueue {
      */
     public async getCards(): Promise<FSRSCard[]> {
         try {
+            // 🆕 等待持久化数据加载完成（如果还未加载）
+            if ((this as any)._loadPromise) {
+                await (this as any)._loadPromise;
+                delete (this as any)._loadPromise;  // 加载完成后删除 Promise
+                console.log('[SiYuanMemo][FinalDrillQueue] Loaded persisted data');
+            }
+            
             // 清理过期的自动失败卡片
             await this.cleanupExpiredAutoFailed();
             

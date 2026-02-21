@@ -372,7 +372,16 @@ const rowsForFocus = ref<BrowserCard[]>([]);
 
 // 筛选后的卡片
 const scopedRows = computed(() => {
-  if (activeDocId.value === '__lost__') return rows.value.filter((c) => !String((c as any)?.rootId || ''));
+  // 处理丢失闪卡
+  if (activeDocId.value === '__lost__') {
+    return rows.value.filter((c) => !String((c as any)?.rootId || ''));
+  }
+  
+  // ✅ 处理文档筛选（队列模式和非队列模式都适用）
+  if (activeDocId.value) {
+    return rows.value.filter((c) => (c as any)?.rootId === activeDocId.value);
+  }
+  
   return rows.value;
 });
 
@@ -471,8 +480,9 @@ async function loadData(forceRefresh = false) {
       console.log('[SiYuanMemo][SRSBrowser] 🔍 Current cardType filter:', currentCardType.value);
       
       // 使用数据源工厂创建数据源（支持 cardType 筛选）
+      // ✅ 不传递 docId，在 UI 层通过 scopedRows 筛选
       const options = {
-        docId: activeDocId.value,
+        docId: null,  // ❌ 不传递 docId，避免数据源层筛选
         preset: currentPreset.value,
         queryText: searchQuery.value,
         cardType: currentCardType.value as 'all' | 'topic-only' | 'item-only',
@@ -558,10 +568,21 @@ async function loadData(forceRefresh = false) {
       }
       
       try {
+        console.log('[SiYuanMemo][SRSBrowser] 🔍 Calling browserService.getBrowserCards with:', {
+          preset: currentPreset.value,
+          searchText: searchQuery.value,
+          cardTypes: currentCardType.value !== 'all' ? [currentCardType.value.replace('-only', '')] : undefined,
+          currentCardTypeRaw: currentCardType.value,
+          // docId: activeDocId.value,  // ❌ 不传递 docId，在 UI 层通过 scopedRows 筛选
+          sortBy: currentSortField.value,
+          sortOrder: currentSortOrder.value,
+        });
+        
         const result = await props.browserService.getBrowserCards({
           preset: currentPreset.value as any,
           searchText: searchQuery.value,
           cardTypes: currentCardType.value !== 'all' ? [currentCardType.value.replace('-only', '')] : undefined,
+          // docId: activeDocId.value || undefined,  // ❌ 不传递 docId
           sortBy: currentSortField.value as any,
           sortOrder: currentSortOrder.value as any,
           forceRefresh,
@@ -2184,8 +2205,8 @@ function handleSelectDoc(docId: string) {
   // ✅ 移除了 __all__ 的处理（已移至【全部】区）
   // ✅ 四重筛选：设置文档筛选，保留其他条件
   activeDocId.value = id;
-  // ✅ 点击文档开启队列聚焦（显示退出队列按钮）
-  shouldFocusDocList.value = true;
+  // ✅ 优化：点击文档筛选时不聚焦文档列表，保持显示所有文档，方便用户切换
+  shouldFocusDocList.value = false;  // ✅ 明确关闭聚焦
   void loadData();
 }
 

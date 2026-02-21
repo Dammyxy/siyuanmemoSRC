@@ -49,11 +49,44 @@ export class CardFilterService {
       return cards;
     }
     
-    const typeSet = new Set(cardTypes);
-    return cards.filter(card => {
-      const cardType = card.type || '';
-      return typeSet.has(cardType);
+    // 统计所有卡片的类型分布
+    const typeDistribution = new Map<string, number>();
+    cards.forEach(c => {
+      const type = c.type || '(empty)';
+      typeDistribution.set(type, (typeDistribution.get(type) || 0) + 1);
     });
+    
+    console.log('[CardFilterService] 🔍 filterByCardTypes called:', {
+      inputCount: cards.length,
+      requestedTypes: cardTypes,
+      typeDistribution: Object.fromEntries(typeDistribution),
+      sampleCards: cards.slice(0, 3).map(c => ({ 
+        blockId: c.blockId, 
+        type: c.type,
+        meta: c.meta ? { cardType: (c.meta as any).cardType } : null
+      })),
+    });
+    
+    const typeSet = new Set(cardTypes);
+    const filtered = cards.filter(card => {
+      // ✅ 修复：同时检查 Card.type 和 Card.meta.cardType
+      // 原因：卡片类型可能存储在 meta.cardType 中
+      const cardType = card.type || '';
+      if (typeSet.has(cardType)) {
+        return true;
+      }
+      
+      // 检查 meta.cardType
+      const metaCardType = (card.meta as any)?.cardType || '';
+      return typeSet.has(metaCardType);
+    });
+    
+    console.log('[CardFilterService] 🔍 filterByCardTypes result:', {
+      outputCount: filtered.length,
+      matchedTypes: [...new Set(filtered.map(c => c.type || (c.meta as any)?.cardType))],
+    });
+    
+    return filtered;
   }
   
   /**
@@ -447,4 +480,40 @@ export class CardFilterService {
       card.blockId !== ''
     );
   }
+
+
+    /**
+     * 按文档 ID 过滤（根文档 ID）
+     *
+     * @param cards - 卡片列表
+     * @param docId - 文档 ID（根文档 ID）
+     * @returns 过滤后的卡片列表
+     */
+    filterByDocId(cards: Card[], docId: string): Card[] {
+      if (!docId) {
+        return cards;
+      }
+
+      console.log('[CardFilterService] 🔍 filterByDocId called:', {
+        inputCount: cards.length,
+        docId,
+        sampleCards: cards.slice(0, 3).map(c => ({
+          blockId: c.blockId,
+          rootId: (c.meta as any)?.rootId
+        })),
+      });
+
+      const filtered = cards.filter(card => {
+        const cardRootId = (card.meta as any)?.rootId || '';
+        return cardRootId === docId;
+      });
+
+      console.log('[CardFilterService] 🔍 filterByDocId result:', {
+        outputCount: filtered.length,
+        matchedRootIds: [...new Set(filtered.map(c => (c.meta as any)?.rootId))],
+      });
+
+      return filtered;
+    }
+
 }

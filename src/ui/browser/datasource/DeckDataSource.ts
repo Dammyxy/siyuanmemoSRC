@@ -118,34 +118,26 @@ export class DeckDataSource implements ICardDataSource {
       const allCards = await this.manager.getCards();
       console.log('[SiYuanMemo][DeckDataSource] manager.getCards returned:', allCards.length, 'cards (advanced mode)');
       
-      // 转换为 BrowserCard 格式
-      let rows = allCards.map(card => this.convertToBrowserCard(card));
-      
-      // 🔧 修复：对于文档块卡片，批量更新内容（文档标题）
-      // 检查所有内容为空的卡片
-      const emptyContentCards = rows.filter(r => {
-        const currentContent = (r.fullContent || '').replace(/[\s\u200B]/g, '');
-        return !currentContent;
+      // 🔍 调试：检查 rootId 填充情况
+      const cardsWithRootId = allCards.filter(c => c.meta?.rootId).length;
+      console.log('[SiYuanMemo][DeckDataSource] 🔍 Cards with rootId:', {
+        total: allCards.length,
+        withRootId: cardsWithRootId,
+        sampleRootIds: allCards.slice(0, 5).map(c => ({ blockId: c.blockId, rootId: c.meta?.rootId })),
       });
       
-      if (emptyContentCards.length > 0) {
-        console.log(`[SiYuanMemo][DeckDataSource] Found ${emptyContentCards.length} cards with empty content, fetching titles...`);
-        const blockIds = emptyContentCards.map(c => c.blockId);
-        
-        // 批量查询文档标题
-        const contentMap = await this.fetchBlockContent(blockIds);
-        
-        // 更新卡片内容
-        for (const card of emptyContentCards) {
-          const dbContent = contentMap.get(card.blockId);
-          if (dbContent) {
-            card.fullContent = dbContent;
-            card.content = this.truncateContent(dbContent, 100);
-            const originalCard = allCards.find(c => c.blockId === card.blockId);
-            console.log(`[SiYuanMemo][DeckDataSource] ✅ Updated ${originalCard?.type || 'unknown'} card ${card.blockId}: "${card.content}"`);
-          }
-        }
-      }
+      // 转换为 BrowserCard 格式
+      // ✅ 注意：卡片内容（title）已由 DataAccessFacade.fillMissingRootIds() 统一填充
+      // 无需在此处重复获取
+      let rows = allCards.map(card => this.convertToBrowserCard(card));
+      
+      // 🔍 调试：检查转换后的 rootId
+      const rowsWithRootId = rows.filter(r => r.rootId).length;
+      console.log('[SiYuanMemo][DeckDataSource] 🔍 After conversion:', {
+        total: rows.length,
+        withRootId: rowsWithRootId,
+        sampleRootIds: rows.slice(0, 5).map(r => ({ blockId: r.blockId, rootId: r.rootId })),
+      });
       
       // 应用 preset 筛选
       rows = this.applyPresetFilter(rows);
@@ -178,6 +170,12 @@ export class DeckDataSource implements ICardDataSource {
       
       // ✅ 四重筛选：应用文档筛选
       if (this.options.currentDocId) {
+        console.log('[SiYuanMemo][DeckDataSource] 🔍 Applying document filter:', {
+          currentDocId: this.options.currentDocId,
+          totalRows: rows.length,
+          rowsWithRootId: rows.filter(r => r.rootId).length,
+        });
+        
         if (this.options.currentDocId === '__lost__') {
           rows = rows.filter(c => !String((c as any)?.rootId || ''));
         } else if (this.options.preset === 'current-doc') {
@@ -185,6 +183,10 @@ export class DeckDataSource implements ICardDataSource {
         } else {
           rows = rows.filter(c => c.rootId === this.options.currentDocId);
         }
+        
+        console.log('[SiYuanMemo][DeckDataSource] 🔍 After document filter:', {
+          filteredRows: rows.length,
+        });
       }
 
       const sorted = applySort(rows, params?.sortModel || []);
@@ -193,41 +195,6 @@ export class DeckDataSource implements ICardDataSource {
         console.error('[SiYuanMemo][DeckDataSource] Failed to fetch from manager:', error);
         throw error;
       }
-  }
-  
-  /**
-   * 批量获取块内容（用于概念卡标题）
-   */
-  private async fetchBlockContent(blockIds: string[]): Promise<Map<string, string>> {
-    const contentMap = new Map<string, string>();
-    if (blockIds.length === 0) return contentMap;
-
-    try {
-      const { sql } = await import('@/core/siyuan/api');
-      const BATCH_SIZE = 500;
-      
-      for (let i = 0; i < blockIds.length; i += BATCH_SIZE) {
-        const batchIds = blockIds.slice(i, i + BATCH_SIZE);
-        const inClause = batchIds.map(id => `'${this.escapeSQL(id)}'`).join(',');
-        
-        const result = await sql(`SELECT id, content FROM blocks WHERE id IN (${inClause})`);
-        
-        for (const row of result || []) {
-          const content = String(row.content || '').trim();
-          if (content) {
-            contentMap.set(row.id, content);
-          }
-        }
-      }
-    } catch (error) {
-      console.error('[SiYuanMemo][DeckDataSource] Failed to fetch block content:', error);
-    }
-    
-    return contentMap;
-  }
-  
-  private escapeSQL(value: string): string {
-    return String(value || '').replace(/'/g, "''");
   }
   
   private applyPresetFilter(cards: BrowserCard[]): BrowserCard[] {

@@ -122,7 +122,18 @@ export class RetrievalDataSource implements ICardDataSource {
 
     // 文档筛选（使用 rootId 而非 boxId）
     if (this.options.docId) {
+      console.log('[SiYuanMemo][RetrievalDataSource] 🔍 Filtering by docId:', {
+        docId: this.options.docId,
+        totalCards: result.length,
+        cardsWithRootId: result.filter(c => c.rootId).length,
+        sampleRootIds: result.slice(0, 5).map(c => ({ blockId: c.blockId, rootId: c.rootId })),
+      });
+      
       result = result.filter(c => c.rootId === this.options.docId);
+      
+      console.log('[SiYuanMemo][RetrievalDataSource] 🔍 After docId filter:', {
+        filteredCount: result.length,
+      });
     }
 
     // Preset 筛选

@@ -59,7 +59,9 @@ export class FinalDrillDataSource implements ICardDataSource {
       const cards = await queue.getCards();
       
       // 转换为 BrowserCard 格式
-      const browserCards = cards.map(card => this.convertToBrowserCard(card));
+      // ✅ 注意：卡片内容（title）已由 DataAccessFacade.fillMissingRootIds() 统一填充
+      // 无需在此处重复获取
+      let browserCards = cards.map(card => this.convertToBrowserCard(card));
       
       // 应用筛选条件
       const filtered = this.applyFilters(browserCards);

@@ -94,13 +94,31 @@ export class GetBrowserCardsQueryHandler {
       } : null,
     });
     
+    // 🔍 调试：打印查询参数
+    console.log('[GetBrowserCardsQueryHandler] 🔍 Query parameters:', {
+      preset: query.preset,
+      cardTypes: query.cardTypes,
+      searchText: query.searchText,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
+    });
+    
     // 2. 计算统计信息（基于所有卡片）
     const stats = this.calculateStats(allCards);
     
     // 3. 应用预设过滤器（领域层）
     let filteredCards = this.applyPresetFilter(allCards, query.preset);
+    console.log('[GetBrowserCardsQueryHandler] 🔍 After preset filter:', filteredCards.length);
     
     // 4. 应用自定义过滤器（领域层）
+    console.log('[GetBrowserCardsQueryHandler] 🔍 Applying custom filters:', {
+      states: query.states,
+      cardTypes: query.cardTypes,
+      searchText: query.searchText,
+      tags: query.tags,
+      deckIds: query.deckIds,
+      docId: query.docId,
+    });
     filteredCards = this.cardFilterService.applyFilters(filteredCards, {
       states: query.states,
       cardTypes: query.cardTypes,
@@ -108,21 +126,39 @@ export class GetBrowserCardsQueryHandler {
       tags: query.tags,
       deckIds: query.deckIds,
     });
+    console.log('[GetBrowserCardsQueryHandler] 🔍 After custom filters:', filteredCards.length);
     
-    // 5. 排序（领域层）
+    // 5. 应用文档过滤（领域层）
+    // ⚠️ 重要：文档筛选需要 rootId，必须先填充
+    if (query.docId) {
+      console.log('[GetBrowserCardsQueryHandler] 🔍 Applying document filter:', query.docId);
+      
+      // 🔧 先填充 rootId（批量查询）
+      const cardsNeedingRootId = filteredCards.filter(c => !(c.meta as any)?.rootId);
+      if (cardsNeedingRootId.length > 0) {
+        console.log('[GetBrowserCardsQueryHandler] 🔧 Filling rootId for', cardsNeedingRootId.length, 'cards before document filter');
+        await this.fillRootIds(cardsNeedingRootId);
+      }
+      
+      // 然后应用文档筛选
+      filteredCards = this.cardFilterService.filterByDocId(filteredCards, query.docId);
+      console.log('[GetBrowserCardsQueryHandler] 🔍 After document filter:', filteredCards.length);
+    }
+    
+    // 6. 排序（领域层）
     const sortedCards = this.cardSortService.sort(
       filteredCards,
       query.sortBy || 'due',
       query.sortOrder || 'asc'
     );
     
-    // 6. 分页
+    // 7. 分页
     const page = query.page || 1;
     const pageSize = query.pageSize || 100;
     const startIndex = (page - 1) * pageSize;
     const paginatedCards = sortedCards.slice(startIndex, startIndex + pageSize);
     
-    // 7. 转换为 BrowserCard 格式
+    // 8. 转换为 BrowserCard 格式
     const browserCards = await this.transformToBrowserCards(paginatedCards);
     
     return {
@@ -187,6 +223,57 @@ export class GetBrowserCardsQueryHandler {
       reviewCards: this.cardFilterService.countByState(cards, CardState.Review),
       suspendedCards: this.cardFilterService.countByState(cards, CardState.Suspended),
     };
+  }
+  
+  /**
+   * 填充卡片的 rootId（用于文档筛选）
+   * 
+   * @param cards - 需要填充 rootId 的卡片列表
+   */
+  private async fillRootIds(cards: FSRSCard[]): Promise<void> {
+    if (cards.length === 0) {
+      return;
+    }
+    
+    const blockIds = cards.map(c => c.blockId);
+    
+    try {
+      // 批量查询 rootId
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < blockIds.length; i += BATCH_SIZE) {
+        const batchIds = blockIds.slice(i, i + BATCH_SIZE);
+        const idsStr = batchIds.map(id => `'${id}'`).join(',');
+        
+        const query = `
+          SELECT id, root_id
+          FROM blocks
+          WHERE id IN (${idsStr})
+        `;
+        
+        const result = await sql(query);
+        
+        // 创建 blockId -> rootId 的映射
+        const rootIdMap = new Map<string, string>();
+        for (const row of result) {
+          rootIdMap.set(row.id, row.root_id || '');
+        }
+        
+        // 填充到卡片的 meta.rootId
+        for (const card of cards) {
+          const rootId = rootIdMap.get(card.blockId);
+          if (rootId) {
+            if (!card.meta) {
+              card.meta = {};
+            }
+            (card.meta as any).rootId = rootId;
+          }
+        }
+      }
+      
+      console.log('[GetBrowserCardsQueryHandler] ✅ Filled rootId for', cards.length, 'cards');
+    } catch (error) {
+      console.error('[GetBrowserCardsQueryHandler] Failed to fill rootIds:', error);
+    }
   }
   
   /**
