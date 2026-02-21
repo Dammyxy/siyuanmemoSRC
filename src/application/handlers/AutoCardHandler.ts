@@ -1372,46 +1372,51 @@ export class AutoCardHandler implements ITransactionHandler {
         
         try {
             // 使用 builtin-multi-cloze 模板
-            // 注意：需要动态设置 cardRules，每个填空一个 rule
             const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
             
-            // ✅ 获取模板（通过 XiuyuanApplicationService）
-            const xiuyuanAppService = this.plugin.context.getXiuyuanApplicationService();
-            const template = await xiuyuanAppService.getTemplate('builtin-multi-cloze');
-            if (!template) {
-                console.error('[SiYuanMemo][AutoCard] builtin-multi-cloze template not found');
-                await this.createSingleClozeCard(blockId, content, clozes);
-                return;
+            // ✅ 提取填空的位置信息（需要 start 和 end）
+            const clozesWithPosition: Array<{ text: string; start: number; end: number; type: string }> = [];
+            
+            // 提取 {{}} 填空
+            let match;
+            const braceRegex = /\{\{([^}]*)\}\}/g;
+            while ((match = braceRegex.exec(content)) !== null) {
+                clozesWithPosition.push({
+                    text: match[1].trim(),
+                    start: match.index,
+                    end: match.index + match[0].length,
+                    type: 'brace'
+                });
             }
             
-            // 动态生成 cardRules（每个填空一张卡片）
-            const dynamicTemplate = {
-                ...template,
-                cardRules: clozes.map((_, index) => ({
-                    typeMarker: `cloze-${index}`,
-                    frontFields: ['content'],
-                    backFields: ['content'],
-                })),
-            };
+            // 提取 == 填空
+            const equalRegex = /==([^=]*)==/g;
+            while ((match = equalRegex.exec(content)) !== null) {
+                clozesWithPosition.push({
+                    text: match[1].trim(),
+                    start: match.index,
+                    end: match.index + match[0].length,
+                    type: 'equal'
+                });
+            }
             
-            // 临时注册动态模板
-            const tempTemplateId = `builtin-multi-cloze-${blockId}`;
-            const tempTemplate = {
-                ...dynamicTemplate,
-                id: tempTemplateId,
-            };
+            // 按位置排序
+            clozesWithPosition.sort((a, b) => a.start - b.start);
             
-            // 使用 XiuyuanApplicationService 创建模板
-            await xiuyuanAppService.createTemplate(tempTemplate);
+            console.log('[SiYuanMemo][AutoCard] Extracted clozes with positions:', clozesWithPosition);
             
-            // 使用动态模板创建卡片
+            // ✅ 使用 clozeInfo 参数创建卡片
             const result = await xiuyuanAppService.createFromBlocks({
                 blockIds: [blockId],
-                templateId: tempTemplateId,
+                templateId: 'builtin-multi-cloze',
                 fieldMapping: {
                     content: blockId
                 },
-                deckId: BUILTIN_DECK_ID
+                deckId: BUILTIN_DECK_ID,
+                clozeInfo: {
+                    originalContent: content,
+                    clozes: clozesWithPosition
+                }
             });
             
             if (!result.ok) {

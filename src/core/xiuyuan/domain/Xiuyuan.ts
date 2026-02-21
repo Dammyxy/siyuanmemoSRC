@@ -213,9 +213,11 @@ export class Xiuyuan {
       return err(new Error('Card does not belong to this Xiuyuan'));
     }
 
-    // 验证：卡片不能已存在
-    if (this.cards.has(card.getId())) {
-      return err(new Error(`Card already exists: ${card.getId().getValue()}`));
+    // 🔧 修复：使用 equals() 方法检查卡片是否已存在
+    for (const key of this.cards.keys()) {
+      if (key.equals(card.getId())) {
+        return err(new Error(`Card already exists: ${card.getId().getValue()}`));
+      }
     }
 
     // 验证：faceIndex 必须有效
@@ -247,13 +249,22 @@ export class Xiuyuan {
    * @returns Result<void> - 成功返回 void，失败返回错误
    */
   deleteCard(cardId: CardId): Result<void> {
+    // 🔧 修复：使用 equals() 方法查找要删除的卡片
+    let foundKey: CardId | null = null;
+    for (const key of this.cards.keys()) {
+      if (key.equals(cardId)) {
+        foundKey = key;
+        break;
+      }
+    }
+    
     // 验证：卡片必须存在
-    if (!this.cards.has(cardId)) {
+    if (!foundKey) {
       return err(new Error(`Card not found: ${cardId.getValue()}`));
     }
 
     // 删除卡片
-    this.cards.delete(cardId);
+    this.cards.delete(foundKey);
 
     // 更新时间戳
     this.updatedAt = new Date();
@@ -275,8 +286,17 @@ export class Xiuyuan {
    * @returns Result<void> - 成功返回 void，失败返回错误
    */
   updateCard(cardId: CardId, updatedCard: Card): Result<void> {
+    // 🔧 修复：使用 equals() 方法查找要更新的卡片
+    let foundKey: CardId | null = null;
+    for (const key of this.cards.keys()) {
+      if (key.equals(cardId)) {
+        foundKey = key;
+        break;
+      }
+    }
+    
     // 验证：卡片必须存在
-    if (!this.cards.has(cardId)) {
+    if (!foundKey) {
       return err(new Error(`Card not found: ${cardId.getValue()}`));
     }
 
@@ -285,8 +305,9 @@ export class Xiuyuan {
       return err(new Error('Card does not belong to this Xiuyuan'));
     }
 
-    // 更新卡片
-    this.cards.set(cardId, updatedCard);
+    // 更新卡片（删除旧的，添加新的）
+    this.cards.delete(foundKey);
+    this.cards.set(updatedCard.getId(), updatedCard);
 
     // 更新时间戳
     this.updatedAt = new Date();
@@ -310,7 +331,14 @@ export class Xiuyuan {
    * @returns Card | null
    */
   getCard(cardId: CardId): Card | null {
-    return this.cards.get(cardId) || null;
+    // 🔧 修复：使用 equals() 方法比较值对象，而不是引用比较
+    // Map.get() 使用引用相等（===），对于值对象需要遍历并使用 equals()
+    for (const [key, card] of this.cards.entries()) {
+      if (key.equals(cardId)) {
+        return card;
+      }
+    }
+    return null;
   }
 
   /**

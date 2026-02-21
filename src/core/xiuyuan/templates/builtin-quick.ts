@@ -13,6 +13,7 @@ export const BUILTIN_QUICK_TEMPLATE: ICardTemplate = {
   id: 'builtin-quick-card',
   name: '快速卡片',
   description: '快速创建的单块卡片',
+  category: 'quick',
   version: '1.0.0',
   
   fields: [

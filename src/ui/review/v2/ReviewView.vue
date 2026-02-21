@@ -26,6 +26,7 @@
         :meta="state.meta"
         :i18n="i18n"
         :queue="providerQueue || props.queue"
+        :plugin="props.plugin"
         @reveal="hook.reveal"
         @grade="hook.grade"
         @skip="hook.skip"

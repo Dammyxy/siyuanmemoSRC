@@ -395,7 +395,33 @@ export class DeckDataSource implements ICardDataSource {
 
     // 🆕 删除卡片（使用 CardApplicationService）
     if (actionId === 'delete-card') {
-      const blockIds = selectedRows.map(row => row.blockId);
+      // ✅ 修复：使用 fsrsCardId 作为唯一标识，而不是 blockId
+      // 对于多填空卡片，所有卡片共享同一个 blockId，但每张卡片有自己的 fsrsCardId
+      // 
+      // 兼容性处理：
+      // - 优先使用 fsrsCardId（Xiuyuan 卡片的真实 ID，格式：card-xxx）
+      // - 如果 fsrsCardId 不存在或等于 blockId，则使用 id
+      // - 这样可以兼容旧卡片和新卡片
+      const cardIds = selectedRows.map(row => {
+        const fsrsId = row.fsrsCardId;
+        const displayId = row.id;
+        const blockId = row.blockId;
+        
+        // 如果 fsrsCardId 存在且不等于 blockId，使用 fsrsCardId
+        if (fsrsId && fsrsId !== blockId) {
+          return fsrsId;
+        }
+        
+        // 否则使用 id（可能是 riffCardId 或 fsrsCardId）
+        return displayId;
+      });
+      
+      console.log('[SiYuanMemo][DeckDataSource] 删除卡片 IDs:', cardIds);
+      console.log('[SiYuanMemo][DeckDataSource] 原始卡片信息:', selectedRows.map(r => ({
+        id: r.id,
+        fsrsCardId: r.fsrsCardId,
+        blockId: r.blockId,
+      })));
       
       // 检查是否有 plugin 和 ApplicationContext
       if (!this.plugin) {
@@ -411,18 +437,19 @@ export class DeckDataSource implements ICardDataSource {
       
       // 使用 CardApplicationService.deleteCard() 逐个删除卡片
       let deletedCount = 0;
-      for (const blockId of blockIds) {
-        const command: DeleteCardCommand = { cardId: blockId };
+      for (const cardId of cardIds) {
+        const command: DeleteCardCommand = { cardId };
         const result = await cardService.deleteCard(command);
         
         if (result.ok) {
           deletedCount++;
+          console.log(`[SiYuanMemo][DeckDataSource] ✅ Deleted card: ${cardId}`);
         } else {
-          console.error(`[SiYuanMemo][DeckDataSource] Failed to delete card ${blockId}:`, result.error);
+          console.error(`[SiYuanMemo][DeckDataSource] ❌ Failed to delete card ${cardId}:`, result.error);
         }
       }
       
-      console.log(`[SiYuanMemo][DeckDataSource] Deleted ${deletedCount}/${blockIds.length} cards`);
+      console.log(`[SiYuanMemo][DeckDataSource] Deleted ${deletedCount}/${cardIds.length} cards`);
       return deletedCount;
     }
 

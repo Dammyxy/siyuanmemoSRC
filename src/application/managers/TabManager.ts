@@ -156,6 +156,7 @@ export class TabManager {
             title: savedTitle,
             queue: savedQueue,
             adapter: savedAdapter,
+            plugin: plugin, // 🆕 传递 plugin 实例
           });
           app.mount(this.element);
           (this as any).vueApp = app;
@@ -170,6 +171,7 @@ export class TabManager {
           mode: 'tab',
           title: savedTitle || '提取练习',
           provider: savedProvider,
+          plugin: plugin, // 🆕 传递 plugin 实例
         });
         app.mount(this.element);
         (this as any).vueApp = app;

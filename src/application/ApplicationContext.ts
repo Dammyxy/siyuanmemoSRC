@@ -759,16 +759,19 @@ export class ApplicationContext {
     const xiuyuanStorage = new XiuyuanStorage(config.plugin as any);
     await xiuyuanStorage.load();
     
-    // 初始化内置模板
+    // 初始化内置模板（强制更新以确保有最新的 category 字段）
     const { BUILTIN_TEMPLATES } = await import('@/core/xiuyuan');
     for (const template of BUILTIN_TEMPLATES) {
       const existing = xiuyuanStorage.getTemplate(template.id);
       if (!existing) {
         xiuyuanStorage.createTemplate(template);
+      } else {
+        // 🆕 强制更新已存在的模版，确保有最新的字段（如 category）
+        xiuyuanStorage.updateTemplate(template.id, template);
       }
     }
     await xiuyuanStorage.save();
-    console.log('[ApplicationContext] ✅ XiuyuanStorage initialized with builtin templates');
+    console.log('[ApplicationContext] ✅ XiuyuanStorage initialized with', BUILTIN_TEMPLATES.length, 'builtin templates');
     
     // 11. 初始化 BlockMenuHandler
     // 创建一个临时变量来存储 context 引用（用于闭包）

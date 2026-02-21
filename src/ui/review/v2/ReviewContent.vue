@@ -18,6 +18,14 @@
           />
         </div>
 
+        <!-- 🆕 Xiuyuan 多挖空卡：自定义渲染 -->
+        <div v-else-if="shouldUseMultiClozeRenderer" class="fsrs-review-v2-content__multi-cloze">
+          <MultiClozeCardRenderer
+            :card="content.card"
+            :show-answer="!showAnswer"
+          />
+        </div>
+
         <!-- 概念定义卡渲染 -->
         <div v-else-if="shouldUseConceptDefinitionRenderer" class="fsrs-review-v2-content__concept-definition-card">
           <ConceptDefinitionCardRenderer
@@ -84,6 +92,7 @@ import * as siyuan from 'siyuan';
 import type { ReviewUIState } from './types';
 import { OVERLAY_REGISTRY } from './overlays/index';
 import XiuyuanListTemplateCard from './components/XiuyuanListTemplateCard.vue';
+import MultiClozeCardRenderer from '../components/MultiClozeCardRenderer.vue';
 import QuickCardRenderer from '../components/QuickCardRenderer.vue';
 import DescriptorCardRenderer from '../components/DescriptorCardRenderer.vue';
 import ConceptDefinitionCardRenderer from '../components/ConceptDefinitionCardRenderer.vue';
@@ -163,6 +172,20 @@ const isDescriptorCard = ref(false);
 
 // 概念定义卡状态
 const isConceptDefinitionCard = ref(false);
+
+// 🆕 判断是否应该使用多挖空卡渲染器
+const shouldUseMultiClozeRenderer = computed(() => {
+  // 检查是否为 Xiuyuan 多挖空卡
+  const card = props.content.card;
+  if (!card || !card.meta) return false;
+  
+  const templateID = card.meta.templateID;
+  const faces = card.meta.faces;
+  const faceIndex = card.meta.faceIndex;
+  
+  // 必须是 builtin-multi-cloze 模板，且有 faces 信息
+  return templateID === 'builtin-multi-cloze' && Array.isArray(faces) && faces.length > 0 && faceIndex !== undefined;
+});
 
 // 判断是否应该使用概念定义卡渲染器
 const shouldUseConceptDefinitionRenderer = computed(() => {

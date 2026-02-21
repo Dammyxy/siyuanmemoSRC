@@ -34,6 +34,7 @@ import { BlockId } from '@/core/xiuyuan/domain/BlockId';
 import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
 import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { Priority } from '@/core/xiuyuan/domain/Priority';
+import { ClozeCardGenerator } from '@/core/xiuyuan/domain/services/ClozeCardGenerator';
 import { getBlockText } from '@/core/siyuan/block';
 import { addRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
@@ -63,8 +64,8 @@ export class CreateXiuyuanFromBlocksUseCase {
    */
   async execute(command: CreateXiuyuanFromBlocksCommand): Promise<Result<any>> {
     try {
-      // 1. 验证模板
-      const template = this.templateRegistry.get(command.templateId);
+      // 1. 验证模板（优先使用自定义模版）
+      const template = command.template || this.templateRegistry.get(command.templateId);
       if (!template) {
         return err(new Error(`Template not found: ${command.templateId}`));
       }
@@ -98,32 +99,48 @@ export class CreateXiuyuanFromBlocksUseCase {
       const faces: CardFace[] = [];
       const fieldMapping = command.fieldMapping || {};
 
-      for (const rule of template.cardRules) {
-        // 获取问题和答案的块 ID
-        const questionBlockId = rule.frontFields.length > 0 
-          ? fieldMapping[rule.frontFields[0]] || command.blockIds[0]
-          : command.blockIds[0];
+      // 🆕 处理多填空卡片（使用领域服务）
+      if (command.clozeInfo && command.clozeInfo.clozes.length > 0) {
+        const facesResult = ClozeCardGenerator.generateFaces(
+          command.clozeInfo.originalContent,
+          command.clozeInfo.clozes,
+          command.blockIds[0]
+        );
         
-        const answerBlockId = rule.backFields.length > 0
-          ? fieldMapping[rule.backFields[0]] || command.blockIds[command.blockIds.length - 1]
-          : command.blockIds[command.blockIds.length - 1];
-
-        // 获取块内容
-        const questionText = await getBlockText(questionBlockId);
-        const answerText = await getBlockText(answerBlockId);
-
-        const faceResult = CardFace.create({
-          question: questionText || `Block ${questionBlockId}`,
-          answer: answerText || `Block ${answerBlockId}`,
-          questionBlockId,
-          answerBlockId
-        });
-
-        if (!faceResult.ok) {
-          return faceResult as Result<any>;
+        if (!facesResult.ok) {
+          return facesResult as Result<any>;
         }
+        
+        faces.push(...facesResult.value);
+      } else {
+        // 普通卡片：使用原有逻辑
+        for (const rule of template.cardRules) {
+          // 获取问题和答案的块 ID
+          const questionBlockId = rule.frontFields.length > 0 
+            ? fieldMapping[rule.frontFields[0]] || command.blockIds[0]
+            : command.blockIds[0];
+          
+          const answerBlockId = rule.backFields.length > 0
+            ? fieldMapping[rule.backFields[0]] || command.blockIds[command.blockIds.length - 1]
+            : command.blockIds[command.blockIds.length - 1];
 
-        faces.push(faceResult.value);
+          // 获取块内容
+          const questionText = await getBlockText(questionBlockId);
+          const answerText = await getBlockText(answerBlockId);
+
+          const faceResult = CardFace.create({
+            question: questionText || `Block ${questionBlockId}`,
+            answer: answerText || `Block ${answerBlockId}`,
+            questionBlockId,
+            answerBlockId
+          });
+
+          if (!faceResult.ok) {
+            return faceResult as Result<any>;
+          }
+
+          faces.push(faceResult.value);
+        }
       }
 
       // 4. 创建 Xiuyuan 聚合根
@@ -144,6 +161,16 @@ export class CreateXiuyuanFromBlocksUseCase {
       }
 
       const xiuyuan = xiuyuanResult.value;
+
+      // 4.5. 为每个 face 创建卡片
+      for (let i = 0; i < faces.length; i++) {
+        const cardResult = xiuyuan.createCard(i);
+        if (!cardResult.ok) {
+          const error = (cardResult as any).error || new Error('Failed to create card');
+          console.error(`[CreateXiuyuanFromBlocksUseCase] Failed to create card for face ${i}:`, error);
+          return err(error);
+        }
+      }
 
       // 5. 添加到 Riff（可选，错误不阻断）
       const deckId = command.deckId || BUILTIN_DECK_ID;

@@ -131,6 +131,7 @@ const props = defineProps<{
   i18n?: Record<string, string>;
   meta?: ReviewUIState['meta'];
   queue?: any; // 队列实例
+  plugin?: any; // 🆕 插件实例，用于访问服务
 }>();
 
 const emit = defineEmits<{
@@ -233,9 +234,12 @@ function closeInsertDialog() {
 
 async function onInsertConfirm(position: number) {
   try {
-    const cardId = props.actions.cardMeta?.id || props.actions.cardMeta?.blockId;
+    // 🔧 修复：使用 Adapter 提供的字段名（大写）
+    const cardId = props.actions.cardMeta?.cardID || props.actions.cardMeta?.blockID;
     if (!cardId) {
-      console.error('[SiYuanMemo][ReviewActions] No card ID found');
+      console.error('[SiYuanMemo][ReviewActions] No card ID found', {
+        cardMeta: props.actions.cardMeta,
+      });
       return;
     }
     
@@ -283,21 +287,23 @@ function closeScheduleDialog() {
 
 async function onScheduleConfirm(options: ScheduleOptions) {
   try {
-    const cardId = props.actions.cardMeta?.id || props.actions.cardMeta?.blockId;
+    // 🔧 修复：使用 Adapter 提供的字段名（大写）
+    const cardId = props.actions.cardMeta?.cardID || props.actions.cardMeta?.blockID;
     if (!cardId) {
-      console.error('[SiYuanMemo][ReviewActions] No card ID found');
+      console.error('[SiYuanMemo][ReviewActions] No card ID found', {
+        cardMeta: props.actions.cardMeta,
+      });
       return;
     }
     
-    // 从全局获取 plugin 实例
-    const fsrsPlugin = (window as any).siyuanMemoPlugin;
-    if (!fsrsPlugin) {
-      console.error('[SiYuanMemo][ReviewActions] FSRS plugin instance not found');
+    // 🔧 修复：通过 props.plugin 获取服务，而不是全局变量
+    if (!props.plugin) {
+      console.error('[SiYuanMemo][ReviewActions] Plugin instance not provided');
       return;
     }
     
     // 通过 ApplicationContext 获取服务
-    const context = fsrsPlugin.getContext();
+    const context = props.plugin.getContext();
     const manager = context.getUnifiedDataSourceManager();
     const schedulerRouter = context.getScheduler();
     

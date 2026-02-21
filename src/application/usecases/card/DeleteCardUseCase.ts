@@ -139,6 +139,8 @@ export class DeleteCardUseCase {
    * @returns Result<{xiuyuan: Xiuyuan | null, actualCardId: CardId | null}> - 成功返回 Xiuyuan 和 CardId，未找到返回 null
    */
   private async findXiuyuanAndCardId(cardId: CardId): Promise<Result<{xiuyuan: any, actualCardId: any}>> {
+    console.log(`[DeleteCardUseCase] 🔍 查找卡片: ${cardId.getValue()}`);
+    
     // 获取所有 Xiuyuan
     const allXiuyuansResult = await this.xiuyuanRepo.findAll();
     if (!allXiuyuansResult.ok) {
@@ -146,19 +148,30 @@ export class DeleteCardUseCase {
     }
 
     const allXiuyuans = allXiuyuansResult.value;
+    console.log(`[DeleteCardUseCase] 🔍 总共 ${allXiuyuans.length} 个 Xiuyuan`);
 
     // 遍历所有 Xiuyuan，查找包含该卡片的 Xiuyuan
     // 注意：需要通过值比较，因为 CardId 是值对象
     for (const xiuyuan of allXiuyuans) {
       const cards = xiuyuan.getCards();
+      console.log(`[DeleteCardUseCase] 🔍 Xiuyuan ${xiuyuan.getId().getValue()} 有 ${cards.length} 张卡片`);
+      
       for (const card of cards) {
-        if (card.getId().equals(cardId)) {
+        const currentCardId = card.getId().getValue();
+        const targetCardId = cardId.getValue();
+        const isEqual = card.getId().equals(cardId);
+        
+        console.log(`[DeleteCardUseCase] 🔍 比较卡片: ${currentCardId} === ${targetCardId} ? ${isEqual}`);
+        
+        if (isEqual) {
+          console.log(`[DeleteCardUseCase] ✅ 找到卡片: ${currentCardId} in Xiuyuan ${xiuyuan.getId().getValue()}`);
           return ok({ xiuyuan, actualCardId: card.getId() });
         }
       }
     }
 
     // 未找到包含该卡片的 Xiuyuan
+    console.log(`[DeleteCardUseCase] ❌ 未找到卡片: ${cardId.getValue()}`);
     return ok({ xiuyuan: null, actualCardId: null });
   }
 }

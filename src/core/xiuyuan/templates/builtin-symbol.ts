@@ -12,6 +12,7 @@ export const BUILTIN_SYMBOL_TEMPLATE: ICardTemplate = {
   id: 'builtin-symbol-qa',
   name: '符号问答卡',
   description: '通过 <> 符号标记的问答卡',
+  category: 'quick',
   version: '1.0.0',
   
   fields: [

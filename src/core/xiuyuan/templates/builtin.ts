@@ -12,6 +12,7 @@ export const BASIC_QA_TEMPLATE: ICardTemplate = {
   id: 'builtin-basic-qa',
   name: '基础问答',
   description: '简单的问答卡片，第一个块为问题，第二个块为答案',
+  category: 'basic',
   fields: [
     { name: 'question', description: '问题' },
     { name: 'answer', description: '答案' },
@@ -30,6 +31,7 @@ export const BIDIRECTIONAL_TEMPLATE: ICardTemplate = {
   id: 'builtin-bidirectional',
   name: '双向卡片',
   description: '生成正向和反向两张卡片（需要两个块）',
+  category: 'basic',
   fields: [
     { name: 'term', description: '术语' },
     { name: 'definition', description: '定义' },
@@ -74,6 +76,7 @@ export const QUICK_BIDIRECTIONAL_TEMPLATE: ICardTemplate = {
   id: 'builtin-quick-bidirectional',
   name: '快速制卡双向',
   description: '单块生成正向和反向两张卡片（用于 <> 符号）',
+  category: 'quick',
   fields: [
     { name: 'content', description: '包含 <> 符号的块内容' },
   ],
@@ -96,6 +99,7 @@ export const CLOZE_TEMPLATE: ICardTemplate = {
   id: 'builtin-cloze',
   name: '填空卡片',
   description: '包含填空位置的卡片',
+  category: 'cloze',
   fields: [
     { name: 'content', description: '包含填空的内容' },
   ],
@@ -131,6 +135,7 @@ export const LIST_ITEM_TEMPLATE: ICardTemplate = {
   id: 'builtin-list-item',
   name: '列表项模版',
   description: '父列表项作为问题，每个子列表项作为独立答案',
+  category: 'list',
   fields: [
     { name: 'question', description: '问题（父列表项）' },
     { name: 'answer', description: '答案（子列表项）' },
@@ -169,6 +174,7 @@ export const CONCEPT_DESCRIPTOR_TEMPLATE: ICardTemplate = {
   id: 'builtin-concept-descriptor',
   name: '概念-描述符',
   description: '用于概念及其属性的卡片',
+  category: 'concept',
   fields: [
     { name: 'concept', description: '概念块' },
     { name: 'descriptor', description: '描述符块' },
@@ -208,6 +214,7 @@ export const MULTI_CLOZE_TEMPLATE: ICardTemplate = {
   id: 'builtin-multi-cloze',
   name: '多填空卡片',
   description: '每个填空生成一张独立的卡片',
+  category: 'cloze',
   fields: [
     { name: 'content', description: '包含多个填空的内容' },
   ],
@@ -247,6 +254,7 @@ export const CONCEPT_DEFINITION_TEMPLATE: ICardTemplate = {
   id: 'builtin-concept-definition',
   name: '概念定义',
   description: '用于概念及其定义的卡片',
+  category: 'concept',
   fields: [
     { name: 'concept', description: '概念块（块引用指向的文档块）' },
     { name: 'definition', description: '定义块（包含 :: 符号的块）' },

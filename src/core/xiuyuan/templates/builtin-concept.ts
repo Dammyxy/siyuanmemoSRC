@@ -13,6 +13,7 @@ export const BUILTIN_CONCEPT_TEMPLATE: ICardTemplate = {
   id: 'builtin-concept-simple',
   name: '概念卡（简单）',
   description: '单块概念卡，用于记忆概念、术语、定义',
+  category: 'concept',
   version: '1.0.0',
   
   fields: [

@@ -191,6 +191,15 @@ export interface ICardMapping {
 }
 
 /**
+ * 模板分类
+ * 
+ * @type TemplateCategory
+ * @description
+ * 模板的分类类型，用于在 UI 中分组显示。
+ */
+export type TemplateCategory = 'basic' | 'cloze' | 'list' | 'concept' | 'quick';
+
+/**
  * 卡片模板
  * 
  * @interface ICardTemplate
@@ -205,6 +214,8 @@ export interface ICardTemplate {
   name: string;
   /** 模板描述 */
   description?: string;
+  /** 模板分类（用于 UI 分组显示） */
+  category?: TemplateCategory;
   /** 字段定义（定义模板需要哪些字段） */
   fields: Array<{ name: string; description?: string }>;
   /** 卡片生成规则（定义如何从字段生成卡片） */

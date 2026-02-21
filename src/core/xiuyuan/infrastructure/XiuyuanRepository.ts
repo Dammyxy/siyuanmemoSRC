@@ -85,7 +85,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       // 3.1 查找需要删除的卡片（存在于 storage 但不在 xiuyuan 中）
       const allStorageCards = this.storage.getAllCards();
       const cardsToDelete = allStorageCards.filter(
-        storageCard => storageCard.xiuyuanID === xiuyuanId && !currentCardIds.has(storageCard.id)
+        storageCard => storageCard.meta?.xiuyuanID === xiuyuanId && !currentCardIds.has(storageCard.id)
       );
       
       // 3.2 删除已移除的卡片
@@ -112,8 +112,9 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         console.log(`[XiuyuanRepository] Deleted ${cardsToDelete.length} cards, forcing immediate save`);
         const saveResult = await this.storage.save();
         if (!saveResult.ok) {
-          console.error('[XiuyuanRepository] Failed to save after deletion:', saveResult.error);
-          return saveResult;
+          const error = (saveResult as any).error || new Error('Failed to save after deletion');
+          console.error('[XiuyuanRepository] Failed to save after deletion:', error);
+          return err(error);
         }
       }
 
@@ -382,6 +383,15 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         fieldMapping: {},
         frontFields: [],
         backFields: [],
+        // 🆕 添加 faces 信息，用于多挖空卡渲染
+        faces: xiuyuan.getFaces().map(face => ({
+          question: face.question,
+          answer: face.answer,
+          questionBlockId: face.questionBlockId,
+          answerBlockId: face.answerBlockId,
+        })),
+        // 🆕 添加当前卡片的 faceIndex，用于确定显示哪个挖空
+        faceIndex: card.getFaceIndex(),
       },
       
       // 时间戳
@@ -417,25 +427,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           questionBlockId: face.questionBlockId,
           answerBlockId: face.answerBlockId
         })),
-        cards: xiuyuan.getCards().map(card => ({
-          id: card.getId().getValue(),
-          xiuyuanId: card.getXiuyuanId().getValue(),
-          faceIndex: card.getFaceIndex(),
-          scheduleInfo: {
-            due: card.getScheduleInfo().due.getTime(),
-            stability: card.getScheduleInfo().stability,
-            difficulty: card.getScheduleInfo().difficulty,
-            reps: card.getScheduleInfo().reps,
-            lapses: card.getScheduleInfo().lapses,
-            state: card.getScheduleInfo().state,
-            lastReview: card.getScheduleInfo().lastReview.getTime(),
-            elapsedDays: card.getScheduleInfo().elapsedDays,
-            scheduledDays: card.getScheduleInfo().scheduledDays,
-            learning_step: card.getScheduleInfo().learning_step
-          },
-          createdAt: card.getCreatedAt().getTime(),
-          updatedAt: card.getUpdatedAt().getTime()
-        }))
+        // ✅ 只存储 Card ID 引用，不存储完整的 Card 数据
+        cardIds: xiuyuan.getCards().map(card => card.getId().getValue())
       }
     };
   }
@@ -454,6 +447,48 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       createdAt: xiuyuan.getCreatedAt().getTime(),
       updatedAt: xiuyuan.getUpdatedAt().getTime()
     };
+  }
+
+  /**
+   * 从 CardPersistenceDTO 重建 Card 领域实体
+   * 
+   * @param dto - Card 持久化 DTO
+   * @param xiuyuanId - Xiuyuan ID
+   * @returns Result<Card>
+   * @private
+   */
+  private cardFromDTO(dto: any, xiuyuanId: XiuyuanId): Result<Card> {
+    try {
+      const cardIdResult = CardId.create(dto.id);
+      if (!cardIdResult.ok) return err(new Error(`Invalid CardId: ${dto.id}`));
+
+      const scheduleInfoResult = ScheduleInfo.create({
+        due: new Date(dto.due),
+        stability: dto.stability,
+        difficulty: dto.difficulty,
+        reps: dto.reps,
+        lapses: dto.lapses,
+        state: dto.state as CardState,
+        lastReview: new Date(dto.lastReview),
+        elapsedDays: dto.elapsedDays,
+        scheduledDays: dto.scheduledDays,
+        learning_step: dto.learning_step
+      });
+      if (!scheduleInfoResult.ok) return err(new Error('Invalid ScheduleInfo'));
+
+      const cardResult = Card.create({
+        id: cardIdResult.value,
+        xiuyuanId: xiuyuanId,
+        faceIndex: dto.meta?.ruleIndex || 0,
+        scheduleInfo: scheduleInfoResult.value,
+        createdAt: new Date(dto.createdAt),
+        updatedAt: new Date(dto.updatedAt)
+      });
+
+      return cardResult;
+    } catch (error) {
+      return err(error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   /**
@@ -500,41 +535,23 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       }
       const priority = priorityResult.ok ? priorityResult.value : Priority.createDefault();
 
-      // 6. 转换 Cards（从 meta 中恢复）
-      const cardsData = (data.meta?.cards as any[]) || [];
+      // 6. 转换 Cards（从 cardIds 加载）
       const cardsMap = new Map<CardId, Card>();
+      const cardIds = (data.meta?.cardIds as string[]) || [];
       
-      for (const cardData of cardsData) {
-        const cardIdResult = CardId.create(cardData.id);
-        if (!cardIdResult.ok) continue;
-
-        const xiuyuanIdResult = XiuyuanId.create(cardData.xiuyuanId);
-        if (!xiuyuanIdResult.ok) continue;
-
-        const scheduleInfoResult = ScheduleInfo.create({
-          due: new Date(cardData.scheduleInfo.due),
-          stability: cardData.scheduleInfo.stability,
-          difficulty: cardData.scheduleInfo.difficulty,
-          reps: cardData.scheduleInfo.reps,
-          lapses: cardData.scheduleInfo.lapses,
-          state: cardData.scheduleInfo.state as CardState,
-          lastReview: new Date(cardData.scheduleInfo.lastReview),
-          elapsedDays: cardData.scheduleInfo.elapsedDays,
-          scheduledDays: cardData.scheduleInfo.scheduledDays,
-          learning_step: cardData.scheduleInfo.learning_step
-        });
-        if (!scheduleInfoResult.ok) continue;
-
-        const cardResult = Card.create({
-          id: cardIdResult.value,
-          xiuyuanId: xiuyuanIdResult.value,
-          faceIndex: cardData.faceIndex,
-          scheduleInfo: scheduleInfoResult.value,
-          createdAt: new Date(cardData.createdAt),
-          updatedAt: new Date(cardData.updatedAt)
-        });
+      for (const cardId of cardIds) {
+        const cardDTO = this.storage.getCardDTO(cardId);
+        if (!cardDTO) {
+          console.warn(`[XiuyuanRepository] Card DTO not found: ${cardId}`);
+          continue;
+        }
+        
+        const cardResult = this.cardFromDTO(cardDTO, idResult.value);
         if (cardResult.ok) {
-          cardsMap.set(cardIdResult.value, cardResult.value);
+          const cardIdObj = CardId.create(cardId);
+          if (cardIdObj.ok) {
+            cardsMap.set(cardIdObj.value, cardResult.value);
+          }
         }
       }
 

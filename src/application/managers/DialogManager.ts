@@ -16,7 +16,7 @@ import { createVueDialog } from '@/utils/dialog';
 import { SettingsPanel } from '@/ui/settings';
 import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
 import { TemplateSelectDialog } from '@/ui/xiuyuan';
-import { pushMsg, pushErrMsg } from '@/core/siyuan/api';
+import { pushMsg, pushErrMsg, sql } from '@/core/siyuan/api';
 import { riff } from '@/core/siyuan';
 import { createUnifiedReviewDialog } from '@/application/factories/createUnifiedReviewDialog';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
@@ -895,6 +895,154 @@ export class DialogManager implements IDialogManager {
   // ========================================================================
   
   /**
+   * 处理多填空卡片的创建
+   * 
+   * @description
+   * 多填空卡片需要特殊处理：
+   * 1. 读取块内容
+   * 2. 解析所有填空
+   * 3. 动态生成 cardRules（每个填空一个 rule）
+   * 4. 创建卡片
+   * 
+   * @param blockIds - 块 ID 列表（多填空卡只使用第一个块）
+   * @param template - 多填空模版
+   */
+  private async handleMultiClozeCard(blockIds: string[], template: any): Promise<void> {
+    try {
+      if (blockIds.length === 0) {
+        pushErrMsg('未选中任何块');
+        return;
+      }
+
+      const blockId = blockIds[0];
+
+      // 1. 读取块内容
+      const blocks = await sql(`SELECT * FROM blocks WHERE id = '${blockId}'`);
+      if (!blocks || blocks.length === 0) {
+        pushErrMsg('无法读取块内容');
+        return;
+      }
+
+      const block = blocks[0];
+      // 优先使用 markdown 字段，如果没有则使用 content 字段
+      let content = block.markdown || block.content || '';
+      
+      // 移除 IAL（Inline Attribute List）
+      // 格式：{: id="..." updated="..." ...}
+      content = content.replace(/\{:.*?\}/g, '').trim();
+      
+      console.log('[DialogManager] Block content:', content);
+
+      // 2. 解析填空
+      const clozes = this.extractClozes(content);
+
+      if (clozes.length === 0) {
+        pushErrMsg('未找到填空内容（支持 {{}}、== 和思源标记）');
+        return;
+      }
+
+      // 3. 动态生成 cardRules
+      const dynamicTemplate = {
+        ...template,
+        cardRules: clozes.map((_, index) => ({
+          typeMarker: `cloze-${index}`,
+          frontFields: ['content'],
+          backFields: ['content'],
+        })),
+      };
+
+      // 4. 创建卡片
+      const xiuyuanAppService = this.context.getXiuyuanApplicationService();
+      const result = await xiuyuanAppService.createFromBlocks({
+        blockIds: [blockId],
+        templateId: template.id,
+        fieldMapping: { content: blockId },
+        deckId: riff.BUILTIN_DECK_ID,
+        // 🆕 传入动态模版（覆盖原模版）
+        template: dynamicTemplate,
+        // 🆕 传入填空信息
+        clozeInfo: {
+          originalContent: content,
+          clozes: clozes,
+        },
+      });
+
+      if (!result.ok) {
+        console.error('[DialogManager] Failed to create multi-cloze card:', result.error);
+        pushErrMsg(`创建失败：${result.error.message}`);
+        return;
+      }
+
+      const { xiuyuan, cards } = result.value;
+      console.log('[DialogManager] Multi-cloze cards created:', { xiuyuan, cards, clozeCount: clozes.length });
+
+      pushMsg(
+        `✅ 多填空卡片创建成功！\n` +
+        `找到填空：${clozes.length} 个\n` +
+        `生成卡片：${cards.length} 张`
+      );
+    } catch (err) {
+      console.error('[DialogManager] Failed to handle multi-cloze card:', err);
+      pushErrMsg(`创建失败：${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * 提取块内容中的所有填空
+   * 
+   * @description
+   * 支持三种填空符号：
+   * - {{填空内容}}
+   * - ==填空内容==
+   * - <span data-type="mark">填空内容</span>（思源标记）
+   * 
+   * @param content - 块内容
+   * @returns 填空列表
+   */
+  private extractClozes(content: string): Array<{ text: string; start: number; end: number; type: string }> {
+    const clozes: Array<{ text: string; start: number; end: number; type: string }> = [];
+    
+    // 提取 {{}} 填空
+    const braceRegex = /\{\{([^}]*)\}\}/g;
+    let match;
+    while ((match = braceRegex.exec(content)) !== null) {
+      clozes.push({
+        text: match[1],
+        start: match.index,
+        end: match.index + match[0].length,
+        type: 'brace',
+      });
+    }
+    
+    // 提取 == 填空
+    const equalRegex = /==([^=]*)==/g;
+    while ((match = equalRegex.exec(content)) !== null) {
+      clozes.push({
+        text: match[1],
+        start: match.index,
+        end: match.index + match[0].length,
+        type: 'equal',
+      });
+    }
+    
+    // 提取思源标记填空
+    const markRegex = /<span data-type="mark">([^<]*)<\/span>/g;
+    while ((match = markRegex.exec(content)) !== null) {
+      clozes.push({
+        text: match[1],
+        start: match.index,
+        end: match.index + match[0].length,
+        type: 'mark',
+      });
+    }
+    
+    // 按位置排序
+    clozes.sort((a, b) => a.start - b.start);
+    
+    return clozes;
+  }
+
+  /**
    * 打开创建模板卡片对话框（Xiuyuan）- 带块 ID 列表
    * 
    * @param blockIds - 块 ID 列表
@@ -917,6 +1065,7 @@ export class DialogManager implements IDialogManager {
 
       // 获取所有可用模板
       const templates = await xiuyuanAppService.getAllTemplates();
+      
       if (templates.length === 0) {
         pushMsg('暂无可用模板，请先创建模板');
         return;
@@ -944,16 +1093,24 @@ export class DialogManager implements IDialogManager {
             const template = await xiuyuanAppService.getTemplate(templateId);
             if (!template) return;
 
-            // 自动字段映射：按顺序映射块到字段
-            const fieldMapping: Record<string, string> = {};
-            template.fields.forEach((field: any, index: number) => {
-              if (index < blockIds.length) {
-                fieldMapping[field.name] = blockIds[index];
-              }
-            });
-
-            // 创建 Xiuyuan 和卡片（使用 XiuyuanApplicationService）
             try {
+              // 🆕 多填空卡片特殊处理
+              if (templateId === 'builtin-multi-cloze') {
+                await this.handleMultiClozeCard(blockIds, template);
+                this.templateSelectDialog?.destroy();
+                this.templateSelectDialog = null;
+                return;
+              }
+
+              // 普通模版：自动字段映射
+              const fieldMapping: Record<string, string> = {};
+              template.fields.forEach((field: any, index: number) => {
+                if (index < blockIds.length) {
+                  fieldMapping[field.name] = blockIds[index];
+                }
+              });
+
+              // 创建 Xiuyuan 和卡片（使用 XiuyuanApplicationService）
               const result = await xiuyuanAppService.createFromBlocks({
                 blockIds,
                 templateId,
