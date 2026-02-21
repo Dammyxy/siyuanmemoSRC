@@ -7,6 +7,8 @@
  * - 提供渲染所需的所有数据
  */
 
+import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
+import type { BaseCardViewModel } from '@/core/card/common/application/types';
 import { DescriptorCard } from '../domain/DescriptorCard';
 import type { DescriptorCardRepository } from '../infrastructure/DescriptorCardRepository';
 import type { ParentConceptBlock, SiblingDescriptor } from '../infrastructure/DescriptorCardRepository';
@@ -14,10 +16,7 @@ import type { ParentConceptBlock, SiblingDescriptor } from '../infrastructure/De
 /**
  * 描述符卡视图模型
  */
-export interface DescriptorCardViewModel {
-  // 描述符卡信息
-  blockId: string;
-  
+export interface DescriptorCardViewModel extends BaseCardViewModel {
   // 正面内容（概念 + 属性名）
   frontHtml: string;
   
@@ -43,10 +42,12 @@ export interface DescriptorCardViewModel {
   warning: string | null;
 }
 
-export class DescriptorCardRenderService {
+export class DescriptorCardRenderService extends BaseCardRenderService {
   constructor(
     private repository: DescriptorCardRepository
-  ) {}
+  ) {
+    super(); // 调用基类构造函数
+  }
 
   /**
    * 准备描述符卡视图模型
@@ -67,12 +68,16 @@ export class DescriptorCardRenderService {
       // 2. 创建领域实体
       const card = new DescriptorCard(data);
 
-      // 3. 分离正面和背面内容
+      // 3. 使用基类方法加载面包屑
+      const breadcrumbs = await this.loadBreadcrumbs(blockId);
+
+      // 4. 分离正面和背面内容
       const { frontHtml, backHtml } = this.splitDescriptorContent(card);
 
-      // 4. 构建视图模型
+      // 5. 构建视图模型
       const viewModel: DescriptorCardViewModel = {
         blockId: card.blockId,
+        breadcrumbs, // 添加面包屑
         frontHtml,
         backHtml,
         attribute: card.attribute,

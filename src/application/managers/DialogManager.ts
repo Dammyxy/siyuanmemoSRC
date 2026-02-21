@@ -103,6 +103,9 @@ export class DialogManager implements IDialogManager {
       },
       events: {
         save: async (settings: any) => {
+          // 🔍 调试日志：检查接收到的 quickCard 配置
+          console.log('[DialogManager] Received settings with quickCard:', settings.quickCard);
+          
           const updatedSettings = {
             ...currentSettings,
             fsrs: {
@@ -120,6 +123,10 @@ export class DialogManager implements IDialogManager {
             quickCard: settings.quickCard || currentSettings.quickCard,
             ui: settings.ui || currentSettings.ui,
           };
+          
+          // 🔍 调试日志：检查合并后的 quickCard 配置
+          console.log('[DialogManager] Merged settings with quickCard:', updatedSettings.quickCard);
+          
           await settingsService.updateSettings(updatedSettings);
           plugin.scheduler.updateParams(updatedSettings.fsrs);
 
@@ -133,127 +140,23 @@ export class DialogManager implements IDialogManager {
             console.log('[DialogManager] ✅ SchedulerRouter config updated');
           }
 
-          // 更新 HybridSyncService 配置
+          // 更新 HybridSyncService 配置 (符合 DDD 架构)
           if (settings.riffIntegration && plugin.hybridSyncService) {
-            // 清理旧定时器
-            if (plugin.fullSyncTimer) {
-              clearInterval(plugin.fullSyncTimer);
-              plugin.fullSyncTimer = undefined;
-            }
-            
-            // 重启服务以应用新配置
-            plugin.hybridSyncService.stop();
-            const { HybridSyncService } = await import('@/application/services/XiuyuanSyncService');
-            const cardService = plugin.context?.getCardService?.();
-            const eventBus = plugin.context?.getEventBus?.();
-            
-            if (!cardService || !eventBus) {
-              console.error('[DialogManager] CardApplicationService or EventBus not available');
-              return;
-            }
-            
-            plugin.hybridSyncService = new HybridSyncService(
-              {
-                deckId: riff.BUILTIN_DECK_ID,
-                storage: storage,
-                incrementalSync: {
-                  ...settings.riffIntegration.incrementalSync,
-                  autoDetectCardType: true
-                },
-                fullSync: settings.riffIntegration.fullSync,
-                deleteSync: settings.riffIntegration.deleteSync
+            // 通过 ApplicationContext 更新配置 (符合 DDD 封装原则)
+            await this.context.updateHybridSyncConfig({
+              incrementalSync: {
+                ...settings.riffIntegration.incrementalSync,
+                autoDetectCardType: true
               },
-              cardService,
-              eventBus
-            );
-            await plugin.hybridSyncService.start();
-            
-            // 重启定时器
-            if (settings.riffIntegration.fullSync.enabled) {
-              plugin.fullSyncTimer = setInterval(
-                () => plugin.hybridSyncService!.fullSync(),
-                settings.riffIntegration.fullSync.interval
-              );
-              console.log(`[DialogManager] Full sync timer restarted (interval: ${settings.riffIntegration.fullSync.interval}ms)`);
-            }
-            
-            console.log('[DialogManager] ✅ HybridSyncService config updated');
-          } else if (settings.riffIntegration && !plugin.hybridSyncService) {
-            // 如果 HybridSyncService 未初始化，初始化它
-            const { HybridSyncService } = await import('@/application/services/XiuyuanSyncService');
-            const cardService = plugin.context?.getCardService?.();
-            const eventBus = plugin.context?.getEventBus?.();
-            
-            if (!cardService || !eventBus) {
-              console.error('[DialogManager] CardApplicationService or EventBus not available');
-              return;
-            }
-            
-            plugin.hybridSyncService = new HybridSyncService(
-              {
-                deckId: riff.BUILTIN_DECK_ID,
-                storage: storage,
-                incrementalSync: {
-                  ...settings.riffIntegration.incrementalSync,
-                  autoDetectCardType: true
-                },
-                fullSync: settings.riffIntegration.fullSync,
-                deleteSync: settings.riffIntegration.deleteSync
-              },
-              cardService,
-              eventBus
-            );
-            await plugin.hybridSyncService.start();
-            
-            // 启动定时器
-            if (settings.riffIntegration.fullSync.enabled) {
-              plugin.fullSyncTimer = setInterval(
-                () => plugin.hybridSyncService!.fullSync(),
-                settings.riffIntegration.fullSync.interval
-              );
-              console.log(`[DialogManager] Full sync timer started (interval: ${settings.riffIntegration.fullSync.interval}ms)`);
-            }
-            
-            console.log('[DialogManager] ✅ HybridSyncService initialized');
+              fullSync: settings.riffIntegration.fullSync,
+              deleteSync: settings.riffIntegration.deleteSync
+            });
           }
 
-          // 更新 TransactionWebSocketService 配置
+          // 更新 TransactionWebSocketService 配置 (符合 DDD 架构)
           if (settings.riffIntegration) {
             const incrementalEnabled = settings.riffIntegration.incrementalSync?.enabled || false;
-            
-            if (incrementalEnabled && plugin.hybridSyncService) {
-              // 需要启用 TransactionWebSocketService
-              if (!plugin.transactionWebSocketService) {
-                // 初始化服务
-                console.log('[DialogManager] Initializing TransactionWebSocketService...');
-                const { TransactionWebSocketService } = await import('@/core/infrastructure/websocket/TransactionWebSocketService');
-                const { RiffSyncHandler } = await import('@/application/handlers/RiffSyncHandler');
-                const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
-                
-                plugin.transactionWebSocketService = new TransactionWebSocketService(plugin);
-                
-                // 创建并注册 RiffSyncHandler
-                const riffSyncHandler = new RiffSyncHandler(plugin.hybridSyncService);
-                plugin.transactionWebSocketService.registerHandler(riffSyncHandler);
-                
-                // 创建并注册 AutoCardHandler
-                const autoCardHandler = new AutoCardHandler(plugin);
-                plugin.transactionWebSocketService.registerHandler(autoCardHandler);
-                console.log('[DialogManager] ✅ AutoCardHandler registered');
-                
-                // 启动服务
-                plugin.transactionWebSocketService.start();
-                console.log('[DialogManager] ✅ TransactionWebSocketService initialized and started');
-              }
-            } else {
-              // 需要停止 TransactionWebSocketService
-              if (plugin.transactionWebSocketService) {
-                console.log('[DialogManager] Stopping TransactionWebSocketService...');
-                plugin.transactionWebSocketService.stop();
-                plugin.transactionWebSocketService = undefined;
-                console.log('[DialogManager] ✅ TransactionWebSocketService stopped');
-              }
-            }
+            await this.context.updateTransactionWebSocketService(incrementalEnabled);
           }
         },
         close: () => {

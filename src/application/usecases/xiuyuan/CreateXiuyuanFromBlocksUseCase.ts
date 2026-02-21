@@ -64,7 +64,18 @@ export class CreateXiuyuanFromBlocksUseCase {
    */
   async execute(command: CreateXiuyuanFromBlocksCommand): Promise<Result<any>> {
     try {
-      // 1. 验证模板（优先使用自定义模版）
+      // 1. 检查是否已经创建过 Xiuyuan 卡片
+      const { getBlockAttrs } = await import('@/core/siyuan/api');
+      const firstBlockId = command.blockIds[0];
+      const attrs = await getBlockAttrs(firstBlockId);
+      
+      if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
+        const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
+        console.log(`[CreateXiuyuanFromBlocksUseCase] Block ${firstBlockId} already has Xiuyuan: ${existingXiuyuanId}`);
+        return err(new Error('此块已经创建过修缘卡片，请勿重复创建'));
+      }
+      
+      // 2. 验证模板（优先使用自定义模版）
       const template = command.template || this.templateRegistry.get(command.templateId);
       if (!template) {
         return err(new Error(`Template not found: ${command.templateId}`));
@@ -74,7 +85,7 @@ export class CreateXiuyuanFromBlocksUseCase {
         return err(new Error('Template has no card rules'));
       }
 
-      // 2. 创建值对象
+      // 3. 创建值对象
       const xiuyuanIdResult = XiuyuanId.create(`xy_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
       if (!xiuyuanIdResult.ok) {
         return xiuyuanIdResult as Result<any>;
@@ -95,7 +106,7 @@ export class CreateXiuyuanFromBlocksUseCase {
       const priorityResult = Priority.create(command.priority || 50);
       const priority = priorityResult.ok ? priorityResult.value : Priority.createDefault();
 
-      // 3. 构建 CardFace（从 fieldMapping 和模板）
+      // 4. 构建 CardFace（从 fieldMapping 和模板）
       const faces: CardFace[] = [];
       const fieldMapping = command.fieldMapping || {};
 
@@ -143,7 +154,7 @@ export class CreateXiuyuanFromBlocksUseCase {
         }
       }
 
-      // 4. 创建 Xiuyuan 聚合根
+      // 5. 创建 Xiuyuan 聚合根
       const xiuyuanResult = Xiuyuan.create({
         id: xiuyuanIdResult.value,
         blockIDs: blockIds,
@@ -162,7 +173,7 @@ export class CreateXiuyuanFromBlocksUseCase {
 
       const xiuyuan = xiuyuanResult.value;
 
-      // 4.5. 为每个 face 创建卡片
+      // 6. 为每个 face 创建卡片
       for (let i = 0; i < faces.length; i++) {
         const cardResult = xiuyuan.createCard(i);
         if (!cardResult.ok) {
@@ -172,7 +183,7 @@ export class CreateXiuyuanFromBlocksUseCase {
         }
       }
 
-      // 5. 添加到 Riff（可选，错误不阻断）
+      // 7. 添加到 Riff（可选，错误不阻断）
       const deckId = command.deckId || BUILTIN_DECK_ID;
       const representativeBlockId = command.blockIds[0];
       
@@ -184,13 +195,13 @@ export class CreateXiuyuanFromBlocksUseCase {
         // 不阻断流程
       }
 
-      // 6. 通过 Repository 持久化
+      // 8. 通过 Repository 持久化
       const saveResult = await this.xiuyuanRepository.save(xiuyuan);
       if (!saveResult.ok) {
         return saveResult as Result<any>;
       }
 
-      // 7. 返回结果
+      // 9. 返回结果
       return ok({
         xiuyuan: {
           id: xiuyuan.getId().getValue(),

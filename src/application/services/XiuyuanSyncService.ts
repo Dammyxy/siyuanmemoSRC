@@ -1,4 +1,4 @@
-﻿/**
+﻿﻿/**
  * XiuyuanSyncService - Xiuyuan 同步服务（优化版）
  * 
  * 管理 Riff 系统的 Xiuyuan 卡片同步：
@@ -179,6 +179,26 @@ export class XiuyuanSyncService {
         console.log('[SiYuanMemo][HybridSync] Stopping sync service...');
         console.log('[SiYuanMemo][HybridSync] Sync service stopped');
     }
+
+    /**
+     * 更新同步配置
+     *
+     * 符合 DDD 架构原则:
+     * - 通过公开方法修改内部状态
+     * - 保持封装性
+     * - 提供清晰的配置更新接口
+     *
+     * @param config - 新的同步配置
+     */
+    updateConfig(config: Partial<HybridSyncConfig>): void {
+        this.config = {
+            ...this.config,
+            ...config,
+            retry: config.retry || this.config.retry
+        };
+        console.log('[XiuyuanSyncService] Config updated:', this.config);
+    }
+
     
     /**
      * 增量同步（公共方法）
@@ -307,9 +327,10 @@ export class XiuyuanSyncService {
                             }
                         }
                         
-                        // 1.4 A-Factor（从块属性读取）
-                        const aFactorAttr = riffCard.ial?.['custom-fsrs-a-factor'];
-                        const newAFactor = aFactorAttr ? parseFloat(aFactorAttr) : undefined;
+                        // 1.4 A-Factor（从卡片数据读取，不再从块属性读取）
+                        // 🔧 修复：A-Factor 只存储在 FSRSCard.aFactor 中
+                        const existingCard = this.config.storage.getCard(riffCard.blockId);
+                        const newAFactor = existingCard?.aFactor;
                         
                         // 2. 比较并更新
                         // 2.1 更新优先级
@@ -904,13 +925,8 @@ export class XiuyuanSyncService {
                             [ATTR_CARD_TYPE]: cardType,
                         };
                         
-                        // Topic 卡片初始化 A-Factor
-                        if (cardType === 'topic') {
-                            // 使用默认优先级 50（RiffCard 不包含 priority 字段）
-                            const priority = 50;
-                            const aFactor = initializeAFactor(priority);
-                            attrs[ATTR_A_FACTOR] = aFactor.toString();
-                        }
+                        // 🔧 修复：不再写入 A-Factor 块属性，只保留在卡片数据中
+                        // Topic 卡片的 A-Factor 存储在 FSRSCard.aFactor 中
                         
                         await setBlockAttrs(card.id, attrs);
                         updated++;

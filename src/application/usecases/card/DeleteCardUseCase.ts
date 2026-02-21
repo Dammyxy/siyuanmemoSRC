@@ -91,7 +91,7 @@ export class DeleteCardUseCase {
         }
       }
       
-      // 3. 从 Riff 删除
+      // 3. 从 Riff 删除（会自动删除块属性）
       try {
         const { removeRiffCards } = await import('@/core/siyuan/riff');
         await removeRiffCards('', [cardId.getValue()]);
@@ -116,7 +116,17 @@ export class DeleteCardUseCase {
       return saveResult;
     }
 
-    // 6. 发布领域事件（包括 CardDeletedEvent）
+    // 6. 🔧 修复：从 Riff 删除卡片（会自动删除块属性）
+    try {
+      const { removeRiffCards } = await import('@/core/siyuan/riff');
+      await removeRiffCards('', [cardId.getValue()]);
+      console.log(`[DeleteCardUseCase] Deleted card from Riff: ${cardId.getValue()}`);
+    } catch (error) {
+      console.error(`[DeleteCardUseCase] Failed to delete card from Riff:`, error);
+      // Riff 删除失败不应该阻止整个删除操作
+    }
+
+    // 7. 发布领域事件（包括 CardDeletedEvent）
     // RiffSyncEventHandler 会监听这个事件并同步到 Riff
     const events = xiuyuan.getDomainEvents();
     console.log(`[DeleteCardUseCase] Publishing ${events.length} domain events...`);
@@ -127,7 +137,7 @@ export class DeleteCardUseCase {
     console.log(`[DeleteCardUseCase] Events published successfully`);
     xiuyuan.clearDomainEvents();
 
-    // 7. 返回成功结果
+    // 8. 返回成功结果
     return ok(undefined);
   }
 
@@ -141,7 +151,35 @@ export class DeleteCardUseCase {
   private async findXiuyuanAndCardId(cardId: CardId): Promise<Result<{xiuyuan: any, actualCardId: any}>> {
     console.log(`[DeleteCardUseCase] 🔍 查找卡片: ${cardId.getValue()}`);
     
-    // 获取所有 Xiuyuan
+    // ✅ 优化：先从 storage 获取卡片的 xiuyuanID，直接定位到对应的 Xiuyuan
+    const storage = (this.xiuyuanRepo as any).storage;
+    if (storage) {
+      const fsrsCard = storage.getCard(cardId.getValue());
+      if (fsrsCard && fsrsCard.xiuyuanID) {
+        console.log(`[DeleteCardUseCase] 🔍 从 FSRSCard 获取 xiuyuanID: ${fsrsCard.xiuyuanID}`);
+        
+        // 直接通过 xiuyuanID 查找 Xiuyuan
+        const xiuyuanResult = await this.xiuyuanRepo.findById(fsrsCard.xiuyuanID);
+        if (xiuyuanResult.ok && xiuyuanResult.value) {
+          const xiuyuan = xiuyuanResult.value;
+          const cards = xiuyuan.getCards();
+          console.log(`[DeleteCardUseCase] 🔍 Xiuyuan ${xiuyuan.getId().getValue()} 有 ${cards.length} 张卡片`);
+          
+          // 在该 Xiuyuan 中查找卡片
+          for (const card of cards) {
+            if (card.getId().equals(cardId)) {
+              console.log(`[DeleteCardUseCase] ✅ 找到卡片: ${card.getId().getValue()} in Xiuyuan ${xiuyuan.getId().getValue()}`);
+              return ok({ xiuyuan, actualCardId: card.getId() });
+            }
+          }
+          
+          console.warn(`[DeleteCardUseCase] ⚠️ Xiuyuan ${xiuyuan.getId().getValue()} 中没有找到卡片 ${cardId.getValue()}`);
+        }
+      }
+    }
+    
+    // 降级方案：遍历所有 Xiuyuan
+    console.log(`[DeleteCardUseCase] 🔍 降级方案：遍历所有 Xiuyuan`);
     const allXiuyuansResult = await this.xiuyuanRepo.findAll();
     if (!allXiuyuansResult.ok) {
       return allXiuyuansResult as Result<{xiuyuan: any, actualCardId: any}>;
@@ -151,7 +189,6 @@ export class DeleteCardUseCase {
     console.log(`[DeleteCardUseCase] 🔍 总共 ${allXiuyuans.length} 个 Xiuyuan`);
 
     // 遍历所有 Xiuyuan，查找包含该卡片的 Xiuyuan
-    // 注意：需要通过值比较，因为 CardId 是值对象
     for (const xiuyuan of allXiuyuans) {
       const cards = xiuyuan.getCards();
       console.log(`[DeleteCardUseCase] 🔍 Xiuyuan ${xiuyuan.getId().getValue()} 有 ${cards.length} 张卡片`);

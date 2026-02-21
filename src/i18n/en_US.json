@@ -594,7 +594,7 @@
   "enableDebugLogsHint": "Display detailed debug information in the browser console (for development, disabling can improve performance)",
   "makeConceptAndAddToQueue": "📍 Make Concept Card and Add to Queue",
   "makeConceptAndStartRoam": "🚀 Make Concept Card and Start Roaming",
-  "createListTemplateCard": "Create List Template Card",
+  "createListTemplateCard": "Create Ordered List Template Card",
   "dueMode": "Due",
   "allMode": "All",
   "temporaryDrill": "Temporary Drill",

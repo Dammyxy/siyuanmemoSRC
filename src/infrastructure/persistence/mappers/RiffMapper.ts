@@ -38,7 +38,8 @@ export class RiffMapper {
     const ial = riffBlock.ial || {};
     const cardTypeAttr = ial['custom-card-type'];
     const cardTypeMarkerAttr = ial['custom-fsrs-card-type'];
-    const aFactorAttr = ial['custom-fsrs-a-factor'];
+    // 🔧 修复：不再从块属性读取 A-Factor
+    // A-Factor 只存储在 FSRSCard.aFactor 中
     const priorityAttr = ial['custom-riff-priority'];
 
     // 2. 确定卡片类型
@@ -61,9 +62,9 @@ export class RiffMapper {
     const priority = Math.min(100, Math.max(0, riffPriority * 10)); // 转换为 0-100
 
     // 4. 提取 A-Factor（仅 Topic 卡片）
-    const aFactor = type === 'topic' && aFactorAttr 
-      ? parseFloat(aFactorAttr) 
-      : undefined;
+    // 🔧 修复：A-Factor 不再从块属性读取，将在后续从卡片数据中获取
+    // 如果是新卡片，会在创建时初始化
+    const aFactor = undefined;
 
     // 5. 构建 FSRSCard
     const card: FSRSCard = {

@@ -549,10 +549,10 @@ export class BlockMenuHandler {
       },
     });
 
-    // 创建列表模版卡（始终显示）
+    // 创建有序列表模版卡（始终显示）
     submenu.push({
       icon: 'iconList',
-      label: this.deps.i18n?.createListTemplateCard || '创建列表模版卡',
+      label: this.deps.i18n?.createListTemplateCard || '创建有序列表模版卡',
       click: async () => {
         // 检查子级是否为有序列表项
         const hasOrderedChildren = await this.hasOrderedListChildren(blockIds[0]);
@@ -1186,7 +1186,7 @@ export class BlockMenuHandler {
       });
 
       if (result.ok) {
-        await pushMsg(`✅ 成功创建 ${childBlockIds.length} 张列表模版卡！`);
+        await pushMsg(`✅ 成功创建 ${childBlockIds.length} 张有序列表模版卡！`);
         console.log(`[SiYuanMemo] 🎉 List template cards creation complete:`, result.value);
       } else {
         const errorMsg = result.ok === false ? result.error.message : 'Unknown error';

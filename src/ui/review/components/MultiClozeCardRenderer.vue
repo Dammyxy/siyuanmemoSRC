@@ -1,55 +1,60 @@
 <template>
   <div class="multi-cloze-card-renderer">
-    <!-- 正面：显示问题 -->
-    <div v-if="!showAnswer" class="multi-cloze-card-renderer__front">
-      <div class="multi-cloze-card-renderer__question" v-html="questionHtml"></div>
-    </div>
+    <!-- 加载状态 -->
+    <CardLoadingState v-if="loading" text="加载多挖孔卡片..." />
 
-    <!-- 背面：显示答案 -->
-    <div v-else class="multi-cloze-card-renderer__back">
-      <!-- 显示正面内容（灰色，左对齐） -->
-      <div class="multi-cloze-card-renderer__front-preview" v-html="questionHtml"></div>
-      
-      <!-- 答案分隔线 -->
-      <div class="multi-cloze-card-renderer__answer-divider">
-        <span>答案</span>
+    <!-- 错误状态 -->
+    <CardErrorState v-else-if="error" :message="error" />
+
+    <!-- 卡片内容 -->
+    <div v-else-if="viewModel" class="multi-cloze-card-renderer__content">
+      <!-- 面包屑 -->
+      <CardBreadcrumb :items="viewModel.breadcrumbs" />
+
+      <!-- 正面：显示问题 -->
+      <div v-if="!showAnswer" class="multi-cloze-card-renderer__front">
+        <div class="multi-cloze-card-renderer__question" v-html="viewModel.currentFace.question"></div>
       </div>
-      
-      <!-- 显示答案（左对齐） -->
-      <div class="multi-cloze-card-renderer__answer" v-html="answerHtml"></div>
+
+      <!-- 背面：显示答案 -->
+      <div v-else class="multi-cloze-card-renderer__back">
+        <div class="multi-cloze-card-renderer__front-preview" v-html="viewModel.currentFace.question"></div>
+        <div class="multi-cloze-card-renderer__answer-divider"><span>答案</span></div>
+        <div class="multi-cloze-card-renderer__answer" v-html="viewModel.currentFace.answer"></div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, onMounted } from 'vue';
+import { MultiClozeCardRenderService } from '@/core/card/multi-cloze/application/MultiClozeCardRenderService';
+import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
+import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
+import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
+import type { MultiClozeCardViewModel } from '@/core/card/multi-cloze/application/MultiClozeCardRenderService';
 
 const props = defineProps<{
-  card: any; // FSRSCard，包含 meta.faces 和 meta.faceIndex
+  card: any;
   showAnswer?: boolean;
 }>();
 
-/**
- * 获取当前卡片的 face
- */
-const currentFace = computed(() => {
-  const faces = props.card?.meta?.faces || [];
-  const faceIndex = props.card?.meta?.faceIndex ?? 0;
-  return faces[faceIndex] || { question: '', answer: '' };
-});
+const loading = ref(true);
+const error = ref<string | null>(null);
+const viewModel = ref<MultiClozeCardViewModel | null>(null);
 
-/**
- * 问题 HTML
- */
-const questionHtml = computed(() => {
-  return currentFace.value.question || '';
-});
+const renderService = new MultiClozeCardRenderService();
 
-/**
- * 答案 HTML
- */
-const answerHtml = computed(() => {
-  return currentFace.value.answer || '';
+onMounted(async () => {
+  try {
+    loading.value = true;
+    viewModel.value = await renderService.prepareViewModel(props.card);
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+    console.error('[MultiClozeCardRenderer] Failed to load view model:', err);
+  } finally {
+    loading.value = false;
+  }
 });
 </script>
 
@@ -59,6 +64,13 @@ const answerHtml = computed(() => {
   flex-direction: column;
   height: 100%;
   background: var(--b3-theme-background);
+}
+
+.multi-cloze-card-renderer__content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: auto;
 }
 
 /* 正面样式 - 与背面保持相同位置 */

@@ -616,6 +616,9 @@ const todayRangeText = computed(() => {
 
 // 加载设置
 function loadSettings() {
+  // 🔍 调试日志：检查接收到的 quickCardSettings
+  console.log('[SettingsPanel] Loading settings with quickCardSettings:', props.quickCardSettings);
+  
   if (props.fsrsSettings) {
     settings.value = {
       requestRetention: props.fsrsSettings.requestRetention,
@@ -623,10 +626,25 @@ function loadSettings() {
       enableShortTerm: props.fsrsSettings.enableShortTerm,
       params: [...props.fsrsSettings.weights],
       dayStartHour: props.fsrsSettings.dayStartHour ?? 4,  // 🆕 加载 dayStartHour 配置
-      quickCard: {  // 🆕 初始化 quickCard 字段
+      quickCard: {  // 🆕 初始化完整的 quickCard 字段
         enabled: props.quickCardSettings?.enabled ?? false,
+        enabledSymbols: props.quickCardSettings?.enabledSymbols || {
+          basic: true,
+          concept: true,
+          descriptor: true,
+          cloze: true,
+          multiLine: true,
+        },
+        debounceDelay: props.quickCardSettings?.debounceDelay || {
+          quick: 300,
+          list: 2000,
+        },
+        descriptorUseXiuyuan: props.quickCardSettings?.descriptorUseXiuyuan ?? true,
       },
     };
+    
+    // 🔍 调试日志：检查初始化后的 settings.quickCard
+    console.log('[SettingsPanel] Initialized settings.quickCard:', settings.value.quickCard);
   }
   
   // 🆕 加载快速制卡设置
@@ -718,16 +736,10 @@ function saveSettings() {
   if (triggers.value.browserOpen) triggersArray.push('browser-open');
   if (triggers.value.reviewOpen) triggersArray.push('review-open');
 
-  emit('save', {
+  const settingsToSave = {
     ...settings.value,
     queues,
-    // 🆕 保存快速制卡配置（使用 settings.quickCard，因为模板绑定的是这个）
-    quickCard: {
-      enabled: settings.value.quickCard.enabled,  // 🔧 修复：使用 settings.quickCard 而不是 quickCardSettings
-      enabledSymbols: quickCardSettings.value.enabledSymbols,
-      debounceDelay: quickCardSettings.value.debounceDelay,
-      descriptorUseXiuyuan: quickCardSettings.value.descriptorUseXiuyuan,
-    },
+    // quickCard 已经在 settings.value 中,不需要单独处理
     // 🆕 保存调度器配置
     scheduler: {
       defaultScheduler: schedulerConfig.value.defaultScheduler,
@@ -744,7 +756,12 @@ function saveSettings() {
       fullSync: riffIntegrationConfig.value.fullSync,
       deleteSync: riffIntegrationConfig.value.deleteSync,
     },
-  });
+  };
+  
+  // 🔍 调试日志：检查 quickCard 配置
+  console.log('[SettingsPanel] Saving settings with quickCard:', settingsToSave.quickCard);
+  
+  emit('save', settingsToSave);
 }
 
 // 重置默认

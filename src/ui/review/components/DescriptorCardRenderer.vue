@@ -1,19 +1,16 @@
 <template>
   <div class="descriptor-card-renderer">
     <!-- 加载状态 -->
-    <div v-if="loading" class="descriptor-card-renderer__loading">
-      <div class="descriptor-card-renderer__spinner"></div>
-      <div class="descriptor-card-renderer__loading-text">{{ t('loading', '加载中...') }}</div>
-    </div>
+    <CardLoadingState v-if="loading" :text="t('loading', '加载中...')" />
 
     <!-- 错误状态 -->
-    <div v-else-if="error" class="descriptor-card-renderer__error">
-      <div class="descriptor-card-renderer__error-icon">⚠️</div>
-      <div class="descriptor-card-renderer__error-text">{{ error }}</div>
-    </div>
+    <CardErrorState v-else-if="error" :message="error" />
 
     <!-- 描述符卡内容 -->
     <div v-else-if="viewModel" class="descriptor-card-renderer__content">
+      <!-- 面包屑 -->
+      <CardBreadcrumb :items="viewModel.breadcrumbs" />
+
       <!-- 父概念上下文栏（始终显示） -->
       <div v-if="viewModel.parentConcept" class="descriptor-card-renderer__parent-concept">
         <div class="descriptor-card-renderer__parent-header">
@@ -130,6 +127,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { openTab } from 'siyuan';
+import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
+import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
+import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import type { DescriptorCardViewModel } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 import type { DescriptorCardRenderService } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 
@@ -219,54 +219,6 @@ onMounted(async () => {
   flex-direction: column;
   height: 100%;
   background: var(--b3-theme-background);
-}
-
-/* 加载状态 */
-.descriptor-card-renderer__loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 16px;
-  gap: 12px;
-}
-
-.descriptor-card-renderer__spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid var(--b3-border-color);
-  border-top-color: var(--b3-theme-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.descriptor-card-renderer__loading-text {
-  font-size: 14px;
-  color: var(--b3-theme-on-surface-light);
-}
-
-/* 错误状态 */
-.descriptor-card-renderer__error {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 16px;
-  gap: 12px;
-}
-
-.descriptor-card-renderer__error-icon {
-  font-size: 48px;
-}
-
-.descriptor-card-renderer__error-text {
-  font-size: 14px;
-  color: var(--b3-theme-error);
-  text-align: center;
 }
 
 /* 内容区域 */

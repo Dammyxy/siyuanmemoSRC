@@ -228,21 +228,25 @@ export class RetrievalDataSource implements ICardDataSource {
           return 0;
         }
         
-        const blockIds = selectedRows.map(row => row.blockId);
         let deletedCount = 0;
         
-        for (const blockId of blockIds) {
-          const command: DeleteCardCommand = { cardId: blockId };
+        for (const row of selectedRows) {
+          // ✅ 修复：直接使用 fsrsCardId（Xiuyuan 卡片的真实 cardId）
+          const cardId = row.fsrsCardId || row.id;
+          
+          console.log(`[SiYuanMemo][RetrievalDataSource] Deleting card: ${cardId} (blockId: ${row.blockId})`);
+          
+          const command: DeleteCardCommand = { cardId };
           const result = await cardService.deleteCard(command);
           
           if (result.ok) {
             deletedCount++;
           } else {
-            console.error(`[SiYuanMemo][RetrievalDataSource] Failed to delete card ${blockId}:`, result.error);
+            console.error(`[SiYuanMemo][RetrievalDataSource] Failed to delete card ${cardId}:`, result.error);
           }
         }
         
-        console.log(`[SiYuanMemo][RetrievalDataSource] Deleted ${deletedCount}/${blockIds.length} cards`);
+        console.log(`[SiYuanMemo][RetrievalDataSource] Deleted ${deletedCount}/${selectedRows.length} cards`);
         return deletedCount;
       }
 

@@ -437,7 +437,16 @@ export class AutoCardHandler implements ITransactionHandler {
             
             console.log('[SiYuanMemo][AutoCard] Checking quick symbols:', blockId, 'content:', kramdown);
             
-            // 2. 检查是否已制卡
+            // 2. ✅ 检查是否已经是 Xiuyuan 卡片（通过块属性）
+            const { getBlockAttrs } = await import('@/core/siyuan/api');
+            const attrs = await getBlockAttrs(blockId);
+            
+            if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
+                console.log('[SiYuanMemo][AutoCard] Block is already part of a Xiuyuan card, skipping:', blockId);
+                return;
+            }
+            
+            // 3. 检查是否已制卡
             const cardService = this.getCardService();
             let existingCard = null;
             
@@ -452,7 +461,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
             
-            // 🆕 3. 批量检测所有符号（方案 3）
+            // 🆕 4. 批量检测所有符号（方案 3）
             const detectedSymbols = this.detectAllSymbols(kramdown, quickCardSettings);
             
             if (detectedSymbols.length === 0) {
@@ -465,7 +474,7 @@ export class AutoCardHandler implements ITransactionHandler {
             // 移除 IAL，用于后续的卡片创建
             const cleanContent = kramdown.replace(/\{:[^}]*\}/g, '').trim();
             
-            // 🆕 4. 批量创建卡片
+            // 🆕 5. 批量创建卡片
             for (const symbol of detectedSymbols) {
                 try {
                     await this.createCardBySymbol(blockId, symbol, cleanContent);

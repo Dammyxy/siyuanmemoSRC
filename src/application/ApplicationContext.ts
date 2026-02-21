@@ -258,7 +258,10 @@ export class ApplicationContext {
     // 应用层服务
     this.registerServiceFactory('settingsService', (context) => {
       const fileService = context.getFileService();
-      return new SettingsService(fileService);
+      const service = new SettingsService(fileService);
+      // 🔧 修复：延迟初始化（在首次使用前）
+      // 注意：init() 会在 ApplicationContext.create() 中调用
+      return service;
     });
     
     this.registerServiceFactory('reviewLogService', (context) => {
@@ -841,6 +844,10 @@ export class ApplicationContext {
     
     // 13.5. 初始化 UnifiedDataSourceManager 的延迟依赖
     const settingsService = context.getSettingsService();
+    // 🔧 修复：初始化 SettingsService（加载配置文件）
+    await settingsService.init();
+    console.log('[ApplicationContext] ✅ SettingsService initialized');
+    
     const advancedRouter = new AdvancedDataRouter(
       cardApplicationService, 
       unifiedStorageManager as any,  // ✅ 使用 UnifiedStorageManager
@@ -1139,6 +1146,91 @@ export class ApplicationContext {
   }
   
   /**
+   * 更新混合同步服务配置并重启定时器
+   * 
+   * 符合 DDD 架构原则:
+   * - 封装定时器管理逻辑
+   * - 提供清晰的配置更新接口
+   * - 避免外部直接访问内部状态
+   * 
+   * @param config - 新的同步配置
+   */
+  async updateHybridSyncConfig(config: Partial<any>): Promise<void> {
+    if (!this.hybridSyncService) {
+      console.warn('[ApplicationContext] HybridSyncService not initialized');
+      return;
+    }
+    
+    // 清理旧定时器
+    if (this.fullSyncTimer) {
+      clearInterval(this.fullSyncTimer);
+      this.fullSyncTimer = undefined;
+    }
+    
+    // 更新配置
+    this.hybridSyncService.updateConfig(config);
+    
+    // 重启服务
+    this.hybridSyncService.stop();
+    await this.hybridSyncService.start();
+    
+    // 重启定时器
+    if (config.fullSync?.enabled) {
+      this.fullSyncTimer = setInterval(
+        () => this.hybridSyncService!.fullSync(),
+        config.fullSync.interval
+      );
+      console.log(`[ApplicationContext] Full sync timer restarted (interval: ${config.fullSync.interval}ms)`);
+    }
+    
+    console.log('[ApplicationContext] ✅ HybridSyncService config updated');
+  }
+  
+  /**
+   * 更新 TransactionWebSocketService 状态
+   * 
+   * 符合 DDD 架构原则:
+   * - 封装 WebSocket 服务管理逻辑
+   * - 提供清晰的启用/禁用接口
+   * 
+   * @param enabled - 是否启用增量同步
+   */
+  async updateTransactionWebSocketService(enabled: boolean): Promise<void> {
+    if (enabled && this.hybridSyncService) {
+      // 需要启用 TransactionWebSocketService
+      if (!this.transactionWebSocketService) {
+        console.log('[ApplicationContext] Initializing TransactionWebSocketService...');
+        const { TransactionWebSocketService } = await import('@/core/infrastructure/websocket/TransactionWebSocketService');
+        const { RiffSyncHandler } = await import('@/application/handlers/RiffSyncHandler');
+        const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
+        
+        this.transactionWebSocketService = new TransactionWebSocketService(this.config.plugin as any);
+        
+        // 创建并注册 RiffSyncHandler
+        const riffSyncHandler = new RiffSyncHandler(this.hybridSyncService);
+        this.transactionWebSocketService.registerHandler(riffSyncHandler);
+        
+        // 创建并注册 AutoCardHandler
+        const autoCardHandler = new AutoCardHandler(this.config.plugin as any);
+        this.transactionWebSocketService.registerHandler(autoCardHandler);
+        console.log('[ApplicationContext] ✅ AutoCardHandler registered');
+        
+        // 启动服务
+        this.transactionWebSocketService.start();
+        console.log('[ApplicationContext] ✅ TransactionWebSocketService initialized and started');
+      }
+    } else {
+      // 需要停止 TransactionWebSocketService
+      if (this.transactionWebSocketService) {
+        console.log('[ApplicationContext] Stopping TransactionWebSocketService...');
+        this.transactionWebSocketService.stop();
+        this.transactionWebSocketService = undefined;
+        console.log('[ApplicationContext] ✅ TransactionWebSocketService stopped');
+      }
+    }
+  }
+  
+  /**
    * 获取事务 WebSocket 服务
    * 
    * @returns TransactionWebSocketService | undefined - 事务 WebSocket 服务实例
@@ -1380,6 +1472,18 @@ export class ApplicationContext {
     
     try {
       console.log('[ApplicationContext] Starting disposal...');
+      
+      // 0. 立即保存 SettingsService (优先级最高)
+      if (this.isServiceCreated('settingsService')) {
+        try {
+          const settingsService = this.getSettingsService();
+          await settingsService.dispose();
+          console.log('[ApplicationContext] ✅ SettingsService disposed and saved');
+        } catch (error) {
+          console.error('[ApplicationContext] Error disposing SettingsService:', error);
+          errors.push({ service: 'settingsService', error });
+        }
+      }
       
       // 1. 停止 TransactionWebSocketService
       if (this.transactionWebSocketService) {

@@ -263,7 +263,7 @@ function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>):
         suspended: customAttrs[ATTR_SUSPENDED] === 'true',
         
         cardType: finalCardType,
-        aFactor: parseFloat(customAttrs[ATTR_A_FACTOR] || '') || undefined,
+        aFactor: card.aFactor,  // 🔧 修复：从卡片数据读取，不再从块属性读取
         
         tags: [],  // 将在后续步骤中填充
         
@@ -1281,10 +1281,11 @@ export async function batchDetectCardTypes(
                         [ATTR_CARD_TYPE]: cardType,
                     };
 
+                    // 🔧 修复：不再写入 A-Factor 块属性
+                    // Topic 卡片的 A-Factor 只存储在 FSRSCard.aFactor 中
                     let aFactor: number | undefined;
                     if (cardType === 'topic') {
                         aFactor = initializeAFactor(card.priority);
-                        attrs[ATTR_A_FACTOR] = aFactor.toString();
                     }
 
                     await setBlockAttrs(card.blockId, attrs);

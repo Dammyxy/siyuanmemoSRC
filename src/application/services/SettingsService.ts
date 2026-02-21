@@ -88,23 +88,29 @@ export class SettingsService implements ISettingsService {
     try {
       // 加载插件设置
       const loadedSettings = await this.fileService.readJSON<PluginSettings>(this.SETTINGS_FILE);
+      
+      // 🔍 调试日志：检查从文件读取的原始数据
+      console.log('[SettingsService] Loaded settings from file:', loadedSettings?.quickCard);
+      
       if (loadedSettings) {
         // 合并加载的设置和默认设置（处理新增字段）
         this.currentSettings = this.mergeWithDefaults(loadedSettings, DEFAULT_SETTINGS);
+        
+        // 🔍 调试日志：检查合并后的数据
+        console.log('[SettingsService] Merged settings:', this.currentSettings.quickCard);
+        
+        // 🔧 修复：从 settings.json 中读取 riffIntegration 配置
+        // 不再使用单独的 riff-integration.json 文件
+        if (this.currentSettings.riffIntegration) {
+          this.currentRiffConfig = this.currentSettings.riffIntegration;
+        } else {
+          this.currentRiffConfig = { ...DEFAULT_RIFF_CONFIG };
+        }
       } else {
         // 文件不存在，使用默认设置并保存
         this.currentSettings = { ...DEFAULT_SETTINGS };
-        await this.saveSettings();
-      }
-
-      // 加载 Riff 集成配置
-      const loadedRiffConfig = await this.fileService.readJSON<RiffIntegrationConfig>(this.RIFF_CONFIG_FILE);
-      if (loadedRiffConfig) {
-        this.currentRiffConfig = this.mergeWithDefaults(loadedRiffConfig, DEFAULT_RIFF_CONFIG);
-      } else {
-        // 文件不存在，使用默认配置并保存
         this.currentRiffConfig = { ...DEFAULT_RIFF_CONFIG };
-        await this.saveRiffConfig();
+        await this.saveSettings();
       }
 
       console.log('[SettingsService] Settings initialized successfully');
@@ -164,9 +170,12 @@ export class SettingsService implements ISettingsService {
 
       // 深度合并配置
       this.currentRiffConfig = this.deepMerge(this.currentRiffConfig, config);
+      
+      // 🔧 修复：同时更新 currentSettings.riffIntegration
+      this.currentSettings.riffIntegration = this.currentRiffConfig;
 
-      // 防抖保存
-      this.debouncedSaveRiffConfig();
+      // 🔧 修复：保存到 settings.json 而不是单独的文件
+      this.debouncedSaveSettings();
     } catch (error) {
       console.error('[SettingsService] Failed to update Riff integration config:', error);
       throw error;
@@ -302,16 +311,11 @@ export class SettingsService implements ISettingsService {
 
   /**
    * 防抖保存 Riff 配置
+   * @deprecated 不再使用，Riff 配置现在保存在 settings.json 中
    */
   private debouncedSaveRiffConfig(): void {
-    if (this.saveDebounceTimer) {
-      clearTimeout(this.saveDebounceTimer);
-    }
-
-    this.saveDebounceTimer = setTimeout(async () => {
-      await this.saveRiffConfig();
-      this.saveDebounceTimer = null;
-    }, this.DEBOUNCE_DELAY);
+    // 🔧 修复：Riff 配置现在保存在 settings.json 中
+    this.debouncedSaveSettings();
   }
 
   /**
@@ -329,15 +333,11 @@ export class SettingsService implements ISettingsService {
 
   /**
    * 立即保存 Riff 配置
+   * @deprecated 不再使用，Riff 配置现在保存在 settings.json 中
    */
   private async saveRiffConfig(): Promise<void> {
-    try {
-      await this.fileService.writeJSON(this.RIFF_CONFIG_FILE, this.currentRiffConfig);
-      console.log('[SettingsService] Riff integration config saved successfully');
-    } catch (error) {
-      console.error('[SettingsService] Failed to save Riff integration config:', error);
-      throw error;
-    }
+    // 🔧 修复：Riff 配置现在保存在 settings.json 中
+    await this.saveSettings();
   }
 
   /**
@@ -381,5 +381,26 @@ export class SettingsService implements ISettingsService {
       !Array.isArray(value) &&
       Object.prototype.toString.call(value) === '[object Object]'
     );
+  }
+
+  /**
+   * 清理资源并立即保存配置
+   * 
+   * 在插件卸载时调用,确保所有待保存的配置都被写入文件
+   */
+  async dispose(): Promise<void> {
+    // 清除防抖定时器
+    if (this.saveDebounceTimer) {
+      clearTimeout(this.saveDebounceTimer);
+      this.saveDebounceTimer = null;
+    }
+
+    // 立即保存配置
+    try {
+      await this.saveSettings();
+      console.log('[SettingsService] Settings saved on dispose');
+    } catch (error) {
+      console.error('[SettingsService] Failed to save settings on dispose:', error);
+    }
   }
 }

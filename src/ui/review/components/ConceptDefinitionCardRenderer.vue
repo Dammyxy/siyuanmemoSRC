@@ -1,19 +1,16 @@
 <template>
   <div class="concept-definition-card-renderer">
     <!-- 加载状态 -->
-    <div v-if="loading" class="concept-definition-card-renderer__loading">
-      <div class="concept-definition-card-renderer__spinner"></div>
-      <div class="concept-definition-card-renderer__loading-text">{{ t('loading', '加载中...') }}</div>
-    </div>
+    <CardLoadingState v-if="loading" :text="t('loading', '加载中...')" />
 
     <!-- 错误状态 -->
-    <div v-else-if="error" class="concept-definition-card-renderer__error">
-      <div class="concept-definition-card-renderer__error-icon">⚠️</div>
-      <div class="concept-definition-card-renderer__error-text">{{ error }}</div>
-    </div>
+    <CardErrorState v-else-if="error" :message="error" />
 
     <!-- 概念定义卡内容 -->
     <div v-else-if="viewModel" class="concept-definition-card-renderer__content">
+      <!-- 面包屑 -->
+      <CardBreadcrumb :items="viewModel.breadcrumbs" />
+
       <!-- 卡片类型徽章 -->
       <div class="concept-definition-card-renderer__badge">
         <span class="concept-definition-card-renderer__badge-icon">📚</span>
@@ -70,7 +67,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { openTab } from 'siyuan';
-import { getBlockKramdown, sql } from '@/core/siyuan/api';
+import { ConceptDefinitionCardRenderService } from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
+import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
+import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
+import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
+import type { ConceptDefinitionCardViewModel } from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
 
 const props = defineProps<{
   blockId: string;
@@ -81,20 +82,16 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'loaded', viewModel: any): void;
+  (e: 'loaded', viewModel: ConceptDefinitionCardViewModel): void;
   (e: 'error', error: Error): void;
 }>();
 
 // 状态
 const loading = ref(true);
 const error = ref<string | null>(null);
-const viewModel = ref<{
-  conceptName: string;
-  conceptBlockId: string;
-  definitionHtml: string;
-  clozeIndex?: number;
-  totalClozes?: number;
-} | null>(null);
+const viewModel = ref<ConceptDefinitionCardViewModel | null>(null);
+
+const renderService = new ConceptDefinitionCardRenderService();
 
 // 方法
 function t(key: string, fallback: string): string {
@@ -109,124 +106,7 @@ async function loadViewModel() {
     loading.value = true;
     error.value = null;
 
-    console.log('[ConceptDefinitionCardRenderer] Loading view model:', {
-      blockId: props.blockId,
-      cardId: props.cardId,
-      card: props.card
-    });
-
-    // 1. 获取 Xiuyuan 信息
-    const xiuyuanID = props.card?.meta?.xiuyuanID;
-    if (!xiuyuanID) {
-      throw new Error('No xiuyuanID found in card meta');
-    }
-
-    // 2. 从 Xiuyuan 存储中获取字段映射
-    const xiuyuanStorage = (window as any).siyuan?.ws?.app?.plugins?.find(
-      (p: any) => p.name === 'siyuan-plugin-siyuanmemo'
-    )?.xiuyuanService;
-
-    if (!xiuyuanStorage) {
-      throw new Error('XiuyuanService not found');
-    }
-
-    const xiuyuan = xiuyuanStorage.getXiuyuan(xiuyuanID);
-    if (!xiuyuan) {
-      throw new Error(`Xiuyuan not found: ${xiuyuanID}`);
-    }
-
-    console.log('[ConceptDefinitionCardRenderer] Xiuyuan:', xiuyuan);
-
-    // 3. 获取概念块 ID 和定义块 ID
-    const conceptBlockId = xiuyuan.fieldMapping.concept;
-    const definitionBlockId = xiuyuan.fieldMapping.definition;
-
-    if (!conceptBlockId || !definitionBlockId) {
-      throw new Error('Missing concept or definition block ID in field mapping');
-    }
-
-    // 4. 获取概念名称（文档块标题）
-    const conceptQuery = `SELECT content FROM blocks WHERE id = '${conceptBlockId}' LIMIT 1`;
-    const conceptResult = await sql(conceptQuery);
-    
-    if (!conceptResult || conceptResult.length === 0) {
-      throw new Error(`Concept block not found: ${conceptBlockId}`);
-    }
-
-    const conceptName = conceptResult[0].content;
-
-    // 5. 获取定义内容
-    const { kramdown: definitionKramdown } = await getBlockKramdown(definitionBlockId);
-    if (!definitionKramdown) {
-      throw new Error(`Definition block has no content: ${definitionBlockId}`);
-    }
-
-    // 6. 解析定义中的挖空
-    const clozePattern = /==(.+?)==|\{\{(.+?)\}\}/g;
-    const clozes: Array<{ text: string; start: number; end: number }> = [];
-    let match;
-    
-    while ((match = clozePattern.exec(definitionKramdown)) !== null) {
-      clozes.push({
-        text: match[1] || match[2],
-        start: match.index,
-        end: match.index + match[0].length
-      });
-    }
-
-    console.log('[ConceptDefinitionCardRenderer] Found clozes:', clozes.length);
-
-    // 7. 确定当前挖空索引
-    let clozeIndex = 0;
-    const typeMarker = props.card?.meta?.typeMarker;
-    if (typeMarker && typeMarker.startsWith('concept-definition-cloze-')) {
-      clozeIndex = parseInt(typeMarker.replace('concept-definition-cloze-', ''));
-    }
-
-    console.log('[ConceptDefinitionCardRenderer] Current cloze index:', clozeIndex);
-
-    // 8. 生成定义 HTML（隐藏当前挖空）
-    let processedKramdown = definitionKramdown;
-    
-    if (clozes.length > 0 && clozeIndex < clozes.length) {
-      // 有挖空：隐藏当前挖空
-      const currentCloze = clozes[clozeIndex];
-      
-      // 从后往前替换，避免索引偏移
-      const sortedClozes = [...clozes].sort((a, b) => b.start - a.start);
-      
-      for (let i = 0; i < sortedClozes.length; i++) {
-        const cloze = sortedClozes[i];
-        const before = processedKramdown.substring(0, cloze.start);
-        const after = processedKramdown.substring(cloze.end);
-        
-        if (cloze.start === currentCloze.start) {
-          // 当前挖空：替换为 [___]
-          processedKramdown = before + '[___]' + after;
-        } else {
-          // 其他挖空：显示原文
-          processedKramdown = before + cloze.text + after;
-        }
-      }
-    }
-
-    // 9. 使用 Lute 渲染 Markdown
-    // 从全局获取 Lute 实例
-    const lute = (window as any).Lute?.New?.();
-    if (!lute) {
-      throw new Error('Lute not available');
-    }
-    const definitionHtml = lute.Md2BlockDOM(processedKramdown);
-
-    // 10. 构建视图模型
-    viewModel.value = {
-      conceptName,
-      conceptBlockId,
-      definitionHtml,
-      clozeIndex: clozes.length > 0 ? clozeIndex : undefined,
-      totalClozes: clozes.length > 0 ? clozes.length : undefined
-    };
-
+    viewModel.value = await renderService.prepareViewModel(props.blockId, props.card);
     emit('loaded', viewModel.value);
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -271,54 +151,6 @@ onMounted(async () => {
   flex-direction: column;
   height: 100%;
   background: var(--b3-theme-background);
-}
-
-/* 加载状态 */
-.concept-definition-card-renderer__loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 16px;
-  gap: 12px;
-}
-
-.concept-definition-card-renderer__spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid var(--b3-border-color);
-  border-top-color: var(--b3-theme-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.concept-definition-card-renderer__loading-text {
-  font-size: 14px;
-  color: var(--b3-theme-on-surface-light);
-}
-
-/* 错误状态 */
-.concept-definition-card-renderer__error {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 16px;
-  gap: 12px;
-}
-
-.concept-definition-card-renderer__error-icon {
-  font-size: 48px;
-}
-
-.concept-definition-card-renderer__error-text {
-  font-size: 14px;
-  color: var(--b3-theme-error);
-  text-align: center;
 }
 
 /* 内容区域 */

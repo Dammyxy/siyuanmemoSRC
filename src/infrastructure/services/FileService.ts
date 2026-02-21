@@ -139,22 +139,39 @@ export class FileService implements IFileService {
    * 读取 JSON 文件
    */
   async readJSON<T>(fileName: string): Promise<T | null> {
+    console.log(`[FileService] readJSON called for "${fileName}"`);
     try {
+      console.log(`[FileService] Calling plugin.loadData("${fileName}")...`);
       const data = await this.plugin.loadData(fileName);
+      
+      // 🔍 调试日志
+      console.log(`[FileService] loadData("${fileName}") returned:`, typeof data, data);
       
       // loadData 返回 null 或 undefined 表示文件不存在
       if (data === null || data === undefined) {
+        console.log(`[FileService] File "${fileName}" not found, returning null`);
+        return null;
+      }
+      
+      // 🔧 修复：如果是空字符串，也视为文件不存在
+      if (typeof data === 'string' && data.trim() === '') {
+        console.log(`[FileService] File "${fileName}" is empty, returning null`);
         return null;
       }
       
       // 如果是字符串，需要解析
       if (typeof data === 'string') {
-        return JSON.parse(data) as T;
+        const parsed = JSON.parse(data) as T;
+        console.log(`[FileService] Parsed JSON from string for "${fileName}"`);
+        return parsed;
       }
       
       // 如果已经是对象，直接返回
+      console.log(`[FileService] Returning object directly for "${fileName}"`);
       return data as T;
     } catch (error) {
+      console.error(`[FileService] Error in readJSON("${fileName}"):`, error);
+      
       // 文件不存在是预期行为，返回 null
       if (this.isFileNotFoundError(error)) {
         return null;
@@ -163,11 +180,10 @@ export class FileService implements IFileService {
       // JSON 解析错误
       if (error instanceof SyntaxError) {
         console.error(`[FileService] Invalid JSON in file "${fileName}":`, error);
-        throw new FileOperationError(
-          'read',
-          fileName,
-          new Error(`Invalid JSON format: ${error.message}`)
-        );
+        // 🔧 修复：JSON 解析错误时返回 null，而不是抛出异常
+        // 这样可以让 SettingsService 使用默认配置
+        console.warn(`[FileService] Treating invalid JSON as missing file, returning null`);
+        return null;
       }
       
       // 其他错误抛出

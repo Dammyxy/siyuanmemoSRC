@@ -375,7 +375,7 @@ export class GetBrowserCardsQueryHandler {
       suspended: customAttrs[ATTR_SUSPENDED] === 'true',
       
       cardType: finalCardType,
-      aFactor: parseFloat(customAttrs[ATTR_A_FACTOR] || '') || undefined,
+      aFactor: card.aFactor,  // 🔧 修复：从卡片数据读取，不再从块属性读取
       
       tags: [],
       meta: card.meta,

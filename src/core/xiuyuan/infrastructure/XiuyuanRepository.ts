@@ -118,14 +118,32 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         }
       }
 
-      // 5. 写入块属性（使用第一个块作为代表块）
+      // 5. 写入块属性
       const blockIDs = xiuyuan.getBlockIDs();
+      const meta = xiuyuan.getMeta();
+      
+      // 5.1 确定卡片类型
+      let cardType: 'item' | 'topic' = 'item';
+      if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
+        // 列表模版卡：强制为 item
+        cardType = 'item';
+      } else if (this.cardTypeDetectionService && blockIDs.length > 0) {
+        // 非列表模版卡：检测类型
+        try {
+          cardType = await this.cardTypeDetectionService.detectCardType(blockIDs[0].getValue());
+        } catch (error) {
+          console.warn('[XiuyuanRepository] Failed to detect cardType, using default "item":', error);
+        }
+      }
+      
+      // 5.2 写入代表块属性
       if (blockIDs.length > 0) {
         const representativeBlockId = blockIDs[0].getValue();
         try {
           await setBlockAttrs(representativeBlockId, {
             'custom-xiuyuan-id': xiuyuan.getId().getValue(),
             'custom-xiuyuan-template': xiuyuan.getTemplateID().getValue(),
+            'custom-fsrs-card-type': cardType,  // ✅ 使用 fsrs-card-type 存储卡片类型
           });
         } catch (error) {
           // 块属性写入失败不应该阻止保存
@@ -137,6 +155,23 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           } else {
             // 其他错误，记录警告
             console.warn('[XiuyuanRepository] Failed to write block attributes:', error);
+          }
+        }
+      }
+      
+      // 5.3 列表模版卡：为所有子块设置 item 类型
+      if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
+        const childrenData = (meta.listTemplate as any).childrenData as Array<{ id: string; cue: string; answer: string; index: number }>;
+        for (const child of childrenData) {
+          try {
+            await setBlockAttrs(child.id, {
+              'custom-fsrs-card-type': 'item',  // ✅ 子块设置为 item
+            });
+          } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            if (!errorMsg.includes('未找到') && !errorMsg.includes('not found')) {
+              console.warn(`[XiuyuanRepository] Failed to write attributes for child block ${child.id}:`, error);
+            }
           }
         }
       }
@@ -325,20 +360,47 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     const scheduleInfo = card.getScheduleInfo();
     const blockIDs = xiuyuan.getBlockIDs();
     const meta = xiuyuan.getMeta();
+    const faceIndex = card.getFaceIndex();
     
     // Get schedulerType from meta, default to 'fsrs-v6' (Requirement 5.5)
     const schedulerType = (meta.schedulerType as 'fsrs-v6' | 'a-factor' | 'sm2') || 'fsrs-v6';
     
-    // ✅ 修复：使用 CardTypeDetectionService 检测卡片类型
-    const blockId = blockIDs[0]?.getValue() || '';
+    // ✅ 修复：列表模版卡的子卡片强制为 item 类型
     let cardType: 'item' | 'topic' = 'item';  // 默认为 item
+    const blockId = blockIDs[0]?.getValue() || '';
     
-    if (this.cardTypeDetectionService && blockId) {
-      try {
-        cardType = await this.cardTypeDetectionService.detectCardType(blockId);
-        console.log(`[XiuyuanRepository] Detected cardType for ${blockId}: ${cardType}`);
-      } catch (error) {
-        console.warn(`[XiuyuanRepository] Failed to detect cardType for ${blockId}, using default 'item':`, error);
+    if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
+      // 列表模版卡：所有子卡片都是 item 类型
+      cardType = 'item';
+      console.log(`[XiuyuanRepository] List template card detected, forcing cardType to 'item'`);
+    } else {
+      // 非列表模版卡：使用 CardTypeDetectionService 检测
+      if (this.cardTypeDetectionService && blockId) {
+        try {
+          cardType = await this.cardTypeDetectionService.detectCardType(blockId);
+          console.log(`[XiuyuanRepository] Detected cardType for ${blockId}: ${cardType}`);
+        } catch (error) {
+          console.warn(`[XiuyuanRepository] Failed to detect cardType for ${blockId}, using default 'item':`, error);
+        }
+      }
+    }
+    
+    // 🆕 列表模版卡：提取当前卡片的 cue、answer 和 allChildren
+    const listTemplateMeta: any = {};
+    if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
+      const childrenData = (meta.listTemplate as any).childrenData as Array<{ id: string; cue: string; answer: string; index: number }>;
+      const currentChild = childrenData[faceIndex];
+      
+      if (currentChild) {
+        listTemplateMeta.cue = currentChild.cue;
+        listTemplateMeta.answer = currentChild.answer;
+        listTemplateMeta.currentIndex = faceIndex;
+        listTemplateMeta.allChildren = childrenData.map((child: any) => ({
+          id: child.id,
+          cue: child.cue,
+          answer: child.answer,
+          index: child.index
+        }));
       }
     }
     
@@ -377,7 +439,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       meta: {
         xiuyuanID: card.getXiuyuanId().getValue(),
         templateID: xiuyuan.getTemplateID().getValue(),
-        ruleIndex: card.getFaceIndex(),
+        ruleIndex: faceIndex,
         frontBlockIDs: blockIDs.map(b => b.getValue()),
         backBlockIDs: blockIDs.map(b => b.getValue()),
         fieldMapping: {},
@@ -391,7 +453,9 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           answerBlockId: face.answerBlockId,
         })),
         // 🆕 添加当前卡片的 faceIndex，用于确定显示哪个挖空
-        faceIndex: card.getFaceIndex(),
+        faceIndex,
+        // 🆕 列表模版卡专用字段
+        ...listTemplateMeta,
       },
       
       // 时间戳
@@ -409,6 +473,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    */
   private toPersistence(xiuyuan: Xiuyuan): Omit<IXiuyuan, 'id' | 'createdAt' | 'updatedAt'> {
     const faces = xiuyuan.getFaces();
+    const cards = xiuyuan.getCards();
+    const cardIds = cards.map(card => card.getId().getValue());
+    
+    console.log(`[XiuyuanRepository] toPersistence: Xiuyuan ${xiuyuan.getId().getValue()} has ${cards.length} cards, cardIds:`, cardIds);
     
     return {
       blockIDs: xiuyuan.getBlockIDs().map(b => b.getValue()),
@@ -428,7 +496,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           answerBlockId: face.answerBlockId
         })),
         // ✅ 只存储 Card ID 引用，不存储完整的 Card 数据
-        cardIds: xiuyuan.getCards().map(card => card.getId().getValue())
+        cardIds
       }
     };
   }
@@ -539,6 +607,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       const cardsMap = new Map<CardId, Card>();
       const cardIds = (data.meta?.cardIds as string[]) || [];
       
+      console.log(`[XiuyuanRepository] toDomain: Xiuyuan ${data.id} has ${cardIds.length} cardIds in meta`);
+      
       for (const cardId of cardIds) {
         const cardDTO = this.storage.getCardDTO(cardId);
         if (!cardDTO) {
@@ -554,6 +624,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           }
         }
       }
+      
+      console.log(`[XiuyuanRepository] toDomain: Loaded ${cardsMap.size} cards for Xiuyuan ${data.id}`);
 
       // 7. 重建 Xiuyuan
       const xiuyuanProps: XiuyuanProps = {
