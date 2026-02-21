@@ -429,6 +429,9 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       // 优先级
       priority: xiuyuan.getPriority().getValue(),
       
+      // 🔧 修复：A-Factor（从 Xiuyuan.meta 复制到 FSRSCard）
+      aFactor: meta.aFactor,
+      
       // 扩展功能
       tags: [],
       leechCount: 0,

@@ -496,9 +496,9 @@ export class Xiuyuan {
    * @returns Result<void>
    */
   updateAFactor(aFactor: number): Result<void> {
-    // 验证：A-Factor 必须在合理范围内（通常 1.3 - 2.5）
-    if (aFactor < 1.0 || aFactor > 3.0) {
-      return err(new Error(`Invalid A-Factor: ${aFactor}. Must be between 1.0 and 3.0`));
+    // 验证：A-Factor 必须在合理范围内（SuperMemo 范围：1.2 - 6.0）
+    if (aFactor < 1.0 || aFactor > 6.5) {
+      return err(new Error(`Invalid A-Factor: ${aFactor}. Must be between 1.0 and 6.5`));
     }
 
     this.meta = {

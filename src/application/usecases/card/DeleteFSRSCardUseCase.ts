@@ -39,7 +39,8 @@
 
 import type { StorageManager } from '@/core/storage/manager';
 import { ok, err, type Result } from '@/types/result';
-import { removeRiffCards } from '@/core/siyuan/riff';
+import { removeRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
+import { getBlockAttrs, setBlockAttrs } from '@/core/siyuan/api';
 import type { DeleteFSRSCardCommand, DeleteFSRSCardCommandResult } from '@/application/commands/card/DeleteFSRSCardCommand';
 
 /**
@@ -73,11 +74,16 @@ export class DeleteFSRSCardUseCase {
       
       console.log('[DeleteFSRSCardUseCase] Card deleted from local storage:', command.cardId);
       
-      // 3. 可选：从 Riff 删除
+      // 3. 删除块属性（插件自定义属性）
+      if (card.blockId) {
+        await this.removeCardBlockAttrs(card.blockId);
+      }
+      
+      // 4. 可选：从 Riff 删除（会删除 custom-riff-* 属性）
       let deletedFromRiff: boolean | undefined;
       if (command.deleteFromRiff && card.blockId) {
         try {
-          await removeRiffCards([card.blockId]);
+          await removeRiffCards(BUILTIN_DECK_ID, [card.blockId]);
           deletedFromRiff = true;
           console.log('[DeleteFSRSCardUseCase] Card deleted from Riff:', card.blockId);
         } catch (error) {
@@ -94,6 +100,47 @@ export class DeleteFSRSCardUseCase {
     } catch (error) {
       console.error('[DeleteFSRSCardUseCase] Failed to delete card:', error);
       return err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+  
+  /**
+   * 删除卡片相关的块属性（插件自定义属性）
+   * 
+   * @private
+   * @param blockId - 块 ID
+   */
+  private async removeCardBlockAttrs(blockId: string): Promise<void> {
+    try {
+      // 获取当前块属性
+      const attrs = await getBlockAttrs(blockId);
+      
+      // 需要删除的插件自定义属性列表
+      const attrsToRemove = [
+        'custom-card-type',           // 卡片类型
+        'custom-fsrs-card-type',      // 卡片类型标记（concept/descriptor）
+        'custom-xiuyuan-id',          // Xiuyuan ID
+        'custom-template-id',         // 模板 ID
+        'custom-list-template',       // 列表模板标记
+        'custom-priority',            // 优先级
+        'custom-fsrs-a-factor',       // A-Factor（旧属性，兼容清理）
+      ];
+      
+      // 构建新的属性对象（将要删除的属性设为空字符串）
+      const newAttrs: Record<string, string> = {};
+      for (const key of attrsToRemove) {
+        if (key in attrs) {
+          newAttrs[key] = '';  // 思源 API：空字符串表示删除属性
+        }
+      }
+      
+      // 如果有属性需要删除，调用 API
+      if (Object.keys(newAttrs).length > 0) {
+        await setBlockAttrs(blockId, newAttrs);
+        console.log('[DeleteFSRSCardUseCase] Removed block attrs:', Object.keys(newAttrs));
+      }
+    } catch (error) {
+      console.warn('[DeleteFSRSCardUseCase] Failed to remove block attrs:', error);
+      // 不抛出异常，不影响卡片删除流程
     }
   }
 }

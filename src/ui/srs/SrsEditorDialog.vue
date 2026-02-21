@@ -47,6 +47,10 @@
           <div class="srs-overview-item__label">{{ t('priority', 'Priority') }}</div>
           <div class="srs-overview-item__value">{{ priorityText }}</div>
         </div>
+        <div v-if="cardTypeText.includes('Topic')" class="srs-overview-item">
+          <div class="srs-overview-item__label">{{ t('aFactor', 'A-Factor') }}</div>
+          <div class="srs-overview-item__value">{{ aFactorText }}</div>
+        </div>
       </div>
     </div>
 
@@ -144,6 +148,13 @@
           <div class="srs-field__value">{{ schedulerTypeText }}</div>
         </div>
       </div>
+      <div v-if="cardTypeText.includes('Topic')" class="srs-grid">
+        <div>
+          <div class="srs-field__label">{{ t('aFactor', 'A-Factor') }}</div>
+          <div class="srs-field__value">{{ aFactorText }}</div>
+        </div>
+        <div></div>
+      </div>
       <div v-if="leechCountText !== '0'" class="srs-grid">
         <div>
           <div class="srs-field__label">{{ t('leechCount', 'Leech Count') }}</div>
@@ -229,6 +240,7 @@ const difficultyText = ref('');
 const elapsedDaysText = ref('');
 const scheduledDaysText = ref('');
 const stateText = ref('');
+const aFactorText = ref('');
 
 const metadataVisible = ref(false);
 
@@ -318,6 +330,18 @@ async function loadMeta() {
     else if (card?.state === CardState.Review) stateText.value = t('reviewCard', 'Review');
     else if (card?.state === CardState.Relearning) stateText.value = t('relearning', 'Relearning');
     else stateText.value = t('unknown', 'Unknown');
+    
+    // A-Factor（仅 Topic 卡片）
+    if (card?.type === CardType.Topic) {
+      // 优先从 card.aFactor 读取，如果没有则显示 "-"
+      if (card.aFactor !== undefined && card.aFactor !== null && !isNaN(card.aFactor)) {
+        aFactorText.value = card.aFactor.toFixed(2);
+      } else {
+        aFactorText.value = '-';
+      }
+    } else {
+      aFactorText.value = '-';
+    }
   } catch (err) {
     console.error('[SiYuanMemo][SrsEditor] Failed to load card meta:', err);
     createdAtText.value = t('unknown', 'Unknown');

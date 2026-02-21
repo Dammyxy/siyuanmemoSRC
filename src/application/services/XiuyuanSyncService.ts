@@ -1099,7 +1099,11 @@ export class XiuyuanSyncService {
             faces: [cardFaceResult.value],
             priority,
             meta: {
-                schedulerType: 'fsrs-v6'
+                schedulerType: 'fsrs-v6',
+                cardType,  // 保存卡片类型
+                cardTypeMarker,  // 保存卡片类型标记
+                // 🔧 修复：为 Topic 卡片初始化 A-Factor
+                ...(cardType === 'topic' ? { aFactor: initializeAFactor(priorityValue) } : {})
             }
         });
         
