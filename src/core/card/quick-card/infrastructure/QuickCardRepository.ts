@@ -125,6 +125,15 @@ export class QuickCardRepository {
         metadata.isXiuyuanTemplate = await this.shouldUseXiuyuanTemplate(block);
       }
 
+      // 7. 检测是否为列表项且有子列表项（无序列表）
+      if (block.type === 'i') {
+        const hasListChildren = await this.checkHasListChildren(blockId);
+        if (hasListChildren) {
+          metadata.hasListChildren = true;
+          console.log(`[SiYuanMemo][QuickCardRepository] ✅ Block ${blockId} has list children, will hide them on front`);
+        }
+      }
+
       console.log('[SiYuanMemo][QuickCardRepository] Final metadata:', metadata);
 
       // 7. 获取策略并解析
@@ -258,4 +267,51 @@ export class QuickCardRepository {
 
     return parentBlock.content.includes('::');
   }
+
+  /**
+   * 检查列表项是否有子列表项
+   * 
+   * @param blockId - 块 ID
+   * @returns 是否有子列表项
+   * 
+   * @description 检测逻辑：
+   * 1. 获取列表容器（type = 'l'）
+   * 2. 检查列表容器是否有子列表项（type = 'i'）
+   * 3. 排除有序列表（subtype = 'o'），因为有序列表使用列表模板
+   */
+  private async checkHasListChildren(blockId: string): Promise<boolean> {
+    try {
+      // 动态导入 sql 函数，避免循环依赖
+      const { sql } = await import('@/core/siyuan/api');
+      
+      // 1. 获取列表容器
+      const listContainerResult = await sql(`
+        SELECT id FROM blocks
+        WHERE parent_id = '${blockId}'
+        AND type = 'l'
+        LIMIT 1
+      `);
+      
+      if (!listContainerResult || listContainerResult.length === 0) {
+        return false;
+      }
+      
+      const listContainerId = listContainerResult[0].id;
+      
+      // 2. 检查是否有子列表项（排除有序列表）
+      const childrenResult = await sql(`
+        SELECT id FROM blocks
+        WHERE parent_id = '${listContainerId}'
+        AND type = 'i'
+        AND (subtype IS NULL OR subtype != 'o')
+        LIMIT 1
+      `);
+      
+      return childrenResult && childrenResult.length > 0;
+    } catch (err) {
+      console.error('[QuickCardRepository] Failed to check list children:', err);
+      return false;
+    }
+  }
 }
+

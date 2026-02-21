@@ -50,7 +50,8 @@ import { setBlockAttrs } from '../../siyuan/api';
  */
 export class XiuyuanRepository implements IXiuyuanRepository {
   constructor(
-    private readonly storage: UnifiedStorageManager
+    private readonly storage: UnifiedStorageManager,
+    private readonly cardTypeDetectionService?: any  // 可选依赖，用于检测卡片类型
   ) {}
 
   /**
@@ -94,7 +95,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       
       // 3.3 保存/更新当前卡片
       for (const card of cards) {
-        const fsrsCard = this.cardToFSRSCard(card, xiuyuan);
+        const fsrsCard = await this.cardToFSRSCard(card, xiuyuan);  // ✅ 添加 await
         const existingCard = this.storage.getCard(card.getId().getValue());
         
         if (existingCard) {
@@ -319,7 +320,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    * @returns FSRSCard
    * @private
    */
-  private cardToFSRSCard(card: Card, xiuyuan: Xiuyuan): any {
+  private async cardToFSRSCard(card: Card, xiuyuan: Xiuyuan): Promise<any> {
     const scheduleInfo = card.getScheduleInfo();
     const blockIDs = xiuyuan.getBlockIDs();
     const meta = xiuyuan.getMeta();
@@ -327,10 +328,23 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     // Get schedulerType from meta, default to 'fsrs-v6' (Requirement 5.5)
     const schedulerType = (meta.schedulerType as 'fsrs-v6' | 'a-factor' | 'sm2') || 'fsrs-v6';
     
+    // ✅ 修复：使用 CardTypeDetectionService 检测卡片类型
+    const blockId = blockIDs[0]?.getValue() || '';
+    let cardType: 'item' | 'topic' = 'item';  // 默认为 item
+    
+    if (this.cardTypeDetectionService && blockId) {
+      try {
+        cardType = await this.cardTypeDetectionService.detectCardType(blockId);
+        console.log(`[XiuyuanRepository] Detected cardType for ${blockId}: ${cardType}`);
+      } catch (error) {
+        console.warn(`[XiuyuanRepository] Failed to detect cardType for ${blockId}, using default 'item':`, error);
+      }
+    }
+    
     return {
       id: card.getId().getValue(),
       xiuyuanID: card.getXiuyuanId().getValue(),
-      blockId: blockIDs[0]?.getValue() || '',
+      blockId,
       
       // FSRS 核心字段
       due: scheduleInfo.due.getTime(),
@@ -345,7 +359,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       learning_step: scheduleInfo.learning_step,
       
       // 类型和模板
-      type: 'item' as const,
+      type: cardType,  // ✅ 使用检测结果
       templateID: xiuyuan.getTemplateID().getValue(),
       schedulerType: schedulerType, // Use schedulerType from meta (Requirement 5.5)
       

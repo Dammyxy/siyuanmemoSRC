@@ -5,6 +5,8 @@
  * 处理 FSRS 卡片的更新操作。
  * 支持部分更新，只更新提供的字段。
  * 
+ * ✅ DDD 架构：使用 UnifiedStorageManager 替代旧的 StorageManager
+ * 
  * **职责**：
  * - 验证卡片存在
  * - 应用更新
@@ -17,7 +19,7 @@
  * 
  * @example
  * ```typescript
- * const useCase = new UpdateFSRSCardUseCase(storage);
+ * const useCase = new UpdateFSRSCardUseCase(unifiedStorage);
  * 
  * const result = await useCase.execute({
  *   cardId: 'card-123',
@@ -35,7 +37,7 @@
  * ```
  */
 
-import type { StorageManager } from '@/core/storage/manager';
+import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
 import type { FSRSCard } from '@/types';
 import { ok, err, type Result } from '@/types/result';
 import type { UpdateFSRSCardCommand, UpdateFSRSCardCommandResult } from '@/application/commands/card/UpdateFSRSCardCommand';
@@ -45,7 +47,7 @@ import type { UpdateFSRSCardCommand, UpdateFSRSCardCommandResult } from '@/appli
  */
 export class UpdateFSRSCardUseCase {
   constructor(
-    private readonly storage: StorageManager
+    private readonly storage: UnifiedStorageManager
   ) {}
   
   /**
@@ -56,11 +58,20 @@ export class UpdateFSRSCardUseCase {
    */
   async execute(command: UpdateFSRSCardCommand): Promise<Result<UpdateFSRSCardCommandResult>> {
     try {
+      console.log('[UpdateFSRSCardUseCase] Updating card:', command.cardId);
+      
       // 1. 获取卡片
       const card = this.storage.getCard(command.cardId);
       if (!card) {
         return err(new Error(`Card not found: ${command.cardId}`));
       }
+      
+      console.log('[UpdateFSRSCardUseCase] Found card:', {
+        id: card.id,
+        blockId: card.blockId,
+        oldPriority: card.priority,
+        newPriority: command.updates.priority
+      });
       
       // 2. 应用更新（合并字段）
       const updatedCard: FSRSCard = {
@@ -68,11 +79,16 @@ export class UpdateFSRSCardUseCase {
         ...command.updates
       };
       
-      // 3. 保存到存储
-      this.storage.setCard(updatedCard);
-      await this.storage.saveCards();
+      console.log('[UpdateFSRSCardUseCase] Calling storage.updateCard()...');
       
-      console.log('[UpdateFSRSCardUseCase] Card updated:', command.cardId);
+      // 3. 保存到存储（使用新架构）
+      const updateResult = await this.storage.updateCard(updatedCard);
+      if (!updateResult.ok) {
+        console.error('[UpdateFSRSCardUseCase] storage.updateCard() failed:', updateResult.error);
+        return err(updateResult.error);
+      }
+      
+      console.log('[UpdateFSRSCardUseCase] ✅ Card updated successfully');
       
       return ok({
         card: updatedCard

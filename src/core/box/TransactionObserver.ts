@@ -117,9 +117,19 @@ export class TransactionObserver {
         if (this.processing.has(blockId)) return;
         this.processing.add(blockId);
 
-        console.log(`[SiYuanMemo] checkAndCreateCard called for ${blockId}`);
+        console.log(`[SiYuanMemo] ========== checkAndCreateCard called for ${blockId} ==========`);
 
         try {
+            // 🆕 0. 检查是否为列表模板的子项（如果是，跳过创建）
+            console.log(`[SiYuanMemo] Step 0: Checking if ${blockId} is a list template child...`);
+            const isListTemplateChild = await this.isListTemplateChild(blockId);
+            console.log(`[SiYuanMemo] Step 0 result: isListTemplateChild = ${isListTemplateChild}`);
+            
+            if (isListTemplateChild) {
+                console.log(`[SiYuanMemo] ✅ Block ${blockId} is a child of list template, skipping card creation`);
+                return;
+            }
+
             // 1. Get block markdown content
             const { kramdown } = await getBlockKramdown(blockId);
             console.log(`[SiYuanMemo] Check block ${blockId}, content: ${kramdown}`);
@@ -228,6 +238,110 @@ export class TransactionObserver {
      * @param blockId 块 ID
      * @returns 是否为列表项模版卡
      */
+    /**
+     * 检查块是否为列表项的子项（不应该被单独创建为卡片）
+     * 
+     * @param blockId - 块 ID
+     * @returns 是否为列表项的子项
+     * 
+     * @description 检测逻辑：
+     * 1. 检查块类型是否为列表项（type = 'i'）
+     * 2. 获取父列表容器（type = 'l'）
+     * 3. 获取列表容器的父块（应该是父列表项）
+     * 4. 如果父列表项存在，说明这是一个子列表项，不应该被单独创建为卡片
+     * 
+     * 注意：
+     * - 有序列表：父列表项会创建列表模板，子项不单独创建
+     * - 无序列表：父列表项会创建一张卡片（正面隐藏子项），子项不单独创建
+     */
+    private async isListTemplateChild(blockId: string): Promise<boolean> {
+        try {
+            console.log(`[SiYuanMemo][isListTemplateChild] Checking block ${blockId}...`);
+            
+            // 1. 检查块类型
+            const typeResult = await sql(`
+                SELECT type, parent_id FROM blocks
+                WHERE id = '${blockId}'
+                LIMIT 1
+            `);
+            
+            console.log(`[SiYuanMemo][isListTemplateChild] Block type query result:`, typeResult);
+            
+            if (!typeResult || typeResult.length === 0) {
+                console.log(`[SiYuanMemo][isListTemplateChild] Block not found`);
+                return false;
+            }
+            
+            const blockType = typeResult[0].type;
+            const parentId = typeResult[0].parent_id;
+            
+            console.log(`[SiYuanMemo][isListTemplateChild] Block type: ${blockType}, parent_id: ${parentId}`);
+            
+            // 只有列表项才可能是列表项的子项
+            if (blockType !== 'i') {
+                console.log(`[SiYuanMemo][isListTemplateChild] Not a list item, returning false`);
+                return false;
+            }
+            
+            // 2. 获取父块（应该是列表容器 'l'）
+            const parentResult = await sql(`
+                SELECT type, parent_id FROM blocks
+                WHERE id = '${parentId}'
+                LIMIT 1
+            `);
+            
+            console.log(`[SiYuanMemo][isListTemplateChild] Parent query result:`, parentResult);
+            
+            if (!parentResult || parentResult.length === 0) {
+                console.log(`[SiYuanMemo][isListTemplateChild] Parent not found`);
+                return false;
+            }
+            
+            const parentType = parentResult[0].type;
+            const grandParentId = parentResult[0].parent_id;
+            
+            console.log(`[SiYuanMemo][isListTemplateChild] Parent type: ${parentType}, grandparent_id: ${grandParentId}`);
+            
+            // 父块必须是列表容器
+            if (parentType !== 'l') {
+                console.log(`[SiYuanMemo][isListTemplateChild] Parent is not a list container, returning false`);
+                return false;
+            }
+            
+            // 3. 获取祖父块（应该是父列表项 'i'）
+            const grandParentResult = await sql(`
+                SELECT type FROM blocks
+                WHERE id = '${grandParentId}'
+                LIMIT 1
+            `);
+            
+            console.log(`[SiYuanMemo][isListTemplateChild] Grandparent query result:`, grandParentResult);
+            
+            if (!grandParentResult || grandParentResult.length === 0) {
+                console.log(`[SiYuanMemo][isListTemplateChild] Grandparent not found`);
+                return false;
+            }
+            
+            const grandParentType = grandParentResult[0].type;
+            
+            console.log(`[SiYuanMemo][isListTemplateChild] Grandparent type: ${grandParentType}`);
+            
+            // 祖父块必须是列表项
+            if (grandParentType !== 'i') {
+                console.log(`[SiYuanMemo][isListTemplateChild] Grandparent is not a list item, returning false`);
+                return false;
+            }
+            
+            // 4. 如果有父列表项，说明这是一个子列表项
+            // 无论是有序还是无序列表，子列表项都不应该被单独创建为卡片
+            console.log(`[SiYuanMemo][isListTemplateChild] ✅ Block ${blockId} is a child list item of ${grandParentId}, should skip card creation`);
+            return true;
+        } catch (err) {
+            console.error(`[SiYuanMemo][isListTemplateChild] Error checking block ${blockId}:`, err);
+            return false;
+        }
+    }
+
     private async checkListTemplate(blockId: string): Promise<boolean> {
         try {
             console.log(`[SiYuanMemo] 🔍 Checking if block ${blockId} is a list template...`);
@@ -254,28 +368,45 @@ export class TransactionObserver {
                 return false;
             }
             
-            // 2. 检查子级列表项数量
-            const childrenResult = await sql(`
+            // 2. 获取列表容器（思源结构：列表项(i) → 段落(p) + 列表容器(l)）
+            const listContainerResult = await sql(`
                 SELECT id FROM blocks
                 WHERE parent_id = '${blockId}'
+                AND type = 'l'
+                LIMIT 1
+            `);
+            
+            if (!listContainerResult || listContainerResult.length === 0) {
+                console.log(`[SiYuanMemo] ❌ Block ${blockId} has no list container, not a list template`);
+                return false;
+            }
+            
+            const listContainerId = listContainerResult[0].id;
+            console.log(`[SiYuanMemo] Found list container: ${listContainerId}`);
+            
+            // 3. 检查子级列表项数量和类型（必须是有序列表 subtype='o'）
+            const childrenResult = await sql(`
+                SELECT id, subtype FROM blocks
+                WHERE parent_id = '${listContainerId}'
                 AND type = 'i'
+                AND subtype = 'o'
                 AND type != 'd'
             `);
             
-            console.log(`[SiYuanMemo] Children query result:`, childrenResult);
+            console.log(`[SiYuanMemo] Ordered children query result:`, childrenResult);
             
             const childCount = childrenResult ? childrenResult.length : 0;
-            console.log(`[SiYuanMemo] Block ${blockId} has ${childCount} list item children`);
+            console.log(`[SiYuanMemo] Block ${blockId} has ${childCount} ordered list item children`);
             
-            const hasMultipleChildren = childCount >= 2;
+            const hasMultipleOrderedChildren = childCount >= 2;
             
-            if (hasMultipleChildren) {
-                console.log(`[SiYuanMemo] ✅ Block ${blockId} is a list template with ${childCount} children`);
+            if (hasMultipleOrderedChildren) {
+                console.log(`[SiYuanMemo] ✅ Block ${blockId} is a list template with ${childCount} ordered children`);
             } else {
-                console.log(`[SiYuanMemo] ❌ Block ${blockId} has only ${childCount} children (need ≥2), not a list template`);
+                console.log(`[SiYuanMemo] ❌ Block ${blockId} has only ${childCount} ordered children (need ≥2), not a list template`);
             }
             
-            return hasMultipleChildren;
+            return hasMultipleOrderedChildren;
         } catch (err) {
             console.error(`[SiYuanMemo] ❌ Failed to check list template:`, err);
             return false;
@@ -296,70 +427,59 @@ export class TransactionObserver {
         try {
             console.log(`[SiYuanMemo] 🎯 Starting to create list template cards for parent: ${parentBlockId}`);
             
-            // 1. 获取所有子级列表项
-            const childrenResult = await sql(`
+            // 1. 获取列表容器（思源结构：列表项(i) → 段落(p) + 列表容器(l)）
+            const listContainerResult = await sql(`
                 SELECT id FROM blocks
                 WHERE parent_id = '${parentBlockId}'
+                AND type = 'l'
+                LIMIT 1
+            `);
+            
+            if (!listContainerResult || listContainerResult.length === 0) {
+                console.warn(`[SiYuanMemo] ⚠️ No list container found for parent: ${parentBlockId}`);
+                return;
+            }
+            
+            const listContainerId = listContainerResult[0].id;
+            console.log(`[SiYuanMemo] Found list container: ${listContainerId}`);
+            
+            // 2. 获取所有有序子级列表项（subtype='o'）
+            const childrenResult = await sql(`
+                SELECT id FROM blocks
+                WHERE parent_id = '${listContainerId}'
                 AND type = 'i'
+                AND subtype = 'o'
                 AND type != 'd'
                 ORDER BY id ASC
             `);
             
-            console.log(`[SiYuanMemo] Query children result:`, childrenResult);
+            console.log(`[SiYuanMemo] Query ordered children result:`, childrenResult);
             
             if (!childrenResult || childrenResult.length < 2) {
-                console.warn(`[SiYuanMemo] ⚠️ Not enough children for list template: ${parentBlockId} (found: ${childrenResult?.length || 0})`);
+                console.warn(`[SiYuanMemo] ⚠️ Not enough ordered children for list template: ${parentBlockId} (found: ${childrenResult?.length || 0})`);
                 return;
             }
             
             const childBlockIds = childrenResult.map((row: any) => row.id);
-            console.log(`[SiYuanMemo] 📝 Creating ${childBlockIds.length} list template cards for parent: ${parentBlockId}`);
+            console.log(`[SiYuanMemo] 📝 Creating list template with ${childBlockIds.length} ordered children for parent: ${parentBlockId}`);
             console.log(`[SiYuanMemo] Child block IDs:`, childBlockIds);
             
-            // 2. 为每个子级创建 Xiuyuan 卡片
-            let successCount = 0;
-            let failCount = 0;
+            // 3. 调用列表模板专用的创建方法
+            // ✅ 使用 createListTemplateCards 而不是 createFromBlocks
+            // 这样会创建 1 个 Xiuyuan → N 张卡片（N = 子列表项数量）
+            const xiuyuanAppService = this.plugin.context.getXiuyuanApplicationService();
+            const result = await xiuyuanAppService.createListTemplateCards({
+                parentBlockId,
+                childBlockIds,
+                templateId: 'builtin-list-item',
+                deckId: BUILTIN_DECK_ID
+            });
             
-            for (let i = 0; i < childBlockIds.length; i++) {
-                const childBlockId = childBlockIds[i];
-                console.log(`[SiYuanMemo] 📌 Creating card ${i + 1}/${childBlockIds.length} for child: ${childBlockId}`);
-                
-                const blockIds = [parentBlockId, childBlockId];
-                const fieldMapping = {
-                    question: parentBlockId,
-                    answer: childBlockId
-                };
-                
-                // ✅ 使用 XiuyuanApplicationService（符合 DDD 架构）
-                console.log(`[SiYuanMemo] Calling xiuyuanApplicationService.createFromBlocks with:`, {
-                    blockIds,
-                    templateId: 'builtin-list-item',
-                    fieldMapping,
-                    deckId: BUILTIN_DECK_ID
-                });
-                
-                const xiuyuanAppService = this.plugin.context.getXiuyuanApplicationService();
-                const result = await xiuyuanAppService.createFromBlocks({
-                    blockIds,
-                    templateId: 'builtin-list-item',
-                    fieldMapping,
-                    deckId: BUILTIN_DECK_ID
-                });
-                
-                if (result.ok) {
-                    successCount++;
-                    console.log(`[SiYuanMemo] ✅ Created list template card ${i + 1}/${childBlockIds.length}: ${result.value.xiuyuan.id} (child: ${childBlockId})`);
-                    console.log(`[SiYuanMemo] Card details:`, result.value);
-                } else {
-                    failCount++;
-                    console.error(`[SiYuanMemo] ❌ Failed to create list template card ${i + 1}/${childBlockIds.length} for child ${childBlockId}:`, result.error);
-                }
-            }
-            
-            console.log(`[SiYuanMemo] 🎉 List template cards creation complete: ${successCount} succeeded, ${failCount} failed`);
-            
-            if (successCount > 0) {
-                console.log(`[SiYuanMemo] ✅ Successfully created ${successCount} list template cards`);
+            if (result.ok) {
+                console.log(`[SiYuanMemo] ✅ Created list template: ${result.value.xiuyuan.id}`);
+                console.log(`[SiYuanMemo] Created ${result.value.cards.length} cards:`, result.value.cards);
+            } else {
+                console.error(`[SiYuanMemo] ❌ Failed to create list template:`, result.error);
             }
         } catch (err) {
             console.error(`[SiYuanMemo] ❌ Failed to create list template cards:`, err);

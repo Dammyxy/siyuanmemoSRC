@@ -72,6 +72,13 @@ export interface QuickCardMetadata {
    * @description Xiuyuan 卡片的唯一标识
    */
   cardId?: string;
+  
+  /**
+   * 是否有子列表项（可选）
+   * @description 用于判断是否需要在正面隐藏列表项
+   * 仅对无序列表项有效（有序列表项使用列表模板）
+   */
+  hasListChildren?: boolean;
 }
 
 /**

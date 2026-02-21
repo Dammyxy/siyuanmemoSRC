@@ -396,6 +396,9 @@ export async function autoSort(queue: QueueTraitLike | undefined): Promise<void>
 /**
  * 批量设置优先级（用于 DeckDataSource，直接设置块属性）
  * 支持普通卡片（块属性）和修缘卡片（FSRSCard.meta）
+ * 
+ * @deprecated 此函数依赖有问题的 batchSetPriority，应该直接使用 UnifiedDataSourceManager
+ * @see DeckDataSource.executeAction 中的 set-priority 实现（正确的模式）
  */
 export async function batchSetBlockPriority(
   selectedRows: BrowserCard[],

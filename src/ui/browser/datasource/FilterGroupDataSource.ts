@@ -255,6 +255,12 @@ export class FilterGroupDataSource implements ICardDataSource {
     // CardType 枚举的值本身就是字符串 ('item', 'topic', 'concept', 'descriptor', 'incremental', 'webpage')
     const cardType = card.type as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined;
     
+    // 🔍 调试：记录 priority 值
+    const priority = card.priority ?? 50;
+    if (priority !== 50) {
+      console.log(`[FilterGroupDataSource] 🔍 Card ${card.blockId} priority: ${card.priority} → ${priority}`);
+    }
+    
     return {
       id: card.riffCardId || card.id,
       fsrsCardId: card.id,
@@ -279,7 +285,7 @@ export class FilterGroupDataSource implements ICardDataSource {
       interval: card.scheduledDays,
       firstReview: lastReviewDate,
       firstReviewFormatted: formatHistoryDate(lastReviewDate),  // ✅ 使用 formatHistoryDate
-      priority: card.priority || 0,
+      priority,
       suspended: (card.meta?.suspended as boolean) || false,
       tags: card.tags,
       note: (card.meta?.note as string) || '',

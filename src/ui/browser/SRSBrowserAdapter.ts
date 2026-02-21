@@ -437,7 +437,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             firstReviewFormatted,
             
             // 自定义属性
-            priority: card.priority || 0,
+            priority: card.priority ?? 50,
             suspended: (card.meta?.suspended as boolean) || false,
             tags: card.tags,
             note: (card.meta?.note as string) || '',

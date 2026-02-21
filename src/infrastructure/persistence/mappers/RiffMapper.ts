@@ -56,7 +56,9 @@ export class RiffMapper {
     }
 
     // 3. 提取优先级
-    const priority = priorityAttr ? parseInt(priorityAttr, 10) : 50;
+    // ⚠️ Riff 系统的 priority 范围是 0-10，需要转换为 0-100
+    const riffPriority = priorityAttr ? parseInt(priorityAttr, 10) : 5; // Riff 默认值 5
+    const priority = Math.min(100, Math.max(0, riffPriority * 10)); // 转换为 0-100
 
     // 4. 提取 A-Factor（仅 Topic 卡片）
     const aFactor = type === 'topic' && aFactorAttr 

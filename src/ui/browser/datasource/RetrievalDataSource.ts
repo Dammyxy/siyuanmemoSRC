@@ -251,13 +251,19 @@ export class RetrievalDataSource implements ICardDataSource {
       // 时间调整
       if (actionId === 'postpone' || actionId === 'advance' || actionId === 'spread') {
         const days = Math.floor(Number(context?.days || 1));
+        const updated: BrowserCard[] = [];
+        const now = Date.now();
+        
         for (let i = 0; i < selectedRows.length; i++) {
           const row = selectedRows[i];
           const card = await this.manager.getCard(row.fsrsCardId || row.id);
           
           let newDue = card.due;
           if (actionId === 'postpone') {
-            newDue = card.due + days * 24 * 60 * 60 * 1000;
+            // ✅ 从 due 和今天中较晚的日期开始推迟
+            // 这样过期的卡片会从今天开始计算，未过期的卡片从原 due 日期计算
+            const baseDue = Math.max(card.due, now);
+            newDue = baseDue + days * 24 * 60 * 60 * 1000;
           } else if (actionId === 'advance') {
             newDue = card.due - days * 24 * 60 * 60 * 1000;
           } else if (actionId === 'spread') {
@@ -267,8 +273,14 @@ export class RetrievalDataSource implements ICardDataSource {
           
           card.due = newDue;
           await this.manager.updateCard(card);
+          
+          // 更新内存中的 due
+          row.due = new Date(newDue);
+          updated.push(row);
         }
-        return;
+        
+        // ✅ 返回结果
+        return { updated, skipped: [] };
       }
     } catch (error) {
       console.error('[SiYuanMemo][RetrievalDataSource] Failed to perform action:', error);

@@ -11,7 +11,7 @@
 
 import type { ICardFaceStrategy } from './ICardFaceStrategy';
 import type { CardFaceData, HiddenContentType, QuickCardMetadata } from '../types';
-import { splitBySymbol } from './utils';
+import { splitBySymbol, shouldHideListItems } from './utils';
 
 /**
  * 基础卡片策略
@@ -126,10 +126,16 @@ export class BasicCardStrategy implements ICardFaceStrategy {
       backHtml: backHtml.substring(0, 50),
     });
     
+    // 检测是否需要隐藏列表项
+    const frontHiddenTypes: HiddenContentType[] = [];
+    if (shouldHideListItems(metadata)) {
+      frontHiddenTypes.push('list');
+    }
+    
     return {
       front: {
         html: frontHtml,
-        hiddenTypes: [],
+        hiddenTypes: frontHiddenTypes,
       },
       back: {
         html: backHtml,

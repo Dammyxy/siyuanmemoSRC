@@ -1,9 +1,9 @@
 {
-  "name": "siyuan-plugin-fsrs",
+  "name": "siyuan-plugin-siyuanmemo",
   "version": "0.0.1",
   "type": "module",
   "description": "Modern flashcard plugin based on FSRS v6 algorithm with incremental reading support",
-  "author": "Dammy",
+  "author": "Dammyxy",
   "license": "AGPL-3.0",
   "scripts": {
     "dev": "vite build --watch",

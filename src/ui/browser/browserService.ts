@@ -258,7 +258,8 @@ function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>):
         firstReview: lastReviewDate,
         firstReviewFormatted,
         
-        priority: parseInt(customAttrs[ATTR_PRIORITY] || '50') || 50,
+        // ✅ 优先级从 FSRSCard 读取，不再使用块属性
+        priority: card.priority,
         suspended: customAttrs[ATTR_SUSPENDED] === 'true',
         
         cardType: finalCardType,
@@ -1137,6 +1138,10 @@ export async function batchSuspend(
 
 /**
  * 批量设置优先级
+ * 
+ * @deprecated 此函数使用未定义的 storageManager，无法正常工作
+ * 应该使用 UnifiedDataSourceManager.getCard() 和 updateCard() 代替
+ * @see DeckDataSource.executeAction 中的 set-priority 实现（正确的模式）
  */
 export async function batchSetPriority(
     blockIds: string[],

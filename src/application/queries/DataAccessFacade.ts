@@ -499,8 +499,11 @@ export class DataAccessFacade implements IDataRouter {
             card.meta.rootId = rootId;
             card.meta.content = content;
             
-            // 更新本地存储(使用 setCard 而不是 updateCard)
-            this.storage.setCard(card);
+            // ✅ 不需要调用 storage.setCard()
+            // 原因：
+            // 1. card 是内存中对象的引用，直接修改即可
+            // 2. rootId 和 content 是临时数据，用于 UI 显示，不需要持久化
+            // 3. 调用 setCard() 会触发不必要的更新操作，可能覆盖其他字段（如 priority）
         }
         
         console.log(`[SiYuanMemo][DataAccessFacade] ✅ Filled rootId and content for ${cards.length} cards`);

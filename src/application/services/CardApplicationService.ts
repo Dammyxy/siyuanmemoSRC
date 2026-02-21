@@ -62,15 +62,17 @@ export class CardApplicationService {
    * @param createCardUseCase - 创建卡片用例
    * @param deleteCardUseCase - 删除卡片用例
    * @param updateCardUseCase - 更新卡片用例
-   * @param storageManager - 存储管理器（用于查询）
+   * @param storageManager - 存储管理器（用于查询，临时保留）
    * @param scheduleService - 卡片调度服务（用于查询）
+   * @param unifiedStorage - 统一存储管理器（用于 FSRS 卡片操作）
    */
   constructor(
     private readonly createCardUseCase: CreateCardUseCase,
     private readonly deleteCardUseCase: DeleteCardUseCase,
     private readonly updateCardUseCase: UpdateCardUseCase,
     storageManager: StorageManager,
-    scheduleService: CardScheduleService
+    scheduleService: CardScheduleService,
+    unifiedStorage: any  // UnifiedStorageManager
   ) {
     this.storage = storageManager;
     // 初始化查询处理器
@@ -81,9 +83,9 @@ export class CardApplicationService {
     this.getCardQueryHandler = new GetCardQueryHandler(storageManager);
     this.getCardsQueryHandler = new GetCardsQueryHandler(storageManager);
     
-    // 初始化 FSRS 卡片用例
-    this.updateFSRSCardUseCase = new UpdateFSRSCardUseCase(storageManager);
-    this.deleteFSRSCardUseCase = new DeleteFSRSCardUseCase(storageManager);
+    // ✅ 使用 UnifiedStorageManager 初始化 FSRS 卡片用例
+    this.updateFSRSCardUseCase = new UpdateFSRSCardUseCase(unifiedStorage);
+    this.deleteFSRSCardUseCase = new DeleteFSRSCardUseCase(unifiedStorage);
   }
 
   /**

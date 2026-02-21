@@ -81,8 +81,18 @@ export class GetBrowserCardsQueryHandler {
    * @returns 查询结果
    */
   async execute(query: GetBrowserCardsQuery): Promise<GetBrowserCardsQueryResult> {
-    // 1. 获取所有卡片（基础设施层）
+    // 1. 获取所有卡片（使用新架构 UnifiedStorageManager）
+    // ✅ 修复：UnifiedStorageManager 实现了 StorageManager 接口
+    // getAllCards() 返回内存中的最新数据（已经通过 updateCard 更新）
     const allCards = this.storageManager.getAllCards();
+    
+    console.log('[GetBrowserCardsQueryHandler] getAllCards returned:', {
+      totalCards: allCards.length,
+      sampleCard: allCards[0] ? {
+        id: allCards[0].id,
+        priority: allCards[0].priority,
+      } : null,
+    });
     
     // 2. 计算统计信息（基于所有卡片）
     const stats = this.calculateStats(allCards);

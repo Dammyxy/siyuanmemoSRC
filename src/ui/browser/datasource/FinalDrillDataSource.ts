@@ -267,7 +267,7 @@ export class FinalDrillDataSource implements ICardDataSource {
       interval: card.scheduledDays,
       firstReview: lastReviewDate,
       firstReviewFormatted: formatHistoryDate(lastReviewDate),  // ✅ 使用 formatHistoryDate
-      priority: card.priority || 0,
+      priority: card.priority ?? 50,
       suspended: (card.meta?.suspended as boolean) || false,
       tags: card.tags,
       note: (card.meta?.note as string) || '',

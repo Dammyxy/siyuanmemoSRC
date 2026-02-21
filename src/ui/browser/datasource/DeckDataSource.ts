@@ -6,7 +6,6 @@ import type { CardBrowserAction, SortModel } from './types';
 import {
   BASE_ACTIONS,
   buildAddToQueueAction,
-  batchSetBlockPriority,
   adjustTime,
   addToQueue,
 } from './MenuActions';
@@ -521,99 +520,67 @@ export class DeckDataSource implements ICardDataSource {
     if (actionId === 'set-priority') {
       const priority = Math.max(0, Math.min(100, Math.floor(Number(context?.priority ?? 50))));
       
-      // 分离普通卡片和修缘卡片
-      const normalCards: BrowserCard[] = [];
-      const xiuyuanCards: BrowserCard[] = [];
+      // ✅ 使用新架构：直接通过 UnifiedDataSourceManager 更新所有卡片
+      console.log(`[SiYuanMemo][DeckDataSource] ========== SET PRIORITY START ==========`);
+      console.log(`[SiYuanMemo][DeckDataSource] Setting priority to ${priority} for ${selectedRows.length} cards`);
+      console.log(`[SiYuanMemo][DeckDataSource] Manager:`, this.manager);
+      console.log(`[SiYuanMemo][DeckDataSource] Selected cards:`, selectedRows.map(c => ({ id: c.id, blockId: c.blockId, currentPriority: c.priority })));
+      
+      const updated: BrowserCard[] = [];
+      const failed: BrowserCard[] = [];
       
       for (const card of selectedRows) {
-        if ((card as any).meta?.xiuyuanID) {
-          xiuyuanCards.push(card);
-        } else {
-          normalCards.push(card);
-        }
-      }
-      
-      // 处理普通卡片：设置块属性 + 更新 FSRSCard
-      if (normalCards.length > 0) {
-        await batchSetBlockPriority(normalCards, priority);
-        
-        // ✅ 同时更新 FSRSCard.priority
-        if (this.manager) {
-          for (const card of normalCards) {
-            try {
-              const fsrsCard = await this.manager.getCard(card.fsrsCardId || card.id);
-              if (fsrsCard) {
-                fsrsCard.priority = priority;
-                await this.manager.updateCard(fsrsCard);
-              }
-            } catch (err) {
-              console.error('[SiYuanMemo][DeckDataSource] Failed to update FSRSCard priority:', card.id, err);
-            }
-          }
-        }
-      }
-      
-      // 处理修缘卡片：更新 FSRSCard.meta.priority
-      if (xiuyuanCards.length > 0) {
-        // ✅ Phase 9: 使用 CardApplicationService 批量更新
-        if (this.cardApplicationService?.batchUpdateCardsWithoutEvents) {
-          try {
-            // 准备更新数据
-            const updates = xiuyuanCards.map(card => {
-              const fsrsCard = {
-                id: card.id,
-                meta: {
-                  ...(card as any).meta,
-                  priority: priority
-                }
-              };
-              return fsrsCard;
-            });
+        try {
+          console.log(`[SiYuanMemo][DeckDataSource] Processing card: ${card.id}`);
+          
+          // 获取 FSRSCard
+          const fsrsCard = await this.manager.getCard(card.fsrsCardId || card.id);
+          console.log(`[SiYuanMemo][DeckDataSource] Got FSRSCard:`, {
+            id: fsrsCard.id,
+            blockId: fsrsCard.blockId,
+            oldPriority: fsrsCard.priority,
+            newPriority: priority
+          });
+          
+          if (fsrsCard) {
+            // 更新优先级
+            fsrsCard.priority = priority;
             
-            // 批量更新
-            const result = await this.cardApplicationService.batchUpdateCardsWithoutEvents(updates);
+            // 持久化到存储
+            console.log(`[SiYuanMemo][DeckDataSource] Calling manager.updateCard()...`);
+            await this.manager.updateCard(fsrsCard);
+            console.log(`[SiYuanMemo][DeckDataSource] ✅ manager.updateCard() completed`);
             
-            if (result.ok) {
-              console.log(`[SiYuanMemo][DeckDataSource] ✅ Updated ${result.value?.updatedCount} Xiuyuan cards via CardApplicationService`);
-              
-              // 更新内存中的 priority
-              for (const card of xiuyuanCards) {
-                (card as any).priority = priority;
-              }
-            } else {
-              console.error('[SiYuanMemo][DeckDataSource] Failed to update Xiuyuan cards:', result.error);
-            }
-          } catch (err) {
-            console.error('[SiYuanMemo][DeckDataSource] Failed to batch update Xiuyuan cards:', err);
+            // ✅ 更新块属性（确保刷新后显示正确的优先级）
+            const { setBlockAttrs } = await import('@/core/siyuan/api');
+            const { ATTR_PRIORITY } = await import('@/core/siyuan/block');
+            await setBlockAttrs(card.blockId, { [ATTR_PRIORITY]: String(priority) });
+            console.log(`[SiYuanMemo][DeckDataSource] ✅ Block attribute updated for ${card.blockId}`);
+            
+            // 更新内存中的值（用于 UI 显示）
+            card.priority = priority;
+            
+            updated.push(card);
+            console.log(`[SiYuanMemo][DeckDataSource] ✅ Updated priority for card: ${card.id}`);
+          } else {
+            console.warn(`[SiYuanMemo][DeckDataSource] Card not found: ${card.id}`);
+            failed.push(card);
           }
-        } else if (this.plugin) {
-          // ⚠️ 向后兼容：回退到通过 ApplicationContext 访问 storage
-          console.warn('[SiYuanMemo][DeckDataSource] CardApplicationService not available, falling back to storage access via context');
-          try {
-            const storage = (this.plugin as any).getContext?.()?.getStorage?.();
-            if (storage) {
-              for (const card of xiuyuanCards) {
-                try {
-                  const fsrsCard = storage.getCard(card.id);
-                  if (fsrsCard) {
-                    fsrsCard.meta = fsrsCard.meta || {};
-                    fsrsCard.meta.priority = priority;
-                    await storage.updateCard(fsrsCard);
-                  }
-                  // 更新内存中的 priority
-                  (card as any).priority = priority;
-                } catch (err) {
-                  console.error('[SiYuanMemo][DeckDataSource] Failed to set priority for Xiuyuan card:', card.id, err);
-                }
-              }
-            }
-          } catch (err) {
-            console.error('[SiYuanMemo][DeckDataSource] Failed to access storage:', err);
-          }
+        } catch (err) {
+          console.error(`[SiYuanMemo][DeckDataSource] ❌ Failed to update priority for card ${card.id}:`, err);
+          failed.push(card);
         }
       }
       
-      return { updated: selectedRows, skipped: [] };
+      console.log(`[SiYuanMemo][DeckDataSource] ========== SET PRIORITY END ==========`);
+      console.log(`[SiYuanMemo][DeckDataSource] Updated: ${updated.length}, Failed: ${failed.length}`);
+      
+      // ✅ 清除缓存，确保刷新后显示最新数据
+      const { invalidateCardCache } = await import('../browserService');
+      invalidateCardCache();
+      console.log(`[SiYuanMemo][DeckDataSource] ✅ Cache invalidated after priority update`);
+      
+      return { updated, skipped: failed };
     }
 
     // ========== 卡片操作 ==========

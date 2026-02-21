@@ -8,7 +8,7 @@
 
 import type { ICardFaceStrategy } from './ICardFaceStrategy';
 import type { CardFaceData, HiddenContentType, QuickCardMetadata } from '../types';
-import { splitBySymbol } from './utils';
+import { splitBySymbol, shouldHideListItems } from './utils';
 
 /**
  * 概念卡片策略
@@ -70,10 +70,16 @@ export class ConceptCardStrategy implements ICardFaceStrategy {
     // 反面：概念名称 + 定义
     const backHtml = `${concept}<br/>${definition}`;
     
+    // 检测是否需要隐藏列表项
+    const frontHiddenTypes: HiddenContentType[] = ['mark'];
+    if (shouldHideListItems(metadata)) {
+      frontHiddenTypes.push('list');
+    }
+    
     return {
       front: {
         html: frontHtml,
-        hiddenTypes: ['mark'], // 正面隐藏标记内容
+        hiddenTypes: frontHiddenTypes,
       },
       back: {
         html: backHtml,

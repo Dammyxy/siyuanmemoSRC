@@ -1,27 +1,27 @@
 {
   "name": "siyuan-plugin-siyuanmemo",
-  "author": "Dammy",
-  "url": "https://github.com/Dammy/siyuan-plugin-fsrs",
+  "author": "Dammyxy",
+  "url": "https://github.com/Dammyxy/siyuan-plugin-siyuanmemo",
   "version": "0.0.1",
-  "minAppVersion": "2.10.14",
+  "disabledInPublish": true,
+  "minAppVersion": "3.2.1",
   "backends": [
     "all"
   ],
   "frontends": [
-    "all"
+    "desktop",
+    "browser-desktop",
+    "desktop-window"
   ],
   "displayName": {
-    "default": "FSRS Flashcard",
-    "en_US": "FSRS Flashcard",
-    "zh_CN": "FSRS 闪卡"
+    "en_US": "SiyuanMemo",
+    "zh_CN": "间隔重复系统"
   },
   "description": {
-    "default": "Modern flashcard plugin based on FSRS v6 algorithm with incremental reading support",
-    "en_US": "Modern flashcard plugin based on FSRS v6 algorithm with incremental reading support",
-    "zh_CN": "基于 FSRS v6 算法的现代闪卡插件，支持增量阅读"
+    "en_US": "Stage 2 Flashcard Enhancement - Adding a complete spaced repetition system to SiYuan flashcards.",
+    "zh_CN": "第二阶段的闪卡强化，为思源的闪卡加入完善的间隔重复系统。"
   },
   "readme": {
-    "default": "README.md",
     "en_US": "README.md",
     "zh_CN": "README_zh_CN.md"
   },

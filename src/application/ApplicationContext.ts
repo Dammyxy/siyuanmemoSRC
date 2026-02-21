@@ -34,6 +34,7 @@ import { AdvancedDataRouter } from '@/application/queries/DataAccessFacade';
 import { XiuyuanRepository } from '@/core/xiuyuan/infrastructure/XiuyuanRepository';
 import { CardCreationService } from '@/core/xiuyuan/domain/services/CardCreationService';
 import { CardDeletionService } from '@/core/xiuyuan/domain/services/CardDeletionService';
+import { CardTypeDetectionService } from '@/core/xiuyuan/domain/services/CardTypeDetectionService';
 import { CreateCardUseCase } from '@/application/usecases/card/CreateCardUseCase';
 import { DeleteCardUseCase } from '@/application/usecases/card/DeleteCardUseCase';
 import { UpdateCardUseCase } from '@/application/usecases/card/UpdateCardUseCase';
@@ -306,8 +307,13 @@ export class ApplicationContext {
       // 创建基础设施层：XiuyuanRepository
       // ✅ DDD 架构修复：使用 UnifiedStorageManager 而不是 XiuyuanStorage
       // UnifiedStorageManager 是统一的数据访问层，符合 DDD 原则
+      
+      // ✅ 创建 CardTypeDetectionService（领域服务）
+      const cardTypeDetectionService = new CardTypeDetectionService();
+      
       const xiuyuanRepo = new XiuyuanRepository(
-        context.getUnifiedStorage()  // ✅ 使用 UnifiedStorageManager
+        context.getUnifiedStorage(),  // ✅ 使用 UnifiedStorageManager
+        cardTypeDetectionService      // ✅ 注入 CardTypeDetectionService
       );
 
       // 创建领域服务
@@ -321,13 +327,15 @@ export class ApplicationContext {
 
       // 创建应用服务
       const scheduleService = new CardScheduleService();
+      const unifiedStorage = context.getUnifiedStorage();
       
       return new CardApplicationService(
         createCardUseCase,
         deleteCardUseCase,
         updateCardUseCase,
-        context.getUnifiedStorage() as any,  // ✅ 使用 UnifiedStorageManager（实现了 StorageManager 接口）
-        scheduleService
+        unifiedStorage as any,  // ✅ 临时保留用于查询（StorageManager 接口）
+        scheduleService,
+        unifiedStorage  // ✅ 传递 UnifiedStorageManager 用于 FSRS 卡片操作
       );
     });
     
@@ -670,7 +678,15 @@ export class ApplicationContext {
     // 3. 创建 CardApplicationService 相关组件
     // ✅ DDD 架构修复：使用 UnifiedStorageManager 创建 XiuyuanRepository
     // 确保所有地方使用统一的数据访问层，避免数据不一致
-    const xiuyuanRepoTemp = new XiuyuanRepository(unifiedStorageManager);
+    
+    // ✅ 创建 CardTypeDetectionService
+    const { CardTypeDetectionService: CardTypeDetectionServiceClass } = await import('@/core/xiuyuan/domain/services/CardTypeDetectionService');
+    const cardTypeDetectionServiceTemp = new CardTypeDetectionServiceClass();
+    
+    const xiuyuanRepoTemp = new XiuyuanRepository(
+      unifiedStorageManager,
+      cardTypeDetectionServiceTemp  // ✅ 注入 CardTypeDetectionService
+    );
     
     // 创建领域服务
     const cardCreationService = new CardCreationService();
@@ -691,8 +707,9 @@ export class ApplicationContext {
       createCardUseCase,
       deleteCardUseCase,
       updateCardUseCase,
-      unifiedStorageManager as any,
-      cardScheduleService
+      unifiedStorageManager as any,  // 临时保留用于查询
+      cardScheduleService,
+      unifiedStorageManager  // ✅ 传递 UnifiedStorageManager 用于 FSRS 卡片操作
     );
     
     // 4. 初始化 RescheduleService（使用新架构）
@@ -751,7 +768,7 @@ export class ApplicationContext {
     const blockMenuHandler = new BlockMenuHandler({
       app: (config.plugin as any).app,
       i18n: config.i18n,
-      storage: storageManager,
+      storage: unifiedStorageManager as any,  // ✅ 使用新架构 UnifiedStorageManager
       dialogManager: null as any, // 将在 ApplicationContext 创建后设置
       cardCreationHelper: cardCreationHelper,  // ✅ 注入 CardCreationHelper
       openCreateTemplateCardDialog: async (blockIds) => {
@@ -843,11 +860,15 @@ export class ApplicationContext {
       const cardService = context.getCardService();
       const eventBus = context.getEventBus();
       
-      // ✅ 创建 XiuyuanRepository
-      const xiuyuanRepository = new XiuyuanRepository(unifiedStorageManager);
-      
       // ✅ 创建 CardTypeDetectionService
-      const { CardTypeDetectionService } = await import('@/core/xiuyuan/domain/services/CardTypeDetectionService');
+      const { CardTypeDetectionService: CardTypeDetectionServiceClass2 } = await import('@/core/xiuyuan/domain/services/CardTypeDetectionService');
+      const cardTypeDetectionService2 = new CardTypeDetectionServiceClass2();
+      
+      // ✅ 创建 XiuyuanRepository
+      const xiuyuanRepository = new XiuyuanRepository(
+        unifiedStorageManager,
+        cardTypeDetectionService2  // ✅ 注入 CardTypeDetectionService
+      );
       const cardTypeDetectionService = new CardTypeDetectionService();
       
       // 创建 HybridSyncService
@@ -855,7 +876,7 @@ export class ApplicationContext {
       hybridSyncService = new HybridSyncService(
         {
           deckId: riff.BUILTIN_DECK_ID,
-          storage: storageManager,
+          storage: unifiedStorageManager as any,  // ✅ 使用新架构 UnifiedStorageManager
           riffBlacklistService: context.getRiffBlacklistService(),
           incrementalSync: {
             ...riffConfig.incrementalSync,
@@ -925,10 +946,15 @@ export class ApplicationContext {
   /**
    * 获取存储管理器
    * 
-   * @returns StorageManager - 存储管理器实例
+   * ✅ 返回 UnifiedStorageManager（新架构）
+   * UnifiedStorageManager 实现了 StorageManager 接口，向后兼容
+   * 
+   * @returns StorageManager - 存储管理器实例（实际是 UnifiedStorageManager）
    */
   getStorage(): StorageManager {
-    return this.storageManager;
+    // ✅ 返回 UnifiedStorageManager 而不是旧的 StorageManager
+    // UnifiedStorageManager 实现了 StorageManager 接口，完全兼容
+    return this.unifiedStorageManager as any as StorageManager;
   }
   
   /**
@@ -1051,8 +1077,15 @@ export class ApplicationContext {
   getXiuyuanApplicationService(): XiuyuanApplicationService {
     if (!this.xiuyuanApplicationService) {
       // 懒加载：首次调用时创建
+      
+      // 创建 CardTypeDetectionService（领域服务）
+      const cardTypeDetectionService = new CardTypeDetectionService();
+      
       // 创建 XiuyuanRepository
-      const xiuyuanRepository = new XiuyuanRepository(this.unifiedStorageManager);
+      const xiuyuanRepository = new XiuyuanRepository(
+        this.unifiedStorageManager,
+        cardTypeDetectionService  // ✅ 注入 CardTypeDetectionService
+      );
       
       // 获取模板注册表（从 XiuyuanStorage）
       const templatesObj = this.xiuyuanStorage.data.templates;
@@ -1361,11 +1394,14 @@ export class ApplicationContext {
       // 5. 保存存储管理器数据（关键操作）
       try {
         console.log('[ApplicationContext] Saving storage data...');
-        await this.storageManager.saveCards();
+        const saveResult = await this.unifiedStorageManager.save();  // ✅ 使用新架构 UnifiedStorageManager
+        if (!saveResult.ok) {
+          throw new Error(saveResult.error?.message || 'Unknown error');
+        }
         console.log('[ApplicationContext] Storage data saved successfully');
       } catch (error) {
         console.error('[ApplicationContext] Critical error: Failed to save storage data:', error);
-        errors.push({ service: 'storageManager.saveCards', error });
+        errors.push({ service: 'unifiedStorageManager.save', error });
         // 存储保存失败是关键错误，需要抛出
         throw new Error(`Failed to save storage data during disposal: ${error}`);
       }

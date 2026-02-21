@@ -56,8 +56,7 @@ export interface StorageStats {
 export class UnifiedStorageManager {
   // === 数据存储 ===
   private xiuyuans: Map<string, IXiuyuan> = new Map();
-  private cards: Map<string, FSRSCard> = new Map();
-  private cardDTOs: Map<string, CardPersistenceDTO> = new Map();
+  private cardDTOs: Map<string, CardPersistenceDTO> = new Map();  // ✅ 只维护 DTO Map
 
   // === 内存索引 ===
   private indexByBlockID: Map<string, string[]> = new Map();
@@ -74,6 +73,36 @@ export class UnifiedStorageManager {
   // === 持久化回调 ===
   private saveCallback: ((data: UnifiedCardStore) => Promise<void>) | null = null;
   private loadCallback: (() => Promise<UnifiedCardStore>) | null = null;
+
+  /**
+   * ✅ 构造函数：确保所有 Map 都已初始化
+   */
+  constructor() {
+    // 防御性检查：确保所有 Map 都已初始化
+    if (!this.cardDTOs) {
+      console.warn('[UnifiedStorageManager] cardDTOs not initialized in constructor, re-initializing...');
+      this.cardDTOs = new Map();
+    }
+    if (!this.xiuyuans) {
+      console.warn('[UnifiedStorageManager] xiuyuans not initialized in constructor, re-initializing...');
+      this.xiuyuans = new Map();
+    }
+    if (!this.indexByBlockID) {
+      this.indexByBlockID = new Map();
+    }
+    if (!this.indexByXiuyuanID) {
+      this.indexByXiuyuanID = new Map();
+    }
+    if (!this.indexByType) {
+      this.indexByType = new Map();
+    }
+    if (!this.indexByDue) {
+      this.indexByDue = [];
+    }
+    if (!this.indexByPriority) {
+      this.indexByPriority = new Map();
+    }
+  }
 
   /**
    * 设置持久化回调
@@ -101,7 +130,6 @@ export class UnifiedStorageManager {
 
       // 清空现有数据
       this.xiuyuans.clear();
-      this.cards.clear();
       this.cardDTOs.clear();
 
       // 加载 XiuYuans
@@ -109,16 +137,19 @@ export class UnifiedStorageManager {
         this.xiuyuans.set(id, xiuyuan);
       }
 
-      // 加载 Cards
-      for (const [id, card] of Object.entries(store.cards)) {
-        this.cards.set(id, card);
-      }
-
-      // 加载 CardDTOs
-      if (store.cardDTOs) {
+      // ✅ 优先加载 CardDTOs（新架构）
+      if (store.cardDTOs && Object.keys(store.cardDTOs).length > 0) {
+        // 从 CardDTOs 加载（新架构）
         for (const [id, dto] of Object.entries(store.cardDTOs)) {
           this.cardDTOs.set(id, dto);
         }
+      } else {
+        // 降级：从 Cards 加载（旧数据兼容，自动迁移）
+        for (const [id, card] of Object.entries(store.cards)) {
+          const dto = CardMapper.toPersistence(card);
+          this.cardDTOs.set(id, dto);
+        }
+        console.log('[UnifiedStorageManager] ⚠️ Migrated old cards data to cardDTOs format');
       }
 
       // 重建索引
@@ -186,7 +217,8 @@ export class UnifiedStorageManager {
     this.indexByPriority.clear();
 
     // 重建索引
-    for (const card of this.cards.values()) {
+    for (const dto of this.cardDTOs.values()) {
+      const card = CardMapper.toDomain(dto);
       this.updateIndexesForCard(card, 'add');
     }
 
@@ -303,21 +335,22 @@ export class UnifiedStorageManager {
       xiuyuans[id] = xiuyuan;
     }
 
-    const cards: Record<string, FSRSCard> = {};
-    for (const [id, card] of this.cards.entries()) {
-      cards[id] = card;
-    }
-
     const cardDTOs: Record<string, CardPersistenceDTO> = {};
     for (const [id, dto] of this.cardDTOs.entries()) {
       cardDTOs[id] = dto;
     }
 
+    // ✅ 为了向后兼容，仍然保存 cards 字段（从 cardDTOs 转换）
+    const cards: Record<string, FSRSCard> = {};
+    for (const [id, dto] of this.cardDTOs.entries()) {
+      cards[id] = CardMapper.toDomain(dto);
+    }
+
     return {
       version: 1,
       xiuyuans,
-      cards,
-      cardDTOs,
+      cards,  // 向后兼容
+      cardDTOs,  // 主数据源
     };
   }
 
@@ -374,7 +407,7 @@ export class UnifiedStorageManager {
         if (cardXiuyuanID && cardXiuyuanID !== xiuyuan.id) {
           return err(new Error(`Card ${card.id} xiuyuanID mismatch: expected ${xiuyuan.id}, got ${cardXiuyuanID}`));
         }
-        if (this.cards.has(card.id)) {
+        if (this.cardDTOs.has(card.id)) {
           return err(new Error(`Card ${card.id} already exists`));
         }
       }
@@ -396,9 +429,10 @@ export class UnifiedStorageManager {
           this.xiuyuans.set(xiuyuan.id, xiuyuan);
         }
 
-        // 2. 批量保存 Cards（不更新索引）
+        // 2. 批量保存 Cards（转换为 DTO）
         for (const card of cards) {
-          this.cards.set(card.id, card);
+          const dto = CardMapper.toPersistence(card);
+          this.cardDTOs.set(dto.id, dto);
         }
 
         // 3. 一次性更新所有索引
@@ -425,7 +459,7 @@ export class UnifiedStorageManager {
 
         // 回滚 Cards
         for (const card of cards) {
-          this.cards.delete(card.id);
+          this.cardDTOs.delete(card.id);
         }
 
         // 回滚索引
@@ -456,10 +490,6 @@ export class UnifiedStorageManager {
         // 保存 DTO
         this.cardDTOs.set(dto.id, dto);
 
-        // 同时保存 FSRSCard（向后兼容）
-        const fsrsCard = CardMapper.toDomain(dto);
-        this.cards.set(dto.id, fsrsCard);
-
         // 更新索引（使用 DTO 的顶层字段）
         this.updateIndexesForDTO(dto, 'add');
 
@@ -489,10 +519,26 @@ export class UnifiedStorageManager {
      */
     async updateCardDTO(dto: CardPersistenceDTO): Promise<Result<void>> {
       try {
+        // ✅ 防御性检查：确保 cardDTOs Map 已初始化
+        if (!this.cardDTOs) {
+          console.error('[UnifiedStorageManager] ❌ CRITICAL: cardDTOs Map is undefined!');
+          return err(new Error('Storage not initialized: cardDTOs Map is undefined'));
+        }
+
         const oldDTO = this.cardDTOs.get(dto.id);
         if (!oldDTO) {
           return err(new Error(`Card not found: ${dto.id}`));
         }
+
+        console.log('[UnifiedStorageManager] updateCardDTO - Before update:', {
+          cardId: dto.id,
+          oldPriority: oldDTO.priority,
+          newPriority: dto.priority,
+          oldDTOKeys: Object.keys(oldDTO).length,
+          newDTOKeys: Object.keys(dto).length,
+          cardDTOsType: typeof this.cardDTOs,
+          cardDTOsSize: this.cardDTOs?.size,
+        });
 
         // 移除旧索引
         this.updateIndexesForDTO(oldDTO, 'remove');
@@ -500,9 +546,11 @@ export class UnifiedStorageManager {
         // 更新 DTO
         this.cardDTOs.set(dto.id, dto);
 
-        // 同时更新 FSRSCard（向后兼容）
-        const fsrsCard = CardMapper.toDomain(dto);
-        this.cards.set(dto.id, fsrsCard);
+        console.log('[UnifiedStorageManager] updateCardDTO - After update:', {
+          cardId: dto.id,
+          newPriority: dto.priority,
+          cardDTOsSize: this.cardDTOs.size,
+        });
 
         // 添加新索引
         this.updateIndexesForDTO(dto, 'add');
@@ -563,11 +611,9 @@ export class UnifiedStorageManager {
           this.xiuyuans.set(xiuyuan.id, xiuyuan);
         }
 
-        // 2. 批量保存 DTOs 和 FSRSCards
+        // 2. 批量保存 DTOs
         for (const dto of dtos) {
           this.cardDTOs.set(dto.id, dto);
-          const fsrsCard = CardMapper.toDomain(dto);
-          this.cards.set(dto.id, fsrsCard);
         }
 
         // 3. 一次性更新所有索引
@@ -592,10 +638,9 @@ export class UnifiedStorageManager {
           this.xiuyuans.set(xiuyuan.id, originalXiuyuan);
         }
 
-        // 回滚 DTOs 和 Cards
+        // 回滚 DTOs
         for (const dto of dtos) {
           this.cardDTOs.delete(dto.id);
-          this.cards.delete(dto.id);
         }
 
         // 回滚索引
@@ -715,7 +760,9 @@ export class UnifiedStorageManager {
    * @param cardId 卡片 ID
    */
   getCard(cardId: string): FSRSCard | undefined {
-    return this.cards.get(cardId);
+    const dto = this.cardDTOs.get(cardId);
+    if (!dto) return undefined;
+    return CardMapper.toDomain(dto);  // ✅ 动态转换
   }
 
   /**
@@ -740,16 +787,18 @@ export class UnifiedStorageManager {
    */
   async deleteCard(cardId: string): Promise<Result<void>> {
     try {
-      const card = this.cards.get(cardId);
-      if (!card) {
+      const dto = this.cardDTOs.get(cardId);
+      if (!dto) {
         return err(new Error(`Card not found: ${cardId}`));
       }
+
+      const card = CardMapper.toDomain(dto);
 
       // 移除索引
       this.updateIndexesForCard(card, 'remove');
 
       // 删除卡片
-      this.cards.delete(cardId);
+      this.cardDTOs.delete(cardId);
 
       // 检查是否需要删除 XiuYuan
       const xiuyuanID = card.meta?.xiuyuanID;
@@ -786,10 +835,11 @@ export class UnifiedStorageManager {
 
       // 删除所有关联卡片
       for (const cardId of [...cardIds]) {
-        const card = this.cards.get(cardId);
-        if (card) {
+        const dto = this.cardDTOs.get(cardId);
+        if (dto) {
+          const card = CardMapper.toDomain(dto);
           this.updateIndexesForCard(card, 'remove');
-          this.cards.delete(cardId);
+          this.cardDTOs.delete(cardId);
         }
       }
 
@@ -833,7 +883,10 @@ export class UnifiedStorageManager {
    */
   getCardsByBlockId(blockId: string): FSRSCard[] {
     const cardIds = this.indexByBlockID.get(blockId) || [];
-    return cardIds.map(id => this.cards.get(id)).filter((c): c is FSRSCard => c !== undefined);
+    return cardIds
+      .map(id => this.cardDTOs.get(id))
+      .filter((dto): dto is CardPersistenceDTO => dto !== undefined)
+      .map(dto => CardMapper.toDomain(dto));  // ✅ 动态转换
   }
 
   /**
@@ -842,7 +895,10 @@ export class UnifiedStorageManager {
    */
   getCardsByXiuyuanId(xiuyuanId: string): FSRSCard[] {
     const cardIds = this.indexByXiuyuanID.get(xiuyuanId) || [];
-    return cardIds.map(id => this.cards.get(id)).filter((c): c is FSRSCard => c !== undefined);
+    return cardIds
+      .map(id => this.cardDTOs.get(id))
+      .filter((dto): dto is CardPersistenceDTO => dto !== undefined)
+      .map(dto => CardMapper.toDomain(dto));  // ✅ 动态转换
   }
 
   /**
@@ -851,14 +907,17 @@ export class UnifiedStorageManager {
    */
   getCardsByType(type: CardType): FSRSCard[] {
     const cardIds = this.indexByType.get(type) || [];
-    return cardIds.map(id => this.cards.get(id)).filter((c): c is FSRSCard => c !== undefined);
+    return cardIds
+      .map(id => this.cardDTOs.get(id))
+      .filter((dto): dto is CardPersistenceDTO => dto !== undefined)
+      .map(dto => CardMapper.toDomain(dto));  // ✅ 动态转换
   }
 
   /**
    * 获取所有卡片
    */
   getAllCards(): FSRSCard[] {
-    return Array.from(this.cards.values());
+    return Array.from(this.cardDTOs.values()).map(dto => CardMapper.toDomain(dto));  // ✅ 动态转换
   }
 
   /**
@@ -886,7 +945,8 @@ export class UnifiedStorageManager {
     const issues: string[] = [];
 
     // 检查孤儿卡片（没有 xiuyuanID 或 xiuyuanID 无效）
-    for (const card of this.cards.values()) {
+    for (const dto of this.cardDTOs.values()) {
+      const card = CardMapper.toDomain(dto);
       const xiuyuanID = card.meta?.xiuyuanID;
       if (!xiuyuanID) {
         issues.push(`Card ${card.id} has no xiuyuanID`);
@@ -915,7 +975,8 @@ export class UnifiedStorageManager {
 
     // 删除孤儿卡片
     const orphanCards: string[] = [];
-    for (const card of this.cards.values()) {
+    for (const dto of this.cardDTOs.values()) {
+      const card = CardMapper.toDomain(dto);
       const xiuyuanID = card.meta?.xiuyuanID;
       if (!xiuyuanID || !this.xiuyuans.has(xiuyuanID)) {
         orphanCards.push(card.id);
@@ -923,10 +984,11 @@ export class UnifiedStorageManager {
     }
 
     for (const cardId of orphanCards) {
-      const card = this.cards.get(cardId);
-      if (card) {
+      const dto = this.cardDTOs.get(cardId);
+      if (dto) {
+        const card = CardMapper.toDomain(dto);
         this.updateIndexesForCard(card, 'remove');
-        this.cards.delete(cardId);
+        this.cardDTOs.delete(cardId);
         fixedCount++;
       }
     }
@@ -957,7 +1019,7 @@ export class UnifiedStorageManager {
    */
   getStats(): StorageStats {
     const stats: StorageStats = {
-      totalCards: this.cards.size,
+      totalCards: this.cardDTOs.size,
       totalXiuYuans: this.xiuyuans.size,
       cardsByType: {} as Record<CardType, number>,
       dueCards: 0,
@@ -968,7 +1030,8 @@ export class UnifiedStorageManager {
 
     const now = Date.now();
 
-    for (const card of this.cards.values()) {
+    for (const dto of this.cardDTOs.values()) {
+      const card = CardMapper.toDomain(dto);
       // 按类型统计
       stats.cardsByType[card.type] = (stats.cardsByType[card.type] || 0) + 1;
 
@@ -1003,7 +1066,7 @@ export class UnifiedStorageManager {
    * - 如果 xiuyuan 不存在，会抛出错误
    */
   setCard(card: FSRSCard): void {
-    const existing = this.cards.get(card.id);
+    const existing = this.cardDTOs.get(card.id);
     if (existing) {
       // 更新现有卡片
       this.updateCard(card);
@@ -1028,13 +1091,14 @@ export class UnifiedStorageManager {
    * 内部调用 deleteCard（同步版本）
    */
   removeCard(cardId: string): boolean {
-    const card = this.cards.get(cardId);
-    if (!card) {
+    const dto = this.cardDTOs.get(cardId);
+    if (!dto) {
       return false;
     }
 
+    const card = CardMapper.toDomain(dto);
+
     // 从 Map 中删除
-    this.cards.delete(cardId);
     this.cardDTOs.delete(cardId);
 
     // 更新索引
@@ -1086,7 +1150,7 @@ export class UnifiedStorageManager {
     return {
       ...baseStats,
       xiuyuanCount: this.xiuyuans.size,
-      cardCount: this.cards.size,
+      cardCount: this.cardDTOs.size,
       cardDTOCount: this.cardDTOs.size,
     };
   }

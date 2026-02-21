@@ -11,23 +11,25 @@
  * 
  * **优先级范围**：
  * - 0: 最低优先级
- * - 10: 最高优先级
- * - 默认: 5（中等优先级）
+ * - 100: 最高优先级
+ * - 默认: 50（中等优先级）
+ * 
+ * ⚠️ 注意：范围已从 0-10 改为 0-100，与系统其他部分保持一致
  */
 
 import { Result, ok, err } from '../../../types/result';
 
 export class Priority {
   private static readonly MIN_PRIORITY = 0;
-  private static readonly MAX_PRIORITY = 10;
-  public static readonly DEFAULT_PRIORITY = 5;
+  private static readonly MAX_PRIORITY = 100;
+  public static readonly DEFAULT_PRIORITY = 50;
 
   private constructor(private readonly value: number) {}
 
   /**
    * 创建 Priority
    * 
-   * @param value - 优先级值（0-10）
+   * @param value - 优先级值（0-100）
    * @returns Result<Priority> - 成功返回 Priority，失败返回错误
    */
   static create(value: number): Result<Priority> {
@@ -41,7 +43,7 @@ export class Priority {
       return err(new Error('Priority must be an integer'));
     }
 
-    // 验证：范围检查（0-10）
+    // 验证：范围检查（0-100）
     if (value < Priority.MIN_PRIORITY || value > Priority.MAX_PRIORITY) {
       return err(new Error(`Priority must be between ${Priority.MIN_PRIORITY} and ${Priority.MAX_PRIORITY}`));
     }
@@ -79,17 +81,17 @@ export class Priority {
   }
 
   /**
-   * 判断是否为高优先级（>= 7）
+   * 判断是否为高优先级（>= 70）
    */
   isHigh(): boolean {
-    return this.value >= 7;
+    return this.value >= 70;
   }
 
   /**
-   * 判断是否为低优先级（<= 3）
+   * 判断是否为低优先级（<= 30）
    */
   isLow(): boolean {
-    return this.value <= 3;
+    return this.value <= 30;
   }
 
   /**

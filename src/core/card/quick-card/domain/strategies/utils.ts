@@ -66,3 +66,25 @@ export function splitBySymbol(content: string, symbol: string): [string, string]
   
   return [part1, part2];
 }
+
+/**
+ * 检测是否需要隐藏列表项
+ * 
+ * @description 根据元数据判断是否需要在正面隐藏列表项子级
+ * 
+ * @param metadata - 卡片元数据
+ * @returns 是否需要隐藏列表项
+ * 
+ * @example
+ * ```typescript
+ * const metadata = { hasListChildren: true };
+ * console.log(shouldHideListItems(metadata)); // true
+ * 
+ * const metadata2 = { hasListChildren: false };
+ * console.log(shouldHideListItems(metadata2)); // false
+ * ```
+ */
+export function shouldHideListItems(metadata: any): boolean {
+  // 如果元数据中包含 hasListChildren 标记，则需要隐藏
+  return metadata.hasListChildren === true;
+}
