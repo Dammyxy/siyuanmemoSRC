@@ -168,12 +168,12 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                     return blockId;
                 })(),
                 answerBlockID: (() => {
-                    // 🆕 Xiuyuan 卡片：使用 backBlockIDs 的第一个块
-                    if (isXiuyuanCard(card) && card.meta.backBlockIDs.length > 0) {
+                    // 🆕 只有列表模板才设置 answerBlockID
+                    if (isXiuyuanCard(card) && card.meta.templateID === 'builtin-list-item' && card.meta.backBlockIDs.length > 0) {
                         return card.meta.backBlockIDs[0];
                     }
-                    // 向后兼容：旧的 Xiuyuan 卡片
-                    return String((card as any)?.meta?.answerBlockID || '');
+                    // 其他模板不设置 answerBlockID
+                    return '';
                 })(),
                 card: card as any,
                 // 🆕 Xiuyuan 列表模版卡：标记需要自定义渲染

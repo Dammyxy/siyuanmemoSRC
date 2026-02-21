@@ -8,7 +8,7 @@
  * 4. 运行脚本
  */
 
-const BLOCK_ID = '20260221133949-007ew46'; // 你创建的列表项块
+const BLOCK_ID = '20230606070000-fapuv4b'; // 学习分为向外学习和提取?
 
 async function debugListStructure(blockId) {
     console.log('=== 开始调试列表结构 ===');
