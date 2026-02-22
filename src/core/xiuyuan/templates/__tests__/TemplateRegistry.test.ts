@@ -31,10 +31,16 @@ describe('TemplateRegistry', () => {
       expect(template?.name).toBe('双向卡片');
     });
 
-    it('应该包含 builtin-cloze 模板', () => {
-      const template = registry.get('builtin-cloze');
+    it('应该包含 builtin-quick-card 模板', () => {
+      const template = registry.get('builtin-quick-card');
       expect(template).toBeDefined();
-      expect(template?.name).toBe('填空卡片');
+      expect(template?.name).toBe('符号卡片');
+    });
+
+    it('应该包含 builtin-bidirectional-single 模板', () => {
+      const template = registry.get('builtin-bidirectional-single');
+      expect(template).toBeDefined();
+      expect(template?.name).toBe('双向卡片');
     });
 
     it('应该包含 builtin-concept-simple 模板', () => {
@@ -47,12 +53,6 @@ describe('TemplateRegistry', () => {
       const template = registry.get('builtin-concept-descriptor');
       expect(template).toBeDefined();
       expect(template?.name).toBe('概念-描述符');
-    });
-
-    it('应该包含 builtin-quick-card 模板', () => {
-      const template = registry.get('builtin-quick-card');
-      expect(template).toBeDefined();
-      expect(template?.name).toBe('快速卡片');
     });
 
     it('应该包含 builtin-symbol-qa 模板', () => {

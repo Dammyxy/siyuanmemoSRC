@@ -810,6 +810,123 @@ export class DialogManager implements IDialogManager {
    * @param blockIds - 块 ID 列表（多填空卡只使用第一个块）
    * @param template - 多填空模版
    */
+  private async handleListTemplateCard(blockIds: string[], template: any): Promise<void> {
+    try {
+      if (blockIds.length === 0) {
+        pushErrMsg('未选中任何块');
+        return;
+      }
+
+      const parentBlockId = blockIds[0];
+
+      // 1. 检查块类型
+      const typeResult = await sql(`
+        SELECT type, content FROM blocks
+        WHERE id = '${parentBlockId}'
+        LIMIT 1
+      `);
+
+      if (!typeResult || typeResult.length === 0) {
+        pushErrMsg('块不存在');
+        return;
+      }
+
+      const blockType = typeResult[0].type;
+
+      if (blockType !== 'i') {
+        pushErrMsg(`只能对列表项块使用此功能（当前类型：${blockType}）`);
+        return;
+      }
+
+      // 2. 获取子级列表项（必须是有序列表）
+      // 思源的列表结构：列表项(i) → 段落(p) + 列表容器(l) → 子列表项(i)
+      const allChildrenResult = await sql(`
+        SELECT id, type, content FROM blocks
+        WHERE parent_id = '${parentBlockId}'
+        ORDER BY id ASC
+      `);
+      
+      // 找到列表容器
+      const listContainer = allChildrenResult?.find((r: any) => r.type === 'l');
+      
+      if (!listContainer) {
+        pushErrMsg('未找到列表容器，请确保列表结构正确');
+        return;
+      }
+      
+      // 查询列表容器的子级列表项（必须是有序列表）
+      const childrenResult = await sql(`
+        SELECT id, content FROM blocks
+        WHERE parent_id = '${listContainer.id}'
+        AND type = 'i'
+        AND subtype = 'o'
+        ORDER BY id ASC
+      `);
+
+      // 如果没有找到直接子级，尝试查询所有后代列表项（必须是有序列表）
+      let finalChildren = childrenResult;
+      if (!finalChildren || finalChildren.length === 0) {
+        const descendantsResult = await sql(`
+          WITH RECURSIVE descendants AS (
+            SELECT id, type, subtype, content, parent_id FROM blocks WHERE parent_id = '${listContainer.id}'
+            UNION ALL
+            SELECT b.id, b.type, b.subtype, b.content, b.parent_id FROM blocks b
+            INNER JOIN descendants d ON b.parent_id = d.id
+          )
+          SELECT id, content FROM descendants WHERE type = 'i' AND subtype = 'o' ORDER BY id ASC
+        `);
+        
+        finalChildren = descendantsResult;
+      }
+
+      if (!finalChildren || finalChildren.length < 2) {
+        pushErrMsg(`需要至少2个有序子列表项（当前：${finalChildren?.length || 0}个）`);
+        return;
+      }
+
+      const childBlockIds = finalChildren.map((row: any) => row.id);
+
+      // 3. 创建列表模版卡
+      const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
+      const result = await xiuyuanAppService.createListTemplateCards({
+        parentBlockId,
+        childBlockIds,
+        templateId: template.id
+      });
+
+      if (!result.ok) {
+        console.error('[DialogManager] Failed to create list template cards:', result.error);
+        pushErrMsg(`创建失败：${result.error.message}`);
+        return;
+      }
+
+      const { xiuyuan, cards } = result.value;
+      console.log('[DialogManager] List template cards created:', { xiuyuan, cards });
+
+      pushMsg(
+        `✅ 有序列表模版卡创建成功！\n` +
+        `子列表项：${childBlockIds.length} 个\n` +
+        `生成卡片：${cards.length} 张`
+      );
+    } catch (err) {
+      console.error('[DialogManager] Failed to handle list template card:', err);
+      pushErrMsg(`创建失败：${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * 处理多填空卡片创建
+   * 
+   * @description
+   * 多填空卡片的创建流程：
+   * 1. 读取块内容
+   * 2. 解析所有填空
+   * 3. 动态生成 cardRules（每个填空一个 rule）
+   * 4. 创建卡片
+   * 
+   * @param blockIds - 块 ID 列表（多填空卡只使用第一个块）
+   * @param template - 多填空模版
+   */
   private async handleMultiClozeCard(blockIds: string[], template: any): Promise<void> {
     try {
       if (blockIds.length === 0) {
@@ -855,7 +972,7 @@ export class DialogManager implements IDialogManager {
       };
 
       // 4. 创建卡片
-      const xiuyuanAppService = this.context.getXiuyuanApplicationService();
+      const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
       const result = await xiuyuanAppService.createFromBlocks({
         blockIds: [blockId],
         templateId: template.id,
@@ -1004,6 +1121,14 @@ export class DialogManager implements IDialogManager {
                 this.templateSelectDialog = null;
                 return;
               }
+              
+              // 🆕 有序列表模版特殊处理
+              if (templateId === 'builtin-list-item') {
+                await this.handleListTemplateCard(blockIds, template);
+                this.templateSelectDialog?.destroy();
+                this.templateSelectDialog = null;
+                return;
+              }
 
               // 普通模版：自动字段映射
               const fieldMapping: Record<string, string> = {};
@@ -1062,6 +1187,11 @@ export class DialogManager implements IDialogManager {
               const { xiuyuan, cards } = result.value;
               console.log('[DialogManager] Xiuyuan created:', { xiuyuan, cards });
 
+              // 🆕 CDF 概念定义卡：自动为概念文档块创建概念卡
+              if (templateId === 'builtin-concept-definition') {
+                await this.ensureConceptDocumentCard(fieldMapping, xiuyuanAppService);
+              }
+
               pushMsg(
                 `✅ 模板卡片创建成功！\n` +
                 `模板：${template.name}\n` +
@@ -1087,6 +1217,121 @@ export class DialogManager implements IDialogManager {
     } catch (err) {
       console.error('[DialogManager] Failed to open create template card dialog:', err);
       pushErrMsg(`打开对话框失败：${(err as Error).message}`);
+    }
+  }
+  
+  // ========================================================================
+  // CDF 概念定义卡辅助方法
+  // ========================================================================
+  
+  /**
+   * 确保概念文档块有对应的概念卡
+   * 如果概念文档块还不是卡片，自动创建 Xiuyuan 概念卡
+   * 
+   * @param fieldMapping 字段映射（包含 concept 字段）
+   * @param xiuyuanAppService Xiuyuan 应用服务
+   */
+  private async ensureConceptDocumentCard(
+    fieldMapping: Record<string, string>,
+    xiuyuanAppService: any
+  ): Promise<void> {
+    try {
+      const conceptBlockId = fieldMapping['concept'];
+      if (!conceptBlockId) {
+        console.warn('[DialogManager] No concept field in fieldMapping');
+        return;
+      }
+      
+      console.log('[DialogManager] Ensuring concept document card:', conceptBlockId);
+      
+      // 1. 获取概念块的引用目标（文档块）
+      const blockQuery = `
+        SELECT * FROM blocks WHERE id = '${conceptBlockId}'
+      `;
+      const blockResult = await sql(blockQuery);
+      
+      if (!blockResult || blockResult.length === 0) {
+        console.warn('[DialogManager] Concept block not found:', conceptBlockId);
+        return;
+      }
+      
+      const block = blockResult[0];
+      
+      // 2. 提取块引用 ID
+      const refMatch = block.markdown?.match(/\(\((\d{14}-[a-z0-9]{7})\s+'[^']*'\)\)/);
+      if (!refMatch) {
+        console.warn('[DialogManager] No block reference found in concept block');
+        return;
+      }
+      
+      const refBlockId = refMatch[1];
+      console.log('[DialogManager] Found reference block ID:', refBlockId);
+      
+      // 3. 验证引用的块是文档块
+      const refBlockQuery = `
+        SELECT * FROM blocks WHERE id = '${refBlockId}'
+      `;
+      const refBlockResult = await sql(refBlockQuery);
+      
+      if (!refBlockResult || refBlockResult.length === 0) {
+        console.warn('[DialogManager] Referenced block not found:', refBlockId);
+        return;
+      }
+      
+      const refBlock = refBlockResult[0];
+      if (refBlock.type !== 'd') {
+        console.warn('[DialogManager] Referenced block is not a document:', refBlock.type);
+        return;
+      }
+      
+      const conceptName = refBlock.content || '未命名概念';
+      console.log('[DialogManager] Concept document:', conceptName);
+      
+      // 4. 检查是否已经是卡片
+      const cardQuery = `
+        SELECT value 
+        FROM attributes 
+        WHERE block_id = '${refBlockId}' 
+          AND name = 'custom-fsrs-card-id'
+      `;
+      const cardResult = await sql(cardQuery);
+      
+      if (cardResult && cardResult.length > 0) {
+        console.log('[DialogManager] Concept document already has card:', refBlockId);
+        return;
+      }
+      
+      // 5. 创建 Xiuyuan 概念卡
+      console.log('[DialogManager] Creating Xiuyuan concept card for:', conceptName);
+      
+      const result = await xiuyuanAppService.createFromBlocks({
+        blockIds: [refBlockId],
+        templateId: 'builtin-concept-simple',
+        fieldMapping: {
+          concept: refBlockId
+        },
+        deckId: riff.BUILTIN_DECK_ID
+      });
+      
+      if (!result.ok) {
+        const error = (result as { ok: false; error: Error }).error;
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error('[DialogManager] Failed to create concept card:', errorMsg);
+        return;
+      }
+      
+      // 6. 标记为概念卡类型
+      const { setBlockAttrs } = await import('@/core/siyuan/api');
+      await setBlockAttrs(refBlockId, {
+        'custom-fsrs-card-type': 'concept'
+      });
+      
+      console.log('[DialogManager] Concept card created for document:', refBlockId);
+      
+      pushMsg(`✅ 已为概念「${conceptName}」创建概念卡`);
+      
+    } catch (error) {
+      console.error('[DialogManager] Failed to ensure concept document card:', error);
     }
   }
   

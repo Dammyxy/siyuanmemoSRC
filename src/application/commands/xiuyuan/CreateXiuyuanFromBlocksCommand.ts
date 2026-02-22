@@ -90,4 +90,11 @@ export interface CreateXiuyuanFromBlocksCommand {
     /** 符号（可选，用于日志） */
     symbol?: string;
   };
+  
+  /**
+   * 卡片类型（可选）
+   * 用于明确指定卡片类型，避免自动检测
+   * 例如：'descriptor', 'concept', 'cloze' 等
+   */
+  cardType?: 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
 }

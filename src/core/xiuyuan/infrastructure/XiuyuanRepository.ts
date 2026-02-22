@@ -128,36 +128,67 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       const meta = xiuyuan.getMeta();
       
       // 5.1 确定卡片类型
-      let cardType: 'item' | 'topic' = 'item';
+      let cardType: 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze' = 'item';
       
-      const templateID = xiuyuan.getTemplateID().getValue();
-      const template = this.templateRegistry.get(templateID);
-      
-      if (template && template.category === 'basic') {
-        // ✅ 基础类模板：默认为 item
-        cardType = 'item';
-        console.log(`[XiuyuanRepository] Template ${templateID} is basic category, using cardType: item`);
-      } else if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
-        // 列表模版卡：强制为 item
-        cardType = 'item';
-        console.log(`[XiuyuanRepository] List template detected, using cardType: item`);
-      } else if (this.cardTypeDetectionService && blockIDs.length > 0) {
-        // 其他情况：检测类型
-        try {
-          cardType = await this.cardTypeDetectionService.detectCardType(blockIDs[0].getValue());
-          console.log(`[XiuyuanRepository] Detected cardType: ${cardType} for block ${blockIDs[0].getValue()}`);
-        } catch (error) {
-          console.warn('[XiuyuanRepository] Failed to detect cardType, using default "item":', error);
+      // 🆕 优先使用 meta 中明确指定的 cardType
+      if (meta.cardType) {
+        cardType = meta.cardType as 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
+        console.log(`[XiuyuanRepository] Using explicit cardType from meta: ${cardType}`);
+      } else {
+        const templateID = xiuyuan.getTemplateID().getValue();
+        const template = this.templateRegistry.get(templateID);
+        
+        if (template && template.category === 'basic') {
+          // ✅ 基础类模板：默认为 item
+          cardType = 'item';
+          console.log(`[XiuyuanRepository] Template ${templateID} is basic category, using cardType: item`);
+        } else if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
+          // 列表模版卡：强制为 item
+          cardType = 'item';
+          console.log(`[XiuyuanRepository] List template detected, using cardType: item`);
+        } else if (this.cardTypeDetectionService && blockIDs.length > 0) {
+          // 其他情况：检测类型
+          try {
+            cardType = await this.cardTypeDetectionService.detectCardType(blockIDs[0].getValue());
+            console.log(`[XiuyuanRepository] Detected cardType: ${cardType} for block ${blockIDs[0].getValue()}`);
+          } catch (error) {
+            console.warn('[XiuyuanRepository] Failed to detect cardType, using default "item":', error);
+          }
         }
       }
       
-      // 5.2 写入代表块属性
-      if (blockIDs.length > 0) {
+      // 5.2 写入块属性
+      // 🆕 对于 concept-descriptor 模板，需要分别设置两个块的类型
+      const templateID = xiuyuan.getTemplateID().getValue();
+      
+      if (templateID === 'builtin-concept-descriptor' && blockIDs.length >= 2) {
+        // 概念-描述符卡：第一个块是概念卡，第二个块是描述符卡
+        // ⚠️ 注意：概念卡可能已经有自己的 Xiuyuan（作为独立的概念卡）
+        // 因此，我们只设置描述符块的属性，不修改概念卡的属性
+        const descriptorBlockId = blockIDs[1].getValue();
+        
+        try {
+          // 只设置描述符卡属性
+          await setBlockAttrs(descriptorBlockId, {
+            'custom-xiuyuan-id': xiuyuan.getId().getValue(),
+            'custom-xiuyuan-template': templateID,
+            'custom-fsrs-card-type': 'descriptor',  // 描述符卡设置为 descriptor 类型
+          });
+          
+          console.log(`[XiuyuanRepository] Set descriptor attributes: descriptor=${descriptorBlockId}`);
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          if (!errorMsg.includes('未找到') && !errorMsg.includes('not found')) {
+            console.warn('[XiuyuanRepository] Failed to write descriptor attributes:', error);
+          }
+        }
+      } else if (blockIDs.length > 0) {
+        // 其他模板：只设置代表块（第一个块）
         const representativeBlockId = blockIDs[0].getValue();
         try {
           await setBlockAttrs(representativeBlockId, {
             'custom-xiuyuan-id': xiuyuan.getId().getValue(),
-            'custom-xiuyuan-template': xiuyuan.getTemplateID().getValue(),
+            'custom-xiuyuan-template': templateID,
             'custom-fsrs-card-type': cardType,  // ✅ 使用 fsrs-card-type 存储卡片类型
           });
         } catch (error) {
@@ -381,27 +412,40 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     const schedulerType = (meta.schedulerType as 'fsrs-v6' | 'a-factor' | 'sm2') || 'fsrs-v6';
     
     // ✅ 确定卡片类型（使用与块属性相同的逻辑）
-    let cardType: 'item' | 'topic' = 'item';  // 默认为 item
-    const blockId = blockIDs[0]?.getValue() || '';
+    let cardType: 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze' = 'item';  // 默认为 item
     
+    // 🆕 获取模板（在外层声明，供后续使用）
     const templateID = xiuyuan.getTemplateID().getValue();
     const template = this.templateRegistry.get(templateID);
     
-    if (template && template.category === 'basic') {
-      // ✅ 基础类模板：默认为 item
-      cardType = 'item';
-      console.log(`[XiuyuanRepository] Template ${templateID} is basic category, card type: item`);
-    } else if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
-      // 列表模版卡：所有子卡片都是 item 类型
-      cardType = 'item';
-      console.log(`[XiuyuanRepository] List template card detected, forcing cardType to 'item'`);
-    } else if (this.cardTypeDetectionService && blockId) {
-      // 其他情况：使用 CardTypeDetectionService 检测
-      try {
-        cardType = await this.cardTypeDetectionService.detectCardType(blockId);
-        console.log(`[XiuyuanRepository] Detected cardType for ${blockId}: ${cardType}`);
-      } catch (error) {
-        console.warn(`[XiuyuanRepository] Failed to detect cardType for ${blockId}, using default 'item':`, error);
+    // 🆕 对于 concept-descriptor 模板，blockId 应该是描述符块（第二个块）
+    let blockId = blockIDs[0]?.getValue() || '';
+    if (templateID === 'builtin-concept-descriptor' && blockIDs.length >= 2) {
+      blockId = blockIDs[1].getValue();  // 使用描述符块 ID
+      console.log(`[XiuyuanRepository] Concept-descriptor template, using descriptor blockId: ${blockId}`);
+    }
+    
+    // 🆕 优先使用 meta 中明确指定的 cardType
+    if (meta.cardType) {
+      cardType = meta.cardType as 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
+      console.log(`[XiuyuanRepository] Using explicit cardType from meta: ${cardType}`);
+    } else {
+      if (template && template.category === 'basic') {
+        // ✅ 基础类模板：默认为 item
+        cardType = 'item';
+        console.log(`[XiuyuanRepository] Template ${templateID} is basic category, card type: item`);
+      } else if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
+        // 列表模版卡：所有子卡片都是 item 类型
+        cardType = 'item';
+        console.log(`[XiuyuanRepository] List template card detected, forcing cardType to 'item'`);
+      } else if (this.cardTypeDetectionService && blockId) {
+        // 其他情况：使用 CardTypeDetectionService 检测
+        try {
+          cardType = await this.cardTypeDetectionService.detectCardType(blockId);
+          console.log(`[XiuyuanRepository] Detected cardType for ${blockId}: ${cardType}`);
+        } catch (error) {
+          console.warn(`[XiuyuanRepository] Failed to detect cardType for ${blockId}, using default 'item':`, error);
+        }
       }
     }
     
@@ -422,6 +466,13 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           index: child.index
         }));
       }
+    }
+    
+    // 🆕 提取 typeMarker（用于双向卡片识别正反面）
+    let typeMarker: string | undefined;
+    if (template && template.cardRules && template.cardRules[faceIndex]) {
+      typeMarker = template.cardRules[faceIndex].typeMarker;
+      console.log(`[XiuyuanRepository] Extracted typeMarker for faceIndex ${faceIndex}: ${typeMarker}`);
     }
     
     return {
@@ -466,7 +517,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         // ✅ 使用 CardFace 中的 blockId 信息
         frontBlockIDs: [xiuyuan.getFaces()[faceIndex].questionBlockId],
         backBlockIDs: [xiuyuan.getFaces()[faceIndex].answerBlockId],
-        fieldMapping: {},
+        fieldMapping: meta.fieldMapping || {},
         frontFields: [],
         backFields: [],
         // 🆕 添加 faces 信息，用于多挖空卡渲染
@@ -478,6 +529,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         })),
         // 🆕 添加当前卡片的 faceIndex，用于确定显示哪个挖空
         faceIndex,
+        // 🆕 添加 typeMarker，用于双向卡片识别正反面
+        typeMarker,
         // 🆕 列表模版卡专用字段
         ...listTemplateMeta,
       },

@@ -89,6 +89,7 @@ export class CreateCardUseCase {
         ...(command.meta || {}),
         ...(command.metadata || {}),
         schedulerType: schedulerType, // Store schedulerType in meta (Requirement 5.5)
+        cardType: command.cardType,   // 🆕 传递卡片类型到 meta
       }
     });
 
@@ -367,14 +368,17 @@ export class CreateCardUseCase {
       // 如果没有提供 faces，根据模板创建默认的 face
       const templateId = command.templateId!;
       
+      // 注意：模板的存在性验证应该在 Repository 层或更早的阶段完成
+      // UseCase 只负责业务流程编排，不关心基础设施细节
+      
       if (templateId === 'builtin-basic-qa' || templateId === 'builtin-bidirectional') {
         // 基础问答和双向卡片：第一个块为问题，第二个块为答案
         if (blockIds.length >= 2) {
           const defaultFaceResult = CardFace.create({
-            question: blockIds[0].value,
-            answer: blockIds[1].value,
-            questionBlockId: blockIds[0].value,
-            answerBlockId: blockIds[1].value,
+            question: blockIds[0].getValue(),
+            answer: blockIds[1].getValue(),
+            questionBlockId: blockIds[0].getValue(),
+            answerBlockId: blockIds[1].getValue(),
           });
 
           if (!defaultFaceResult.ok) {
@@ -388,10 +392,10 @@ export class CreateCardUseCase {
       } else {
         // 其他模板：使用第一个 blockId 作为问题和答案
         const defaultFaceResult = CardFace.create({
-          question: blockIds[0].value,
-          answer: blockIds[0].value,
-          questionBlockId: blockIds[0].value,
-          answerBlockId: blockIds[0].value,
+          question: blockIds[0].getValue(),
+          answer: blockIds[0].getValue(),
+          questionBlockId: blockIds[0].getValue(),
+          answerBlockId: blockIds[0].getValue(),
         });
 
         if (!defaultFaceResult.ok) {

@@ -129,8 +129,13 @@ export class CreateListTemplateCardsUseCase {
       if (!template.cardRules || template.cardRules.length === 0) {
         return err(new Error('Template has no card rules'));
       }
+      
+      // 3. 验证子列表项数量（至少需要2个）
+      if (!command.childBlockIds || command.childBlockIds.length < 2) {
+        return err(new Error(`需要至少2个有序子列表项（当前：${command.childBlockIds?.length || 0}个）`));
+      }
 
-      // 3. 获取父列表项的段落块 ID（用于问题显示）
+      // 4. 获取父列表项的段落块 ID（用于问题显示）
       // 思源结构：列表项(i) → 段落(p) + 列表容器(l)
       const paragraphResult = await sql(`
         SELECT id FROM blocks
@@ -145,7 +150,7 @@ export class CreateListTemplateCardsUseCase {
       
       const parentParagraphId = paragraphResult[0].id;
 
-      // 4. 获取所有子列表项的文本内容
+      // 5. 获取所有子列表项的文本内容
       const childrenContentResult = await sql(`
         SELECT id, content FROM blocks
         WHERE id IN (${command.childBlockIds.map(id => `'${id}'`).join(',')})
@@ -164,7 +169,7 @@ export class CreateListTemplateCardsUseCase {
         content: row.content
       }));
 
-      // 5. 创建值对象
+      // 6. 创建值对象
       // 🔧 统一 ID 格式：使用代表块 ID（父列表项）
       const representativeBlockId = command.parentBlockId;
       const xiuyuanIdResult = XiuyuanId.create(`xy_${representativeBlockId}`);
@@ -188,7 +193,7 @@ export class CreateListTemplateCardsUseCase {
       const priorityResult = Priority.create(command.priority || 50);
       const priority = priorityResult.ok ? priorityResult.value : Priority.createDefault();
 
-      // 6. 为每个子列表项创建 CardFace
+      // 7. 为每个子列表项创建 CardFace
       const faces: CardFace[] = [];
       
       for (const childData of childrenData) {
@@ -206,7 +211,7 @@ export class CreateListTemplateCardsUseCase {
         faces.push(faceResult.value);
       }
 
-      // 7. 创建 Xiuyuan 聚合根（包含列表模板的元数据）
+      // 8. 创建 Xiuyuan 聚合根（包含列表模板的元数据）
       const xiuyuanResult = Xiuyuan.create({
         id: xiuyuanIdResult.value,
         blockIDs: blockIds,
@@ -235,7 +240,7 @@ export class CreateListTemplateCardsUseCase {
 
       const xiuyuan = xiuyuanResult.value;
 
-      // 8. 为每个 face 创建 Card 实体
+      // 9. 为每个 face 创建 Card 实体
       for (let i = 0; i < faces.length; i++) {
         const cardResult = xiuyuan.createCard(i);
         if (!cardResult.ok) {
@@ -245,14 +250,16 @@ export class CreateListTemplateCardsUseCase {
         }
       }
 
-      // 9. 添加到 Riff（可选，错误不阻断）
+      // 10. 添加到 Riff（可选，错误不阻断）
       const deckId = command.deckId || BUILTIN_DECK_ID;
       
       try {
-        await addRiffCards(deckId, [representativeBlockId]);
+        // 🔧 使用段落块 ID 添加到 Riff（与 Xiuyuan.blockIds[0] 一致）
+        await addRiffCards(deckId, [parentParagraphId]);
         console.log('[CreateListTemplateCardsUseCase] ✅ Created list template Xiuyuan and added to Riff:', {
           xiuyuanId: xiuyuan.getId().getValue(),
-          blockId: representativeBlockId,
+          blockId: parentParagraphId,
+          representativeBlockId,
           source: 'list-template-creation'
         });
       } catch (error) {
@@ -260,13 +267,13 @@ export class CreateListTemplateCardsUseCase {
         // 不阻断流程
       }
 
-      // 10. 通过 Repository 持久化
+      // 11. 通过 Repository 持久化
       const saveResult = await this.xiuyuanRepository.save(xiuyuan);
       if (!saveResult.ok) {
         return saveResult as Result<any>;
       }
 
-      // 11. 返回结果
+      // 12. 返回结果
       return ok({
         xiuyuan: {
           id: xiuyuan.getId().getValue(),

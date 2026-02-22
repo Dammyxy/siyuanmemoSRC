@@ -19,7 +19,7 @@
         @breadcrumb-click="handleBreadcrumbClick"
       />
 
-      <ReviewContent :app="app" :content="state.content" :overlay="state.overlay" :has-hidden-content="state.meta.hasHiddenContent" :show-answer="state.actions.showAnswer" :meta="state.meta" :i18n="i18n" />
+      <ReviewContent :app="app" :plugin="props.plugin" :content="state.content" :overlay="state.overlay" :has-hidden-content="state.meta.hasHiddenContent" :show-answer="state.actions.showAnswer" :meta="state.meta" :i18n="i18n" />
 
       <ReviewActions
         :actions="state.actions"

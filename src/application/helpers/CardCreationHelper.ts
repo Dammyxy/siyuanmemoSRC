@@ -34,6 +34,8 @@ export interface CardCreationOptions {
   priority?: number;
   /** 扩展元数据 */
   metadata?: Record<string, any>;
+  /** 卡片类型（可选，用于覆盖默认类型） */
+  cardType?: 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
 }
 
 /**
@@ -158,7 +160,7 @@ export class CardCreationHelper {
     const command: CreateCardCommand = {
       blockIds: [blockId],
       templateId: 'builtin-quick-card',  // 使用统一的快速卡片模板
-      cardType: 'item',
+      cardType: options.cardType || 'item',  // 🆕 支持从 options 传入 cardType
       priority: options.priority ?? 50,
       metadata: {
         source: 'symbol',

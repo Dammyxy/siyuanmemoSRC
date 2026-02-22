@@ -1063,7 +1063,7 @@ export class BlockMenuHandler {
   }
 
   /**
-   * 创建列表模版卡
+   * 创建有序列表模版卡
    * 
    * @description
    * 自动检测列表项块，如果子级为有序列表项，则为每个子级创建一张卡片。
@@ -1080,7 +1080,7 @@ export class BlockMenuHandler {
 
       // 只处理第一个块
       const parentBlockId = blockIds[0];
-      console.log(`[SiYuanMemo] 🎯 Creating list template cards for: ${parentBlockId}`);
+      console.log(`[SiYuanMemo] 🎯 Creating ordered list template cards for: ${parentBlockId}`);
 
       // 1. 检查块类型
       const typeResult = await sql(`
@@ -1174,8 +1174,8 @@ export class BlockMenuHandler {
       // 3. 确认创建
       await pushMsg(`检测到 ${childBlockIds.length} 个子级列表项，开始创建卡片...`);
 
-      // 4. 为所有子级创建列表模版卡（一次性创建）
-      console.log(`[SiYuanMemo] Creating list template cards: ${blockContent} → ${childBlockIds.length} children`);
+      // 4. 为所有子级创建有序列表模版卡（一次性创建）
+      console.log(`[SiYuanMemo] Creating ordered list template cards: ${blockContent} → ${childBlockIds.length} children`);
 
       // ✅ 使用 XiuyuanApplicationService（符合 DDD 架构）
       const xiuyuanAppService = await this.deps.applicationContext.getXiuyuanApplicationService();
@@ -1187,14 +1187,14 @@ export class BlockMenuHandler {
 
       if (result.ok) {
         await pushMsg(`✅ 成功创建 ${childBlockIds.length} 张有序列表模版卡！`);
-        console.log(`[SiYuanMemo] 🎉 List template cards creation complete:`, result.value);
+        console.log(`[SiYuanMemo] 🎉 Ordered list template cards creation complete:`, result.value);
       } else {
         const errorMsg = result.ok === false ? result.error.message : 'Unknown error';
         await pushErrMsg(`创建失败：${errorMsg}`);
-        console.error(`[SiYuanMemo] ❌ List template cards creation failed:`, result.ok === false ? result.error : 'Unknown error');
+        console.error(`[SiYuanMemo] ❌ Ordered list template cards creation failed:`, result.ok === false ? result.error : 'Unknown error');
       }
     } catch (err) {
-      console.error('[SiYuanMemo] Failed to create list template cards:', err);
+      console.error('[SiYuanMemo] Failed to create ordered list template cards:', err);
       await pushErrMsg(`创建失败：${(err as Error).message}`);
     }
   }

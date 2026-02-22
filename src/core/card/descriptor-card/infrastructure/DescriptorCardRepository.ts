@@ -71,14 +71,18 @@ export class DescriptorCardRepository {
       }
 
       // 4. 查询父概念
-      // 🆕 优先使用 FSRSCard 的 fieldMapping.concept
+      // 🆕 优先使用 FSRSCard 的 frontBlockIDs[0]（概念块 ID）
       let parentConcept: ParentConceptBlock | null = null;
       
-      if (fsrsCard?.meta?.fieldMapping?.concept) {
+      if (fsrsCard?.meta?.frontBlockIDs?.[0]) {
+        console.log('[SiYuanMemo][DescriptorCardRepository] Using concept from frontBlockIDs:', fsrsCard.meta.frontBlockIDs[0]);
+        parentConcept = await this.getConceptBlock(fsrsCard.meta.frontBlockIDs[0]);
+      } else if (fsrsCard?.meta?.fieldMapping?.concept) {
+        // 兼容旧版本：使用 fieldMapping
         console.log('[SiYuanMemo][DescriptorCardRepository] Using concept from fieldMapping:', fsrsCard.meta.fieldMapping.concept);
         parentConcept = await this.getConceptBlock(fsrsCard.meta.fieldMapping.concept);
       } else {
-        console.log('[SiYuanMemo][DescriptorCardRepository] No fieldMapping, searching parent chain');
+        console.log('[SiYuanMemo][DescriptorCardRepository] No frontBlockIDs or fieldMapping, searching parent chain');
         parentConcept = await this.getParentConcept(blockId);
       }
 

@@ -1,33 +1,34 @@
 <template>
   <div class="quick-card-renderer">
     <!-- 加载状态 -->
-    <div v-if="loading" class="quick-card-renderer__loading">
-      <div class="fn__loading">
-        <svg class="fn__rotate"><use xlink:href="#iconLoading"></use></svg>
-      </div>
-    </div>
+    <CardLoadingState v-if="loading" text="加载快速卡片..." />
 
     <!-- 错误状态 -->
-    <div v-else-if="error" class="quick-card-renderer__error">
-      <div class="b3-label__text">{{ error }}</div>
-    </div>
+    <CardErrorState v-else-if="error" :message="error" />
 
     <!-- 卡片内容 -->
-    <div
-      v-else-if="currentFace"
-      ref="cardContentRef"
-      class="quick-card-renderer__content"
-      :class="contentClasses"
-    >
-      <div v-html="currentFace.html"></div>
+    <div v-else-if="viewModel" class="quick-card-renderer__content">
+      <!-- 面包屑 -->
+      <CardBreadcrumb :items="viewModel.breadcrumbs" />
+
+      <!-- 卡片内容 -->
+      <div
+        ref="cardContentRef"
+        class="quick-card-renderer__card"
+        :class="contentClasses"
+      >
+        <div v-html="viewModel.html"></div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import type { QuickCardRenderService } from '@/core/card/quick-card/application/QuickCardRenderService';
-import type { QuickCardRenderResult } from '@/core/card/quick-card/application/QuickCardRenderService';
+import type { QuickCardRenderService, QuickCardViewModel } from '@/core/card/quick-card/application/QuickCardRenderService';
+import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
+import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
+import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 
 /**
  * Props
@@ -54,7 +55,7 @@ const props = withDefaults(defineProps<Props>(), {
  */
 interface Emits {
   /** 加载完成 */
-  (e: 'loaded', result: QuickCardRenderResult): void;
+  (e: 'loaded', result: QuickCardViewModel): void;
   /** 加载失败 */
   (e: 'error', error: Error): void;
 }
@@ -66,40 +67,42 @@ const emit = defineEmits<Emits>();
  */
 const loading = ref(true);
 const error = ref<string | null>(null);
-const currentFace = ref<QuickCardRenderResult | null>(null);
+const viewModel = ref<QuickCardViewModel | null>(null);
 const cardContentRef = ref<HTMLElement | null>(null);
 
 /**
  * 计算属性：内容 CSS 类
  */
 const contentClasses = computed(() => {
-  if (!currentFace.value) return [];
-  return currentFace.value.cssClasses;
+  if (!viewModel.value) return [];
+  return viewModel.value.cssClasses;
 });
 
 /**
- * 加载指定面的卡片
+ * 加载视图模型
  */
-async function loadFace(side: 'front' | 'back') {
+async function loadViewModel() {
   try {
     loading.value = true;
     error.value = null;
 
-    console.log('[QuickCardRenderer] loadFace called:', { 
+    const side = props.showAnswer ? 'back' : 'front';
+
+    console.log('[QuickCardRenderer] loadViewModel called:', { 
       blockId: props.blockId, 
       cardId: props.cardId, 
       side 
     });
 
-    const result = await props.renderService.render(props.blockId, side, props.cardId);
+    const result = await props.renderService.prepareViewModel(props.blockId, side, props.cardId);
 
-    console.log('[SiYuanMemo][QuickCardRenderer] Render result:', result);
+    console.log('[SiYuanMemo][QuickCardRenderer] View model:', result);
 
     if (!result) {
       throw new Error('Failed to load card: not a quick card');
     }
 
-    currentFace.value = result;
+    viewModel.value = result;
     emit('loaded', result);
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -107,7 +110,7 @@ async function loadFace(side: 'front' | 'back') {
     emit('error', err instanceof Error ? err : new Error(errorMessage));
     // 只在非预期错误时显示错误日志
     if (!errorMessage.includes('not a quick card')) {
-      console.error('[SiYuanMemo][QuickCardRenderer] Failed to load face:', err);
+      console.error('[SiYuanMemo][QuickCardRenderer] Failed to load view model:', err);
     }
   } finally {
     loading.value = false;
@@ -119,9 +122,8 @@ async function loadFace(side: 'front' | 'back') {
  */
 watch(
   () => props.showAnswer,
-  (newValue) => {
-    const side = newValue ? 'back' : 'front';
-    loadFace(side);
+  () => {
+    loadViewModel();
   },
 );
 
@@ -131,17 +133,15 @@ watch(
 watch(
   () => props.blockId,
   () => {
-    const side = props.showAnswer ? 'back' : 'front';
-    loadFace(side);
+    loadViewModel();
   },
 );
 
 /**
- * 组件挂载时加载正面
+ * 组件挂载时加载视图模型
  */
 onMounted(() => {
-  const side = props.showAnswer ? 'back' : 'front';
-  loadFace(side);
+  loadViewModel();
 });
 </script>
 
@@ -153,89 +153,55 @@ onMounted(() => {
   flex-direction: column;
 }
 
-.quick-card-renderer__loading,
-.quick-card-renderer__error {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 200px;
-  padding: 20px;
-}
-
-.quick-card-renderer__error {
-  color: var(--b3-theme-error);
-}
-
 .quick-card-renderer__content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: auto;
+}
+
+.quick-card-renderer__card {
   flex: 1;
-  overflow-y: auto;
-  /* 使用与 Protyle 相同的样式 */
-  padding: 16px;
-  /* 设置较大的字体以便阅读 */
+  padding: 48px 32px;
   font-size: 22px;
   line-height: 1.625;
   color: var(--b3-theme-on-background);
 }
 
-/* 内容容器 - 模拟 Protyle 的 wysiwyg 容器 */
-.quick-card-renderer__content > div {
-  /* Protyle 的默认样式 */
-  max-width: var(--b3-width-protyle-wysiwyg, 100%);
-  margin: 0 auto;
-  padding: 16px 24px;
-  word-wrap: break-word;
-  word-break: break-word;
-  /* 确保字体大小继承 */
-  font-size: inherit;
-  /* 文本左对齐 */
-  text-align: left;
-  /* 添加最小高度确保内容可见 */
-  min-height: 100px;
-}
-
 /* 段落样式 */
-.quick-card-renderer__content :deep(p) {
+.quick-card-renderer__card :deep(p) {
   margin: 0.5em 0;
   line-height: 1.625;
-  font-size: inherit;
 }
 
 /* 标题样式 */
-.quick-card-renderer__content :deep(h1) {
+.quick-card-renderer__card :deep(h1) {
   margin: 0.5em 0;
   font-weight: 600;
   font-size: 1.75em;
 }
 
-.quick-card-renderer__content :deep(h2) {
+.quick-card-renderer__card :deep(h2) {
   margin: 0.5em 0;
   font-weight: 600;
   font-size: 1.5em;
 }
 
-.quick-card-renderer__content :deep(h3) {
+.quick-card-renderer__card :deep(h3) {
   margin: 0.5em 0;
   font-weight: 600;
   font-size: 1.25em;
 }
 
-.quick-card-renderer__content :deep(h4),
-.quick-card-renderer__content :deep(h5),
-.quick-card-renderer__content :deep(h6) {
-  margin: 0.5em 0;
-  font-weight: 600;
-  font-size: 1em;
-}
-
 /* 列表样式 */
-.quick-card-renderer__content :deep(ul),
-.quick-card-renderer__content :deep(ol) {
+.quick-card-renderer__card :deep(ul),
+.quick-card-renderer__card :deep(ol) {
   margin: 0.5em 0;
   padding-left: 2em;
 }
 
 /* 代码块样式 */
-.quick-card-renderer__content :deep(code) {
+.quick-card-renderer__card :deep(code) {
   font-family: var(--b3-font-family-code);
   background-color: var(--b3-theme-surface);
   padding: 0.2em 0.4em;
@@ -243,40 +209,34 @@ onMounted(() => {
 }
 
 /* 标记样式 - 柔和的淡绿色高亮 */
-.quick-card-renderer__content :deep(mark) {
+.quick-card-renderer__card :deep(mark) {
   background-color: #C8E6C9; /* 柔和的淡绿色 (Material Green 100) */
-  color: #1B5E20; /* 深绿色文字以确保可读性 */
-  padding: 0 4px;
+  color: #00695C; /* 深青色文字 */
+  padding: 1px 6px;
   border-radius: 3px;
+  font-weight: 500;
 }
 
 /* 隐藏标记 */
-.quick-card-renderer__content:deep(.card__block--hidemark mark),
-.quick-card-renderer__content:deep(.card__block--hidemark [data-type~="mark"]) {
+.quick-card-renderer__card:deep(.card__block--hidemark mark),
+.quick-card-renderer__card:deep(.card__block--hidemark [data-type~="mark"]) {
   background-color: var(--b3-theme-background);
   color: var(--b3-theme-background);
 }
 
 /* 隐藏列表 */
-.quick-card-renderer__content:deep(.card__block--hideli .li),
-.quick-card-renderer__content:deep(.card__block--hideli .list) {
+.quick-card-renderer__card:deep(.card__block--hideli .li),
+.quick-card-renderer__card:deep(.card__block--hideli .list) {
   display: none;
 }
 
 /* 隐藏标题 */
-.quick-card-renderer__content:deep(.card__block--hideh [data-type="NodeHeading"]) {
+.quick-card-renderer__card:deep(.card__block--hideh [data-type="NodeHeading"]) {
   display: none;
 }
 
 /* 隐藏超级块 */
-.quick-card-renderer__content:deep(.card__block--hidesb .sb) {
+.quick-card-renderer__card:deep(.card__block--hidesb .sb) {
   display: none;
-}
-
-/* 响应式设计 */
-@media screen and (max-width: 768px) {
-  .quick-card-renderer__content > div {
-    padding: 12px 16px;
-  }
 }
 </style>

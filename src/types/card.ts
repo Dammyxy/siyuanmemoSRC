@@ -38,6 +38,7 @@ export enum Rating {
 export interface FSRSCard {
     // === 标识 ===
     id: string;           // 卡片唯一 ID
+    xiuyuanID: string;    // 关联的 Xiuyuan ID
     blockId: string;      // 关联的思源块 ID
 
     // === FSRS 核心字段 ===

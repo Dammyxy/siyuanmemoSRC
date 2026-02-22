@@ -110,6 +110,12 @@ export class GetBrowserCardsQueryHandler {
     let filteredCards = this.applyPresetFilter(allCards, query.preset);
     console.log('[GetBrowserCardsQueryHandler] 🔍 After preset filter:', filteredCards.length);
     
+    // 3.5. 🔧 修复：如果有搜索文本，先填充内容再过滤
+    if (query.searchText && query.searchText.trim()) {
+      console.log('[GetBrowserCardsQueryHandler] 🔧 Filling content for search, cards count:', filteredCards.length);
+      await this.fillContentForSearch(filteredCards);
+    }
+    
     // 4. 应用自定义过滤器（领域层）
     console.log('[GetBrowserCardsQueryHandler] 🔍 Applying custom filters:', {
       states: query.states,
@@ -273,6 +279,70 @@ export class GetBrowserCardsQueryHandler {
       console.log('[GetBrowserCardsQueryHandler] ✅ Filled rootId for', cards.length, 'cards');
     } catch (error) {
       console.error('[GetBrowserCardsQueryHandler] Failed to fill rootIds:', error);
+    }
+  }
+  
+  /**
+   * 填充卡片内容（用于搜索过滤）
+   * 
+   * @param cards - 需要填充内容的卡片列表
+   */
+  private async fillContentForSearch(cards: FSRSCard[]): Promise<void> {
+    if (cards.length === 0) {
+      return;
+    }
+    
+    // 只填充没有内容的卡片
+    const cardsNeedingContent = cards.filter(c => {
+      const content = (c.meta?.content as string || '').trim();
+      return !content;
+    });
+    
+    if (cardsNeedingContent.length === 0) {
+      console.log('[GetBrowserCardsQueryHandler] ✅ All cards already have content');
+      return;
+    }
+    
+    console.log('[GetBrowserCardsQueryHandler] 🔧 Filling content for', cardsNeedingContent.length, 'cards');
+    
+    const blockIds = cardsNeedingContent.map(c => c.blockId);
+    
+    try {
+      // 批量查询内容
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < blockIds.length; i += BATCH_SIZE) {
+        const batchIds = blockIds.slice(i, i + BATCH_SIZE);
+        const idsStr = batchIds.map(id => `'${id}'`).join(',');
+        
+        const query = `
+          SELECT id, content
+          FROM blocks
+          WHERE id IN (${idsStr})
+        `;
+        
+        const result = await sql(query);
+        
+        // 创建 blockId -> content 的映射
+        const contentMap = new Map<string, string>();
+        for (const row of result) {
+          contentMap.set(row.id, row.content || '');
+        }
+        
+        // 填充到卡片的 meta.content
+        for (const card of cardsNeedingContent) {
+          const content = contentMap.get(card.blockId);
+          if (content) {
+            if (!card.meta) {
+              card.meta = {};
+            }
+            (card.meta as any).content = content;
+          }
+        }
+      }
+      
+      console.log('[GetBrowserCardsQueryHandler] ✅ Filled content for', cardsNeedingContent.length, 'cards');
+    } catch (error) {
+      console.error('[GetBrowserCardsQueryHandler] Failed to fill content:', error);
     }
   }
   

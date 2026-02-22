@@ -21,6 +21,7 @@ export interface ConceptDefinitionCardViewModel extends BaseCardViewModel {
   definitionHtml: string;
   clozeIndex?: number;
   totalClozes?: number;
+  isReverse?: boolean; // 是否为反向卡片
 }
 
 /**
@@ -36,13 +37,21 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
    */
   async prepareViewModel(blockId: string, card?: any): Promise<ConceptDefinitionCardViewModel> {
     // 1. 获取 Xiuyuan 信息
-    const xiuyuanID = card?.meta?.xiuyuanID;
+    console.log('[ConceptDefinitionCardRenderService] prepareViewModel called with:', {
+      blockId,
+      hasCard: !!card,
+      xiuyuanID: card?.xiuyuanID,
+      typeMarker: card?.meta?.typeMarker
+    });
+    
+    const xiuyuanID = card?.xiuyuanID;
     if (!xiuyuanID) {
-      throw new Error('No xiuyuanID found in card meta');
+      console.error('[ConceptDefinitionCardRenderService] No xiuyuanID found in card:', card);
+      throw new Error('No xiuyuanID found in card');
     }
 
     // 2. 从 Xiuyuan 存储中获取字段映射
-    const xiuyuan = this.getXiuyuan(xiuyuanID);
+    const xiuyuan = await this.getXiuyuan(xiuyuanID);
     if (!xiuyuan) {
       throw new Error(`Xiuyuan not found: ${xiuyuanID}`);
     }
@@ -67,8 +76,8 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     // 6. 解析挖空
     const clozes = this.parseClozes(definitionKramdown);
 
-    // 7. 确定当前挖空索引
-    const clozeIndex = this.getCurrentClozeIndex(card?.meta?.typeMarker);
+    // 7. 确定当前挖空索引和是否为反向卡片
+    const { clozeIndex, isReverse } = this.parseTypeMarker(card?.meta?.typeMarker);
 
     // 8. 生成定义 HTML（隐藏当前挖空）
     const processedKramdown = this.processDefinitionKramdown(
@@ -92,22 +101,36 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       definitionHtml,
       clozeIndex: clozes.length > 0 ? clozeIndex : undefined,
       totalClozes: clozes.length > 0 ? clozes.length : undefined,
+      isReverse,
     };
   }
 
   /**
    * 获取 Xiuyuan 对象
    */
-  private getXiuyuan(xiuyuanID: string): any {
-    const xiuyuanStorage = (window as any).siyuan?.ws?.app?.plugins?.find(
+  private async getXiuyuan(xiuyuanID: string): Promise<any> {
+    // 通过 window 获取 plugin 实例
+    const plugin = (window as any).siyuan?.ws?.app?.plugins?.find(
       (p: any) => p.name === 'siyuan-plugin-siyuanmemo'
-    )?.xiuyuanService;
+    );
 
-    if (!xiuyuanStorage) {
-      throw new Error('XiuyuanService not found');
+    if (!plugin) {
+      throw new Error('Plugin not found');
     }
 
-    return xiuyuanStorage.getXiuyuan(xiuyuanID);
+    // 获取 XiuyuanApplicationService
+    const xiuyuanAppService = await plugin.context.getXiuyuanApplicationService();
+    if (!xiuyuanAppService) {
+      throw new Error('XiuyuanApplicationService not available');
+    }
+
+    // 从 XiuyuanApplicationService 获取 Xiuyuan
+    const xiuyuan = await xiuyuanAppService.getXiuyuan(xiuyuanID);
+    if (!xiuyuan) {
+      throw new Error(`Xiuyuan not found: ${xiuyuanID}`);
+    }
+
+    return xiuyuan;
   }
 
   /**
@@ -144,13 +167,48 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
   }
 
   /**
-   * 获取当前挖空索引
+   * 解析 typeMarker，提取挖空索引和方向
+   */
+  private parseTypeMarker(typeMarker?: string): { clozeIndex: number; isReverse: boolean } {
+    if (!typeMarker) {
+      return { clozeIndex: 0, isReverse: false };
+    }
+
+    // concept-definition-forward / concept-definition-reverse
+    if (typeMarker === 'concept-definition-forward') {
+      return { clozeIndex: 0, isReverse: false };
+    }
+    if (typeMarker === 'concept-definition-reverse') {
+      return { clozeIndex: 0, isReverse: true };
+    }
+
+    // concept-definition-cloze-{index}-forward / concept-definition-cloze-{index}-reverse
+    const clozeMatch = typeMarker.match(/concept-definition-cloze-(\d+)-(forward|reverse)/);
+    if (clozeMatch) {
+      return {
+        clozeIndex: parseInt(clozeMatch[1]),
+        isReverse: clozeMatch[2] === 'reverse'
+      };
+    }
+
+    // 兼容旧格式：concept-definition-cloze-{index}（默认正向）
+    const oldClozeMatch = typeMarker.match(/concept-definition-cloze-(\d+)/);
+    if (oldClozeMatch) {
+      return {
+        clozeIndex: parseInt(oldClozeMatch[1]),
+        isReverse: false
+      };
+    }
+
+    return { clozeIndex: 0, isReverse: false };
+  }
+
+  /**
+   * 获取当前挖空索引（兼容旧方法）
+   * @deprecated 使用 parseTypeMarker 替代
    */
   private getCurrentClozeIndex(typeMarker?: string): number {
-    if (!typeMarker || !typeMarker.startsWith('concept-definition-cloze-')) {
-      return 0;
-    }
-    return parseInt(typeMarker.replace('concept-definition-cloze-', ''));
+    return this.parseTypeMarker(typeMarker).clozeIndex;
   }
 
   /**

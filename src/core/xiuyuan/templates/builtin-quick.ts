@@ -3,7 +3,7 @@
  * 
  * 用于快速创建的单块卡片，支持：
  * - 快速制卡（单向）
- * - 符号问答卡（<> 符号，单向或双向）
+ * - 符号问答卡（单向）
  * - 默认卡片创建
  * 
  * 通过动态生成 cardRules 来支持单向和双向：
@@ -15,8 +15,8 @@ import type { ICardTemplate } from '../types';
 
 export const BUILTIN_QUICK_TEMPLATE: ICardTemplate = {
   id: 'builtin-quick-card',
-  name: '快速卡片',
-  description: '用【单块】+【符号】制作的卡片，可生成多张卡片，识别 >>、<<、<>、==、{{}}、::、;;，逻辑和【符号监听制卡】一致',
+  name: '符号卡片',
+  description: '在单个块里，搭配符号生成单张卡片，识别 >>、<<、==、{{}}、::、;;，逻辑和【符号监听制卡】一致',
   category: 'quick',
   version: '1.0.0',
   
@@ -35,6 +35,53 @@ export const BUILTIN_QUICK_TEMPLATE: ICardTemplate = {
   cardRules: [
     {
       typeMarker: 'Q',
+      frontFields: ['content'],
+      backFields: ['content'],
+      cardType: 'basic',
+    },
+  ],
+};
+
+/**
+ * 双向卡片模板（单块）
+ * 
+ * 用于单个块创建双向卡片，使用 <> 符号。
+ * 
+ * @example
+ * ```markdown
+ * DDD <> Domain-Driven Design
+ * ```
+ * 
+ * 生成2张卡片：
+ * - 卡片1：DDD → Domain-Driven Design
+ * - 卡片2：Domain-Driven Design → DDD
+ */
+export const BUILTIN_BIDIRECTIONAL_SINGLE_TEMPLATE: ICardTemplate = {
+  id: 'builtin-bidirectional-single',
+  name: '双向卡片',
+  description: '在单个块里，使用 <> 符号生成两张互为问答的卡片',
+  category: 'quick',
+  version: '1.0.0',
+  
+  fields: [
+    {
+      name: 'content',
+      label: '内容',
+      type: 'block',
+      required: true,
+      description: '卡片内容块（包含 <> 符号）',
+    },
+  ],
+  
+  cardRules: [
+    {
+      typeMarker: 'forward',
+      frontFields: ['content'],
+      backFields: ['content'],
+      cardType: 'basic',
+    },
+    {
+      typeMarker: 'reverse',
       frontFields: ['content'],
       backFields: ['content'],
       cardType: 'basic',

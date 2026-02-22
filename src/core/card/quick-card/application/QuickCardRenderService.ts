@@ -1,8 +1,25 @@
+import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
+import type { BaseCardViewModel } from '@/core/card/common/application/types';
 import type { QuickCardRepository } from '../infrastructure/QuickCardRepository';
 import type { QuickCardType, QuickCardMetadata } from '../domain/types';
 
 /**
- * 快速卡片渲染结果
+ * 快速卡片视图模型
+ */
+export interface QuickCardViewModel extends BaseCardViewModel {
+  /** 渲染的 HTML 内容 */
+  html: string;
+  /** CSS 类名列表 */
+  cssClasses: string[];
+  /** 卡片类型 */
+  cardType: QuickCardType;
+  /** 卡片元数据 */
+  metadata: QuickCardMetadata;
+}
+
+/**
+ * 快速卡片渲染结果（向后兼容）
+ * @deprecated 使用 QuickCardViewModel 代替
  */
 export interface QuickCardRenderResult {
   /** 渲染的 HTML 内容 */
@@ -22,9 +39,51 @@ export interface QuickCardRenderResult {
  * - 协调领域层和基础设施层
  * - 提供卡片渲染功能
  * - 处理正反面切换
+ * - 继承基类提供面包屑等通用功能
  */
-export class QuickCardRenderService {
-  constructor(private readonly repository: QuickCardRepository) {}
+export class QuickCardRenderService extends BaseCardRenderService {
+  constructor(private readonly repository: QuickCardRepository) {
+    super();
+  }
+
+  /**
+   * 准备视图模型（新架构方法）
+   * 
+   * @param blockId - 块 ID
+   * @param side - 卡片面（front/back）
+   * @param cardId - 卡片 ID（可选）
+   * @returns 视图模型
+   */
+  async prepareViewModel(
+    blockId: string,
+    side: 'front' | 'back',
+    cardId?: string
+  ): Promise<QuickCardViewModel | null> {
+    try {
+      const card = await this.repository.loadCard(blockId, cardId);
+      if (!card) {
+        return null;
+      }
+
+      // 获取指定面的内容
+      const face = card.getFace(side);
+      
+      // 使用基类方法加载面包屑
+      const breadcrumbs = await this.loadBreadcrumbs(blockId);
+
+      return {
+        blockId,
+        breadcrumbs,
+        html: face.html,
+        cssClasses: face.getCssClasses(),
+        cardType: card.type,
+        metadata: card.metadata,
+      };
+    } catch (error) {
+      console.error('[QuickCardRenderService] Failed to prepare view model:', error);
+      throw error;
+    }
+  }
 
   /**
    * 检测块是否为快速卡片
@@ -43,8 +102,9 @@ export class QuickCardRenderService {
   }
 
   /**
-   * 渲染指定面的卡片
+   * 渲染指定面的卡片（向后兼容方法）
    * 
+   * @deprecated 使用 prepareViewModel 代替
    * @param blockId - 块 ID
    * @param side - 卡片面（front/back）
    * @param cardId - 卡片 ID（可选，用于 Xiuyuan 多卡片场景）

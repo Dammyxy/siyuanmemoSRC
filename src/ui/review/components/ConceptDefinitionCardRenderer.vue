@@ -14,41 +14,82 @@
       <!-- 卡片类型徽章 -->
       <div class="concept-definition-card-renderer__badge">
         <span class="concept-definition-card-renderer__badge-icon">📚</span>
-        <span class="concept-definition-card-renderer__badge-label">概念定义</span>
+        <span class="concept-definition-card-renderer__badge-label">
+          概念定义{{ viewModel.isReverse ? '（反向）' : '' }}
+        </span>
       </div>
 
-      <!-- 正面：概念的定义？ -->
+      <!-- 正面 -->
       <div
         v-if="!showAnswer"
         class="concept-definition-card-renderer__front"
       >
-        <div class="concept-definition-card-renderer__question">
+        <!-- 正向：概念的定义？ -->
+        <div v-if="!viewModel.isReverse" class="concept-definition-card-renderer__question">
           <span class="concept-definition-card-renderer__concept-name">{{ viewModel.conceptName }}</span>
           <span class="concept-definition-card-renderer__question-text">的定义？</span>
         </div>
+        
+        <!-- 反向：显示定义，问概念 -->
+        <div v-else class="concept-definition-card-renderer__question">
+          <div class="concept-definition-card-renderer__reverse-question">
+            <div class="concept-definition-card-renderer__reverse-label">以下是哪个概念的定义？</div>
+            <div
+              class="concept-definition-card-renderer__definition concept-definition-card-renderer__definition--question"
+              v-html="viewModel.definitionHtml"
+            ></div>
+          </div>
+        </div>
       </div>
 
-      <!-- 背面：显示定义，隐藏当前挖空 -->
+      <!-- 背面 -->
       <div
         v-else
         class="concept-definition-card-renderer__back"
       >
-        <!-- 显示正面内容（灰色） -->
-        <div class="concept-definition-card-renderer__front-preview">
-          <span class="concept-definition-card-renderer__concept-name">{{ viewModel.conceptName }}</span>
-          <span class="concept-definition-card-renderer__question-text">的定义？</span>
-        </div>
+        <!-- 正向背面：显示定义 -->
+        <template v-if="!viewModel.isReverse">
+          <!-- 显示正面内容（灰色） -->
+          <div class="concept-definition-card-renderer__front-preview">
+            <span class="concept-definition-card-renderer__concept-name">{{ viewModel.conceptName }}</span>
+            <span class="concept-definition-card-renderer__question-text">的定义？</span>
+          </div>
+          
+          <!-- 答案分隔线 -->
+          <div class="concept-definition-card-renderer__answer-divider">
+            <span>答案</span>
+          </div>
+          
+          <!-- 显示定义内容（隐藏当前挖空） -->
+          <div
+            class="concept-definition-card-renderer__definition"
+            v-html="viewModel.definitionHtml"
+          ></div>
+        </template>
         
-        <!-- 答案分隔线 -->
-        <div class="concept-definition-card-renderer__answer-divider">
-          <span>答案</span>
-        </div>
-        
-        <!-- 显示定义内容（隐藏当前挖空） -->
-        <div
-          class="concept-definition-card-renderer__definition"
-          v-html="viewModel.definitionHtml"
-        ></div>
+        <!-- 反向背面：显示概念 -->
+        <template v-else>
+          <!-- 显示正面内容（灰色） -->
+          <div class="concept-definition-card-renderer__front-preview">
+            <div class="concept-definition-card-renderer__reverse-label">以下是哪个概念的定义？</div>
+            <div
+              class="concept-definition-card-renderer__definition concept-definition-card-renderer__definition--preview"
+              v-html="viewModel.definitionHtml"
+            ></div>
+          </div>
+          
+          <!-- 答案分隔线 -->
+          <div class="concept-definition-card-renderer__answer-divider">
+            <span>答案</span>
+          </div>
+          
+          <!-- 显示概念名称 -->
+          <div class="concept-definition-card-renderer__concept-answer">
+            <span class="concept-definition-card-renderer__concept-name concept-definition-card-renderer__concept-name--large">
+              {{ viewModel.conceptName }}
+            </span>
+          </div>
+        </template>
       </div>
 
       <!-- 跳转到概念按钮 -->
@@ -255,6 +296,48 @@ onMounted(async () => {
 .concept-definition-card-renderer__definition :deep(*) {
   font-size: 24px !important;
   line-height: 1.6 !important;
+}
+
+/* 反向卡片样式 */
+.concept-definition-card-renderer__reverse-question {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.concept-definition-card-renderer__reverse-label {
+  font-size: 20px;
+  color: var(--b3-theme-on-surface-light);
+  text-align: center;
+}
+
+.concept-definition-card-renderer__definition--question {
+  font-size: 24px;
+  padding: 24px;
+  background: var(--b3-theme-surface);
+  border-radius: 8px;
+  border-left: 4px solid var(--b3-theme-primary);
+}
+
+.concept-definition-card-renderer__definition--preview {
+  font-size: 20px;
+  padding: 16px;
+  background: var(--b3-theme-surface);
+  border-radius: 8px;
+  opacity: 0.6;
+}
+
+.concept-definition-card-renderer__concept-answer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 32px;
+}
+
+.concept-definition-card-renderer__concept-name--large {
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--b3-theme-primary);
 }
 
 /* 挖空占位符样式 */

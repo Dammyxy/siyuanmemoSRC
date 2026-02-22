@@ -66,12 +66,20 @@ export class CreateXiuyuanFromBlocksUseCase {
     try {
       // 1. 检查是否已经创建过 Xiuyuan 卡片
       const { getBlockAttrs } = await import('@/core/siyuan/api');
-      const firstBlockId = command.blockIds[0];
-      const attrs = await getBlockAttrs(firstBlockId);
+      
+      // 🆕 对于 concept-descriptor 模板，检查描述符块（第二个块）而不是概念卡（第一个块）
+      // 因为概念卡本身可以有自己的 Xiuyuan，描述符卡是关联到概念卡的
+      let blockToCheck = command.blockIds[0];
+      if (command.templateId === 'builtin-concept-descriptor' && command.blockIds.length >= 2) {
+        blockToCheck = command.blockIds[1];  // 检查描述符块
+        console.log(`[CreateXiuyuanFromBlocksUseCase] Concept-descriptor template detected, checking descriptor block: ${blockToCheck}`);
+      }
+      
+      const attrs = await getBlockAttrs(blockToCheck);
       
       if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
         const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
-        console.log(`[CreateXiuyuanFromBlocksUseCase] Block ${firstBlockId} already has Xiuyuan: ${existingXiuyuanId}`);
+        console.log(`[CreateXiuyuanFromBlocksUseCase] Block ${blockToCheck} already has Xiuyuan: ${existingXiuyuanId}`);
         return err(new Error('此块已经创建过修缘卡片，请勿重复创建'));
       }
       
@@ -274,7 +282,8 @@ export class CreateXiuyuanFromBlocksUseCase {
         priority,
         meta: {
           schedulerType: 'fsrs-v6',
-          fieldMapping
+          fieldMapping,
+          cardType: command.cardType  // 🆕 传递卡片类型
         }
       });
 
@@ -297,11 +306,18 @@ export class CreateXiuyuanFromBlocksUseCase {
       // 7. 添加到 Riff（可选，错误不阻断）
       const deckId = command.deckId || BUILTIN_DECK_ID;
       
+      // 🆕 对于 concept-descriptor 模板，添加描述符块到 Riff，而不是概念块
+      let blockIdToAddToRiff = representativeBlockId;
+      if (command.templateId === 'builtin-concept-descriptor' && command.blockIds.length >= 2) {
+        blockIdToAddToRiff = command.blockIds[1];  // 使用描述符块
+        console.log('[CreateXiuyuanFromBlocksUseCase] Concept-descriptor template, adding descriptor block to Riff:', blockIdToAddToRiff);
+      }
+      
       try {
-        await addRiffCards(deckId, [representativeBlockId]);
+        await addRiffCards(deckId, [blockIdToAddToRiff]);
         console.log('[CreateXiuyuanFromBlocksUseCase] ✅ Created Xiuyuan and added to Riff:', {
           xiuyuanId: xiuyuan.getId().getValue(),
-          blockId: representativeBlockId,
+          blockId: blockIdToAddToRiff,
           source: 'template-creation'
         });
       } catch (error) {
