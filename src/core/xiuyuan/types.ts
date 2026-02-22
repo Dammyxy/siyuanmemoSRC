@@ -6,8 +6,9 @@
  * Xiuyuan 对应 Anki 的 Note 概念，一个 Xiuyuan 可以生成多张 Card。
  * 
  * **核心概念**：
- * - **Xiuyuan (修缘)**: 卡片来源，存储字段映射和模板信息
- * - **CardMapping**: Xiuyuan 到 Card 的映射关系
+ * - **Xiuyuan (修缘)**: 卡片来源聚合根，存储字段映射和模板信息
+ * - **CardFace**: 卡片面，定义问题-答案对
+ * - **Card**: 卡片实体，存储调度信息
  * - **CardTemplate**: 卡片模板，定义字段和生成规则
  * 
  * **架构决策**：
@@ -21,14 +22,14 @@
  * │  - 存储字段映射 (fields)                                 │
  * │  - 关联模板 (templateID)                                 │
  * │  - 关联块列表 (blockIDs)                                 │
+ * │  - 卡片面列表 (faces)                                    │
  * └────────────────────┬────────────────────────────────────┘
  *                      │ 1:N
  *                      ▼
  * ┌─────────────────────────────────────────────────────────┐
- * │                  CardMapping (映射关系)                  │
- * │  - 定义正面字段 (frontFields)                            │
- * │  - 定义反面字段 (backFields)                             │
- * │  - 卡片类型标记 (typeMarker)                             │
+ * │                  Card (卡片实体)                         │
+ * │  - 调度信息 (scheduleInfo)                               │
+ * │  - 面索引 (faceIndex)                                    │
  * └────────────────────┬────────────────────────────────────┘
  *                      │ 1:1
  *                      ▼
@@ -36,7 +37,7 @@
  * │                  FSRSCard (复习卡片)                     │
  * │  - 调度信息 (due, stability, difficulty)                │
  * │  - 复习历史 (reps, lapses, lastReview)                  │
- * │  - 元数据 (meta.xiuyuanID, meta.answerBlockID)          │
+ * │  - 元数据 (meta.xiuyuanID, meta.faceIndex)              │
  * └─────────────────────────────────────────────────────────┘
  * ```
  * 
@@ -60,16 +61,10 @@
  *   updatedAt: Date.now()
  * };
  * 
- * // 创建 CardMapping
- * const mapping: ICardMapping = {
- *   xiuyuanID: 'xy_123',
- *   cardID: 'block-question', // 使用第一个块作为卡片 ID
- *   frontFields: ['question'],
- *   backFields: ['answer'],
- *   typeMarker: 'basic'
- * };
+ * // 创建 Card（通过 Xiuyuan 聚合根）
+ * const cardResult = xiuyuan.createCard(0); // faceIndex = 0
  * 
- * // 创建 FSRSCard
+ * // 创建 FSRSCard（通过 Repository）
  * const fsrsCard: FSRSCard = {
  *   id: 'block-question',
  *   blockId: 'block-question',
@@ -79,7 +74,7 @@
  *   // ... 其他 FSRS 字段
  *   meta: {
  *     xiuyuanID: 'xy_123',
- *     answerBlockID: 'block-answer',
+ *     faceIndex: 0,
  *     templateID: 'basic'
  *   }
  * };
@@ -90,19 +85,14 @@
  * // 获取当前复习的卡片
  * const fsrsCard = getCurrentCard();
  * 
- * // 通过 CardMapping 查询 Xiuyuan
- * const mapping = storage.getMappingByCardID(fsrsCard.id);
- * const xiuyuan = storage.getXiuyuan(mapping.xiuyuanID);
+ * // 通过 Repository 查询 Xiuyuan
+ * const xiuyuan = await repository.findById(fsrsCard.meta.xiuyuanID);
+ * 
+ * // 获取卡片面
+ * const face = xiuyuan.getFaces()[fsrsCard.meta.faceIndex];
  * 
  * // 渲染卡片
- * const frontBlocks = mapping.frontFields.map(
- *   field => xiuyuan.fields.find(f => f.name === field)?.blockID
- * );
- * const backBlocks = mapping.backFields.map(
- *   field => xiuyuan.fields.find(f => f.name === field)?.blockID
- * );
- * 
- * renderCard(frontBlocks, backBlocks);
+ * renderCard(face.questionBlockId, face.answerBlockId);
  * ```
  * 
  * 3. **删除流程**：
@@ -110,21 +100,16 @@
  * // 删除 Xiuyuan
  * const xiuyuanID = 'xy_123';
  * 
- * // 1. 查询所有关联的 CardMapping
- * const mappings = storage.getMappingsByXiuyuanID(xiuyuanID);
+ * // 1. 查询 Xiuyuan
+ * const xiuyuan = await repository.findById(xiuyuanID);
  * 
- * // 2. 删除所有关联的 FSRSCard
- * mappings.forEach(mapping => {
- *   storageManager.removeCard(mapping.cardID);
- * });
- * 
- * // 3. 删除 Xiuyuan（会自动删除 CardMapping）
- * storage.deleteXiuyuan(xiuyuanID);
+ * // 2. 删除所有关联的 Card（通过 Repository 级联删除）
+ * await repository.delete(xiuyuan);
  * ```
  * 
  * **设计原则**：
- * - **单一职责**：Xiuyuan 负责字段映射，FSRSCard 负责调度
- * - **松耦合**：通过 CardMapping 解耦 Xiuyuan 和 FSRSCard
+ * - **单一职责**：Xiuyuan 负责字段映射，Card 负责调度
+ * - **聚合根**：Xiuyuan 管理 Card 的生命周期
  * - **可扩展**：支持未来添加更多模板和字段类型
  */
 
@@ -169,26 +154,7 @@ export interface IXiuyuanField {
   marker?: string;
 }
 
-/**
- * 卡片映射 - Xiuyuan 到 Card 的映射关系
- * 
- * @interface ICardMapping
- * @description
- * 定义 Xiuyuan 如何映射到具体的 FSRSCard。
- * 一个 Xiuyuan 可以有多个 CardMapping（如英-中、中-英）。
- */
-export interface ICardMapping {
-  /** 修缘 ID */
-  xiuyuanID: string;
-  /** 卡片 ID（思源 Riff 卡片 ID / blockID） */
-  cardID: string;
-  /** 正面字段列表（字段名称数组） */
-  frontFields: string[];
-  /** 反面字段列表（字段名称数组） */
-  backFields: string[];
-  /** 卡片类型标记（如 'en-zh', 'zh-en', 'basic'） */
-  typeMarker?: string;
-}
+// CardMapping 已移除：Xiuyuan 通过 faces 直接管理卡片映射
 
 /**
  * 模板分类
@@ -241,31 +207,11 @@ export interface IXiuyuanStore {
   version: number;
   /** Xiuyuan 集合（key: xiuyuanID, value: IXiuyuan） */
   xiuyuans: Record<string, IXiuyuan>;
-  /** CardMapping 集合（key: mappingID, value: ICardMapping） */
-  mappings: Record<string, ICardMapping>;
   /** CardTemplate 集合（key: templateID, value: ICardTemplate） */
   templates: Record<string, ICardTemplate>;
 }
 
-/**
- * 卡片渲染数据
- * 
- * @interface ICardRenderData
- * @description
- * 复习界面渲染卡片所需的完整数据。
- */
-export interface ICardRenderData {
-  /** Xiuyuan 对象 */
-  xiuyuan: IXiuyuan;
-  /** CardMapping 对象 */
-  mapping: ICardMapping;
-  /** CardTemplate 对象（可能不存在） */
-  template: ICardTemplate | undefined;
-  /** 正面块 ID 列表 */
-  frontBlockIDs: string[];
-  /** 反面块 ID 列表 */
-  backBlockIDs: string[];
-}
+// ICardRenderData 已移除：直接使用 Xiuyuan 聚合根进行渲染
 
 /**
  * 存储文件名
@@ -287,5 +233,9 @@ export const XIUYUAN_STORAGE_KEY = 'xiuyuan.msgpack';
  * @constant
  * @description
  * 用于数据迁移。当存储格式发生变化时，递增此版本号。
+ * 
+ * Version 2 (2026-02-22): 移除 CardMapping 层
+ * - 删除 mappings 字段
+ * - Xiuyuan 通过 faces 直接管理卡片映射
  */
-export const XIUYUAN_CURRENT_VERSION = 1;
+export const XIUYUAN_CURRENT_VERSION = 2;

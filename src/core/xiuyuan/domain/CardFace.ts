@@ -12,6 +12,9 @@
 
 import { Result, ok, err } from '../../../types/result';
 
+/**
+ * CardFace 属性接口
+ */
 export interface CardFaceProps {
   question: string;
   answer: string;
@@ -19,6 +22,9 @@ export interface CardFaceProps {
   answerBlockId?: string;
 }
 
+/**
+ * CardFace - 卡片面值对象
+ */
 export class CardFace {
   private constructor(
     public readonly question: string,

@@ -60,4 +60,34 @@ export interface CreateXiuyuanFromBlocksCommand {
       type: string;
     }>;
   };
+  
+  /**
+   * 是否为双向卡片（可选）
+   * 用于快速卡片模板，标记是否需要生成正反两张卡片
+   */
+  isBidirectional?: boolean;
+  
+  /**
+   * 背面挖空信息（可选）
+   * 用于快速卡片和模板制卡的背面多挖空功能
+   */
+  backClozeInfo?: {
+    /** 原始完整内容 */
+    originalContent: string;
+    /** 正面内容 */
+    front: string;
+    /** 背面内容（包含挖空标记） */
+    back: string;
+    /** 挖空列表 */
+    clozes: Array<{
+      text: string;
+      start: number;
+      end: number;
+      type: string;
+    }>;
+    /** 方向：forward=正向, backward=反向, both=双向 */
+    direction: 'forward' | 'backward' | 'both';
+    /** 符号（可选，用于日志） */
+    symbol?: string;
+  };
 }

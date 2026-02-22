@@ -2,7 +2,7 @@
 
 ## 状态
 
-已接受
+已接受（2026-02-22 更新：移除 CardMapping 层）
 
 ## 背景
 
@@ -42,7 +42,7 @@ Anki 使用 Note（笔记）和 Card（卡片）的分离设计：
 
 ### 核心设计
 
-#### 1. 三层架构
+#### 1. 两层架构（2026-02-22 更新）
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -50,14 +50,14 @@ Anki 使用 Note（笔记）和 Card（卡片）的分离设计：
 │  - 存储字段映射 (fields)                                 │
 │  - 关联模板 (templateID)                                 │
 │  - 关联块列表 (blockIDs)                                 │
+│  - 卡片面列表 (faces)                                    │
 └────────────────────┬────────────────────────────────────┘
                      │ 1:N
                      ▼
 ┌─────────────────────────────────────────────────────────┐
-│                  CardMapping (映射关系)                  │
-│  - 定义正面字段 (frontFields)                            │
-│  - 定义反面字段 (backFields)                             │
-│  - 卡片类型标记 (typeMarker)                             │
+│                  Card (卡片实体)                         │
+│  - 调度信息 (scheduleInfo)                               │
+│  - 面索引 (faceIndex)                                    │
 └────────────────────┬────────────────────────────────────┘
                      │ 1:1
                      ▼
@@ -65,9 +65,19 @@ Anki 使用 Note（笔记）和 Card（卡片）的分离设计：
 │                  FSRSCard (复习卡片)                     │
 │  - 调度信息 (due, stability, difficulty)                │
 │  - 复习历史 (reps, lapses, lastReview)                  │
-│  - 元数据 (meta.xiuyuanID, meta.answerBlockID)          │
+│  - 元数据 (meta.xiuyuanID, meta.faceIndex)              │
 └─────────────────────────────────────────────────────────┘
 ```
+
+**架构演进**：
+- **Phase 1 (2026-02-02)**: 引入三层架构（Xiuyuan → CardMapping → Card）
+- **Phase 2 (2026-02-22)**: 简化为两层架构（Xiuyuan → Card），移除 CardMapping 层
+
+**移除 CardMapping 的原因**：
+1. Xiuyuan 已经通过 `faces` 实现了一对多（多挖空、双向卡片）
+2. CardMapping 层没有提供额外的价值
+3. 增加了不必要的复杂度和维护成本
+4. Xiuyuan 的设计初衷就是作为解耦层（块和卡片解耦）
 
 #### 2. 数据模型
 
@@ -80,7 +90,7 @@ interface IXiuyuan {
   templateID: string;            // 模板 ID
   createdAt: number;             // 创建时间戳
   updatedAt: number;             // 更新时间戳
-  meta?: Record<string, unknown>; // 扩展元数据
+  meta?: Record<string, unknown>; // 扩展元数据（包含 faces、cardIds）
 }
 ```
 
@@ -93,14 +103,25 @@ interface IXiuyuanField {
 }
 ```
 
-**ICardMapping - 卡片映射**:
+**CardFace - 卡片面（值对象）**:
 ```typescript
-interface ICardMapping {
-  xiuyuanID: XiuyuanID;      // 修缘 ID
-  cardID: CardID;            // 卡片 ID（思源 Riff 卡片 ID）
-  frontFields: string[];     // 正面字段列表
-  backFields: string[];      // 反面字段列表
-  typeMarker?: string;       // 卡片类型标记（如 'en-zh', 'zh-en'）
+interface CardFace {
+  question: string;       // 问题内容
+  answer: string;         // 答案内容
+  questionBlockId: string; // 问题块 ID
+  answerBlockId: string;   // 答案块 ID
+}
+```
+
+**Card - 卡片实体**:
+```typescript
+class Card {
+  private id: CardId;
+  private xiuyuanId: XiuyuanId;
+  private faceIndex: number;      // 指向 Xiuyuan.faces 的索引
+  private scheduleInfo: ScheduleInfo;
+  private createdAt: Date;
+  private updatedAt: Date;
 }
 ```
 
@@ -159,21 +180,20 @@ const blockIDs = [
   createBlockID('20230101120001-answer')
 ];
 
-// 使用 'bidirectional' 模板创建 Xiuyuan
-const result = await xiuyuanService.createFromBlocks(
-  blockIDs,
-  'bidirectional',
-  {
+// 创建 Xiuyuan（通过 UseCase）
+const result = await createXiuyuanUseCase.execute({
+  blockIds: blockIDs,
+  templateId: 'bidirectional',
+  fieldMapping: {
     front: '20230101120000-question',
     back: '20230101120001-answer'
-  },
-  'default-deck'
-);
+  }
+});
 
 // 结果：创建 1 个 Xiuyuan，生成 2 张 Card
-// Card 1: front → back (正向)
-// Card 2: back → front (反向)
-console.log('Created cards:', result.cards.length); // 2
+// Card 1: front → back (正向，faceIndex = 0)
+// Card 2: back → front (反向，faceIndex = 1)
+console.log('Created cards:', result.value.cards.length); // 2
 ```
 
 #### 复习时渲染
@@ -182,24 +202,15 @@ console.log('Created cards:', result.cards.length); // 2
 // 获取当前复习的卡片
 const fsrsCard = getCurrentCard();
 
-// 查询 CardMapping
-const mapping = xiuyuanService.getMappingByCardID(fsrsCard.id);
-if (mapping) {
-  // 查询 Xiuyuan
-  const xiuyuan = xiuyuanService.getXiuyuan(mapping.xiuyuanID);
-  
-  // 获取正面和反面的块 ID
-  const frontBlockIDs = mapping.frontFields
-    .map(field => xiuyuan.fields.find(f => f.name === field)?.blockID)
-    .filter(Boolean);
-  
-  const backBlockIDs = mapping.backFields
-    .map(field => xiuyuan.fields.find(f => f.name === field)?.blockID)
-    .filter(Boolean);
-  
-  // 渲染多字段卡片
-  renderMultiFieldCard(frontBlockIDs, backBlockIDs);
-}
+// 通过 Repository 查询 Xiuyuan
+const xiuyuanResult = await repository.findById(fsrsCard.meta.xiuyuanID);
+const xiuyuan = xiuyuanResult.value;
+
+// 获取卡片面
+const face = xiuyuan.getFaces()[fsrsCard.meta.faceIndex];
+
+// 渲染卡片
+renderCard(face.questionBlockId, face.answerBlockId);
 ```
 
 ## 后果
@@ -208,11 +219,11 @@ if (mapping) {
 
 1. **支持多字段卡片**
    - 用户可以创建词汇卡片、双向卡片等复杂类型
-   - 一个 Xiuyuan 可以生成多张 Card
+   - 一个 Xiuyuan 可以生成多张 Card（通过 faces）
 
 2. **内容与调度分离**
-   - Xiuyuan 存储字段映射
-   - FSRSCard 存储调度信息
+   - Xiuyuan 存储字段映射和卡片面
+   - Card 存储调度信息
    - 修改内容不影响调度状态
 
 3. **模板系统**
@@ -230,25 +241,30 @@ if (mapping) {
 
 6. **与 Anki 概念对齐**
    - Xiuyuan ≈ Anki Note
-   - CardMapping ≈ Anki Card Template
-   - FSRSCard ≈ Anki Card
+   - Card ≈ Anki Card
+   - FSRSCard ≈ Anki Card（持久化层）
+
+7. **架构简化（2026-02-22）**
+   - 移除 CardMapping 层，减少一层抽象
+   - Xiuyuan 通过 faces 直接管理卡片映射
+   - 降低复杂度和维护成本
 
 ### 负面影响
 
 1. **增加复杂度**
-   - 引入三层架构（Xiuyuan → CardMapping → FSRSCard）
+   - 引入两层架构（Xiuyuan → Card）
    - 需要维护额外的数据结构
 
 2. **存储开销**
-   - 需要存储 Xiuyuan 和 CardMapping 数据
+   - 需要存储 Xiuyuan 数据
    - JSON 文件大小增加
 
 3. **查询性能**
-   - 复习时需要额外查询 Xiuyuan 和 CardMapping
+   - 复习时需要额外查询 Xiuyuan
    - 大数据量时可能影响性能（通过索引缓解）
 
 4. **学习成本**
-   - 开发者需要理解三层架构
+   - 开发者需要理解两层架构
    - 用户需要理解模板概念
 
 ### 风险

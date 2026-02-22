@@ -28,7 +28,7 @@ export default class FSRSPlugin extends Plugin {
   public get incrementalQueue() { return this.context.getIncrementalQueue(); }
   public get subsetQueue() { return this.context.getSubsetQueue(); }
   // ✅ xiuyuanService getter 已移除，请使用 context.getXiuyuanApplicationService()
-  public get xiuyuanStorage() { return this.context.getXiuyuanStorage(); }
+  // ✅ xiuyuanStorage getter 已移除（模板已硬编码，不需要持久化）
   public get unifiedDataSourceManager() { return this.context.getUnifiedDataSourceManager(); }
   public get deliberateQueue() { return this.finalDrillQueue; }
   public get neuralQueue() { return this.unifiedDataSourceManager.getQueue('neural-roam' as any) as any; }

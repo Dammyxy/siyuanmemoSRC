@@ -10,23 +10,15 @@
  * - 字段映射和模板管理
  * - 与 FSRSCard 的关联管理
  * 
- * **核心类**：
- * - `XiuyuanStorage`: 存储管理器，负责 CRUD 操作
- * - `XiuyuanApplicationService`: 应用服务层，负责业务逻辑（推荐使用）
+ * **核心架构**：
+ * - DDD 领域驱动设计
+ * - Xiuyuan 聚合根管理 Card 实体
+ * - Repository 模式处理持久化
+ * - UseCase 模式处理业务逻辑
  * 
  * **使用示例**：
  * ```typescript
- * import { XiuyuanStorage, BUILTIN_TEMPLATES } from '@/core/xiuyuan';
- * import { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
- * 
- * // 初始化存储
- * const storage = new XiuyuanStorage(plugin);
- * await storage.load();
- * 
- * // 加载内置模板
- * BUILTIN_TEMPLATES.forEach(template => {
- *   storage.createTemplate(template);
- * });
+ * import { BUILTIN_TEMPLATES } from '@/core/xiuyuan';
  * 
  * // 使用应用服务（推荐）
  * const xiuyuanAppService = context.getXiuyuanApplicationService();
@@ -40,23 +32,28 @@
  * });
  * 
  * // 查询
- * const xiuyuan = await xiuyuanAppService.getXiuyuan({ xiuyuanId: result.value.xiuyuan.id });
+ * const xiuyuan = await xiuyuanAppService.getXiuyuan({ 
+ *   xiuyuanId: result.value.xiuyuan.id 
+ * });
  * 
  * // 删除
  * await xiuyuanAppService.deleteXiuyuan(result.value.xiuyuan.id);
  * ```
  * 
- * @see {@link XiuyuanStorage} 存储管理器
+ * **架构层次**：
+ * - Application Layer: XiuyuanApplicationService, UseCases
+ * - Domain Layer: Xiuyuan (聚合根), Card (实体), IXiuyuanRepository
+ * - Infrastructure Layer: XiuyuanRepository, UnifiedStorageManager
+ * 
  * @see {@link XiuyuanApplicationService} 应用服务层（推荐）
  * @see {@link IXiuyuan} Xiuyuan 数据结构
- * @see {@link ICardMapping} 卡片映射数据结构
  * @see {@link ICardTemplate} 卡片模板数据结构
  */
 
 export * from './types';
-export { XiuyuanStorage } from './storage';
 export { BUILTIN_TEMPLATES } from './templates/builtin';
 
-// ⚠️ XiuyuanService 已移除，请使用 XiuyuanApplicationService
-// export { XiuyuanService } from './service';  // ❌ 已废弃并移除
+// ✅ DDD 架构导出
+export * from './domain';
+export * from './infrastructure';
 

@@ -165,7 +165,9 @@ export class CreateListTemplateCardsUseCase {
       }));
 
       // 5. 创建值对象
-      const xiuyuanIdResult = XiuyuanId.create(`xy_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`);
+      // 🔧 统一 ID 格式：使用代表块 ID（父列表项）
+      const representativeBlockId = command.parentBlockId;
+      const xiuyuanIdResult = XiuyuanId.create(`xy_${representativeBlockId}`);
       if (!xiuyuanIdResult.ok) {
         return xiuyuanIdResult as Result<any>;
       }
@@ -245,11 +247,14 @@ export class CreateListTemplateCardsUseCase {
 
       // 9. 添加到 Riff（可选，错误不阻断）
       const deckId = command.deckId || BUILTIN_DECK_ID;
-      const representativeBlockId = command.parentBlockId;
       
       try {
         await addRiffCards(deckId, [representativeBlockId]);
-        console.log('[CreateListTemplateCardsUseCase] Added to Riff:', representativeBlockId);
+        console.log('[CreateListTemplateCardsUseCase] ✅ Created list template Xiuyuan and added to Riff:', {
+          xiuyuanId: xiuyuan.getId().getValue(),
+          blockId: representativeBlockId,
+          source: 'list-template-creation'
+        });
       } catch (error) {
         console.warn('[CreateListTemplateCardsUseCase] Failed to add to Riff:', error);
         // 不阻断流程

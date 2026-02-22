@@ -26,11 +26,11 @@ const categoryNames: Record<TemplateCategory, string> = {
 // 按分类分组模版
 const groupedTemplates = computed(() => {
   const groups: Record<TemplateCategory, ICardTemplate[]> = {
+    quick: [],  // 快速制卡类放在最前面
     basic: [],
     cloze: [],
     list: [],
     concept: [],
-    quick: [],
   };
 
   props.templates.forEach(template => {
@@ -38,13 +38,16 @@ const groupedTemplates = computed(() => {
     groups[category].push(template);
   });
 
-  // 只返回非空的分类
-  return Object.entries(groups)
-    .filter(([_, templates]) => templates.length > 0)
-    .map(([category, templates]) => ({
-      category: category as TemplateCategory,
-      name: categoryNames[category as TemplateCategory],
-      templates,
+  // 定义分类顺序：快速制卡类 → 基础类 → 其他
+  const categoryOrder: TemplateCategory[] = ['quick', 'basic', 'cloze', 'list', 'concept'];
+  
+  // 按指定顺序返回非空的分类
+  return categoryOrder
+    .filter(category => groups[category].length > 0)
+    .map(category => ({
+      category,
+      name: categoryNames[category],
+      templates: groups[category],
     }));
 });
 

@@ -76,9 +76,16 @@ export class BasicCardStrategy implements ICardFaceStrategy {
     front: CardFaceData;
     back: CardFaceData;
   } {
-    const { symbol, typeMarker } = metadata;
+    const { symbol, typeMarker, clozeIndex, totalClozes, direction } = metadata;
     
-    console.log('[BasicCardStrategy] parse called:', { symbol, typeMarker, content: blockContent.substring(0, 100) });
+    console.log('[BasicCardStrategy] parse called:', { 
+      symbol, 
+      typeMarker, 
+      clozeIndex, 
+      totalClozes, 
+      direction,
+      content: blockContent.substring(0, 100) 
+    });
     
     const [part1, part2] = splitBySymbol(blockContent, symbol);
     
@@ -90,15 +97,18 @@ export class BasicCardStrategy implements ICardFaceStrategy {
     // 根据符号类型决定正反面内容
     let frontHtml: string;
     let backHtml: string;
+    let backPart: string; // 用于挖空处理的背面部分
     
     if (symbol === '>>' || symbol === '》》') {
       // 正向：问题 >> 答案 或 问题》》答案
       frontHtml = part1;
+      backPart = part2;
       // 反面显示完整内容：问题 + 答案
       backHtml = `${part1}<br/><br/>${part2}`;
     } else if (symbol === '<<' || symbol === '《《') {
       // 反向：答案 << 问题 或 答案《《问题
       frontHtml = part2;
+      backPart = part1;
       // 反面显示完整内容：问题 + 答案
       backHtml = `${part2}<br/><br/>${part1}`;
     } else if (symbol === '<>' || symbol === '《》') {
@@ -108,17 +118,58 @@ export class BasicCardStrategy implements ICardFaceStrategy {
         console.log('[BasicCardStrategy] ✅ Using REVERSE direction for bidirectional card');
         // 反向：定义 -> 概念
         frontHtml = part2;
+        backPart = part1;
         backHtml = `${part2}<br/><br/>${part1}`;
       } else {
         console.log('[BasicCardStrategy] Using FORWARD direction for bidirectional card (typeMarker:', typeMarker, ')');
         // 正向（默认）：概念 -> 定义
         frontHtml = part1;
+        backPart = part2;
         backHtml = `${part1}<br/><br/>${part2}`;
       }
     } else {
       // 未知符号，使用默认行为
       frontHtml = part1;
+      backPart = part2;
       backHtml = `${part1}<br/><br/>${part2}`;
+    }
+    
+    // 🆕 处理背面挖空
+    if (clozeIndex !== undefined && clozeIndex >= 0 && totalClozes && totalClozes > 0) {
+      console.log('[BasicCardStrategy] Processing back cloze:', { clozeIndex, totalClozes });
+      
+      // 使用 ClozeDetector 提取挖空
+      const { ClozeDetector } = require('@/utils/cloze-detector');
+      const clozes = ClozeDetector.extractClozes(backPart);
+      
+      if (clozes.length > 0 && clozeIndex < clozes.length) {
+        // 隐藏当前挖空
+        const currentCloze = clozes[clozeIndex];
+        const beforeCloze = backPart.substring(0, currentCloze.start);
+        const afterCloze = backPart.substring(currentCloze.end);
+        
+        // 生成挖空占位符
+        const placeholder = `<span class="cloze-placeholder">[...]</span>`;
+        const processedBackPart = beforeCloze + placeholder + afterCloze;
+        
+        // 重新组合背面内容
+        if (symbol === '>>' || symbol === '》》') {
+          backHtml = `${part1}<br/><br/>${processedBackPart}`;
+        } else if (symbol === '<<' || symbol === '《《') {
+          backHtml = `${part2}<br/><br/>${processedBackPart}`;
+        } else if (symbol === '<>' || symbol === '《》') {
+          if (typeMarker === 'reverse') {
+            backHtml = `${part2}<br/><br/>${processedBackPart}`;
+          } else {
+            backHtml = `${part1}<br/><br/>${processedBackPart}`;
+          }
+        }
+        
+        console.log('[BasicCardStrategy] Applied cloze to back:', {
+          clozeText: currentCloze.text,
+          backHtml: backHtml.substring(0, 100)
+        });
+      }
     }
     
     console.log('[BasicCardStrategy] Final result:', {

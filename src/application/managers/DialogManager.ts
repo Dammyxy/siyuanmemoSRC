@@ -958,7 +958,7 @@ export class DialogManager implements IDialogManager {
       }
 
       // ✅ 使用 XiuyuanApplicationService（符合 DDD 架构）
-      const xiuyuanAppService = this.plugin.context.getXiuyuanApplicationService();
+      const xiuyuanAppService = await this.plugin.context.getXiuyuanApplicationService();
       
       if (!xiuyuanAppService) {
         console.error('[DialogManager] XiuyuanApplicationService not found');
@@ -992,7 +992,7 @@ export class DialogManager implements IDialogManager {
         events: {
           confirm: async (templateId: string) => {
             // 使用 XiuyuanApplicationService 获取模板
-            const xiuyuanAppService = this.context.getXiuyuanApplicationService();
+            const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
             const template = await xiuyuanAppService.getTemplate(templateId);
             if (!template) return;
 
@@ -1013,12 +1013,42 @@ export class DialogManager implements IDialogManager {
                 }
               });
 
+              // 🆕 检测背面块是否有挖空
+              const { ClozeDetector } = await import('@/utils/cloze-detector');
+              const { getBlockText } = await import('@/core/siyuan/block');
+              
+              let backClozeInfo = undefined;
+              
+              // 只在有至少2个块时检测背面挖空
+              if (blockIds.length >= 2) {
+                const backBlockId = blockIds[blockIds.length - 1];
+                const backContent = await getBlockText(backBlockId);
+                const backClozes = ClozeDetector.extractClozes(backContent);
+                
+                if (backClozes.length > 0) {
+                  const frontBlockId = blockIds[0];
+                  const frontContent = await getBlockText(frontBlockId);
+                  
+                  backClozeInfo = {
+                    originalContent: `${frontContent} → ${backContent}`,
+                    front: frontContent,
+                    back: backContent,
+                    clozes: backClozes,
+                    direction: 'forward' as const,
+                    symbol: template.name
+                  };
+                  
+                  console.log('[DialogManager] Detected back clozes in template card:', backClozes.length);
+                }
+              }
+
               // 创建 Xiuyuan 和卡片（使用 XiuyuanApplicationService）
               const result = await xiuyuanAppService.createFromBlocks({
                 blockIds,
                 templateId,
                 fieldMapping,
-                deckId: riff.BUILTIN_DECK_ID
+                deckId: riff.BUILTIN_DECK_ID,
+                backClozeInfo  // 🆕 添加背面挖空信息
               });
 
               if (!result.ok) {

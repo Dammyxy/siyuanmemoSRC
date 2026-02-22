@@ -79,6 +79,28 @@ export interface QuickCardMetadata {
    * 仅对无序列表项有效（有序列表项使用列表模板）
    */
   hasListChildren?: boolean;
+  
+  /**
+   * 挖空索引（可选）
+   * @description 用于背面多挖空功能，指示当前应该显示哪个挖空
+   * - 0, 1, 2... 表示挖空索引
+   * - -1 表示不挖空（显示完整内容）
+   */
+  clozeIndex?: number;
+  
+  /**
+   * 总挖空数量（可选）
+   * @description 用于背面多挖空功能，表示背面总共有多少个挖空
+   */
+  totalClozes?: number;
+  
+  /**
+   * 方向（可选）
+   * @description 用于背面多挖空功能，表示卡片方向
+   * - 'forward': 正向卡片
+   * - 'reverse': 反向卡片
+   */
+  direction?: 'forward' | 'reverse';
 }
 
 /**

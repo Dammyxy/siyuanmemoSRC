@@ -21,7 +21,6 @@ import { TabManager } from '@/application/managers/TabManager';
 import { DockManager } from '@/application/managers/DockManager';
 import { PracticeQueueManager } from '@/application/managers/PracticeQueueManager';
 import { TabApplicationService } from '@/application/services/TabApplicationService';
-import { XiuyuanStorage } from '@/core/xiuyuan';
 import { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
 import { HybridSyncService } from '@/application/services/XiuyuanSyncService';
@@ -101,7 +100,6 @@ export class ApplicationContext {
   private queueContext: QueueContext<QueueItem>;
   
   // Xiuyuan 服务
-  private xiuyuanStorage: XiuyuanStorage;
   private xiuyuanApplicationService?: XiuyuanApplicationService;  // 懒加载
   
   // 应用服务
@@ -185,7 +183,6 @@ export class ApplicationContext {
       rescheduleService: RescheduleService;
       unifiedDataSourceManager: UnifiedDataSourceManager;
       queueContext: QueueContext<QueueItem>;
-      xiuyuanStorage: XiuyuanStorage;
       blockMenuHandler: BlockMenuHandler;
       sharedEventBus?: EventBus;  // ✅ 新增：共享的 EventBus 实例
       hybridSyncService?: HybridSyncService;
@@ -201,7 +198,6 @@ export class ApplicationContext {
     this.rescheduleService = services.rescheduleService;
     this.unifiedDataSourceManager = services.unifiedDataSourceManager;
     this.queueContext = services.queueContext;
-    this.xiuyuanStorage = services.xiuyuanStorage;
     this.blockMenuHandler = services.blockMenuHandler;
     this.hybridSyncService = services.hybridSyncService;
     this.transactionWebSocketService = services.transactionWebSocketService;
@@ -757,24 +753,10 @@ export class ApplicationContext {
       monitors: [],
     });
     
-    // 10. 初始化 Xiuyuan 存储（用于模板管理）
-    // 注意：XiuyuanStorage 只用于模板管理，卡片数据使用 UnifiedStorageManager
-    const xiuyuanStorage = new XiuyuanStorage(config.plugin as any);
-    await xiuyuanStorage.load();
-    
-    // 初始化内置模板（强制更新以确保有最新的 category 字段）
+    // 10. 加载内置模板（硬编码，不需要持久化）
+    // ✅ DDD 架构优化：模板作为代码的一部分，不需要持久化到文件
     const { BUILTIN_TEMPLATES } = await import('@/core/xiuyuan');
-    for (const template of BUILTIN_TEMPLATES) {
-      const existing = xiuyuanStorage.getTemplate(template.id);
-      if (!existing) {
-        xiuyuanStorage.createTemplate(template);
-      } else {
-        // 🆕 强制更新已存在的模版，确保有最新的字段（如 category）
-        xiuyuanStorage.updateTemplate(template.id, template);
-      }
-    }
-    await xiuyuanStorage.save();
-    console.log('[ApplicationContext] ✅ XiuyuanStorage initialized with', BUILTIN_TEMPLATES.length, 'builtin templates');
+    console.log('[ApplicationContext] ✅ Loaded', BUILTIN_TEMPLATES.length, 'builtin templates from code');
     
     // 11. 初始化 BlockMenuHandler
     // 创建一个临时变量来存储 context 引用（用于闭包）
@@ -827,7 +809,6 @@ export class ApplicationContext {
       rescheduleService,
       unifiedDataSourceManager,
       queueContext,
-      xiuyuanStorage,  // ✅ 使用 xiuyuanStorage (不再需要 xiuyuanService)
       blockMenuHandler,
       sharedEventBus,  // ✅ 传入 sharedEventBus
       hybridSyncService: undefined,  // 将在下面初始化
@@ -1086,20 +1067,11 @@ export class ApplicationContext {
   }
   
   /**
-   * 获取 Xiuyuan 存储
-   * 
-   * @returns XiuyuanStorage - Xiuyuan 存储实例
-   */
-  getXiuyuanStorage(): XiuyuanStorage {
-    return this.xiuyuanStorage;
-  }
-  
-  /**
    * 获取 Xiuyuan 应用服务（DDD 架构）
    * 
    * @returns XiuyuanApplicationService - Xiuyuan 应用服务实例
    */
-  getXiuyuanApplicationService(): XiuyuanApplicationService {
+  async getXiuyuanApplicationService(): Promise<XiuyuanApplicationService> {
     if (!this.xiuyuanApplicationService) {
       // 懒加载：首次调用时创建
       
@@ -1112,11 +1084,11 @@ export class ApplicationContext {
         cardTypeDetectionService  // ✅ 注入 CardTypeDetectionService
       );
       
-      // 获取模板注册表（从 XiuyuanStorage）
-      const templatesObj = this.xiuyuanStorage.data.templates;
+      // ✅ 从代码导入模板（硬编码，不需要持久化）
+      const { BUILTIN_TEMPLATES } = await import('@/core/xiuyuan');
       const templateRegistry = new Map<string, any>();
-      for (const [id, template] of Object.entries(templatesObj)) {
-        templateRegistry.set(id, template);
+      for (const template of BUILTIN_TEMPLATES) {
+        templateRegistry.set(template.id, template);
       }
       
       this.xiuyuanApplicationService = new XiuyuanApplicationService(

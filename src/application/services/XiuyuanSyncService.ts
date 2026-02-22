@@ -258,8 +258,23 @@ export class XiuyuanSyncService {
                 const addedCards: RiffBlock[] = [];
                 
                 for (const riffCard of filtered) {
-                    // ✅ 使用 Repository 查询，符合 DDD 架构
-                    const xiuyuanIdStr = `xy_riff_${riffCard.id}`;
+                    // 🔧 防护 1：检查块属性，避免重复创建
+                    const { getBlockAttrs } = await import('@/core/siyuan/api');
+                    try {
+                        const attrs = await getBlockAttrs(riffCard.id);
+                        if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
+                            const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
+                            console.log(`[HybridSync] Block ${riffCard.id} already has Xiuyuan: ${existingXiuyuanId}, skipping`);
+                            skippedCount++;
+                            continue;
+                        }
+                    } catch (error) {
+                        console.warn(`[HybridSync] Failed to check block attrs for ${riffCard.id}:`, error);
+                        // 继续执行，不阻断流程
+                    }
+                    
+                    // 🔧 防护 2：使用 Repository 查询（统一 ID 格式，去掉 riff_ 前缀）
+                    const xiuyuanIdStr = `xy_${riffCard.id}`;
                     const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
                     
                     if (!xiuyuanIdResult.ok) {
@@ -283,7 +298,11 @@ export class XiuyuanSyncService {
                     
                     if (!existingXiuyuan) {
                         // ✅ 本地没有，通过 Repository 保存（完全符合 DDD）
-                        console.log(`[SiYuanMemo][HybridSync] Adding new card ${riffCard.id}`);
+                        console.log(`[HybridSync] ✅ Creating new Xiuyuan from Riff:`, {
+                            xiuyuanId: xiuyuanIdStr,
+                            blockId: riffCard.id,
+                            source: 'riff-sync'
+                        });
                         const { xiuyuanEntity } = await this.convertRiffCardToFSRSCard(riffCard);
                         
                         console.log(`[SiYuanMemo][HybridSync] Created Xiuyuan ${xiuyuanEntity.getId().getValue()} with ${xiuyuanEntity.getCards().length} cards`);
@@ -422,8 +441,15 @@ export class XiuyuanSyncService {
                     const xiuyuansToDelete = allXiuyuans.filter(xiuyuan => {
                         const xiuyuanId = xiuyuan.getId().getValue();
                         
-                        // 只删除 Riff 同步创建的 Xiuyuan（以 xy_riff_ 开头）
-                        if (!xiuyuanId.startsWith('xy_riff_')) {
+                        // 🔧 检查是否为 Riff 同步创建的 Xiuyuan
+                        // 新格式：xy_{blockId}，需要检查对应的块是否还在 Riff 中
+                        // 旧格式：xy_riff_{blockId}，兼容处理
+                        if (!xiuyuanId.startsWith('xy_riff_') && !xiuyuanId.startsWith('xy_')) {
+                            return false;
+                        }
+                        
+                        // 跳过迁移数据
+                        if (xiuyuanId.startsWith('xy_migrated_')) {
                             return false;
                         }
                         
@@ -541,8 +567,8 @@ export class XiuyuanSyncService {
                 let skippedCount = 0;
                 
                 for (const riffCard of riffCards) {
-                    // ✅ 使用 Repository 查询（符合 DDD 架构）
-                    const xiuyuanIdStr = `xy_riff_${riffCard.id}`;
+                    // ✅ 使用 Repository 查询（符合 DDD 架构，统一 ID 格式）
+                    const xiuyuanIdStr = `xy_${riffCard.id}`;
                     const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
                     
                     if (!xiuyuanIdResult.ok) {
@@ -588,8 +614,15 @@ export class XiuyuanSyncService {
                 const xiuyuansToDelete = allXiuyuans.filter(xiuyuan => {
                     const xiuyuanId = xiuyuan.getId().getValue();
                     
-                    // 只删除 Riff 同步创建的 Xiuyuan（以 xy_riff_ 开头）
-                    if (!xiuyuanId.startsWith('xy_riff_')) {
+                    // 🔧 检查是否为 Riff 同步创建的 Xiuyuan
+                    // 新格式：xy_{blockId}，需要检查对应的块是否还在 Riff 中
+                    // 旧格式：xy_riff_{blockId}，兼容处理
+                    if (!xiuyuanId.startsWith('xy_riff_') && !xiuyuanId.startsWith('xy_')) {
+                        return false;
+                    }
+                    
+                    // 跳过迁移数据
+                    if (xiuyuanId.startsWith('xy_migrated_')) {
                         return false;
                     }
                     
@@ -640,7 +673,7 @@ export class XiuyuanSyncService {
                     // 只检测新添加的卡片
                     const newCards: RiffBlock[] = [];
                     for (const riffCard of riffCards) {
-                        const xiuyuanIdStr = `xy_riff_${riffCard.id}`;
+                        const xiuyuanIdStr = `xy_${riffCard.id}`;
                         const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
                         if (!xiuyuanIdResult.ok) continue;
                         
@@ -968,9 +1001,11 @@ export class XiuyuanSyncService {
      * - ✅ 创建完整的 Card 领域实体（包含 FSRS 数据）
      * 
      * **Xiuyuan ID 命名规则**：
-     * - 格式：`xy_riff_{blockId}`
+     * - 格式：`xy_{blockId}`（统一格式）
      * - 目的：
      *   1. 幂等性：同一个块多次同步生成相同 ID，避免重复创建
+     *   2. 可追溯性：通过块 ID 可以直接定位到思源块
+     *   3. 统一性：与模板创建的 ID 格式一致，避免重复创建
      *   2. 可追溯性：通过前缀 "riff" 可以识别来源（区别于用户手动创建的 `xy_{timestamp}_{random}`）
      *   3. 防止冲突：与手动创建的 ID 格式不同，不会产生冲突
      * 
@@ -994,13 +1029,13 @@ export class XiuyuanSyncService {
         const riffCard = riffBlock.riffCard;
         const now = Date.now();
         
-        // 1. 生成 Xiuyuan ID（使用 blockId 作为唯一标识）
-        // 格式：xy_riff_{blockId}
+        // 1. 创建 Xiuyuan ID（统一格式）
+        const xiuyuanIdStr = `xy_${riffBlock.id}`;
+        
         // 目的：
         // - 幂等性：同一个块多次同步生成相同 ID，避免重复创建
-        // - 可追溯性：通过前缀 "riff" 可以识别来源
-        // - 防止冲突：与手动创建的 ID（xy_{timestamp}_{random}）不冲突
-        const xiuyuanIdStr = `xy_riff_${riffBlock.id}`;
+        // - 可追溯性：通过块 ID 可以直接定位到思源块
+        // - 统一性：与模板创建的 ID 格式一致，避免重复创建
         
         // 2. 从块属性中读取卡片类型标记（concept/descriptor）
         const cardTypeMarkerAttr = riffBlock.ial?.['custom-fsrs-card-type'];

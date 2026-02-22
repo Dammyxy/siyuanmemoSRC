@@ -136,7 +136,7 @@ export class CardCreationHelper {
    * 
    * @description
    * 创建符号检测类型的卡片（块内容包含 <> 符号）。
-   * 自动使用 builtin-symbol-qa 模板。
+   * 自动使用 builtin-quick-card 模板（统一版）。
    * 
    * @param blockId - 块 ID
    * @param options - 创建选项
@@ -157,7 +157,7 @@ export class CardCreationHelper {
     // 构造命令
     const command: CreateCardCommand = {
       blockIds: [blockId],
-      templateId: 'builtin-symbol-qa',
+      templateId: 'builtin-quick-card',  // 使用统一的快速卡片模板
       cardType: 'item',
       priority: options.priority ?? 50,
       metadata: {

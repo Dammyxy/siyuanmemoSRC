@@ -10,21 +10,25 @@ export { XiuyuanId } from './XiuyuanId';
 export { CardId } from './CardId';
 export { BlockId } from './BlockId';
 export { TemplateId } from './TemplateId';
-export { CardFace, CardFaceProps } from './CardFace';
+export { CardFace } from './CardFace';
+export type { CardFaceProps } from './CardFace';
 export { Priority } from './Priority';
-export { ScheduleInfo, ScheduleInfoProps } from './ScheduleInfo';
+export { ScheduleInfo } from './ScheduleInfo';
+export type { ScheduleInfoProps } from './ScheduleInfo';
 
 // Entities
-export { Card, CardProps } from './Card';
+export { Card } from './Card';
+export type { CardProps } from './Card';
 
 // Aggregate Root
-export { Xiuyuan, CreateXiuyuanProps, XiuyuanProps } from './Xiuyuan';
+export { Xiuyuan } from './Xiuyuan';
+export type { CreateXiuyuanProps, XiuyuanProps } from './Xiuyuan';
 
 // Domain Events
 export * from './events';
 
 // Repository Interfaces
-export { IXiuyuanRepository } from './repositories';
+export type { IXiuyuanRepository } from './repositories';
 
 // Domain Services
 export { CardCreationService, CardDeletionService } from './services';

@@ -103,21 +103,40 @@ export class QuickCardRepository {
         cardId,
       };
 
-      // 5. 如果提供了 cardId，尝试从 FSRSCard 的 meta 中获取 typeMarker
+      // 5. 如果提供了 cardId，尝试从 FSRSCard 的 meta 中获取 typeMarker 和挖空信息
       if (cardId) {
         console.log('[SiYuanMemo][QuickCardRepository] Fetching FSRSCard for cardId:', cardId);
         const fsrsCard = await this.getFSRSCard(cardId);
         console.log('[SiYuanMemo][QuickCardRepository] FSRSCard:', fsrsCard);
         console.log('[SiYuanMemo][QuickCardRepository] FSRSCard meta:', fsrsCard?.meta);
         
-        if (fsrsCard?.meta?.typeMarker) {
-          metadata.typeMarker = fsrsCard.meta.typeMarker;
-          console.log(`[SiYuanMemo][QuickCardRepository] ✅ Found typeMarker: ${metadata.typeMarker} for cardId: ${cardId}`);
+        if (fsrsCard?.meta) {
+          // 提取 typeMarker
+          if (fsrsCard.meta.typeMarker) {
+            metadata.typeMarker = fsrsCard.meta.typeMarker;
+            console.log(`[SiYuanMemo][QuickCardRepository] ✅ Found typeMarker: ${metadata.typeMarker} for cardId: ${cardId}`);
+          }
+          
+          // 🆕 提取挖空信息
+          if (fsrsCard.meta.clozeIndex !== undefined) {
+            metadata.clozeIndex = fsrsCard.meta.clozeIndex;
+            console.log(`[SiYuanMemo][QuickCardRepository] ✅ Found clozeIndex: ${metadata.clozeIndex} for cardId: ${cardId}`);
+          }
+          
+          if (fsrsCard.meta.totalClozes !== undefined) {
+            metadata.totalClozes = fsrsCard.meta.totalClozes;
+            console.log(`[SiYuanMemo][QuickCardRepository] ✅ Found totalClozes: ${metadata.totalClozes} for cardId: ${cardId}`);
+          }
+          
+          if (fsrsCard.meta.direction) {
+            metadata.direction = fsrsCard.meta.direction;
+            console.log(`[SiYuanMemo][QuickCardRepository] ✅ Found direction: ${metadata.direction} for cardId: ${cardId}`);
+          }
         } else {
-          console.log(`[SiYuanMemo][QuickCardRepository] ⚠️ No typeMarker found for cardId: ${cardId}`);
+          console.log(`[SiYuanMemo][QuickCardRepository] ⚠️ No meta found for cardId: ${cardId}`);
         }
       } else {
-        console.log('[SiYuanMemo][QuickCardRepository] ⚠️ No cardId provided, cannot fetch typeMarker');
+        console.log('[SiYuanMemo][QuickCardRepository] ⚠️ No cardId provided, cannot fetch metadata');
       }
 
       // 6. 对于描述符卡片，判断是否使用 Xiuyuan 模版

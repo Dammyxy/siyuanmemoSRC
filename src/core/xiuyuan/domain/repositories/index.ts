@@ -5,4 +5,4 @@
  * 导出所有仓储接口。
  */
 
-export { IXiuyuanRepository } from './IXiuyuanRepository';
+export type { IXiuyuanRepository } from './IXiuyuanRepository';

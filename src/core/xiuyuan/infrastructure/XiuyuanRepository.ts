@@ -41,6 +41,7 @@ import { IXiuyuan } from '../types';
 import { CardState } from '../../../types/card';
 import { UnifiedStorageManager } from '../../storage/UnifiedStorageManager';
 import { setBlockAttrs } from '../../siyuan/api';
+import { TemplateRegistry } from '../templates/TemplateRegistry';
 
 /**
  * XiuyuanRepository 实现
@@ -49,10 +50,14 @@ import { setBlockAttrs } from '../../siyuan/api';
  * @implements {IXiuyuanRepository}
  */
 export class XiuyuanRepository implements IXiuyuanRepository {
+  private templateRegistry: TemplateRegistry;
+
   constructor(
     private readonly storage: UnifiedStorageManager,
     private readonly cardTypeDetectionService?: any  // 可选依赖，用于检测卡片类型
-  ) {}
+  ) {
+    this.templateRegistry = new TemplateRegistry();
+  }
 
   /**
    * 保存 Xiuyuan 聚合根
@@ -124,13 +129,23 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       
       // 5.1 确定卡片类型
       let cardType: 'item' | 'topic' = 'item';
-      if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
+      
+      const templateID = xiuyuan.getTemplateID().getValue();
+      const template = this.templateRegistry.get(templateID);
+      
+      if (template && template.category === 'basic') {
+        // ✅ 基础类模板：默认为 item
+        cardType = 'item';
+        console.log(`[XiuyuanRepository] Template ${templateID} is basic category, using cardType: item`);
+      } else if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
         // 列表模版卡：强制为 item
         cardType = 'item';
+        console.log(`[XiuyuanRepository] List template detected, using cardType: item`);
       } else if (this.cardTypeDetectionService && blockIDs.length > 0) {
-        // 非列表模版卡：检测类型
+        // 其他情况：检测类型
         try {
           cardType = await this.cardTypeDetectionService.detectCardType(blockIDs[0].getValue());
+          console.log(`[XiuyuanRepository] Detected cardType: ${cardType} for block ${blockIDs[0].getValue()}`);
         } catch (error) {
           console.warn('[XiuyuanRepository] Failed to detect cardType, using default "item":', error);
         }
@@ -365,23 +380,28 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     // Get schedulerType from meta, default to 'fsrs-v6' (Requirement 5.5)
     const schedulerType = (meta.schedulerType as 'fsrs-v6' | 'a-factor' | 'sm2') || 'fsrs-v6';
     
-    // ✅ 修复：列表模版卡的子卡片强制为 item 类型
+    // ✅ 确定卡片类型（使用与块属性相同的逻辑）
     let cardType: 'item' | 'topic' = 'item';  // 默认为 item
     const blockId = blockIDs[0]?.getValue() || '';
     
-    if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
+    const templateID = xiuyuan.getTemplateID().getValue();
+    const template = this.templateRegistry.get(templateID);
+    
+    if (template && template.category === 'basic') {
+      // ✅ 基础类模板：默认为 item
+      cardType = 'item';
+      console.log(`[XiuyuanRepository] Template ${templateID} is basic category, card type: item`);
+    } else if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
       // 列表模版卡：所有子卡片都是 item 类型
       cardType = 'item';
       console.log(`[XiuyuanRepository] List template card detected, forcing cardType to 'item'`);
-    } else {
-      // 非列表模版卡：使用 CardTypeDetectionService 检测
-      if (this.cardTypeDetectionService && blockId) {
-        try {
-          cardType = await this.cardTypeDetectionService.detectCardType(blockId);
-          console.log(`[XiuyuanRepository] Detected cardType for ${blockId}: ${cardType}`);
-        } catch (error) {
-          console.warn(`[XiuyuanRepository] Failed to detect cardType for ${blockId}, using default 'item':`, error);
-        }
+    } else if (this.cardTypeDetectionService && blockId) {
+      // 其他情况：使用 CardTypeDetectionService 检测
+      try {
+        cardType = await this.cardTypeDetectionService.detectCardType(blockId);
+        console.log(`[XiuyuanRepository] Detected cardType for ${blockId}: ${cardType}`);
+      } catch (error) {
+        console.warn(`[XiuyuanRepository] Failed to detect cardType for ${blockId}, using default 'item':`, error);
       }
     }
     
@@ -443,8 +463,9 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         xiuyuanID: card.getXiuyuanId().getValue(),
         templateID: xiuyuan.getTemplateID().getValue(),
         ruleIndex: faceIndex,
-        frontBlockIDs: blockIDs.map(b => b.getValue()),
-        backBlockIDs: blockIDs.map(b => b.getValue()),
+        // ✅ 使用 CardFace 中的 blockId 信息
+        frontBlockIDs: [xiuyuan.getFaces()[faceIndex].questionBlockId],
+        backBlockIDs: [xiuyuan.getFaces()[faceIndex].answerBlockId],
         fieldMapping: {},
         frontFields: [],
         backFields: [],

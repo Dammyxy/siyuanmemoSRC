@@ -1178,7 +1178,7 @@ export class BlockMenuHandler {
       console.log(`[SiYuanMemo] Creating list template cards: ${blockContent} → ${childBlockIds.length} children`);
 
       // ✅ 使用 XiuyuanApplicationService（符合 DDD 架构）
-      const xiuyuanAppService = this.deps.applicationContext.getXiuyuanApplicationService();
+      const xiuyuanAppService = await this.deps.applicationContext.getXiuyuanApplicationService();
       const result = await xiuyuanAppService.createListTemplateCards({
         parentBlockId,
         childBlockIds,

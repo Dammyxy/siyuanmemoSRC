@@ -467,7 +467,7 @@ export class TransactionObserver {
             // 3. 调用列表模板专用的创建方法
             // ✅ 使用 createListTemplateCards 而不是 createFromBlocks
             // 这样会创建 1 个 Xiuyuan → N 张卡片（N = 子列表项数量）
-            const xiuyuanAppService = this.plugin.context.getXiuyuanApplicationService();
+            const xiuyuanAppService = await this.plugin.context.getXiuyuanApplicationService();
             const result = await xiuyuanAppService.createListTemplateCards({
                 parentBlockId,
                 childBlockIds,

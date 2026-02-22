@@ -76,9 +76,31 @@ export class CreateXiuyuanFromBlocksUseCase {
       }
       
       // 2. 验证模板（优先使用自定义模版）
-      const template = command.template || this.templateRegistry.get(command.templateId);
+      let template = command.template || this.templateRegistry.get(command.templateId);
       if (!template) {
         return err(new Error(`Template not found: ${command.templateId}`));
+      }
+
+      // 🆕 处理双向卡片：动态生成 cardRules
+      if (command.isBidirectional && command.templateId === 'builtin-quick-card') {
+        console.log('[CreateXiuyuanFromBlocksUseCase] Creating bidirectional card, adding reverse rule');
+        template = {
+          ...template,
+          cardRules: [
+            {
+              typeMarker: 'forward',
+              frontFields: ['content'],
+              backFields: ['content'],
+              cardType: 'basic',
+            },
+            {
+              typeMarker: 'reverse',
+              frontFields: ['content'],
+              backFields: ['content'],
+              cardType: 'basic',
+            },
+          ],
+        };
       }
 
       if (!template.cardRules || template.cardRules.length === 0) {
@@ -86,7 +108,9 @@ export class CreateXiuyuanFromBlocksUseCase {
       }
 
       // 3. 创建值对象
-      const xiuyuanIdResult = XiuyuanId.create(`xy_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+      // 🔧 统一 ID 格式：使用代表块 ID（第一个块）
+      const representativeBlockId = command.blockIds[0];
+      const xiuyuanIdResult = XiuyuanId.create(`xy_${representativeBlockId}`);
       if (!xiuyuanIdResult.ok) {
         return xiuyuanIdResult as Result<any>;
       }
@@ -123,7 +147,94 @@ export class CreateXiuyuanFromBlocksUseCase {
         }
         
         faces.push(...facesResult.value);
-      } else {
+      }
+      // 🆕 处理背面挖空卡片
+      else if (command.backClozeInfo && command.backClozeInfo.clozes.length > 0) {
+        const { front, back, clozes, direction } = command.backClozeInfo;
+        const blockId = command.blockIds[0];
+        
+        console.log('[CreateXiuyuanFromBlocksUseCase] Creating back cloze faces:', {
+          direction,
+          clozeCount: clozes.length
+        });
+        
+        // 正向卡片：为每个挖空生成一个 face
+        if (direction === 'forward' || direction === 'both') {
+          for (let i = 0; i < clozes.length; i++) {
+            const faceResult = CardFace.create({
+              question: front,
+              answer: back,
+              questionBlockId: blockId,
+              answerBlockId: blockId,
+              metadata: {
+                clozeIndex: i,
+                totalClozes: clozes.length,
+                direction: 'forward'
+              }
+            });
+            
+            if (!faceResult.ok) {
+              return faceResult as Result<any>;
+            }
+            
+            faces.push(faceResult.value);
+          }
+        }
+        
+        // 反向卡片：只生成一个 face，不挖空
+        if (direction === 'backward' || direction === 'both') {
+          const faceResult = CardFace.create({
+            question: back,   // 原始背面（完整显示）
+            answer: front,    // 原始正面
+            questionBlockId: blockId,
+            answerBlockId: blockId,
+            metadata: {
+              clozeIndex: -1,  // -1 表示不挖空
+              direction: 'reverse'
+            }
+          });
+          
+          if (!faceResult.ok) {
+            return faceResult as Result<any>;
+          }
+          
+          faces.push(faceResult.value);
+        }
+      }
+      // 🆕 处理双向卡片：两个 face 使用相同的块内容
+      else if (command.isBidirectional && command.templateId === 'builtin-quick-card') {
+        console.log('[CreateXiuyuanFromBlocksUseCase] Creating bidirectional faces');
+        
+        const blockId = command.blockIds[0];
+        const blockText = await getBlockText(blockId);
+        
+        // 正向 face
+        const forwardFaceResult = CardFace.create({
+          question: blockText || `Block ${blockId}`,
+          answer: blockText || `Block ${blockId}`,
+          questionBlockId: blockId,
+          answerBlockId: blockId
+        });
+        
+        if (!forwardFaceResult.ok) {
+          return forwardFaceResult as Result<any>;
+        }
+        
+        // 反向 face
+        const reverseFaceResult = CardFace.create({
+          question: blockText || `Block ${blockId}`,
+          answer: blockText || `Block ${blockId}`,
+          questionBlockId: blockId,
+          answerBlockId: blockId
+        });
+        
+        if (!reverseFaceResult.ok) {
+          return reverseFaceResult as Result<any>;
+        }
+        
+        faces.push(forwardFaceResult.value, reverseFaceResult.value);
+      } 
+      else {
         // 普通卡片：使用原有逻辑
         for (const rule of template.cardRules) {
           // 获取问题和答案的块 ID
@@ -185,11 +296,14 @@ export class CreateXiuyuanFromBlocksUseCase {
 
       // 7. 添加到 Riff（可选，错误不阻断）
       const deckId = command.deckId || BUILTIN_DECK_ID;
-      const representativeBlockId = command.blockIds[0];
       
       try {
         await addRiffCards(deckId, [representativeBlockId]);
-        console.log('[CreateXiuyuanFromBlocksUseCase] Added to Riff:', representativeBlockId);
+        console.log('[CreateXiuyuanFromBlocksUseCase] ✅ Created Xiuyuan and added to Riff:', {
+          xiuyuanId: xiuyuan.getId().getValue(),
+          blockId: representativeBlockId,
+          source: 'template-creation'
+        });
       } catch (error) {
         console.warn('[CreateXiuyuanFromBlocksUseCase] Failed to add to Riff:', error);
         // 不阻断流程

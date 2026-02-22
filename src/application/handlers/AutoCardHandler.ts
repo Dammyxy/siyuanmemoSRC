@@ -126,12 +126,12 @@ export class AutoCardHandler implements ITransactionHandler {
      * 获取 XiuyuanApplicationService
      * 
      * @private
-     * @returns XiuyuanApplicationService 实例，如果不可用则返回 null
+     * @returns XiuyuanApplicationService 实例的 Promise，如果不可用则返回 null
      */
-    private getXiuyuanApplicationService(): any | null {
+    private async getXiuyuanApplicationService(): Promise<any | null> {
         try {
             if (this.plugin && (this.plugin as any).context) {
-                return (this.plugin as any).context.getXiuyuanApplicationService();
+                return await (this.plugin as any).context.getXiuyuanApplicationService();
             }
         } catch (error) {
             console.warn('[AutoCard] Failed to get XiuyuanApplicationService:', error);
@@ -735,7 +735,49 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
             
-            // 2. 使用 CardCreationHelper 创建符号检测卡
+            // 🆕 2. 检测背面挖空
+            const { ClozeDetector } = await import('@/utils/cloze-detector');
+            const backClozes = ClozeDetector.extractClozes(answer);
+            
+            // 🆕 3. 如果背面有挖空，使用 Xiuyuan 系统创建多张卡片
+            if (backClozes.length > 0) {
+                console.log('[SiYuanMemo][AutoCard] Detected back clozes:', backClozes.length);
+                
+                const xiuyuanAppService = await this.getXiuyuanApplicationService();
+                if (!xiuyuanAppService) {
+                    console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available');
+                    const { pushErrMsg } = await import('@/core/siyuan/api');
+                    await pushErrMsg('修缘服务不可用');
+                    return;
+                }
+                
+                const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
+                
+                const result = await xiuyuanAppService.createFromBlocks({
+                    blockIds: [blockId],
+                    templateId: 'builtin-quick-card',
+                    fieldMapping: { content: blockId },
+                    deckId: BUILTIN_DECK_ID,
+                    backClozeInfo: {
+                        originalContent: content,
+                        front: question,
+                        back: answer,
+                        clozes: backClozes,
+                        direction: 'forward',
+                        symbol: actualSymbol
+                    }
+                });
+                
+                if (!result.ok) {
+                    throw new Error(`Failed to create cards with back cloze: ${result.error?.message}`);
+                }
+                
+                const { pushMsg } = await import('@/core/siyuan/api');
+                await pushMsg(`✅ 已创建 ${backClozes.length} 张卡片（背面挖空）`);
+                return;
+            }
+            
+            // 4. 否则使用原有逻辑创建单张卡片
             const helper = this.getCardHelper();
             if (!helper) {
                 console.error('[SiYuanMemo][AutoCard] CardCreationHelper not available');
@@ -758,12 +800,12 @@ export class AutoCardHandler implements ITransactionHandler {
                 throw new Error(`Failed to create symbol card: ${result.error}`);
             }
             
-            // 3. 添加到 Riff 卡组
+            // 5. 添加到 Riff 卡组
             const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
             await addRiffCards(BUILTIN_DECK_ID, [blockId]);
             console.log('[SiYuanMemo][AutoCard] Added to Riff deck:', blockId);
             
-            // 4. 标记 FSRS 属性
+            // 6. 标记 FSRS 属性
             const { markBlockAsCard } = await import('@/core/siyuan/block');
             const card = result.value;
             await markBlockAsCard(blockId, card.id, card.priority, 'item');
@@ -785,7 +827,7 @@ export class AutoCardHandler implements ITransactionHandler {
     /**
      * 创建双向卡片（使用 Xiuyuan 系统）
      * 
-     * 双向卡片会通过 Xiuyuan 的 builtin-quick-bidirectional 模板创建两张卡片：
+     * 双向卡片会通过 Xiuyuan 的 builtin-quick-card 模板创建两张卡片：
      * - 卡片1：term -> definition (forward)
      * - 卡片2：definition -> term (reverse)
      * 
@@ -800,7 +842,7 @@ export class AutoCardHandler implements ITransactionHandler {
             console.log('[SiYuanMemo][AutoCard] Creating bidirectional card using Xiuyuan:', blockId);
             
             // 1. 检查 XiuyuanApplicationService 是否可用
-            const xiuyuanAppService = this.getXiuyuanApplicationService();
+            const xiuyuanAppService = await this.getXiuyuanApplicationService();
             if (!xiuyuanAppService) {
                 console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available, falling back to single card');
                 // 降级：使用 CardCreationHelper 创建符号检测卡
@@ -838,18 +880,51 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
             
-            // 2. 使用 Xiuyuan 的 builtin-quick-bidirectional 模板
-            // 注意：content 字段映射到同一个块，渲染时会解析 <> 符号
-            // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
-            // 需要先实现模板支持：扩展 CreateCardCommand 和 CreateCardUseCase
+            // 🆕 2. 检测背面挖空
+            const { ClozeDetector } = await import('@/utils/cloze-detector');
+            const backClozes = ClozeDetector.extractClozes(definition);
+            
             const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
+            
+            // 🆕 3. 如果背面有挖空，使用 backClozeInfo
+            if (backClozes.length > 0) {
+                console.log('[SiYuanMemo][AutoCard] Detected back clozes in bidirectional card:', backClozes.length);
+                
+                const result = await xiuyuanAppService.createFromBlocks({
+                    blockIds: [blockId],
+                    templateId: 'builtin-quick-card',
+                    fieldMapping: { content: blockId },
+                    deckId: BUILTIN_DECK_ID,
+                    backClozeInfo: {
+                        originalContent: `${term} <> ${definition}`,
+                        front: term,
+                        back: definition,
+                        clozes: backClozes,
+                        direction: 'both',  // 双向卡片
+                        symbol: '<>'
+                    }
+                });
+                
+                if (!result.ok) {
+                    throw new Error(`Failed to create bidirectional card with back cloze: ${result.error?.message}`);
+                }
+                
+                const totalCards = backClozes.length + 1;  // 正向N张 + 反向1张
+                const { pushMsg } = await import('@/core/siyuan/api');
+                await pushMsg(`✅ 已创建双向卡片 (<>) - 共 ${totalCards} 张（背面挖空）`);
+                return;
+            }
+            
+            // 4. 否则使用原有逻辑创建双向卡片
             const result = await xiuyuanAppService.createFromBlocks({
                 blockIds: [blockId],  // 只有一个块
-                templateId: 'builtin-quick-bidirectional',  // 使用快速制卡双向模板
+                templateId: 'builtin-quick-card',  // 使用统一的快速卡片模板
                 fieldMapping: {
                     content: blockId  // content 字段映射到当前块
                 },
-                deckId: BUILTIN_DECK_ID
+                deckId: BUILTIN_DECK_ID,
+                // 🆕 添加标记，表示这是双向卡片
+                isBidirectional: true,
             });
             
             if (!result.ok) {
@@ -862,7 +937,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 blockId
             });
             
-            // 3. 显示成功提示
+            // 5. 显示成功提示
             const { pushMsg } = await import('@/core/siyuan/api');
             await pushMsg(`✅ 已创建双向卡片 (<>) - 共 ${result.value.cards.length} 张卡片`);
         } catch (error) {
@@ -1529,7 +1604,7 @@ export class AutoCardHandler implements ITransactionHandler {
             console.log('[SiYuanMemo][AutoCard] Parsed child blocks:', childBlocks);
             
             // 4. 使用 Xiuyuan 创建列表模版卡片
-            const xiuyuanAppService = this.getXiuyuanApplicationService();
+            const xiuyuanAppService = await this.getXiuyuanApplicationService();
             if (!xiuyuanAppService) {
                 console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available');
                 return;

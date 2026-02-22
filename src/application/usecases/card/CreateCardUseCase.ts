@@ -128,8 +128,7 @@ export class CreateCardUseCase {
    * 根据以下规则选择模板：
    * 1. 如果显式指定了 templateId，直接使用
    * 2. 检测块内容是否包含 <> 符号
-   *    - 单块 + 符号 → builtin-symbol-qa
-   *    - 多块 + 符号 → builtin-quick-bidirectional
+   *    - 有符号 → builtin-quick-card（会动态生成单向或双向）
    * 3. 根据 cardType 和 blockCount 选择默认模板
    * 
    * @private
@@ -158,11 +157,9 @@ export class CreateCardUseCase {
     // 3. 检测第一个块是否包含 <> 符号（Requirement 8.1）
     const hasSymbol = await this.detectSymbol(blockIds[0]);
     if (hasSymbol) {
-      // 单块 + 符号 → builtin-symbol-qa
-      // 多块 + 符号 → builtin-quick-bidirectional
-      return blockIds.length === 1 
-        ? 'builtin-symbol-qa' 
-        : 'builtin-quick-bidirectional';
+      // 有 <> 符号 → 统一使用 builtin-quick-card
+      // 会在创建时根据符号动态生成单向或双向卡片
+      return 'builtin-quick-card';
     }
 
     // 4. 根据 cardType 和 blockCount 选择默认模板（Requirements 8.2-8.5）
@@ -367,20 +364,42 @@ export class CreateCardUseCase {
         faces.push(faceResult.value);
       }
     } else {
-      // 如果没有提供 faces，创建默认的 face
-      // 使用第一个 blockId 作为问题和答案
-      const defaultFaceResult = CardFace.create({
-        question: blockIds[0].value,
-        answer: blockIds[0].value,
-        questionBlockId: blockIds[0].value,
-        answerBlockId: blockIds[0].value,
-      });
+      // 如果没有提供 faces，根据模板创建默认的 face
+      const templateId = command.templateId!;
+      
+      if (templateId === 'builtin-basic-qa' || templateId === 'builtin-bidirectional') {
+        // 基础问答和双向卡片：第一个块为问题，第二个块为答案
+        if (blockIds.length >= 2) {
+          const defaultFaceResult = CardFace.create({
+            question: blockIds[0].value,
+            answer: blockIds[1].value,
+            questionBlockId: blockIds[0].value,
+            answerBlockId: blockIds[1].value,
+          });
 
-      if (!defaultFaceResult.ok) {
-        return defaultFaceResult as any;
+          if (!defaultFaceResult.ok) {
+            return defaultFaceResult as any;
+          }
+
+          faces.push(defaultFaceResult.value);
+        } else {
+          return err(new Error(`Template ${templateId} requires at least 2 blocks`));
+        }
+      } else {
+        // 其他模板：使用第一个 blockId 作为问题和答案
+        const defaultFaceResult = CardFace.create({
+          question: blockIds[0].value,
+          answer: blockIds[0].value,
+          questionBlockId: blockIds[0].value,
+          answerBlockId: blockIds[0].value,
+        });
+
+        if (!defaultFaceResult.ok) {
+          return defaultFaceResult as any;
+        }
+
+        faces.push(defaultFaceResult.value);
       }
-
-      faces.push(defaultFaceResult.value);
     }
 
     // 转换 Priority

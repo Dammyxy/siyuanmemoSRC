@@ -168,9 +168,20 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                     return blockId;
                 })(),
                 answerBlockID: (() => {
-                    // 🆕 只有列表模板才设置 answerBlockID
-                    if (isXiuyuanCard(card) && card.meta.templateID === 'builtin-list-item' && card.meta.backBlockIDs.length > 0) {
-                        return card.meta.backBlockIDs[0];
+                    // Xiuyuan 卡片：根据模板类型设置 answerBlockID
+                    if (isXiuyuanCard(card)) {
+                        const templateID = card.meta.templateID;
+                        const backBlockIDs = card.meta.backBlockIDs || [];
+                        
+                        // 列表模板、基础问答、双向卡片：使用 backBlockIDs 的第一个块
+                        if (backBlockIDs.length > 0 && (
+                            templateID === 'builtin-list-item' ||
+                            templateID === 'builtin-basic-qa' ||
+                            templateID === 'builtin-bidirectional'
+                        )) {
+                            console.log(`[UnifiedReviewAdapter] Setting answerBlockID for template ${templateID}:`, backBlockIDs[0]);
+                            return backBlockIDs[0];
+                        }
                     }
                     // 其他模板不设置 answerBlockID
                     return '';

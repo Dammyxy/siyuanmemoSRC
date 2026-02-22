@@ -4,14 +4,13 @@
 
 import type { ICardTemplate } from '../types';
 import { BUILTIN_CONCEPT_TEMPLATE } from './builtin-concept';
-import { BUILTIN_SYMBOL_TEMPLATE } from './builtin-symbol';
 import { BUILTIN_QUICK_TEMPLATE } from './builtin-quick';
 
 /** 基础问答模板 */
 export const BASIC_QA_TEMPLATE: ICardTemplate = {
   id: 'builtin-basic-qa',
   name: '基础问答',
-  description: '简单的问答卡片，第一个块为问题，第二个块为答案',
+  description: '需要选中两个块进行制卡，生成一张卡片，第一个块为问题，第二个块为答案',
   category: 'basic',
   fields: [
     { name: 'question', description: '问题' },
@@ -30,7 +29,7 @@ export const BASIC_QA_TEMPLATE: ICardTemplate = {
 export const BIDIRECTIONAL_TEMPLATE: ICardTemplate = {
   id: 'builtin-bidirectional',
   name: '双向卡片',
-  description: '生成正向和反向两张卡片（需要两个块）',
+  description: '需要选中两个块进行制卡，生成两张卡片，它们互为问题和答案',
   category: 'basic',
   fields: [
     { name: 'term', description: '术语' },
@@ -50,49 +49,7 @@ export const BIDIRECTIONAL_TEMPLATE: ICardTemplate = {
   ],
 };
 
-/**
- * 快速制卡双向模板（单块）
- * 
- * @description
- * 用于快速制卡符号 `<>` 的双向卡片。
- * 与 builtin-bidirectional 不同，这个模板只需要一个块，
- * 块内容通过 `<>` 符号分割为两部分。
- * 
- * @example
- * ```markdown
- * DDD <> 领域驱动设计
- * ```
- * 
- * 生成2张卡片：
- * - 卡片1（正向）：正面显示 "DDD"，反面显示 "领域驱动设计"
- * - 卡片2（反向）：正面显示 "领域驱动设计"，反面显示 "DDD"
- * 
- * 注意：
- * - content 字段映射到同一个块
- * - 渲染时需要解析块内容中的 `<>` 符号
- * - typeMarker 用于区分正向和反向
- */
-export const QUICK_BIDIRECTIONAL_TEMPLATE: ICardTemplate = {
-  id: 'builtin-quick-bidirectional',
-  name: '快速制卡双向',
-  description: '单块生成正向和反向两张卡片（用于 <> 符号）',
-  category: 'quick',
-  fields: [
-    { name: 'content', description: '包含 <> 符号的块内容' },
-  ],
-  cardRules: [
-    {
-      typeMarker: 'forward',
-      frontFields: ['content'],
-      backFields: ['content'],
-    },
-    {
-      typeMarker: 'reverse',
-      frontFields: ['content'],
-      backFields: ['content'],
-    },
-  ],
-};
+// 已合并到 BUILTIN_QUICK_TEMPLATE，不再需要单独的双向模板
 
 /** 填空模板 */
 export const CLOZE_TEMPLATE: ICardTemplate = {
@@ -218,7 +175,13 @@ export const MULTI_CLOZE_TEMPLATE: ICardTemplate = {
   fields: [
     { name: 'content', description: '包含多个填空的内容' },
   ],
-  cardRules: [], // 动态生成，根据填空数量
+  cardRules: [
+    {
+      typeMarker: 'multi-cloze',
+      frontFields: ['content'],
+      backFields: ['content'],
+    },
+  ], // 注意：实际使用时会根据填空数量动态生成多个 cardRules
 };
 
 /**
@@ -272,7 +235,6 @@ export const CONCEPT_DEFINITION_TEMPLATE: ICardTemplate = {
 export const BUILTIN_TEMPLATES: ICardTemplate[] = [
   BASIC_QA_TEMPLATE,
   BIDIRECTIONAL_TEMPLATE,
-  QUICK_BIDIRECTIONAL_TEMPLATE,
   CLOZE_TEMPLATE,
   MULTI_CLOZE_TEMPLATE,
   LIST_ITEM_TEMPLATE,
@@ -280,6 +242,5 @@ export const BUILTIN_TEMPLATES: ICardTemplate[] = [
   CONCEPT_DEFINITION_TEMPLATE,
   // 🆕 新增的统一架构模板
   BUILTIN_CONCEPT_TEMPLATE,  // 概念卡（简单）
-  BUILTIN_SYMBOL_TEMPLATE,   // 符号问答卡
-  BUILTIN_QUICK_TEMPLATE,    // 快速卡片
+  BUILTIN_QUICK_TEMPLATE,    // 快速卡片（统一单向和双向）
 ];
