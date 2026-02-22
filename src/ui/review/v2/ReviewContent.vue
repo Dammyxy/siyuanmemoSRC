@@ -139,7 +139,9 @@ const transitionName = computed(() => {
 
 // 计算内容 key，用于触发过渡动画
 const contentKey = computed(() => {
-  return `${props.content.type}-${props.content.id}-${props.content.data}`;
+  // 对于有 card 的情况，使用 card.id 确保唯一性（特别是多挖空卡片）
+  const cardId = props.content.card?.id || '';
+  return `${props.content.type}-${props.content.id}-${props.content.data}-${cardId}`;
 });
 
 const hostRef = ref<HTMLDivElement | null>(null);

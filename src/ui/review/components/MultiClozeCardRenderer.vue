@@ -27,7 +27,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { MultiClozeCardRenderService } from '@/core/card/multi-cloze/application/MultiClozeCardRenderService';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
@@ -45,9 +45,10 @@ const viewModel = ref<MultiClozeCardViewModel | null>(null);
 
 const renderService = new MultiClozeCardRenderService();
 
-onMounted(async () => {
+async function loadViewModel() {
   try {
     loading.value = true;
+    error.value = null;
     viewModel.value = await renderService.prepareViewModel(props.card);
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
@@ -55,7 +56,20 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
+}
+
+onMounted(() => {
+  loadViewModel();
 });
+
+// 监听 card 变化，重新加载 viewModel
+watch(
+  () => props.card,
+  () => {
+    loadViewModel();
+  },
+  { deep: true }
+);
 </script>
 
 <style scoped>
@@ -99,11 +113,11 @@ onMounted(async () => {
   flex-direction: column;
 }
 
-/* 正面预览 - 缩小灰显在顶部 */
+/* 正面预览 - 保持原始大小，仅灰显在顶部 */
 .multi-cloze-card-renderer__front-preview {
   opacity: 0.4;
-  font-size: 16px;
-  line-height: 1.5;
+  font-size: 24px;
+  line-height: 1.6;
   margin-bottom: 20px;
   text-align: left;
 }
@@ -144,14 +158,22 @@ onMounted(async () => {
   width: 100%;
 }
 
-/* 挖空占位符样式 */
-.multi-cloze-card-renderer__question :deep(mark),
+/* 挖空占位符样式 - 只在问题中显示淡绿色 */
+.multi-cloze-card-renderer__question :deep(mark) {
+  background-color: #C8E6C9; /* 柔和的淡绿色 (Material Green 100) */
+  color: #00695C; /* 深青色文字 (Material Teal 800) */
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+/* 答案中的 mark 标签不显示样式（如果有的话） */
 .multi-cloze-card-renderer__answer :deep(mark) {
-  background-color: var(--b3-theme-primary-lightest, #e3f2fd);
-  color: var(--b3-theme-on-surface);
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-weight: 600;
+  background-color: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  font-weight: inherit;
 }
 
 /* 响应式设计 */
@@ -167,7 +189,7 @@ onMounted(async () => {
   }
   
   .multi-cloze-card-renderer__front-preview {
-    font-size: 14px;
+    font-size: 20px;
   }
 }
 </style>

@@ -387,7 +387,7 @@ onMounted(async () => {
 
 .descriptor-card-renderer__front-preview {
   opacity: 0.4;
-  font-size: 16px;
+  font-size: 24px;
   margin-bottom: 24px;
 }
 
@@ -397,7 +397,7 @@ onMounted(async () => {
 .descriptor-card-renderer__front-preview .descriptor-card-front__attribute,
 .descriptor-card-renderer__front-preview :deep(.descriptor-card-front__divider),
 .descriptor-card-renderer__front-preview .descriptor-card-front__divider {
-  font-size: 16px !important;
+  font-size: 24px !important;
   margin-bottom: 2px !important;
 }
 
@@ -762,7 +762,7 @@ onMounted(async () => {
 .descriptor-card-renderer__front-preview .descriptor-card-front__concept,
 .descriptor-card-renderer__front-preview .descriptor-card-front__attribute,
 .descriptor-card-renderer__front-preview .descriptor-card-front__divider {
-  font-size: 16px !important;
+  font-size: 24px !important;
   margin-bottom: 2px;
 }
 

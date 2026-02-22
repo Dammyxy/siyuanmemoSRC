@@ -1447,7 +1447,7 @@ export class AutoCardHandler implements ITransactionHandler {
         content: string,
         clozes: Array<{ text: string; type: 'brace' | 'equal' }>
     ): Promise<void> {
-        const xiuyuanAppService = this.getXiuyuanApplicationService();
+        const xiuyuanAppService = await this.getXiuyuanApplicationService();
         if (!xiuyuanAppService) {
             console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available, creating single card');
             await this.createSingleClozeCard(blockId, content, clozes);

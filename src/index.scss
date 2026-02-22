@@ -56,3 +56,18 @@
     }
   }
 }
+
+// ==================== 卡片挖空样式 ====================
+// 只在插件复习界面内生效，不影响思源原生复习
+// 使用更细腻的样式
+.fsrs-review-v2-content mark,
+.multi-cloze-card-renderer mark,
+.quick-card-renderer mark,
+.descriptor-card-renderer mark,
+.concept-definition-card-renderer mark {
+  background-color: #C8E6C9 !important; /* 柔和的淡绿色 (Material Green 100) */
+  color: #00695C !important; /* 深青色文字 (Material Teal 800) */
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+}

@@ -96,7 +96,7 @@ export class ClozeCardGenerator {
   ): { question: string; answer: string } {
     const currentCloze = clozes[currentIndex];
 
-    // 答案：当前填空的内容
+    // 答案：当前填空的内容（纯文本，不添加样式）
     const answer = currentCloze.text;
 
     // 🔍 调试日志
@@ -112,12 +112,12 @@ export class ClozeCardGenerator {
 
     for (const cloze of sortedClozes) {
       if (cloze.originalIndex === currentIndex) {
-        // 当前填空：替换为 [...]
+        // 当前填空：替换为 <mark>[...]</mark>
         question =
           question.substring(0, cloze.start) +
-          '[...]' +
+          '<mark>[...]</mark>' +
           question.substring(cloze.end);
-        console.log(`[ClozeCardGenerator] Replaced cloze ${cloze.originalIndex} (${cloze.text}) with [...]`);
+        console.log(`[ClozeCardGenerator] Replaced cloze ${cloze.originalIndex} (${cloze.text}) with <mark>[...]</mark>`);
       } else {
         // 其他填空：显示原文（去掉标记）
         question =

@@ -169,8 +169,8 @@ const xiuyuanIdStr = `xy_riff_${riffCard.id}`;
 
 **新代码**：
 ```typescript
-// 统一格式，去掉 riff_ 前缀
-const xiuyuanIdStr = `xy_${riffCard.id}`;
+// 直接使用块 ID
+const xiuyuanIdStr = riffCard.id;
 ```
 
 ### 修改 4：XiuyuanSyncService.fullSync
@@ -184,8 +184,8 @@ const xiuyuanIdStr = `xy_riff_${riffCard.id}`;
 
 **新代码**：
 ```typescript
-// 统一格式
-const xiuyuanIdStr = `xy_${riffCard.id}`;
+// 直接使用块 ID
+const xiuyuanIdStr = riffCard.id;
 ```
 
 ### 修改 5：XiuyuanSyncService.syncDeletedCards
@@ -199,8 +199,8 @@ const xiuyuanIdStr = `xy_riff_${riffCard.id}`;
 
 **新代码**：
 ```typescript
-// 统一格式
-const xiuyuanIdStr = `xy_${riffCard.id}`;
+// 直接使用块 ID
+const xiuyuanIdStr = riffCard.id;
 ```
 
 ### 修改 6：XiuyuanSyncService.convertRiffCardToFSRSCard
@@ -214,8 +214,8 @@ const xiuyuanIdStr = `xy_riff_${riffCard.id}`;
 
 **新代码**：
 ```typescript
-// 统一格式
-const xiuyuanIdStr = `xy_${riffCard.id}`;
+// 直接使用块 ID
+const xiuyuanIdStr = riffCard.id;
 ```
 
 ### 修改 7：ApplicationContext 迁移逻辑（可选）

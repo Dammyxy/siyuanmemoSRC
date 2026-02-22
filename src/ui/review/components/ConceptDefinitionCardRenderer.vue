@@ -214,7 +214,7 @@ onMounted(async () => {
 
 .concept-definition-card-renderer__front-preview {
   opacity: 0.4;
-  font-size: 16px;
+  font-size: 28px;
   margin-bottom: 24px;
   text-align: center;
 }
