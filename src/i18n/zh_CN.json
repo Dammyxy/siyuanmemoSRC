@@ -599,7 +599,7 @@
     "enableDebugLogsHint": "在浏览器控制台显示详细的调试信息（开发用，关闭可提升性能）",
     "makeConceptAndAddToQueue": "📍 制作为概念卡并加入队列",
     "makeConceptAndStartRoam": "🚀 制作为概念卡并立即漫游",
-    "createListTemplateCard": "创建有序列表模版卡",
+    "createListTemplateCard": "创建有序列表卡",
     "dueMode": "到期",
     "allMode": "全部",
     "temporaryDrill": "临时练习",

@@ -540,19 +540,19 @@ export class BlockMenuHandler {
     //   },
     // });
 
-    // 创建模板卡片
+    // 快速制卡
     submenu.push({
       icon: 'iconAdd',
-      label: this.deps.i18n?.createTemplateCard || '创建模板卡片',
+      label: this.deps.i18n?.createTemplateCard || '快速制卡',
       click: async () => {
         await this.deps.openCreateTemplateCardDialog(blockIds);
       },
     });
 
-    // 创建有序列表模版卡（始终显示）
+    // 创建有序列表卡（始终显示）
     submenu.push({
       icon: 'iconList',
-      label: this.deps.i18n?.createListTemplateCard || '创建有序列表模版卡',
+      label: this.deps.i18n?.createListTemplateCard || '创建有序列表卡',
       click: async () => {
         // 检查子级是否为有序列表项
         const hasOrderedChildren = await this.hasOrderedListChildren(blockIds[0]);

@@ -515,8 +515,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         templateID: xiuyuan.getTemplateID().getValue(),
         faceIndex: faceIndex,
         // ✅ 使用 CardFace 中的 blockId 信息
-        frontBlockIDs: [xiuyuan.getFaces()[faceIndex].questionBlockId].filter(Boolean),
-        backBlockIDs: [xiuyuan.getFaces()[faceIndex].answerBlockId].filter(Boolean),
+        frontBlockIDs: [face.questionBlockId].filter(Boolean),
+        backBlockIDs: [face.answerBlockId].filter(Boolean),
         // 🆕 添加 faces 信息，用于多挖空卡渲染
         faces: xiuyuan.getFaces().map(face => ({
           question: face.question,
@@ -535,7 +535,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       updatedAt: card.getUpdatedAt().getTime(),
     };
   }
-
+  
   /**
    * 将领域模型转换为持久化模型（不包含 ID 和时间戳）
    * 

@@ -20,13 +20,13 @@ const categoryNames: Record<TemplateCategory, string> = {
   cloze: '填空类',
   list: '列表类',
   concept: '概念类',
-  quick: '快速制卡类',
+  quick: '符号卡片类',
 };
 
 // 按分类分组模版
 const groupedTemplates = computed(() => {
   const groups: Record<TemplateCategory, ICardTemplate[]> = {
-    quick: [],  // 快速制卡类放在最前面
+    quick: [],  // 符号卡片类放在最前面
     basic: [],
     cloze: [],
     list: [],
@@ -38,7 +38,7 @@ const groupedTemplates = computed(() => {
     groups[category].push(template);
   });
 
-  // 定义分类顺序：快速制卡类 → 基础类 → 其他
+  // 定义分类顺序：符号卡片类 → 基础类 → 其他
   const categoryOrder: TemplateCategory[] = ['quick', 'basic', 'cloze', 'list', 'concept'];
   
   // 按指定顺序返回非空的分类
@@ -65,6 +65,31 @@ function handleConfirm() {
 function handleCancel() {
   emit('cancel');
 }
+
+// 根据模版获取卡片类型标签
+function getCardTypeLabel(template: ICardTemplate): string {
+  // 根据模版ID或cardRules的typeMarker来判断
+  const firstRule = template.cardRules[0];
+  if (!firstRule) return 'basic';
+  
+  const typeMarker = firstRule.typeMarker;
+  
+  // 映射typeMarker到用户友好的标签
+  const typeMap: Record<string, string> = {
+    'qa': 'item',
+    'Q': 'item',
+    'forward': 'item',
+    'reverse': 'item',
+    'list-qa': 'item',
+    'multi-cloze': 'item',  // 填空类生成的卡片类型是 item
+    'concept-descriptor': 'concept-descriptor',
+    'concept-definition-forward': 'descriptor',  // 概念定义卡生成的类型是 descriptor
+    'concept-definition-reverse': 'descriptor',
+  };
+  
+  return typeMap[typeMarker] || typeMarker;
+}
+
 </script>
 
 <template>
@@ -86,11 +111,9 @@ function handleCancel() {
             @click="selectedId = template.id"
           >
             <div class="template-name">{{ template.name }}</div>
-            <div class="template-desc">{{ template.description }}</div>
-            <div class="template-fields">
-              <span v-for="field in template.fields" :key="field.name" class="field-tag">
-                {{ field.name }}
-              </span>
+            <div class="template-desc" v-html="template.description"></div>
+            <div class="template-card-type">
+              生成卡片类型：{{ getCardTypeLabel(template) }}
             </div>
           </div>
         </div>
@@ -224,6 +247,16 @@ function handleCancel() {
   color: var(--b3-theme-on-surface-light);
   margin-bottom: 8px;
   line-height: 1.4;
+}
+
+.template-card-type {
+  font-size: 11px;
+  color: var(--b3-theme-primary);
+  font-weight: 500;
+  padding: 4px 8px;
+  background: var(--b3-theme-primary-lightest);
+  border-radius: 3px;
+  display: inline-block;
 }
 
 .template-fields {

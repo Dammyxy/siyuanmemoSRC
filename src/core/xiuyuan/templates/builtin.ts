@@ -12,7 +12,7 @@ import { BUILTIN_QUICK_TEMPLATE, BUILTIN_BIDIRECTIONAL_SINGLE_TEMPLATE } from '.
 export const BASIC_QA_TEMPLATE: ICardTemplate = {
   id: 'builtin-basic-qa',
   name: '基础问答',
-  description: '需要选中两个块进行制卡，生成一张卡片，第一个块为问题，第二个块为答案',
+  description: '需要选中两个块进行制卡，生成一张卡片，第一个块为问题，第二个块为答案。',
   category: 'basic',
   fields: [
     { name: 'question', description: '问题' },
@@ -51,11 +51,22 @@ export const BIDIRECTIONAL_TEMPLATE: ICardTemplate = {
   ],
 };
 
-/** 有序列表模版 */
+/** 有序列表卡 */
 export const LIST_ITEM_TEMPLATE: ICardTemplate = {
   id: 'builtin-list-item',
-  name: '有序列表模版',
-  description: '自动检测列表项块，如果子级为有序列表项，则为每个子级创建一张卡片。支持提示功能：子列表项使用 → 分隔提示和答案',
+  name: '有序列表卡',
+  description: `根据有序列表子级，生成多张对应的卡片。需要右键列表项块使用，子级得是有序列表。支持为每张子级卡片写单独的提示，用【→】分割提示和答案。
+<div style="margin-top: 8px; padding: 8px; background: var(--b3-theme-surface); border-radius: 4px;">
+  <div style="font-weight: 500; margin-bottom: 4px;">【示例】：</div>
+  <ul style="margin: 0; padding-left: 20px; line-height: 1.6;">
+    <li>[[思源笔记]]
+      <ol style="padding-left: 20px;">
+        <li>会泽→百家</li>
+        <li>至公→天下</li>
+      </ol>
+    </li>
+  </ul>
+</div>`,
   category: 'list',
   fields: [
     { name: 'question', description: '问题（父列表项）' },
@@ -70,11 +81,25 @@ export const LIST_ITEM_TEMPLATE: ICardTemplate = {
   ],
 };
 
-/** 概念-描述符模版 */
+/** 概念描述符卡 */
 export const CONCEPT_DESCRIPTOR_TEMPLATE: ICardTemplate = {
   id: 'builtin-concept-descriptor',
-  name: '概念-描述符',
-  description: '用于概念及其属性的卡片。需要在列表项中明确引用概念文档：- ((概念文档))',
+  name: '概念描述符卡',
+  description: `用于记忆概念及其属性的卡片，需要在列表块里块引用文档块，使用传递型双链。
+<div style="margin-top: 8px; padding: 8px; background: var(--b3-theme-surface); border-radius: 4px;">
+  <div style="font-weight: 500; margin-bottom: 4px;">【示例】：</div>
+  <ul style="margin: 0; padding-left: 20px; line-height: 1.6;">
+    <li>[[中子星]]
+      <ul style="padding-left: 20px;">
+        <li>定义;;介于白矮星和黑洞之间的极端致密天体</li>
+        <li>前身;; 8-30倍 太阳质量的恒星残留核心</li>
+        <li>直观密度 ;; 一茶匙重达 10 亿吨</li>
+        <li>特殊变种 ;; 脉冲星</li>
+        <li>临界点 ;; 奥本海默极限，超过则坍缩为黑洞</li>
+      </ul>
+    </li>
+  </ul>
+</div>`,
   category: 'concept',
   fields: [
     { name: 'concept', description: '概念块' },
@@ -89,11 +114,11 @@ export const CONCEPT_DESCRIPTOR_TEMPLATE: ICardTemplate = {
   ],
 };
 
-/** 概念-描述符（自动）模版 */
+/** 描述符卡 */
 export const CONCEPT_DESCRIPTOR_AUTO_TEMPLATE: ICardTemplate = {
   id: 'builtin-concept-descriptor-auto',
-  name: '概念-描述符（自动）',
-  description: '自动向上探路查找概念块（标题块或文档块），为包含 ;; 的块创建描述符卡',
+  name: '描述符卡',
+  description: '选中包含【;;】的块后使用此模版，会将其制作为描述符卡，并自动向上探路查找概念块（标题块、文档块或者是引用的文档块）',
   category: 'concept',
   fields: [
     { name: 'concept', description: '概念块（自动查找）' },
@@ -112,7 +137,7 @@ export const CONCEPT_DESCRIPTOR_AUTO_TEMPLATE: ICardTemplate = {
 export const MULTI_CLOZE_TEMPLATE: ICardTemplate = {
   id: 'builtin-multi-cloze',
   name: '多填空卡片',
-  description: '每个标记生成一张独立的卡片',
+  description: '每个标记生成一张独立的卡片。<br/>【示例】：会泽==百家==，至公==天下==',
   category: 'cloze',
   fields: [
     { name: 'content', description: '包含多个填空的内容' },
@@ -126,11 +151,11 @@ export const MULTI_CLOZE_TEMPLATE: ICardTemplate = {
   ],
 };
 
-/** 概念定义模板（CDF 风格）*/
+/** 概念定义卡（CDF 风格）*/
 export const CONCEPT_DEFINITION_TEMPLATE: ICardTemplate = {
   id: 'builtin-concept-definition',
-  name: '概念定义',
-  description: 'CDF 概念定义卡：[[概念]]::定义。生成双向卡片，概念必须是文档块引用',
+  name: '概念定义卡',
+  description: '为概念和定义生成双向卡片，需要块引用文档块，并用【::】隔开定义内容。<br/>【示例】：[[中子星]]::介于白矮星和黑洞之间的极端致密天体',
   category: 'concept',
   fields: [
     { name: 'concept', description: '概念块（块引用指向的文档块）' },

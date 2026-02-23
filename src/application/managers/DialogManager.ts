@@ -1166,7 +1166,7 @@ export class DialogManager implements IDialogManager {
   }
 
   /**
-   * 打开创建模板卡片对话框（Xiuyuan）- 带块 ID 列表
+   * 打开快速制卡对话框（Xiuyuan）- 带块 ID 列表
    * 
    * @param blockIds - 块 ID 列表
    */
@@ -1201,7 +1201,7 @@ export class DialogManager implements IDialogManager {
 
       // 显示模板选择对话框
       this.templateSelectDialog = createVueDialog({
-        title: '选择卡片模板',
+        title: '选择卡片类型',
         component: TemplateSelectDialog,
         props: {
           templates,
@@ -1292,7 +1292,8 @@ export class DialogManager implements IDialogManager {
                 templateId,
                 fieldMapping,
                 deckId: riff.BUILTIN_DECK_ID,
-                backClozeInfo  // 🆕 添加背面挖空信息
+                backClozeInfo,  // 🆕 添加背面挖空信息
+                cardType: templateId === 'builtin-concept-definition' ? 'descriptor' : undefined  // 🆕 概念定义卡的类型是 descriptor
               });
 
               if (!result.ok) {
@@ -1309,6 +1310,14 @@ export class DialogManager implements IDialogManager {
               // 🆕 CDF 概念定义卡：自动为概念文档块创建概念卡
               if (templateId === 'builtin-concept-definition') {
                 await this.ensureConceptDocumentCard(fieldMapping, xiuyuanAppService);
+                
+                // 🆕 设置定义块的卡片类型为 descriptor
+                const { setBlockAttrs } = await import('@/core/siyuan/api');
+                const definitionBlockId = blockIds[0];  // 定义块是第一个块
+                await setBlockAttrs(definitionBlockId, {
+                  'custom-fsrs-card-type': 'descriptor'
+                });
+                console.log('[DialogManager] Set definition block card type to descriptor:', definitionBlockId);
               }
 
               pushMsg(

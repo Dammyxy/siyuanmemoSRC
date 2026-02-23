@@ -1076,7 +1076,8 @@ export class AutoCardHandler implements ITransactionHandler {
                             concept: refId,
                             definition: blockId
                         },
-                        deckId: BUILTIN_DECK_ID
+                        deckId: BUILTIN_DECK_ID,
+                        cardType: 'descriptor'  // 🆕 概念定义卡的类型是 descriptor
                     });
                     
                     if (!result.ok) {
@@ -1087,10 +1088,10 @@ export class AutoCardHandler implements ITransactionHandler {
                     }
                 }
                 
-                // 标记为概念卡类型
+                // 标记定义块为 descriptor 卡类型
                 const { setBlockAttrs } = await import('@/core/siyuan/api');
                 await setBlockAttrs(blockId, {
-                    'custom-fsrs-card-type': 'concept'
+                    'custom-fsrs-card-type': 'descriptor'
                 });
                 
                 console.log('[SiYuanMemo][AutoCard] Concept definition card created successfully:', blockId);
