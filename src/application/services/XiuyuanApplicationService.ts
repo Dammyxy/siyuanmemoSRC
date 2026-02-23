@@ -27,6 +27,7 @@ import { CreateXiuyuanFromBlocksCommand } from '../commands/xiuyuan/CreateXiuyua
 import { CreateListTemplateCardsCommand } from '../commands/xiuyuan/CreateListTemplateCardsCommand';
 import { CreateConceptDescriptorCardsCommand, ConceptDescriptorCardsResult } from '../usecases/xiuyuan/CreateConceptDescriptorCardsUseCase';
 import { CreateConceptDescriptorAutoCommand, ConceptDescriptorAutoResult } from '../usecases/xiuyuan/CreateConceptDescriptorAutoUseCase';
+import { RebindDescriptorConceptCommand, RebindDescriptorConceptResult } from '../usecases/xiuyuan/RebindDescriptorConceptUseCase';
 import { GetXiuyuanQuery, GetXiuyuanQueryResult } from '../queries/xiuyuan/GetXiuyuanQuery';
 import { GetAllXiuyuansQuery, GetAllXiuyuansQueryResult } from '../queries/xiuyuan/GetAllXiuyuansQuery';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
@@ -43,6 +44,7 @@ import {
   GetTemplateQueryHandler,
   GetAllTemplatesQueryHandler
 } from '../usecases/xiuyuan';
+import { RebindDescriptorConceptUseCase } from '../usecases/xiuyuan/RebindDescriptorConceptUseCase';
 
 /**
  * Xiuyuan 应用服务
@@ -58,6 +60,7 @@ export class XiuyuanApplicationService {
   private readonly createListTemplateCardsUseCase: CreateListTemplateCardsUseCase;
   private readonly createConceptDescriptorCardsUseCase: CreateConceptDescriptorCardsUseCase;
   private readonly createConceptDescriptorAutoUseCase: CreateConceptDescriptorAutoUseCase;
+  private readonly rebindDescriptorConceptUseCase: RebindDescriptorConceptUseCase;
   private readonly createTemplateUseCase: CreateTemplateUseCase;
   private readonly getTemplateQueryHandler: GetTemplateQueryHandler;
   private readonly getAllTemplatesQueryHandler: GetAllTemplatesQueryHandler;
@@ -89,6 +92,10 @@ export class XiuyuanApplicationService {
       templateRegistry
     );
     this.createConceptDescriptorAutoUseCase = new CreateConceptDescriptorAutoUseCase(
+      xiuyuanRepository,
+      templateRegistry
+    );
+    this.rebindDescriptorConceptUseCase = new RebindDescriptorConceptUseCase(
       xiuyuanRepository,
       templateRegistry
     );
@@ -367,5 +374,43 @@ export class XiuyuanApplicationService {
    */
   async createConceptDescriptorAuto(command: CreateConceptDescriptorAutoCommand): Promise<Result<ConceptDescriptorAutoResult>> {
     return this.createConceptDescriptorAutoUseCase.execute(command);
+  }
+
+  /**
+   * 重新绑定描述符卡片的概念
+   * 
+   * @param command - 重新绑定命令
+   * @returns Result<RebindDescriptorConceptResult> - 成功返回新概念信息,失败返回错误
+   * 
+   * @description
+   * 为描述符卡片重新绑定概念，使用向上探路逻辑自动查找新的概念块。
+   * 
+   * **业务规则**：
+   * 1. 从描述符块向上探路查找概念块（优先级：文档块引用 > 标题块 > 文档块）
+   * 2. 如果找到的概念块没有概念卡，则自动创建
+   * 3. 更新描述符卡片的概念引用
+   * 4. 保持描述符块的 xiuyuan-id 不变
+   * 
+   * **使用场景**：
+   * - 描述符块被移动到新的概念下
+   * - 需要手动调整描述符与概念的关系
+   * 
+   * @example
+   * ```typescript
+   * const result = await xiuyuanService.rebindDescriptorConcept({
+   *   descriptorBlockId: '20230101120000-desc'
+   * });
+   * 
+   * if (result.ok) {
+   *   console.log('Rebound to concept:', result.value.newConceptName);
+   *   console.log('Concept type:', result.value.conceptType);
+   *   console.log('Created new concept card:', result.value.createdConceptCard);
+   * } else {
+   *   console.error('Failed:', result.error);
+   * }
+   * ```
+   */
+  async rebindDescriptorConcept(command: RebindDescriptorConceptCommand): Promise<Result<RebindDescriptorConceptResult>> {
+    return this.rebindDescriptorConceptUseCase.execute(command);
   }
 }

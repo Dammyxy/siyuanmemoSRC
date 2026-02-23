@@ -568,6 +568,27 @@ export class BlockMenuHandler {
       type: 'separator',
     });
 
+    // 重新绑定概念（仅对描述符卡显示，点击时检查）
+    if (blockIds.length === 1) {
+      submenu.push({
+        icon: 'iconRefresh',
+        label: this.deps.i18n?.rebindDescriptorConcept || '🔄 重新绑定概念',
+        click: async () => {
+          // 点击时检查是否是描述符卡
+          const isDescriptor = await this.isDescriptorCard(blockIds[0]);
+          if (!isDescriptor) {
+            await pushErrMsg('只能对描述符卡使用此功能');
+            return;
+          }
+          await this.rebindDescriptorConcept(blockIds[0]);
+        },
+      });
+
+      submenu.push({
+        type: 'separator',
+      });
+    }
+
     // 取消闪卡（始终显示）
     submenu.push({
       icon: 'iconTrashcan',
@@ -1348,6 +1369,69 @@ export class BlockMenuHandler {
     } catch (error) {
       console.error('[BlockMenuHandler] Failed to check if concept card:', error);
       return false;
+    }
+  }
+
+  /**
+   * 检查块是否为描述符卡
+   * 
+   * @param blockId 块 ID
+   * @returns 是否为描述符卡
+   */
+  private async isDescriptorCard(blockId: string): Promise<boolean> {
+    try {
+      const stmt = `
+        SELECT value
+        FROM attributes
+        WHERE block_id = '${this.escapeSQL(blockId)}'
+          AND name = 'custom-fsrs-card-type'
+      `;
+      const rows = await sql(stmt);
+      return rows && rows.length > 0 && rows[0].value === 'descriptor';
+    } catch (error) {
+      console.error('[BlockMenuHandler] Failed to check if descriptor card:', error);
+      return false;
+    }
+  }
+
+  /**
+   * 重新绑定描述符卡片的概念
+   * 
+   * @param blockId 描述符块 ID
+   */
+  private async rebindDescriptorConcept(blockId: string): Promise<void> {
+    try {
+      console.log('[BlockMenuHandler] Rebinding descriptor concept for block:', blockId);
+      
+      // 获取 XiuyuanApplicationService
+      const xiuyuanAppService = await this.deps.applicationContext.getXiuyuanApplicationService();
+      if (!xiuyuanAppService) {
+        await pushErrMsg('❌ Xiuyuan 应用服务未初始化');
+        return;
+      }
+      
+      // 调用应用服务的 rebindDescriptorConcept 方法
+      const result = await xiuyuanAppService.rebindDescriptorConcept({
+        descriptorBlockId: blockId,
+      });
+      
+      if (result.ok) {
+        const { newConceptName, createdConceptCard } = result.value;
+        
+        if (createdConceptCard) {
+          await pushMsg(`✅ 已重新绑定到概念：${newConceptName}（已自动创建概念卡）`);
+        } else {
+          await pushMsg(`✅ 已重新绑定到概念：${newConceptName}`);
+        }
+        
+        console.log('[BlockMenuHandler] Rebind descriptor concept success:', result.value);
+      } else {
+        await pushErrMsg(`❌ 重新绑定失败：${result.error.message}`);
+        console.error('[BlockMenuHandler] Rebind descriptor concept failed:', result.error);
+      }
+    } catch (error) {
+      console.error('[BlockMenuHandler] Failed to rebind descriptor concept:', error);
+      await pushErrMsg(`❌ 重新绑定失败：${(error as Error).message}`);
     }
   }
 

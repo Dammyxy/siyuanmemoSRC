@@ -54,17 +54,6 @@
           </div>
         </div>
       </div>
-
-      <!-- 操作按钮 -->
-      <div class="descriptor-card-renderer__actions">
-        <button
-          class="descriptor-card-renderer__btn descriptor-card-renderer__btn--secondary"
-          @click="rebindConcept"
-          :disabled="rebinding"
-        >
-          🔄 {{ rebinding ? '重新绑定中...' : '重新绑定概念' }}
-        </button>
-      </div>
     </div>
 
     <!-- 完整概念模态框 -->
@@ -122,7 +111,6 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<DescriptorCardViewModel | null>(null);
 const showConceptModal = ref(false);
-const rebinding = ref(false);
 
 // 方法
 function t(key: string, fallback: string): string {
@@ -175,45 +163,6 @@ function jumpToConcept() {
     app,
     doc: { id: viewModel.value.parentConcept.blockId },
   });
-}
-
-async function rebindConcept() {
-  if (rebinding.value) return;
-  
-  try {
-    rebinding.value = true;
-    
-    // 动态导入重新绑定用例
-    const { RebindDescriptorConceptUseCase } = await import('@/application/usecases/xiuyuan/RebindDescriptorConceptUseCase');
-    const { ApplicationContext } = await import('@/application/ApplicationContext');
-    
-    const appContext = ApplicationContext.getInstance();
-    const xiuyuanRepo = appContext.getXiuyuanRepository();
-    const templateRegistry = appContext.getTemplateRegistry();
-    
-    const useCase = new RebindDescriptorConceptUseCase(xiuyuanRepo, templateRegistry);
-    
-    const result = await useCase.execute({
-      descriptorBlockId: props.blockId,
-    });
-    
-    if (result.ok) {
-      const { pushMsg } = await import('@/core/siyuan/api');
-      await pushMsg(`✅ 已重新绑定到概念：${result.value.newConceptName}`);
-      
-      // 重新加载视图模型
-      await loadViewModel();
-    } else {
-      const { pushErrMsg } = await import('@/core/siyuan/api');
-      await pushErrMsg(`❌ 重新绑定失败：${result.error.message}`);
-    }
-  } catch (err) {
-    console.error('[DescriptorCardRenderer] Failed to rebind concept:', err);
-    const { pushErrMsg } = await import('@/core/siyuan/api');
-    await pushErrMsg(`❌ 重新绑定失败：${(err as Error).message}`);
-  } finally {
-    rebinding.value = false;
-  }
 }
 
 // 生命周期
@@ -1030,4 +979,39 @@ onMounted(async () => {
   background: var(--b3-theme-surface);
   border-radius: 8px;
   border-left: 3px solid var(--b3-theme-success);
+}
+
+/* 操作按钮 */
+.descriptor-card-renderer__actions {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  border-top: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-surface);
+}
+
+.descriptor-card-renderer__btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+  outline: none;
+}
+
+.descriptor-card-renderer__btn--secondary {
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface);
+  border: 1px solid var(--b3-border-color);
+}
+
+.descriptor-card-renderer__btn--secondary:hover:not(:disabled) {
+  background: var(--b3-theme-surface-light);
+}
+
+.descriptor-card-renderer__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
