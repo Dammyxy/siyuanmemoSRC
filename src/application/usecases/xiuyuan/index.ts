@@ -10,6 +10,8 @@ export { DeleteXiuyuanUseCase } from './DeleteXiuyuanUseCase';
 export { GetXiuyuanQueryHandler } from './GetXiuyuanQueryHandler';
 export { GetAllXiuyuansQueryHandler } from './GetAllXiuyuansQueryHandler';
 export { CreateListTemplateCardsUseCase } from './CreateListTemplateCardsUseCase';
+export { CreateConceptDescriptorCardsUseCase } from './CreateConceptDescriptorCardsUseCase';
+export { CreateConceptDescriptorAutoUseCase } from './CreateConceptDescriptorAutoUseCase';
 export { CreateTemplateUseCase } from './CreateTemplateUseCase';
 export { GetTemplateQueryHandler } from './GetTemplateQueryHandler';
 export { GetAllTemplatesQueryHandler } from './GetAllTemplatesQueryHandler';

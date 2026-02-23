@@ -2,6 +2,8 @@
  * Template Module Exports
  * 
  * @module templates
+ * 
+ * ⚠️ 注意：BUILTIN_CONCEPT_TEMPLATE 仅用于代码内部，不在 BUILTIN_TEMPLATES 列表中
  */
 
 export { TemplateRegistry } from './TemplateRegistry';

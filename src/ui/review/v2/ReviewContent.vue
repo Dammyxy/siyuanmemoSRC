@@ -116,6 +116,10 @@ import { QuickCardRenderService } from '@/core/card/quick-card/application/Quick
 import { SiyuanBlockAdapter as DescriptorBlockAdapter } from '@/core/card/descriptor-card/infrastructure/SiyuanBlockAdapter';
 import { DescriptorCardRepository } from '@/core/card/descriptor-card/infrastructure/DescriptorCardRepository';
 import { DescriptorCardRenderService } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
+import { 
+  isConceptDefinitionCard as checkIsConceptDefinitionCard, 
+  isConceptCard as checkIsConceptCard 
+} from '@/core/xiuyuan/cardMeta';
 // 🆕 性能优化：导入 Composables
 import { useCssClassOptimizer } from './composables/useCssClassOptimizer';
 import { useCardTypeCache } from './composables/useCardTypeCache';
@@ -210,16 +214,40 @@ const shouldUseMultiClozeRenderer = computed(() => {
 
 // 判断是否应该使用概念定义卡渲染器
 const shouldUseConceptDefinitionRenderer = computed(() => {
-  // 只有在 protyle 类型且检测到概念定义卡时才使用
-  // 概念定义卡优先级最高
-  return props.content.type === 'protyle' && isConceptDefinitionCard.value;
+  // 只有在 protyle 类型时才检测
+  if (props.content.type !== 'protyle') return false;
+  
+  // 使用领域层的辅助函数检测
+  const card = props.content.card;
+  const result = checkIsConceptDefinitionCard(card);
+  
+  console.log('[SiYuanMemo][ReviewContent] shouldUseConceptDefinitionRenderer:', {
+    contentType: props.content.type,
+    hasCard: !!card,
+    cardId: card?.id,
+    xiuyuanID: card?.xiuyuanID,
+    metaXiuyuanID: card?.meta?.xiuyuanID,
+    typeMarker: card?.meta?.typeMarker,
+    result
+  });
+  
+  return result;
 });
 
 // 判断是否应该使用概念卡渲染器
 const shouldUseConceptCardRenderer = computed(() => {
-  // 只有在 protyle 类型且检测到概念卡时才使用
-  // 概念卡优先级高于描述符卡
-  return props.content.type === 'protyle' && !isConceptDefinitionCard.value && isConceptCard.value;
+  // 只有在 protyle 类型时才检测
+  if (props.content.type !== 'protyle') return false;
+  
+  // 使用领域层的辅助函数检测
+  const result = checkIsConceptCard(props.content.card);
+  
+  console.log('[SiYuanMemo][ReviewContent] shouldUseConceptCardRenderer:', {
+    contentType: props.content.type,
+    result
+  });
+  
+  return result;
 });
 
 // 判断是否应该使用描述符卡渲染器
@@ -343,7 +371,7 @@ async function renderProtyle(blockId: string): Promise<void> {
     // ⚠️ 验证缓存：如果缓存说是概念定义卡，但卡片没有 xiuyuanID，则忽略缓存
     if (cachedType.isConcept) {
       const card = props.content.card;
-      const xiuyuanID = card?.meta?.xiuyuanID;
+      const xiuyuanID = card?.xiuyuanID;
       if (!xiuyuanID) {
         console.warn('[SiYuanMemo][ReviewContent] Cached as concept card but no xiuyuanID, ignoring cache');
         // 不使用缓存，继续检测

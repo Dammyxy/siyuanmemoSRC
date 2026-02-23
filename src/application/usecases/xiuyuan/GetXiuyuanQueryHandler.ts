@@ -44,7 +44,7 @@ export class GetXiuyuanQueryHandler {
    * 处理查询
    * 
    * @param query - 查询对象
-   * @returns GetXiuyuanQueryResult - 查询结果
+   * @returns GetXiuyuanQueryResult - 查询结果（包含领域对象）
    * @throws Error 如果 Xiuyuan 不存在
    * 
    * @example
@@ -63,6 +63,14 @@ export class GetXiuyuanQueryHandler {
 
     // 2. 从 Repository 查询
     const findResult = await this.xiuyuanRepository.findById(idResult.value);
+    
+    console.log('[GetXiuyuanQueryHandler] findResult:', {
+      ok: findResult.ok,
+      hasValue: !!findResult.value,
+      value: findResult.value,
+      error: findResult.ok ? null : findResult.error
+    });
+    
     if (!findResult.ok) {
       throw findResult.error;
     }
@@ -71,22 +79,20 @@ export class GetXiuyuanQueryHandler {
       throw new Error(`Xiuyuan not found: ${query.xiuyuanId}`);
     }
 
-    // 3. 转换为 DTO 返回
-    const xiuyuan = findResult.value;
-    return {
-      xiuyuan: {
-        id: xiuyuan.getId().getValue(),
-        blockIDs: xiuyuan.getBlockIDs().map(b => b.getValue()),
-        templateID: xiuyuan.getTemplateID().getValue(),
-        fields: xiuyuan.getFaces().map((face, index) => ({
-          name: `face-${index}`,
-          blockID: face.questionBlockId || xiuyuan.getBlockIDs()[0]?.getValue() || '',
-          marker: 'question'
-        })),
-        meta: xiuyuan.getMeta(),
-        createdAt: xiuyuan.getCreatedAt().getTime(),
-        updatedAt: xiuyuan.getUpdatedAt().getTime()
-      }
+    // 3. 直接返回领域对象（符合 DDD 架构）
+    const result = {
+      xiuyuan: findResult.value
     };
+    
+    console.log('[GetXiuyuanQueryHandler] Returning result:', {
+      hasResult: !!result,
+      hasXiuyuan: !!result.xiuyuan,
+      xiuyuanId: findResult.value?.getId?.()?.getValue?.(),
+      resultKeys: Object.keys(result),
+      xiuyuanType: typeof result.xiuyuan,
+      xiuyuanConstructor: result.xiuyuan?.constructor?.name
+    });
+    
+    return result;
   }
 }

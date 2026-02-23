@@ -8,34 +8,7 @@
 
     <!-- 描述符卡内容 -->
     <div v-else-if="viewModel" class="descriptor-card-renderer__content">
-      <!-- 面包屑 -->
-      <CardBreadcrumb :items="viewModel.breadcrumbs" />
-
-      <!-- 父概念上下文栏（始终显示） -->
-      <div v-if="viewModel.parentConcept" class="descriptor-card-renderer__parent-concept">
-        <div class="descriptor-card-renderer__parent-header">
-          <span class="descriptor-card-renderer__parent-icon">🧠</span>
-          <span class="descriptor-card-renderer__parent-label">关于概念</span>
-        </div>
-        <div class="descriptor-card-renderer__parent-content">
-          <h3 class="descriptor-card-renderer__parent-title">{{ viewModel.parentConcept.title }}</h3>
-        </div>
-        <div class="descriptor-card-renderer__parent-actions">
-          <button
-            class="descriptor-card-renderer__btn descriptor-card-renderer__btn--secondary"
-            @click="expandConcept"
-          >
-            详情
-          </button>
-          <button
-            v-if="viewModel.parentConcept.isConceptCard"
-            class="descriptor-card-renderer__btn descriptor-card-renderer__btn--secondary"
-            @click="jumpToConcept"
-          >
-            跳转
-          </button>
-        </div>
-      </div>
+      <!-- 🆕 移除独立面包屑和紫色头部，上下文已融入正文 -->
 
       <!-- 警告信息 -->
       <div v-if="viewModel.warning" class="descriptor-card-renderer__warning">
@@ -61,21 +34,8 @@
         <div
           v-else
           class="descriptor-card-renderer__html-content descriptor-card-renderer__back"
-        >
-          <!-- 显示正面内容（灰色） -->
-          <div
-            class="descriptor-card-renderer__front-preview"
-            v-html="viewModel.frontHtml"
-          ></div>
-          
-          <!-- 答案分隔线 -->
-          <div class="descriptor-card-renderer__answer-divider">
-            <span>答案</span>
-          </div>
-          
-          <!-- 显示背面内容 -->
-          <div v-html="viewModel.backHtml"></div>
-        </div>
+          v-html="viewModel.backHtml"
+        ></div>
       </div>
 
       <!-- 同概念的其他描述符（可选） -->
@@ -93,6 +53,17 @@
             {{ sibling.attribute }}
           </div>
         </div>
+      </div>
+
+      <!-- 操作按钮 -->
+      <div class="descriptor-card-renderer__actions">
+        <button
+          class="descriptor-card-renderer__btn descriptor-card-renderer__btn--secondary"
+          @click="rebindConcept"
+          :disabled="rebinding"
+        >
+          🔄 {{ rebinding ? '重新绑定中...' : '重新绑定概念' }}
+        </button>
       </div>
     </div>
 
@@ -127,7 +98,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { openTab } from 'siyuan';
-import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import type { DescriptorCardViewModel } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
@@ -136,7 +106,7 @@ import type { DescriptorCardRenderService } from '@/core/card/descriptor-card/ap
 const props = defineProps<{
   blockId: string;
   cardId?: string;
-  card?: any; // 🆕 FSRSCard，用于获取 fieldMapping
+  card?: any; // 🆕 FSRSCard，用于获取 frontBlockIDs
   renderService: DescriptorCardRenderService;
   showAnswer?: boolean; // 是否显示答案（背面）
   i18n?: Record<string, string>;
@@ -152,6 +122,7 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<DescriptorCardViewModel | null>(null);
 const showConceptModal = ref(false);
+const rebinding = ref(false);
 
 // 方法
 function t(key: string, fallback: string): string {
@@ -204,6 +175,45 @@ function jumpToConcept() {
     app,
     doc: { id: viewModel.value.parentConcept.blockId },
   });
+}
+
+async function rebindConcept() {
+  if (rebinding.value) return;
+  
+  try {
+    rebinding.value = true;
+    
+    // 动态导入重新绑定用例
+    const { RebindDescriptorConceptUseCase } = await import('@/application/usecases/xiuyuan/RebindDescriptorConceptUseCase');
+    const { ApplicationContext } = await import('@/application/ApplicationContext');
+    
+    const appContext = ApplicationContext.getInstance();
+    const xiuyuanRepo = appContext.getXiuyuanRepository();
+    const templateRegistry = appContext.getTemplateRegistry();
+    
+    const useCase = new RebindDescriptorConceptUseCase(xiuyuanRepo, templateRegistry);
+    
+    const result = await useCase.execute({
+      descriptorBlockId: props.blockId,
+    });
+    
+    if (result.ok) {
+      const { pushMsg } = await import('@/core/siyuan/api');
+      await pushMsg(`✅ 已重新绑定到概念：${result.value.newConceptName}`);
+      
+      // 重新加载视图模型
+      await loadViewModel();
+    } else {
+      const { pushErrMsg } = await import('@/core/siyuan/api');
+      await pushErrMsg(`❌ 重新绑定失败：${result.error.message}`);
+    }
+  } catch (err) {
+    console.error('[DescriptorCardRenderer] Failed to rebind concept:', err);
+    const { pushErrMsg } = await import('@/core/siyuan/api');
+    await pushErrMsg(`❌ 重新绑定失败：${(err as Error).message}`);
+  } finally {
+    rebinding.value = false;
+  }
 }
 
 // 生命周期
@@ -382,7 +392,12 @@ onMounted(async () => {
 
 /* 背面样式 */
 .descriptor-card-renderer__back {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
   padding: 48px 32px 32px;
+  min-height: 200px;
 }
 
 .descriptor-card-renderer__front-preview {
@@ -750,7 +765,12 @@ onMounted(async () => {
 
 /* 背面样式 */
 .descriptor-card-renderer__back {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
   padding: 48px 32px 32px;
+  min-height: 200px;
 }
 
 .descriptor-card-renderer__front-preview {
@@ -900,3 +920,114 @@ onMounted(async () => {
   color: var(--b3-theme-on-surface);
 }
 </style>
+
+
+/* 🆕 RemNote 风格的概念上下文 */
+.descriptor-card-context {
+  margin-bottom: 16px;
+  border-left: 2px solid var(--b3-border-color);
+}
+
+.descriptor-card-context__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 4px 12px;
+  font-size: 14px;
+  color: var(--b3-theme-on-surface-light);
+  line-height: 1.6;
+}
+
+.descriptor-card-context__item--current {
+  color: var(--b3-theme-on-surface);
+  font-weight: 500;
+}
+
+/* 🆕 路径块样式（文档块等） */
+.descriptor-card-context__item--path {
+  opacity: 0.5;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.descriptor-card-context__icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.descriptor-card-context__name {
+  flex: 1;
+}
+
+/* 🆕 组合问题样式 */
+.descriptor-card-question {
+  display: block;
+  padding: 16px;
+  font-size: 32px;
+  line-height: 1.5;
+  color: var(--b3-theme-on-surface);
+  white-space: nowrap;
+}
+
+.descriptor-card-question__concept,
+.descriptor-card-question__connector,
+.descriptor-card-question__attribute,
+.descriptor-card-question__mark {
+  display: inline;
+}
+
+.descriptor-card-question__concept {
+  font-weight: 600;
+  color: var(--b3-theme-primary);
+}
+
+.descriptor-card-question__connector {
+  color: var(--b3-theme-on-surface-light);
+}
+
+.descriptor-card-question__attribute {
+  font-weight: 700;
+  color: var(--b3-theme-on-surface);
+}
+
+.descriptor-card-question__mark {
+  color: var(--b3-theme-on-surface-light);
+}
+
+/* 🆕 正面当前项样式 */
+.descriptor-card-front__current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--b3-theme-surface);
+  border-radius: 8px;
+  border-left: 3px solid var(--b3-theme-primary);
+}
+
+.descriptor-card-front__icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.descriptor-card-front__attribute {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--b3-theme-on-surface);
+}
+
+.descriptor-card-front__arrow {
+  font-size: 18px;
+  color: var(--b3-theme-on-surface-light);
+}
+
+/* 🆕 背面答案值样式 */
+.descriptor-card-back__value {
+  font-size: 20px;
+  color: var(--b3-theme-on-surface);
+  line-height: 1.6;
+  padding: 16px;
+  background: var(--b3-theme-surface);
+  border-radius: 8px;
+  border-left: 3px solid var(--b3-theme-success);
+}

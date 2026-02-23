@@ -68,16 +68,16 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       // 2. 创建领域实体
       const card = new DescriptorCard(data);
 
-      // 3. 使用基类方法加载面包屑
-      const breadcrumbs = await this.loadBreadcrumbs(blockId);
+      // 3. 🆕 使用基类方法加载概念上下文（仅概念块）
+      const conceptContext = await this.loadConceptContext(blockId);
 
-      // 4. 分离正面和背面内容
-      const { frontHtml, backHtml } = this.splitDescriptorContent(card);
+      // 4. 分离正面和背面内容，传入概念上下文
+      const { frontHtml, backHtml } = this.splitDescriptorContent(card, conceptContext);
 
       // 5. 构建视图模型
       const viewModel: DescriptorCardViewModel = {
         blockId: card.blockId,
-        breadcrumbs, // 添加面包屑
+        breadcrumbs: [], // 🆕 不再使用独立面包屑
         frontHtml,
         backHtml,
         attribute: card.attribute,
@@ -97,10 +97,16 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
   /**
    * 分离描述符内容为正面和背面
    * 
-   * 正面：概念标题 + 属性名（;; 前面的部分）
-   * 背面：属性值（;; 后面的部分）
+   * 正面：祖先概念上下文 + 组合问题（父概念 + 描述符）
+   * 背面：祖先概念上下文 + 组合问题 + 答案分隔线 + 答案
+   * 
+   * @param card 描述符卡实体
+   * @param conceptContext 概念上下文（包含所有祖先，包括父概念）
    */
-  private splitDescriptorContent(card: DescriptorCard): { frontHtml: string; backHtml: string } {
+  private splitDescriptorContent(
+    card: DescriptorCard,
+    conceptContext: Array<{ id: string; name: string; type: string; isConcept?: boolean }>
+  ): { frontHtml: string; backHtml: string } {
     const content = card.html;
     
     // 解析描述符内容：属性名;;属性值
@@ -116,25 +122,99 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
 
     const attributeName = match[1].trim();
     const attributeValue = match[2].trim();
+    const parentConceptName = card.getParentConceptTitle() || '概念';
 
-    // 构建正面 HTML：概念标题 + 属性名 + 问号（使用内联样式确保字体大小）
-    const conceptTitle = card.getParentConceptTitle() || '概念'; // 如果没有父概念，使用默认值
-    const frontHtml = `
-      <div class="descriptor-card-front" style="font-size: 18px;">
-        <div class="descriptor-card-front__concept" style="font-size: 18px !important;">${conceptTitle}</div>
-        <div class="descriptor-card-front__divider" style="font-size: 18px !important;">的</div>
-        <div class="descriptor-card-front__attribute" style="font-size: 18px !important; font-weight: 700;">${attributeName}？</div>
-      </div>
-    `;
+    // 分离祖先概念（排除父概念）
+    const ancestorContext = this.getAncestorContext(conceptContext, parentConceptName);
+    
+    // 构建祖先上下文 HTML（不包含父概念）
+    const ancestorHtml = this.buildAncestorContextHtml(ancestorContext);
 
-    // 背面 HTML：属性值（使用内联样式确保字体大小）
-    const backHtml = `
-      <div class="descriptor-card-back" style="font-size: 18px;">
-        <div class="descriptor-card-back__value" style="font-size: 18px !important;">${attributeValue}</div>
-      </div>
-    `;
+    // 构建组合问题：父概念 + 描述符（32px，居中，一行显示）
+    const questionHtml = `<div contenteditable="false" style="font-size: 32px; line-height: 1.5; text-align: center; padding: 16px;"><span style="font-weight: 600; color: var(--b3-theme-primary);">${parentConceptName}</span><span style="color: var(--b3-theme-on-surface-light);">的</span><span style="font-weight: 700; color: var(--b3-theme-on-surface);">${attributeName}</span><span style="color: var(--b3-theme-on-surface-light);">是？</span></div>`;
+
+    // 答案分隔线
+    const dividerHtml = `<div style="display: flex; align-items: center; margin: 24px 0; color: var(--b3-theme-on-surface-light); font-size: 14px;"><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div><span style="padding: 0 12px;">答案</span><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div></div>`;
+
+    // 答案 HTML（32px，左对齐）
+    const answerHtml = `<div contenteditable="false" style="font-size: 32px; line-height: 1.6; color: var(--b3-theme-on-surface); text-align: left;">${attributeValue}</div>`;
+
+    // 正面：祖先上下文 + 组合问题
+    const frontHtml = ancestorHtml + questionHtml;
+
+    // 背面：祖先上下文 + 组合问题 + 答案分隔线 + 答案
+    const backHtml = ancestorHtml + questionHtml + dividerHtml + answerHtml;
 
     return { frontHtml, backHtml };
+  }
+
+  /**
+   * 获取祖先上下文（排除父概念）
+   * 
+   * @param conceptContext 完整的概念上下文
+   * @param parentConceptName 父概念名称
+   * @returns 祖先上下文（不包含父概念）
+   */
+  private getAncestorContext(
+    conceptContext: Array<{ id: string; name: string; type: string; isConcept?: boolean }>,
+    parentConceptName: string
+  ): Array<{ id: string; name: string; type: string; isConcept?: boolean }> {
+    // 找到父概念的位置
+    const parentIndex = conceptContext.findIndex(item => 
+      item.isConcept !== false && item.name === parentConceptName
+    );
+    
+    if (parentIndex === -1) {
+      // 如果没找到父概念，返回所有概念块
+      return conceptContext.filter(item => item.isConcept !== false);
+    }
+    
+    // 返回父概念之前的所有项（包括路径块和概念块）
+    return conceptContext.slice(0, parentIndex);
+  }
+
+  /**
+   * 构建祖先上下文 HTML（不包含父概念）
+   * 
+   * @param ancestorContext 祖先上下文列表
+   * @returns HTML 字符串
+   */
+  private buildAncestorContextHtml(
+    ancestorContext: Array<{ id: string; name: string; type: string; isConcept?: boolean }>
+  ): string {
+    if (ancestorContext.length === 0) {
+      return '';
+    }
+
+    let html = '<div class="descriptor-card-context">';
+    
+    let conceptIndent = 0; // 概念块的缩进层级
+    ancestorContext.forEach((item) => {
+      const isConcept = item.isConcept !== false; // 默认为 true（兼容旧数据）
+      
+      if (isConcept) {
+        // 概念块：使用概念图标和缩进
+        const indent = conceptIndent * 20;
+        html += `
+          <div class="descriptor-card-context__item" style="padding-left: ${indent}px;">
+            <span class="descriptor-card-context__icon">💡</span>
+            <span class="descriptor-card-context__name">${item.name}</span>
+          </div>
+        `;
+        conceptIndent++; // 下一个概念块增加缩进
+      } else {
+        // 路径块：使用路径图标，不缩进，灰色显示
+        html += `
+          <div class="descriptor-card-context__item descriptor-card-context__item--path">
+            <span class="descriptor-card-context__icon">📁</span>
+            <span class="descriptor-card-context__name">${item.name}</span>
+          </div>
+        `;
+      }
+    });
+    
+    html += '</div>';
+    return html;
   }
 
   /**

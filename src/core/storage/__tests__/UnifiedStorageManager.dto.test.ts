@@ -82,7 +82,6 @@ describe('UnifiedStorageManager DTO Operations', () => {
     templateID: 'builtin-quick-card',
     frontBlockIDs: [blockId],
     backBlockIDs: [],
-    fieldMapping: { content: blockId },
     xiuyuanPriority: 50,
   });
 
@@ -204,7 +203,6 @@ describe('UnifiedStorageManager DTO Operations', () => {
       expect(retrieved?.templateID).toBe(dto.templateID);
       expect(retrieved?.frontBlockIDs).toEqual(dto.frontBlockIDs);
       expect(retrieved?.backBlockIDs).toEqual(dto.backBlockIDs);
-      expect(retrieved?.fieldMapping).toEqual(dto.fieldMapping);
     });
   });
 

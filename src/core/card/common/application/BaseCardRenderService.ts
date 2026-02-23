@@ -9,7 +9,8 @@
  * 注意：这不是一个完整的 DDD 层，只是共享代码
  */
 
-import { getBlockBreadcrumb } from '@/core/siyuan/api';
+import { getBlockBreadcrumb, getBlockAttrs } from '@/core/siyuan/api';
+import { extractConceptName, hasConceptDefinitionSyntax } from '@/core/xiuyuan/cardMeta';
 import type { BreadcrumbItem } from './types';
 
 export abstract class BaseCardRenderService {
@@ -19,6 +20,12 @@ export abstract class BaseCardRenderService {
    * @param blockId 块 ID
    * @param excludeLast 排除最后几项（默认 1，排除当前块）
    * @returns 面包屑列表
+   * 
+   * @description
+   * CDF 规则：概念块只显示名称，隐藏定义
+   * - 检查块属性 custom-fsrs-card-type === 'concept'
+   * - 或检查内容是否包含 :: 语法
+   * - 如果是概念块，使用 extractConceptName 提取名称
    */
   protected async loadBreadcrumbs(
     blockId: string,
@@ -34,18 +41,207 @@ export abstract class BaseCardRenderService {
       // 排除最后 N 项
       const parentBreadcrumbs = breadcrumbResult.slice(0, -excludeLast);
       
-      const allBreadcrumbs = parentBreadcrumbs.map((item: any) => ({
-        id: item.id || '',
-        name: item.name || '',
-        type: item.type || 'NodeParagraph',
-      }));
+      // 处理每个面包屑项，应用 CDF 规则
+      const processedBreadcrumbs = await Promise.all(
+        parentBreadcrumbs.map(async (item: any) => {
+          const itemId = item.id || '';
+          let itemName = item.name || '';
+          
+          // 检查是否是概念块
+          const isConcept = await this.isConceptBlock(itemId, itemName);
+          
+          // 如果是概念块，只显示概念名称（隐藏定义）
+          if (isConcept) {
+            itemName = extractConceptName(itemName);
+          }
+          
+          return {
+            id: itemId,
+            name: itemName,
+            type: item.type || 'NodeParagraph',
+          };
+        })
+      );
       
       // 去重：使用 Map 按标准化后的 name 去重
-      return this.deduplicateBreadcrumbs(allBreadcrumbs);
+      return this.deduplicateBreadcrumbs(processedBreadcrumbs);
     } catch (error) {
       console.error('[BaseCardRenderService] Failed to load breadcrumbs:', error);
       return [];
     }
+  }
+
+  /**
+   * 加载概念上下文（仅概念块）
+   * 
+   * @param blockId 块 ID
+   * @param excludeLast 排除最后几项（默认 1，排除当前块）
+   * @returns 概念上下文列表
+   * 
+   * @description
+   * RemNote CDF 规则：只显示概念层级，过滤掉文档、标题等非概念块
+   * - 只保留概念块（custom-fsrs-card-type === 'concept' 或包含 :: 语法）
+   * - 提取概念名称（隐藏定义）
+   * - 🆕 保留文档块作为路径，但标记为非概念
+   */
+  protected async loadConceptContext(
+    blockId: string,
+    excludeLast: number = 1
+  ): Promise<BreadcrumbItem[]> {
+    try {
+      const breadcrumbResult = await getBlockBreadcrumb(blockId);
+      
+      if (!breadcrumbResult || !Array.isArray(breadcrumbResult)) {
+        return [];
+      }
+      
+      console.log('[BaseCardRenderService] loadConceptContext - breadcrumbResult:', breadcrumbResult);
+      
+      // 排除最后 N 项
+      const parentBreadcrumbs = breadcrumbResult.slice(0, -excludeLast);
+      
+      console.log('[BaseCardRenderService] loadConceptContext - parentBreadcrumbs:', parentBreadcrumbs);
+      
+      // 🆕 处理所有块，标记是否为概念块
+      const contextItems: Array<BreadcrumbItem & { isConcept: boolean }> = [];
+      
+      for (const item of parentBreadcrumbs) {
+        const itemId = item.id || '';
+        let itemName = item.name || '';
+        const itemType = item.type || 'NodeParagraph';
+        
+        console.log('[BaseCardRenderService] loadConceptContext - checking item:', { itemId, itemName, itemType });
+        
+        // 检查是否是概念块
+        const isConcept = await this.isConceptBlock(itemId, itemName);
+        
+        console.log('[BaseCardRenderService] loadConceptContext - isConcept:', isConcept);
+        
+        if (isConcept) {
+          // 提取概念名称（隐藏定义）
+          itemName = extractConceptName(itemName);
+          console.log('[BaseCardRenderService] loadConceptContext - extracted name:', itemName);
+        }
+        
+        contextItems.push({
+          id: itemId,
+          name: itemName,
+          type: itemType,
+          isConcept, // 🆕 标记是否为概念
+        });
+      }
+      
+      console.log('[BaseCardRenderService] loadConceptContext - final contextItems:', contextItems);
+      
+      return contextItems;
+    } catch (error) {
+      console.error('[BaseCardRenderService] Failed to load concept context:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 检查块是否是概念块
+   * 
+   * @param blockId 块 ID
+   * @param content 块内容（可能只是标题，不完整）
+   * @returns 是否是概念块
+   * 
+   * @description
+   * 检查顺序：
+   * 1. 先排除文档块（type === 'd'）
+   * 2. 检查块属性 custom-fsrs-card-type === 'concept'
+   * 3. 如果是列表项，查询其段落子块的内容
+   * 4. 检查内容是否包含块引用 ((block-id)) 或 :: 语法
+   */
+  private async isConceptBlock(blockId: string, content: string): Promise<boolean> {
+    try {
+      // 🆕 方法 1：先获取块信息，排除文档块
+      const { sql } = await import('@/core/siyuan/api');
+      const blockResult = await sql(`
+        SELECT content, markdown, type FROM blocks
+        WHERE id = '${blockId}'
+        LIMIT 1
+      `);
+      
+      if (!blockResult || blockResult.length === 0) {
+        return this.hasConceptSyntax(content);
+      }
+      
+      const blockType = blockResult[0].type || '';
+      
+      // 🆕 优先排除文档块
+      if (blockType === 'd') {
+        console.log('[BaseCardRenderService] isConceptBlock - document block, excluded');
+        return false;
+      }
+      
+      // 方法 2：检查块属性
+      const attrs = await getBlockAttrs(blockId);
+      
+      console.log('[BaseCardRenderService] isConceptBlock - attrs:', { blockId, attrs, blockType });
+      
+      if (attrs?.['custom-fsrs-card-type'] === 'concept') {
+        return true;
+      }
+      
+      // 方法 3：如果是列表项，查询其段落子块的内容
+      if (blockType === 'i') {
+        const paragraphResult = await sql(`
+          SELECT content, markdown FROM blocks
+          WHERE parent_id = '${blockId}' AND type = 'p'
+          LIMIT 1
+        `);
+        
+        if (paragraphResult && paragraphResult.length > 0) {
+          const paragraphContent = paragraphResult[0].content || '';
+          const paragraphMarkdown = paragraphResult[0].markdown || '';
+          console.log('[BaseCardRenderService] isConceptBlock - list item paragraph:', { 
+            blockId, 
+            paragraphContent, 
+            paragraphMarkdown 
+          });
+          return this.hasConceptSyntax(paragraphContent) || this.hasBlockReference(paragraphMarkdown);
+        }
+      }
+      
+      // 方法 4：其他类型块，直接检查 content 和 markdown
+      const blockContent = blockResult[0].content || '';
+      const blockMarkdown = blockResult[0].markdown || '';
+      console.log('[BaseCardRenderService] isConceptBlock - block data:', { 
+        blockId, 
+        blockContent, 
+        blockMarkdown, 
+        blockType 
+      });
+      return this.hasConceptSyntax(blockContent) || this.hasBlockReference(blockMarkdown);
+    } catch (error) {
+      console.error('[BaseCardRenderService] isConceptBlock error:', error);
+      // 如果查询失败，fallback 到内容检查
+      return this.hasConceptSyntax(content);
+    }
+  }
+
+  /**
+   * 检查内容是否包含概念语法
+   * 
+   * @param content 内容
+   * @returns 是否包含 :: 语法
+   */
+  private hasConceptSyntax(content: string): boolean {
+    return hasConceptDefinitionSyntax(content);
+  }
+
+  /**
+   * 检查 markdown 是否包含块引用
+   * 
+   * @param markdown markdown 内容
+   * @returns 是否包含块引用 ((block-id))
+   */
+  private hasBlockReference(markdown: string): boolean {
+    // 匹配块引用：((block-id)) 或 ((block-id '名称'))
+    const blockRefPattern = /\(\((\d{14}-[a-z0-9]{7})[^\)]*\)\)/;
+    return blockRefPattern.test(markdown);
   }
 
   /**

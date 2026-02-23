@@ -11,6 +11,7 @@
 import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
 import { getBlockKramdown, sql } from '@/core/siyuan/api';
+import type { GetXiuyuanQueryResult } from '@/application/queries/xiuyuan/GetXiuyuanQuery';
 
 /**
  * 概念定义卡视图模型
@@ -40,59 +41,128 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     console.log('[ConceptDefinitionCardRenderService] prepareViewModel called with:', {
       blockId,
       hasCard: !!card,
-      xiuyuanID: card?.xiuyuanID,
-      typeMarker: card?.meta?.typeMarker
+      cardXiuyuanID: card?.xiuyuanID,
+      metaXiuyuanID: card?.meta?.xiuyuanID,
+      typeMarker: card?.meta?.typeMarker,
+      cardKeys: card ? Object.keys(card) : [],
+      metaKeys: card?.meta ? Object.keys(card.meta) : []
     });
     
-    const xiuyuanID = card?.xiuyuanID;
+    // 优先使用顶层的 xiuyuanID，如果没有则使用 meta 中的
+    const xiuyuanID = card?.xiuyuanID || card?.meta?.xiuyuanID;
+    
+    console.log('[ConceptDefinitionCardRenderService] Resolved xiuyuanID:', {
+      xiuyuanID,
+      type: typeof xiuyuanID,
+      isUndefined: xiuyuanID === undefined,
+      isNull: xiuyuanID === null,
+      isFalsy: !xiuyuanID
+    });
+    
     if (!xiuyuanID) {
       console.error('[ConceptDefinitionCardRenderService] No xiuyuanID found in card:', card);
       throw new Error('No xiuyuanID found in card');
     }
 
-    // 2. 从 Xiuyuan 存储中获取字段映射
-    const xiuyuan = await this.getXiuyuan(xiuyuanID);
+    // 2. 从 Xiuyuan 存储中获取领域对象
+    const result = await this.getXiuyuan(xiuyuanID);
+    const xiuyuan = result.xiuyuan;
+    
     if (!xiuyuan) {
       throw new Error(`Xiuyuan not found: ${xiuyuanID}`);
     }
 
-    // 3. 获取概念块 ID 和定义块 ID
-    const conceptBlockId = xiuyuan.fieldMapping.concept;
-    const definitionBlockId = xiuyuan.fieldMapping.definition;
-
-    if (!conceptBlockId || !definitionBlockId) {
-      throw new Error('Missing concept or definition block ID in field mapping');
+    // 3. 获取卡片面索引
+    const faceIndex = card?.meta?.faceIndex ?? 0;
+    const faces = xiuyuan.getFaces(); // 使用领域对象的方法
+    
+    if (!faces || faceIndex >= faces.length) {
+      throw new Error(`Invalid faceIndex: ${faceIndex}, total faces: ${faces?.length || 0}`);
     }
 
-    // 4. 获取概念名称
-    const conceptName = await this.getConceptName(conceptBlockId);
+    const face = faces[faceIndex];
+    
+    // 4. 获取概念块 ID 和定义块 ID
+    // 注意：CardFace 中的 questionBlockId 和 answerBlockId 根据卡片方向不同而不同
+    // - 正向卡：questionBlockId = 概念块，answerBlockId = 定义块
+    // - 反向卡：questionBlockId = 定义块，answerBlockId = 概念块
+    // 但我们总是需要：概念块用于显示概念名称，定义块用于显示定义内容
+    
+    const isReverse = card?.meta?.typeMarker?.includes('reverse');
+    const conceptBlockId = isReverse ? face.answerBlockId : face.questionBlockId;
+    const definitionBlockId = isReverse ? face.questionBlockId : face.answerBlockId;
 
-    // 5. 获取定义内容
+    console.log('[ConceptDefinitionCardRenderService] Block IDs from CardFace:', {
+      conceptBlockId,
+      definitionBlockId,
+      faceIndex,
+      typeMarker: card?.meta?.typeMarker,
+      isReverse,
+      questionBlockId: face.questionBlockId,
+      answerBlockId: face.answerBlockId
+    });
+
+    if (!conceptBlockId || !definitionBlockId) {
+      throw new Error('Missing concept or definition block ID in CardFace');
+    }
+
+    // 5. 获取概念名称
+    console.log('[ConceptDefinitionCardRenderService] About to get concept name:', {
+      conceptBlockId,
+      isReverse
+    });
+    
+    const conceptName = await this.getConceptName(conceptBlockId);
+    
+    console.log('[ConceptDefinitionCardRenderService] Concept name:', {
+      conceptName,
+      length: conceptName.length,
+      preview: conceptName.substring(0, 50)
+    });
+
+    // 6. 获取定义内容
     const { kramdown: definitionKramdown } = await getBlockKramdown(definitionBlockId);
+    
+    console.log('[ConceptDefinitionCardRenderService] Definition kramdown:', {
+      length: definitionKramdown?.length,
+      preview: definitionKramdown?.substring(0, 100)
+    });
+    
     if (!definitionKramdown) {
       throw new Error(`Definition block has no content: ${definitionBlockId}`);
     }
 
-    // 6. 解析挖空
-    const clozes = this.parseClozes(definitionKramdown);
+    // 7. 解析定义块内容
+    // 格式：((ref '概念'))::定义 {: 属性}
+    // 我们需要提取 :: 后面的部分（去掉属性）
+    const definitionMatch = definitionKramdown.match(/::(.+?)(?:\n\{:|$)/s);
+    const definitionText = definitionMatch ? definitionMatch[1].trim() : definitionKramdown;
+    
+    console.log('[ConceptDefinitionCardRenderService] Parsed definition:', {
+      original: definitionKramdown.substring(0, 100),
+      extracted: definitionText.substring(0, 100)
+    });
 
-    // 7. 确定当前挖空索引和是否为反向卡片
-    const { clozeIndex, isReverse } = this.parseTypeMarker(card?.meta?.typeMarker);
+    // 8. 解析挖空
+    const clozes = this.parseClozes(definitionText);
 
-    // 8. 生成定义 HTML（隐藏当前挖空）
+    // 9. 确定当前挖空索引（isReverse 已在前面计算）
+    const { clozeIndex } = this.parseTypeMarker(card?.meta?.typeMarker);
+
+    // 10. 生成定义 HTML（隐藏当前挖空）
     const processedKramdown = this.processDefinitionKramdown(
-      definitionKramdown,
+      definitionText,
       clozes,
       clozeIndex
     );
 
-    // 9. 使用 Lute 渲染 Markdown
+    // 11. 使用 Lute 渲染 Markdown
     const definitionHtml = this.renderMarkdown(processedKramdown);
 
-    // 10. 使用基类方法加载面包屑
+    // 12. 使用基类方法加载面包屑
     const breadcrumbs = await this.loadBreadcrumbs(blockId);
 
-    // 11. 构建视图模型
+    // 13. 构建视图模型
     return {
       blockId,
       breadcrumbs,
@@ -108,7 +178,13 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
   /**
    * 获取 Xiuyuan 对象
    */
-  private async getXiuyuan(xiuyuanID: string): Promise<any> {
+  private async getXiuyuan(xiuyuanID: string): Promise<GetXiuyuanQueryResult> {
+    console.log('[ConceptDefinitionCardRenderService] getXiuyuan called with:', {
+      xiuyuanID,
+      type: typeof xiuyuanID,
+      isUndefined: xiuyuanID === undefined
+    });
+    
     // 通过 window 获取 plugin 实例
     const plugin = (window as any).siyuan?.ws?.app?.plugins?.find(
       (p: any) => p.name === 'siyuan-plugin-siyuanmemo'
@@ -124,13 +200,29 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       throw new Error('XiuyuanApplicationService not available');
     }
 
+    console.log('[ConceptDefinitionCardRenderService] About to call xiuyuanAppService.getXiuyuan with:', {
+      xiuyuanID,
+      type: typeof xiuyuanID
+    });
+
     // 从 XiuyuanApplicationService 获取 Xiuyuan
-    const xiuyuan = await xiuyuanAppService.getXiuyuan(xiuyuanID);
-    if (!xiuyuan) {
+    // 注意：getXiuyuan 接收的是一个查询对象，不是直接的字符串
+    const result = await xiuyuanAppService.getXiuyuan({ xiuyuanId: xiuyuanID });
+    
+    console.log('[ConceptDefinitionCardRenderService] getXiuyuan result:', {
+      hasResult: !!result,
+      resultType: typeof result,
+      resultKeys: result ? Object.keys(result) : [],
+      hasXiuyuan: !!result?.xiuyuan,
+      xiuyuanType: result?.xiuyuan ? typeof result.xiuyuan : 'undefined',
+      xiuyuanValue: result?.xiuyuan
+    });
+    
+    if (!result || !result.xiuyuan) {
       throw new Error(`Xiuyuan not found: ${xiuyuanID}`);
     }
 
-    return xiuyuan;
+    return result;
   }
 
   /**
@@ -140,11 +232,28 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     const conceptQuery = `SELECT content FROM blocks WHERE id = '${conceptBlockId}' LIMIT 1`;
     const conceptResult = await sql(conceptQuery);
     
+    console.log('[ConceptDefinitionCardRenderService] getConceptName query result:', {
+      conceptBlockId,
+      hasResult: !!conceptResult && conceptResult.length > 0,
+      content: conceptResult?.[0]?.content
+    });
+    
     if (!conceptResult || conceptResult.length === 0) {
       throw new Error(`Concept block not found: ${conceptBlockId}`);
     }
 
-    return conceptResult[0].content;
+    let conceptName = conceptResult[0].content;
+    
+    // 如果概念名称包含 ::，说明这是定义块而不是概念文档块
+    // 需要从 :: 前面提取概念名称
+    if (conceptName.includes('::')) {
+      // 格式：概念::定义
+      const parts = conceptName.split('::');
+      conceptName = parts[0].trim();
+      console.log('[ConceptDefinitionCardRenderService] Extracted concept name from definition block:', conceptName);
+    }
+
+    return conceptName;
   }
 
   /**

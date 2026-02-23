@@ -27,7 +27,6 @@
  * const result = await xiuyuanAppService.createFromBlocks({
  *   blockIds: ['block-1', 'block-2'],
  *   templateId: 'basic',
- *   fieldMapping: { question: 'block-1', answer: 'block-2' },
  *   deckId: 'default-deck'
  * });
  * 

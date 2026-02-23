@@ -25,6 +25,8 @@
 import { Result } from '@/types/result';
 import { CreateXiuyuanFromBlocksCommand } from '../commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
 import { CreateListTemplateCardsCommand } from '../commands/xiuyuan/CreateListTemplateCardsCommand';
+import { CreateConceptDescriptorCardsCommand, ConceptDescriptorCardsResult } from '../usecases/xiuyuan/CreateConceptDescriptorCardsUseCase';
+import { CreateConceptDescriptorAutoCommand, ConceptDescriptorAutoResult } from '../usecases/xiuyuan/CreateConceptDescriptorAutoUseCase';
 import { GetXiuyuanQuery, GetXiuyuanQueryResult } from '../queries/xiuyuan/GetXiuyuanQuery';
 import { GetAllXiuyuansQuery, GetAllXiuyuansQueryResult } from '../queries/xiuyuan/GetAllXiuyuansQuery';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
@@ -35,6 +37,8 @@ import {
   GetXiuyuanQueryHandler,
   GetAllXiuyuansQueryHandler,
   CreateListTemplateCardsUseCase,
+  CreateConceptDescriptorCardsUseCase,
+  CreateConceptDescriptorAutoUseCase,
   CreateTemplateUseCase,
   GetTemplateQueryHandler,
   GetAllTemplatesQueryHandler
@@ -52,6 +56,8 @@ export class XiuyuanApplicationService {
   private readonly getXiuyuanQueryHandler: GetXiuyuanQueryHandler;
   private readonly getAllXiuyuansQueryHandler: GetAllXiuyuansQueryHandler;
   private readonly createListTemplateCardsUseCase: CreateListTemplateCardsUseCase;
+  private readonly createConceptDescriptorCardsUseCase: CreateConceptDescriptorCardsUseCase;
+  private readonly createConceptDescriptorAutoUseCase: CreateConceptDescriptorAutoUseCase;
   private readonly createTemplateUseCase: CreateTemplateUseCase;
   private readonly getTemplateQueryHandler: GetTemplateQueryHandler;
   private readonly getAllTemplatesQueryHandler: GetAllTemplatesQueryHandler;
@@ -75,6 +81,14 @@ export class XiuyuanApplicationService {
     this.getXiuyuanQueryHandler = new GetXiuyuanQueryHandler(xiuyuanRepository);
     this.getAllXiuyuansQueryHandler = new GetAllXiuyuansQueryHandler(xiuyuanRepository);
     this.createListTemplateCardsUseCase = new CreateListTemplateCardsUseCase(
+      xiuyuanRepository,
+      templateRegistry
+    );
+    this.createConceptDescriptorCardsUseCase = new CreateConceptDescriptorCardsUseCase(
+      xiuyuanRepository,
+      templateRegistry
+    );
+    this.createConceptDescriptorAutoUseCase = new CreateConceptDescriptorAutoUseCase(
       xiuyuanRepository,
       templateRegistry
     );
@@ -270,5 +284,88 @@ export class XiuyuanApplicationService {
    */
   async createListTemplateCards(command: CreateListTemplateCardsCommand): Promise<Result<any>> {
     return this.createListTemplateCardsUseCase.execute(command);
+  }
+
+  /**
+   * 创建概念描述符卡片
+   * 
+   * @param command - 创建命令
+   * @returns Result<ConceptDescriptorCardsResult> - 成功返回创建的概念卡和描述符卡,失败返回错误
+   * 
+   * @description
+   * 概念描述符模板的特点：
+   * - 识别顶层列表项中引用的概念文档块 ((概念文档))
+   * - 如果概念文档块没有被制作为概念卡，则制作
+   * - 识别概念文档块子级里的描述符块（包含 ;; 符号）
+   * - 为每个描述符块生成【概念-描述符】卡
+   * 
+   * **使用场景**：
+   * ```
+   * - ((概念文档))
+   *   - 属性1 ;; 描述1
+   *   - 属性2 ;; 描述2
+   *   - 属性3 ;; 描述3
+   * ```
+   * 
+   * @example
+   * ```typescript
+   * const result = await xiuyuanService.createConceptDescriptorCards({
+   *   parentBlockId: '20230101120000-parent',
+   *   deckId: 'default-deck',
+   *   priority: 5
+   * });
+   * 
+   * if (result.ok) {
+   *   console.log('Created concept card:', result.value.conceptCardId);
+   *   console.log('Created descriptor cards:', result.value.descriptorCards.length);
+   * } else {
+   *   console.error('Failed:', result.error);
+   * }
+   * ```
+   */
+  async createConceptDescriptorCards(command: CreateConceptDescriptorCardsCommand): Promise<Result<ConceptDescriptorCardsResult>> {
+    return this.createConceptDescriptorCardsUseCase.execute(command);
+  }
+
+  /**
+   * 创建概念描述符卡片（自动探路）
+   * 
+   * @param command - 创建命令
+   * @returns Result<ConceptDescriptorAutoResult> - 成功返回创建的概念卡和描述符卡,失败返回错误
+   * 
+   * @description
+   * 概念描述符（自动）模板的特点：
+   * - 选择包含 ;; 的块（可以是多个）
+   * - 向上探路查找概念块：优先标题块，其次文档块
+   * - 如果概念块没有被制作为概念卡，则制作
+   * - 为每个描述符块生成【概念-描述符】卡
+   * 
+   * **使用场景**：
+   * ```
+   * # 概念标题
+   * 
+   * 属性1 ;; 描述1
+   * 属性2 ;; 描述2
+   * ```
+   * 
+   * @example
+   * ```typescript
+   * const result = await xiuyuanService.createConceptDescriptorAuto({
+   *   descriptorBlockIds: ['block1', 'block2'],
+   *   deckId: 'default-deck',
+   *   priority: 5
+   * });
+   * 
+   * if (result.ok) {
+   *   console.log('Created concept card:', result.value.conceptCardId);
+   *   console.log('Concept type:', result.value.conceptType);
+   *   console.log('Created descriptor cards:', result.value.descriptorCards.length);
+   * } else {
+   *   console.error('Failed:', result.error);
+   * }
+   * ```
+   */
+  async createConceptDescriptorAuto(command: CreateConceptDescriptorAutoCommand): Promise<Result<ConceptDescriptorAutoResult>> {
+    return this.createConceptDescriptorAutoUseCase.execute(command);
   }
 }

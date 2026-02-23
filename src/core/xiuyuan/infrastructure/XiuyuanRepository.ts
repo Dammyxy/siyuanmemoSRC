@@ -513,13 +513,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       meta: {
         xiuyuanID: card.getXiuyuanId().getValue(),
         templateID: xiuyuan.getTemplateID().getValue(),
-        ruleIndex: faceIndex,
+        faceIndex: faceIndex,
         // ✅ 使用 CardFace 中的 blockId 信息
-        frontBlockIDs: [xiuyuan.getFaces()[faceIndex].questionBlockId],
-        backBlockIDs: [xiuyuan.getFaces()[faceIndex].answerBlockId],
-        fieldMapping: meta.fieldMapping || {},
-        frontFields: [],
-        backFields: [],
+        frontBlockIDs: [xiuyuan.getFaces()[faceIndex].questionBlockId].filter(Boolean),
+        backBlockIDs: [xiuyuan.getFaces()[faceIndex].answerBlockId].filter(Boolean),
         // 🆕 添加 faces 信息，用于多挖空卡渲染
         faces: xiuyuan.getFaces().map(face => ({
           question: face.question,
@@ -527,8 +524,6 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           questionBlockId: face.questionBlockId,
           answerBlockId: face.answerBlockId,
         })),
-        // 🆕 添加当前卡片的 faceIndex，用于确定显示哪个挖空
-        faceIndex,
         // 🆕 添加 typeMarker，用于双向卡片识别正反面
         typeMarker,
         // 🆕 列表模版卡专用字段
@@ -624,7 +619,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       const cardResult = Card.create({
         id: cardIdResult.value,
         xiuyuanId: xiuyuanId,
-        faceIndex: dto.meta?.ruleIndex || 0,
+        faceIndex: dto.meta?.faceIndex ?? dto.meta?.ruleIndex ?? 0, // 兼容旧数据
         scheduleInfo: scheduleInfoResult.value,
         createdAt: new Date(dto.createdAt),
         updatedAt: new Date(dto.updatedAt)

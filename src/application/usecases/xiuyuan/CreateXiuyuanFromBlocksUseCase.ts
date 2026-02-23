@@ -67,13 +67,18 @@ export class CreateXiuyuanFromBlocksUseCase {
       // 1. 检查是否已经创建过 Xiuyuan 卡片
       const { getBlockAttrs } = await import('@/core/siyuan/api');
       
-      // 🆕 对于 concept-descriptor 模板，检查描述符块（第二个块）而不是概念卡（第一个块）
+      // 🆕 对于 concept-descriptor 模板，检查第二个块（描述符块）
       // 因为概念卡本身可以有自己的 Xiuyuan，描述符卡是关联到概念卡的
+      // 
+      // 🆕 对于 concept-definition 模板，检查第一个块（定义块）
+      // 因为概念块可以有自己的 Xiuyuan，定义块为概念提供定义
       let blockToCheck = command.blockIds[0];
       if (command.templateId === 'builtin-concept-descriptor' && command.blockIds.length >= 2) {
         blockToCheck = command.blockIds[1];  // 检查描述符块
         console.log(`[CreateXiuyuanFromBlocksUseCase] Concept-descriptor template detected, checking descriptor block: ${blockToCheck}`);
       }
+      // concept-definition 使用默认的第一个块（定义块）
+      console.log(`[CreateXiuyuanFromBlocksUseCase] Checking block for existing Xiuyuan: ${blockToCheck}`);
       
       const attrs = await getBlockAttrs(blockToCheck);
       
@@ -306,12 +311,14 @@ export class CreateXiuyuanFromBlocksUseCase {
       // 7. 添加到 Riff（可选，错误不阻断）
       const deckId = command.deckId || BUILTIN_DECK_ID;
       
-      // 🆕 对于 concept-descriptor 模板，添加描述符块到 Riff，而不是概念块
+      // 🆕 对于 concept-descriptor 模板，添加描述符块（第二个块）到 Riff
+      // 对于 concept-definition 模板，添加定义块（第一个块）到 Riff
       let blockIdToAddToRiff = representativeBlockId;
       if (command.templateId === 'builtin-concept-descriptor' && command.blockIds.length >= 2) {
         blockIdToAddToRiff = command.blockIds[1];  // 使用描述符块
-        console.log('[CreateXiuyuanFromBlocksUseCase] Concept-descriptor template, adding descriptor block to Riff:', blockIdToAddToRiff);
+        console.log(`[CreateXiuyuanFromBlocksUseCase] Concept-descriptor template, adding descriptor block to Riff:`, blockIdToAddToRiff);
       }
+      // concept-definition 使用默认的第一个块（定义块）
       
       try {
         await addRiffCards(deckId, [blockIdToAddToRiff]);

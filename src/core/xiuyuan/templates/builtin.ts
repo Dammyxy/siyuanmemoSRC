@@ -1,5 +1,7 @@
 ﻿/**
  * 内置模板定义
+ * 
+ * ⚠️ 注意：BUILTIN_CONCEPT_TEMPLATE 仅用于代码内部，不在 BUILTIN_TEMPLATES 列表中
  */
 
 import type { ICardTemplate } from '../types';
@@ -72,10 +74,29 @@ export const LIST_ITEM_TEMPLATE: ICardTemplate = {
 export const CONCEPT_DESCRIPTOR_TEMPLATE: ICardTemplate = {
   id: 'builtin-concept-descriptor',
   name: '概念-描述符',
-  description: '用于概念及其属性的卡片',
+  description: '用于概念及其属性的卡片。需要在列表项中明确引用概念文档：- ((概念文档))',
   category: 'concept',
   fields: [
     { name: 'concept', description: '概念块' },
+    { name: 'descriptor', description: '描述符块' },
+  ],
+  cardRules: [
+    {
+      typeMarker: 'concept-descriptor',
+      frontFields: ['concept', 'descriptor'],
+      backFields: ['concept', 'descriptor'],
+    },
+  ],
+};
+
+/** 概念-描述符（自动）模版 */
+export const CONCEPT_DESCRIPTOR_AUTO_TEMPLATE: ICardTemplate = {
+  id: 'builtin-concept-descriptor-auto',
+  name: '概念-描述符（自动）',
+  description: '自动向上探路查找概念块（标题块或文档块），为包含 ;; 的块创建描述符卡',
+  category: 'concept',
+  fields: [
+    { name: 'concept', description: '概念块（自动查找）' },
     { name: 'descriptor', description: '描述符块' },
   ],
   cardRules: [
@@ -136,8 +157,8 @@ export const BUILTIN_TEMPLATES: ICardTemplate[] = [
   MULTI_CLOZE_TEMPLATE,
   LIST_ITEM_TEMPLATE,
   CONCEPT_DESCRIPTOR_TEMPLATE,
+  CONCEPT_DESCRIPTOR_AUTO_TEMPLATE,
   CONCEPT_DEFINITION_TEMPLATE,
-  BUILTIN_CONCEPT_TEMPLATE,
   BUILTIN_QUICK_TEMPLATE,
   BUILTIN_BIDIRECTIONAL_SINGLE_TEMPLATE,
 ];

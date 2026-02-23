@@ -41,14 +41,14 @@ export class GetAllXiuyuansQueryHandler {
    * 处理查询
    * 
    * @param _query - 查询对象（可选，当前未使用）
-   * @returns GetAllXiuyuansQueryResult - 查询结果
+   * @returns GetAllXiuyuansQueryResult - 查询结果（包含领域对象数组）
    * 
    * @example
    * ```typescript
    * const handler = new GetAllXiuyuansQueryHandler(xiuyuanRepository);
    * const result = await handler.handle({});
    * console.log(`Total: ${result.total}`);
-   * result.xiuyuans.forEach(x => console.log(x.id));
+   * result.xiuyuans.forEach(x => console.log(x.getId().getValue()));
    * ```
    */
   async handle(_query: GetAllXiuyuansQuery = {}): Promise<GetAllXiuyuansQueryResult> {
@@ -58,20 +58,8 @@ export class GetAllXiuyuansQueryHandler {
       throw findResult.error;
     }
 
-    // 2. 转换为 DTO
-    const xiuyuans = findResult.value.map(xiuyuan => ({
-      id: xiuyuan.getId().getValue(),
-      blockIDs: xiuyuan.getBlockIDs().map(b => b.getValue()),
-      templateID: xiuyuan.getTemplateID().getValue(),
-      fields: xiuyuan.getFaces().map((face, index) => ({
-        name: `face-${index}`,
-        blockID: face.questionBlockId || xiuyuan.getBlockIDs()[0]?.getValue() || '',
-        marker: 'question'
-      })),
-      meta: xiuyuan.getMeta(),
-      createdAt: xiuyuan.getCreatedAt().getTime(),
-      updatedAt: xiuyuan.getUpdatedAt().getTime()
-    }));
+    // 2. 直接返回领域对象数组（符合 DDD 架构）
+    const xiuyuans = findResult.value;
     
     return {
       xiuyuans,

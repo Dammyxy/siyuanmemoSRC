@@ -19,77 +19,80 @@
         </span>
       </div>
 
-      <!-- 正面 -->
-      <div
-        v-if="!showAnswer"
-        class="concept-definition-card-renderer__front"
-      >
-        <!-- 正向：概念的定义？ -->
-        <div v-if="!viewModel.isReverse" class="concept-definition-card-renderer__question">
-          <span class="concept-definition-card-renderer__concept-name">{{ viewModel.conceptName }}</span>
-          <span class="concept-definition-card-renderer__question-text">的定义？</span>
-        </div>
-        
-        <!-- 反向：显示定义，问概念 -->
-        <div v-else class="concept-definition-card-renderer__question">
-          <div class="concept-definition-card-renderer__reverse-question">
-            <div class="concept-definition-card-renderer__reverse-label">以下是哪个概念的定义？</div>
-            <div
-              class="concept-definition-card-renderer__definition concept-definition-card-renderer__definition--question"
-              v-html="viewModel.definitionHtml"
-            ></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 背面 -->
-      <div
-        v-else
-        class="concept-definition-card-renderer__back"
-      >
-        <!-- 正向背面：显示定义 -->
-        <template v-if="!viewModel.isReverse">
-          <!-- 显示正面内容（灰色） -->
-          <div class="concept-definition-card-renderer__front-preview">
+      <!-- 概念定义卡主体 -->
+      <div class="concept-definition-card-renderer__main">
+        <!-- 正面：概念 + 问题 -->
+        <div
+          v-if="!showAnswer"
+          class="concept-definition-card-renderer__html-content concept-definition-card-renderer__front"
+        >
+          <!-- 正向：概念的定义？ -->
+          <div v-if="!viewModel.isReverse" class="concept-definition-card-renderer__question">
             <span class="concept-definition-card-renderer__concept-name">{{ viewModel.conceptName }}</span>
             <span class="concept-definition-card-renderer__question-text">的定义？</span>
           </div>
           
-          <!-- 答案分隔线 -->
-          <div class="concept-definition-card-renderer__answer-divider">
-            <span>答案</span>
+          <!-- 反向：显示定义，问概念 -->
+          <div v-else class="concept-definition-card-renderer__question">
+            <div class="concept-definition-card-renderer__reverse-question">
+              <div class="concept-definition-card-renderer__reverse-label">以下是哪个概念的定义？</div>
+              <div
+                class="concept-definition-card-renderer__definition concept-definition-card-renderer__definition--question"
+                v-html="viewModel.definitionHtml"
+              ></div>
+            </div>
           </div>
-          
-          <!-- 显示定义内容（隐藏当前挖空） -->
-          <div
-            class="concept-definition-card-renderer__definition"
-            v-html="viewModel.definitionHtml"
-          ></div>
-        </template>
-        
-        <!-- 反向背面：显示概念 -->
-        <template v-else>
-          <!-- 显示正面内容（灰色） -->
-          <div class="concept-definition-card-renderer__front-preview">
-            <div class="concept-definition-card-renderer__reverse-label">以下是哪个概念的定义？</div>
+        </div>
+
+        <!-- 背面：答案 -->
+        <div
+          v-else
+          class="concept-definition-card-renderer__html-content concept-definition-card-renderer__back"
+        >
+          <!-- 正向背面：显示定义 -->
+          <template v-if="!viewModel.isReverse">
+            <!-- 显示正面内容（灰色） -->
+            <div class="concept-definition-card-renderer__front-preview">
+              <span class="concept-definition-card-renderer__concept-name">{{ viewModel.conceptName }}</span>
+              <span class="concept-definition-card-renderer__question-text">的定义？</span>
+            </div>
+            
+            <!-- 答案分隔线 -->
+            <div class="concept-definition-card-renderer__answer-divider">
+              <span>答案</span>
+            </div>
+            
+            <!-- 显示定义内容（隐藏当前挖空） -->
             <div
-              class="concept-definition-card-renderer__definition concept-definition-card-renderer__definition--preview"
+              class="concept-definition-card-renderer__definition"
               v-html="viewModel.definitionHtml"
             ></div>
-          </div>
+          </template>
           
-          <!-- 答案分隔线 -->
-          <div class="concept-definition-card-renderer__answer-divider">
-            <span>答案</span>
-          </div>
-          
-          <!-- 显示概念名称 -->
-          <div class="concept-definition-card-renderer__concept-answer">
-            <span class="concept-definition-card-renderer__concept-name concept-definition-card-renderer__concept-name--large">
-              {{ viewModel.conceptName }}
-            </span>
-          </div>
-        </template>
+          <!-- 反向背面：显示概念 -->
+          <template v-else>
+            <!-- 显示正面内容（灰色） -->
+            <div class="concept-definition-card-renderer__front-preview">
+              <div class="concept-definition-card-renderer__reverse-label">以下是哪个概念的定义？</div>
+              <div
+                class="concept-definition-card-renderer__definition concept-definition-card-renderer__definition--preview"
+                v-html="viewModel.definitionHtml"
+              ></div>
+            </div>
+            
+            <!-- 答案分隔线 -->
+            <div class="concept-definition-card-renderer__answer-divider">
+              <span>答案</span>
+            </div>
+            
+            <!-- 显示概念名称 -->
+            <div class="concept-definition-card-renderer__concept-answer">
+              <span class="concept-definition-card-renderer__concept-name concept-definition-card-renderer__concept-name--large">
+                {{ viewModel.conceptName }}
+              </span>
+            </div>
+          </template>
+        </div>
       </div>
 
       <!-- 跳转到概念按钮 -->
@@ -117,7 +120,7 @@ import type { ConceptDefinitionCardViewModel } from '@/core/card/concept-definit
 const props = defineProps<{
   blockId: string;
   cardId?: string;
-  card?: any; // FSRSCard，包含 xiuyuanID 和 ruleIndex
+  card?: any; // FSRSCard，包含 xiuyuanID 和 faceIndex
   showAnswer?: boolean;
   i18n?: Record<string, string>;
 }>();
@@ -222,9 +225,23 @@ onMounted(async () => {
   font-size: 16px;
 }
 
+/* 概念定义卡主体 */
+.concept-definition-card-renderer__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+}
+
+.concept-definition-card-renderer__html-content {
+  flex: 1;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--b3-theme-on-surface);
+}
+
 /* 正面样式 */
 .concept-definition-card-renderer__front {
-  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -249,8 +266,12 @@ onMounted(async () => {
 
 /* 背面样式 */
 .concept-definition-card-renderer__back {
-  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   padding: 48px 32px 32px;
+  min-height: 200px;
 }
 
 .concept-definition-card-renderer__front-preview {
@@ -263,7 +284,8 @@ onMounted(async () => {
 .concept-definition-card-renderer__answer-divider {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
+  width: 100%;
   margin: 16px 0 24px 0;
   color: var(--b3-theme-on-surface-light);
   font-size: 14px;
@@ -280,7 +302,7 @@ onMounted(async () => {
 
 .concept-definition-card-renderer__answer-divider::after {
   content: '';
-  flex: 1;
+  width: 60px;
   height: 1px;
   background: var(--b3-border-color);
   margin-left: 12px;
@@ -290,12 +312,19 @@ onMounted(async () => {
   font-size: 24px;
   line-height: 1.6;
   color: var(--b3-theme-on-surface);
+  text-align: center;
+  max-width: 800px;
 }
 
 /* 覆盖 Lute 渲染的默认样式 */
 .concept-definition-card-renderer__definition :deep(*) {
   font-size: 24px !important;
   line-height: 1.6 !important;
+}
+
+/* 深色主题适配 */
+.concept-definition-card-renderer__definition :deep(.protyle-wysiwyg) {
+  background: transparent;
 }
 
 /* 反向卡片样式 */

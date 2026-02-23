@@ -49,7 +49,7 @@ export class DescriptorCardRepository {
    * 加载描述符卡数据
    * 
    * @param blockId 描述符块 ID
-   * @param fsrsCard 可选的 FSRSCard，用于获取 fieldMapping
+   * @param fsrsCard 可选的 FSRSCard，用于获取 frontBlockIDs
    */
   async loadDescriptorCard(blockId: string, fsrsCard?: any): Promise<DescriptorCardData | null> {
     try {
@@ -77,12 +77,8 @@ export class DescriptorCardRepository {
       if (fsrsCard?.meta?.frontBlockIDs?.[0]) {
         console.log('[SiYuanMemo][DescriptorCardRepository] Using concept from frontBlockIDs:', fsrsCard.meta.frontBlockIDs[0]);
         parentConcept = await this.getConceptBlock(fsrsCard.meta.frontBlockIDs[0]);
-      } else if (fsrsCard?.meta?.fieldMapping?.concept) {
-        // 兼容旧版本：使用 fieldMapping
-        console.log('[SiYuanMemo][DescriptorCardRepository] Using concept from fieldMapping:', fsrsCard.meta.fieldMapping.concept);
-        parentConcept = await this.getConceptBlock(fsrsCard.meta.fieldMapping.concept);
       } else {
-        console.log('[SiYuanMemo][DescriptorCardRepository] No frontBlockIDs or fieldMapping, searching parent chain');
+        console.log('[SiYuanMemo][DescriptorCardRepository] No frontBlockIDs, searching parent chain');
         parentConcept = await this.getParentConcept(blockId);
       }
 

@@ -915,10 +915,113 @@ export class DialogManager implements IDialogManager {
   }
 
   /**
-   * 处理多填空卡片创建
+   * 处理概念描述符卡片的批量创建
    * 
    * @description
-   * 多填空卡片的创建流程：
+   * 概念描述符卡片的创建流程：
+   * 1. 识别顶层列表项中引用的概念文档块 ((概念文档))
+   * 2. 如果概念文档块没有被制作为概念卡，则制作
+   * 3. 识别概念文档块子级里的描述符块（包含 ;; 符号）
+   * 4. 为每个描述符块生成【概念-描述符】卡
+   * 
+   * @param blockIds - 块 ID 列表（只使用第一个块）
+   */
+  private async handleConceptDescriptorCard(blockIds: string[]): Promise<void> {
+    try {
+      if (blockIds.length === 0) {
+        pushErrMsg('未选中任何块');
+        return;
+      }
+
+      const parentBlockId = blockIds[0];
+
+      // 创建概念描述符卡
+      const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
+      const result = await xiuyuanAppService.createConceptDescriptorCards({
+        parentBlockId,
+        deckId: riff.BUILTIN_DECK_ID
+      });
+
+      if (!result.ok) {
+        console.error('[DialogManager] Failed to create concept descriptor cards:', result.error);
+        pushErrMsg(`创建失败：${result.error.message}`);
+        return;
+      }
+
+      const { conceptCardId, descriptorCards, skipped } = result.value;
+      console.log('[DialogManager] Concept descriptor cards created:', { conceptCardId, descriptorCards, skipped });
+
+      let message = `✅ 概念描述符卡创建成功！\n`;
+      if (conceptCardId) {
+        message += `概念卡：已创建\n`;
+      }
+      message += `描述符卡：${descriptorCards.length} 张`;
+      if (skipped.length > 0) {
+        message += `\n跳过：${skipped.length} 个（已存在）`;
+      }
+
+      pushMsg(message);
+    } catch (err) {
+      console.error('[DialogManager] Failed to handle concept descriptor card:', err);
+      pushErrMsg(`创建失败：${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * 处理概念描述符卡片的批量创建（自动探路）
+   * 
+   * @description
+   * 概念描述符（自动）卡片的创建流程：
+   * 1. 选择包含 ;; 的块（可以是多个）
+   * 2. 向上探路查找概念块：优先标题块，其次文档块
+   * 3. 如果概念块没有被制作为概念卡，则制作
+   * 4. 为每个描述符块生成【概念-描述符】卡
+   * 
+   * @param blockIds - 块 ID 列表（包含 ;; 的块）
+   */
+  private async handleConceptDescriptorAutoCard(blockIds: string[]): Promise<void> {
+    try {
+      if (blockIds.length === 0) {
+        pushErrMsg('未选中任何块');
+        return;
+      }
+
+      // 创建概念描述符卡（自动探路）
+      const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
+      const result = await xiuyuanAppService.createConceptDescriptorAuto({
+        descriptorBlockIds: blockIds,
+        deckId: riff.BUILTIN_DECK_ID
+      });
+
+      if (!result.ok) {
+        console.error('[DialogManager] Failed to create concept descriptor auto cards:', result.error);
+        pushErrMsg(`创建失败：${result.error.message}`);
+        return;
+      }
+
+      const { conceptCardId, conceptType, descriptorCards, skipped } = result.value;
+      console.log('[DialogManager] Concept descriptor auto cards created:', { conceptCardId, conceptType, descriptorCards, skipped });
+
+      const conceptTypeName = conceptType === 'heading' ? '标题块' : '文档块';
+      let message = `✅ 概念描述符卡创建成功！\n`;
+      message += `概念卡：${conceptTypeName}\n`;
+      message += `描述符卡：${descriptorCards.length} 张`;
+      if (skipped.length > 0) {
+        message += `\n跳过：${skipped.length} 个（已存在）`;
+      }
+
+      pushMsg(message);
+    } catch (err) {
+      console.error('[DialogManager] Failed to handle concept descriptor auto card:', err);
+      pushErrMsg(`创建失败：${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * 处理多填空卡片的创建
+   * 
+   * @description
+   * 多填空卡片需要特殊处理：
    * 1. 读取块内容
    * 2. 解析所有填空
    * 3. 动态生成 cardRules（每个填空一个 rule）
@@ -1125,6 +1228,22 @@ export class DialogManager implements IDialogManager {
               // 🆕 有序列表模版特殊处理
               if (templateId === 'builtin-list-item') {
                 await this.handleListTemplateCard(blockIds, template);
+                this.templateSelectDialog?.destroy();
+                this.templateSelectDialog = null;
+                return;
+              }
+
+              // 🆕 概念描述符模版特殊处理
+              if (templateId === 'builtin-concept-descriptor') {
+                await this.handleConceptDescriptorCard(blockIds);
+                this.templateSelectDialog?.destroy();
+                this.templateSelectDialog = null;
+                return;
+              }
+
+              // 🆕 概念描述符（自动）模版特殊处理
+              if (templateId === 'builtin-concept-descriptor-auto') {
+                await this.handleConceptDescriptorAutoCard(blockIds);
                 this.templateSelectDialog?.destroy();
                 this.templateSelectDialog = null;
                 return;

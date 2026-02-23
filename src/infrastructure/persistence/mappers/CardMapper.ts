@@ -209,6 +209,7 @@ export class CardMapper {
     const card: FSRSCard = {
       // 标识
       id: dto.id,
+      xiuyuanID: dto.xiuyuanID || meta.xiuyuanID || '', // 🆕 从 DTO 或 meta 中获取
       blockId: dto.blockId,
 
       // FSRS 核心

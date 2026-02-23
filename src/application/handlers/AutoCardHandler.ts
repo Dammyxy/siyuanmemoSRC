@@ -535,11 +535,11 @@ export class AutoCardHandler implements ITransactionHandler {
             if (match) symbols.push({ type: 'basic-backward', match });
         }
         
-        // 4. 概念卡片 :: (已禁用 - 2026-02-17)
-        // if (settings.enabledSymbols.concept && this.patterns.concept.test(cleanContent)) {
-        //     const match = cleanContent.match(this.patterns.concept);
-        //     if (match) symbols.push({ type: 'concept', match });
-        // }
+        // 4. 概念卡片 ::
+        if (settings.enabledSymbols.concept && this.patterns.concept.test(cleanContent)) {
+            const match = cleanContent.match(this.patterns.concept);
+            if (match) symbols.push({ type: 'concept', match });
+        }
         
         // 5. 描述符卡片 ;;
         if (settings.enabledSymbols.descriptor && this.patterns.descriptor.test(cleanContent)) {
@@ -1046,7 +1046,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     
                     // 创建卡片
                     const result = await xiuyuanAppService.createFromBlocks({
-                        blockIds: [refId, blockId],
+                        blockIds: [blockId, refId],  // 定义块在前，概念块在后
                         templateId: tempTemplateId,
                         fieldMapping: {
                             concept: refId,
@@ -1067,9 +1067,10 @@ export class AutoCardHandler implements ITransactionHandler {
                 } else {
                     // ✅ 无挖空：使用标准模板，生成双向卡片
                     console.log('[SiYuanMemo][AutoCard] Creating bidirectional concept definition card');
+                    console.log('[SiYuanMemo][AutoCard] blockIds order:', [blockId, refId], 'definition first, concept second');
                     
                     const result = await xiuyuanAppService.createFromBlocks({
-                        blockIds: [refId, blockId],
+                        blockIds: [blockId, refId],  // 定义块在前，概念块在后
                         templateId: 'builtin-concept-definition',
                         fieldMapping: {
                             concept: refId,
@@ -1166,7 +1167,6 @@ export class AutoCardHandler implements ITransactionHandler {
                 await this.createBasicCardFromDescriptor(blockId, attribute, description, actualSymbol);
                 return;
             }
-            
             console.log('[SiYuanMemo][AutoCard] Found concept card, creating Xiuyuan descriptor card');
             
             // 3. 使用 Xiuyuan 创建描述符卡片
@@ -1178,8 +1178,6 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             
             // 使用 builtin-concept-descriptor 模版
-            // TODO: Phase 4 Task 14.3 - 迁移到 CardApplicationService
-            // 需要先实现模板支持
             const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
             const result = await xiuyuanAppService.createFromBlocks({
                 blockIds: [foundConceptId, blockId],  // 使用找到的概念卡 ID
