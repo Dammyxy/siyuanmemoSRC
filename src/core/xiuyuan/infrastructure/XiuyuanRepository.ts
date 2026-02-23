@@ -407,6 +407,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     const blockIDs = xiuyuan.getBlockIDs();
     const meta = xiuyuan.getMeta();
     const faceIndex = card.getFaceIndex();
+    const face = xiuyuan.getFaces()[faceIndex];  // ✅ 获取当前卡片面
     
     // Get schedulerType from meta, default to 'fsrs-v6' (Requirement 5.5)
     const schedulerType = (meta.schedulerType as 'fsrs-v6' | 'a-factor' | 'sm2') || 'fsrs-v6';
