@@ -75,8 +75,14 @@ export class DescriptorCardRepository {
       let parentConcept: ParentConceptBlock | null = null;
       
       if (fsrsCard?.meta?.frontBlockIDs?.[0]) {
-        console.log('[SiYuanMemo][DescriptorCardRepository] Using concept from frontBlockIDs:', fsrsCard.meta.frontBlockIDs[0]);
-        parentConcept = await this.getConceptBlock(fsrsCard.meta.frontBlockIDs[0]);
+        const conceptBlockId = fsrsCard.meta.frontBlockIDs[0];
+        console.log('[SiYuanMemo][DescriptorCardRepository] Using concept from frontBlockIDs:', conceptBlockId);
+        console.log('[SiYuanMemo][DescriptorCardRepository] Descriptor blockId:', blockId);
+        console.log('[SiYuanMemo][DescriptorCardRepository] Are they same?', conceptBlockId === blockId);
+        parentConcept = await this.getConceptBlock(conceptBlockId);
+        if (parentConcept) {
+          console.log('[SiYuanMemo][DescriptorCardRepository] Parent concept content:', parentConcept.content);
+        }
       } else {
         console.log('[SiYuanMemo][DescriptorCardRepository] No frontBlockIDs, searching parent chain');
         parentConcept = await this.getParentConcept(blockId);

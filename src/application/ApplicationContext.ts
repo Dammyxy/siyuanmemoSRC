@@ -1085,9 +1085,10 @@ export class ApplicationContext {
       );
       
       // ✅ 从代码导入模板（硬编码，不需要持久化）
-      const { BUILTIN_TEMPLATES } = await import('@/core/xiuyuan');
+      const { BUILTIN_TEMPLATES, ALL_TEMPLATES } = await import('@/core/xiuyuan');
       const templateRegistry = new Map<string, any>();
-      for (const template of BUILTIN_TEMPLATES) {
+      // 使用 ALL_TEMPLATES 来包含内部使用的变体模板
+      for (const template of ALL_TEMPLATES) {
         templateRegistry.set(template.id, template);
       }
       

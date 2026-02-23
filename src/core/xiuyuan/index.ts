@@ -50,7 +50,7 @@
  */
 
 export * from './types';
-export { BUILTIN_TEMPLATES } from './templates/builtin';
+export { BUILTIN_TEMPLATES, ALL_TEMPLATES } from './templates/builtin';
 
 // ✅ DDD 架构导出
 export * from './domain';

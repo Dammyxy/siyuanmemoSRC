@@ -47,6 +47,8 @@ export interface CreateConceptDescriptorAutoCommand {
   deckId?: string;
   /** 优先级 */
   priority?: number;
+  /** 卡片方向（可选，如果不提供则从块内容中检测） */
+  direction?: 'forward' | 'reverse' | 'both';
 }
 
 export interface ConceptDescriptorAutoResult {
@@ -62,6 +64,26 @@ export interface ConceptDescriptorAutoResult {
   }>;
   /** 跳过的描述符块（已存在卡片） */
   skipped: string[];
+}
+
+/**
+ * 检测描述符块的方向
+ * 
+ * @param content 块内容
+ * @returns 'forward' | 'reverse' | 'both'
+ */
+function detectDescriptorDirection(content: string): 'forward' | 'reverse' | 'both' {
+  // 移除 IAL 属性块
+  const cleanContent = content.replace(/\{:[^}]*\}/g, '').trim();
+  
+  // 检测符号（优先级：特殊符号 > 默认符号）
+  if (/;<>|；《》/.test(cleanContent)) {
+    return 'both';
+  } else if (/;<|；《/.test(cleanContent)) {
+    return 'reverse';
+  } else {
+    return 'forward';  // 默认正向
+  }
 }
 
 /**
@@ -426,10 +448,33 @@ export class CreateConceptDescriptorAutoUseCase {
           continue;
         }
         
+        // 🆕 检测方向（如果命令中没有指定）
+        let direction = command.direction;
+        if (!direction) {
+          // 从块内容中检测
+          const blockQuery = await sql(`SELECT content FROM blocks WHERE id = '${descriptorBlockId}' LIMIT 1`);
+          if (blockQuery && blockQuery.length > 0) {
+            direction = detectDescriptorDirection(blockQuery[0].content);
+            console.log('[CreateConceptDescriptorAutoUseCase] Detected direction from content:', direction);
+          } else {
+            direction = 'forward';  // 默认正向
+          }
+        }
+        
+        // 🆕 根据方向选择预定义模板
+        let templateId: string;
+        if (direction === 'forward') {
+          templateId = 'builtin-concept-descriptor';
+        } else if (direction === 'reverse') {
+          templateId = 'builtin-concept-descriptor-reverse';
+        } else {
+          templateId = 'builtin-concept-descriptor-both';
+        }
+        
         // 创建概念-描述符卡
         const result = await createXiuyuanUseCase.execute({
           blockIds: [conceptId, descriptorBlockId],
-          templateId: 'builtin-concept-descriptor',
+          templateId: templateId,  // 使用选择的模板
           fieldMapping: {
             concept: conceptId,
             descriptor: descriptorBlockId

@@ -67,8 +67,12 @@ export class AutoCardHandler implements ITransactionHandler {
     
     // 符号正则表达式（私有）
     private patterns = {
-        concept: /^(.+?)\s*(::|：：)\s*(.+)$/,         // 概念 :: 或 ：： 定义
-        descriptor: /^(.+?)\s*(;;|；；)\s*(.+)$/,      // 属性 ;; 或 ；； 描述
+        concept: /^(.+?)\s*(::|：：)\s*(.+)$/,         // 概念 :: 或 ：： 定义（默认双向）
+        conceptForward: /^(.+?)\s*(:>|：》)\s*(.+)$/,  // 概念 :> 或 ：》 定义（仅正向）
+        conceptReverse: /^(.+?)\s*(:<|：《)\s*(.+)$/,  // 概念 :< 或 ：《 定义（仅反向）
+        descriptor: /^(.+?)\s*(;;|；；)\s*(.+)$/,      // 属性 ;; 或 ；； 描述（默认仅正向）
+        descriptorReverse: /^(.+?)\s*(;<|；《)\s*(.+)$/,  // 属性 ;< 或 ；《 描述（仅反向）
+        descriptorBoth: /^(.+?)\s*(;<>|；《》)\s*(.+)$/,  // 属性 ;<> 或 ；《》 描述（双向）
         basicBoth: /^(.+?)\s*(<>|《》)\s*(.+)$/,       // 问题 <> 或 《》 答案
         basicForward: /^(.+?)\s*(>>|》》)\s*(.+)$/,    // 问题 >> 或 》》 答案
         basicBackward: /^(.+?)\s*(<<|《《)\s*(.+)$/,   // 答案 << 或 《《 问题
@@ -437,7 +441,22 @@ export class AutoCardHandler implements ITransactionHandler {
             
             console.log('[SiYuanMemo][AutoCard] Checking quick symbols:', blockId, 'content:', kramdown);
             
-            // 2. ✅ 检查是否已经是 Xiuyuan 卡片（通过块属性）
+            // 2. ✅ 检查块类型，只允许段落块触发符号制卡（防止列表块误触）
+            const { sql } = await import('@/core/siyuan/api');
+            const typeResult = await sql(`SELECT type FROM blocks WHERE id = '${blockId}' LIMIT 1`);
+            
+            if (!typeResult || typeResult.length === 0) {
+                console.log('[SiYuanMemo][AutoCard] Block not found:', blockId);
+                return;
+            }
+            
+            const blockType = typeResult[0].type;
+            if (blockType !== 'p') {
+                console.log('[SiYuanMemo][AutoCard] Block is not a paragraph (type:', blockType, '), skipping symbol detection');
+                return;
+            }
+            
+            // 3. ✅ 检查是否已经是 Xiuyuan 卡片（通过块属性）
             const { getBlockAttrs } = await import('@/core/siyuan/api');
             const attrs = await getBlockAttrs(blockId);
             
@@ -446,7 +465,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
             
-            // 3. 检查是否已制卡
+            // 4. 检查是否已制卡
             const cardService = this.getCardService();
             let existingCard = null;
             
@@ -461,7 +480,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
             
-            // 🆕 4. 批量检测所有符号（方案 3）
+            // 🆕 5. 批量检测所有符号（方案 3）
             const detectedSymbols = this.detectAllSymbols(kramdown, quickCardSettings);
             
             if (detectedSymbols.length === 0) {
@@ -474,7 +493,7 @@ export class AutoCardHandler implements ITransactionHandler {
             // 移除 IAL，用于后续的卡片创建
             const cleanContent = kramdown.replace(/\{:[^}]*\}/g, '').trim();
             
-            // 🆕 5. 批量创建卡片
+            // 🆕 6. 批量创建卡片
             for (const symbol of detectedSymbols) {
                 try {
                     await this.createCardBySymbol(blockId, symbol, cleanContent);
@@ -497,11 +516,11 @@ export class AutoCardHandler implements ITransactionHandler {
      * @returns 检测到的符号列表
      */
     private detectAllSymbols(content: string, settings: any): Array<{
-        type: 'basic-both' | 'basic-forward' | 'basic-backward' | 'concept' | 'descriptor' | 'cloze';
+        type: 'basic-both' | 'basic-forward' | 'basic-backward' | 'concept' | 'concept-forward' | 'concept-reverse' | 'descriptor' | 'descriptor-reverse' | 'descriptor-both' | 'cloze';
         match: RegExpMatchArray;
     }> {
         const symbols: Array<{
-            type: 'basic-both' | 'basic-forward' | 'basic-backward' | 'concept' | 'descriptor' | 'cloze';
+            type: 'basic-both' | 'basic-forward' | 'basic-backward' | 'concept' | 'concept-forward' | 'concept-reverse' | 'descriptor' | 'descriptor-reverse' | 'descriptor-both' | 'cloze';
             match: RegExpMatchArray;
         }> = [];
         
@@ -517,38 +536,65 @@ export class AutoCardHandler implements ITransactionHandler {
         // 检测顺序（优先级从高到低）
         // 注意：排除 >>> 符号（它在列表模版队列中处理）
         
-        // 1. 双向卡片 <>
-        if (settings.enabledSymbols.basic && this.patterns.basicBoth.test(cleanContent)) {
+        // 1. 描述符双向 ;<> (优先级最高，避免被 <> 误匹配)
+        if (settings.enabledSymbols.descriptor && this.patterns.descriptorBoth.test(cleanContent)) {
+            const match = cleanContent.match(this.patterns.descriptorBoth);
+            if (match) symbols.push({ type: 'descriptor-both', match });
+        }
+        
+        // 2. 双向卡片 <>
+        else if (settings.enabledSymbols.basic && this.patterns.basicBoth.test(cleanContent)) {
             const match = cleanContent.match(this.patterns.basicBoth);
             if (match) symbols.push({ type: 'basic-both', match });
         }
         
-        // 2. 正向卡片 >> (排除 >>>)
-        if (settings.enabledSymbols.basic && this.patterns.basicForward.test(cleanContent) && !this.patterns.multiLine.test(cleanContent)) {
+        // 3. 正向卡片 >> (排除 >>>)
+        else if (settings.enabledSymbols.basic && this.patterns.basicForward.test(cleanContent) && !this.patterns.multiLine.test(cleanContent)) {
             const match = cleanContent.match(this.patterns.basicForward);
             if (match) symbols.push({ type: 'basic-forward', match });
         }
         
-        // 3. 反向卡片 <<
-        if (settings.enabledSymbols.basic && this.patterns.basicBackward.test(cleanContent)) {
+        // 4. 反向卡片 <<
+        else if (settings.enabledSymbols.basic && this.patterns.basicBackward.test(cleanContent)) {
             const match = cleanContent.match(this.patterns.basicBackward);
             if (match) symbols.push({ type: 'basic-backward', match });
         }
         
-        // 4. 概念卡片 ::
-        if (settings.enabledSymbols.concept && this.patterns.concept.test(cleanContent)) {
-            const match = cleanContent.match(this.patterns.concept);
-            if (match) symbols.push({ type: 'concept', match });
+        // 5. 概念卡片（优先检测方向符号）
+        else if (settings.enabledSymbols.concept) {
+            // 4.1 概念正向 :>
+            if (this.patterns.conceptForward.test(cleanContent)) {
+                const match = cleanContent.match(this.patterns.conceptForward);
+                if (match) symbols.push({ type: 'concept-forward', match });
+            }
+            // 4.2 概念反向 :<
+            else if (this.patterns.conceptReverse.test(cleanContent)) {
+                const match = cleanContent.match(this.patterns.conceptReverse);
+                if (match) symbols.push({ type: 'concept-reverse', match });
+            }
+            // 4.3 概念双向 :: (默认)
+            else if (this.patterns.concept.test(cleanContent)) {
+                const match = cleanContent.match(this.patterns.concept);
+                if (match) symbols.push({ type: 'concept', match });
+            }
         }
         
-        // 5. 描述符卡片 ;;
-        if (settings.enabledSymbols.descriptor && this.patterns.descriptor.test(cleanContent)) {
-            const match = cleanContent.match(this.patterns.descriptor);
-            if (match) symbols.push({ type: 'descriptor', match });
+        // 6. 描述符卡片（检测反向和正向）
+        else if (settings.enabledSymbols.descriptor) {
+            // 6.1 描述符反向 ;<
+            if (this.patterns.descriptorReverse.test(cleanContent)) {
+                const match = cleanContent.match(this.patterns.descriptorReverse);
+                if (match) symbols.push({ type: 'descriptor-reverse', match });
+            }
+            // 6.2 描述符正向 ;; (默认)
+            else if (this.patterns.descriptor.test(cleanContent)) {
+                const match = cleanContent.match(this.patterns.descriptor);
+                if (match) symbols.push({ type: 'descriptor', match });
+            }
         }
         
-        // 6. 填空卡片 {{}} 或 == 或思源标记
-        if (settings.enabledSymbols.cloze && (this.patterns.cloze.test(cleanContent) || this.patterns.clozeEqual.test(cleanContent) || this.patterns.clozeMark.test(cleanContent))) {
+        // 7. 填空卡片 {{}} 或 == 或思源标记
+        else if (settings.enabledSymbols.cloze && (this.patterns.cloze.test(cleanContent) || this.patterns.clozeEqual.test(cleanContent) || this.patterns.clozeMark.test(cleanContent))) {
             const match = cleanContent.match(this.patterns.cloze) || cleanContent.match(this.patterns.clozeEqual) || cleanContent.match(this.patterns.clozeMark);
             if (match) symbols.push({ type: 'cloze', match });
         }
@@ -582,10 +628,22 @@ export class AutoCardHandler implements ITransactionHandler {
                 await this.createBasicCard(blockId, 'backward', content, actualSymbol);
                 break;
             case 'concept':
-                await this.createConceptCard(blockId, content, actualSymbol);
+                await this.createConceptCard(blockId, content, actualSymbol, 'both');
+                break;
+            case 'concept-forward':
+                await this.createConceptCard(blockId, content, actualSymbol, 'forward');
+                break;
+            case 'concept-reverse':
+                await this.createConceptCard(blockId, content, actualSymbol, 'reverse');
                 break;
             case 'descriptor':
-                await this.createDescriptorCard(blockId, content, actualSymbol);
+                await this.createDescriptorCard(blockId, content, actualSymbol, 'forward');
+                break;
+            case 'descriptor-reverse':
+                await this.createDescriptorCard(blockId, content, actualSymbol, 'reverse');
+                break;
+            case 'descriptor-both':
+                await this.createDescriptorCard(blockId, content, actualSymbol, 'both');
                 break;
             case 'cloze':
                 await this.createClozeCard(blockId, content);
@@ -951,13 +1009,28 @@ export class AutoCardHandler implements ITransactionHandler {
      * @param blockId 块 ID
      * @param content 块内容
      * @param actualSymbol 实际使用的符号（如 '::' 或 '：：'）
+     * @param direction 卡片方向：'both' 双向（默认），'forward' 仅正向，'reverse' 仅反向
      */
-    private async createConceptCard(blockId: string, content: string, actualSymbol?: string): Promise<void> {
+    private async createConceptCard(
+        blockId: string, 
+        content: string, 
+        actualSymbol?: string,
+        direction: 'both' | 'forward' | 'reverse' = 'both'
+    ): Promise<void> {
         try {
-            console.log('[SiYuanMemo][AutoCard] Creating concept card:', blockId, 'symbol:', actualSymbol);
+            console.log('[SiYuanMemo][AutoCard] Creating concept card:', blockId, 'symbol:', actualSymbol, 'direction:', direction);
             
             // 1. 检查是否是块引用格式：((block-id))::定义
-            const blockRefPattern = /\(\((\d{14}-[a-z0-9]{7})[^\)]*\)\)\s*(::|：：)\s*(.+)/;
+            // 根据方向使用不同的正则
+            let blockRefPattern: RegExp;
+            if (direction === 'forward') {
+                blockRefPattern = /\(\((\d{14}-[a-z0-9]{7})[^\)]*\)\)\s*(:>|：》)\s*(.+)/;
+            } else if (direction === 'reverse') {
+                blockRefPattern = /\(\((\d{14}-[a-z0-9]{7})[^\)]*\)\)\s*(:<|：《)\s*(.+)/;
+            } else {
+                blockRefPattern = /\(\((\d{14}-[a-z0-9]{7})[^\)]*\)\)\s*(::|：：)\s*(.+)/;
+            }
+            
             const blockRefMatch = content.match(blockRefPattern);
             
             if (blockRefMatch) {
@@ -1008,28 +1081,31 @@ export class AutoCardHandler implements ITransactionHandler {
                 const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
                 
                 if (clozes.length > 0) {
-                    // ✅ 有挖空：为每个挖空生成双向卡片（正向+反向）
-                    console.log('[SiYuanMemo][AutoCard] Creating multi-cloze concept definition cards (bidirectional)');
+                    // ✅ 有挖空：根据方向生成对应的卡片
+                    console.log('[SiYuanMemo][AutoCard] Creating multi-cloze concept definition cards, direction:', direction);
                     
-                    // 动态生成 cardRules（每个挖空两张卡片：正向+反向）
+                    // 动态生成 cardRules（根据方向）
                     const dynamicCardRules = [];
                     for (let i = 0; i < clozes.length; i++) {
-                        dynamicCardRules.push(
-                            {
+                        if (direction === 'both' || direction === 'forward') {
+                            dynamicCardRules.push({
                                 typeMarker: `concept-definition-cloze-${i}-forward`,
                                 frontFields: ['concept'],
                                 backFields: ['definition'],
-                            },
-                            {
+                            });
+                        }
+                        if (direction === 'both' || direction === 'reverse') {
+                            dynamicCardRules.push({
                                 typeMarker: `concept-definition-cloze-${i}-reverse`,
                                 frontFields: ['definition'],
                                 backFields: ['concept'],
-                            }
-                        );
+                            });
+                        }
                     }
                     
                     // 创建临时模板
-                    const tempTemplateId = `builtin-concept-definition-cloze-${blockId}`;
+                    const directionSuffix = direction === 'both' ? 'both' : direction === 'forward' ? 'fwd' : 'rev';
+                    const tempTemplateId = `cd-cloze-${directionSuffix}-${blockId.slice(-7)}`;  // 使用短 ID
                     const tempTemplate = {
                         id: tempTemplateId,
                         name: '概念定义（多挖空-双向）',
@@ -1065,13 +1141,30 @@ export class AutoCardHandler implements ITransactionHandler {
                     console.log('[SiYuanMemo][AutoCard] Created', clozes.length * 2, 'concept definition cards (bidirectional with cloze)');
                     
                 } else {
-                    // ✅ 无挖空：使用标准模板，生成双向卡片
-                    console.log('[SiYuanMemo][AutoCard] Creating bidirectional concept definition card');
+                    // ✅ 无挖空：根据方向选择预定义模板
+                    console.log('[SiYuanMemo][AutoCard] Creating concept definition card, direction:', direction);
                     console.log('[SiYuanMemo][AutoCard] blockIds order:', [blockId, refId], 'definition first, concept second');
+                    
+                    let templateId: string;
+                    let cardCount: number;
+                    
+                    if (direction === 'both') {
+                        // 双向：使用标准模板
+                        templateId = 'builtin-concept-definition';
+                        cardCount = 2;
+                    } else if (direction === 'forward') {
+                        // 仅正向：使用预定义模板
+                        templateId = 'builtin-concept-definition-forward';
+                        cardCount = 1;
+                    } else {
+                        // 仅反向：使用预定义模板
+                        templateId = 'builtin-concept-definition-reverse';
+                        cardCount = 1;
+                    }
                     
                     const result = await xiuyuanAppService.createFromBlocks({
                         blockIds: [blockId, refId],  // 定义块在前，概念块在后
-                        templateId: 'builtin-concept-definition',
+                        templateId: templateId,  // 使用选择的模板
                         fieldMapping: {
                             concept: refId,
                             definition: blockId
@@ -1086,9 +1179,11 @@ export class AutoCardHandler implements ITransactionHandler {
                         console.error('[SiYuanMemo][AutoCard] Failed to create Xiuyuan concept card:', errorMsg);
                         return;
                     }
+                    
+                    console.log('[SiYuanMemo][AutoCard] Created', cardCount, 'concept definition card(s)');
                 }
                 
-                // 标记定义块为 descriptor 卡类型
+                // 标记定义块为 descriptor 卡类型（概念定义卡本质是描述符卡）
                 const { setBlockAttrs } = await import('@/core/siyuan/api');
                 await setBlockAttrs(blockId, {
                     'custom-fsrs-card-type': 'descriptor'
@@ -1102,9 +1197,15 @@ export class AutoCardHandler implements ITransactionHandler {
                 console.log('[SiYuanMemo][AutoCard] Finished ensuring concept document card');
                 
                 const { pushMsg } = await import('@/core/siyuan/api');
-                const message = clozes.length > 0 
-                    ? `✅ 已创建 ${clozes.length * 2} 张概念定义卡片（双向+挖空）`
-                    : `✅ 已创建 2 张概念定义卡片（双向）`;
+                const directionText = direction === 'both' ? '双向' : direction === 'forward' ? '正向' : '反向';
+                let message: string;
+                if (clozes.length > 0) {
+                    const totalCards = direction === 'both' ? clozes.length * 2 : clozes.length;
+                    message = `✅ 已创建 ${totalCards} 张概念定义卡片（${directionText}+挖空）`;
+                } else {
+                    const cardCount = direction === 'both' ? 2 : 1;
+                    message = `✅ 已创建 ${cardCount} 张概念定义卡片（${directionText}）`;
+                }
                 await pushMsg(message);
                 
             } else {
@@ -1126,13 +1227,27 @@ export class AutoCardHandler implements ITransactionHandler {
      * @param blockId 块 ID
      * @param content 块内容
      * @param actualSymbol 实际使用的符号（如 ';;' 或 '；；'）
+     * @param direction 卡片方向：'forward' 仅正向，'reverse' 仅反向，'both' 双向
      */
-    private async createDescriptorCard(blockId: string, content: string, actualSymbol?: string): Promise<void> {
+    private async createDescriptorCard(
+        blockId: string, 
+        content: string, 
+        actualSymbol?: string,
+        direction: 'forward' | 'reverse' | 'both' = 'forward'
+    ): Promise<void> {
         try {
-            console.log('[SiYuanMemo][AutoCard] Creating descriptor card:', blockId, 'symbol:', actualSymbol);
+            console.log('[SiYuanMemo][AutoCard] Creating descriptor card:', blockId, 'symbol:', actualSymbol, 'direction:', direction);
             
-            // 1. 解析属性和描述
-            const match = content.match(this.patterns.descriptor);
+            // 1. 解析属性和描述（根据不同的符号使用不同的正则）
+            let match: RegExpMatchArray | null = null;
+            if (direction === 'both') {
+                match = content.match(this.patterns.descriptorBoth);
+            } else if (direction === 'reverse') {
+                match = content.match(this.patterns.descriptorReverse);
+            } else {
+                match = content.match(this.patterns.descriptor);
+            }
+            
             if (!match) {
                 console.error('[SiYuanMemo][AutoCard] Failed to parse descriptor card content:', content);
                 return;
@@ -1178,17 +1293,44 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
             
-            // 使用 builtin-concept-descriptor 模版
             const { BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
+            
+            // 4. 根据方向选择预定义模板
+            let templateId: string;
+            let cardCount: number;
+            
+            if (direction === 'forward') {
+                // 仅正向：使用现有模板
+                templateId = 'builtin-concept-descriptor';
+                cardCount = 1;
+            } else if (direction === 'reverse') {
+                // 仅反向：使用预定义模板
+                templateId = 'builtin-concept-descriptor-reverse';
+                cardCount = 1;
+            } else {
+                // 双向：使用预定义模板
+                templateId = 'builtin-concept-descriptor-both';
+                cardCount = 2;
+            }
+            
+            // 5. 🔧 再次检查是否已经创建（避免竞态条件）
+            const { getBlockAttrs: getAttrs } = await import('@/core/siyuan/api');
+            const currentAttrs = await getAttrs(blockId);
+            if (currentAttrs && (currentAttrs['custom-xiuyuan-id'] || currentAttrs['custom-fsrs-xiuyuan-id'])) {
+                console.log('[SiYuanMemo][AutoCard] Block already has Xiuyuan card (race condition detected), skipping:', blockId);
+                return;
+            }
+            
+            // 6. 创建卡片
             const result = await xiuyuanAppService.createFromBlocks({
-                blockIds: [foundConceptId, blockId],  // 使用找到的概念卡 ID
-                templateId: 'builtin-concept-descriptor',
+                blockIds: [foundConceptId, blockId],
+                templateId: templateId,
                 fieldMapping: {
-                    concept: foundConceptId,  // 使用找到的概念卡 ID
+                    concept: foundConceptId,
                     descriptor: blockId
                 },
                 deckId: BUILTIN_DECK_ID,
-                cardType: 'descriptor'  // 🆕 明确指定卡片类型
+                cardType: 'descriptor'
             });
             
             if (!result.ok) {
@@ -1202,9 +1344,10 @@ export class AutoCardHandler implements ITransactionHandler {
             
             console.log('[SiYuanMemo][AutoCard] Descriptor card created successfully:', blockId);
             
-            // 4. 显示成功提示
+            // 7. 显示成功提示
             const { pushMsg } = await import('@/core/siyuan/api');
-            await pushMsg(`✅ 已创建描述符卡片 (;;)`);
+            const directionText = direction === 'forward' ? '正向' : direction === 'reverse' ? '反向' : '双向';
+            await pushMsg(`✅ 已创建${cardCount}张描述符卡片（${directionText}）`);
         } catch (error) {
             console.error('[SiYuanMemo][AutoCard] Failed to create descriptor card:', blockId, error);
             const { pushErrMsg } = await import('@/core/siyuan/api');

@@ -73,7 +73,11 @@ export class CreateXiuyuanFromBlocksUseCase {
       // 🆕 对于 concept-definition 模板，检查第一个块（定义块）
       // 因为概念块可以有自己的 Xiuyuan，定义块为概念提供定义
       let blockToCheck = command.blockIds[0];
-      if (command.templateId === 'builtin-concept-descriptor' && command.blockIds.length >= 2) {
+      const isDescriptorTemplate = command.templateId === 'builtin-concept-descriptor' 
+        || command.templateId === 'builtin-concept-descriptor-reverse'
+        || command.templateId === 'builtin-concept-descriptor-both';
+      
+      if (isDescriptorTemplate && command.blockIds.length >= 2) {
         blockToCheck = command.blockIds[1];  // 检查描述符块
         console.log(`[CreateXiuyuanFromBlocksUseCase] Concept-descriptor template detected, checking descriptor block: ${blockToCheck}`);
       }
@@ -122,7 +126,17 @@ export class CreateXiuyuanFromBlocksUseCase {
 
       // 3. 创建值对象
       // 🔧 统一 ID 格式：使用代表块 ID（第一个块）
-      const representativeBlockId = command.blockIds[0];
+      // 🆕 对于描述符模板，使用描述符块（第二个块）作为代表块
+      let representativeBlockId = command.blockIds[0];
+      const isDescriptorTemplateForId = command.templateId === 'builtin-concept-descriptor' 
+        || command.templateId === 'builtin-concept-descriptor-reverse'
+        || command.templateId === 'builtin-concept-descriptor-both';
+      
+      if (isDescriptorTemplateForId && command.blockIds.length >= 2) {
+        representativeBlockId = command.blockIds[1];  // 使用描述符块
+        console.log(`[CreateXiuyuanFromBlocksUseCase] Using descriptor block as representative: ${representativeBlockId}`);
+      }
+      
       const xiuyuanIdResult = XiuyuanId.create(`xy_${representativeBlockId}`);
       if (!xiuyuanIdResult.ok) {
         return xiuyuanIdResult as Result<any>;
@@ -314,7 +328,11 @@ export class CreateXiuyuanFromBlocksUseCase {
       // 🆕 对于 concept-descriptor 模板，添加描述符块（第二个块）到 Riff
       // 对于 concept-definition 模板，添加定义块（第一个块）到 Riff
       let blockIdToAddToRiff = representativeBlockId;
-      if (command.templateId === 'builtin-concept-descriptor' && command.blockIds.length >= 2) {
+      const isDescriptorTemplateForRiff = command.templateId === 'builtin-concept-descriptor' 
+        || command.templateId === 'builtin-concept-descriptor-reverse'
+        || command.templateId === 'builtin-concept-descriptor-both';
+      
+      if (isDescriptorTemplateForRiff && command.blockIds.length >= 2) {
         blockIdToAddToRiff = command.blockIds[1];  // 使用描述符块
         console.log(`[CreateXiuyuanFromBlocksUseCase] Concept-descriptor template, adding descriptor block to Riff:`, blockIdToAddToRiff);
       }

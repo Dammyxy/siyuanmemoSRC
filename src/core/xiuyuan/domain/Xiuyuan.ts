@@ -391,6 +391,78 @@ export class Xiuyuan {
   }
 
   /**
+   * 获取指定卡片面的正面块 ID 列表
+   * 
+   * 对于描述符模板，需要包含概念块 ID，以便渲染时能够获取概念信息
+   * 
+   * @param faceIndex 卡片面索引
+   * @returns 正面块 ID 列表
+   */
+  getFrontBlockIDs(faceIndex: number): string[] {
+    if (faceIndex < 0 || faceIndex >= this.faces.length) {
+      return [];
+    }
+
+    const face = this.faces[faceIndex];
+    const templateID = this.templateID.getValue();
+    
+    // 描述符模板需要包含概念块ID
+    if (this.isDescriptorTemplate(templateID)) {
+      const conceptId = (this.meta.fieldMapping as any)?.concept;
+      return conceptId 
+        ? [conceptId, face.questionBlockId].filter(Boolean)
+        : [face.questionBlockId].filter(Boolean);
+    }
+    
+    return [face.questionBlockId].filter(Boolean);
+  }
+
+  /**
+   * 获取指定卡片面的背面块 ID 列表
+   * 
+   * @param faceIndex 卡片面索引
+   * @returns 背面块 ID 列表
+   */
+  getBackBlockIDs(faceIndex: number): string[] {
+    if (faceIndex < 0 || faceIndex >= this.faces.length) {
+      return [];
+    }
+
+    const face = this.faces[faceIndex];
+    return [face.answerBlockId].filter(Boolean);
+  }
+
+  /**
+   * 判断是否为描述符模板
+   * 
+   * @param templateID 模板 ID
+   * @returns 是否为描述符模板
+   */
+  private isDescriptorTemplate(templateID: string): boolean {
+    return templateID === 'builtin-concept-descriptor' 
+      || templateID === 'builtin-concept-descriptor-reverse'
+      || templateID === 'builtin-concept-descriptor-both';
+  }
+
+  /**
+   * 获取代表性块 ID
+   * 
+   * 对于描述符模板，返回描述符块 ID（第二个块）
+   * 对于其他模板，返回第一个块 ID
+   * 
+   * @returns 代表性块 ID
+   */
+  getRepresentativeBlockId(): string {
+    const templateID = this.templateID.getValue();
+    
+    if (this.isDescriptorTemplate(templateID) && this.blockIDs.length >= 2) {
+      return this.blockIDs[1].getValue();  // 描述符块
+    }
+    
+    return this.blockIDs[0]?.getValue() || '';
+  }
+
+  /**
    * 获取创建时间
    */
   getCreatedAt(): Date {

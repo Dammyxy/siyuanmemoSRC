@@ -63,7 +63,20 @@ export class GetAllTemplatesQueryHandler {
    * ```
    */
   async handle(_query: GetAllTemplatesQuery = {}): Promise<GetAllTemplatesQueryResult> {
-    const templates = Array.from(this.templateRegistry.values());
+    const allTemplates = Array.from(this.templateRegistry.values());
+    
+    // 过滤掉内部使用的模板（方向变体）
+    // 这些模板只在内部使用，不应该在模板选择对话框中显示
+    const internalTemplateIds = [
+      'builtin-concept-definition-forward',
+      'builtin-concept-definition-reverse',
+      'builtin-concept-descriptor-reverse',
+      'builtin-concept-descriptor-both',
+    ];
+    
+    const templates = allTemplates.filter(
+      template => !internalTemplateIds.includes(template.id)
+    );
     
     return { templates };
   }

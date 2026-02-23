@@ -71,10 +71,20 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       // 3. 🆕 使用基类方法加载概念上下文（仅概念块）
       const conceptContext = await this.loadConceptContext(blockId);
 
-      // 4. 分离正面和背面内容，传入概念上下文
-      const { frontHtml, backHtml } = this.splitDescriptorContent(card, conceptContext);
+      // 4. 🆕 检测卡片方向（从 FSRSCard 的 typeMarker）
+      const typeMarker = fsrsCard?.meta?.typeMarker || '';
+      const isReverse = typeMarker.includes('reverse');
+      
+      console.log('[DescriptorCardRenderService] Card direction:', { 
+        typeMarker, 
+        isReverse,
+        fsrsCardMeta: fsrsCard?.meta 
+      });
 
-      // 5. 构建视图模型
+      // 5. 分离正面和背面内容，传入概念上下文和方向
+      const { frontHtml, backHtml } = this.splitDescriptorContent(card, conceptContext, isReverse);
+
+      // 6. 构建视图模型
       const viewModel: DescriptorCardViewModel = {
         blockId: card.blockId,
         breadcrumbs: [], // 🆕 不再使用独立面包屑
@@ -97,31 +107,51 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
   /**
    * 分离描述符内容为正面和背面
    * 
-   * 正面：祖先概念上下文 + 组合问题（父概念 + 描述符）
-   * 背面：祖先概念上下文 + 组合问题 + 答案分隔线 + 答案
+   * 正向卡（;;）：
+   *   正面：祖先概念上下文 + 组合问题（父概念 + 描述符）
+   *   背面：祖先概念上下文 + 组合问题 + 答案分隔线 + 答案
+   * 
+   * 反向卡（;<）：
+   *   正面：祖先概念上下文 + 反向问题（描述符 + "是谁的" + 属性名）
+   *   背面：祖先概念上下文 + 反向问题 + 答案分隔线 + 概念名
    * 
    * @param card 描述符卡实体
    * @param conceptContext 概念上下文（包含所有祖先，包括父概念）
+   * @param isReverse 是否为反向卡
    */
   private splitDescriptorContent(
     card: DescriptorCard,
-    conceptContext: Array<{ id: string; name: string; type: string; isConcept?: boolean }>
+    conceptContext: Array<{ id: string; name: string; type: string; isConcept?: boolean }>,
+    isReverse: boolean = false
   ): { frontHtml: string; backHtml: string } {
     const content = card.html;
     
-    // 解析描述符内容：属性名;;属性值
-    const match = content.match(/^(.+?)\s*;;\s*(.+)$/s);
+    // 🔧 修复：支持 ;;、;<、;<> 三种符号（以及中文全角版本）
+    // 但是块内容可能已经没有符号了（符号在创建时被移除）
+    // 所以我们需要更灵活的解析方式
     
-    if (!match) {
-      // 如果没有 ;; 分隔符，整个内容作为正面
+    // 尝试匹配符号分隔的内容，明确列出所有可能的符号
+    let match = content.match(/^(.+?)\s*(?:;<>|;<|;;|；《》|；《|；；)\s*(.+)$/s);
+    
+    // 如果没有符号，尝试从 card.attribute 和 card.description 获取
+    let attributeName: string;
+    let attributeValue: string;
+    
+    if (match) {
+      attributeName = match[1].trim();
+      attributeValue = match[2].trim();
+    } else if (card.attribute && card.description) {
+      // 使用 card 对象中存储的属性名和描述
+      attributeName = card.attribute;
+      attributeValue = card.description;
+    } else {
+      // 如果都没有，整个内容作为正面
       return {
         frontHtml: content,
         backHtml: '',
       };
     }
 
-    const attributeName = match[1].trim();
-    const attributeValue = match[2].trim();
     const parentConceptName = card.getParentConceptTitle() || '概念';
 
     // 分离祖先概念（排除父概念）
@@ -130,22 +160,45 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
     // 构建祖先上下文 HTML（不包含父概念）
     const ancestorHtml = this.buildAncestorContextHtml(ancestorContext);
 
-    // 构建组合问题：父概念 + 描述符（32px，居中，一行显示）
-    const questionHtml = `<div contenteditable="false" style="font-size: 32px; line-height: 1.5; text-align: center; padding: 16px;"><span style="font-weight: 600; color: var(--b3-theme-primary);">${parentConceptName}</span><span style="color: var(--b3-theme-on-surface-light);">的</span><span style="font-weight: 700; color: var(--b3-theme-on-surface);">${attributeName}</span><span style="color: var(--b3-theme-on-surface-light);">是？</span></div>`;
+    console.log('[DescriptorCardRenderService] Rendering card:', { isReverse, attributeName, attributeValue, parentConceptName });
 
-    // 答案分隔线
-    const dividerHtml = `<div style="display: flex; align-items: center; margin: 24px 0; color: var(--b3-theme-on-surface-light); font-size: 14px;"><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div><span style="padding: 0 12px;">答案</span><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div></div>`;
+    if (isReverse) {
+      // 反向卡：描述符 -> 概念
+      // 正面：「极端引力场」是谁的「定义」？
+      const questionHtml = `<div contenteditable="false" style="font-size: 32px; line-height: 1.5; text-align: center; padding: 16px;"><span style="font-weight: 700; color: var(--b3-theme-on-surface);">${attributeValue}</span><span style="color: var(--b3-theme-on-surface-light);">是谁的</span><span style="font-weight: 600; color: var(--b3-theme-primary);">${attributeName}</span><span style="color: var(--b3-theme-on-surface-light);">？</span></div>`;
 
-    // 答案 HTML（32px，左对齐）
-    const answerHtml = `<div contenteditable="false" style="font-size: 32px; line-height: 1.6; color: var(--b3-theme-on-surface); text-align: left;">${attributeValue}</div>`;
+      // 答案分隔线
+      const dividerHtml = `<div style="display: flex; align-items: center; margin: 24px 0; color: var(--b3-theme-on-surface-light); font-size: 14px;"><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div><span style="padding: 0 12px;">答案</span><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div></div>`;
 
-    // 正面：祖先上下文 + 组合问题
-    const frontHtml = ancestorHtml + questionHtml;
+      // 答案：概念名（32px，左对齐）
+      const answerHtml = `<div contenteditable="false" style="font-size: 32px; line-height: 1.6; color: var(--b3-theme-on-surface); text-align: left;">${parentConceptName}</div>`;
 
-    // 背面：祖先上下文 + 组合问题 + 答案分隔线 + 答案
-    const backHtml = ancestorHtml + questionHtml + dividerHtml + answerHtml;
+      // 正面：祖先上下文 + 反向问题
+      const frontHtml = ancestorHtml + questionHtml;
 
-    return { frontHtml, backHtml };
+      // 背面：祖先上下文 + 反向问题 + 答案分隔线 + 概念名
+      const backHtml = ancestorHtml + questionHtml + dividerHtml + answerHtml;
+
+      return { frontHtml, backHtml };
+    } else {
+      // 正向卡：概念 -> 描述符（默认）
+      // 正面：「黑洞」的「定义」是？
+      const questionHtml = `<div contenteditable="false" style="font-size: 32px; line-height: 1.5; text-align: center; padding: 16px;"><span style="font-weight: 600; color: var(--b3-theme-primary);">${parentConceptName}</span><span style="color: var(--b3-theme-on-surface-light);">的</span><span style="font-weight: 700; color: var(--b3-theme-on-surface);">${attributeName}</span><span style="color: var(--b3-theme-on-surface-light);">是？</span></div>`;
+
+      // 答案分隔线
+      const dividerHtml = `<div style="display: flex; align-items: center; margin: 24px 0; color: var(--b3-theme-on-surface-light); font-size: 14px;"><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div><span style="padding: 0 12px;">答案</span><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div></div>`;
+
+      // 答案：属性值（32px，左对齐）
+      const answerHtml = `<div contenteditable="false" style="font-size: 32px; line-height: 1.6; color: var(--b3-theme-on-surface); text-align: left;">${attributeValue}</div>`;
+
+      // 正面：祖先上下文 + 组合问题
+      const frontHtml = ancestorHtml + questionHtml;
+
+      // 背面：祖先上下文 + 组合问题 + 答案分隔线 + 答案
+      const backHtml = ancestorHtml + questionHtml + dividerHtml + answerHtml;
+
+      return { frontHtml, backHtml };
+    }
   }
 
   /**

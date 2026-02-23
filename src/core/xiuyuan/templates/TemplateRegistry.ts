@@ -37,7 +37,7 @@
  */
 
 import type { ICardTemplate } from '../types';
-import { BUILTIN_TEMPLATES } from './builtin';
+import { BUILTIN_TEMPLATES, ALL_TEMPLATES } from './builtin';
 import { BUILTIN_CONCEPT_TEMPLATE } from './builtin-concept';
 import { ok, err, type Result } from '@/types/result';
 
@@ -226,8 +226,8 @@ export class TemplateRegistry {
    * @private
    */
   private registerBuiltinTemplates(): void {
-    // 注册显示在列表中的模板
-    for (const template of BUILTIN_TEMPLATES) {
+    // 🆕 注册所有模板（包括内部使用的变体）
+    for (const template of ALL_TEMPLATES) {
       const result = this.register(template);
       if (!result.ok) {
         console.error(`Failed to register builtin template ${template.id}:`, result.error);

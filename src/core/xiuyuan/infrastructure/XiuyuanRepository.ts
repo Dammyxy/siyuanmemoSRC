@@ -161,7 +161,11 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       // 🆕 对于 concept-descriptor 模板，需要分别设置两个块的类型
       const templateID = xiuyuan.getTemplateID().getValue();
       
-      if (templateID === 'builtin-concept-descriptor' && blockIDs.length >= 2) {
+      // ✅ 使用 Xiuyuan 实体方法获取代表性块 ID（Domain 层逻辑）
+      const representativeBlockId = xiuyuan.getRepresentativeBlockId();
+      const isDescriptorTemplate = representativeBlockId !== blockIDs[0]?.getValue();
+      
+      if (isDescriptorTemplate && blockIDs.length >= 2) {
         // 概念-描述符卡：第一个块是概念卡，第二个块是描述符卡
         // ⚠️ 注意：概念卡可能已经有自己的 Xiuyuan（作为独立的概念卡）
         // 因此，我们只设置描述符块的属性，不修改概念卡的属性
@@ -404,10 +408,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    */
   private async cardToFSRSCard(card: Card, xiuyuan: Xiuyuan): Promise<any> {
     const scheduleInfo = card.getScheduleInfo();
-    const blockIDs = xiuyuan.getBlockIDs();
     const meta = xiuyuan.getMeta();
     const faceIndex = card.getFaceIndex();
-    const face = xiuyuan.getFaces()[faceIndex];  // ✅ 获取当前卡片面
     
     // Get schedulerType from meta, default to 'fsrs-v6' (Requirement 5.5)
     const schedulerType = (meta.schedulerType as 'fsrs-v6' | 'a-factor' | 'sm2') || 'fsrs-v6';
@@ -419,14 +421,12 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     const templateID = xiuyuan.getTemplateID().getValue();
     const template = this.templateRegistry.get(templateID);
     
-    // 🆕 对于 concept-descriptor 模板，blockId 应该是描述符块（第二个块）
-    let blockId = blockIDs[0]?.getValue() || '';
-    if (templateID === 'builtin-concept-descriptor' && blockIDs.length >= 2) {
-      blockId = blockIDs[1].getValue();  // 使用描述符块 ID
-      console.log(`[XiuyuanRepository] Concept-descriptor template, using descriptor blockId: ${blockId}`);
-    }
+    // ✅ 使用 Xiuyuan 实体方法获取代表性块 ID（Domain 层逻辑）
+    const blockId = xiuyuan.getRepresentativeBlockId();
+    console.log(`[XiuyuanRepository] Using representative blockId: ${blockId}`);
     
     // 🆕 优先使用 meta 中明确指定的 cardType
+    console.log(`[XiuyuanRepository] Checking meta.cardType:`, meta.cardType, 'for blockId:', blockId);
     if (meta.cardType) {
       cardType = meta.cardType as 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
       console.log(`[XiuyuanRepository] Using explicit cardType from meta: ${cardType}`);
@@ -515,9 +515,9 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         xiuyuanID: card.getXiuyuanId().getValue(),
         templateID: xiuyuan.getTemplateID().getValue(),
         faceIndex: faceIndex,
-        // ✅ 使用 CardFace 中的 blockId 信息
-        frontBlockIDs: [face.questionBlockId].filter(Boolean),
-        backBlockIDs: [face.answerBlockId].filter(Boolean),
+        // ✅ 使用 Xiuyuan 实体方法获取 blockIDs（Domain 层逻辑）
+        frontBlockIDs: xiuyuan.getFrontBlockIDs(faceIndex),
+        backBlockIDs: xiuyuan.getBackBlockIDs(faceIndex),
         // 🆕 添加 faces 信息，用于多挖空卡渲染
         faces: xiuyuan.getFaces().map(face => ({
           question: face.question,

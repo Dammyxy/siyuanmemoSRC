@@ -36,18 +36,40 @@ export class DescriptorCard {
 
   /**
    * 解析描述符内容
-   * 格式：属性 ;; 描述
+   * 格式：属性 ;; 描述（正向）
+   *       属性 ;< 描述（反向）
+   *       属性 ;<> 描述（双向）
    */
   private parseContent(content: string): { attribute: string; description: string } {
+    // 🔍 调试日志
+    console.log('[DescriptorCard] Parsing content:', JSON.stringify(content));
+    
+    // 🔧 支持三种符号：;;、;<、;<>（以及中文全角版本）
+    // 明确列出所有可能的符号，避免歧义
+    const match = content.match(/^(.+?)\s*(?:;<>|;<|;;|；《》|；《|；；)\s*(.+)$/s);
+    
+    console.log('[DescriptorCard] Regex match result:', match);
+    
+    if (match) {
+      console.log('[DescriptorCard] Parsed - attribute:', match[1].trim(), 'description:', match[2].trim());
+      return {
+        attribute: match[1].trim(),
+        description: match[2].trim(),
+      };
+    }
+
+    // 降级：没有符号，尝试用 ;; 分割（兼容旧数据）
     const parts = content.split(';;');
     if (parts.length >= 2) {
+      console.log('[DescriptorCard] Fallback split by ;; - attribute:', parts[0].trim());
       return {
         attribute: parts[0].trim(),
         description: parts.slice(1).join(';;').trim(),
       };
     }
 
-    // 降级：没有 ;; 符号
+    // 最终降级：整个内容作为描述
+    console.warn('[DescriptorCard] No symbol found, using content as description');
     return {
       attribute: '属性',
       description: content.trim(),

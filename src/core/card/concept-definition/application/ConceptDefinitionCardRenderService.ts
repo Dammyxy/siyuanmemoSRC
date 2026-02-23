@@ -109,7 +109,10 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     // 5. 获取概念名称
     console.log('[ConceptDefinitionCardRenderService] About to get concept name:', {
       conceptBlockId,
-      isReverse
+      definitionBlockId,
+      isReverse,
+      faceQuestionBlockId: face.questionBlockId,
+      faceAnswerBlockId: face.answerBlockId
     });
     
     const conceptName = await this.getConceptName(conceptBlockId);
@@ -133,14 +136,16 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     }
 
     // 7. 解析定义块内容
-    // 格式：((ref '概念'))::定义 {: 属性}
-    // 我们需要提取 :: 后面的部分（去掉属性）
-    const definitionMatch = definitionKramdown.match(/::(.+?)(?:\n\{:|$)/s);
+    // 格式：((ref '概念')):>定义 或 ((ref '概念')):<定义 或 ((ref '概念'))::定义 {: 属性}
+    // 我们需要提取符号后面的部分（去掉属性）
+    // 支持的符号：::, :>, :<, ：：, ：》, ：《
+    const definitionMatch = definitionKramdown.match(/(?:::|:>|:<|：：|：》|：《)(.+?)(?:\s*\{:|$)/s);
     const definitionText = definitionMatch ? definitionMatch[1].trim() : definitionKramdown;
     
     console.log('[ConceptDefinitionCardRenderService] Parsed definition:', {
       original: definitionKramdown.substring(0, 100),
-      extracted: definitionText.substring(0, 100)
+      extracted: definitionText.substring(0, 100),
+      matchFound: !!definitionMatch
     });
 
     // 8. 解析挖空
@@ -244,13 +249,30 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
 
     let conceptName = conceptResult[0].content;
     
-    // 如果概念名称包含 ::，说明这是定义块而不是概念文档块
-    // 需要从 :: 前面提取概念名称
-    if (conceptName.includes('::')) {
-      // 格式：概念::定义
-      const parts = conceptName.split('::');
-      conceptName = parts[0].trim();
-      console.log('[ConceptDefinitionCardRenderService] Extracted concept name from definition block:', conceptName);
+    // 如果概念名称包含方向符号（::, :>, :<），说明这是定义块而不是概念文档块
+    // 需要从符号前面提取块引用中的概念名称
+    if (conceptName.match(/(?:::|:>|:<|：：|：》|：《)/)) {
+      console.log('[ConceptDefinitionCardRenderService] Detected definition block format, extracting concept from block reference');
+      
+      // 格式：((block-id '概念名称')):>定义
+      // 提取块引用中的别名作为概念名称
+      const blockRefMatch = conceptName.match(/\(\([^\)]+\s+'([^']+)'\)\)/);
+      if (blockRefMatch) {
+        conceptName = blockRefMatch[1];
+        console.log('[ConceptDefinitionCardRenderService] Extracted concept name from block reference alias:', conceptName);
+      } else {
+        // 如果没有别名，尝试从块引用的 ID 获取文档标题
+        const blockIdMatch = conceptName.match(/\(\((\d{14}-[a-z0-9]{7})/);
+        if (blockIdMatch) {
+          const refBlockId = blockIdMatch[1];
+          const refQuery = `SELECT content FROM blocks WHERE id = '${refBlockId}' LIMIT 1`;
+          const refResult = await sql(refQuery);
+          if (refResult && refResult.length > 0) {
+            conceptName = refResult[0].content;
+            console.log('[ConceptDefinitionCardRenderService] Extracted concept name from referenced block:', conceptName);
+          }
+        }
+      }
     }
 
     return conceptName;

@@ -968,55 +968,247 @@ export class DialogManager implements IDialogManager {
   }
 
   /**
-   * 处理概念描述符卡片的批量创建（自动探路）
+   * 处理概念定义卡的创建（自动识别方向）
    * 
    * @description
-   * 概念描述符（自动）卡片的创建流程：
-   * 1. 选择包含 ;; 的块（可以是多个）
-   * 2. 向上探路查找概念块：优先标题块，其次文档块
-   * 3. 如果概念块没有被制作为概念卡，则制作
-   * 4. 为每个描述符块生成【概念-描述符】卡
+   * 概念定义卡支持三种方向符号：
+   * - :: 或 ：： → 双向（builtin-concept-definition）
+   * - :> 或 ：》 → 仅正向（builtin-concept-definition-forward）
+   * - :< 或 ：《 → 仅反向（builtin-concept-definition-reverse）
    * 
-   * @param blockIds - 块 ID 列表（包含 ;; 的块）
+   * 如果用户选择了 builtin-concept-definition，会自动检测块内容中的符号，
+   * 并使用对应的模板。
+   * 
+   * @param blockIds - 块 ID 列表（只使用第一个块）
+   * @param templateId - 用户选择的模板 ID
    */
-  private async handleConceptDescriptorAutoCard(blockIds: string[]): Promise<void> {
+  private async handleConceptDefinitionCard(blockIds: string[], templateId: string): Promise<void> {
     try {
       if (blockIds.length === 0) {
         pushErrMsg('未选中任何块');
         return;
       }
 
-      // 创建概念描述符卡（自动探路）
+      const blockId = blockIds[0];
+
+      // 1. 读取块内容
+      const { getBlockKramdown } = await import('@/core/siyuan/api');
+      const { kramdown } = await getBlockKramdown(blockId);
+      
+      if (!kramdown) {
+        pushErrMsg('无法读取块内容');
+        return;
+      }
+
+      // 2. 检测方向符号（如果用户选择的是 builtin-concept-definition）
+      let actualTemplateId = templateId;
+      
+      if (templateId === 'builtin-concept-definition') {
+        // 自动检测方向
+        if (kramdown.match(/:>|：》/)) {
+          actualTemplateId = 'builtin-concept-definition-forward';
+          console.log('[DialogManager] Detected forward symbol, using builtin-concept-definition-forward');
+        } else if (kramdown.match(/:<|：《/)) {
+          actualTemplateId = 'builtin-concept-definition-reverse';
+          console.log('[DialogManager] Detected reverse symbol, using builtin-concept-definition-reverse');
+        } else {
+          // 默认使用双向
+          actualTemplateId = 'builtin-concept-definition';
+          console.log('[DialogManager] Using default bidirectional template');
+        }
+      }
+
+      // 3. 提取块引用 ID（概念块）
+      const blockRefMatch = kramdown.match(/\(\((\d{14}-[a-z0-9]{7})/);
+      if (!blockRefMatch) {
+        pushErrMsg('❌ 概念定义卡格式错误：需要使用 [[概念]]::定义 格式');
+        return;
+      }
+
+      const conceptBlockId = blockRefMatch[1];
+
+      // 4. 验证概念块是否为文档块
+      const { sql } = await import('@/core/siyuan/api');
+      const blockTypeQuery = `SELECT type FROM blocks WHERE id = '${conceptBlockId}' LIMIT 1`;
+      const typeResult = await sql(blockTypeQuery);
+      
+      if (!typeResult || typeResult.length === 0 || typeResult[0].type !== 'd') {
+        pushErrMsg('❌ 概念定义卡要求引用文档块，当前引用的不是文档块');
+        return;
+      }
+
+      // 5. 创建概念定义卡
       const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
-      const result = await xiuyuanAppService.createConceptDescriptorAuto({
-        descriptorBlockIds: blockIds,
-        deckId: riff.BUILTIN_DECK_ID
+      const result = await xiuyuanAppService.createFromBlocks({
+        blockIds: [blockId, conceptBlockId],  // 定义块在前，概念块在后
+        templateId: actualTemplateId,
+        fieldMapping: {
+          concept: conceptBlockId,
+          definition: blockId
+        },
+        deckId: riff.BUILTIN_DECK_ID,
+        cardType: 'descriptor'  // 概念定义卡的类型是 descriptor
       });
 
       if (!result.ok) {
-        console.error('[DialogManager] Failed to create concept descriptor auto cards:', result.error);
+        console.error('[DialogManager] Failed to create concept definition card:', result.error);
         pushErrMsg(`创建失败：${result.error.message}`);
         return;
       }
 
-      const { conceptCardId, conceptType, descriptorCards, skipped } = result.value;
-      console.log('[DialogManager] Concept descriptor auto cards created:', { conceptCardId, conceptType, descriptorCards, skipped });
+      const { xiuyuan, cards } = result.value;
+      console.log('[DialogManager] Concept definition card created:', { xiuyuan, cards });
 
-      const conceptTypeName = conceptType === 'heading' ? '标题块' : '文档块';
-      let message = `✅ 概念描述符卡创建成功！\n`;
-      message += `概念卡：${conceptTypeName}\n`;
-      message += `描述符卡：${descriptorCards.length} 张`;
-      if (skipped.length > 0) {
-        message += `\n跳过：${skipped.length} 个（已存在）`;
+      // 6. 设置定义块的卡片类型为 descriptor
+      const { setBlockAttrs } = await import('@/core/siyuan/api');
+      await setBlockAttrs(blockId, {
+        'custom-fsrs-card-type': 'descriptor'
+      });
+
+      // 7. 自动为概念文档块创建概念卡
+      await this.ensureConceptDocumentCard({ concept: conceptBlockId }, xiuyuanAppService);
+
+      // 8. 显示成功消息
+      const directionText = actualTemplateId === 'builtin-concept-definition' ? '双向' : 
+                           actualTemplateId === 'builtin-concept-definition-forward' ? '正向' : '反向';
+      pushMsg(
+        `✅ 概念定义卡创建成功！\n` +
+        `方向：${directionText}\n` +
+        `生成卡片：${cards.length} 张`
+      );
+    } catch (err) {
+      console.error('[DialogManager] Failed to handle concept definition card:', err);
+      pushErrMsg(`创建失败：${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * 处理概念描述符卡片的批量创建（自动探路，自动识别方向）
+   * 
+   * @description
+   * 概念描述符（自动）卡片的创建流程：
+   * 1. 选择包含描述符符号的块（可以是多个）
+   * 2. 自动识别方向符号：
+   *    - ;; 或 ；； → 仅正向（默认）
+   *    - ;< 或 ；《 → 仅反向
+   *    - ;<> 或 ；《》 → 双向
+   * 3. 向上探路查找概念块：优先标题块，其次文档块
+   * 4. 如果概念块没有被制作为概念卡，则制作
+   * 5. 为每个描述符块生成【概念-描述符】卡
+   * 
+   * @param blockIds - 块 ID 列表（包含描述符符号的块）
+   * @param templateId - 用户选择的模板 ID（默认为 builtin-concept-descriptor-auto）
+   */
+  private async handleConceptDescriptorAutoCard(blockIds: string[], templateId: string = 'builtin-concept-descriptor-auto'): Promise<void> {
+    try {
+      if (blockIds.length === 0) {
+        pushErrMsg('未选中任何块');
+        return;
       }
 
-      pushMsg(message);
+      // 🆕 1. 读取第一个块的内容，检测方向符号
+      const { getBlockKramdown } = await import('@/core/siyuan/api');
+      const { kramdown } = await getBlockKramdown(blockIds[0]);
+      
+      if (!kramdown) {
+        pushErrMsg('无法读取块内容');
+        return;
+      }
+
+      // 🆕 2. 检测方向符号（如果用户选择的是 builtin-concept-descriptor-auto）
+      let actualTemplateId = templateId;
+      let directionText = '仅正向';
+      
+      if (templateId === 'builtin-concept-descriptor-auto') {
+        // 自动检测方向
+        if (kramdown.match(/;<>|；《》/)) {
+          actualTemplateId = 'builtin-concept-descriptor-both';
+          directionText = '双向';
+          console.log('[DialogManager] Detected both symbol, using builtin-concept-descriptor-both');
+        } else if (kramdown.match(/;<|；《/)) {
+          actualTemplateId = 'builtin-concept-descriptor-reverse';
+          directionText = '仅反向';
+          console.log('[DialogManager] Detected reverse symbol, using builtin-concept-descriptor-reverse');
+        } else {
+          // 默认使用仅正向（原始的 builtin-concept-descriptor-auto）
+          actualTemplateId = 'builtin-concept-descriptor-auto';
+          directionText = '仅正向';
+          console.log('[DialogManager] Using default forward-only template');
+        }
+      }
+
+      // 🆕 3. 根据模板 ID 选择不同的创建逻辑
+      const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
+      
+      // 对于反向和双向模板，需要使用特殊的创建逻辑
+      if (actualTemplateId === 'builtin-concept-descriptor-reverse' || actualTemplateId === 'builtin-concept-descriptor-both') {
+        // 🆕 使用通用的 createFromBlocks 方法，但需要先找到概念块
+        const { findConceptByUpwardSearch } = await import('@/application/usecases/xiuyuan/CreateConceptDescriptorAutoUseCase');
+        const conceptResult = await findConceptByUpwardSearch(blockIds[0]);
+        
+        if (!conceptResult.ok) {
+          pushErrMsg(`未找到概念块：${conceptResult.error.message}`);
+          return;
+        }
+        
+        const { conceptBlockId } = conceptResult.value;
+        
+        // 为每个描述符块创建卡片
+        let createdCount = 0;
+        for (const descriptorBlockId of blockIds) {
+          const result = await xiuyuanAppService.createFromBlocks({
+            blockIds: [conceptBlockId, descriptorBlockId],
+            templateId: actualTemplateId,
+            fieldMapping: {
+              concept: conceptBlockId,
+              descriptor: descriptorBlockId
+            },
+            deckId: riff.BUILTIN_DECK_ID,
+            cardType: 'descriptor'
+          });
+          
+          if (result.ok) {
+            createdCount++;
+          }
+        }
+        
+        pushMsg(
+          `✅ 概念描述符卡创建成功！\n` +
+          `方向：${directionText}\n` +
+          `描述符卡：${createdCount} 张`
+        );
+      } else {
+        // 原有的正向逻辑
+        const result = await xiuyuanAppService.createConceptDescriptorAuto({
+          descriptorBlockIds: blockIds,
+          deckId: riff.BUILTIN_DECK_ID
+        });
+
+        if (!result.ok) {
+          console.error('[DialogManager] Failed to create concept descriptor auto cards:', result.error);
+          pushErrMsg(`创建失败：${result.error.message}`);
+          return;
+        }
+
+        const { conceptCardId, conceptType, descriptorCards, skipped } = result.value;
+        console.log('[DialogManager] Concept descriptor auto cards created:', { conceptCardId, conceptType, descriptorCards, skipped });
+
+        const conceptTypeName = conceptType === 'heading' ? '标题块' : '文档块';
+        let message = `✅ 概念描述符卡创建成功！\n`;
+        message += `方向：${directionText}\n`;
+        message += `概念卡：${conceptTypeName}\n`;
+        message += `描述符卡：${descriptorCards.length} 张`;
+        if (skipped.length > 0) {
+          message += `\n跳过：${skipped.length} 个（已存在）`;
+        }
+
+        pushMsg(message);
+      }
     } catch (err) {
       console.error('[DialogManager] Failed to handle concept descriptor auto card:', err);
       pushErrMsg(`创建失败：${(err as Error).message}`);
     }
   }
-
   /**
    * 处理多填空卡片的创建
    * 
@@ -1233,17 +1425,19 @@ export class DialogManager implements IDialogManager {
                 return;
               }
 
-              // 🆕 概念描述符模版特殊处理
-              if (templateId === 'builtin-concept-descriptor') {
-                await this.handleConceptDescriptorCard(blockIds);
+              // 🆕 概念定义卡特殊处理：自动识别方向符号
+              if (templateId === 'builtin-concept-definition' || 
+                  templateId === 'builtin-concept-definition-forward' ||
+                  templateId === 'builtin-concept-definition-reverse') {
+                await this.handleConceptDefinitionCard(blockIds, templateId);
                 this.templateSelectDialog?.destroy();
                 this.templateSelectDialog = null;
                 return;
               }
 
-              // 🆕 概念描述符（自动）模版特殊处理
+              // 🆕 概念描述符（自动）模版特殊处理：自动识别方向符号
               if (templateId === 'builtin-concept-descriptor-auto') {
-                await this.handleConceptDescriptorAutoCard(blockIds);
+                await this.handleConceptDescriptorAutoCard(blockIds, templateId);
                 this.templateSelectDialog?.destroy();
                 this.templateSelectDialog = null;
                 return;
@@ -1308,10 +1502,12 @@ export class DialogManager implements IDialogManager {
               console.log('[DialogManager] Xiuyuan created:', { xiuyuan, cards });
 
               // 🆕 CDF 概念定义卡：自动为概念文档块创建概念卡
-              if (templateId === 'builtin-concept-definition') {
+              if (templateId === 'builtin-concept-definition' || 
+                  templateId === 'builtin-concept-definition-forward' ||
+                  templateId === 'builtin-concept-definition-reverse') {
                 await this.ensureConceptDocumentCard(fieldMapping, xiuyuanAppService);
                 
-                // 🆕 设置定义块的卡片类型为 descriptor
+                // 🆕 设置定义块的卡片类型为 descriptor（概念定义卡本质是描述符卡）
                 const { setBlockAttrs } = await import('@/core/siyuan/api');
                 const definitionBlockId = blockIds[0];  // 定义块是第一个块
                 await setBlockAttrs(definitionBlockId, {
