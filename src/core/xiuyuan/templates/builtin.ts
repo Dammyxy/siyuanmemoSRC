@@ -85,13 +85,12 @@ export const LIST_ITEM_TEMPLATE: ICardTemplate = {
 export const CONCEPT_DESCRIPTOR_TEMPLATE: ICardTemplate = {
   id: 'builtin-concept-descriptor',
   name: '概念描述符卡',
-  description: `用于记忆概念及其属性的卡片，需要在列表块里块引用文档块，使用传递型双链。
+  description: `用于批量创建概念的定义卡片和属性卡片，支持混合使用。需要在列表块里块引用文档块，使用传递型双链。
 <div style="margin-top: 8px; padding: 8px; background: var(--b3-theme-surface); border-radius: 4px;">
-  <div style="font-weight: 500; margin-bottom: 4px;">【示例】：</div>
+  <div style="font-weight: 500; margin-bottom: 4px;">【示例】：混合使用定义和描述符</div>
   <ul style="margin: 0; padding-left: 20px; line-height: 1.6;">
-    <li>[[中子星]]
+    <li>[[中子星]]::介于白矮星和黑洞之间的极端致密天体
       <ul style="padding-left: 20px;">
-        <li>定义;;介于白矮星和黑洞之间的极端致密天体</li>
         <li>前身;; 8-30倍 太阳质量的恒星残留核心</li>
         <li>直观密度 ;; 一茶匙重达 10 亿吨</li>
         <li>特殊变种 ;; 脉冲星</li>
@@ -99,6 +98,11 @@ export const CONCEPT_DESCRIPTOR_TEMPLATE: ICardTemplate = {
       </ul>
     </li>
   </ul>
+  <div style="margin-top: 8px; font-size: 0.9em; color: var(--b3-theme-on-surface-light);">
+    支持符号：<br/>
+    • 定义（顶层块引用）：【::】双向、【:>】正向、【:<】反向<br/>
+    • 描述符（子级）：【;;】正向、【;<】反向、【;<>】双向
+  </div>
 </div>`,
   category: 'concept',
   fields: [

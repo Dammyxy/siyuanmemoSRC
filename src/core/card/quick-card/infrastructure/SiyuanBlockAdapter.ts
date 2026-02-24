@@ -125,4 +125,49 @@ export class SiyuanBlockAdapter {
       return null;
     }
   }
+
+  /**
+   * 将 kramdown 转换为 HTML
+   * 
+   * @param kramdown - kramdown 内容
+   * @returns HTML 字符串
+   * 
+   * @example
+   * ```typescript
+   * const html = adapter.kramdownToHtml('**bold** text');
+   * console.log(html); // '<strong>bold</strong> text'
+   * ```
+   */
+  kramdownToHtml(kramdown: string): string {
+    try {
+      console.log('[SiYuanMemo][SiyuanBlockAdapter] kramdownToHtml called with:', kramdown.substring(0, 100));
+      
+      // 使用 Lute 渲染 kramdown
+      const lute = (window as any).Lute?.New();
+      if (!lute) {
+        console.warn('[SiYuanMemo][SiyuanBlockAdapter] Lute not available, returning raw kramdown');
+        return kramdown;
+      }
+      
+      // 🔧 尝试使用 SpinBlockDOM 方法，它会处理块引用
+      let html: string;
+      if (typeof lute.SpinBlockDOM === 'function') {
+        console.log('[SiYuanMemo][SiyuanBlockAdapter] Using SpinBlockDOM');
+        html = lute.SpinBlockDOM(kramdown);
+      } else if (typeof lute.Md2BlockDOM === 'function') {
+        console.log('[SiYuanMemo][SiyuanBlockAdapter] Using Md2BlockDOM');
+        html = lute.Md2BlockDOM(kramdown);
+      } else {
+        console.warn('[SiYuanMemo][SiyuanBlockAdapter] No suitable Lute method found');
+        return kramdown;
+      }
+      
+      console.log('[SiYuanMemo][SiyuanBlockAdapter] Rendered HTML:', html?.substring(0, 200));
+      
+      return html || kramdown;
+    } catch (error) {
+      console.error('[SiYuanMemo][SiyuanBlockAdapter] Failed to render kramdown:', error);
+      return kramdown;
+    }
+  }
 }

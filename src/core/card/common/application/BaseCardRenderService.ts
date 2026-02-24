@@ -26,6 +26,8 @@ export abstract class BaseCardRenderService {
    * - 检查块属性 custom-fsrs-card-type === 'concept'
    * - 或检查内容是否包含 :: 语法
    * - 如果是概念块，使用 extractConceptName 提取名称
+   * 
+   * 🆕 只显示到文档块为止，过滤掉文档块之后的所有内容（避免剧透）
    */
   protected async loadBreadcrumbs(
     blockId: string,
@@ -41,9 +43,23 @@ export abstract class BaseCardRenderService {
       // 排除最后 N 项
       const parentBreadcrumbs = breadcrumbResult.slice(0, -excludeLast);
       
+      // 🆕 找到最后一个文档块的位置
+      let lastDocumentIndex = -1;
+      for (let i = parentBreadcrumbs.length - 1; i >= 0; i--) {
+        if (parentBreadcrumbs[i].type === 'NodeDocument') {
+          lastDocumentIndex = i;
+          break;
+        }
+      }
+      
+      // 🆕 只保留到最后一个文档块（包含）
+      const filteredBreadcrumbs = lastDocumentIndex >= 0 
+        ? parentBreadcrumbs.slice(0, lastDocumentIndex + 1)
+        : parentBreadcrumbs;
+      
       // 处理每个面包屑项，应用 CDF 规则
       const processedBreadcrumbs = await Promise.all(
-        parentBreadcrumbs.map(async (item: any) => {
+        filteredBreadcrumbs.map(async (item: any) => {
           const itemId = item.id || '';
           let itemName = item.name || '';
           

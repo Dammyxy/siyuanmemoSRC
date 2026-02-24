@@ -151,12 +151,33 @@ export class CreateConceptDescriptorCardsUseCase {
         console.log('[CreateConceptDescriptorCardsUseCase] Concept block already has card');
       }
       
-      // 5. 查找描述符块（包含 ;; 的列表项）
-      // 支持两种结构：
-      // 1. 子列表项（推荐）：- ((概念)) \n  - 描述1;; \n  - 描述2;;
-      // 2. 同级列表项：- ((概念)) \n - 描述1;; \n - 描述2;;
+      // 5. 查找描述符块和定义块
+      // 支持三种结构：
+      // 1. 顶层块本身：- [[概念]]::定义
+      // 2. 子列表项（推荐）：- [[概念]] \n  - 描述1;; \n  - 描述2;;
+      // 3. 同级列表项：- [[概念]] \n - 描述1;; \n - 描述2;;
       
       let descriptorBlocks: any[] = [];
+      
+      // 🆕 5.0 首先检查顶层块本身是否包含定义符号
+      const { getBlockKramdown } = await import('@/core/siyuan/api');
+      const { kramdown: parentKramdown } = await getBlockKramdown(command.parentBlockId);
+      
+      if (parentKramdown && /::|：：|:>|：》|:<|：《/.test(parentKramdown)) {
+        console.log('[CreateConceptDescriptorCardsUseCase] Parent block contains definition symbol');
+        // 获取顶层块的段落块
+        const parentParagraphQuery = await sql(`
+          SELECT id, content, markdown FROM blocks
+          WHERE parent_id = '${command.parentBlockId}'
+            AND type = 'p'
+          LIMIT 1
+        `);
+        
+        if (parentParagraphQuery && parentParagraphQuery.length > 0) {
+          descriptorBlocks.push(parentParagraphQuery[0]);
+          console.log('[CreateConceptDescriptorCardsUseCase] Added parent block as definition block');
+        }
+      }
       
       // 5.1 尝试查找子级列表项（推荐结构）
       const listContainerQuery = await sql(`
@@ -187,10 +208,17 @@ export class CreateConceptDescriptorCardsUseCase {
           // 对每个列表项，查找其段落块
           for (const item of childListItems) {
             const paragraphQuery = await sql(`
-              SELECT id, content FROM blocks
+              SELECT id, content, markdown FROM blocks
               WHERE parent_id = '${item.id}'
                 AND type = 'p'
-                AND (content LIKE '%;;%' OR content LIKE '%；；%')
+                AND (
+                  content LIKE '%;;%' OR content LIKE '%；；%' 
+                  OR content LIKE '%;<' OR content LIKE '%；《' 
+                  OR content LIKE '%;<>%' OR content LIKE '%；《》%'
+                  OR content LIKE '%::%' OR content LIKE '%：：%'
+                  OR content LIKE '%:>%' OR content LIKE '%：》%'
+                  OR content LIKE '%:<%' OR content LIKE '%：《%'
+                )
               LIMIT 1
             `);
             
@@ -233,10 +261,17 @@ export class CreateConceptDescriptorCardsUseCase {
             // 对每个列表项，查找其段落块
             for (const item of siblingListItems) {
               const paragraphQuery = await sql(`
-                SELECT id, content FROM blocks
+                SELECT id, content, markdown FROM blocks
                 WHERE parent_id = '${item.id}'
                   AND type = 'p'
-                  AND (content LIKE '%;;%' OR content LIKE '%；；%')
+                  AND (
+                    content LIKE '%;;%' OR content LIKE '%；；%' 
+                    OR content LIKE '%;<' OR content LIKE '%；《' 
+                    OR content LIKE '%;<>%' OR content LIKE '%；《》%'
+                    OR content LIKE '%::%' OR content LIKE '%：：%'
+                    OR content LIKE '%:>%' OR content LIKE '%：》%'
+                    OR content LIKE '%:<%' OR content LIKE '%：《%'
+                  )
                 LIMIT 1
               `);
               
@@ -251,7 +286,7 @@ export class CreateConceptDescriptorCardsUseCase {
       }
       
       if (!descriptorBlocks || descriptorBlocks.length === 0) {
-        return err(new Error('未找到描述符块（包含 ;; 或 ；； 的子列表项或同级列表项）'));
+        return err(new Error('未找到描述符块或定义块（包含 ;;、；；、::、：： 等符号的子列表项或同级列表项）'));
       }
       
       console.log('[CreateConceptDescriptorCardsUseCase] Found descriptor blocks:', descriptorBlocks.length);
@@ -282,16 +317,57 @@ export class CreateConceptDescriptorCardsUseCase {
           continue;
         }
         
-        // 创建概念-描述符卡
+        // 🆕 检测符号类型和方向，选择对应的模板
+        const content = descriptorBlock.content || '';
+        const markdown = descriptorBlock.markdown || content; // 使用 markdown 字段检测块引用
+        let templateId = 'builtin-concept-descriptor'; // 默认：描述符正向
+        let isDefinition = false; // 是否是概念定义卡
+        
+        console.log('[CreateConceptDescriptorCardsUseCase] Analyzing block:', descriptorBlockId, 'content:', content.substring(0, 100));
+        
+        // 优先检测概念定义符号（::, :>, :<）
+        // 注意：概念定义卡必须包含块引用 (( 或 [[
+        const hasBlockRef = /\(\(|\[\[/.test(markdown);
+        console.log('[CreateConceptDescriptorCardsUseCase] Has block reference:', hasBlockRef, 'markdown:', markdown.substring(0, 100));
+        
+        if (hasBlockRef && /::|：：/.test(markdown)) {
+          templateId = 'builtin-concept-definition'; // 概念定义双向
+          isDefinition = true;
+          console.log('[CreateConceptDescriptorCardsUseCase] Detected concept definition (both directions)');
+        } else if (hasBlockRef && /:>|：》/.test(markdown)) {
+          templateId = 'builtin-concept-definition-forward'; // 概念定义仅正向
+          isDefinition = true;
+          console.log('[CreateConceptDescriptorCardsUseCase] Detected concept definition (forward only)');
+        } else if (hasBlockRef && (/:<|：《/.test(markdown))) {
+          templateId = 'builtin-concept-definition-reverse'; // 概念定义仅反向
+          isDefinition = true;
+          console.log('[CreateConceptDescriptorCardsUseCase] Detected concept definition (reverse only)');
+        }
+        // 然后检测描述符符号（;;, ;<, ;<>）
+        else if (/;<>|；《》/.test(markdown)) {
+          templateId = 'builtin-concept-descriptor-both'; // 描述符双向
+          console.log('[CreateConceptDescriptorCardsUseCase] Detected descriptor (both directions)');
+        } else if (/;<|；《/.test(markdown)) {
+          templateId = 'builtin-concept-descriptor-reverse'; // 描述符仅反向
+          console.log('[CreateConceptDescriptorCardsUseCase] Detected descriptor (reverse only)');
+        } else {
+          console.log('[CreateConceptDescriptorCardsUseCase] Using default descriptor (forward only)');
+        }
+        
+        // 创建卡片（概念定义卡或描述符卡）
+        // 注意：概念定义卡使用 [定义块, 概念块] 作为 blockIds，与块菜单逻辑保持一致
         const result = await createXiuyuanUseCase.execute({
-          blockIds: [conceptBlockId, descriptorBlockId],
-          templateId: 'builtin-concept-descriptor',
-          fieldMapping: {
+          blockIds: isDefinition ? [descriptorBlockId, conceptBlockId] : [conceptBlockId, descriptorBlockId],
+          templateId,
+          fieldMapping: isDefinition ? {
+            concept: conceptBlockId,
+            definition: descriptorBlockId
+          } : {
             concept: conceptBlockId,
             descriptor: descriptorBlockId
           },
           deckId: command.deckId || BUILTIN_DECK_ID,
-          cardType: 'descriptor'
+          cardType: 'descriptor'  // 统一使用 descriptor，与块菜单逻辑保持一致
         });
         
         if (result.ok) {

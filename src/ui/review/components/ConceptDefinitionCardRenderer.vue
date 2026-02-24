@@ -21,78 +21,19 @@
 
       <!-- 概念定义卡主体 -->
       <div class="concept-definition-card-renderer__main">
-        <!-- 正面：概念 + 问题 -->
+        <!-- 正面 -->
         <div
           v-if="!showAnswer"
           class="concept-definition-card-renderer__html-content concept-definition-card-renderer__front"
-        >
-          <!-- 正向：概念的定义？ -->
-          <div v-if="!viewModel.isReverse" class="concept-definition-card-renderer__question">
-            <span class="concept-definition-card-renderer__concept-name">{{ viewModel.conceptName }}</span>
-            <span class="concept-definition-card-renderer__question-text">的定义？</span>
-          </div>
-          
-          <!-- 反向：显示定义，问概念 -->
-          <div v-else class="concept-definition-card-renderer__question">
-            <div class="concept-definition-card-renderer__reverse-question">
-              <div class="concept-definition-card-renderer__reverse-label">以下是哪个概念的定义？</div>
-              <div
-                class="concept-definition-card-renderer__definition concept-definition-card-renderer__definition--question"
-                v-html="viewModel.definitionHtml"
-              ></div>
-            </div>
-          </div>
-        </div>
+          v-html="viewModel.frontHtml"
+        ></div>
 
-        <!-- 背面：答案 -->
+        <!-- 背面 -->
         <div
           v-else
           class="concept-definition-card-renderer__html-content concept-definition-card-renderer__back"
-        >
-          <!-- 正向背面：显示定义 -->
-          <template v-if="!viewModel.isReverse">
-            <!-- 显示正面内容（灰色） -->
-            <div class="concept-definition-card-renderer__front-preview">
-              <span class="concept-definition-card-renderer__concept-name">{{ viewModel.conceptName }}</span>
-              <span class="concept-definition-card-renderer__question-text">的定义？</span>
-            </div>
-            
-            <!-- 答案分隔线 -->
-            <div class="concept-definition-card-renderer__answer-divider">
-              <span>答案</span>
-            </div>
-            
-            <!-- 显示定义内容（隐藏当前挖空） -->
-            <div
-              class="concept-definition-card-renderer__definition"
-              v-html="viewModel.definitionHtml"
-            ></div>
-          </template>
-          
-          <!-- 反向背面：显示概念 -->
-          <template v-else>
-            <!-- 显示正面内容（灰色） -->
-            <div class="concept-definition-card-renderer__front-preview">
-              <div class="concept-definition-card-renderer__reverse-label">以下是哪个概念的定义？</div>
-              <div
-                class="concept-definition-card-renderer__definition concept-definition-card-renderer__definition--preview"
-                v-html="viewModel.definitionHtml"
-              ></div>
-            </div>
-            
-            <!-- 答案分隔线 -->
-            <div class="concept-definition-card-renderer__answer-divider">
-              <span>答案</span>
-            </div>
-            
-            <!-- 显示概念名称 -->
-            <div class="concept-definition-card-renderer__concept-answer">
-              <span class="concept-definition-card-renderer__concept-name concept-definition-card-renderer__concept-name--large">
-                {{ viewModel.conceptName }}
-              </span>
-            </div>
-          </template>
-        </div>
+          v-html="viewModel.backHtml"
+        ></div>
       </div>
 
       <!-- 跳转到概念按钮 -->
@@ -242,142 +183,94 @@ onMounted(async () => {
 
 /* 正面样式 */
 .concept-definition-card-renderer__front {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 32px;
+  padding: 24px 32px;
   min-height: 200px;
-}
-
-.concept-definition-card-renderer__question {
-  font-size: 28px;
-  line-height: 1.4;
-  text-align: center;
-}
-
-.concept-definition-card-renderer__concept-name {
-  font-weight: 700;
-  color: var(--b3-theme-primary);
-}
-
-.concept-definition-card-renderer__question-text {
-  color: var(--b3-theme-on-surface);
 }
 
 /* 背面样式 */
 .concept-definition-card-renderer__back {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 32px 32px;
+  padding: 24px 32px;
   min-height: 200px;
 }
 
-.concept-definition-card-renderer__front-preview {
-  opacity: 0.4;
-  font-size: 28px;
-  margin-bottom: 24px;
-  text-align: center;
+/* 问题样式 */
+.concept-definition-card-renderer__html-content :deep(.concept-definition-question) {
+  font-size: 24px;
+  line-height: 1.6;
 }
 
-.concept-definition-card-renderer__answer-divider {
+.concept-definition-card-renderer__html-content :deep(.concept-name) {
+  font-weight: 700;
+  color: var(--b3-theme-primary);
+}
+
+.concept-definition-card-renderer__html-content :deep(.question-text) {
+  color: var(--b3-theme-on-surface);
+}
+
+/* 答案样式 */
+.concept-definition-card-renderer__html-content :deep(.concept-definition-answer) {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.concept-definition-card-renderer__html-content :deep(.question-repeat) {
+  font-size: 20px;
+}
+
+.concept-definition-card-renderer__html-content :deep(.answer-divider) {
   display: flex;
   align-items: center;
-  justify-content: center;
   width: 100%;
-  margin: 16px 0 24px 0;
+  margin: 8px 0;
   color: var(--b3-theme-on-surface-light);
   font-size: 14px;
   font-weight: 500;
 }
 
-.concept-definition-card-renderer__answer-divider::before {
+.concept-definition-card-renderer__html-content :deep(.answer-divider::before) {
   content: '';
-  width: 60px;
+  flex: 1;
   height: 1px;
   background: var(--b3-border-color);
   margin-right: 12px;
 }
 
-.concept-definition-card-renderer__answer-divider::after {
+.concept-definition-card-renderer__html-content :deep(.answer-divider::after) {
   content: '';
-  width: 60px;
+  flex: 1;
   height: 1px;
   background: var(--b3-border-color);
   margin-left: 12px;
 }
 
-.concept-definition-card-renderer__definition {
-  font-size: 24px;
+.concept-definition-card-renderer__html-content :deep(.definition-content) {
+  font-size: 22px;
   line-height: 1.6;
   color: var(--b3-theme-on-surface);
-  text-align: center;
-  max-width: 800px;
-}
-
-/* 覆盖 Lute 渲染的默认样式 */
-.concept-definition-card-renderer__definition :deep(*) {
-  font-size: 24px !important;
-  line-height: 1.6 !important;
-}
-
-/* 深色主题适配 */
-.concept-definition-card-renderer__definition :deep(.protyle-wysiwyg) {
-  background: transparent;
 }
 
 /* 反向卡片样式 */
-.concept-definition-card-renderer__reverse-question {
+.concept-definition-card-renderer__html-content :deep(.concept-definition-question.reverse) {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
 }
 
-.concept-definition-card-renderer__reverse-label {
-  font-size: 20px;
+.concept-definition-card-renderer__html-content :deep(.reverse-label) {
+  font-size: 18px;
   color: var(--b3-theme-on-surface-light);
-  text-align: center;
 }
 
-.concept-definition-card-renderer__definition--question {
-  font-size: 24px;
-  padding: 24px;
-  background: var(--b3-theme-surface);
-  border-radius: 8px;
-  border-left: 4px solid var(--b3-theme-primary);
+.concept-definition-card-renderer__html-content :deep(.concept-answer) {
+  padding: 16px 0;
 }
 
-.concept-definition-card-renderer__definition--preview {
-  font-size: 20px;
-  padding: 16px;
-  background: var(--b3-theme-surface);
-  border-radius: 8px;
-  opacity: 0.6;
-}
-
-.concept-definition-card-renderer__concept-answer {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 32px;
-}
-
-.concept-definition-card-renderer__concept-name--large {
-  font-size: 36px;
+.concept-definition-card-renderer__html-content :deep(.concept-name.large) {
+  font-size: 32px;
   font-weight: 700;
   color: var(--b3-theme-primary);
-}
-
-/* 挖空占位符样式 */
-.concept-definition-card-renderer__definition :deep([___]) {
-  display: inline-block;
-  min-width: 60px;
-  padding: 0 8px;
-  background: var(--b3-theme-surface);
-  border: 2px dashed var(--b3-theme-primary);
-  border-radius: 4px;
-  color: transparent;
 }
 
 /* 操作按钮 */

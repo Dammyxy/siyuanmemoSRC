@@ -8,7 +8,8 @@
 
     <!-- 描述符卡内容 -->
     <div v-else-if="viewModel" class="descriptor-card-renderer__content">
-      <!-- 🆕 移除独立面包屑和紫色头部，上下文已融入正文 -->
+      <!-- 🆕 面包屑（放在最上面） -->
+      <CardBreadcrumb :items="viewModel.breadcrumbs" />
 
       <!-- 警告信息 -->
       <div v-if="viewModel.warning" class="descriptor-card-renderer__warning">
@@ -89,6 +90,7 @@ import { ref, onMounted } from 'vue';
 import { openTab } from 'siyuan';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
+import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import type { DescriptorCardViewModel } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 import type { DescriptorCardRenderService } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 

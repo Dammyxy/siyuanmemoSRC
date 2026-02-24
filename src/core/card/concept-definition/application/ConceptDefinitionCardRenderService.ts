@@ -20,6 +20,8 @@ export interface ConceptDefinitionCardViewModel extends BaseCardViewModel {
   conceptName: string;
   conceptBlockId: string;
   definitionHtml: string;
+  frontHtml: string;  // 🆕 正面 HTML（问题）
+  backHtml: string;   // 🆕 背面 HTML（答案）
   clozeIndex?: number;
   totalClozes?: number;
   isReverse?: boolean; // 是否为反向卡片
@@ -167,13 +169,61 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     // 12. 使用基类方法加载面包屑
     const breadcrumbs = await this.loadBreadcrumbs(blockId);
 
-    // 13. 构建视图模型
+    // 13. 生成 frontHtml 和 backHtml（类似描述符卡的格式）
+    let frontHtml: string;
+    let backHtml: string;
+    
+    if (!isReverse) {
+      // 正向卡：问概念的定义
+      frontHtml = `
+        <div class="concept-definition-question">
+          <span class="concept-name">${conceptName}</span>
+          <span class="question-text">的定义？</span>
+        </div>
+      `;
+      
+      backHtml = `
+        <div class="concept-definition-answer">
+          <div class="question-repeat">
+            <span class="concept-name">${conceptName}</span>
+            <span class="question-text">的定义？</span>
+          </div>
+          <div class="answer-divider"><span>答案</span></div>
+          <div class="definition-content">${definitionHtml}</div>
+        </div>
+      `;
+    } else {
+      // 反向卡：给定义问概念
+      frontHtml = `
+        <div class="concept-definition-question reverse">
+          <div class="reverse-label">以下是哪个概念的定义？</div>
+          <div class="definition-content">${definitionHtml}</div>
+        </div>
+      `;
+      
+      backHtml = `
+        <div class="concept-definition-answer reverse">
+          <div class="question-repeat">
+            <div class="reverse-label">以下是哪个概念的定义？</div>
+            <div class="definition-content">${definitionHtml}</div>
+          </div>
+          <div class="answer-divider"><span>答案</span></div>
+          <div class="concept-answer">
+            <span class="concept-name large">${conceptName}</span>
+          </div>
+        </div>
+      `;
+    }
+
+    // 14. 构建视图模型
     return {
       blockId,
       breadcrumbs,
       conceptName,
       conceptBlockId,
       definitionHtml,
+      frontHtml,
+      backHtml,
       clozeIndex: clozes.length > 0 ? clozeIndex : undefined,
       totalClozes: clozes.length > 0 ? clozes.length : undefined,
       isReverse,

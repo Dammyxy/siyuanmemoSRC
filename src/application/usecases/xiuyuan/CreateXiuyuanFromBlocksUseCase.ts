@@ -77,11 +77,17 @@ export class CreateXiuyuanFromBlocksUseCase {
         || command.templateId === 'builtin-concept-descriptor-reverse'
         || command.templateId === 'builtin-concept-descriptor-both';
       
+      const isDefinitionTemplate = command.templateId === 'builtin-concept-definition'
+        || command.templateId === 'builtin-concept-definition-forward'
+        || command.templateId === 'builtin-concept-definition-reverse';
+      
       if (isDescriptorTemplate && command.blockIds.length >= 2) {
         blockToCheck = command.blockIds[1];  // 检查描述符块
         console.log(`[CreateXiuyuanFromBlocksUseCase] Concept-descriptor template detected, checking descriptor block: ${blockToCheck}`);
+      } else if (isDefinitionTemplate && command.blockIds.length >= 1) {
+        blockToCheck = command.blockIds[0];  // 检查定义块（第一个块）
+        console.log(`[CreateXiuyuanFromBlocksUseCase] Concept-definition template detected, checking definition block: ${blockToCheck}`);
       }
-      // concept-definition 使用默认的第一个块（定义块）
       console.log(`[CreateXiuyuanFromBlocksUseCase] Checking block for existing Xiuyuan: ${blockToCheck}`);
       
       const attrs = await getBlockAttrs(blockToCheck);
@@ -127,14 +133,22 @@ export class CreateXiuyuanFromBlocksUseCase {
       // 3. 创建值对象
       // 🔧 统一 ID 格式：使用代表块 ID（第一个块）
       // 🆕 对于描述符模板，使用描述符块（第二个块）作为代表块
+      // 🆕 对于定义模板，使用定义块（第一个块）作为代表块
       let representativeBlockId = command.blockIds[0];
       const isDescriptorTemplateForId = command.templateId === 'builtin-concept-descriptor' 
         || command.templateId === 'builtin-concept-descriptor-reverse'
         || command.templateId === 'builtin-concept-descriptor-both';
       
+      const isDefinitionTemplateForId = command.templateId === 'builtin-concept-definition'
+        || command.templateId === 'builtin-concept-definition-forward'
+        || command.templateId === 'builtin-concept-definition-reverse';
+      
       if (isDescriptorTemplateForId && command.blockIds.length >= 2) {
         representativeBlockId = command.blockIds[1];  // 使用描述符块
         console.log(`[CreateXiuyuanFromBlocksUseCase] Using descriptor block as representative: ${representativeBlockId}`);
+      } else if (isDefinitionTemplateForId && command.blockIds.length >= 1) {
+        representativeBlockId = command.blockIds[0];  // 使用定义块（第一个块）
+        console.log(`[CreateXiuyuanFromBlocksUseCase] Using definition block as representative: ${representativeBlockId}`);
       }
       
       const xiuyuanIdResult = XiuyuanId.create(`xy_${representativeBlockId}`);

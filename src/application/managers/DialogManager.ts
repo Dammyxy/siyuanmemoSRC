@@ -915,14 +915,18 @@ export class DialogManager implements IDialogManager {
   }
 
   /**
-   * 处理概念描述符卡片的批量创建
+   * 处理概念描述符卡的创建（支持方向检测）
    * 
    * @description
    * 概念描述符卡片的创建流程：
    * 1. 识别顶层列表项中引用的概念文档块 ((概念文档))
    * 2. 如果概念文档块没有被制作为概念卡，则制作
    * 3. 识别概念文档块子级里的描述符块（包含 ;; 符号）
-   * 4. 为每个描述符块生成【概念-描述符】卡
+   * 4. 自动检测方向符号：
+   *    - ;; 或 ；； → 仅正向（默认）
+   *    - ;< 或 ；《 → 仅反向
+   *    - ;<> 或 ；《》 → 双向
+   * 5. 为每个描述符块生成【概念-描述符】卡
    * 
    * @param blockIds - 块 ID 列表（只使用第一个块）
    */
@@ -935,37 +939,119 @@ export class DialogManager implements IDialogManager {
 
       const parentBlockId = blockIds[0];
 
-      // 创建概念描述符卡
-      const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
-      const result = await xiuyuanAppService.createConceptDescriptorCards({
-        parentBlockId,
-        deckId: riff.BUILTIN_DECK_ID
-      });
+      // 🆕 1. 读取块内容，检测是否有方向符号
+      const { getBlockKramdown, sql } = await import('@/core/siyuan/api');
 
-      if (!result.ok) {
-        console.error('[DialogManager] Failed to create concept descriptor cards:', result.error);
-        pushErrMsg(`创建失败：${result.error.message}`);
-        return;
+      // 获取所有子块（只查询段落块）
+      const children = await sql(`
+        SELECT id, markdown 
+        FROM blocks 
+        WHERE parent_id = '${parentBlockId}' AND type = 'p'
+        ORDER BY sort
+      `);
+
+      // 检测是否有反向或双向符号
+      let hasReverse = false;
+      let hasBoth = false;
+
+      if (children && children.length > 0) {
+        for (const child of children) {
+          const content = child.markdown || '';
+          if (/;<>|；《》/.test(content)) {
+            hasBoth = true;
+            break;
+          } else if (/;<|；《/.test(content)) {
+            hasReverse = true;
+          }
+        }
       }
 
-      const { conceptCardId, descriptorCards, skipped } = result.value;
-      console.log('[DialogManager] Concept descriptor cards created:', { conceptCardId, descriptorCards, skipped });
+      console.log('[DialogManager] Descriptor direction detection:', { hasReverse, hasBoth });
 
-      let message = `✅ 概念描述符卡创建成功！\n`;
-      if (conceptCardId) {
-        message += `概念卡：已创建\n`;
-      }
-      message += `描述符卡：${descriptorCards.length} 张`;
-      if (skipped.length > 0) {
-        message += `\n跳过：${skipped.length} 个（已存在）`;
-      }
+      // 🆕 2. 如果检测到反向或双向符号，使用特殊处理
+      if (hasReverse || hasBoth) {
+          // 使用类似 handleConceptDescriptorAutoCard 的逻辑
+          // 但是需要先找到概念块
+          const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
 
-      pushMsg(message);
-    } catch (err) {
-      console.error('[DialogManager] Failed to handle concept descriptor card:', err);
-      pushErrMsg(`创建失败：${(err as Error).message}`);
+          // 读取父块内容，提取概念块引用
+          const { kramdown: parentKramdown } = await getBlockKramdown(parentBlockId);
+          const blockRefMatch = parentKramdown?.match(/\(\((\d{14}-[a-z0-9]{7})/);
+
+          if (!blockRefMatch) {
+            pushErrMsg('未找到概念块引用');
+            return;
+          }
+
+          const conceptBlockId = blockRefMatch[1];
+
+          // 为每个描述符块创建卡片
+          let createdCount = 0;
+          const templateId = hasBoth ? 'builtin-concept-descriptor-both' : 'builtin-concept-descriptor-reverse';
+
+          for (const child of children) {
+            const content = child.markdown || '';
+            // 检查是否包含描述符符号
+            if (/;;|；；|;<|；《|;<>|；《》/.test(content)) {
+              const result = await xiuyuanAppService.createFromBlocks({
+                blockIds: [conceptBlockId, child.id],
+                templateId,
+                fieldMapping: {
+                  concept: conceptBlockId,
+                  descriptor: child.id
+                },
+                deckId: riff.BUILTIN_DECK_ID,
+                cardType: 'descriptor'
+              });
+
+              if (result.ok) {
+                createdCount++;
+              }
+            }
+          }
+
+          const directionText = hasBoth ? '双向' : '仅反向';
+          pushMsg(
+            `✅ 概念描述符卡创建成功！\n` +
+            `方向：${directionText}\n` +
+            `描述符卡：${createdCount} 张`
+          );
+          return;
+        }
+
+        // 🆕 3. 默认使用原有逻辑（仅正向）
+        const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
+        const result = await xiuyuanAppService.createConceptDescriptorCards({
+          parentBlockId,
+          deckId: riff.BUILTIN_DECK_ID
+        });
+
+        if (!result.ok) {
+          console.error('[DialogManager] Failed to create concept descriptor cards:', result.error);
+          pushErrMsg(`创建失败：${result.error.message}`);
+          return;
+        }
+
+        const { conceptCardId, descriptorCards, skipped } = result.value;
+        console.log('[DialogManager] Concept descriptor cards created:', { conceptCardId, descriptorCards, skipped });
+
+        let message = `✅ 概念描述符卡创建成功！\n`;
+        message += `方向：仅正向\n`;
+        if (conceptCardId) {
+          message += `概念卡：已创建\n`;
+        }
+        message += `描述符卡：${descriptorCards.length} 张`;
+        if (skipped.length > 0) {
+          message += `\n跳过：${skipped.length} 个（已存在）`;
+        }
+
+        pushMsg(message);
+      } catch (err) {
+        console.error('[DialogManager] Failed to handle concept descriptor card:', err);
+        pushErrMsg(`创建失败：${(err as Error).message}`);
+      }
     }
-  }
+
 
   /**
    * 处理概念定义卡的创建（自动识别方向）
@@ -1438,6 +1524,14 @@ export class DialogManager implements IDialogManager {
               // 🆕 概念描述符（自动）模版特殊处理：自动识别方向符号
               if (templateId === 'builtin-concept-descriptor-auto') {
                 await this.handleConceptDescriptorAutoCard(blockIds, templateId);
+                this.templateSelectDialog?.destroy();
+                this.templateSelectDialog = null;
+                return;
+              }
+
+              // 🆕 概念描述符卡特殊处理：批量处理列表结构
+              if (templateId === 'builtin-concept-descriptor') {
+                await this.handleConceptDescriptorCard(blockIds);
                 this.templateSelectDialog?.destroy();
                 this.templateSelectDialog = null;
                 return;

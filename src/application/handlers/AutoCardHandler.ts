@@ -481,6 +481,7 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             
             // 🆕 5. 批量检测所有符号（方案 3）
+            console.log('[SiYuanMemo][AutoCard] Enabled symbols:', JSON.stringify(quickCardSettings.enabledSymbols));
             const detectedSymbols = this.detectAllSymbols(kramdown, quickCardSettings);
             
             if (detectedSymbols.length === 0) {
@@ -527,6 +528,10 @@ export class AutoCardHandler implements ITransactionHandler {
         // 先移除 IAL 属性块，避免干扰正则匹配
         let cleanContent = content.replace(/\{:[^}]*\}/g, '').trim();
         
+        console.log('[SiYuanMemo][AutoCard] detectAllSymbols - original:', content.substring(0, 100));
+        console.log('[SiYuanMemo][AutoCard] detectAllSymbols - cleaned:', cleanContent.substring(0, 100));
+        console.log('[SiYuanMemo][AutoCard] detectAllSymbols - descriptor enabled:', settings.enabledSymbols.descriptor);
+        
         // 🆕 移除被反引号包裹的内容（代码块），避免误触发符号检测
         // 例如：`这里有个 :: 符号` 不应该触发概念卡片
         // 支持单行代码 `code` 和多行代码块 ```code```
@@ -535,69 +540,124 @@ export class AutoCardHandler implements ITransactionHandler {
         
         // 检测顺序（优先级从高到低）
         // 注意：排除 >>> 符号（它在列表模版队列中处理）
+        // 🔧 修复：使用独立的 if 语句而不是 else if 链，避免概念检测阻止描述符检测
+        
+        console.log('[SiYuanMemo][AutoCard] Starting symbol detection...');
+        
+        let matched = false;
         
         // 1. 描述符双向 ;<> (优先级最高，避免被 <> 误匹配)
-        if (settings.enabledSymbols.descriptor && this.patterns.descriptorBoth.test(cleanContent)) {
+        if (!matched && settings.enabledSymbols.descriptor && this.patterns.descriptorBoth.test(cleanContent)) {
+            console.log('[SiYuanMemo][AutoCard] Matched: descriptorBoth');
             const match = cleanContent.match(this.patterns.descriptorBoth);
-            if (match) symbols.push({ type: 'descriptor-both', match });
+            if (match) {
+                symbols.push({ type: 'descriptor-both', match });
+                matched = true;
+            }
         }
         
         // 2. 双向卡片 <>
-        else if (settings.enabledSymbols.basic && this.patterns.basicBoth.test(cleanContent)) {
+        if (!matched && settings.enabledSymbols.basic && this.patterns.basicBoth.test(cleanContent)) {
+            console.log('[SiYuanMemo][AutoCard] Matched: basicBoth');
             const match = cleanContent.match(this.patterns.basicBoth);
-            if (match) symbols.push({ type: 'basic-both', match });
+            if (match) {
+                symbols.push({ type: 'basic-both', match });
+                matched = true;
+            }
         }
         
         // 3. 正向卡片 >> (排除 >>>)
-        else if (settings.enabledSymbols.basic && this.patterns.basicForward.test(cleanContent) && !this.patterns.multiLine.test(cleanContent)) {
+        if (!matched && settings.enabledSymbols.basic && this.patterns.basicForward.test(cleanContent) && !this.patterns.multiLine.test(cleanContent)) {
+            console.log('[SiYuanMemo][AutoCard] Matched: basicForward');
             const match = cleanContent.match(this.patterns.basicForward);
-            if (match) symbols.push({ type: 'basic-forward', match });
+            if (match) {
+                symbols.push({ type: 'basic-forward', match });
+                matched = true;
+            }
         }
         
         // 4. 反向卡片 <<
-        else if (settings.enabledSymbols.basic && this.patterns.basicBackward.test(cleanContent)) {
+        if (!matched && settings.enabledSymbols.basic && this.patterns.basicBackward.test(cleanContent)) {
+            console.log('[SiYuanMemo][AutoCard] Matched: basicBackward');
             const match = cleanContent.match(this.patterns.basicBackward);
-            if (match) symbols.push({ type: 'basic-backward', match });
+            if (match) {
+                symbols.push({ type: 'basic-backward', match });
+                matched = true;
+            }
         }
         
         // 5. 概念卡片（优先检测方向符号）
-        else if (settings.enabledSymbols.concept) {
-            // 4.1 概念正向 :>
+        if (!matched && settings.enabledSymbols.concept) {
+            console.log('[SiYuanMemo][AutoCard] Checking concept patterns...');
+            // 5.1 概念正向 :>
             if (this.patterns.conceptForward.test(cleanContent)) {
+                console.log('[SiYuanMemo][AutoCard] Matched: conceptForward');
                 const match = cleanContent.match(this.patterns.conceptForward);
-                if (match) symbols.push({ type: 'concept-forward', match });
+                if (match) {
+                    symbols.push({ type: 'concept-forward', match });
+                    matched = true;
+                }
             }
-            // 4.2 概念反向 :<
+            // 5.2 概念反向 :<
             else if (this.patterns.conceptReverse.test(cleanContent)) {
+                console.log('[SiYuanMemo][AutoCard] Matched: conceptReverse');
                 const match = cleanContent.match(this.patterns.conceptReverse);
-                if (match) symbols.push({ type: 'concept-reverse', match });
+                if (match) {
+                    symbols.push({ type: 'concept-reverse', match });
+                    matched = true;
+                }
             }
-            // 4.3 概念双向 :: (默认)
+            // 5.3 概念双向 :: (默认)
             else if (this.patterns.concept.test(cleanContent)) {
+                console.log('[SiYuanMemo][AutoCard] Matched: concept');
                 const match = cleanContent.match(this.patterns.concept);
-                if (match) symbols.push({ type: 'concept', match });
+                if (match) {
+                    symbols.push({ type: 'concept', match });
+                    matched = true;
+                }
+            } else {
+                console.log('[SiYuanMemo][AutoCard] No concept pattern matched');
             }
         }
         
         // 6. 描述符卡片（检测反向和正向）
-        else if (settings.enabledSymbols.descriptor) {
+        if (!matched && settings.enabledSymbols.descriptor) {
+            console.log('[SiYuanMemo][AutoCard] Checking descriptor patterns...');
             // 6.1 描述符反向 ;<
             if (this.patterns.descriptorReverse.test(cleanContent)) {
                 const match = cleanContent.match(this.patterns.descriptorReverse);
-                if (match) symbols.push({ type: 'descriptor-reverse', match });
+                console.log('[SiYuanMemo][AutoCard] Matched descriptorReverse:', match);
+                if (match) {
+                    symbols.push({ type: 'descriptor-reverse', match });
+                    matched = true;
+                }
             }
             // 6.2 描述符正向 ;; (默认)
             else if (this.patterns.descriptor.test(cleanContent)) {
                 const match = cleanContent.match(this.patterns.descriptor);
-                if (match) symbols.push({ type: 'descriptor', match });
+                console.log('[SiYuanMemo][AutoCard] Matched descriptor:', match);
+                if (match) {
+                    symbols.push({ type: 'descriptor', match });
+                    matched = true;
+                }
+            } else {
+                console.log('[SiYuanMemo][AutoCard] No descriptor pattern matched');
+                console.log('[SiYuanMemo][AutoCard] descriptorReverse test:', this.patterns.descriptorReverse.test(cleanContent));
+                console.log('[SiYuanMemo][AutoCard] descriptor test:', this.patterns.descriptor.test(cleanContent));
             }
         }
         
         // 7. 填空卡片 {{}} 或 == 或思源标记
-        else if (settings.enabledSymbols.cloze && (this.patterns.cloze.test(cleanContent) || this.patterns.clozeEqual.test(cleanContent) || this.patterns.clozeMark.test(cleanContent))) {
+        if (!matched && settings.enabledSymbols.cloze && (this.patterns.cloze.test(cleanContent) || this.patterns.clozeEqual.test(cleanContent) || this.patterns.clozeMark.test(cleanContent))) {
+            console.log('[SiYuanMemo][AutoCard] Matched: cloze');
             const match = cleanContent.match(this.patterns.cloze) || cleanContent.match(this.patterns.clozeEqual) || cleanContent.match(this.patterns.clozeMark);
-            if (match) symbols.push({ type: 'cloze', match });
+            if (match) {
+                symbols.push({ type: 'cloze', match });
+                matched = true;
+            }
         }
+        
+        console.log('[SiYuanMemo][AutoCard] Symbol detection complete, matched:', matched, 'symbols:', symbols.length);
         
         return symbols;
     }
@@ -1283,7 +1343,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 await this.createBasicCardFromDescriptor(blockId, attribute, description, actualSymbol);
                 return;
             }
-            console.log('[SiYuanMemo][AutoCard] Found concept card, creating Xiuyuan descriptor card');
+            console.log('[SiYuanMemo][AutoCard] Found concept card:', foundConceptId, ', creating Xiuyuan descriptor card');
             
             // 3. 使用 Xiuyuan 创建描述符卡片
             const xiuyuanAppService = await this.getXiuyuanApplicationService();

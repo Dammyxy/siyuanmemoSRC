@@ -68,10 +68,13 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       // 2. 创建领域实体
       const card = new DescriptorCard(data);
 
-      // 3. 🆕 使用基类方法加载概念上下文（仅概念块）
+      // 3. 🆕 使用基类方法加载面包屑（只显示到文档块）
+      const breadcrumbs = await this.loadBreadcrumbs(blockId);
+
+      // 4. 🆕 使用基类方法加载概念上下文（仅概念块）
       const conceptContext = await this.loadConceptContext(blockId);
 
-      // 4. 🆕 检测卡片方向（从 FSRSCard 的 typeMarker）
+      // 5. 🆕 检测卡片方向（从 FSRSCard 的 typeMarker）
       const typeMarker = fsrsCard?.meta?.typeMarker || '';
       const isReverse = typeMarker.includes('reverse');
       
@@ -81,13 +84,13 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
         fsrsCardMeta: fsrsCard?.meta 
       });
 
-      // 5. 分离正面和背面内容，传入概念上下文和方向
+      // 6. 分离正面和背面内容，传入概念上下文和方向
       const { frontHtml, backHtml } = this.splitDescriptorContent(card, conceptContext, isReverse);
 
-      // 6. 构建视图模型
+      // 7. 构建视图模型
       const viewModel: DescriptorCardViewModel = {
         blockId: card.blockId,
-        breadcrumbs: [], // 🆕 不再使用独立面包屑
+        breadcrumbs, // 🆕 使用面包屑
         frontHtml,
         backHtml,
         attribute: card.attribute,
@@ -124,30 +127,18 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
     conceptContext: Array<{ id: string; name: string; type: string; isConcept?: boolean }>,
     isReverse: boolean = false
   ): { frontHtml: string; backHtml: string } {
-    const content = card.html;
+    // 🔧 修复：直接使用 card.attribute 和 card.description，不再解析 card.html
+    const attributeName = card.attribute;
+    const attributeValue = card.description;
     
-    // 🔧 修复：支持 ;;、;<、;<> 三种符号（以及中文全角版本）
-    // 但是块内容可能已经没有符号了（符号在创建时被移除）
-    // 所以我们需要更灵活的解析方式
-    
-    // 尝试匹配符号分隔的内容，明确列出所有可能的符号
-    let match = content.match(/^(.+?)\s*(?:;<>|;<|;;|；《》|；《|；；)\s*(.+)$/s);
-    
-    // 如果没有符号，尝试从 card.attribute 和 card.description 获取
-    let attributeName: string;
-    let attributeValue: string;
-    
-    if (match) {
-      attributeName = match[1].trim();
-      attributeValue = match[2].trim();
-    } else if (card.attribute && card.description) {
-      // 使用 card 对象中存储的属性名和描述
-      attributeName = card.attribute;
-      attributeValue = card.description;
-    } else {
-      // 如果都没有，整个内容作为正面
+    if (!attributeName || !attributeValue) {
+      // 如果解析失败，返回空内容
+      console.warn('[DescriptorCardRenderService] Failed to parse descriptor content:', { 
+        attribute: attributeName, 
+        description: attributeValue 
+      });
       return {
-        frontHtml: content,
+        frontHtml: card.html,
         backHtml: '',
       };
     }
@@ -165,13 +156,13 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
     if (isReverse) {
       // 反向卡：描述符 -> 概念
       // 正面：「极端引力场」是谁的「定义」？
-      const questionHtml = `<div contenteditable="false" style="font-size: 32px; line-height: 1.5; text-align: center; padding: 16px;"><span style="font-weight: 700; color: var(--b3-theme-on-surface);">${attributeValue}</span><span style="color: var(--b3-theme-on-surface-light);">是谁的</span><span style="font-weight: 600; color: var(--b3-theme-primary);">${attributeName}</span><span style="color: var(--b3-theme-on-surface-light);">？</span></div>`;
+      const questionHtml = `<div contenteditable="false" style="font-size: 22px; line-height: 1.5; padding: 16px 0;"><span style="font-weight: 700; color: var(--b3-theme-on-surface);">${attributeValue}</span><span style="color: var(--b3-theme-on-surface-light);">是谁的</span><span style="font-weight: 600; color: var(--b3-theme-primary);">${attributeName}</span><span style="color: var(--b3-theme-on-surface-light);">？</span></div>`;
 
       // 答案分隔线
-      const dividerHtml = `<div style="display: flex; align-items: center; margin: 24px 0; color: var(--b3-theme-on-surface-light); font-size: 14px;"><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div><span style="padding: 0 12px;">答案</span><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div></div>`;
+      const dividerHtml = `<div style="display: flex; align-items: center; margin: 16px 0; color: var(--b3-theme-on-surface-light); font-size: 14px;"><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div><span style="padding: 0 12px;">答案</span><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div></div>`;
 
-      // 答案：概念名（32px，左对齐）
-      const answerHtml = `<div contenteditable="false" style="font-size: 32px; line-height: 1.6; color: var(--b3-theme-on-surface); text-align: left;">${parentConceptName}</div>`;
+      // 答案：概念名（22px）
+      const answerHtml = `<div contenteditable="false" style="font-size: 22px; line-height: 1.6; color: var(--b3-theme-on-surface);">${parentConceptName}</div>`;
 
       // 正面：祖先上下文 + 反向问题
       const frontHtml = ancestorHtml + questionHtml;
@@ -183,13 +174,13 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
     } else {
       // 正向卡：概念 -> 描述符（默认）
       // 正面：「黑洞」的「定义」是？
-      const questionHtml = `<div contenteditable="false" style="font-size: 32px; line-height: 1.5; text-align: center; padding: 16px;"><span style="font-weight: 600; color: var(--b3-theme-primary);">${parentConceptName}</span><span style="color: var(--b3-theme-on-surface-light);">的</span><span style="font-weight: 700; color: var(--b3-theme-on-surface);">${attributeName}</span><span style="color: var(--b3-theme-on-surface-light);">是？</span></div>`;
+      const questionHtml = `<div contenteditable="false" style="font-size: 22px; line-height: 1.5; padding: 16px 0;"><span style="font-weight: 600; color: var(--b3-theme-primary);">${parentConceptName}</span><span style="color: var(--b3-theme-on-surface-light);">的</span><span style="font-weight: 700; color: var(--b3-theme-on-surface);">${attributeName}</span><span style="color: var(--b3-theme-on-surface-light);">是？</span></div>`;
 
       // 答案分隔线
-      const dividerHtml = `<div style="display: flex; align-items: center; margin: 24px 0; color: var(--b3-theme-on-surface-light); font-size: 14px;"><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div><span style="padding: 0 12px;">答案</span><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div></div>`;
+      const dividerHtml = `<div style="display: flex; align-items: center; margin: 16px 0; color: var(--b3-theme-on-surface-light); font-size: 14px;"><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div><span style="padding: 0 12px;">答案</span><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div></div>`;
 
-      // 答案：属性值（32px，左对齐）
-      const answerHtml = `<div contenteditable="false" style="font-size: 32px; line-height: 1.6; color: var(--b3-theme-on-surface); text-align: left;">${attributeValue}</div>`;
+      // 答案：属性值（22px，左对齐）
+      const answerHtml = `<div contenteditable="false" style="font-size: 22px; line-height: 1.6; color: var(--b3-theme-on-surface);">${attributeValue}</div>`;
 
       // 正面：祖先上下文 + 组合问题
       const frontHtml = ancestorHtml + questionHtml;
@@ -206,24 +197,25 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
    * 
    * @param conceptContext 完整的概念上下文
    * @param parentConceptName 父概念名称
-   * @returns 祖先上下文（不包含父概念）
+   * @returns 祖先上下文（不包含父概念，只包含概念块）
    */
   private getAncestorContext(
     conceptContext: Array<{ id: string; name: string; type: string; isConcept?: boolean }>,
     parentConceptName: string
   ): Array<{ id: string; name: string; type: string; isConcept?: boolean }> {
+    // 🔧 修复：只保留概念块，过滤掉文档块等非概念块
+    const conceptsOnly = conceptContext.filter(item => item.isConcept === true);
+    
     // 找到父概念的位置
-    const parentIndex = conceptContext.findIndex(item => 
-      item.isConcept !== false && item.name === parentConceptName
-    );
+    const parentIndex = conceptsOnly.findIndex(item => item.name === parentConceptName);
     
     if (parentIndex === -1) {
       // 如果没找到父概念，返回所有概念块
-      return conceptContext.filter(item => item.isConcept !== false);
+      return conceptsOnly;
     }
     
-    // 返回父概念之前的所有项（包括路径块和概念块）
-    return conceptContext.slice(0, parentIndex);
+    // 返回父概念之前的所有概念块
+    return conceptsOnly.slice(0, parentIndex);
   }
 
   /**
@@ -243,7 +235,8 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
     
     let conceptIndent = 0; // 概念块的缩进层级
     ancestorContext.forEach((item) => {
-      const isConcept = item.isConcept !== false; // 默认为 true（兼容旧数据）
+      // 🔧 修复：明确检查 isConcept === true，避免 undefined 被当作 true
+      const isConcept = item.isConcept === true;
       
       if (isConcept) {
         // 概念块：使用概念图标和缩进
@@ -256,7 +249,7 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
         `;
         conceptIndent++; // 下一个概念块增加缩进
       } else {
-        // 路径块：使用路径图标，不缩进，灰色显示
+        // 路径块（文档块等）：使用路径图标，不缩进，灰色显示
         html += `
           <div class="descriptor-card-context__item descriptor-card-context__item--path">
             <span class="descriptor-card-context__icon">📁</span>

@@ -72,6 +72,13 @@ export class QuickCardRepository {
     try {
       console.log('[SiYuanMemo][QuickCardRepository] loadCard called:', { blockId, cardId });
       
+      // 🆕 如果没有 cardId，说明是虚拟闪卡（topic card），不使用快速卡渲染
+      // 让它降级到 Protyle 渲染，这样块引用才能正确显示
+      if (!cardId) {
+        console.log('[SiYuanMemo][QuickCardRepository] No cardId provided, skipping quick card detection for virtual card');
+        return null;
+      }
+      
       // 1. 获取块数据
       const block = await this.adapter.getBlock(blockId);
       if (!block) {
@@ -164,11 +171,26 @@ export class QuickCardRepository {
         backHtml: back.html.substring(0, 100),
       });
 
-      // 8. 创建 CardFace 实例
-      const frontFace = new CardFace(front);
-      const backFace = new CardFace(back);
+      // 8. 使用 Lute 渲染 kramdown 为 HTML
+      const frontHtmlRendered = this.adapter.kramdownToHtml(front.html);
+      const backHtmlRendered = this.adapter.kramdownToHtml(back.html);
 
-      // 9. 创建快速卡片实体
+      console.log('[SiYuanMemo][QuickCardRepository] Rendered HTML:', {
+        frontHtml: frontHtmlRendered.substring(0, 100),
+        backHtml: backHtmlRendered.substring(0, 100),
+      });
+
+      // 9. 创建 CardFace 实例（使用渲染后的 HTML）
+      const frontFace = new CardFace({
+        html: frontHtmlRendered,
+        hiddenTypes: front.hiddenTypes,
+      });
+      const backFace = new CardFace({
+        html: backHtmlRendered,
+        hiddenTypes: back.hiddenTypes,
+      });
+
+      // 10. 创建快速卡片实体
       return new QuickCard({
         id: cardId || `quick-card-${blockId}`,
         blockId,
