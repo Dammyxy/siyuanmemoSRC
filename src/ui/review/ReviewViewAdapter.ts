@@ -45,6 +45,8 @@ export class ReviewViewAdapter implements IDataSourceObserver {
      * 当前卡片 ID
      */
     private currentCardId: string | null = null;
+
+    private readonly i18n?: Record<string, string>;
     
     /**
      * 是否已注册为观察者
@@ -63,8 +65,9 @@ export class ReviewViewAdapter implements IDataSourceObserver {
      * 
      * @param manager 统一数据源管理器实例
      */
-    constructor(manager: UnifiedDataSourceManager) {
+    constructor(manager: UnifiedDataSourceManager, i18n?: Record<string, string>) {
         this.manager = manager;
+        this.i18n = i18n;
         
         console.log('[ReviewViewAdapter] Adapter created');
     }
@@ -249,7 +252,7 @@ export class ReviewViewAdapter implements IDataSourceObserver {
             // 创建跳过按钮配置
             const button = {
                 type: 'action' as const,
-                label: '下一个',
+                label: this.t('actionNext', 'Next'),
                 action: 'next' as const,
             };
             
@@ -381,6 +384,10 @@ export class ReviewViewAdapter implements IDataSourceObserver {
     // ========================================================================
     // 私有方法 - 事件处理
     // ========================================================================
+
+    private t(key: string, fallback: string): string {
+        return this.i18n?.[key] || fallback;
+    }
     
     /**
      * 处理卡片更新事件

@@ -159,15 +159,16 @@ onMounted(() => {
 
   // 🆕 触发增量同步（如果启用）
   const plugin = props.plugin as any;
-  if (plugin?.hybridSyncService) {
-    // 通过 ApplicationContext 获取 storage
-    const storage = plugin.getContext?.()?.getStorage?.();
+  const context = plugin?.getContext?.();
+  const hybridSyncService = context?.getHybridSyncService?.();
+  if (hybridSyncService) {
+    const storage = context?.getStorage?.();
     const riffConfig = storage?.getSettings?.()?.riffIntegration;
     if (riffConfig?.mode === 'advanced' &&
         riffConfig?.incrementalSync?.enabled &&
         riffConfig?.incrementalSync?.triggers?.includes('review-open')) {
       // 后台执行增量同步，不阻塞 UI
-      void plugin.hybridSyncService.incrementalSync().catch((err: Error) => {
+      void hybridSyncService.incrementalSync().catch((err: Error) => {
         console.error('[ReviewView] Incremental sync failed:', err);
       });
     }
@@ -781,8 +782,8 @@ function openSrsEditorDialog(blockId: string) {
     return;
   }
 
-  // 从 storage 查询卡片获取 cardId
-  const card = props.plugin?.storage.getCardByBlockId(blockId);
+  const context = (props.plugin as any)?.getContext?.();
+  const card = context?.getStorage?.()?.getCardByBlockId(blockId);
   if (!card) {
     console.error('[SiYuanMemo][ReviewView] ERROR: Card not found for blockId:', blockId);
     return;
@@ -800,7 +801,7 @@ function openSrsEditorDialog(blockId: string) {
       deckId: riff.BUILTIN_DECK_ID,
       i18n: props.i18n || {},
       plugin: props.plugin,
-      reviewService: (props.plugin as any)?.context?.getReviewService?.(),
+      reviewService: context?.getReviewService?.(),
     },
     width: '860px',
     height: '80vh',

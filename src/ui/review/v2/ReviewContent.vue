@@ -176,7 +176,7 @@ const quickCardRenderService = ref(
   new QuickCardRenderService(
     new QuickCardRepository(
       new SiyuanBlockAdapter(),
-      props.plugin?.context?.getCardStorage() || null
+      props.plugin?.getContext?.()?.getCardStorage?.() || null
     )
   )
 );

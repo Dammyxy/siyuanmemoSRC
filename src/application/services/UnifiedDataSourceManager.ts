@@ -25,7 +25,7 @@ import { IncrementalLearningQueue } from '@/core/queue/domain/IncrementalLearnin
 import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
 import { FinalDrillQueue } from '@/core/queue/domain/FinalDrillQueue';
 import { NeuralRoamQueue } from '@/core/queue/domain/NeuralRoamQueue';
-import { LeechQueue } from '@/core/queue/strategies/LeechQueue';
+import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
 
 /**
  * UnifiedDataSourceManager 类
@@ -450,7 +450,7 @@ export class UnifiedDataSourceManager {
      * 创建队列实例（私有工厂方法）
      * 
      * 根据队列类型创建相应的队列实例。
-     * 所有队列（除了 LeechQueue）都需要：
+     * 所有队列都通过 DDD 队列实现创建：
      * 1. manager: UnifiedDataSourceManager（this）
      * 2. queuePersistence: QueuePersistenceService（可选，某些队列不需要）
      * 
@@ -488,8 +488,7 @@ export class UnifiedDataSourceManager {
                 return new NeuralRoamQueue(this, this.queuePersistence);
             
             case QueueType.Leech:
-                // LeechQueue 是旧架构，不需要 manager 参数
-                return new LeechQueue();
+                return new LeechReviewQueue(this);
             
             default:
                 throw new QueueError(`Unknown queue type: ${type}`);

@@ -101,16 +101,22 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
      * @param schedulerRouter 调度器路由（依赖注入，可选）
      */
     constructor(
-        queueType: QueueType,
+        queueTypeOrQueue: QueueType | IReviewQueue,
         manager: UnifiedDataSourceManager,
         eventBus: EventBus,
         schedulerRouter: ISchedulerRouter | null = null
     ) {
-        this.queueType = queueType;
         this.manager = manager;
         this.eventBus = eventBus;
         this.schedulerRouter = schedulerRouter;
-        this.queue = this.manager.getQueue(queueType);
+
+        if (typeof queueTypeOrQueue === 'string') {
+            this.queueType = queueTypeOrQueue;
+            this.queue = this.manager.getQueue(queueTypeOrQueue);
+        } else {
+            this.queue = queueTypeOrQueue;
+            this.queueType = queueTypeOrQueue.getType();
+        }
         
         // 🆕 创建缓存管理观察者
         this.cacheManager = new CacheManagerObserver({
@@ -126,7 +132,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
         // 订阅队列变更事件（使用事件总线）
         this.subscribeToQueueChanges();
         
-        console.log(`[SiYuanMemo][UnifiedQueueStrategy] Created for queue: ${queueType}`);
+        console.log(`[SiYuanMemo][UnifiedQueueStrategy] Created for queue: ${this.queueType}`);
     }
     
     // ========================================================================
@@ -154,7 +160,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
     async next(): Promise<FSRSCard | null> {
         try {
             // 刻意练习队列：动态抽牌算法
-            if (this.queueType === 'final-drill') {
+            if (this.queueType === QueueType.FinalDrill) {
                 // 每次都重新加载队列（动态抽牌）
                 await this.reloadCards();
                 
@@ -275,7 +281,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<any> {
                 
                 // 刻意练习队列：不需要失效缓存（每次 next() 都会重新加载）
                 // 其他队列：失效缓存，下次 next() 会重新加载
-                if (this.queueType !== 'final-drill') {
+                if (this.queueType !== QueueType.FinalDrill) {
                     this.invalidateCache();
                 }
                 

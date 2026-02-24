@@ -23,11 +23,11 @@ type ClassSignatureMap = Map<string, ApiClassSignature>;
 export class ApiCompatibilityChecker {
     checkCompatibility(rootDir: string): ApiCompatibilityResult {
         const oldDir = path.join(rootDir, 'src/core/queue/strategies');
-        const newDir = path.join(rootDir, 'src/queues');
+        const newDir = path.join(rootDir, 'src/core/queue/domain');
 
         const oldClasses = this.collectClassApis(oldDir);
         const newClasses = this.collectClassApis(newDir, {
-            excludeFileNames: new Set(['index.ts', 'QueueFactory.ts']),
+            excludeFileNames: new Set(['queues-index.ts']),
         });
 
         return this.compareClassApis(oldClasses, newClasses);

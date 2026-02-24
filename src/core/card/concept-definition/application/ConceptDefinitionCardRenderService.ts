@@ -260,7 +260,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     }
 
     // 获取 XiuyuanApplicationService
-    const xiuyuanAppService = await plugin.context.getXiuyuanApplicationService();
+    const xiuyuanAppService = await plugin.getContext?.()?.getXiuyuanApplicationService?.();
     if (!xiuyuanAppService) {
       throw new Error('XiuyuanApplicationService not available');
     }

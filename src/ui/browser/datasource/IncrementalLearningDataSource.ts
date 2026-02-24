@@ -25,6 +25,8 @@ export type IncrementalLearningDataSourceOptions = {
   cardType?: CardTypeFilter;  // 卡片类型筛选
 };
 
+type I18nDictionary = Record<string, string>;
+
 function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
   if (!sortModel?.length) return rows;
   const [{ colId, sort }] = sortModel;
@@ -51,11 +53,13 @@ export class IncrementalLearningDataSource implements ICardDataSource {
   private readonly manager: UnifiedDataSourceManager;
   private readonly options: IncrementalLearningDataSourceOptions;
   private readonly plugin?: any;  // 🆕 改为 plugin 引用以访问 ApplicationContext
+  private readonly i18n?: I18nDictionary;
 
   constructor(manager: UnifiedDataSourceManager, options?: IncrementalLearningDataSourceOptions, plugin?: any) {
     this.manager = manager;
     this.options = options || {};
     this.plugin = plugin;  // 🆕 保存 plugin 引用
+    this.i18n = this.plugin?.getContext?.()?.getI18n?.() || this.plugin?.i18n;
     
     console.log('[SiYuanMemo][IncrementalLearningDataSource] Initialized with unified data source manager');
   }
@@ -339,6 +343,10 @@ export class IncrementalLearningDataSource implements ICardDataSource {
     }
   }
 
+  private t(key: string, fallback: string): string {
+    return this.i18n?.[key] || fallback;
+  }
+
   getSupportedActions(): CardBrowserAction[] {
     // 渐进学习队列支持的操作：
     // - 打开
@@ -350,33 +358,33 @@ export class IncrementalLearningDataSource implements ICardDataSource {
     return [
       {
         id: 'open',
-        label: i18n?.openInTab || 'Open',
+        label: this.t('openInTab', 'Open'),
         icon: 'iconOpen',
       },
       {
         id: 'remove-from-current-queue',
-        label: i18n?.removeFromQueue || '从队列移除',
+        label: this.t('removeFromQueue', 'Remove from Queue'),
         icon: 'iconMin',
       },
       {
         id: 'delete-card',
-        label: i18n?.deleteCard || '取消闪卡',
+        label: this.t('deleteCard', 'Remove Card'),
         icon: 'iconTrashcan',
         danger: true,
       },
       {
         id: 'set-priority',
-        label: '设置优先级',
+        label: this.t('setPriority', 'Set Priority'),
         icon: 'iconSort',
       },
       {
         id: 'postpone',
-        label: '推迟',
+        label: this.t('postpone', 'Postpone'),
         icon: 'iconForward',
       },
       {
         id: 'advance',
-        label: '提前',
+        label: this.t('advance', 'Advance'),
         icon: 'iconBack',
       },
       // ❌ 移除：分散功能已在工具栏上，不需要在右键菜单重复
@@ -413,7 +421,7 @@ export class IncrementalLearningDataSource implements ICardDataSource {
           return 0;
         }
         
-        const cardService = this.plugin.context?.getCardService?.();
+        const cardService = this.plugin.getContext?.()?.getCardService?.();
         if (!cardService) {
           console.error('[SiYuanMemo][IncrementalLearningDataSource] CardApplicationService not available!');
           return 0;

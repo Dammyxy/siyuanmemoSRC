@@ -12,7 +12,6 @@ import { CardType } from '@/types/card';
 import * as siyuanApi from '@/core/siyuan/api';
 import { ATTR_PRIORITY } from '@/core/siyuan/block';
 import { clampPriority, DEFAULT_PRIORITY } from '@/core/queue/abstraction/IPriority';
-import type { QueueData } from '@/core/queue/strategies/QueueMigrationManager';
 import { encode, decode } from '@msgpack/msgpack';
 import { migrateCard } from '@/utils/cardMigration';
 
@@ -30,6 +29,17 @@ const STORAGE_FILES = {
     RIFF_BLACKLIST: 'riff-blacklist.msgpack',
     RIFF_BLACKLIST_JSON: 'riff-blacklist.json',
 };
+
+interface QueueData {
+    version: number;
+    items: any[];
+    metadata: {
+        createdAt: number;
+        updatedAt: number;
+        totalReviewed: number;
+        initialTotal: number;
+    };
+}
 
 /**
  * 存储管理器类

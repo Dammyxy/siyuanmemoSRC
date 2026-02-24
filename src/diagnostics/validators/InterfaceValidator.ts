@@ -140,7 +140,7 @@ export class InterfaceValidator {
     }
 
     private findQueueFiles(rootDir: string): string[] {
-        const queueDir = path.join(rootDir, 'src/queues');
+        const queueDir = path.join(rootDir, 'src/core/queue/domain');
         const files: string[] = [];
 
         if (!fs.existsSync(queueDir)) {
@@ -149,18 +149,12 @@ export class InterfaceValidator {
 
         const entries = fs.readdirSync(queueDir, { withFileTypes: true });
         for (const entry of entries) {
-            if (!entry.isFile()) {
+            if (!entry.isFile() || !entry.name.endsWith('.ts')) {
                 continue;
             }
-
-            if (!entry.name.endsWith('.ts')) {
+            if (entry.name === 'queues-index.ts') {
                 continue;
             }
-
-            if (entry.name === 'index.ts' || entry.name === 'QueueFactory.ts') {
-                continue;
-            }
-
             files.push(path.join(queueDir, entry.name));
         }
 

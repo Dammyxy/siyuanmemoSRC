@@ -94,19 +94,16 @@ export class ReportGenerator {
         lines.push('');
         lines.push('## 旧架构（Old Architecture）');
         lines.push('- 目录：`src/core/queue/strategies/`');
-        lines.push('- 核心类型：`QueueItem`');
-        lines.push('- 基类：`BaseCompositeQueue`');
-        lines.push('- 实现队列：RetrievalPracticeQueue, IncrementalLearningQueue, FilterGroupQueue, FinalDrillQueue, NeuralRoamQueue');
-        lines.push('- 临时队列：SubsetPracticeStrategy, LeechQueue');
+        lines.push('- 状态：已物理移除，不再参与运行时路径');
+        lines.push('- 迁移遗留：仅保留在诊断报告历史记录中');
         lines.push('');
 
         lines.push('## 新架构（New Architecture）');
-        lines.push('- 目录：`src/queues/`');
-        lines.push('- 核心类型：`FSRSCard`');
-        lines.push('- 接口：`IReviewQueue`');
-        lines.push('- 基类：`BaseReviewQueue`');
-        lines.push('- 数据源管理：`UnifiedDataSourceManager`');
-        lines.push('- 实现队列：RetrievalPracticeQueue, IncrementalLearningQueue, FilterGroupQueue, FinalDrillQueue, NeuralRoamQueue');
+        lines.push('- 队列目录：`src/core/queue/domain/`');
+        lines.push('- 应用入口：`src/application/services/UnifiedDataSourceManager.ts`');
+        lines.push('- 队列接口：`IReviewQueue`（`src/types/unified-data-source.ts`）');
+        lines.push('- 适配层：`UnifiedQueueStrategy`（`src/application/adapters/UnifiedQueueStrategy.ts`）');
+        lines.push('- 已注册队列：RetrievalPractice, IncrementalLearning, FilterGroup, FinalDrill, NeuralRoam, Leech');
         lines.push('');
 
         lines.push('## 类型差异（QueueItem vs FSRSCard）');
@@ -115,9 +112,9 @@ export class ReportGenerator {
         lines.push('');
 
         lines.push('## 迁移指南');
-        lines.push('1. 优先迁移低风险高影响的使用点');
-        lines.push('2. 确保所有队列实现 `IReviewQueue` 接口');
-        lines.push('3. 替换旧架构导入为 `src/queues/`');
+        lines.push('1. 所有新行为统一落在 `core/queue/domain` + `UnifiedDataSourceManager` 主链路');
+        lines.push('2. 禁止新增旧策略目录或并行队列实现');
+        lines.push('3. UI 通过 DialogManager/ReviewAdapter 访问队列，避免跨层直接依赖');
         lines.push('4. 使用 `queue.getAllCards()` 获取卡片列表');
         lines.push('5. 跑通单元与集成测试再删除旧代码');
         lines.push('');
@@ -129,7 +126,7 @@ export class ReportGenerator {
         lines.push('');
 
         lines.push('## 新代码应使用的架构');
-        lines.push('- 新功能与修复应优先使用新架构（`src/queues/`）');
+        lines.push('- 新功能与修复应优先使用新架构（`src/core/queue/domain/`）');
         lines.push('');
 
         lines.push('## 弃用策略');
@@ -140,7 +137,7 @@ export class ReportGenerator {
 
         lines.push('## 代码示例');
         lines.push('```ts');
-        lines.push('import { RetrievalPracticeQueue } from "src/queues/RetrievalPracticeQueue";');
+        lines.push('import { RetrievalPracticeQueue } from "src/core/queue/domain/RetrievalPracticeQueue";');
         lines.push('const queue = new RetrievalPracticeQueue(manager);');
         lines.push('const cards = await queue.getAllCards();');
         lines.push('```');

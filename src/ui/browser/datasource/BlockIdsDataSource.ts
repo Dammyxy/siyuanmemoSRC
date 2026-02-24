@@ -11,6 +11,7 @@ import {
   batchSetBlockPriority,
   adjustTime,
 } from './MenuActions';
+import { QueueType } from '@/types/unified-data-source';
 
 function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
   if (!sortModel?.length) return rows;
@@ -140,14 +141,26 @@ export class BlockIdsDataSource implements ICardDataSource {
     console.log('[BlockIdsDataSource] getQueueById called:', {
       queueId,
       hasPlugin: !!this.plugin,
-      pluginKeys: this.plugin ? Object.keys(this.plugin).filter(k => k.includes('Queue') || k.includes('queue')) : [],
+      hasContext: !!this.plugin?.getContext?.(),
     });
-    
-    if (queueId === 'retrieval') return this.plugin?.retrievalQueue;
-    if (queueId === 'final-drill') return this.plugin?.finalDrillQueue;
-    if (queueId === 'neural-roam') return this.plugin?.neuralQueue;
-    if (queueId === 'filter-group') return this.plugin?.filterGroupQueue;
-    if (queueId === 'incremental-learning') return this.plugin?.incrementalQueue;
+
+    const manager = this.plugin?.getContext?.()?.getUnifiedDataSourceManager?.();
+    if (!manager || !queueId) {
+      console.warn('[BlockIdsDataSource] UnifiedDataSourceManager unavailable');
+      return null;
+    }
+
+    const queueTypeMap: Record<string, QueueType> = {
+      retrieval: QueueType.RetrievalPractice,
+      'final-drill': QueueType.FinalDrill,
+      'neural-roam': QueueType.NeuralRoam,
+      'filter-group': QueueType.FilterGroup,
+      'incremental-learning': QueueType.IncrementalLearning,
+    };
+    const queueType = queueTypeMap[queueId];
+    if (queueType) {
+      return manager.getQueue(queueType);
+    }
     
     console.warn('[BlockIdsDataSource] Queue not found for queueId:', queueId);
     return null;

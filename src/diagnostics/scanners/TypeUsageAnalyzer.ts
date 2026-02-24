@@ -13,7 +13,7 @@ import { ArchitectureType, UsagePoint } from '../types';
 
 export class TypeUsageAnalyzer {
     private readonly OLD_ARCHITECTURE_PREFIX = 'src/core/queue/strategies';
-    private readonly NEW_ARCHITECTURE_PREFIX = 'src/queues';
+    private readonly NEW_ARCHITECTURE_PREFIX = 'src/core/queue/domain';
 
     analyze(
         fileContent: string,
@@ -72,10 +72,7 @@ export class TypeUsageAnalyzer {
         const visit = (node: ts.Node) => {
             if (ts.isTypeReferenceNode(node)) {
                 const typeName = extractTypeName(node.typeName);
-                if (typeName === 'QueueItem') {
-                    recordUsage(node, 'old', 'type-annotation');
-                }
-                if (typeName === 'FSRSCard') {
+                if (typeName === 'QueueItem' || typeName === 'FSRSCard') {
                     recordUsage(node, 'new', 'type-annotation');
                 }
             }

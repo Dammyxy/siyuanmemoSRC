@@ -51,6 +51,19 @@ export class TransactionObserver {
         this.builder = new CardBuilderContext();
     }
 
+    private getContext(): any | null {
+        try {
+            return this.plugin?.getContext?.() ?? null;
+        } catch (error) {
+            console.warn('[TransactionObserver] Failed to get ApplicationContext:', error);
+            return null;
+        }
+    }
+
+    private getStorage(): any | null {
+        return this.getContext()?.getStorage?.() ?? null;
+    }
+
     public init() {
         console.log('[SiYuanMemo] TransactionObserver initialized');
         this.plugin.eventBus.on('ws-main', this.handleTransaction);
@@ -110,7 +123,7 @@ export class TransactionObserver {
             }
         }
         // Save storage once after batch
-        this.plugin.storage.saveCards();
+        this.getStorage()?.saveCards();
     }
 
     private async checkAndCreateCard(blockId: string) {
@@ -217,7 +230,7 @@ export class TransactionObserver {
 
             // 7. Save to Plugin Storage (only if card was created)
             if (card) {
-                this.plugin.storage.setCard(card);
+                this.getStorage()?.setCard(card);
             }
 
         } catch (err) {
@@ -467,7 +480,11 @@ export class TransactionObserver {
             // 3. 调用列表模板专用的创建方法
             // ✅ 使用 createListTemplateCards 而不是 createFromBlocks
             // 这样会创建 1 个 Xiuyuan → N 张卡片（N = 子列表项数量）
-            const xiuyuanAppService = await this.plugin.context.getXiuyuanApplicationService();
+            const xiuyuanAppService = await this.getContext()?.getXiuyuanApplicationService?.();
+            if (!xiuyuanAppService) {
+                console.warn('[TransactionObserver] XiuyuanApplicationService not available');
+                return;
+            }
             const result = await xiuyuanAppService.createListTemplateCards({
                 parentBlockId,
                 childBlockIds,

@@ -248,9 +248,22 @@ function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
+function getContext() {
+  return props.plugin?.getContext?.();
+}
+
+function getStorage() {
+  return getContext()?.getStorage?.();
+}
+
+function getSchedulerRouter() {
+  return getContext()?.getScheduler?.() || getContext()?.getSchedulerRouter?.();
+}
+
 async function loadMeta() {
   try {
-    const card = props.plugin?.storage.getCardByBlockId(blockId);
+    const storage = getStorage();
+    const card = storage?.getCardByBlockId(blockId);
     
     if (!card) {
       console.warn('[SiYuanMemo][SrsEditor] Card not found in storage, blockId:', blockId);
@@ -474,8 +487,9 @@ async function handleReset() {
   if (!confirmed) return;
   
   try {
-    const card = props.plugin?.storage.getCardByBlockId(blockId);
-    if (card) {
+    const storage = getStorage();
+    const card = storage?.getCardByBlockId(blockId);
+    if (card && storage) {
       card.state = CardState.New;
       card.due = Date.now();
       card.stability = 0;
@@ -487,8 +501,8 @@ async function handleReset() {
       card.lastReview = 0;
       card.learning_step = 0;
       
-      props.plugin?.storage.setCard(card);
-      await props.plugin?.storage.saveCards();
+      storage.setCard(card);
+      await storage.saveCards();
       await loadMeta();
       
       showResultDialog({
@@ -508,7 +522,7 @@ async function handleReset() {
 }
 
 function openScheduleDateDialog() {
-  const card = props.plugin?.storage.getCardByBlockId(blockId);
+  const card = getStorage()?.getCardByBlockId(blockId);
   if (!card) {
     showResultDialog({
       title: t('scheduleDate', 'Schedule Review Date'),
@@ -537,7 +551,9 @@ function openScheduleDateDialog() {
 
 async function handleScheduleDate(options: ScheduleOptions) {
   try {
-    const card = props.plugin?.storage.getCardByBlockId(blockId);
+    const storage = getStorage();
+    const schedulerRouter = getSchedulerRouter();
+    const card = storage?.getCardByBlockId(blockId);
     if (!card) {
       showResultDialog({
         title: t('scheduleDate', 'Schedule Review Date'),
@@ -579,21 +595,21 @@ async function handleScheduleDate(options: ScheduleOptions) {
         } catch (error) {
           console.error('[SiYuanMemo][SrsEditor] Failed to reschedule via reviewService:', error);
           // 回退到旧方法
-          if (props.plugin?.schedulerRouter) {
-            const updatedCard = props.plugin.schedulerRouter.route(card, options.rating);
+          if (schedulerRouter && storage) {
+            const updatedCard = schedulerRouter.route(card, options.rating);
             updatedCard.due = dueTimestamp;
             updatedCard.updatedAt = Date.now();
-            props.plugin.storage.setCard(updatedCard);
-            await props.plugin.storage.saveCards();
+            storage.setCard(updatedCard);
+            await storage.saveCards();
           }
         }
-      } else if (props.plugin?.schedulerRouter) {
+      } else if (schedulerRouter && storage) {
         // 回退到旧方法（向后兼容）
-        const updatedCard = props.plugin.schedulerRouter.route(card, options.rating);
+        const updatedCard = schedulerRouter.route(card, options.rating);
         updatedCard.due = dueTimestamp;
         updatedCard.updatedAt = Date.now();
-        props.plugin.storage.setCard(updatedCard);
-        await props.plugin.storage.saveCards();
+        storage.setCard(updatedCard);
+        await storage.saveCards();
         console.log('[SiYuanMemo][SrsEditor] Schedule with rating (legacy):', options.rating, 'to:', dueTimestamp);
       }
     } else {
@@ -609,19 +625,19 @@ async function handleScheduleDate(options: ScheduleOptions) {
         } catch (error) {
           console.error('[SiYuanMemo][SrsEditor] Failed to reschedule via reviewService:', error);
           // 回退到旧方法
-          if (props.plugin?.storage) {
+          if (storage) {
             card.due = dueTimestamp;
             card.updatedAt = Date.now();
-            props.plugin.storage.setCard(card);
-            await props.plugin.storage.saveCards();
+            storage.setCard(card);
+            await storage.saveCards();
           }
         }
-      } else if (props.plugin?.storage) {
+      } else if (storage) {
         // 回退到旧方法（向后兼容）
         card.due = dueTimestamp;
         card.updatedAt = Date.now();
-        props.plugin.storage.setCard(card);
-        await props.plugin.storage.saveCards();
+        storage.setCard(card);
+        await storage.saveCards();
         console.log('[SiYuanMemo][SrsEditor] Schedule direct (legacy) to:', dueTimestamp);
       }
     }

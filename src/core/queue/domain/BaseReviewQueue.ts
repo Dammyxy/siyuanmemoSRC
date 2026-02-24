@@ -174,7 +174,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     protected getSchedulerRouter(): any {
         const router = (this.manager as any).advancedRouter;
         const plugin = router?.plugin;
-        const schedulerRouter = plugin?.schedulerRouter;
+        const schedulerRouter = plugin?.getContext?.()?.getScheduler?.() ?? plugin?.schedulerRouter;
         
         if (!schedulerRouter) {
             throw new Error(`[${this.type}] SchedulerRouter not available - plugin initialization failed`);
@@ -195,9 +195,10 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         try {
             const router = (this.manager as any).advancedRouter;
             const plugin = router?.plugin;
+            const settingsService = plugin?.getContext?.()?.getSettingsService?.();
             
-            if (plugin && typeof plugin.context?.getSettingsService === 'function') {
-                const settings = plugin.context.getSettingsService().getSettings();
+            if (settingsService) {
+                const settings = settingsService.getSettings();
                 return settings?.queues?.dayStartHour ?? 4;
             }
         } catch (error) {

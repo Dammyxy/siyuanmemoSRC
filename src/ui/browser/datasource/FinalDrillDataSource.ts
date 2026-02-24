@@ -171,7 +171,7 @@ export class FinalDrillDataSource implements ICardDataSource {
           return 0;
         }
         
-        const cardService = this.plugin.context?.getCardService?.();
+        const cardService = this.plugin.getContext?.()?.getCardService?.();
         if (!cardService) {
           console.error('[FinalDrillDataSource] CardApplicationService not available!');
           return 0;

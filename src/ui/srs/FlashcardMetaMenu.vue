@@ -44,6 +44,10 @@ const props = defineProps<{
 
 const t = (key: string, fallback: string) => props.i18n?.[key] || fallback;
 
+function getStorage() {
+  return props.plugin?.getContext?.()?.getStorage?.();
+}
+
 const loading = ref(true);
 const error = ref('');
 const fields = ref<FieldItem[]>([]);
@@ -80,7 +84,7 @@ onMounted(async () => {
 
     // ✅ 新架构：从本地存储获取卡片数据
     const attrs = await getBlockAttrs(props.blockId).catch(() => ({}));
-    const card = props.plugin?.storage.getCardByBlockId(props.blockId);
+    const card = getStorage()?.getCardByBlockId(props.blockId);
     
     // 获取卡片组名（暂时使用默认值，因为新架构中没有 deckID 概念）
     const deckName = '-';

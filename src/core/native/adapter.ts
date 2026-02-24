@@ -6,7 +6,13 @@
 import type { ICard, ICardData } from '@/global';
 import { riff } from '@/core/siyuan';
 import type { QueueItem } from '@/core/queue';
-import { FilterGroupQueue } from '@/core/queue/strategies/FilterGroupQueue';
+
+type NativeQueueItem = QueueItem & {
+  cardID?: string;
+  blockID?: string;
+  deckID?: string;
+  meta?: Record<string, unknown>;
+};
 
 /**
  * 队列项到原生卡片的转换接口
@@ -16,7 +22,7 @@ export interface INativeReviewAdapter {
   /**
    * 将队列项转换为 ICard 格式
    */
-  toNativeCards(items: QueueItem[]): ICard[];
+  toNativeCards(items: NativeQueueItem[]): ICard[];
 
   /**
    * 生成原生界面所需的卡片数据
@@ -37,7 +43,7 @@ export interface INativeReviewAdapter {
 /**
  * FSRS 数据转换为 nextDues 格式
  */
-function calculateNextDues(_item: QueueItem): ICard['nextDues'] {
+function calculateNextDues(_item: NativeQueueItem): ICard['nextDues'] {
   // 默认间隔：1m, 5m, 10m, 1d (6天后)
   const oneMinute = 1 * 60 * 1000;
   const oneDay = 24 * 60 * 60 * 1000;
@@ -54,9 +60,9 @@ function calculateNextDues(_item: QueueItem): ICard['nextDues'] {
  * 提取练习队列的原生适配器
  */
 export class ExtractionNativeAdapter implements INativeReviewAdapter {
-  constructor(private queue: { getAllItems: () => QueueItem[] }) {}
+  constructor(private queue: { getAllItems: () => NativeQueueItem[] }) {}
 
-  toNativeCards(items: QueueItem[]): ICard[] {
+  toNativeCards(items: NativeQueueItem[]): ICard[] {
     return items.map((item) => ({
       deckID: item.deckID || riff.BUILTIN_DECK_ID,
       cardID: item.cardID || item.blockID,
@@ -95,9 +101,9 @@ export class ExtractionNativeAdapter implements INativeReviewAdapter {
  * 刻意练习队列的原生适配器
  */
 export class FinalDrillNativeAdapter implements INativeReviewAdapter {
-  constructor(private queue: { getAllItems: () => QueueItem[] }) {}
+  constructor(private queue: { getAllItems: () => NativeQueueItem[] }) {}
 
-  toNativeCards(items: QueueItem[]): ICard[] {
+  toNativeCards(items: NativeQueueItem[]): ICard[] {
     return items.map((item) => ({
       deckID: item.deckID || riff.BUILTIN_DECK_ID,
       cardID: item.cardID || item.blockID,
@@ -136,9 +142,14 @@ export class FinalDrillNativeAdapter implements INativeReviewAdapter {
  * 筛选练习队列的原生适配器
  */
 export class FilterGroupNativeAdapter implements INativeReviewAdapter {
-  constructor(private queue: FilterGroupQueue) {}
+  constructor(
+    private queue: {
+      getAllItems?: () => NativeQueueItem[];
+      getAllCards?: () => Promise<Array<{ id: string; blockId: string; deckId?: string; meta?: Record<string, unknown> }>>;
+    },
+  ) {}
 
-  toNativeCards(items: QueueItem[]): ICard[] {
+  toNativeCards(items: NativeQueueItem[]): ICard[] {
     return items.map((item) => ({
       deckID: item.deckID || riff.BUILTIN_DECK_ID,
       cardID: item.cardID || item.blockID,
@@ -153,7 +164,7 @@ export class FilterGroupNativeAdapter implements INativeReviewAdapter {
   }
 
   async getCardData(): Promise<ICardData> {
-    const items = this.queue.getAllItems();
+    const items = await this.resolveItems();
     const cards = this.toNativeCards(items);
 
     return {
@@ -162,6 +173,24 @@ export class FilterGroupNativeAdapter implements INativeReviewAdapter {
       unreviewedNewCardCount: items.length,
       unreviewedOldCardCount: 0,
     };
+  }
+
+  private async resolveItems(): Promise<NativeQueueItem[]> {
+    if (typeof this.queue.getAllItems === 'function') {
+      return this.queue.getAllItems();
+    }
+
+    if (typeof this.queue.getAllCards === 'function') {
+      const cards = await this.queue.getAllCards();
+      return cards.map((card) => ({
+        cardID: card.id,
+        blockID: card.blockId,
+        deckID: card.deckId || riff.BUILTIN_DECK_ID,
+        meta: card.meta,
+      })) as NativeQueueItem[];
+    }
+
+    return [];
   }
 
   getQueueName(): string {

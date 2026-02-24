@@ -51,66 +51,6 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     return await cardService.getDueCount();
   }
   
-  // ========================================================================
-  // 向后兼容访问器（将在下一个主版本中移除）
-  // ========================================================================
-  /** @deprecated 使用 context.getStorage() 代替 */
-  public get storage() { return this.context.getStorage(); }
-  /** @deprecated 使用 context.getLegacyScheduler() 代替 */
-  public get scheduler() { return this.context.getLegacyScheduler(); }
-  /** @deprecated 使用 context.getScheduler() 代替 */
-  public get schedulerRouter() { return this.context.getScheduler(); }
-  /** @deprecated 使用 context.getRescheduleService() 代替 */
-  public get rescheduleService() { return this.context.getRescheduleService(); }
-  /** @deprecated 使用 context.getQueueContext() 代替 */
-  public get queueContext() { return this.context.getQueueContext(); }
-  /** @deprecated 使用 context.getRetrievalQueue() 代替 */
-  public get retrievalQueue() { return this.context.getRetrievalQueue() as any; }
-  /** @deprecated 使用 context.getFinalDrillQueue() 代替 */
-  public get finalDrillQueue() { return this.context.getFinalDrillQueue(); }
-  /** @deprecated 使用 context.getLeechQueue() 代替 */
-  public get leechQueue() { return this.context.getLeechQueue(); }
-  /** @deprecated 使用 context.getIncrementalQueue() 代替 */
-  public get incrementalQueue() { return this.context.getIncrementalQueue(); }
-  /** @deprecated 使用 context.getSubsetQueue() 代替 */
-  public get subsetQueue() { return this.context.getSubsetQueue(); }
-  /** @deprecated XiuyuanService 已移除，请使用 context.getXiuyuanApplicationService() 代替 */
-  public get xiuyuanService() { 
-    throw new Error('XiuyuanService has been removed. Use context.getXiuyuanApplicationService() instead.');
-  }
-  /** @deprecated 使用 context.getXiuyuanStorage() 代替 */
-  public get xiuyuanStorage() { return this.context.getXiuyuanStorage(); }
-  /** @deprecated 使用 context.getUnifiedDataSourceManager() 代替 */
-  public get unifiedDataSourceManager() { return this.context.getUnifiedDataSourceManager(); }
-  /** @deprecated 使用 finalDrillQueue 代替 */
-  public get deliberateQueue() { return this.finalDrillQueue; }
-  /** @deprecated 使用 context.getUnifiedDataSourceManager().getQueue('neural-roam') 代替 */
-  public get neuralQueue() { return this.unifiedDataSourceManager.getQueue('neural-roam' as any) as any; }
-  /** @deprecated 使用 neuralQueue 代替 */
-  public get neuralRoamQueue() { return this.neuralQueue; }
-  /** @deprecated 使用 subsetQueue 代替 */
-  public get filterGroupQueue() { return this.subsetQueue; }
-  /** @deprecated 使用 context.getHybridSyncService() 代替 */
-  public get hybridSyncService() { return this.context.getHybridSyncService(); }
-  
-  // DialogManager 方法代理
-  /** @deprecated 使用 context.getDialogManager().openReviewDialog() 代替 */
-  public openReviewDialog() { return this.context.getDialogManager()?.openReviewDialog(); }
-  /** @deprecated 使用 context.getDialogManager().openIncrementalLearningDialog() 代替 */
-  public openIncrementalLearningDialog() { return this.context.getDialogManager()?.openIncrementalLearningDialog(); }
-  /** @deprecated 使用 context.getDialogManager().openFinalDrillDialog() 代替 */
-  public openFinalDrillDialog() { return this.context.getDialogManager()?.openFinalDrillDialog(); }
-  /** @deprecated 使用 context.getDialogManager().openNeuralRoamDialog() 代替 */
-  public openNeuralRoamDialog(options?: any) { return this.context.getDialogManager()?.openNeuralRoamDialog(options); }
-  /** @deprecated 使用 context.getDialogManager().openFilterGroupPracticeDialog() 代替 */
-  public openFilterGroupPracticeDialog() { return this.context.getDialogManager()?.openFilterGroupPracticeDialog(); }
-  /** @deprecated 使用 context.getDialogManager().openLeechReviewDialog() 代替 */
-  public openLeechReviewDialog() { return this.context.getDialogManager()?.openLeechReviewDialog(); }
-  
-  // EventBus 访问方法（不使用 getter，避免与父类冲突）
-  /** @deprecated 使用 context.getEventBus() 代替 */
-  public getEventBus() { return this.context.getEventBus(); }
-
   private topBarElement: HTMLElement | null = null;
   private topBarContextMenuHandler: ((ev: MouseEvent) => void) | null = null;
   private isInitialized = false;
@@ -174,15 +114,6 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       'queue-retrieval-practice.backup.json', 'queue-neural-roam.backup.json', 'queue-incremental-learning.backup.json',
     ];
     files.forEach(f => this.removeData(f).catch(() => {}));
-  }
-
-  // ========================================================================
-  // 向后兼容方法（将在下一个主版本中移除）
-  // ========================================================================
-  
-  /** @deprecated 使用 openSettings() 代替 */
-  openSetting(defaultTab?: string) {
-    this.openSettings(defaultTab);
   }
 
   // ========================================================================

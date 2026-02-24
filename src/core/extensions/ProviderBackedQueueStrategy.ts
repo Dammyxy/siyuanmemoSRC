@@ -5,7 +5,7 @@
  * 新架构请直接使用 BaseReviewQueue，不需要 Provider 层。
  * 
  * 参考：
- * - 新架构：src/queues/BaseReviewQueue.ts
+ * - 新架构：src/core/queue/domain/BaseReviewQueue.ts
  * - 迁移示例：src/index.ts 中的 TAB 恢复逻辑
  */
 

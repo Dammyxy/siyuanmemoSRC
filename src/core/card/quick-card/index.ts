@@ -46,7 +46,7 @@ export {
  * 
  * // 使用插件配置
  * const service = createQuickCardRenderService(
- *   new PluginQuickCardConfigProvider(() => plugin.context.getSettingsService().getSettings())
+ *   new PluginQuickCardConfigProvider(() => plugin.getContext().getSettingsService().getSettings())
  * );
  * ```
  */

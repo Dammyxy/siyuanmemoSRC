@@ -2,7 +2,7 @@
  * FSRS Retrieval Provider
  * 
  * @deprecated 旧架构 Provider 层。
- * 新代码请直接使用 RetrievalPracticeQueue（src/queues/RetrievalPracticeQueue.ts）
+ * 新代码请直接使用 RetrievalPracticeQueue（src/core/queue/domain/RetrievalPracticeQueue.ts）
  * 
  * 参考迁移：src/index.ts 中的 TAB 恢复逻辑
  */

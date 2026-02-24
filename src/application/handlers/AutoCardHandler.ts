@@ -87,6 +87,28 @@ export class AutoCardHandler implements ITransactionHandler {
         this.plugin = plugin;
         console.log('[SiYuanMemo][AutoCard] Handler initialized');
     }
+
+    private getContext(): any | null {
+        try {
+            return this.plugin?.getContext?.() ?? null;
+        } catch (error) {
+            console.warn('[AutoCard] Failed to get ApplicationContext:', error);
+            return null;
+        }
+    }
+
+    private getStorage(): any | null {
+        const context = this.getContext();
+        return context?.getStorage?.() ?? null;
+    }
+
+    private get storage(): any {
+        const storage = this.getStorage();
+        if (!storage) {
+            throw new Error('[AutoCard] Storage service is unavailable');
+        }
+        return storage;
+    }
     
     /**
      * 获取 SettingsService
@@ -99,14 +121,15 @@ export class AutoCardHandler implements ITransactionHandler {
      */
     private get settingsService(): any {
         try {
-            if (this.plugin && (this.plugin as any).context) {
-                return (this.plugin as any).context.getSettingsService();
+            const context = this.getContext();
+            if (context) {
+                return context.getSettingsService();
             }
         } catch (error) {
             console.warn('[AutoCard] Failed to get SettingsService from context:', error);
         }
-        // 回退到旧方法
-        return this.plugin.storage;
+        // 回退到 storage（保持兼容）
+        return this.getStorage();
     }
     
     /**
@@ -117,8 +140,9 @@ export class AutoCardHandler implements ITransactionHandler {
      */
     private getCardService(): any | null {
         try {
-            if (this.plugin && (this.plugin as any).context) {
-                return (this.plugin as any).context.getCardService();
+            const context = this.getContext();
+            if (context) {
+                return context.getCardService();
             }
         } catch (error) {
             console.warn('[AutoCard] Failed to get CardApplicationService:', error);
@@ -134,8 +158,9 @@ export class AutoCardHandler implements ITransactionHandler {
      */
     private async getXiuyuanApplicationService(): Promise<any | null> {
         try {
-            if (this.plugin && (this.plugin as any).context) {
-                return await (this.plugin as any).context.getXiuyuanApplicationService();
+            const context = this.getContext();
+            if (context) {
+                return await context.getXiuyuanApplicationService();
             }
         } catch (error) {
             console.warn('[AutoCard] Failed to get XiuyuanApplicationService:', error);

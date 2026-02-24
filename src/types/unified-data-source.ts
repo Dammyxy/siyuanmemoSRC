@@ -732,20 +732,24 @@ export function getAdvancedModeQueueTypes(): QueueType[] {
     ];
 }
 
+function resolveMenuLabel(i18n: Record<string, string> | undefined, key: string, fallback: string): string {
+    return i18n?.[key] || fallback;
+}
+
 /**
  * 获取高级模式下的上下文菜单选项
  * 
  * @returns 上下文菜单选项数组
  * @see 需求 3.3
  */
-export function getAdvancedModeContextMenuOptions(): ContextMenuOption[] {
+export function getAdvancedModeContextMenuOptions(i18n?: Record<string, string>): ContextMenuOption[] {
     return [
-        { id: 'open', label: '打开' },
-        { id: 'delete', label: '删除' },
-        { id: 'add-to-final-drill', label: '添加到最终训练' },
-        { id: 'switch-scheduler', label: '切换调度器' },
-        { id: 'modify-card-type', label: '修改卡片类型' },
-        { id: 'set-priority', label: '设置优先级' },
-        { id: 'sync-to-riff', label: '同步到 Riff' },
+        { id: 'open', label: resolveMenuLabel(i18n, 'openInTab', 'Open') },
+        { id: 'delete', label: resolveMenuLabel(i18n, 'deleteCard', 'Delete') },
+        { id: 'add-to-final-drill', label: resolveMenuLabel(i18n, 'addToFinalDrillQueue', 'Add to Deliberate Practice') },
+        { id: 'switch-scheduler', label: resolveMenuLabel(i18n, 'switchScheduler', 'Switch Scheduler') },
+        { id: 'modify-card-type', label: resolveMenuLabel(i18n, 'modifyCardType', 'Modify Card Type') },
+        { id: 'set-priority', label: resolveMenuLabel(i18n, 'setPriority', 'Set Priority') },
+        { id: 'sync-to-riff', label: resolveMenuLabel(i18n, 'syncToRiff', 'Sync to Riff') },
     ];
 }

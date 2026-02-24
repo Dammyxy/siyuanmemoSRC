@@ -23,6 +23,9 @@ import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrateg
 import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
 import { QueueType } from '@/types/unified-data-source';
 import { ReviewView } from '@/ui/review/v2';
+import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
+import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
+import { TemporaryDrillQueue } from '@/core/queue/domain/TemporaryDrillQueue';
 
 /**
  * DialogManager 类
@@ -73,7 +76,22 @@ export class DialogManager implements IDialogManager {
   openSettingsDialog(defaultTab?: string): void {
     const settingsService = this.context.getSettingsService();
     const currentSettings = settingsService.getSettings();
-    const plugin = this.plugin as any;
+    const scheduler = this.context.getLegacyScheduler();
+    const schedulerRouter = this.context.getScheduler();
+    const storage = this.context.getStorage();
+    const hybridSyncService = this.context.getHybridSyncService();
+    const practiceQueueManager = this.context.getPracticeQueueManager();
+    const retrievalQueue = this.context.getRetrievalQueue() as any;
+    const queueCount = (() => {
+      try {
+        if (typeof retrievalQueue?.getAllItems === 'function') {
+          return retrievalQueue.getAllItems().length;
+        }
+      } catch (error) {
+        console.warn('[DialogManager] Failed to resolve retrieval queue count:', error);
+      }
+      return Number(retrievalQueue?.localBuffer?.length || 0);
+    })();
     
     // 如果已有打开的设置对话框，先销毁
     if (this.settingsDialog) {
@@ -93,12 +111,14 @@ export class DialogManager implements IDialogManager {
         uiSettings: { enableDebugLogs: currentSettings.ui?.enableDebugLogs ?? false },
         i18n: this.context.getI18n() || {},
         defaultTab,
-        queueCount: plugin.retrievalQueue?.['localBuffer']?.length || 0,
+        queueCount,
         queueHandlers: {
-          preview: (filter: any) => plugin.previewPracticeQueue(filter),
-          add: (filter: any) => plugin.addPracticeQueue(filter),
-          start: () => plugin.startPracticeQueue(),
-          clear: () => plugin.clearPracticeQueue(),
+          preview: (filter: any) => practiceQueueManager.previewPracticeQueue(filter),
+          add: (filter: any) => practiceQueueManager.addPracticeQueue(filter),
+          start: () => practiceQueueManager.startPracticeQueue(() => {
+            void this.openReviewDialog();
+          }),
+          clear: () => practiceQueueManager.clearPracticeQueue(),
         },
       },
       events: {
@@ -128,11 +148,11 @@ export class DialogManager implements IDialogManager {
           console.log('[DialogManager] Merged settings with quickCard:', updatedSettings.quickCard);
           
           await settingsService.updateSettings(updatedSettings);
-          plugin.scheduler.updateParams(updatedSettings.fsrs);
+          scheduler.updateParams(updatedSettings.fsrs);
 
           // 更新 SchedulerRouter 配置
-          if (plugin.schedulerRouter && settings.scheduler) {
-            plugin.schedulerRouter.updateConfig({
+          if (settings.scheduler) {
+            schedulerRouter.updateConfig({
               defaultScheduler: settings.scheduler.defaultScheduler,
               enableRiffSync: settings.scheduler.enableRiffSync,
               fsrsParams: updatedSettings.fsrs,
@@ -141,7 +161,7 @@ export class DialogManager implements IDialogManager {
           }
 
           // 更新 HybridSyncService 配置 (符合 DDD 架构)
-          if (settings.riffIntegration && plugin.hybridSyncService) {
+          if (settings.riffIntegration && hybridSyncService) {
             // 通过 ApplicationContext 更新配置 (符合 DDD 封装原则)
             await this.context.updateHybridSyncConfig({
               incrementalSync: {
@@ -441,36 +461,20 @@ export class DialogManager implements IDialogManager {
       const settingsService = this.context.getSettingsService();
       const settings = settingsService.getSettings();
       const leech = (settings as any)?.leech || {};
-      
-      const { LeechQueue } = await import('@/core/queue/strategies/LeechQueue');
-      const { UnifiedReviewAdapter } = await import('@/application/adapters/UnifiedReviewAdapter');
-      
-      const queue = new LeechQueue({
-        deckID: riff.BUILTIN_DECK_ID,
+
+      const manager = this.context.getUnifiedDataSourceManager();
+      const queue = new LeechReviewQueue(manager, {
         threshold: Number(leech.threshold) || 8,
         action: (leech.action || 'notify') as any,
         tagName: String(leech.tagName || ''),
       });
 
-      this.currentReviewDialog = createVueDialog({
-        hideTitle: true,
-        component: ReviewView,
-        dataKey: 'dialog-opencard',
-        transparent: true,
-        isReview: true,
-        props: {
-          app: this.plugin.app,
-          i18n: this.context.getI18n() || {},
-          title: this.context.getI18n()?.startLeechPractice || '难点攻坚',
-          queue: queue as any,
-          adapter: new UnifiedReviewAdapter({ i18n: this.context.getI18n() || {} }) as any,
-          plugin: this.plugin,
-        },
-        events: {
-          close: () => this.destroyCurrentReviewDialog(),
-        },
-        width: 'min(860px, 96vw)',
-        height: 'min(720px, 90vh)',
+      this.currentReviewDialog = createUnifiedReviewDialog({
+        plugin: this.plugin,
+        queueType: QueueType.Leech,
+        queueInstance: queue,
+        title: this.context.getI18n()?.startLeechPractice || '难点攻坚',
+        eventBus: this.context.getEventBus(),
         onClose: () => {
           this.currentReviewDialog = null;
         },
@@ -494,38 +498,16 @@ export class DialogManager implements IDialogManager {
     }
 
     try {
-      const { SubsetPracticeStrategy } = await import('@/core/queue/strategies');
-      const { SubsetPracticeAdapter } = await import('@/ui/review/v2');
-      
+      const manager = this.context.getUnifiedDataSourceManager();
+      const queue = new SubsetReviewQueue(manager, ids);
       const title = (this.context.getI18n()?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(ids.length));
-      
-      this.currentReviewDialog = createVueDialog({
-        hideTitle: true,
-        component: ReviewView,
-        dataKey: 'dialog-opencard',
-        transparent: true,
-        isReview: true,
-        props: {
-          app: this.plugin.app,
-          i18n: this.context.getI18n() || {},
-          title,
-          queue: new SubsetPracticeStrategy({ 
-            blockIds: ids, 
-            deckID: riff.BUILTIN_DECK_ID, 
-            storage: this.context.getStorage() 
-          }) as any,
-          adapter: new SubsetPracticeAdapter({ 
-            i18n: this.context.getI18n() || {}, 
-            label: title, 
-            queueName: 'subset' 
-          }) as any,
-          plugin: this.plugin,
-        },
-        events: {
-          close: () => this.destroyCurrentReviewDialog(),
-        },
-        width: 'min(860px, 96vw)',
-        height: 'min(720px, 90vh)',
+
+      this.currentReviewDialog = createUnifiedReviewDialog({
+        plugin: this.plugin,
+        queueType: QueueType.FilterGroup,
+        queueInstance: queue,
+        title,
+        eventBus: this.context.getEventBus(),
         onClose: () => {
           this.currentReviewDialog = null;
         },
@@ -724,67 +706,27 @@ export class DialogManager implements IDialogManager {
   async openTemporaryDrill(blockIds: string[]): Promise<void> {
     this.destroyCurrentReviewDialog();
 
-    if (blockIds.length === 0) {
+    const ids = Array.from(new Set((blockIds || []).map((x) => String(x || '')).filter(Boolean)));
+    if (ids.length === 0) {
       await pushMsg(this.context.getI18n()?.drillNoCards || '当前范围内没有可练习的闪卡');
       return;
     }
 
     try {
-      const { TemporaryDrillStrategy } = await import('@/core/queue/strategies/TemporaryDrillStrategy');
-      const { SubsetPracticeAdapter } = await import('@/ui/review/v2/adapters/SubsetPracticeAdapter');
+      const manager = this.context.getUnifiedDataSourceManager();
+      const queue = new TemporaryDrillQueue(manager, ids);
+      const title = (this.context.getI18n()?.temporaryDrill || '临时练习') + ` (${ids.length} 张)`;
 
-      const title = `临时练习 (${blockIds.length} 张)`;
-      const session = new TemporaryDrillStrategy({
-        blockIds,
-        deckID: riff.BUILTIN_DECK_ID,
-        storage: this.context.getStorage()
-      });
-      const adapter = new SubsetPracticeAdapter({
-        i18n: this.context.getI18n() || {},
-        label: title,
-        queueName: 'temporary-drill'
-      });
-
-      this.currentReviewDialog = createVueDialog({
-        hideTitle: true,
-        component: ReviewView,
-        dataKey: 'dialog-temporary-drill',
-        props: {
-          app: this.plugin.app,
-          i18n: this.context.getI18n() || {},
-          title,
-          plugin: this.plugin,
-          queue: session as any,
-          adapter: adapter as any,
-        },
-        events: {
-          close: () => this.destroyCurrentReviewDialog(),
-        },
-        width: '80vw',
-        height: '70vh',
+      this.currentReviewDialog = createUnifiedReviewDialog({
+        plugin: this.plugin,
+        queueType: QueueType.FinalDrill,
+        queueInstance: queue,
+        title,
+        eventBus: this.context.getEventBus(),
         onClose: () => {
           this.currentReviewDialog = null;
         },
       });
-
-      // 样式调整
-      const dialogEl = this.currentReviewDialog.dialog.element;
-      const scrim = dialogEl.querySelector('.b3-dialog__scrim') as HTMLElement;
-      const container = dialogEl.querySelector('.b3-dialog__container') as HTMLElement;
-
-      if (scrim) {
-        scrim.style.backgroundColor = 'var(--b3-theme-surface)';
-      }
-      if (container) {
-        container.style.maxWidth = '1024px';
-      }
-
-      setTimeout(() => {
-        const focusEl = dialogEl.querySelector('.block__icon') as HTMLElement;
-        if (focusEl) {
-          focusEl.focus();
-        }
-      }, 100);
 
       console.log('[DialogManager] ✅ Temporary drill dialog opened');
     } catch (err) {
@@ -1456,7 +1398,7 @@ export class DialogManager implements IDialogManager {
       }
 
       // ✅ 使用 XiuyuanApplicationService（符合 DDD 架构）
-      const xiuyuanAppService = await this.plugin.context.getXiuyuanApplicationService();
+      const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
       
       if (!xiuyuanAppService) {
         console.error('[DialogManager] XiuyuanApplicationService not found');

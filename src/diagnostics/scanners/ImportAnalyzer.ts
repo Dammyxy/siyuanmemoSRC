@@ -18,7 +18,7 @@ export interface ImportAnalysisResult {
 
 export class ImportAnalyzer {
     private readonly OLD_ARCHITECTURE_PREFIX = 'src/core/queue/strategies';
-    private readonly NEW_ARCHITECTURE_PREFIX = 'src/queues';
+    private readonly NEW_ARCHITECTURE_PREFIX = 'src/core/queue/domain';
 
     analyzeImports(fileContent: string, filePath: string): ImportAnalysisResult {
         const usages: UsagePoint[] = [];

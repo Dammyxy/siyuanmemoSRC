@@ -12,7 +12,7 @@ import { createVueDialog } from '@/utils/dialog';
 import ReviewView from '@/ui/review/v2/ReviewView.vue';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
-import type { QueueType } from '@/types/unified-data-source';
+import type { IReviewQueue, QueueType } from '@/types/unified-data-source';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 
@@ -25,6 +25,9 @@ export interface CreateUnifiedReviewDialogOptions {
     
     /** 队列类型 */
     queueType: QueueType;
+
+    /** 可选：直接传入队列实例（用于临时/子集复习） */
+    queueInstance?: IReviewQueue;
     
     /** 对话框标题 */
     title: string;
@@ -58,7 +61,7 @@ export interface CreateUnifiedReviewDialogOptions {
  * @returns 对话框实例
  */
 export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOptions) {
-    const { plugin, queueType, title, eventBus, onClose } = options;
+    const { plugin, queueType, queueInstance, title, eventBus, onClose } = options;
     
     try {
         console.log(`[SiYuanMemo][createUnifiedReviewDialog] Creating dialog for queue: ${queueType}`);
@@ -66,15 +69,15 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
         // 获取依赖
         const manager = UnifiedDataSourceManager.getInstance();
         
-        // ✅ 修复：从 plugin.context 获取 ApplicationContext
-        const context = plugin.context;
+        // ✅ 通过 Facade 获取 ApplicationContext（兼容旧字段）
+        const context = plugin.getContext?.();
         if (!context) {
-            throw new Error('ApplicationContext not found in plugin.context');
+            throw new Error('ApplicationContext not found in plugin');
         }
         
         // 创建统一队列策略（使用依赖注入）
         const schedulerRouter = context.getSchedulerRouter();
-        const queue = new UnifiedQueueStrategy(queueType, manager, eventBus, schedulerRouter);
+        const queue = new UnifiedQueueStrategy(queueInstance ?? queueType, manager, eventBus, schedulerRouter);
         
         // 创建统一复习适配器
         const adapter = new UnifiedReviewAdapter({ i18n: plugin.i18n || {} });
@@ -110,7 +113,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
                     const syncManager = plugin.reviewSyncManager;
                     if (syncManager.reviewCount > 0) {
                         try {
-                            await plugin.hybridSyncService?.incrementalSync();
+                            await context.getHybridSyncService?.()?.incrementalSync();
                             console.log('[SiYuanMemo][createUnifiedReviewDialog] Data synced on close');
                         } catch (err) {
                             console.error('[SiYuanMemo][createUnifiedReviewDialog] Sync failed on close:', err);
@@ -149,7 +152,8 @@ export function getQueueDisplayName(queueType: QueueType, i18n?: Record<string, 
         'final-drill': i18n?.finalDrill || '最终训练',
         'incremental-learning': i18n?.incrementalLearning || '渐进学习',
         'filter-group': i18n?.filterGroup || '过滤组',
-        'neural-roam': i18n?.neuralRoam || '神经漫游'
+        'neural-roam': i18n?.neuralRoam || '神经漫游',
+        'leech': i18n?.startLeechPractice || '难点攻坚',
     };
     
     return names[queueType] || queueType;

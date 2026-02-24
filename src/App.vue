@@ -95,15 +95,18 @@ import { usePlugin } from '@/main'
 import { onMounted, ref, watchEffect } from 'vue'
 
 
+const plugin = usePlugin()
+const t = (key: string, fallback: string): string => (plugin as any)?.i18n?.[key] || fallback
+
 const isChecked = ref(false)
 
 const inputValue = ref('')
 
 const selectValue = ref()
 const selectOptions = ref([
-  { value: '1', text: 'Option 1' },
-  { value: '2', text: 'Option 2' },
-  { value: '3', text: 'Option 3' },
+  { value: '1', text: t('filterPresetAll', 'All') },
+  { value: '2', text: t('filterPresetDue', 'Due Today') },
+  { value: '3', text: t('filterPresetOverdue', 'Overdue') },
 ])
 
 const textareaValue = ref('')
@@ -121,14 +124,13 @@ const openSetting = () => {
   alert('Need open plugin setting.')
 }
 
-const plugin = usePlugin()
 console.log('plugin is ', plugin)
 
 
 // add top bar button
 plugin.addTopBar({
   icon: 'iconHeart',
-  title: 'Plugin Sample',
+  title: t('srsBrowser', 'SRS Browser'),
   callback: () => {
     alert('Hello Siyuan.')
   },

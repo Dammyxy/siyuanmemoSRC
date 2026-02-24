@@ -25,7 +25,6 @@ import { XiuyuanApplicationService } from '@/application/services/XiuyuanApplica
 import { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
 import { HybridSyncService } from '@/application/services/XiuyuanSyncService';
 import { TransactionWebSocketService } from '@/core/infrastructure/websocket/TransactionWebSocketService';
-import { QueueContext, type QueueItem } from '@/core/queue';
 import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
 import { AdvancedDataRouter } from '@/application/queries/DataAccessFacade';
 
@@ -99,7 +98,6 @@ export class ApplicationContext {
   private unifiedDataSourceManager: UnifiedDataSourceManager;
   
   // 队列上下文（不再直接持有具体队列实例）
-  private queueContext: QueueContext<QueueItem>;
   
   // Xiuyuan 服务
   private xiuyuanApplicationService?: XiuyuanApplicationService;  // 懒加载
@@ -184,7 +182,6 @@ export class ApplicationContext {
       scheduler: SchedulerEngineAdapter;
       rescheduleService: RescheduleService;
       unifiedDataSourceManager: UnifiedDataSourceManager;
-      queueContext: QueueContext<QueueItem>;
       blockMenuHandler: BlockMenuHandler;
       sharedEventBus?: EventBus;  // ✅ 新增：共享的 EventBus 实例
       hybridSyncService?: HybridSyncService;
@@ -199,7 +196,6 @@ export class ApplicationContext {
     this.scheduler = services.scheduler;
     this.rescheduleService = services.rescheduleService;
     this.unifiedDataSourceManager = services.unifiedDataSourceManager;
-    this.queueContext = services.queueContext;
     this.blockMenuHandler = services.blockMenuHandler;
     this.hybridSyncService = services.hybridSyncService;
     this.transactionWebSocketService = services.transactionWebSocketService;
@@ -771,11 +767,6 @@ export class ApplicationContext {
     const unifiedDataSourceManager = UnifiedDataSourceManager.getInstance();
     
     // 8. 初始化队列上下文（空的，稍后注册队列）
-    const queueContext = new QueueContext<QueueItem>({
-      initial: 'retrieval',
-      monitors: [],
-    });
-    
     // 10. 加载内置模板（硬编码，不需要持久化）
     // ✅ DDD 架构优化：模板作为代码的一部分，不需要持久化到文件
     const { BUILTIN_TEMPLATES } = await import('@/core/xiuyuan');
@@ -831,7 +822,6 @@ export class ApplicationContext {
       scheduler,
       rescheduleService,
       unifiedDataSourceManager,
-      queueContext,
       blockMenuHandler,
       sharedEventBus,  // ✅ 传入 sharedEventBus
       hybridSyncService: undefined,  // 将在下面初始化
@@ -873,15 +863,6 @@ export class ApplicationContext {
     
     unifiedDataSourceManager.setQueuePersistence(queuePersistenceService);
     console.log('[ApplicationContext] ✅ UnifiedDataSourceManager initialized with Advanced mode and QueuePersistence');
-    
-    // 13.6. 注册队列到 QueueContext（延迟获取队列实例）
-    // 只注册实际使用的队列类型
-    queueContext.register('retrieval', context.getRetrievalQueue() as any);
-    queueContext.register('final-drill', context.getFinalDrillQueue() as any);
-    queueContext.register('filter-group', context.getSubsetQueue() as any);
-    queueContext.register('incremental-learning', context.getIncrementalQueue() as any);
-    // 注意：leech 队列是旧架构，仅在 DialogManager 中按需加载，不在这里注册
-    console.log('[ApplicationContext] ✅ Core queues registered to QueueContext');
     
     // 14. 初始化 HybridSyncService（需要 CardApplicationService、EventBus 和 XiuyuanRepository）
     console.log('[ApplicationContext] Checking riffConfig:', { hasRiffConfig: !!riffConfig });
@@ -1044,15 +1025,6 @@ export class ApplicationContext {
   }
   
   /**
-   * 获取队列上下文
-   * 
-   * @returns QueueContext<QueueItem> - 队列上下文实例
-   */
-  getQueueContext(): QueueContext<QueueItem> {
-    return this.queueContext;
-  }
-  
-  /**
    * 获取检索练习队列
    * 
    * @returns IReviewQueue - 检索练习队列实例（通过 UnifiedDataSourceManager）
@@ -1071,13 +1043,9 @@ export class ApplicationContext {
   }
   
   /**
-   * 获取难点攻坚队列（可选，旧架构）
-   * 
-   * 注意：LeechQueue 是旧架构的队列，仅在特定场景下使用（如 Leech 复习对话框）。
-   * 如果你不使用 Leech 功能，可以不调用此方法。
+   * 获取难点攻坚队列
    * 
    * @returns IReviewQueue - 难点攻坚队列实例（通过 UnifiedDataSourceManager）
-   * @deprecated 旧架构队列，仅在需要时使用
    */
   getLeechQueue(): IReviewQueue {
     return this.unifiedDataSourceManager.getQueue(QueueType.Leech);

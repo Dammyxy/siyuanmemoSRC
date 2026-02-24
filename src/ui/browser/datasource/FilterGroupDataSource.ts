@@ -173,7 +173,7 @@ export class FilterGroupDataSource implements ICardDataSource {
           return 0;
         }
         
-        const cardService = this.plugin.context?.getCardService?.();
+        const cardService = this.plugin.getContext?.()?.getCardService?.();
         if (!cardService) {
           console.error('[FilterGroupDataSource] CardApplicationService not available!');
           return 0;

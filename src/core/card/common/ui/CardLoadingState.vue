@@ -9,7 +9,7 @@
 withDefaults(defineProps<{
   text?: string;
 }>(), {
-  text: '加载中...'
+  text: ''
 });
 </script>
 

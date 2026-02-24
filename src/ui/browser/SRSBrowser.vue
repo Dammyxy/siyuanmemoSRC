@@ -224,14 +224,20 @@ const props = defineProps<{
 
 const mode = computed(() => props.mode || 'dialog');
 
-// 🆕 同步状态指示器相关
-const hybridSyncService = computed(() => (props.plugin as any)?.hybridSyncService);
-const showSyncIndicator = computed(() => {
+const pluginContext = computed(() => {
   const plugin = props.plugin as any;
-  if (!plugin) return false;
-  
-  // 通过 ApplicationContext 获取 storage
-  const storage = plugin.getContext?.()?.getStorage?.();
+  return plugin?.getContext?.();
+});
+
+const pluginStorage = computed(() => pluginContext.value?.getStorage?.());
+const pluginUnifiedDataSourceManager = computed(
+  () => props.browserService?.getUnifiedDataSourceManager?.() || pluginContext.value?.getUnifiedDataSourceManager?.()
+);
+
+// 🆕 同步状态指示器相关
+const hybridSyncService = computed(() => pluginContext.value?.getHybridSyncService?.());
+const showSyncIndicator = computed(() => {
+  const storage = pluginStorage.value;
   if (!storage) return false;
   
   // ✅ 简单模式已移除，只要有 riffIntegration 配置且 hybridSyncService 存在就显示
@@ -489,7 +495,7 @@ async function loadData(forceRefresh = false) {
       };
       
       // ✅ 优先使用 browserService 获取 UnifiedDataSourceManager
-      const unifiedDataSourceManager = props.browserService?.getUnifiedDataSourceManager?.() || props.plugin?.unifiedDataSourceManager;
+      const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
       
       if (!unifiedDataSourceManager) {
         console.error('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available');
@@ -691,7 +697,7 @@ async function executeFetchRows(forceRefresh = false) {
     };
 
     // ✅ 优先使用 browserService 获取 UnifiedDataSourceManager
-    const unifiedDataSourceManager = props.browserService?.getUnifiedDataSourceManager?.() || props.plugin?.unifiedDataSourceManager;
+    const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
     
     if (!unifiedDataSourceManager) {
       console.warn('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available for focus data');
@@ -1029,7 +1035,7 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
   postpone: async (cards) => {
     // 使用新的 PostponeDialog
     return new Promise((resolve) => {
-      const configManager = new ConfigManager(props.plugin?.storage!);
+      const configManager = new ConfigManager(pluginStorage.value!);
       const dlg = createVueDialog({
         title: t('postpone', 'Postpone'),
         component: PostponeDialog,
@@ -1057,7 +1063,7 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
   advance: async (cards) => {
     // 使用新的 AdvanceDialog
     return new Promise((resolve) => {
-      const configManager = new ConfigManager(props.plugin?.storage!);
+      const configManager = new ConfigManager(pluginStorage.value!);
       const dlg = createVueDialog({
         title: t('advance', 'Advance'),
         component: AdvanceDialog,
@@ -1085,7 +1091,7 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
   spread: async (cards) => {
     // 使用新的 SpreadDialog
     return new Promise((resolve) => {
-      const configManager = new ConfigManager(props.plugin?.storage!);
+      const configManager = new ConfigManager(pluginStorage.value!);
       const dlg = createVueDialog({
         title: t('spread', 'Spread Workload'),
         component: SpreadDialog,
@@ -1126,7 +1132,7 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
     return { priority: p };
   },
   'insert-at': async () => {
-    const q = (props.plugin as any)?.finalDrillQueue;
+    const q = getQueueById('final-drill');
     const len = typeof q?.size === 'function'
       ? Number(q.size()) || 0
       : Array.isArray(q?.getAllItems?.()) ? q.getAllItems().length : 0;
@@ -1465,7 +1471,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
 }
 
 async function autoSortFinalDrillQueue() {
-  const q = (props.plugin as any)?.finalDrillQueue;
+  const q = getQueueById('final-drill');
   if (!q?.sort) {
     await pushErrMsg(t('initFailed', 'FSRS plugin initialization failed, please check console for errors'));
     return;
@@ -1820,10 +1826,10 @@ onMounted(() => {
   });
 
   // 🆕 监听 HybridSyncService 的 WebSocket 同步事件
-  const plugin = props.plugin as any;
-  if (plugin?.hybridSyncService) {
+  const hybridService = hybridSyncService.value;
+  if (hybridService) {
     // 监听 wsSync 事件（WebSocket 触发的同步完成）
-    plugin.hybridSyncService.on('wsSync', (event: any) => {
+    hybridService.on('wsSync', (event: any) => {
       console.log('[SiYuanMemo][SRSBrowser] Received wsSync event:', event);
       
       if (event.success) {
@@ -1841,14 +1847,13 @@ onMounted(() => {
   }
 
   // 🆕 触发同步（如果启用）
-  if (plugin?.hybridSyncService) {
-    // 通过 ApplicationContext 获取 storage
-    const storage = plugin.getContext?.()?.getStorage?.();
+  if (hybridService) {
+    const storage = pluginStorage.value;
     const riffConfig = storage?.getSettings?.()?.riffIntegration;
     
     // 🔍 详细日志：诊断为什么自动同步没有触发
     console.log('[SiYuanMemo][SRSBrowser] 🔍 Checking auto-sync configuration:', {
-      hasHybridSyncService: !!plugin.hybridSyncService,
+      hasHybridSyncService: !!hybridService,
       hasRiffConfig: !!riffConfig,
       mode: riffConfig?.mode,
       incrementalSyncEnabled: riffConfig?.incrementalSync?.enabled,
@@ -1870,7 +1875,7 @@ onMounted(() => {
       // 使用立即执行的异步函数
       void (async () => {
         try {
-          await plugin.hybridSyncService.incrementalSync();
+          await hybridService.incrementalSync();
           console.log('[SiYuanMemo][SRSBrowser] ✅ Incremental sync completed, reloading data...');
           // 同步完成后重新加载数据
           await loadData(true); // 强制刷新缓存
@@ -1909,8 +1914,8 @@ function openPracticeMenu(ev: MouseEvent) {
     ev?.stopPropagation?.();
   } catch {}
 
-  const plugin = props.plugin as any;
-  if (!plugin) return;
+  const dialogManager = pluginContext.value?.getDialogManager?.();
+  if (!dialogManager) return;
 
   const menu = new Menu('fsrs-browser-practice-menu');
 
@@ -1919,7 +1924,7 @@ function openPracticeMenu(ev: MouseEvent) {
     icon: 'iconRiffCard',
     label: t('practiceExtract', 'Retrieval Practice'),
     click: () => {
-      void plugin.openReviewDialog?.();
+      void dialogManager.openReviewDialog?.();
     },
   });
 
@@ -1928,7 +1933,7 @@ function openPracticeMenu(ev: MouseEvent) {
     icon: 'iconBook',
     label: t('incrementalLearning', 'Incremental Learning'),
     click: () => {
-      void plugin.openIncrementalLearningDialog?.();
+      void dialogManager.openIncrementalLearningDialog?.();
     },
   });
 
@@ -1937,7 +1942,7 @@ function openPracticeMenu(ev: MouseEvent) {
     icon: 'iconFlag',
     label: t('practiceDeliberate', 'Deliberate Practice'),
     click: () => {
-      void plugin.openFinalDrillDialog?.();
+      void dialogManager.openFinalDrillDialog?.();
     },
   });
 
@@ -1946,7 +1951,7 @@ function openPracticeMenu(ev: MouseEvent) {
     icon: 'iconRefresh',
     label: t('practiceNeural', 'Neural Roam'),
     click: () => {
-      void (plugin as any).openNeuralRoamDialog?.();
+      void dialogManager.openNeuralRoamDialog?.();
     },
   });
 
@@ -1955,7 +1960,7 @@ function openPracticeMenu(ev: MouseEvent) {
     icon: 'iconList',
     label: t('practiceFilterGroup', 'Filtered Review'),
     click: () => {
-      void plugin.openFilterGroupPracticeDialog?.();
+      void dialogManager.openFilterGroupPracticeDialog?.();
     },
   });
 
@@ -1964,7 +1969,7 @@ function openPracticeMenu(ev: MouseEvent) {
   //   icon: 'iconBug',
   //   label: t('practiceLeech', '难点攻坚'),
   //   click: () => {
-  //     void plugin.openLeechReviewDialog?.();
+  //     void dialogManager.openLeechReviewDialog?.();
   //   },
   // });
 
@@ -1988,7 +1993,7 @@ function openPracticeMenu(ev: MouseEvent) {
       })();
 
   if (String(process.env.DEV_MODE) === 'true') {
-    console.log('[SiYuanMemo][CardBrowser] openPracticeMenu', { pos, hasPlugin: Boolean(plugin) });
+    console.log('[SiYuanMemo][CardBrowser] openPracticeMenu', { pos, hasDialogManager: Boolean(dialogManager) });
   }
 
   setTimeout(() => {
@@ -2067,7 +2072,7 @@ const {
   t,
   pushMsg: (msg, duration) => pushMsg(msg, duration),
   pushErrMsg: (msg, duration) => pushErrMsg(msg, duration),
-  storage: (props.plugin as any)?.storage,
+  storage: pluginStorage.value as any,
 });
 
 // ✅ 类型检测
@@ -2099,7 +2104,7 @@ async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {
 
 async function refreshQueueCounts() {
   // 🆕 使用统一数据源管理器获取队列数量
-  const manager = (props.plugin as any)?.unifiedDataSourceManager;
+  const manager = pluginUnifiedDataSourceManager.value;
   
   if (!manager) {
     console.warn('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available, queue counts will be 0');
@@ -2373,7 +2378,7 @@ async function handleOpenSpreadDialog() {
     });
     
     // 2. 打开 SpreadDialog（即使没有到期卡片也允许打开，因为可以选择"考虑未来复习"模式）
-    const configManager = new ConfigManager(props.plugin?.storage!);
+    const configManager = new ConfigManager(pluginStorage.value!);
     const dlg = createVueDialog({
       title: t('spread', '分摊复习压力'),
       component: SpreadDialog,

@@ -13,6 +13,11 @@ import { QueryDataSource } from '../datasource/QueryDataSource';
 import { BlockIdsDataSource } from '../datasource/BlockIdsDataSource';
 import { IncrementalLearningDataSource } from '../datasource/IncrementalLearningDataSource';
 
+function resolveI18nLabel(plugin: any, key: string, fallback: string): string {
+  const i18n = plugin?.getContext?.()?.getI18n?.() || plugin?.i18n;
+  return i18n?.[key] || fallback;
+}
+
 /**
  * 数据源创建选项（基础）
  */
@@ -86,7 +91,7 @@ export function createQueueDataSource(
       const neuralQueue = manager.getQueue('neural-roam');
       return new BlockIdsDataSource({
         id: 'neural-roam',
-        label: i18n?.neuralRoam || '神经漫游',
+        label: resolveI18nLabel(plugin, 'neuralRoam', 'Neural Roam'),
         blockIds: [],  // 初始为空，使用动态获取函数
         plugin: { neuralQueue },  // 🔧 直接传递 neuralQueue 对象
         queueId: 'neural-roam',
@@ -146,7 +151,7 @@ export function createDeckDataSource(
   const { docId, preset, queryText, cardType } = options;
 
   // ✅ Phase 9: 获取 CardApplicationService
-  const cardApplicationService = plugin?.context?.getCardApplicationService?.();
+  const cardApplicationService = plugin?.getContext?.()?.getCardService?.();
 
   return new DeckDataSource(
     manager, 
@@ -229,7 +234,7 @@ export function createFocusDataSource(
     const neuralQueue = manager.getQueue?.('neural-roam');
     return new BlockIdsDataSource({
       id: 'neural-roam',
-      label: '神经漫游',
+      label: resolveI18nLabel(plugin, 'neuralRoam', 'Neural Roam'),
       blockIds: [],  // 初始为空，使用动态获取函数
       plugin: { neuralQueue },  // 🔧 直接传递 neuralQueue 对象
       queueId: 'neural-roam',
@@ -246,13 +251,13 @@ export function createFocusDataSource(
     const items = getQueueItems();
     const blockIds = items.map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
     // 注意：BlockIdsDataSource 仍然需要 plugin 对象
-    return createBlockIdsDataSource(queueId, blockIds, manager);
+    return createBlockIdsDataSource(queueId, blockIds, plugin);
   }
 
   // 全部卡片模式：创建不含文档筛选的 DeckDataSource
   if (!queueId) {
     // ✅ Phase 9: 获取 CardApplicationService
-    const cardApplicationService = plugin?.context?.getCardApplicationService?.();
+    const cardApplicationService = plugin?.getContext?.()?.getCardService?.();
     
     return new DeckDataSource(
       manager, 

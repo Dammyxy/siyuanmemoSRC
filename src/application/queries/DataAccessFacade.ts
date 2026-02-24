@@ -138,7 +138,7 @@ export class DataAccessFacade implements IDataRouter {
         this.applicationContext = null;  // 将在 setApplicationContext() 中设置
         
         // 🔍 调试日志：检查 plugin 是否正确传递
-        console.log('[DataAccessFacade] Constructor called with plugin:', !!plugin, 'context:', !!plugin?.context);
+        console.log('[DataAccessFacade] Constructor called with plugin:', !!plugin, 'context:', !!plugin?.getContext?.());
     }
     
     /**
@@ -327,7 +327,8 @@ export class DataAccessFacade implements IDataRouter {
     async deleteCard(cardId: string): Promise<void> {
         // 检查是否需要从 Riff 删除
         let deleteFromRiff = false;
-        if (this.plugin?.hybridSyncService) {
+        const context = this.applicationContext || this.plugin?.getContext?.();
+        if (context?.getHybridSyncService?.()) {
             const riffConfig = this.settingsService?.getSettings?.()?.riffIntegration || this.storage.getSettings().riffIntegration;
             deleteFromRiff = riffConfig?.deleteSync?.enabled || false;
         }
@@ -426,7 +427,7 @@ export class DataAccessFacade implements IDataRouter {
      * @see 需求 3.3
      */
     getContextMenuOptions(): ContextMenuOption[] {
-        return getAdvancedModeContextMenuOptions();
+        return getAdvancedModeContextMenuOptions(this.getI18nDictionary());
     }
     
     // ========================================================================
@@ -535,6 +536,12 @@ export class DataAccessFacade implements IDataRouter {
         
         return filtered;
     }
+
+    private getI18nDictionary(): Record<string, string> | undefined {
+        return this.applicationContext?.getI18n?.()
+            || this.plugin?.getContext?.()?.getI18n?.()
+            || this.plugin?.i18n;
+    }
     
     // ========================================================================
     // rootId 填充方法
@@ -573,7 +580,7 @@ export class DataAccessFacade implements IDataRouter {
         
         // ✅ 使用 CardContentQueryService 批量获取块内容（如果需要）
         if (cardsNeedingContent.length > 0) {
-            const context = this.applicationContext || this.plugin?.context;
+            const context = this.applicationContext || this.plugin?.getContext?.();
             const cardContentQueryService = context?.getCardContentQueryService?.();
             
             if (!cardContentQueryService) {
