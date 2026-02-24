@@ -149,27 +149,27 @@ export class ReviewViewController {
             
             // 神经漫游模式：添加"锁定为种子"按钮
             if (isNeuralRoam) {
-                buttons.push({ 
-                    type: 'action', 
-                    label: '锁定为种子', 
-                    action: 'lock-seed' 
+                buttons.push({
+                    type: 'action',
+                    label: this.manager.getI18n?.('lockAsSeed') || '锁定为种子',
+                    action: 'lock-seed'
                 });
             }
-            
+
             return buttons;
         } else {
             // 主题卡片：显示插入和下一个按钮
             const buttons: ReviewButtonConfig[] = [
-                { type: 'action', label: '插入', action: 'insert' },
-                { type: 'action', label: '下一个', action: 'next' },
+                { type: 'action', label: this.manager.getI18n?.('actionInsert') || '插入', action: 'insert' },
+                { type: 'action', label: this.manager.getI18n?.('actionNext') || '下一个', action: 'next' },
             ];
-            
+
             // 神经漫游模式：添加"锁定为种子"按钮
             if (isNeuralRoam) {
-                buttons.push({ 
-                    type: 'action', 
-                    label: '锁定为种子', 
-                    action: 'lock-seed' 
+                buttons.push({
+                    type: 'action',
+                    label: this.manager.getI18n?.('lockAsSeed') || '锁定为种子',
+                    action: 'lock-seed'
                 });
             }
             

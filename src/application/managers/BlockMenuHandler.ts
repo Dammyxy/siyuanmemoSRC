@@ -234,7 +234,7 @@ export class BlockMenuHandler {
     return new Promise((resolve) => {
       const { Dialog } = require('siyuan');
       const dialog = new Dialog({
-        title: '刻意练习队列',
+        title: this.deps.i18n?.finalDrillQueueTitle || '刻意练习队列',
         content: `
           <div class="b3-dialog__content" style="padding: 16px;">
             <div style="margin-bottom: 16px;">
@@ -285,7 +285,7 @@ export class BlockMenuHandler {
     return new Promise((resolve) => {
       const { Dialog } = require('siyuan');
       const dialog = new Dialog({
-        title: '开始练习？',
+        title: this.deps.i18n?.startPracticeTitle || '开始练习？',
         content: `
           <div class="b3-dialog__content" style="padding: 16px;">
             <div style="margin-bottom: 16px;">

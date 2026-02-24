@@ -585,16 +585,16 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
           seedService.lockAsSeed(blockId, currentCandidates)
             .then(() => {
               console.log('[SiYuanMemo][ReviewView] Block locked as seed:', blockId);
-              showMessage('Locked as seed', 3000, 'info');
+              showMessage(t('lockedAsSeed', 'Locked as seed'), 3000, 'info');
             })
             .catch((error: Error) => {
               console.error('[SiYuanMemo][ReviewView] Failed to lock seed:', error);
-              showMessage('Failed to lock seed', 3000, 'error');
+              showMessage(t('lockSeedFailed', 'Failed to lock seed'), 3000, 'error');
             });
         });
       } else {
         console.error('[SiYuanMemo][ReviewView] Queue does not support seed locking');
-        showMessage('Queue does not support seed locking', 3000, 'error');
+        showMessage(t('queueNoSeedSupport', 'Queue does not support seed locking'), 3000, 'error');
       }
     } else {
       console.error('[SiYuanMemo][ReviewView] ERROR: blockId is undefined!');
@@ -626,8 +626,8 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
         refreshNavigationState();
 
         // 显示提示
-        const modeText = newMode === 'follow' ? '🛤️ 沿路径前进' : '🧭 探索新分支';
-        showMessage(`已切换为: ${modeText}`, 2000, 'info');
+        const modeText = newMode === 'follow' ? t('navModeFollow', '🛤️ 沿路径前进') : t('navModeExplore', '🧭 探索新分支');
+        showMessage(t('navModeSwitched', '已切换为: {mode}').replace('{mode}', modeText), 2000, 'info');
       }
     }
   } else if (actionType === 'nav-return-bookmark') {
@@ -652,7 +652,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
           // 刷新导航状态
           refreshNavigationState();
 
-          showMessage('已返回最新位置', 2000, 'info');
+          showMessage(t('navReturnedToBookmark', '已返回最新位置'), 2000, 'info');
         }
       }
     }
@@ -852,7 +852,7 @@ function handleNeuralMenu(ev: MouseEvent) {
   console.log('[SiYuanMemo][ReviewView] Adding menu item 1: 查看种子块列表');
   const viewSeedsItem = menu.addItem({
     icon: 'iconList',
-    label: '查看种子块列表',
+    label: t('viewSeedList', '查看种子块列表'),
     click: () => {
       console.log('[SiYuanMemo][ReviewView] 查看种子块列表 clicked');
       try {
@@ -861,10 +861,10 @@ function handleNeuralMenu(ev: MouseEvent) {
         if (seeds && seeds.length > 0) {
           const seedList = seeds.map((id: string, index: number) => `${index + 1}. ${id}`).join('\n');
           console.log('[SiYuanMemo][ReviewView] Showing message with seed list');
-          showMessage(`种子块列表 (${seeds.length}个):\n${seedList}`, 5000, 'info');
+          showMessage(t('seedListTitle', '种子块列表 ({n}个)').replace('{n}', String(seeds.length)) + ':\n' + seedList, 5000, 'info');
         } else {
           console.log('[SiYuanMemo][ReviewView] No seeds, showing empty message');
-          showMessage('暂无种子块', 3000, 'info');
+          showMessage(t('noSeeds', '暂无种子块'), 3000, 'info');
         }
       } catch (error) {
         console.error('[SiYuanMemo][ReviewView] Failed to get seed blocks:', error);
@@ -884,12 +884,12 @@ function handleNeuralMenu(ev: MouseEvent) {
       click: async () => {
         try {
           await underlyingQueue.startRoamingFromSeed?.(seedId);
-          showMessage(`已从种子 ${seedId} 开始漫游`, 3000, 'info');
+          showMessage(t('roamStartedFromSeed', '已从种子 {id} 开始漫游').replace('{id}', seedId), 3000, 'info');
           // 刷新当前卡片
           await hook.executeCommand('next');
         } catch (error) {
           console.error('[SiYuanMemo][ReviewView] Failed to start roaming from seed:', error);
-          showMessage('开始漫游失败', 3000, 'error');
+          showMessage(t('roamStartFailed', '开始漫游失败'), 3000, 'error');
         }
       }
     }));
@@ -897,14 +897,14 @@ function handleNeuralMenu(ev: MouseEvent) {
     console.log('[SiYuanMemo][ReviewView] Adding menu item 2: 从种子块开始漫游 (with submenu)');
     menu.addItem({
       icon: 'iconPlay',
-      label: '从种子块开始漫游',
+      label: t('roamFromSeed', '从种子块开始漫游'),
       submenu: seedSubmenuItems
     });
   } else {
     console.log('[SiYuanMemo][ReviewView] Adding menu item 2: 从种子块开始漫游 (disabled)');
     menu.addItem({
       icon: 'iconPlay',
-      label: '从种子块开始漫游',
+      label: t('roamFromSeed', '从种子块开始漫游'),
       disabled: true
     });
   }
@@ -918,10 +918,10 @@ function handleNeuralMenu(ev: MouseEvent) {
       click: async () => {
         try {
           await underlyingQueue.removeCard?.(seedId);
-          showMessage(`已移除种子块 ${seedId}`, 3000, 'info');
+          showMessage(t('seedRemoved', '已移除种子块 {id}').replace('{id}', seedId), 3000, 'info');
         } catch (error) {
           console.error('[SiYuanMemo][ReviewView] Failed to remove seed:', error);
-          showMessage('移除种子块失败', 3000, 'error');
+          showMessage(t('removeSeedFailed', '移除种子块失败'), 3000, 'error');
         }
       }
     }));
@@ -929,14 +929,14 @@ function handleNeuralMenu(ev: MouseEvent) {
     console.log('[SiYuanMemo][ReviewView] Adding menu item 3: 移除种子块 (with submenu)');
     menu.addItem({
       icon: 'iconTrashcan',
-      label: '移除种子块',
+      label: t('removeSeed', '移除种子块'),
       submenu: removeSubmenuItems
     });
   } else {
     console.log('[SiYuanMemo][ReviewView] Adding menu item 3: 移除种子块 (disabled)');
     menu.addItem({
       icon: 'iconTrashcan',
-      label: '移除种子块',
+      label: t('removeSeed', '移除种子块'),
       disabled: true
     });
   }
@@ -947,7 +947,7 @@ function handleNeuralMenu(ev: MouseEvent) {
   console.log('[SiYuanMemo][ReviewView] Adding menu item 4: 查看历史记录');
   menu.addItem({
     icon: 'iconHistory',
-    label: '查看历史记录',
+    label: t('viewHistory', '查看历史记录'),
     click: () => {
       console.log('[SiYuanMemo][ReviewView] 查看历史记录 clicked');
       try {
@@ -956,9 +956,9 @@ function handleNeuralMenu(ev: MouseEvent) {
           const historyList = history.slice(-10).map((id: string, index: number) =>
             `${history.length - 10 + index + 1}. ${id}`
           ).join('\n');
-          showMessage(`历史记录 (最近10条，共${history.length}条):\n${historyList}`, 5000, 'info');
+          showMessage(t('historyListTitle', '历史记录 (最近10条，共{n}条)').replace('{n}', String(history.length)) + ':\n' + historyList, 5000, 'info');
         } else {
-          showMessage('暂无历史记录', 3000, 'info');
+          showMessage(t('noHistory', '暂无历史记录'), 3000, 'info');
         }
       } catch (error) {
         console.error('[SiYuanMemo][ReviewView] Failed to get history:', error);
@@ -970,15 +970,15 @@ function handleNeuralMenu(ev: MouseEvent) {
   console.log('[SiYuanMemo][ReviewView] Adding menu item 5: 清空历史记录');
   menu.addItem({
     icon: 'iconClear',
-    label: '清空历史记录',
+    label: t('clearHistory', '清空历史记录'),
     click: () => {
       console.log('[SiYuanMemo][ReviewView] 清空历史记录 clicked');
       try {
         underlyingQueue.clearHistory?.();
-        showMessage('历史记录已清空', 3000, 'info');
+        showMessage(t('historyClearedSuccess', '历史记录已清空'), 3000, 'info');
       } catch (error) {
         console.error('[SiYuanMemo][ReviewView] Failed to clear history:', error);
-        showMessage('清空历史记录失败', 3000, 'error');
+        showMessage(t('clearHistoryFailed', '清空历史记录失败'), 3000, 'error');
       }
     }
   });

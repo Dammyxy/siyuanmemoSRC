@@ -44,9 +44,14 @@ export interface DescriptorCardViewModel extends BaseCardViewModel {
 
 export class DescriptorCardRenderService extends BaseCardRenderService {
   constructor(
-    private repository: DescriptorCardRepository
+    private repository: DescriptorCardRepository,
+    private i18n: Record<string, string> = {}
   ) {
     super(); // 调用基类构造函数
+  }
+
+  private t(key: string, fallback: string): string {
+    return this.i18n[key] || fallback;
   }
 
   /**
@@ -97,7 +102,7 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
         description: card.description,
         parentConcept: this.buildParentConceptViewModel(card),
         siblingDescriptors: card.siblingDescriptors,
-        warning: card.getWarning(),
+        warning: card.getWarning() ? this.t(card.getWarning()!, card.getWarning()!) : null,
       };
 
       return viewModel;
@@ -128,7 +133,10 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
     isReverse: boolean = false
   ): { frontHtml: string; backHtml: string } {
     // 🔧 修复：直接使用 card.attribute 和 card.description，不再解析 card.html
-    const attributeName = card.attribute;
+    // 如果 attribute 是 sentinel key（解析失败时的降级值），则翻译为本地化字符串
+    const attributeName = card.attribute === 'defaultAttribute'
+      ? this.t('defaultAttribute', '属性')
+      : card.attribute;
     const attributeValue = card.description;
     
     if (!attributeName || !attributeValue) {
@@ -143,7 +151,7 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       };
     }
 
-    const parentConceptName = card.getParentConceptTitle() || '概念';
+    const parentConceptName = card.getParentConceptTitle() || this.t('defaultConcept', '概念');
 
     // 分离祖先概念（排除父概念）
     const ancestorContext = this.getAncestorContext(conceptContext, parentConceptName);
@@ -155,11 +163,11 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
 
     if (isReverse) {
       // 反向卡：描述符 -> 概念
-      // 正面：「极端引力场」是谁的「定义」？
-      const questionHtml = `<div contenteditable="false" style="font-size: 22px; line-height: 1.5; padding: 16px 0;"><span style="font-weight: 700; color: var(--b3-theme-on-surface);">${attributeValue}</span><span style="color: var(--b3-theme-on-surface-light);">是谁的</span><span style="font-weight: 600; color: var(--b3-theme-primary);">${attributeName}</span><span style="color: var(--b3-theme-on-surface-light);">？</span></div>`;
+      const reverseConnector = this.t('descriptorReverseConnector', '是谁的');
+      const questionHtml = `<div contenteditable="false" style="font-size: 22px; line-height: 1.5; padding: 16px 0;"><span style="font-weight: 700; color: var(--b3-theme-on-surface);">${attributeValue}</span><span style="color: var(--b3-theme-on-surface-light);">${reverseConnector}</span><span style="font-weight: 600; color: var(--b3-theme-primary);">${attributeName}</span><span style="color: var(--b3-theme-on-surface-light);">？</span></div>`;
 
       // 答案分隔线
-      const dividerHtml = `<div style="display: flex; align-items: center; margin: 16px 0; color: var(--b3-theme-on-surface-light); font-size: 14px;"><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div><span style="padding: 0 12px;">答案</span><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div></div>`;
+      const dividerHtml = `<div style="display: flex; align-items: center; margin: 16px 0; color: var(--b3-theme-on-surface-light); font-size: 14px;"><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div><span style="padding: 0 12px;">${this.t('answerLabel', '答案')}</span><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div></div>`;
 
       // 答案：概念名（22px）
       const answerHtml = `<div contenteditable="false" style="font-size: 22px; line-height: 1.6; color: var(--b3-theme-on-surface);">${parentConceptName}</div>`;
@@ -173,11 +181,12 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       return { frontHtml, backHtml };
     } else {
       // 正向卡：概念 -> 描述符（默认）
-      // 正面：「黑洞」的「定义」是？
-      const questionHtml = `<div contenteditable="false" style="font-size: 22px; line-height: 1.5; padding: 16px 0;"><span style="font-weight: 600; color: var(--b3-theme-primary);">${parentConceptName}</span><span style="color: var(--b3-theme-on-surface-light);">的</span><span style="font-weight: 700; color: var(--b3-theme-on-surface);">${attributeName}</span><span style="color: var(--b3-theme-on-surface-light);">是？</span></div>`;
+      const ofConnector = this.t('descriptorForwardOf', '的');
+      const isConnector = this.t('descriptorForwardIs', '是？');
+      const questionHtml = `<div contenteditable="false" style="font-size: 22px; line-height: 1.5; padding: 16px 0;"><span style="font-weight: 600; color: var(--b3-theme-primary);">${parentConceptName}</span><span style="color: var(--b3-theme-on-surface-light);">${ofConnector}</span><span style="font-weight: 700; color: var(--b3-theme-on-surface);">${attributeName}</span><span style="color: var(--b3-theme-on-surface-light);">${isConnector}</span></div>`;
 
       // 答案分隔线
-      const dividerHtml = `<div style="display: flex; align-items: center; margin: 16px 0; color: var(--b3-theme-on-surface-light); font-size: 14px;"><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div><span style="padding: 0 12px;">答案</span><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div></div>`;
+      const dividerHtml = `<div style="display: flex; align-items: center; margin: 16px 0; color: var(--b3-theme-on-surface-light); font-size: 14px;"><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div><span style="padding: 0 12px;">${this.t('answerLabel', '答案')}</span><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div></div>`;
 
       // 答案：属性值（22px，左对齐）
       const answerHtml = `<div contenteditable="false" style="font-size: 22px; line-height: 1.6; color: var(--b3-theme-on-surface);">${attributeValue}</div>`;

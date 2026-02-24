@@ -12,7 +12,9 @@ import { BUILTIN_QUICK_TEMPLATE, BUILTIN_BIDIRECTIONAL_SINGLE_TEMPLATE } from '.
 export const BASIC_QA_TEMPLATE: ICardTemplate = {
   id: 'builtin-basic-qa',
   name: '基础问答',
+  nameKey: 'templateNameBasicQa',
   description: '需要选中两个块进行制卡，生成一张卡片，第一个块为问题，第二个块为答案。',
+  descriptionKey: 'templateDescBasicQa',
   category: 'basic',
   fields: [
     { name: 'question', description: '问题' },
@@ -31,7 +33,9 @@ export const BASIC_QA_TEMPLATE: ICardTemplate = {
 export const BIDIRECTIONAL_TEMPLATE: ICardTemplate = {
   id: 'builtin-bidirectional',
   name: '双向卡片',
+  nameKey: 'templateNameBidirectional',
   description: '需要选中两个块进行制卡，生成两张卡片，它们互为问题和答案',
+  descriptionKey: 'templateDescBidirectional',
   category: 'basic',
   fields: [
     { name: 'term', description: '术语' },
@@ -55,6 +59,8 @@ export const BIDIRECTIONAL_TEMPLATE: ICardTemplate = {
 export const LIST_ITEM_TEMPLATE: ICardTemplate = {
   id: 'builtin-list-item',
   name: '有序列表卡',
+  nameKey: 'templateNameListItem',
+  descriptionKey: 'templateDescListItem',
   description: `根据有序列表子级，生成多张对应的卡片。需要右键列表项块使用，子级得是有序列表。支持为每张子级卡片写单独的提示，用【→】分割提示和答案。
 <div style="margin-top: 8px; padding: 8px; background: var(--b3-theme-surface); border-radius: 4px;">
   <div style="font-weight: 500; margin-bottom: 4px;">【示例】：</div>
@@ -85,6 +91,8 @@ export const LIST_ITEM_TEMPLATE: ICardTemplate = {
 export const CONCEPT_DESCRIPTOR_TEMPLATE: ICardTemplate = {
   id: 'builtin-concept-descriptor',
   name: '概念描述符卡',
+  nameKey: 'templateNameConceptDescriptor',
+  descriptionKey: 'templateDescConceptDescriptor',
   description: `用于批量创建概念的定义卡片和属性卡片，支持混合使用。需要在列表块里块引用文档块，使用传递型双链。
 <div style="margin-top: 8px; padding: 8px; background: var(--b3-theme-surface); border-radius: 4px;">
   <div style="font-weight: 500; margin-bottom: 4px;">【示例】：混合使用定义和描述符</div>
@@ -122,6 +130,8 @@ export const CONCEPT_DESCRIPTOR_TEMPLATE: ICardTemplate = {
 export const CONCEPT_DESCRIPTOR_AUTO_TEMPLATE: ICardTemplate = {
   id: 'builtin-concept-descriptor-auto',
   name: '描述符卡',
+  nameKey: 'templateNameDescriptorAuto',
+  descriptionKey: 'templateDescDescriptorAuto',
   description: '选中包含描述符符号的块后使用此模版，会将其制作为描述符卡，并自动向上探路查找概念块（标题块、文档块或者是引用的文档块）。<br/>支持三种方向：<br/>【;;】或【；；】→ 仅正向（默认）<br/>【;<】或【；《】→ 仅反向<br/>【;<>】或【；《》】→ 双向',
   category: 'concept',
   fields: [
@@ -141,6 +151,8 @@ export const CONCEPT_DESCRIPTOR_AUTO_TEMPLATE: ICardTemplate = {
 export const MULTI_CLOZE_TEMPLATE: ICardTemplate = {
   id: 'builtin-multi-cloze',
   name: '多填空卡片',
+  nameKey: 'templateNameMultiCloze',
+  descriptionKey: 'templateDescMultiCloze',
   description: '每个标记生成一张独立的卡片。<br/>【示例】：会泽==百家==，至公==天下==',
   category: 'cloze',
   fields: [
@@ -159,6 +171,8 @@ export const MULTI_CLOZE_TEMPLATE: ICardTemplate = {
 export const CONCEPT_DEFINITION_TEMPLATE: ICardTemplate = {
   id: 'builtin-concept-definition',
   name: '概念定义卡',
+  nameKey: 'templateNameConceptDefinition',
+  descriptionKey: 'templateDescConceptDefinition',
   description: '为概念和定义生成双向卡片，需要块引用文档块，并用【::】隔开定义内容。<br/>【示例】：[[中子星]]::介于白矮星和黑洞之间的极端致密天体',
   category: 'concept',
   fields: [
@@ -183,7 +197,9 @@ export const CONCEPT_DEFINITION_TEMPLATE: ICardTemplate = {
 export const CONCEPT_DEFINITION_FORWARD_TEMPLATE: ICardTemplate = {
   id: 'builtin-concept-definition-forward',
   name: '概念定义卡（仅正向）',
+  nameKey: 'templateNameConceptDefinitionForward',
   description: '为概念和定义生成正向卡片，需要块引用文档块，并用【:>】隔开定义内容。<br/>【示例】：[[中子星]]:>介于白矮星和黑洞之间的极端致密天体',
+  descriptionKey: 'templateDescConceptDefinitionForward',
   category: 'concept',
   fields: [
     { name: 'concept', description: '概念块（块引用指向的文档块）' },
@@ -202,7 +218,9 @@ export const CONCEPT_DEFINITION_FORWARD_TEMPLATE: ICardTemplate = {
 export const CONCEPT_DEFINITION_REVERSE_TEMPLATE: ICardTemplate = {
   id: 'builtin-concept-definition-reverse',
   name: '概念定义卡（仅反向）',
+  nameKey: 'templateNameConceptDefinitionReverse',
   description: '为概念和定义生成反向卡片，需要块引用文档块，并用【:<】隔开定义内容。<br/>【示例】：[[中子星]]:<介于白矮星和黑洞之间的极端致密天体',
+  descriptionKey: 'templateDescConceptDefinitionReverse',
   category: 'concept',
   fields: [
     { name: 'concept', description: '概念块（块引用指向的文档块）' },
@@ -221,7 +239,9 @@ export const CONCEPT_DEFINITION_REVERSE_TEMPLATE: ICardTemplate = {
 export const CONCEPT_DESCRIPTOR_REVERSE_TEMPLATE: ICardTemplate = {
   id: 'builtin-concept-descriptor-reverse',
   name: '概念描述符卡（仅反向）',
+  nameKey: 'templateNameConceptDescriptorReverse',
   description: '为概念和描述符生成反向卡片，使用【;<】符号。<br/>【示例】：属性;<描述',
+  descriptionKey: 'templateDescConceptDescriptorReverse',
   category: 'concept',
   fields: [
     { name: 'concept', description: '概念块' },
@@ -240,7 +260,9 @@ export const CONCEPT_DESCRIPTOR_REVERSE_TEMPLATE: ICardTemplate = {
 export const CONCEPT_DESCRIPTOR_BOTH_TEMPLATE: ICardTemplate = {
   id: 'builtin-concept-descriptor-both',
   name: '概念描述符卡（双向）',
+  nameKey: 'templateNameConceptDescriptorBoth',
   description: '为概念和描述符生成双向卡片，使用【;<>】符号。<br/>【示例】：属性;<>描述',
+  descriptionKey: 'templateDescConceptDescriptorBoth',
   category: 'concept',
   fields: [
     { name: 'concept', description: '概念块' },

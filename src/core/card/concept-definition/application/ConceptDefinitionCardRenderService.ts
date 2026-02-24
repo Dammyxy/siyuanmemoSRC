@@ -31,6 +31,14 @@ export interface ConceptDefinitionCardViewModel extends BaseCardViewModel {
  * 概念定义卡渲染服务
  */
 export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
+
+  constructor(private i18n: Record<string, string> = {}) {
+    super();
+  }
+
+  private t(key: string, fallback: string): string {
+    return this.i18n[key] || fallback;
+  }
   /**
    * 准备视图模型
    * 
@@ -175,39 +183,41 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     
     if (!isReverse) {
       // 正向卡：问概念的定义
+      const questionText = this.t('conceptDefinitionQuestion', '{concept}的定义？').replace('{concept}', conceptName);
       frontHtml = `
         <div class="concept-definition-question">
           <span class="concept-name">${conceptName}</span>
-          <span class="question-text">的定义？</span>
+          <span class="question-text">${questionText.replace(conceptName, '')}</span>
         </div>
       `;
-      
+
       backHtml = `
         <div class="concept-definition-answer">
           <div class="question-repeat">
             <span class="concept-name">${conceptName}</span>
-            <span class="question-text">的定义？</span>
+            <span class="question-text">${questionText.replace(conceptName, '')}</span>
           </div>
-          <div class="answer-divider"><span>答案</span></div>
+          <div class="answer-divider"><span>${this.t('answerLabel', '答案')}</span></div>
           <div class="definition-content">${definitionHtml}</div>
         </div>
       `;
     } else {
       // 反向卡：给定义问概念
+      const reverseQuestion = this.t('conceptDefinitionReverseQuestion', '以下是哪个概念的定义？');
       frontHtml = `
         <div class="concept-definition-question reverse">
-          <div class="reverse-label">以下是哪个概念的定义？</div>
+          <div class="reverse-label">${reverseQuestion}</div>
           <div class="definition-content">${definitionHtml}</div>
         </div>
       `;
-      
+
       backHtml = `
         <div class="concept-definition-answer reverse">
           <div class="question-repeat">
-            <div class="reverse-label">以下是哪个概念的定义？</div>
+            <div class="reverse-label">${reverseQuestion}</div>
             <div class="definition-content">${definitionHtml}</div>
           </div>
-          <div class="answer-divider"><span>答案</span></div>
+          <div class="answer-divider"><span>${this.t('answerLabel', '答案')}</span></div>
           <div class="concept-answer">
             <span class="concept-name large">${conceptName}</span>
           </div>

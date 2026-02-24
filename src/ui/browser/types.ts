@@ -75,25 +75,26 @@ export interface BrowserCard {
 export interface FilterPreset {
     key: string;
     label: string;
+    i18nKey: string;
     icon?: string;
     description?: string;
 }
 
 /** 筛选预设列表 */
 export const FILTER_PRESETS: FilterPreset[] = [
-    { key: 'all', label: '全部卡片', icon: 'iconRiffCard' },
-    { key: 'due', label: '今日到期', icon: 'iconToday' },
-    { key: 'overdue', label: '已过期', icon: 'iconClose' },
-    { key: 'new', label: '新卡片', icon: 'iconAdd' },
-    { key: 'learning', label: '学习中', icon: 'iconPlay' },
-    { key: 'leech', label: '难点卡片', icon: 'iconBug' },
-    { key: 'suspended', label: '已暂停', icon: 'iconPause' },
-    { key: 'current-doc', label: '当前文档', icon: 'iconFile' },
+    { key: 'all',             i18nKey: 'filterPresetAll',             label: '全部卡片',   icon: 'iconRiffCard' },
+    { key: 'due',             i18nKey: 'filterPresetDue',             label: '今日到期',   icon: 'iconToday' },
+    { key: 'overdue',         i18nKey: 'filterPresetOverdue',         label: '已过期',     icon: 'iconClose' },
+    { key: 'new',             i18nKey: 'filterPresetNew',             label: '新卡片',     icon: 'iconAdd' },
+    { key: 'learning',        i18nKey: 'filterPresetLearning',        label: '学习中',     icon: 'iconPlay' },
+    { key: 'leech',           i18nKey: 'filterPresetLeech',           label: '难点卡片',   icon: 'iconBug' },
+    { key: 'suspended',       i18nKey: 'filterPresetSuspended',       label: '已暂停',     icon: 'iconPause' },
+    { key: 'current-doc',     i18nKey: 'filterPresetCurrentDoc',      label: '当前文档',   icon: 'iconFile' },
     // Topic/Item/Concept/Descriptor 筛选
-    { key: 'topic-only', label: '仅主题', icon: 'iconFile' },
-    { key: 'item-only', label: '仅卡片', icon: 'iconCheck' },
-    { key: 'concept-only', label: '仅概念卡', icon: 'iconBrain' },
-    { key: 'descriptor-only', label: '仅描述符卡', icon: 'iconTag' },
+    { key: 'topic-only',      i18nKey: 'filterPresetTopicOnly',       label: '仅主题',     icon: 'iconFile' },
+    { key: 'item-only',       i18nKey: 'filterPresetItemOnly',        label: '仅卡片',     icon: 'iconCheck' },
+    { key: 'concept-only',    i18nKey: 'filterPresetConceptOnly',     label: '仅概念卡',   icon: 'iconBrain' },
+    { key: 'descriptor-only', i18nKey: 'filterPresetDescriptorOnly',  label: '仅描述符卡', icon: 'iconTag' },
 ];
 
 /**
@@ -102,32 +103,32 @@ export const FILTER_PRESETS: FilterPreset[] = [
  * @param queueId 队列 ID（retrieval, final-drill, neural, incremental-learning 等）
  * @returns 可用的卡片类型筛选选项数组
  */
-export function getAvailableCardTypeFilters(queueId: string | null): Array<{ value: CardTypeFilter; label: string }> {
+export function getAvailableCardTypeFilters(queueId: string | null): Array<{ value: CardTypeFilter; i18nKey: string; label: string }> {
     // 提取练习队列和刻意练习队列：只显示 all、item-only、descriptor-only
     // 原因：concept 卡片使用 A-Factor 调度器，不应出现在 FSRS 练习队列中
     if (queueId === 'retrieval' || queueId === 'final-drill') {
         return [
-            { value: 'all', label: 'All Types' },
-            { value: 'item-only', label: 'Item Only' },
-            { value: 'descriptor-only', label: 'Descriptor Only' },
+            { value: 'all',             i18nKey: 'cardTypeAll',             label: '所有类型' },
+            { value: 'item-only',       i18nKey: 'cardTypeItemOnly',        label: '仅卡片' },
+            { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅描述符卡' },
         ];
     }
-    
+
     // 神经漫游队列：只显示 concept-only 和 descriptor-only
     if (queueId === 'neural') {
         return [
-            { value: 'concept-only', label: 'Concept Only' },
-            { value: 'descriptor-only', label: 'Descriptor Only' },
+            { value: 'concept-only',    i18nKey: 'cardTypeConceptOnly',     label: '仅概念卡' },
+            { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅描述符卡' },
         ];
     }
-    
+
     // 其他队列（渐进学习、筛选组、全部卡片等）：显示所有选项
     return [
-        { value: 'all', label: 'All Types' },
-        { value: 'topic-only', label: 'Topic Only' },
-        { value: 'item-only', label: 'Item Only' },
-        { value: 'concept-only', label: 'Concept Only' },
-        { value: 'descriptor-only', label: 'Descriptor Only' },
+        { value: 'all',             i18nKey: 'cardTypeAll',             label: '所有类型' },
+        { value: 'topic-only',      i18nKey: 'cardTypeTopicOnly',       label: '仅主题' },
+        { value: 'item-only',       i18nKey: 'cardTypeItemOnly',        label: '仅卡片' },
+        { value: 'concept-only',    i18nKey: 'cardTypeConceptOnly',     label: '仅概念卡' },
+        { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅描述符卡' },
     ];
 }
 
@@ -144,6 +145,7 @@ export type BatchAction =
 export interface BatchActionDef {
     key: BatchAction;
     label: string;
+    i18nKey: string;
     icon: string;
     shortcut?: string;
     danger?: boolean;
@@ -151,12 +153,12 @@ export interface BatchActionDef {
 
 /** 批量操作列表 */
 export const BATCH_ACTIONS: BatchActionDef[] = [
-    { key: 'reschedule', label: '重新调度', icon: 'iconCalendar', shortcut: 'Ctrl+J' },
-    { key: 'reset', label: '重置为新卡', icon: 'iconRefresh', shortcut: 'Ctrl+Shift+R' },
-    { key: 'suspend', label: '暂停卡片', icon: 'iconPause', shortcut: 'Ctrl+K' },
-    { key: 'unsuspend', label: '取消暂停', icon: 'iconPlay', shortcut: 'Ctrl+Shift+K' },
-    { key: 'priority', label: '设置优先级', icon: 'iconMark', shortcut: 'Ctrl+P' },
-    { key: 'delete', label: '取消闪卡', icon: 'iconTrashcan', shortcut: 'Del', danger: true },
+    { key: 'reschedule', i18nKey: 'batchReschedule', label: '重新调度', icon: 'iconCalendar', shortcut: 'Ctrl+J' },
+    { key: 'reset',      i18nKey: 'batchReset',      label: '重置为新卡', icon: 'iconRefresh', shortcut: 'Ctrl+Shift+R' },
+    { key: 'suspend',    i18nKey: 'batchSuspend',    label: '暂停卡片', icon: 'iconPause', shortcut: 'Ctrl+K' },
+    { key: 'unsuspend',  i18nKey: 'batchUnsuspend',  label: '取消暂停', icon: 'iconPlay', shortcut: 'Ctrl+Shift+K' },
+    { key: 'priority',   i18nKey: 'batchSetPriority',label: '设置优先级', icon: 'iconMark', shortcut: 'Ctrl+P' },
+    { key: 'delete',     i18nKey: 'batchDeleteCard', label: '取消闪卡', icon: 'iconTrashcan', shortcut: 'Del', danger: true },
 ];
 
 /** 重新调度选项 */

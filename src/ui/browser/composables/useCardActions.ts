@@ -274,23 +274,23 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
     return [
       {
         icon: 'iconFile',
-        label: '标记为 Topic',
+        label: t('markAsTopic', '标记为 Topic'),
         click: () => void markCardsAsTopic(selected),
       },
       {
         icon: 'iconCheck',
-        label: '标记为 Item',
+        label: t('markAsItem', '标记为 Item'),
         click: () => void markCardsAsItem(selected),
       },
-      { type: 'separator' },  // 分隔线
+      { type: 'separator' },
       {
         icon: '🧠',
-        label: '标记为概念卡',
+        label: t('markAsConcept2', '标记为概念卡'),
         click: () => void markCardsAsConcept(selected),
       },
       {
         icon: '🏷️',
-        label: '标记为描述符卡',
+        label: t('markAsDescriptor2', '标记为描述符卡'),
         click: () => void markCardsAsDescriptor(selected),
       },
     ];

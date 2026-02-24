@@ -5,7 +5,12 @@ import type { ICardTemplate, TemplateCategory } from '@/core/xiuyuan';
 const props = defineProps<{
   templates: ICardTemplate[];
   blockCount: number;
+  i18n?: Record<string, string>;
 }>();
+
+function t(key: string, fallback: string): string {
+  return props.i18n?.[key] || fallback;
+}
 
 const emit = defineEmits<{
   confirm: [templateId: string];
@@ -15,13 +20,13 @@ const emit = defineEmits<{
 const selectedId = ref<string | null>(null);
 
 // 分类名称映射
-const categoryNames: Record<TemplateCategory, string> = {
-  basic: '基础类',
-  cloze: '填空类',
-  list: '列表类',
-  concept: '概念类',
-  quick: '符号卡片类',
-};
+const categoryNames = computed((): Record<TemplateCategory, string> => ({
+  basic: t('templateCategoryBasic', '基础类'),
+  cloze: t('templateCategoryCloze', '填空类'),
+  list: t('templateCategoryList', '列表类'),
+  concept: t('templateCategoryConcept', '概念类'),
+  quick: t('templateCategoryQuick', '符号卡片类'),
+}));
 
 // 按分类分组模版
 const groupedTemplates = computed(() => {
@@ -46,7 +51,7 @@ const groupedTemplates = computed(() => {
     .filter(category => groups[category].length > 0)
     .map(category => ({
       category,
-      name: categoryNames[category],
+      name: categoryNames.value[category],
       templates: groups[category],
     }));
 });
@@ -95,7 +100,7 @@ function getCardTypeLabel(template: ICardTemplate): string {
 <template>
   <div class="xiuyuan-template-select">
     <div class="template-info">
-      <span class="info-label">选中块数量:</span>
+      <span class="info-label">{{ t('templateBlockCount', '选中块数量:') }}</span>
       <span class="info-value">{{ blockCount }}</span>
     </div>
 
@@ -110,10 +115,10 @@ function getCardTypeLabel(template: ICardTemplate): string {
             :class="{ selected: selectedId === template.id }"
             @click="selectedId = template.id"
           >
-            <div class="template-name">{{ template.name }}</div>
-            <div class="template-desc" v-html="template.description"></div>
+            <div class="template-name">{{ template.nameKey ? t(template.nameKey, template.name) : template.name }}</div>
+            <div class="template-desc" v-html="template.descriptionKey ? t(template.descriptionKey, template.description || '') : template.description"></div>
             <div class="template-card-type">
-              生成卡片类型：{{ getCardTypeLabel(template) }}
+              {{ t('templateCardTypeLabel', '生成卡片类型：') }}{{ getCardTypeLabel(template) }}
             </div>
           </div>
         </div>
@@ -121,19 +126,19 @@ function getCardTypeLabel(template: ICardTemplate): string {
     </div>
 
     <div v-if="selectedTemplate" class="template-preview">
-      <div class="preview-title">生成卡片规则：</div>
+      <div class="preview-title">{{ t('templateRulesLabel', '生成卡片规则：') }}</div>
       <div v-for="(rule, i) in selectedTemplate.cardRules" :key="i" class="rule-item">
         <span class="rule-marker">{{ rule.typeMarker }}</span>
-        <span>正面: {{ rule.frontFields.join(', ') }}</span>
+        <span>{{ t('templateFrontLabel', '正面:') }} {{ rule.frontFields.join(', ') }}</span>
         <span>→</span>
-        <span>背面: {{ rule.backFields.join(', ') }}</span>
+        <span>{{ t('templateBackLabel', '背面:') }} {{ rule.backFields.join(', ') }}</span>
       </div>
     </div>
 
     <div class="dialog-actions">
-      <button class="btn btn-cancel" @click="handleCancel">取消</button>
+      <button class="btn btn-cancel" @click="handleCancel">{{ t('cancel', '取消') }}</button>
       <button class="btn btn-confirm" :disabled="!selectedId" @click="handleConfirm">
-        确认创建
+        {{ t('templateConfirmCreate', '确认创建') }}
       </button>
     </div>
   </div>

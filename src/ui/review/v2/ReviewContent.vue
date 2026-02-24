@@ -187,7 +187,8 @@ const descriptorCardRenderService = ref(
   new DescriptorCardRenderService(
     new DescriptorCardRepository(
       new DescriptorBlockAdapter()
-    )
+    ),
+    props.i18n || {}
   )
 );
 const isDescriptorCard = ref(false);

@@ -371,7 +371,7 @@ export class DeckDataSource implements ICardDataSource {
     );
 
     if (this.plugin?.openSubsetReviewDialog) {
-      actions.unshift({ id: 'review-subset', label: 'Review Subset', icon: 'iconPlay' });
+      actions.unshift({ id: 'review-subset', label: (this.plugin as any)?.i18n?.reviewSubset || 'Review Subset', icon: 'iconPlay' });
       console.log('[SiYuanMemo][DeckDataSource] ✅ 已添加"选中复习"菜单');
     } else {
       console.log('[SiYuanMemo][DeckDataSource] ❌ 没有添加"选中复习"菜单', {

@@ -176,7 +176,7 @@ export function useContextMenu(options: ContextMenuOptions) {
     // 添加随机排序
     sortMenu.push({
       icon: 'iconRefresh',
-      label: '随机排序',
+      label: t('sortRandom', '随机排序'),
       click: () => {
         console.log('[SiYuanMemo][CardBrowser] Menu clicked: Random sort');
         applyRandomSort(gridApi);
@@ -186,7 +186,7 @@ export function useContextMenu(options: ContextMenuOptions) {
     // 插入排序菜单
     menu.addItem({
       icon: 'iconSort',
-      label: '排序',
+      label: t('sortMenu', '排序'),
       submenu: sortMenu,
     });
 
@@ -197,19 +197,19 @@ export function useContextMenu(options: ContextMenuOptions) {
     const cardTypeMenu: any[] = [
       {
         icon: 'iconFile',
-        label: '标记为 Topic',
+        label: t('markAsTopic', '标记为 Topic'),
         click: () => void markCardsAsTopic(selected),
       },
       {
         icon: 'iconCheck',
-        label: '标记为 Item',
+        label: t('markAsItem', '标记为 Item'),
         click: () => void markCardsAsItem(selected),
       },
     ];
 
     menu.addItem({
       icon: 'iconHR',
-      label: '卡片类型',
+      label: t('cardTypeLabel', '卡片类型'),
       submenu: cardTypeMenu,
     });
 

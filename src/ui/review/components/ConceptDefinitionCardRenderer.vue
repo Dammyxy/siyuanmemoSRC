@@ -15,7 +15,7 @@
       <div class="concept-definition-card-renderer__badge">
         <span class="concept-definition-card-renderer__badge-icon">📚</span>
         <span class="concept-definition-card-renderer__badge-label">
-          概念定义{{ viewModel.isReverse ? '（反向）' : '' }}
+          {{ viewModel.isReverse ? t('conceptDefinitionCardReverse', '概念定义卡（反向）') : t('conceptDefinitionCard', '概念定义卡') }}
         </span>
       </div>
 
@@ -42,7 +42,7 @@
           class="concept-definition-card-renderer__btn concept-definition-card-renderer__btn--secondary"
           @click="jumpToConcept"
         >
-          跳转到概念
+          {{ t('jumpToConcept', '跳转到概念') }}
         </button>
       </div>
     </div>
@@ -76,7 +76,7 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<ConceptDefinitionCardViewModel | null>(null);
 
-const renderService = new ConceptDefinitionCardRenderService();
+const renderService = new ConceptDefinitionCardRenderService(props.i18n || {});
 
 // 方法
 function t(key: string, fallback: string): string {

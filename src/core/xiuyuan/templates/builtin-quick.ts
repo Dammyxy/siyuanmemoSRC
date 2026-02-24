@@ -16,7 +16,9 @@ import type { ICardTemplate } from '../types';
 export const BUILTIN_QUICK_TEMPLATE: ICardTemplate = {
   id: 'builtin-quick-card',
   name: '符号卡片',
+  nameKey: 'templateNameQuickCard',
   description: '在单个块里，搭配符号生成单张卡片。<br/>【示例】：会泽百家>>至公天下',
+  descriptionKey: 'templateDescQuickCard',
   category: 'quick',
   version: '1.0.0',
   
@@ -59,7 +61,9 @@ export const BUILTIN_QUICK_TEMPLATE: ICardTemplate = {
 export const BUILTIN_BIDIRECTIONAL_SINGLE_TEMPLATE: ICardTemplate = {
   id: 'builtin-bidirectional-single',
   name: '双向卡片',
+  nameKey: 'templateNameBidirectionalSingle',
   description: '在单个块里，使用 <> 符号生成两张互为问答的卡片。<br/>【示例】：会泽百家<>至公天下',
+  descriptionKey: 'templateDescBidirectionalSingle',
   category: 'quick',
   version: '1.0.0',
   

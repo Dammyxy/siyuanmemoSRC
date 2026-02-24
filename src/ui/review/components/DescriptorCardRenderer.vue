@@ -21,7 +21,7 @@
       <div class="descriptor-card-renderer__main">
         <div class="descriptor-card-renderer__badge">
           <span class="descriptor-card-renderer__badge-icon">📝</span>
-          <span class="descriptor-card-renderer__badge-label">描述符卡</span>
+          <span class="descriptor-card-renderer__badge-label">{{ t('descriptorCard', '描述符卡') }}</span>
         </div>
 
         <!-- 正面：概念 + 属性名 -->
@@ -44,7 +44,7 @@
         v-if="viewModel.siblingDescriptors.length > 0"
         class="descriptor-card-renderer__siblings"
       >
-        <div class="descriptor-card-renderer__siblings-title">同概念的其他描述符</div>
+        <div class="descriptor-card-renderer__siblings-title">{{ t('siblingDescriptors', '同概念的其他描述符') }}</div>
         <div class="descriptor-card-renderer__siblings-list">
           <div
             v-for="sibling in viewModel.siblingDescriptors"
@@ -68,7 +68,7 @@
         @click.stop
       >
         <div class="descriptor-card-renderer__modal-header">
-          <h2 class="descriptor-card-renderer__modal-title">完整概念</h2>
+          <h2 class="descriptor-card-renderer__modal-title">{{ t('fullConcept', '完整概念') }}</h2>
           <button
             class="descriptor-card-renderer__modal-close"
             @click="closeConceptModal"

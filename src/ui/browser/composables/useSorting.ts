@@ -238,7 +238,7 @@ export function useSorting(options: UseSortingOptions) {
     sortMenu.push({ type: 'separator' });
     sortMenu.push({
       icon: 'iconRefresh',
-      label: '随机排序',
+      label: t('sortRandom', '随机排序'),
       click: () => applyRandomSort(),
     });
 

@@ -350,17 +350,17 @@ export class IncrementalLearningDataSource implements ICardDataSource {
     return [
       {
         id: 'open',
-        label: 'Open',
+        label: i18n?.openInTab || 'Open',
         icon: 'iconOpen',
       },
       {
         id: 'remove-from-current-queue',
-        label: '从队列移除',
+        label: i18n?.removeFromQueue || '从队列移除',
         icon: 'iconMin',
       },
       {
         id: 'delete-card',
-        label: '取消闪卡',
+        label: i18n?.deleteCard || '取消闪卡',
         icon: 'iconTrashcan',
         danger: true,
       },

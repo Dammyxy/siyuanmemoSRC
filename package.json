@@ -7,6 +7,7 @@
   "license": "AGPL-3.0",
   "scripts": {
     "dev": "vite build --watch",
+    "prebuild": "node check-i18n.cjs",
     "build": "vite build",
     "test": "vitest",
     "test:ui": "vitest --ui",

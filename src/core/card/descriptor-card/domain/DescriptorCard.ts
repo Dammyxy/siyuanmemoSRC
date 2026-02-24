@@ -71,7 +71,7 @@ export class DescriptorCard {
     // 最终降级：整个内容作为描述
     console.warn('[DescriptorCard] No symbol found, using content as description');
     return {
-      attribute: '属性',
+      attribute: 'defaultAttribute', // i18n key, resolved by the service layer
       description: content.trim(),
     };
   }
@@ -127,15 +127,16 @@ export class DescriptorCard {
   }
 
   /**
-   * 获取警告信息（如果有）
+   * 获取警告信息的 i18n key（如果有）
+   * 返回 i18n key，由调用方负责翻译
    */
   getWarning(): string | null {
     if (!this.hasParentConcept()) {
-      return '无法找到父概念，这可能是一个孤立的描述符卡';
+      return 'warningNoParentConcept';
     }
 
     if (!this.isParentConceptCard()) {
-      return '父块不是概念卡';
+      return 'warningParentNotConceptCard';
     }
 
     return null;

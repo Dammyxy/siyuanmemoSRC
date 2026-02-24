@@ -178,8 +178,12 @@ export interface ICardTemplate {
   id: string;
   /** 模板名称 */
   name: string;
+  /** 模板名称 i18n key（优先使用） */
+  nameKey?: string;
   /** 模板描述 */
   description?: string;
+  /** 模板描述 i18n key（优先使用） */
+  descriptionKey?: string;
   /** 模板分类（用于 UI 分组显示） */
   category?: TemplateCategory;
   /** 字段定义（定义模板需要哪些字段） */

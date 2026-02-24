@@ -86,7 +86,7 @@ export function createQueueDataSource(
       const neuralQueue = manager.getQueue('neural-roam');
       return new BlockIdsDataSource({
         id: 'neural-roam',
-        label: '神经漫游',
+        label: i18n?.neuralRoam || '神经漫游',
         blockIds: [],  // 初始为空，使用动态获取函数
         plugin: { neuralQueue },  // 🔧 直接传递 neuralQueue 对象
         queueId: 'neural-roam',

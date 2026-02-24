@@ -1479,11 +1479,12 @@ export class DialogManager implements IDialogManager {
 
       // 显示模板选择对话框
       this.templateSelectDialog = createVueDialog({
-        title: '选择卡片类型',
+        title: this.context.getI18n()?.selectCardTypeTitle || '选择卡片类型',
         component: TemplateSelectDialog,
         props: {
           templates,
           blockCount: blockIds.length,
+          i18n: this.context.getI18n(),
         },
         width: '640px',
         height: '650px',
