@@ -145,9 +145,20 @@ export function useCardData(props: CardDataOptions) {
     rows.value = fetchedRows;
 
     // 更新全量统计数据
-    allRows.value = await PerformanceMonitor.measure('loadAllCards', () => 
-      loadCards('all', undefined, '', forceRefresh, 'all', props.plugin)
-    );
+    // 优化：全部卡片模式且无任何筛选条件时，fetchedRows 已是完整全量，直接复用，避免重复 IO
+    const isFullUnfilteredMode = !activeQueueId.value
+      && !activeDocId.value
+      && currentPreset.value === 'all'
+      && !searchQuery.value
+      && currentCardType.value === 'all';
+
+    if (isFullUnfilteredMode) {
+      allRows.value = fetchedRows;
+    } else {
+      allRows.value = await PerformanceMonitor.measure('loadAllCards', () =>
+        loadCards('all', undefined, '', forceRefresh, 'all', props.plugin)
+      );
+    }
 
     // 四重筛选：如果开启了聚焦，额外获取不包含文档筛选的数据
     if (shouldFocusDocList.value) {

@@ -15,11 +15,10 @@
  * @deprecated 旧名称 HybridSyncService 已废弃，请使用 XiuyuanSyncService
  */
 
-import type { FSRSCard } from '@/types';
 import { getRiffCards, getRiffNewCards, removeRiffCards, type RiffBlock } from '@/core/siyuan/riff';
 import { initializeAFactor } from '@/core/card-builder';
 import { setBlockAttrs, getBlockAttrs } from '@/core/siyuan/api';
-import { ATTR_CARD_TYPE, ATTR_A_FACTOR } from '@/core/siyuan/block';
+import { ATTR_CARD_TYPE } from '@/core/siyuan/block';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import type {
     HybridSyncConfig,
@@ -331,22 +330,18 @@ export class XiuyuanSyncService {
                         addedCards.push(riffCard);
                         addedCount++;
                     } else {
-                        // ✅ 本地已存在 Xiuyuan，更新其属性
+                        // ✅ 本地已存在 Xiuyuan，只同步块 IAL 中的卡片类型元数据
+                        // 🔧 不同步任何调度字段（priority、aFactor 等），本地复习数据永远优先
                         console.log(`[SiYuanMemo][HybridSync] Updating existing Xiuyuan ${xiuyuanIdStr}`);
-                        
+
                         let needsUpdate = false;
-                        
-                        // 1. 提取 Riff 卡片的属性
-                        // 1.1 优先级（从现有 Xiuyuan 获取，保持不变）
-                        const newPriorityValue = existingXiuyuan.getPriority().getValue();
-                        
-                        // 1.2 卡片类型标记（concept/descriptor）
+
+                        // 从块 IAL 属性读取卡片类型元数据（非调度数据，合法同步）
                         const cardTypeMarkerAttr = riffCard.ial?.['custom-fsrs-card-type'];
                         const newCardTypeMarker = (cardTypeMarkerAttr === 'concept' || cardTypeMarkerAttr === 'descriptor')
                             ? cardTypeMarkerAttr as 'concept' | 'descriptor'
                             : undefined;
-                        
-                        // 1.3 卡片类型（topic/item）
+
                         let newCardType: 'topic' | 'item' | 'concept' | 'descriptor' | undefined;
                         if (newCardTypeMarker) {
                             newCardType = newCardTypeMarker;
@@ -356,27 +351,8 @@ export class XiuyuanSyncService {
                                 newCardType = cardTypeAttr;
                             }
                         }
-                        
-                        // 1.4 A-Factor（从卡片数据读取，不再从块属性读取）
-                        // 🔧 修复：A-Factor 只存储在 FSRSCard.aFactor 中
-                        const existingCard = this.config.storage.getCard(riffCard.id);
-                        const newAFactor = existingCard?.aFactor;
-                        
-                        // 2. 比较并更新
-                        // 2.1 更新优先级
-                        const currentPriority = existingXiuyuan.getPriority().getValue();
-                        if (currentPriority !== newPriorityValue) {
-                            const priorityResult = Priority.create(newPriorityValue);
-                            if (priorityResult.ok) {
-                                const updateResult = existingXiuyuan.updatePriority(priorityResult.value);
-                                if (updateResult.ok) {
-                                    console.log(`[SiYuanMemo][HybridSync] Updated priority: ${currentPriority} -> ${newPriorityValue}`);
-                                    needsUpdate = true;
-                                }
-                            }
-                        }
-                        
-                        // 2.2 更新卡片类型标记
+
+                        // 更新卡片类型标记（concept/descriptor）
                         if (newCardTypeMarker) {
                             const currentCardTypeMarker = existingXiuyuan.getMeta().cardTypeMarker;
                             if (currentCardTypeMarker !== newCardTypeMarker) {
@@ -387,8 +363,8 @@ export class XiuyuanSyncService {
                                 }
                             }
                         }
-                        
-                        // 2.3 更新卡片类型
+
+                        // 更新卡片类型（topic/item）
                         if (newCardType) {
                             const currentCardType = existingXiuyuan.getMeta().cardType;
                             if (currentCardType !== newCardType) {
@@ -399,22 +375,7 @@ export class XiuyuanSyncService {
                                 }
                             }
                         }
-                        
-                        // 2.4 更新 A-Factor（仅 Topic 卡片）
-                        if (newAFactor && !isNaN(newAFactor) && newCardType === 'topic') {
-                            const currentAFactor = existingXiuyuan.getMeta().aFactor;
-                            if (currentAFactor !== newAFactor) {
-                                const updateResult = existingXiuyuan.updateAFactor(newAFactor);
-                                if (updateResult.ok) {
-                                    console.log(`[SiYuanMemo][HybridSync] Updated aFactor: ${currentAFactor} -> ${newAFactor}`);
-                                    needsUpdate = true;
-                                } else {
-                                    const errorMsg = updateResult.ok === false ? updateResult.error.message : 'Unknown error';
-                                    console.error(`[SiYuanMemo][HybridSync] Failed to update aFactor: ${errorMsg}`);
-                                }
-                            }
-                        }
-                        
+
                         // 3. 保存更新
                         if (needsUpdate) {
                             const saveResult = await this.xiuyuanRepository.save(existingXiuyuan);
