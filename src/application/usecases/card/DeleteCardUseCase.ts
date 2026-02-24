@@ -31,6 +31,7 @@ import { DeleteCardCommand, validateDeleteCardCommand } from '../../commands/car
 import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import { CardDeletionService } from '@/core/xiuyuan/domain/services/CardDeletionService';
 import { CardId } from '@/core/xiuyuan/domain/CardId';
+import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
 import { getBlockAttrs, setBlockAttrs } from '@/core/siyuan/api';
 
@@ -82,6 +83,12 @@ export class DeleteCardUseCase {
         
         const deleteResult = await storage.deleteCard(cardId.getValue());
         if (!deleteResult.ok) {
+          // 如果卡片不存在，认为删除成功（幂等性）
+          const errorMsg = deleteResult.error?.message || String(deleteResult.error);
+          if (errorMsg.includes('not found') || errorMsg.includes('不存在')) {
+            console.warn(`[DeleteCardUseCase] Card already deleted: ${cardId.getValue()}`);
+            return ok(undefined);
+          }
           console.error(`[DeleteCardUseCase] Failed to delete card from storage:`, deleteResult.error);
           return deleteResult;
         }
@@ -222,16 +229,20 @@ export class DeleteCardUseCase {
   private async findXiuyuanAndCardId(cardId: CardId): Promise<Result<{xiuyuan: any, actualCardId: any}>> {
     console.log(`[DeleteCardUseCase] 🔍 查找卡片: ${cardId.getValue()}`);
     
-    // ✅ 优化：先从 storage 获取卡片的 xiuyuanID，直接定位到对应的 Xiuyuan
-    const storage = (this.xiuyuanRepo as any).storage;
-    if (storage) {
-      const fsrsCard = storage.getCard(cardId.getValue());
-      if (fsrsCard && fsrsCard.xiuyuanID) {
-        console.log(`[DeleteCardUseCase] 🔍 从 FSRSCard 获取 xiuyuanID: ${fsrsCard.xiuyuanID}`);
-        
-        // 直接通过 xiuyuanID 查找 Xiuyuan
-        const xiuyuanResult = await this.xiuyuanRepo.findById(fsrsCard.xiuyuanID);
-        if (xiuyuanResult.ok && xiuyuanResult.value) {
+    // 🚀 优化方案1：使用索引快速查找（O(1)时间复杂度）
+    const xiuyuanIdStr = this.xiuyuanRepo.getXiuyuanIdByCardId(cardId.getValue());
+    if (xiuyuanIdStr) {
+      console.log(`[DeleteCardUseCase] ✅ 从索引获取 xiuyuanID: ${xiuyuanIdStr}`);
+      const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
+      if (xiuyuanIdResult.ok) {
+        const xiuyuanResult = await this.xiuyuanRepo.findById(xiuyuanIdResult.value);
+        if (!xiuyuanResult.ok) {
+          console.warn(`[DeleteCardUseCase] ⚠️ findById 失败: ${xiuyuanIdStr}`);
+          // 继续尝试其他方案
+        } else if (!xiuyuanResult.value) {
+          console.warn(`[DeleteCardUseCase] ⚠️ 索引失效：Xiuyuan ${xiuyuanIdStr} 已被删除`);
+          // Xiuyuan已被删除，继续尝试其他方案
+        } else {
           const xiuyuan = xiuyuanResult.value;
           const cards = xiuyuan.getCards();
           console.log(`[DeleteCardUseCase] 🔍 Xiuyuan ${xiuyuan.getId().getValue()} 有 ${cards.length} 张卡片`);
@@ -244,42 +255,57 @@ export class DeleteCardUseCase {
             }
           }
           
-          console.warn(`[DeleteCardUseCase] ⚠️ Xiuyuan ${xiuyuan.getId().getValue()} 中没有找到卡片 ${cardId.getValue()}`);
+          // 🔧 索引失效：卡片已经不在Xiuyuan中了
+          console.warn(`[DeleteCardUseCase] ⚠️ 索引失效：Xiuyuan ${xiuyuan.getId().getValue()} 中没有找到卡片 ${cardId.getValue()}`);
         }
       }
     }
     
-    // 降级方案：遍历所有 Xiuyuan
-    console.log(`[DeleteCardUseCase] 🔍 降级方案：遍历所有 Xiuyuan`);
-    const allXiuyuansResult = await this.xiuyuanRepo.findAll();
-    if (!allXiuyuansResult.ok) {
-      return allXiuyuansResult as Result<{xiuyuan: any, actualCardId: any}>;
-    }
-
-    const allXiuyuans = allXiuyuansResult.value;
-    console.log(`[DeleteCardUseCase] 🔍 总共 ${allXiuyuans.length} 个 Xiuyuan`);
-
-    // 遍历所有 Xiuyuan，查找包含该卡片的 Xiuyuan
-    for (const xiuyuan of allXiuyuans) {
-      const cards = xiuyuan.getCards();
-      console.log(`[DeleteCardUseCase] 🔍 Xiuyuan ${xiuyuan.getId().getValue()} 有 ${cards.length} 张卡片`);
-      
-      for (const card of cards) {
-        const currentCardId = card.getId().getValue();
-        const targetCardId = cardId.getValue();
-        const isEqual = card.getId().equals(cardId);
+    // ✅ 优化方案2：先从 storage 获取卡片的 xiuyuanID，直接定位到对应的 Xiuyuan
+    const storage = (this.xiuyuanRepo as any).storage;
+    if (storage) {
+      const fsrsCard = storage.getCard(cardId.getValue());
+      if (fsrsCard && fsrsCard.xiuyuanID) {
+        console.log(`[DeleteCardUseCase] 🔍 从 FSRSCard 获取 xiuyuanID: ${fsrsCard.xiuyuanID}`);
         
-        console.log(`[DeleteCardUseCase] 🔍 比较卡片: ${currentCardId} === ${targetCardId} ? ${isEqual}`);
-        
-        if (isEqual) {
-          console.log(`[DeleteCardUseCase] ✅ 找到卡片: ${currentCardId} in Xiuyuan ${xiuyuan.getId().getValue()}`);
-          return ok({ xiuyuan, actualCardId: card.getId() });
+        // 直接通过 xiuyuanID 查找 Xiuyuan
+        const xiuyuanIdResult = XiuyuanId.create(fsrsCard.xiuyuanID);
+        if (xiuyuanIdResult.ok) {
+          const xiuyuanResult = await this.xiuyuanRepo.findById(xiuyuanIdResult.value);
+          console.log(`[DeleteCardUseCase] 🔍 findById 结果: ok=${xiuyuanResult.ok}, value=${xiuyuanResult.ok && xiuyuanResult.value ? 'exists' : 'null'}`);
+          
+          if (xiuyuanResult.ok && xiuyuanResult.value) {
+            const xiuyuan = xiuyuanResult.value;
+            const cards = xiuyuan.getCards();
+            console.log(`[DeleteCardUseCase] 🔍 Xiuyuan ${xiuyuan.getId().getValue()} 有 ${cards.length} 张卡片`);
+            
+            // 在该 Xiuyuan 中查找卡片
+            for (const card of cards) {
+              if (card.getId().equals(cardId)) {
+                console.log(`[DeleteCardUseCase] ✅ 找到卡片: ${card.getId().getValue()} in Xiuyuan ${xiuyuan.getId().getValue()}`);
+                return ok({ xiuyuan, actualCardId: card.getId() });
+              }
+            }
+            
+            console.warn(`[DeleteCardUseCase] ⚠️ Xiuyuan ${xiuyuan.getId().getValue()} 中没有找到卡片 ${cardId.getValue()}`);
+          } else {
+            console.warn(`[DeleteCardUseCase] ⚠️ findById 失败或返回 null，xiuyuanID: ${fsrsCard.xiuyuanID}`);
+          }
         }
+      } else if (fsrsCard) {
+        // 卡片存在但没有xiuyuanID，可能是历史遗留数据
+        console.warn(`[DeleteCardUseCase] ⚠️ FSRSCard 没有 xiuyuanID: ${cardId.getValue()}`);
+      } else {
+        // 卡片不存在于storage
+        console.warn(`[DeleteCardUseCase] ⚠️ FSRSCard 不存在: ${cardId.getValue()}`);
+        // 卡片已经被删除，直接返回成功
+        return ok({ xiuyuan: null, actualCardId: null });
       }
     }
-
-    // 未找到包含该卡片的 Xiuyuan
-    console.log(`[DeleteCardUseCase] ❌ 未找到卡片: ${cardId.getValue()}`);
+    
+    // 🚀 所有快速查找方案都失败，说明卡片可能已被删除或数据不一致
+    // 不要遍历所有Xiuyuan（太慢），直接使用fallback deletion
+    console.warn(`[DeleteCardUseCase] ⚠️ 索引和FSRSCard都失败，卡片可能已被删除或Xiuyuan已被删除`);
     return ok({ xiuyuan: null, actualCardId: null });
   }
 }

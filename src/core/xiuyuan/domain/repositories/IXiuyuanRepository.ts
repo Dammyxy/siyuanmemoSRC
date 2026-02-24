@@ -103,4 +103,15 @@ export interface IXiuyuanRepository {
    * @returns Result<void> - 成功返回 void，失败返回错误
    */
   deleteMany(xiuyuans: Xiuyuan[]): Promise<Result<void>>;
+
+  /**
+   * 🚀 性能优化：通过卡片ID快速查找XiuyuanID
+   * 
+   * @description
+   * 使用内存索引实现O(1)时间复杂度的查找，避免遍历所有Xiuyuan。
+   * 
+   * @param cardId - 卡片ID
+   * @returns XiuyuanID字符串，如果未找到则返回undefined
+   */
+  getXiuyuanIdByCardId(cardId: string): string | undefined;
 }

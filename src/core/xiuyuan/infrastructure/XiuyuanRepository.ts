@@ -51,12 +51,22 @@ import { TemplateRegistry } from '../templates/TemplateRegistry';
  */
 export class XiuyuanRepository implements IXiuyuanRepository {
   private templateRegistry: TemplateRegistry;
+  // 🚀 性能优化：卡片ID到XiuyuanID的索引映射
+  private cardToXiuyuanIndex: Map<string, string> = new Map();
 
   constructor(
     private readonly storage: UnifiedStorageManager,
     private readonly cardTypeDetectionService?: any  // 可选依赖，用于检测卡片类型
   ) {
     this.templateRegistry = new TemplateRegistry();
+  }
+
+  /**
+   * 🚀 快速查找：通过卡片ID获取XiuyuanID
+   * 时间复杂度：O(1)
+   */
+  getXiuyuanIdByCardId(cardId: string): string | undefined {
+    return this.cardToXiuyuanIndex.get(cardId);
   }
 
   /**
@@ -110,6 +120,23 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           // 创建新卡片
           await this.storage.createCard(persistenceModel, fsrsCard);
         }
+      }
+      
+      // 🚀 更新索引：重建该Xiuyuan的所有卡片索引
+      // 先清理该Xiuyuan的所有旧索引
+      for (const [cardId, indexedXiuyuanId] of this.cardToXiuyuanIndex.entries()) {
+        if (indexedXiuyuanId === xiuyuanId) {
+          this.cardToXiuyuanIndex.delete(cardId);
+        }
+      }
+      // 再添加当前的卡片索引
+      for (const card of cards) {
+        this.cardToXiuyuanIndex.set(card.getId().getValue(), xiuyuanId);
+      }
+      
+      // 🚀 清理索引：删除已移除卡片的索引（额外保险）
+      for (const cardToDelete of cardsToDelete) {
+        this.cardToXiuyuanIndex.delete(cardToDelete.id);
       }
 
       // 4. 🔧 立即保存（删除操作需要立即持久化，避免被后续操作覆盖）
@@ -296,6 +323,13 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         const result = this.toDomain(data);
         if (result.ok && result.value) {
           xiuyuans.push(result.value);
+          
+          // 🚀 初始化索引：构建卡片ID -> XiuyuanID映射
+          const xiuyuan = result.value;
+          const xiuyuanId = xiuyuan.getId().getValue();
+          for (const card of xiuyuan.getCards()) {
+            this.cardToXiuyuanIndex.set(card.getId().getValue(), xiuyuanId);
+          }
         }
       }
 
@@ -314,6 +348,12 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   async delete(xiuyuan: Xiuyuan): Promise<Result<void>> {
     try {
       const xiuyuanId = xiuyuan.getId().getValue();
+      
+      // 🚀 清理索引：删除所有关联卡片的索引
+      const cards = xiuyuan.getCards();
+      for (const card of cards) {
+        this.cardToXiuyuanIndex.delete(card.getId().getValue());
+      }
       
       // 1. 使用 UnifiedStorageManager 删除 XiuYuan（会级联删除所有关联卡片）
       const deleteResult = await this.storage.deleteXiuYuan(xiuyuanId);
@@ -336,7 +376,6 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       }
 
       // 3. 从 Riff 删除
-      const cards = xiuyuan.getCards();
       if (cards.length > 0) {
         try {
           // Note: 实际的 Riff 删除需要根据项目的 API 实现
