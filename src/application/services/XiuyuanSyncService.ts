@@ -1,4 +1,4 @@
-﻿﻿/**
+﻿﻿﻿﻿﻿﻿/**
  * XiuyuanSyncService - Xiuyuan 同步服务（优化版）
  * 
  * 管理 Riff 系统的 Xiuyuan 卡片同步：
@@ -40,6 +40,7 @@ import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { Priority } from '@/core/xiuyuan/domain/Priority';
 import { RiffBlacklistService } from './RiffBlacklistService';
 import { CardTypeDetectionService } from '@/core/xiuyuan/domain/services/CardTypeDetectionService';
+import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
 
 // ==================== Xiuyuan 同步服务 ====================
 
@@ -63,6 +64,7 @@ export class XiuyuanSyncService {
     private cardTypeDetectionService: CardTypeDetectionService;
     private eventBus: EventBus;
     private xiuyuanRepository: IXiuyuanRepository;
+    private deletionTracker: IDeletionTracker;
     private lastSyncTime: number = 0;
     private lastFullSyncTime: number = 0;
     
@@ -78,7 +80,8 @@ export class XiuyuanSyncService {
         eventBus: EventBus,
         xiuyuanRepository: IXiuyuanRepository,
         riffBlacklistService: RiffBlacklistService,
-        cardTypeDetectionService: CardTypeDetectionService
+        cardTypeDetectionService: CardTypeDetectionService,
+        deletionTracker: IDeletionTracker
     ) {
         this.config = {
             ...config,
@@ -88,6 +91,7 @@ export class XiuyuanSyncService {
         this.cardTypeDetectionService = cardTypeDetectionService;
         this.eventBus = eventBus;
         this.xiuyuanRepository = xiuyuanRepository;
+        this.deletionTracker = deletionTracker;
     }
     
     /**
@@ -258,6 +262,13 @@ export class XiuyuanSyncService {
                 const addedCards: RiffBlock[] = [];
                 
                 for (const riffCard of filtered) {
+                    // 🔧 防护 0：检查是否最近被删除（防止孤儿卡片）
+                    if (this.deletionTracker.isRecentlyDeleted(riffCard.id)) {
+                        console.log(`[HybridSync] Block ${riffCard.id} was recently deleted, skipping to prevent orphan cards`);
+                        skippedCount++;
+                        continue;
+                    }
+                    
                     // 🔧 防护 1：检查块属性，避免重复创建
                     const { getBlockAttrs } = await import('@/core/siyuan/api');
                     try {
@@ -348,7 +359,7 @@ export class XiuyuanSyncService {
                         
                         // 1.4 A-Factor（从卡片数据读取，不再从块属性读取）
                         // 🔧 修复：A-Factor 只存储在 FSRSCard.aFactor 中
-                        const existingCard = this.config.storage.getCard(riffCard.blockId);
+                        const existingCard = this.config.storage.getCard(riffCard.id);
                         const newAFactor = existingCard?.aFactor;
                         
                         // 2. 比较并更新
@@ -838,31 +849,101 @@ export class XiuyuanSyncService {
      * 尝试从 Riff 删除卡片，失败时加入黑名单
      * 支持自动重试机制
      */
-    async deleteSync(cardID: string): Promise<boolean> {
+    /**
+         * 删除同步（单个卡片）
+         * 
+         * 尝试从 Riff 删除卡片，失败时加入黑名单。
+         * 支持自动重试机制。
+         * 
+         * @deprecated 建议使用 deleteSyncBatch() 进行批量删除
+         */
+        async deleteSync(cardID: string): Promise<boolean> {
+            if (!this.config.deleteSync.enabled) {
+                console.log('[SiYuanMemo][HybridSync] Delete sync disabled');
+                return true;
+            }
+
+            console.log(`[SiYuanMemo][HybridSync] Syncing delete for card: ${cardID}`);
+
+            return this.deleteSyncSingle(cardID);
+        }
+
+    /**
+     * 批量删除同步
+     *
+     * 批量从 Riff 删除多张卡片，使用并发处理提升性能。
+     * 失败的卡片会加入黑名单（如果启用）。
+     *
+     * @param cardIDs - 卡片 ID 列表
+     * @returns 成功删除的数量
+     */
+    async deleteSyncBatch(cardIDs: string[]): Promise<number> {
         if (!this.config.deleteSync.enabled) {
             console.log('[SiYuanMemo][HybridSync] Delete sync disabled');
-            return true;
+            return 0;
         }
-        
-        console.log(`[SiYuanMemo][HybridSync] Syncing delete for card: ${cardID}`);
-        
+
+        if (cardIDs.length === 0) {
+            return 0;
+        }
+
+        console.log(`[SiYuanMemo][HybridSync] Batch syncing delete for ${cardIDs.length} cards`);
+
+        // 使用 Promise.allSettled 并发处理，避免单个失败影响整体
+        const results = await Promise.allSettled(
+            cardIDs.map(cardID => this.deleteSyncSingle(cardID))
+        );
+
+        // 统计结果
+        let successCount = 0;
+        let failedCount = 0;
+        const failedCardIds: string[] = [];
+
+        results.forEach((result, index) => {
+            if (result.status === 'fulfilled' && result.value) {
+                successCount++;
+            } else {
+                failedCount++;
+                failedCardIds.push(cardIDs[index]);
+            }
+        });
+
+        console.log(`[SiYuanMemo][HybridSync] Batch delete sync completed: ${successCount} success, ${failedCount} failed`);
+
+        if (failedCardIds.length > 0) {
+            console.warn(`[SiYuanMemo][HybridSync] Failed card IDs:`, failedCardIds);
+        }
+
+        return successCount;
+    }
+
+    /**
+     * 单个卡片删除同步（内部方法）
+     *
+     * 从 deleteSync 提取的核心逻辑，用于批量处理。
+     *
+     * @private
+     * @param cardID - 卡片 ID
+     * @returns 是否成功
+     */
+    private async deleteSyncSingle(cardID: string): Promise<boolean> {
         try {
             // 使用重试机制尝试从 Riff 删除
             await this.withRetry('delete', async () => {
                 await removeRiffCards(this.config.deckId, [cardID]);
             });
-            
+
             console.log(`[SiYuanMemo][HybridSync] Successfully removed card from Riff: ${cardID}`);
             return true;
         } catch (error) {
             console.error(`[SiYuanMemo][HybridSync] Failed to remove card from Riff after retries: ${cardID}`, error);
-            
+
             // 失败时加入黑名单（如果启用）
             if (this.config.deleteSync.useBlacklistFallback) {
                 await this.riffBlacklistService.addToBlacklist(cardID);
                 console.log(`[SiYuanMemo][HybridSync] Added card to blacklist as fallback: ${cardID}`);
             }
-            
+
             return false;
         }
     }

@@ -36,8 +36,10 @@ import { CardDeletionService } from '@/core/xiuyuan/domain/services/CardDeletion
 import { CardTypeDetectionService } from '@/core/xiuyuan/domain/services/CardTypeDetectionService';
 import { CreateCardUseCase } from '@/application/usecases/card/CreateCardUseCase';
 import { DeleteCardUseCase } from '@/application/usecases/card/DeleteCardUseCase';
+import { DeleteCardsUseCase } from '@/application/usecases/card/DeleteCardsUseCase';
 import { UpdateCardUseCase } from '@/application/usecases/card/UpdateCardUseCase';
 import { CardApplicationService } from '@/application/services/CardApplicationService';
+import { CardReadModel } from '@/infrastructure/queries/CardReadModel';
 import { CardCreationHelper } from '@/application/helpers/CardCreationHelper';
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
@@ -328,20 +330,31 @@ export class ApplicationContext {
       const cardCreationService = new CardCreationService();
       const cardDeletionService = new CardDeletionService();
 
+      // ✅ 获取 DeletionTracker（应该已经在 create() 中创建）
+      const deletionTracker = (context as any).deletionTracker;
+      if (!deletionTracker) {
+        throw new Error('[ApplicationContext] deletionTracker should have been created during initialization');
+      }
+
       // 创建用例
       const createCardUseCase = new CreateCardUseCase(xiuyuanRepo, cardCreationService, context.getEventBus());
       const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepo, cardDeletionService, context.getEventBus());
+      const deleteCardsUseCase = new DeleteCardsUseCase(xiuyuanRepo, cardDeletionService, context.getEventBus(), deletionTracker);
       const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepo);
 
+      // ✅ 创建 Read Model（基础设施层）
+      const unifiedStorage = context.getUnifiedStorage();
+      const cardReadModel = new CardReadModel(unifiedStorage);
+      
       // 创建应用服务
       const scheduleService = new CardScheduleService();
-      const unifiedStorage = context.getUnifiedStorage();
       
       return new CardApplicationService(
         createCardUseCase,
         deleteCardUseCase,
+        deleteCardsUseCase,
         updateCardUseCase,
-        unifiedStorage as any,  // ✅ 临时保留用于查询（StorageManager 接口）
+        cardReadModel,  // ✅ 传入 Read Model 接口
         scheduleService,
         unifiedStorage  // ✅ 传递 UnifiedStorageManager 用于 FSRS 卡片操作
       );
@@ -705,17 +718,27 @@ export class ApplicationContext {
     // 这个 EventBus 将被 DeleteCardUseCase 和 RiffSyncEventHandler 共享
     const sharedEventBus = new EventBus(false);
     
+    // ✅ 创建 InMemoryDeletionTracker（在创建用例之前）
+    const { InMemoryDeletionTracker } = await import('@/core/xiuyuan/infrastructure/InMemoryDeletionTracker');
+    const deletionTracker = new InMemoryDeletionTracker();
+    console.log('[ApplicationContext] Created InMemoryDeletionTracker for early initialization');
+    
     // 创建用例
     const createCardUseCase = new CreateCardUseCase(xiuyuanRepoTemp, cardCreationService, sharedEventBus);
     const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepoTemp, cardDeletionService, sharedEventBus);
+    const deleteCardsUseCase = new DeleteCardsUseCase(xiuyuanRepoTemp, cardDeletionService, sharedEventBus, deletionTracker);
     const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepoTemp);
+    
+    // ✅ 创建 Read Model（基础设施层）
+    const cardReadModel = new CardReadModel(unifiedStorageManager);
     
     // ✅ 创建 CardApplicationService（使用 UnifiedStorageManager）
     const cardApplicationService = new CardApplicationService(
       createCardUseCase,
       deleteCardUseCase,
+      deleteCardsUseCase,  // ✅ 添加批量删除用例
       updateCardUseCase,
-      unifiedStorageManager as any,  // 临时保留用于查询
+      cardReadModel,  // ✅ 传入 Read Model 接口
       cardScheduleService,
       unifiedStorageManager  // ✅ 传递 UnifiedStorageManager 用于 FSRS 卡片操作
     );
@@ -819,6 +842,10 @@ export class ApplicationContext {
     // 设置 context 引用（用于 blockMenuHandler 的闭包）
     contextRef = context;
     
+    // ✅ 存储 deletionTracker 到 context（供 cardService 工厂复用）
+    (context as any).deletionTracker = deletionTracker;
+    console.log('[ApplicationContext] Stored deletionTracker to context');
+    
     // 13. 设置 ApplicationContext 和 DialogManager 引用（解决循环依赖）
     blockMenuHandler.setApplicationContext(context);
     (blockMenuHandler.deps as any).dialogManager = context.getDialogManager();
@@ -877,8 +904,15 @@ export class ApplicationContext {
       );
       const cardTypeDetectionService = new CardTypeDetectionService();
       
+      // ✅ 复用已创建的 DeletionTracker
+      const deletionTracker = (context as any).deletionTracker;
+      if (!deletionTracker) {
+        throw new Error('[ApplicationContext] deletionTracker should have been created during initialization');
+      }
+      console.log('[ApplicationContext] Reusing existing InMemoryDeletionTracker in initializeRiffSync');
+      
       // 创建 HybridSyncService
-      // 构造函数签名：(config, eventBus, xiuyuanRepository, riffBlacklistService, cardTypeDetectionService)
+      // 构造函数签名：(config, eventBus, xiuyuanRepository, riffBlacklistService, cardTypeDetectionService, deletionTracker)
       hybridSyncService = new HybridSyncService(
         {
           deckId: riff.BUILTIN_DECK_ID,
@@ -894,7 +928,8 @@ export class ApplicationContext {
         eventBus,                              // ✅ 第2个参数：EventBus
         xiuyuanRepository,                     // ✅ 第3个参数：XiuyuanRepository
         context.getRiffBlacklistService(),     // ✅ 第4个参数：RiffBlacklistService
-        cardTypeDetectionService               // ✅ 第5个参数：CardTypeDetectionService
+        cardTypeDetectionService,              // ✅ 第5个参数：CardTypeDetectionService
+        deletionTracker                        // ✅ 第6个参数：IDeletionTracker
       );
       
       // 将 HybridSyncService 设置到 context（使用类型断言）

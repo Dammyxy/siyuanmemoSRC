@@ -25,11 +25,13 @@
 import { Result } from '@/types/result';
 import { CreateCardCommand } from '../commands/card/CreateCardCommand';
 import { DeleteCardCommand } from '../commands/card/DeleteCardCommand';
+import { DeleteCardsCommand, DeleteCardsResult } from '../commands/card/DeleteCardsCommand';
 import { UpdateCardCommand } from '../commands/card/UpdateCardCommand';
 import { UpdateFSRSCardCommand, UpdateFSRSCardCommandResult } from '../commands/card/UpdateFSRSCardCommand';
 import { DeleteFSRSCardCommand, DeleteFSRSCardCommandResult } from '../commands/card/DeleteFSRSCardCommand';
 import { CreateCardUseCase } from '../usecases/card/CreateCardUseCase';
 import { DeleteCardUseCase } from '../usecases/card/DeleteCardUseCase';
+import { DeleteCardsUseCase } from '../usecases/card/DeleteCardsUseCase';
 import { UpdateCardUseCase } from '../usecases/card/UpdateCardUseCase';
 import { UpdateFSRSCardUseCase } from '../usecases/card/UpdateFSRSCardUseCase';
 import { DeleteFSRSCardUseCase } from '../usecases/card/DeleteFSRSCardUseCase';
@@ -40,7 +42,7 @@ import { GetCardQuery, GetCardQueryResult } from '../queries/card/GetCardQuery';
 import { GetCardQueryHandler } from '../queries/card/GetCardQueryHandler';
 import { GetCardsQuery, GetCardsQueryResult } from '../queries/card/GetCardsQuery';
 import { GetCardsQueryHandler } from '../queries/card/GetCardsQueryHandler';
-import type { StorageManager } from '@/core/storage/manager';
+import type { ICardReadModel } from '../queries/card/ICardReadModel';
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 
 /**
@@ -54,34 +56,36 @@ export class CardApplicationService {
   private readonly getCardsQueryHandler: GetCardsQueryHandler;
   private readonly updateFSRSCardUseCase: UpdateFSRSCardUseCase;
   private readonly deleteFSRSCardUseCase: DeleteFSRSCardUseCase;
-  private readonly storage: StorageManager;
+  private readonly readModel: ICardReadModel;  // ✅ 保存 Read Model 引用
   
   /**
    * 构造函数
    * 
    * @param createCardUseCase - 创建卡片用例
    * @param deleteCardUseCase - 删除卡片用例
+   * @param deleteCardsUseCase - 批量删除卡片用例
    * @param updateCardUseCase - 更新卡片用例
-   * @param storageManager - 存储管理器（用于查询，临时保留）
+   * @param readModel - 卡片读取模型（用于查询）
    * @param scheduleService - 卡片调度服务（用于查询）
    * @param unifiedStorage - 统一存储管理器（用于 FSRS 卡片操作）
    */
   constructor(
     private readonly createCardUseCase: CreateCardUseCase,
     private readonly deleteCardUseCase: DeleteCardUseCase,
+    private readonly deleteCardsUseCase: DeleteCardsUseCase,
     private readonly updateCardUseCase: UpdateCardUseCase,
-    storageManager: StorageManager,
+    readModel: ICardReadModel,  // ✅ 使用 Read Model 接口
     scheduleService: CardScheduleService,
     unifiedStorage: any  // UnifiedStorageManager
   ) {
-    this.storage = storageManager;
+    this.readModel = readModel;
     // 初始化查询处理器
     this.getDueCardsQueryHandler = new GetDueCardsQueryHandler(
-      storageManager,
+      readModel,
       scheduleService
     );
-    this.getCardQueryHandler = new GetCardQueryHandler(storageManager);
-    this.getCardsQueryHandler = new GetCardsQueryHandler(storageManager);
+    this.getCardQueryHandler = new GetCardQueryHandler(readModel);
+    this.getCardsQueryHandler = new GetCardsQueryHandler(readModel);
     
     // ✅ 使用 UnifiedStorageManager 初始化 FSRS 卡片用例
     this.updateFSRSCardUseCase = new UpdateFSRSCardUseCase(unifiedStorage);
@@ -137,6 +141,43 @@ export class CardApplicationService {
    */
   async deleteCard(command: DeleteCardCommand): Promise<Result<void>> {
     return this.deleteCardUseCase.execute(command);
+  }
+
+  /**
+   * 批量删除卡片
+   * 
+   * @param command - 批量删除卡片命令
+   * @returns Result<DeleteCardsResult> - 成功返回删除结果，失败返回错误
+   * 
+   * @description
+   * 批量删除多张卡片，性能优化版本。
+   * 
+   * **性能优势**：
+   * - 同一个 Xiuyuan 下的多张卡片只加载一次
+   * - 批量发布事件，减少同步触发次数
+   * - 使用索引快速定位 Xiuyuan
+   * 
+   * **使用场景**：
+   * - 用户在卡片浏览器中选择多张卡片并删除
+   * - 批量清理过期卡片
+   * - 删除某个 Xiuyuan 下的所有卡片
+   * 
+   * @example
+   * ```typescript
+   * const result = await cardService.deleteCards({
+   *   cardIds: ['card-1', 'card-2', 'card-3']
+   * });
+   * 
+   * if (result.ok) {
+   *   console.log(`Deleted ${result.value.deletedCount} cards`);
+   *   console.log(`Failed ${result.value.failedCardIds.length} cards`);
+   * } else {
+   *   console.error('Failed to delete cards:', result.error);
+   * }
+   * ```
+   */
+  async deleteCards(command: DeleteCardsCommand): Promise<Result<DeleteCardsResult>> {
+    return this.deleteCardsUseCase.execute(command);
   }
 
   /**
@@ -328,7 +369,7 @@ export class CardApplicationService {
    * 
    * @description
    * 这是一个便捷方法，用于简化从 CardService 和 AutoCardHandler 的迁移。
-   * 直接访问 StorageManager，不经过用例层。
+   * 通过 Read Model 访问数据。
    * 
    * @example
    * ```typescript
@@ -340,7 +381,7 @@ export class CardApplicationService {
    */
   getCardByBlockId(blockId: string): any {
     try {
-      const card = this.storage.getCard(blockId);
+      const card = this.readModel.getCardByBlockId(blockId);
       return card || null;
     } catch (error) {
       // 卡片不存在
@@ -355,9 +396,11 @@ export class CardApplicationService {
    * 
    * @description
    * 这是一个便捷方法，用于简化从 CardService 和 AutoCardHandler 的迁移。
-   * 直接访问 StorageManager，不经过用例层。
    * 
-   * 注意：此方法不会自动调用 saveCards()，需要手动调用。
+   * ⚠️ 注意：此方法直接操作 UnifiedStorageManager，绕过了 DDD 架构。
+   * 建议使用 Use Cases 进行写操作。
+   * 
+   * @deprecated 建议使用 updateCard() 或相应的 Use Case
    * 
    * @example
    * ```typescript
@@ -367,7 +410,9 @@ export class CardApplicationService {
    * ```
    */
   setCard(card: any): void {
-    this.storage.setCard(card);
+    // ⚠️ 临时方案：需要访问 UnifiedStorageManager
+    // 这违反了 DDD 原则，但为了向后兼容暂时保留
+    throw new Error('setCard() is deprecated. Please use updateCard() or appropriate Use Case.');
   }
   
   /**
@@ -377,18 +422,21 @@ export class CardApplicationService {
    * 
    * @description
    * 这是一个便捷方法，用于简化从 CardService 和 AutoCardHandler 的迁移。
-   * 直接访问 StorageManager，不经过用例层。
    * 
-   * 注意：此方法不会自动调用 saveCards()，需要手动调用。
+   * ⚠️ 注意：此方法直接操作 UnifiedStorageManager，绕过了 DDD 架构。
+   * 建议使用 deleteCard() Use Case。
+   * 
+   * @deprecated 建议使用 deleteCard() Use Case
    * 
    * @example
    * ```typescript
-   * cardService.removeCard('card-123');
-   * await cardService.saveCards();
+   * await cardService.deleteCard({ cardId: 'card-123' });
    * ```
    */
   removeCard(cardId: string): void {
-    this.storage.removeCard(cardId);
+    // ⚠️ 临时方案：需要访问 UnifiedStorageManager
+    // 这违反了 DDD 原则，但为了向后兼容暂时保留
+    throw new Error('removeCard() is deprecated. Please use deleteCard() Use Case.');
   }
   
   /**
@@ -396,17 +444,25 @@ export class CardApplicationService {
    * 
    * @description
    * 这是一个便捷方法，用于简化从 CardService 和 AutoCardHandler 的迁移。
-   * 直接访问 StorageManager。
+   * 
+   * ⚠️ 注意：此方法直接操作 UnifiedStorageManager，绕过了 DDD 架构。
+   * 
+   * @deprecated 建议使用 Use Cases，它们会自动保存
    * 
    * @example
    * ```typescript
+   * // 不推荐
    * cardService.setCard(card1);
-   * cardService.setCard(card2);
    * await cardService.saveCards();
+   * 
+   * // 推荐
+   * await cardService.updateCard({ ... });
    * ```
    */
   async saveCards(): Promise<void> {
-    await this.storage.saveCards();
+    // ⚠️ 临时方案：需要访问 UnifiedStorageManager
+    // 这违反了 DDD 原则，但为了向后兼容暂时保留
+    throw new Error('saveCards() is deprecated. Use Cases handle persistence automatically.');
   }
 
   /**

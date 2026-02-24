@@ -4,10 +4,9 @@ import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
 import {
   buildQueueActions,
 } from './MenuActions';
-import type { UnifiedDataSourceManager } from '../../../managers/UnifiedDataSourceManager';
+import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import { QueueType } from '../../../types/unified-data-source';
 import type { FSRSCard } from '../../../types/card';
-import { DeleteCardCommand } from '@/application/commands/card/DeleteCardCommand';
 
 // ✅ 五重筛选：支持的筛选参数
 export type RetrievalDataSourceOptions = {
@@ -215,7 +214,7 @@ export class RetrievalDataSource implements ICardDataSource {
         return;
       }
 
-      // 删除卡片（使用 CardApplicationService）
+      // 删除卡片（使用 CardApplicationService 批量删除）
       if (actionId === 'delete-card') {
         if (!this.plugin) {
           console.error('[SiYuanMemo][RetrievalDataSource] Plugin not available!');
@@ -228,26 +227,28 @@ export class RetrievalDataSource implements ICardDataSource {
           return 0;
         }
         
-        let deletedCount = 0;
+        // 🚀 性能优化：使用批量删除 API
+        const cardIds = selectedRows.map(row => row.fsrsCardId || row.id);
         
-        for (const row of selectedRows) {
-          // ✅ 修复：直接使用 fsrsCardId（Xiuyuan 卡片的真实 cardId）
-          const cardId = row.fsrsCardId || row.id;
-          
-          console.log(`[SiYuanMemo][RetrievalDataSource] Deleting card: ${cardId} (blockId: ${row.blockId})`);
-          
-          const command: DeleteCardCommand = { cardId };
-          const result = await cardService.deleteCard(command);
-          
-          if (result.ok) {
-            deletedCount++;
-          } else {
-            console.error(`[SiYuanMemo][RetrievalDataSource] Failed to delete card ${cardId}:`, result.error);
+        console.log(`[SiYuanMemo][RetrievalDataSource] 批量删除 ${cardIds.length} 张卡片`);
+        
+        const result = await cardService.deleteCards({ cardIds });
+        
+        if (result.ok) {
+          console.log(`[SiYuanMemo][RetrievalDataSource] 批量删除成功: ${result.value.deletedCount}/${cardIds.length}`);
+          if (result.value.failedCardIds.length > 0) {
+            console.warn(`[SiYuanMemo][RetrievalDataSource] 部分卡片删除失败:`, result.value.failedCardIds);
           }
+          
+          // ✅ 返回标准格式，触发浏览器刷新
+          return {
+            updated: result.value.deletedCardIds.map(id => ({ id })),
+            skipped: result.value.failedCardIds.map(id => ({ id }))
+          };
+        } else {
+          console.error(`[SiYuanMemo][RetrievalDataSource] 批量删除失败:`, result.error);
+          return { updated: [], skipped: selectedRows };
         }
-        
-        console.log(`[SiYuanMemo][RetrievalDataSource] Deleted ${deletedCount}/${selectedRows.length} cards`);
-        return deletedCount;
       }
 
       // 设置优先级

@@ -2,10 +2,11 @@
  * GetCardsQueryHandler - 获取卡片列表查询处理器
  * 
  * @description
- * 处理获取卡片列表的查询请求，支持过滤
+ * 处理获取卡片列表的查询请求，支持过滤。
+ * 使用 ICardReadModel 接口访问数据，符合 DDD 架构。
  */
 
-import type { StorageManager } from '@/core/storage/manager';
+import type { ICardReadModel } from './ICardReadModel';
 import { GetCardsQuery, GetCardsQueryResult } from './GetCardsQuery';
 
 /**
@@ -13,7 +14,7 @@ import { GetCardsQuery, GetCardsQueryResult } from './GetCardsQuery';
  */
 export class GetCardsQueryHandler {
   constructor(
-    private readonly storageManager: StorageManager
+    private readonly readModel: ICardReadModel
   ) {}
 
   /**
@@ -24,7 +25,7 @@ export class GetCardsQueryHandler {
    */
   async execute(query: GetCardsQuery): Promise<GetCardsQueryResult> {
     // 获取所有卡片
-    let cards = this.storageManager.getAllCards();
+    let cards = this.readModel.getAllCards();
     
     // 应用过滤器
     if (query.filter) {
