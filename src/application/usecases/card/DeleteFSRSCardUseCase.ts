@@ -39,9 +39,10 @@
 
 import type { DeleteFSRSCardStoragePort } from '@/core/storage/ports';
 import { ok, err, type Result } from '@/types/result';
-import { removeRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
-import { getBlockAttrs, setBlockAttrs } from '@/core/siyuan/api';
 import type { DeleteFSRSCardCommand, DeleteFSRSCardCommandResult } from '@/application/commands/card/DeleteFSRSCardCommand';
+import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
+import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
+import { buildClearedBlockAttrs } from './shared/CardBlockAttrCleaner';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DeleteFSRSCardUseCase');
@@ -50,9 +51,14 @@ const logger = createLogger('DeleteFSRSCardUseCase');
  * 删除 FSRS 卡片用例
  */
 export class DeleteFSRSCardUseCase {
+  private readonly siyuanApi: CardDeletionSiyuanPort;
+
   constructor(
-    private readonly storage: DeleteFSRSCardStoragePort
-  ) {}
+    private readonly storage: DeleteFSRSCardStoragePort,
+    ports?: { siyuanApi?: CardDeletionSiyuanPort }
+  ) {
+    this.siyuanApi = ports?.siyuanApi ?? new CardDeletionSiyuanAdapter();
+  }
   
   /**
    * 执行删除操作
@@ -86,7 +92,7 @@ export class DeleteFSRSCardUseCase {
       let deletedFromRiff: boolean | undefined;
       if (command.deleteFromRiff && card.blockId) {
         try {
-          await removeRiffCards(BUILTIN_DECK_ID, [card.blockId]);
+          await this.siyuanApi.removeRiffCards(this.siyuanApi.BUILTIN_DECK_ID, [card.blockId]);
           deletedFromRiff = true;
           logger.info('Card deleted from Riff:', card.blockId);
         } catch (error) {
@@ -136,30 +142,12 @@ export class DeleteFSRSCardUseCase {
   private async removeCardBlockAttrs(blockId: string): Promise<void> {
     try {
       // 获取当前块属性
-      const attrs = await getBlockAttrs(blockId);
-      
-      // 需要删除的插件自定义属性列表
-      const attrsToRemove = [
-        'custom-card-type',           // 卡片类型
-        'custom-fsrs-card-type',      // 卡片类型标记（concept/descriptor）
-        'custom-xiuyuan-id',          // Xiuyuan ID
-        'custom-template-id',         // 模板 ID
-        'custom-list-template',       // 列表模板标记
-        'custom-priority',            // 优先级
-        'custom-fsrs-a-factor',       // A-Factor（旧属性，兼容清理）
-      ];
-      
-      // 构建新的属性对象（将要删除的属性设为空字符串）
-      const newAttrs: Record<string, string> = {};
-      for (const key of attrsToRemove) {
-        if (key in attrs) {
-          newAttrs[key] = '';  // 思源 API：空字符串表示删除属性
-        }
-      }
+      const attrs = await this.siyuanApi.getBlockAttrs(blockId);
+      const newAttrs = buildClearedBlockAttrs(attrs);
       
       // 如果有属性需要删除，调用 API
       if (Object.keys(newAttrs).length > 0) {
-        await setBlockAttrs(blockId, newAttrs);
+        await this.siyuanApi.setBlockAttrs(blockId, newAttrs);
         logger.info('Removed block attrs:', Object.keys(newAttrs));
       }
     } catch (error) {

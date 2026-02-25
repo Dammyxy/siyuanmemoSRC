@@ -7,11 +7,9 @@
 
 import type { CardBrowserAction } from './types';
 import type { BrowserCard } from '../../browser/types';
-import { batchSetPriority } from '../../browser/browserService';
 import type { RescheduleService } from '@/core/scheduler/rescheduleService';
 import { ConfigManager } from '@/core/scheduler/ConfigManager';
 import type { CardReadPort } from '@/core/storage/ports';
-import { InsertAtCommand, RemoveCommand, SetPriorityCommand, AutoSortCommand } from '@/core/queue/commands';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('MenuActions');
@@ -186,31 +184,14 @@ export function buildQueueActions(
 type QueueActionType = 'retrieval' | 'incremental' | 'final-drill' | 'filter-group' | 'neural-roam';
 type RescheduleAction = 'postpone' | 'advance' | 'spread';
 
-type BrowserCardExtraFields = BrowserCard & {
-  nextDues?: unknown;
-  question?: string;
-  answer?: string;
-};
-
-type QueueItemPayload = {
-  cardID: string;
-  blockID: string;
-  deckID: string;
-  priority: number;
-  nextDues?: unknown;
-  state?: BrowserCard['state'];
-  lapses?: number;
-  reps?: number;
-  lastReview?: BrowserCard['lastReview'];
-  meta?: BrowserCard['meta'];
+type QueueCandidate = {
+  cardId: string;
+  blockId: string;
   cardType?: BrowserCard['cardType'];
-  manuallyAdded?: boolean;
 };
 
 type QueueAddLike = {
   addCard?: (cardIdOrBlockId: string, source?: 'manual' | 'auto-failed') => Promise<void> | void;
-  addItems?: (items: QueueItemPayload[]) => Promise<number> | number;
-  removeCard?: (cardIdOrBlockId: string) => Promise<void> | void;
 };
 
 type UnifiedStorageLike = CardReadPort & {
@@ -232,20 +213,6 @@ type RescheduleServiceLike = Pick<
 type PluginContextLike = {
   getRescheduleService?: () => RescheduleServiceLike | undefined;
   getUnifiedStorage?: () => UnifiedStorageLike | undefined;
-};
-
-/**
- * Queue Trait 访问接口
- */
-export type QueueTraitLike = QueueAddLike & {
-  getMutableTrait?: () => unknown;
-  getRemovableTrait?: () => unknown;
-  getPrioritizableTrait?: () => unknown;
-  getAutoSortableTrait?: () => unknown;
-  remove?: (items: QueueItemPayload[]) => Promise<number> | number;
-  insertAt?: (items: QueueItemPayload[], index: number) => Promise<void> | void;
-  setPriority?: (cardID: string, priority: number) => Promise<boolean> | boolean;
-  sort?: () => Promise<void> | void;
 };
 
 /**
@@ -339,228 +306,6 @@ function resolveRescheduleService(plugin: PluginLike | undefined): RescheduleSer
 function resolveUnifiedStorage(plugin: PluginLike | undefined): UnifiedStorageLike | undefined {
   const context = resolvePluginContext(plugin);
   return context?.getUnifiedStorage?.();
-}
-
-/**
- * 将 BrowserCard 转换为队列项
- */
-export function cardsToQueueItems(cards: BrowserCard[]): QueueItemPayload[] {
-  logger.debug('[MenuActions] ========== cardsToQueueItems 转换开始 ==========');
-  logger.debug('[MenuActions] 输入 BrowserCard 数量:', cards.length);
-  
-  const result = cards.map((rawCard, index) => {
-    const card = rawCard as BrowserCardExtraFields;
-    const cardID = resolveCardId(card);
-    const item = {
-      cardID,
-      blockID: card.blockId,
-      deckID: card.deckId,
-      priority: typeof card.priority === 'number' ? card.priority : 50,
-      nextDues: card.nextDues,
-      state: card.state,
-      lapses: card.lapses,
-      reps: card.reps,
-      lastReview: card.lastReview,
-      meta: card.meta,
-    };
-    
-    logger.debug(`[MenuActions] 转换卡片 ${index + 1}/${cards.length}:`, {
-      input: {
-        id: card.id,
-        fsrsCardId: card.fsrsCardId,
-        blockId: card.blockId,
-        deckId: card.deckId,
-        nextDues: card.nextDues,
-        priority: card.priority,
-      },
-      output: {
-        cardID: item.cardID,
-        blockID: item.blockID,
-        deckID: item.deckID,
-        nextDues: item.nextDues,
-        priority: item.priority,
-      },
-      match: cardID === resolveCardId(card),
-    });
-    
-    // 验证转换结果
-    if (!item.cardID) {
-      logger.error(`[MenuActions] ❌ 转换错误：cardID 为空`, { input: card, output: item });
-    }
-    if (!item.blockID) {
-      logger.error(`[MenuActions] ❌ 转换错误：blockID 为空`, { input: card, output: item });
-    }
-    if (item.cardID !== cardID) {
-      logger.error(`[MenuActions] ❌ 转换错误：cardID 不匹配`, {
-        expected: cardID,
-        actual: item.cardID,
-      });
-    }
-    
-    return item;
-  });
-  
-  logger.debug('[MenuActions] ========== cardsToQueueItems 转换完成 ==========');
-  logger.debug('[MenuActions] 输出队列项数量:', result.length);
-  
-  return result;
-}
-
-/**
- * 从队列移除卡片
- */
-export async function removeFromQueue(
-  queue: QueueTraitLike | undefined,
-  selectedRows: BrowserCard[]
-): Promise<number> {
-  if (!queue) return 0;
-
-  const items = cardsToQueueItems(selectedRows);
-
-  // 优先使用 Trait 模式
-  const trait = queue.getRemovableTrait?.();
-  if (trait) {
-    const cmd = new RemoveCommand<any>();
-    const result = await cmd.execute({ trait, items });
-    return result?.removedCount ?? 0;
-  }
-
-  // 降级到直接调用 remove()
-  if (queue.remove) {
-    return await Promise.resolve(queue.remove(items));
-  }
-
-  // 🆕 降级到逐个调用 removeCard()（用于神经漫游等队列）
-  if (queue.removeCard) {
-    let removedCount = 0;
-    for (const row of selectedRows) {
-      try {
-        // 优先使用 blockId，因为神经漫游队列使用 blockId 作为种子
-        const id = row.blockId || row.fsrsCardId || row.id;
-        await queue.removeCard(id);
-        removedCount++;
-        logger.debug(`[MenuActions] Removed card ${id} from queue`);
-      } catch (error) {
-        logger.error('[MenuActions] Failed to remove card:', error);
-      }
-    }
-    return removedCount;
-  }
-
-  logger.warn('[MenuActions] No remove method found on queue');
-  return 0;
-}
-
-/**
- * 插入卡片到指定位置
- */
-export async function insertAt(
-  queue: QueueTraitLike | undefined,
-  selectedRows: BrowserCard[],
-  index: number
-): Promise<void> {
-  if (!queue) return;
-
-  const items = cardsToQueueItems(selectedRows);
-  const idx = Math.max(0, Math.floor(index));
-
-  // 优先使用 Trait 模式
-  const trait = queue.getMutableTrait?.();
-  if (trait) {
-    const cmd = new InsertAtCommand<any>();
-    await cmd.execute({ trait, items, index: idx });
-    return;
-  }
-
-  // 降级到直接调用
-  if (queue.insertAt) {
-    await Promise.resolve(queue.insertAt(items, idx));
-  }
-}
-
-/**
- * 设置优先级
- */
-export async function setPriority(
-  queue: QueueTraitLike | undefined,
-  selectedRows: BrowserCard[],
-  priority: number
-): Promise<void> {
-  const p = Math.max(0, Math.min(100, Math.floor(priority)));
-  const items = cardsToQueueItems(selectedRows);
-
-  // 更新 BrowserCard 中的 priority（用于 UI 刷新）
-  for (const r of selectedRows) {
-    r.priority = p;
-  }
-
-  if (!queue) return;
-
-  // 优先使用 Trait 模式
-  const trait = queue.getPrioritizableTrait?.();
-  if (trait) {
-    const cmd = new SetPriorityCommand<any>();
-    await cmd.execute({ trait, items, priority: p });
-    return;
-  }
-
-  // 降级到直接调用
-  if (queue.setPriority) {
-    for (const it of items) {
-      const id = String(it?.cardID || '');
-      if (!id) continue;
-      await Promise.resolve(queue.setPriority(id, p));
-    }
-  }
-}
-
-/**
- * 自动排序
- */
-export async function autoSort(queue: QueueTraitLike | undefined): Promise<void> {
-  if (!queue) return;
-
-  // 优先使用 Trait 模式
-  const trait = queue.getAutoSortableTrait?.();
-  if (trait) {
-    const cmd = new AutoSortCommand();
-    await cmd.execute({ trait });
-    return;
-  }
-
-  // 降级到直接调用
-  if (queue.sort) {
-    await Promise.resolve(queue.sort());
-  }
-}
-
-/**
- * 批量设置优先级（用于 DeckDataSource，直接设置块属性）
- * 支持普通卡片（块属性）和修缘卡片（FSRSCard.meta）
- * 
- * @deprecated 此函数依赖有问题的 batchSetPriority，应该直接使用 UnifiedDataSourceManager
- * @see DeckDataSource.executeAction 中的 set-priority 实现（正确的模式）
- */
-export async function batchSetBlockPriority(
-  selectedRows: BrowserCard[],
-  priority: number
-): Promise<void> {
-  const p = Math.max(0, Math.min(100, Math.floor(priority)));
-  const blockIds = (selectedRows || []).map((r) => r.blockId).filter(Boolean);
-
-  if (blockIds.length === 0) return;
-
-  // 设置块属性（普通卡片）
-  await batchSetPriority(blockIds, p);
-
-  // TODO: 对于修缘卡片，需要更新 FSRSCard.meta.priority
-  // 这需要访问 StorageManager，当前函数没有这个依赖
-  // 建议在调用方（DeckDataSource）中处理修缘卡片的优先级更新
-
-  // 更新 BrowserCard 中的 priority
-  for (const r of selectedRows || []) {
-    r.priority = p;
-  }
 }
 
 /**
@@ -749,99 +494,56 @@ export async function adjustTime(
 /**
  * 加入队列（用于 DeckDataSource）
  */
-async function addItemsWithFallback(
+async function addCardsDeterministically(
   queue: QueueAddLike | undefined,
-  items: QueueItemPayload[],
-  getAddTargetId: (item: QueueItemPayload) => string
-): Promise<{ added: number; failed: number; unavailable: boolean; firstError?: string }> {
-  if (!queue) {
-    return { added: 0, failed: items.length, unavailable: true };
+  items: QueueCandidate[],
+  getAddTargetId: (item: QueueCandidate) => string
+) : Promise<{ added: number; failed: number; firstError?: string }> {
+  if (!queue || typeof queue.addCard !== 'function') {
+    throw new Error('Queue unavailable');
   }
 
-  if (typeof queue.addCard === 'function') {
-    let added = 0;
-    let failed = 0;
-    let firstError: string | undefined;
+  let added = 0;
+  let failed = 0;
+  let firstError: string | undefined;
 
-    for (const item of items) {
-      const targetId = getAddTargetId(item);
-      try {
-        await Promise.resolve(queue.addCard(targetId, 'manual'));
-        added++;
-      } catch (error) {
-        failed++;
-        const message = error instanceof Error ? error.message : String(error);
-        firstError = firstError ?? message;
-        logger.error(`[MenuActions] Failed to add card ${targetId}`, error);
-      }
+  for (const item of items) {
+    const targetId = getAddTargetId(item);
+    if (!targetId) {
+      failed++;
+      continue;
     }
-
-    return { added, failed, unavailable: false, firstError };
+    try {
+      await Promise.resolve(queue.addCard(targetId, 'manual'));
+      added++;
+    } catch (error) {
+      failed++;
+      const message = error instanceof Error ? error.message : String(error);
+      firstError = firstError ?? message;
+      logger.error(`[MenuActions] Failed to add card ${targetId}`, error);
+    }
   }
 
-  if (typeof queue.addItems === 'function') {
-    const rawAdded = await Promise.resolve(queue.addItems(items));
-    const added = normalizeCount(rawAdded, items.length);
-    const failed = Math.max(0, items.length - added);
-    return { added, failed, unavailable: false };
-  }
-
-  return { added: 0, failed: items.length, unavailable: true };
+  return { added, failed, firstError };
 }
 
-function prepareQueueItems(
-  selectedRows: BrowserCard[],
-  queueType: QueueActionType
-): QueueItemPayload[] {
-  return selectedRows.map((rawCard) => {
-    const card = rawCard as BrowserCardExtraFields;
-    const item: QueueItemPayload = {
-      cardID: resolveCardId(card),
-      blockID: card.blockId,
-      deckID: card.deckId,
-      priority: typeof card.priority === 'number' ? card.priority : 50,
-      nextDues: card.nextDues,
-      state: card.state,
-      lapses: card.lapses,
-      reps: card.reps,
-      lastReview: card.lastReview,
-      meta: card.meta,
-    };
-
-    if (queueType === 'incremental') {
-      item.cardType = card.cardType;
-      item.meta = {
-        ...(card.meta as Record<string, unknown> | undefined),
-        'custom-fsrs-type': card.cardType,
-        rootId: card.rootId,
-        question: card.question,
-        answer: card.answer,
-      };
-    }
-
-    return item;
-  });
+function prepareQueueItems(selectedRows: BrowserCard[]): QueueCandidate[] {
+  return selectedRows.map((row) => ({
+    cardId: resolveCardId(row),
+    blockId: row.blockId,
+    cardType: row.cardType,
+  }));
 }
 
 function filterQueueItems(
   queueType: QueueActionType,
-  items: QueueItemPayload[],
-  selectedRows: BrowserCard[]
-): { items: QueueItemPayload[]; skippedConceptCount: number } {
-  const cardTypeByCardId = new Map<string, BrowserCard['cardType']>();
-  for (const row of selectedRows) {
-    cardTypeByCardId.set(resolveCardId(row), row.cardType);
-  }
-
+  items: QueueCandidate[]
+): { items: QueueCandidate[]; skippedConceptCount: number } {
   let filteredItems = items;
   if (queueType === 'neural-roam') {
-    filteredItems = items.filter((item) => cardTypeByCardId.get(item.cardID) === 'concept');
+    filteredItems = items.filter((item) => item.cardType === 'concept');
   } else if (queueType === 'retrieval' || queueType === 'final-drill') {
-    filteredItems = items.filter((item) => cardTypeByCardId.get(item.cardID) !== 'concept');
-  }
-
-  if (queueType === 'retrieval') {
-    filteredItems = filteredItems.map((item) => ({ ...item, manuallyAdded: true }));
+    filteredItems = items.filter((item) => item.cardType !== 'concept');
   }
 
   return {
@@ -860,8 +562,8 @@ export async function addToQueue(
     selectedCount: selectedRows?.length ?? 0,
   });
 
-  const items = prepareQueueItems(selectedRows, queueType);
-  const filtered = filterQueueItems(queueType, items, selectedRows);
+  const items = prepareQueueItems(selectedRows);
+  const filtered = filterQueueItems(queueType, items);
 
   if (filtered.items.length === 0) {
     if (queueType === 'retrieval' || queueType === 'final-drill' || queueType === 'neural-roam') {
@@ -870,13 +572,14 @@ export async function addToQueue(
     return { added: 0, message: '没有有效的卡片可添加' };
   }
 
-  const addResult = await addItemsWithFallback(
-    queue,
-    filtered.items,
-    queueType === 'neural-roam' ? (item) => item.blockID : (item) => item.cardID
-  );
-
-  if (addResult.unavailable) {
+  let addResult: { added: number; failed: number; firstError?: string };
+  try {
+    addResult = await addCardsDeterministically(
+      queue,
+      filtered.items,
+      queueType === 'neural-roam' ? (item) => item.blockId : (item) => item.cardId
+    );
+  } catch (error) {
     logger.warn(`[MenuActions] queue unavailable for ${queueType}`);
     return { added: 0, message: queueUnavailableMessage[queueType] };
   }

@@ -1,6 +1,6 @@
 ﻿import type { AdapterContext, IAdapter, ReviewUIState } from '../types';
 import type { QueueItem, QueueStats, QueueUIConfig } from '../../../../core/queue/types.ts';
-import { getBlockBreadcrumb, getIconByType } from '../../../../core/siyuan/api.ts';
+import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SubsetPracticeAdapter');
@@ -11,11 +11,20 @@ function t(i18n: Record<string, string> | undefined, key: string, fallback: stri
 
 export class SubsetPracticeAdapter implements IAdapter<QueueItem> {
   private readonly i18n?: Record<string, string>;
+  private readonly siyuanApi?: Pick<ReviewSiyuanPort, 'getBlockBreadcrumb' | 'getIconByType'>;
   private label: string;
   private queueName: string;
 
-  constructor(options?: { i18n?: Record<string, string>; label?: string; queueName?: string }) {
+  constructor(options?: {
+    i18n?: Record<string, string>;
+    label?: string;
+    queueName?: string;
+    plugin?: any;
+    siyuanApi?: Pick<ReviewSiyuanPort, 'getBlockBreadcrumb' | 'getIconByType'>;
+  }) {
     this.i18n = options?.i18n;
+    const pluginSiyuanApi = options?.plugin?.getContext?.()?.getReviewService?.()?.getSiyuanApi?.();
+    this.siyuanApi = options?.siyuanApi || pluginSiyuanApi;
     this.label = String(options?.label || t(this.i18n, 'reviewSubsetTitle', '子集复习'));
     this.queueName = String(options?.queueName || 'subset-practice');
   }
@@ -146,12 +155,15 @@ export class SubsetPracticeAdapter implements IAdapter<QueueItem> {
   }
 
   async fetchAuxiliaryData(item: QueueItem | null): Promise<Partial<ReviewUIState>> {
+    if (!this.siyuanApi) {
+      throw new Error('SubsetPracticeAdapter requires review siyuan api');
+    }
     const blockID = String((item as any)?.blockID || '');
     if (!blockID) return {};
-    const bc = await getBlockBreadcrumb(blockID);
+    const bc = await this.siyuanApi.getBlockBreadcrumb(blockID);
     const breadcrumbs = Array.isArray(bc)
       ? bc.map((b: any) => {
-          const icon = getIconByType(b?.type, b?.subType);
+          const icon = this.siyuanApi.getIconByType(b?.type, b?.subType);
           return {
             icon: `#${icon}`,
             text: String(b?.name || b?.title || b?.content || b?.hPath || ''),
@@ -162,3 +174,4 @@ export class SubsetPracticeAdapter implements IAdapter<QueueItem> {
     return { header: { breadcrumbs } as any };
   }
 }
+

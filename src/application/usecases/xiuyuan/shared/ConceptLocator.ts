@@ -1,7 +1,9 @@
-import { getBlockKramdown, sql } from '@/core/siyuan/api';
+import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
+import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('XiuyuanConceptLocator');
+const defaultSiyuanApi = new XiuyuanSiyuanAdapter();
 
 export type LocatedConceptType = 'block-ref' | 'heading' | 'document';
 
@@ -10,45 +12,45 @@ export interface LocatedConcept {
   conceptType: LocatedConceptType;
 }
 
-async function getParentId(blockId: string): Promise<string | null> {
+async function getParentId(blockId: string, siyuanApi: XiuyuanSiyuanPort): Promise<string | null> {
   const query = `
     SELECT parent_id
     FROM blocks
     WHERE id = '${blockId}'
     LIMIT 1
   `;
-  const result = await sql(query);
+  const result = await siyuanApi.sql(query);
   if (!result || result.length === 0 || !result[0]?.parent_id) {
     return null;
   }
   return result[0].parent_id;
 }
 
-async function getBlockType(blockId: string): Promise<string | null> {
+async function getBlockType(blockId: string, siyuanApi: XiuyuanSiyuanPort): Promise<string | null> {
   const query = `
     SELECT type
     FROM blocks
     WHERE id = '${blockId}'
     LIMIT 1
   `;
-  const result = await sql(query);
+  const result = await siyuanApi.sql(query);
   if (!result || result.length === 0) {
     return null;
   }
   return result[0].type ?? null;
 }
 
-async function hasListItemParent(blockId: string): Promise<boolean> {
+async function hasListItemParent(blockId: string, siyuanApi: XiuyuanSiyuanPort): Promise<boolean> {
   let currentId = blockId;
   const maxDepth = 10;
 
   for (let depth = 0; depth < maxDepth; depth++) {
-    const parentId = await getParentId(currentId);
+    const parentId = await getParentId(currentId, siyuanApi);
     if (!parentId) {
       break;
     }
 
-    const parentType = await getBlockType(parentId);
+    const parentType = await getBlockType(parentId, siyuanApi);
     if (parentType === 'i') {
       logger.debug(`Found list item parent at depth ${depth}:`, parentId);
       return true;
@@ -65,19 +67,22 @@ async function hasListItemParent(blockId: string): Promise<boolean> {
   return false;
 }
 
-async function findConceptInListParent(blockId: string): Promise<LocatedConcept | null> {
+async function findConceptInListParent(
+  blockId: string,
+  siyuanApi: XiuyuanSiyuanPort
+): Promise<LocatedConcept | null> {
   let currentId = blockId;
   const maxDepth = 4;
 
   for (let depth = 0; depth < maxDepth; depth++) {
-    const parentId = await getParentId(currentId);
+    const parentId = await getParentId(currentId, siyuanApi);
     if (!parentId) {
       break;
     }
 
     logger.debug(`Checking parent at depth ${depth}:`, parentId);
 
-    const { kramdown: parentContent } = await getBlockKramdown(parentId);
+    const { kramdown: parentContent } = await siyuanApi.getBlockKramdown(parentId);
     if (parentContent) {
       const refPattern = /\(\((\d{14}-[a-z0-9]{7})/g;
       const matches = [...parentContent.matchAll(refPattern)];
@@ -85,7 +90,7 @@ async function findConceptInListParent(blockId: string): Promise<LocatedConcept 
 
       for (const match of matches) {
         const refId = match[1];
-        const refType = await getBlockType(refId);
+        const refType = await getBlockType(refId, siyuanApi);
 
         if (!refType) {
           logger.debug(`Block reference target not found: ${refId}`);
@@ -108,14 +113,17 @@ async function findConceptInListParent(blockId: string): Promise<LocatedConcept 
   return null;
 }
 
-async function findConceptWithoutListParent(blockId: string): Promise<LocatedConcept | null> {
+async function findConceptWithoutListParent(
+  blockId: string,
+  siyuanApi: XiuyuanSiyuanPort
+): Promise<LocatedConcept | null> {
   let currentId = blockId;
   let firstHeadingId: string | null = null;
   let documentId: string | null = null;
   const maxDepth = 20;
 
   for (let depth = 0; depth < maxDepth; depth++) {
-    const parentId = await getParentId(currentId);
+    const parentId = await getParentId(currentId, siyuanApi);
     if (!parentId) {
       break;
     }
@@ -126,7 +134,7 @@ async function findConceptWithoutListParent(blockId: string): Promise<LocatedCon
       WHERE id = '${parentId}'
       LIMIT 1
     `;
-    const parentResult = await sql(parentQuery);
+    const parentResult = await siyuanApi.sql(parentQuery);
 
     if (parentResult && parentResult.length > 0) {
       const parentType = parentResult[0].type;
@@ -160,19 +168,22 @@ async function findConceptWithoutListParent(blockId: string): Promise<LocatedCon
   return null;
 }
 
-export async function findConceptByUpwardSearch(blockId: string): Promise<LocatedConcept | null> {
-  const listParent = await hasListItemParent(blockId);
+export async function findConceptByUpwardSearch(
+  blockId: string,
+  siyuanApi: XiuyuanSiyuanPort = defaultSiyuanApi
+): Promise<LocatedConcept | null> {
+  const listParent = await hasListItemParent(blockId, siyuanApi);
   logger.debug('Has list item parent:', listParent);
 
   if (listParent) {
-    const conceptFromRef = await findConceptInListParent(blockId);
+    const conceptFromRef = await findConceptInListParent(blockId, siyuanApi);
     if (conceptFromRef) {
       return conceptFromRef;
     }
     logger.debug('No block reference found, fallback to heading/document');
   }
 
-  const concept = await findConceptWithoutListParent(blockId);
+  const concept = await findConceptWithoutListParent(blockId, siyuanApi);
   if (concept) {
     return concept;
   }

@@ -1,5 +1,4 @@
-import { sql, getBlockAttrs } from '@/core/siyuan/api';
-import { BUILTIN_DECK_ID } from '@/core/siyuan/riff';
+import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import { createLogger } from '@/utils/logger';
@@ -14,6 +13,7 @@ interface ConceptCardResolverDeps {
 interface ResolveConceptCardParams extends ConceptCardResolverDeps {
   conceptId: string;
   deckId?: string;
+  siyuanApi: XiuyuanSiyuanPort;
 }
 
 export interface ResolvedConceptCard {
@@ -23,9 +23,9 @@ export interface ResolvedConceptCard {
 }
 
 export async function resolveConceptCard(params: ResolveConceptCardParams): Promise<ResolvedConceptCard> {
-  const { conceptId, deckId, xiuyuanRepository, templateRegistry } = params;
+  const { conceptId, deckId, xiuyuanRepository, templateRegistry, siyuanApi } = params;
 
-  const conceptQuery = await sql(`
+  const conceptQuery = await siyuanApi.sql(`
     SELECT content FROM blocks
     WHERE id = '${conceptId}'
     LIMIT 1
@@ -35,17 +35,21 @@ export async function resolveConceptCard(params: ResolveConceptCardParams): Prom
   }
   const conceptName = conceptQuery[0].content;
 
-  const conceptAttrs = await getBlockAttrs(conceptId);
+  const conceptAttrs = await siyuanApi.getBlockAttrs(conceptId);
   if (!conceptAttrs || (!conceptAttrs['custom-xiuyuan-id'] && !conceptAttrs['custom-fsrs-xiuyuan-id'])) {
     logger.info('Concept block has no card, creating...', conceptId);
 
     const { CreateXiuyuanFromBlocksUseCase } = await import('../CreateXiuyuanFromBlocksUseCase');
-    const createXiuyuanUseCase = new CreateXiuyuanFromBlocksUseCase(xiuyuanRepository, templateRegistry);
+    const createXiuyuanUseCase = new CreateXiuyuanFromBlocksUseCase(
+      xiuyuanRepository,
+      templateRegistry,
+      { siyuanApi }
+    );
     const createResult = await createXiuyuanUseCase.execute({
       blockIds: [conceptId],
       templateId: 'builtin-concept-simple',
       fieldMapping: { concept: conceptId },
-      deckId: deckId || BUILTIN_DECK_ID,
+      deckId: deckId || siyuanApi.BUILTIN_DECK_ID,
       cardType: 'concept',
     });
 

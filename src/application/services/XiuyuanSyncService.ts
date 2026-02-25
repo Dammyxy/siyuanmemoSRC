@@ -15,10 +15,12 @@
  * @deprecated 旧名称 HybridSyncService 已废弃，请使用 XiuyuanSyncService
  */
 
-import { getRiffCards, getRiffNewCards, removeRiffCards, type RiffBlock } from '@/core/siyuan/riff';
 import { initializeAFactor } from '@/core/card-builder';
-import { setBlockAttrs, getBlockAttrs } from '@/core/siyuan/api';
-import { ATTR_CARD_TYPE } from '@/core/siyuan/block';
+import type {
+    XiuyuanSyncRiffBlock as RiffBlock,
+    XiuyuanSyncSiyuanPort
+} from '@/application/ports/XiuyuanSyncSiyuanPort';
+import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import type {
     HybridSyncConfig,
@@ -63,6 +65,7 @@ export class XiuyuanSyncService {
     private config: HybridSyncConfig;
     private riffBlacklistService: RiffBlacklistService;
     private cardTypeDetectionService: CardTypeDetectionService;
+    private readonly siyuanApi: XiuyuanSyncSiyuanPort;
     private eventBus: EventBus;
     private xiuyuanRepository: IXiuyuanRepository;
     private deletionTracker: IDeletionTracker;
@@ -82,12 +85,14 @@ export class XiuyuanSyncService {
         xiuyuanRepository: IXiuyuanRepository,
         riffBlacklistService: RiffBlacklistService,
         cardTypeDetectionService: CardTypeDetectionService,
-        deletionTracker: IDeletionTracker
+        deletionTracker: IDeletionTracker,
+        siyuanApi: XiuyuanSyncSiyuanPort = new XiuyuanSyncSiyuanAdapter()
     ) {
         this.config = {
             ...config,
             retry: config.retry || this.DEFAULT_RETRY_CONFIG
         };
+        this.siyuanApi = siyuanApi;
         this.riffBlacklistService = riffBlacklistService;
         this.cardTypeDetectionService = cardTypeDetectionService;
         this.eventBus = eventBus;
@@ -262,7 +267,7 @@ export class XiuyuanSyncService {
                 // 性能影响：每次获取所有卡片，但通过 skipped 机制避免重复
                 logger.info(`lastSyncTime: ${this.lastSyncTime}, current: ${Date.now()}, diff: ${Math.floor((Date.now() - this.lastSyncTime) / 1000)}s`);
                 
-                const newCards = await getRiffNewCards(
+                const newCards = await this.siyuanApi.getRiffNewCards(
                     this.config.deckId,
                     undefined  // 禁用时间过滤，获取所有卡片
                 );
@@ -295,9 +300,8 @@ export class XiuyuanSyncService {
                     }
                     
                     // 🔧 防护 1：检查块属性，避免重复创建
-                    const { getBlockAttrs } = await import('@/core/siyuan/api');
                     try {
-                        const attrs = await getBlockAttrs(riffCard.id);
+                        const attrs = await this.siyuanApi.getBlockAttrs(riffCard.id);
                         if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
                             const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
                             logger.info(`Block ${riffCard.id} already has Xiuyuan: ${existingXiuyuanId}, skipping`);
@@ -528,7 +532,7 @@ export class XiuyuanSyncService {
             try {
                 // 1. 获取所有卡片（使用 blockId 而不是 cardId）
                 this.reportProgress(onProgress, 'full', 'fetching', 0, 7, '正在获取所有卡片...');
-                const riffCards = await getRiffCards(this.config.deckId, {
+                const riffCards = await this.siyuanApi.getRiffCards(this.config.deckId, {
                     dueOnly: false,
                     includeNew: true
                 });
@@ -898,20 +902,13 @@ export class XiuyuanSyncService {
         try {
             // 使用重试机制尝试从 Riff 删除
             await this.withRetry('delete', async () => {
-                await removeRiffCards(this.config.deckId, [cardID]);
+                await this.siyuanApi.removeRiffCards(this.config.deckId, [cardID]);
             });
 
             logger.info(`Successfully removed card from Riff: ${cardID}`);
             return true;
         } catch (error) {
             logger.error(`Failed to remove card from Riff after retries: ${cardID}`, error);
-
-            // 失败时加入黑名单（如果启用）
-            if (this.config.deleteSync.useBlacklistFallback) {
-                await this.riffBlacklistService.addToBlacklist(cardID);
-                logger.info(`Added card to blacklist as fallback: ${cardID}`);
-            }
-
             return false;
         }
     }
@@ -957,7 +954,7 @@ export class XiuyuanSyncService {
             
             for (const card of cards) {
                 try {
-                    const attrs = await getBlockAttrs(card.id);
+                    const attrs = await this.siyuanApi.getBlockAttrs(card.id);
                     const cardTypeMarker = attrs?.['custom-fsrs-card-type'];
                     
                     if (cardTypeMarker === 'concept' || cardTypeMarker === 'descriptor') {
@@ -1004,13 +1001,13 @@ export class XiuyuanSyncService {
                         }
                         
                         const attrs: Record<string, string> = {
-                            [ATTR_CARD_TYPE]: cardType,
+                            [this.siyuanApi.ATTR_CARD_TYPE]: cardType,
                         };
                         
                         // 🔧 修复：不再写入 A-Factor 块属性，只保留在卡片数据中
                         // Topic 卡片的 A-Factor 存储在 FSRSCard.aFactor 中
                         
-                        await setBlockAttrs(card.id, attrs);
+                        await this.siyuanApi.setBlockAttrs(card.id, attrs);
                         updated++;
                     } catch (err) {
                         logger.error(`Failed to update card type for ${card.id}:`, err);

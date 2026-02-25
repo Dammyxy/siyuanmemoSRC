@@ -37,14 +37,20 @@ import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
 import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { Priority } from '@/core/xiuyuan/domain/Priority';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
-import { getBlockText } from '@/core/siyuan/block';
+import type { CardCreationSiyuanPort } from '@/application/ports/CardCreationSiyuanPort';
+import { CardCreationSiyuanAdapter } from '@/infrastructure/siyuan/CardCreationSiyuanAdapter';
 
 export class CreateCardUseCase {
+  private readonly siyuanApi: CardCreationSiyuanPort;
+
   constructor(
     private readonly xiuyuanRepo: IXiuyuanRepository,
     private readonly cardCreationService: CardCreationService,
-    private readonly eventBus: EventBus
-  ) {}
+    private readonly eventBus: EventBus,
+    ports?: { siyuanApi?: CardCreationSiyuanPort }
+  ) {
+    this.siyuanApi = ports?.siyuanApi ?? new CardCreationSiyuanAdapter();
+  }
 
   /**
    * 执行创建卡片用例
@@ -179,7 +185,7 @@ export class CreateCardUseCase {
    */
   private async detectSymbol(blockId: string): Promise<boolean> {
     try {
-      const content = await getBlockText(blockId);
+      const content = await this.siyuanApi.getBlockText(blockId);
       return content.includes('<>');
     } catch (error) {
       console.error('[CreateCardUseCase] Failed to detect symbol:', error);

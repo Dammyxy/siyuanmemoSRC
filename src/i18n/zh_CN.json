@@ -287,6 +287,8 @@
     "dataLoadFailed": "数据加载失败",
     "optimizeFailed": "优化失败",
     "envNotInit": "当前环境未初始化，无法打开页签",
+    "pluginNotReady": "插件未就绪",
+    "reviewServiceUnavailable": "复习服务不可用",
     "dueCountLabel": "待复习",
     "totalCountLabel": "总卡片",
     "answerShortcut": "空格 / 回车",

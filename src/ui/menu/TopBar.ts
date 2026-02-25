@@ -1,6 +1,5 @@
-﻿import { Menu } from 'siyuan';
+﻿import { Menu, showMessage } from 'siyuan';
 import type FSRSPlugin from '@/index';
-import { pushMsg } from '@/core/siyuan/api';
 
 export class TopBarManager {
     private plugin: FSRSPlugin;
@@ -27,7 +26,7 @@ export class TopBarManager {
                 // @ts-ignore - accessing private or checking init status via public method if available,
                 // but here relying on plugin.isInitialized which is public in current implementation
                 if (!this.plugin.isInitialized) {
-                    pushMsg(this.plugin.i18n?.loading || '插件初始化中，请稍后...');
+                    showMessage(this.plugin.i18n?.loading || '插件初始化中，请稍后...');
                     return;
                 }
                 this.plugin.openSRSBrowser();
@@ -103,7 +102,7 @@ export class TopBarManager {
             accelerator: 'Alt+I',
             click: () => {
                 // TODO: 实现渐进学习功能
-                pushMsg(this.plugin.i18n?.featureRemoved || 'This feature is temporarily removed');
+                showMessage(this.plugin.i18n?.featureRemoved || 'This feature is temporarily removed');
             },
         });
 

@@ -35,8 +35,8 @@
  */
 
 import { Result, ok, err } from '@/types/result';
-import { sql, getBlockAttrs } from '@/core/siyuan/api';
-import { BUILTIN_DECK_ID } from '@/core/siyuan/riff';
+import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
+import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import { findConceptByUpwardSearch } from './shared/ConceptLocator';
@@ -76,6 +76,8 @@ export interface ConceptDescriptorAutoResult {
 }
 
 export class CreateConceptDescriptorAutoUseCase {
+  private readonly siyuanApi: XiuyuanSiyuanPort;
+
   /**
    * 构造函数
    * 
@@ -84,8 +86,11 @@ export class CreateConceptDescriptorAutoUseCase {
    */
   constructor(
     private readonly xiuyuanRepository: IXiuyuanRepository,
-    private readonly templateRegistry: Map<string, ICardTemplate>
-  ) {}
+    private readonly templateRegistry: Map<string, ICardTemplate>,
+    ports?: { siyuanApi?: XiuyuanSiyuanPort }
+  ) {
+    this.siyuanApi = ports?.siyuanApi ?? new XiuyuanSiyuanAdapter();
+  }
 
   /**
    * 执行用例
@@ -101,7 +106,7 @@ export class CreateConceptDescriptorAutoUseCase {
       
       // 1. 使用第一个描述符块向上探路查找概念块
       const firstDescriptorId = command.descriptorBlockIds[0];
-      const conceptResult = await findConceptByUpwardSearch(firstDescriptorId);
+      const conceptResult = await findConceptByUpwardSearch(firstDescriptorId, this.siyuanApi);
       
       if (!conceptResult) {
         return err(new Error('未找到概念块（标题块或文档块）'));
@@ -116,6 +121,7 @@ export class CreateConceptDescriptorAutoUseCase {
         deckId: command.deckId,
         xiuyuanRepository: this.xiuyuanRepository,
         templateRegistry: this.templateRegistry,
+        siyuanApi: this.siyuanApi,
       });
       logger.debug('Concept name:', conceptName);
       
@@ -128,14 +134,15 @@ export class CreateConceptDescriptorAutoUseCase {
       const skipped: string[] = [];
       
       const { CreateXiuyuanFromBlocksUseCase } = await import('./CreateXiuyuanFromBlocksUseCase');
-      const createXiuyuanUseCase = new CreateXiuyuanFromBlocksUseCase(
-        this.xiuyuanRepository,
-        this.templateRegistry
-      );
+        const createXiuyuanUseCase = new CreateXiuyuanFromBlocksUseCase(
+          this.xiuyuanRepository,
+          this.templateRegistry,
+          { siyuanApi: this.siyuanApi }
+        );
       
       for (const descriptorBlockId of command.descriptorBlockIds) {
         // 检查是否已有卡片
-        const descriptorAttrs = await getBlockAttrs(descriptorBlockId);
+        const descriptorAttrs = await this.siyuanApi.getBlockAttrs(descriptorBlockId);
         if (descriptorAttrs && (descriptorAttrs['custom-xiuyuan-id'] || descriptorAttrs['custom-fsrs-xiuyuan-id'])) {
           logger.debug('Descriptor block already has card, skipping:', descriptorBlockId);
           skipped.push(descriptorBlockId);
@@ -146,7 +153,7 @@ export class CreateConceptDescriptorAutoUseCase {
         let direction = command.direction;
         if (!direction) {
           // 从块内容中检测
-          const blockQuery = await sql(`SELECT content FROM blocks WHERE id = '${descriptorBlockId}' LIMIT 1`);
+          const blockQuery = await this.siyuanApi.sql(`SELECT content FROM blocks WHERE id = '${descriptorBlockId}' LIMIT 1`);
           if (blockQuery && blockQuery.length > 0) {
             direction = detectDescriptorDirection(blockQuery[0].content);
             logger.debug('Detected direction from content:', direction);
@@ -166,7 +173,7 @@ export class CreateConceptDescriptorAutoUseCase {
             concept: conceptId,
             descriptor: descriptorBlockId
           },
-          deckId: command.deckId || BUILTIN_DECK_ID,
+          deckId: command.deckId || this.siyuanApi.BUILTIN_DECK_ID,
           cardType: 'descriptor'
         });
         

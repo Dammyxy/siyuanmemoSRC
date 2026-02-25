@@ -22,6 +22,16 @@ type DeleteCardsValueLike = {
   failedCardIds?: string[];
 };
 type DeleteCardsResultLike = { ok: boolean; value?: DeleteCardsValueLike; error?: unknown };
+type QueueRemoveLike = {
+  removeCard?: (cardIdOrBlockId: string) => Promise<void> | void;
+};
+type QueueInsertLike = {
+  insertAt?: (cardId: string, position: number) => Promise<void> | void;
+};
+type UnifiedCardManagerLike = {
+  getCard: (cardId: string, options?: { silent?: boolean }) => Promise<any>;
+  updateCard: (card: any) => Promise<void>;
+};
 
 type CardServiceLike = {
   deleteCard?: (command: { cardId: string }) => Promise<DeleteCardResultLike>;
@@ -44,8 +54,234 @@ export type DeleteCardsExecutionResult = {
   failedCardIds: string[];
 };
 
+export type QueueCardActionResult = {
+  updated: BrowserCard[];
+  skipped: BrowserCard[];
+};
+
+export type QueueRemovalResult = {
+  removedCount: number;
+  failedCount: number;
+  failedIds: string[];
+};
+
+export type QueueInsertResult = {
+  insertedCount: number;
+  failedCount: number;
+  failedIds: string[];
+};
+
+export type QueueDueAdjustAction = 'postpone' | 'advance' | 'spread';
+
+export type QueueDueAdjustResult = QueueCardActionResult & {
+  days: number;
+  averageCardsPerDay?: number;
+};
+
 export function resolveBrowserCardId(card: BrowserCard): string {
   return card.fsrsCardId || card.id || '';
+}
+
+export async function removeCardsFromQueue(
+  queue: QueueRemoveLike | undefined,
+  selectedRows: BrowserCard[],
+  options?: { scope?: string }
+): Promise<QueueRemovalResult> {
+  const scope = options?.scope || 'DataSource';
+  if (!queue || typeof queue.removeCard !== 'function') {
+    throw new Error(`[${scope}] Queue removeCard is unavailable`);
+  }
+
+  let removedCount = 0;
+  const failedIds: string[] = [];
+  for (const row of selectedRows || []) {
+    const cardId = resolveBrowserCardId(row);
+    if (!cardId) {
+      failedIds.push(String(row?.blockId || row?.id || ''));
+      continue;
+    }
+
+    try {
+      await Promise.resolve(queue.removeCard(cardId));
+      removedCount++;
+    } catch (error) {
+      failedIds.push(cardId);
+      logger.error(`[${scope}] Failed to remove card ${cardId}`, error);
+    }
+  }
+
+  return {
+    removedCount,
+    failedCount: failedIds.length,
+    failedIds: uniqueStrings(failedIds),
+  };
+}
+
+export async function insertCardsIntoQueue(
+  queue: QueueInsertLike | undefined,
+  selectedRows: BrowserCard[],
+  index: number,
+  options?: { scope?: string }
+): Promise<QueueInsertResult> {
+  const scope = options?.scope || 'DataSource';
+  if (!queue || typeof queue.insertAt !== 'function') {
+    throw new Error(`[${scope}] Queue insertAt is unavailable`);
+  }
+
+  const baseIndex = Math.max(0, Math.floor(index));
+  const basePosition = baseIndex + 1;
+
+  let insertedCount = 0;
+  const failedIds: string[] = [];
+  for (const row of selectedRows || []) {
+    const cardId = resolveBrowserCardId(row);
+    if (!cardId) {
+      failedIds.push(String(row?.blockId || row?.id || ''));
+      continue;
+    }
+
+    try {
+      await Promise.resolve(queue.insertAt(cardId, basePosition + insertedCount));
+      insertedCount++;
+    } catch (error) {
+      failedIds.push(cardId);
+      logger.error(`[${scope}] Failed to insert card ${cardId}`, error);
+    }
+  }
+
+  return {
+    insertedCount,
+    failedCount: failedIds.length,
+    failedIds: uniqueStrings(failedIds),
+  };
+}
+
+export async function setBrowserCardsPriority(
+  manager: UnifiedCardManagerLike,
+  selectedRows: BrowserCard[],
+  priority: number,
+  options?: { scope?: string }
+): Promise<QueueCardActionResult> {
+  const scope = options?.scope || 'DataSource';
+  const normalizedPriority = Math.max(0, Math.min(100, Math.floor(Number(priority) || 0)));
+  const updated: BrowserCard[] = [];
+  const skipped: BrowserCard[] = [];
+
+  for (const row of selectedRows || []) {
+    const cardId = resolveBrowserCardId(row);
+    if (!cardId) {
+      skipped.push(row);
+      continue;
+    }
+
+    try {
+      const card = await manager.getCard(cardId);
+      card.priority = normalizedPriority;
+      await manager.updateCard(card);
+      row.priority = normalizedPriority;
+      updated.push(row);
+    } catch (error) {
+      skipped.push(row);
+      logger.error(`[${scope}] Failed to set priority for card ${cardId}`, error);
+    }
+  }
+
+  return { updated, skipped };
+}
+
+function parsePositiveDays(candidate: unknown): number | null {
+  const value = Math.floor(Number(candidate));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function resolveAdjustDays(action: QueueDueAdjustAction, context?: any): number {
+  const config = context?.config;
+
+  const directDays =
+    parsePositiveDays(context?.days) ??
+    parsePositiveDays(context?.maxDays) ??
+    parsePositiveDays(config?.days) ??
+    parsePositiveDays(config?.maxDays);
+  if (directDays) {
+    return directDays;
+  }
+
+  if (action === 'postpone') {
+    return (
+      parsePositiveDays(config?.minInterval) ??
+      parsePositiveDays(config?.maxInterval) ??
+      1
+    );
+  }
+
+  if (action === 'spread') {
+    return (
+      parsePositiveDays(config?.collectingPeriod) ??
+      parsePositiveDays(config?.reschedulingPeriod) ??
+      1
+    );
+  }
+
+  return 1;
+}
+
+export async function adjustBrowserCardsDue(
+  manager: UnifiedCardManagerLike,
+  selectedRows: BrowserCard[],
+  action: QueueDueAdjustAction,
+  context?: any,
+  options?: { scope?: string; postponeFromNow?: boolean; allowSpread?: boolean }
+): Promise<QueueDueAdjustResult> {
+  const scope = options?.scope || 'DataSource';
+  if (action === 'spread' && options?.allowSpread === false) {
+    throw new Error(`[${scope}] Spread action is not supported`);
+  }
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const days = resolveAdjustDays(action, context);
+  const now = Date.now();
+  const updated: BrowserCard[] = [];
+  const skipped: BrowserCard[] = [];
+  const cards = selectedRows || [];
+
+  for (let i = 0; i < cards.length; i++) {
+    const row = cards[i];
+    const cardId = resolveBrowserCardId(row);
+    if (!cardId) {
+      skipped.push(row);
+      continue;
+    }
+
+    try {
+      const card = await manager.getCard(cardId);
+      let newDue = Number(card.due) || now;
+
+      if (action === 'postpone') {
+        const baseDue = options?.postponeFromNow ? Math.max(newDue, now) : newDue;
+        newDue = baseDue + days * dayMs;
+      } else if (action === 'advance') {
+        newDue = newDue - days * dayMs;
+      } else {
+        const spreadOffset = Math.floor((i / Math.max(1, cards.length)) * days * dayMs);
+        newDue = newDue + spreadOffset;
+      }
+
+      card.due = newDue;
+      await manager.updateCard(card);
+
+      row.due = new Date(newDue);
+      updated.push(row);
+    } catch (error) {
+      skipped.push(row);
+      logger.error(`[${scope}] Failed to ${action} card ${cardId}`, error);
+    }
+  }
+
+  const result: QueueDueAdjustResult = { updated, skipped, days };
+  if (action === 'spread') {
+    result.averageCardsPerDay = days > 0 ? updated.length / days : updated.length;
+  }
+  return result;
 }
 
 export function sortBrowserCards(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {

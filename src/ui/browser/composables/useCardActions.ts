@@ -3,10 +3,8 @@
  * 处理卡片类型标记、迁移等操作
  */
 import { type Ref } from 'vue';
-import { setBlockAttrs } from '@/core/siyuan/api';
-import { ATTR_CARD_TYPE } from '@/core/siyuan/block';
 import { migrateExistingCards } from '@/scripts/migrateToTopicItem';
-import { invalidateCardCache } from '../browserService';
+import { invalidateCardCache, setBrowserCardType } from '../browserService';
 import type { BrowserCard } from '../types';
 import { CardTypeMarkerService } from '@/core/card-type/CardTypeMarkerService';
 import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
@@ -42,7 +40,7 @@ export function useCardActions(options: UseCardActionsOptions) {
     try {
       // 1. 更新块属性
       for (const blockId of blockIds) {
-        await setBlockAttrs(blockId, { [ATTR_CARD_TYPE]: 'topic' });
+        await setBrowserCardType(blockId, 'topic');
       }
 
       // 2. 更新 StorageManager 中的卡片类型
@@ -83,7 +81,7 @@ export function useCardActions(options: UseCardActionsOptions) {
     try {
       // 1. 更新块属性
       for (const blockId of blockIds) {
-        await setBlockAttrs(blockId, { [ATTR_CARD_TYPE]: 'item' });
+        await setBrowserCardType(blockId, 'item');
       }
 
       // 2. 更新 StorageManager 中的卡片类型

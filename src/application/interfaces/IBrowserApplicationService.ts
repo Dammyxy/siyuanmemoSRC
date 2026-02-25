@@ -22,6 +22,7 @@ import type {
   GetBrowserCardsQueryResult,
 } from '../queries/browser/GetBrowserCardsQuery';
 import type { CardFilter, IReviewQueue, IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
+import type { BrowserSiyuanPort } from '../ports/BrowserSiyuanPort';
 
 export type BrowserQueueId =
   | 'retrieval'
@@ -117,4 +118,9 @@ export interface IBrowserApplicationService {
    * @returns UnifiedDataSourceManager 实例
    */
   getUnifiedDataSourceManager(): IUnifiedDataSourceManagerFacade | null;
+
+  /**
+   * 浏览器上下文使用的思源 API 端口。
+   */
+  getSiyuanApi(): BrowserSiyuanPort;
 }

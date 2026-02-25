@@ -2,10 +2,10 @@
  * PracticeQueueManager - 管理练习队列操作
  */
 
-import { getCardBlockIds } from '@/core/siyuan/block';
-import { pushMsg } from '@/core/siyuan/api';
 import type { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
 import type { QueueItem } from '@/core/queue';
+import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
+import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('PracticeQueueManager');
@@ -13,17 +13,22 @@ const logger = createLogger('PracticeQueueManager');
 export type PracticeQueueFilter = { type: 'doc' | 'tree' | 'sql'; value: string };
 
 export class PracticeQueueManager {
+  private readonly siyuanApi: ManagerSiyuanPort;
+
   constructor(
     private retrievalQueue: any,
     private blockMenuHandler: BlockMenuHandler,
-    private i18n: Record<string, any>
-  ) {}
+    private i18n: Record<string, any>,
+    ports?: { siyuanApi?: ManagerSiyuanPort }
+  ) {
+    this.siyuanApi = ports?.siyuanApi ?? new ManagerSiyuanAdapter();
+  }
 
   /**
    * 获取练习队列的块 ID 列表
    */
   private async getPracticeQueueBlockIds(filter: PracticeQueueFilter): Promise<string[]> {
-    return getCardBlockIds({ type: filter.type, value: filter.value });
+    return this.siyuanApi.getCardBlockIds({ type: filter.type, value: filter.value });
   }
 
   /**
@@ -73,12 +78,10 @@ export class PracticeQueueManager {
       await this.retrievalQueue.clear();
       
       // 显示成功消息
-      const { pushMsg } = await import('@/core/siyuan/api');
-      await pushMsg('✅ 已清空练习队列');
+      await this.siyuanApi.pushMsg('✅ 已清空练习队列');
     } catch (error) {
       logger.error('Failed to clear queue:', error);
-      const { pushErrMsg } = await import('@/core/siyuan/api');
-      await pushErrMsg('清空队列失败，请查看控制台');
+      await this.siyuanApi.pushErrMsg('清空队列失败，请查看控制台');
     }
   }
 
@@ -102,7 +105,7 @@ export class PracticeQueueManager {
     }
     
     if (isEmpty) {
-      await pushMsg(this.i18n?.practiceQueueEmpty || '练习队列为空');
+      await this.siyuanApi.pushMsg(this.i18n?.practiceQueueEmpty || '练习队列为空');
       return;
     }
     

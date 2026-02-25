@@ -15,7 +15,8 @@ import { openTab, Constants } from 'siyuan';
 import { createApp } from 'vue';
 import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
 import { ReviewView } from '@/ui/review/v2';
-import { pushErrMsg } from '@/core/siyuan/api';
+import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
+import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 /// #if !BROWSER
 import { ipcRenderer } from 'electron';
 /// #endif
@@ -63,6 +64,7 @@ export class TabManager {
   
   private readonly TAB_TYPE: string;
   private readonly REVIEW_TAB_TYPE: string;
+  private readonly siyuanApi: ManagerSiyuanPort;
   
   // ========================================================================
   // 构造函数
@@ -70,8 +72,10 @@ export class TabManager {
   
   constructor(
     private context: ApplicationContext,
-    private plugin: Plugin
+    private plugin: Plugin,
+    ports?: { siyuanApi?: ManagerSiyuanPort }
   ) {
+    this.siyuanApi = ports?.siyuanApi ?? new ManagerSiyuanAdapter();
     this.TAB_TYPE = this.plugin.name + '-browser';
     this.REVIEW_TAB_TYPE = this.plugin.name + '-review';
   }
@@ -280,7 +284,7 @@ export class TabManager {
       console.log('[TabManager] Opened review in new window');
     } catch (err) {
       console.error('[TabManager] Failed to open review in new window:', err);
-      void pushErrMsg(this.context.getI18n()?.openFailed || '打开新窗口失败');
+      void this.siyuanApi.pushErrMsg(this.context.getI18n()?.openFailed || '打开新窗口失败');
     }
     /// #else
     // 浏览器环境降级：使用 Tab 模式

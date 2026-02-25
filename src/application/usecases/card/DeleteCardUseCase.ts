@@ -33,14 +33,21 @@ import { CardDeletionService } from '@/core/xiuyuan/domain/services/CardDeletion
 import { CardId } from '@/core/xiuyuan/domain/CardId';
 import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
-import { getBlockAttrs, setBlockAttrs } from '@/core/siyuan/api';
+import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
+import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
+import { buildClearedBlockAttrs } from './shared/CardBlockAttrCleaner';
 
 export class DeleteCardUseCase {
+  private readonly siyuanApi: CardDeletionSiyuanPort;
+
   constructor(
     private readonly xiuyuanRepo: IXiuyuanRepository,
     private readonly cardDeletionService: CardDeletionService,
-    private readonly eventBus: EventBus
-  ) {}
+    private readonly eventBus: EventBus,
+    ports?: { siyuanApi?: CardDeletionSiyuanPort }
+  ) {
+    this.siyuanApi = ports?.siyuanApi ?? new CardDeletionSiyuanAdapter();
+  }
 
   /**
    * 执行删除卡片用例
@@ -109,8 +116,7 @@ export class DeleteCardUseCase {
         // 4. 从 Riff 删除（会删除 custom-riff-* 属性）
         if (blockId) {
           try {
-            const { removeRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
-            await removeRiffCards(BUILTIN_DECK_ID, [blockId]);
+            await this.siyuanApi.removeRiffCards(this.siyuanApi.BUILTIN_DECK_ID, [blockId]);
             console.log(`[DeleteCardUseCase] Deleted card from Riff: ${blockId}`);
           } catch (error) {
             console.error(`[DeleteCardUseCase] Failed to delete card from Riff:`, error);
@@ -153,8 +159,7 @@ export class DeleteCardUseCase {
     // 8. 🔧 修复：从 Riff 删除卡片（会删除 custom-riff-* 属性）
     if (blockId) {
       try {
-        const { removeRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
-        await removeRiffCards(BUILTIN_DECK_ID, [blockId]);
+        await this.siyuanApi.removeRiffCards(this.siyuanApi.BUILTIN_DECK_ID, [blockId]);
         console.log(`[DeleteCardUseCase] Deleted card from Riff: ${blockId}`);
       } catch (error) {
         console.error(`[DeleteCardUseCase] Failed to delete card from Riff:`, error);
@@ -186,31 +191,12 @@ export class DeleteCardUseCase {
   private async removeCardBlockAttrs(blockId: string): Promise<void> {
     try {
       // 获取当前块属性
-      const attrs = await getBlockAttrs(blockId);
-      
-      // 需要删除的插件自定义属性列表
-      const attrsToRemove = [
-        'custom-card-type',           // 卡片类型
-        'custom-fsrs-card-type',      // 卡片类型标记（concept/descriptor）
-        'custom-xiuyuan-id',          // Xiuyuan ID
-        'custom-xiuyuan-template',    // Xiuyuan 模板标记
-        'custom-template-id',         // 模板 ID
-        'custom-list-template',       // 列表模板标记
-        'custom-priority',            // 优先级
-        'custom-fsrs-a-factor',       // A-Factor（旧属性，兼容清理）
-      ];
-      
-      // 构建新的属性对象（将要删除的属性设为空字符串）
-      const newAttrs: Record<string, string> = {};
-      for (const key of attrsToRemove) {
-        if (key in attrs) {
-          newAttrs[key] = '';  // 思源 API：空字符串表示删除属性
-        }
-      }
+      const attrs = await this.siyuanApi.getBlockAttrs(blockId);
+      const newAttrs = buildClearedBlockAttrs(attrs);
       
       // 如果有属性需要删除，调用 API
       if (Object.keys(newAttrs).length > 0) {
-        await setBlockAttrs(blockId, newAttrs);
+        await this.siyuanApi.setBlockAttrs(blockId, newAttrs);
         console.log('[DeleteCardUseCase] Removed block attrs:', Object.keys(newAttrs));
       }
     } catch (error) {

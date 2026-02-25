@@ -310,6 +310,8 @@
   "dataLoadFailed": "Data load failed",
   "optimizeFailed": "Optimization failed",
   "envNotInit": "Environment not initialized, cannot open tab",
+  "pluginNotReady": "Plugin not ready",
+  "reviewServiceUnavailable": "Review service unavailable",
   "dueCountLabel": "Due",
   "totalCountLabel": "Total",
   "answerShortcut": "Space / Enter",

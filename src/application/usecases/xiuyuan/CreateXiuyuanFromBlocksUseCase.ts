@@ -35,7 +35,8 @@ import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
 import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { Priority } from '@/core/xiuyuan/domain/Priority';
 import { ClozeCardGenerator } from '@/core/xiuyuan/domain/services/ClozeCardGenerator';
-import { getBlockText } from '@/core/siyuan/block';
+import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
+import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import { createLogger } from '@/utils/logger';
 import { isDefinitionTemplate, isDescriptorTemplate } from './shared/DescriptorTemplateStrategy';
@@ -49,6 +50,8 @@ const logger = createLogger('CreateXiuyuanFromBlocksUseCase');
  * @class CreateXiuyuanFromBlocksUseCase
  */
 export class CreateXiuyuanFromBlocksUseCase {
+  private readonly siyuanApi: XiuyuanSiyuanPort;
+
   /**
    * 鏋勯€犲嚱鏁?
    * 
@@ -57,8 +60,11 @@ export class CreateXiuyuanFromBlocksUseCase {
    */
   constructor(
     private readonly xiuyuanRepository: IXiuyuanRepository,
-    private readonly templateRegistry: Map<string, ICardTemplate>
-  ) {}
+    private readonly templateRegistry: Map<string, ICardTemplate>,
+    ports?: { siyuanApi?: XiuyuanSiyuanPort }
+  ) {
+    this.siyuanApi = ports?.siyuanApi ?? new XiuyuanSiyuanAdapter();
+  }
 
   /**
    * 鎵ц鐢ㄤ緥
@@ -69,7 +75,6 @@ export class CreateXiuyuanFromBlocksUseCase {
   async execute(command: CreateXiuyuanFromBlocksCommand): Promise<Result<any>> {
     try {
       // 1. 妫€鏌ユ槸鍚﹀凡缁忓垱寤鸿繃 Xiuyuan 鍗＄墖
-      const { getBlockAttrs } = await import('@/core/siyuan/api');
       
       // 馃啎 瀵逛簬 concept-descriptor 妯℃澘锛屾鏌ョ浜屼釜鍧楋紙鎻忚堪绗﹀潡锛?
       // 鍥犱负姒傚康鍗℃湰韬彲浠ユ湁鑷繁鐨?Xiuyuan锛屾弿杩扮鍗℃槸鍏宠仈鍒版蹇靛崱鐨?
@@ -89,7 +94,7 @@ export class CreateXiuyuanFromBlocksUseCase {
       }
       logger.debug(`Checking block for existing Xiuyuan: ${blockToCheck}`);
       
-      const attrs = await getBlockAttrs(blockToCheck);
+      const attrs = await this.siyuanApi.getBlockAttrs(blockToCheck);
       
       if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
         const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
@@ -238,7 +243,7 @@ export class CreateXiuyuanFromBlocksUseCase {
         logger.debug('Creating bidirectional faces');
         
         const blockId = command.blockIds[0];
-        const blockText = await getBlockText(blockId);
+        const blockText = await this.siyuanApi.getBlockText(blockId);
         
         // 姝ｅ悜 face
         const forwardFaceResult = CardFace.create({
@@ -279,8 +284,8 @@ export class CreateXiuyuanFromBlocksUseCase {
             : command.blockIds[command.blockIds.length - 1];
 
           // 鑾峰彇鍧楀唴瀹?
-          const questionText = await getBlockText(questionBlockId);
-          const answerText = await getBlockText(answerBlockId);
+          const questionText = await this.siyuanApi.getBlockText(questionBlockId);
+          const answerText = await this.siyuanApi.getBlockText(answerBlockId);
 
           const faceResult = CardFace.create({
             question: questionText || `Block ${questionBlockId}`,
@@ -327,6 +332,7 @@ export class CreateXiuyuanFromBlocksUseCase {
         xiuyuan,
         xiuyuanRepository: this.xiuyuanRepository,
         logger,
+        siyuanApi: this.siyuanApi,
         riff: {
           deckId: command.deckId,
           blockIds: [blockIdToAddToRiff],

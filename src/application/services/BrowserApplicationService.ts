@@ -3,6 +3,8 @@ import { CardScheduleService } from '@/core/card/domain/services/CardScheduleSer
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
 import { QueueType, type CardFilter, type IReviewQueue, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
+import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
+import { BrowserSiyuanAdapter } from '@/infrastructure/siyuan/BrowserSiyuanAdapter';
 import { GetBrowserCardsQueryHandler } from '../queries/browser/GetBrowserCardsQueryHandler';
 import type {
   GetBrowserCardsQuery,
@@ -40,6 +42,7 @@ const logger = createLogger('BrowserApplicationService');
 export class BrowserApplicationService implements IBrowserApplicationService {
   private readonly getBrowserCardsQueryHandler: GetBrowserCardsQueryHandler;
   private readonly unifiedDataSourceManager: IUnifiedDataSourceManagerFacade | null;
+  private readonly siyuanApi: BrowserSiyuanPort;
   private queueCountsInFlight: Promise<Record<string, number>> | null = null;
   private queueCountsCache = {
     value: { ...EMPTY_QUEUE_COUNTS },
@@ -53,6 +56,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     cardFilterService: CardFilterService,
     cardSortService: CardSortService,
     unifiedDataSourceManager?: IUnifiedDataSourceManagerFacade | null,
+    siyuanApi: BrowserSiyuanPort = new BrowserSiyuanAdapter(),
   ) {
     this.getBrowserCardsQueryHandler = new GetBrowserCardsQueryHandler(
       storageManager,
@@ -62,10 +66,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     );
 
     this.unifiedDataSourceManager = unifiedDataSourceManager ?? null;
+    this.siyuanApi = siyuanApi;
   }
 
   getUnifiedDataSourceManager(): IUnifiedDataSourceManagerFacade | null {
     return this.unifiedDataSourceManager;
+  }
+
+  getSiyuanApi(): BrowserSiyuanPort {
+    return this.siyuanApi;
   }
 
   async getBrowserCards(query: GetBrowserCardsQuery = {}): Promise<GetBrowserCardsQueryResult> {

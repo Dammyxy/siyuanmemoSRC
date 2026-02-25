@@ -154,9 +154,6 @@ export function createDeckDataSource(
 ): ICardDataSource {
   const { docId, preset, queryText, cardType } = options;
 
-  // ✅ Phase 9: 获取 CardApplicationService
-  const cardApplicationService = plugin?.getContext?.()?.getCardService?.();
-
   return new DeckDataSource(
     manager, 
     {
@@ -164,9 +161,8 @@ export function createDeckDataSource(
       currentDocId: docId || currentDocId,
       queryText,
       cardType,
-    }, 
-    plugin,
-    cardApplicationService  // ✅ Phase 9: 传递 CardApplicationService
+    },
+    plugin
   );
 }
 
@@ -260,9 +256,6 @@ export function createFocusDataSource(
 
   // 全部卡片模式：创建不含文档筛选的 DeckDataSource
   if (!queueId) {
-    // ✅ Phase 9: 获取 CardApplicationService
-    const cardApplicationService = plugin?.getContext?.()?.getCardService?.();
-    
     return new DeckDataSource(
       manager, 
       {
@@ -271,8 +264,7 @@ export function createFocusDataSource(
         queryText,
         cardType,
       },
-      plugin,
-      cardApplicationService  // ✅ Phase 9: 传递 CardApplicationService
+      plugin
     );
   }
 

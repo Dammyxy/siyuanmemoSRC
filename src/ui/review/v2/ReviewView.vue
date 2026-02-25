@@ -55,7 +55,7 @@
 </template>
 
 <script setup lang="ts">
-import { Menu, openTab, openWindow, showMessage } from 'siyuan';
+import { Menu, openTab, showMessage } from 'siyuan';
 import { onMounted, onUnmounted, ref, computed, watch } from 'vue';
 import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
@@ -66,7 +66,6 @@ import { ProviderBackedQueueStrategy } from '@/core/extensions';
 import { createVueDialog } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
-import { riff } from '@/core/siyuan';
 import type { NeuralRoamQueue } from '@/queues/NeuralRoamQueue';
 
 const logger = createLogger('ReviewView');
@@ -224,6 +223,76 @@ function t(key: string, fallback: string): string {
   return i18n?.[key] || fallback;
 }
 
+const RATING_KEYS = new Set(['1', '2', '3', '4']);
+const SKIP_KEYS = new Set(['0', 'x', 's']);
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null;
+  if (!element) {
+    return false;
+  }
+  return element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable;
+}
+
+function isTopicCard(): boolean {
+  const cardMeta = state.value.actions.cardMeta;
+  return cardMeta?.type === 'topic' || cardMeta?.cardType === 'topic';
+}
+
+function handleReviewKeyAction(
+  source: 'hotkey' | 'keydown',
+  key: string,
+  event: Pick<KeyboardEvent, 'preventDefault' | 'stopPropagation'>
+): void {
+  if (shouldIgnoreDuplicateKey(key)) {
+    return;
+  }
+
+  logger.debug('[SiYuanMemo][ReviewView] Key action:', {
+    source,
+    key,
+    answerShown: hook.context.value.showAnswer,
+  });
+
+  if (key === ' ' || key === 'enter') {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!hook.context.value.showAnswer) {
+      if (isTopicCard()) {
+        logger.debug('[SiYuanMemo][ReviewView] Topic card - grading with 3 (Good)');
+        void hook.grade(3);
+      } else {
+        logger.debug('[SiYuanMemo][ReviewView] Revealing answer...');
+        hook.reveal();
+      }
+    } else {
+      logger.debug('[SiYuanMemo][ReviewView] Answer shown - grading with 3 (Good)');
+      void hook.grade(3);
+    }
+    return;
+  }
+
+  if (RATING_KEYS.has(key)) {
+    if (hook.context.value.showAnswer) {
+      event.preventDefault();
+      event.stopPropagation();
+      logger.debug('[SiYuanMemo][ReviewView] Grading with rating:', key);
+      void hook.grade(Number(key));
+    } else {
+      logger.debug('[SiYuanMemo][ReviewView] Rating key pressed but answer not shown, ignoring');
+    }
+    return;
+  }
+
+  if (SKIP_KEYS.has(key)) {
+    event.preventDefault();
+    event.stopPropagation();
+    logger.debug('[SiYuanMemo][ReviewView] Skipping card...');
+    void hook.skip();
+  }
+}
+
 // 处理来自思源热键系统的 CustomEvent
 function handleRootClick(e: MouseEvent) {
   logger.debug('[SiYuanMemo][ReviewView] handleRootClick triggered:', {
@@ -237,125 +306,18 @@ function handleRootClick(e: MouseEvent) {
   if (typeof e.detail !== 'string') return;
 
   const key = e.detail.toLowerCase();
-  
-  // 🆕 防重复触发检查
-  if (shouldIgnoreDuplicateKey(key)) {
-    return;
-  }
-  
-  logger.debug('[SiYuanMemo][ReviewView] Hotkey detected:', key, 'answerShown:', hook.context.value.showAnswer);
-
-  // 检查是否为 Topic 卡片
-  const cardMeta = state.value.actions.cardMeta;
-  const isTopicCard = cardMeta?.type === 'topic' || cardMeta?.cardType === 'topic';
-
-  // 显示答案或评分（空格/回车）
-  if (key === ' ' || key === 'enter') {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    if (!hook.context.value.showAnswer) {
-      // 答案未显示：显示答案或直接评分（Topic卡片）
-      if (isTopicCard) {
-        logger.debug('[SiYuanMemo][ReviewView] Topic card - grading with 3 (Good)');
-        void hook.grade(3);
-      } else {
-        logger.debug('[SiYuanMemo][ReviewView] Revealing answer...');
-        hook.reveal();
-      }
-    } else {
-      // 答案已显示：评分为 Good (3)
-      logger.debug('[SiYuanMemo][ReviewView] Answer shown - grading with 3 (Good)');
-      void hook.grade(3);
-    }
-    return;
-  }
-
-  // 评分（1/2/3/4） - 只在答案已显示后才能评分
-  if (['1', '2', '3', '4'].includes(key)) {
-    if (hook.context.value.showAnswer) {
-      e.preventDefault();
-      e.stopPropagation();
-      logger.debug('[SiYuanMemo][ReviewView] Grading with rating:', key);
-      void hook.grade(Number(key));
-    } else {
-      logger.debug('[SiYuanMemo][ReviewView] Rating key pressed but answer not shown, ignoring');
-    }
-    return;
-  }
-
-  // 跳过（0/x/s键） - 任何时候都能工作（与思源保持一致）
-  if (key === '0' || key === 'x' || key === 's') {
-    e.preventDefault();
-    e.stopPropagation();
-    logger.debug('[SiYuanMemo][ReviewView] Skipping card...');
-    void hook.skip();
-  }
+  handleReviewKeyAction('hotkey', key, e);
 }
 
 // 🆕 处理标准键盘事件
 function handleKeyDown(e: KeyboardEvent) {
   // 忽略在输入框中的按键
-  const target = e.target as HTMLElement;
-  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+  if (isTypingTarget(e.target)) {
     return;
   }
 
   const key = e.key.toLowerCase();
-  
-  // 🆕 防重复触发检查
-  if (shouldIgnoreDuplicateKey(key)) {
-    return;
-  }
-  
-  logger.debug('[SiYuanMemo][ReviewView] KeyDown:', key, 'answerShown:', hook.context.value.showAnswer);
-
-  // 检查是否为 Topic 卡片
-  const cardMeta = state.value.actions.cardMeta;
-  const isTopicCard = cardMeta?.type === 'topic' || cardMeta?.cardType === 'topic';
-
-  // 显示答案或评分（空格/回车）
-  if (key === ' ' || key === 'enter') {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    if (!hook.context.value.showAnswer) {
-      // 答案未显示：显示答案或直接评分（Topic卡片）
-      if (isTopicCard) {
-        logger.debug('[SiYuanMemo][ReviewView] Topic card - grading with 3 (Good)');
-        void hook.grade(3);
-      } else {
-        logger.debug('[SiYuanMemo][ReviewView] Revealing answer...');
-        hook.reveal();
-      }
-    } else {
-      // 答案已显示：评分为 Good (3)
-      logger.debug('[SiYuanMemo][ReviewView] Answer shown - grading with 3 (Good)');
-      void hook.grade(3);
-    }
-    return;
-  }
-
-  // 评分（1/2/3/4） - 只在答案已显示后才能评分
-  if (['1', '2', '3', '4'].includes(key)) {
-    if (hook.context.value.showAnswer) {
-      e.preventDefault();
-      e.stopPropagation();
-      logger.debug('[SiYuanMemo][ReviewView] Grading with rating:', key);
-      void hook.grade(Number(key));
-    } else {
-      logger.debug('[SiYuanMemo][ReviewView] Rating key pressed but answer not shown, ignoring');
-    }
-    return;
-  }
-
-  // 跳过（0/x/s键） - 任何时候都能工作（与思源保持一致）
-  if (key === '0' || key === 'x' || key === 's') {
-    e.preventDefault();
-    e.stopPropagation();
-    logger.debug('[SiYuanMemo][ReviewView] Skipping card...');
-    void hook.skip();
-  }
+  handleReviewKeyAction('keydown', key, e);
 }
 
 function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) {
@@ -673,31 +635,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
 
   if (!fsrsPlugin) {
     logger.error('[SiYuanMemo][ReviewView] FSRS plugin instance not found');
-    // 降级方案：打开文档
-    const cardMeta = state.value.actions.cardMeta;
-    const blockId = cardMeta?.blockID || state.value.content.data;
-
-    if (blockId) {
-      menu.addItem({
-        id: 'openByNewWindow',
-        icon: 'iconOpenWindow',
-        label: t('openInNewWindow', 'Open in New Window'),
-        click() {
-          if (props.app) {
-            openWindow({
-              doc: { id: blockId },
-            });
-          }
-        },
-      });
-    }
-
-    const target = ev.currentTarget as HTMLElement;
-    const rect = target.getBoundingClientRect();
-    menu.open({
-      x: rect.left,
-      y: rect.bottom,
-    });
+    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
     return;
   }
 
@@ -786,6 +724,13 @@ function openSrsEditorDialog(blockId: string) {
   }
 
   const context = (props.plugin as any)?.getContext?.();
+  const reviewService = context?.getReviewService?.();
+  const siyuanApi = reviewService?.getSiyuanApi?.();
+  if (!siyuanApi) {
+    logger.error('[SiYuanMemo][ReviewView] ERROR: review siyuan api is unavailable');
+    return;
+  }
+
   const card = context?.getStorage?.()?.getCardByBlockId(blockId);
   if (!card) {
     logger.error('[SiYuanMemo][ReviewView] ERROR: Card not found for blockId:', blockId);
@@ -799,12 +744,12 @@ function openSrsEditorDialog(blockId: string) {
       card: {
         id: card.id,
         blockId: blockId,
-        deckId: riff.BUILTIN_DECK_ID,
+        deckId: siyuanApi.BUILTIN_DECK_ID,
       },
-      deckId: riff.BUILTIN_DECK_ID,
+      deckId: siyuanApi.BUILTIN_DECK_ID,
       i18n: props.i18n || {},
       plugin: props.plugin,
-      reviewService: context?.getReviewService?.(),
+      reviewService,
     },
     width: '860px',
     height: '80vh',

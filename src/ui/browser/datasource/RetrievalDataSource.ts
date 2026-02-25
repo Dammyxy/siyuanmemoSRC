@@ -7,8 +7,11 @@ import {
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import type { FSRSCard } from '../../../types/card';
 import {
+  adjustBrowserCardsDue,
   applyQueueFilters,
   deleteBrowserCards,
+  removeCardsFromQueue,
+  setBrowserCardsPriority,
   sortBrowserCards,
 } from './DataSourceUtils';
 
@@ -118,10 +121,10 @@ export class RetrievalDataSource implements ICardDataSource {
 
       // 从队列移除
       if (actionId === 'remove-from-current-queue') {
-        for (const row of selectedRows) {
-          await queue.removeCard(row.fsrsCardId || row.id);
-        }
-        return;
+        const result = await removeCardsFromQueue(queue as any, selectedRows, {
+          scope: 'RetrievalDataSource',
+        });
+        return { updated: result.removedCount, skipped: result.failedCount };
       }
 
       // 删除卡片（使用 CardApplicationService 批量删除）
@@ -145,50 +148,18 @@ export class RetrievalDataSource implements ICardDataSource {
 
       // 设置优先级
       if (actionId === 'set-priority') {
-        const priority = Math.max(0, Math.min(100, Math.floor(Number(context?.priority))));
-        for (const row of selectedRows) {
-          const card = await this.manager.getCard(row.fsrsCardId || row.id);
-          card.priority = priority;
-          await this.manager.updateCard(card);
-          // 更新内存中的 priority
-          row.priority = priority;
-        }
-        return { updated: selectedRows, skipped: [] };
+        return setBrowserCardsPriority(this.manager as any, selectedRows, context?.priority, {
+          scope: 'RetrievalDataSource',
+        });
       }
 
       // 时间调整
       if (actionId === 'postpone' || actionId === 'advance' || actionId === 'spread') {
-        const days = Math.floor(Number(context?.days || 1));
-        const updated: BrowserCard[] = [];
-        const now = Date.now();
-        
-        for (let i = 0; i < selectedRows.length; i++) {
-          const row = selectedRows[i];
-          const card = await this.manager.getCard(row.fsrsCardId || row.id);
-          
-          let newDue = card.due;
-          if (actionId === 'postpone') {
-            // ✅ 从 due 和今天中较晚的日期开始推迟
-            // 这样过期的卡片会从今天开始计算，未过期的卡片从原 due 日期计算
-            const baseDue = Math.max(card.due, now);
-            newDue = baseDue + days * 24 * 60 * 60 * 1000;
-          } else if (actionId === 'advance') {
-            newDue = card.due - days * 24 * 60 * 60 * 1000;
-          } else if (actionId === 'spread') {
-            const offset = Math.floor((i / selectedRows.length) * days * 24 * 60 * 60 * 1000);
-            newDue = card.due + offset;
-          }
-          
-          card.due = newDue;
-          await this.manager.updateCard(card);
-          
-          // 更新内存中的 due
-          row.due = new Date(newDue);
-          updated.push(row);
-        }
-        
-        // ✅ 返回结果
-        return { updated, skipped: [] };
+        return adjustBrowserCardsDue(this.manager as any, selectedRows, actionId, context, {
+          scope: 'RetrievalDataSource',
+          postponeFromNow: true,
+          allowSpread: true,
+        });
       }
     } catch (error) {
       console.error('[SiYuanMemo][RetrievalDataSource] Failed to perform action:', error);

@@ -27,13 +27,8 @@ import type {
   BrowserStats,
   PresetFilter,
 } from './GetBrowserCardsQuery';
-import { sql } from '@/core/siyuan/api';
-import {
-  ATTR_PRIORITY,
-  ATTR_SUSPENDED,
-  ATTR_CARD_TYPE,
-  ATTR_A_FACTOR,
-} from '@/core/siyuan/block';
+import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
+import { QuerySiyuanAdapter } from '@/infrastructure/siyuan/QuerySiyuanAdapter';
 import {
   calculateRetrievability,
   formatDueDate,
@@ -74,7 +69,8 @@ export class GetBrowserCardsQueryHandler {
     private readonly storageManager: BrowserCardStoragePort,
     private readonly cardScheduleService: CardScheduleService,
     private readonly cardFilterService: CardFilterService,
-    private readonly cardSortService: CardSortService
+    private readonly cardSortService: CardSortService,
+    private readonly siyuanApi: QuerySiyuanPort = new QuerySiyuanAdapter()
   ) {}
   
   /**
@@ -259,7 +255,7 @@ export class GetBrowserCardsQueryHandler {
           WHERE id IN (${idsStr})
         `;
         
-        const result = await sql(query);
+        const result = await this.siyuanApi.sql(query);
         
         // 创建 blockId -> rootId 的映射
         const rootIdMap = new Map<string, string>();
@@ -323,7 +319,7 @@ export class GetBrowserCardsQueryHandler {
           WHERE id IN (${idsStr})
         `;
         
-        const result = await sql(query);
+        const result = await this.siyuanApi.sql(query);
         
         // 创建 blockId -> content 的映射
         const contentMap = new Map<string, string>();
@@ -415,7 +411,7 @@ export class GetBrowserCardsQueryHandler {
     const rootId = (card.meta?.rootId as string) || '';
     
     const cardType = card.type as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined;
-    const finalCardType = (customAttrs[ATTR_CARD_TYPE] as any) || cardType;
+    const finalCardType = (customAttrs[this.siyuanApi.ATTR_CARD_TYPE] as any) || cardType;
     
     return {
       id: card.id,
@@ -444,8 +440,8 @@ export class GetBrowserCardsQueryHandler {
       firstReview: lastReviewDate,
       firstReviewFormatted,
       
-      priority: parseInt(customAttrs[ATTR_PRIORITY] || '50') || 50,
-      suspended: customAttrs[ATTR_SUSPENDED] === 'true',
+      priority: parseInt(customAttrs[this.siyuanApi.ATTR_PRIORITY] || '50') || 50,
+      suspended: customAttrs[this.siyuanApi.ATTR_SUSPENDED] === 'true',
       
       cardType: finalCardType,
       aFactor: card.aFactor,  // 🔧 修复：从卡片数据读取，不再从块属性读取
@@ -502,7 +498,7 @@ export class GetBrowserCardsQueryHandler {
           GROUP BY b.id
         `;
         
-        const result = await sql(query);
+        const result = await this.siyuanApi.sql(query);
         
         for (const row of result) {
           const blockId = row.id;

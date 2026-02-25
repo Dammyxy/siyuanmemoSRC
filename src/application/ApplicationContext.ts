@@ -56,6 +56,7 @@ import { SettingsService } from '@/application/services/SettingsService';
 import { ReviewLogService } from '@/application/services/ReviewLogService';
 import { RiffBlacklistService } from '@/application/services/RiffBlacklistService';
 import { CardContentQueryService } from '@/application/queries/CardContentQueryService';
+import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('ApplicationContext');
@@ -875,7 +876,7 @@ export class ApplicationContext {
     logger.info('[ApplicationContext] Checking riffConfig:', { hasRiffConfig: !!riffConfig });
     if (riffConfig) {
       logger.info('[ApplicationContext] Initializing HybridSyncService...');
-      const { riff } = await import('@/core/siyuan');
+      const syncSiyuanApi = new XiuyuanSyncSiyuanAdapter();
       
       // 获取依赖服务
       const cardService = context.getCardService();
@@ -900,10 +901,10 @@ export class ApplicationContext {
       logger.info('[ApplicationContext] Reusing existing InMemoryDeletionTracker in initializeRiffSync');
       
       // 创建 HybridSyncService
-      // 构造函数签名：(config, eventBus, xiuyuanRepository, riffBlacklistService, cardTypeDetectionService, deletionTracker)
+      // 构造函数签名：(config, eventBus, xiuyuanRepository, riffBlacklistService, cardTypeDetectionService, deletionTracker, siyuanApi)
       hybridSyncService = new HybridSyncService(
         {
-          deckId: riff.BUILTIN_DECK_ID,
+          deckId: syncSiyuanApi.BUILTIN_DECK_ID,
           storage: unifiedStorageManager as any,  // ✅ 使用新架构 UnifiedStorageManager
           riffBlacklistService: context.getRiffBlacklistService(),
           incrementalSync: {
@@ -917,7 +918,8 @@ export class ApplicationContext {
         xiuyuanRepository,                     // ✅ 第3个参数：XiuyuanRepository
         context.getRiffBlacklistService(),     // ✅ 第4个参数：RiffBlacklistService
         cardTypeDetectionService,              // ✅ 第5个参数：CardTypeDetectionService
-        deletionTracker                        // ✅ 第6个参数：IDeletionTracker
+        deletionTracker,
+        syncSiyuanApi
       );
       
       // 将 HybridSyncService 设置到 context（使用类型断言）

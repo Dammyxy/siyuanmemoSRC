@@ -27,11 +27,11 @@ import type { StorageManager } from '../../core/storage/manager';
 import type { CardApplicationService } from '../services/CardApplicationService';
 import { CardFilterService } from '../../core/card/domain/services/CardFilterService';
 import { BlockRepository } from '../../core/storage/infrastructure/BlockRepository';
-import { batchSetRiffCardsDueTime } from '../../core/siyuan/riff';
 import { getCurrentDayEnd } from '../../utils/dateUtils';
 import { getDayStartHour } from '../../utils/configUtils';
-import { getBlockText } from '../../core/siyuan/block';
 import { migrateCard } from '../../utils/cardMigration';
+import type { QuerySiyuanPort } from '../ports/QuerySiyuanPort';
+import { QuerySiyuanAdapter } from '@/infrastructure/siyuan/QuerySiyuanAdapter';
 
 /**
  * DataAccessFacade 类
@@ -115,6 +115,8 @@ export class DataAccessFacade implements IDataRouter {
     private cardsCache: FSRSCard[] | null = null;
     private cardsCacheTimestamp: number = 0;
     private readonly CACHE_TTL = 1000; // 缓存有效期 1 秒
+
+    private readonly siyuanApi: QuerySiyuanPort;
     
     // ========================================================================
     // 构造函数
@@ -128,13 +130,20 @@ export class DataAccessFacade implements IDataRouter {
      * @param plugin 插件实例(用于访问配置)
      * @param settingsService 设置服务实例(用于访问设置)
      */
-    constructor(cardService: CardApplicationService, storage: StorageManager, plugin?: any, settingsService?: any) {
+    constructor(
+        cardService: CardApplicationService,
+        storage: StorageManager,
+        plugin?: any,
+        settingsService?: any,
+        siyuanApi: QuerySiyuanPort = new QuerySiyuanAdapter()
+    ) {
         this.cardService = cardService;
         this.cardFilterService = new CardFilterService();
         this.blockRepository = new BlockRepository();
         this.storage = storage;
         this.plugin = plugin;
         this.settingsService = settingsService;
+        this.siyuanApi = siyuanApi;
         this.applicationContext = null;  // 将在 setApplicationContext() 中设置
         
         // 🔍 调试日志：检查 plugin 是否正确传递
@@ -372,22 +381,17 @@ export class DataAccessFacade implements IDataRouter {
      * @see 需求 17.3
      */
     async syncToRiff(cardId: string): Promise<void> {
-        try {
-            const card = await this.getCard(cardId);
-            
-            // 将 due 时间戳转换为 ISO 字符串
-            const dueDate = new Date(card.due).toISOString();
-            
-            // 使用 Riff API 同步
-            await batchSetRiffCardsDueTime([
-                { id: cardId, due: dueDate }
-            ]);
-            
-            console.log(`[SiYuanMemo][AdvancedDataRouter] Synced card ${cardId} to Riff`);
-        } catch (error) {
-            // 同步失败不应该影响本地操作
-            console.error(`[SiYuanMemo][AdvancedDataRouter] Failed to sync card ${cardId} to Riff:`, error);
-        }
+        const card = await this.getCard(cardId);
+        
+        // 将 due 时间戳转换为 ISO 字符串
+        const dueDate = new Date(card.due).toISOString();
+        
+        // 使用 Riff API 同步
+        await this.siyuanApi.batchSetRiffCardsDueTime([
+            { id: cardId, due: dueDate }
+        ]);
+        
+        console.log(`[SiYuanMemo][AdvancedDataRouter] Synced card ${cardId} to Riff`);
     }
     
     // ========================================================================
@@ -584,8 +588,7 @@ export class DataAccessFacade implements IDataRouter {
             const cardContentQueryService = context?.getCardContentQueryService?.();
             
             if (!cardContentQueryService) {
-                console.error('[SiYuanMemo][DataAccessFacade] CardContentQueryService not available!');
-                return;
+                throw new Error('[SiYuanMemo][DataAccessFacade] CardContentQueryService is required but not available');
             }
             
             const blockIds = cardsNeedingContent.map(c => c.blockId);
@@ -641,86 +644,6 @@ export class DataAccessFacade implements IDataRouter {
         }
         
         console.log(`[SiYuanMemo][DataAccessFacade] ✅ Filled rootId for ${cardsNeedingRootId.length} cards, content for ${cardsNeedingContent.length} cards`);
-    }
-    
-    /**
-     * 填充缺失的 content（降级方案）
-     * 
-     * 当 CardContentQueryService 不可用时使用此方法。
-     * 
-     * @private
-     * @param cards 需要填充的卡片数组
-     */
-    private async fillMissingContentFallback(cards: FSRSCard[]): Promise<void> {
-        // 批量获取块内容
-        const contentPromises = cards.map(async (card) => {
-            try {
-                const content = await getBlockText(card.blockId);
-                return { blockId: card.blockId, content };
-            } catch (error) {
-                console.warn(`[SiYuanMemo][DataAccessFacade] Failed to get content for block ${card.blockId}:`, error);
-                return { blockId: card.blockId, content: '' };
-            }
-        });
-        
-        const contentResults = await Promise.all(contentPromises);
-        const contentMap = new Map(contentResults.map(r => [r.blockId, r.content]));
-        
-        for (const card of cards) {
-            const content = contentMap.get(card.blockId) || '';
-            
-            if (!card.meta) {
-                card.meta = {};
-            }
-            card.meta.content = content;
-        }
-        
-        console.log(`[SiYuanMemo][DataAccessFacade] ✅ Filled content for ${cards.length} cards (fallback)`);
-    }
-    
-    /**
-     * 填充缺失的 rootId 和 content（降级方案 - 已废弃）
-     * 
-     * 当 CardContentQueryService 不可用时使用此方法。
-     * 
-     * @private
-     * @param cards 需要填充的卡片数组
-     * @param rootIdMap rootId 映射
-     * @deprecated 使用 fillMissingContentFallback 代替
-     */
-    private async fillMissingRootIdsFallback(cards: FSRSCard[], rootIdMap: Map<string, string>): Promise<void> {
-        // 批量获取块内容
-        const contentPromises = cards.map(async (card) => {
-            try {
-                const content = await getBlockText(card.blockId);
-                return { blockId: card.blockId, content };
-            } catch (error) {
-                console.warn(`[SiYuanMemo][DataAccessFacade] Failed to get content for block ${card.blockId}:`, error);
-                return { blockId: card.blockId, content: '' };
-            }
-        });
-        
-        const contentResults = await Promise.all(contentPromises);
-        const contentMap = new Map(contentResults.map(r => [r.blockId, r.content]));
-        
-        for (const card of cards) {
-            const rootId = rootIdMap.get(card.blockId) || '';
-            const content = contentMap.get(card.blockId) || '';
-            
-            if (!card.meta) {
-                card.meta = {};
-            }
-            card.meta.rootId = rootId;
-            card.meta.content = content;
-            
-            // ✅ 不需要调用 storage.setCard()
-            // 原因：
-            // 1. card 是内存中对象的引用，直接修改即可
-            // 2. rootId 和 content 是临时数据，用于 UI 显示，不需要持久化
-            // 3. 调用 setCard() 会触发不必要的更新操作，可能覆盖其他字段（如 priority）
-        }
-        
-        console.log(`[SiYuanMemo][DataAccessFacade] ✅ Filled rootId and content for ${cards.length} cards (fallback)`);
     }
 }
 

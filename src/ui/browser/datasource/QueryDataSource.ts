@@ -1,16 +1,55 @@
-﻿import type { BrowserCard } from '../types';
-import { CardState, STATE_LABELS, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from '../types';
-import { sql } from '@/core/siyuan/api';
-import { loadQueueCardsSimple } from '../browserService';
+import type { BrowserCard } from '../types';
+import {
+  CardState,
+  STATE_LABELS,
+  calculateRetrievability,
+  formatDueDate,
+  formatHistoryDate,
+  truncateContent,
+} from '../types';
+import { loadQueueCardsSimple, runBrowserSql } from '../browserService';
 import type { ICardDataSource } from '@/application/interfaces/ICardDataSource';
-import type { CardBrowserAction, SortModel } from './types';
+import type { CardBrowserAction, FetchRowsOptions, FetchRowsResult } from './types';
 import { sortBrowserCards } from './DataSourceUtils';
 
-function toBrowserCardFromRow(row: any): BrowserCard | null {
-  const blockId = String(row?.id || row?.block_id || row?.blockId || '');
-  if (!blockId) return null;
+type SqlRowLike = {
+  id?: unknown;
+  block_id?: unknown;
+  blockId?: unknown;
+  content?: unknown;
+  fcontent?: unknown;
+  markdown?: unknown;
+  root_id?: unknown;
+  rootId?: unknown;
+};
 
-  const fullContent = String(row?.content || row?.fcontent || row?.markdown || '');
+function isObjectLike(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function toSqlRows(raw: unknown): SqlRowLike[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw.filter(isObjectLike) as SqlRowLike[];
+}
+
+function readString(value: unknown): string {
+  return typeof value === 'string' ? value : value == null ? '' : String(value);
+}
+
+function readBlockId(row: SqlRowLike): string {
+  return readString(row.id || row.block_id || row.blockId);
+}
+
+function toBrowserCardFromRow(row: SqlRowLike): BrowserCard | null {
+  const blockId = readBlockId(row);
+  if (!blockId) {
+    return null;
+  }
+
+  const fullContent = readString(row.content || row.fcontent || row.markdown);
   const content = truncateContent(fullContent);
   const due = new Date();
   const state = CardState.New;
@@ -24,11 +63,11 @@ function toBrowserCardFromRow(row: any): BrowserCard | null {
     deckId: '',
     content,
     fullContent,
-    rootId: String(row?.root_id || row?.rootId || ''),
+    rootId: readString(row.root_id || row.rootId),
     state,
     stateLabel: STATE_LABELS[state] || 'New',
     due,
-    dueFormatted: formatDueDate(due),  // ✅ 使用 formatDueDate
+    dueFormatted: formatDueDate(due),
     stability,
     difficulty: 0,
     retrievability: calculateRetrievability(stability, elapsedDays),
@@ -37,10 +76,10 @@ function toBrowserCardFromRow(row: any): BrowserCard | null {
     elapsedDays,
     scheduledDays: 0,
     lastReview: null,
-    lastReviewFormatted: formatHistoryDate(null),  // ✅ 使用 formatHistoryDate
+    lastReviewFormatted: formatHistoryDate(null),
     interval: 0,
     firstReview: null,
-    firstReviewFormatted: formatHistoryDate(null),  // ✅ 使用 formatHistoryDate
+    firstReviewFormatted: formatHistoryDate(null),
     priority: 50,
     suspended: false,
     tags: [],
@@ -49,8 +88,6 @@ function toBrowserCardFromRow(row: any): BrowserCard | null {
 
 /**
  * QueryDataSource - SQL 查询数据源实现
- * 
- * @implements {ICardDataSource}
  */
 export class QueryDataSource implements ICardDataSource {
   id = 'query';
@@ -62,28 +99,26 @@ export class QueryDataSource implements ICardDataSource {
     this.stmt = stmt;
   }
 
-  async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
-    const raw = await sql(this.stmt);
-    const rawRows = Array.isArray(raw) ? raw : [];
-    const blockIds: string[] = [];
-    for (const r of rawRows) {
-      const id = String(r?.id || r?.block_id || r?.blockId || '');
-      if (id) blockIds.push(id);
-    }
+  async fetchRows(params: FetchRowsOptions): Promise<FetchRowsResult> {
+    const rawRows = toSqlRows(await runBrowserSql(this.stmt));
+    const blockIds = rawRows.map(readBlockId).filter(Boolean);
 
     const joined = await loadQueueCardsSimple(blockIds);
-    const byBlockId = new Map(joined.map((c) => [c.blockId, c]));
+    const byBlockId = new Map(joined.map((card) => [card.blockId, card]));
 
     const rows: BrowserCard[] = [];
-    for (const r of rawRows) {
-      const blockId = String(r?.id || r?.block_id || r?.blockId || '');
+    for (const rawRow of rawRows) {
+      const blockId = readBlockId(rawRow);
       const existing = blockId ? byBlockId.get(blockId) : undefined;
       if (existing) {
         rows.push(existing);
         continue;
       }
-      const card = toBrowserCardFromRow(r);
-      if (card) rows.push(card);
+
+      const fallbackCard = toBrowserCardFromRow(rawRow);
+      if (fallbackCard) {
+        rows.push(fallbackCard);
+      }
     }
 
     const sorted = sortBrowserCards(rows, params?.sortModel || []);
@@ -91,9 +126,7 @@ export class QueryDataSource implements ICardDataSource {
   }
 
   getSupportedActions(): CardBrowserAction[] {
-    return [
-      { id: 'open', label: 'Open', icon: 'iconOpen' },
-    ];
+    return [{ id: 'open', label: 'Open', icon: 'iconOpen' }];
   }
 
   async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<void> {
@@ -101,12 +134,7 @@ export class QueryDataSource implements ICardDataSource {
     void context;
     if (actionId === 'open') return;
   }
-  
-  /**
-   * 获取数据源 ID
-   * 
-   * @returns 数据源 ID
-   */
+
   getId(): string {
     return this.id;
   }

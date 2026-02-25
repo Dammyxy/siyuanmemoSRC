@@ -25,7 +25,6 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { sql, getBlockAttrs } from '@/core/siyuan/api';
 import { createScheduler } from '@/core/scheduler';
 import { DEFAULT_SETTINGS } from '@/types';
 import type FSRSPlugin from '@/index';
@@ -46,6 +45,10 @@ const t = (key: string, fallback: string) => props.i18n?.[key] || fallback;
 
 function getStorage() {
   return props.plugin?.getContext?.()?.getStorage?.();
+}
+
+function getSiyuanApi() {
+  return props.plugin?.getContext?.()?.getReviewService?.()?.getSiyuanApi?.();
 }
 
 const loading = ref(true);
@@ -74,8 +77,13 @@ const fmtDate = (d: Date | null) => d?.toLocaleString() || '-';
 
 onMounted(async () => {
   try {
+    const siyuanApi = getSiyuanApi();
+    if (!siyuanApi) {
+      throw new Error(t('envNotInit', 'Environment not initialized'));
+    }
+
     // 获取块信息
-    const rows = await sql(`SELECT created, updated, tag FROM blocks WHERE id = '${props.blockId}'`);
+    const rows = await siyuanApi.sql(`SELECT created, updated, tag FROM blocks WHERE id = '${props.blockId}'`);
     const block = rows?.[0];
     if (!block) {
       error.value = t('blockNotFound', '未找到块信息');
@@ -83,7 +91,7 @@ onMounted(async () => {
     }
 
     // ✅ 新架构：从本地存储获取卡片数据
-    const attrs = await getBlockAttrs(props.blockId).catch(() => ({}));
+    const attrs = await siyuanApi.getBlockAttrs(props.blockId).catch(() => ({}));
     const card = getStorage()?.getCardByBlockId(props.blockId);
     
     // 获取卡片组名（暂时使用默认值，因为新架构中没有 deckID 概念）

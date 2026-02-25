@@ -17,6 +17,8 @@
 import type { CardReadPort, CardWritePort } from '@/core/storage/ports';
 import type { SchedulerRouter } from '@/core/scheduler';
 import type { FSRSCard, Rating } from '@/types';
+import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
+import { ReviewSiyuanAdapter } from '@/infrastructure/siyuan/ReviewSiyuanAdapter';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('ReviewApplicationService');
@@ -68,7 +70,8 @@ export class ReviewApplicationService {
    */
   constructor(
     private readonly storageManager: CardReadPort & CardWritePort,
-    private readonly schedulerRouter: SchedulerRouter
+    private readonly schedulerRouter: SchedulerRouter,
+    private readonly siyuanApi: ReviewSiyuanPort = new ReviewSiyuanAdapter(),
   ) {}
   
   /**
@@ -175,5 +178,9 @@ export class ReviewApplicationService {
       return null;
     }
     return this.storageManager.getCardByBlockId(blockId) || null;
+  }
+
+  getSiyuanApi(): ReviewSiyuanPort {
+    return this.siyuanApi;
   }
 }

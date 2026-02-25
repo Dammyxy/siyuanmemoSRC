@@ -57,7 +57,6 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { getBlockDOM, getBlockBreadcrumb } from '@/core/siyuan/api';
 import type { XiuyuanCardMeta } from '@/core/xiuyuan/cardMeta';
 import { createLogger } from '@/utils/logger';
 
@@ -65,12 +64,17 @@ const props = defineProps<{
   meta: XiuyuanCardMeta;
   showAnswer: boolean;
   questionBlockId: string;
+  plugin?: any;
 }>();
 
 const logger = createLogger('XiuyuanListTemplateCard');
 
 const questionHtml = ref('');
 const breadcrumbs = ref<Array<{ id: string; name: string; type: string }>>([]);
+
+function getSiyuanApi() {
+  return props.plugin?.getContext?.()?.getReviewService?.()?.getSiyuanApi?.();
+}
 
 // 已学过的子项
 const previousChildren = computed(() => {
@@ -99,12 +103,17 @@ const remainingCount = computed(() => {
 // 加载问题块的 HTML 和面包屑
 onMounted(async () => {
   try {
+    const siyuanApi = getSiyuanApi();
+    if (!siyuanApi) {
+      throw new Error('Environment not initialized');
+    }
+
     // 加载问题块 HTML
-    const result = await getBlockDOM(props.questionBlockId);
+    const result = await siyuanApi.getBlockDOM(props.questionBlockId);
     questionHtml.value = result?.dom || '';
     
     // 加载面包屑
-    const breadcrumbResult = await getBlockBreadcrumb(props.questionBlockId);
+    const breadcrumbResult = await siyuanApi.getBlockBreadcrumb(props.questionBlockId);
     
     if (breadcrumbResult && Array.isArray(breadcrumbResult)) {
       // 排除最后两项：

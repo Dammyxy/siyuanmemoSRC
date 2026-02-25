@@ -3,27 +3,20 @@
  * 
  * 重构版本：使用统一数据源架构
  * - 使用 UnifiedDataSourceManager 获取卡片数据
- * - 批量操作优先走 UnifiedDataSourceManager（无则回退到全局上下文）
+ * - 批量操作统一走显式注入的 UnifiedDataSourceManager
  * - 移除直接调用 Riff API
  * 
  * @see RIFF_API_USAGE_AUDIT.md
  */
 
 import type { Plugin } from 'siyuan';
+import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { FSRSCard } from '@/types';
 import { PerformanceMonitor } from '@/utils/performance';
 import { getCurrentDayEnd } from '@/utils/dateUtils';
 import { getDayStartHour } from '@/utils/configUtils';
 import { createLogger } from '@/utils/logger';
-import { sql, setBlockAttrs } from '@/core/siyuan/api';
-import {
-    ATTR_CARD_ID,
-    ATTR_PRIORITY,
-    ATTR_SUSPENDED,
-    ATTR_CARD_TYPE,
-    ATTR_A_FACTOR
-} from '@/core/siyuan/block';
 import { batchDetectCardType, initializeAFactor } from '@/core/card-builder';
 import {
     type BrowserCard,
@@ -42,8 +35,19 @@ import {
 const logger = createLogger('browserService');
 
 let globalUnifiedDataSourceManager: UnifiedDataSourceManager | null = null;
+let globalBrowserSiyuanApi: BrowserSiyuanPort | null = null;
 let globalQueryText: string = '';
 type BrowserBatchManagerPort = Pick<UnifiedDataSourceManager, 'getCards' | 'updateCard' | 'deleteCard'>;
+
+type BrowserAttrKeys = {
+    cardId: string;
+    priority: string;
+    suspended: string;
+    cardType: string;
+    aFactor: string;
+};
+
+let cachedAttrKeys: BrowserAttrKeys | null = null;
 
 /**
  * 设置全局浏览器上下文
@@ -56,12 +60,18 @@ type BrowserBatchManagerPort = Pick<UnifiedDataSourceManager, 'getCards' | 'upda
  */
 export function setGlobalBrowserContext(
     manager: UnifiedDataSourceManager,
-    queryText: string = ''
+    queryText: string = '',
+    siyuanApi?: BrowserSiyuanPort
 ): void {
     globalUnifiedDataSourceManager = manager;
     globalQueryText = queryText;
+    if (siyuanApi) {
+        globalBrowserSiyuanApi = siyuanApi;
+        cachedAttrKeys = null;
+    }
     logger.debug('Global context updated:', {
         hasManager: !!manager,
+        hasSiyuanApi: !!globalBrowserSiyuanApi,
         queryText: queryText || '(empty)'
     });
 }
@@ -71,12 +81,78 @@ export function setGlobalBrowserContext(
  */
 export function clearGlobalBrowserContext(): void {
     globalUnifiedDataSourceManager = null;
+    globalBrowserSiyuanApi = null;
+    cachedAttrKeys = null;
     globalQueryText = '';
     logger.debug('Global context cleared');
 }
 
+function resolveSiyuanApi(plugin?: Plugin): BrowserSiyuanPort {
+    if (globalBrowserSiyuanApi) {
+        return globalBrowserSiyuanApi;
+    }
+
+    const context = (plugin as any)?.getContext?.();
+    const browserService = context?.getBrowserService?.();
+    const siyuanApi = browserService?.getSiyuanApi?.() as BrowserSiyuanPort | undefined;
+    if (siyuanApi) {
+        globalBrowserSiyuanApi = siyuanApi;
+        return siyuanApi;
+    }
+
+    throw new Error('Browser Siyuan API not initialized. Please initialize browser context with siyuanApi.');
+}
+
+function getAttrKeys(plugin?: Plugin): BrowserAttrKeys {
+    if (cachedAttrKeys) {
+        return cachedAttrKeys;
+    }
+
+    const siyuanApi = resolveSiyuanApi(plugin);
+    cachedAttrKeys = {
+        cardId: siyuanApi.ATTR_CARD_ID,
+        priority: siyuanApi.ATTR_PRIORITY,
+        suspended: siyuanApi.ATTR_SUSPENDED,
+        cardType: siyuanApi.ATTR_CARD_TYPE,
+        aFactor: siyuanApi.ATTR_A_FACTOR,
+    };
+    return cachedAttrKeys;
+}
+
+export async function runBrowserSql(stmt: string): Promise<any[]> {
+    return resolveSiyuanApi().sql(stmt);
+}
+
+export async function pushBrowserMsg(msg: string, timeout?: number): Promise<void> {
+    await resolveSiyuanApi().pushMsg(msg, timeout);
+}
+
+export async function pushBrowserErrMsg(msg: string, timeout?: number): Promise<void> {
+    await resolveSiyuanApi().pushErrMsg(msg, timeout);
+}
+
+export async function setBrowserCardType(
+    blockId: string,
+    cardType: 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage'
+): Promise<void> {
+    const siyuanApi = resolveSiyuanApi();
+    await siyuanApi.setBlockAttrs(blockId, { [siyuanApi.ATTR_CARD_TYPE]: cardType });
+}
+
+export async function setBrowserCardPriority(blockId: string, priority: number): Promise<void> {
+    const siyuanApi = resolveSiyuanApi();
+    await siyuanApi.setBlockAttrs(blockId, { [siyuanApi.ATTR_PRIORITY]: String(priority) });
+}
+
+export async function setBrowserCardSuspended(blockId: string, suspended: boolean): Promise<void> {
+    const siyuanApi = resolveSiyuanApi();
+    await siyuanApi.setBlockAttrs(blockId, {
+        [siyuanApi.ATTR_SUSPENDED]: suspended ? 'true' : '',
+    });
+}
+
 function resolveBatchManager(manager?: BrowserBatchManagerPort): BrowserBatchManagerPort | null {
-    return manager ?? globalUnifiedDataSourceManager;
+    return manager ?? null;
 }
 
 async function buildBlockCardMap(
@@ -222,6 +298,7 @@ const cardCache = new CardCacheManager();
  * - 延迟计算非关键字段
  */
 function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>): BrowserCard {
+    const attrKeys = getAttrKeys();
     // 🆕 优化：使用常量避免重复计算
     const now = Date.now();
     const MS_PER_DAY = 86400000;  // 1000 * 60 * 60 * 24
@@ -259,7 +336,7 @@ function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>):
     
     // 🔧 修复：优先使用块属性，但如果块属性不存在，使用 FSRSCard.type
     // 这样可以确保所有概念卡都能被正确识别
-    const finalCardType = (customAttrs[ATTR_CARD_TYPE] as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined) || cardType;
+    const finalCardType = (customAttrs[attrKeys.cardType] as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined) || cardType;
     
     return {
         id: card.id,
@@ -290,7 +367,7 @@ function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>):
         
         // ✅ 优先级从 FSRSCard 读取，不再使用块属性
         priority: card.priority,
-        suspended: customAttrs[ATTR_SUSPENDED] === 'true',
+        suspended: customAttrs[attrKeys.suspended] === 'true',
         
         cardType: finalCardType,
         aFactor: card.aFactor,  // 🔧 修复：从卡片数据读取，不再从块属性读取
@@ -440,6 +517,7 @@ async function fetchBlockInfoBatched(
         return { attrsMap, rootIdMap, tagsMap, contentMap };
     }
 
+    const attrKeys = getAttrKeys();
     const BATCH_SIZE = 500;
     
     for (let i = 0; i < blockIds.length; i += BATCH_SIZE) {
@@ -448,17 +526,17 @@ async function fetchBlockInfoBatched(
 
         const [blocksResult, attrsResult] = await Promise.all([
             // 🆕 添加 type 和 content 字段，用于识别文档块并获取标题
-            sql(`SELECT id, root_id, ial, type, content FROM blocks WHERE id IN (${inClause})`),
-            sql(`
+            runBrowserSql(`SELECT id, root_id, ial, type, content FROM blocks WHERE id IN (${inClause})`),
+            runBrowserSql(`
                 SELECT block_id, name, value
                 FROM attributes
                 WHERE block_id IN (${inClause})
                 AND name IN (
-                    '${ATTR_CARD_ID}',
-                    '${ATTR_PRIORITY}',
-                    '${ATTR_SUSPENDED}',
-                    '${ATTR_CARD_TYPE}',
-                    '${ATTR_A_FACTOR}'
+                    '${attrKeys.cardId}',
+                    '${attrKeys.priority}',
+                    '${attrKeys.suspended}',
+                    '${attrKeys.cardType}',
+                    '${attrKeys.aFactor}'
                 )
             `)
         ]);
@@ -518,6 +596,9 @@ export async function loadCards(
         console.error('[SiYuanMemo][CardBrowser] Plugin instance is required');
         return [];
     }
+
+    // 从应用层服务解析并缓存 BrowserSiyuanPort。
+    resolveSiyuanApi(plugin);
 
     const unifiedDataSourceManager = (plugin as any).unifiedDataSourceManager as UnifiedDataSourceManager;
     if (!unifiedDataSourceManager) {
@@ -916,7 +997,7 @@ export async function getDocTree(rootIds: string[]): Promise<DocTreeNode[]> {
             WHERE id IN (${ids.map(id => `'${escapeSQL(id)}'`).join(',')})
         `;
         
-        const rows = await sql(sqlQuery);
+        const rows = await runBrowserSql(sqlQuery);
         const foundIds = new Set((rows || []).map((r: any) => r.id));
         const result = (rows || []).map((r: any) => {
             const title = (r.content || '').trim() || String(r.hpath || '').split('/').pop() || r.id;
@@ -943,6 +1024,7 @@ export async function loadQueueCards(
 ): Promise<BrowserCard[]> {
     const ids = Array.from(new Set((blockIds || []).filter(Boolean)));
     if (ids.length === 0) return [];
+    const attrKeys = getAttrKeys();
 
     try {
         // 从缓存或统一数据源获取卡片
@@ -1008,11 +1090,11 @@ export async function loadQueueCards(
                     interval: 0,
                     firstReview: null,
                     firstReviewFormatted: '-',
-                    priority: Number(customAttrs[ATTR_PRIORITY]) || 50,
-                    suspended: customAttrs[ATTR_SUSPENDED] === 'true',
+                    priority: Number(customAttrs[attrKeys.priority]) || 50,
+                    suspended: customAttrs[attrKeys.suspended] === 'true',
                     tags: tags,
                     note: '',
-                    cardType: customAttrs[ATTR_CARD_TYPE] as any || 'concept',  // 默认为概念卡
+                    cardType: customAttrs[attrKeys.cardType] as any || 'concept',  // 默认为概念卡
                     aFactor: undefined,
                 };
                 
@@ -1194,11 +1276,7 @@ export async function batchSuspend(
 
         for (const blockId of uniqueBlockIds) {
             try {
-                if (suspend) {
-                    await setBlockAttrs(blockId, { [ATTR_SUSPENDED]: 'true' });
-                } else {
-                    await setBlockAttrs(blockId, { [ATTR_SUSPENDED]: '' });
-                }
+                await setBrowserCardSuspended(blockId, suspend);
                 cardCache.updateCard(blockId, { suspended: suspend });
             } catch (err) {
                 logger.error('Update block attr error:', blockId, err);
@@ -1230,30 +1308,30 @@ export async function batchSetPriority(
     const uniqueBlockIds = Array.from(new Set(blockIds.filter(Boolean)));
     const clampedPriority = Math.max(0, Math.min(100, priority));
     const resolvedManager = resolveBatchManager(manager);
+    if (!resolvedManager) {
+        logger.error('batchSetPriority failed: manager is not available');
+        return 0;
+    }
     let updatedBlocks = 0;
 
-    if (resolvedManager) {
-        try {
-            updatedBlocks = await updateCardsByBlockIds(
-                uniqueBlockIds,
-                resolvedManager,
-                (card) =>
-                    ({
-                        ...card,
-                        priority: clampedPriority,
-                    }) as FSRSCard
-            );
-        } catch (err) {
-            logger.error('Batch priority card update error:', err);
-        }
-    } else {
-        logger.warn('batchSetPriority fallback: manager is not available, only block attrs/cache will be updated');
+    try {
+        updatedBlocks = await updateCardsByBlockIds(
+            uniqueBlockIds,
+            resolvedManager,
+            (card) =>
+                ({
+                    ...card,
+                    priority: clampedPriority,
+                }) as FSRSCard
+        );
+    } catch (err) {
+        logger.error('Batch priority card update error:', err);
     }
 
     let attrUpdatedBlocks = 0;
     for (const blockId of uniqueBlockIds) {
         try {
-            await setBlockAttrs(blockId, { [ATTR_PRIORITY]: String(clampedPriority) });
+            await setBrowserCardPriority(blockId, clampedPriority);
             cardCache.updateCard(blockId, { priority: clampedPriority });
             attrUpdatedBlocks++;
         } catch (err) {
@@ -1379,6 +1457,7 @@ export async function batchDetectCardTypes(
     if (cards.length === 0) {
         return { detected: 0, updated: 0, failed: 0 };
     }
+    const attrKeys = getAttrKeys();
 
     try {
         const blockIds = cards.map(c => c.blockId);
@@ -1400,7 +1479,7 @@ export async function batchDetectCardTypes(
                     }
 
                     const attrs: Record<string, string> = {
-                        [ATTR_CARD_TYPE]: cardType,
+                        [attrKeys.cardType]: cardType,
                     };
 
                     // 🔧 修复：不再写入 A-Factor 块属性
@@ -1410,7 +1489,7 @@ export async function batchDetectCardTypes(
                         aFactor = initializeAFactor(card.priority);
                     }
 
-                    await setBlockAttrs(card.blockId, attrs);
+                    await resolveSiyuanApi().setBlockAttrs(card.blockId, attrs);
 
                     const cacheUpdates: Partial<BrowserCard> = { cardType };
                     if (aFactor !== undefined) {

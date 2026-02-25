@@ -149,13 +149,23 @@ import './SRSBrowser.scss';
 import type { GridApi, ColDef, CellContextMenuEvent } from 'ag-grid-community';
 import { type RowSelectionOptions } from 'ag-grid-community';
 import { openTab, Menu, Protyle, type App } from 'siyuan';
-import { pushErrMsg, pushMsg, setBlockAttrs } from '@/core/siyuan/api';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
-import { parseQuery, loadCards, loadQueueCards, loadQueueCardsSimple, setGlobalBrowserContext, clearGlobalBrowserContext, invalidateCardCache, getCacheStats, subscribeCacheUpdate } from './browserService';
+import {
+  parseQuery,
+  loadCards,
+  loadQueueCards,
+  loadQueueCardsSimple,
+  setGlobalBrowserContext,
+  clearGlobalBrowserContext,
+  invalidateCardCache,
+  getCacheStats,
+  subscribeCacheUpdate,
+  pushBrowserErrMsg,
+  pushBrowserMsg,
+} from './browserService';
 import { PerformanceMonitor } from '@/utils/performance';
 import { type BrowserCard, CardState } from './types';
 import { migrateExistingCards, checkMigrationNeeded } from '@/scripts/migrateToTopicItem';
-import { ATTR_CARD_TYPE } from '@/core/siyuan/block';
 import type { ICardDataSource } from './datasource/types';
 import { FinalDrillDataSource } from './datasource/FinalDrillDataSource';
 import { FilterGroupDataSource } from './datasource/FilterGroupDataSource';
@@ -230,18 +240,21 @@ const pluginContext = computed(() => {
   return plugin?.getContext?.();
 });
 
+const browserAppServiceRef = computed(
+  () => props.browserService || pluginContext.value?.getBrowserService?.()
+);
 const pluginStorage = computed(() => pluginContext.value?.getStorage?.());
 const pluginUnifiedDataSourceManager = computed(
-  () => props.browserService?.getUnifiedDataSourceManager?.() || pluginContext.value?.getUnifiedDataSourceManager?.()
+  () => browserAppServiceRef.value?.getUnifiedDataSourceManager?.() || pluginContext.value?.getUnifiedDataSourceManager?.()
 );
-const browserServiceRef = computed(() => props.browserService);
+const browserSiyuanApi = computed(() => browserAppServiceRef.value?.getSiyuanApi?.());
 const {
   getQueueById: resolveQueueById,
   refreshQueueCounts: refreshQueueCountsBridge,
   setFilterGroupFilter: setFilterGroupFilterBridge,
   rebuildFilterGroupQueue: rebuildFilterGroupQueueBridge,
 } = useQueueBridge({
-  browserService: browserServiceRef,
+  browserService: browserAppServiceRef,
   pluginUnifiedDataSourceManager,
 });
 
@@ -334,6 +347,18 @@ const previewStyle = computed(() => {
 // 国际化
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
+}
+
+async function pushMsg(msg: string, duration?: number, level?: 'error'): Promise<void> {
+  if (level === 'error') {
+    await pushBrowserErrMsg(msg, duration);
+    return;
+  }
+  await pushBrowserMsg(msg, duration);
+}
+
+async function pushErrMsg(msg: string, duration?: number): Promise<void> {
+  await pushBrowserErrMsg(msg, duration);
 }
 
 const isDevMode = String(process.env.DEV_MODE) === 'true';
@@ -796,7 +821,7 @@ watch(searchQuery, () => {
   // 🆕 更新全局上下文（DDD 化）
   const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
   if (unifiedDataSourceManager) {
-    setGlobalBrowserContext(unifiedDataSourceManager, searchQuery.value);
+    setGlobalBrowserContext(unifiedDataSourceManager, searchQuery.value, browserSiyuanApi.value);
   }
 });
 
@@ -1663,7 +1688,7 @@ onMounted(() => {
   // 🆕 初始化全局浏览器上下文（DDD 化）
   const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
   if (unifiedDataSourceManager) {
-    setGlobalBrowserContext(unifiedDataSourceManager, searchQuery.value);
+    setGlobalBrowserContext(unifiedDataSourceManager, searchQuery.value, browserSiyuanApi.value);
     console.log('[SiYuanMemo][SRSBrowser] Global browser context initialized');
   } else {
     console.warn('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available, global context not initialized');

@@ -15,6 +15,7 @@
             :meta="content.xiuyuanMeta"
             :show-answer="!showAnswer"
             :question-block-id="content.id"
+            :plugin="plugin"
           />
         </div>
 

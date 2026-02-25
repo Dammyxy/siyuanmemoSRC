@@ -1,48 +1,100 @@
-﻿import type { BrowserCard } from '../types';
+import type { BrowserCard } from '../types';
 import { loadQueueCardsSimple } from '../browserService';
-import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
+import type {
+  ICardDataSource,
+  CardBrowserAction,
+  FetchRowsOptions,
+  FetchRowsResult,
+} from './types';
 import {
   buildQueueActions,
-  removeFromQueue,
-  insertAt,
-  setPriority,
-  batchSetBlockPriority,
   adjustTime,
+  type PluginLike as MenuActionPluginLike,
 } from './MenuActions';
-import { QueueType } from '@/types/unified-data-source';
-import { sortBrowserCards } from './DataSourceUtils';
+import {
+  QueueType,
+  type IReviewQueue,
+  type IUnifiedDataSourceManagerFacade,
+} from '@/types/unified-data-source';
+import {
+  insertCardsIntoQueue,
+  removeCardsFromQueue,
+  setBrowserCardsPriority,
+  sortBrowserCards,
+} from './DataSourceUtils';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('BlockIdsDataSource');
+
+type QueueMutationLike = Pick<IReviewQueue, 'removeCard'> & {
+  insertAt?: (cardId: string, position: number) => Promise<void> | void;
+};
+
+type BlockIdsActionContext = {
+  index?: number;
+  priority?: number;
+  days?: number;
+  maxDays?: number;
+  config?: unknown;
+};
+
+type BlockIdsPluginLike = MenuActionPluginLike & {
+  neuralQueue?: QueueMutationLike;
+};
+
+type ManagerContextLike = {
+  getUnifiedDataSourceManager?: () => IUnifiedDataSourceManagerFacade | undefined;
+};
+
+type RescheduleActionId = Parameters<typeof adjustTime>[2];
+
+const QUEUE_TYPE_MAP: Record<string, QueueType> = {
+  retrieval: QueueType.RetrievalPractice,
+  'final-drill': QueueType.FinalDrill,
+  'neural-roam': QueueType.NeuralRoam,
+  'filter-group': QueueType.FilterGroup,
+  'incremental-learning': QueueType.IncrementalLearning,
+};
+
+function isObjectLike(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function hasManagerContext(value: unknown): value is ManagerContextLike {
+  return isObjectLike(value) && 'getUnifiedDataSourceManager' in value;
+}
+
+function isRescheduleAction(actionId: string): actionId is RescheduleActionId {
+  return actionId === 'postpone' || actionId === 'advance' || actionId === 'spread';
+}
 
 export class BlockIdsDataSource implements ICardDataSource {
   id: string;
   label: string;
 
   private readonly blockIds: string[];
-  private readonly plugin?: any;
+  private readonly plugin?: BlockIdsPluginLike;
   private readonly queueId?: string;
-  private readonly getBlockIdsFn?: () => string[];  // 🆕 动态获取块 ID 的函数
+  private readonly getBlockIdsFn?: () => string[];
 
   constructor(options: {
     id: string;
     label: string;
     blockIds: string[];
-    plugin?: any;
+    plugin?: BlockIdsPluginLike;
     queueId?: string;
-    getBlockIdsFn?: () => string[];  // 🆕 可选的动态获取函数
+    getBlockIdsFn?: () => string[];
   }) {
     this.id = options.id;
     this.label = options.label;
     this.blockIds = options.blockIds;
     this.plugin = options.plugin;
     this.queueId = options.queueId;
-    this.getBlockIdsFn = options.getBlockIdsFn;  // 🆕 保存动态获取函数
+    this.getBlockIdsFn = options.getBlockIdsFn;
   }
 
-  async fetchRows(params: { sortModel: SortModel[]; filterModel: any }): Promise<{ rows: BrowserCard[]; totalCount: number }> {
-    // 🆕 如果有动态获取函数，使用它获取最新的块 ID 列表
+  async fetchRows(params: FetchRowsOptions): Promise<FetchRowsResult> {
     const blockIds = this.getBlockIdsFn ? this.getBlockIdsFn() : this.blockIds;
-    
-    console.log(`[SiYuanMemo][BlockIdsDataSource] fetchRows: ${blockIds.length} blocks`);
-    
     const cards = await loadQueueCardsSimple(blockIds);
     const sorted = sortBrowserCards(cards, params?.sortModel || []);
     return { rows: sorted, totalCount: sorted.length };
@@ -57,102 +109,93 @@ export class BlockIdsDataSource implements ICardDataSource {
     });
   }
 
-  async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<any> {
-    console.log('[BlockIdsDataSource] performAction called:', {
-      actionId,
-      queueId: this.queueId,
-      selectedRowsCount: selectedRows.length,
-    });
-    
-    if (actionId === 'open') return;
+  async performAction(
+    actionId: string,
+    selectedRows: BrowserCard[],
+    context?: BlockIdsActionContext
+  ): Promise<any> {
+    if (actionId === 'open') {
+      return;
+    }
 
     const queue = this.getQueueById(this.queueId);
-    console.log('[BlockIdsDataSource] Queue retrieved:', {
-      queueId: this.queueId,
-      hasQueue: !!queue,
-      queueType: queue?.constructor?.name,
-    });
 
-    // ========== 队列操作 ==========
-
-    // 从当前队列移除
     if (actionId === 'remove-from-current-queue') {
       if (!queue) {
-        console.error('[BlockIdsDataSource] Cannot remove: queue not found');
-        return { removedCount: 0 };
+        logger.error('Cannot remove: queue not found', { queueId: this.queueId });
+        return { updated: 0, skipped: selectedRows.length };
       }
-      
-      const removedCount = await removeFromQueue(queue, selectedRows);
-      console.log('[BlockIdsDataSource] Removed', removedCount, 'cards from queue');
-      return { removedCount };
+
+      const result = await removeCardsFromQueue(queue, selectedRows, {
+        scope: 'BlockIdsDataSource',
+      });
+      return { updated: result.removedCount, skipped: result.failedCount };
     }
 
-    // 插入到指定位置
-    if (actionId === 'insert-at' && queue) {
+    if (actionId === 'insert-at') {
+      if (!queue) {
+        logger.error('Cannot insert: queue not found', { queueId: this.queueId });
+        return { updated: 0, skipped: selectedRows.length };
+      }
+
       const index = Math.max(0, Math.floor(Number(context?.index ?? 0)));
-      await insertAt(queue, selectedRows, index);
-      return;
+      const result = await insertCardsIntoQueue(queue, selectedRows, index, {
+        scope: 'BlockIdsDataSource',
+      });
+      return { updated: result.insertedCount, skipped: result.failedCount };
     }
 
-    // 设置优先级
     if (actionId === 'set-priority') {
-      const p = Math.max(0, Math.min(100, Math.floor(Number(context?.priority ?? 50))));
-
-      // 如果队列支持，使用队列的 setPriority
-      if (queue) {
-        await setPriority(queue, selectedRows, p);
-      } else {
-        // 降级到直接设置块属性
-        await batchSetBlockPriority(selectedRows, p);
+      const priority = Math.max(0, Math.min(100, Math.floor(Number(context?.priority ?? 50))));
+      const manager = this.resolveManager();
+      if (!manager) {
+        throw new Error('set-priority requires UnifiedDataSourceManager');
       }
-      return;
+      return setBrowserCardsPriority(manager, selectedRows, priority, {
+        scope: 'BlockIdsDataSource',
+      });
     }
 
-    // ========== 时间调整 ==========
-    if (actionId === 'postpone' || actionId === 'advance' || actionId === 'spread') {
-      const result = await adjustTime(this.plugin, selectedRows, actionId as any, context);
-      return result;
+    if (isRescheduleAction(actionId)) {
+      return adjustTime(this.plugin, selectedRows, actionId, context);
     }
 
-    console.warn('[BlockIdsDataSource] Unknown action:', actionId);
+    logger.warn('Unknown action', { actionId, queueId: this.queueId });
   }
 
-  private getQueueById(queueId: string | undefined) {
-    console.log('[BlockIdsDataSource] getQueueById called:', {
-      queueId,
-      hasPlugin: !!this.plugin,
-      hasContext: !!this.plugin?.getContext?.(),
-    });
-
-    const manager = this.plugin?.getContext?.()?.getUnifiedDataSourceManager?.();
-    if (!manager || !queueId) {
-      console.warn('[BlockIdsDataSource] UnifiedDataSourceManager unavailable');
-      return null;
-    }
-
-    const queueTypeMap: Record<string, QueueType> = {
-      retrieval: QueueType.RetrievalPractice,
-      'final-drill': QueueType.FinalDrill,
-      'neural-roam': QueueType.NeuralRoam,
-      'filter-group': QueueType.FilterGroup,
-      'incremental-learning': QueueType.IncrementalLearning,
-    };
-    const queueType = queueTypeMap[queueId];
-    if (queueType) {
-      return manager.getQueue(queueType);
-    }
-    
-    console.warn('[BlockIdsDataSource] Queue not found for queueId:', queueId);
-    return null;
-  }
-  
-  /**
-   * 获取数据源 ID
-   * 
-   * @returns 数据源 ID
-   */
   getId(): string {
     return this.id;
   }
-}
 
+  private resolveManager(): IUnifiedDataSourceManagerFacade | undefined {
+    const context = this.plugin?.getContext?.();
+    if (!hasManagerContext(context)) {
+      return undefined;
+    }
+    return context.getUnifiedDataSourceManager?.();
+  }
+
+  private getQueueById(queueId: string | undefined): QueueMutationLike | null {
+    if (!queueId) {
+      return null;
+    }
+
+    if (queueId === 'neural-roam' && this.plugin?.neuralQueue) {
+      return this.plugin.neuralQueue;
+    }
+
+    const manager = this.resolveManager();
+    if (!manager) {
+      logger.warn('UnifiedDataSourceManager unavailable', { queueId });
+      return null;
+    }
+
+    const queueType = QUEUE_TYPE_MAP[queueId];
+    if (!queueType) {
+      logger.warn('Queue type mapping not found', { queueId });
+      return null;
+    }
+
+    return manager.getQueue(queueType);
+  }
+}

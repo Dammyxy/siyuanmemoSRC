@@ -16,8 +16,11 @@ import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified
 import type { FSRSCard } from '../../../types/card';
 import { validateConsumerCardType } from '../../../diagnostics/type-guards';
 import {
+  adjustBrowserCardsDue,
   applyQueueFilters,
   deleteBrowserCards,
+  removeCardsFromQueue,
+  setBrowserCardsPriority,
   sortBrowserCards,
 } from './DataSourceUtils';
 
@@ -321,11 +324,11 @@ export class IncrementalLearningDataSource implements ICardDataSource {
 
       // 从队列移除
       if (actionId === 'remove-from-current-queue') {
-        for (const row of selectedRows) {
-          await queue.removeCard(row.fsrsCardId || row.id);
-        }
-        console.log(`[SiYuanMemo][IncrementalLearningDataSource] Removed ${selectedRows.length} cards from queue`);
-        return;
+        const result = await removeCardsFromQueue(queue as any, selectedRows, {
+          scope: 'IncrementalLearningDataSource',
+        });
+        console.log(`[SiYuanMemo][IncrementalLearningDataSource] Removed ${result.removedCount} cards from queue`);
+        return { updated: result.removedCount, skipped: result.failedCount };
       }
 
       // 删除卡片（使用 CardApplicationService）
@@ -349,43 +352,26 @@ export class IncrementalLearningDataSource implements ICardDataSource {
 
       // 设置优先级
       if (actionId === 'set-priority') {
-        const priority = Math.max(0, Math.min(100, Math.floor(Number(context?.priority))));
-        for (const row of selectedRows) {
-          const card = await this.manager.getCard(row.fsrsCardId || row.id);
-          card.priority = priority;
-          await this.manager.updateCard(card);
-          // 更新内存中的 priority
-          row.priority = priority;
-        }
-        console.log(`[SiYuanMemo][IncrementalLearningDataSource] Set priority to ${priority} for ${selectedRows.length} cards`);
-        return { updated: selectedRows, skipped: [] };
+        const result = await setBrowserCardsPriority(this.manager as any, selectedRows, context?.priority, {
+          scope: 'IncrementalLearningDataSource',
+        });
+        console.log(
+          `[SiYuanMemo][IncrementalLearningDataSource] Set priority for ${result.updated.length} cards, skipped ${result.skipped.length}`
+        );
+        return result;
       }
 
       // 时间调整
       if (actionId === 'postpone' || actionId === 'advance') {
-        const days = Math.floor(Number(context?.days || 1));
-        
-        for (let i = 0; i < selectedRows.length; i++) {
-          const row = selectedRows[i];
-          const card = await this.manager.getCard(row.fsrsCardId || row.id);
-          
-          let newDue = card.due;
-          
-          if (actionId === 'postpone') {
-            // 推迟：增加到期日期
-            newDue = card.due + days * 24 * 60 * 60 * 1000;
-          } else if (actionId === 'advance') {
-            // 提前：减少到期日期
-            newDue = card.due - days * 24 * 60 * 60 * 1000;
-          }
-          // ❌ 移除：spread 功能已在工具栏上，不需要在右键菜单重复
-          
-          card.due = newDue;
-          await this.manager.updateCard(card);
-        }
-        
-        console.log(`[SiYuanMemo][IncrementalLearningDataSource] ${actionId} ${selectedRows.length} cards by ${days} days`);
-        return;
+        const result = await adjustBrowserCardsDue(this.manager as any, selectedRows, actionId, context, {
+          scope: 'IncrementalLearningDataSource',
+          postponeFromNow: false,
+          allowSpread: false,
+        });
+        console.log(
+          `[SiYuanMemo][IncrementalLearningDataSource] ${actionId} updated ${result.updated.length} cards, skipped ${result.skipped.length}, days=${result.days}`
+        );
+        return result;
       }
       
       console.warn(`[SiYuanMemo][IncrementalLearningDataSource] Unknown action: ${actionId}`);

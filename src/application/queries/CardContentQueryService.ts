@@ -11,6 +11,12 @@
  * @see DDD Architecture: src/application/queries/
  */
 
+import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
+import { QuerySiyuanAdapter } from '@/infrastructure/siyuan/QuerySiyuanAdapter';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('CardContentQueryService');
+
 /**
  * 块内容结果
  */
@@ -38,6 +44,10 @@ export interface BlockContentResult {
  * - 基础设施层：通过动态导入 siyuan API
  */
 export class CardContentQueryService {
+  constructor(
+    private readonly siyuanApi: QuerySiyuanPort = new QuerySiyuanAdapter()
+  ) {}
+
   /**
    * 内容缓存
    * 
@@ -147,9 +157,6 @@ export class CardContentQueryService {
     }
     
     try {
-      // 动态导入 siyuan API（基础设施层）
-      const { sql } = await import('@/core/siyuan/api');
-      
       // 批量查询（每批 500 个）
       const BATCH_SIZE = 500;
       
@@ -159,7 +166,7 @@ export class CardContentQueryService {
         
         // 查询块的 id, type, content
         // 注意：对于文档块（type='d'），content 字段就是文档标题
-        const result = await sql(`SELECT id, type, content FROM blocks WHERE id IN (${inClause})`);
+        const result = await this.siyuanApi.sql(`SELECT id, type, content FROM blocks WHERE id IN (${inClause})`);
         
         for (const row of result || []) {
           const content = String(row.content || '').trim();
@@ -176,10 +183,10 @@ export class CardContentQueryService {
         }
       }
       
-      console.log(`[CardContentQueryService] Fetched content for ${contentMap.size}/${blockIds.length} blocks`);
+      logger.debug(`Fetched content for ${contentMap.size}/${blockIds.length} blocks`);
     } catch (error) {
-      console.error('[CardContentQueryService] Failed to fetch block contents:', error);
-      // 不抛出错误，返回空结果
+      logger.error('Failed to fetch block contents:', error);
+      throw error;
     }
     
     return contentMap;

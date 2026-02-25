@@ -192,7 +192,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { Dialog } from 'siyuan';
-import { getBlockInfo } from '@/core/siyuan/api';
 import { CardState, CardType } from '@/types';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
 import ScheduleDateDialog from '@/ui/review/v2/dialogs/ScheduleDateDialog.vue';
@@ -256,12 +255,21 @@ function getStorage() {
   return getContext()?.getStorage?.();
 }
 
-function getSchedulerRouter() {
-  return getContext()?.getScheduler?.() || getContext()?.getSchedulerRouter?.();
+function getReviewService() {
+  return props.reviewService || getContext()?.getReviewService?.();
+}
+
+function getSiyuanApi() {
+  return getReviewService()?.getSiyuanApi?.();
 }
 
 async function loadMeta() {
   try {
+    const siyuanApi = getSiyuanApi();
+    if (!siyuanApi) {
+      throw new Error(t('envNotInit', 'Environment not initialized'));
+    }
+
     const storage = getStorage();
     const card = storage?.getCardByBlockId(blockId);
     
@@ -307,7 +315,7 @@ async function loadMeta() {
     isLeechText.value = card.isLeech ? t('yes', 'Yes') : t('no', 'No');
     
     // 时间信息
-    const info = await getBlockInfo(blockId);
+    const info = await siyuanApi.getBlockInfo(blockId);
     const createdAt = resolveTimeDate(
       [info?.created_time, info?.created, info?.createdAt, info?.created_at, card?.createdAt],
       true
@@ -552,7 +560,10 @@ function openScheduleDateDialog() {
 async function handleScheduleDate(options: ScheduleOptions) {
   try {
     const storage = getStorage();
-    const schedulerRouter = getSchedulerRouter();
+    const reviewService = getReviewService();
+    if (!reviewService) {
+      throw new Error(t('reviewServiceUnavailable', 'Review service unavailable'));
+    }
     const card = storage?.getCardByBlockId(blockId);
     if (!card) {
       showResultDialog({
@@ -583,63 +594,19 @@ async function handleScheduleDate(options: ScheduleOptions) {
     
     // 评分模式：先执行复习，再修改日期
     if (options.mode === 'rating' && options.rating) {
-      // ✅ 优先使用 reviewService（DDD 架构）
-      if (props.reviewService) {
-        try {
-          await props.reviewService.rescheduleCard(card.id, {
-            mode: 'rating',
-            rating: options.rating,
-            dueTimestamp: dueTimestamp
-          });
-          console.log('[SiYuanMemo][SrsEditor] Schedule with rating via reviewService:', options.rating, 'to:', dueTimestamp);
-        } catch (error) {
-          console.error('[SiYuanMemo][SrsEditor] Failed to reschedule via reviewService:', error);
-          // 回退到旧方法
-          if (schedulerRouter && storage) {
-            const updatedCard = schedulerRouter.route(card, options.rating);
-            updatedCard.due = dueTimestamp;
-            updatedCard.updatedAt = Date.now();
-            storage.setCard(updatedCard);
-            await storage.saveCards();
-          }
-        }
-      } else if (schedulerRouter && storage) {
-        // 回退到旧方法（向后兼容）
-        const updatedCard = schedulerRouter.route(card, options.rating);
-        updatedCard.due = dueTimestamp;
-        updatedCard.updatedAt = Date.now();
-        storage.setCard(updatedCard);
-        await storage.saveCards();
-        console.log('[SiYuanMemo][SrsEditor] Schedule with rating (legacy):', options.rating, 'to:', dueTimestamp);
-      }
+      await reviewService.rescheduleCard(card.id, {
+        mode: 'rating',
+        rating: options.rating,
+        dueTimestamp: dueTimestamp,
+      });
+      console.log('[SiYuanMemo][SrsEditor] Schedule with rating via reviewService:', options.rating, 'to:', dueTimestamp);
     } else {
       // 仅修改日期模式
-      // ✅ 优先使用 reviewService（DDD 架构）
-      if (props.reviewService) {
-        try {
-          await props.reviewService.rescheduleCard(card.id, {
-            mode: 'direct',
-            dueTimestamp: dueTimestamp
-          });
-          console.log('[SiYuanMemo][SrsEditor] Schedule direct via reviewService to:', dueTimestamp);
-        } catch (error) {
-          console.error('[SiYuanMemo][SrsEditor] Failed to reschedule via reviewService:', error);
-          // 回退到旧方法
-          if (storage) {
-            card.due = dueTimestamp;
-            card.updatedAt = Date.now();
-            storage.setCard(card);
-            await storage.saveCards();
-          }
-        }
-      } else if (storage) {
-        // 回退到旧方法（向后兼容）
-        card.due = dueTimestamp;
-        card.updatedAt = Date.now();
-        storage.setCard(card);
-        await storage.saveCards();
-        console.log('[SiYuanMemo][SrsEditor] Schedule direct (legacy) to:', dueTimestamp);
-      }
+      await reviewService.rescheduleCard(card.id, {
+        mode: 'direct',
+        dueTimestamp: dueTimestamp,
+      });
+      console.log('[SiYuanMemo][SrsEditor] Schedule direct via reviewService to:', dueTimestamp);
     }
     await loadMeta();
     

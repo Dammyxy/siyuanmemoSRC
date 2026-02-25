@@ -16,7 +16,8 @@
  */
 
 import { Result, ok, err } from '@/types/result';
-import { getBlockAttrs } from '@/core/siyuan/api';
+import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
+import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
@@ -45,17 +46,22 @@ export interface RebindDescriptorConceptResult {
 }
 
 export class RebindDescriptorConceptUseCase {
+  private readonly siyuanApi: XiuyuanSiyuanPort;
+
   constructor(
     private readonly xiuyuanRepository: IXiuyuanRepository,
-    private readonly templateRegistry: Map<string, ICardTemplate>
-  ) {}
+    private readonly templateRegistry: Map<string, ICardTemplate>,
+    ports?: { siyuanApi?: XiuyuanSiyuanPort }
+  ) {
+    this.siyuanApi = ports?.siyuanApi ?? new XiuyuanSiyuanAdapter();
+  }
 
   async execute(command: RebindDescriptorConceptCommand): Promise<Result<RebindDescriptorConceptResult>> {
     try {
       const { descriptorBlockId } = command;
       
       // 1. 检查描述符块是否存在卡片
-      const descriptorAttrs = await getBlockAttrs(descriptorBlockId);
+      const descriptorAttrs = await this.siyuanApi.getBlockAttrs(descriptorBlockId);
       const xiuyuanId = descriptorAttrs?.['custom-xiuyuan-id'] || descriptorAttrs?.['custom-fsrs-xiuyuan-id'];
       
       if (!xiuyuanId) {
@@ -65,7 +71,7 @@ export class RebindDescriptorConceptUseCase {
       logger.debug('Found descriptor xiuyuan:', xiuyuanId);
       
       // 2. 向上探路查找新的概念块
-      const conceptResult = await findConceptByUpwardSearch(descriptorBlockId);
+      const conceptResult = await findConceptByUpwardSearch(descriptorBlockId, this.siyuanApi);
       
       if (!conceptResult) {
         return err(new Error('未找到概念块（标题块或文档块）'));
@@ -79,6 +85,7 @@ export class RebindDescriptorConceptUseCase {
         conceptId,
         xiuyuanRepository: this.xiuyuanRepository,
         templateRegistry: this.templateRegistry,
+        siyuanApi: this.siyuanApi,
       });
       logger.debug('New concept name:', conceptName);
       

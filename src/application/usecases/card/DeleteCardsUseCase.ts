@@ -42,17 +42,24 @@ import { CardId } from '@/core/xiuyuan/domain/CardId';
 import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
 import { CardsDeletedEvent } from '@/core/xiuyuan/domain/events/CardsDeletedEvent';
-import { getBlockAttrs, setBlockAttrs } from '@/core/siyuan/api';
 import type { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
+import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
+import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
+import { buildClearedBlockAttrs } from './shared/CardBlockAttrCleaner';
 
 export class DeleteCardsUseCase {
+  private readonly siyuanApi: CardDeletionSiyuanPort;
+
   constructor(
     private readonly xiuyuanRepo: IXiuyuanRepository,
     private readonly cardDeletionService: CardDeletionService,
     private readonly eventBus: EventBus,
-    private readonly deletionTracker: IDeletionTracker
-  ) {}
+    private readonly deletionTracker: IDeletionTracker,
+    ports?: { siyuanApi?: CardDeletionSiyuanPort }
+  ) {
+    this.siyuanApi = ports?.siyuanApi ?? new CardDeletionSiyuanAdapter();
+  }
 
   /**
    * 执行批量删除卡片用例
@@ -196,7 +203,7 @@ export class DeleteCardsUseCase {
         try {
           const fsrsCard = storage?.getCard(cardId);
           const blockId = fsrsCard?.blockId || cardId;
-          const attrs = await getBlockAttrs(blockId);
+          const attrs = await this.siyuanApi.getBlockAttrs(blockId);
           xiuyuanId = attrs?.['custom-xiuyuan-id'] || attrs?.['custom-fsrs-xiuyuan-id'];
           
           if (xiuyuanId) {
@@ -290,49 +297,6 @@ export class DeleteCardsUseCase {
   }
 
   /**
-   * 删除孤儿卡片（没有 Xiuyuan 的卡片）
-   * 
-   * @private
-   * @param cardId - 卡片 ID
-   * @returns Result<{blockId?: string}> - 成功返回 blockId，失败返回错误
-   */
-  private async deleteOrphanCard(cardId: string): Promise<Result<{ blockId?: string }>> {
-    try {
-      const storage = (this.xiuyuanRepo as any).storage;
-      if (!storage) {
-        return err(new Error('Storage not available'));
-      }
-
-      // 获取 blockId
-      const fsrsCard = storage.getCard(cardId);
-      const blockId = fsrsCard?.blockId;
-
-      // 从 storage 删除
-      const deleteResult = await storage.deleteCard(cardId);
-      if (!deleteResult.ok) {
-        // 如果卡片不存在，认为删除成功（幂等性）
-        const error = (deleteResult as { ok: false; error: any }).error;
-        const errorMsg = error?.message || String(error);
-        if (errorMsg.includes('not found') || errorMsg.includes('不存在')) {
-          console.warn(`[DeleteCardsUseCase] ⚠️ 卡片已删除: ${cardId}`);
-          return ok({ blockId });
-        }
-        return deleteResult as Result<{ blockId?: string }>;
-      }
-
-      // 保存
-      const saveResult = await storage.save();
-      if (!saveResult.ok) {
-        return saveResult as Result<{ blockId?: string }>;
-      }
-
-      return ok({ blockId });
-    } catch (error) {
-      return err(error instanceof Error ? error : new Error(String(error)));
-    }
-  }
-
-  /**
    * 批量删除孤儿卡片（优化版）
    * 
    * 一次性删除所有孤儿卡片，只保存一次，提升性能。
@@ -416,30 +380,13 @@ export class DeleteCardsUseCase {
    * @param blockIds - 块 ID 列表
    */
   private async cleanBlockAttrs(blockIds: string[]): Promise<void> {
-    const attrsToRemove = [
-      'custom-card-type',
-      'custom-fsrs-card-type',
-      'custom-xiuyuan-id',
-      'custom-xiuyuan-template',
-      'custom-template-id',
-      'custom-list-template',
-      'custom-priority',
-      'custom-fsrs-a-factor',
-    ];
-
     for (const blockId of blockIds) {
       try {
-        const attrs = await getBlockAttrs(blockId);
-        const newAttrs: Record<string, string> = {};
-
-        for (const key of attrsToRemove) {
-          if (key in attrs) {
-            newAttrs[key] = '';
-          }
-        }
+        const attrs = await this.siyuanApi.getBlockAttrs(blockId);
+        const newAttrs = buildClearedBlockAttrs(attrs);
 
         if (Object.keys(newAttrs).length > 0) {
-          await setBlockAttrs(blockId, newAttrs);
+          await this.siyuanApi.setBlockAttrs(blockId, newAttrs);
         }
       } catch (error) {
         console.warn(`[DeleteCardsUseCase] ⚠️ 清理块属性失败: ${blockId}`, error);
@@ -455,8 +402,7 @@ export class DeleteCardsUseCase {
    */
   private async deleteFromRiffBatch(blockIds: string[]): Promise<void> {
     try {
-      const { removeRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
-      await removeRiffCards(BUILTIN_DECK_ID, blockIds);
+      await this.siyuanApi.removeRiffCards(this.siyuanApi.BUILTIN_DECK_ID, blockIds);
       console.log(`[DeleteCardsUseCase] ✅ 从 Riff 批量删除成功: ${blockIds.length} 张卡片`);
     } catch (error) {
       console.error(`[DeleteCardsUseCase] ❌ 从 Riff 批量删除失败:`, error);

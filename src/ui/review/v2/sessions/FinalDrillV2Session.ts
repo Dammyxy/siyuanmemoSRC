@@ -1,16 +1,14 @@
 import type { PluginFilePort } from '../../../../core/storage/ports.ts';
-import { pushErrMsg } from '../../../../core/siyuan/api.ts';
-import * as riff from '../../../../core/siyuan/riff.ts';
 import { StorageFileJsonAdapter } from '../../../../core/queue/adapters/storageFile.ts';
 import type { QueueItem, QueueUIConfig } from '../../../../core/queue/types.ts';
 import type { IQueueStrategy, QueueFeedback } from '../../../../core/queue/abstraction/Strategy.ts';
+import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
 import { createLogger } from '../../../../utils/logger.ts';
 
 const logger = createLogger('FinalDrillV2Session');
 
 type FinalDrillQueueLike = {
-  getAllCards?: () => Promise<QueueItem[]>;
-  getAllItems?: () => QueueItem[];
+  getAllCards: () => Promise<QueueItem[]>;
   getRemovableTrait?: () => { remove: (items: QueueItem[]) => Promise<number> };
   getMutableTrait?: () => { insertAt: (items: QueueItem[], index: number) => Promise<void> };
 };
@@ -28,10 +26,7 @@ type ProgressSnapshot = {
 export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
   private readonly queue: FinalDrillQueueLike;
   private readonly i18n?: Record<string, string>;
-  private readonly api: {
-    reviewRiffCard: typeof riff.reviewRiffCard;
-    skipReviewRiffCard: typeof riff.skipReviewRiffCard;
-  };
+  private readonly siyuanApi: Pick<ReviewSiyuanPort, 'reviewRiffCard' | 'skipReviewRiffCard' | 'pushErrMsg'>;
   private readonly progressAdapter: StorageFileJsonAdapter<ProgressSnapshot> | null;
   private cachedItems: QueueItem[] = [];
 
@@ -52,14 +47,16 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     queue: FinalDrillQueueLike;
     storage?: PluginFilePort;
     i18n?: Record<string, string>;
-    api?: Partial<FinalDrillV2Session['api']>;
+    plugin?: any;
+    siyuanApi?: Pick<ReviewSiyuanPort, 'reviewRiffCard' | 'skipReviewRiffCard' | 'pushErrMsg'>;
   }) {
     this.queue = options.queue;
     this.i18n = options.i18n;
-    this.api = {
-      reviewRiffCard: options.api?.reviewRiffCard || riff.reviewRiffCard,
-      skipReviewRiffCard: options.api?.skipReviewRiffCard || riff.skipReviewRiffCard,
-    };
+    const contextSiyuanApi = options.plugin?.getContext?.()?.getReviewService?.()?.getSiyuanApi?.();
+    this.siyuanApi = options.siyuanApi || contextSiyuanApi;
+    if (!this.siyuanApi) {
+      throw new Error('FinalDrillV2Session requires review siyuan api');
+    }
     this.progressAdapter = options.storage
       ? new StorageFileJsonAdapter<ProgressSnapshot>(options.storage, 'review-v2-final-drill.json')
       : null;
@@ -164,8 +161,8 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
       const cardID = String((currentItem as any)?.cardID || '');
       const deckID = String((currentItem as any)?.deckID || '');
       if (cardID && deckID) {
-        await this.api.skipReviewRiffCard(deckID, cardID).catch(async () => {
-          await pushErrMsg(this.t('drillFailed', '机械练习启动失败'));
+        await this.siyuanApi.skipReviewRiffCard(deckID, cardID).catch(async () => {
+          await this.siyuanApi.pushErrMsg(this.t('drillFailed', '机械练习启动失败'));
         });
       }
       await this.rotateToEnd(currentItem);
@@ -189,8 +186,8 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
       this.progress.initialTotal = this.progress.answered + this.cachedItems.length;
     }
 
-    await this.api.reviewRiffCard(deckID, cardID, rating).catch(async () => {
-      await pushErrMsg(this.t('drillFailed', '机械练习启动失败'));
+    await this.siyuanApi.reviewRiffCard(deckID, cardID, rating).catch(async () => {
+      await this.siyuanApi.pushErrMsg(this.t('drillFailed', '机械练习启动失败'));
     });
 
     this.progress.answered += 1;
@@ -246,20 +243,8 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
   }
 
   private async refreshItems(): Promise<QueueItem[]> {
-    if (typeof this.queue.getAllCards === 'function') {
-      const cards = await this.queue.getAllCards();
-      this.cachedItems = Array.isArray(cards) ? cards : [];
-      return this.cachedItems;
-    }
-
-    if (typeof this.queue.getAllItems === 'function') {
-      logger.warn('Using legacy getAllItems() fallback in FinalDrillV2Session');
-      const items = this.queue.getAllItems();
-      this.cachedItems = Array.isArray(items) ? items : [];
-      return this.cachedItems;
-    }
-
-    this.cachedItems = [];
+    const cards = await this.queue.getAllCards();
+    this.cachedItems = Array.isArray(cards) ? cards : [];
     return this.cachedItems;
   }
 

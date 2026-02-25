@@ -40,7 +40,8 @@ import { BlockId } from '@/core/xiuyuan/domain/BlockId';
 import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
 import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { Priority } from '@/core/xiuyuan/domain/Priority';
-import { sql } from '@/core/siyuan/api';
+import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
+import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import { createLogger } from '@/utils/logger';
 import { finalizeXiuyuanCreation } from './shared/FinalizeXiuyuanCreation';
@@ -75,6 +76,8 @@ function parseCueAndAnswer(text: string): { cue: string; answer: string } {
  * @class CreateListTemplateCardsUseCase
  */
 export class CreateListTemplateCardsUseCase {
+  private readonly siyuanApi: XiuyuanSiyuanPort;
+
   /**
    * 鏋勯€犲嚱鏁?
    * 
@@ -83,8 +86,11 @@ export class CreateListTemplateCardsUseCase {
    */
   constructor(
     private readonly xiuyuanRepository: IXiuyuanRepository,
-    private readonly templateRegistry: Map<string, ICardTemplate>
-  ) {}
+    private readonly templateRegistry: Map<string, ICardTemplate>,
+    ports?: { siyuanApi?: XiuyuanSiyuanPort }
+  ) {
+    this.siyuanApi = ports?.siyuanApi ?? new XiuyuanSiyuanAdapter();
+  }
 
   /**
    * 鎵ц鐢ㄤ緥
@@ -114,8 +120,7 @@ export class CreateListTemplateCardsUseCase {
   async execute(command: CreateListTemplateCardsCommand): Promise<Result<any>> {
     try {
       // 1. 妫€鏌ユ槸鍚﹀凡缁忓垱寤鸿繃鍒楄〃妯＄増鍗?
-      const { getBlockAttrs } = await import('@/core/siyuan/api');
-      const attrs = await getBlockAttrs(command.parentBlockId);
+      const attrs = await this.siyuanApi.getBlockAttrs(command.parentBlockId);
       
       if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
         const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
@@ -142,7 +147,7 @@ export class CreateListTemplateCardsUseCase {
 
       // 4. 鑾峰彇鐖跺垪琛ㄩ」鐨勬钀藉潡 ID锛堢敤浜庨棶棰樻樉绀猴級
       // 鎬濇簮缁撴瀯锛氬垪琛ㄩ」(i) 鈫?娈佃惤(p) + 鍒楄〃瀹瑰櫒(l)
-      const paragraphResult = await sql(`
+      const paragraphResult = await this.siyuanApi.sql(`
         SELECT id FROM blocks
         WHERE parent_id = '${command.parentBlockId}'
         AND type = 'p'
@@ -156,7 +161,7 @@ export class CreateListTemplateCardsUseCase {
       const parentParagraphId = paragraphResult[0].id;
 
       // 5. 鑾峰彇鎵€鏈夊瓙鍒楄〃椤圭殑鏂囨湰鍐呭
-      const childrenContentResult = await sql(`
+      const childrenContentResult = await this.siyuanApi.sql(`
         SELECT id, content FROM blocks
         WHERE id IN (${command.childBlockIds.map(id => `'${id}'`).join(',')})
         ORDER BY id ASC
@@ -249,6 +254,7 @@ export class CreateListTemplateCardsUseCase {
         xiuyuan,
         xiuyuanRepository: this.xiuyuanRepository,
         logger,
+        siyuanApi: this.siyuanApi,
         riff: {
           deckId: command.deckId,
           blockIds: [parentParagraphId],

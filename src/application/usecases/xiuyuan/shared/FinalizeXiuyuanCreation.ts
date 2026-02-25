@@ -1,5 +1,5 @@
 import { Result, ok, err } from '@/types/result';
-import { addRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
+import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import type { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
 
@@ -33,6 +33,7 @@ export interface FinalizeXiuyuanCreationOptions {
   xiuyuan: Xiuyuan;
   xiuyuanRepository: IXiuyuanRepository;
   logger: FinalizerLogger;
+  siyuanApi: XiuyuanSiyuanPort;
   riff?: FinalizeRiffOptions;
 }
 
@@ -54,7 +55,7 @@ export function toXiuyuanCreationPayload(xiuyuan: Xiuyuan): XiuyuanCreationPaylo
 export async function finalizeXiuyuanCreation(
   options: FinalizeXiuyuanCreationOptions
 ): Promise<Result<XiuyuanCreationPayload>> {
-  const { xiuyuan, xiuyuanRepository, logger, riff } = options;
+  const { xiuyuan, xiuyuanRepository, logger, riff, siyuanApi } = options;
 
   const faceCount = xiuyuan.getFaces().length;
   for (let i = 0; i < faceCount; i++) {
@@ -67,9 +68,9 @@ export async function finalizeXiuyuanCreation(
   }
 
   if (riff && riff.blockIds.length > 0) {
-    const deckId = riff.deckId || BUILTIN_DECK_ID;
+    const deckId = riff.deckId || siyuanApi.BUILTIN_DECK_ID;
     try {
-      await addRiffCards(deckId, riff.blockIds);
+      await siyuanApi.addRiffCards(deckId, riff.blockIds);
       logger.info('Created Xiuyuan and added to Riff:', {
         xiuyuanId: xiuyuan.getId().getValue(),
         blockIds: riff.blockIds,

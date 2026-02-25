@@ -42,7 +42,7 @@ const renderService = createQuickCardRenderService();
 import { PluginQuickCardConfigProvider } from '@/core/card/quick-card';
 
 const configProvider = new PluginQuickCardConfigProvider(
-  () => plugin.storage.getSettings()
+  () => plugin.getContext().getSettingsService().getSettings()
 );
 const renderService = createQuickCardRenderService(configProvider);
 ```
