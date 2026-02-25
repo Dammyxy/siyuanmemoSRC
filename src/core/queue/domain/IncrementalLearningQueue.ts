@@ -15,13 +15,24 @@
  * @see .kiro/specs/unified-data-source-architecture/design.md
  */
 
-import { BaseReviewQueue } from './BaseReviewQueue';
+import { ManualCardCollectionQueue } from './ManualCardCollectionQueue';
 import { QueueType, QueueUIConfig, ReviewButtonConfig } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
-import type { IQueuePersistenceService } from '../../../infrastructure/services/QueuePersistenceService';
-import { resolveCardId } from '../../../diagnostics/type-guards';
+import type { AutoFailedCardSinkPort, QueuePersistencePort } from './ports';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('IncrementalLearningQueue');
+const NOOP_AUTO_FAILED_SINK: AutoFailedCardSinkPort = {
+    async addAutoFailed(): Promise<void> {
+        return;
+    }
+};
+
+interface IncrementalLearningQueueOptions {
+    autoFailedSink?: AutoFailedCardSinkPort;
+}
 
 /**
  * 渐进学习队列类
@@ -37,22 +48,9 @@ import { resolveCardId } from '../../../diagnostics/type-guards';
  * 
  * @see 需求 5.2, 7.3, 7.4, 9.2
  */
-export class IncrementalLearningQueue extends BaseReviewQueue {
+export class IncrementalLearningQueue extends ManualCardCollectionQueue {
     public name = 'IncrementalLearningQueue';
-    /**
-     * 手动添加的卡片 ID 集合
-     */
-    private manuallyAddedCards: Set<string>;
-    
-    /**
-     * 持久化存储键
-     */
-    private readonly STORAGE_KEY = 'incrementalLearningQueue';
-    
-    /**
-     * 队列持久化服务
-     */
-    private readonly queuePersistence: IQueuePersistenceService;
+    private readonly autoFailedSink: AutoFailedCardSinkPort;
     
     /**
      * 构造函数
@@ -60,11 +58,21 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
      * @param manager 统一数据源管理器实例
      * @param queuePersistence 队列持久化服务（依赖注入）
      */
-    constructor(manager: UnifiedDataSourceManager, queuePersistence: IQueuePersistenceService) {
-        super(manager, QueueType.IncrementalLearning);
-        
-        this.queuePersistence = queuePersistence;
-        this.manuallyAddedCards = new Set<string>();
+    constructor(
+        manager: UnifiedDataSourceManager,
+        queuePersistence: QueuePersistencePort,
+        options: IncrementalLearningQueueOptions = {}
+    ) {
+        super(manager, QueueType.IncrementalLearning, {
+            queuePersistence,
+            storageKey: 'incrementalLearningQueue',
+            persistenceContext: 'IncrementalLearningQueue',
+        });
+
+        this.autoFailedSink = options.autoFailedSink ?? NOOP_AUTO_FAILED_SINK;
+        if (!options.autoFailedSink) {
+            logger.warn('AutoFailedCardSinkPort not provided. Failed reviews will not be escalated.');
+        }
         
         // 注意：不在构造函数中调用 load()，由外部调用
         // this.loadManuallyAddedCards();
@@ -79,19 +87,11 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
      * @see 需求 4.2, 4.5
      */
     async load(): Promise<void> {
-        try {
-            const data = this.queuePersistence.get<string[]>(this.STORAGE_KEY);
-            
-            if (data && Array.isArray(data)) {
-                this.manuallyAddedCards = new Set(data);
-                console.log(`[IncrementalLearningQueue] Loaded ${this.manuallyAddedCards.size} manually added cards`);
-            } else {
-                this.manuallyAddedCards = new Set();
-                console.log('[IncrementalLearningQueue] No saved data found, starting with empty set');
-            }
-        } catch (error) {
-            console.error('[IncrementalLearningQueue] Failed to load state:', error);
-            this.manuallyAddedCards = new Set();
+        const { fromStorage, count } = this.loadManualCardState(logger);
+        if (fromStorage) {
+            logger.info(`Loaded ${count} manually added cards`);
+        } else {
+            logger.info('No saved data found, starting with empty set');
         }
     }
     
@@ -104,16 +104,8 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
      * @see 需求 4.2, 4.5, 4.6
      */
     async save(): Promise<void> {
-        try {
-            const data = Array.from(this.manuallyAddedCards);
-            
-            await this.queuePersistence.set(this.STORAGE_KEY, data);
-            
-            console.log(`[IncrementalLearningQueue] Saved ${data.length} manually added cards`);
-        } catch (error) {
-            console.error('[IncrementalLearningQueue] Failed to save state:', error);
-            throw error;
-        }
+        const count = await this.saveManualCardState(logger);
+        logger.info(`Saved ${count} manually added cards`);
     }
     
     /**
@@ -143,6 +135,7 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
      */
     public async getCards(): Promise<FSRSCard[]> {
         try {
+            await this.ensureInitialLoad();
             const now = Date.now();
             
             // 获取所有到期的卡片（所有类型）
@@ -152,17 +145,17 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
                 dueDate: { lte: new Date(now) }
             });
             
-            console.log(`[SiYuanMemo][IncrementalLearningQueue] 🔍 Got ${dueCards.length} due cards from manager`);
+            logger.debug(`Got ${dueCards.length} due cards from manager`);
             
             // 获取手动添加的卡片
             const manualCards = await this.getManuallyAddedCards();
             
-            console.log(`[SiYuanMemo][IncrementalLearningQueue] 🔍 Got ${manualCards.length} manually added cards`);
+            logger.debug(`Got ${manualCards.length} manually added cards`);
             
             // 合并并去重
-            const allCards = this.mergeAndDeduplicate(dueCards, manualCards);
+            const allCards = this.mergeUniqueCards(dueCards, manualCards);
             
-            console.log(`[SiYuanMemo][IncrementalLearningQueue] 🔍 After merge: ${allCards.length} cards`);
+            logger.debug(`After merge: ${allCards.length} cards`);
             
             // 过滤临时黑名单中的卡片
             const filteredCards = allCards.filter(card => 
@@ -170,16 +163,16 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
             );
             
             if (filteredCards.length < allCards.length) {
-                console.log(`[SiYuanMemo][IncrementalLearningQueue] 🔍 Filtered ${allCards.length - filteredCards.length} cards from temporary blacklist`);
+                logger.debug(`Filtered ${allCards.length - filteredCards.length} cards from temporary blacklist`);
             }
             
             // 按到期日期和优先级排序
-            const sortedCards = this.sortByDueDateAndPriority(filteredCards);
+            const sortedCards = this.sortByDuePriority(filteredCards);
             
             // 应用自定义排序（如果存在）
             return this.applyCustomOrder(sortedCards);
         } catch (error) {
-            console.error('[SiYuanMemo][IncrementalLearningQueue] Failed to get cards:', error);
+            logger.error('Failed to get cards:', error);
             throw error;
         }
     }
@@ -198,17 +191,8 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
      */
     public async addCard(card: FSRSCard | QueueItem | string): Promise<void> {
         try {
-            const cardId = resolveCardId(card);
-            
-            // 从临时黑名单中移除（如果存在）
-            const wasBlacklisted = this.temporaryBlacklist.has(cardId);
-            this.temporaryBlacklist.delete(cardId);
-            
-            // 添加到手动添加的卡片集合
-            this.manuallyAddedCards.add(cardId);
-            
-            // 持久化
-            await this.save();
+            await this.ensureInitialLoad();
+            const { cardId, wasBlacklisted } = await this.addManualCard(card, logger);
             
             // 触发观察者通知（需求 6.4：卡片添加的队列统计更新）
             this.manager.notifyObservers({
@@ -217,12 +201,12 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
                 timestamp: Date.now()
             });
             
-            console.log(`[SiYuanMemo][IncrementalLearningQueue] Card ${cardId} added manually`, {
+            logger.info(`Card ${cardId} added manually`, {
                 wasBlacklisted,
                 temporaryBlacklistSize: this.temporaryBlacklist.size
             });
         } catch (error) {
-            console.error('[SiYuanMemo][IncrementalLearningQueue] Failed to add card:', error);
+            logger.error('Failed to add card:', error);
             throw error;
         }
     }
@@ -243,24 +227,15 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
      */
     public async removeCard(cardIdOrBlockId: string): Promise<void> {
         try {
-            // 1. 从手动添加的卡片集合中移除
-            const wasManuallyAdded = this.manuallyAddedCards.has(cardIdOrBlockId);
-            this.manuallyAddedCards.delete(cardIdOrBlockId);
+            await this.ensureInitialLoad();
+            const { wasManuallyAdded } = await this.removeManualCard(cardIdOrBlockId, logger);
             
-            // 2. 加入临时黑名单（继承自 BaseReviewQueue）
-            this.temporaryBlacklist.add(cardIdOrBlockId);
-            
-            // 3. 持久化手动添加的卡片列表（如果有变化）
-            if (wasManuallyAdded) {
-                await this.save();
-            }
-            
-            console.log(`[SiYuanMemo][IncrementalLearningQueue] Card ${cardIdOrBlockId} removed`, {
+            logger.info(`Card ${cardIdOrBlockId} removed`, {
                 wasManuallyAdded,
                 temporaryBlacklistSize: this.temporaryBlacklist.size
             });
         } catch (error) {
-            console.error('[SiYuanMemo][IncrementalLearningQueue] Failed to remove card:', error);
+            logger.error('Failed to remove card:', error);
             // 即使出错，也要尝试加入临时黑名单
             this.temporaryBlacklist.add(cardIdOrBlockId);
             throw error;
@@ -289,12 +264,11 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
             
             // 渐进学习队列特殊逻辑：评分 < 3 时自动添加到最终训练
             if (rating < 3) {
-                const finalDrillQueue = this.manager.getQueue(QueueType.FinalDrill);
-                await finalDrillQueue.addCard(cardId, 'auto-failed');
-                console.log(`[SiYuanMemo][IncrementalLearningQueue] Card ${cardId} with rating ${rating} added to FinalDrill`);
+                await this.autoFailedSink.addAutoFailed(cardId);
+                logger.info(`Card ${cardId} with rating ${rating} added to FinalDrill`);
             }
         } catch (error) {
-            console.error('[SiYuanMemo][IncrementalLearningQueue] Failed to handle review:', error);
+            logger.error('Failed to handle review:', error);
             throw error;
         }
     }
@@ -341,62 +315,8 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
     /**
      * 获取手动添加的卡片
      */
-    private async getManuallyAddedCards(): Promise<FSRSCard[]> {
-        const cards: FSRSCard[] = [];
-        
-        for (const cardId of this.manuallyAddedCards) {
-            try {
-                // 使用静默模式，避免记录预期的"卡片不存在"错误
-                const card = await this.manager.getCard(cardId, { silent: true });
-                cards.push(card);
-            } catch (error) {
-                // 卡片不存在是预期行为（可能已被删除），自动清理
-                console.log(`[SiYuanMemo][IncrementalLearningQueue] Card ${cardId} not found, removing from manual additions`);
-                this.manuallyAddedCards.delete(cardId);
-            }
-        }
-        
-        return cards;
-    }
-    
-    /**
-     * 合并并去重卡片
-     */
-    private mergeAndDeduplicate(dueCards: FSRSCard[], manualCards: FSRSCard[]): FSRSCard[] {
-        const cardMap = new Map<string, FSRSCard>();
-        
-        for (const card of dueCards) {
-            cardMap.set(card.id, card);
-        }
-        
-        for (const card of manualCards) {
-            cardMap.set(card.id, card);
-        }
-        
-        return Array.from(cardMap.values());
-    }
-    
-    /**
-     * 按到期日期和优先级排序
-     * 
-     * 排序规则：
-     * 1. 首先按到期日期排序（升序）
-     * 2. 如果到期日期相同，按优先级排序（升序）
-     * 3. 如果优先级也相同，按卡片 ID 排序（确保稳定排序）
-     */
-    private sortByDueDateAndPriority(cards: FSRSCard[]): FSRSCard[] {
-        return cards.sort((a, b) => {
-            const dateDiff = a.due - b.due;
-            if (dateDiff !== 0) {
-                return dateDiff;
-            }
-            const priorityDiff = a.priority - b.priority;
-            if (priorityDiff !== 0) {
-                return priorityDiff;
-            }
-            // 最后按卡片 ID 排序（确保稳定排序）
-            return a.id.localeCompare(b.id);
-        });
+  private async getManuallyAddedCards(): Promise<FSRSCard[]> {
+        return this.resolveManuallyAddedCards(logger, async () => this.save());
     }
     
     /**
@@ -408,7 +328,7 @@ export class IncrementalLearningQueue extends BaseReviewQueue {
      * @deprecated 使用 getAllCards() 代替
      */
     public getAllItems(): any[] {
-        console.warn('[SiYuanMemo][IncrementalLearningQueue] getAllItems() is deprecated, use getAllCards() instead');
+        logger.warn('getAllItems() is deprecated, use getAllCards() instead');
         // 返回当前缓存的卡片
         return this.cards;
     }

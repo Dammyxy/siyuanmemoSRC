@@ -13,6 +13,9 @@
  */
 
 import type FSRSPlugin from '@/index';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('QuickCardWebSocketService');
 
 /**
  * WebSocket 消息结构
@@ -89,14 +92,12 @@ export class QuickCardWebSocketService {
      * 动态从思源配置中获取端口，支持多工作空间
      */
     private getWebSocketURL(): string {
-        const originalLog = (console as any).__originalLog || console.log;
-        
         // 方法1: 从 window.location 获取（最可靠）
         if (typeof window !== 'undefined' && window.location) {
             const port = window.location.port || '6806';
             const host = window.location.hostname || '127.0.0.1';
             const wsUrl = `ws://${host}:${port}/ws`;
-            originalLog.call(console, `[QuickCard] Using window.location - port: ${port}, URL: ${wsUrl}`);
+            logger.info(`Using window.location - port: ${port}, URL: ${wsUrl}`);
             return wsUrl;
         }
         
@@ -106,12 +107,12 @@ export class QuickCardWebSocketService {
             const host = siyuan.config?.system?.host || '127.0.0.1';
             const port = siyuan.config?.system?.httpPort || 6806;
             const wsUrl = `ws://${host}:${port}/ws`;
-            originalLog.call(console, `[QuickCard] Using window.siyuan - port: ${port}, URL: ${wsUrl}`);
+            logger.info(`Using window.siyuan - port: ${port}, URL: ${wsUrl}`);
             return wsUrl;
         }
         
         // 方法3: 最终降级方案
-        originalLog.call(console, '[QuickCard] Using fallback WebSocket URL: ws://127.0.0.1:6806/ws');
+        logger.info('Using fallback WebSocket URL: ws://127.0.0.1:6806/ws');
         return 'ws://127.0.0.1:6806/ws';
     }
     
@@ -124,11 +125,11 @@ export class QuickCardWebSocketService {
      */
     public start(): void {
         if (this.ws) {
-            console.log('[QuickCard] Service already started');
+            logger.info('Service already started');
             return;
         }
         
-        console.log('[QuickCard] Starting service...');
+        logger.info('Starting service...');
         this.enabled = true;
         this.connect();
     }
@@ -137,7 +138,7 @@ export class QuickCardWebSocketService {
      * 停止服务
      */
     public stop(): void {
-        console.log('[QuickCard] Stopping service...');
+        logger.info('Stopping service...');
         this.enabled = false;
         
         // 清理定时器
@@ -161,14 +162,14 @@ export class QuickCardWebSocketService {
         this.pendingBlocks.clear();
         this.processing.clear();
         
-        console.log('[QuickCard] Service stopped');
+        logger.info('Service stopped');
     }
     
     /**
      * 设置启用状态
      */
     public setEnabled(enabled: boolean): void {
-        console.log('[QuickCard] Setting enabled:', enabled);
+        logger.info('Setting enabled:', enabled);
         
         if (enabled && !this.enabled) {
             this.start();
@@ -183,7 +184,7 @@ export class QuickCardWebSocketService {
     private connect(): void {
         try {
             const wsUrl = this.getWebSocketURL();
-            console.log('[QuickCard] Connecting to WebSocket:', wsUrl);
+            logger.info('Connecting to WebSocket:', wsUrl);
             
             // 创建 WebSocket 连接
             // 参数：app=siyuanmemo&type=main
@@ -192,7 +193,7 @@ export class QuickCardWebSocketService {
             
             // 连接成功
             this.ws.onopen = () => {
-                console.log('[QuickCard] ✅ WebSocket connected');
+                logger.info('WebSocket connected');
             };
             
             // 接收消息
@@ -202,22 +203,22 @@ export class QuickCardWebSocketService {
             
             // 连接错误
             this.ws.onerror = (error) => {
-                console.error('[QuickCard] ❌ WebSocket error:', error);
+                logger.error('WebSocket error:', error);
             };
             
             // 连接关闭
             this.ws.onclose = (event) => {
-                console.log('[QuickCard] WebSocket closed:', event.code, event.reason);
+                logger.info('WebSocket closed:', event.code, event.reason);
                 this.ws = null;
                 
                 // 非正常关闭，自动重连
                 if (event.code !== 1000 && this.enabled) {
-                    console.log('[QuickCard] Connection closed abnormally, reconnecting...');
+                    logger.info('Connection closed abnormally, reconnecting...');
                     this.reconnect();
                 }
             };
         } catch (error) {
-            console.error('[QuickCard] ❌ Failed to connect:', error);
+            logger.error('Failed to connect:', error);
             
             // 连接失败，自动重连
             if (this.enabled) {
@@ -234,7 +235,7 @@ export class QuickCardWebSocketService {
             return; // 已经在重连中
         }
         
-        console.log(`[QuickCard] Reconnecting in ${this.RECONNECT_DELAY}ms...`);
+        logger.info(`Reconnecting in ${this.RECONNECT_DELAY}ms...`);
         
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
@@ -259,7 +260,7 @@ export class QuickCardWebSocketService {
             
             this.handleTransactions(message.data);
         } catch (error) {
-            console.error('[QuickCard] ❌ Failed to parse message:', error);
+            logger.error('Failed to parse message:', error);
         }
     }
     
@@ -271,7 +272,7 @@ export class QuickCardWebSocketService {
             return;
         }
         
-        console.log('[QuickCard] Transaction received:', data.length);
+        logger.info('Transaction received:', data.length);
         
         // 提取所有 insert 和 update 操作的块 ID
         data.forEach(transaction => {
@@ -282,7 +283,7 @@ export class QuickCardWebSocketService {
             transaction.doOperations.forEach(op => {
                 // 只监听 insert 和 update 操作
                 if (op.action === 'insert' || op.action === 'update') {
-                    console.log('[QuickCard] Operation:', op.action, op.id);
+                    logger.info('Operation:', op.action, op.id);
                     this.queueBlockCheck(op.id);
                 }
             });
@@ -310,7 +311,7 @@ export class QuickCardWebSocketService {
      */
     private async processQueue(): Promise<void> {
         const blocks = Array.from(this.pendingBlocks);
-        console.log('[QuickCard] Processing queue, blocks:', blocks.length);
+        logger.info('Processing queue, blocks:', blocks.length);
         
         this.pendingBlocks.clear();
         
@@ -318,7 +319,7 @@ export class QuickCardWebSocketService {
         for (const blockId of blocks) {
             // 去重：避免重复处理
             if (this.processing.has(blockId)) {
-                console.log(`[QuickCard] Block ${blockId} is already being processed, skipping`);
+                logger.info(`Block ${blockId} is already being processed, skipping`);
                 continue;
             }
             
@@ -327,7 +328,7 @@ export class QuickCardWebSocketService {
             try {
                 await this.processBlock(blockId);
             } catch (error) {
-                console.error(`[QuickCard] ❌ Failed to process block ${blockId}:`, error);
+                logger.error(`Failed to process block ${blockId}:`, error);
             } finally {
                 this.processing.delete(blockId);
             }
@@ -343,7 +344,7 @@ export class QuickCardWebSocketService {
      * - 路由到对应的创建逻辑
      */
     private async processBlock(blockId: string): Promise<void> {
-        console.log(`[QuickCard] Processing block: ${blockId}`);
+        logger.info(`Processing block: ${blockId}`);
         
         // TODO: Phase 2 - 实现符号检测和卡片创建
         // 1. 获取块内容（kramdown）
@@ -351,6 +352,6 @@ export class QuickCardWebSocketService {
         // 3. 检查是否已制卡
         // 4. 路由到对应的创建逻辑
         
-        console.log(`[QuickCard] Block ${blockId} processed (placeholder)`);
+        logger.info(`Block ${blockId} processed (placeholder)`);
     }
 }

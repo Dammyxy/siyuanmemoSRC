@@ -15,6 +15,7 @@ import { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
 import { createPersistenceCallbacks } from '@/core/storage/UnifiedStoragePersistence';
 import { SchedulerRouter, RescheduleService, createScheduler, type SchedulerEngineAdapter } from '@/core/scheduler';
 import { UnifiedStorageCardUpdateAdapter } from '@/core/scheduler/adapters/UnifiedStorageCardUpdateAdapter';
+import { SiyuanErrorNotificationAdapter } from '@/infrastructure/notifications/SiyuanErrorNotificationAdapter';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import { DialogManager } from '@/application/managers/DialogManager';
 import { MenuManager } from '@/application/managers/MenuManager';
@@ -55,6 +56,9 @@ import { SettingsService } from '@/application/services/SettingsService';
 import { ReviewLogService } from '@/application/services/ReviewLogService';
 import { RiffBlacklistService } from '@/application/services/RiffBlacklistService';
 import { CardContentQueryService } from '@/application/queries/CardContentQueryService';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('ApplicationContext');
 
 /**
  * 应用配置接口
@@ -442,7 +446,7 @@ export class ApplicationContext {
     // ⚠️ 检查是否之前创建失败 - Phase 8: 错误恢复
     if (this.failedServices.has(serviceName)) {
       const previousError = this.failedServices.get(serviceName)!;
-      console.warn(
+      logger.warn(
         `[ApplicationContext] Service '${serviceName}' failed to create previously. ` +
         `Retrying... Previous error: ${previousError.message}`
       );
@@ -482,7 +486,7 @@ export class ApplicationContext {
       if (this.enablePerformanceMonitoring) {
         const duration = performance.now() - startTime;
         if (duration > this.performanceThreshold) {
-          console.warn(
+          logger.warn(
             `[ApplicationContext] Service '${serviceName}' took ${duration.toFixed(2)}ms to create ` +
             `(threshold: ${this.performanceThreshold}ms)`
           );
@@ -493,7 +497,7 @@ export class ApplicationContext {
     } catch (error) {
       // 记录失败
       this.failedServices.set(serviceName, error as Error);
-      console.error(`[ApplicationContext] Failed to create service '${serviceName}':`, error);
+      logger.error(`[ApplicationContext] Failed to create service '${serviceName}':`, error);
       throw error;
     } finally {
       // 清理标记
@@ -554,10 +558,10 @@ export class ApplicationContext {
     // 尝试加载数据，如果文件不存在则初始化为空
     const loadResult = await unifiedStorageManager.load();
     if (!loadResult.ok) {
-      console.log('[ApplicationContext] UnifiedStorageManager: No existing data, starting fresh');
+      logger.info('[ApplicationContext] UnifiedStorageManager: No existing data, starting fresh');
     } else {
       const stats = unifiedStorageManager.getStats();
-      console.log('[ApplicationContext] ✅ UnifiedStorageManager loaded:', {
+      logger.info('[ApplicationContext] ✅ UnifiedStorageManager loaded:', {
         xiuyuans: stats.totalXiuYuans,
         cards: stats.totalCards,
       });
@@ -567,7 +571,7 @@ export class ApplicationContext {
       const orphanCards = allCards.filter(card => !card.meta?.xiuyuanID);
       
       if (orphanCards.length > 0) {
-        console.warn(`[ApplicationContext] Found ${orphanCards.length} orphan cards without Xiuyuan, creating Xiuyuans...`);
+        logger.warn(`[ApplicationContext] Found ${orphanCards.length} orphan cards without Xiuyuan, creating Xiuyuans...`);
         
         // 动态导入所需的类
         const { XiuyuanId } = await import('@/core/xiuyuan/domain/XiuyuanId');
@@ -597,7 +601,7 @@ export class ApplicationContext {
             });
             
             if (!xiuyuanIdResult.ok || !blockIdResult.ok || !templateIdResult.ok || !cardFaceResult.ok) {
-              console.error(`[ApplicationContext] Failed to create value objects for card ${orphanCard.id}`);
+              logger.error(`[ApplicationContext] Failed to create value objects for card ${orphanCard.id}`);
               continue;
             }
             
@@ -612,7 +616,7 @@ export class ApplicationContext {
             });
             
             if (!xiuyuanResult.ok) {
-              console.error(`[ApplicationContext] Failed to create Xiuyuan for card ${orphanCard.id}`);
+              logger.error(`[ApplicationContext] Failed to create Xiuyuan for card ${orphanCard.id}`);
               continue;
             }
             
@@ -634,7 +638,7 @@ export class ApplicationContext {
             });
             
             if (!cardIdResult.ok || !scheduleInfoResult.ok) {
-              console.error(`[ApplicationContext] Failed to create Card entity for ${orphanCard.id}`);
+              logger.error(`[ApplicationContext] Failed to create Card entity for ${orphanCard.id}`);
               continue;
             }
             
@@ -648,14 +652,14 @@ export class ApplicationContext {
             });
             
             if (!cardResult.ok) {
-              console.error(`[ApplicationContext] Failed to create Card for ${orphanCard.id}`);
+              logger.error(`[ApplicationContext] Failed to create Card for ${orphanCard.id}`);
               continue;
             }
             
             // 添加 Card 到 Xiuyuan
             const addResult = xiuyuan.addCard(cardResult.value);
             if (!addResult.ok) {
-              console.error(`[ApplicationContext] Failed to add Card to Xiuyuan for ${orphanCard.id}`);
+              logger.error(`[ApplicationContext] Failed to add Card to Xiuyuan for ${orphanCard.id}`);
               continue;
             }
             
@@ -666,15 +670,15 @@ export class ApplicationContext {
             if (saveResult.ok) {
               fixedCount++;
             } else {
-              console.error(`[ApplicationContext] Failed to save Xiuyuan for card ${orphanCard.id}:`, saveResult.error);
+              logger.error(`[ApplicationContext] Failed to save Xiuyuan for card ${orphanCard.id}:`, saveResult.error);
             }
           } catch (error) {
-            console.error(`[ApplicationContext] Error fixing orphan card ${orphanCard.id}:`, error);
+            logger.error(`[ApplicationContext] Error fixing orphan card ${orphanCard.id}:`, error);
           }
         }
         
         if (fixedCount > 0) {
-          console.log(`[ApplicationContext] ✅ Fixed ${fixedCount}/${orphanCards.length} orphan cards`);
+          logger.info(`[ApplicationContext] ✅ Fixed ${fixedCount}/${orphanCards.length} orphan cards`);
           // 立即保存
           await unifiedStorageManager.save();
         }
@@ -687,10 +691,10 @@ export class ApplicationContext {
     try {
       const repairResult = await storageManager.repairInvalidDates();
       if (repairResult.fixed > 0) {
-        console.log(`[ApplicationContext] 🔧 Repaired ${repairResult.fixed}/${repairResult.total} cards with invalid dates`);
+        logger.info(`[ApplicationContext] 🔧 Repaired ${repairResult.fixed}/${repairResult.total} cards with invalid dates`);
       }
     } catch (err) {
-      console.error('[ApplicationContext] Failed to repair invalid dates:', err);
+      logger.error('[ApplicationContext] Failed to repair invalid dates:', err);
     }
     
     // 3. 创建 CardApplicationService 相关组件
@@ -718,7 +722,7 @@ export class ApplicationContext {
     // ✅ 创建 InMemoryDeletionTracker（在创建用例之前）
     const { InMemoryDeletionTracker } = await import('@/core/xiuyuan/infrastructure/InMemoryDeletionTracker');
     const deletionTracker = new InMemoryDeletionTracker();
-    console.log('[ApplicationContext] Created InMemoryDeletionTracker for early initialization');
+    logger.info('[ApplicationContext] Created InMemoryDeletionTracker for early initialization');
     
     // 创建用例
     const createCardUseCase = new CreateCardUseCase(xiuyuanRepoTemp, cardCreationService, sharedEventBus);
@@ -742,9 +746,11 @@ export class ApplicationContext {
     
     // 4. 初始化 RescheduleService（使用新架构）
     const schedulerCardUpdater = new UnifiedStorageCardUpdateAdapter(unifiedStorageManager);
+    const schedulerErrorNotifier = new SiyuanErrorNotificationAdapter();
     const rescheduleService = new RescheduleService(
       unifiedStorageManager,
-      schedulerCardUpdater
+      schedulerCardUpdater,
+      schedulerErrorNotifier
     );
     
     // 5. 初始化调度器路由（使用新架构）
@@ -754,7 +760,6 @@ export class ApplicationContext {
         enableRiffSync: settings.scheduler?.enableRiffSync || false,
         fsrsParams: settings.fsrs,
       },
-      unifiedStorageManager,
       schedulerCardUpdater
     );
     
@@ -763,7 +768,7 @@ export class ApplicationContext {
     
     // 创建 CardCreationHelper
     const cardCreationHelper = new CardCreationHelper(cardApplicationService);
-    console.log('[ApplicationContext] ✅ CardCreationHelper initialized');
+    logger.info('[ApplicationContext] ✅ CardCreationHelper initialized');
     
     // 7. 初始化统一数据源管理器
     const unifiedDataSourceManager = UnifiedDataSourceManager.getInstance();
@@ -772,7 +777,7 @@ export class ApplicationContext {
     // 10. 加载内置模板（硬编码，不需要持久化）
     // ✅ DDD 架构优化：模板作为代码的一部分，不需要持久化到文件
     const { BUILTIN_TEMPLATES } = await import('@/core/xiuyuan');
-    console.log('[ApplicationContext] ✅ Loaded', BUILTIN_TEMPLATES.length, 'builtin templates from code');
+    logger.info('[ApplicationContext] ✅ Loaded', BUILTIN_TEMPLATES.length, 'builtin templates from code');
     
     // 11. 初始化 BlockMenuHandler
     // 创建一个临时变量来存储 context 引用（用于闭包）
@@ -806,7 +811,7 @@ export class ApplicationContext {
       applicationContext: undefined, // 🆕 将在 ApplicationContext 创建后设置
     });
     
-    console.log('[ApplicationContext] ✅ BlockMenuHandler initialized');
+    logger.info('[ApplicationContext] ✅ BlockMenuHandler initialized');
     
     // 11. 初始化 HybridSyncService（如果配置启用）
     let hybridSyncService: HybridSyncService | undefined;
@@ -836,7 +841,7 @@ export class ApplicationContext {
     
     // ✅ 存储 deletionTracker 到 context（供 cardService 工厂复用）
     (context as any).deletionTracker = deletionTracker;
-    console.log('[ApplicationContext] Stored deletionTracker to context');
+    logger.info('[ApplicationContext] Stored deletionTracker to context');
     
     // 13. 设置 ApplicationContext 和 DialogManager 引用（解决循环依赖）
     blockMenuHandler.setApplicationContext(context);
@@ -846,7 +851,7 @@ export class ApplicationContext {
     const settingsService = context.getSettingsService();
     // 🔧 修复：初始化 SettingsService（加载配置文件）
     await settingsService.init();
-    console.log('[ApplicationContext] ✅ SettingsService initialized');
+    logger.info('[ApplicationContext] ✅ SettingsService initialized');
     
     const advancedRouter = new AdvancedDataRouter(
       cardApplicationService, 
@@ -861,15 +866,15 @@ export class ApplicationContext {
     const queuePersistenceService = context.getQueuePersistenceService();
     // 🔧 修复：初始化 QueuePersistenceService
     await queuePersistenceService.init();
-    console.log('[ApplicationContext] ✅ QueuePersistenceService initialized');
+    logger.info('[ApplicationContext] ✅ QueuePersistenceService initialized');
     
     unifiedDataSourceManager.setQueuePersistence(queuePersistenceService);
-    console.log('[ApplicationContext] ✅ UnifiedDataSourceManager initialized with Advanced mode and QueuePersistence');
+    logger.info('[ApplicationContext] ✅ UnifiedDataSourceManager initialized with Advanced mode and QueuePersistence');
     
     // 14. 初始化 HybridSyncService（需要 CardApplicationService、EventBus 和 XiuyuanRepository）
-    console.log('[ApplicationContext] Checking riffConfig:', { hasRiffConfig: !!riffConfig });
+    logger.info('[ApplicationContext] Checking riffConfig:', { hasRiffConfig: !!riffConfig });
     if (riffConfig) {
-      console.log('[ApplicationContext] Initializing HybridSyncService...');
+      logger.info('[ApplicationContext] Initializing HybridSyncService...');
       const { riff } = await import('@/core/siyuan');
       
       // 获取依赖服务
@@ -892,7 +897,7 @@ export class ApplicationContext {
       if (!deletionTracker) {
         throw new Error('[ApplicationContext] deletionTracker should have been created during initialization');
       }
-      console.log('[ApplicationContext] Reusing existing InMemoryDeletionTracker in initializeRiffSync');
+      logger.info('[ApplicationContext] Reusing existing InMemoryDeletionTracker in initializeRiffSync');
       
       // 创建 HybridSyncService
       // 构造函数签名：(config, eventBus, xiuyuanRepository, riffBlacklistService, cardTypeDetectionService, deletionTracker)
@@ -918,17 +923,17 @@ export class ApplicationContext {
       // 将 HybridSyncService 设置到 context（使用类型断言）
       (context as any).hybridSyncService = hybridSyncService;
       
-      console.log('[ApplicationContext] ✅ HybridSyncService initialized with XiuyuanRepository');
+      logger.info('[ApplicationContext] ✅ HybridSyncService initialized with XiuyuanRepository');
       
       // ✅ 注册 RiffSyncEventHandler（监听领域事件并同步到 Riff）
       // 使用 sharedEventBus 而不是 context.getEventBus()，确保与 DeleteCardUseCase 使用同一个 EventBus
-      console.log('[ApplicationContext] Importing RiffSyncEventHandler...');
+      logger.info('[ApplicationContext] Importing RiffSyncEventHandler...');
       const { RiffSyncEventHandler } = await import('@/infrastructure/events/RiffSyncEventHandler');
-      console.log('[ApplicationContext] Creating RiffSyncEventHandler...');
+      logger.info('[ApplicationContext] Creating RiffSyncEventHandler...');
       const riffSyncEventHandler = new RiffSyncEventHandler(sharedEventBus, hybridSyncService);
       (context as any).riffSyncEventHandler = riffSyncEventHandler;
-      console.log('[ApplicationContext] ✅ RiffSyncEventHandler registered');
-      console.log('[ApplicationContext] EventBus subscriber count for CardDeleted:', sharedEventBus.getSubscriberCount('CardDeleted'));
+      logger.info('[ApplicationContext] ✅ RiffSyncEventHandler registered');
+      logger.info('[ApplicationContext] EventBus subscriber count for CardDeleted:', sharedEventBus.getSubscriberCount('CardDeleted'));
       
       // 启动同步服务
       await hybridSyncService.start();
@@ -940,7 +945,7 @@ export class ApplicationContext {
           riffConfig.fullSync.interval
         );
         (context as any).fullSyncTimer = fullSyncTimer;
-        console.log(`[ApplicationContext] Full sync timer started (interval: ${riffConfig.fullSync.interval}ms)`);
+        logger.info(`[ApplicationContext] Full sync timer started (interval: ${riffConfig.fullSync.interval}ms)`);
       }
       
       // 初始化 TransactionWebSocketService
@@ -954,11 +959,11 @@ export class ApplicationContext {
         transactionWebSocketService.start();
         
         (context as any).transactionWebSocketService = transactionWebSocketService;
-        console.log('[ApplicationContext] ✅ TransactionWebSocketService initialized');
+        logger.info('[ApplicationContext] ✅ TransactionWebSocketService initialized');
       }
     }
     
-    console.log('[ApplicationContext] ✅ ApplicationContext created successfully');
+    logger.info('[ApplicationContext] ✅ ApplicationContext created successfully');
     
     return context;
   }
@@ -1135,7 +1140,7 @@ export class ApplicationContext {
    */
   async updateHybridSyncConfig(config: Partial<any>): Promise<void> {
     if (!this.hybridSyncService) {
-      console.warn('[ApplicationContext] HybridSyncService not initialized');
+      logger.warn('[ApplicationContext] HybridSyncService not initialized');
       return;
     }
     
@@ -1158,10 +1163,10 @@ export class ApplicationContext {
         () => this.hybridSyncService!.fullSync(),
         config.fullSync.interval
       );
-      console.log(`[ApplicationContext] Full sync timer restarted (interval: ${config.fullSync.interval}ms)`);
+      logger.info(`[ApplicationContext] Full sync timer restarted (interval: ${config.fullSync.interval}ms)`);
     }
     
-    console.log('[ApplicationContext] ✅ HybridSyncService config updated');
+    logger.info('[ApplicationContext] ✅ HybridSyncService config updated');
   }
   
   /**
@@ -1177,7 +1182,7 @@ export class ApplicationContext {
     if (enabled && this.hybridSyncService) {
       // 需要启用 TransactionWebSocketService
       if (!this.transactionWebSocketService) {
-        console.log('[ApplicationContext] Initializing TransactionWebSocketService...');
+        logger.info('[ApplicationContext] Initializing TransactionWebSocketService...');
         const { TransactionWebSocketService } = await import('@/core/infrastructure/websocket/TransactionWebSocketService');
         const { RiffSyncHandler } = await import('@/application/handlers/RiffSyncHandler');
         const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
@@ -1191,19 +1196,19 @@ export class ApplicationContext {
         // 创建并注册 AutoCardHandler
         const autoCardHandler = new AutoCardHandler(this.config.plugin as any);
         this.transactionWebSocketService.registerHandler(autoCardHandler);
-        console.log('[ApplicationContext] ✅ AutoCardHandler registered');
+        logger.info('[ApplicationContext] ✅ AutoCardHandler registered');
         
         // 启动服务
         this.transactionWebSocketService.start();
-        console.log('[ApplicationContext] ✅ TransactionWebSocketService initialized and started');
+        logger.info('[ApplicationContext] ✅ TransactionWebSocketService initialized and started');
       }
     } else {
       // 需要停止 TransactionWebSocketService
       if (this.transactionWebSocketService) {
-        console.log('[ApplicationContext] Stopping TransactionWebSocketService...');
+        logger.info('[ApplicationContext] Stopping TransactionWebSocketService...');
         this.transactionWebSocketService.stop();
         this.transactionWebSocketService = undefined;
-        console.log('[ApplicationContext] ✅ TransactionWebSocketService stopped');
+        logger.info('[ApplicationContext] ✅ TransactionWebSocketService stopped');
       }
     }
   }
@@ -1449,16 +1454,16 @@ export class ApplicationContext {
     const errors: Array<{ service: string; error: any }> = [];
     
     try {
-      console.log('[ApplicationContext] Starting disposal...');
+      logger.info('[ApplicationContext] Starting disposal...');
       
       // 0. 立即保存 SettingsService (优先级最高)
       if (this.isServiceCreated('settingsService')) {
         try {
           const settingsService = this.getSettingsService();
           await settingsService.dispose();
-          console.log('[ApplicationContext] ✅ SettingsService disposed and saved');
+          logger.info('[ApplicationContext] ✅ SettingsService disposed and saved');
         } catch (error) {
-          console.error('[ApplicationContext] Error disposing SettingsService:', error);
+          logger.error('[ApplicationContext] Error disposing SettingsService:', error);
           errors.push({ service: 'settingsService', error });
         }
       }
@@ -1467,9 +1472,9 @@ export class ApplicationContext {
       if (this.transactionWebSocketService) {
         try {
           this.transactionWebSocketService.stop();
-          console.log('[ApplicationContext] ✅ TransactionWebSocketService stopped');
+          logger.info('[ApplicationContext] ✅ TransactionWebSocketService stopped');
         } catch (error) {
-          console.error('[ApplicationContext] Error stopping TransactionWebSocketService:', error);
+          logger.error('[ApplicationContext] Error stopping TransactionWebSocketService:', error);
           errors.push({ service: 'transactionWebSocketService', error });
         }
       }
@@ -1479,9 +1484,9 @@ export class ApplicationContext {
         try {
           clearInterval(this.fullSyncTimer);
           this.fullSyncTimer = undefined;
-          console.log('[ApplicationContext] ✅ Full sync timer cleared');
+          logger.info('[ApplicationContext] ✅ Full sync timer cleared');
         } catch (error) {
-          console.error('[ApplicationContext] Error clearing full sync timer:', error);
+          logger.error('[ApplicationContext] Error clearing full sync timer:', error);
           errors.push({ service: 'fullSyncTimer', error });
         }
       }
@@ -1490,9 +1495,9 @@ export class ApplicationContext {
       if (this.hybridSyncService) {
         try {
           this.hybridSyncService.stop();
-          console.log('[ApplicationContext] ✅ HybridSyncService stopped');
+          logger.info('[ApplicationContext] ✅ HybridSyncService stopped');
         } catch (error) {
-          console.error('[ApplicationContext] Error stopping HybridSyncService:', error);
+          logger.error('[ApplicationContext] Error stopping HybridSyncService:', error);
           errors.push({ service: 'hybridSyncService', error });
         }
       }
@@ -1502,14 +1507,14 @@ export class ApplicationContext {
       
       // 5. 保存存储管理器数据（关键操作）
       try {
-        console.log('[ApplicationContext] Saving storage data...');
+        logger.info('[ApplicationContext] Saving storage data...');
         const saveResult = await this.unifiedStorageManager.save();  // ✅ 使用新架构 UnifiedStorageManager
         if (!saveResult.ok) {
           throw new Error(saveResult.error?.message || 'Unknown error');
         }
-        console.log('[ApplicationContext] Storage data saved successfully');
+        logger.info('[ApplicationContext] Storage data saved successfully');
       } catch (error) {
-        console.error('[ApplicationContext] Critical error: Failed to save storage data:', error);
+        logger.error('[ApplicationContext] Critical error: Failed to save storage data:', error);
         errors.push({ service: 'unifiedStorageManager.save', error });
         // 存储保存失败是关键错误，需要抛出
         throw new Error(`Failed to save storage data during disposal: ${error}`);
@@ -1524,15 +1529,15 @@ export class ApplicationContext {
       
       // 8. 报告结果
       if (errors.length > 0) {
-        console.warn(`[ApplicationContext] Disposed with ${errors.length} non-critical errors:`, errors);
+        logger.warn(`[ApplicationContext] Disposed with ${errors.length} non-critical errors:`, errors);
       } else {
-        console.log('[ApplicationContext] Disposed successfully');
+        logger.info('[ApplicationContext] Disposed successfully');
       }
     } catch (error) {
       // 标记为已销毁，即使发生错误
       this.disposed = true;
       
-      console.error('[ApplicationContext] Critical error during disposal:', error);
+      logger.error('[ApplicationContext] Critical error during disposal:', error);
       throw error;
     }
   }
@@ -1561,12 +1566,12 @@ export class ApplicationContext {
       try {
         // 如果服务有 dispose 方法，调用它
         if (service && typeof service.dispose === 'function') {
-          console.log(`[ApplicationContext] Disposing service: ${serviceName}...`);
+          logger.info(`[ApplicationContext] Disposing service: ${serviceName}...`);
           await service.dispose();
-          console.log(`[ApplicationContext] Disposed service: ${serviceName}`);
+          logger.info(`[ApplicationContext] Disposed service: ${serviceName}`);
         }
       } catch (error) {
-        console.error(`[ApplicationContext] Error disposing service '${serviceName}':`, error);
+        logger.error(`[ApplicationContext] Error disposing service '${serviceName}':`, error);
         errors.push({ service: serviceName, error });
         // 继续销毁其他服务，不抛出错误
       }

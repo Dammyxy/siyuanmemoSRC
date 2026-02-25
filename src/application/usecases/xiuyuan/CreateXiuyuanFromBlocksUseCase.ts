@@ -38,6 +38,10 @@ import { ClozeCardGenerator } from '@/core/xiuyuan/domain/services/ClozeCardGene
 import { getBlockText } from '@/core/siyuan/block';
 import { addRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
+import { createLogger } from '@/utils/logger';
+import { isDefinitionTemplate, isDescriptorTemplate } from './shared/DescriptorTemplateStrategy';
+
+const logger = createLogger('CreateXiuyuanFromBlocksUseCase');
 
 /**
  * 从块创建 Xiuyuan 用例
@@ -73,28 +77,23 @@ export class CreateXiuyuanFromBlocksUseCase {
       // 🆕 对于 concept-definition 模板，检查第一个块（定义块）
       // 因为概念块可以有自己的 Xiuyuan，定义块为概念提供定义
       let blockToCheck = command.blockIds[0];
-      const isDescriptorTemplate = command.templateId === 'builtin-concept-descriptor' 
-        || command.templateId === 'builtin-concept-descriptor-reverse'
-        || command.templateId === 'builtin-concept-descriptor-both';
+      const descriptorTemplate = isDescriptorTemplate(command.templateId);
+      const definitionTemplate = isDefinitionTemplate(command.templateId);
       
-      const isDefinitionTemplate = command.templateId === 'builtin-concept-definition'
-        || command.templateId === 'builtin-concept-definition-forward'
-        || command.templateId === 'builtin-concept-definition-reverse';
-      
-      if (isDescriptorTemplate && command.blockIds.length >= 2) {
+      if (descriptorTemplate && command.blockIds.length >= 2) {
         blockToCheck = command.blockIds[1];  // 检查描述符块
-        console.log(`[CreateXiuyuanFromBlocksUseCase] Concept-descriptor template detected, checking descriptor block: ${blockToCheck}`);
-      } else if (isDefinitionTemplate && command.blockIds.length >= 1) {
+        logger.debug(`Concept-descriptor template detected, checking descriptor block: ${blockToCheck}`);
+      } else if (definitionTemplate && command.blockIds.length >= 1) {
         blockToCheck = command.blockIds[0];  // 检查定义块（第一个块）
-        console.log(`[CreateXiuyuanFromBlocksUseCase] Concept-definition template detected, checking definition block: ${blockToCheck}`);
+        logger.debug(`Concept-definition template detected, checking definition block: ${blockToCheck}`);
       }
-      console.log(`[CreateXiuyuanFromBlocksUseCase] Checking block for existing Xiuyuan: ${blockToCheck}`);
+      logger.debug(`Checking block for existing Xiuyuan: ${blockToCheck}`);
       
       const attrs = await getBlockAttrs(blockToCheck);
       
       if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
         const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
-        console.log(`[CreateXiuyuanFromBlocksUseCase] Block ${blockToCheck} already has Xiuyuan: ${existingXiuyuanId}`);
+        logger.info(`Block ${blockToCheck} already has Xiuyuan: ${existingXiuyuanId}`);
         return err(new Error('此块已经创建过修缘卡片，请勿重复创建'));
       }
       
@@ -106,7 +105,7 @@ export class CreateXiuyuanFromBlocksUseCase {
 
       // 🆕 处理双向卡片：动态生成 cardRules
       if (command.isBidirectional && command.templateId === 'builtin-quick-card') {
-        console.log('[CreateXiuyuanFromBlocksUseCase] Creating bidirectional card, adding reverse rule');
+        logger.debug('Creating bidirectional card, adding reverse rule');
         template = {
           ...template,
           cardRules: [
@@ -135,20 +134,12 @@ export class CreateXiuyuanFromBlocksUseCase {
       // 🆕 对于描述符模板，使用描述符块（第二个块）作为代表块
       // 🆕 对于定义模板，使用定义块（第一个块）作为代表块
       let representativeBlockId = command.blockIds[0];
-      const isDescriptorTemplateForId = command.templateId === 'builtin-concept-descriptor' 
-        || command.templateId === 'builtin-concept-descriptor-reverse'
-        || command.templateId === 'builtin-concept-descriptor-both';
-      
-      const isDefinitionTemplateForId = command.templateId === 'builtin-concept-definition'
-        || command.templateId === 'builtin-concept-definition-forward'
-        || command.templateId === 'builtin-concept-definition-reverse';
-      
-      if (isDescriptorTemplateForId && command.blockIds.length >= 2) {
+      if (descriptorTemplate && command.blockIds.length >= 2) {
         representativeBlockId = command.blockIds[1];  // 使用描述符块
-        console.log(`[CreateXiuyuanFromBlocksUseCase] Using descriptor block as representative: ${representativeBlockId}`);
-      } else if (isDefinitionTemplateForId && command.blockIds.length >= 1) {
+        logger.debug(`Using descriptor block as representative: ${representativeBlockId}`);
+      } else if (definitionTemplate && command.blockIds.length >= 1) {
         representativeBlockId = command.blockIds[0];  // 使用定义块（第一个块）
-        console.log(`[CreateXiuyuanFromBlocksUseCase] Using definition block as representative: ${representativeBlockId}`);
+        logger.debug(`Using definition block as representative: ${representativeBlockId}`);
       }
       
       const xiuyuanIdResult = XiuyuanId.create(`xy_${representativeBlockId}`);
@@ -194,7 +185,7 @@ export class CreateXiuyuanFromBlocksUseCase {
         const { front, back, clozes, direction } = command.backClozeInfo;
         const blockId = command.blockIds[0];
         
-        console.log('[CreateXiuyuanFromBlocksUseCase] Creating back cloze faces:', {
+        logger.debug('Creating back cloze faces:', {
           direction,
           clozeCount: clozes.length
         });
@@ -244,7 +235,7 @@ export class CreateXiuyuanFromBlocksUseCase {
       }
       // 🆕 处理双向卡片：两个 face 使用相同的块内容
       else if (command.isBidirectional && command.templateId === 'builtin-quick-card') {
-        console.log('[CreateXiuyuanFromBlocksUseCase] Creating bidirectional faces');
+        logger.debug('Creating bidirectional faces');
         
         const blockId = command.blockIds[0];
         const blockText = await getBlockText(blockId);
@@ -331,7 +322,7 @@ export class CreateXiuyuanFromBlocksUseCase {
         const cardResult = xiuyuan.createCard(i);
         if (!cardResult.ok) {
           const error = (cardResult as any).error || new Error('Failed to create card');
-          console.error(`[CreateXiuyuanFromBlocksUseCase] Failed to create card for face ${i}:`, error);
+          logger.error(`Failed to create card for face ${i}:`, error);
           return err(error);
         }
       }
@@ -342,25 +333,21 @@ export class CreateXiuyuanFromBlocksUseCase {
       // 🆕 对于 concept-descriptor 模板，添加描述符块（第二个块）到 Riff
       // 对于 concept-definition 模板，添加定义块（第一个块）到 Riff
       let blockIdToAddToRiff = representativeBlockId;
-      const isDescriptorTemplateForRiff = command.templateId === 'builtin-concept-descriptor' 
-        || command.templateId === 'builtin-concept-descriptor-reverse'
-        || command.templateId === 'builtin-concept-descriptor-both';
-      
-      if (isDescriptorTemplateForRiff && command.blockIds.length >= 2) {
+      if (descriptorTemplate && command.blockIds.length >= 2) {
         blockIdToAddToRiff = command.blockIds[1];  // 使用描述符块
-        console.log(`[CreateXiuyuanFromBlocksUseCase] Concept-descriptor template, adding descriptor block to Riff:`, blockIdToAddToRiff);
+        logger.debug('Concept-descriptor template, adding descriptor block to Riff:', blockIdToAddToRiff);
       }
       // concept-definition 使用默认的第一个块（定义块）
       
       try {
         await addRiffCards(deckId, [blockIdToAddToRiff]);
-        console.log('[CreateXiuyuanFromBlocksUseCase] ✅ Created Xiuyuan and added to Riff:', {
+        logger.info('Created Xiuyuan and added to Riff:', {
           xiuyuanId: xiuyuan.getId().getValue(),
           blockId: blockIdToAddToRiff,
           source: 'template-creation'
         });
       } catch (error) {
-        console.warn('[CreateXiuyuanFromBlocksUseCase] Failed to add to Riff:', error);
+        logger.warn('Failed to add to Riff:', error);
         // 不阻断流程
       }
 
@@ -384,7 +371,7 @@ export class CreateXiuyuanFromBlocksUseCase {
         }))
       });
     } catch (error) {
-      console.error('[CreateXiuyuanFromBlocksUseCase] Failed:', error);
+      logger.error('Failed:', error);
       return err(error as Error);
     }
   }

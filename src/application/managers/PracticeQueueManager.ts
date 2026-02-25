@@ -6,6 +6,9 @@ import { getCardBlockIds } from '@/core/siyuan/block';
 import { pushMsg } from '@/core/siyuan/api';
 import type { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
 import type { QueueItem } from '@/core/queue';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('PracticeQueueManager');
 
 export type PracticeQueueFilter = { type: 'doc' | 'tree' | 'sql'; value: string };
 
@@ -46,7 +49,7 @@ export class PracticeQueueManager {
           await this.retrievalQueue.addCard(blockId, 'manual');
           added++;
         } catch (err) {
-          console.error(`[PracticeQueueManager] 添加卡片失败: ${blockId}`, err);
+          logger.error(`Failed to add card: ${blockId}`, err);
         }
       }
       return added;
@@ -73,7 +76,7 @@ export class PracticeQueueManager {
       const { pushMsg } = await import('@/core/siyuan/api');
       await pushMsg('✅ 已清空练习队列');
     } catch (error) {
-      console.error('[PracticeQueueManager] Failed to clear queue:', error);
+      logger.error('Failed to clear queue:', error);
       const { pushErrMsg } = await import('@/core/siyuan/api');
       await pushErrMsg('清空队列失败，请查看控制台');
     }
@@ -87,16 +90,15 @@ export class PracticeQueueManager {
     let cards: any[] = [];
     let isEmpty = false;
     
-    if (this.retrievalQueue?.getAllCards) {
+    if (typeof this.retrievalQueue?.getAllCards === 'function') {
       cards = await this.retrievalQueue.getAllCards();
       isEmpty = cards.length === 0;
-    } else if (this.retrievalQueue?.getSize) {
+    } else if (typeof this.retrievalQueue?.getSize === 'function') {
       const size = await this.retrievalQueue.getSize();
       isEmpty = size === 0;
-    } else if (this.retrievalQueue?.getAllItems) {
-      // ✅ 旧架构：使用 getAllItems
-      cards = this.retrievalQueue.getAllItems();
-      isEmpty = cards.length === 0;
+    } else {
+      logger.warn('Retrieval queue does not implement getAllCards/getSize');
+      isEmpty = true;
     }
     
     if (isEmpty) {

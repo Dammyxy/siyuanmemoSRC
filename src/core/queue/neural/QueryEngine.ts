@@ -10,6 +10,9 @@
 import * as api from '../../siyuan/api.ts';
 import { ATTR_CARD_ID } from '../../siyuan/block.ts';
 import { AssociationType, NeighborQueryResult, NeuralQueueConfig, NeuralBlockType } from './types.ts';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('QueryEngine');
 
 /**
  * 卡片数据接口
@@ -62,7 +65,7 @@ export class QueryEngine {
 
       return contentMap;
     } catch (error) {
-      console.error('[QueryEngine] Failed to fetch block contents:', error);
+      logger.error('Failed to fetch block contents:', error);
       return new Map();
     }
   }
@@ -83,10 +86,10 @@ export class QueryEngine {
       }
 
       // 🔒 非概念卡不支持神经漫游，返回空数组
-      console.log(`[QueryEngine] Non-concept card ${currentCardId} is not supported in neural roaming`);
+      logger.info(`Non-concept card ${currentCardId} is not supported in neural roaming`);
       return [];
     } catch (error) {
-      console.error('[QueryEngine] Failed to fetch neighbors:', error);
+      logger.error('Failed to fetch neighbors:', error);
       return [];
     }
   }
@@ -107,30 +110,30 @@ export class QueryEngine {
     const neighbors: NeighborQueryResult[] = [];
 
     try {
-      console.log(`[QueryEngine] Fetching concept neighbors for ${conceptBlockId}`);
+      logger.info(`Fetching concept neighbors for ${conceptBlockId}`);
 
       // 1. 查询反向链接（最高优先级）
       const backlinks = await this.fetchBacklinks(conceptBlockId);
       neighbors.push(...backlinks);
-      console.log(`[QueryEngine] Found ${backlinks.length} backlinks`);
+      logger.info(`Found ${backlinks.length} backlinks`);
 
       // 2. 查询概念卡子块的出链
       const conceptLinks = await this.fetchConceptLinks(conceptBlockId);
       neighbors.push(...conceptLinks);
-      console.log(`[QueryEngine] Found ${conceptLinks.length} concept links`);
+      logger.info(`Found ${conceptLinks.length} concept links`);
 
       // 3. 查询描述符卡
       const descriptors = await this.fetchDescriptorCards(conceptBlockId);
       neighbors.push(...descriptors);
-      console.log(`[QueryEngine] Found ${descriptors.length} descriptor cards`);
+      logger.info(`Found ${descriptors.length} descriptor cards`);
 
       // 去重
       const uniqueNeighbors = this.deduplicateNeighbors(neighbors);
-      console.log(`[QueryEngine] Total unique concept neighbors: ${uniqueNeighbors.length}`);
+      logger.info(`Total unique concept neighbors: ${uniqueNeighbors.length}`);
 
       return uniqueNeighbors;
     } catch (error) {
-      console.error('[QueryEngine] Failed to fetch concept neighbors:', error);
+      logger.error('Failed to fetch concept neighbors:', error);
       return [];
     }
   }
@@ -152,7 +155,7 @@ export class QueryEngine {
       const rows = await api.sql(stmt);
       return rows.length > 0 && rows[0].value === 'concept';
     } catch (error) {
-      console.error('[QueryEngine] Failed to check if concept card:', error);
+      logger.error('Failed to check if concept card:', error);
       return false;
     }
   }
@@ -188,7 +191,7 @@ export class QueryEngine {
       const backlinks = data.data?.backlinks || [];
       const backlinkIds = backlinks.map((bl: any) => bl.blockID || bl.id).filter(Boolean);
 
-      console.log(`[QueryEngine] Fetched ${backlinkIds.length} backlinks from API`);
+      logger.info(`Fetched ${backlinkIds.length} backlinks from API`);
 
       // 返回所有反向链接节点（包括普通块，会创建虚拟卡）
       return backlinkIds.map((id: string) => ({
@@ -196,7 +199,7 @@ export class QueryEngine {
         type: AssociationType.BACKLINK,
       }));
     } catch (error) {
-      console.error('[QueryEngine] Failed to fetch backlinks:', error);
+      logger.error('Failed to fetch backlinks:', error);
       return [];
     }
   }
@@ -235,7 +238,7 @@ export class QueryEngine {
       
       // 🔧 修复：检查 rows 是否为 null
       if (!rows || !Array.isArray(rows)) {
-        console.log(`[QueryEngine] No concept links found (empty result)`);
+        logger.info('No concept links found (empty result)');
         return [];
       }
       
@@ -246,10 +249,10 @@ export class QueryEngine {
         type: AssociationType.CONCEPT_LINK,
       }));
 
-      console.log(`[QueryEngine] Found ${conceptLinks.length} concept links (all outgoing links)`);
+      logger.info(`Found ${conceptLinks.length} concept links (all outgoing links)`);
       return conceptLinks;
     } catch (error) {
-      console.error('[QueryEngine] Failed to fetch concept links:', error);
+      logger.error('Failed to fetch concept links:', error);
       return [];
     }
   }
@@ -282,7 +285,7 @@ export class QueryEngine {
         type: AssociationType.DESCRIPTOR,
       }));
     } catch (error) {
-      console.error('[QueryEngine] Failed to fetch descriptor cards:', error);
+      logger.error('Failed to fetch descriptor cards:', error);
       return [];
     }
   }
@@ -371,7 +374,7 @@ export class QueryEngine {
         ...incoming.map(row => ({ id: row.id, type: AssociationType.REF_LINK })),
       ];
     } catch (error) {
-      console.error('[QueryEngine] Failed to fetch ref links:', error);
+      logger.error('Failed to fetch ref links:', error);
       return [];
     }
   }
@@ -432,7 +435,7 @@ export class QueryEngine {
       const rows = await api.sql(stmt);
       return rows.map(row => ({ id: row.id, type: AssociationType.HIERARCHY }));
     } catch (error) {
-      console.error('[QueryEngine] Failed to fetch context cards:', error);
+      logger.error('Failed to fetch context cards:', error);
       return [];
     }
   }
@@ -467,7 +470,7 @@ export class QueryEngine {
       const rows = await api.sql(stmt);
       return rows.map(row => ({ id: row.id, type: AssociationType.TAG }));
     } catch (error) {
-      console.error('[QueryEngine] Failed to fetch tag related cards:', error);
+      logger.error('Failed to fetch tag related cards:', error);
       return [];
     }
   }
@@ -500,7 +503,7 @@ export class QueryEngine {
       const rows = await api.sql(stmt);
       return rows.map(row => ({ id: row.id, type: AssociationType.SIBLING }));
     } catch (error) {
-      console.error('[QueryEngine] Failed to fetch sibling cards:', error);
+      logger.error('Failed to fetch sibling cards:', error);
       return [];
     }
   }
@@ -529,12 +532,12 @@ export class QueryEngine {
 
       const rows = await api.sql(stmt);
       if (rows.length === 0) {
-        console.warn('[QueryEngine] No concept cards found for neural roaming seed');
+        logger.warn('No concept cards found for neural roaming seed');
         return null;
       }
       return rows[0].id;
     } catch (error) {
-      console.error('[QueryEngine] Failed to fetch random card:', error);
+      logger.error('Failed to fetch random card:', error);
       return null;
     }
   }
@@ -578,7 +581,7 @@ export class QueryEngine {
         ...row,
       };
     } catch (error) {
-      console.error('[QueryEngine] Failed to fetch card data:', error);
+      logger.error('Failed to fetch card data:', error);
       return null;
     }
   }
@@ -634,7 +637,7 @@ export class QueryEngine {
       const rows = await api.sql(stmt);
       return rows.length > 0 ? rows[0].root_id : null;
     } catch (error) {
-      console.error('[QueryEngine] Failed to get root_id:', error);
+      logger.error('Failed to get root_id:', error);
       return null;
     }
   }
@@ -652,7 +655,7 @@ export class QueryEngine {
       const rows = await api.sql(stmt);
       return rows.length > 0 ? rows[0].parent_id : null;
     } catch (error) {
-      console.error('[QueryEngine] Failed to get parent_id:', error);
+      logger.error('Failed to get parent_id:', error);
       return null;
     }
   }
@@ -677,7 +680,7 @@ export class QueryEngine {
 
       return tagMatches.map(tag => tag.replace(/#/g, ''));
     } catch (error) {
-      console.error('[QueryEngine] Failed to extract tags:', error);
+      logger.error('Failed to extract tags:', error);
       return [];
     }
   }
@@ -735,7 +738,7 @@ export class QueryEngine {
       const rows = await api.sql(stmt);
       return rows.map(row => ({ id: row.id }));
     } catch (error) {
-      console.error(`[QueryEngine] Failed to fetch descendants for ${blockId}:`, error);
+      logger.error(`Failed to fetch descendants for ${blockId}:`, error);
       return [];
     }
   }

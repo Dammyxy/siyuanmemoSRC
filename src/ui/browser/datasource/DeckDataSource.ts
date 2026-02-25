@@ -557,13 +557,13 @@ export class DeckDataSource implements ICardDataSource {
 
     if (actionId === 'reset') {
       const blockIds = (selectedRows || []).map((r) => r.blockId).filter(Boolean);
-      await batchReset(blockIds);
+      await batchReset(blockIds, this.manager as any);
       return;
     }
 
     if (actionId === 'suspend') {
       const blockIds = (selectedRows || []).map((r) => r.blockId).filter(Boolean);
-      await batchSuspend(blockIds, true);
+      await batchSuspend(blockIds, true, this.manager as any);
       return;
     }
 

@@ -1,5 +1,4 @@
 ﻿import type { Component } from 'vue';
-import type { ReviewUIState } from '../../ui/review/v2/types.ts';
 import type { QueueProvider } from './QueueProvider.ts';
 
 export interface AdapterContext {
@@ -11,14 +10,14 @@ export interface AdapterContext {
   };
 }
 
-export interface IAdapter<TItem = any> {
+export interface IAdapter<TItem = any, TUIState = unknown> {
   toUIState(
     queue: QueueProvider<TItem> | any,
     item: TItem | null,
     context: AdapterContext,
-  ): Promise<ReviewUIState>;
+  ): Promise<TUIState>;
 
-  fetchAuxiliaryData?(item: TItem | null): Promise<Partial<ReviewUIState>>;
+  fetchAuxiliaryData?(item: TItem | null): Promise<Partial<TUIState>>;
   cleanup?(): void;
 }
 
@@ -27,8 +26,8 @@ export interface ProviderContext {
   ui?: Record<string, unknown>;
 }
 
-export interface ReviewUIProvider<TItem = any> {
+export interface ReviewUIProvider<TItem = any, TUIState = unknown> {
   component: Component;
-  adapter: IAdapter<TItem>;
+  adapter: IAdapter<TItem, TUIState>;
   context?: ProviderContext;
 }

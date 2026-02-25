@@ -14,6 +14,9 @@
  */
 
 import type FSRSPlugin from '@/index';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('TransactionWebSocketService');
 
 /**
  * WebSocket 消息结构
@@ -90,7 +93,7 @@ export class TransactionWebSocketService {
             const siyuan = (window as any).siyuan;
             return siyuan?.ws?.ws || null;
         } catch (error) {
-            console.error('[SiYuanMemo][TransactionWS] ❌ Failed to get main WebSocket:', error);
+            logger.error('Failed to get main WebSocket:', error);
             return null;
         }
     }
@@ -102,7 +105,7 @@ export class TransactionWebSocketService {
     public registerHandler(handler: ITransactionHandler): void {
         if (!this.handlers.includes(handler)) {
             this.handlers.push(handler);
-            console.log('[SiYuanMemo][TransactionWS] Handler registered:', handler.constructor.name);
+            logger.info('Handler registered:', handler.constructor.name);
         }
     }
     
@@ -114,7 +117,7 @@ export class TransactionWebSocketService {
         const index = this.handlers.indexOf(handler);
         if (index !== -1) {
             this.handlers.splice(index, 1);
-            console.log('[SiYuanMemo][TransactionWS] Handler unregistered:', handler.constructor.name);
+            logger.info('Handler unregistered:', handler.constructor.name);
         }
     }
     
@@ -123,11 +126,11 @@ export class TransactionWebSocketService {
      */
     public start(): void {
         if (this.enabled) {
-            console.log('[SiYuanMemo][TransactionWS] Service already started');
+            logger.info('Service already started');
             return;
         }
         
-        console.log('[SiYuanMemo][TransactionWS] Starting service...');
+        logger.info('Starting service...');
         this.enabled = true;
         this.attachToMainWebSocket();
         this.startHealthCheck();
@@ -137,7 +140,7 @@ export class TransactionWebSocketService {
      * 停止服务
      */
     public stop(): void {
-        console.log('[SiYuanMemo][TransactionWS] Stopping service...');
+        logger.info('Stopping service...');
         this.enabled = false;
         
         // 停止健康检查
@@ -146,7 +149,7 @@ export class TransactionWebSocketService {
         // 恢复原始的 onmessage 处理器
         this.detachFromMainWebSocket();
         
-        console.log('[SiYuanMemo][TransactionWS] Service stopped');
+        logger.info('Service stopped');
     }
     
     /**
@@ -156,13 +159,13 @@ export class TransactionWebSocketService {
         const ws = this.getMainWebSocket();
         
         if (!ws) {
-            console.error('[SiYuanMemo][TransactionWS] ❌ Main WebSocket not found');
+            logger.error('Main WebSocket not found');
             return;
         }
         
-        console.log('[SiYuanMemo][TransactionWS] ✅ Attaching to main WebSocket');
-        console.log('[SiYuanMemo][TransactionWS]    URL:', ws.url);
-        console.log('[SiYuanMemo][TransactionWS]    State:', ws.readyState, '(1=OPEN)');
+        logger.info('Attaching to main WebSocket');
+        logger.info('Main WebSocket URL:', ws.url);
+        logger.info('Main WebSocket state:', ws.readyState, '(1=OPEN)');
         
         // 保存原始的 onmessage 处理器
         this.originalOnMessage = ws.onmessage;
@@ -178,7 +181,7 @@ export class TransactionWebSocketService {
             }
         };
         
-        console.log('[SiYuanMemo][TransactionWS] ✅ Attached to main WebSocket');
+        logger.info('Attached to main WebSocket');
     }
     
     /**
@@ -197,7 +200,7 @@ export class TransactionWebSocketService {
             this.originalOnMessage = null;
         }
         
-        console.log('[SiYuanMemo][TransactionWS] Detached from main WebSocket');
+        logger.info('Detached from main WebSocket');
     }
     
     /**
@@ -217,7 +220,7 @@ export class TransactionWebSocketService {
             
             this.handleTransactions(message.data);
         } catch (error) {
-            console.error('[SiYuanMemo][TransactionWS] ❌ Failed to parse message:', error);
+            logger.error('Failed to parse message:', error);
         }
     }
     
@@ -229,14 +232,14 @@ export class TransactionWebSocketService {
             return;
         }
         
-        console.log('[SiYuanMemo][TransactionWS] Transaction received, count:', data.length);
+        logger.info('Transaction received, count:', data.length);
         
         // 分发给所有注册的处理器
         for (const handler of this.handlers) {
             try {
                 handler.handle(data);
             } catch (error) {
-                console.error('[SiYuanMemo][TransactionWS] ❌ Handler error:', handler.constructor.name, error);
+                logger.error('Handler error:', handler.constructor.name, error);
                 // 继续处理其他处理器，不中断
             }
         }
@@ -266,7 +269,7 @@ export class TransactionWebSocketService {
                 const workspaceDir = (window as any).siyuan?.config?.system?.workspaceDir || 'unknown';
                 const ws = this.getMainWebSocket();
                 
-                console.warn(
+                logger.warn(
                     `[SiYuanMemo][TransactionWS] ⚠️ 健康检查警告：\n` +
                     `  工作空间: ${workspaceDir}\n` +
                     `  ${Math.floor(timeSinceLastMessage / 1000)}秒内没有收到任何消息\n` +
@@ -282,7 +285,7 @@ export class TransactionWebSocketService {
             }
         }, this.HEALTH_CHECK_INTERVAL);
         
-        console.log('[SiYuanMemo][TransactionWS] 健康检查已启动');
+        logger.info('健康检查已启动');
     }
     
     /**
@@ -292,7 +295,7 @@ export class TransactionWebSocketService {
         if (this.healthCheckTimer) {
             clearInterval(this.healthCheckTimer);
             this.healthCheckTimer = null;
-            console.log('[SiYuanMemo][TransactionWS] 健康检查已停止');
+            logger.info('健康检查已停止');
         }
     }
 }

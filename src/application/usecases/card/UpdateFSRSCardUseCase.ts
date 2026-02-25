@@ -37,17 +37,20 @@
  * ```
  */
 
-import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
+import type { UpdateFSRSCardStoragePort } from '@/core/storage/ports';
 import type { FSRSCard } from '@/types';
 import { ok, err, type Result } from '@/types/result';
 import type { UpdateFSRSCardCommand, UpdateFSRSCardCommandResult } from '@/application/commands/card/UpdateFSRSCardCommand';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('UpdateFSRSCardUseCase');
 
 /**
  * 更新 FSRS 卡片用例
  */
 export class UpdateFSRSCardUseCase {
   constructor(
-    private readonly storage: UnifiedStorageManager
+    private readonly storage: UpdateFSRSCardStoragePort
   ) {}
   
   /**
@@ -58,7 +61,7 @@ export class UpdateFSRSCardUseCase {
    */
   async execute(command: UpdateFSRSCardCommand): Promise<Result<UpdateFSRSCardCommandResult>> {
     try {
-      console.log('[UpdateFSRSCardUseCase] Updating card:', command.cardId);
+      logger.info('Updating card:', command.cardId);
       
       // 1. 获取卡片
       const card = this.storage.getCard(command.cardId);
@@ -66,7 +69,7 @@ export class UpdateFSRSCardUseCase {
         return err(new Error(`Card not found: ${command.cardId}`));
       }
       
-      console.log('[UpdateFSRSCardUseCase] Found card:', {
+      logger.debug('Found card:', {
         id: card.id,
         blockId: card.blockId,
         oldPriority: card.priority,
@@ -79,23 +82,33 @@ export class UpdateFSRSCardUseCase {
         ...command.updates
       };
       
-      console.log('[UpdateFSRSCardUseCase] Calling storage.updateCard()...');
+      logger.debug('Persisting updated card:', updatedCard.id);
       
       // 3. 保存到存储（使用新架构）
-      const updateResult = await this.storage.updateCard(updatedCard);
-      if (!updateResult.ok) {
-        console.error('[UpdateFSRSCardUseCase] storage.updateCard() failed:', updateResult.error);
-        return err(updateResult.error);
-      }
+      await this.persistUpdatedCard(updatedCard);
       
-      console.log('[UpdateFSRSCardUseCase] ✅ Card updated successfully');
+      logger.info('Card updated successfully:', updatedCard.id);
       
       return ok({
         card: updatedCard
       });
     } catch (error) {
-      console.error('[UpdateFSRSCardUseCase] Failed to update card:', error);
+      logger.error('Failed to update card:', error);
       return err(error instanceof Error ? error : new Error(String(error)));
     }
+  }
+
+  private async persistUpdatedCard(card: FSRSCard): Promise<void> {
+    if (typeof this.storage.updateCard === 'function') {
+      const updateResult = await this.storage.updateCard(card);
+      if (updateResult && typeof updateResult === 'object' && 'ok' in (updateResult as any) && !(updateResult as any).ok) {
+        const error = (updateResult as any).error;
+        throw error instanceof Error ? error : new Error(`Failed to update card: ${card.id}`);
+      }
+      return;
+    }
+
+    this.storage.setCard(card);
+    await this.storage.saveCards();
   }
 }

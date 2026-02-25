@@ -23,6 +23,9 @@
 
 import { Result, ok, err } from '@/types/result';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('CreateTemplateUseCase');
 
 /**
  * 创建模板用例
@@ -99,7 +102,7 @@ export class CreateTemplateUseCase {
 
       return ok(undefined);
     } catch (error) {
-      console.error('[CreateTemplateUseCase] Failed:', error);
+      logger.error('Failed:', error);
       return err(error as Error);
     }
   }

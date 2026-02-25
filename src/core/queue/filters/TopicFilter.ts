@@ -35,6 +35,9 @@
 
 import { sql } from '@/core/siyuan/api';
 import type { QueueItem } from '../types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('TopicFilter');
 
 /**
  * Topic/Item card filter utility
@@ -74,7 +77,7 @@ export class TopicFilter {
         return cardType !== 'topic';
       });
 
-      console.log('[TopicFilter] Filtered items only:', {
+      logger.debug('Filtered items only', {
         total: items.length,
         filtered: filtered.length,
         topicCount: items.length - filtered.length,
@@ -82,7 +85,7 @@ export class TopicFilter {
 
       return filtered;
     } catch (error) {
-      console.error('[TopicFilter] Failed to filter items:', error);
+      logger.error('Failed to filter items', error);
       // Fallback: return all cards
       return items;
     }
@@ -121,7 +124,7 @@ export class TopicFilter {
         return cardType === 'topic';
       });
 
-      console.log('[TopicFilter] Filtered topics only:', {
+      logger.debug('Filtered topics only', {
         total: items.length,
         filtered: filtered.length,
         itemCount: items.length - filtered.length,
@@ -129,7 +132,7 @@ export class TopicFilter {
 
       return filtered;
     } catch (error) {
-      console.error('[TopicFilter] Failed to filter topics:', error);
+      logger.error('Failed to filter topics', error);
       // Fallback: return empty array (safer for Topic filtering)
       return [];
     }
@@ -185,7 +188,7 @@ export class TopicFilter {
         }
       }
 
-      console.log('[TopicFilter] Separated cards:', {
+      logger.debug('Separated cards', {
         total: items.length,
         topics: topics.length,
         items: itemCards.length,
@@ -193,7 +196,7 @@ export class TopicFilter {
 
       return { topics, items: itemCards };
     } catch (error) {
-      console.error('[TopicFilter] Failed to separate cards:', error);
+      logger.error('Failed to separate cards', error);
       // Fallback: treat all as Items
       return { topics: [], items };
     }
@@ -249,7 +252,7 @@ export class TopicFilter {
 
       return result;
     } catch (error) {
-      console.error('[TopicFilter] Failed to batch get card types:', error);
+      logger.error('Failed to batch get card types', error);
       return result;
     }
   }

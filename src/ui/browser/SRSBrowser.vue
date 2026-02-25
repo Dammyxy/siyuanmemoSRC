@@ -205,9 +205,11 @@ import { useCardActions } from './composables/useCardActions';
 import { useQueueBridge, EMPTY_QUEUE_COUNTS } from './composables/useQueueBridge';
 import { useIncrementalGridUpdates } from './composables/useIncrementalGridUpdates';
 import { useBrowserAdapterSync } from './composables/useBrowserAdapterSync';
+import { createLogger } from '@/utils/logger';
 
 // 注册 AG-Grid 模块
 ModuleRegistry.registerModules([AllCommunityModule]);
+const logger = createLogger('SRSBrowser');
 
 // Props
 const props = defineProps<{
@@ -1164,9 +1166,15 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
   },
   'insert-at': async () => {
     const q = getQueueById('final-drill');
-    const len = typeof q?.size === 'function'
-      ? Number(q.size()) || 0
-      : Array.isArray(q?.getAllItems?.()) ? q.getAllItems().length : 0;
+    let len = 0;
+    if (typeof q?.getSize === 'function') {
+      len = Number(await q.getSize()) || 0;
+    } else if (typeof (q as any)?.size === 'function') {
+      len = Number((q as any).size()) || 0;
+    } else if (typeof q?.getAllCards === 'function') {
+      const cards = await q.getAllCards();
+      len = Array.isArray(cards) ? cards.length : 0;
+    }
     const pos = await openNumberDialog({
       title: t('insertAt', 'Insert At Position'),
       label: t('positionLabel', 'Position'),
@@ -1213,13 +1221,14 @@ function getActionLabel(action: { id: string; label: string }): string {
 }
 
 async function handleAction(actionId: string, targetCards: BrowserCard[], anchorRow?: BrowserCard) {
-  console.log('[SiYuanMemo][CardBrowser] ========== handleAction 被调用 ==========');
-  console.log('[SiYuanMemo][CardBrowser] actionId:', actionId);
-  console.log('[SiYuanMemo][CardBrowser] targetCards 数量:', targetCards?.length);
-  console.log('[SiYuanMemo][CardBrowser] 卡片 IDs:', targetCards?.map(c => c.blockId));
+  logger.debug('handleAction called:', {
+    actionId,
+    count: targetCards?.length || 0,
+    blockIds: targetCards?.map(c => c.blockId),
+  });
   
   if (!targetCards?.length) {
-    console.log('[SiYuanMemo][CardBrowser] ❌ 没有选中的卡片，退出');
+    logger.debug('handleAction skipped: no selected cards');
     return;
   }
 
@@ -1242,10 +1251,10 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   }
 
   const ds = currentDataSource.value;
-  console.log('[SiYuanMemo][CardBrowser] 当前数据源:', ds?.constructor?.name, ds);
+  logger.debug('current data source:', ds?.constructor?.name);
   
   if (!ds) {
-    console.log('[SiYuanMemo][CardBrowser] ❌ 没有数据源，退出');
+    logger.debug('handleAction skipped: data source is not available');
     return;
   }
 
@@ -1271,20 +1280,19 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   }
 
   const builder = ACTION_PARAM_BUILDERS[actionId];
-  console.log('[SiYuanMemo][CardBrowser] 参数构建器:', builder ? '存在' : '不存在');
+  logger.debug('action param builder exists:', Boolean(builder));
   
   const ctx = builder ? await builder(targetCards) : { refresh: () => void loadData() };
   if (builder && ctx == null) {
-    console.log('[SiYuanMemo][CardBrowser] ❌ 参数构建器返回 null，用户取消操作');
+    logger.debug('action canceled by builder');
     return;
   }
 
   try {
-    console.log('[SiYuanMemo][CardBrowser] 调用 ds.performAction:', actionId);
     const res = await (ds.performAction(actionId, targetCards as any, ctx) as any);
-    console.log('[SiYuanMemo][CardBrowser] performAction 返回结果:', res);
-    const updated = Number(res?.updated?.length || 0);
-    const skipped = Number(res?.skipped?.length || 0);
+    logger.debug('performAction result:', { actionId, res });
+    const updated = Number(typeof res?.updated === 'number' ? res.updated : (res?.updated?.length || 0));
+    const skipped = Number(typeof res?.skipped === 'number' ? res.skipped : (res?.skipped?.length || 0));
     if (updated <= 0 && skipped > 0) {
       await pushErrMsg(t('batchNoEffect', 'No cards were updated (some cards may be unsynced)'));
       return;
@@ -1311,7 +1319,7 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
     ) {
       // 🆕 删除卡片后强制清除缓存
       if (actionId === 'delete-card') {
-        console.log('[SiYuanMemo][CardBrowser] 删除卡片后清除缓存');
+        logger.debug('invalidate card cache after delete-card');
         invalidateCardCache();
       }
       
@@ -1324,7 +1332,7 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
     await refreshQueueCounts();
     await pushMsg(t('actionSuccess', 'Success'));
   } catch (err: any) {
-    console.error('[SiYuanMemo][CardBrowser] action failed:', { actionId, err });
+    logger.error('action failed:', { actionId, err });
     await pushErrMsg(err?.message || t('actionFailed', 'Action failed'));
   }
 }
@@ -1332,28 +1340,18 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
 // 右键菜单
 function onCellContextMenu(event: CellContextMenuEvent) {
   event.event?.preventDefault();
-
-  console.log('[SiYuanMemo][CardBrowser] ========== 右键菜单调试 ==========');
   
   const ds = currentDataSource.value;
-  console.log('[SiYuanMemo][CardBrowser] 当前数据源:', ds);
-  console.log('[SiYuanMemo][CardBrowser] 数据源类型:', ds?.constructor?.name);
-  console.log('[SiYuanMemo][CardBrowser] 数据源 ID:', (ds as any)?.id);
   
   // ✅ 过滤掉 undefined/null 的 action
   const rawActions = ds?.getSupportedActions?.() || [];
   const actions = rawActions.filter(a => a && a.id);
-  
-  console.log('[SiYuanMemo][CardBrowser] getSupportedActions 返回的动作数量:', rawActions.length, '→ 过滤后:', actions.length);
-  console.log('[SiYuanMemo][CardBrowser] 所有动作:', actions.map(a => ({ id: a.id, label: a.label, hasSubmenu: !!a.submenu })));
-  
-  const addToQueueAction = actions.find(a => a.id === 'add-to-queue');
-  console.log('[SiYuanMemo][CardBrowser] 找到"加入队列"动作:', addToQueueAction);
-  if (addToQueueAction && addToQueueAction.submenu) {
-    console.log('[SiYuanMemo][CardBrowser] "加入队列"子菜单:', addToQueueAction.submenu.map(s => ({ id: s.id, label: s.label })));
-  }
-  
-  console.log('[SiYuanMemo][CardBrowser] ========== 调试结束 ==========');
+  logger.debug('context menu actions:', {
+    rawCount: rawActions.length,
+    validCount: actions.length,
+    dataSourceType: ds?.constructor?.name,
+    dataSourceId: (ds as any)?.id,
+  });
   
   const menu = new Menu('card-browser-context');
   const rowData = event.data as BrowserCard;
@@ -1372,7 +1370,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
           icon: 'iconUp',
           label: t('sortAscending', 'Ascending'),
           click: () => {
-            console.log('[SiYuanMemo][CardBrowser] Menu clicked: Sort by', field.colId, 'ASC');
+            logger.debug('menu click sort asc:', field.colId);
             applySort(field.colId, 'asc');
           },
         },
@@ -1380,7 +1378,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
           icon: 'iconDown',
           label: t('sortDescending', 'Descending'),
           click: () => {
-            console.log('[SiYuanMemo][CardBrowser] Menu clicked: Sort by', field.colId, 'DESC');
+            logger.debug('menu click sort desc:', field.colId);
             applySort(field.colId, 'desc');
           },
         },
@@ -1396,7 +1394,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
     icon: 'iconRefresh',
     label: t('sortRandom', 'Random Sort'),
     click: () => {
-      console.log('[SiYuanMemo][CardBrowser] Menu clicked: Random sort');
+      logger.debug('menu click random sort');
       applyRandomSort();
     },
   });
@@ -1446,31 +1444,25 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   menu.addItem({ type: 'separator' });
 
   // ========== 原有的操作菜单 ==========
-  console.log('[SiYuanMemo][CardBrowser] 开始渲染操作菜单，共', actions.length, '个动作');
+  logger.debug('rendering context actions:', actions.length);
   
   for (const action of actions) {
     // ✅ 跳过无效的 action
     if (!action || !action.id) {
-      console.warn('[SiYuanMemo][CardBrowser] ⚠️ 跳过无效的 action:', action);
+      logger.warn('skip invalid action:', action);
       continue;
     }
     
-    console.log('[SiYuanMemo][CardBrowser] 渲染动作:', action.id, action.label, '有子菜单:', !!action.submenu);
-    
     if (action.submenu && action.submenu.length > 0) {
-      // 处理子菜单
-      console.log('[SiYuanMemo][CardBrowser] 渲染子菜单，共', action.submenu.length, '项');
-      
       // ✅ 过滤掉无效的子菜单项
       const validSubmenu = action.submenu.filter(sub => sub && sub.id);
       
       const submenuItems = validSubmenu.map(sub => {
-        console.log('[SiYuanMemo][CardBrowser] 子菜单项:', sub.id, sub.label);
         return {
           icon: sub.icon || 'iconMore',
           label: getActionLabel({ id: sub.id, label: sub.label }),
           click: () => {
-            console.log('[SiYuanMemo][CardBrowser] 子菜单项被点击:', sub.id, sub.label);
+            logger.debug('submenu clicked:', { id: sub.id, label: sub.label });
             void handleAction(sub.id, selected, rowData);
           },
         };
@@ -1481,8 +1473,6 @@ function onCellContextMenu(event: CellContextMenuEvent) {
         label: getActionLabel({ id: action.id, label: action.label }),
         submenu: submenuItems,
       });
-      
-      console.log('[SiYuanMemo][CardBrowser] ✅ 已添加子菜单:', action.label);
     } else {
       // 处理普通菜单项
       menu.addItem({
@@ -1490,12 +1480,8 @@ function onCellContextMenu(event: CellContextMenuEvent) {
         label: getActionLabel({ id: action.id, label: action.label }),
         click: () => void handleAction(action.id, selected, rowData),
       });
-      
-      console.log('[SiYuanMemo][CardBrowser] ✅ 已添加普通菜单项:', action.label);
     }
   }
-  
-  console.log('[SiYuanMemo][CardBrowser] 菜单渲染完成，准备打开菜单');
 
   const mouseEvent = event.event as MouseEvent;
   menu.open({ x: mouseEvent.clientX, y: mouseEvent.clientY });
@@ -1935,7 +1921,12 @@ async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {
   const queue = getQueueById(queueId);
   if (!queue) return [];
 
-  const items = queue?.getAllItems?.() || [];
+  let items: any[] = [];
+  if (typeof queue.getAllCards === 'function') {
+    items = await queue.getAllCards();
+  } else if (typeof (queue as any)?.getCards === 'function') {
+    items = await (queue as any).getCards();
+  }
   if (isDevMode) {
     console.log('[SiYuanMemo][SRSBrowser] loadQueueAllCards:', {
       queueId,

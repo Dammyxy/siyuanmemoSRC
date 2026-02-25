@@ -18,6 +18,9 @@
  */
 
 import { DomainEvent } from './DomainEvent';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('EventBus');
 
 /**
  * 事件处理器类型
@@ -95,7 +98,7 @@ export class EventBus {
     this.handlers.get(eventName)!.push(handler);
     
     if (this.debugMode) {
-      console.log(`[EventBus] Subscribed to event: ${eventName}`);
+      logger.debug(`Subscribed to event: ${eventName}`);
     }
   }
   
@@ -124,7 +127,7 @@ export class EventBus {
         handlers.splice(index, 1);
         
         if (this.debugMode) {
-          console.log(`[EventBus] Unsubscribed from event: ${eventName}`);
+          logger.debug(`Unsubscribed from event: ${eventName}`);
         }
       }
     }
@@ -150,8 +153,8 @@ export class EventBus {
     const handlers = this.handlers.get(eventName) || [];
     
     if (this.debugMode) {
-      console.log(`[EventBus] Publishing event: ${eventName}`, event.toJSON());
-      console.log(`[EventBus] Found ${handlers.length} handler(s)`);
+      logger.debug(`Publishing event: ${eventName}`, event.toJSON());
+      logger.debug(`Found ${handlers.length} handler(s)`);
     }
     
     // 依次执行所有处理器
@@ -160,12 +163,12 @@ export class EventBus {
         await handler(event);
         
         if (this.debugMode) {
-          console.log(`[EventBus] Handler executed successfully for: ${eventName}`);
+          logger.debug(`Handler executed successfully for: ${eventName}`);
         }
       } catch (error) {
         // 记录错误但不中断其他处理器
-        console.error(`[EventBus] Error handling event ${eventName}:`, error);
-        console.error(`[EventBus] Event data:`, event.toJSON());
+        logger.error(`Error handling event ${eventName}:`, error);
+        logger.error('Event data:', event.toJSON());
       }
     }
   }
@@ -220,7 +223,7 @@ export class EventBus {
     this.handlers.clear();
     
     if (this.debugMode) {
-      console.log('[EventBus] All subscriptions cleared');
+      logger.debug('All subscriptions cleared');
     }
   }
   

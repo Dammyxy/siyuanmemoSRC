@@ -26,6 +26,10 @@ import { ReviewView } from '@/ui/review/v2';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
 import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
 import { TemporaryDrillQueue } from '@/core/queue/domain/TemporaryDrillQueue';
+import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('DialogManager');
 
 /**
  * DialogManager 类
@@ -84,13 +88,20 @@ export class DialogManager implements IDialogManager {
     const retrievalQueue = this.context.getRetrievalQueue() as any;
     const queueCount = (() => {
       try {
-        if (typeof retrievalQueue?.getAllItems === 'function') {
-          return retrievalQueue.getAllItems().length;
+        const candidates = [
+          retrievalQueue?.localBuffer?.length,
+          retrievalQueue?.cards?.length,
+          retrievalQueue?.buffer?.length,
+        ];
+        for (const candidate of candidates) {
+          if (Number.isFinite(candidate)) {
+            return Math.max(0, Number(candidate));
+          }
         }
       } catch (error) {
-        console.warn('[DialogManager] Failed to resolve retrieval queue count:', error);
+        logger.warn('[DialogManager] Failed to resolve retrieval queue count:', error);
       }
-      return Number(retrievalQueue?.localBuffer?.length || 0);
+      return 0;
     })();
     
     // 如果已有打开的设置对话框，先销毁
@@ -124,7 +135,7 @@ export class DialogManager implements IDialogManager {
       events: {
         save: async (settings: any) => {
           // 🔍 调试日志：检查接收到的 quickCard 配置
-          console.log('[DialogManager] Received settings with quickCard:', settings.quickCard);
+          logger.info('[DialogManager] Received settings with quickCard:', settings.quickCard);
           
           const updatedSettings = {
             ...currentSettings,
@@ -145,7 +156,7 @@ export class DialogManager implements IDialogManager {
           };
           
           // 🔍 调试日志：检查合并后的 quickCard 配置
-          console.log('[DialogManager] Merged settings with quickCard:', updatedSettings.quickCard);
+          logger.info('[DialogManager] Merged settings with quickCard:', updatedSettings.quickCard);
           
           await settingsService.updateSettings(updatedSettings);
           scheduler.updateParams(updatedSettings.fsrs);
@@ -157,7 +168,7 @@ export class DialogManager implements IDialogManager {
               enableRiffSync: settings.scheduler.enableRiffSync,
               fsrsParams: updatedSettings.fsrs,
             });
-            console.log('[DialogManager] ✅ SchedulerRouter config updated');
+            logger.info('[DialogManager] ✅ SchedulerRouter config updated');
           }
 
           // 更新 HybridSyncService 配置 (符合 DDD 架构)
@@ -192,7 +203,7 @@ export class DialogManager implements IDialogManager {
               pushMsg(`检查完成，未发现问题（共 ${result.total} 张卡片）`, 3000);
             }
           } catch (err) {
-            console.error('[DialogManager] Failed to repair dates:', err);
+            logger.error('[DialogManager] Failed to repair dates:', err);
             pushErrMsg(`修复失败: ${(err as Error).message}`);
           }
         }
@@ -328,9 +339,9 @@ export class DialogManager implements IDialogManager {
         }
       });
       
-      console.log('[DialogManager] ✅ Retrieval practice dialog created');
+      logger.info('[DialogManager] ✅ Retrieval practice dialog created');
     } catch (err) {
-      console.error('[DialogManager] Failed to open retrieval practice dialog:', err);
+      logger.error('[DialogManager] Failed to open retrieval practice dialog:', err);
       await pushErrMsg(this.context.getI18n()?.loadFailed || '加载失败');
     }
   }
@@ -353,9 +364,9 @@ export class DialogManager implements IDialogManager {
         }
       });
       
-      console.log('[DialogManager] ✅ Incremental learning dialog created');
+      logger.info('[DialogManager] ✅ Incremental learning dialog created');
     } catch (err) {
-      console.error('[DialogManager] Failed to open incremental learning dialog:', err);
+      logger.error('[DialogManager] Failed to open incremental learning dialog:', err);
       await pushErrMsg(this.context.getI18n()?.openFailed || '打开渐进学习失败');
     }
   }
@@ -378,9 +389,9 @@ export class DialogManager implements IDialogManager {
         }
       });
       
-      console.log('[DialogManager] ✅ Final drill dialog created');
+      logger.info('[DialogManager] ✅ Final drill dialog created');
     } catch (err) {
-      console.error('[DialogManager] Failed to open final drill dialog:', err);
+      logger.error('[DialogManager] Failed to open final drill dialog:', err);
       await pushErrMsg(this.context.getI18n()?.drillFailed || '机械练习启动失败');
     }
   }
@@ -403,9 +414,9 @@ export class DialogManager implements IDialogManager {
         }
       });
       
-      console.log('[DialogManager] ✅ Filter group dialog created');
+      logger.info('[DialogManager] ✅ Filter group dialog created');
     } catch (err) {
-      console.error('[DialogManager] Failed to open filter group practice dialog:', err);
+      logger.error('[DialogManager] Failed to open filter group practice dialog:', err);
       await pushErrMsg(this.context.getI18n()?.openFailed || '打开分组队列失败');
     }
   }
@@ -431,7 +442,7 @@ export class DialogManager implements IDialogManager {
       const neuralQueue = this.context.getUnifiedDataSourceManager().getQueue(QueueType.NeuralRoam);
       if (neuralQueue && typeof (neuralQueue as any).clearHistory === 'function') {
         (neuralQueue as any).clearHistory();
-        console.log('[DialogManager] ✅ Neural roam history cleared');
+        logger.info('[DialogManager] ✅ Neural roam history cleared');
       }
 
       this.currentReviewDialog = createUnifiedReviewDialog({
@@ -444,9 +455,9 @@ export class DialogManager implements IDialogManager {
         }
       });
 
-      console.log('[DialogManager] ✅ Neural roam dialog created');
+      logger.info('[DialogManager] ✅ Neural roam dialog created');
     } catch (err) {
-      console.error('[DialogManager] Failed to open neural roam dialog:', err);
+      logger.error('[DialogManager] Failed to open neural roam dialog:', err);
       await pushErrMsg(this.context.getI18n()?.neuralReviewFailed || '神经复习启动失败');
     }
   }
@@ -467,6 +478,7 @@ export class DialogManager implements IDialogManager {
         threshold: Number(leech.threshold) || 8,
         action: (leech.action || 'notify') as any,
         tagName: String(leech.tagName || ''),
+        effects: new SiyuanLeechActionEffectsAdapter(),
       });
 
       this.currentReviewDialog = createUnifiedReviewDialog({
@@ -480,7 +492,7 @@ export class DialogManager implements IDialogManager {
         },
       });
     } catch (err) {
-      console.error('[DialogManager] Failed to open leech review dialog:', err);
+      logger.error('[DialogManager] Failed to open leech review dialog:', err);
       await pushErrMsg('难点攻坚启动失败');
     }
   }
@@ -513,7 +525,7 @@ export class DialogManager implements IDialogManager {
         },
       });
     } catch (err) {
-      console.error('[DialogManager] Failed to open subset review dialog:', err);
+      logger.error('[DialogManager] Failed to open subset review dialog:', err);
       await pushErrMsg('打开子集复习失败');
     }
   }
@@ -548,7 +560,7 @@ export class DialogManager implements IDialogManager {
         };
       }
       
-      console.log('[DialogManager] 🔍 openRetrievalPracticeWithFilter - Setting filter:', {
+      logger.info('[DialogManager] 🔍 openRetrievalPracticeWithFilter - Setting filter:', {
         dueOnly: options.dueOnly,
         blockIdsCount: options.blockIds.length,
         hasDueDate: !!filter.dueDate,
@@ -562,7 +574,7 @@ export class DialogManager implements IDialogManager {
       // 清除临时黑名单（全部模式）
       if (!options.dueOnly && typeof (filterGroupQueue as any).clearTemporaryBlacklist === 'function') {
         (filterGroupQueue as any).clearTemporaryBlacklist();
-        console.log('[DialogManager] ✅ Cleared temporary blacklist for "all" mode');
+        logger.info('[DialogManager] ✅ Cleared temporary blacklist for "all" mode');
       }
       
       // 创建对话框（使用依赖注入）
@@ -601,9 +613,9 @@ export class DialogManager implements IDialogManager {
         },
       });
       
-      console.log('[DialogManager] ✅ Retrieval practice dialog created with blockIds filter');
+      logger.info('[DialogManager] ✅ Retrieval practice dialog created with blockIds filter');
     } catch (err) {
-      console.error('[DialogManager] Failed to open retrieval practice dialog:', err);
+      logger.error('[DialogManager] Failed to open retrieval practice dialog:', err);
       await pushErrMsg(this.context.getI18n()?.loadFailed || '加载失败');
     }
   }
@@ -638,7 +650,7 @@ export class DialogManager implements IDialogManager {
         };
       }
       
-      console.log('[DialogManager] 🔍 openIncrementalLearningWithFilter - Setting filter:', {
+      logger.info('[DialogManager] 🔍 openIncrementalLearningWithFilter - Setting filter:', {
         dueOnly: options.dueOnly,
         blockIdsCount: options.blockIds.length,
         hasDueDate: !!filter.dueDate,
@@ -652,7 +664,7 @@ export class DialogManager implements IDialogManager {
       // 清除临时黑名单（全部模式）
       if (!options.dueOnly && typeof (filterGroupQueue as any).clearTemporaryBlacklist === 'function') {
         (filterGroupQueue as any).clearTemporaryBlacklist();
-        console.log('[DialogManager] ✅ Cleared temporary blacklist for "all" mode');
+        logger.info('[DialogManager] ✅ Cleared temporary blacklist for "all" mode');
       }
       
       // 创建对话框（使用依赖注入）
@@ -691,9 +703,9 @@ export class DialogManager implements IDialogManager {
         },
       });
       
-      console.log('[DialogManager] ✅ Incremental learning dialog created with blockIds filter');
+      logger.info('[DialogManager] ✅ Incremental learning dialog created with blockIds filter');
     } catch (err) {
-      console.error('[DialogManager] Failed to open incremental learning dialog:', err);
+      logger.error('[DialogManager] Failed to open incremental learning dialog:', err);
       await pushErrMsg(this.context.getI18n()?.openFailed || '打开渐进学习失败');
     }
   }
@@ -728,9 +740,9 @@ export class DialogManager implements IDialogManager {
         },
       });
 
-      console.log('[DialogManager] ✅ Temporary drill dialog opened');
+      logger.info('[DialogManager] ✅ Temporary drill dialog opened');
     } catch (err) {
-      console.error('[DialogManager] Failed to open temporary drill:', err);
+      logger.error('[DialogManager] Failed to open temporary drill:', err);
       await pushErrMsg(this.context.getI18n()?.drillFailed || '临时练习启动失败');
     }
   }
@@ -837,13 +849,13 @@ export class DialogManager implements IDialogManager {
       });
 
       if (!result.ok) {
-        console.error('[DialogManager] Failed to create list template cards:', result.error);
+        logger.error('[DialogManager] Failed to create list template cards:', result.error);
         pushErrMsg(`创建失败：${result.error.message}`);
         return;
       }
 
       const { xiuyuan, cards } = result.value;
-      console.log('[DialogManager] List template cards created:', { xiuyuan, cards });
+      logger.info('[DialogManager] List template cards created:', { xiuyuan, cards });
 
       pushMsg(
         `✅ 有序列表模版卡创建成功！\n` +
@@ -851,7 +863,7 @@ export class DialogManager implements IDialogManager {
         `生成卡片：${cards.length} 张`
       );
     } catch (err) {
-      console.error('[DialogManager] Failed to handle list template card:', err);
+      logger.error('[DialogManager] Failed to handle list template card:', err);
       pushErrMsg(`创建失败：${(err as Error).message}`);
     }
   }
@@ -908,7 +920,7 @@ export class DialogManager implements IDialogManager {
         }
       }
 
-      console.log('[DialogManager] Descriptor direction detection:', { hasReverse, hasBoth });
+      logger.info('[DialogManager] Descriptor direction detection:', { hasReverse, hasBoth });
 
       // 🆕 2. 如果检测到反向或双向符号，使用特殊处理
       if (hasReverse || hasBoth) {
@@ -969,13 +981,13 @@ export class DialogManager implements IDialogManager {
         });
 
         if (!result.ok) {
-          console.error('[DialogManager] Failed to create concept descriptor cards:', result.error);
+          logger.error('[DialogManager] Failed to create concept descriptor cards:', result.error);
           pushErrMsg(`创建失败：${result.error.message}`);
           return;
         }
 
         const { conceptCardId, descriptorCards, skipped } = result.value;
-        console.log('[DialogManager] Concept descriptor cards created:', { conceptCardId, descriptorCards, skipped });
+        logger.info('[DialogManager] Concept descriptor cards created:', { conceptCardId, descriptorCards, skipped });
 
         let message = `✅ 概念描述符卡创建成功！\n`;
         message += `方向：仅正向\n`;
@@ -989,7 +1001,7 @@ export class DialogManager implements IDialogManager {
 
         pushMsg(message);
       } catch (err) {
-        console.error('[DialogManager] Failed to handle concept descriptor card:', err);
+        logger.error('[DialogManager] Failed to handle concept descriptor card:', err);
         pushErrMsg(`创建失败：${(err as Error).message}`);
       }
     }
@@ -1035,14 +1047,14 @@ export class DialogManager implements IDialogManager {
         // 自动检测方向
         if (kramdown.match(/:>|：》/)) {
           actualTemplateId = 'builtin-concept-definition-forward';
-          console.log('[DialogManager] Detected forward symbol, using builtin-concept-definition-forward');
+          logger.info('[DialogManager] Detected forward symbol, using builtin-concept-definition-forward');
         } else if (kramdown.match(/:<|：《/)) {
           actualTemplateId = 'builtin-concept-definition-reverse';
-          console.log('[DialogManager] Detected reverse symbol, using builtin-concept-definition-reverse');
+          logger.info('[DialogManager] Detected reverse symbol, using builtin-concept-definition-reverse');
         } else {
           // 默认使用双向
           actualTemplateId = 'builtin-concept-definition';
-          console.log('[DialogManager] Using default bidirectional template');
+          logger.info('[DialogManager] Using default bidirectional template');
         }
       }
 
@@ -1079,13 +1091,13 @@ export class DialogManager implements IDialogManager {
       });
 
       if (!result.ok) {
-        console.error('[DialogManager] Failed to create concept definition card:', result.error);
+        logger.error('[DialogManager] Failed to create concept definition card:', result.error);
         pushErrMsg(`创建失败：${result.error.message}`);
         return;
       }
 
       const { xiuyuan, cards } = result.value;
-      console.log('[DialogManager] Concept definition card created:', { xiuyuan, cards });
+      logger.info('[DialogManager] Concept definition card created:', { xiuyuan, cards });
 
       // 6. 设置定义块的卡片类型为 descriptor
       const { setBlockAttrs } = await import('@/core/siyuan/api');
@@ -1105,7 +1117,7 @@ export class DialogManager implements IDialogManager {
         `生成卡片：${cards.length} 张`
       );
     } catch (err) {
-      console.error('[DialogManager] Failed to handle concept definition card:', err);
+      logger.error('[DialogManager] Failed to handle concept definition card:', err);
       pushErrMsg(`创建失败：${(err as Error).message}`);
     }
   }
@@ -1152,16 +1164,16 @@ export class DialogManager implements IDialogManager {
         if (kramdown.match(/;<>|；《》/)) {
           actualTemplateId = 'builtin-concept-descriptor-both';
           directionText = '双向';
-          console.log('[DialogManager] Detected both symbol, using builtin-concept-descriptor-both');
+          logger.info('[DialogManager] Detected both symbol, using builtin-concept-descriptor-both');
         } else if (kramdown.match(/;<|；《/)) {
           actualTemplateId = 'builtin-concept-descriptor-reverse';
           directionText = '仅反向';
-          console.log('[DialogManager] Detected reverse symbol, using builtin-concept-descriptor-reverse');
+          logger.info('[DialogManager] Detected reverse symbol, using builtin-concept-descriptor-reverse');
         } else {
           // 默认使用仅正向（原始的 builtin-concept-descriptor-auto）
           actualTemplateId = 'builtin-concept-descriptor-auto';
           directionText = '仅正向';
-          console.log('[DialogManager] Using default forward-only template');
+          logger.info('[DialogManager] Using default forward-only template');
         }
       }
 
@@ -1213,13 +1225,13 @@ export class DialogManager implements IDialogManager {
         });
 
         if (!result.ok) {
-          console.error('[DialogManager] Failed to create concept descriptor auto cards:', result.error);
+          logger.error('[DialogManager] Failed to create concept descriptor auto cards:', result.error);
           pushErrMsg(`创建失败：${result.error.message}`);
           return;
         }
 
         const { conceptCardId, conceptType, descriptorCards, skipped } = result.value;
-        console.log('[DialogManager] Concept descriptor auto cards created:', { conceptCardId, conceptType, descriptorCards, skipped });
+        logger.info('[DialogManager] Concept descriptor auto cards created:', { conceptCardId, conceptType, descriptorCards, skipped });
 
         const conceptTypeName = conceptType === 'heading' ? '标题块' : '文档块';
         let message = `✅ 概念描述符卡创建成功！\n`;
@@ -1233,7 +1245,7 @@ export class DialogManager implements IDialogManager {
         pushMsg(message);
       }
     } catch (err) {
-      console.error('[DialogManager] Failed to handle concept descriptor auto card:', err);
+      logger.error('[DialogManager] Failed to handle concept descriptor auto card:', err);
       pushErrMsg(`创建失败：${(err as Error).message}`);
     }
   }
@@ -1274,7 +1286,7 @@ export class DialogManager implements IDialogManager {
       // 格式：{: id="..." updated="..." ...}
       content = content.replace(/\{:.*?\}/g, '').trim();
       
-      console.log('[DialogManager] Block content:', content);
+      logger.info('[DialogManager] Block content:', content);
 
       // 2. 解析填空
       const clozes = this.extractClozes(content);
@@ -1311,13 +1323,13 @@ export class DialogManager implements IDialogManager {
       });
 
       if (!result.ok) {
-        console.error('[DialogManager] Failed to create multi-cloze card:', result.error);
+        logger.error('[DialogManager] Failed to create multi-cloze card:', result.error);
         pushErrMsg(`创建失败：${result.error.message}`);
         return;
       }
 
       const { xiuyuan, cards } = result.value;
-      console.log('[DialogManager] Multi-cloze cards created:', { xiuyuan, cards, clozeCount: clozes.length });
+      logger.info('[DialogManager] Multi-cloze cards created:', { xiuyuan, cards, clozeCount: clozes.length });
 
       pushMsg(
         `✅ 多填空卡片创建成功！\n` +
@@ -1325,7 +1337,7 @@ export class DialogManager implements IDialogManager {
         `生成卡片：${cards.length} 张`
       );
     } catch (err) {
-      console.error('[DialogManager] Failed to handle multi-cloze card:', err);
+      logger.error('[DialogManager] Failed to handle multi-cloze card:', err);
       pushErrMsg(`创建失败：${(err as Error).message}`);
     }
   }
@@ -1401,7 +1413,7 @@ export class DialogManager implements IDialogManager {
       const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
       
       if (!xiuyuanAppService) {
-        console.error('[DialogManager] XiuyuanApplicationService not found');
+        logger.error('[DialogManager] XiuyuanApplicationService not found');
         pushErrMsg('XiuyuanApplicationService 未初始化');
         return;
       }
@@ -1513,7 +1525,7 @@ export class DialogManager implements IDialogManager {
                     symbol: template.name
                   };
                   
-                  console.log('[DialogManager] Detected back clozes in template card:', backClozes.length);
+                  logger.info('[DialogManager] Detected back clozes in template card:', backClozes.length);
                 }
               }
 
@@ -1528,7 +1540,7 @@ export class DialogManager implements IDialogManager {
               });
 
               if (!result.ok) {
-                console.error('[DialogManager] Failed to create template card:', result.error);
+                logger.error('[DialogManager] Failed to create template card:', result.error);
                 pushErrMsg(`创建失败：${result.error.message}`);
                 this.templateSelectDialog?.destroy();
                 this.templateSelectDialog = null;
@@ -1536,7 +1548,7 @@ export class DialogManager implements IDialogManager {
               }
 
               const { xiuyuan, cards } = result.value;
-              console.log('[DialogManager] Xiuyuan created:', { xiuyuan, cards });
+              logger.info('[DialogManager] Xiuyuan created:', { xiuyuan, cards });
 
               // 🆕 CDF 概念定义卡：自动为概念文档块创建概念卡
               if (templateId === 'builtin-concept-definition' || 
@@ -1550,7 +1562,7 @@ export class DialogManager implements IDialogManager {
                 await setBlockAttrs(definitionBlockId, {
                   'custom-fsrs-card-type': 'descriptor'
                 });
-                console.log('[DialogManager] Set definition block card type to descriptor:', definitionBlockId);
+                logger.info('[DialogManager] Set definition block card type to descriptor:', definitionBlockId);
               }
 
               pushMsg(
@@ -1559,7 +1571,7 @@ export class DialogManager implements IDialogManager {
                 `生成卡片：${cards.length} 张`
               );
             } catch (err) {
-              console.error('[DialogManager] Failed to create template card:', err);
+              logger.error('[DialogManager] Failed to create template card:', err);
               pushErrMsg(`创建失败：${(err as Error).message}`);
             }
 
@@ -1576,7 +1588,7 @@ export class DialogManager implements IDialogManager {
         },
       });
     } catch (err) {
-      console.error('[DialogManager] Failed to open create template card dialog:', err);
+      logger.error('[DialogManager] Failed to open create template card dialog:', err);
       pushErrMsg(`打开对话框失败：${(err as Error).message}`);
     }
   }
@@ -1599,11 +1611,11 @@ export class DialogManager implements IDialogManager {
     try {
       const conceptBlockId = fieldMapping['concept'];
       if (!conceptBlockId) {
-        console.warn('[DialogManager] No concept field in fieldMapping');
+        logger.warn('[DialogManager] No concept field in fieldMapping');
         return;
       }
       
-      console.log('[DialogManager] Ensuring concept document card:', conceptBlockId);
+      logger.info('[DialogManager] Ensuring concept document card:', conceptBlockId);
       
       // 1. 获取概念块的引用目标（文档块）
       const blockQuery = `
@@ -1612,7 +1624,7 @@ export class DialogManager implements IDialogManager {
       const blockResult = await sql(blockQuery);
       
       if (!blockResult || blockResult.length === 0) {
-        console.warn('[DialogManager] Concept block not found:', conceptBlockId);
+        logger.warn('[DialogManager] Concept block not found:', conceptBlockId);
         return;
       }
       
@@ -1621,12 +1633,12 @@ export class DialogManager implements IDialogManager {
       // 2. 提取块引用 ID
       const refMatch = block.markdown?.match(/\(\((\d{14}-[a-z0-9]{7})\s+'[^']*'\)\)/);
       if (!refMatch) {
-        console.warn('[DialogManager] No block reference found in concept block');
+        logger.warn('[DialogManager] No block reference found in concept block');
         return;
       }
       
       const refBlockId = refMatch[1];
-      console.log('[DialogManager] Found reference block ID:', refBlockId);
+      logger.info('[DialogManager] Found reference block ID:', refBlockId);
       
       // 3. 验证引用的块是文档块
       const refBlockQuery = `
@@ -1635,18 +1647,18 @@ export class DialogManager implements IDialogManager {
       const refBlockResult = await sql(refBlockQuery);
       
       if (!refBlockResult || refBlockResult.length === 0) {
-        console.warn('[DialogManager] Referenced block not found:', refBlockId);
+        logger.warn('[DialogManager] Referenced block not found:', refBlockId);
         return;
       }
       
       const refBlock = refBlockResult[0];
       if (refBlock.type !== 'd') {
-        console.warn('[DialogManager] Referenced block is not a document:', refBlock.type);
+        logger.warn('[DialogManager] Referenced block is not a document:', refBlock.type);
         return;
       }
       
       const conceptName = refBlock.content || '未命名概念';
-      console.log('[DialogManager] Concept document:', conceptName);
+      logger.info('[DialogManager] Concept document:', conceptName);
       
       // 4. 检查是否已经是卡片
       const cardQuery = `
@@ -1658,12 +1670,12 @@ export class DialogManager implements IDialogManager {
       const cardResult = await sql(cardQuery);
       
       if (cardResult && cardResult.length > 0) {
-        console.log('[DialogManager] Concept document already has card:', refBlockId);
+        logger.info('[DialogManager] Concept document already has card:', refBlockId);
         return;
       }
       
       // 5. 创建 Xiuyuan 概念卡
-      console.log('[DialogManager] Creating Xiuyuan concept card for:', conceptName);
+      logger.info('[DialogManager] Creating Xiuyuan concept card for:', conceptName);
       
       const result = await xiuyuanAppService.createFromBlocks({
         blockIds: [refBlockId],
@@ -1677,7 +1689,7 @@ export class DialogManager implements IDialogManager {
       if (!result.ok) {
         const error = (result as { ok: false; error: Error }).error;
         const errorMsg = error instanceof Error ? error.message : String(error);
-        console.error('[DialogManager] Failed to create concept card:', errorMsg);
+        logger.error('[DialogManager] Failed to create concept card:', errorMsg);
         return;
       }
       
@@ -1687,12 +1699,12 @@ export class DialogManager implements IDialogManager {
         'custom-fsrs-card-type': 'concept'
       });
       
-      console.log('[DialogManager] Concept card created for document:', refBlockId);
+      logger.info('[DialogManager] Concept card created for document:', refBlockId);
       
       pushMsg(`✅ 已为概念「${conceptName}」创建概念卡`);
       
     } catch (error) {
-      console.error('[DialogManager] Failed to ensure concept document card:', error);
+      logger.error('[DialogManager] Failed to ensure concept document card:', error);
     }
   }
   

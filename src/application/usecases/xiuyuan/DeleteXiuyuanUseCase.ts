@@ -27,6 +27,9 @@
 import { Result, ok, err } from '@/types/result';
 import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('DeleteXiuyuanUseCase');
 
 /**
  * 删除 Xiuyuan 用例
@@ -95,7 +98,7 @@ export class DeleteXiuyuanUseCase {
       // 4. 返回成功
       return ok(true);
     } catch (error) {
-      console.error('[DeleteXiuyuanUseCase] Failed:', error);
+      logger.error('Failed:', error);
       return err(error as Error);
     }
   }

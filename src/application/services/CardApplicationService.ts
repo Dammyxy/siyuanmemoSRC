@@ -36,6 +36,7 @@ import { UpdateCardUseCase } from '../usecases/card/UpdateCardUseCase';
 import { UpdateFSRSCardUseCase } from '../usecases/card/UpdateFSRSCardUseCase';
 import { DeleteFSRSCardUseCase } from '../usecases/card/DeleteFSRSCardUseCase';
 import { Card } from '@/core/xiuyuan/domain/Card';
+import type { FSRSCard } from '@/types/card';
 import { GetDueCardsQuery, GetDueCardsQueryResult } from '../queries/card/GetDueCardsQuery';
 import { GetDueCardsQueryHandler } from '../queries/card/GetDueCardsQueryHandler';
 import { GetCardQuery, GetCardQueryResult } from '../queries/card/GetCardQuery';
@@ -45,6 +46,7 @@ import { GetCardsQueryHandler } from '../queries/card/GetCardsQueryHandler';
 import type { ICardReadModel } from '../queries/card/ICardReadModel';
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 import { createLogger } from '@/utils/logger';
+import type { CardApplicationStoragePort } from '@/core/storage/ports';
 
 const logger = createLogger('CardApplicationService');
 
@@ -79,7 +81,7 @@ export class CardApplicationService {
     private readonly updateCardUseCase: UpdateCardUseCase,
     readModel: ICardReadModel,  // ✅ 使用 Read Model 接口
     scheduleService: CardScheduleService,
-    private readonly unifiedStorage: any  // UnifiedStorageManager
+    private readonly unifiedStorage: CardApplicationStoragePort
   ) {
     this.readModel = readModel;
     // 初始化查询处理器
@@ -463,24 +465,68 @@ export class CardApplicationService {
    * ```
    */
   async saveCards(): Promise<void> {
-    // ⚠️ 临时方案：需要访问 UnifiedStorageManager
-    // 这违反了 DDD 原则，但为了向后兼容暂时保留
     logger.warn('saveCards() is deprecated. Keeping compatibility fallback path.');
+    await this.persistChanges('saveCards');
+  }
 
-    if (this.unifiedStorage && typeof this.unifiedStorage.saveCards === 'function') {
-      await this.unifiedStorage.saveCards();
-      return;
-    }
-
-    if (this.unifiedStorage && typeof this.unifiedStorage.save === 'function') {
+  private async persistChanges(context: string): Promise<void> {
+    if (typeof this.unifiedStorage.save === 'function') {
       const result = await this.unifiedStorage.save();
-      if (!result?.ok) {
-        throw new Error(result?.error?.message || 'Failed to persist cards');
+      if (
+        typeof result === 'object' &&
+        result !== null &&
+        'ok' in result &&
+        (result as { ok: boolean }).ok === false
+      ) {
+        const errorMessage =
+          (result as { error?: { message?: string } }).error?.message || 'Failed to persist cards';
+        throw new Error(`[${context}] ${errorMessage}`);
       }
       return;
     }
 
-    throw new Error('No persistence method available on unifiedStorage');
+    if (typeof this.unifiedStorage.saveCards === 'function') {
+      await this.unifiedStorage.saveCards();
+      return;
+    }
+
+    throw new Error(`[${context}] No persistence method available on unifiedStorage`);
+  }
+
+  private normalizeBatchCards(cards: unknown[]): FSRSCard[] {
+    const deduped = new Map<string, FSRSCard>();
+
+    for (const candidate of cards) {
+      const card = candidate as FSRSCard | null | undefined;
+      const cardId = card?.id;
+      if (!card || typeof cardId !== 'string' || cardId.length === 0) {
+        logger.warn('Skip invalid batch card payload:', { candidate });
+        continue;
+      }
+      deduped.set(cardId, card);
+    }
+
+    return Array.from(deduped.values());
+  }
+
+  private async upsertCardWithoutEvents(card: FSRSCard): Promise<void> {
+    const updater = this.unifiedStorage.updateCard;
+    if (typeof updater === 'function') {
+      const result = await updater.call(this.unifiedStorage, card);
+      if (
+        typeof result === 'object' &&
+        result !== null &&
+        'ok' in result &&
+        (result as { ok: boolean }).ok === false
+      ) {
+        const errorMessage =
+          (result as { error?: { message?: string } }).error?.message || `Failed to update card ${card.id}`;
+        throw new Error(errorMessage);
+      }
+      return;
+    }
+
+    this.unifiedStorage.setCard(card);
   }
 
   /**
@@ -515,8 +561,9 @@ export class CardApplicationService {
       }
     }
 
-    // 保存更改
-    await this.saveCards();
+    if (deletedCount > 0) {
+      await this.persistChanges('batchDeleteCards');
+    }
 
     return { ok: true, value: { deletedCount, failedCount } };
   }
@@ -535,21 +582,26 @@ export class CardApplicationService {
       return { ok: true, value: { createdCount: 0, failedCount: 0 } };
     }
 
+    const normalizedCards = this.normalizeBatchCards(cards);
     let createdCount = 0;
     let failedCount = 0;
 
-    for (const card of cards) {
+    for (const card of normalizedCards) {
       try {
-        this.unifiedStorage.setCard(card);
+        await this.upsertCardWithoutEvents(card);
         createdCount++;
       } catch (error) {
         failedCount++;
-        logger.error(`Error creating card ${card.id}:`, error);
+        logger.error('Error creating card in batchCreateCardsWithoutEvents', {
+          cardId: card.id,
+          error,
+        });
       }
     }
 
-    // 保存更改
-    await this.saveCards();
+    if (createdCount > 0) {
+      await this.persistChanges('batchCreateCardsWithoutEvents');
+    }
 
     return { ok: true, value: { createdCount, failedCount } };
   }
@@ -568,27 +620,34 @@ export class CardApplicationService {
       return { ok: true, value: { updatedCount: 0, failedCount: 0 } };
     }
 
+    const normalizedCards = this.normalizeBatchCards(cards);
     let updatedCount = 0;
     let failedCount = 0;
 
-    for (const card of cards) {
+    for (const card of normalizedCards) {
       try {
         const existingCard = this.unifiedStorage.getCard(card.id);
         if (existingCard) {
-          this.unifiedStorage.setCard(card);
+          await this.upsertCardWithoutEvents(card);
           updatedCount++;
         } else {
           failedCount++;
-          logger.warn(`Card ${card.id} not found for update`);
+          logger.warn('Card not found for update in batchUpdateCardsWithoutEvents', {
+            cardId: card.id,
+          });
         }
       } catch (error) {
         failedCount++;
-        logger.error(`Error updating card ${card.id}:`, error);
+        logger.error('Error updating card in batchUpdateCardsWithoutEvents', {
+          cardId: card.id,
+          error,
+        });
       }
     }
 
-    // 保存更改
-    await this.saveCards();
+    if (updatedCount > 0) {
+      await this.persistChanges('batchUpdateCardsWithoutEvents');
+    }
 
     return { ok: true, value: { updatedCount, failedCount } };
   }

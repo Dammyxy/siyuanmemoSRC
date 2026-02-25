@@ -8,14 +8,19 @@
  */
 
 import * as riff from '../../siyuan/riff.ts';
-import { setBlockAttrs, sql } from '../../siyuan/api.ts';
+import { sql } from '../../siyuan/api.ts';
 import { ATTR_PRIORITY } from '../../siyuan/block.ts';
 import { computeProtectionStats, clampPriority, DEFAULT_PRIORITY } from '../../queue/abstraction/IPriority.ts';
 import { normalizeBlockId, normalizeDeckId, normalizeRiffCardId } from '../../queue/abstraction/QueueCardRef.ts';
-import type { StorageManager } from '../../storage/manager.ts';
+import type { CardReadPort, CardWritePort, ReviewLogWritePort } from '../../storage/ports.ts';
 import type { QueueItem } from '../../queue/types.ts';
 import type { QueueProvider } from '../QueueProvider.ts';
 import type { QueueStats } from '../types.ts';
+import { createLogger } from '../../../utils/logger.ts';
+
+const logger = createLogger('FSRSRetrievalProvider');
+
+type FSRSRetrievalStoragePort = CardReadPort & CardWritePort & ReviewLogWritePort;
 
 type RiffApi = {
   getRiffDueCards: typeof riff.getRiffDueCards;
@@ -67,7 +72,7 @@ export class FSRSRetrievalProvider implements QueueProvider<QueueItem> {
 
   private readonly deckID: string;
   private readonly api: RiffApi;
-  private readonly storage?: StorageManager;
+  private readonly storage?: FSRSRetrievalStoragePort;
   private loaded = false;
 
   private items: QueueItem[] = [];
@@ -80,7 +85,7 @@ export class FSRSRetrievalProvider implements QueueProvider<QueueItem> {
   private unreviewedTotal = 0;
   private protectionExtra = '';
 
-  constructor(options?: { deckID?: string; displayName?: string; api?: Partial<RiffApi>; storage?: StorageManager }) {
+  constructor(options?: { deckID?: string; displayName?: string; api?: Partial<RiffApi>; storage?: FSRSRetrievalStoragePort }) {
     this.deckID = String(options?.deckID || riff.BUILTIN_DECK_ID);
     this.displayName = String(options?.displayName || 'FSRS 复习');
     this.storage = options?.storage;
@@ -94,7 +99,7 @@ export class FSRSRetrievalProvider implements QueueProvider<QueueItem> {
   async getDueCards(options?: {
     forceReload?: boolean;  // 🆕 支持强制重载
   }): Promise<QueueItem[]> {
-    console.log('[FSRSRetrievalProvider] getDueCards START', {
+    logger.debug('getDueCards START', {
       loaded: this.loaded,
       itemsCount: this.items.length,
       forceReload: options?.forceReload,
@@ -102,13 +107,13 @@ export class FSRSRetrievalProvider implements QueueProvider<QueueItem> {
 
     // 如果需要强制重新加载，清空状态
     if (options?.forceReload) {
-      console.log('[FSRSRetrievalProvider] Force reload requested');
+      logger.debug('Force reload requested');
       this.loaded = false;
     }
 
     await this.ensureLoaded();
     
-    console.log('[FSRSRetrievalProvider] getDueCards DONE:', this.items.length);
+    logger.debug('getDueCards DONE:', this.items.length);
     return [...this.items];
   }
 
@@ -127,7 +132,7 @@ export class FSRSRetrievalProvider implements QueueProvider<QueueItem> {
   }
 
   async reviewCard(cardId: string, rating: number, reviewedCards?: QueueItem[]): Promise<void> {
-    console.log('[FSRSRetrievalProvider] reviewCard called:', {
+    logger.debug('reviewCard called:', {
       cardId,
       rating,
       itemsCount: this.items.length,
@@ -140,7 +145,7 @@ export class FSRSRetrievalProvider implements QueueProvider<QueueItem> {
     // 🆕 找到卡片在列表中的位置
     const index = this.items.findIndex(item => String(item.cardID) === id);
     if (index === -1) {
-      console.error('[FSRSRetrievalProvider] Card not found in list:', id);
+      logger.error('Card not found in list:', id);
       return;
     }
 
@@ -169,17 +174,17 @@ export class FSRSRetrievalProvider implements QueueProvider<QueueItem> {
           difficulty: 0,
         });
       } catch (error) {
-        console.error('[FSRSRetrievalProvider] Failed to add review log:', error);
+        logger.error('Failed to add review log:', error);
       }
     }
 
     // 🆕 更新内部状态（删除已复习的卡片）
     this.afterConsumed(id);
-    console.log('[FSRSRetrievalProvider] Card reviewed, remaining:', this.items.length);
+    logger.debug('Card reviewed, remaining:', this.items.length);
   }
 
   async skipReviewCard(cardId: string): Promise<void> {
-    console.log('[FSRSRetrievalProvider] skipReviewCard called:', cardId);
+    logger.debug('skipReviewCard called:', cardId);
 
     await this.ensureLoaded();
     const id = String(cardId || '');
@@ -188,7 +193,7 @@ export class FSRSRetrievalProvider implements QueueProvider<QueueItem> {
     // 🆕 找到卡片在列表中的位置
     const index = this.items.findIndex(item => String(item.cardID) === id);
     if (index === -1) {
-      console.error('[FSRSRetrievalProvider] Card not found in list:', id);
+      logger.error('Card not found in list:', id);
       return;
     }
 
@@ -200,7 +205,7 @@ export class FSRSRetrievalProvider implements QueueProvider<QueueItem> {
 
     // 🆕 更新内部状态（删除已跳过的卡片）
     this.afterConsumed(id);
-    console.log('[FSRSRetrievalProvider] Card skipped, remaining:', this.items.length);
+    logger.debug('Card skipped, remaining:', this.items.length);
   }
 
   async setPriority(cardId: string, priority: number): Promise<void> {
@@ -208,6 +213,10 @@ export class FSRSRetrievalProvider implements QueueProvider<QueueItem> {
     const id = String(cardId || '');
     const blockID = this.blockIdByCardId.get(id);
     if (!blockID) return;
+    if (!this.storage) {
+      logger.warn('setPriority skipped: storage is not available');
+      return;
+    }
     const p = clampPriority(priority, DEFAULT_PRIORITY);
     
     // 更新 FSRSCard.priority（统一优先级存储）

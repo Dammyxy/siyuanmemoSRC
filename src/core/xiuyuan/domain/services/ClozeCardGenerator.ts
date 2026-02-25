@@ -17,6 +17,9 @@
 
 import { Result, ok } from '@/types/result';
 import { CardFace } from '../CardFace';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('ClozeCardGenerator');
 
 /**
  * 填空信息
@@ -100,8 +103,8 @@ export class ClozeCardGenerator {
     const answer = currentCloze.text;
 
     // 🔍 调试日志
-    console.log(`[ClozeCardGenerator] Generating card ${currentIndex + 1}/${clozes.length}`);
-    console.log(`[ClozeCardGenerator] Current cloze (index ${currentIndex}):`, currentCloze);
+    logger.debug(`Generating card ${currentIndex + 1}/${clozes.length}`);
+    logger.debug(`Current cloze (index ${currentIndex}):`, currentCloze);
 
     // 问题：将当前填空替换为 [...]，其他填空显示原文
     // 🔧 新算法：为每个 cloze 添加索引标记，然后从后往前替换
@@ -117,19 +120,19 @@ export class ClozeCardGenerator {
           question.substring(0, cloze.start) +
           '<mark>[...]</mark>' +
           question.substring(cloze.end);
-        console.log(`[ClozeCardGenerator] Replaced cloze ${cloze.originalIndex} (${cloze.text}) with <mark>[...]</mark>`);
+        logger.debug(`Replaced cloze ${cloze.originalIndex} (${cloze.text}) with <mark>[...]</mark>`);
       } else {
         // 其他填空：显示原文（去掉标记）
         question =
           question.substring(0, cloze.start) +
           cloze.text +
           question.substring(cloze.end);
-        console.log(`[ClozeCardGenerator] Kept cloze ${cloze.originalIndex} (${cloze.text}) as text`);
+        logger.debug(`Kept cloze ${cloze.originalIndex} (${cloze.text}) as text`);
       }
     }
 
-    console.log(`[ClozeCardGenerator] Generated question: "${question}"`);
-    console.log(`[ClozeCardGenerator] Generated answer: "${answer}"`);
+    logger.debug(`Generated question: "${question}"`);
+    logger.debug(`Generated answer: "${answer}"`);
 
     return { question, answer };
   }

@@ -9,6 +9,9 @@ import { Constants } from 'siyuan';
 import { Menu } from 'siyuan';
 import type { App } from 'siyuan';
 import type { ICard, ICardData } from '@/global';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('NativeReviewSession');
 
 /**
  * 生成卡片计数 HTML
@@ -185,11 +188,11 @@ export class NativeReviewSession {
 
     // 设置 data-key 属性，让思源热键系统能够识别这个对话框
     this.dialog.element.setAttribute('data-key', 'dialog-opencard');
-    console.log('[NativeReviewSession] Set data-key attribute on dialog');
+    logger.debug('Set data-key attribute on dialog');
 
     // 调试：检查思源热键系统能否识别
     setTimeout(() => {
-      console.log('[NativeReviewSession] Checking SiYuan hotkey system:', {
+      logger.debug('Checking SiYuan hotkey system:', {
         dialogElement: this.dialog?.element,
         dataKey: this.dialog?.element.getAttribute('data-key'),
         siyuanDialogs: (window as any).siyuan?.dialogs,
@@ -264,14 +267,14 @@ export class NativeReviewSession {
     // 我们需要在那里监听并转发到 cardMain
     if (element.firstElementChild) {
       element.firstElementChild.addEventListener('click', (event: MouseEvent) => {
-        console.log('[NativeReviewSession] Click on firstElementChild:', {
+        logger.debug('Click on firstElementChild:', {
           detail: event.detail,
           detailType: typeof event.detail,
         });
 
         // 处理来自思源热键系统的 CustomEvent（event.detail 为字符串）
         if (typeof event.detail === 'string') {
-          console.log('[NativeReviewSession] Hotkey CustomEvent received:', event.detail);
+          logger.debug('Hotkey CustomEvent received:', event.detail);
           const key = event.detail.toLowerCase();
 
           // 检查是否已显示答案（第二个 action div 是否隐藏）
@@ -344,7 +347,7 @@ export class NativeReviewSession {
           clientY: event.clientY,
         });
         Object.defineProperty(forwardedEvent, 'target', { value: event.target, writable: false });
-        cardMain.dispatchEvent(forwardEvent);
+        cardMain.dispatchEvent(forwardedEvent);
       });
     }
 
@@ -354,7 +357,7 @@ export class NativeReviewSession {
 
       // 处理来自思源热键系统的 CustomEvent（event.detail 为字符串）
       if (typeof event.detail === 'string') {
-        console.log('[NativeReviewSession] Hotkey CustomEvent received:', event.detail);
+        logger.debug('Hotkey CustomEvent received:', event.detail);
         const key = event.detail.toLowerCase();
 
         // 评分按钮 (1/j/a = 1, 2/k/s = 2, 3/l/d = 3, 4/;/f = 4)
@@ -439,7 +442,7 @@ export class NativeReviewSession {
 
         // 使用找到的按钮作为锚点定位菜单
         const rect = moreButton?.getBoundingClientRect?.();
-        console.log('[NativeReviewSession] More button rect:', { rect, moreButton });
+        logger.debug('More button rect:', { rect, moreButton });
 
         const languages = (window as any)?.siyuan?.languages || {};
         const menu = new Menu();
@@ -478,7 +481,7 @@ export class NativeReviewSession {
 
     // 键盘快捷键
     element.addEventListener('keydown', (event: KeyboardEvent) => {
-      console.log('[NativeReviewSession] Keydown event:', {
+      logger.debug('Keydown event:', {
         key: event.key,
         code: event.code,
         target: event.target,
@@ -487,7 +490,7 @@ export class NativeReviewSession {
 
       if (['1', '2', '3', '4', ' ', 'Enter', '0', 'x', 'X'].includes(event.key)) {
         event.preventDefault();
-        console.log('[NativeReviewSession] Key matched, executing action');
+        logger.debug('Key matched, executing action');
         if (event.key === ' ' || event.key === 'Enter') {
           // 显示答案或跳到下一张
           const actionElements = element.querySelectorAll('.card__action');
@@ -524,7 +527,7 @@ export class NativeReviewSession {
       // 方法：重新创建 Protyle 实例，传入正确的 blockId
       // 这样 Protyle 会自动加载并渲染内容，无需手动调用渲染函数
 
-      console.log('[NativeReviewSession] Loading card:', card.blockID, 'answerBlock:', this.currentAnswerBlockID);
+      logger.debug('Loading card:', card.blockID, 'answerBlock:', this.currentAnswerBlockID);
 
       // 销毁旧实例
       if (this.protyle) {
@@ -539,7 +542,7 @@ export class NativeReviewSession {
       // 获取渲染容器
       const renderElement = this.dialog?.element.querySelector('[data-type="render"]') as HTMLElement;
       if (!renderElement) {
-        console.error('[NativeReviewSession] Render element not found');
+        logger.error('Render element not found');
         return;
       }
 
@@ -562,7 +565,7 @@ export class NativeReviewSession {
         },
       });
 
-      console.log('[NativeReviewSession] Protyle created for block:', card.blockID);
+      logger.debug('Protyle created for block:', card.blockID);
 
       // 更新 UI（按钮状态等）
       setTimeout(() => {
@@ -653,7 +656,7 @@ export class NativeReviewSession {
             title: false,
           },
         });
-        console.log('[NativeReviewSession] Answer block rendered:', this.currentAnswerBlockID);
+        logger.debug('Answer block rendered:', this.currentAnswerBlockID);
       }
     }
   }
@@ -744,7 +747,7 @@ export class NativeReviewSession {
    * 打开更多菜单
    */
   private openMoreMenu(event: MouseEvent) {
-    console.log('[NativeReviewSession] openMoreMenu called:', {
+    logger.debug('openMoreMenu called:', {
       currentTarget: event.currentTarget,
       target: event.target,
       clientX: event.clientX,
@@ -773,7 +776,7 @@ export class NativeReviewSession {
     const anchor = (event.currentTarget || event.target) as HTMLElement | null;
     const rect = anchor?.getBoundingClientRect?.();
 
-    console.log('[NativeReviewSession] Menu positioning:', {
+    logger.debug('Menu positioning:', {
       anchor,
       rect,
     });
@@ -785,7 +788,7 @@ export class NativeReviewSession {
         isLeft: true,
       });
     } else {
-      console.warn('[NativeReviewSession] Could not get anchor rect, using mouse position');
+      logger.warn('Could not get anchor rect, using mouse position');
       menu.open({
         x: event.clientX,
         y: event.clientY,

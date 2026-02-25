@@ -7,7 +7,6 @@
 
 import type { FSRSCard, FSRSParameters, Rating } from '@/types';
 import type { SchedulerEngineAdapter } from './types';
-import type { UnifiedStorageManager } from '../storage/UnifiedStorageManager';
 import type { CardUpdatePort } from './ports';
 import { TSFSRSScheduler } from './strategies/TSFSRSScheduler';
 import { SM15Scheduler } from './strategies/SM15Scheduler';
@@ -19,6 +18,12 @@ const logger = createLogger('SchedulerRouter');
 
 /** 调度器类型 */
 export type SchedulerType = 'fsrs-v6' | 'fsrs-v5' | 'sm15' | 'a-factor-v2';
+
+const PREFERRED_SCHEDULER_BY_CARD_TYPE: Record<string, SchedulerType> = {
+    topic: 'a-factor-v2',
+    concept: 'a-factor-v2',
+    descriptor: 'fsrs-v6',
+};
 
 /** Scheduler Router 配置 */
 export interface SchedulerRouterConfig {
@@ -33,8 +38,8 @@ export interface SchedulerRouterConfig {
  * 根据卡片类型和配置选择合适的调度器并执行复习
  * 
  * 使用 DDD 架构：
- * - 依赖 UnifiedStorageManager 进行数据查询
- * - 依赖 CardApplicationService 进行数据更新
+ * - 依赖调度器策略进行业务计算
+ * - 依赖 CardUpdatePort 进行持久化更新
  */
 export class SchedulerRouter {
     private config: SchedulerRouterConfig;
@@ -43,7 +48,6 @@ export class SchedulerRouter {
 
     constructor(
         config: SchedulerRouterConfig,
-        _unifiedStorage: UnifiedStorageManager,
         cardUpdater: CardUpdatePort
     ) {
         this.config = config;
@@ -162,19 +166,9 @@ export class SchedulerRouter {
      */
     getSchedulerType(card: FSRSCard): SchedulerType {
         // 1. 检查卡片类型强制规则
-        if (card.type === 'topic') {
-            // Topic 卡片强制使用 A-Factor v2
-            return 'a-factor-v2';
-        }
-        
-        // 🔧 修复：Concept 使用 A-Factor v2（文档块，支持反链）
-        if (card.type === 'concept') {
-            return 'a-factor-v2';
-        }
-        
-        // 🔧 修复：Descriptor 使用 FSRS v6（问答卡片）
-        if (card.type === 'descriptor') {
-            return 'fsrs-v6';
+        const preferredScheduler = this.getPreferredSchedulerForType(card.type);
+        if (preferredScheduler) {
+            return preferredScheduler;
         }
 
         // 2. 检查用户覆盖配置
@@ -207,28 +201,9 @@ export class SchedulerRouter {
         newScheduler: SchedulerType
     ): Promise<boolean> {
         // 1. 验证切换是否允许
-        if (card.type === 'topic') {
-            // Topic 卡片只能使用 A-Factor v2
-            if (newScheduler !== 'a-factor-v2') {
-                logger.error('Topic cards must use A-Factor v2 scheduler');
-                return false;
-            }
-        }
-        
-        // 🔧 修复：Concept 卡片只能使用 A-Factor v2
-        if (card.type === 'concept') {
-            if (newScheduler !== 'a-factor-v2') {
-                logger.error('Concept cards must use A-Factor v2 scheduler');
-                return false;
-            }
-        }
-        
-        // 🔧 修复：Descriptor 卡片只能使用 FSRS
-        if (card.type === 'descriptor') {
-            if (newScheduler !== 'fsrs-v5' && newScheduler !== 'fsrs-v6') {
-                logger.error('Descriptor cards must use FSRS scheduler');
-                return false;
-            }
+        if (!this.isSchedulerAllowedForCardType(card.type, newScheduler)) {
+            logger.error(`Card type "${card.type}" does not allow scheduler "${newScheduler}"`);
+            return false;
         }
 
         // 2. 验证新调度器是否存在
@@ -332,5 +307,29 @@ export class SchedulerRouter {
         }
 
         return migrated;
+    }
+
+    private getPreferredSchedulerForType(cardType?: string): SchedulerType | null {
+        if (!cardType) {
+            return null;
+        }
+        return PREFERRED_SCHEDULER_BY_CARD_TYPE[cardType] ?? null;
+    }
+
+    private isSchedulerAllowedForCardType(cardType: string | undefined, scheduler: SchedulerType): boolean {
+        if (!cardType) {
+            return true;
+        }
+
+        if (cardType === 'descriptor') {
+            return scheduler === 'fsrs-v5' || scheduler === 'fsrs-v6';
+        }
+
+        const preferredScheduler = this.getPreferredSchedulerForType(cardType);
+        if (!preferredScheduler) {
+            return true;
+        }
+
+        return scheduler === preferredScheduler;
     }
 }

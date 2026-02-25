@@ -43,6 +43,9 @@ import { Priority } from '@/core/xiuyuan/domain/Priority';
 import { sql } from '@/core/siyuan/api';
 import { addRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('CreateListTemplateCardsUseCase');
 
 /**
  * 解析子列表项文本，提取提示和答案
@@ -116,7 +119,7 @@ export class CreateListTemplateCardsUseCase {
       
       if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
         const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
-        console.log(`[CreateListTemplateCardsUseCase] Block ${command.parentBlockId} already has Xiuyuan: ${existingXiuyuanId}`);
+        logger.info(`Block ${command.parentBlockId} already has Xiuyuan: ${existingXiuyuanId}`);
         return err(new Error('此列表项已经创建过列表模版卡，请勿重复创建'));
       }
       
@@ -245,7 +248,7 @@ export class CreateListTemplateCardsUseCase {
         const cardResult = xiuyuan.createCard(i);
         if (!cardResult.ok) {
           const error = (cardResult as any).error || new Error(`Failed to create card for face ${i}`);
-          console.error(`[CreateListTemplateCardsUseCase] Failed to create card for face ${i}:`, error);
+          logger.error(`Failed to create card for face ${i}:`, error);
           return err(error);
         }
       }
@@ -256,14 +259,14 @@ export class CreateListTemplateCardsUseCase {
       try {
         // 🔧 使用段落块 ID 添加到 Riff（与 Xiuyuan.blockIds[0] 一致）
         await addRiffCards(deckId, [parentParagraphId]);
-        console.log('[CreateListTemplateCardsUseCase] ✅ Created list template Xiuyuan and added to Riff:', {
+        logger.info('Created list template Xiuyuan and added to Riff:', {
           xiuyuanId: xiuyuan.getId().getValue(),
           blockId: parentParagraphId,
           representativeBlockId,
           source: 'list-template-creation'
         });
       } catch (error) {
-        console.warn('[CreateListTemplateCardsUseCase] Failed to add to Riff:', error);
+        logger.warn('Failed to add to Riff:', error);
         // 不阻断流程
       }
 
@@ -287,7 +290,7 @@ export class CreateListTemplateCardsUseCase {
         }))
       });
     } catch (error) {
-      console.error('[CreateListTemplateCardsUseCase] Failed:', error);
+      logger.error('Failed:', error);
       return err(error as Error);
     }
   }

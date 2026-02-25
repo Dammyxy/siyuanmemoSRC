@@ -15,7 +15,7 @@
  * @see .kiro/specs/ddd-refactoring/browser-ddd-migration.md - Phase 2
  */
 
-import type { StorageManager } from '@/core/storage/manager';
+import type { BrowserCardStoragePort } from '@/core/storage/ports';
 import { CardScheduleService, CardState } from '@/core/card/domain/services/CardScheduleService';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
@@ -41,6 +41,9 @@ import {
   truncateContent,
   STATE_LABELS,
 } from '@/ui/browser/types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('GetBrowserCardsQueryHandler');
 
 /**
  * GetBrowserCardsQueryHandler 类
@@ -68,7 +71,7 @@ import {
  */
 export class GetBrowserCardsQueryHandler {
   constructor(
-    private readonly storageManager: StorageManager,
+    private readonly storageManager: BrowserCardStoragePort,
     private readonly cardScheduleService: CardScheduleService,
     private readonly cardFilterService: CardFilterService,
     private readonly cardSortService: CardSortService
@@ -86,7 +89,7 @@ export class GetBrowserCardsQueryHandler {
     // getAllCards() 返回内存中的最新数据（已经通过 updateCard 更新）
     const allCards = this.storageManager.getAllCards();
     
-    console.log('[GetBrowserCardsQueryHandler] getAllCards returned:', {
+    logger.debug('getAllCards returned:', {
       totalCards: allCards.length,
       sampleCard: allCards[0] ? {
         id: allCards[0].id,
@@ -95,7 +98,7 @@ export class GetBrowserCardsQueryHandler {
     });
     
     // 🔍 调试：打印查询参数
-    console.log('[GetBrowserCardsQueryHandler] 🔍 Query parameters:', {
+    logger.debug('Query parameters:', {
       preset: query.preset,
       cardTypes: query.cardTypes,
       searchText: query.searchText,
@@ -108,16 +111,16 @@ export class GetBrowserCardsQueryHandler {
     
     // 3. 应用预设过滤器（领域层）
     let filteredCards = this.applyPresetFilter(allCards, query.preset);
-    console.log('[GetBrowserCardsQueryHandler] 🔍 After preset filter:', filteredCards.length);
+    logger.debug('After preset filter:', filteredCards.length);
     
     // 3.5. 🔧 修复：如果有搜索文本，先填充内容再过滤
     if (query.searchText && query.searchText.trim()) {
-      console.log('[GetBrowserCardsQueryHandler] 🔧 Filling content for search, cards count:', filteredCards.length);
+      logger.debug('Filling content for search, cards count:', filteredCards.length);
       await this.fillContentForSearch(filteredCards);
     }
     
     // 4. 应用自定义过滤器（领域层）
-    console.log('[GetBrowserCardsQueryHandler] 🔍 Applying custom filters:', {
+    logger.debug('Applying custom filters:', {
       states: query.states,
       cardTypes: query.cardTypes,
       searchText: query.searchText,
@@ -132,23 +135,23 @@ export class GetBrowserCardsQueryHandler {
       tags: query.tags,
       deckIds: query.deckIds,
     });
-    console.log('[GetBrowserCardsQueryHandler] 🔍 After custom filters:', filteredCards.length);
+    logger.debug('After custom filters:', filteredCards.length);
     
     // 5. 应用文档过滤（领域层）
     // ⚠️ 重要：文档筛选需要 rootId，必须先填充
     if (query.docId) {
-      console.log('[GetBrowserCardsQueryHandler] 🔍 Applying document filter:', query.docId);
+      logger.debug('Applying document filter:', query.docId);
       
       // 🔧 先填充 rootId（批量查询）
       const cardsNeedingRootId = filteredCards.filter(c => !(c.meta as any)?.rootId);
       if (cardsNeedingRootId.length > 0) {
-        console.log('[GetBrowserCardsQueryHandler] 🔧 Filling rootId for', cardsNeedingRootId.length, 'cards before document filter');
+        logger.debug('Filling rootId before document filter:', { count: cardsNeedingRootId.length });
         await this.fillRootIds(cardsNeedingRootId);
       }
       
       // 然后应用文档筛选
       filteredCards = this.cardFilterService.filterByDocId(filteredCards, query.docId);
-      console.log('[GetBrowserCardsQueryHandler] 🔍 After document filter:', filteredCards.length);
+      logger.debug('After document filter:', filteredCards.length);
     }
     
     // 6. 排序（领域层）
@@ -276,9 +279,9 @@ export class GetBrowserCardsQueryHandler {
         }
       }
       
-      console.log('[GetBrowserCardsQueryHandler] ✅ Filled rootId for', cards.length, 'cards');
+      logger.info('Filled rootId for cards:', cards.length);
     } catch (error) {
-      console.error('[GetBrowserCardsQueryHandler] Failed to fill rootIds:', error);
+      logger.error('Failed to fill rootIds:', error);
     }
   }
   
@@ -299,11 +302,11 @@ export class GetBrowserCardsQueryHandler {
     });
     
     if (cardsNeedingContent.length === 0) {
-      console.log('[GetBrowserCardsQueryHandler] ✅ All cards already have content');
+      logger.debug('All cards already have content');
       return;
     }
     
-    console.log('[GetBrowserCardsQueryHandler] 🔧 Filling content for', cardsNeedingContent.length, 'cards');
+    logger.debug('Filling content for cards:', cardsNeedingContent.length);
     
     const blockIds = cardsNeedingContent.map(c => c.blockId);
     
@@ -340,9 +343,9 @@ export class GetBrowserCardsQueryHandler {
         }
       }
       
-      console.log('[GetBrowserCardsQueryHandler] ✅ Filled content for', cardsNeedingContent.length, 'cards');
+      logger.info('Filled content for cards:', cardsNeedingContent.length);
     } catch (error) {
-      console.error('[GetBrowserCardsQueryHandler] Failed to fill content:', error);
+      logger.error('Failed to fill content:', error);
     }
   }
   
@@ -530,7 +533,7 @@ export class GetBrowserCardsQueryHandler {
         }
       }
     } catch (error) {
-      console.error('[GetBrowserCardsQueryHandler] Failed to fetch block info:', error);
+      logger.error('Failed to fetch block info:', error);
     }
     
     return { attrsMap, rootIdMap, tagsMap, contentMap };

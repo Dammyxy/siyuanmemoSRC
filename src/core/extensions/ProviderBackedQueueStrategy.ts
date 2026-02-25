@@ -12,6 +12,9 @@
 import type { IQueueStrategy, QueueFeedback } from '../queue/abstraction/Strategy.ts';
 import type { QueueStats, QueueUIConfig } from '../queue/types.ts';
 import type { QueueProvider } from './QueueProvider.ts';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('ProviderBackedQueueStrategy');
 
 type Options<TItem> = {
   providerOptions?: Record<string, unknown>;
@@ -65,15 +68,15 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
   }
 
   async getStats(): Promise<QueueStats> {
-    console.log('[ProviderBackedQueueStrategy] getStats called');
+    logger.debug('getStats called');
     await this.ensureLoaded();
-    console.log('[ProviderBackedQueueStrategy] getStats: after ensureLoaded', {
+    logger.debug('getStats: after ensureLoaded', {
       bufferLength: this.buffer.length,
       hasGetStats: typeof (this.provider as any)?.getStats === 'function',
     });
     if (typeof (this.provider as any)?.getStats === 'function') {
       const s = await (this.provider as any).getStats(this.providerOptions).catch(() => null);
-      console.log('[ProviderBackedQueueStrategy] getStats: provider stats result', s);
+      logger.debug('getStats: provider stats result', s);
       const remaining = Number.isFinite(Number(s?.remaining))
         ? Math.max(0, Number(s?.remaining) || 0)
         : Number.isFinite(Number(s?.total)) && Number.isFinite(Number(s?.current))
@@ -88,16 +91,16 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
   }
 
   async next(): Promise<TItem | null> {
-    console.log('[ProviderBackedQueueStrategy] next called');
+    logger.debug('next called');
     await this.ensureLoaded();
-    console.log('[ProviderBackedQueueStrategy] next: buffer length', this.buffer.length);
+    logger.debug('next: buffer length', this.buffer.length);
     if (this.keepCurrentOnNext && this.current) {
       this.keepCurrentOnNext = false;
       return this.current;
     }
     const next = this.buffer.shift() || null;
     this.current = next;
-    console.log('[ProviderBackedQueueStrategy] next: returning item', {
+    logger.debug('next: returning item', {
       hasItem: !!next,
       itemId: next ? this.getCardId(next) : null,
       remainingBuffer: this.buffer.length,
@@ -143,10 +146,10 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
       // 🔧 Reload buffer after review to sync with provider's state
       // For retrieval practice, this will get the updated SessionManager state
       // For other providers, this will reload from the underlying queue
-      console.log('[ProviderBackedQueueStrategy] Reloading buffer after review');
+      logger.debug('Reloading buffer after review');
       this.loaded = false;
       await this.ensureLoaded();
-      console.log('[ProviderBackedQueueStrategy] Buffer reloaded:', {
+      logger.debug('Buffer reloaded:', {
         newBufferLength: this.buffer.length,
       });
       return;
@@ -160,7 +163,7 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
    * @param position 位置 (1-based)
    */
   async insertAt(cardId: string, position: number): Promise<void> {
-    console.log('[ProviderBackedQueueStrategy] insertAt called:', { cardId, position });
+    logger.debug('insertAt called:', { cardId, position });
     
     // 尝试委托给 provider 的 insertAt 方法
     if (typeof (this.provider as any)?.insertAt === 'function') {
@@ -173,7 +176,7 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
     
     // 降级方案：直接操作 buffer
     // 注意：这只是临时方案，不会持久化到底层队列
-    console.warn('[ProviderBackedQueueStrategy] Provider does not support insertAt, using buffer fallback');
+    logger.warn('Provider does not support insertAt, using buffer fallback');
     
     await this.ensureLoaded();
     
@@ -190,7 +193,7 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
     const targetIndex = Math.max(0, Math.min(position - 1, this.buffer.length));
     this.buffer.splice(targetIndex, 0, card);
     
-    console.log('[ProviderBackedQueueStrategy] Card inserted in buffer at position', targetIndex);
+    logger.debug('Card inserted in buffer at position', targetIndex);
   }
 
   /**
@@ -204,12 +207,12 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
   private async ensureLoaded(): Promise<void> {
     if (this.loaded) return;
     this.loaded = true;
-    console.log('[ProviderBackedQueueStrategy] Loading cards from provider:', {
+    logger.debug('Loading cards from provider:', {
       providerId: (this.provider as any)?.id || (this.provider as any)?.displayName,
       providerOptions: this.providerOptions,
     });
     const items = await this.provider.getDueCards(this.providerOptions);
-    console.log('[ProviderBackedQueueStrategy] Cards loaded:', {
+    logger.debug('Cards loaded:', {
       count: Array.isArray(items) ? items.length : 0,
       items: Array.isArray(items) ? items.slice(0, 5) : items,
     });

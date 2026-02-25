@@ -1,6 +1,6 @@
 ﻿export interface RescheduleLog {
     ts: number;
-    action: 'advance' | 'postpone' | 'reschedule-absolute' | 'reschedule-relative' | 'spread';
+    action: 'advance' | 'postpone' | 'dilute' | 'reschedule-absolute' | 'reschedule-relative' | 'spread';
     source: string; // 'browser' | 'queue' | 'command' | 'unknown'
     targets: string[]; // IDs
     result: {

@@ -7,11 +7,14 @@
  * - 其它复习模式直接使用 Riff API，缺少 meta 字段
  *
  * @param card - Riff API 返回的卡片数据
- * @param storageManager - 可选的 StorageManager 实例，用于获取本地存储的卡片数据
+ * @param storageManager - 可选的存储端口实例，用于获取本地存储的卡片数据
  * @returns 包含 answerBlockID 等元数据的对象
  */
 
-import type { StorageManager } from '../storage/manager';
+import type { ExtractMetaStoragePort } from '../storage/ports';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('extractCardMeta');
 
 export interface CardMeta {
   answerBlockID?: string;
@@ -24,14 +27,14 @@ export interface CardMeta {
  * 从卡片数据中提取元数据
  *
  * 提取策略：
- * 1. 优先从 StorageManager 中获取已保存的 FSRSCard.meta（最可靠）
- * 2. 如果没有 StorageManager，返回空 meta（优雅降级）
+ * 1. 优先从存储端口中获取已保存的 FSRSCard.meta（最可靠）
+ * 2. 如果没有存储端口，返回空 meta（优雅降级）
  *
  * 注意：不使用 getBlockAttrs() API，避免额外的网络请求影响性能
  */
 export async function extractCardMeta(
   card: any,
-  storageManager?: StorageManager
+  storageManager?: ExtractMetaStoragePort
 ): Promise<CardMeta> {
   const meta: CardMeta = {};
 
@@ -41,7 +44,7 @@ export async function extractCardMeta(
     return meta;
   }
 
-  // 策略 1: 从 StorageManager 获取本地存储的卡片数据
+  // 策略 1: 从存储端口获取本地存储的卡片数据
   if (storageManager) {
     try {
       const fsrsCard = storageManager.getCard(blockID);
@@ -55,7 +58,7 @@ export async function extractCardMeta(
         };
       }
     } catch (err) {
-      console.warn('[extractCardMeta] Failed to get card from storage:', err);
+      logger.warn('Failed to get card from storage:', err);
     }
   }
 
@@ -69,7 +72,7 @@ export async function extractCardMeta(
  */
 export async function extractCardMetaBatch(
   cards: any[],
-  storageManager?: StorageManager
+  storageManager?: ExtractMetaStoragePort
 ): Promise<Map<string, CardMeta>> {
   const metaMap = new Map<string, CardMeta>();
 

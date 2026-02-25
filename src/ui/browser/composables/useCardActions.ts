@@ -9,7 +9,10 @@ import { migrateExistingCards } from '@/scripts/migrateToTopicItem';
 import { invalidateCardCache } from '../browserService';
 import type { BrowserCard } from '../types';
 import { CardTypeMarkerService } from '@/core/card-type/CardTypeMarkerService';
-import type { StorageManager } from '@/core/storage/manager';
+import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('useCardActions');
 
 export interface UseCardActionsOptions {
   loading: Ref<boolean>;
@@ -18,7 +21,7 @@ export interface UseCardActionsOptions {
   t: (key: string, fallback: string) => string;
   pushMsg: (msg: string, duration?: number) => Promise<void>;
   pushErrMsg: (msg: string, duration?: number) => Promise<void>;
-  storage: StorageManager;  // 添加 storage 依赖
+  storage: CardTypeMarkerStoragePort;  // 添加 storage 依赖
 }
 
 export function useCardActions(options: UseCardActionsOptions) {
@@ -34,7 +37,7 @@ export function useCardActions(options: UseCardActionsOptions) {
     if (!cards?.length) return;
 
     const blockIds = cards.map(c => c.blockId);
-    console.log(`[useCardActions] Marking ${blockIds.length} cards as Topic:`, blockIds);
+    logger.info(`Marking ${blockIds.length} cards as Topic:`, blockIds);
 
     try {
       // 1. 更新块属性
@@ -51,7 +54,7 @@ export function useCardActions(options: UseCardActionsOptions) {
             if (fsrsCard) {
               fsrsCard.type = 'topic' as any;
               storage.setCard(fsrsCard);
-              console.log(`[useCardActions] Updated card type in storage: ${cardId} -> topic`);
+              logger.debug(`Updated card type in storage: ${cardId} -> topic`);
             }
           }
         }
@@ -63,7 +66,7 @@ export function useCardActions(options: UseCardActionsOptions) {
       invalidateCardCache();
       await loadData();
     } catch (err: any) {
-      console.error('[useCardActions] Failed to mark cards as Topic:', err);
+      logger.error('Failed to mark cards as Topic:', err);
       await pushErrMsg(`标记失败：${err?.message || '未知错误'}`, 3000);
     }
   }
@@ -75,7 +78,7 @@ export function useCardActions(options: UseCardActionsOptions) {
     if (!cards?.length) return;
 
     const blockIds = cards.map(c => c.blockId);
-    console.log(`[useCardActions] Marking ${blockIds.length} cards as Item:`, blockIds);
+    logger.info(`Marking ${blockIds.length} cards as Item:`, blockIds);
 
     try {
       // 1. 更新块属性
@@ -92,7 +95,7 @@ export function useCardActions(options: UseCardActionsOptions) {
             if (fsrsCard) {
               fsrsCard.type = 'item' as any;
               storage.setCard(fsrsCard);
-              console.log(`[useCardActions] Updated card type in storage: ${cardId} -> item`);
+              logger.debug(`Updated card type in storage: ${cardId} -> item`);
             }
           }
         }
@@ -104,7 +107,7 @@ export function useCardActions(options: UseCardActionsOptions) {
       invalidateCardCache();
       await loadData();
     } catch (err: any) {
-      console.error('[useCardActions] Failed to mark cards as Item:', err);
+      logger.error('Failed to mark cards as Item:', err);
       await pushErrMsg(`标记失败：${err?.message || '未知错误'}`, 3000);
     }
   }
@@ -151,20 +154,20 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
     });
 
     if (!confirmed) {
-      console.log('[useCardActions] Migration cancelled by user');
+      logger.info('Migration cancelled by user');
       return;
     }
 
     loading.value = true;
 
     try {
-      console.log('[useCardActions] Starting Topic/Item migration...');
+      logger.info('Starting Topic/Item migration...');
       pushMsg('正在执行 Topic/Item 类型识别...', 3000);
 
       const result = await migrateExistingCards(true);
 
       const msg = `✅ 识别完成：${result.migrated}/${result.total} 张卡片 (Topic: ${result.topics}, Item: ${result.items}, 耗时: ${Math.round(result.duration / 1000)}s)`;
-      console.log('[useCardActions]', msg);
+      logger.info(msg);
       pushMsg(msg, 5000);
 
       if (result.errors > 0) {
@@ -174,7 +177,7 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
       invalidateCardCache();
       await refreshData(true, true);
     } catch (err: any) {
-      console.error('[useCardActions] Migration failed:', err);
+      logger.error('Migration failed:', err);
       pushErrMsg(`识别失败：${err?.message || '未知错误'}`, 3000);
     } finally {
       loading.value = false;
@@ -195,7 +198,7 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
       if (card.fsrsCardId) {
         cardIds.push(card.fsrsCardId);
       } else {
-        console.warn('[useCardActions] Card missing fsrsCardId, skipping:', card.id, card.blockId);
+        logger.warn('Card missing fsrsCardId, skipping:', card.id, card.blockId);
       }
     }
 
@@ -204,7 +207,7 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
       return;
     }
 
-    console.log(`[useCardActions] Marking ${cardIds.length} cards as Concept:`, cardIds);
+    logger.info(`Marking ${cardIds.length} cards as Concept:`, cardIds);
 
     try {
       // 使用 CardTypeMarkerService 批量设置
@@ -219,7 +222,7 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
       invalidateCardCache();
       await loadData();
     } catch (err: any) {
-      console.error('[useCardActions] Failed to mark cards as Concept:', err);
+      logger.error('Failed to mark cards as Concept:', err);
       await pushErrMsg(`标记失败：${err?.message || '未知错误'}`, 3000);
     }
   }
@@ -238,7 +241,7 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
       if (card.fsrsCardId) {
         cardIds.push(card.fsrsCardId);
       } else {
-        console.warn('[useCardActions] Card missing fsrsCardId, skipping:', card.id, card.blockId);
+        logger.warn('Card missing fsrsCardId, skipping:', card.id, card.blockId);
       }
     }
 
@@ -247,7 +250,7 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
       return;
     }
 
-    console.log(`[useCardActions] Marking ${cardIds.length} cards as Descriptor:`, cardIds);
+    logger.info(`Marking ${cardIds.length} cards as Descriptor:`, cardIds);
 
     try {
       // 使用 CardTypeMarkerService 批量设置
@@ -262,7 +265,7 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
       invalidateCardCache();
       await loadData();
     } catch (err: any) {
-      console.error('[useCardActions] Failed to mark cards as Descriptor:', err);
+      logger.error('Failed to mark cards as Descriptor:', err);
       await pushErrMsg(`标记失败：${err?.message || '未知错误'}`, 3000);
     }
   }

@@ -22,6 +22,9 @@
  */
 
 import type { IFileService } from './FileService';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('QueuePersistenceService');
 
 /**
  * 队列持久化服务接口
@@ -95,7 +98,7 @@ export class QueuePersistenceService implements IQueuePersistenceService {
    */
   async init(): Promise<void> {
     if (this.initialized) {
-      console.warn('[QueuePersistenceService] Already initialized, skipping');
+      logger.warn('Already initialized, skipping');
       return;
     }
 
@@ -107,14 +110,14 @@ export class QueuePersistenceService implements IQueuePersistenceService {
       if (data) {
         // 将加载的数据填充到缓存
         this.cache = new Map(Object.entries(data));
-        console.log(`[QueuePersistenceService] Loaded ${this.cache.size} queue(s) from storage`);
+        logger.info(`Loaded ${this.cache.size} queue(s) from storage`);
       } else {
-        console.log('[QueuePersistenceService] No existing queue data found, starting fresh');
+        logger.info('No existing queue data found, starting fresh');
       }
       
       this.initialized = true;
     } catch (error) {
-      console.error('[QueuePersistenceService] Failed to initialize:', error);
+      logger.error('Failed to initialize:', error);
       throw new QueuePersistenceError(
         'init',
         'all',
@@ -128,7 +131,7 @@ export class QueuePersistenceService implements IQueuePersistenceService {
    */
   get<T>(key: string): T | null {
     if (!this.initialized) {
-      console.warn('[QueuePersistenceService] Service not initialized, returning null');
+      logger.warn('Service not initialized, returning null');
       return null;
     }
 
@@ -159,7 +162,7 @@ export class QueuePersistenceService implements IQueuePersistenceService {
       this.debouncedSave();
     } catch (error) {
       if (error instanceof TypeError) {
-        console.error(`[QueuePersistenceService] Value for key "${key}" is not JSON-serializable:`, error);
+        logger.error(`Value for key "${key}" is not JSON-serializable:`, error);
         throw new QueuePersistenceError(
           'set',
           key,
@@ -193,7 +196,7 @@ export class QueuePersistenceService implements IQueuePersistenceService {
    */
   keys(): string[] {
     if (!this.initialized) {
-      console.warn('[QueuePersistenceService] Service not initialized, returning empty array');
+      logger.warn('Service not initialized, returning empty array');
       return [];
     }
 
@@ -235,7 +238,7 @@ export class QueuePersistenceService implements IQueuePersistenceService {
     // 设置新的计时器
     this.saveTimer = setTimeout(() => {
       this.save().catch(error => {
-        console.error('[QueuePersistenceService] Debounced save failed:', error);
+        logger.error('Debounced save failed:', error);
       });
     }, QueuePersistenceService.DEBOUNCE_DELAY);
   }
@@ -254,9 +257,9 @@ export class QueuePersistenceService implements IQueuePersistenceService {
         data
       );
       
-      console.log(`[QueuePersistenceService] Saved ${this.cache.size} queue(s) to storage`);
+      logger.info(`Saved ${this.cache.size} queue(s) to storage`);
     } catch (error) {
-      console.error('[QueuePersistenceService] Failed to save queue data:', error);
+      logger.error('Failed to save queue data:', error);
       throw new QueuePersistenceError(
         'save',
         'all',

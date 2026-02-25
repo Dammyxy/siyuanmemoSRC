@@ -12,6 +12,9 @@
 import { addRiffCards, BUILTIN_DECK_ID, getRiffCardsByBlockIDs } from '@/core/siyuan/riff';
 import type { NeuralRoamQueue } from '@/core/queue/domain/NeuralRoamQueue';
 import type { WeightedNeighbor } from '@/core/queue/neural/types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('SeedService');
 
 export class SeedService {
     private queue: NeuralRoamQueue;
@@ -34,30 +37,30 @@ export class SeedService {
      */
     async lockAsSeed(blockId: string, currentCandidates?: WeightedNeighbor[]): Promise<void> {
         try {
-            console.log(`[SeedService] Locking block as seed: ${blockId}`);
+            logger.debug(`Locking block as seed: ${blockId}`);
 
             // 1. 检查是否已是闪卡
             const existing = await getRiffCardsByBlockIDs([blockId]);
             if (!existing || existing.length === 0) {
                 // 创建 Riff 闪卡
-                console.log(`[SeedService] Creating Riff flashcard for: ${blockId}`);
+                logger.debug(`Creating Riff flashcard for: ${blockId}`);
                 await addRiffCards(BUILTIN_DECK_ID, [blockId]);
             } else {
-                console.log(`[SeedService] Block ${blockId} is already a flashcard`);
+                logger.debug(`Block ${blockId} is already a flashcard`);
             }
 
             // 2. 记录遗落块（如果有候选节点）
             if (currentCandidates && currentCandidates.length > 0) {
                 this.queue.setSeed(blockId, currentCandidates);
-                console.log(`[SeedService] Recorded ${currentCandidates.length} missed blocks`);
+                logger.debug(`Recorded ${currentCandidates.length} missed blocks`);
             }
 
             // 3. 调用队列的 lockCurrentAsSeed（会处理持久化和重新初始化）
             await this.queue.lockCurrentAsSeed(blockId);
 
-            console.log(`[SeedService] Block ${blockId} locked as seed successfully`);
+            logger.info(`Block ${blockId} locked as seed successfully`);
         } catch (error) {
-            console.error(`[SeedService] Failed to lock block as seed:`, error);
+            logger.error('Failed to lock block as seed:', error);
             throw error;
         }
     }
@@ -71,21 +74,21 @@ export class SeedService {
      */
     async startFromSeed(blockId: string): Promise<void> {
         try {
-            console.log(`[SeedService] Starting roaming from seed: ${blockId}`);
+            logger.debug(`Starting roaming from seed: ${blockId}`);
 
             // 1. 确保是闪卡
             const existing = await getRiffCardsByBlockIDs([blockId]);
             if (!existing || existing.length === 0) {
-                console.log(`[SeedService] Creating Riff flashcard for: ${blockId}`);
+                logger.debug(`Creating Riff flashcard for: ${blockId}`);
                 await addRiffCards(BUILTIN_DECK_ID, [blockId]);
             }
 
             // 2. 直接开始漫游
             await this.queue.startRoamingFromSeed(blockId);
 
-            console.log(`[SeedService] Started roaming from seed: ${blockId}`);
+            logger.info(`Started roaming from seed: ${blockId}`);
         } catch (error) {
-            console.error(`[SeedService] Failed to start from seed:`, error);
+            logger.error('Failed to start from seed:', error);
             throw error;
         }
     }
@@ -100,16 +103,16 @@ export class SeedService {
             // 1. 确保是闪卡
             const existing = await getRiffCardsByBlockIDs([blockId]);
             if (!existing || existing.length === 0) {
-                console.log(`[SeedService] Creating Riff flashcard for: ${blockId}`);
+                logger.debug(`Creating Riff flashcard for: ${blockId}`);
                 await addRiffCards(BUILTIN_DECK_ID, [blockId]);
             }
 
             // 2. 加入种子块集合
             await this.queue.addCard(blockId);
 
-            console.log(`[SeedService] Block ${blockId} added as seed`);
+            logger.info(`Block ${blockId} added as seed`);
         } catch (error) {
-            console.error(`[SeedService] Failed to add block as seed:`, error);
+            logger.error('Failed to add block as seed:', error);
             throw error;
         }
     }

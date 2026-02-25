@@ -5,6 +5,10 @@ export interface CardUpdatePort {
   batchUpdateCardsWithoutEvents(cards: FSRSCard[]): Promise<void>;
 }
 
+export interface ErrorNotificationPort {
+  notifyError(message: string): Promise<void>;
+}
+
 export interface RescheduleStoragePort {
   getCardsByBlockId(blockId: string): FSRSCard[];
   getAllCards?: (() => FSRSCard[]) | (() => Promise<FSRSCard[]>);

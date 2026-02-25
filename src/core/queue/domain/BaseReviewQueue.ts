@@ -9,10 +9,13 @@
  */
 
 import { IReviewQueue, QueueObserver, QueueType, QueueStats, QueueUIConfig, ReviewButtonConfig } from '../../../types/unified-data-source';
-import { FSRSCard, CardState } from '../../../types/card';
+import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
-import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
+import type { QueueSchedulerPort, UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import { normalizeToFSRSCard, validateQueueReturnType } from '../../../diagnostics/type-guards';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('BaseReviewQueue');
 
 /**
  * 复习队列抽象基类
@@ -47,6 +50,12 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * 队列观察者
      */
     protected observers: QueueObserver[] = [];
+
+    /**
+     * 队列初始化加载 Promise（由应用层注入）
+     */
+    private pendingInitialLoad: Promise<void> | null = null;
+    private initialLoadCompleted = false;
     
     /**
      * 构造函数
@@ -57,6 +66,35 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     constructor(manager: UnifiedDataSourceManager, type: QueueType) {
         this.manager = manager;
         this.type = type;
+    }
+
+    /**
+     * 注入初始化加载 Promise，用于保证 load() 与读写操作的时序一致
+     */
+    public setInitialLoad(loadPromise: Promise<void>): void {
+        this.pendingInitialLoad = loadPromise;
+        this.initialLoadCompleted = false;
+    }
+
+    /**
+     * 确保队列初始状态已经加载
+     */
+    protected async ensureInitialLoad(): Promise<void> {
+        if (this.initialLoadCompleted) {
+            return;
+        }
+
+        if (!this.pendingInitialLoad) {
+            this.initialLoadCompleted = true;
+            return;
+        }
+
+        try {
+            await this.pendingInitialLoad;
+        } finally {
+            this.pendingInitialLoad = null;
+            this.initialLoadCompleted = true;
+        }
     }
     
     /**
@@ -93,6 +131,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @see 需求 5.1, 5.2, 5.3, 6.1, 6.2
      */
     public async getAllCards(): Promise<FSRSCard[]> {
+        await this.ensureInitialLoad();
         const rawCards = await this.getCards();
         const cards = normalizeToFSRSCard(rawCards as any[]);
         this.cards = [...cards];
@@ -171,15 +210,17 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @throws Error 如果 SchedulerRouter 不可用
      * @see 需求 8.3
      */
-    protected getSchedulerRouter(): any {
-        const router = (this.manager as any).advancedRouter;
-        const plugin = router?.plugin;
-        const schedulerRouter = plugin?.getContext?.()?.getScheduler?.() ?? plugin?.schedulerRouter;
-        
-        if (!schedulerRouter) {
+    protected getSchedulerRouter(): QueueSchedulerPort {
+        const resolver = this.manager.getSchedulerRouter;
+        if (typeof resolver !== 'function') {
+            throw new Error(`[${this.type}] SchedulerRouter provider not available on manager`);
+        }
+
+        const schedulerRouter = resolver.call(this.manager);
+        if (!schedulerRouter || typeof schedulerRouter.route !== 'function') {
             throw new Error(`[${this.type}] SchedulerRouter not available - plugin initialization failed`);
         }
-        
+
         return schedulerRouter;
     }
     
@@ -193,16 +234,15 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     protected getDayStartHour(): number {
         try {
-            const router = (this.manager as any).advancedRouter;
-            const plugin = router?.plugin;
-            const settingsService = plugin?.getContext?.()?.getSettingsService?.();
-            
-            if (settingsService) {
-                const settings = settingsService.getSettings();
-                return settings?.queues?.dayStartHour ?? 4;
+            const resolver = this.manager.getDayStartHour;
+            if (typeof resolver === 'function') {
+                const value = resolver.call(this.manager);
+                if (Number.isFinite(value)) {
+                    return value;
+                }
             }
         } catch (error) {
-            console.warn(`[${this.type}] Failed to get dayStartHour from settings:`, error);
+            logger.warn(`[${this.type}] Failed to get dayStartHour from settings:`, error);
         }
         
         return 4; // 默认值
@@ -234,7 +274,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         
         // 验证 card.due 是否有效
         if (!card.due || isNaN(card.due) || card.due <= 0) {
-            console.error(`[${this.type}] Invalid due date for card ${card.id}:`, {
+            logger.error(`[${this.type}] Invalid due date for card ${card.id}:`, {
                 due: card.due,
                 cardState: card.state,
                 reps: card.reps,
@@ -253,7 +293,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         
         const shouldRemove = dueAfterDayEnd || hasMinimumInterval;
         
-        console.log(`[${this.type}] shouldRemoveFromQueue:`, {
+        logger.debug(`[${this.type}] shouldRemoveFromQueue:`, {
             cardId: card.id,
             due: new Date(card.due).toISOString(),
             dayEnd: new Date(dayEnd).toISOString(),
@@ -298,10 +338,9 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * 处理流程：
      * 1. 获取卡片
      * 2. 调用 SchedulerRouter.route() 更新卡片（应用 FSRS/SM-15/A-Factor 等算法）
-     * 3. 保存更新后的卡片
+     * 3. 同步更新后的卡片状态（不重复持久化）
      * 4. 调用 shouldRemoveFromQueue() 判断是否移除
      * 5. 移除或保留卡片
-     * 6. 通知观察者
      * 
      * 子类使用方式：
      * - 标准队列：直接调用此方法
@@ -318,7 +357,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             // 1. 获取卡片
             const card = await this.manager.getCard(cardId);
             
-            console.log(`[${this.type}] handleReviewWithScheduler - Before scheduling:`, {
+            logger.debug(`[${this.type}] handleReviewWithScheduler - Before scheduling:`, {
                 cardId: card.id,
                 rating,
                 due: card.due,
@@ -330,7 +369,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             const schedulerRouter = this.getSchedulerRouter();
             const updatedCard = await schedulerRouter.route(card, rating);
             
-            console.log(`[${this.type}] handleReviewWithScheduler - After scheduling:`, {
+            logger.debug(`[${this.type}] handleReviewWithScheduler - After scheduling:`, {
                 cardId: updatedCard.id,
                 due: updatedCard.due,
                 state: updatedCard.state,
@@ -339,7 +378,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             
             // 验证调度器返回的卡片数据
             if (!updatedCard.due || isNaN(updatedCard.due) || updatedCard.due <= 0) {
-                console.error(`[${this.type}] Scheduler returned invalid due date:`, {
+                logger.error(`[${this.type}] Scheduler returned invalid due date:`, {
                     cardId: updatedCard.id,
                     due: updatedCard.due,
                     rating,
@@ -347,8 +386,13 @@ export abstract class BaseReviewQueue implements IReviewQueue {
                 throw new Error(`Scheduler returned invalid due date for card ${cardId}: ${updatedCard.due}`);
             }
             
-            // 3. 保存更新后的卡片
-            await this.manager.updateCard(updatedCard);
+            // 3. 调度器已完成持久化，这里只做队列缓存失效 + 事件通知
+            if (typeof this.manager.onCardUpdatedFromScheduler === 'function') {
+                await this.manager.onCardUpdatedFromScheduler(updatedCard);
+            } else {
+                // 向后兼容：旧 manager 仍走 updateCard 路径
+                await this.manager.updateCard(updatedCard);
+            }
             
             // 4. 判断是否应该从队列移除
             const shouldRemove = this.shouldRemoveFromQueue(updatedCard);
@@ -356,20 +400,13 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             // 5. 移除或保留卡片
             if (shouldRemove) {
                 await this.removeCard(cardId);
-                console.log(`[${this.type}] Card ${cardId} reviewed with rating ${rating}, removed from queue`);
+                logger.info(`[${this.type}] Card ${cardId} reviewed with rating ${rating}, removed from queue`);
             } else {
-                console.log(`[${this.type}] Card ${cardId} reviewed with rating ${rating}, kept in queue`);
+                logger.info(`[${this.type}] Card ${cardId} reviewed with rating ${rating}, kept in queue`);
             }
             
-            // 6. 异步通知观察者（不阻塞评分流程）
-            // 🚀 性能优化：将观察者通知改为异步，减少 50-100ms 延迟
-            void this.manager.notifyObservers({
-                type: 'card-updated',
-                cardIds: [cardId],
-                timestamp: Date.now(),
-            });
         } catch (error) {
-            console.error(`[${this.type}] Failed to handle review:`, error);
+            logger.error(`[${this.type}] Failed to handle review:`, error);
             throw error;
         }
     }
@@ -390,7 +427,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             
             const index = this.cards.findIndex(c => c.id === cardId || c.blockId === cardId);
             if (index === -1) {
-                console.warn(`[${this.type}] Card ${cardId} not found in queue`);
+                logger.warn(`[${this.type}] Card ${cardId} not found in queue`);
                 return;
             }
             
@@ -398,10 +435,10 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             this.cards.splice(index, 1);
             this.cards.push(card);
             
-            console.log(`[${this.type}] Card ${cardId} skipped (moved to end)`);
+            logger.info(`[${this.type}] Card ${cardId} skipped (moved to end)`);
             this.notifyObservers();
         } catch (error) {
-            console.error(`[${this.type}] Failed to skip card:`, error);
+            logger.error(`[${this.type}] Failed to skip card:`, error);
             throw error;
         }
     }
@@ -434,7 +471,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
                 reviewed: 0, // 默认不跟踪已复习数量
             };
         } catch (error) {
-            console.error(`[${this.type}] Failed to get stats:`, error);
+            logger.error(`[${this.type}] Failed to get stats:`, error);
             throw error;
         }
     }
@@ -512,7 +549,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     public async getSize(): Promise<number> {
         const cards = await this.getCards();
-        console.log(`[${this.name}] getSize: returning ${cards.length} cards`);
+        logger.debug(`[${this.name}] getSize: returning ${cards.length} cards`);
         return cards.length;
     }
 
@@ -570,6 +607,38 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     public notifyObservers(): void {
         this.observers.forEach(observer => observer.onQueueUpdate(this));
     }
+
+    /**
+     * 合并多个卡片数组并按 card.id 去重（后出现的覆盖前出现的）
+     */
+    protected mergeUniqueCards(...groups: FSRSCard[][]): FSRSCard[] {
+        const cardMap = new Map<string, FSRSCard>();
+        for (const group of groups) {
+            for (const card of group) {
+                cardMap.set(card.id, card);
+            }
+        }
+        return Array.from(cardMap.values());
+    }
+
+    /**
+     * 按 due -> priority -> id 稳定排序
+     */
+    protected sortByDuePriority(cards: FSRSCard[]): FSRSCard[] {
+        return cards.sort((a, b) => {
+            const dueDiff = a.due - b.due;
+            if (dueDiff !== 0) {
+                return dueDiff;
+            }
+
+            const priorityDiff = (a.priority ?? 50) - (b.priority ?? 50);
+            if (priorityDiff !== 0) {
+                return priorityDiff;
+            }
+
+            return a.id.localeCompare(b.id);
+        });
+    }
     
     /**
      * 重新排序队列
@@ -586,7 +655,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     public async reorder(orderedCards: FSRSCard[]): Promise<boolean> {
         try {
-            console.log(`[${this.type}] Reordering ${orderedCards.length} cards`);
+            logger.info(`[${this.type}] Reordering ${orderedCards.length} cards`);
             
             // 将排序顺序存储在内存中
             this.customOrder = orderedCards.map(card => card.id);
@@ -598,10 +667,10 @@ export abstract class BaseReviewQueue implements IReviewQueue {
                 timestamp: Date.now()
             });
             
-            console.log(`[${this.type}] Reorder completed successfully (in-memory)`);
+            logger.info(`[${this.type}] Reorder completed successfully (in-memory)`);
             return true;
         } catch (error) {
-            console.error(`[${this.type}] Failed to reorder:`, error);
+            logger.error(`[${this.type}] Failed to reorder:`, error);
             return false;
         }
     }
@@ -613,7 +682,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     public clearCustomOrder(): void {
         this.customOrder = null;
-        console.log(`[${this.type}] Custom order cleared`);
+        logger.info(`[${this.type}] Custom order cleared`);
     }
     
     /**
@@ -697,7 +766,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     public clearTemporaryBlacklist(): void {
         this.temporaryBlacklist.clear();
-        console.log(`[${this.constructor.name}] Temporary blacklist cleared`);
+        logger.info(`[${this.constructor.name}] Temporary blacklist cleared`);
     }
     
     /**
@@ -734,12 +803,12 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             // 6. 更新自定义排序
             this.customOrder = this.cards.map(c => c.id);
             
-            console.log(`[${this.type}] Card ${cardId} inserted at position ${position}`);
+            logger.info(`[${this.type}] Card ${cardId} inserted at position ${position}`);
             
             // 7. 通知观察者
             this.notifyObservers();
         } catch (error) {
-            console.error(`[${this.type}] Failed to insert card:`, error);
+            logger.error(`[${this.type}] Failed to insert card:`, error);
             throw error;
         }
     }

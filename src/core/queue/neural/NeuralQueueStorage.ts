@@ -8,6 +8,9 @@
 
 import { NeuralQueueConfig, MissedBlock, NavigationPathNode } from './types.ts';
 import { NeuralQueueConfigManager } from './NeuralQueueConfig.ts';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('NeuralQueueStorage');
 
 /**
  * 会话状态接口
@@ -44,7 +47,7 @@ export class NeuralQueueStorage {
       const json = JSON.stringify(config);
       localStorage.setItem(this.CONFIG_KEY, json);
     } catch (error) {
-      console.error('[NeuralQueueStorage] Failed to save config:', error);
+      logger.error('Failed to save config:', error);
     }
   }
 
@@ -66,14 +69,14 @@ export class NeuralQueueStorage {
       // 验证配置
       const validation = NeuralQueueConfigManager.validate(config);
       if (!validation.valid) {
-        console.warn('[NeuralQueueStorage] Invalid config in storage, using default:', validation.errors);
+        logger.warn('Invalid config in storage, using default:', validation.errors);
         return NeuralQueueConfigManager.getDefault();
       }
 
       // 合并配置（填充缺失项）
       return NeuralQueueConfigManager.merge(config);
     } catch (error) {
-      console.error('[NeuralQueueStorage] Failed to load config:', error);
+      logger.error('Failed to load config:', error);
       return NeuralQueueConfigManager.getDefault();
     }
   }
@@ -89,7 +92,7 @@ export class NeuralQueueStorage {
       const json = JSON.stringify(state);
       localStorage.setItem(this.SESSION_KEY, json);
     } catch (error) {
-      console.error('[NeuralQueueStorage] Failed to save session state:', error);
+      logger.error('Failed to save session state:', error);
     }
   }
 
@@ -119,7 +122,7 @@ export class NeuralQueueStorage {
 
       return state;
     } catch (error) {
-      console.error('[NeuralQueueStorage] Failed to load session state:', error);
+      logger.error('Failed to load session state:', error);
       return null;
     }
   }
@@ -133,7 +136,7 @@ export class NeuralQueueStorage {
     try {
       localStorage.removeItem(this.SESSION_KEY);
     } catch (error) {
-      console.error('[NeuralQueueStorage] Failed to clear session state:', error);
+      logger.error('Failed to clear session state:', error);
     }
   }
 
@@ -145,7 +148,7 @@ export class NeuralQueueStorage {
     try {
       localStorage.removeItem(this.CONFIG_KEY);
     } catch (error) {
-      console.error('[NeuralQueueStorage] Failed to clear config:', error);
+      logger.error('Failed to clear config:', error);
     }
   }
 
@@ -162,7 +165,7 @@ export class NeuralQueueStorage {
    */
   private static validateSeedArray(seeds: any): string[] {
     if (!Array.isArray(seeds)) {
-      console.warn('[NeuralQueueStorage] Invalid seeds format (not an array)');
+      logger.warn('Invalid seeds format (not an array)');
       return [];
     }
 
@@ -170,7 +173,7 @@ export class NeuralQueueStorage {
     return seeds.filter((id): id is string => {
       const isValid = id && typeof id === 'string' && id.length > 0;
       if (!isValid && id) {
-        console.warn(`[NeuralQueueStorage] Invalid seed ID: ${id}`);
+        logger.warn(`Invalid seed ID: ${id}`);
       }
       return isValid;
     });
@@ -189,13 +192,13 @@ export class NeuralQueueStorage {
     for (const [seedId, missedList] of Object.entries(missedBlocksObj)) {
       // 验证种子 ID
       if (!seedId || typeof seedId !== 'string') {
-        console.warn('[NeuralQueueStorage] Invalid seed ID in missedBlocks, skipping');
+        logger.warn('Invalid seed ID in missedBlocks, skipping');
         continue;
       }
 
       // 验证遗落块列表
       if (!Array.isArray(missedList)) {
-        console.warn(`[NeuralQueueStorage] Invalid missed list for seed ${seedId}, skipping`);
+        logger.warn(`Invalid missed list for seed ${seedId}, skipping`);
         continue;
       }
 
@@ -210,7 +213,7 @@ export class NeuralQueueStorage {
           typeof block.missedAt === 'number';
 
         if (!isValid) {
-          console.warn(`[NeuralQueueStorage] Invalid missed block for seed ${seedId}, skipping`);
+          logger.warn(`Invalid missed block for seed ${seedId}, skipping`);
         }
 
         return isValid;
@@ -295,7 +298,7 @@ export class NeuralQueueStorage {
       // 🔧 验证和清理种子块数组
       const validSeedNodes = this.validateSeedArray(seedNodes);
       if (validSeedNodes.length !== seedNodes.length) {
-        console.warn(`[NeuralQueueStorage] Filtered ${seedNodes.length - validSeedNodes.length} invalid seed IDs`);
+        logger.warn(`Filtered ${seedNodes.length - validSeedNodes.length} invalid seed IDs`);
       }
 
       // 加载现有会话状态
@@ -317,7 +320,7 @@ export class NeuralQueueStorage {
       const missedCount = Object.values(missedBlocksObj).reduce((sum, arr) => sum + arr.length, 0);
       const cleanedCount = Object.values(cleanedMissedBlocks).reduce((sum, arr) => sum + arr.length, 0);
       if (missedCount !== cleanedCount) {
-        console.warn(`[NeuralQueueStorage] Cleaned ${missedCount - cleanedCount} invalid missed blocks`);
+        logger.warn(`Cleaned ${missedCount - cleanedCount} invalid missed blocks`);
       }
 
       // 合并 Orbit 状态
@@ -330,9 +333,9 @@ export class NeuralQueueStorage {
 
       // 保存
       this.saveSessionState(updatedState);
-      console.log('[NeuralQueueStorage] Saved Orbit state (validated and cleaned)');
+      logger.info('Saved Orbit state (validated and cleaned)');
     } catch (error) {
-      console.error('[NeuralQueueStorage] Failed to save Orbit state:', error);
+      logger.error('Failed to save Orbit state:', error);
     }
   }
 
@@ -355,14 +358,14 @@ export class NeuralQueueStorage {
 
       // 验证 Orbit 数据
       if (!this.validateOrbitState(state)) {
-        console.warn('[NeuralQueueStorage] Invalid Orbit state structure');
+        logger.warn('Invalid Orbit state structure');
         return null;
       }
 
       // 🔧 验证和清理种子块数组
       const validSeedNodes = this.validateSeedArray(state.seedNodes || []);
       if (validSeedNodes.length !== (state.seedNodes || []).length) {
-        console.warn(`[NeuralQueueStorage] Filtered ${(state.seedNodes || []).length - validSeedNodes.length} invalid seed IDs on load`);
+        logger.warn(`Filtered ${(state.seedNodes || []).length - validSeedNodes.length} invalid seed IDs on load`);
       }
 
       // 🔧 将普通对象转换为 Map，同时清理无效的遗落块
@@ -376,7 +379,7 @@ export class NeuralQueueStorage {
           if (validSeedNodes.includes(key)) {
             missedBlocksMap.set(key, missedList);
           } else {
-            console.warn(`[NeuralQueueStorage] Skipping missed blocks for invalid seed: ${key}`);
+            logger.warn(`Skipping missed blocks for invalid seed: ${key}`);
           }
         }
       }
@@ -387,7 +390,7 @@ export class NeuralQueueStorage {
         navigationPath: state.navigationPath || [],
       };
     } catch (error) {
-      console.error('[NeuralQueueStorage] Failed to load Orbit state:', error);
+      logger.error('Failed to load Orbit state:', error);
       return null;
     }
   }

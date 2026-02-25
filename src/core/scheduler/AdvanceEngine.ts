@@ -11,25 +11,22 @@
 
 import type { FSRSCard } from '@/types/card';
 import type { AdvanceConfig, AdvanceResult } from '@/types/reschedule';
-import type { RescheduleLog } from '@/types/scheduler';
-import { BatchProcessor } from './BatchProcessor';
 import type { CardUpdatePort, RescheduleStoragePort } from './ports';
+import { BaseRescheduleEngine } from './BaseRescheduleEngine';
 
 /**
  * AdvanceEngine - 实现 SuperMemo Advance 算法
  * 
  * 使用 DDD 架构：
- * - 依赖 UnifiedStorageManager 进行数据查询
- * - 依赖 CardApplicationService 进行数据更新
+ * - 依赖 RescheduleStoragePort 进行数据查询
+ * - 依赖 CardUpdatePort 进行数据更新
  */
-export class AdvanceEngine {
-    private batchProcessor: BatchProcessor;
-    
+export class AdvanceEngine extends BaseRescheduleEngine {
     constructor(
-        private storage: RescheduleStoragePort,
-        private cardUpdater: CardUpdatePort
+        storage: RescheduleStoragePort,
+        cardUpdater: CardUpdatePort
     ) {
-        this.batchProcessor = new BatchProcessor();
+        super(storage, cardUpdater);
     }
 
     /**
@@ -65,19 +62,12 @@ export class AdvanceEngine {
             }
         }
 
-        // 批量更新（使用优化的批处理器）
-        const batchResult = await this.batchProcessor.processBatchWithRetry(
+        // 批量更新（共享基类流程）
+        const batchResult = await this.persistInBatches(
             cardsToUpdate,
-            async (batch) => {
-                await this.updateBatch(batch, source);
-                return batch;
-            },
-            {
-                batchSize: 200,
-                parallelBatches: 3,
-                onProgress
-            },
-            2 // 最大重试 2 次
+            'advance',
+            source,
+            onProgress
         );
 
         // 构建结果
@@ -171,74 +161,5 @@ export class AdvanceEngine {
             isOverdue: false,
             isUnchanged: false
         };
-    }
-
-    /**
-     * 批量更新卡片到存储（单个批次）
-     * @param cards 要更新的卡片列表
-     * @param source 操作来源
-     */
-    private async updateBatch(
-        cards: FSRSCard[],
-        source: string
-    ): Promise<void> {
-        if (cards.length === 0) {
-            return;
-        }
-
-        // ✅ 通过 CardApplicationService 批量更新
-        await this.cardUpdater.batchUpdateCardsWithoutEvents(cards);
-
-        // 记录操作日志
-        await this.logOperation(cards, source);
-    }
-    
-    /**
-     * 批量更新卡片到存储（已废弃，使用 updateBatch 代替）
-     * @deprecated 使用 updateBatch 代替
-     */
-    private async batchUpdate(
-        cards: FSRSCard[],
-        source: string
-    ): Promise<void> {
-        return this.updateBatch(cards, source);
-    }
-
-    /**
-     * 记录操作日志
-     * @param cards 更新的卡片列表
-     * @param source 操作来源
-     */
-    private async logOperation(
-        cards: FSRSCard[],
-        source: string
-    ): Promise<void> {
-        // 选择最多 3 个样本卡片
-        const sampleSize = Math.min(3, cards.length);
-        const sampleCards = cards.slice(0, sampleSize);
-
-        const log: RescheduleLog = {
-            ts: Date.now(),
-            action: 'advance',
-            source: source,
-            targets: cards.map(c => c.id),
-            result: {
-                updated: cards.length,
-                skipped: 0
-            },
-            sample: sampleCards.map(card => {
-                const history = card.rescheduleHistory ?? [];
-                const lastEntry = history[history.length - 1];
-                return {
-                    cardId: card.id,
-                    blockId: card.blockId,
-                    oldDue: lastEntry?.oldDue ? new Date(lastEntry.oldDue).toISOString() : undefined,
-                    newDue: new Date(card.due).toISOString()
-                };
-            })
-        };
-
-        // TODO: 将 addRescheduleLog 迁移到应用服务层
-        await this.storage.addRescheduleLog?.(log);
     }
 }

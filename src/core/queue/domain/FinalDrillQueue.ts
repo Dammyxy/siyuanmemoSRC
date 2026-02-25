@@ -20,8 +20,12 @@ import { QueueType } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
-import type { IQueuePersistenceService } from '../../../infrastructure/services/QueuePersistenceService';
+import type { QueuePersistencePort } from './ports';
+import { loadQueueState, saveQueueState } from './queuePersistence';
 import { resolveCardId } from '../../../diagnostics/type-guards';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('FinalDrillQueue');
 
 /**
  * 最终训练条目接口
@@ -86,7 +90,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
     /**
      * 队列持久化服务
      */
-    private readonly queuePersistence: IQueuePersistenceService;
+    private readonly queuePersistence: QueuePersistencePort;
     
     /**
      * 构造函数
@@ -94,7 +98,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
      * @param manager 统一数据源管理器实例
      * @param queuePersistence 队列持久化服务（依赖注入）
      */
-    constructor(manager: UnifiedDataSourceManager, queuePersistence: IQueuePersistenceService) {
+    constructor(manager: UnifiedDataSourceManager, queuePersistence: QueuePersistencePort) {
         super(manager, QueueType.FinalDrill);
         
         this.queuePersistence = queuePersistence;
@@ -105,7 +109,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
         
         // 启动时自动清理过期的自动失败卡片
         this.cleanupExpiredAutoFailed().catch(error => {
-            console.error('[SiYuanMemo][FinalDrillQueue] Failed to cleanup expired auto-failed cards on startup:', error);
+            logger.error('Failed to cleanup expired auto-failed cards on startup:', error);
         });
     }
     
@@ -118,22 +122,24 @@ export class FinalDrillQueue extends BaseReviewQueue {
      * @see 需求 4.2, 4.5, 13.1, 13.3
      */
     async load(): Promise<void> {
-        try {
-            const data = this.queuePersistence.get<FinalDrillEntry[]>(this.STORAGE_KEY);
-            
-            if (data && Array.isArray(data)) {
-                this.entries = new Map();
-                for (const entry of data) {
-                    this.entries.set(entry.cardId, entry);
-                }
-                console.log(`[FinalDrillQueue] Loaded ${this.entries.size} entries`);
-            } else {
-                this.entries = new Map();
-                console.log('[FinalDrillQueue] No saved data found, starting with empty queue');
-            }
-        } catch (error) {
-            console.error('[FinalDrillQueue] Failed to load state:', error);
-            this.entries = new Map();
+        const { value: data, fromStorage } = loadQueueState<FinalDrillEntry[]>({
+            persistence: this.queuePersistence,
+            key: this.STORAGE_KEY,
+            fallback: [],
+            validate: (candidate): candidate is FinalDrillEntry[] => Array.isArray(candidate),
+            logger,
+            context: 'FinalDrillQueue',
+        });
+
+        this.entries = new Map();
+        for (const entry of data) {
+            this.entries.set(entry.cardId, entry);
+        }
+
+        if (fromStorage) {
+            logger.info(`Loaded ${this.entries.size} entries`);
+        } else {
+            logger.info('No saved data found, starting with empty queue');
         }
     }
     
@@ -146,16 +152,15 @@ export class FinalDrillQueue extends BaseReviewQueue {
      * @see 需求 4.2, 4.5, 4.6, 13.1
      */
     async save(): Promise<void> {
-        try {
-            const data = Array.from(this.entries.values());
-            
-            await this.queuePersistence.set(this.STORAGE_KEY, data);
-            
-            console.log(`[FinalDrillQueue] Saved ${data.length} entries`);
-        } catch (error) {
-            console.error('[FinalDrillQueue] Failed to save state:', error);
-            throw error;
-        }
+        const data = Array.from(this.entries.values());
+        await saveQueueState({
+            persistence: this.queuePersistence,
+            key: this.STORAGE_KEY,
+            value: data,
+            logger,
+            context: 'FinalDrillQueue',
+        });
+        logger.info(`Saved ${data.length} entries`);
     }
     
     /**
@@ -190,12 +195,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
      */
     public async getCards(): Promise<FSRSCard[]> {
         try {
-            // 🆕 等待持久化数据加载完成（如果还未加载）
-            if ((this as any)._loadPromise) {
-                await (this as any)._loadPromise;
-                delete (this as any)._loadPromise;  // 加载完成后删除 Promise
-                console.log('[SiYuanMemo][FinalDrillQueue] Loaded persisted data');
-            }
+            await this.ensureInitialLoad();
             
             // 清理过期的自动失败卡片
             await this.cleanupExpiredAutoFailed();
@@ -211,7 +211,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
                     cards.push(card);
                 } catch (error) {
                     // 如果卡片不存在，标记为待移除
-                    console.warn(`[SiYuanMemo][FinalDrillQueue] Card ${entry.cardId} not found, removing from queue`);
+                    logger.warn(`Card ${entry.cardId} not found, removing from queue`);
                     cardsToRemove.push(entry.cardId);
                 }
             }
@@ -230,12 +230,12 @@ export class FinalDrillQueue extends BaseReviewQueue {
             // 这样可以确保每次复习前都重新洗牌，避免总是复习同一张卡片
             if (cards.length > 0) {
                 this.applyFlipElement(cards);
-                console.log(`[SiYuanMemo][FinalDrillQueue] Applied FlipElement algorithm to ${cards.length} cards`);
+                logger.debug(`Applied FlipElement algorithm to ${cards.length} cards`);
             }
             
             return cards;
         } catch (error) {
-            console.error('[SiYuanMemo][FinalDrillQueue] Failed to get cards:', error);
+            logger.error('Failed to get cards:', error);
             throw error;
         }
     }
@@ -254,6 +254,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
      */
     public async addCard(card: FSRSCard | QueueItem | string, source: 'manual' | 'auto-failed' = 'manual'): Promise<void> {
         try {
+            await this.ensureInitialLoad();
             const cardId = resolveCardId(card);
             
             // 检查是否已存在
@@ -263,13 +264,13 @@ export class FinalDrillQueue extends BaseReviewQueue {
                 // 如果已存在
                 if (existing.source === 'manual') {
                     // 手动添加的卡片不覆盖
-                    console.log(`[SiYuanMemo][FinalDrillQueue] Card ${cardId} already exists as manual, skipping`);
+                    logger.debug(`Card ${cardId} already exists as manual, skipping`);
                     return;
                 }
                 
                 if (existing.source === 'auto-failed' && source === 'auto-failed') {
                     // 🆕 自动失败的卡片重复添加，不更新时间戳（保留最早的失败时间）
-                    console.log(`[SiYuanMemo][FinalDrillQueue] Card ${cardId} already exists as auto-failed, keeping original timestamp`);
+                    logger.debug(`Card ${cardId} already exists as auto-failed, keeping original timestamp`);
                     return;
                 }
                 
@@ -293,9 +294,9 @@ export class FinalDrillQueue extends BaseReviewQueue {
                 timestamp: Date.now()
             });
             
-            console.log(`[SiYuanMemo][FinalDrillQueue] Card ${cardId} added with source ${source}`);
+            logger.info(`Card ${cardId} added with source ${source}`);
         } catch (error) {
-            console.error('[SiYuanMemo][FinalDrillQueue] Failed to add card:', error);
+            logger.error('Failed to add card:', error);
             throw error;
         }
     }
@@ -308,11 +309,12 @@ export class FinalDrillQueue extends BaseReviewQueue {
      */
     public async removeCard(cardIdOrBlockId: string): Promise<void> {
         try {
+            await this.ensureInitialLoad();
             this.entries.delete(cardIdOrBlockId);
             await this.save();
-            console.log(`[SiYuanMemo][FinalDrillQueue] Card ${cardIdOrBlockId} removed`);
+            logger.info(`Card ${cardIdOrBlockId} removed`);
         } catch (error) {
-            console.error('[SiYuanMemo][FinalDrillQueue] Failed to remove card:', error);
+            logger.error('Failed to remove card:', error);
             throw error;
         }
     }
@@ -331,18 +333,19 @@ export class FinalDrillQueue extends BaseReviewQueue {
      */
     public async handleReview(cardId: string, rating: number): Promise<void> {
         try {
+            await this.ensureInitialLoad();
             // 注意：评分不计入调度算法
             // 不更新卡片的到期日期或其他调度数据
             
             if (rating === 4) {
                 // 评分 4：从队列移除
                 await this.removeCard(cardId);
-                console.log(`[SiYuanMemo][FinalDrillQueue] Card ${cardId} reviewed with rating 4, removed from queue`);
+                logger.info(`Card ${cardId} reviewed with rating 4, removed from queue`);
             } else {
                 // 评分 1/2/3：将卡片移到队列后面
                 // 这样下次 FlipElement 可以选中它，避免总是复习同一张卡片
                 await this.moveCardToBack(cardId);
-                console.log(`[SiYuanMemo][FinalDrillQueue] Card ${cardId} reviewed with rating ${rating}, moved to back`);
+                logger.info(`Card ${cardId} reviewed with rating ${rating}, moved to back`);
             }
             
             // 通知观察者队列已变化
@@ -352,7 +355,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
                 timestamp: Date.now()
             });
         } catch (error) {
-            console.error('[SiYuanMemo][FinalDrillQueue] Failed to handle review:', error);
+            logger.error('Failed to handle review:', error);
             throw error;
         }
     }
@@ -395,7 +398,8 @@ export class FinalDrillQueue extends BaseReviewQueue {
      */
     public async reorder(orderedCards: FSRSCard[]): Promise<boolean> {
         try {
-            console.log(`[SiYuanMemo][FinalDrillQueue] Reordering ${orderedCards.length} cards`);
+            await this.ensureInitialLoad();
+            logger.info(`Reordering ${orderedCards.length} cards`);
             
             // 创建新的 Map 以保持顺序
             const newEntries = new Map<string, FinalDrillEntry>();
@@ -421,10 +425,10 @@ export class FinalDrillQueue extends BaseReviewQueue {
             // 持久化新顺序
             await this.save();
             
-            console.log(`[SiYuanMemo][FinalDrillQueue] Reorder completed successfully`);
+            logger.info('Reorder completed successfully');
             return true;
         } catch (error) {
-            console.error('[SiYuanMemo][FinalDrillQueue] Failed to reorder:', error);
+            logger.error('Failed to reorder:', error);
             return false;
         }
     }
@@ -446,7 +450,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
     private async moveCardToBack(cardId: string): Promise<void> {
         const entry = this.entries.get(cardId);
         if (!entry) {
-            console.warn(`[SiYuanMemo][FinalDrillQueue] Card ${cardId} not found in queue`);
+            logger.warn(`Card ${cardId} not found in queue`);
             return;
         }
         
@@ -459,7 +463,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
         // 持久化
         await this.save();
         
-        console.log(`[SiYuanMemo][FinalDrillQueue] Card ${cardId} moved to back of queue`);
+        logger.debug(`Card ${cardId} moved to back of queue`);
     }
     
     /**
@@ -518,7 +522,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
         // 插入到新位置
         cards.splice(adjustedInsertPos, 0, card);
         
-        console.log(`[SiYuanMemo][FinalDrillQueue] FlipElement: picked pos ${pickPos + 1}, inserted at pos ${adjustedInsertPos + 1}, card ${card.id}`);
+        logger.debug(`FlipElement: picked pos ${pickPos + 1}, inserted at pos ${adjustedInsertPos + 1}, card ${card.id}`);
     }
     
     /**
@@ -544,10 +548,10 @@ export class FinalDrillQueue extends BaseReviewQueue {
             
             if (cleanedCount > 0) {
                 await this.save();
-                console.log(`[SiYuanMemo][FinalDrillQueue] Cleaned up ${cleanedCount} expired auto-failed cards`);
+                logger.info(`Cleaned up ${cleanedCount} expired auto-failed cards`);
             }
         } catch (error) {
-            console.error('[SiYuanMemo][FinalDrillQueue] Failed to cleanup expired auto-failed cards:', error);
+            logger.error('Failed to cleanup expired auto-failed cards:', error);
             throw error;
         }
     }
@@ -561,7 +565,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
      * @deprecated 使用 getAllCards() 代替
      */
     public getAllItems(): any[] {
-        console.warn('[SiYuanMemo][FinalDrillQueue] getAllItems() is deprecated, use getAllCards() instead');
+        logger.warn('getAllItems() is deprecated, use getAllCards() instead');
         // 返回当前缓存的卡片
         return this.cards;
     }

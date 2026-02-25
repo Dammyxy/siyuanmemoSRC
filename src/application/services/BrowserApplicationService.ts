@@ -1,4 +1,4 @@
-import type { StorageManager } from '@/core/storage/manager';
+import type { BrowserCardStoragePort } from '@/core/storage/ports';
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
@@ -48,7 +48,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   private static readonly QUEUE_COUNTS_CACHE_TTL_MS = 150;
 
   constructor(
-    storageManager: StorageManager,
+    storageManager: BrowserCardStoragePort,
     cardScheduleService: CardScheduleService,
     cardFilterService: CardFilterService,
     cardSortService: CardSortService,

@@ -14,9 +14,12 @@
  * @see .kiro/specs/ddd-refactoring/ui-components-ddd-complete.md
  */
 
-import type { StorageManager } from '@/core/storage/manager';
+import type { CardReadPort, CardWritePort } from '@/core/storage/ports';
 import type { SchedulerRouter } from '@/core/scheduler';
 import type { FSRSCard, Rating } from '@/types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('ReviewApplicationService');
 
 /**
  * 重新调度选项
@@ -64,7 +67,7 @@ export class ReviewApplicationService {
    * @param schedulerRouter - 调度器路由
    */
   constructor(
-    private readonly storageManager: StorageManager,
+    private readonly storageManager: CardReadPort & CardWritePort,
     private readonly schedulerRouter: SchedulerRouter
   ) {}
   
@@ -108,18 +111,18 @@ export class ReviewApplicationService {
     // 2. 根据模式处理
     if (options.mode === 'rating' && options.rating) {
       // 评分模式：先执行复习，再修改日期
-      updatedCard = this.schedulerRouter.route(card, options.rating);
+      updatedCard = await this.schedulerRouter.route(card, options.rating);
       updatedCard.due = options.dueTimestamp;
       updatedCard.updatedAt = Date.now();
       
-      console.log('[SiYuanMemo][ReviewService] Schedule with rating:', options.rating, 'to:', options.dueTimestamp);
+      logger.info('Schedule with rating:', { rating: options.rating, dueTimestamp: options.dueTimestamp });
     } else {
       // 直接模式：仅修改日期
       updatedCard = { ...card };
       updatedCard.due = options.dueTimestamp;
       updatedCard.updatedAt = Date.now();
       
-      console.log('[SiYuanMemo][ReviewService] Schedule direct to:', options.dueTimestamp);
+      logger.info('Schedule direct to:', options.dueTimestamp);
     }
     
     // 3. 保存卡片
@@ -144,7 +147,7 @@ export class ReviewApplicationService {
         const updatedCard = await this.rescheduleCard(cardId, options);
         updatedCards.push(updatedCard);
       } catch (error) {
-        console.error(`[SiYuanMemo][ReviewService] Failed to reschedule card ${cardId}:`, error);
+        logger.error(`Failed to reschedule card ${cardId}:`, error);
       }
     }
     
@@ -158,7 +161,7 @@ export class ReviewApplicationService {
    * @returns 卡片，如果不存在则返回 null
    */
   getCard(cardId: string): FSRSCard | null {
-    return this.storageManager.getCard(cardId);
+    return this.storageManager.getCard(cardId) || null;
   }
   
   /**
@@ -168,6 +171,9 @@ export class ReviewApplicationService {
    * @returns 卡片，如果不存在则返回 null
    */
   getCardByBlockId(blockId: string): FSRSCard | null {
-    return this.storageManager.getCardByBlockId(blockId);
+    if (typeof this.storageManager.getCardByBlockId !== 'function') {
+      return null;
+    }
+    return this.storageManager.getCardByBlockId(blockId) || null;
   }
 }

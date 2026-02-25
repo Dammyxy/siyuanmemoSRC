@@ -40,6 +40,9 @@ import type { ICardTemplate } from '../types';
 import { BUILTIN_TEMPLATES, ALL_TEMPLATES } from './builtin';
 import { BUILTIN_CONCEPT_TEMPLATE } from './builtin-concept';
 import { ok, err, type Result } from '@/types/result';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('TemplateRegistry');
 
 /**
  * 模板注册器
@@ -230,14 +233,14 @@ export class TemplateRegistry {
     for (const template of ALL_TEMPLATES) {
       const result = this.register(template);
       if (!result.ok) {
-        console.error(`Failed to register builtin template ${template.id}:`, result.error);
+        logger.error(`Failed to register builtin template ${template.id}:`, result.error);
       }
     }
     
     // 单独注册概念卡模板（仅用于代码内部，不显示在列表中）
     const conceptResult = this.register(BUILTIN_CONCEPT_TEMPLATE);
     if (!conceptResult.ok) {
-      console.error(`Failed to register builtin-concept-simple template:`, conceptResult.error);
+      logger.error(`Failed to register builtin-concept-simple template:`, conceptResult.error);
     }
   }
 }

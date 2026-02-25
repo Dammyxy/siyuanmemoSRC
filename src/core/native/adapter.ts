@@ -6,6 +6,9 @@
 import type { ICard, ICardData } from '@/global';
 import { riff } from '@/core/siyuan';
 import type { QueueItem } from '@/core/queue';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('NativeReviewAdapter');
 
 type NativeQueueItem = QueueItem & {
   cardID?: string;
@@ -13,6 +16,45 @@ type NativeQueueItem = QueueItem & {
   deckID?: string;
   meta?: Record<string, unknown>;
 };
+
+type NativeQueueCard = {
+  id?: string;
+  blockId?: string;
+  blockID?: string;
+  deckId?: string;
+  deckID?: string;
+  meta?: Record<string, unknown>;
+};
+
+type NativeQueuePort = {
+  getAllCards?: () => Promise<NativeQueueCard[]>;
+  getAllItems?: () => NativeQueueItem[];
+};
+
+function normalizeQueueCard(card: NativeQueueCard): NativeQueueItem {
+  const cardId = String(card.id || card.blockId || card.blockID || '');
+  const blockId = String(card.blockId || card.blockID || card.id || '');
+  return {
+    cardID: cardId,
+    blockID: blockId,
+    deckID: String(card.deckId || card.deckID || riff.BUILTIN_DECK_ID),
+    meta: card.meta,
+  } as NativeQueueItem;
+}
+
+async function resolveQueueItems(queue: NativeQueuePort): Promise<NativeQueueItem[]> {
+  if (typeof queue.getAllCards === 'function') {
+    const cards = await queue.getAllCards();
+    return cards.map(normalizeQueueCard);
+  }
+
+  if (typeof queue.getAllItems === 'function') {
+    logger.warn('Using legacy getAllItems() fallback for native adapter');
+    return queue.getAllItems();
+  }
+
+  return [];
+}
 
 /**
  * 队列项到原生卡片的转换接口
@@ -60,7 +102,7 @@ function calculateNextDues(_item: NativeQueueItem): ICard['nextDues'] {
  * 提取练习队列的原生适配器
  */
 export class ExtractionNativeAdapter implements INativeReviewAdapter {
-  constructor(private queue: { getAllItems: () => NativeQueueItem[] }) {}
+  constructor(private queue: NativeQueuePort) {}
 
   toNativeCards(items: NativeQueueItem[]): ICard[] {
     return items.map((item) => ({
@@ -77,7 +119,7 @@ export class ExtractionNativeAdapter implements INativeReviewAdapter {
   }
 
   async getCardData(): Promise<ICardData> {
-    const items = this.queue.getAllItems();
+    const items = await resolveQueueItems(this.queue);
     const cards = this.toNativeCards(items);
 
     return {
@@ -101,7 +143,7 @@ export class ExtractionNativeAdapter implements INativeReviewAdapter {
  * 刻意练习队列的原生适配器
  */
 export class FinalDrillNativeAdapter implements INativeReviewAdapter {
-  constructor(private queue: { getAllItems: () => NativeQueueItem[] }) {}
+  constructor(private queue: NativeQueuePort) {}
 
   toNativeCards(items: NativeQueueItem[]): ICard[] {
     return items.map((item) => ({
@@ -118,7 +160,7 @@ export class FinalDrillNativeAdapter implements INativeReviewAdapter {
   }
 
   async getCardData(): Promise<ICardData> {
-    const items = this.queue.getAllItems();
+    const items = await resolveQueueItems(this.queue);
     const cards = this.toNativeCards(items);
 
     return {
@@ -142,12 +184,7 @@ export class FinalDrillNativeAdapter implements INativeReviewAdapter {
  * 筛选练习队列的原生适配器
  */
 export class FilterGroupNativeAdapter implements INativeReviewAdapter {
-  constructor(
-    private queue: {
-      getAllItems?: () => NativeQueueItem[];
-      getAllCards?: () => Promise<Array<{ id: string; blockId: string; deckId?: string; meta?: Record<string, unknown> }>>;
-    },
-  ) {}
+  constructor(private queue: NativeQueuePort) {}
 
   toNativeCards(items: NativeQueueItem[]): ICard[] {
     return items.map((item) => ({
@@ -164,7 +201,7 @@ export class FilterGroupNativeAdapter implements INativeReviewAdapter {
   }
 
   async getCardData(): Promise<ICardData> {
-    const items = await this.resolveItems();
+    const items = await resolveQueueItems(this.queue);
     const cards = this.toNativeCards(items);
 
     return {
@@ -173,24 +210,6 @@ export class FilterGroupNativeAdapter implements INativeReviewAdapter {
       unreviewedNewCardCount: items.length,
       unreviewedOldCardCount: 0,
     };
-  }
-
-  private async resolveItems(): Promise<NativeQueueItem[]> {
-    if (typeof this.queue.getAllItems === 'function') {
-      return this.queue.getAllItems();
-    }
-
-    if (typeof this.queue.getAllCards === 'function') {
-      const cards = await this.queue.getAllCards();
-      return cards.map((card) => ({
-        cardID: card.id,
-        blockID: card.blockId,
-        deckID: card.deckId || riff.BUILTIN_DECK_ID,
-        meta: card.meta,
-      })) as NativeQueueItem[];
-    }
-
-    return [];
   }
 
   getQueueName(): string {

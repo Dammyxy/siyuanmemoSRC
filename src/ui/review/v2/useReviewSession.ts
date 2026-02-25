@@ -2,6 +2,9 @@
 import type { IQueueStrategy, QueueFeedback } from '@/core/queue/abstraction/Strategy';
 import type { AdapterContext, IAdapter, ReviewSessionHook, ReviewUIState } from './types';
 import { createEmptyReviewUIState } from './types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('useReviewSession');
 
 export function useReviewSession<TItem>(
   queue: IQueueStrategy<TItem>,
@@ -48,7 +51,7 @@ export function useReviewSession<TItem>(
   const updateState = async (): Promise<void> => {
     const seq = ++updateSeq;
     const mainState = await adapter.toUIState(queue as any, currentItem.value, context.value);
-    console.log('[SiYuanMemo][useReviewSession] updateState - mainState.header.toolbar:', {
+    logger.debug('updateState - mainState.header.toolbar:', {
       hasHeader: !!mainState.header,
       hasToolbar: !!mainState.header?.toolbar,
       toolbarLength: mainState.header?.toolbar?.length,
@@ -61,7 +64,7 @@ export function useReviewSession<TItem>(
       adapter.fetchAuxiliaryData(currentItem.value)
         .then((aux) => {
           if (seq !== updateSeq) return;
-          console.log('[SiYuanMemo][useReviewSession] merging aux data:', {
+          logger.debug('merging aux data:', {
             hasAuxHeader: !!aux.header,
             hasAuxToolbar: !!(aux.header as any)?.toolbar,
             auxToolbar: (aux.header as any)?.toolbar,
@@ -91,7 +94,7 @@ export function useReviewSession<TItem>(
             options.onReview(cardId, feedback.rating);
           }
         } catch (err) {
-          console.warn('[SiYuanMemo][useReviewSession] Failed to call onReview callback:', err);
+          logger.warn('Failed to call onReview callback:', err);
         }
       }
       
@@ -105,14 +108,14 @@ export function useReviewSession<TItem>(
 
       // 处理队列耗尽：如果 next() 返回 null，显示完成界面
       if (currentItem.value === null) {
-        console.log('[SiYuanMemo][useReviewSession] 队列已耗尽，会话完成');
+        logger.info('Queue exhausted, session completed');
         // 设置为空内容类型，让适配器处理完成状态
       }
 
       context.value.showAnswer = false;
       await updateState();
     } catch (error) {
-      console.error('[SiYuanMemo][ReviewSession] 加载下一张卡片失败:', error);
+      logger.error('Failed to load next card:', error);
       // 发生错误时也设置为 null，触发错误/完成界面
       currentItem.value = null;
       await updateState();
@@ -126,13 +129,13 @@ export function useReviewSession<TItem>(
 
       // 处理队列耗尽：如果 next() 返回 null，显示完成界面
       if (currentItem.value === null) {
-        console.log('[SiYuanMemo][useReviewSession] 队列已耗尽，会话完成');
+        logger.info('Queue exhausted, session completed');
       }
 
       context.value.showAnswer = false;
       await updateState();
     } catch (error) {
-      console.error('[SiYuanMemo][ReviewSession] 跳过卡片失败:', error);
+      logger.error('Failed to skip card:', error);
       currentItem.value = null;
       await updateState();
     }
@@ -147,12 +150,12 @@ export function useReviewSession<TItem>(
 
       // 处理队列耗尽：如果 next() 返回 null，显示完成界面
       if (currentItem.value === null) {
-        console.log('[SiYuanMemo][useReviewSession] 队列已耗尽，会话完成');
+        logger.info('Queue exhausted, session completed');
       }
 
       await updateState();
     } catch (error) {
-      console.error('[SiYuanMemo][ReviewSession] 执行命令失败:', error);
+      logger.error('Failed to execute command:', error);
       currentItem.value = null;
       await updateState();
     }
@@ -215,15 +218,17 @@ export function useReviewSession<TItem>(
           context.value.showAnswer = shouldShowAnswer;
 
           await updateState();
-          console.log(`[SiYuanMemo][useReviewSession] Loaded real card data for blockId: ${blockId}, blockType: ${blockType}, isFlashcard: ${isFlashcard}, showAnswer: ${context.value.showAnswer}`);
+          logger.debug(
+            `Loaded real card data for blockId: ${blockId}, blockType: ${blockType}, isFlashcard: ${isFlashcard}, showAnswer: ${context.value.showAnswer}`
+          );
           return;
         } else {
-          console.warn(`[SiYuanMemo][useReviewSession] Node not found: ${blockId}`);
+          logger.warn(`Node not found: ${blockId}`);
         }
       }
 
       // 降级：如果无法获取真实数据，使用临时项（可能导致部分功能受限）
-      console.warn(`[SiYuanMemo][useReviewSession] Fallback to temp item for blockId: ${blockId}`);
+      logger.warn(`Fallback to temp item for blockId: ${blockId}`);
       const tempItem = {
         cardID: blockId,
         blockID: blockId,
@@ -236,9 +241,9 @@ export function useReviewSession<TItem>(
       context.value.showAnswer = false; // 降级情况默认为 item
       await updateState();
 
-      console.log(`[SiYuanMemo][useReviewSession] Loaded card by blockId: ${blockId}`);
+      logger.debug(`Loaded card by blockId: ${blockId}`);
     } catch (error) {
-      console.error('[SiYuanMemo][useReviewSession] Failed to load card by blockId:', error);
+      logger.error('Failed to load card by blockId:', error);
     }
   };
 

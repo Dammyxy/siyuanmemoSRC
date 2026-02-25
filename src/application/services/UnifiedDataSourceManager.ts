@@ -26,6 +26,10 @@ import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
 import { FinalDrillQueue } from '@/core/queue/domain/FinalDrillQueue';
 import { NeuralRoamQueue } from '@/core/queue/domain/NeuralRoamQueue';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
+import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
+import { SiyuanNeuralRoamCardTypeResolverAdapter } from '@/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter';
+import type { QueueInitialLoadAware, QueueSchedulerPort } from '@/core/queue/managers/UnifiedDataSourceManager';
+import type { AutoFailedCardSinkPort, QueuePersistencePort } from '@/core/queue/domain/ports';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('UnifiedDataSourceManager');
@@ -119,7 +123,7 @@ export class UnifiedDataSourceManager {
      * 
      * 用于队列数据的持久化（传递给队列构造函数）
      */
-    private queuePersistence: any | null;
+    private queuePersistence: QueuePersistencePort | null;
 
     /**
      * 待分发的数据变更事件（同一 tick 合并）
@@ -162,7 +166,7 @@ export class UnifiedDataSourceManager {
      * 
      * @param queuePersistence 队列持久化服务实例
      */
-    public setQueuePersistence(queuePersistence: any): void {
+    public setQueuePersistence(queuePersistence: QueuePersistencePort): void {
         this.queuePersistence = queuePersistence;
         logger.info('QueuePersistence service set');
     }
@@ -197,6 +201,47 @@ export class UnifiedDataSourceManager {
         }
         
         return this.advancedRouter;
+    }
+
+    private resolvePlugin(): any {
+        const router = this.getRouter() as IDataRouter & { plugin?: any };
+        return router.plugin;
+    }
+
+    public getSchedulerRouter(): QueueSchedulerPort {
+        const plugin = this.resolvePlugin();
+        const schedulerRouter =
+            plugin?.getContext?.()?.getScheduler?.() ??
+            plugin?.schedulerRouter;
+
+        if (!schedulerRouter || typeof schedulerRouter.route !== 'function') {
+            throw new Error('SchedulerRouter not available - plugin initialization failed');
+        }
+
+        return schedulerRouter as QueueSchedulerPort;
+    }
+
+    public getDayStartHour(): number {
+        try {
+            const plugin = this.resolvePlugin();
+            const settingsService = plugin?.getContext?.()?.getSettingsService?.();
+            const hour = settingsService?.getSettings?.()?.queues?.dayStartHour;
+            if (Number.isFinite(hour)) {
+                return hour;
+            }
+        } catch (error) {
+            logger.warn('Failed to resolve dayStartHour from settings service:', error);
+        }
+
+        return 4;
+    }
+
+    private isLoadableQueue(queue: IReviewQueue): queue is IReviewQueue & { load: () => Promise<void> } {
+        return typeof (queue as IReviewQueue & { load?: unknown }).load === 'function';
+    }
+
+    private isInitialLoadAwareQueue(queue: IReviewQueue): queue is IReviewQueue & QueueInitialLoadAware {
+        return typeof (queue as IReviewQueue & { setInitialLoad?: unknown }).setInitialLoad === 'function';
     }
     
     // ========================================================================
@@ -395,20 +440,7 @@ export class UnifiedDataSourceManager {
             // 1. 通过当前路由器更新卡片
             const router = this.getRouter();
             await router.updateCard(card);
-            
-            // 2. 使受影响的队列缓存失效
-            // 卡片更新可能影响所有动态队列（检索练习、渐进学习、过滤组）
-            this.invalidateQueue(QueueType.RetrievalPractice);
-            this.invalidateQueue(QueueType.IncrementalLearning);
-            this.invalidateQueue(QueueType.FilterGroup);
-            
-            // 3. 通知所有观察者
-            const affectedIds = Array.from(new Set([card.id, card.blockId].filter(Boolean)));
-            this.notifyObservers({
-                type: 'card-updated',
-                cardIds: affectedIds,
-                timestamp: Date.now(),
-            });
+            await this.onCardUpdatedFromScheduler(card);
             
             logger.debug(`Card updated: ${card.id}`);
         } catch (error) {
@@ -416,6 +448,24 @@ export class UnifiedDataSourceManager {
             logger.error(`Failed to update card ${card.id}:`, errorMessage);
             throw new Error(`更新卡片失败 (${card.id}): ${errorMessage}`);
         }
+    }
+
+    /**
+     * 处理“卡片已经持久化完成”后的统一数据流：
+     * - 失效受影响队列缓存
+     * - 通知观察者刷新
+     *
+     * 供 SchedulerRouter 路径复用，避免重复写入存储。
+     */
+    public async onCardUpdatedFromScheduler(card: FSRSCard): Promise<void> {
+        this.invalidateQueuesForCardMutation();
+
+        const affectedIds = Array.from(new Set([card.id, card.blockId].filter(Boolean)));
+        this.notifyObservers({
+            type: 'card-updated',
+            cardIds: affectedIds,
+            timestamp: Date.now(),
+        });
     }
     
     /**
@@ -497,17 +547,12 @@ export class UnifiedDataSourceManager {
         // 创建新队列实例
         const queue = this.createQueue(type);
         
-        // 🆕 标记队列需要加载（延迟加载）
-        // 使用 Promise 异步加载，但不阻塞返回
-        // 队列的 getCards() 方法会在首次调用时等待加载完成
-        if (typeof (queue as any).load === 'function') {
-            // 创建一个加载 Promise 并存储
-            const loadPromise = (queue as any).load().catch((error: Error) => {
+        // 触发异步 load，并通过显式端口注入到队列基类做“首次访问门闩”。
+        if (this.isLoadableQueue(queue) && this.isInitialLoadAwareQueue(queue)) {
+            const loadPromise = queue.load().catch((error: Error) => {
                 logger.error(`Failed to load queue ${type}:`, error);
             });
-            
-            // 将加载 Promise 附加到队列对象上，供 getCards() 使用
-            (queue as any)._loadPromise = loadPromise;
+            queue.setInitialLoad(loadPromise);
         }
         
         this.queueInstances.set(type, queue);
@@ -529,40 +574,47 @@ export class UnifiedDataSourceManager {
      * @throws {QueueError} 如果队列类型未知
      */
     private createQueue(type: QueueType): IReviewQueue {
+        if (type !== QueueType.Leech && !this.queuePersistence) {
+            throw new QueueError('QueuePersistence not initialized. Call setQueuePersistence() first.');
+        }
+
+        const autoFailedSink = this.createAutoFailedSink();
+
         switch (type) {
             case QueueType.RetrievalPractice:
-                return new RetrievalPracticeQueue(this);
+                return new RetrievalPracticeQueue(this, this.queuePersistence!, { autoFailedSink });
             
             case QueueType.IncrementalLearning:
-                if (!this.queuePersistence) {
-                    throw new QueueError('QueuePersistence not initialized. Call setQueuePersistence() first.');
-                }
-                return new IncrementalLearningQueue(this, this.queuePersistence);
+                return new IncrementalLearningQueue(this, this.queuePersistence!, { autoFailedSink });
             
             case QueueType.FilterGroup:
-                if (!this.queuePersistence) {
-                    throw new QueueError('QueuePersistence not initialized. Call setQueuePersistence() first.');
-                }
-                return new FilterGroupQueue(this, this.queuePersistence);
+                return new FilterGroupQueue(this, this.queuePersistence!, {}, { autoFailedSink });
             
             case QueueType.FinalDrill:
-                if (!this.queuePersistence) {
-                    throw new QueueError('QueuePersistence not initialized. Call setQueuePersistence() first.');
-                }
-                return new FinalDrillQueue(this, this.queuePersistence);
+                return new FinalDrillQueue(this, this.queuePersistence!);
             
             case QueueType.NeuralRoam:
-                if (!this.queuePersistence) {
-                    throw new QueueError('QueuePersistence not initialized. Call setQueuePersistence() first.');
-                }
-                return new NeuralRoamQueue(this, this.queuePersistence);
+                return new NeuralRoamQueue(this, this.queuePersistence!, {
+                    cardTypeResolver: new SiyuanNeuralRoamCardTypeResolverAdapter(),
+                });
             
             case QueueType.Leech:
-                return new LeechReviewQueue(this);
+                return new LeechReviewQueue(this, {
+                    effects: new SiyuanLeechActionEffectsAdapter(),
+                });
             
             default:
                 throw new QueueError(`Unknown queue type: ${type}`);
         }
+    }
+
+    private createAutoFailedSink(): AutoFailedCardSinkPort {
+        return {
+            addAutoFailed: async (cardId: string): Promise<void> => {
+                const finalDrillQueue = this.getQueue(QueueType.FinalDrill);
+                await finalDrillQueue.addCard(cardId, 'auto-failed');
+            },
+        };
     }
     
     /**
@@ -577,6 +629,13 @@ export class UnifiedDataSourceManager {
     public invalidateQueue(type: QueueType): void {
         this.queueInstances.delete(type);
         logger.debug(`Queue cache invalidated: ${type}`);
+    }
+
+    private invalidateQueuesForCardMutation(): void {
+        // 卡片更新会影响动态队列的可见集与排序
+        this.invalidateQueue(QueueType.RetrievalPractice);
+        this.invalidateQueue(QueueType.IncrementalLearning);
+        this.invalidateQueue(QueueType.FilterGroup);
     }
     
     /**

@@ -3,7 +3,7 @@
  * 
  * 重构版本：使用统一数据源架构
  * - 使用 UnifiedDataSourceManager 获取卡片数据
- * - 使用 StorageManager 进行批量操作
+ * - 批量操作优先走 UnifiedDataSourceManager（无则回退到全局上下文）
  * - 移除直接调用 Riff API
  * 
  * @see RIFF_API_USAGE_AUDIT.md
@@ -11,11 +11,11 @@
 
 import type { Plugin } from 'siyuan';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
-import type { StorageManager } from '@/core/storage/manager';
 import type { FSRSCard } from '@/types';
 import { PerformanceMonitor } from '@/utils/performance';
 import { getCurrentDayEnd } from '@/utils/dateUtils';
 import { getDayStartHour } from '@/utils/configUtils';
+import { createLogger } from '@/utils/logger';
 import { sql, setBlockAttrs } from '@/core/siyuan/api';
 import {
     ATTR_CARD_ID,
@@ -39,8 +39,11 @@ import {
 // 全局上下文（用于简化 loadQueueCards 调用）
 // ============================================================================
 
+const logger = createLogger('browserService');
+
 let globalUnifiedDataSourceManager: UnifiedDataSourceManager | null = null;
 let globalQueryText: string = '';
+type BrowserBatchManagerPort = Pick<UnifiedDataSourceManager, 'getCards' | 'updateCard' | 'deleteCard'>;
 
 /**
  * 设置全局浏览器上下文
@@ -57,7 +60,7 @@ export function setGlobalBrowserContext(
 ): void {
     globalUnifiedDataSourceManager = manager;
     globalQueryText = queryText;
-    console.log('[SiYuanMemo][browserService] Global context updated:', {
+    logger.debug('Global context updated:', {
         hasManager: !!manager,
         queryText: queryText || '(empty)'
     });
@@ -69,7 +72,34 @@ export function setGlobalBrowserContext(
 export function clearGlobalBrowserContext(): void {
     globalUnifiedDataSourceManager = null;
     globalQueryText = '';
-    console.log('[SiYuanMemo][browserService] Global context cleared');
+    logger.debug('Global context cleared');
+}
+
+function resolveBatchManager(manager?: BrowserBatchManagerPort): BrowserBatchManagerPort | null {
+    return manager ?? globalUnifiedDataSourceManager;
+}
+
+async function buildBlockCardMap(
+    blockIds: string[],
+    manager: BrowserBatchManagerPort
+): Promise<Map<string, FSRSCard[]>> {
+    const targetBlockIds = new Set(blockIds.filter(Boolean));
+    const blockCardMap = new Map<string, FSRSCard[]>();
+    const cards = await manager.getCards();
+
+    for (const card of cards) {
+        if (!targetBlockIds.has(card.blockId)) {
+            continue;
+        }
+        const group = blockCardMap.get(card.blockId);
+        if (group) {
+            group.push(card);
+        } else {
+            blockCardMap.set(card.blockId, [card]);
+        }
+    }
+
+    return blockCardMap;
 }
 
 // ============================================================================
@@ -92,7 +122,7 @@ function notifyUpdate(cards: BrowserCard[], isComplete: boolean) {
         try {
             cb(cards, isComplete);
         } catch (e) {
-            console.error('[SiYuanMemo][CardBrowser] Listener error:', e);
+            logger.error('Listener error:', e);
         }
     });
 }
@@ -1045,7 +1075,7 @@ export async function loadQueueCardsSimple(
     blockIds: string[]
 ): Promise<BrowserCard[]> {
     if (!globalUnifiedDataSourceManager) {
-        console.error('[SiYuanMemo][browserService] Global context not initialized. Call setGlobalBrowserContext() first.');
+        logger.error('Global context not initialized. Call setGlobalBrowserContext() first.');
         return [];
     }
     return loadQueueCards(blockIds, globalQueryText, globalUnifiedDataSourceManager);
@@ -1053,136 +1083,196 @@ export async function loadQueueCardsSimple(
 
 
 // ============================================================================
-// 批量操作（使用 StorageManager）
+// 批量操作（使用 UnifiedDataSourceManager）
 // ============================================================================
+
+async function updateCardsByBlockIds(
+    blockIds: string[],
+    manager: BrowserBatchManagerPort,
+    mutation: (card: FSRSCard, blockId: string) => FSRSCard
+): Promise<number> {
+    const uniqueBlockIds = Array.from(new Set(blockIds.filter(Boolean)));
+    if (uniqueBlockIds.length === 0) {
+        return 0;
+    }
+
+    const blockCardMap = await buildBlockCardMap(uniqueBlockIds, manager);
+    let updatedBlocks = 0;
+
+    for (const blockId of uniqueBlockIds) {
+        const cardsInBlock = blockCardMap.get(blockId) || [];
+        if (cardsInBlock.length === 0) {
+            continue;
+        }
+
+        for (const card of cardsInBlock) {
+            const updatedCard = mutation(card, blockId);
+            await manager.updateCard(updatedCard);
+        }
+        updatedBlocks++;
+    }
+
+    return updatedBlocks;
+}
 
 /**
  * 批量重置为新卡
- * ✅ 使用 StorageManager，移除 Riff API 调用
  */
 export async function batchReset(
     blockIds: string[],
-    storageManager: StorageManager
+    manager?: BrowserBatchManagerPort
 ): Promise<number> {
     if (blockIds.length === 0) return 0;
 
+    const resolvedManager = resolveBatchManager(manager);
+    if (!resolvedManager) {
+        logger.error('batchReset failed: manager is not available');
+        return 0;
+    }
+
     try {
-        // ✅ 使用 StorageManager 批量更新
-        const updates = blockIds.map(blockId => ({
-            blockId,
-            state: CardState.New,
-            due: Date.now(),
-            reps: 0,
-            lapses: 0,
-            lastReview: null,
-        }));
-        
-        await storageManager.batchUpdateCards(updates as any);
-        
-        // 清除缓存
+        const now = Date.now();
+        const updatedBlocks = await updateCardsByBlockIds(
+            blockIds,
+            resolvedManager,
+            (card) =>
+                ({
+                    ...card,
+                    state: CardState.New,
+                    due: now,
+                    reps: 0,
+                    lapses: 0,
+                    lastReview: null as any,
+                }) as FSRSCard
+        );
+
         cardCache.clear();
-        
-        console.log('[SiYuanMemo][CardBrowser] ✅ Batch reset completed:', blockIds.length);
-        return blockIds.length;
+
+        logger.info('Batch reset completed', {
+            requestedBlocks: new Set(blockIds).size,
+            updatedBlocks,
+        });
+        return updatedBlocks;
     } catch (err) {
-        console.error('[SiYuanMemo][CardBrowser] Batch reset error:', err);
+        logger.error('Batch reset error:', err);
         return 0;
     }
 }
 
 /**
  * 批量暂停/取消暂停
- * ✅ 使用 StorageManager，移除 Riff API 调用
+ * ✅ 使用统一数据源 manager 批量更新
  */
 export async function batchSuspend(
     blockIds: string[],
     suspend: boolean,
-    storageManager: StorageManager
+    manager?: BrowserBatchManagerPort
 ): Promise<number> {
     if (blockIds.length === 0) return 0;
 
+    const resolvedManager = resolveBatchManager(manager);
+    if (!resolvedManager) {
+        logger.error('batchSuspend failed: manager is not available');
+        return 0;
+    }
+
     try {
-        // ✅ 使用 StorageManager 批量更新
         const farFuture = Date.now() + 100 * 365 * 24 * 60 * 60 * 1000;
-        const updates = blockIds.map(blockId => ({
-            blockId,
-            suspended: suspend,
-            due: suspend ? farFuture : Date.now(),
-        }));
-        
-        await storageManager.batchUpdateCards(updates as any);
-        
-        // 同时更新块属性
-        for (const blockId of blockIds) {
+        const uniqueBlockIds = Array.from(new Set(blockIds.filter(Boolean)));
+        const updatedBlocks = await updateCardsByBlockIds(
+            uniqueBlockIds,
+            resolvedManager,
+            (card) => {
+                const updatedCard = {
+                    ...card,
+                    due: suspend ? farFuture : Date.now(),
+                } as FSRSCard;
+                (updatedCard as any).suspended = suspend;
+                return updatedCard;
+            }
+        );
+
+        for (const blockId of uniqueBlockIds) {
             try {
                 if (suspend) {
                     await setBlockAttrs(blockId, { [ATTR_SUSPENDED]: 'true' });
                 } else {
                     await setBlockAttrs(blockId, { [ATTR_SUSPENDED]: '' });
                 }
-                
-                // 增量更新缓存
                 cardCache.updateCard(blockId, { suspended: suspend });
             } catch (err) {
-                console.error('[SiYuanMemo][CardBrowser] Update block attr error:', blockId, err);
+                logger.error('Update block attr error:', blockId, err);
             }
         }
-        
-        console.log('[SiYuanMemo][CardBrowser] ✅ Batch suspend completed:', blockIds.length);
-        return blockIds.length;
+
+        logger.info('Batch suspend completed', {
+            requestedBlocks: uniqueBlockIds.length,
+            updatedBlocks,
+            suspend,
+        });
+        return updatedBlocks;
     } catch (err) {
-        console.error('[SiYuanMemo][CardBrowser] Batch suspend error:', err);
+        logger.error('Batch suspend error:', err);
         return 0;
     }
 }
 
 /**
  * 批量设置优先级
- * 
- * @deprecated 此函数使用未定义的 storageManager，无法正常工作
- * 应该使用 UnifiedDataSourceManager.getCard() 和 updateCard() 代替
- * @see DeckDataSource.executeAction 中的 set-priority 实现（正确的模式）
  */
 export async function batchSetPriority(
     blockIds: string[],
-    priority: number
+    priority: number,
+    manager?: BrowserBatchManagerPort
 ): Promise<number> {
     if (blockIds.length === 0) return 0;
 
-    let successCount = 0;
+    const uniqueBlockIds = Array.from(new Set(blockIds.filter(Boolean)));
     const clampedPriority = Math.max(0, Math.min(100, priority));
+    const resolvedManager = resolveBatchManager(manager);
+    let updatedBlocks = 0;
 
-    for (const blockId of blockIds) {
+    if (resolvedManager) {
         try {
-            // 更新 FSRSCard.priority（统一优先级存储）
-            const card = storageManager.getCardByBlockId(blockId);
-            if (card) {
-                card.priority = clampedPriority;
-                storageManager.setCard(card);
-            }
-            
-            successCount++;
-            
-            // 增量更新缓存
-            cardCache.updateCard(blockId, { priority: clampedPriority });
+            updatedBlocks = await updateCardsByBlockIds(
+                uniqueBlockIds,
+                resolvedManager,
+                (card) =>
+                    ({
+                        ...card,
+                        priority: clampedPriority,
+                    }) as FSRSCard
+            );
         } catch (err) {
-            console.error('[SiYuanMemo][CardBrowser] Set priority error:', blockId, err);
+            logger.error('Batch priority card update error:', err);
+        }
+    } else {
+        logger.warn('batchSetPriority fallback: manager is not available, only block attrs/cache will be updated');
+    }
+
+    let attrUpdatedBlocks = 0;
+    for (const blockId of uniqueBlockIds) {
+        try {
+            await setBlockAttrs(blockId, { [ATTR_PRIORITY]: String(clampedPriority) });
+            cardCache.updateCard(blockId, { priority: clampedPriority });
+            attrUpdatedBlocks++;
+        } catch (err) {
+            logger.error('Set priority error:', blockId, err);
         }
     }
-    
-    // 保存所有更新
-    try {
-        await storageManager.saveCards();
-    } catch (err) {
-        console.error('[SiYuanMemo][CardBrowser] Save cards error:', err);
-    }
 
-    return successCount;
+    logger.info('Batch set priority completed', {
+        requestedBlocks: uniqueBlockIds.length,
+        updatedBlocks,
+        attrUpdatedBlocks,
+        priority: clampedPriority,
+    });
+    return Math.max(updatedBlocks, attrUpdatedBlocks);
 }
 
 /**
  * 批量删除卡片
- * ✅ 使用 StorageManager，移除 Riff API 调用
+ * ✅ 使用统一数据源 manager 删除
  * 
  * TODO: [DDD Migration - Task 15.3] This function is used as fallback during migration.
  * Can be deprecated once all callers are migrated to CardApplicationService.
@@ -1190,56 +1280,88 @@ export async function batchSetPriority(
  */
 export async function batchDelete(
     blockIds: string[],
-    storageManager: StorageManager
+    manager?: BrowserBatchManagerPort
 ): Promise<number> {
     if (blockIds.length === 0) return 0;
 
+    const resolvedManager = resolveBatchManager(manager);
+    if (!resolvedManager) {
+        logger.error('batchDelete failed: manager is not available');
+        return 0;
+    }
+
     try {
-        console.log('[batchDelete] 开始删除卡片:', blockIds.length);
-        
-        // ✅ 使用 StorageManager 删除
-        await storageManager.deleteCards(blockIds);
-        
-        // 增量更新缓存
-        cardCache.removeCards(blockIds);
-        
-        console.log('[batchDelete] ✅ Batch delete completed:', blockIds.length);
-        return blockIds.length;
+        const uniqueBlockIds = Array.from(new Set(blockIds.filter(Boolean)));
+        const blockCardMap = await buildBlockCardMap(uniqueBlockIds, resolvedManager);
+        let deletedBlocks = 0;
+
+        for (const blockId of uniqueBlockIds) {
+            const cardsInBlock = blockCardMap.get(blockId) || [];
+            if (cardsInBlock.length === 0) {
+                continue;
+            }
+
+            for (const card of cardsInBlock) {
+                await resolvedManager.deleteCard(card.id);
+            }
+            deletedBlocks++;
+        }
+
+        cardCache.removeCards(uniqueBlockIds);
+        logger.info('Batch delete completed', {
+            requestedBlocks: uniqueBlockIds.length,
+            deletedBlocks,
+        });
+        return deletedBlocks;
     } catch (err) {
-        console.error('[batchDelete] Batch delete error:', err);
+        logger.error('Batch delete error:', err);
         return 0;
     }
 }
 
 /**
  * 批量重新调度
- * ✅ 使用 StorageManager，移除 Riff API 调用
+ * ✅ 使用统一数据源 manager 更新 due
  */
 export async function batchReschedule(
     cards: BrowserCard[],
     mode: 'absolute' | 'relative',
     value: Date | number,
-    storageManager: StorageManager
+    manager?: BrowserBatchManagerPort
 ): Promise<number> {
     if (cards.length === 0) return 0;
+
+    const resolvedManager = resolveBatchManager(manager);
+    if (!resolvedManager) {
+        logger.error('batchReschedule failed: manager is not available');
+        return 0;
+    }
 
     const newDue = mode === 'absolute'
         ? (value as Date).getTime()
         : Date.now() + (value as number) * 24 * 60 * 60 * 1000;
 
     try {
-        // ✅ 使用 StorageManager 批量更新
-        const updates = cards.map(card => ({
-            blockId: card.blockId,
-            due: newDue,
-        }));
-        
-        await storageManager.batchUpdateCards(updates as any);
-        
-        console.log('[SiYuanMemo][CardBrowser] ✅ Batch reschedule completed:', cards.length);
-        return cards.length;
+        const blockIds = cards.map((card) => card.blockId).filter(Boolean);
+        const updatedBlocks = await updateCardsByBlockIds(
+            blockIds,
+            resolvedManager,
+            (card) =>
+                ({
+                    ...card,
+                    due: newDue,
+                }) as FSRSCard
+        );
+
+        logger.info('Batch reschedule completed', {
+            requestedBlocks: new Set(blockIds).size,
+            updatedBlocks,
+            mode,
+            newDue,
+        });
+        return updatedBlocks;
     } catch (err) {
-        console.error('[SiYuanMemo][CardBrowser] Batch reschedule error:', err);
+        logger.error('Batch reschedule error:', err);
         return 0;
     }
 }
@@ -1297,7 +1419,7 @@ export async function batchDetectCardTypes(
                     cardCache.updateCard(card.blockId, cacheUpdates);
                     updated++;
                 } catch (err) {
-                    console.error(`[SiYuanMemo][CardBrowser] Failed to update card type for ${card.blockId}:`, err);
+                    logger.error(`Failed to update card type for ${card.blockId}:`, err);
                     failed++;
                 }
             }));
@@ -1309,7 +1431,7 @@ export async function batchDetectCardTypes(
             failed,
         };
     } catch (err) {
-        console.error('[SiYuanMemo][CardBrowser] batchDetectCardTypes error:', err);
+        logger.error('batchDetectCardTypes error:', err);
         return { detected: 0, updated: 0, failed: cards.length };
     }
 }

@@ -37,18 +37,21 @@
  * ```
  */
 
-import type { StorageManager } from '@/core/storage/manager';
+import type { DeleteFSRSCardStoragePort } from '@/core/storage/ports';
 import { ok, err, type Result } from '@/types/result';
 import { removeRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 import { getBlockAttrs, setBlockAttrs } from '@/core/siyuan/api';
 import type { DeleteFSRSCardCommand, DeleteFSRSCardCommandResult } from '@/application/commands/card/DeleteFSRSCardCommand';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('DeleteFSRSCardUseCase');
 
 /**
  * 删除 FSRS 卡片用例
  */
 export class DeleteFSRSCardUseCase {
   constructor(
-    private readonly storage: StorageManager
+    private readonly storage: DeleteFSRSCardStoragePort
   ) {}
   
   /**
@@ -62,17 +65,17 @@ export class DeleteFSRSCardUseCase {
       // 1. 检查卡片是否存在
       const card = this.storage.getCard(command.cardId);
       if (!card) {
-        console.log('[DeleteFSRSCardUseCase] Card not found:', command.cardId);
+        logger.info('Card not found:', command.cardId);
         return ok({
           deleted: false
         });
       }
       
       // 2. 删除本地卡片
-      this.storage.deleteCard(command.cardId);
+      await this.deleteCardFromStorage(command.cardId);
       await this.storage.saveCards();
       
-      console.log('[DeleteFSRSCardUseCase] Card deleted from local storage:', command.cardId);
+      logger.info('Card deleted from local storage:', command.cardId);
       
       // 3. 删除块属性（插件自定义属性）
       if (card.blockId) {
@@ -85,9 +88,9 @@ export class DeleteFSRSCardUseCase {
         try {
           await removeRiffCards(BUILTIN_DECK_ID, [card.blockId]);
           deletedFromRiff = true;
-          console.log('[DeleteFSRSCardUseCase] Card deleted from Riff:', card.blockId);
+          logger.info('Card deleted from Riff:', card.blockId);
         } catch (error) {
-          console.warn('[DeleteFSRSCardUseCase] Failed to delete from Riff:', error);
+          logger.warn('Failed to delete from Riff:', error);
           deletedFromRiff = false;
           // 不阻断流程，本地删除已成功
         }
@@ -98,11 +101,32 @@ export class DeleteFSRSCardUseCase {
         deletedFromRiff
       });
     } catch (error) {
-      console.error('[DeleteFSRSCardUseCase] Failed to delete card:', error);
+      logger.error('Failed to delete card:', error);
       return err(error instanceof Error ? error : new Error(String(error)));
     }
   }
-  
+
+  private async deleteCardFromStorage(cardId: string): Promise<void> {
+    if (typeof this.storage.deleteCard === 'function') {
+      const result = await this.storage.deleteCard(cardId);
+      if (result && typeof result === 'object' && 'ok' in (result as any) && !(result as any).ok) {
+        const error = (result as any).error;
+        throw error instanceof Error ? error : new Error(`Failed to delete card: ${cardId}`);
+      }
+      return;
+    }
+
+    if (typeof this.storage.removeCard === 'function') {
+      const removed = this.storage.removeCard(cardId);
+      if (!removed) {
+        throw new Error(`Failed to delete card via removeCard(): ${cardId}`);
+      }
+      return;
+    }
+
+    throw new Error('No available delete capability on DeleteFSRSCardStoragePort');
+  }
+
   /**
    * 删除卡片相关的块属性（插件自定义属性）
    * 
@@ -136,10 +160,10 @@ export class DeleteFSRSCardUseCase {
       // 如果有属性需要删除，调用 API
       if (Object.keys(newAttrs).length > 0) {
         await setBlockAttrs(blockId, newAttrs);
-        console.log('[DeleteFSRSCardUseCase] Removed block attrs:', Object.keys(newAttrs));
+        logger.info('Removed block attrs:', Object.keys(newAttrs));
       }
     } catch (error) {
-      console.warn('[DeleteFSRSCardUseCase] Failed to remove block attrs:', error);
+      logger.warn('Failed to remove block attrs:', error);
       // 不抛出异常，不影响卡片删除流程
     }
   }

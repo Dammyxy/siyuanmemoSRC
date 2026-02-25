@@ -24,6 +24,9 @@
 import { GetXiuyuanQuery, GetXiuyuanQueryResult } from '../../queries/xiuyuan/GetXiuyuanQuery';
 import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('GetXiuyuanQueryHandler');
 
 /**
  * 获取单个 Xiuyuan 查询处理器
@@ -64,7 +67,7 @@ export class GetXiuyuanQueryHandler {
     // 2. 从 Repository 查询
     const findResult = await this.xiuyuanRepository.findById(idResult.value);
     
-    console.log('[GetXiuyuanQueryHandler] findResult:', {
+    logger.debug('findResult:', {
       ok: findResult.ok,
       hasValue: !!findResult.value,
       value: findResult.value,
@@ -84,7 +87,7 @@ export class GetXiuyuanQueryHandler {
       xiuyuan: findResult.value
     };
     
-    console.log('[GetXiuyuanQueryHandler] Returning result:', {
+    logger.debug('Returning result:', {
       hasResult: !!result,
       hasXiuyuan: !!result.xiuyuan,
       xiuyuanId: findResult.value?.getId?.()?.getValue?.(),

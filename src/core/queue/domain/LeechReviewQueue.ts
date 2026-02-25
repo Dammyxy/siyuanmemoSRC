@@ -3,8 +3,10 @@ import { QueueType } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
 import type { QueueItem } from '@/core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
+import type { LeechActionEffectsPort } from './ports';
+import { ManualCardSetStrategy } from './ManualCardSetStrategy';
 import { resolveCardId } from '@/diagnostics/type-guards';
-import { pushMsg, setBlockAttrs } from '@/core/siyuan/api';
+import { createLogger } from '@/utils/logger';
 
 type LeechAction = 'notify' | 'suspend' | 'tag';
 
@@ -12,23 +14,38 @@ interface LeechReviewQueueOptions {
   threshold?: number;
   action?: LeechAction;
   tagName?: string;
+  effects?: LeechActionEffectsPort;
 }
 
 const ATTR_SUSPENDED = 'custom-fsrs-suspended';
 const ATTR_LEECH_TAG = 'custom-fsrs-leech-tag';
+const logger = createLogger('LeechReviewQueue');
+const NOOP_EFFECTS: LeechActionEffectsPort = {
+  async notify(): Promise<void> {
+    return;
+  },
+  async setBlockAttrs(): Promise<void> {
+    return;
+  },
+};
 
 export class LeechReviewQueue extends BaseReviewQueue {
   public name = 'LeechReviewQueue';
   private readonly threshold: number;
   private readonly action: LeechAction;
   private readonly tagName: string;
-  private readonly manuallyAddedCards = new Set<string>();
+  private readonly effects: LeechActionEffectsPort;
+  private readonly manualCards = new ManualCardSetStrategy();
 
   constructor(manager: UnifiedDataSourceManager, options: LeechReviewQueueOptions = {}) {
     super(manager, QueueType.Leech);
     this.threshold = Math.max(1, Math.floor(Number(options.threshold ?? 8)));
     this.action = options.action ?? 'notify';
     this.tagName = String(options.tagName || 'leech');
+    this.effects = options.effects ?? NOOP_EFFECTS;
+    if (!options.effects) {
+      logger.warn('LeechActionEffectsPort not provided. Leech actions will run in no-op mode.');
+    }
   }
 
   public isDynamic(): boolean {
@@ -40,7 +57,7 @@ export class LeechReviewQueue extends BaseReviewQueue {
     const filtered = cards
       .filter((card) => {
         const isLeech = Number(card.lapses || 0) >= this.threshold;
-        const isManuallyAdded = this.manuallyAddedCards.has(card.id);
+        const isManuallyAdded = this.manualCards.has(card.id);
         const isBlacklisted = this.temporaryBlacklist.has(card.id) || this.temporaryBlacklist.has(card.blockId);
         return (isLeech || isManuallyAdded) && !isBlacklisted;
       })
@@ -57,13 +74,13 @@ export class LeechReviewQueue extends BaseReviewQueue {
 
   public async addCard(card: FSRSCard | QueueItem | string): Promise<void> {
     const cardId = resolveCardId(card);
-    this.manuallyAddedCards.add(cardId);
+    this.manualCards.add(cardId);
     this.temporaryBlacklist.delete(cardId);
     this.notifyObservers();
   }
 
   public async removeCard(cardIdOrBlockId: string): Promise<void> {
-    this.manuallyAddedCards.delete(cardIdOrBlockId);
+    this.manualCards.delete(cardIdOrBlockId);
     this.temporaryBlacklist.add(cardIdOrBlockId);
     this.notifyObservers();
   }
@@ -86,22 +103,22 @@ export class LeechReviewQueue extends BaseReviewQueue {
     const actionLabel = `Leech (lapses >= ${this.threshold})`;
 
     if (this.action === 'notify') {
-      await pushMsg(actionLabel);
+      await this.effects.notify(actionLabel);
       return;
     }
 
     if (!blockId) {
-      await pushMsg(actionLabel);
+      await this.effects.notify(actionLabel);
       return;
     }
 
     if (this.action === 'suspend') {
-      await setBlockAttrs(blockId, { [ATTR_SUSPENDED]: 'true' } as any);
-      await pushMsg(`${actionLabel}: suspended`);
+      await this.effects.setBlockAttrs(blockId, { [ATTR_SUSPENDED]: 'true' });
+      await this.effects.notify(`${actionLabel}: suspended`);
       return;
     }
 
-    await setBlockAttrs(blockId, { [ATTR_LEECH_TAG]: this.tagName } as any);
-    await pushMsg(`${actionLabel}: tagged ${this.tagName}`);
+    await this.effects.setBlockAttrs(blockId, { [ATTR_LEECH_TAG]: this.tagName });
+    await this.effects.notify(`${actionLabel}: tagged ${this.tagName}`);
   }
 }

@@ -1,5 +1,6 @@
 ﻿import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import type { Ref } from 'vue';
+import type { AdapterContext as CoreAdapterContext, IAdapter as CoreAdapter } from '@/core/extensions';
 
 export interface ReviewUIState {
   header: {
@@ -97,7 +98,8 @@ export interface ReviewUIState {
   };
 }
 
-export type { AdapterContext, IAdapter } from '@/core/extensions';
+export type AdapterContext = CoreAdapterContext;
+export type IAdapter<TItem = any> = CoreAdapter<TItem, ReviewUIState>;
 
 export interface ReviewSessionHook {
   state: Ref<ReviewUIState>;

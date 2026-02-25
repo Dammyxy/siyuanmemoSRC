@@ -1,4 +1,4 @@
-/**
+﻿/**
  * RebindDescriptorConceptUseCase - 重新绑定描述符卡片的概念
  * 
  * @description
@@ -16,11 +16,15 @@
  */
 
 import { Result, ok, err } from '@/types/result';
-import { sql, getBlockAttrs } from '@/core/siyuan/api';
-import { BUILTIN_DECK_ID } from '@/core/siyuan/riff';
+import { getBlockAttrs } from '@/core/siyuan/api';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
+import { findConceptByUpwardSearch } from './shared/ConceptLocator';
+import { resolveConceptCard } from './shared/ConceptCardResolver';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('RebindDescriptorConceptUseCase');
 
 export interface RebindDescriptorConceptCommand {
   /** 描述符块 ID */
@@ -40,260 +44,6 @@ export interface RebindDescriptorConceptResult {
   createdConceptCard: boolean;
 }
 
-/**
- * 检查块是否有列表项父级
- */
-async function hasListItemParent(blockId: string): Promise<boolean> {
-  let currentId = blockId;
-  const maxDepth = 10;
-  
-  for (let depth = 0; depth < maxDepth; depth++) {
-    const query = `
-      SELECT parent_id 
-      FROM blocks 
-      WHERE id = '${currentId}' 
-      LIMIT 1
-    `;
-    const result = await sql(query);
-    
-    if (!result || result.length === 0 || !result[0]?.parent_id) {
-      break;
-    }
-    
-    const parentId = result[0].parent_id;
-    
-    // 查询父块类型
-    const parentQuery = `
-      SELECT type 
-      FROM blocks 
-      WHERE id = '${parentId}' 
-      LIMIT 1
-    `;
-    const parentResult = await sql(parentQuery);
-    
-    if (parentResult && parentResult.length > 0) {
-      const parentType = parentResult[0].type;
-      
-      // 如果是列表项块，返回 true
-      if (parentType === 'i') {
-        console.log(`[RebindDescriptorConceptUseCase] Found list item parent at depth ${depth}:`, parentId);
-        return true;
-      }
-      
-      // 如果到达文档块，停止查找
-      if (parentType === 'd') {
-        console.log(`[RebindDescriptorConceptUseCase] Reached document block without finding list parent`);
-        break;
-      }
-    }
-    
-    currentId = parentId;
-  }
-  
-  return false;
-}
-
-/**
- * 在列表项父级情况下查找概念卡（检查块引用）
- * 
- * 复用 AutoCardHandler 的逻辑：
- * 1. 使用 getBlockKramdown 获取父块内容
- * 2. 查找块引用并检查是否指向文档块
- * 3. 如果不是概念卡，自动创建
- */
-async function findConceptInListParent(blockId: string): Promise<{
-  conceptId: string;
-  conceptType: 'block-ref';
-} | null> {
-  const { getBlockKramdown } = await import('@/core/siyuan/api');
-  
-  let currentId = blockId;
-  const maxDepth = 4;
-  
-  for (let depth = 0; depth < maxDepth; depth++) {
-    const query = `
-      SELECT parent_id 
-      FROM blocks 
-      WHERE id = '${currentId}' 
-      LIMIT 1
-    `;
-    const result = await sql(query);
-    
-    if (!result || result.length === 0 || !result[0]?.parent_id) {
-      break;
-    }
-    
-    const parentId = result[0].parent_id;
-    console.log(`[RebindDescriptorConceptUseCase] Checking parent at depth ${depth}:`, parentId);
-    
-    // 使用 getBlockKramdown 获取父块内容
-    const { kramdown: parentContent } = await getBlockKramdown(parentId);
-    
-    if (parentContent) {
-      console.log(`[RebindDescriptorConceptUseCase] Parent content at depth ${depth}:`, parentContent?.substring(0, 100));
-      
-      // 查找块引用（包括带别名的格式）
-      const refPattern = /\(\((\d{14}-[a-z0-9]{7})/g;
-      const matches = [...parentContent.matchAll(refPattern)];
-      
-      console.log(`[RebindDescriptorConceptUseCase] Found ${matches.length} block references at depth ${depth}`);
-      
-      if (matches.length > 0) {
-        // 检查每个块引用
-        for (const match of matches) {
-          const refId = match[1];
-          
-          console.log(`[RebindDescriptorConceptUseCase] Checking block reference:`, refId);
-          
-          // 1. 检查块引用是否指向文档块
-          const refTypeQuery = `
-            SELECT type 
-            FROM blocks 
-            WHERE id = '${refId}' 
-            LIMIT 1
-          `;
-          const refTypeResult = await sql(refTypeQuery);
-          
-          if (!refTypeResult || refTypeResult.length === 0) {
-            console.log(`[RebindDescriptorConceptUseCase] Block reference target not found:`, refId);
-            continue;
-          }
-          
-          const refType = refTypeResult[0].type;
-          console.log(`[RebindDescriptorConceptUseCase] Block reference type:`, refType);
-          
-          if (refType !== 'd') {
-            console.log(`[RebindDescriptorConceptUseCase] Block reference is not a document block, skipping:`, refId);
-            continue;
-          }
-          
-          console.log(`[RebindDescriptorConceptUseCase] Found document block reference at depth ${depth}:`, refId);
-          
-          // 2. 返回文档块 ID（调用方会检查是否是概念卡，如果不是会自动创建）
-          return { conceptId: refId, conceptType: 'block-ref' };
-        }
-      }
-    }
-    
-    currentId = parentId;
-  }
-  
-  return null;
-}
-
-/**
- * 在非列表项情况下查找概念卡（标题块或文档块）
- */
-async function findConceptWithoutListParent(blockId: string): Promise<{
-  conceptId: string;
-  conceptType: 'heading' | 'document';
-} | null> {
-  let currentId = blockId;
-  let firstHeadingId: string | null = null;
-  let documentId: string | null = null;
-  const maxDepth = 20;
-  
-  for (let depth = 0; depth < maxDepth; depth++) {
-    const query = `
-      SELECT parent_id 
-      FROM blocks 
-      WHERE id = '${currentId}' 
-      LIMIT 1
-    `;
-    const result = await sql(query);
-    
-    if (!result || result.length === 0 || !result[0]?.parent_id) {
-      break;
-    }
-    
-    const parentId = result[0].parent_id;
-    
-    // 查询父块类型
-    const parentQuery = `
-      SELECT type, content 
-      FROM blocks 
-      WHERE id = '${parentId}' 
-      LIMIT 1
-    `;
-    const parentResult = await sql(parentQuery);
-    
-    if (parentResult && parentResult.length > 0) {
-      const parentType = parentResult[0].type;
-      const parentContent = parentResult[0].content;
-      
-      // 记录第一个标题块
-      if (parentType === 'h' && !firstHeadingId) {
-        firstHeadingId = parentId;
-        console.log(`[RebindDescriptorConceptUseCase] Found first heading block:`, parentId, parentContent);
-      }
-      
-      // 记录文档块
-      if (parentType === 'd') {
-        documentId = parentId;
-        console.log(`[RebindDescriptorConceptUseCase] Found document block:`, parentId);
-        break;
-      }
-    }
-    
-    currentId = parentId;
-  }
-  
-  // 优先使用标题块，其次使用文档块
-  if (firstHeadingId) {
-    console.log(`[RebindDescriptorConceptUseCase] Using heading block as concept:`, firstHeadingId);
-    return { conceptId: firstHeadingId, conceptType: 'heading' };
-  } else if (documentId) {
-    console.log(`[RebindDescriptorConceptUseCase] Using document block as concept:`, documentId);
-    return { conceptId: documentId, conceptType: 'document' };
-  }
-  
-  return null;
-}
-
-/**
- * 向上探路查找概念块
- * 
- * 逻辑：
- * 1. 在列表项块内：向上探路，检查父块内容是否包含概念卡的块引用
- * 2. 在非列表项块内：向上探路找最近的标题块作为概念卡
- * 3. 如果没有标题块：使用文档块作为概念卡
- * 
- * @param blockId 起始块 ID
- * @returns { conceptId: 概念块 ID, conceptType: 'block-ref' | 'heading' | 'document' }
- */
-async function findConceptByUpwardSearch(blockId: string): Promise<{
-  conceptId: string;
-  conceptType: 'block-ref' | 'heading' | 'document';
-} | null> {
-  // 1. 检查是否有列表项父级
-  const hasListParent = await hasListItemParent(blockId);
-  console.log(`[RebindDescriptorConceptUseCase] Has list item parent:`, hasListParent);
-  
-  if (hasListParent) {
-    // 情况 A：有列表项父级，优先查找块引用
-    console.log(`[RebindDescriptorConceptUseCase] Case A: Has list parent, searching block reference...`);
-    const result = await findConceptInListParent(blockId);
-    if (result) {
-      return result;
-    }
-    // 如果没找到块引用，继续尝试查找标题块/文档块
-    console.log(`[RebindDescriptorConceptUseCase] No block reference found, fallback to heading/document...`);
-  }
-  
-  // 情况 B：无列表项父级，或有列表项但没找到块引用，查找标题块或文档块
-  console.log(`[RebindDescriptorConceptUseCase] Case B: Searching heading/document...`);
-  const result = await findConceptWithoutListParent(blockId);
-  if (result) {
-    return result;
-  }
-  
-  console.warn('[RebindDescriptorConceptUseCase] No concept found');
-  return null;
-}
-
-/**
- * 重新绑定描述符卡片的概念
- */
 export class RebindDescriptorConceptUseCase {
   constructor(
     private readonly xiuyuanRepository: IXiuyuanRepository,
@@ -312,7 +62,7 @@ export class RebindDescriptorConceptUseCase {
         return err(new Error('描述符块没有关联的卡片'));
       }
       
-      console.log('[RebindDescriptorConceptUseCase] Found descriptor xiuyuan:', xiuyuanId);
+      logger.debug('Found descriptor xiuyuan:', xiuyuanId);
       
       // 2. 向上探路查找新的概念块
       const conceptResult = await findConceptByUpwardSearch(descriptorBlockId);
@@ -322,59 +72,15 @@ export class RebindDescriptorConceptUseCase {
       }
       
       const { conceptId, conceptType } = conceptResult;
-      console.log('[RebindDescriptorConceptUseCase] Found new concept:', conceptId, conceptType);
+      logger.info('Found new concept:', conceptId, conceptType);
       
-      // 3. 获取概念名称
-      const conceptQuery = await sql(`
-        SELECT content FROM blocks
-        WHERE id = '${conceptId}'
-        LIMIT 1
-      `);
-      
-      if (!conceptQuery || conceptQuery.length === 0) {
-        return err(new Error('概念块不存在'));
-      }
-      
-      const conceptName = conceptQuery[0].content;
-      console.log('[RebindDescriptorConceptUseCase] New concept name:', conceptName);
-      
-      // 4. 检查概念块是否已有概念卡，如果没有则创建
-      let conceptCardId: string;
-      let createdConceptCard = false;
-      const conceptAttrs = await getBlockAttrs(conceptId);
-      
-      if (!conceptAttrs || (!conceptAttrs['custom-xiuyuan-id'] && !conceptAttrs['custom-fsrs-xiuyuan-id'])) {
-        console.log('[RebindDescriptorConceptUseCase] Concept block has no card, creating...');
-        
-        // 创建概念卡
-        const { CreateXiuyuanFromBlocksUseCase } = await import('./CreateXiuyuanFromBlocksUseCase');
-        const createXiuyuanUseCase = new CreateXiuyuanFromBlocksUseCase(
-          this.xiuyuanRepository,
-          this.templateRegistry
-        );
-        
-        const conceptResult = await createXiuyuanUseCase.execute({
-          blockIds: [conceptId],
-          templateId: 'builtin-concept-simple',
-          fieldMapping: {
-            concept: conceptId
-          },
-          deckId: BUILTIN_DECK_ID,
-          cardType: 'concept'
-        });
-        
-        if (conceptResult.ok) {
-          conceptCardId = conceptResult.value.xiuyuan.id;
-          createdConceptCard = true;
-          console.log('[RebindDescriptorConceptUseCase] Created concept card:', conceptCardId);
-        } else {
-          const errorMsg = 'error' in conceptResult ? conceptResult.error?.message : 'Unknown error';
-          return err(new Error(`创建概念卡失败：${errorMsg || 'Unknown error'}`));
-        }
-      } else {
-        conceptCardId = conceptAttrs['custom-xiuyuan-id'] || conceptAttrs['custom-fsrs-xiuyuan-id'];
-        console.log('[RebindDescriptorConceptUseCase] Concept block already has card:', conceptCardId);
-      }
+      // 3. 获取概念名称并确保概念卡存在
+      const { conceptName, conceptCardId, createdConceptCard } = await resolveConceptCard({
+        conceptId,
+        xiuyuanRepository: this.xiuyuanRepository,
+        templateRegistry: this.templateRegistry,
+      });
+      logger.debug('New concept name:', conceptName);
       
       // 5. 获取现有的 Xiuyuan 实体
       const xiuyuanIdResult = XiuyuanId.create(xiuyuanId);
@@ -414,7 +120,7 @@ export class RebindDescriptorConceptUseCase {
       // 9. 保存 Xiuyuan 实体
       await this.xiuyuanRepository.save(xiuyuan);
       
-      console.log('[RebindDescriptorConceptUseCase] Updated descriptor xiuyuan field mapping');
+      logger.info('Updated descriptor xiuyuan field mapping');
       
       // 8. 返回结果
       return ok({
@@ -425,8 +131,9 @@ export class RebindDescriptorConceptUseCase {
         createdConceptCard
       });
     } catch (error) {
-      console.error('[RebindDescriptorConceptUseCase] Failed:', error);
+      logger.error('Failed:', error);
       return err(error as Error);
     }
   }
 }
+

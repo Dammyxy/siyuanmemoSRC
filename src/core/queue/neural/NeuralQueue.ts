@@ -19,6 +19,9 @@ import {
   WeightedNeighbor,
   NeuralContext,
 } from './types.ts';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('NeuralQueue');
 
 export class NeuralQueue implements QueueInterface<QueueItem> {
   /** 历史过滤器 */
@@ -134,11 +137,11 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    * @param seedIds 种子块 ID 列表
    */
   restoreSeedNodes(seedIds: string[]): void {
-    console.log(`[NeuralQueue] Restoring ${seedIds.length} seed nodes:`, seedIds.map(id => id.substring(0, 12)));
+    logger.info(`Restoring ${seedIds.length} seed nodes:`, seedIds.map(id => id.substring(0, 12)));
     for (const seedId of seedIds) {
       this.seedNodes.add(seedId);
     }
-    console.log(`[NeuralQueue] Seed nodes restored, total: ${this.seedNodes.size}`);
+    logger.info(`Seed nodes restored, total: ${this.seedNodes.size}`);
   }
 
   /**
@@ -149,7 +152,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
   async addItem(item: QueueItem): Promise<void> {
     void item;
     // 神经队列通过漫游自动发现卡片，不支持手动添加
-    console.warn('[NeuralQueue] addItem is not supported in neural queue');
+    logger.warn('addItem is not supported in neural queue');
   }
 
   /**
@@ -171,13 +174,13 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
         const nextNodeId = this.displayPath[this.currentPathIndex + 1];
         this.currentPathIndex++;
 
-        console.log(`[NeuralQueue] Follow mode: moving to next node in path (index: ${this.currentPathIndex}, id: ${nextNodeId})`);
+        logger.info(`Follow mode: moving to next node in path (index: ${this.currentPathIndex}, id: ${nextNodeId})`);
 
         // 获取卡片详情并返回
         const cardData = await this.fetchCardDetails(nextNodeId);
         if (!cardData) {
           // 节点不存在，退出 follow 模式
-          console.warn(`[NeuralQueue] Follow mode: node ${nextNodeId} not found, switching to explore mode`);
+          logger.warn(`Follow mode: node ${nextNodeId} not found, switching to explore mode`);
           this.navigationMode = 'explore';
           return this.getNextItem(); // 递归调用（explore 模式）
         }
@@ -191,7 +194,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
 
       // 🆕 2. explore 模式或路径已到末尾 - 使用原逻辑
       if (this.navigationMode === 'follow') {
-        console.log('[NeuralQueue] Follow mode: reached end of path, switching to explore mode');
+        logger.info('Follow mode: reached end of path, switching to explore mode');
         this.navigationMode = 'explore'; // 自动切换到 explore
       }
 
@@ -205,24 +208,24 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
         if (existingIndex !== -1) {
           // 节点已存在：跳转到该位置（不追加）
           this.currentPathIndex = existingIndex;
-          console.log(`[NeuralQueue] Node ${item.blockId.substring(0, 8)} already in path, jumped to index ${existingIndex} (total: ${this.displayPath.length})`);
+          logger.info(`Node ${item.blockId.substring(0, 8)} already in path, jumped to index ${existingIndex} (total: ${this.displayPath.length})`);
         } else {
           // 节点不存在：追加到路径
           // 如果当前不在路径末尾，截断后续路径（类似浏览器历史的"分支"行为）
           if (this.currentPathIndex >= 0 && this.currentPathIndex < this.displayPath.length - 1) {
             this.displayPath = this.displayPath.slice(0, this.currentPathIndex + 1);
-            console.log(`[NeuralQueue] Explore mode: truncated path to index ${this.currentPathIndex}`);
+            logger.info(`Explore mode: truncated path to index ${this.currentPathIndex}`);
           }
 
           this.displayPath.push(item.blockId);
           this.currentPathIndex = this.displayPath.length - 1;
-          console.log(`[NeuralQueue] Explore mode: added new node to path (index: ${this.currentPathIndex}, total: ${this.displayPath.length})`);
+          logger.info(`Explore mode: added new node to path (index: ${this.currentPathIndex}, total: ${this.displayPath.length})`);
         }
       }
 
       return item;
     } catch (error) {
-      console.error('[NeuralQueue] Error in getNextItem:', error);
+      logger.error('Error in getNextItem:', error);
       return null;
     }
   }
@@ -244,7 +247,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     if (!this.currentSeedId) {
       this.currentSeedId = await this.pickRandomSeed();
       if (!this.currentSeedId) {
-        console.warn('[NeuralQueue] No cards available in the pool');
+        logger.warn('No cards available in the pool');
         return null;
       }
       // 第一张卡片没有前驱
@@ -261,11 +264,11 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
 
     // 4. 处理死胡同情况
     if (unvisitedNeighbors.length === 0) {
-      console.log('[NeuralQueue] Dead end reached');
+      logger.info('Dead end reached');
       
       // 🔧 如果当前种子还没有被返回过（不在 displayPath 中），返回当前种子
       if (!this.displayPath.includes(this.currentSeedId)) {
-        console.log(`[NeuralQueue] Returning current seed as it hasn't been displayed: ${this.currentSeedId}`);
+        logger.info(`Returning current seed as it hasn't been displayed: ${this.currentSeedId}`);
         const cardData = await this.fetchCardDetails(this.currentSeedId);
         if (cardData) {
           await this.addBlockAndDescendantsToHistory(this.currentSeedId);
@@ -274,10 +277,10 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       }
       
       // 尝试选择新种子
-      console.log('[NeuralQueue] Picking new seed');
+      logger.info('Picking new seed');
       const newSeed = await this.pickRandomSeed();
       if (!newSeed) {
-        console.warn('[NeuralQueue] No more cards available');
+        logger.warn('No more cards available');
         return null;
       }
 
@@ -305,7 +308,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     // 6. 使用加权随机选择下一个节点
     const selectedNeighbor = this.weightedWalkEngine.selectNext(neighborsWithWeights);
     if (!selectedNeighbor) {
-      console.error('[NeuralQueue] Failed to select next neighbor');
+      logger.error('Failed to select next neighbor');
       return null;
     }
 
@@ -313,7 +316,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     const cardData = await this.fetchCardDetails(selectedNeighbor.id);
     if (!cardData) {
       // 卡片不存在，从历史中移除并重试
-      console.warn(`[NeuralQueue] Card ${selectedNeighbor.id} not found, retrying`);
+      logger.warn(`Card ${selectedNeighbor.id} not found, retrying`);
       this.historyFilter.add(selectedNeighbor.id);
       return this.getNextItemExplore();
     }
@@ -368,7 +371,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    */
   async removeItem(item: QueueItem): Promise<boolean> {
     void item;
-    console.warn('[NeuralQueue] removeItem is not supported in neural queue');
+    logger.warn('removeItem is not supported in neural queue');
     return false;
   }
 
@@ -428,10 +431,10 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
         // 🔒 检查初始种子是否为概念卡
         const isConceptCard = await this.queryEngine.isConceptCard(this.initialSeedId);
         if (isConceptCard) {
-          console.log(`[NeuralQueue] Using initial seed (concept card): ${this.initialSeedId}`);
+          logger.info(`Using initial seed (concept card): ${this.initialSeedId}`);
           return this.initialSeedId;
         } else {
-          console.warn(`[NeuralQueue] Initial seed ${this.initialSeedId} is not a concept card, will pick random concept card`);
+          logger.warn(`Initial seed ${this.initialSeedId} is not a concept card, will pick random concept card`);
         }
       }
 
@@ -445,10 +448,10 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
           // 随机选择一个未访问的种子
           const randomIndex = Math.floor(Math.random() * unvisitedSeeds.length);
           const selectedSeed = unvisitedSeeds[randomIndex];
-          console.log(`[NeuralQueue] Selected unvisited seed from seedNodes: ${selectedSeed}`);
+          logger.info(`Selected unvisited seed from seedNodes: ${selectedSeed}`);
           return selectedSeed;
         } else {
-          console.log(`[NeuralQueue] All seeds in seedNodes have been visited`);
+          logger.info('All seeds in seedNodes have been visited');
         }
       }
 
@@ -456,7 +459,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       const randomCard = await this.queryEngine.fetchRandomCard();
       return randomCard;
     } catch (error) {
-      console.error('[NeuralQueue] Failed to pick random seed:', error);
+      logger.error('Failed to pick random seed:', error);
       return null;
     }
   }
@@ -473,11 +476,11 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     try {
       const cardData = await this.queryEngine.fetchCardData(cardId);
       if (!cardData) {
-        console.error(`[NeuralQueue] Card not found: ${cardId}`);
+        logger.error(`Card not found: ${cardId}`);
       }
       return cardData;
     } catch (error) {
-      console.error(`[NeuralQueue] Failed to fetch card details for ${cardId}:`, error);
+      logger.error(`Failed to fetch card details for ${cardId}:`, error);
       return null;
     }
   }
@@ -525,11 +528,11 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
         for (const descendant of descendants) {
           this.historyFilter.add(descendant.id);
         }
-        console.log(`[NeuralQueue] Added ${descendants.length} descendants of ${blockId} to history`);
+        logger.info(`Added ${descendants.length} descendants of ${blockId} to history`);
       }
     } catch (error) {
       // 如果查询子块失败，只添加当前块（降级处理）
-      console.error(`[NeuralQueue] Failed to fetch descendants for ${blockId}:`, error);
+      logger.error(`Failed to fetch descendants for ${blockId}:`, error);
       this.historyFilter.add(blockId);
     }
   }
@@ -558,7 +561,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
         throw new Error(`Cannot set seed: block ${blockId} does not exist`);
       }
     } catch (error) {
-      console.error(`[NeuralQueue] Seed validation failed for ${blockId}:`, error);
+      logger.error(`Seed validation failed for ${blockId}:`, error);
       throw new Error(`Cannot set seed: block ${blockId} is invalid`);
     }
 
@@ -566,12 +569,12 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     const isAlreadySeed = this.seedNodes.has(blockId);
 
     if (isAlreadySeed) {
-      console.warn(`[NeuralQueue] Block ${blockId} is already a seed`);
+      logger.warn(`Block ${blockId} is already a seed`);
       // 🆕 即使已经是种子，也要跳转到该位置（更新路径指针）
       if (this.displayPath.includes(blockId)) {
         const index = this.displayPath.indexOf(blockId);
         this.currentPathIndex = index;
-        console.log(`[NeuralQueue] Jumped to existing seed at index ${index} (total: ${this.displayPath.length})`);
+        logger.info(`Jumped to existing seed at index ${index} (total: ${this.displayPath.length})`);
       }
       this.navigationMode = 'explore'; // 切换到探索模式
       return;
@@ -579,7 +582,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
 
     // 1. 标记为种子
     this.seedNodes.add(blockId);
-    console.log(`[NeuralQueue] Set block ${blockId} as seed`);
+    logger.info(`Set block ${blockId} as seed`);
 
     // 2. 将其他候选记录为遗落块
     const missed: import('./types.ts').MissedBlock[] = currentCandidates
@@ -591,7 +594,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       }));
 
     this.missedBlocks.set(blockId, missed);
-    console.log(`[NeuralQueue] Recorded ${missed.length} missed blocks for seed ${blockId}`);
+    logger.info(`Recorded ${missed.length} missed blocks for seed ${blockId}`);
 
     // 3. 更新当前种子
     this.previousCardId = this.currentSeedId;
@@ -605,12 +608,12 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       // 如果不在路径中，追加到末尾
       this.displayPath.push(blockId);
       this.currentPathIndex = this.displayPath.length - 1;
-      console.log(`[NeuralQueue] Appended seed ${blockId} to path (index: ${this.currentPathIndex}, total: ${this.displayPath.length})`);
+      logger.info(`Appended seed ${blockId} to path (index: ${this.currentPathIndex}, total: ${this.displayPath.length})`);
     } else {
       // 如果已在路径中，跳转到该位置（复用 jumpToHistoryNode 逻辑）
       const index = this.displayPath.indexOf(blockId);
       this.currentPathIndex = index;
-      console.log(`[NeuralQueue] Seed ${blockId} already in path, jumped to index ${index} (total: ${this.displayPath.length})`);
+      logger.info(`Seed ${blockId} already in path, jumped to index ${index} (total: ${this.displayPath.length})`);
     }
 
     // 🆕 5. 切换到 explore 模式（从新种子开始探索）
@@ -668,7 +671,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     const currentId = this.currentSeedId;
 
     // 🔧 调试：记录种子节点集合的内容
-    console.log('[NeuralQueue] getNavigationPath - seedNodes Set:', {
+    logger.info('getNavigationPath - seedNodes Set:', {
       size: this.seedNodes.size,
       seeds: Array.from(this.seedNodes).map(id => id.substring(0, 12)),
       displayPathLength: path.length,
@@ -694,7 +697,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     }));
 
     // 🔧 调试：记录哪些节点被标记为种子
-    console.log('[NeuralQueue] getNavigationPath - result:', {
+    logger.info('getNavigationPath - result:', {
       totalNodes: result.length,
       seedCount: result.filter(n => n.isSeed).length,
       seedNodes: result.filter(n => n.isSeed).map(n => ({
@@ -739,7 +742,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    */
   public restoreMissedBlocks(missedBlocks: Map<string, import('./types.ts').MissedBlock[]>): void {
     this.missedBlocks = new Map(missedBlocks);
-    console.log(`[NeuralQueue] Restored ${missedBlocks.size} missed block entries`);
+    logger.info(`Restored ${missedBlocks.size} missed block entries`);
   }
 
   // ===== 🆕 方向漫游扩展方法（Orbit v2.0） =====
@@ -817,7 +820,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
         missedAt: Date.now(),
       }))
     );
-    console.log(`[NeuralQueue] Recorded ${candidateIds.length} missed blocks for direction: ${direction}`);
+    logger.info(`Recorded ${candidateIds.length} missed blocks for direction: ${direction}`);
   }
 
   /**
@@ -831,14 +834,14 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
   ): Promise<any> {
     // 🔧 在获取状态前验证种子块（非阻塞，使用缓存）
     this.validateSeedBlocks().catch(err => {
-      console.warn('[NeuralQueue] Seed validation failed during getOrbitStateV2:', err);
+      logger.warn('Seed validation failed during getOrbitStateV2:', err);
     });
 
     const currentNodeId = this.currentSeedId;
-    console.log('[NeuralQueue] getOrbitStateV2 called:', { currentNodeId, selectedDirection });
+    logger.info('getOrbitStateV2 called:', { currentNodeId, selectedDirection });
 
     if (!currentNodeId) {
-      console.log('[NeuralQueue] getOrbitStateV2: No current node, returning empty state');
+      logger.info('getOrbitStateV2: No current node, returning empty state');
       // 返回空状态
       return {
         historyPath: [],
@@ -854,7 +857,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     const candidatesByDirection = await this.getCandidatesByDirection(currentNodeId);
     const historyPath = await this.getNavigationPath(); // 改为 await
 
-    console.log('[NeuralQueue] getOrbitStateV2 result:', {
+    logger.info('getOrbitStateV2 result:', {
       historyPathLength: historyPath.length,
       candidatesByDirectionSize: candidatesByDirection.size,
       candidatesByDirectionKeys: Array.from(candidatesByDirection.keys()),
@@ -891,12 +894,29 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    */
   public clearDirectionMissedBlocks(): void {
     this.directionMissedBlocks.clear();
-    console.log('[NeuralQueue] Cleared direction missed blocks');
+    logger.info('Cleared direction missed blocks');
   }
 
   // ============================================================================
   // 路径导航系统（Path Navigation System）
   // ============================================================================
+
+  private resolvePathIndex(nodeId: string, method: string): number {
+    const index = this.displayPath.indexOf(nodeId);
+    if (index === -1) {
+      logger.warn(`${method}: node ${nodeId} not found in display path`);
+    }
+    return index;
+  }
+
+  private hasValidPathIndex(index: number): boolean {
+    return index >= 0 && index < this.displayPath.length;
+  }
+
+  private cleanupInvalidSeedState(seedId: string): void {
+    this.missedBlocks.delete(seedId);
+    this.validationCache.delete(seedId);
+  }
 
   /**
    * 🆕 跳转到历史路径中的指定节点
@@ -907,16 +927,15 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    * @returns 是否成功跳转（节点存在于路径中返回 true）
    */
   public jumpToHistoryNode(nodeId: string): boolean {
-    const index = this.displayPath.indexOf(nodeId);
+    const index = this.resolvePathIndex(nodeId, 'jumpToHistoryNode');
     if (index === -1) {
-      console.warn(`[NeuralQueue] Node ${nodeId} not found in display path`);
       return false;
     }
 
     // 保存当前位置为书签（用于"返回最新"）
     if (this.currentPathIndex !== -1 && this.currentPathIndex !== index) {
       this.pathBookmark = this.currentPathIndex;
-      console.log(`[NeuralQueue] Bookmark saved at index ${this.pathBookmark}`);
+      logger.info(`Bookmark saved at index ${this.pathBookmark}`);
     }
 
     // 跳转到目标位置
@@ -924,7 +943,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     this.currentSeedId = nodeId;
     this.navigationMode = 'follow'; // 默认进入"沿路径"模式
 
-    console.log(`[NeuralQueue] Jumped to history node ${nodeId} (index: ${index}, mode: follow)`);
+    logger.info(`Jumped to history node ${nodeId} (index: ${index}, mode: follow)`);
     return true;
   }
 
@@ -942,14 +961,13 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    * @returns 是否成功选中（节点存在于路径中返回 true）
    */
   public selectHistoryNode(nodeId: string): boolean {
-    const index = this.displayPath.indexOf(nodeId);
+    const index = this.resolvePathIndex(nodeId, 'selectHistoryNode');
     if (index === -1) {
-      console.warn(`[NeuralQueue] Node ${nodeId} not found in display path`);
       return false;
     }
 
     // 仅记录日志，不改变任何状态
-    console.log(`[NeuralQueue] Selected history node ${nodeId} (index: ${index}) without changing position`);
+    logger.info(`Selected history node ${nodeId} (index: ${index}) without changing position`);
     return true;
   }
 
@@ -963,16 +981,15 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    * @returns 完整 QueueItem，如果节点不存在则返回 null
    */
   public async getPathItemByNodeId(nodeId: string): Promise<QueueItem | null> {
-    const index = this.displayPath.indexOf(nodeId);
+    const index = this.resolvePathIndex(nodeId, 'getPathItemByNodeId');
     if (index === -1) {
-      console.warn(`[NeuralQueue] Node ${nodeId} not found in display path`);
       return null;
     }
 
     const cardData = await this.fetchCardDetails(nodeId);
 
     if (!cardData) {
-      console.warn(`[NeuralQueue] getPathItemByNodeId: node ${nodeId} not found`);
+      logger.warn(`getPathItemByNodeId: node ${nodeId} not found`);
       return null;
     }
 
@@ -988,8 +1005,8 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    * @returns 当前路径位置的完整 QueueItem，如果位置无效或卡片不存在则返回 null
    */
   public async getCurrentPathItem(): Promise<QueueItem | null> {
-    if (this.currentPathIndex < 0 || this.currentPathIndex >= this.displayPath.length) {
-      console.warn(`[NeuralQueue] getCurrentPathItem: invalid path index ${this.currentPathIndex}`);
+    if (!this.hasValidPathIndex(this.currentPathIndex)) {
+      logger.warn(`getCurrentPathItem: invalid path index ${this.currentPathIndex}`);
       return null;
     }
 
@@ -997,7 +1014,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     const cardData = await this.fetchCardDetails(nodeId);
 
     if (!cardData) {
-      console.warn(`[NeuralQueue] getCurrentPathItem: node ${nodeId} not found`);
+      logger.warn(`getCurrentPathItem: node ${nodeId} not found`);
       return null;
     }
 
@@ -1011,7 +1028,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    */
   public setNavigationMode(mode: 'explore' | 'follow'): void {
     this.navigationMode = mode;
-    console.log(`[NeuralQueue] Navigation mode set to: ${mode}`);
+    logger.info(`Navigation mode set to: ${mode}`);
   }
 
   /**
@@ -1023,12 +1040,12 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    */
   public returnToBookmark(): boolean {
     if (this.pathBookmark === -1) {
-      console.warn('[NeuralQueue] No bookmark to return to');
+      logger.warn('No bookmark to return to');
       return false;
     }
 
-    if (this.pathBookmark >= this.displayPath.length) {
-      console.warn('[NeuralQueue] Bookmark index out of range');
+    if (!this.hasValidPathIndex(this.pathBookmark)) {
+      logger.warn('Bookmark index out of range');
       this.pathBookmark = -1;
       return false;
     }
@@ -1038,7 +1055,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     this.currentSeedId = bookmarkNodeId;
     this.pathBookmark = -1; // 清除书签
 
-    console.log(`[NeuralQueue] Returned to bookmark (index: ${this.currentPathIndex}, node: ${bookmarkNodeId})`);
+    logger.info(`Returned to bookmark (index: ${this.currentPathIndex}, node: ${bookmarkNodeId})`);
     return true;
   }
 
@@ -1078,7 +1095,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     this.displayPath = [...state.displayPath];
     this.currentPathIndex = state.currentPathIndex;
     this.navigationMode = state.navigationMode;
-    console.log(`[NeuralQueue] Navigation state restored: index ${this.currentPathIndex}, total ${this.displayPath.length}, mode ${this.navigationMode}`);
+    logger.info(`Navigation state restored: index ${this.currentPathIndex}, total ${this.displayPath.length}, mode ${this.navigationMode}`);
   }
 
   // ============================================================================
@@ -1098,12 +1115,12 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
 
     // 避免频繁验证（1分钟内只验证一次）
     if (timeSinceLastValidation < this.VALIDATION_INTERVAL && this.validationCache.size > 0) {
-      console.log('[NeuralQueue] Skipping validation (cached, last validation was ' +
+      logger.info('Skipping validation (cached, last validation was ' +
         `${Math.round(timeSinceLastValidation / 1000)}s ago)`);
       return;
     }
 
-    console.log('[NeuralQueue] Starting seed block validation...');
+    logger.info('Starting seed block validation...');
     const validSeeds = new Set<string>();
     const invalidSeeds: string[] = [];
 
@@ -1113,7 +1130,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
         const exists = await this.queryEngine.fetchCardData(seedId);
         return { seedId, exists: !!exists };
       } catch (error) {
-        console.warn(`[NeuralQueue] Error validating seed ${seedId}:`, error);
+        logger.warn(`Error validating seed ${seedId}:`, error);
         return { seedId, exists: false };
       }
     });
@@ -1126,16 +1143,14 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
         this.validationCache.add(seedId);
       } else {
         invalidSeeds.push(seedId);
-        console.warn(`[NeuralQueue] Removing invalid seed: ${seedId}`);
+        logger.warn(`Removing invalid seed: ${seedId}`);
         // 清理相关的遗落块
-        this.missedBlocks.delete(seedId);
-        this.directionMissedBlocks.delete(seedId);
-        this.validationCache.delete(seedId);
+        this.cleanupInvalidSeedState(seedId);
       }
     }
 
     if (invalidSeeds.length > 0) {
-      console.log(`[NeuralQueue] Cleaned up ${invalidSeeds.length} invalid seeds:`, invalidSeeds);
+      logger.info(`Cleaned up ${invalidSeeds.length} invalid seeds:`, invalidSeeds);
       this.seedNodes = validSeeds;
 
       // 持久化更新后的种子集合
@@ -1143,7 +1158,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     }
 
     this.lastValidationTime = now;
-    console.log(`[NeuralQueue] Seed validation completed: ${validSeeds.size} valid, ${invalidSeeds.length} invalid`);
+    logger.info(`Seed validation completed: ${validSeeds.size} valid, ${invalidSeeds.length} invalid`);
   }
 
   /**
@@ -1157,7 +1172,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
     seedsCleaned: number;
     missedBlocksCleaned: number;
   }> {
-    console.log('[NeuralQueue] Starting auto-repair...');
+    logger.info('Starting auto-repair...');
 
     // 1. 验证并清理种子块
     const validSeeds = new Set<string>();
@@ -1179,8 +1194,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
         validSeeds.add(seedId);
       } else {
         seedsCleaned++;
-        this.missedBlocks.delete(seedId);
-        this.directionMissedBlocks.delete(seedId);
+        this.cleanupInvalidSeedState(seedId);
       }
     }
 
@@ -1198,27 +1212,23 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
 
     emptyMissedEntries.forEach(seedId => {
       this.missedBlocks.delete(seedId);
-      const dirMissed = this.directionMissedBlocks.get(seedId as any);
-      if (dirMissed) {
-        this.directionMissedBlocks.delete(seedId as any);
-      }
       missedBlocksCleaned++;
     });
 
     // 3. 如果没有有效种子，尝试使用当前种子
     if (this.seedNodes.size === 0 && this.currentSeedId) {
-      console.warn('[NeuralQueue] No valid seeds found, trying to use current seed');
+      logger.warn('No valid seeds found, trying to use current seed');
       const currentExists = await this.queryEngine.fetchCardData(this.currentSeedId);
       if (currentExists) {
         this.seedNodes.add(this.currentSeedId);
-        console.log('[NeuralQueue] Added current seed as valid seed');
+        logger.info('Added current seed as valid seed');
       }
     }
 
     // 4. 持久化修复后的状态
     this.persistSeedBlocks();
 
-    console.log(`[NeuralQueue] Auto-repair completed: ${seedsCleaned} seeds, ${missedBlocksCleaned} missed block entries`);
+    logger.info(`Auto-repair completed: ${seedsCleaned} seeds, ${missedBlocksCleaned} missed block entries`);
 
     return { seedsCleaned, missedBlocksCleaned };
   }
@@ -1249,9 +1259,9 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
         );
       }
 
-      console.log(`[NeuralQueue] Persisted ${seedArray.length} seed blocks`);
+      logger.info(`Persisted ${seedArray.length} seed blocks`);
     } catch (error) {
-      console.error('[NeuralQueue] Failed to persist seed blocks:', error);
+      logger.error('Failed to persist seed blocks:', error);
     }
   }
 

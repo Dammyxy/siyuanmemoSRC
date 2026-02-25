@@ -42,6 +42,9 @@ import { CardState } from '../../../types/card';
 import { UnifiedStorageManager } from '../../storage/UnifiedStorageManager';
 import { setBlockAttrs } from '../../siyuan/api';
 import { TemplateRegistry } from '../templates/TemplateRegistry';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('XiuyuanRepository');
 
 /**
  * XiuyuanRepository 实现
@@ -141,11 +144,11 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
       // 4. 🔧 立即保存（删除操作需要立即持久化，避免被后续操作覆盖）
       if (cardsToDelete.length > 0) {
-        console.log(`[XiuyuanRepository] Deleted ${cardsToDelete.length} cards, forcing immediate save`);
+        logger.info(`Deleted ${cardsToDelete.length} cards, forcing immediate save`);
         const saveResult = await this.storage.save();
         if (!saveResult.ok) {
           const error = (saveResult as any).error || new Error('Failed to save after deletion');
-          console.error('[XiuyuanRepository] Failed to save after deletion:', error);
+          logger.error('Failed to save after deletion:', error);
           return err(error);
         }
       }
@@ -160,7 +163,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       // 🆕 优先使用 meta 中明确指定的 cardType
       if (meta.cardType) {
         cardType = meta.cardType as 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
-        console.log(`[XiuyuanRepository] Using explicit cardType from meta: ${cardType}`);
+        logger.debug(`Using explicit cardType from meta: ${cardType}`);
       } else {
         const templateID = xiuyuan.getTemplateID().getValue();
         const template = this.templateRegistry.get(templateID);
@@ -168,18 +171,18 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         if (template && template.category === 'basic') {
           // ✅ 基础类模板：默认为 item
           cardType = 'item';
-          console.log(`[XiuyuanRepository] Template ${templateID} is basic category, using cardType: item`);
+          logger.debug(`Template ${templateID} is basic category, using cardType: item`);
         } else if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
           // 列表模版卡：强制为 item
           cardType = 'item';
-          console.log(`[XiuyuanRepository] List template detected, using cardType: item`);
+          logger.debug('List template detected, using cardType: item');
         } else if (this.cardTypeDetectionService && blockIDs.length > 0) {
           // 其他情况：检测类型
           try {
             cardType = await this.cardTypeDetectionService.detectCardType(blockIDs[0].getValue());
-            console.log(`[XiuyuanRepository] Detected cardType: ${cardType} for block ${blockIDs[0].getValue()}`);
+            logger.debug(`Detected cardType: ${cardType} for block ${blockIDs[0].getValue()}`);
           } catch (error) {
-            console.warn('[XiuyuanRepository] Failed to detect cardType, using default "item":', error);
+            logger.warn('Failed to detect cardType, using default "item":', error);
           }
         }
       }
@@ -206,11 +209,11 @@ export class XiuyuanRepository implements IXiuyuanRepository {
             'custom-fsrs-card-type': 'descriptor',  // 描述符卡设置为 descriptor 类型
           });
           
-          console.log(`[XiuyuanRepository] Set descriptor attributes: descriptor=${descriptorBlockId}`);
+          logger.debug(`Set descriptor attributes: descriptor=${descriptorBlockId}`);
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
           if (!errorMsg.includes('未找到') && !errorMsg.includes('not found')) {
-            console.warn('[XiuyuanRepository] Failed to write descriptor attributes:', error);
+            logger.warn('Failed to write descriptor attributes:', error);
           }
         }
       } else if (blockIDs.length > 0) {
@@ -228,10 +231,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           const errorMsg = error instanceof Error ? error.message : String(error);
           if (errorMsg.includes('未找到') || errorMsg.includes('not found')) {
             // 块不存在，这是正常情况（用户可能删除了块）
-            console.debug(`[XiuyuanRepository] Block ${representativeBlockId} not found, skipping attribute write`);
+            logger.debug(`Block ${representativeBlockId} not found, skipping attribute write`);
           } else {
             // 其他错误，记录警告
-            console.warn('[XiuyuanRepository] Failed to write block attributes:', error);
+            logger.warn('Failed to write block attributes:', error);
           }
         }
       }
@@ -247,7 +250,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           } catch (error) {
             const errorMsg = error instanceof Error ? error.message : String(error);
             if (!errorMsg.includes('未找到') && !errorMsg.includes('not found')) {
-              console.warn(`[XiuyuanRepository] Failed to write attributes for child block ${child.id}:`, error);
+              logger.warn(`Failed to write attributes for child block ${child.id}:`, error);
             }
           }
         }
@@ -371,7 +374,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
             'custom-xiuyuan-template': '',
           });
         } catch (error) {
-          console.warn('Failed to clear block attributes:', error);
+          logger.warn('Failed to clear block attributes:', error);
         }
       }
 
@@ -382,7 +385,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           // const cardBlockIds = cards.map(card => card.getId().getValue());
           // await this.plugin.removeRiffCards(cardBlockIds);
         } catch (error) {
-          console.warn('Failed to remove from Riff:', error);
+          logger.warn('Failed to remove from Riff:', error);
         }
       }
 
@@ -462,29 +465,29 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     
     // ✅ 使用 Xiuyuan 实体方法获取代表性块 ID（Domain 层逻辑）
     const blockId = xiuyuan.getRepresentativeBlockId();
-    console.log(`[XiuyuanRepository] Using representative blockId: ${blockId}`);
+    logger.debug(`Using representative blockId: ${blockId}`);
     
     // 🆕 优先使用 meta 中明确指定的 cardType
-    console.log(`[XiuyuanRepository] Checking meta.cardType:`, meta.cardType, 'for blockId:', blockId);
+    logger.debug('Checking meta.cardType:', meta.cardType, 'for blockId:', blockId);
     if (meta.cardType) {
       cardType = meta.cardType as 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
-      console.log(`[XiuyuanRepository] Using explicit cardType from meta: ${cardType}`);
+      logger.debug(`Using explicit cardType from meta: ${cardType}`);
     } else {
       if (template && template.category === 'basic') {
         // ✅ 基础类模板：默认为 item
         cardType = 'item';
-        console.log(`[XiuyuanRepository] Template ${templateID} is basic category, card type: item`);
+        logger.debug(`Template ${templateID} is basic category, card type: item`);
       } else if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
         // 列表模版卡：所有子卡片都是 item 类型
         cardType = 'item';
-        console.log(`[XiuyuanRepository] List template card detected, forcing cardType to 'item'`);
+        logger.debug(`List template card detected, forcing cardType to 'item'`);
       } else if (this.cardTypeDetectionService && blockId) {
         // 其他情况：使用 CardTypeDetectionService 检测
         try {
           cardType = await this.cardTypeDetectionService.detectCardType(blockId);
-          console.log(`[XiuyuanRepository] Detected cardType for ${blockId}: ${cardType}`);
+          logger.debug(`Detected cardType for ${blockId}: ${cardType}`);
         } catch (error) {
-          console.warn(`[XiuyuanRepository] Failed to detect cardType for ${blockId}, using default 'item':`, error);
+          logger.warn(`Failed to detect cardType for ${blockId}, using default 'item':`, error);
         }
       }
     }
@@ -512,7 +515,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     let typeMarker: string | undefined;
     if (template && template.cardRules && template.cardRules[faceIndex]) {
       typeMarker = template.cardRules[faceIndex].typeMarker;
-      console.log(`[XiuyuanRepository] Extracted typeMarker for faceIndex ${faceIndex}: ${typeMarker}`);
+      logger.debug(`Extracted typeMarker for faceIndex ${faceIndex}: ${typeMarker}`);
     }
     
     return {
@@ -588,7 +591,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     const cards = xiuyuan.getCards();
     const cardIds = cards.map(card => card.getId().getValue());
     
-    console.log(`[XiuyuanRepository] toPersistence: Xiuyuan ${xiuyuan.getId().getValue()} has ${cards.length} cards, cardIds:`, cardIds);
+    logger.debug(`toPersistence: Xiuyuan ${xiuyuan.getId().getValue()} has ${cards.length} cards, cardIds:`, cardIds);
     
     return {
       blockIDs: xiuyuan.getBlockIDs().map(b => b.getValue()),
@@ -711,7 +714,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       const priorityResult = Priority.create(priorityValue);
       if (!priorityResult.ok) {
         // 如果优先级无效，使用默认值
-        console.warn('Invalid priority value, using default:', priorityValue);
+        logger.warn('Invalid priority value, using default:', priorityValue);
       }
       const priority = priorityResult.ok ? priorityResult.value : Priority.createDefault();
 
@@ -719,12 +722,12 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       const cardsMap = new Map<CardId, Card>();
       const cardIds = (data.meta?.cardIds as string[]) || [];
       
-      console.log(`[XiuyuanRepository] toDomain: Xiuyuan ${data.id} has ${cardIds.length} cardIds in meta`);
+      logger.debug(`toDomain: Xiuyuan ${data.id} has ${cardIds.length} cardIds in meta`);
       
       for (const cardId of cardIds) {
         const cardDTO = this.storage.getCardDTO(cardId);
         if (!cardDTO) {
-          console.warn(`[XiuyuanRepository] Card DTO not found: ${cardId}`);
+          logger.warn(`Card DTO not found: ${cardId}`);
           continue;
         }
         
@@ -737,7 +740,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         }
       }
       
-      console.log(`[XiuyuanRepository] toDomain: Loaded ${cardsMap.size} cards for Xiuyuan ${data.id}`);
+      logger.debug(`toDomain: Loaded ${cardsMap.size} cards for Xiuyuan ${data.id}`);
 
       // 7. 重建 Xiuyuan
       const xiuyuanProps: XiuyuanProps = {
@@ -770,7 +773,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     // ✅ 只记录事件，不清除
     // 事件的发布和清除由 UseCase 负责
     for (const event of events) {
-      console.log('[XiuyuanRepository] Domain event:', event.getEventName());
+      logger.debug('Domain event:', event.getEventName());
     }
   }
 }

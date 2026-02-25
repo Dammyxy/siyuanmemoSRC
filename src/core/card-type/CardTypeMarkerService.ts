@@ -14,9 +14,12 @@
 
 import type { FSRSCard } from '@/types/card';
 import { CardType } from '@/types/card';
-import type { StorageManager } from '@/core/storage/manager';
+import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
 import * as siyuanApi from '@/core/siyuan/api';
 import { TYPE_MAPPING } from './type-mapping';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('CardTypeMarkerService');
 
 /** 卡片类型标记 */
 export type CardTypeMarker = 'concept' | 'descriptor';
@@ -25,10 +28,10 @@ export type CardTypeMarker = 'concept' | 'descriptor';
  * 卡片类型标记服务
  */
 export class CardTypeMarkerService {
-  private storage: StorageManager;
+  private storage: CardTypeMarkerStoragePort;
   private markerCache: Map<string, CardTypeMarker> = new Map();
 
-  constructor(storage: StorageManager) {
+  constructor(storage: CardTypeMarkerStoragePort) {
     this.storage = storage;
   }
 
@@ -65,7 +68,7 @@ export class CardTypeMarkerService {
     // 5. 更新缓存
     this.markerCache.set(cardId, marker);
 
-    console.log(`[CardTypeMarkerService] Set card type marker: ${cardId} -> ${marker} (type: ${card.type})`);
+    logger.info(`Set card type marker: ${cardId} -> ${marker} (type: ${card.type})`);
   }
 
   /**
@@ -139,7 +142,7 @@ export class CardTypeMarkerService {
     for (const cardId of cardIds) {
       const card = this.storage.getCard(cardId);
       if (!card) {
-        console.warn(`[CardTypeMarkerService] Card not found: ${cardId}`);
+        logger.warn(`Card not found: ${cardId}`);
         continue;
       }
 
@@ -158,7 +161,7 @@ export class CardTypeMarkerService {
     // 3. 批量同步块属性
     await this.batchSyncBlockAttributes(updatedCards);
 
-    console.log(`[CardTypeMarkerService] Batch set marker: ${cardIds.length} cards -> ${marker}`);
+    logger.info(`Batch set marker: ${cardIds.length} cards -> ${marker}`);
   }
 
   /**
@@ -239,8 +242,8 @@ export class CardTypeMarkerService {
     for (const card of allCards) {
       if (!this.validateTypeMapping(card)) {
         const expectedType = this.inferTechnicalType(card.cardTypeMarker!);
-        console.warn(
-          `[CardTypeMarkerService] Fixing inconsistent card: ${card.id} ` +
+        logger.warn(
+          `Fixing inconsistent card: ${card.id} ` +
           `(marker: ${card.cardTypeMarker}, type: ${card.type} -> ${expectedType})`
         );
 
@@ -252,7 +255,7 @@ export class CardTypeMarkerService {
 
     if (fixedCount > 0) {
       await this.storage.saveCards();
-      console.log(`[CardTypeMarkerService] Fixed ${fixedCount} inconsistent cards`);
+      logger.info(`Fixed ${fixedCount} inconsistent cards`);
     }
 
     return fixedCount;
