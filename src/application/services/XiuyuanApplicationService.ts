@@ -45,6 +45,7 @@ import {
   GetAllTemplatesQueryHandler
 } from '../usecases/xiuyuan';
 import { RebindDescriptorConceptUseCase } from '../usecases/xiuyuan/RebindDescriptorConceptUseCase';
+import type { XiuyuanCreationPayload } from '../usecases/xiuyuan/shared/FinalizeXiuyuanCreation';
 
 /**
  * Xiuyuan 应用服务
@@ -108,7 +109,7 @@ export class XiuyuanApplicationService {
    * 从块创建 Xiuyuan
    * 
    * @param command - 创建命令
-   * @returns Result<any> - 成功返回创建的 Xiuyuan 和卡片,失败返回错误
+   * @returns Result<XiuyuanCreationPayload> - 成功返回创建的 Xiuyuan 和卡片,失败返回错误
    * 
    * @example
    * ```typescript
@@ -128,7 +129,7 @@ export class XiuyuanApplicationService {
    * }
    * ```
    */
-  async createFromBlocks(command: CreateXiuyuanFromBlocksCommand): Promise<Result<any>> {
+  async createFromBlocks(command: CreateXiuyuanFromBlocksCommand): Promise<Result<XiuyuanCreationPayload>> {
     return this.createXiuyuanFromBlocksUseCase.execute(command);
   }
 
@@ -257,7 +258,7 @@ export class XiuyuanApplicationService {
    * 创建列表模板卡片
    * 
    * @param command - 创建命令
-   * @returns Result<any> - 成功返回创建的 Xiuyuan 和卡片,失败返回错误
+   * @returns Result<XiuyuanCreationPayload> - 成功返回创建的 Xiuyuan 和卡片,失败返回错误
    * 
    * @description
    * 列表模板的特点：
@@ -289,7 +290,7 @@ export class XiuyuanApplicationService {
    * }
    * ```
    */
-  async createListTemplateCards(command: CreateListTemplateCardsCommand): Promise<Result<any>> {
+  async createListTemplateCards(command: CreateListTemplateCardsCommand): Promise<Result<XiuyuanCreationPayload>> {
     return this.createListTemplateCardsUseCase.execute(command);
   }
 

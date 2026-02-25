@@ -101,22 +101,22 @@ watchEffect(() => {
   console.log('[SiYuanMemo][BrowserHierarchy] 🔍 watchEffect triggered:', {
     cardsCount: cards.length,
     focusedIds,
-    sampleCards: cards.slice(0, 3).map(c => ({ blockId: c.blockId, rootId: (c as any)?.rootId })),
+    sampleCards: cards.slice(0, 3).map(c => ({ blockId: c.blockId, rootId: c.rootId })),
   });
   
   const filteredCards = focusedIds
-    ? cards.filter(c => focusedIds.includes((c as any)?.rootId || ''))
+    ? cards.filter(c => focusedIds.includes(c.rootId || ''))
     : cards;
   
   console.log('[SiYuanMemo][BrowserHierarchy] 🔍 After filtering:', {
     filteredCardsCount: filteredCards.length,
-    sampleFiltered: filteredCards.slice(0, 3).map(c => ({ blockId: c.blockId, rootId: (c as any)?.rootId })),
+    sampleFiltered: filteredCards.slice(0, 3).map(c => ({ blockId: c.blockId, rootId: c.rootId })),
   });
 
   // 计算文档统计
   const counts = new Map<string, number>();
   for (const c of filteredCards) {
-    const rid = String((c as any)?.rootId || '');
+    const rid = String(c.rootId || '');
     if (!rid) continue;
     counts.set(rid, (counts.get(rid) || 0) + 1);
   }

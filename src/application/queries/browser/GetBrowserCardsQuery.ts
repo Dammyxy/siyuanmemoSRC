@@ -69,8 +69,11 @@ export interface BrowserCard {
 export type PresetFilter = 
   | 'all'        // 所有卡片
   | 'due'        // 到期卡片
+  | 'overdue'    // 过期卡片
+  | 'leech'      // 难卡
   | 'new'        // 新卡片
   | 'learning'   // 学习中
+  | 'current-doc' // 当前文档
   | 'review'     // 复习中
   | 'suspended'; // 已暂停
 

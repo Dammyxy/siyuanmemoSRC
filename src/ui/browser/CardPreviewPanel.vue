@@ -56,8 +56,8 @@ interface Props {
   breadcrumbs: IBreadcrumbItem[];
   previewSize: number;
   mode?: 'dialog' | 'tab' | 'dock';
-  plugin?: any;
-  app?: any;
+  plugin?: unknown;
+  app?: unknown;
   i18n?: Record<string, string>;
 }
 

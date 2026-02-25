@@ -156,7 +156,7 @@ export class FilterService {
                 return null;
             }
 
-            const parsed = JSON.parse(stored);
+            const parsed = JSON.parse(stored) as Record<string, unknown>;
             const filter = this.deserializeFilter(parsed);
             console.log('[FilterService] Filter loaded:', filter);
             return filter;
@@ -197,8 +197,8 @@ export class FilterService {
                 return [];
             }
 
-            const parsed = JSON.parse(stored);
-            const presets = parsed.map((p: any) => ({
+            const parsed = JSON.parse(stored) as Array<{ name: string; filter: Record<string, unknown> }>;
+            const presets = parsed.map((p) => ({
                 name: p.name,
                 filter: this.deserializeFilter(p.filter),
             }));
@@ -632,31 +632,30 @@ export class FilterService {
     /**
      * 序列化过滤条件（用于存储）
      */
-    private serializeFilter(filter: CardFilter): any {
-        const serialized: any = {};
+    private serializeFilter(filter: CardFilter): Record<string, unknown> {
+        const serialized: Record<string, unknown> = {};
+        const source = filter as Record<string, unknown>;
 
-        // 复制所有字段
-        Object.keys(filter).forEach(key => {
-            const value = (filter as any)[key];
-            
-            // 处理日期对象
+        for (const key of Object.keys(source)) {
+            const value = source[key];
+
             if (value && typeof value === 'object') {
-                const hasGte = value.gte instanceof Date;
-                const hasLte = value.lte instanceof Date;
-                
+                const dateRangeValue = value as { gte?: unknown; lte?: unknown };
+                const hasGte = dateRangeValue.gte instanceof Date;
+                const hasLte = dateRangeValue.lte instanceof Date;
+
                 if (hasGte || hasLte) {
                     serialized[key] = {
-                        ...value,
-                        ...(hasGte ? { gte: value.gte.toISOString() } : {}),
-                        ...(hasLte ? { lte: value.lte.toISOString() } : {}),
+                        ...dateRangeValue,
+                        ...(hasGte ? { gte: dateRangeValue.gte.toISOString() } : {}),
+                        ...(hasLte ? { lte: dateRangeValue.lte.toISOString() } : {}),
                     };
-                } else {
-                    serialized[key] = value;
+                    continue;
                 }
-            } else {
-                serialized[key] = value;
             }
-        });
+
+            serialized[key] = value;
+        }
 
         return serialized;
     }
@@ -664,31 +663,30 @@ export class FilterService {
     /**
      * 反序列化过滤条件（从存储加载）
      */
-    private deserializeFilter(serialized: any): CardFilter {
+    private deserializeFilter(serialized: Record<string, unknown>): CardFilter {
         const filter: CardFilter = {};
+        const target = filter as Record<string, unknown>;
 
-        // 复制所有字段
-        Object.keys(serialized).forEach(key => {
+        for (const key of Object.keys(serialized)) {
             const value = serialized[key];
-            
-            // 处理日期字符串
+
             if (value && typeof value === 'object') {
-                const hasGte = typeof value.gte === 'string';
-                const hasLte = typeof value.lte === 'string';
-                
+                const dateRangeValue = value as { gte?: unknown; lte?: unknown };
+                const hasGte = typeof dateRangeValue.gte === 'string';
+                const hasLte = typeof dateRangeValue.lte === 'string';
+
                 if (hasGte || hasLte) {
-                    filter[key as keyof CardFilter] = {
-                        ...value,
-                        ...(hasGte ? { gte: new Date(value.gte) } : {}),
-                        ...(hasLte ? { lte: new Date(value.lte) } : {}),
-                    } as any;
-                } else {
-                    filter[key as keyof CardFilter] = value;
+                    target[key] = {
+                        ...dateRangeValue,
+                        ...(hasGte ? { gte: new Date(dateRangeValue.gte) } : {}),
+                        ...(hasLte ? { lte: new Date(dateRangeValue.lte) } : {}),
+                    };
+                    continue;
                 }
-            } else {
-                filter[key as keyof CardFilter] = value;
             }
-        });
+
+            target[key] = value;
+        }
 
         return filter;
     }

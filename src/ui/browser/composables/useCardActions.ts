@@ -8,6 +8,7 @@ import { invalidateCardCache, setBrowserCardType } from '../browserService';
 import type { BrowserCard } from '../types';
 import { CardTypeMarkerService } from '@/core/card-type/CardTypeMarkerService';
 import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
+import { CardType } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('useCardActions');
@@ -19,14 +20,32 @@ export interface UseCardActionsOptions {
   t: (key: string, fallback: string) => string;
   pushMsg: (msg: string, duration?: number) => Promise<void>;
   pushErrMsg: (msg: string, duration?: number) => Promise<void>;
-  storage: CardTypeMarkerStoragePort;  // 添加 storage 依赖
+  storage?: CardTypeMarkerStoragePort | null;  // 添加 storage 依赖
+}
+
+type BrowserMenuItem = {
+  icon?: string;
+  label?: string;
+  click?: () => void;
+  type?: 'separator';
+  submenu?: BrowserMenuItem[];
+};
+
+function errorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+  return fallback;
 }
 
 export function useCardActions(options: UseCardActionsOptions) {
   const { loading, loadData, refreshData, t, pushMsg, pushErrMsg, storage } = options;
 
   // 初始化 CardTypeMarkerService
-  const cardTypeMarkerService = new CardTypeMarkerService(storage);
+  const cardTypeMarkerService = storage ? new CardTypeMarkerService(storage) : null;
 
   /**
    * 标记卡片为 Topic
@@ -50,7 +69,7 @@ export function useCardActions(options: UseCardActionsOptions) {
           if (cardId) {
             const fsrsCard = storage.getCard(cardId);
             if (fsrsCard) {
-              fsrsCard.type = 'topic' as any;
+              fsrsCard.type = CardType.Topic;
               storage.setCard(fsrsCard);
               logger.debug(`Updated card type in storage: ${cardId} -> topic`);
             }
@@ -63,9 +82,9 @@ export function useCardActions(options: UseCardActionsOptions) {
 
       invalidateCardCache();
       await loadData();
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error('Failed to mark cards as Topic:', err);
-      await pushErrMsg(`标记失败：${err?.message || '未知错误'}`, 3000);
+      await pushErrMsg(`标记失败：${errorMessage(err, '未知错误')}`, 3000);
     }
   }
 
@@ -91,7 +110,7 @@ export function useCardActions(options: UseCardActionsOptions) {
           if (cardId) {
             const fsrsCard = storage.getCard(cardId);
             if (fsrsCard) {
-              fsrsCard.type = 'item' as any;
+              fsrsCard.type = CardType.Item;
               storage.setCard(fsrsCard);
               logger.debug(`Updated card type in storage: ${cardId} -> item`);
             }
@@ -104,9 +123,9 @@ export function useCardActions(options: UseCardActionsOptions) {
 
       invalidateCardCache();
       await loadData();
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error('Failed to mark cards as Item:', err);
-      await pushErrMsg(`标记失败：${err?.message || '未知错误'}`, 3000);
+      await pushErrMsg(`标记失败：${errorMessage(err, '未知错误')}`, 3000);
     }
   }
 
@@ -174,9 +193,9 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
 
       invalidateCardCache();
       await refreshData(true, true);
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error('Migration failed:', err);
-      pushErrMsg(`识别失败：${err?.message || '未知错误'}`, 3000);
+      pushErrMsg(`识别失败：${errorMessage(err, '未知错误')}`, 3000);
     } finally {
       loading.value = false;
     }
@@ -208,6 +227,10 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
     logger.info(`Marking ${cardIds.length} cards as Concept:`, cardIds);
 
     try {
+      if (!cardTypeMarkerService) {
+        await pushErrMsg('存储服务未初始化，无法标记概念卡', 3000);
+        return;
+      }
       // 使用 CardTypeMarkerService 批量设置
       await cardTypeMarkerService.batchSetMarker(cardIds, 'concept');
 
@@ -219,9 +242,9 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
 
       invalidateCardCache();
       await loadData();
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error('Failed to mark cards as Concept:', err);
-      await pushErrMsg(`标记失败：${err?.message || '未知错误'}`, 3000);
+      await pushErrMsg(`标记失败：${errorMessage(err, '未知错误')}`, 3000);
     }
   }
 
@@ -251,6 +274,10 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
     logger.info(`Marking ${cardIds.length} cards as Descriptor:`, cardIds);
 
     try {
+      if (!cardTypeMarkerService) {
+        await pushErrMsg('存储服务未初始化，无法标记描述符卡', 3000);
+        return;
+      }
       // 使用 CardTypeMarkerService 批量设置
       await cardTypeMarkerService.batchSetMarker(cardIds, 'descriptor');
 
@@ -262,16 +289,16 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
 
       invalidateCardCache();
       await loadData();
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error('Failed to mark cards as Descriptor:', err);
-      await pushErrMsg(`标记失败：${err?.message || '未知错误'}`, 3000);
+      await pushErrMsg(`标记失败：${errorMessage(err, '未知错误')}`, 3000);
     }
   }
 
   /**
    * 构建卡片类型子菜单
    */
-  function buildCardTypeSubmenu(selected: BrowserCard[]): any[] {
+  function buildCardTypeSubmenu(selected: BrowserCard[]): BrowserMenuItem[] {
     return [
       {
         icon: 'iconFile',

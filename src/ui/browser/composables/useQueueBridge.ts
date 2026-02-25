@@ -26,6 +26,21 @@ const FALLBACK_QUEUE_TYPE_MAP: Record<string, QueueType> = {
   neural: QueueType.NeuralRoam,
 };
 
+type FilterGroupQueueBridge = IReviewQueue & {
+  setFilter: (filter: CardFilter) => Promise<void>;
+  rebuild: () => Promise<void>;
+};
+
+function hasSetFilter(queue: IReviewQueue | null): queue is FilterGroupQueueBridge {
+  const candidate = queue as Partial<FilterGroupQueueBridge> | null;
+  return Boolean(candidate && typeof candidate.setFilter === 'function');
+}
+
+function hasRebuild(queue: IReviewQueue | null): queue is FilterGroupQueueBridge {
+  const candidate = queue as Partial<FilterGroupQueueBridge> | null;
+  return Boolean(candidate && typeof candidate.rebuild === 'function');
+}
+
 export function useQueueBridge(options: UseQueueBridgeOptions) {
   const isDevMode = Boolean(options.isDevMode);
   const logger = createLogger('QueueBridge');
@@ -138,8 +153,8 @@ export function useQueueBridge(options: UseQueueBridgeOptions) {
     const fromService = await service?.setFilterGroupFilter?.(filter);
     if (fromService) return true;
 
-    const queue = getQueueById('filter-group') as any;
-    if (!queue || typeof queue.setFilter !== 'function') return false;
+    const queue = getQueueById('filter-group');
+    if (!hasSetFilter(queue)) return false;
 
     await queue.setFilter(filter);
     return true;
@@ -150,8 +165,8 @@ export function useQueueBridge(options: UseQueueBridgeOptions) {
     const fromService = await service?.rebuildFilterGroupQueue?.();
     if (fromService) return true;
 
-    const queue = getQueueById('filter-group') as any;
-    if (!queue || typeof queue.rebuild !== 'function') return false;
+    const queue = getQueueById('filter-group');
+    if (!hasRebuild(queue)) return false;
 
     await queue.rebuild();
     return true;

@@ -6,6 +6,16 @@
 
 import type { BrowserCard } from '../types';
 
+type BlockIdCarrier = {
+  blockID?: unknown;
+  blockId?: unknown;
+  block_id?: unknown;
+};
+
+function isObjectLike(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 /**
  * 获取卡片的显示名称
  */
@@ -214,8 +224,8 @@ export function sortCards(cards: BrowserCard[], config: SortConfig): BrowserCard
   const multiplier = order === 'asc' ? 1 : -1;
 
   return [...cards].sort((a, b) => {
-    let aVal: any;
-    let bVal: any;
+    let aVal = 0;
+    let bVal = 0;
 
     switch (field) {
       case 'priority':
@@ -307,13 +317,17 @@ export function deduplicateCards(cards: BrowserCard[]): BrowserCard[] {
 /**
  * 提取 blockId（兼容多种字段名）
  */
-export function extractBlockId(item: any): string {
-  return String(item?.blockID || item?.blockId || item?.block_id || '');
+export function extractBlockId(item: unknown): string {
+  if (!isObjectLike(item)) {
+    return '';
+  }
+  const candidate = item as BlockIdCarrier;
+  return String(candidate.blockID || candidate.blockId || candidate.block_id || '');
 }
 
 /**
  * 批量提取 blockIds
  */
-export function extractBlockIds(items: any[]): string[] {
+export function extractBlockIds(items: unknown[]): string[] {
   return items.map(extractBlockId).filter(Boolean);
 }

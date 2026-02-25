@@ -64,13 +64,14 @@ export class ConfigManager {
         type: 'postpone' | 'advance' | 'spread'
     ): Promise<void> {
         const configs = await this.loadAllConfigs();
-        
-        // 确保配置类型对象存在
-        if (!configs[type]) {
-            configs[type] = {} as any;
+
+        if (type === 'postpone') {
+            configs.postpone[name] = config as PostponeConfig;
+        } else if (type === 'advance') {
+            configs.advance[name] = config as AdvanceConfig;
+        } else {
+            configs.spread[name] = config as SpreadConfig;
         }
-        
-        configs[type][name] = config as any;
         await this.saveAllConfigs(configs);
     }
     
@@ -100,6 +101,14 @@ export class ConfigManager {
         const configs = await this.loadAllConfigs();
         delete configs[type][name];
         await this.saveAllConfigs(configs);
+    }
+
+    /**
+     * 列出指定类型的配置名称
+     */
+    async listConfigNames(type: 'postpone' | 'advance' | 'spread'): Promise<string[]> {
+        const configs = await this.loadAllConfigs();
+        return Object.keys(configs[type] || {});
     }
     
     /**

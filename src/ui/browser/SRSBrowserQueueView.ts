@@ -16,6 +16,15 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SRSBrowserQueueView');
 
+type FilterGroupQueueLike = {
+    setFilter: (filter: CardFilter) => Promise<void>;
+};
+
+function hasSetFilter(queue: unknown): queue is FilterGroupQueueLike {
+    const candidate = queue as Partial<FilterGroupQueueLike>;
+    return typeof candidate?.setFilter === 'function';
+}
+
 /**
  * SRS 浏览器队列视图
  * 
@@ -255,8 +264,8 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
             const queue = this.manager.getQueue(this.currentQueueType);
             
             // 设置过滤条件（假设 FilterGroupQueue 有 setFilter 方法）
-            if ('setFilter' in queue && typeof (queue as any).setFilter === 'function') {
-                await (queue as any).setFilter(filter);
+            if (hasSetFilter(queue)) {
+                await queue.setFilter(filter);
             }
             
             // 刷新队列显示
@@ -293,8 +302,8 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
             const queue = this.manager.getQueue(this.currentQueueType);
             
             // 清除过滤条件
-            if ('setFilter' in queue && typeof (queue as any).setFilter === 'function') {
-                await (queue as any).setFilter({});
+            if (hasSetFilter(queue)) {
+                await queue.setFilter({});
             }
             
             // 刷新队列显示

@@ -14,17 +14,14 @@ import { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
 import { Card } from '@/core/xiuyuan/domain/Card';
 import { ok, err } from '@/types/result';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
-
-// Mock getBlockText
-vi.mock('@/core/siyuan/block', () => ({
-  getBlockText: vi.fn(() => Promise.resolve('Mock block content')),
-}));
+import type { CardCreationSiyuanPort } from '@/application/ports/CardCreationSiyuanPort';
 
 describe('CreateCardUseCase', () => {
   let useCase: CreateCardUseCase;
   let mockRepo: IXiuyuanRepository;
   let cardCreationService: CardCreationService;
   let mockEventBus: EventBus;
+  let mockSiyuanApi: CardCreationSiyuanPort;
 
   beforeEach(() => {
     // 创建 mock repository
@@ -47,10 +44,16 @@ describe('CreateCardUseCase', () => {
       publish: vi.fn().mockResolvedValue(undefined),
       subscribe: vi.fn(),
       unsubscribe: vi.fn(),
-    } as any;
+    } as unknown as EventBus;
+
+    mockSiyuanApi = {
+      getBlockText: vi.fn().mockResolvedValue('Mock block content'),
+    };
 
     // 创建用例
-    useCase = new CreateCardUseCase(mockRepo, cardCreationService, mockEventBus);
+    useCase = new CreateCardUseCase(mockRepo, cardCreationService, mockEventBus, {
+      siyuanApi: mockSiyuanApi,
+    });
   });
 
   describe('execute', () => {
@@ -118,7 +121,7 @@ describe('CreateCardUseCase', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         const savedXiuyuan = vi.mocked(mockRepo.save).mock.calls[0][0];
-        expect(savedXiuyuan.getPriority().getValue()).toBe(5); // 默认优先级
+        expect(savedXiuyuan.getPriority().getValue()).toBe(50); // 默认优先级
       }
     });
 

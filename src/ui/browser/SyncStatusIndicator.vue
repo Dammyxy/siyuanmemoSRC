@@ -65,14 +65,33 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
-import type { SyncStatus, SyncResult } from '@/application/services/XiuyuanSyncService';
+import type {
+  SyncStatus,
+  SyncResult,
+  SyncProgress,
+  HybridSyncEvents,
+} from '@/application/services/XiuyuanSyncService.types';
+
+type SyncStatusSnapshot = {
+  status: SyncStatus;
+  lastSyncTime: number;
+  lastFullSyncTime: number;
+};
+
+type SyncServiceLike = {
+  getSyncStatus: () => SyncStatusSnapshot;
+  incrementalSync: (onProgress?: (progress: SyncProgress) => void) => Promise<SyncResult>;
+  fullSync: (onProgress?: (progress: SyncProgress) => void) => Promise<SyncResult>;
+  on: <K extends keyof HybridSyncEvents>(eventName: K, handler: (data: HybridSyncEvents[K]) => void) => void;
+  off: <K extends keyof HybridSyncEvents>(eventName: K, handler: (data: HybridSyncEvents[K]) => void) => void;
+};
 
 // Props
 const props = defineProps<{
   /** 国际化字典 */
   i18n?: Record<string, string>;
   /** HybridSyncService 实例（如果在高阶模式下） */
-  syncService?: any;
+  syncService?: SyncServiceLike;
   /** 是否显示指示器（仅在高阶模式下显示） */
   show?: boolean;
 }>();
@@ -94,7 +113,7 @@ const progress = ref<string>('');
 
 // Computed
 const showIndicator = computed(() => {
-  return props.show && props.syncService;
+  return Boolean(props.show && props.syncService);
 });
 
 // 国际化
@@ -151,7 +170,7 @@ async function handleManualSync() {
   
   try {
     // 使用进度回调
-    await props.syncService.incrementalSync((progressData: any) => {
+    await props.syncService.incrementalSync((progressData: SyncProgress) => {
       progress.value = `${progressData.percentage}%`;
     });
     
@@ -169,7 +188,7 @@ async function handleFullSync() {
   
   try {
     // 使用进度回调
-    await props.syncService.fullSync((progressData: any) => {
+    await props.syncService.fullSync((progressData: SyncProgress) => {
       progress.value = `${progressData.percentage}%`;
     });
     
@@ -196,14 +215,14 @@ onMounted(() => {
   updateSyncStatus();
   
   // 🆕 监听同步事件
-  const onSyncStart = (data: any) => {
+  const onSyncStart = (data: HybridSyncEvents['syncStart']) => {
     console.log('[SiYuanMemo][SyncStatusIndicator] Sync started:', data.type);
     syncStatus.value = 'syncing';
     progress.value = '';
     errorMessage.value = '';
   };
   
-  const onSyncSuccess = (data: any) => {
+  const onSyncSuccess = (data: HybridSyncEvents['syncSuccess']) => {
     console.log('[SiYuanMemo][SyncStatusIndicator] Sync success:', data);
     syncStatus.value = 'success';
     lastResult.value = data.result;
@@ -217,7 +236,7 @@ onMounted(() => {
     }
   };
   
-  const onSyncError = (data: any) => {
+  const onSyncError = (data: HybridSyncEvents['syncError']) => {
     console.error('[SiYuanMemo][SyncStatusIndicator] Sync error:', data);
     if (!data.willRetry) {
       syncStatus.value = 'error';
@@ -226,7 +245,7 @@ onMounted(() => {
     }
   };
   
-  const onSyncProgress = (data: any) => {
+  const onSyncProgress = (data: HybridSyncEvents['syncProgress']) => {
     progress.value = `${data.progress.percentage}%`;
   };
   

@@ -5,10 +5,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import SyncStatusIndicator from '../SyncStatusIndicator.vue';
-import type { SyncStatus, SyncResult } from '@/application/services/XiuyuanSyncService';
+import type { SyncStatus, SyncResult } from '@/application/services/XiuyuanSyncService.types';
+
+type MockSyncService = {
+  getSyncStatus: ReturnType<typeof vi.fn>;
+  incrementalSync: ReturnType<typeof vi.fn>;
+  fullSync: ReturnType<typeof vi.fn>;
+  on: ReturnType<typeof vi.fn>;
+  off: ReturnType<typeof vi.fn>;
+};
 
 describe('SyncStatusIndicator', () => {
-  let mockSyncService: any;
+  let mockSyncService: MockSyncService;
 
   beforeEach(() => {
     // 创建模拟的 HybridSyncService
@@ -31,6 +39,8 @@ describe('SyncStatusIndicator', () => {
         skippedCount: 0,
         blacklistCleanedCount: 1,
       } as SyncResult)),
+      on: vi.fn(),
+      off: vi.fn(),
     };
   });
 

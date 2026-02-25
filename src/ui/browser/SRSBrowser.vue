@@ -146,14 +146,22 @@ import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
 // AG Grid v35+ 使用 Theming API，无需引入 CSS 主题文件
 // 自定义主题通过 CSS 变量实现（见 SRSBrowser.scss）
 import './SRSBrowser.scss';
-import type { GridApi, ColDef, CellContextMenuEvent } from 'ag-grid-community';
-import { type RowSelectionOptions } from 'ag-grid-community';
+import type {
+  GridApi,
+  ColDef,
+  CellContextMenuEvent,
+  ColumnState,
+  DisplayedColumnsChangedEvent,
+  GridReadyEvent,
+  RowClickedEvent,
+  RowDoubleClickedEvent,
+  RowSelectionOptions,
+  SortChangedEvent,
+} from 'ag-grid-community';
 import { openTab, Menu, Protyle, type App } from 'siyuan';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
 import {
   parseQuery,
-  loadCards,
-  loadQueueCards,
   loadQueueCardsSimple,
   setGlobalBrowserContext,
   clearGlobalBrowserContext,
@@ -166,7 +174,7 @@ import {
 import { PerformanceMonitor } from '@/utils/performance';
 import { type BrowserCard, CardState } from './types';
 import { migrateExistingCards, checkMigrationNeeded } from '@/scripts/migrateToTopicItem';
-import type { ICardDataSource } from './datasource/types';
+import type { ICardDataSource, SortModel } from './datasource/types';
 import { FinalDrillDataSource } from './datasource/FinalDrillDataSource';
 import { FilterGroupDataSource } from './datasource/FilterGroupDataSource';
 import { RetrievalDataSource } from './datasource/RetrievalDataSource';
@@ -186,9 +194,10 @@ import RescheduleResultDialog from './dialogs/RescheduleResultDialog.vue';
 import SyncStatusIndicator from '../components/SyncStatusIndicator.vue';  // 🆕 导入同步状态指示器
 import { useCardTypeDetection } from './composables/useCardTypeDetection';
 import { ConfigManager } from '@/core/scheduler/ConfigManager';
+import type { RescheduleStoragePort } from '@/core/scheduler/ports';
 // ✅ 导入配置模块
 import { createColumnDefs } from './config';
-import type { CardFilter } from '@/types/unified-data-source';
+import type { CardFilter, IReviewQueue, IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import { filterService } from './services/FilterService';
 import { 
   CARD_STATE_COLORS, 
@@ -216,29 +225,58 @@ import { useQueueBridge, EMPTY_QUEUE_COUNTS } from './composables/useQueueBridge
 import { useIncrementalGridUpdates } from './composables/useIncrementalGridUpdates';
 import { useBrowserAdapterSync } from './composables/useBrowserAdapterSync';
 import { createLogger } from '@/utils/logger';
+import type { IBrowserApplicationService } from '@/application/interfaces/IBrowserApplicationService';
+import type { PresetFilter } from '@/application/queries/browser/GetBrowserCardsQuery';
+import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
+import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
+import type { SortField, SortOrder } from '@/core/card/domain/services/CardSortService';
+import type { FSRSCard } from '@/types/card';
+import type { WsSyncEvent } from '@/application/services/XiuyuanSyncService.types';
 
 // 注册 AG-Grid 模块
 ModuleRegistry.registerModules([AllCommunityModule]);
 const logger = createLogger('SRSBrowser');
 
 // Props
+type BrowserStoragePort = CardTypeMarkerStoragePort &
+  RescheduleStoragePort & {
+    getSettings?: () => { riffIntegration?: unknown } | undefined;
+  };
+
+type BrowserPluginContext = {
+  getBrowserService?: () => IBrowserApplicationService | null;
+  getStorage?: () => BrowserStoragePort | null;
+  getUnifiedDataSourceManager?: () => IUnifiedDataSourceManagerFacade | null;
+  getHybridSyncService?: () => unknown;
+  getDialogManager?: () => unknown;
+};
+
+type BrowserPluginPort = IPluginFacade & {
+  getContext?: () => BrowserPluginContext | null;
+};
+
+type BrowserTabManagerPort = {
+  openDocumentTab: (blockId: string) => void;
+};
+
+type BrowserTabApplicationServicePort = {
+  openDocumentTab: (params: { docId: string }) => Promise<void> | void;
+};
+
 const props = defineProps<{
   app?: App;
   i18n?: Record<string, string>;
   currentDocId?: string;
   mode?: 'dialog' | 'tab' | 'dock';
-  plugin?: any;
-  browserService?: any;  // ✅ DDD 架构：浏览器应用服务
-  tabManager?: any;      // ⚠️ 已废弃，使用 tabApplicationService
-  tabApplicationService?: any;  // ✅ Phase 9: Tab 应用服务
+  plugin?: BrowserPluginPort;
+  browserService?: IBrowserApplicationService;  // ✅ DDD 架构：浏览器应用服务
+  tabManager?: BrowserTabManagerPort;      // ⚠️ 已废弃，使用 tabApplicationService
+  tabApplicationService?: BrowserTabApplicationServicePort;  // ✅ Phase 9: Tab 应用服务
 }>();
 
 const mode = computed(() => props.mode || 'dialog');
 
-const pluginContext = computed(() => {
-  const plugin = props.plugin as any;
-  return plugin?.getContext?.();
-});
+const pluginContext = computed(() => props.plugin?.getContext?.() || null);
 
 const browserAppServiceRef = computed(
   () => props.browserService || pluginContext.value?.getBrowserService?.()
@@ -279,14 +317,14 @@ const loading = ref(false);
 const rows = ref<BrowserCard[]>([]);
 const allRows = ref<BrowserCard[]>([]);  // ✅ 所有卡片的完整数据（不受筛选影响，用于【全部】区统计）
 const currentDataSource = ref<ICardDataSource | null>(null);
-const currentPreset = ref('all');
+const currentPreset = ref<PresetFilter>('all');
 const currentCardType = ref<CardTypeFilter>('all');  // ✅ 卡片类型筛选
 const selectedRows = ref<BrowserCard[]>([]);
 const gridApi = ref<GridApi | null>(null);
-const currentSortModel = ref<any[]>([]);
+const currentSortModel = ref<SortModel[]>([]);
 // ✅ 排序字段和顺序（用于 browserService.getBrowserCards）
-const currentSortField = ref<string>('due');
-const currentSortOrder = ref<'asc' | 'desc'>('asc');
+const currentSortField = ref<SortField>('due');
+const currentSortOrder = ref<SortOrder>('asc');
 const searchQuery = ref('');
 const viewMode = ref<'flat' | 'hierarchy'>('hierarchy');  // ✅ 默认使用层级视图
 const activeQueueId = ref<string | null>(null);
@@ -424,12 +462,12 @@ const rowsForFocus = ref<BrowserCard[]>([]);
 const scopedRows = computed(() => {
   // 处理丢失闪卡
   if (activeDocId.value === '__lost__') {
-    return rows.value.filter((c) => !String((c as any)?.rootId || ''));
+    return rows.value.filter((c) => !String(c.rootId || ''));
   }
   
   // ✅ 处理文档筛选（队列模式和非队列模式都适用）
   if (activeDocId.value) {
-    return rows.value.filter((c) => (c as any)?.rootId === activeDocId.value);
+    return rows.value.filter((c) => c.rootId === activeDocId.value);
   }
   
   return rows.value;
@@ -490,7 +528,7 @@ const globalStats = computed(() => {
   const allCards = allRows.value || [];
   return {
     total: allCards.length,
-    lost: allCards.filter(c => !String((c as any)?.rootId || '')).length,
+    lost: allCards.filter(c => !String(c.rootId || '')).length,
   };
 });
 
@@ -587,9 +625,9 @@ async function loadData(forceRefresh = false) {
           preset: 'all',
           forceRefresh,
           pageSize: 10000,
-        }).then((result: any) => { 
+        }).then((result) => { 
           allRows.value = result.cards; 
-        }).catch((err: any) => {
+        }).catch((err: unknown) => {
           console.error('[SiYuanMemo][SRSBrowser] Failed to load allRows:', err);
         });
       }
@@ -639,12 +677,12 @@ async function loadData(forceRefresh = false) {
         });
         
         const result = await props.browserService.getBrowserCards({
-          preset: currentPreset.value as any,
+          preset: currentPreset.value,
           searchText: searchQuery.value,
           cardTypes: currentCardType.value !== 'all' ? [currentCardType.value.replace('-only', '')] : undefined,
           // docId: activeDocId.value || undefined,  // ❌ 不传递 docId
-          sortBy: currentSortField.value as any,
-          sortOrder: currentSortOrder.value as any,
+          sortBy: currentSortField.value,
+          sortOrder: currentSortOrder.value,
           forceRefresh,
           pageSize: 10000,  // 获取所有卡片
         });
@@ -736,10 +774,8 @@ async function executeFetchRows(forceRefresh = false) {
       }
     });
   } else {
-    // 回退到旧的实现
-    allRows.value = await PerformanceMonitor.measure('loadAllCards', () => 
-      loadCards('all', undefined, '', forceRefresh, 'all', props.plugin)
-    );
+    console.error('[SiYuanMemo][SRSBrowser] browserService is required for loadAllCards');
+    allRows.value = [];
   }
 
   // ✅ 四重筛选：如果开启了聚焦，额外获取不包含文档筛选的数据
@@ -898,13 +934,13 @@ const gridOptions = {
 };
 
 // Grid 事件
-function onGridReady(params: any) {
+function onGridReady(params: GridReadyEvent<BrowserCard>) {
   gridApi.value = params.api;
   // 使用 gridApi.value 获取列信息（使用 nextTick 确保初始化完成）
   nextTick(() => {
     if (gridApi.value) {
       const columns = gridApi.value.getColumns?.();
-      console.log('[SiYuanMemo][CardBrowser] AG-Grid ready, columns:', columns?.map((c: any) => ({
+      console.log('[SiYuanMemo][CardBrowser] AG-Grid ready, columns:', columns?.map((c) => ({
         colId: c.getColId(),
         sortable: c.isSortable(),
       })));
@@ -912,13 +948,13 @@ function onGridReady(params: any) {
   });
 }
 
-function onDisplayedColumnsChanged(params: any) {
+function onDisplayedColumnsChanged(_params: DisplayedColumnsChangedEvent<BrowserCard>) {
   console.log('[SiYuanMemo][CardBrowser] Displayed columns changed');
 }
 
-function onSortChanged(params: any) {
-  currentSortModel.value = params?.api?.getSortModel?.() || [];
-  const sortArray = Array.from(currentSortModel.value || []);
+function onSortChanged(params: SortChangedEvent<BrowserCard>) {
+  currentSortModel.value = (params.api?.getSortModel?.() ?? []) as SortModel[];
+  const sortArray = [...currentSortModel.value];
 
   // ✅ 更新 currentSortField 和 currentSortOrder（用于 browserService.getBrowserCards）
   if (sortArray.length > 0) {
@@ -947,7 +983,7 @@ function onSortChanged(params: any) {
     hasGetDisplayedRowCount: typeof api?.getDisplayedRowCount === 'function',
     hasGetColumnState: typeof api?.getColumnState === 'function',
     // 尝试获取当前排序状态（只显示 priority 列）
-    columnState: api?.getColumnState?.()?.filter((c: any) => c.colId === 'priority') || [],
+    columnState: (api?.getColumnState?.() ?? []).filter((c: ColumnState) => c.colId === 'priority'),
   });
 
   // 强制刷新 NO 列以更新行号（使用 colId）
@@ -958,12 +994,12 @@ function onSortChanged(params: any) {
 
 function onSelectionChanged() {
   if (gridApi.value) {
-    selectedRows.value = gridApi.value.getSelectedRows();
+    selectedRows.value = gridApi.value.getSelectedRows() as BrowserCard[];
   }
 }
 
 
-function onRowClicked(event: any) {
+function onRowClicked(event: RowClickedEvent<BrowserCard>) {
   const mouseEvent = event.event as MouseEvent;
   const isMultiSelect = mouseEvent?.shiftKey || mouseEvent?.ctrlKey || mouseEvent?.metaKey;
   
@@ -976,22 +1012,19 @@ function onRowClicked(event: any) {
   previewCard.value = event.data;
 }
 
-function onRowDoubleClicked(event: any) {
+async function onRowDoubleClicked(event: RowDoubleClickedEvent<BrowserCard>) {
   const blockId = event.data?.blockId;
   if (!blockId) {
     console.warn('[SiYuanMemo][CardBrowser] No blockId found in row data:', event.data);
     return;
   }
   
-  // ✅ 优先使用 tabManager（DDD 架构）
-  if (props.tabManager) {
+  if (props.tabApplicationService) {
+    await Promise.resolve(props.tabApplicationService.openDocumentTab({ docId: blockId }));
+  } else if (props.tabManager) {
     props.tabManager.openDocumentTab(blockId);
-  } else if (props.app) {
-    // 回退到旧方法（向后兼容）
-    openTab({
-      app: props.app,
-      doc: { id: blockId },
-    });
+  } else {
+    await pushErrMsg(t('envNotInit', 'Environment not initialized, cannot open tab'));
   }
 }
 
@@ -1087,7 +1120,27 @@ function convertToTab() {
   emit('convertToTab');
 }
 
-type ActionParamBuilder = (targetCards: BrowserCard[]) => Promise<any | null>;
+type BrowserMenuItem = {
+  icon?: string;
+  label?: string;
+  type?: 'separator';
+  click?: () => void;
+  submenu?: BrowserMenuItem[];
+};
+
+type ActionParams = Record<string, unknown>;
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+  return fallback;
+}
+
+type ActionParamBuilder = (targetCards: BrowserCard[]) => Promise<ActionParams | null>;
 
 const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
   postpone: async (cards) => {
@@ -1175,7 +1228,7 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
     });
   },
   'set-priority': async (cards) => {
-    const row = cards?.[0] as any;
+    const row = cards?.[0];
     const p = await openNumberDialog({
       title: t('setPriority', 'Set Priority'),
       label: t('priorityLabel', 'Priority'),
@@ -1194,8 +1247,6 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
     let len = 0;
     if (typeof q?.getSize === 'function') {
       len = Number(await q.getSize()) || 0;
-    } else if (typeof (q as any)?.size === 'function') {
-      len = Number((q as any).size()) || 0;
     } else if (typeof q?.getAllCards === 'function') {
       const cards = await q.getAllCards();
       len = Array.isArray(cards) ? cards.length : 0;
@@ -1260,12 +1311,10 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   if (actionId === 'open') {
     const blockId = String(anchorRow?.blockId || targetCards[0]?.blockId || '');
     if (blockId) {
-      // ✅ 优先使用 tabManager（DDD 架构）
-      if (props.tabManager) {
+      if (props.tabApplicationService) {
+        await Promise.resolve(props.tabApplicationService.openDocumentTab({ docId: blockId }));
+      } else if (props.tabManager) {
         props.tabManager.openDocumentTab(blockId);
-      } else if (props.app) {
-        // 回退到旧方法（向后兼容）
-        openTab({ app: props.app, doc: { id: blockId } });
       } else {
         await pushErrMsg(t('envNotInit', 'Environment not initialized, cannot open tab'));
       }
@@ -1314,10 +1363,26 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   }
 
   try {
-    const res = await (ds.performAction(actionId, targetCards as any, ctx) as any);
+    const res = await ds.performAction(actionId, targetCards, ctx);
     logger.debug('performAction result:', { actionId, res });
-    const updated = Number(typeof res?.updated === 'number' ? res.updated : (res?.updated?.length || 0));
-    const skipped = Number(typeof res?.skipped === 'number' ? res.skipped : (res?.skipped?.length || 0));
+    const result =
+      typeof res === 'object' && res !== null
+        ? (res as { updated?: unknown; skipped?: unknown })
+        : undefined;
+    const updated = Number(
+      typeof result?.updated === 'number'
+        ? result.updated
+        : Array.isArray(result?.updated)
+        ? result.updated.length
+        : 0
+    );
+    const skipped = Number(
+      typeof result?.skipped === 'number'
+        ? result.skipped
+        : Array.isArray(result?.skipped)
+        ? result.skipped.length
+        : 0
+    );
     if (updated <= 0 && skipped > 0) {
       await pushErrMsg(t('batchNoEffect', 'No cards were updated (some cards may be unsynced)'));
       return;
@@ -1356,9 +1421,9 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
     }
     await refreshQueueCounts();
     await pushMsg(t('actionSuccess', 'Success'));
-  } catch (err: any) {
+  } catch (err: unknown) {
     logger.error('action failed:', { actionId, err });
-    await pushErrMsg(err?.message || t('actionFailed', 'Action failed'));
+    await pushErrMsg(getErrorMessage(err, t('actionFailed', 'Action failed')));
   }
 }
 
@@ -1375,7 +1440,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
     rawCount: rawActions.length,
     validCount: actions.length,
     dataSourceType: ds?.constructor?.name,
-    dataSourceId: (ds as any)?.id,
+    dataSourceId: ds?.id,
   });
   
   const menu = new Menu('card-browser-context');
@@ -1383,7 +1448,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   const selected = selectedRows.value?.length ? selectedRows.value : [rowData];
 
   // ========== 添加排序菜单 ==========
-  const sortMenu: any[] = [];
+  const sortMenu: BrowserMenuItem[] = [];
 
   // 添加每个排序字段的子菜单
   for (const field of SORT_FIELD_CONFIGS) {
@@ -1435,7 +1500,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   menu.addItem({ type: 'separator' });
 
   // ========== 卡片类型菜单（Topic/Item + 概念卡/描述符卡）==========
-  const cardTypeMenu: any[] = [
+  const cardTypeMenu: BrowserMenuItem[] = [
     {
       icon: 'iconFile',
       label: t('markAsTopic', 'Mark as Topic'),
@@ -1538,7 +1603,7 @@ function showBatchMenu(event?: MouseEvent) {
 
   for (const action of actions) {
     menu.addItem({
-      icon: (action as any)?.icon || 'iconMore',
+      icon: action.icon || 'iconMore',
       label: getActionLabel({ id: action.id, label: action.label }),
       click: () => void handleAction(action.id, selected, anchorRow),
     });
@@ -1713,7 +1778,7 @@ onMounted(() => {
   const hybridService = hybridSyncService.value;
   if (hybridService) {
     // 监听 wsSync 事件（WebSocket 触发的同步完成）
-    hybridService.on('wsSync', (event: any) => {
+    hybridService.on('wsSync', (event: WsSyncEvent) => {
       console.log('[SiYuanMemo][SRSBrowser] Received wsSync event:', event);
       
       if (event.success) {
@@ -1868,8 +1933,8 @@ function openPracticeMenu(ev: MouseEvent) {
   const pos = rect
     ? { x: rect.left, y: rect.bottom }
     : (() => {
-        const rawX = Number((ev as any)?.clientX);
-        const rawY = Number((ev as any)?.clientY);
+        const rawX = Number(ev?.clientX);
+        const rawY = Number(ev?.clientY);
         if (Number.isFinite(rawX) && Number.isFinite(rawY) && (rawX !== 0 || rawY !== 0)) {
           return { x: rawX, y: rawY };
         }
@@ -1935,7 +2000,7 @@ const {
   t,
   pushMsg: (msg, duration) => pushMsg(msg, duration),
   pushErrMsg: (msg, duration) => pushErrMsg(msg, duration),
-  storage: pluginStorage.value as any,
+  storage: pluginStorage.value,
 });
 
 // ✅ 类型检测
@@ -1946,17 +2011,12 @@ async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {
   const queue = getQueueById(queueId);
   if (!queue) return [];
 
-  let items: any[] = [];
-  if (typeof queue.getAllCards === 'function') {
-    items = await queue.getAllCards();
-  } else if (typeof (queue as any)?.getCards === 'function') {
-    items = await (queue as any).getCards();
-  }
+  const items: FSRSCard[] = await queue.getAllCards();
   if (isDevMode) {
     console.log('[SiYuanMemo][SRSBrowser] loadQueueAllCards:', {
       queueId,
       itemsCount: items.length,
-      items: items.map((it: any) => ({
+      items: items.map((it) => ({
         id: it.id,
         blockId: it.blockId,
         deckId: it.deckId,
@@ -2247,9 +2307,9 @@ async function handleOpenSpreadDialog() {
             // 5. 刷新数据
             await refreshData(true);
             await pushMsg(t('spreadSuccess', '分散操作完成'));
-          } catch (err: any) {
+          } catch (err: unknown) {
             console.error('[SiYuanMemo][SRSBrowser] Spread operation failed:', err);
-            await pushErrMsg(err?.message || t('spreadFailed', '分散操作失败'));
+            await pushErrMsg(getErrorMessage(err, t('spreadFailed', '分散操作失败')));
           }
         },
         cancel: () => {
@@ -2260,9 +2320,9 @@ async function handleOpenSpreadDialog() {
       height: '85vh',  // 🆕 增大默认高度
       responsive: true,  // 🆕 启用响应式
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[SiYuanMemo][SRSBrowser] Failed to open Spread dialog:', err);
-    await pushErrMsg(err?.message || t('openDialogFailed', '打开对话框失败'));
+    await pushErrMsg(getErrorMessage(err, t('openDialogFailed', '打开对话框失败')));
   }
 }
 </script>

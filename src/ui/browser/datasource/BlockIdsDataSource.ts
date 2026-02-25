@@ -113,7 +113,7 @@ export class BlockIdsDataSource implements ICardDataSource {
     actionId: string,
     selectedRows: BrowserCard[],
     context?: BlockIdsActionContext
-  ): Promise<any> {
+  ): Promise<unknown> {
     if (actionId === 'open') {
       return;
     }

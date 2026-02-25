@@ -52,6 +52,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { tFlashcard } from '../utils/i18n';
 
 /**
  * DateRangeFilter 组件
@@ -89,8 +90,7 @@ const emit = defineEmits<Emits>();
 
 // i18n helper
 function t(key: string, fallback: string): string {
-  const i18n = (window as any)?.siyuan?.languages?.flashcard || {};
-  return (i18n as any)?.[key] || fallback;
+  return tFlashcard(key, fallback);
 }
 
 // 生成唯一的字段 ID（用于 aria-describedby）

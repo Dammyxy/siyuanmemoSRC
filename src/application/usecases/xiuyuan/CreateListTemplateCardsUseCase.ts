@@ -44,7 +44,10 @@ import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import { createLogger } from '@/utils/logger';
-import { finalizeXiuyuanCreation } from './shared/FinalizeXiuyuanCreation';
+import {
+  finalizeXiuyuanCreation,
+  type XiuyuanCreationPayload,
+} from './shared/FinalizeXiuyuanCreation';
 
 const logger = createLogger('CreateListTemplateCardsUseCase');
 
@@ -69,6 +72,11 @@ function parseCueAndAnswer(text: string): { cue: string; answer: string } {
 
   return { cue: '', answer: text.trim() };
 }
+
+type ChildContentRow = {
+  id: string;
+  content: string;
+};
 
 /**
  * 鍒涘缓鍒楄〃妯℃澘鍗＄墖鐢ㄤ緥
@@ -96,7 +104,7 @@ export class CreateListTemplateCardsUseCase {
    * 鎵ц鐢ㄤ緥
    * 
    * @param command - 鍒涘缓鍛戒护
-   * @returns Result<any> - 鎴愬姛杩斿洖鍒涘缓鐨?Xiuyuan 鍜屽崱鐗囷紝澶辫触杩斿洖閿欒
+   * @returns Result<XiuyuanCreationPayload> - 成功返回创建的 Xiuyuan 与卡片摘要，失败返回错误
    * 
    * @example
    * ```typescript
@@ -117,7 +125,7 @@ export class CreateListTemplateCardsUseCase {
    * }
    * ```
    */
-  async execute(command: CreateListTemplateCardsCommand): Promise<Result<any>> {
+  async execute(command: CreateListTemplateCardsCommand): Promise<Result<XiuyuanCreationPayload>> {
     try {
       // 1. 妫€鏌ユ槸鍚﹀凡缁忓垱寤鸿繃鍒楄〃妯＄増鍗?
       const attrs = await this.siyuanApi.getBlockAttrs(command.parentBlockId);
@@ -172,7 +180,7 @@ export class CreateListTemplateCardsUseCase {
       }
       
       // 瑙ｆ瀽姣忎釜瀛愬垪琛ㄩ」鐨勬彁绀哄拰绛旀
-      const childrenData = childrenContentResult.map((row: any) => ({
+      const childrenData = (childrenContentResult as ChildContentRow[]).map((row) => ({
         id: row.id,
         cue: parseCueAndAnswer(row.content).cue,
         answer: parseCueAndAnswer(row.content).answer,
@@ -184,20 +192,20 @@ export class CreateListTemplateCardsUseCase {
       const representativeBlockId = command.parentBlockId;
       const xiuyuanIdResult = XiuyuanId.create(`xy_${representativeBlockId}`);
       if (!xiuyuanIdResult.ok) {
-        return xiuyuanIdResult as Result<any>;
+        return err(this.toError(xiuyuanIdResult.error, 'Invalid Xiuyuan ID'));
       }
 
       const allBlockIds = [parentParagraphId, ...command.childBlockIds];
       const blockIdResults = allBlockIds.map(id => BlockId.create(id));
       const failedBlockId = blockIdResults.find(r => !r.ok);
       if (failedBlockId && !failedBlockId.ok) {
-        return failedBlockId as Result<any>;
+        return err(this.toError(failedBlockId.error, 'Invalid block ID'));
       }
-      const blockIds = blockIdResults.map(r => (r as any).value);
+      const blockIds = blockIdResults.map((r) => r.value);
 
       const templateIdResult = TemplateId.create(command.templateId);
       if (!templateIdResult.ok) {
-        return templateIdResult as Result<any>;
+        return err(this.toError(templateIdResult.error, 'Invalid template ID'));
       }
 
       const priorityResult = Priority.create(command.priority || 50);
@@ -215,7 +223,7 @@ export class CreateListTemplateCardsUseCase {
         });
 
         if (!faceResult.ok) {
-          return faceResult as Result<any>;
+          return err(this.toError(faceResult.error, 'Failed to create list-template face'));
         }
 
         faces.push(faceResult.value);
@@ -245,7 +253,7 @@ export class CreateListTemplateCardsUseCase {
       });
 
       if (!xiuyuanResult.ok) {
-        return xiuyuanResult as Result<any>;
+        return err(this.toError(xiuyuanResult.error, 'Failed to create Xiuyuan aggregate'));
       }
 
       const xiuyuan = xiuyuanResult.value;
@@ -267,8 +275,18 @@ export class CreateListTemplateCardsUseCase {
       });
     } catch (error) {
       logger.error('Failed:', error);
-      return err(error as Error);
+      return err(this.toError(error, 'CreateListTemplateCardsUseCase failed'));
     }
+  }
+
+  private toError(error: unknown, fallbackMessage: string): Error {
+    if (error instanceof Error) {
+      return error;
+    }
+    if (typeof error === 'string' && error.length > 0) {
+      return new Error(error);
+    }
+    return new Error(fallbackMessage);
   }
 }
 

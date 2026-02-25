@@ -10,6 +10,7 @@
  */
 
 import type { IUnifiedDataSourceManagerFacade, IDataSourceObserver, DataChangeEvent, QueueType } from '@/types/unified-data-source';
+import type { SortModel, FilterModel } from '@/application/interfaces/ICardDataSource';
 import type { FSRSCard } from '@/types/card';
 import type { BrowserCard } from './types';
 import { CardState, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from './types';
@@ -23,10 +24,10 @@ const logger = createLogger('SRSBrowserAdapter');
  */
 export interface FetchRowsOptions {
     /** 排序模型 */
-    sortModel: any[];
+    sortModel: SortModel[];
     
     /** 筛选模型 */
-    filterModel: any;
+    filterModel: FilterModel;
 }
 
 /**

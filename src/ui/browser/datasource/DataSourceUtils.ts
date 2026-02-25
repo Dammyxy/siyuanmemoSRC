@@ -1,5 +1,6 @@
 import type { BrowserCard } from '../types';
 import type { SortModel } from './types';
+import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DataSourceUtils');
@@ -29,9 +30,16 @@ type QueueInsertLike = {
   insertAt?: (cardId: string, position: number) => Promise<void> | void;
 };
 type UnifiedCardManagerLike = {
-  getCard: (cardId: string, options?: { silent?: boolean }) => Promise<any>;
-  updateCard: (card: any) => Promise<void>;
+  getCard: (cardId: string, options?: { silent?: boolean }) => Promise<FSRSCard>;
+  updateCard: (card: FSRSCard) => Promise<void>;
 };
+
+type QueueDueConfigLike = Partial<
+  Record<
+    'days' | 'maxDays' | 'minInterval' | 'maxInterval' | 'collectingPeriod' | 'reschedulingPeriod',
+    unknown
+  >
+>;
 
 type CardServiceLike = {
   deleteCard?: (command: { cardId: string }) => Promise<DeleteCardResultLike>;
@@ -72,6 +80,11 @@ export type QueueInsertResult = {
 };
 
 export type QueueDueAdjustAction = 'postpone' | 'advance' | 'spread';
+export type QueueDueAdjustContext = {
+  days?: unknown;
+  maxDays?: unknown;
+  config?: QueueDueConfigLike;
+};
 
 export type QueueDueAdjustResult = QueueCardActionResult & {
   days: number;
@@ -194,7 +207,7 @@ function parsePositiveDays(candidate: unknown): number | null {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
-function resolveAdjustDays(action: QueueDueAdjustAction, context?: any): number {
+function resolveAdjustDays(action: QueueDueAdjustAction, context?: QueueDueAdjustContext): number {
   const config = context?.config;
 
   const directDays =
@@ -229,7 +242,7 @@ export async function adjustBrowserCardsDue(
   manager: UnifiedCardManagerLike,
   selectedRows: BrowserCard[],
   action: QueueDueAdjustAction,
-  context?: any,
+  context?: QueueDueAdjustContext,
   options?: { scope?: string; postponeFromNow?: boolean; allowSpread?: boolean }
 ): Promise<QueueDueAdjustResult> {
   const scope = options?.scope || 'DataSource';

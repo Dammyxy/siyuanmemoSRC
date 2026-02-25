@@ -4,7 +4,8 @@
  * SuperMemo 风格的列配置
  */
 
-import type { ColDef } from 'ag-grid-community';
+import type { ColDef, ValueGetterParams } from 'ag-grid-community';
+import type { BrowserCard } from '../types';
 
 /** 状态颜色映射 */
 export const STATE_COLORS: Record<string, string> = {
@@ -29,7 +30,7 @@ export function createColumnDefs(t?: (key: string, fallback: string) => string):
       headerName: 'No',
       width: 50,
       sortable: false,
-      valueGetter: (params: any) => {
+      valueGetter: (params: ValueGetterParams<BrowserCard>) => {
         if (params.node?.rowIndex != null) return params.node.rowIndex + 1;
         return '';
       },

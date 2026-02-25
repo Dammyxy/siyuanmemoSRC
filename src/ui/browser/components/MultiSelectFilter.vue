@@ -33,6 +33,7 @@
 </template>
 
 <script setup lang="ts">
+import { tFlashcard } from '../utils/i18n';
 /**
  * MultiSelectFilter 组件
  * 
@@ -63,8 +64,7 @@ const emit = defineEmits<Emits>();
 
 // i18n helper
 function t(key: string, fallback: string): string {
-  const i18n = (window as any)?.siyuan?.languages?.flashcard || {};
-  return (i18n as any)?.[key] || fallback;
+  return tFlashcard(key, fallback);
 }
 
 /**

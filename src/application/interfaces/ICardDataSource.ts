@@ -34,7 +34,7 @@ export interface SortModel {
  * 过滤模型
  */
 export interface FilterModel {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 /**
@@ -135,7 +135,7 @@ export interface ICardDataSource {
    * @param selectedRows - 选中的卡片
    * @param context - 上下文信息（可选）
    */
-  performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<void>;
+  performAction(actionId: string, selectedRows: BrowserCard[], context?: unknown): Promise<unknown>;
   
   /**
    * 获取统计信息（可选）

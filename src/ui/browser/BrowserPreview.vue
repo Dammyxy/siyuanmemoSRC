@@ -49,6 +49,7 @@
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { Protyle, type App } from 'siyuan';
 import type { BrowserCard } from './types';
+import { applyProtyleReadonly } from './utils/protyleControl';
 
 // Props
 const props = defineProps<{
@@ -110,17 +111,7 @@ function handleDoubleClick() {
 
 // 更新 Protyle 只读状态
 function updateProtyleReadonly() {
-  if (currentProtyle && (currentProtyle as any).protyle) {
-    if (isLocked.value) {
-      if (typeof (currentProtyle as any).disable === 'function') {
-        (currentProtyle as any).disable();
-      }
-    } else {
-      if (typeof (currentProtyle as any).enable === 'function') {
-        (currentProtyle as any).enable();
-      }
-    }
-  }
+  applyProtyleReadonly(currentProtyle, isLocked.value);
 }
 
 // 获取面包屑数据
@@ -190,11 +181,9 @@ async function loadContent(blockId: string) {
         breadcrumb: false,
         breadcrumbDocName: false,
       },
-      after: (protyle: any) => {
-        if (isLocked.value) {
-          protyle.disable();
-        }
-      }
+      after: (protyle: unknown) => {
+        applyProtyleReadonly(protyle, isLocked.value);
+      },
     });
   } catch (err) {
     console.error('[BrowserPreview] Protyle load error:', err);

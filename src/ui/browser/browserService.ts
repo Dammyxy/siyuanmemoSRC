@@ -47,6 +47,48 @@ type BrowserAttrKeys = {
     aFactor: string;
 };
 
+type SqlRow = Record<string, unknown>;
+type BlockInfoSqlRow = {
+    id: string;
+    root_id?: string;
+    ial?: string;
+    type?: string;
+    content?: string;
+};
+type BlockAttrSqlRow = {
+    block_id: string;
+    name: string;
+    value: string;
+};
+type DocTreeSqlRow = {
+    id: string;
+    content?: string;
+    hpath?: string;
+};
+
+type BrowserPluginContext = {
+    getBrowserService?: () => {
+        getSiyuanApi?: () => BrowserSiyuanPort;
+    } | null;
+    getUnifiedDataSourceManager?: () => UnifiedDataSourceManager | null;
+};
+
+type BrowserPluginLike = Plugin & {
+    getContext?: () => BrowserPluginContext | null;
+    unifiedDataSourceManager?: UnifiedDataSourceManager;
+};
+
+type BrowserCardType = NonNullable<BrowserCard['cardType']>;
+
+const BROWSER_CARD_TYPES: BrowserCardType[] = [
+    'topic',
+    'item',
+    'concept',
+    'descriptor',
+    'incremental',
+    'webpage',
+];
+
 let cachedAttrKeys: BrowserAttrKeys | null = null;
 
 /**
@@ -92,15 +134,36 @@ function resolveSiyuanApi(plugin?: Plugin): BrowserSiyuanPort {
         return globalBrowserSiyuanApi;
     }
 
-    const context = (plugin as any)?.getContext?.();
+    const pluginLike = plugin as BrowserPluginLike | undefined;
+    const context = pluginLike?.getContext?.();
     const browserService = context?.getBrowserService?.();
-    const siyuanApi = browserService?.getSiyuanApi?.() as BrowserSiyuanPort | undefined;
+    const siyuanApi = browserService?.getSiyuanApi?.();
     if (siyuanApi) {
         globalBrowserSiyuanApi = siyuanApi;
         return siyuanApi;
     }
 
     throw new Error('Browser Siyuan API not initialized. Please initialize browser context with siyuanApi.');
+}
+
+function resolveUnifiedDataSourceManager(plugin: Plugin): UnifiedDataSourceManager | null {
+    const pluginLike = plugin as BrowserPluginLike;
+    const contextManager = pluginLike.getContext?.()?.getUnifiedDataSourceManager?.();
+    if (contextManager) {
+        return contextManager;
+    }
+    return pluginLike.unifiedDataSourceManager || null;
+}
+
+function toBrowserCardType(value: unknown): BrowserCardType | undefined {
+    if (typeof value !== 'string') {
+        return undefined;
+    }
+    const normalized = value.trim() as BrowserCardType;
+    if (!normalized) {
+        return undefined;
+    }
+    return BROWSER_CARD_TYPES.includes(normalized) ? normalized : undefined;
 }
 
 function getAttrKeys(plugin?: Plugin): BrowserAttrKeys {
@@ -119,8 +182,9 @@ function getAttrKeys(plugin?: Plugin): BrowserAttrKeys {
     return cachedAttrKeys;
 }
 
-export async function runBrowserSql(stmt: string): Promise<any[]> {
-    return resolveSiyuanApi().sql(stmt);
+export async function runBrowserSql<T extends SqlRow = SqlRow>(stmt: string): Promise<T[]> {
+    const rows = await resolveSiyuanApi().sql(stmt);
+    return Array.isArray(rows) ? (rows as T[]) : [];
 }
 
 export async function pushBrowserMsg(msg: string, timeout?: number): Promise<void> {
@@ -526,8 +590,8 @@ async function fetchBlockInfoBatched(
 
         const [blocksResult, attrsResult] = await Promise.all([
             // 🆕 添加 type 和 content 字段，用于识别文档块并获取标题
-            runBrowserSql(`SELECT id, root_id, ial, type, content FROM blocks WHERE id IN (${inClause})`),
-            runBrowserSql(`
+            runBrowserSql<BlockInfoSqlRow>(`SELECT id, root_id, ial, type, content FROM blocks WHERE id IN (${inClause})`),
+            runBrowserSql<BlockAttrSqlRow>(`
                 SELECT block_id, name, value
                 FROM attributes
                 WHERE block_id IN (${inClause})
@@ -541,7 +605,7 @@ async function fetchBlockInfoBatched(
             `)
         ]);
 
-        for (const row of blocksResult || []) {
+        for (const row of blocksResult) {
             rootIdMap.set(row.id, row.root_id || '');
             
             // 🆕 存储内容（对于文档块，content 是文档标题）
@@ -562,7 +626,7 @@ async function fetchBlockInfoBatched(
             tagsMap.set(row.id, tags);
         }
 
-        for (const row of attrsResult || []) {
+        for (const row of attrsResult) {
             if (!attrsMap.has(row.block_id)) {
                 attrsMap.set(row.block_id, {});
             }
@@ -600,7 +664,7 @@ export async function loadCards(
     // 从应用层服务解析并缓存 BrowserSiyuanPort。
     resolveSiyuanApi(plugin);
 
-    const unifiedDataSourceManager = (plugin as any).unifiedDataSourceManager as UnifiedDataSourceManager;
+    const unifiedDataSourceManager = resolveUnifiedDataSourceManager(plugin);
     if (!unifiedDataSourceManager) {
         console.error('[SiYuanMemo][CardBrowser] UnifiedDataSourceManager not found');
         return [];
@@ -997,11 +1061,11 @@ export async function getDocTree(rootIds: string[]): Promise<DocTreeNode[]> {
             WHERE id IN (${ids.map(id => `'${escapeSQL(id)}'`).join(',')})
         `;
         
-        const rows = await runBrowserSql(sqlQuery);
-        const foundIds = new Set((rows || []).map((r: any) => r.id));
-        const result = (rows || []).map((r: any) => {
-            const title = (r.content || '').trim() || String(r.hpath || '').split('/').pop() || r.id;
-            return { id: r.id, title };
+        const rows = await runBrowserSql<DocTreeSqlRow>(sqlQuery);
+        const foundIds = new Set(rows.map((row) => row.id));
+        const result = rows.map((row) => {
+            const title = (row.content || '').trim() || String(row.hpath || '').split('/').pop() || row.id;
+            return { id: row.id, title };
         });
         
         for (const id of ids) {
@@ -1042,7 +1106,7 @@ export async function loadQueueCards(
             return ids.map((id) => byBlockId.get(id)).filter(Boolean) as BrowserCard[];
         }
 
-        // 回退：从统一数据源加载
+        // 默认：从统一数据源加载
         const router = unifiedDataSourceManager.getRouter();
         const allCards = await router.getCards();
         const cardMap = new Map(allCards.map(c => [c.blockId, c]));
@@ -1094,7 +1158,7 @@ export async function loadQueueCards(
                     suspended: customAttrs[attrKeys.suspended] === 'true',
                     tags: tags,
                     note: '',
-                    cardType: customAttrs[attrKeys.cardType] as any || 'concept',  // 默认为概念卡
+                    cardType: toBrowserCardType(customAttrs[attrKeys.cardType]) || 'concept',  // 默认为概念卡
                     aFactor: undefined,
                 };
                 
@@ -1224,7 +1288,7 @@ export async function batchReset(
                     due: now,
                     reps: 0,
                     lapses: 0,
-                    lastReview: null as any,
+                    lastReview: 0,
                 }) as FSRSCard
         );
 
@@ -1265,12 +1329,10 @@ export async function batchSuspend(
             uniqueBlockIds,
             resolvedManager,
             (card) => {
-                const updatedCard = {
+                return {
                     ...card,
                     due: suspend ? farFuture : Date.now(),
                 } as FSRSCard;
-                (updatedCard as any).suspended = suspend;
-                return updatedCard;
             }
         );
 

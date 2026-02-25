@@ -1,20 +1,44 @@
-﻿/**
+/**
  * 排序逻辑 composable
  * 处理 AG-Grid 列排序和随机排序
  */
 import { ref, computed, nextTick, type Ref } from 'vue';
-import type { GridApi } from 'ag-grid-community';
+import type { ColumnState, GridApi } from 'ag-grid-community';
+import type { SortModel } from '@/application/interfaces/ICardDataSource';
+import type { BrowserCard } from '../types';
 import { SORT_FIELD_CONFIGS } from '../constants';
+
+type QueueLike = {
+  reorder?: (cards: BrowserCard[]) => Promise<unknown> | unknown;
+};
+
+type BrowserMenuItem = {
+  icon?: string;
+  label?: string;
+  click?: () => void;
+  type?: 'separator';
+  submenu?: BrowserMenuItem[];
+};
 
 export interface UseSortingOptions {
   gridApi: Ref<GridApi | null>;
-  currentSortModel: Ref<any[]>;
-  getQueueById: (id: string) => any;
+  currentSortModel: Ref<SortModel[]>;
+  getQueueById: (id: string) => QueueLike | null;
   activeQueueId: Ref<string | null>;
   loadData: () => Promise<void>;
   t: (key: string, fallback: string) => string;
   pushMsg: (msg: string, duration?: number) => Promise<void>;
   pushErrMsg: (msg: string, duration?: number) => Promise<void>;
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+  return fallback;
 }
 
 export function useSorting(options: UseSortingOptions) {
@@ -70,10 +94,11 @@ export function useSorting(options: UseSortingOptions) {
       console.log('[useSorting] Shuffling', rowCount, 'rows');
 
       // 收集所有行数据
-      const rows: any[] = [];
+      const rows: BrowserCard[] = [];
       for (let i = 0; i < rowCount; i++) {
         const node = gridApi.value.getDisplayedRowAtIndex?.(i);
-        if (node?.data) rows.push(node.data);
+        const row = node?.data as BrowserCard | undefined;
+        if (row) rows.push(row);
       }
 
       // Fisher-Yates 洗牌算法
@@ -83,7 +108,7 @@ export function useSorting(options: UseSortingOptions) {
       }
 
       // 清除所有排序状态
-      gridApi.value.applyColumnState?.({
+      gridApi.value.applyColumnState({
         state: [],
         defaultState: { sort: null },
       });
@@ -107,7 +132,7 @@ export function useSorting(options: UseSortingOptions) {
   // 是否可以应用排序到队列
   const canApplySortToQueue = computed(() => {
     const qid = String(activeQueueId.value || '');
-    const sortArray = Array.from(currentSortModel.value || []);
+    const sortArray = [...(currentSortModel.value || [])];
 
     let hasSort = sortArray.length > 0;
     if (!hasSort && gridApi.value) {
@@ -116,7 +141,7 @@ export function useSorting(options: UseSortingOptions) {
           hasSort = false;
         } else {
           const columnState = gridApi.value.getColumnState?.() || [];
-          hasSort = columnState.some((col: any) => col.sort && col.sort !== 'undefined');
+          hasSort = columnState.some((col: ColumnState) => col.sort && col.sort !== 'undefined');
         }
       } catch {
         hasSort = false;
@@ -135,35 +160,29 @@ export function useSorting(options: UseSortingOptions) {
     const qid = String(activeQueueId.value || '');
     if (!qid) return;
 
-    const q = getQueueById(qid);
-    if (!q) {
+    const queue = getQueueById(qid);
+    if (!queue) {
       await pushErrMsg(t('queueNotFound', '队列未找到'));
       return;
     }
-    
+
     // 检查队列是否支持 reorder 方法
-    if (typeof q.reorder !== 'function') {
+    if (typeof queue.reorder !== 'function') {
       await pushErrMsg(t('queueNotSupportReorder', '当前队列不支持重排'));
       return;
     }
-    
+
     if (!gridApi.value) {
       await pushErrMsg(t('initFailed', 'FSRS 插件初始化失败，请打开控制台查看错误'));
       return;
     }
 
-    // 获取当前队列中的所有项（旧队列系统格式）
-    const currentItems = q.getAllItems?.() || [];
-    const currentItemsByBlockId = new Map(
-      currentItems.map((item: any) => [String(item.blockID || ''), item] as const)
-    );
-
     // 获取浏览器中显示的卡片顺序
-    const orderedCards: any[] = [];
+    const orderedCards: BrowserCard[] = [];
     const count = Number(gridApi.value.getDisplayedRowCount?.() ?? 0);
     for (let i = 0; i < count; i++) {
       const node = gridApi.value.getDisplayedRowAtIndex?.(i);
-      const card = node?.data;
+      const card = node?.data as BrowserCard | undefined;
       if (card) orderedCards.push(card);
     }
 
@@ -174,47 +193,27 @@ export function useSorting(options: UseSortingOptions) {
 
     try {
       console.log('[useSorting] Applying sort to queue:', { queueId: qid, cardsCount: orderedCards.length });
-      
-      // 尝试新队列系统的 reorder 方法（接受 FSRSCard[]）
-      // 如果队列是新系统的 IReviewQueue，直接传递卡片数组
-      let ok: boolean;
-      
-      // 检查是否为新队列系统（通过检查是否有 getType 方法）
-      if (typeof (q as any).getType === 'function') {
-        // 新队列系统：直接传递卡片数组
-        console.log('[useSorting] Using new queue system (IReviewQueue)');
-        ok = await Promise.resolve(q.reorder(orderedCards));
-      } else {
-        // 旧队列系统：需要转换为 QueueItem 格式
-        console.log('[useSorting] Using legacy queue system (QueueInterface)');
-        const queueItems: any[] = [];
-        for (const card of orderedCards) {
-          const blockId = String(card.blockId || '');
-          const item = currentItemsByBlockId.get(blockId);
-          if (item) queueItems.push(item);
-        }
-        ok = await Promise.resolve(q.reorder(queueItems));
-      }
-      
+
+      const ok = await Promise.resolve(queue.reorder(orderedCards));
       console.log('[useSorting] Queue reorder result:', { ok });
 
       if (!ok) {
         await pushErrMsg(t('sortApplyFailed', '应用排序失败'));
         return;
       }
-      
+
       await pushMsg(t('sortApplied', '队列已按当前排序重新排列'));
       hasRandomSort.value = false;
       await loadData();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[useSorting] apply sort to queue failed:', err);
-      await pushErrMsg(err?.message || t('sortApplyFailed', '应用排序失败'));
+      await pushErrMsg(getErrorMessage(err, t('sortApplyFailed', '应用排序失败')));
     }
   }
 
   // 构建排序子菜单
-  function buildSortSubmenu(onSort: (colId: string, dir: 'asc' | 'desc') => void): any[] {
-    const sortMenu: any[] = [];
+  function buildSortSubmenu(onSort: (colId: string, dir: 'asc' | 'desc') => void): BrowserMenuItem[] {
+    const sortMenu: BrowserMenuItem[] = [];
 
     for (const field of SORT_FIELD_CONFIGS) {
       sortMenu.push({

@@ -129,7 +129,7 @@ export class QueryDataSource implements ICardDataSource {
     return [{ id: 'open', label: 'Open', icon: 'iconOpen' }];
   }
 
-  async performAction(actionId: string, selectedRows: BrowserCard[], context?: any): Promise<void> {
+  async performAction(actionId: string, selectedRows: BrowserCard[], context?: unknown): Promise<void> {
     void selectedRows;
     void context;
     if (actionId === 'open') return;

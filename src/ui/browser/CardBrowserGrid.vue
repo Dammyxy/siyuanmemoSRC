@@ -31,7 +31,16 @@
 import { ref } from 'vue';
 import { AgGridVue } from 'ag-grid-vue3';
 import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
-import type { GridApi, ColDef, CellContextMenuEvent, RowSelectionOptions } from 'ag-grid-community';
+import type {
+  ColDef,
+  CellContextMenuEvent,
+  RowSelectionOptions,
+  GridReadyEvent,
+  SortChangedEvent,
+  DisplayedColumnsChangedEvent,
+  RowClickedEvent,
+  RowDoubleClickedEvent,
+} from 'ag-grid-community';
 import type { BrowserCard } from './types';
 import { createColumnDefs } from './config';
 
@@ -43,7 +52,7 @@ interface Props {
   rowData: BrowserCard[];
   columnDefs?: ColDef[];
   rowSelection?: RowSelectionOptions;
-  defaultColDef?: any;
+  defaultColDef?: ColDef;
   suppressRowVirtualisation?: boolean;
   rowBuffer?: number;
   rowClass?: string;
@@ -70,25 +79,25 @@ const props = withDefaults(defineProps<Props>(), {
 
 // 定义 emits
 const emit = defineEmits<{
-  (e: 'grid-ready', params: any): void;
-  (e: 'sort-changed', params: any): void;
-  (e: 'displayed-columns-changed', params: any): void;
+  (e: 'grid-ready', params: GridReadyEvent<BrowserCard>): void;
+  (e: 'sort-changed', params: SortChangedEvent<BrowserCard>): void;
+  (e: 'displayed-columns-changed', params: DisplayedColumnsChangedEvent<BrowserCard>): void;
   (e: 'selection-changed'): void;
-  (e: 'row-clicked', event: any): void;
-  (e: 'row-double-clicked', event: any): void;
+  (e: 'row-clicked', event: RowClickedEvent<BrowserCard>): void;
+  (e: 'row-double-clicked', event: RowDoubleClickedEvent<BrowserCard>): void;
   (e: 'cell-context-menu', event: CellContextMenuEvent): void;
 }>();
 
 // 事件处理函数
-const onGridReady = (params: any) => {
+const onGridReady = (params: GridReadyEvent<BrowserCard>) => {
   emit('grid-ready', params);
 };
 
-const onSortChanged = (params: any) => {
+const onSortChanged = (params: SortChangedEvent<BrowserCard>) => {
   emit('sort-changed', params);
 };
 
-const onDisplayedColumnsChanged = (params: any) => {
+const onDisplayedColumnsChanged = (params: DisplayedColumnsChangedEvent<BrowserCard>) => {
   emit('displayed-columns-changed', params);
 };
 
@@ -96,11 +105,11 @@ const onSelectionChanged = () => {
   emit('selection-changed');
 };
 
-const onRowClicked = (event: any) => {
+const onRowClicked = (event: RowClickedEvent<BrowserCard>) => {
   emit('row-clicked', event);
 };
 
-const onRowDoubleClicked = (event: any) => {
+const onRowDoubleClicked = (event: RowDoubleClickedEvent<BrowserCard>) => {
   emit('row-double-clicked', event);
 };
 

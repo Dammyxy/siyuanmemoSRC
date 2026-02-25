@@ -40,7 +40,10 @@ import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapt
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import { createLogger } from '@/utils/logger';
 import { isDefinitionTemplate, isDescriptorTemplate } from './shared/DescriptorTemplateStrategy';
-import { finalizeXiuyuanCreation } from './shared/FinalizeXiuyuanCreation';
+import {
+  finalizeXiuyuanCreation,
+  type XiuyuanCreationPayload,
+} from './shared/FinalizeXiuyuanCreation';
 
 const logger = createLogger('CreateXiuyuanFromBlocksUseCase');
 
@@ -70,9 +73,9 @@ export class CreateXiuyuanFromBlocksUseCase {
    * 鎵ц鐢ㄤ緥
    * 
    * @param command - 鍒涘缓鍛戒护
-   * @returns Result<any> - 鎴愬姛杩斿洖鍒涘缓鐨?Xiuyuan 鍜屽崱鐗囷紝澶辫触杩斿洖閿欒
+   * @returns Result<XiuyuanCreationPayload> - 成功返回创建的 Xiuyuan 与卡片摘要，失败返回错误
    */
-  async execute(command: CreateXiuyuanFromBlocksCommand): Promise<Result<any>> {
+  async execute(command: CreateXiuyuanFromBlocksCommand): Promise<Result<XiuyuanCreationPayload>> {
     try {
       // 1. 妫€鏌ユ槸鍚﹀凡缁忓垱寤鸿繃 Xiuyuan 鍗＄墖
       
@@ -149,19 +152,19 @@ export class CreateXiuyuanFromBlocksUseCase {
       
       const xiuyuanIdResult = XiuyuanId.create(`xy_${representativeBlockId}`);
       if (!xiuyuanIdResult.ok) {
-        return xiuyuanIdResult as Result<any>;
+        return err(this.toError(xiuyuanIdResult.error, 'Invalid Xiuyuan ID'));
       }
 
       const blockIdResults = command.blockIds.map(id => BlockId.create(id));
       const failedBlockId = blockIdResults.find(r => !r.ok);
       if (failedBlockId && !failedBlockId.ok) {
-        return failedBlockId as Result<any>;
+        return err(this.toError(failedBlockId.error, 'Invalid block ID'));
       }
-      const blockIds = blockIdResults.map(r => (r as any).value);
+      const blockIds = blockIdResults.map((r) => r.value);
 
       const templateIdResult = TemplateId.create(command.templateId);
       if (!templateIdResult.ok) {
-        return templateIdResult as Result<any>;
+        return err(this.toError(templateIdResult.error, 'Invalid template ID'));
       }
 
       const priorityResult = Priority.create(command.priority || 50);
@@ -180,7 +183,7 @@ export class CreateXiuyuanFromBlocksUseCase {
         );
         
         if (!facesResult.ok) {
-          return facesResult as Result<any>;
+          return err(this.toError(facesResult.error, 'Failed to generate cloze faces'));
         }
         
         faces.push(...facesResult.value);
@@ -211,7 +214,7 @@ export class CreateXiuyuanFromBlocksUseCase {
             });
             
             if (!faceResult.ok) {
-              return faceResult as Result<any>;
+              return err(this.toError(faceResult.error, 'Failed to create forward cloze face'));
             }
             
             faces.push(faceResult.value);
@@ -232,7 +235,7 @@ export class CreateXiuyuanFromBlocksUseCase {
           });
           
           if (!faceResult.ok) {
-            return faceResult as Result<any>;
+            return err(this.toError(faceResult.error, 'Failed to create reverse cloze face'));
           }
           
           faces.push(faceResult.value);
@@ -254,7 +257,7 @@ export class CreateXiuyuanFromBlocksUseCase {
         });
         
         if (!forwardFaceResult.ok) {
-          return forwardFaceResult as Result<any>;
+          return err(this.toError(forwardFaceResult.error, 'Failed to create bidirectional forward face'));
         }
         
         // 鍙嶅悜 face
@@ -266,7 +269,7 @@ export class CreateXiuyuanFromBlocksUseCase {
         });
         
         if (!reverseFaceResult.ok) {
-          return reverseFaceResult as Result<any>;
+          return err(this.toError(reverseFaceResult.error, 'Failed to create bidirectional reverse face'));
         }
         
         faces.push(forwardFaceResult.value, reverseFaceResult.value);
@@ -295,7 +298,7 @@ export class CreateXiuyuanFromBlocksUseCase {
           });
 
           if (!faceResult.ok) {
-            return faceResult as Result<any>;
+            return err(this.toError(faceResult.error, 'Failed to create face from template rule'));
           }
 
           faces.push(faceResult.value);
@@ -317,7 +320,7 @@ export class CreateXiuyuanFromBlocksUseCase {
       });
 
       if (!xiuyuanResult.ok) {
-        return xiuyuanResult as Result<any>;
+        return err(this.toError(xiuyuanResult.error, 'Failed to create Xiuyuan aggregate'));
       }
 
       const xiuyuan = xiuyuanResult.value;
@@ -344,8 +347,18 @@ export class CreateXiuyuanFromBlocksUseCase {
       });
     } catch (error) {
       logger.error('Failed:', error);
-      return err(error as Error);
+      return err(this.toError(error, 'CreateXiuyuanFromBlocksUseCase failed'));
     }
+  }
+
+  private toError(error: unknown, fallbackMessage: string): Error {
+    if (error instanceof Error) {
+      return error;
+    }
+    if (typeof error === 'string' && error.length > 0) {
+      return new Error(error);
+    }
+    return new Error(fallbackMessage);
   }
 }
 

@@ -13,6 +13,10 @@ import {
   PREVIEW_SIZE_MAX,
 } from '../constants';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /**
  * 验证优先级值
  */
@@ -43,7 +47,7 @@ export function validatePreviewSize(size: number | undefined): number {
 /**
  * 验证日期
  */
-export function validateDate(date: any): Date | null {
+export function validateDate(date: unknown): Date | null {
   if (!date) return null;
   if (date instanceof Date) {
     return isNaN(date.getTime()) ? null : date;
@@ -58,7 +62,7 @@ export function validateDate(date: any): Date | null {
 /**
  * 验证块 ID
  */
-export function validateBlockId(blockId: any): string | null {
+export function validateBlockId(blockId: unknown): string | null {
   if (typeof blockId !== 'string') return null;
   const cleaned = blockId.trim();
   if (cleaned.length === 0) return null;
@@ -70,7 +74,7 @@ export function validateBlockId(blockId: any): string | null {
 /**
  * 验证卡片 ID
  */
-export function validateCardId(cardId: any): string | null {
+export function validateCardId(cardId: unknown): string | null {
   if (typeof cardId !== 'string') return null;
   const cleaned = cardId.trim();
   if (cleaned.length === 0) return null;
@@ -80,7 +84,7 @@ export function validateCardId(cardId: any): string | null {
 /**
  * 验证 Deck ID
  */
-export function validateDeckId(deckId: any): string | null {
+export function validateDeckId(deckId: unknown): string | null {
   if (typeof deckId !== 'string') return null;
   const cleaned = deckId.trim();
   if (cleaned.length === 0) return null;
@@ -90,7 +94,7 @@ export function validateDeckId(deckId: any): string | null {
 /**
  * 验证搜索查询
  */
-export function validateSearchQuery(query: any): string {
+export function validateSearchQuery(query: unknown): string {
   if (typeof query !== 'string') return '';
   return query.trim();
 }
@@ -98,7 +102,7 @@ export function validateSearchQuery(query: any): string {
 /**
  * 验证标签
  */
-export function validateTag(tag: any): string | null {
+export function validateTag(tag: unknown): string | null {
   if (typeof tag !== 'string') return null;
   const cleaned = tag.trim().replace(/^#+|#+$/g, '');
   if (cleaned.length === 0) return null;
@@ -122,7 +126,7 @@ export function validateNumberRange(
 /**
  * 验证整数
  */
-export function validateInteger(value: any, defaultValue: number = 0): number {
+export function validateInteger(value: unknown, defaultValue: number = 0): number {
   if (typeof value !== 'number') return defaultValue;
   if (!Number.isFinite(value)) return defaultValue;
   return Math.floor(value);
@@ -131,7 +135,7 @@ export function validateInteger(value: any, defaultValue: number = 0): number {
 /**
  * 验证正整数
  */
-export function validatePositiveInteger(value: any, defaultValue: number = 1): number {
+export function validatePositiveInteger(value: unknown, defaultValue: number = 1): number {
   const int = validateInteger(value, defaultValue);
   return Math.max(1, int);
 }
@@ -139,7 +143,7 @@ export function validatePositiveInteger(value: any, defaultValue: number = 1): n
 /**
  * 验证百分比（0-1）
  */
-export function validatePercentage(value: any, defaultValue: number = 0): number {
+export function validatePercentage(value: unknown, defaultValue: number = 0): number {
   if (typeof value !== 'number') return defaultValue;
   if (!Number.isFinite(value)) return defaultValue;
   return Math.max(0, Math.min(1, value));
@@ -148,33 +152,32 @@ export function validatePercentage(value: any, defaultValue: number = 0): number
 /**
  * 验证数组
  */
-export function validateArray<T>(value: any): T[] {
+export function validateArray<T>(value: unknown): T[] {
   if (!Array.isArray(value)) return [];
-  return value;
+  return value as T[];
 }
 
 /**
  * 验证非空数组
  */
-export function validateNonEmptyArray<T>(value: any, defaultValue: T[] = []): T[] {
+export function validateNonEmptyArray<T>(value: unknown, defaultValue: T[] = []): T[] {
   if (!Array.isArray(value)) return defaultValue;
   if (value.length === 0) return defaultValue;
-  return value;
+  return value as T[];
 }
 
 /**
  * 验证对象
  */
-export function validateObject<T extends object>(value: any): T | null {
-  if (typeof value !== 'object' || value === null) return null;
-  if (Array.isArray(value)) return null;
+export function validateObject<T extends object>(value: unknown): T | null {
+  if (!isRecord(value)) return null;
   return value as T;
 }
 
 /**
  * 验证布尔值
  */
-export function validateBoolean(value: any, defaultValue: boolean = false): boolean {
+export function validateBoolean(value: unknown, defaultValue: boolean = false): boolean {
   if (typeof value === 'boolean') return value;
   if (value === 'true') return true;
   if (value === 'false') return false;
@@ -187,7 +190,7 @@ export function validateBoolean(value: any, defaultValue: boolean = false): bool
  * 验证枚举值
  */
 export function validateEnum<T extends string>(
-  value: any,
+  value: unknown,
   validValues: readonly T[],
   defaultValue: T
 ): T {
@@ -199,7 +202,7 @@ export function validateEnum<T extends string>(
 /**
  * 验证卡片状态
  */
-export function validateCardState(state: any): 0 | 1 | 2 | 3 {
+export function validateCardState(state: unknown): 0 | 1 | 2 | 3 {
   if (typeof state !== 'number') return 0;
   if (state === 0 || state === 1 || state === 2 || state === 3) return state;
   return 0;
@@ -208,7 +211,7 @@ export function validateCardState(state: any): 0 | 1 | 2 | 3 {
 /**
  * 验证卡片类型
  */
-export function validateCardType(type: any): 'topic' | 'item' | undefined {
+export function validateCardType(type: unknown): 'topic' | 'item' | undefined {
   if (type === 'topic') return 'topic';
   if (type === 'item') return 'item';
   return undefined;
@@ -217,7 +220,7 @@ export function validateCardType(type: any): 'topic' | 'item' | undefined {
 /**
  * 验证排序字段
  */
-export function validateSortField(field: any): string | null {
+export function validateSortField(field: unknown): string | null {
   if (typeof field !== 'string') return null;
   const validFields = [
     'priority',
@@ -236,7 +239,7 @@ export function validateSortField(field: any): string | null {
 /**
  * 验证排序方向
  */
-export function validateSortOrder(order: any): 'asc' | 'desc' {
+export function validateSortOrder(order: unknown): 'asc' | 'desc' {
   if (order === 'asc' || order === 'desc') return order;
   return 'asc';
 }
@@ -254,10 +257,12 @@ export interface ValidatedCard {
   cardType?: 'topic' | 'item';
 }
 
-export function validateCardData(data: any): ValidatedCard | null {
-  const blockId = validateBlockId(data?.blockId);
-  const cardId = validateCardId(data?.cardId || data?.id);
-  const deckId = validateDeckId(data?.deckId);
+export function validateCardData(data: unknown): ValidatedCard | null {
+  if (!isRecord(data)) return null;
+
+  const blockId = validateBlockId(data.blockId);
+  const cardId = validateCardId(data.cardId || data.id);
+  const deckId = validateDeckId(data.deckId);
 
   if (!blockId || !cardId || !deckId) return null;
 
@@ -265,17 +270,17 @@ export function validateCardData(data: any): ValidatedCard | null {
     blockId,
     cardId,
     deckId,
-    priority: validatePriority(data?.priority),
-    state: validateCardState(data?.state),
-    suspended: validateBoolean(data?.suspended, false),
-    cardType: validateCardType(data?.cardType),
+    priority: validatePriority(typeof data.priority === 'number' ? data.priority : undefined),
+    state: validateCardState(data.state),
+    suspended: validateBoolean(data.suspended, false),
+    cardType: validateCardType(data.cardType),
   };
 }
 
 /**
  * 验证 URL
  */
-export function validateUrl(url: any): string | null {
+export function validateUrl(url: unknown): string | null {
   if (typeof url !== 'string') return null;
   try {
     new URL(url);
@@ -288,7 +293,7 @@ export function validateUrl(url: any): string | null {
 /**
  * 验证 JSON 字符串
  */
-export function validateJson<T>(json: any): T | null {
+export function validateJson<T>(json: unknown): T | null {
   if (typeof json !== 'string') return null;
   try {
     return JSON.parse(json) as T;
@@ -300,7 +305,7 @@ export function validateJson<T>(json: any): T | null {
 /**
  * 清理和验证 HTML
  */
-export function sanitizeHtml(html: any): string {
+export function sanitizeHtml(html: unknown): string {
   if (typeof html !== 'string') return '';
   // 移除脚本标签和事件处理器
   return html

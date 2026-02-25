@@ -241,10 +241,12 @@ function toggleMoreMenu() {
   showMoreMenu.value = !showMoreMenu.value;
 }
 
+type ToolbarMenuAction = 'migrateTopicItem' | 'showPerformanceReport' | 'convertToTab';
+
 // 处理菜单项点击
-function handleMenuAction(action: string) {
+function handleMenuAction(action: ToolbarMenuAction) {
   showMoreMenu.value = false;
-  emit(action as any);
+  emit(action);
 }
 
 // 点击外部关闭菜单

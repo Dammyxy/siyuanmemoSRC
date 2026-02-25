@@ -27,7 +27,22 @@ type Options<TItem> = {
   getResumePrompt?: () => { message: string; data: unknown } | null;
 };
 
-export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<TItem> {
+type CardIdShape = {
+  cardID?: unknown;
+  cardId?: unknown;
+  id?: unknown;
+};
+
+function defaultGetCardId(item: unknown): string {
+  if (typeof item !== 'object' || item === null) {
+    return '';
+  }
+  const shaped = item as CardIdShape;
+  const raw = shaped.cardID ?? shaped.cardId ?? shaped.id;
+  return raw == null ? '' : String(raw);
+}
+
+export class ProviderBackedQueueStrategy<TItem = unknown> implements IQueueStrategy<TItem> {
   private readonly provider: QueueProvider<TItem>;
   private readonly providerOptions: Record<string, unknown>;
   private readonly uiConfig: QueueUIConfig;
@@ -47,7 +62,7 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
     this.provider = provider;
     this.providerOptions = options?.providerOptions || {};
     this.uiConfig = options?.uiConfig || { statsType: 'queue-size', showRatingButtons: true, allowSkip: true };
-    this.getCardId = options?.getCardId || ((it: any) => String(it?.cardID || it?.cardId || it?.id || ''));
+    this.getCardId = options?.getCardId || ((it: TItem) => defaultGetCardId(it));
     this.includeReviewedCards = options?.includeReviewedCards ?? true;
     this.statsLabel = String(options?.statsLabel || provider.displayName || provider.id || '');
     this.skipBehavior = options?.skipBehavior || 'drop';
@@ -72,14 +87,14 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
     await this.ensureLoaded();
     logger.debug('getStats: after ensureLoaded', {
       bufferLength: this.buffer.length,
-      hasGetStats: typeof (this.provider as any)?.getStats === 'function',
+      hasGetStats: typeof this.provider.getStats === 'function',
     });
-    if (typeof (this.provider as any)?.getStats === 'function') {
-      const s = await (this.provider as any).getStats(this.providerOptions).catch(() => null);
+    if (typeof this.provider.getStats === 'function') {
+      const s = await this.provider.getStats(this.providerOptions).catch(() => null);
       logger.debug('getStats: provider stats result', s);
       const remaining = Number.isFinite(Number(s?.remaining))
         ? Math.max(0, Number(s?.remaining) || 0)
-        : Number.isFinite(Number(s?.total)) && Number.isFinite(Number(s?.current))
+          : Number.isFinite(Number(s?.total)) && Number.isFinite(Number(s?.current))
           ? Math.max(0, (Number(s?.total) || 0) - (Number(s?.current) || 0))
           : undefined;
       const size = Number.isFinite(Number(remaining)) ? (remaining as number) : this.buffer.length;
@@ -113,7 +128,7 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
     if (feedback.action === 'custom') {
       const actionId = String(feedback.customActionId || '');
       if (!actionId) return;
-      const fn = (this.provider as any)?.onCustomAction;
+      const fn = this.provider.onCustomAction;
       if (typeof fn === 'function') {
         const res = await fn.call(this.provider, actionId, item, this.buffer, this.providerOptions);
         if (res === false) {
@@ -165,35 +180,13 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
   async insertAt(cardId: string, position: number): Promise<void> {
     logger.debug('insertAt called:', { cardId, position });
     
-    // 尝试委托给 provider 的 insertAt 方法
-    if (typeof (this.provider as any)?.insertAt === 'function') {
-      await (this.provider as any).insertAt(cardId, position);
-      // 重新加载 buffer
-      this.loaded = false;
-      await this.ensureLoaded();
-      return;
+    if (typeof this.provider.insertAt !== 'function') {
+      throw new Error(`Provider ${this.provider.id} does not support insertAt`);
     }
-    
-    // 降级方案：直接操作 buffer
-    // 注意：这只是临时方案，不会持久化到底层队列
-    logger.warn('Provider does not support insertAt, using buffer fallback');
-    
+
+    await this.provider.insertAt(cardId, position);
+    this.loaded = false;
     await this.ensureLoaded();
-    
-    // 找到卡片在 buffer 中的位置
-    const cardIndex = this.buffer.findIndex(item => this.getCardId(item) === cardId);
-    if (cardIndex === -1) {
-      throw new Error(`Card not found in buffer: ${cardId}`);
-    }
-    
-    // 移除卡片
-    const [card] = this.buffer.splice(cardIndex, 1);
-    
-    // 插入到指定位置 (position - 1 因为是 0-based)
-    const targetIndex = Math.max(0, Math.min(position - 1, this.buffer.length));
-    this.buffer.splice(targetIndex, 0, card);
-    
-    logger.debug('Card inserted in buffer at position', targetIndex);
   }
 
   /**
@@ -208,7 +201,7 @@ export class ProviderBackedQueueStrategy<TItem = any> implements IQueueStrategy<
     if (this.loaded) return;
     this.loaded = true;
     logger.debug('Loading cards from provider:', {
-      providerId: (this.provider as any)?.id || (this.provider as any)?.displayName,
+      providerId: this.provider.id || this.provider.displayName,
       providerOptions: this.providerOptions,
     });
     const items = await this.provider.getDueCards(this.providerOptions);

@@ -68,7 +68,18 @@ export interface BrowserCard {
     aFactor?: number;              // A-Factor (仅 Topic 卡片)
     
     // 🆕 Xiuyuan 卡片支持
-    meta?: any;  // FSRSCard 的 meta 字段（包含 Xiuyuan 信息）
+    meta?: BrowserCardMeta;  // FSRSCard 的 meta 字段（包含 Xiuyuan 信息）
+}
+
+export interface BrowserCardMeta extends Record<string, unknown> {
+    templateID?: string;
+    content?: string;
+    deckId?: string;
+    rootId?: string;
+    suspended?: boolean;
+    note?: string;
+    isIncomplete?: boolean;
+    fieldMapping?: Record<string, string>;
 }
 
 /** 筛选预设 */

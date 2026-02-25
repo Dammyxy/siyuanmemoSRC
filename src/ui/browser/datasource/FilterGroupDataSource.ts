@@ -1,11 +1,4 @@
 import type { BrowserCard } from '../types';
-import {
-  CardState,
-  calculateRetrievability,
-  formatDueDate,
-  formatHistoryDate,
-  truncateContent,
-} from '../types';
 import type {
   ICardDataSource,
   CardBrowserAction,
@@ -14,7 +7,6 @@ import type {
 } from './types';
 import { buildQueueActions } from './MenuActions';
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
-import type { FSRSCard } from '../../../types/card';
 import {
   adjustBrowserCardsDue,
   applyQueueFilters,
@@ -25,6 +17,7 @@ import {
   setBrowserCardsPriority,
   sortBrowserCards,
 } from './DataSourceUtils';
+import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('FilterGroupDataSource');
@@ -73,9 +66,7 @@ export class FilterGroupDataSource implements ICardDataSource {
       const queue = this.manager.getQueue(QueueType.FilterGroup);
       const cards = await queue.getCards();
       const browserCards = cards.map((card, index) => {
-        const browserCard = this.convertToBrowserCard(card);
-        browserCard.queueIndex = index + 1;
-        return browserCard;
+        return mapQueueFsrsCardToBrowserCard(card, { queueIndex: index + 1 });
       });
 
       const filtered = applyQueueFilters(browserCards, this.options, 'headline');
@@ -101,7 +92,7 @@ export class FilterGroupDataSource implements ICardDataSource {
     actionId: string,
     selectedRows: BrowserCard[],
     context?: FilterGroupActionContext
-  ): Promise<any> {
+  ): Promise<unknown> {
     if (actionId === 'open') {
       return;
     }
@@ -152,91 +143,5 @@ export class FilterGroupDataSource implements ICardDataSource {
 
   getId(): string {
     return this.id;
-  }
-
-  private convertToBrowserCard(card: FSRSCard): BrowserCard {
-    const now = Date.now();
-    const elapsedDays = card.lastReview
-      ? Math.floor((now - card.lastReview) / (1000 * 60 * 60 * 24))
-      : 0;
-    const retrievability = calculateRetrievability(card.stability, elapsedDays);
-    const state = this.convertCardState(card.state);
-    const dueDate = new Date(card.due);
-    const lastReviewDate = card.lastReview ? new Date(card.lastReview) : null;
-    const fullContent = (card.meta?.content as string) || '';
-    const content = truncateContent(fullContent, 100);
-    const deckId = (card.meta?.deckId as string) || '';
-    const cardType = card.type as
-      | 'topic'
-      | 'item'
-      | 'concept'
-      | 'descriptor'
-      | 'incremental'
-      | 'webpage'
-      | undefined;
-
-    return {
-      id: card.riffCardId || card.id,
-      fsrsCardId: card.id,
-      blockId: card.blockId,
-      deckId,
-      content,
-      fullContent,
-      rootId: (card.meta?.rootId as string) || '',
-      state,
-      stateLabel: this.getStateLabel(state),
-      due: dueDate,
-      dueFormatted: formatDueDate(dueDate),
-      stability: card.stability,
-      difficulty: card.difficulty,
-      retrievability,
-      reps: card.reps,
-      lapses: card.lapses,
-      elapsedDays,
-      scheduledDays: card.scheduledDays,
-      lastReview: lastReviewDate,
-      lastReviewFormatted: formatHistoryDate(lastReviewDate),
-      interval: card.scheduledDays,
-      firstReview: lastReviewDate,
-      firstReviewFormatted: formatHistoryDate(lastReviewDate),
-      priority: card.priority ?? 50,
-      suspended: (card.meta?.suspended as boolean) || false,
-      tags: card.tags,
-      note: (card.meta?.note as string) || '',
-      cardType,
-      aFactor: card.aFactor,
-      queueIndex: 0,
-      meta: card.meta,
-    };
-  }
-
-  private convertCardState(state: number): CardState {
-    switch (state) {
-      case 0:
-        return CardState.New;
-      case 1:
-        return CardState.Learning;
-      case 2:
-        return CardState.Review;
-      case 3:
-        return CardState.Relearning;
-      default:
-        return CardState.New;
-    }
-  }
-
-  private getStateLabel(state: CardState): string {
-    switch (state) {
-      case CardState.New:
-        return '新卡';
-      case CardState.Learning:
-        return '学习中';
-      case CardState.Review:
-        return '复习';
-      case CardState.Relearning:
-        return '重学';
-      default:
-        return '未知';
-    }
   }
 }

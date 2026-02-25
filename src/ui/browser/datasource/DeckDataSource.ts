@@ -180,7 +180,7 @@ export class DeckDataSource implements ICardDataSource {
     return actions;
   }
 
-  async performAction(actionId: string, selectedRows: BrowserCard[], context?: DeckActionContext): Promise<any> {
+  async performAction(actionId: string, selectedRows: BrowserCard[], context?: DeckActionContext): Promise<unknown> {
     if (actionId === 'open') {
       return;
     }
@@ -240,7 +240,7 @@ export class DeckDataSource implements ICardDataSource {
     return deletion.deletedCount;
   }
 
-  private async handleQueueAddAction(route: QueueAddRoute, selectedRows: BrowserCard[]): Promise<any> {
+  private async handleQueueAddAction(route: QueueAddRoute, selectedRows: BrowserCard[]): Promise<unknown> {
     const queue = this.manager.getQueue(route.queueType);
     return addToQueue(queue, selectedRows, route.actionType);
   }
@@ -254,7 +254,7 @@ export class DeckDataSource implements ICardDataSource {
     await Promise.resolve(this.plugin?.openSubsetReviewDialog?.(blockIds));
   }
 
-  private async handleSetPriority(selectedRows: BrowserCard[], context?: DeckActionContext): Promise<any> {
+  private async handleSetPriority(selectedRows: BrowserCard[], context?: DeckActionContext): Promise<unknown> {
     const priority = this.resolvePriority(context?.priority);
 
     const result = await setBrowserCardsPriority(this.manager, selectedRows, priority, {

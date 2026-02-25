@@ -11,7 +11,7 @@
 
 import type { QueueStats } from './types.ts';
 
-export interface QueueProvider<TItem = any> {
+export interface QueueProvider<TItem = unknown> {
   readonly id: string;
   readonly displayName: string;
 
@@ -24,6 +24,13 @@ export interface QueueProvider<TItem = any> {
   resetCard?(cardId: string): Promise<void>;
   setPriority?(cardId: string, priority: number): Promise<void>;
 
+  onCustomAction?(
+    actionId: string,
+    currentItem: TItem | null,
+    buffer: TItem[],
+    options: Record<string, unknown>
+  ): Promise<boolean | void> | boolean | void;
+  insertAt?(cardId: string, position: number): Promise<void> | void;
   getStats?(options?: Record<string, unknown>): Promise<QueueStats>;
 }
 

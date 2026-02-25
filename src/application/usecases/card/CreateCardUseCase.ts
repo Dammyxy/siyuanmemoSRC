@@ -39,6 +39,9 @@ import { Priority } from '@/core/xiuyuan/domain/Priority';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { CardCreationSiyuanPort } from '@/application/ports/CardCreationSiyuanPort';
 import { CardCreationSiyuanAdapter } from '@/infrastructure/siyuan/CardCreationSiyuanAdapter';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('CreateCardUseCase');
 
 export class CreateCardUseCase {
   private readonly siyuanApi: CardCreationSiyuanPort;
@@ -66,7 +69,13 @@ export class CreateCardUseCase {
     }
 
     // 2. 自动选择模板（如果未指定）
-    const templateId = await this.selectTemplate(command);
+    let templateId: string | null;
+    try {
+      templateId = await this.selectTemplate(command);
+    } catch (error) {
+      logger.error('Template selection failed', error);
+      return err(this.toError(error, 'Template selection failed'));
+    }
     if (!templateId) {
       return err(new Error('Failed to select template'));
     }
@@ -77,7 +86,7 @@ export class CreateCardUseCase {
       templateId,
     });
     if (!conversionResult.ok) {
-      return conversionResult as Result<Card>;
+      return conversionResult;
     }
 
     const { blockIds, templateIdObj, faces, priority } = conversionResult.value;
@@ -100,7 +109,7 @@ export class CreateCardUseCase {
     });
 
     if (!xiuyuanResult.ok) {
-      return xiuyuanResult as Result<Card>;
+      return xiuyuanResult;
     }
 
     const xiuyuan = xiuyuanResult.value;
@@ -117,7 +126,7 @@ export class CreateCardUseCase {
     // 7. 持久化 Xiuyuan（包括卡片）
     const saveResult = await this.xiuyuanRepo.save(xiuyuan);
     if (!saveResult.ok) {
-      return saveResult as Result<Card>;
+      return saveResult;
     }
 
     // 8. 发布领域事件
@@ -184,13 +193,8 @@ export class CreateCardUseCase {
    * @returns 是否包含 <> 符号
    */
   private async detectSymbol(blockId: string): Promise<boolean> {
-    try {
-      const content = await this.siyuanApi.getBlockText(blockId);
-      return content.includes('<>');
-    } catch (error) {
-      console.error('[CreateCardUseCase] Failed to detect symbol:', error);
-      return false;
-    }
+    const content = await this.siyuanApi.getBlockText(blockId);
+    return content.includes('<>');
   }
 
   /**
@@ -324,7 +328,7 @@ export class CreateCardUseCase {
     if (command.blockId) {
       const blockIdResult = BlockId.create(command.blockId);
       if (!blockIdResult.ok) {
-        return blockIdResult as any;
+        return blockIdResult;
       }
       blockIds.push(blockIdResult.value);
     }
@@ -333,7 +337,7 @@ export class CreateCardUseCase {
       for (const blockIdStr of command.blockIds) {
         const blockIdResult = BlockId.create(blockIdStr);
         if (!blockIdResult.ok) {
-          return blockIdResult as any;
+          return blockIdResult;
         }
         blockIds.push(blockIdResult.value);
       }
@@ -349,7 +353,7 @@ export class CreateCardUseCase {
     }
     const templateIdResult = TemplateId.create(command.templateId);
     if (!templateIdResult.ok) {
-      return templateIdResult as any;
+      return templateIdResult;
     }
 
     // 转换 CardFace 列表（如果提供）
@@ -365,7 +369,7 @@ export class CreateCardUseCase {
         });
 
         if (!faceResult.ok) {
-          return faceResult as any;
+          return faceResult;
         }
 
         faces.push(faceResult.value);
@@ -388,7 +392,7 @@ export class CreateCardUseCase {
           });
 
           if (!defaultFaceResult.ok) {
-            return defaultFaceResult as any;
+            return defaultFaceResult;
           }
 
           faces.push(defaultFaceResult.value);
@@ -405,7 +409,7 @@ export class CreateCardUseCase {
         });
 
         if (!defaultFaceResult.ok) {
-          return defaultFaceResult as any;
+          return defaultFaceResult;
         }
 
         faces.push(defaultFaceResult.value);
@@ -425,7 +429,7 @@ export class CreateCardUseCase {
       
       const priorityResult = Priority.create(priorityValue);
       if (!priorityResult.ok) {
-        return priorityResult as any;
+        return priorityResult;
       }
       priority = priorityResult.value;
     } else {
@@ -438,5 +442,12 @@ export class CreateCardUseCase {
       faces: faces,
       priority: priority
     });
+  }
+
+  private toError(error: unknown, fallback: string): Error {
+    if (error instanceof Error) {
+      return error;
+    }
+    return new Error(fallback);
   }
 }

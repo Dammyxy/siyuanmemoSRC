@@ -141,7 +141,7 @@ interface Props {
   currentCardType: 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only';
   viewMode: 'flat' | 'hierarchy';
   mode: 'dialog' | 'tab' | 'dock';
-  plugin?: any;
+  plugin?: unknown;
   i18n?: Record<string, string>;
   canApplySortToQueue: boolean;
   activeQueueId?: string | null;  // 🆕 添加当前队列 ID

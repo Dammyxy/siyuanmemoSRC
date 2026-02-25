@@ -12,18 +12,14 @@ import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanR
 import { CardCreationService } from '@/core/xiuyuan/domain/services/CardCreationService';
 import { ok } from '@/types/result';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
-import * as blockModule from '@/core/siyuan/block';
-
-// Mock getBlockText
-vi.mock('@/core/siyuan/block', () => ({
-  getBlockText: vi.fn(),
-}));
+import type { CardCreationSiyuanPort } from '@/application/ports/CardCreationSiyuanPort';
 
 describe('CreateCardUseCase - 自动模板选择', () => {
   let useCase: CreateCardUseCase;
   let mockRepo: IXiuyuanRepository;
   let cardCreationService: CardCreationService;
   let mockEventBus: EventBus;
+  let mockSiyuanApi: CardCreationSiyuanPort;
 
   beforeEach(() => {
     // 创建 mock repository
@@ -46,16 +42,22 @@ describe('CreateCardUseCase - 自动模板选择', () => {
       publish: vi.fn().mockResolvedValue(undefined),
       subscribe: vi.fn(),
       unsubscribe: vi.fn(),
-    } as any;
+    } as unknown as EventBus;
+
+    mockSiyuanApi = {
+      getBlockText: vi.fn().mockResolvedValue('普通内容'),
+    };
 
     // 创建用例
-    useCase = new CreateCardUseCase(mockRepo, cardCreationService, mockEventBus);
+    useCase = new CreateCardUseCase(mockRepo, cardCreationService, mockEventBus, {
+      siyuanApi: mockSiyuanApi,
+    });
   });
 
   describe('符号检测 (Requirement 8.1)', () => {
-    it('单块 + <> 符号 → builtin-symbol-qa', async () => {
+    it('单块 + <> 符号 → builtin-quick-card', async () => {
       // Mock getBlockText 返回包含 <> 的内容
-      vi.mocked(blockModule.getBlockText).mockResolvedValue('DDD <> 领域驱动设计');
+      vi.mocked(mockSiyuanApi.getBlockText).mockResolvedValue('DDD <> 领域驱动设计');
 
       const command: CreateCardCommand = {
         blockId: '20210808180117-6v0mkxr',
@@ -67,13 +69,13 @@ describe('CreateCardUseCase - 自动模板选择', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         const savedXiuyuan = vi.mocked(mockRepo.save).mock.calls[0][0];
-        expect(savedXiuyuan.getTemplateID().getValue()).toBe('builtin-symbol-qa');
+        expect(savedXiuyuan.getTemplateID().getValue()).toBe('builtin-quick-card');
       }
     });
 
-    it('多块 + <> 符号 → builtin-quick-bidirectional', async () => {
+    it('多块 + <> 符号 → builtin-quick-card', async () => {
       // Mock getBlockText 返回包含 <> 的内容
-      vi.mocked(blockModule.getBlockText).mockResolvedValue('DDD <> 领域驱动设计');
+      vi.mocked(mockSiyuanApi.getBlockText).mockResolvedValue('DDD <> 领域驱动设计');
 
       const command: CreateCardCommand = {
         blockIds: ['20210808180117-6v0mkxr', '20210808180118-7w1nlys'],
@@ -84,7 +86,7 @@ describe('CreateCardUseCase - 自动模板选择', () => {
       expect(result.ok).toBe(true);
       if (result.ok) {
         const savedXiuyuan = vi.mocked(mockRepo.save).mock.calls[0][0];
-        expect(savedXiuyuan.getTemplateID().getValue()).toBe('builtin-quick-bidirectional');
+        expect(savedXiuyuan.getTemplateID().getValue()).toBe('builtin-quick-card');
       }
     });
   });
@@ -92,7 +94,7 @@ describe('CreateCardUseCase - 自动模板选择', () => {
   describe('Concept 卡片 (Requirements 8.2, 8.3)', () => {
     beforeEach(() => {
       // Mock getBlockText 返回不包含 <> 的内容
-      vi.mocked(blockModule.getBlockText).mockResolvedValue('普通内容');
+      vi.mocked(mockSiyuanApi.getBlockText).mockResolvedValue('普通内容');
     });
 
     it('Concept + 2块 → builtin-concept-descriptor (Requirement 8.2)', async () => {
@@ -129,7 +131,7 @@ describe('CreateCardUseCase - 自动模板选择', () => {
   describe('Item 卡片 (Requirements 8.4, 8.5)', () => {
     beforeEach(() => {
       // Mock getBlockText 返回不包含 <> 的内容
-      vi.mocked(blockModule.getBlockText).mockResolvedValue('普通内容');
+      vi.mocked(mockSiyuanApi.getBlockText).mockResolvedValue('普通内容');
     });
 
     it('Item + 1块 → builtin-quick-card (Requirement 8.4)', async () => {
@@ -180,7 +182,7 @@ describe('CreateCardUseCase - 自动模板选择', () => {
   describe('其他卡片类型', () => {
     beforeEach(() => {
       // Mock getBlockText 返回不包含 <> 的内容
-      vi.mocked(blockModule.getBlockText).mockResolvedValue('普通内容');
+      vi.mocked(mockSiyuanApi.getBlockText).mockResolvedValue('普通内容');
     });
 
     it('Descriptor → builtin-concept-descriptor', async () => {
@@ -217,7 +219,7 @@ describe('CreateCardUseCase - 自动模板选择', () => {
   describe('显式模板覆盖 (Requirement 8.6)', () => {
     it('显式指定 templateId 应该覆盖自动选择', async () => {
       // Mock getBlockText 返回包含 <> 的内容（通常会选择 builtin-symbol-qa）
-      vi.mocked(blockModule.getBlockText).mockResolvedValue('DDD <> 领域驱动设计');
+      vi.mocked(mockSiyuanApi.getBlockText).mockResolvedValue('DDD <> 领域驱动设计');
 
       const command: CreateCardCommand = {
         blockId: '20210808180117-6v0mkxr',

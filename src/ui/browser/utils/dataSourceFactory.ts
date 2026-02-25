@@ -12,14 +12,51 @@ import { DeckDataSource } from '../datasource/DeckDataSource';
 import { QueryDataSource } from '../datasource/QueryDataSource';
 import { BlockIdsDataSource } from '../datasource/BlockIdsDataSource';
 import { IncrementalLearningDataSource } from '../datasource/IncrementalLearningDataSource';
+import { extractBlockIds } from './helpers';
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DataSourceFactory');
 
-function resolveI18nLabel(plugin: any, key: string, fallback: string): string {
-  const i18n = plugin?.getContext?.()?.getI18n?.() || plugin?.i18n;
-  return i18n?.[key] || fallback;
+type I18nDictionary = Record<string, string>;
+type I18nContextLike = {
+  getI18n?: () => I18nDictionary | undefined;
+};
+type I18nPluginLike = {
+  getContext?: () => I18nContextLike | undefined;
+  i18n?: I18nDictionary;
+};
+type QueueDataSourcePlugin = ConstructorParameters<typeof FinalDrillDataSource>[2];
+type DeckDataSourcePlugin = ConstructorParameters<typeof DeckDataSource>[2];
+type BlockIdsPlugin = ConstructorParameters<typeof BlockIdsDataSource>[0]['plugin'];
+type QueueItemLike = {
+  blockID?: unknown;
+  blockId?: unknown;
+  block_id?: unknown;
+};
+
+function isI18nPluginLike(value: unknown): value is I18nPluginLike {
+  return typeof value === 'object' && value !== null;
+}
+
+function asQueueDataSourcePlugin(plugin: unknown): QueueDataSourcePlugin {
+  return plugin as QueueDataSourcePlugin;
+}
+
+function asDeckDataSourcePlugin(plugin: unknown): DeckDataSourcePlugin {
+  return plugin as DeckDataSourcePlugin;
+}
+
+function asBlockIdsPlugin(plugin: unknown): BlockIdsPlugin {
+  return plugin as BlockIdsPlugin;
+}
+
+function resolveI18nLabel(plugin: unknown, key: string, fallback: string): string {
+  if (!isI18nPluginLike(plugin)) {
+    return fallback;
+  }
+  const i18n = plugin.getContext?.()?.getI18n?.() || plugin.i18n;
+  return i18n?.[key] ?? fallback;
 }
 
 /**
@@ -51,7 +88,7 @@ export function createQueueDataSource(
   queueId: string,
   manager: IUnifiedDataSourceManagerFacade,
   options: DataSourceOptionsWithDoc,
-  plugin?: any
+  plugin?: unknown
 ): ICardDataSource | null {
   const { docId, preset, queryText, cardType } = options;
 
@@ -63,7 +100,7 @@ export function createQueueDataSource(
         preset,
         queryText,
         cardType,
-      }, plugin);
+      }, asQueueDataSourcePlugin(plugin));
 
     case 'retrieval':
       return new RetrievalDataSource(manager, {
@@ -71,7 +108,7 @@ export function createQueueDataSource(
         preset,
         queryText,
         cardType,
-      }, plugin);
+      }, asQueueDataSourcePlugin(plugin));
 
     case 'filter-group':
       return new FilterGroupDataSource(manager, {
@@ -79,7 +116,7 @@ export function createQueueDataSource(
         preset,
         queryText,
         cardType,
-      }, plugin);
+      }, asQueueDataSourcePlugin(plugin));
 
     case 'incremental-learning':
       return new IncrementalLearningDataSource(manager, {
@@ -87,7 +124,7 @@ export function createQueueDataSource(
         preset,
         queryText,
         cardType,
-      }, plugin);
+      }, asQueueDataSourcePlugin(plugin));
 
     case 'neural-roam':
       // 神经漫游队列：使用 BlockIds 数据源
@@ -124,14 +161,14 @@ export function createQueueDataSource(
 export function createBlockIdsDataSource(
   queueId: string,
   blockIds: string[],
-  plugin: any,
+  plugin: unknown,
   getBlockIdsFn?: () => string[]
 ): ICardDataSource {
   return new BlockIdsDataSource({
     id: queueId,
     label: queueId,
     blockIds,
-    plugin,
+    plugin: asBlockIdsPlugin(plugin),
     queueId,
     getBlockIdsFn,
   });
@@ -150,7 +187,7 @@ export function createDeckDataSource(
   manager: IUnifiedDataSourceManagerFacade,
   options: DataSourceOptionsWithDoc,
   currentDocId?: string | null,
-  plugin?: any
+  plugin?: unknown
 ): ICardDataSource {
   const { docId, preset, queryText, cardType } = options;
 
@@ -162,7 +199,7 @@ export function createDeckDataSource(
       queryText,
       cardType,
     },
-    plugin
+    asDeckDataSourcePlugin(plugin)
   );
 }
 
@@ -190,8 +227,8 @@ export function createFocusDataSource(
   queueId: string | null,
   manager: IUnifiedDataSourceManagerFacade,
   options: DataSourceOptions,
-  getQueueItems?: () => any[],
-  plugin?: any
+  getQueueItems?: () => QueueItemLike[],
+  plugin?: unknown
 ): ICardDataSource | null {
   const { preset, queryText, cardType } = options;
 
@@ -201,7 +238,7 @@ export function createFocusDataSource(
       preset,
       queryText,
       cardType,
-    }, plugin);
+    }, asQueueDataSourcePlugin(plugin));
   }
 
   if (queueId === 'retrieval') {
@@ -209,7 +246,7 @@ export function createFocusDataSource(
       preset,
       queryText,
       cardType,
-    }, plugin);
+    }, asQueueDataSourcePlugin(plugin));
   }
 
   if (queueId === 'filter-group') {
@@ -217,7 +254,7 @@ export function createFocusDataSource(
       preset,
       queryText,
       cardType,
-    }, plugin);
+    }, asQueueDataSourcePlugin(plugin));
   }
 
   // ✅ 新增：渐进学习队列
@@ -226,7 +263,7 @@ export function createFocusDataSource(
       preset,
       queryText,
       cardType,
-    }, plugin);
+    }, asQueueDataSourcePlugin(plugin));
   }
 
   // 神经漫游队列：使用 BlockIds，支持动态获取
@@ -249,7 +286,7 @@ export function createFocusDataSource(
   // 其他队列：使用 BlockIds（静态）
   if (queueId && getQueueItems) {
     const items = getQueueItems();
-    const blockIds = items.map((it: any) => String(it?.blockID || it?.blockId || '')).filter(Boolean);
+    const blockIds = extractBlockIds(items);
     // 注意：BlockIdsDataSource 仍然需要 plugin 对象
     return createBlockIdsDataSource(queueId, blockIds, plugin);
   }
@@ -264,7 +301,7 @@ export function createFocusDataSource(
         queryText,
         cardType,
       },
-      plugin
+      asDeckDataSourcePlugin(plugin)
     );
   }
 

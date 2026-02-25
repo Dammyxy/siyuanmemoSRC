@@ -283,15 +283,46 @@ const t = (key: string, fallback: string): string => {
 };
 
 interface NumericFieldConfig {
-  key: string;
+  key: NumericFieldKey;
   labelKey: string;
   range: { min: number; max: number };
   allowDecimal?: boolean;
 }
 
 interface DateFieldConfig {
-  key: string;
+  key: DateFieldKey;
   labelKey: string;
+}
+
+type NumericFieldKey =
+  | 'priority'
+  | 'repetitions'
+  | 'lapses'
+  | 'interval'
+  | 'difficulty'
+  | 'stability'
+  | 'retrievability'
+  | 'postpones';
+type DateFieldKey = 'lastReview' | 'nextReview';
+type FilterStateKey = NumericFieldKey | DateFieldKey | 'cardType' | 'cardStatus' | 'keyword';
+
+type NumericRangeValue = { min: number; max: number };
+type DateRangeValue = { min: Date; max: Date };
+
+interface FilterStateValues {
+  priority: NumericRangeValue;
+  repetitions: NumericRangeValue;
+  lapses: NumericRangeValue;
+  interval: NumericRangeValue;
+  lastReview: DateRangeValue;
+  nextReview: DateRangeValue;
+  difficulty: NumericRangeValue;
+  stability: NumericRangeValue;
+  retrievability: NumericRangeValue;
+  postpones: NumericRangeValue;
+  cardType: Set<string>;
+  cardStatus: Set<string>;
+  keyword: string;
 }
 
 const numericFields: NumericFieldConfig[] = [
@@ -311,8 +342,8 @@ const dateFields: DateFieldConfig[] = [
 ];
 
 interface FilterState {
-  enabled: Record<string, boolean>;
-  values: Record<string, any>;
+  enabled: Record<FilterStateKey, boolean>;
+  values: FilterStateValues;
 }
 
 const filterState = ref<FilterState>({
@@ -355,29 +386,29 @@ const savedPresets = ref<Array<{ name: string; filter: CardFilter }>>([]);
 const isValid = computed(() => validationErrors.value.size === 0);
 const hasAnyFilter = computed(() => Object.values(filterState.value.enabled).some(v => v));
 
-function updateEnabled(key: string, enabled: boolean) {
+function updateEnabled(key: FilterStateKey, enabled: boolean) {
   filterState.value.enabled[key] = enabled;
   validate();
 }
 
-function updateNumericMin(key: string, value: number) {
+function updateNumericMin(key: NumericFieldKey, value: number) {
   if (isNaN(value)) return;
   filterState.value.values[key].min = value;
   validate();
 }
 
-function updateNumericMax(key: string, value: number) {
+function updateNumericMax(key: NumericFieldKey, value: number) {
   if (isNaN(value)) return;
   filterState.value.values[key].max = value;
   validate();
 }
 
-function updateDateMin(key: string, value: Date) {
+function updateDateMin(key: DateFieldKey, value: Date) {
   filterState.value.values[key].min = value;
   validate();
 }
 
-function updateDateMax(key: string, value: Date) {
+function updateDateMax(key: DateFieldKey, value: Date) {
   filterState.value.values[key].max = value;
   validate();
 }
@@ -453,7 +484,7 @@ function formatDateForInput(date: Date): string {
 function handleApply() {
   if (!isValid.value) return;
   
-  const filter = filterService.toCardFilter(filterState.value);
+  const filter = filterService.toCardFilter(filterState.value as unknown as Parameters<typeof filterService.toCardFilter>[0]);
   filterService.saveFilter(filter);
   emit('apply', filter);
 }
@@ -463,7 +494,7 @@ function handleCancel() {
 }
 
 function handleClear() {
-  for (const key in filterState.value.enabled) {
+  for (const key of Object.keys(filterState.value.enabled) as FilterStateKey[]) {
     filterState.value.enabled[key] = false;
   }
   
@@ -478,14 +509,14 @@ function loadPreset() {
   if (!selectedPreset.value) {
     const lastUsed = filterService.loadFilter();
     if (lastUsed) {
-      filterState.value = filterService.fromCardFilter(lastUsed);
+      filterState.value = filterService.fromCardFilter(lastUsed) as unknown as FilterState;
     }
     return;
   }
   
   const preset = savedPresets.value.find(p => p.name === selectedPreset.value);
   if (preset) {
-    filterState.value = filterService.fromCardFilter(preset.filter);
+    filterState.value = filterService.fromCardFilter(preset.filter) as unknown as FilterState;
   }
 }
 
@@ -502,7 +533,7 @@ async function showSavePresetDialog() {
       return;
     }
     
-    const filter = filterService.toCardFilter(filterState.value);
+    const filter = filterService.toCardFilter(filterState.value as unknown as Parameters<typeof filterService.toCardFilter>[0]);
     console.log('[FilterDialog] Filter to save:', filter);
     
     savedPresets.value.push({ name, filter });
@@ -613,7 +644,7 @@ function deletePreset() {
 function handleRebuild() {
   // 先应用当前过滤条件
   if (isValid.value) {
-    const filter = filterService.toCardFilter(filterState.value);
+    const filter = filterService.toCardFilter(filterState.value as unknown as Parameters<typeof filterService.toCardFilter>[0]);
     filterService.saveFilter(filter);
   }
   
@@ -630,11 +661,11 @@ onMounted(() => {
   savedPresets.value = filterService.loadPresets();
   
   if (props.initialFilter) {
-    filterState.value = filterService.fromCardFilter(props.initialFilter);
+    filterState.value = filterService.fromCardFilter(props.initialFilter) as unknown as FilterState;
   } else {
     const lastUsed = filterService.loadFilter();
     if (lastUsed) {
-      filterState.value = filterService.fromCardFilter(lastUsed);
+      filterState.value = filterService.fromCardFilter(lastUsed) as unknown as FilterState;
     }
   }
   

@@ -1,11 +1,32 @@
-﻿import { ref, computed, nextTick } from 'vue';
-import type { GridApi, ColDef, CellContextMenuEvent, RowSelectionOptions } from 'ag-grid-community';
+import { ref } from 'vue';
+import type { ColumnState, GridApi, CellContextMenuEvent, RowSelectionOptions } from 'ag-grid-community';
+import type { SortModel } from '@/application/interfaces/ICardDataSource';
 import { BrowserCard } from '../types';
 
+type GridReadyParams = {
+  api: GridApi;
+};
+
+type GridSortParams = {
+  api?: GridApi | null;
+};
+
+type GridRowEvent = {
+  data?: BrowserCard;
+  event?: MouseEvent;
+};
+
+type TabManagerLike = {
+  openDocumentTab: (docId: string) => void;
+};
+
+type TabApplicationServiceLike = {
+  openDocumentTab: (params: { docId: string }) => Promise<void> | void;
+};
+
 export interface GridInteractionsOptions {
-  plugin?: any;
-  tabManager?: any;  // ⚠️ 已废弃，使用 tabApplicationService
-  tabApplicationService?: any;  // ✅ Phase 9: 使用 TabApplicationService
+  tabManager?: TabManagerLike;  // ⚠️ 已废弃，使用 tabApplicationService
+  tabApplicationService?: TabApplicationServiceLike;  // ✅ Phase 9: 使用 TabApplicationService
   i18n?: Record<string, string>;
 }
 
@@ -13,7 +34,7 @@ export function useGridInteractions(props: GridInteractionsOptions) {
   // Grid 状态
   const gridApi = ref<GridApi | null>(null);
   const selectedRows = ref<BrowserCard[]>([]);
-  const currentSortModel = ref<any[]>([]);
+  const currentSortModel = ref<SortModel[]>([]);
   const hasRandomSort = ref(false);  // 标记是否进行了随机排序
 
   // AG Grid 选择配置 (v35+ 新 API)
@@ -25,27 +46,17 @@ export function useGridInteractions(props: GridInteractionsOptions) {
   });
 
   // Grid 事件处理
-  const onGridReady = (params: any) => {
+  const onGridReady = (params: GridReadyParams) => {
     gridApi.value = params.api;
-    // 使用 gridApi.value 获取列信息（使用 nextTick 确保初始化完成）
-    // nextTick(() => {
-    //   if (gridApi.value) {
-    //     const columns = gridApi.value.getColumns?.();
-    //     console.log('[SiYuanMemo][CardBrowser] AG-Grid ready, columns:', columns?.map((c: any) => ({
-    //       colId: c.getColId(),
-    //       sortable: c.isSortable(),
-    //     })));
-    //   }
-    // });
   };
 
-  const onDisplayedColumnsChanged = (params: any) => {
+  const onDisplayedColumnsChanged = (_params: GridSortParams) => {
     console.log('[SiYuanMemo][CardBrowser] Displayed columns changed');
   };
 
-  const onSortChanged = (params: any) => {
-    currentSortModel.value = params?.api?.getSortModel?.() || [];
-    const sortArray = Array.from(currentSortModel.value || []);
+  const onSortChanged = (params: GridSortParams) => {
+    currentSortModel.value = (params.api?.getSortModel?.() ?? []) as SortModel[];
+    const sortArray = [...currentSortModel.value];
 
     // 如果有列排序状态，清除随机排序标志
     if (sortArray.length > 0) {
@@ -53,17 +64,15 @@ export function useGridInteractions(props: GridInteractionsOptions) {
     }
 
     // 检查排序是否真的改变了
-    const api = params?.api || gridApi.value;
+    const api = params.api || gridApi.value;
     console.log('[SiYuanMemo][CardBrowser] onSortChanged:', {
       sortModel: currentSortModel.value,
-      sortModelLength: currentSortModel.value?.length,
+      sortModelLength: currentSortModel.value.length,
       sortModelArray: sortArray,
-      // 调试：检查 API 方法
       hasGetSortModel: typeof api?.getSortModel === 'function',
       hasGetDisplayedRowCount: typeof api?.getDisplayedRowCount === 'function',
       hasGetColumnState: typeof api?.getColumnState === 'function',
-      // 尝试获取当前排序状态（只显示 priority 列）
-      columnState: api?.getColumnState?.()?.filter((c: any) => c.colId === 'priority') || [],
+      columnState: (api?.getColumnState?.() ?? []).filter((column: ColumnState) => column.colId === 'priority'),
     });
 
     // 强制刷新 NO 列以更新行号（使用 colId）
@@ -74,47 +83,45 @@ export function useGridInteractions(props: GridInteractionsOptions) {
 
   const onSelectionChanged = () => {
     if (gridApi.value) {
-      selectedRows.value = gridApi.value.getSelectedRows();
+      selectedRows.value = gridApi.value.getSelectedRows() as BrowserCard[];
     }
   };
 
   // 行点击事件
-  const onRowClicked = (event: any, onPreviewSelect?: (card: BrowserCard) => void) => {
-    const mouseEvent = event.event as MouseEvent;
+  const onRowClicked = (event: GridRowEvent, onPreviewSelect?: (card: BrowserCard) => void) => {
+    const mouseEvent = event.event;
     const isMultiSelect = mouseEvent?.shiftKey || mouseEvent?.ctrlKey || mouseEvent?.metaKey;
-    
+
     // 多选模式：不改变预览
     if (isMultiSelect) {
       return;
     }
-    
+
     // 单选模式
-    if (onPreviewSelect) {
+    if (onPreviewSelect && event.data) {
       onPreviewSelect(event.data);
     }
   };
 
   // 行双击事件
-  const onRowDoubleClicked = async (event: any) => {
+  const onRowDoubleClicked = async (event: GridRowEvent) => {
     const blockId = event.data?.blockId;
     if (!blockId) {
       console.warn('[SiYuanMemo][CardBrowser] No blockId found in row data:', event.data);
       return;
     }
-    
+
     // ✅ Phase 9: 优先使用 TabApplicationService（DDD 架构）
     if (props.tabApplicationService) {
-      await props.tabApplicationService.openDocumentTab({ docId: blockId });
-    } else if (props.tabManager) {
+      await Promise.resolve(props.tabApplicationService.openDocumentTab({ docId: blockId }));
+      return;
+    }
+    if (props.tabManager) {
       // ⚠️ 向后兼容：使用旧的 TabManager
       props.tabManager.openDocumentTab(blockId);
-    } else if (props.plugin?.app) {
-      // ⚠️ 回退到旧方法（向后兼容）
-      (props.plugin.app as any).openTab({
-        app: props.plugin.app,
-        doc: { id: blockId },
-      });
+      return;
     }
+    console.warn('[SiYuanMemo][CardBrowser] Tab service unavailable, cannot open document:', blockId);
   };
 
   // 右键菜单事件
@@ -126,8 +133,8 @@ export function useGridInteractions(props: GridInteractionsOptions) {
   };
 
   // 排序相关方法
-  const applySort = (colId: string, sortDirection: 'asc' | 'desc', gridApi: any) => {
-    if (!gridApi) {
+  const applySort = (colId: string, sortDirection: 'asc' | 'desc', api: GridApi | null) => {
+    if (!api) {
       console.error('[SiYuanMemo][CardBrowser] Grid API not ready');
       return;
     }
@@ -135,11 +142,10 @@ export function useGridInteractions(props: GridInteractionsOptions) {
     console.log('[SiYuanMemo][CardBrowser] Applying sort:', { colId, sortDirection });
 
     try {
-      // AG-Grid v35+ 直接使用 gridApi.applyColumnState
-      gridApi.applyColumnState({
+      api.applyColumnState({
         state: [
           {
-            colId: colId,
+            colId,
             sort: sortDirection,
           },
         ],
@@ -153,15 +159,15 @@ export function useGridInteractions(props: GridInteractionsOptions) {
   };
 
   // 随机排序
-  const applyRandomSort = (gridApi: any) => {
-    if (!gridApi) {
+  const applyRandomSort = (api: GridApi | null) => {
+    if (!api) {
       console.error('[SiYuanMemo][CardBrowser] Grid API not ready for random sort');
       return;
     }
 
     try {
       // 获取当前显示的所有行数据
-      const rowCount = gridApi.getDisplayedRowCount?.() ?? 0;
+      const rowCount = api.getDisplayedRowCount?.() ?? 0;
       if (rowCount === 0) {
         console.warn('[SiYuanMemo][CardBrowser] No rows to shuffle');
         return;
@@ -170,11 +176,12 @@ export function useGridInteractions(props: GridInteractionsOptions) {
       console.log('[SiYuanMemo][CardBrowser] Shuffling', rowCount, 'rows');
 
       // 收集所有行数据
-      const rows: any[] = [];
+      const rows: BrowserCard[] = [];
       for (let i = 0; i < rowCount; i++) {
-        const node = gridApi.getDisplayedRowAtIndex?.(i);
-        if (node?.data) {
-          rows.push(node.data);
+        const node = api.getDisplayedRowAtIndex?.(i);
+        const row = node?.data as BrowserCard | undefined;
+        if (row) {
+          rows.push(row);
         }
       }
 
@@ -185,24 +192,18 @@ export function useGridInteractions(props: GridInteractionsOptions) {
       }
 
       // 清除所有排序状态
-      gridApi.setColumnState?.({
+      api.applyColumnState({
         state: [],
         defaultState: { sort: null },
       });
 
-      // 设置随机排序标志
-      // 注意：需要通过某种方式更新 hasRandomSort 状态
-
       // 使用 AG-Grid v28+ 的 setGridOption API
-      // 先清空数据，强制 AG-Grid 重新创建行模型
-      gridApi.setGridOption?.('rowData', []);
+      api.setGridOption?.('rowData', []);
 
       // 在下一个 tick 设置新数据
       setTimeout(() => {
-        if (gridApi) {
-          gridApi.setGridOption?.('rowData', rows);
-          console.log('[SiYuanMemo][CardBrowser] Shuffle completed via setGridOption');
-        }
+        api.setGridOption?.('rowData', rows);
+        console.log('[SiYuanMemo][CardBrowser] Shuffle completed via setGridOption');
       }, 0);
     } catch (err) {
       console.error('[SiYuanMemo][CardBrowser] Random sort failed:', err);

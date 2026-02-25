@@ -203,8 +203,7 @@ const isValid = computed(() => {
 // 加载配置列表
 onMounted(async () => {
   try {
-    const allConfigs = await (props.configManager as any).loadAllConfigs();
-    configNames.value = Object.keys(allConfigs.advance || {});
+    configNames.value = await props.configManager.listConfigNames('advance');
   } catch (error) {
     console.error('Failed to load config names:', error);
   }
