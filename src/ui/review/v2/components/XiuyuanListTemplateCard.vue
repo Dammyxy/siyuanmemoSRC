@@ -59,12 +59,15 @@
 import { ref, computed, onMounted } from 'vue';
 import { getBlockDOM, getBlockBreadcrumb } from '@/core/siyuan/api';
 import type { XiuyuanCardMeta } from '@/core/xiuyuan/cardMeta';
+import { createLogger } from '@/utils/logger';
 
 const props = defineProps<{
   meta: XiuyuanCardMeta;
   showAnswer: boolean;
   questionBlockId: string;
 }>();
+
+const logger = createLogger('XiuyuanListTemplateCard');
 
 const questionHtml = ref('');
 const breadcrumbs = ref<Array<{ id: string; name: string; type: string }>>([]);
@@ -134,7 +137,7 @@ onMounted(async () => {
       breadcrumbs.value = Array.from(dedupMap.values());
     }
   } catch (err) {
-    console.error('[XiuyuanListTemplateCard] Failed to load question block:', err);
+    logger.error('[XiuyuanListTemplateCard] Failed to load question block:', err);
     questionHtml.value = '<div class="ft__error">加载失败</div>';
   }
 });

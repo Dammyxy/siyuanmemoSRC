@@ -9,6 +9,9 @@
 import type { ICardFaceStrategy } from './ICardFaceStrategy';
 import type { CardFaceData, HiddenContentType, QuickCardMetadata } from '../types';
 import { removeIAL } from './utils';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('ClozeCardStrategy');
 
 /**
  * 填空卡片策略
@@ -128,7 +131,7 @@ export class ClozeCardStrategy implements ICardFaceStrategy {
     const isMultiCloze = metadata.typeMarker && /^cloze-\d+$/.test(metadata.typeMarker);
     const targetIndex = isMultiCloze ? parseInt(metadata.typeMarker!.replace('cloze-', '')) : -1;
     
-    console.log('[ClozeCardStrategy] Parse:', {
+    logger.debug('parse', {
       typeMarker: metadata.typeMarker,
       isMultiCloze,
       targetIndex,

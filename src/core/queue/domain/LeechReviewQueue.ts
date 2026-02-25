@@ -1,11 +1,10 @@
-import { BaseReviewQueue } from './BaseReviewQueue';
+import { ManualCardCollectionQueue } from './ManualCardCollectionQueue';
 import { QueueType } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
 import type { QueueItem } from '@/core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import type { LeechActionEffectsPort } from './ports';
-import { ManualCardSetStrategy } from './ManualCardSetStrategy';
-import { resolveCardId } from '@/diagnostics/type-guards';
+import { NOOP_LEECH_ACTION_EFFECTS, NOOP_QUEUE_PERSISTENCE } from './ports';
 import { createLogger } from '@/utils/logger';
 
 type LeechAction = 'notify' | 'suspend' | 'tag';
@@ -20,29 +19,27 @@ interface LeechReviewQueueOptions {
 const ATTR_SUSPENDED = 'custom-fsrs-suspended';
 const ATTR_LEECH_TAG = 'custom-fsrs-leech-tag';
 const logger = createLogger('LeechReviewQueue');
-const NOOP_EFFECTS: LeechActionEffectsPort = {
-  async notify(): Promise<void> {
-    return;
-  },
-  async setBlockAttrs(): Promise<void> {
-    return;
-  },
+const NOOP_MANUAL_PERSIST = async (): Promise<void> => {
+  return;
 };
 
-export class LeechReviewQueue extends BaseReviewQueue {
+export class LeechReviewQueue extends ManualCardCollectionQueue {
   public name = 'LeechReviewQueue';
   private readonly threshold: number;
   private readonly action: LeechAction;
   private readonly tagName: string;
   private readonly effects: LeechActionEffectsPort;
-  private readonly manualCards = new ManualCardSetStrategy();
 
   constructor(manager: UnifiedDataSourceManager, options: LeechReviewQueueOptions = {}) {
-    super(manager, QueueType.Leech);
+    super(manager, QueueType.Leech, {
+      queuePersistence: NOOP_QUEUE_PERSISTENCE,
+      storageKey: 'leechReviewQueue',
+      persistenceContext: 'LeechReviewQueue',
+    });
     this.threshold = Math.max(1, Math.floor(Number(options.threshold ?? 8)));
     this.action = options.action ?? 'notify';
     this.tagName = String(options.tagName || 'leech');
-    this.effects = options.effects ?? NOOP_EFFECTS;
+    this.effects = options.effects ?? NOOP_LEECH_ACTION_EFFECTS;
     if (!options.effects) {
       logger.warn('LeechActionEffectsPort not provided. Leech actions will run in no-op mode.');
     }
@@ -53,6 +50,7 @@ export class LeechReviewQueue extends BaseReviewQueue {
   }
 
   public async getCards(): Promise<FSRSCard[]> {
+    await this.ensureInitialLoad();
     const cards = await this.manager.getCards();
     const filtered = cards
       .filter((card) => {
@@ -73,16 +71,20 @@ export class LeechReviewQueue extends BaseReviewQueue {
   }
 
   public async addCard(card: FSRSCard | QueueItem | string): Promise<void> {
-    const cardId = resolveCardId(card);
-    this.manualCards.add(cardId);
-    this.temporaryBlacklist.delete(cardId);
-    this.notifyObservers();
+    await this.addCardToCollection(card, {
+      logger,
+      persist: NOOP_MANUAL_PERSIST,
+      notifyQueueChanged: false,
+      notifyObservers: true,
+    });
   }
 
   public async removeCard(cardIdOrBlockId: string): Promise<void> {
-    this.manualCards.delete(cardIdOrBlockId);
-    this.temporaryBlacklist.add(cardIdOrBlockId);
-    this.notifyObservers();
+    await this.removeCardFromCollection(cardIdOrBlockId, {
+      logger,
+      persist: NOOP_MANUAL_PERSIST,
+      notifyObservers: true,
+    });
   }
 
   public async handleReview(cardId: string, rating: number): Promise<void> {

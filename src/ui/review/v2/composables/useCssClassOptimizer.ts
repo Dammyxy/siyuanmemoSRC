@@ -3,6 +3,8 @@
  * 避免重复应用相同的 CSS 类，提升性能
  */
 
+import { createLogger } from '@/utils/logger';
+
 interface AnswerVisibilityState {
   hasHidden: boolean;
   showAnswer: boolean;
@@ -20,6 +22,7 @@ interface CssClassOptimizerStats {
 
 export function useCssClassOptimizer(options: CssClassOptimizerOptions = {}) {
   const { debugMode = false } = options;
+  const logger = createLogger('useCssClassOptimizer');
   
   let lastState: AnswerVisibilityState | null = null;
   let stats: CssClassOptimizerStats = {
@@ -41,7 +44,7 @@ export function useCssClassOptimizer(options: CssClassOptimizerOptions = {}) {
         lastState.showAnswer === state.showAnswer) {
       stats.skippedCalls++;
       if (debugMode) {
-        console.log('[useCssClassOptimizer] Skipped (no state change)', state);
+        logger.debug('[useCssClassOptimizer] Skipped (no state change)', state);
       }
       return;
     }
@@ -51,7 +54,7 @@ export function useCssClassOptimizer(options: CssClassOptimizerOptions = {}) {
     lastState = { ...state };
 
     if (debugMode) {
-      console.log('[useCssClassOptimizer] Applying CSS classes', state);
+      logger.debug('[useCssClassOptimizer] Applying CSS classes', state);
     }
 
     const { hasHidden, showAnswer } = state;
@@ -81,7 +84,7 @@ export function useCssClassOptimizer(options: CssClassOptimizerOptions = {}) {
   function resetState(): void {
     lastState = null;
     if (debugMode) {
-      console.log('[useCssClassOptimizer] State reset');
+      logger.debug('[useCssClassOptimizer] State reset');
     }
   }
 

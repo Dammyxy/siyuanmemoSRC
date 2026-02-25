@@ -21,6 +21,7 @@
 
 <script setup lang="ts">
 import { Menu } from 'siyuan';
+import { createLogger } from '@/utils/logger';
 
 interface Props {
   i18n?: Record<string, string>;
@@ -35,6 +36,7 @@ interface Emits {
 
 const props = defineProps<Props>();
 const emit = defineEmits<Emits>();
+const logger = createLogger('SkipMenuButton');
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
@@ -45,7 +47,7 @@ function handleSkip(ev: MouseEvent) {
   ev.stopPropagation();
   ev.preventDefault();
   
-  console.log('[SkipMenuButton] Skip clicked');
+  logger.debug('[SkipMenuButton] Skip clicked');
   emit('skip');
 }
 
@@ -54,7 +56,7 @@ function toggleMenu(ev: MouseEvent) {
   ev.stopPropagation();
   ev.preventDefault();
   
-  console.log('[SkipMenuButton] toggleMenu called', {
+  logger.debug('[SkipMenuButton] toggleMenu called', {
     target: ev.target,
     currentTarget: ev.currentTarget,
   });
@@ -65,7 +67,7 @@ function toggleMenu(ev: MouseEvent) {
     icon: 'iconPin',
     label: t('insertToPosition', '插入到队列指定位置'),
     click: () => {
-      console.log('[SkipMenuButton] Insert clicked');
+      logger.debug('[SkipMenuButton] Insert clicked');
       emit('insert');
     },
   });
@@ -74,7 +76,7 @@ function toggleMenu(ev: MouseEvent) {
     icon: 'iconCalendar',
     label: t('scheduleDate', '安排复习日期'),
     click: () => {
-      console.log('[SkipMenuButton] Schedule clicked');
+      logger.debug('[SkipMenuButton] Schedule clicked');
       emit('schedule');
     },
   });
@@ -84,13 +86,13 @@ function toggleMenu(ev: MouseEvent) {
   if (buttonGroup) {
     const rect = buttonGroup.getBoundingClientRect();
     // 使用按钮顶部位置，让菜单向上展开（思源会自动将菜单放在这个点上方）
-    console.log('[SkipMenuButton] Opening menu above button at:', { x: rect.left, y: rect.top });
+    logger.debug('[SkipMenuButton] Opening menu above button at:', { x: rect.left, y: rect.top });
     menu.open({ x: rect.left, y: rect.top, isLeft: true });
   } else {
     // 降级方案：使用当前按钮的位置
     const target = ev.currentTarget as HTMLElement;
     const rect = target.getBoundingClientRect();
-    console.log('[SkipMenuButton] Opening menu above button at:', { x: rect.left, y: rect.top });
+    logger.debug('[SkipMenuButton] Opening menu above button at:', { x: rect.left, y: rect.top });
     menu.open({ x: rect.left, y: rect.top, isLeft: true });
   }
 }

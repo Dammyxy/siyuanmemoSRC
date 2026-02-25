@@ -3,6 +3,9 @@ import type { CardBuilderStrategy } from './types';
 import { DefaultBuilderStrategy } from './strategies/DefaultStrategy';
 import { ClozeBuilderStrategy } from './strategies/ClozeStrategy';
 import { QABuilderStrategy } from './strategies/QAStrategy';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('CardBuilderContext');
 
 // Topic/Item 检测
 export * from './detectCardType';
@@ -25,7 +28,7 @@ export class CardBuilderContext {
     async build(blockId: string, content: string): Promise<FSRSCard> {
         for (const strategy of this.strategies) {
             if (strategy.match(blockId, content)) {
-                console.log(`[CardBuilder] Using strategy: ${strategy.strategyName} for block ${blockId}`);
+                logger.debug('Using strategy', { strategy: strategy.strategyName, blockId });
                 return await strategy.build(blockId, content);
             }
         }

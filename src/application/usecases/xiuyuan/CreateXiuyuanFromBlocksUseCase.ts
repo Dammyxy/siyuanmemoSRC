@@ -1,31 +1,31 @@
-/**
- * CreateXiuyuanFromBlocksUseCase - 从块创建 Xiuyuan 用例
+﻿/**
+ * CreateXiuyuanFromBlocksUseCase - 浠庡潡鍒涘缓 Xiuyuan 鐢ㄤ緥
  * 
  * @description
- * 编排从思源笔记块创建 Xiuyuan 的业务流程。
+ * 缂栨帓浠庢€濇簮绗旇鍧楀垱寤?Xiuyuan 鐨勪笟鍔℃祦绋嬨€?
  * 
- * **设计原则**：
- * - 用例模式：封装单一业务用例
- * - 编排：协调多个领域对象和服务
- * - 事务边界：定义事务的开始和结束
- * - 使用 Result 类型：统一错误处理
+ * **璁捐鍘熷垯**锛?
+ * - 鐢ㄤ緥妯″紡锛氬皝瑁呭崟涓€涓氬姟鐢ㄤ緥
+ * - 缂栨帓锛氬崗璋冨涓鍩熷璞″拰鏈嶅姟
+ * - 浜嬪姟杈圭晫锛氬畾涔変簨鍔＄殑寮€濮嬪拰缁撴潫
+ * - 浣跨敤 Result 绫诲瀷锛氱粺涓€閿欒澶勭悊
  * 
- * **职责**：
- * - 验证输入命令
- * - 从块 ID 创建 Xiuyuan 聚合根
- * - 通过 Repository 持久化
- * - 返回创建的 Xiuyuan 和卡片
+ * **鑱岃矗**锛?
+ * - 楠岃瘉杈撳叆鍛戒护
+ * - 浠庡潡 ID 鍒涘缓 Xiuyuan 鑱氬悎鏍?
+ * - 閫氳繃 Repository 鎸佷箙鍖?
+ * - 杩斿洖鍒涘缓鐨?Xiuyuan 鍜屽崱鐗?
  * 
- * **业务流程**：
- * 1. 验证模板是否存在
- * 2. 构建 CardFace（从 fieldMapping）
- * 3. 创建 Xiuyuan 聚合根
- * 4. 添加到 Riff（可选）
- * 5. 通过 Repository 持久化
- * 6. 返回创建的 Xiuyuan 和卡片
+ * **涓氬姟娴佺▼**锛?
+ * 1. 楠岃瘉妯℃澘鏄惁瀛樺湪
+ * 2. 鏋勫缓 CardFace锛堜粠 fieldMapping锛?
+ * 3. 鍒涘缓 Xiuyuan 鑱氬悎鏍?
+ * 4. 娣诲姞鍒?Riff锛堝彲閫夛級
+ * 5. 閫氳繃 Repository 鎸佷箙鍖?
+ * 6. 杩斿洖鍒涘缓鐨?Xiuyuan 鍜屽崱鐗?
  */
 
-import { Result, ok, err } from '@/types/result';
+import { Result, err } from '@/types/result';
 import { CreateXiuyuanFromBlocksCommand } from '../../commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
 import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
@@ -36,24 +36,24 @@ import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { Priority } from '@/core/xiuyuan/domain/Priority';
 import { ClozeCardGenerator } from '@/core/xiuyuan/domain/services/ClozeCardGenerator';
 import { getBlockText } from '@/core/siyuan/block';
-import { addRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import { createLogger } from '@/utils/logger';
 import { isDefinitionTemplate, isDescriptorTemplate } from './shared/DescriptorTemplateStrategy';
+import { finalizeXiuyuanCreation } from './shared/FinalizeXiuyuanCreation';
 
 const logger = createLogger('CreateXiuyuanFromBlocksUseCase');
 
 /**
- * 从块创建 Xiuyuan 用例
+ * 浠庡潡鍒涘缓 Xiuyuan 鐢ㄤ緥
  * 
  * @class CreateXiuyuanFromBlocksUseCase
  */
 export class CreateXiuyuanFromBlocksUseCase {
   /**
-   * 构造函数
+   * 鏋勯€犲嚱鏁?
    * 
-   * @param xiuyuanRepository - Xiuyuan 仓储
-   * @param templateRegistry - 模板注册表（用于获取模板）
+   * @param xiuyuanRepository - Xiuyuan 浠撳偍
+   * @param templateRegistry - 妯℃澘娉ㄥ唽琛紙鐢ㄤ簬鑾峰彇妯℃澘锛?
    */
   constructor(
     private readonly xiuyuanRepository: IXiuyuanRepository,
@@ -61,30 +61,30 @@ export class CreateXiuyuanFromBlocksUseCase {
   ) {}
 
   /**
-   * 执行用例
+   * 鎵ц鐢ㄤ緥
    * 
-   * @param command - 创建命令
-   * @returns Result<any> - 成功返回创建的 Xiuyuan 和卡片，失败返回错误
+   * @param command - 鍒涘缓鍛戒护
+   * @returns Result<any> - 鎴愬姛杩斿洖鍒涘缓鐨?Xiuyuan 鍜屽崱鐗囷紝澶辫触杩斿洖閿欒
    */
   async execute(command: CreateXiuyuanFromBlocksCommand): Promise<Result<any>> {
     try {
-      // 1. 检查是否已经创建过 Xiuyuan 卡片
+      // 1. 妫€鏌ユ槸鍚﹀凡缁忓垱寤鸿繃 Xiuyuan 鍗＄墖
       const { getBlockAttrs } = await import('@/core/siyuan/api');
       
-      // 🆕 对于 concept-descriptor 模板，检查第二个块（描述符块）
-      // 因为概念卡本身可以有自己的 Xiuyuan，描述符卡是关联到概念卡的
+      // 馃啎 瀵逛簬 concept-descriptor 妯℃澘锛屾鏌ョ浜屼釜鍧楋紙鎻忚堪绗﹀潡锛?
+      // 鍥犱负姒傚康鍗℃湰韬彲浠ユ湁鑷繁鐨?Xiuyuan锛屾弿杩扮鍗℃槸鍏宠仈鍒版蹇靛崱鐨?
       // 
-      // 🆕 对于 concept-definition 模板，检查第一个块（定义块）
-      // 因为概念块可以有自己的 Xiuyuan，定义块为概念提供定义
+      // 馃啎 瀵逛簬 concept-definition 妯℃澘锛屾鏌ョ涓€涓潡锛堝畾涔夊潡锛?
+      // 鍥犱负姒傚康鍧楀彲浠ユ湁鑷繁鐨?Xiuyuan锛屽畾涔夊潡涓烘蹇垫彁渚涘畾涔?
       let blockToCheck = command.blockIds[0];
       const descriptorTemplate = isDescriptorTemplate(command.templateId);
       const definitionTemplate = isDefinitionTemplate(command.templateId);
       
       if (descriptorTemplate && command.blockIds.length >= 2) {
-        blockToCheck = command.blockIds[1];  // 检查描述符块
+        blockToCheck = command.blockIds[1];
         logger.debug(`Concept-descriptor template detected, checking descriptor block: ${blockToCheck}`);
       } else if (definitionTemplate && command.blockIds.length >= 1) {
-        blockToCheck = command.blockIds[0];  // 检查定义块（第一个块）
+        blockToCheck = command.blockIds[0];
         logger.debug(`Concept-definition template detected, checking definition block: ${blockToCheck}`);
       }
       logger.debug(`Checking block for existing Xiuyuan: ${blockToCheck}`);
@@ -94,16 +94,16 @@ export class CreateXiuyuanFromBlocksUseCase {
       if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
         const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
         logger.info(`Block ${blockToCheck} already has Xiuyuan: ${existingXiuyuanId}`);
-        return err(new Error('此块已经创建过修缘卡片，请勿重复创建'));
+        return err(new Error('姝ゅ潡宸茬粡鍒涘缓杩囦慨缂樺崱鐗囷紝璇峰嬁閲嶅鍒涘缓'));
       }
       
-      // 2. 验证模板（优先使用自定义模版）
+      // 2. 楠岃瘉妯℃澘锛堜紭鍏堜娇鐢ㄨ嚜瀹氫箟妯＄増锛?
       let template = command.template || this.templateRegistry.get(command.templateId);
       if (!template) {
         return err(new Error(`Template not found: ${command.templateId}`));
       }
 
-      // 🆕 处理双向卡片：动态生成 cardRules
+      // 馃啎 澶勭悊鍙屽悜鍗＄墖锛氬姩鎬佺敓鎴?cardRules
       if (command.isBidirectional && command.templateId === 'builtin-quick-card') {
         logger.debug('Creating bidirectional card, adding reverse rule');
         template = {
@@ -129,16 +129,16 @@ export class CreateXiuyuanFromBlocksUseCase {
         return err(new Error('Template has no card rules'));
       }
 
-      // 3. 创建值对象
-      // 🔧 统一 ID 格式：使用代表块 ID（第一个块）
-      // 🆕 对于描述符模板，使用描述符块（第二个块）作为代表块
-      // 🆕 对于定义模板，使用定义块（第一个块）作为代表块
+      // 3. 鍒涘缓鍊煎璞?
+      // 馃敡 缁熶竴 ID 鏍煎紡锛氫娇鐢ㄤ唬琛ㄥ潡 ID锛堢涓€涓潡锛?
+      // 馃啎 瀵逛簬鎻忚堪绗︽ā鏉匡紝浣跨敤鎻忚堪绗﹀潡锛堢浜屼釜鍧楋級浣滀负浠ｈ〃鍧?
+      // 馃啎 瀵逛簬瀹氫箟妯℃澘锛屼娇鐢ㄥ畾涔夊潡锛堢涓€涓潡锛変綔涓轰唬琛ㄥ潡
       let representativeBlockId = command.blockIds[0];
       if (descriptorTemplate && command.blockIds.length >= 2) {
-        representativeBlockId = command.blockIds[1];  // 使用描述符块
+        representativeBlockId = command.blockIds[1];
         logger.debug(`Using descriptor block as representative: ${representativeBlockId}`);
       } else if (definitionTemplate && command.blockIds.length >= 1) {
-        representativeBlockId = command.blockIds[0];  // 使用定义块（第一个块）
+        representativeBlockId = command.blockIds[0];
         logger.debug(`Using definition block as representative: ${representativeBlockId}`);
       }
       
@@ -162,11 +162,11 @@ export class CreateXiuyuanFromBlocksUseCase {
       const priorityResult = Priority.create(command.priority || 50);
       const priority = priorityResult.ok ? priorityResult.value : Priority.createDefault();
 
-      // 4. 构建 CardFace（从 fieldMapping 和模板）
+      // 4. 鏋勫缓 CardFace锛堜粠 fieldMapping 鍜屾ā鏉匡級
       const faces: CardFace[] = [];
       const fieldMapping = command.fieldMapping || {};
 
-      // 🆕 处理多填空卡片（使用领域服务）
+      // 馃啎 澶勭悊澶氬～绌哄崱鐗囷紙浣跨敤棰嗗煙鏈嶅姟锛?
       if (command.clozeInfo && command.clozeInfo.clozes.length > 0) {
         const facesResult = ClozeCardGenerator.generateFaces(
           command.clozeInfo.originalContent,
@@ -180,7 +180,7 @@ export class CreateXiuyuanFromBlocksUseCase {
         
         faces.push(...facesResult.value);
       }
-      // 🆕 处理背面挖空卡片
+      // 馃啎 澶勭悊鑳岄潰鎸栫┖鍗＄墖
       else if (command.backClozeInfo && command.backClozeInfo.clozes.length > 0) {
         const { front, back, clozes, direction } = command.backClozeInfo;
         const blockId = command.blockIds[0];
@@ -190,7 +190,7 @@ export class CreateXiuyuanFromBlocksUseCase {
           clozeCount: clozes.length
         });
         
-        // 正向卡片：为每个挖空生成一个 face
+        // 姝ｅ悜鍗＄墖锛氫负姣忎釜鎸栫┖鐢熸垚涓€涓?face
         if (direction === 'forward' || direction === 'both') {
           for (let i = 0; i < clozes.length; i++) {
             const faceResult = CardFace.create({
@@ -213,15 +213,15 @@ export class CreateXiuyuanFromBlocksUseCase {
           }
         }
         
-        // 反向卡片：只生成一个 face，不挖空
+        // 鍙嶅悜鍗＄墖锛氬彧鐢熸垚涓€涓?face锛屼笉鎸栫┖
         if (direction === 'backward' || direction === 'both') {
           const faceResult = CardFace.create({
-            question: back,   // 原始背面（完整显示）
-            answer: front,    // 原始正面
+            question: back,   // 鍘熷鑳岄潰锛堝畬鏁存樉绀猴級
+            answer: front,    // 鍘熷姝ｉ潰
             questionBlockId: blockId,
             answerBlockId: blockId,
             metadata: {
-              clozeIndex: -1,  // -1 表示不挖空
+              clozeIndex: -1,  // -1 琛ㄧず涓嶆寲绌?
               direction: 'reverse'
             }
           });
@@ -233,14 +233,14 @@ export class CreateXiuyuanFromBlocksUseCase {
           faces.push(faceResult.value);
         }
       }
-      // 🆕 处理双向卡片：两个 face 使用相同的块内容
+      // 馃啎 澶勭悊鍙屽悜鍗＄墖锛氫袱涓?face 浣跨敤鐩稿悓鐨勫潡鍐呭
       else if (command.isBidirectional && command.templateId === 'builtin-quick-card') {
         logger.debug('Creating bidirectional faces');
         
         const blockId = command.blockIds[0];
         const blockText = await getBlockText(blockId);
         
-        // 正向 face
+        // 姝ｅ悜 face
         const forwardFaceResult = CardFace.create({
           question: blockText || `Block ${blockId}`,
           answer: blockText || `Block ${blockId}`,
@@ -252,7 +252,7 @@ export class CreateXiuyuanFromBlocksUseCase {
           return forwardFaceResult as Result<any>;
         }
         
-        // 反向 face
+        // 鍙嶅悜 face
         const reverseFaceResult = CardFace.create({
           question: blockText || `Block ${blockId}`,
           answer: blockText || `Block ${blockId}`,
@@ -267,9 +267,9 @@ export class CreateXiuyuanFromBlocksUseCase {
         faces.push(forwardFaceResult.value, reverseFaceResult.value);
       } 
       else {
-        // 普通卡片：使用原有逻辑
+        // 鏅€氬崱鐗囷細浣跨敤鍘熸湁閫昏緫
         for (const rule of template.cardRules) {
-          // 获取问题和答案的块 ID
+          // 鑾峰彇闂鍜岀瓟妗堢殑鍧?ID
           const questionBlockId = rule.frontFields.length > 0 
             ? fieldMapping[rule.frontFields[0]] || command.blockIds[0]
             : command.blockIds[0];
@@ -278,7 +278,7 @@ export class CreateXiuyuanFromBlocksUseCase {
             ? fieldMapping[rule.backFields[0]] || command.blockIds[command.blockIds.length - 1]
             : command.blockIds[command.blockIds.length - 1];
 
-          // 获取块内容
+          // 鑾峰彇鍧楀唴瀹?
           const questionText = await getBlockText(questionBlockId);
           const answerText = await getBlockText(answerBlockId);
 
@@ -297,7 +297,7 @@ export class CreateXiuyuanFromBlocksUseCase {
         }
       }
 
-      // 5. 创建 Xiuyuan 聚合根
+      // 5. 鍒涘缓 Xiuyuan 鑱氬悎鏍?
       const xiuyuanResult = Xiuyuan.create({
         id: xiuyuanIdResult.value,
         blockIDs: blockIds,
@@ -307,7 +307,7 @@ export class CreateXiuyuanFromBlocksUseCase {
         meta: {
           schedulerType: 'fsrs-v6',
           fieldMapping,
-          cardType: command.cardType  // 🆕 传递卡片类型
+          cardType: command.cardType  // 馃啎 浼犻€掑崱鐗囩被鍨?
         }
       });
 
@@ -317,58 +317,24 @@ export class CreateXiuyuanFromBlocksUseCase {
 
       const xiuyuan = xiuyuanResult.value;
 
-      // 6. 为每个 face 创建卡片
-      for (let i = 0; i < faces.length; i++) {
-        const cardResult = xiuyuan.createCard(i);
-        if (!cardResult.ok) {
-          const error = (cardResult as any).error || new Error('Failed to create card');
-          logger.error(`Failed to create card for face ${i}:`, error);
-          return err(error);
-        }
-      }
-
-      // 7. 添加到 Riff（可选，错误不阻断）
-      const deckId = command.deckId || BUILTIN_DECK_ID;
-      
-      // 🆕 对于 concept-descriptor 模板，添加描述符块（第二个块）到 Riff
-      // 对于 concept-definition 模板，添加定义块（第一个块）到 Riff
       let blockIdToAddToRiff = representativeBlockId;
       if (descriptorTemplate && command.blockIds.length >= 2) {
-        blockIdToAddToRiff = command.blockIds[1];  // 使用描述符块
+        blockIdToAddToRiff = command.blockIds[1];
         logger.debug('Concept-descriptor template, adding descriptor block to Riff:', blockIdToAddToRiff);
       }
-      // concept-definition 使用默认的第一个块（定义块）
-      
-      try {
-        await addRiffCards(deckId, [blockIdToAddToRiff]);
-        logger.info('Created Xiuyuan and added to Riff:', {
-          xiuyuanId: xiuyuan.getId().getValue(),
-          blockId: blockIdToAddToRiff,
-          source: 'template-creation'
-        });
-      } catch (error) {
-        logger.warn('Failed to add to Riff:', error);
-        // 不阻断流程
-      }
 
-      // 8. 通过 Repository 持久化
-      const saveResult = await this.xiuyuanRepository.save(xiuyuan);
-      if (!saveResult.ok) {
-        return saveResult as Result<any>;
-      }
-
-      // 9. 返回结果
-      return ok({
-        xiuyuan: {
-          id: xiuyuan.getId().getValue(),
-          blockIDs: xiuyuan.getBlockIDs().map(id => id.getValue()),
-          templateID: xiuyuan.getTemplateID().getValue(),
+      return finalizeXiuyuanCreation({
+        xiuyuan,
+        xiuyuanRepository: this.xiuyuanRepository,
+        logger,
+        riff: {
+          deckId: command.deckId,
+          blockIds: [blockIdToAddToRiff],
+          source: 'template-creation',
+          context: {
+            blockId: blockIdToAddToRiff,
+          },
         },
-        cards: xiuyuan.getCards().map(card => ({
-          id: card.getId().getValue(),
-          xiuyuanId: card.getXiuyuanId().getValue(),
-          faceIndex: card.getFaceIndex()
-        }))
       });
     } catch (error) {
       logger.error('Failed:', error);
@@ -376,3 +342,4 @@ export class CreateXiuyuanFromBlocksUseCase {
     }
   }
 }
+

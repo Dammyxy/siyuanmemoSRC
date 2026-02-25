@@ -125,6 +125,9 @@ import type { ReviewUIState } from './types';
 import SkipMenuButton from './components/SkipMenuButton.vue';
 import InsertPositionDialog from './dialogs/InsertPositionDialog.vue';
 import ScheduleDateDialog, { type ScheduleOptions } from './dialogs/ScheduleDateDialog.vue';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('ReviewActions');
 
 const props = defineProps<{
   actions: ReviewUIState['actions'];
@@ -148,7 +151,7 @@ const isTopicCard = computed(() => {
   const card = props.actions.cardMeta;
   const result = card?.type === 'topic' || card?.cardType === 'topic' 
     || card?.type === 'concept' || card?.cardType === 'concept';
-  console.log('[SiYuanMemo][ReviewActions] isTopicCard computed:', {
+  logger.debug('isTopicCard computed', {
     cardMeta: card,
     type: card?.type,
     cardType: card?.cardType,
@@ -179,7 +182,7 @@ function handleDialogMouseDown(ev: MouseEvent) {
 
 // 调试：监控 grades 变化
 watch(() => props.actions.grades, (grades) => {
-  console.log('[SiYuanMemo][ReviewActions] grades changed:', grades);
+  logger.debug('grades changed', { grades });
 }, { immediate: true, deep: true });
 
 function t(key: string, fallback: string): string {
@@ -198,7 +201,7 @@ function getButtonVariant(value: number): string {
 
 // 插入位置逻辑
 function handleInsert() {
-  console.log('[SiYuanMemo][ReviewActions] handleInsert called', {
+  logger.debug('handleInsert called', {
     remainingSize: remainingSize.value,
     metaRemainingSize: props.meta?.remainingSize,
     hasQueue: !!props.queue,
@@ -209,7 +212,7 @@ function handleInsert() {
   // remainingSize 为 0 可能是因为 Adapter 没有正确设置这个字段
   // 我们应该尝试从队列获取实际的剩余数量
   if (!props.queue) {
-    console.warn('[SiYuanMemo][ReviewActions] No queue available');
+    logger.warn('No queue available');
     return;
   }
   
@@ -217,11 +220,11 @@ function handleInsert() {
   let actualRemainingSize = remainingSize.value;
   if (actualRemainingSize === 0 && typeof props.queue.getRemainingSize === 'function') {
     actualRemainingSize = props.queue.getRemainingSize();
-    console.log('[SiYuanMemo][ReviewActions] Got remaining size from queue:', actualRemainingSize);
+    logger.debug('Got remaining size from queue', { actualRemainingSize });
   }
   
   if (actualRemainingSize === 0) {
-    console.warn('[SiYuanMemo][ReviewActions] Queue is empty, cannot insert');
+    logger.warn('Queue is empty, cannot insert');
     return;
   }
   
@@ -237,14 +240,14 @@ async function onInsertConfirm(position: number) {
     // 🔧 修复：使用 Adapter 提供的字段名（大写）
     const cardId = props.actions.cardMeta?.cardID || props.actions.cardMeta?.blockID;
     if (!cardId) {
-      console.error('[SiYuanMemo][ReviewActions] No card ID found', {
+      logger.error('No card ID found', {
         cardMeta: props.actions.cardMeta,
       });
       return;
     }
     
     // 详细的调试日志
-    console.log('[SiYuanMemo][ReviewActions] onInsertConfirm - Queue inspection:', {
+    logger.debug('onInsertConfirm - Queue inspection', {
       hasQueue: !!props.queue,
       queueType: props.queue?.constructor?.name,
       queueKeys: props.queue ? Object.keys(props.queue) : [],
@@ -255,7 +258,7 @@ async function onInsertConfirm(position: number) {
     });
     
     if (!props.queue || typeof props.queue.insertAt !== 'function') {
-      console.error('[SiYuanMemo][ReviewActions] Queue does not support insertAt', {
+      logger.error('Queue does not support insertAt', {
         queue: props.queue,
         hasInsertAt: !!props.queue?.insertAt,
         insertAtValue: props.queue?.insertAt,
@@ -264,14 +267,14 @@ async function onInsertConfirm(position: number) {
     }
     
     await props.queue.insertAt(cardId, position);
-    console.log(`[SiYuanMemo][ReviewActions] Card ${cardId} inserted at position ${position}`);
+    logger.debug('Card inserted at position', { cardId, position });
     
     closeInsertDialog();
     
     // 继续复习下一张
     emit('skip');
   } catch (error) {
-    console.error('[SiYuanMemo][ReviewActions] Failed to insert card:', error);
+    logger.error('Failed to insert card', error);
     // TODO: 显示错误提示
   }
 }
@@ -290,7 +293,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
     // 🔧 修复：使用 Adapter 提供的字段名（大写）
     const cardId = props.actions.cardMeta?.cardID || props.actions.cardMeta?.blockID;
     if (!cardId) {
-      console.error('[SiYuanMemo][ReviewActions] No card ID found', {
+      logger.error('No card ID found', {
         cardMeta: props.actions.cardMeta,
       });
       return;
@@ -298,7 +301,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
     
     // 🔧 修复：通过 props.plugin 获取服务，而不是全局变量
     if (!props.plugin) {
-      console.error('[SiYuanMemo][ReviewActions] Plugin instance not provided');
+      logger.error('Plugin instance not provided');
       return;
     }
     
@@ -308,7 +311,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
     const schedulerRouter = context.getScheduler();
     
     if (!manager) {
-      console.error('[SiYuanMemo][ReviewActions] Manager not available');
+      logger.error('Manager not available');
       return;
     }
     
@@ -338,9 +341,13 @@ async function onScheduleConfirm(options: ScheduleOptions) {
         updatedCard.due = targetDate;
         await manager.updateCard(updatedCard);
         
-        console.log(`[SiYuanMemo][ReviewActions] Card ${cardId} scheduled with rating ${rating} to ${new Date(targetDate)}`);
+        logger.debug('Card scheduled with rating to target date', {
+          cardId,
+          rating,
+          targetDate,
+        });
       } else {
-        console.warn('[SiYuanMemo][ReviewActions] Scheduler router not available, using direct mode');
+        logger.warn('Scheduler router not available, using direct mode');
         card.due = targetDate;
         await manager.updateCard(card);
       }
@@ -349,7 +356,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
       card.due = targetDate;
       await manager.updateCard(card);
       
-      console.log(`[SiYuanMemo][ReviewActions] Card ${cardId} due date updated to ${new Date(targetDate)}`);
+      logger.debug('Card due date updated', { cardId, targetDate });
     }
     
     // 4. 从队列移除
@@ -363,7 +370,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
     emit('skip');
     
   } catch (error) {
-    console.error('[SiYuanMemo][ReviewActions] Failed to schedule date:', error);
+    logger.error('Failed to schedule date', error);
     // TODO: 显示错误提示
   }
 }

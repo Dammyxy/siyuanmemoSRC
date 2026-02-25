@@ -1,5 +1,8 @@
 ﻿import type { ISequencer, IDataSourceObserver } from '../abstraction/types';
 import type { QueueItem } from '../types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('SortedSequencer');
 
 /**
  * Configuration options for SortedSequencer
@@ -308,42 +311,42 @@ export class SortedSequencer<TItem extends QueueItem> implements ISequencer<TIte
    * ```
    */
   insert(item: TItem): void {
-    console.log('[SortedSequencer] ========== insert 被调用 ==========');
-    console.log('[SortedSequencer] 输入 item:', {
+    logger.debug('insert called', {
       cardID: (item as any)?.cardID,
       blockID: (item as any)?.blockID,
       dueTime: this.getDueMs(item),
       priority: this.getPriority ? this.getPriority(item) : undefined,
     });
-    console.log('[SortedSequencer] 插入前队列大小:', this.items.length);
-    console.log('[SortedSequencer] 插入前队列内容（前5个）:', this.items.slice(0, 5).map(i => ({
+    logger.debug('queue snapshot before insert', {
+      size: this.items.length,
+      topFive: this.items.slice(0, 5).map((i) => ({
       cardID: (i as any)?.cardID,
       dueTime: this.getDueMs(i),
-    })));
+      })),
+    });
     
     const index = this._findIndexToInsert(item);
-    console.log('[SortedSequencer] 计算出的插入位置:', index);
+    logger.debug('calculated insert index', { index });
     
     this.items.splice(index, 0, item);
-    console.log('[SortedSequencer] ✅ splice 完成');
-    console.log('[SortedSequencer] 插入后队列大小:', this.items.length);
+    logger.debug('inserted by splice', { size: this.items.length });
     
     // 验证插入结果
     const insertedItem = this.items[index];
     if (insertedItem !== item) {
-      console.error('[SortedSequencer] ❌ 验证失败：插入的 item 不在预期位置', {
+      logger.error('insert verification failed: item not at expected index', {
         expected: (item as any)?.cardID,
         actualAtIndex: (insertedItem as any)?.cardID,
       });
     } else {
-      console.log('[SortedSequencer] ✅ 验证成功：item 已插入到正确位置');
+      logger.debug('insert verification passed');
     }
     
     // 验证 cardID
     const expectedCardID = (item as any)?.cardID;
     const actualCardID = (insertedItem as any)?.cardID;
     if (expectedCardID !== actualCardID) {
-      console.error('[SortedSequencer] ❌ 严重错误：cardID 被替换！', {
+      logger.error('critical: cardID mismatch after insert', {
         expected: expectedCardID,
         actual: actualCardID,
         index,
@@ -352,12 +355,12 @@ export class SortedSequencer<TItem extends QueueItem> implements ISequencer<TIte
       });
     }
     
-    console.log('[SortedSequencer] Inserted item at index', index, {
+    logger.debug('insert completed', {
+      index,
       cardID: (item as any)?.cardID,
       dueTime: this.getDueMs(item),
       queueSize: this.items.length,
     });
-    console.log('[SortedSequencer] ========== insert 完成 ==========');
   }
 
   /**
@@ -395,24 +398,24 @@ export class SortedSequencer<TItem extends QueueItem> implements ISequencer<TIte
    * ```
    */
   insertMany(items: TItem[]): void {
-    console.log('[SortedSequencer] ========== insertMany 被调用 ==========');
-    console.log('[SortedSequencer] 输入 items 数量:', items.length);
-    console.log('[SortedSequencer] 当前队列大小:', this.items.length);
-    console.log('[SortedSequencer] 输入 items 详情:', items.map(item => ({
+    logger.debug('insertMany called', {
+      inputCount: items.length,
+      queueSize: this.items.length,
+      items: items.map((item) => ({
       cardID: (item as any)?.cardID,
       blockID: (item as any)?.blockID,
       dueTime: this.getDueMs(item),
       priority: this.getPriority ? this.getPriority(item) : undefined,
-    })));
+      })),
+    });
     
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      console.log(`[SortedSequencer] 插入第 ${i + 1}/${items.length} 个 item`);
+      logger.debug('insertMany inserting item', { current: i + 1, total: items.length });
       this.insert(item);
     }
     
-    console.log('[SortedSequencer] ========== insertMany 完成 ==========');
-    console.log('[SortedSequencer] 最终队列大小:', this.items.length);
+    logger.debug('insertMany completed', { queueSize: this.items.length });
   }
 
   /**
@@ -580,7 +583,7 @@ export class SortedSequencer<TItem extends QueueItem> implements ISequencer<TIte
    * ```
    */
   onDataChanged(): void {
-    console.log('[SortedSequencer] onDataChanged() called - clearing cache');
+    logger.debug('onDataChanged called - clearing cache');
     this.items.length = 0;
   }
 

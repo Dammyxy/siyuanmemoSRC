@@ -6,6 +6,9 @@
  * 
  * Requirements: 2.6, 2.7, 2.8
  */
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('HistoryFilter');
 
 export class HistoryFilter {
   /** 历史记录集合，提供 O(1) 查找 */
@@ -80,7 +83,7 @@ export class HistoryFilter {
       return items.filter(item => !this.history.has(item.id));
     } catch (error) {
       // 降级：如果过滤失败，返回原列表（允许重复访问）
-      console.error('HistoryFilter.filter failed, continuing without filtering:', error);
+      logger.error('filter failed, continuing without filtering', error);
       return items;
     }
   }

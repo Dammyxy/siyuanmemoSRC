@@ -7,6 +7,10 @@
  * - 机制：通过事件总线广播状态变化
  */
 
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('QueueStateManager');
+
 /**
  * 队列状态事件
  */
@@ -84,7 +88,7 @@ export class QueueStateManager {
 
         this.registry.set(queueId, registration);
 
-        console.log('[QueueStateManager] Registered queue:', {
+        logger.debug('Registered queue', {
             queueId,
             blockCount: blockIds.length,
         });
@@ -99,7 +103,7 @@ export class QueueStateManager {
         const deleted = this.registry.delete(queueId);
 
         if (deleted) {
-            console.log('[QueueStateManager] Unregistered queue:', { queueId });
+            logger.debug('Unregistered queue', { queueId });
         }
     }
 
@@ -112,13 +116,13 @@ export class QueueStateManager {
     updateQueueBlocks(queueId: string, blockIds: string[]): void {
         const registration = this.registry.get(queueId);
         if (!registration) {
-            console.warn('[QueueStateManager] Queue not found:', { queueId });
+            logger.warn('Queue not found', { queueId });
             return;
         }
 
         registration.blockIds = new Set(blockIds);
 
-        console.log('[QueueStateManager] Updated queue blocks:', {
+        logger.debug('Updated queue blocks', {
             queueId,
             blockCount: blockIds.length,
         });
@@ -143,9 +147,17 @@ export class QueueStateManager {
                 // 调用队列的更新回调
                 if (registration.onUpdate) {
                     try {
-                        registration.onUpdate(event);
+                        const pending = registration.onUpdate(event);
+                        if (pending && typeof (pending as Promise<void>).catch === 'function') {
+                            void (pending as Promise<void>).catch((err) => {
+                                logger.error('onUpdate callback rejected', {
+                                    queueId,
+                                    error: err,
+                                });
+                            });
+                        }
                     } catch (err) {
-                        console.error('[QueueStateManager] onUpdate callback failed:', {
+                        logger.error('onUpdate callback failed', {
                             queueId,
                             error: err,
                         });
@@ -154,7 +166,7 @@ export class QueueStateManager {
             }
         }
 
-        console.log('[QueueStateManager] State change broadcasted:', {
+        logger.debug('State change broadcasted', {
             blockId,
             action: event.action,
             affectedQueues,
@@ -212,6 +224,6 @@ export class QueueStateManager {
      */
     clear(): void {
         this.registry.clear();
-        console.log('[QueueStateManager] Registry cleared');
+        logger.debug('Registry cleared');
     }
 }

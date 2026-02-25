@@ -21,14 +21,10 @@ import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import type { AutoFailedCardSinkPort, QueuePersistencePort } from './ports';
+import { NOOP_AUTO_FAILED_CARD_SINK } from './ports';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('IncrementalLearningQueue');
-const NOOP_AUTO_FAILED_SINK: AutoFailedCardSinkPort = {
-    async addAutoFailed(): Promise<void> {
-        return;
-    }
-};
 
 interface IncrementalLearningQueueOptions {
     autoFailedSink?: AutoFailedCardSinkPort;
@@ -69,7 +65,7 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
             persistenceContext: 'IncrementalLearningQueue',
         });
 
-        this.autoFailedSink = options.autoFailedSink ?? NOOP_AUTO_FAILED_SINK;
+        this.autoFailedSink = options.autoFailedSink ?? NOOP_AUTO_FAILED_CARD_SINK;
         if (!options.autoFailedSink) {
             logger.warn('AutoFailedCardSinkPort not provided. Failed reviews will not be escalated.');
         }
@@ -87,12 +83,7 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
      * @see 需求 4.2, 4.5
      */
     async load(): Promise<void> {
-        const { fromStorage, count } = this.loadManualCardState(logger);
-        if (fromStorage) {
-            logger.info(`Loaded ${count} manually added cards`);
-        } else {
-            logger.info('No saved data found, starting with empty set');
-        }
+        this.logManualCardStateLoad(logger);
     }
     
     /**
@@ -104,8 +95,7 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
      * @see 需求 4.2, 4.5, 4.6
      */
     async save(): Promise<void> {
-        const count = await this.saveManualCardState(logger);
-        logger.info(`Saved ${count} manually added cards`);
+        await this.logManualCardStateSave(logger);
     }
     
     /**
@@ -135,42 +125,17 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
      */
     public async getCards(): Promise<FSRSCard[]> {
         try {
-            await this.ensureInitialLoad();
             const now = Date.now();
-            
-            // 获取所有到期的卡片（所有类型）
-            // ✅ 包含所有类型：item、concept、descriptor、topic、incremental、webpage
-            const dueCards = await this.manager.getCards({
-                cardType: ['item', 'concept', 'descriptor', 'topic', 'incremental', 'webpage'],
-                dueDate: { lte: new Date(now) }
+
+            return this.buildDynamicCardsFromFilter({
+                logger,
+                baseFilter: {
+                    cardType: ['item', 'concept', 'descriptor', 'topic', 'incremental', 'webpage'],
+                    dueDate: { lte: new Date(now) }
+                },
+                persist: async () => this.save(),
+                baseCardsLabel: 'due cards from manager',
             });
-            
-            logger.debug(`Got ${dueCards.length} due cards from manager`);
-            
-            // 获取手动添加的卡片
-            const manualCards = await this.getManuallyAddedCards();
-            
-            logger.debug(`Got ${manualCards.length} manually added cards`);
-            
-            // 合并并去重
-            const allCards = this.mergeUniqueCards(dueCards, manualCards);
-            
-            logger.debug(`After merge: ${allCards.length} cards`);
-            
-            // 过滤临时黑名单中的卡片
-            const filteredCards = allCards.filter(card => 
-                !this.temporaryBlacklist.has(card.id)
-            );
-            
-            if (filteredCards.length < allCards.length) {
-                logger.debug(`Filtered ${allCards.length - filteredCards.length} cards from temporary blacklist`);
-            }
-            
-            // 按到期日期和优先级排序
-            const sortedCards = this.sortByDuePriority(filteredCards);
-            
-            // 应用自定义排序（如果存在）
-            return this.applyCustomOrder(sortedCards);
         } catch (error) {
             logger.error('Failed to get cards:', error);
             throw error;
@@ -190,25 +155,7 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
      * @see .kiro/specs/retrieval-practice-browser-display-fix/requirements.md
      */
     public async addCard(card: FSRSCard | QueueItem | string): Promise<void> {
-        try {
-            await this.ensureInitialLoad();
-            const { cardId, wasBlacklisted } = await this.addManualCard(card, logger);
-            
-            // 触发观察者通知（需求 6.4：卡片添加的队列统计更新）
-            this.manager.notifyObservers({
-                type: 'queue-changed',
-                queueType: this.getType(),
-                timestamp: Date.now()
-            });
-            
-            logger.info(`Card ${cardId} added manually`, {
-                wasBlacklisted,
-                temporaryBlacklistSize: this.temporaryBlacklist.size
-            });
-        } catch (error) {
-            logger.error('Failed to add card:', error);
-            throw error;
-        }
+        await this.addCardToCollection(card, { logger });
     }
     
     /**
@@ -226,20 +173,7 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
      * @see .kiro/specs/retrieval-practice-browser-display-fix/requirements.md
      */
     public async removeCard(cardIdOrBlockId: string): Promise<void> {
-        try {
-            await this.ensureInitialLoad();
-            const { wasManuallyAdded } = await this.removeManualCard(cardIdOrBlockId, logger);
-            
-            logger.info(`Card ${cardIdOrBlockId} removed`, {
-                wasManuallyAdded,
-                temporaryBlacklistSize: this.temporaryBlacklist.size
-            });
-        } catch (error) {
-            logger.error('Failed to remove card:', error);
-            // 即使出错，也要尝试加入临时黑名单
-            this.temporaryBlacklist.add(cardIdOrBlockId);
-            throw error;
-        }
+        await this.removeCardFromCollection(cardIdOrBlockId, { logger });
     }
     
     /**
@@ -258,19 +192,11 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
      * @see .kiro/specs/queue-scheduler-separation/requirements.md
      */
     public async handleReview(cardId: string, rating: number): Promise<void> {
-        try {
-            // 使用基类的调度器集成方法
-            await this.handleReviewWithScheduler(cardId, rating);
-            
-            // 渐进学习队列特殊逻辑：评分 < 3 时自动添加到最终训练
-            if (rating < 3) {
-                await this.autoFailedSink.addAutoFailed(cardId);
-                logger.info(`Card ${cardId} with rating ${rating} added to FinalDrill`);
-            }
-        } catch (error) {
-            logger.error('Failed to handle review:', error);
-            throw error;
-        }
+        await this.handleReviewWithAutoFailed(cardId, rating, {
+            logger,
+            autoFailedSink: this.autoFailedSink,
+            logEscalation: true,
+        });
     }
     
     /**
@@ -307,18 +233,6 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
             { type: 'action', label: 'Next', action: 'next' },
         ];
     }
-    
-    // ========================================================================
-    // 私有辅助方法
-    // ========================================================================
-    
-    /**
-     * 获取手动添加的卡片
-     */
-  private async getManuallyAddedCards(): Promise<FSRSCard[]> {
-        return this.resolveManuallyAddedCards(logger, async () => this.save());
-    }
-    
     /**
      * ✅ 兼容方法：获取所有队列项（同步）
      * 
@@ -328,8 +242,6 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
      * @deprecated 使用 getAllCards() 代替
      */
     public getAllItems(): any[] {
-        logger.warn('getAllItems() is deprecated, use getAllCards() instead');
-        // 返回当前缓存的卡片
-        return this.cards;
+        return this.getDeprecatedAllItems(logger);
     }
 }

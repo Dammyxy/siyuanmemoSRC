@@ -1,6 +1,9 @@
 ﻿import type { AdapterContext, IAdapter, ReviewUIState } from '../types';
 import type { QueueItem, QueueStats, QueueUIConfig } from '../../../../core/queue/types.ts';
 import { getBlockBreadcrumb, getIconByType } from '../../../../core/siyuan/api.ts';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('SubsetPracticeAdapter');
 
 function t(i18n: Record<string, string> | undefined, key: string, fallback: string): string {
   return i18n?.[key] || fallback;
@@ -105,7 +108,7 @@ export class SubsetPracticeAdapter implements IAdapter<QueueItem> {
         // Xiuyuan 模板卡片：从 meta 中获取答案块 ID
         answerBlockID: (() => {
           const answerBlockID = String((item as any)?.meta?.answerBlockID || '');
-          console.log('[SubsetPracticeAdapter] toUIState - answerBlockID:', {
+          logger.debug('[SubsetPracticeAdapter] toUIState - answerBlockID:', {
             itemBlockID: (item as any)?.blockID,
             itemCardID: (item as any)?.cardID,
             hasMeta: !!(item as any)?.meta,

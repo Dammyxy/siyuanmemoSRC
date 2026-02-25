@@ -10,6 +10,9 @@
 import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
 import { getBlockKramdown } from '@/core/siyuan/api';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('ConceptCardRenderService');
 
 /**
  * 概念卡视图模型
@@ -32,7 +35,7 @@ export class ConceptCardRenderService extends BaseCardRenderService {
    * @returns 视图模型
    */
   async prepareViewModel(blockId: string, card?: any): Promise<ConceptCardViewModel> {
-    console.log('[ConceptCardRenderService] prepareViewModel called with:', {
+    logger.debug('[ConceptCardRenderService] prepareViewModel called with:', {
       blockId,
       hasCard: !!card,
       xiuyuanID: card?.xiuyuanID
@@ -40,7 +43,7 @@ export class ConceptCardRenderService extends BaseCardRenderService {
     
     const xiuyuanID = card?.xiuyuanID;
     if (!xiuyuanID) {
-      console.error('[ConceptCardRenderService] No xiuyuanID found in card:', card);
+      logger.error('[ConceptCardRenderService] No xiuyuanID found in card:', card);
       throw new Error('No xiuyuanID found in card');
     }
 

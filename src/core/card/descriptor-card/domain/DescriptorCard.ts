@@ -8,6 +8,9 @@
  */
 
 import type { ParentConceptBlock, SiblingDescriptor } from '../infrastructure/DescriptorCardRepository';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('DescriptorCard');
 
 /**
  * 描述符卡实体
@@ -42,16 +45,16 @@ export class DescriptorCard {
    */
   private parseContent(content: string): { attribute: string; description: string } {
     // 🔍 调试日志
-    console.log('[DescriptorCard] Parsing content:', JSON.stringify(content));
+    logger.debug('[DescriptorCard] Parsing content:', JSON.stringify(content));
     
     // 🔧 支持三种符号：;;、;<、;<>（以及中文全角版本）
     // 明确列出所有可能的符号，避免歧义
     const match = content.match(/^(.+?)\s*(?:;<>|;<|;;|；《》|；《|；；)\s*(.+)$/s);
     
-    console.log('[DescriptorCard] Regex match result:', match);
+    logger.debug('[DescriptorCard] Regex match result:', match);
     
     if (match) {
-      console.log('[DescriptorCard] Parsed - attribute:', match[1].trim(), 'description:', match[2].trim());
+      logger.debug('[DescriptorCard] Parsed - attribute:', match[1].trim(), 'description:', match[2].trim());
       return {
         attribute: match[1].trim(),
         description: match[2].trim(),
@@ -61,7 +64,7 @@ export class DescriptorCard {
     // 降级：没有符号，尝试用 ;; 分割（兼容旧数据）
     const parts = content.split(';;');
     if (parts.length >= 2) {
-      console.log('[DescriptorCard] Fallback split by ;; - attribute:', parts[0].trim());
+      logger.debug('[DescriptorCard] Fallback split by ;; - attribute:', parts[0].trim());
       return {
         attribute: parts[0].trim(),
         description: parts.slice(1).join(';;').trim(),
@@ -69,7 +72,7 @@ export class DescriptorCard {
     }
 
     // 最终降级：整个内容作为描述
-    console.warn('[DescriptorCard] No symbol found, using content as description');
+    logger.warn('[DescriptorCard] No symbol found, using content as description');
     return {
       attribute: 'defaultAttribute', // i18n key, resolved by the service layer
       description: content.trim(),

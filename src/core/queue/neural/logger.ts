@@ -9,6 +9,10 @@
 /**
  * 日志级别
  */
+import { createLogger } from '@/utils/logger';
+
+const runtimeLogger = createLogger('NeuralQueue');
+
 export enum LogLevel {
   ERROR = 'error',
   WARN = 'warn',
@@ -48,7 +52,7 @@ export class NeuralQueueLogger {
       level: LogLevel.ERROR,
     };
 
-    console.error(
+    runtimeLogger.error(
       `${this.PREFIX} [${log.component}] ${log.operation}`,
       {
         cardId: log.cardId,
@@ -67,7 +71,7 @@ export class NeuralQueueLogger {
   static warn(component: string, operation: string, message: string, context?: Record<string, any>): void {
     if (!this.enabled) return;
 
-    console.warn(
+    runtimeLogger.warn(
       `${this.PREFIX} [${component}] ${operation}: ${message}`,
       context
     );
@@ -79,7 +83,7 @@ export class NeuralQueueLogger {
   static info(component: string, operation: string, message: string, context?: Record<string, any>): void {
     if (!this.enabled) return;
 
-    console.log(
+    runtimeLogger.info(
       `${this.PREFIX} [${component}] ${operation}: ${message}`,
       context
     );
@@ -91,7 +95,7 @@ export class NeuralQueueLogger {
   static debug(component: string, operation: string, message: string, context?: Record<string, any>): void {
     if (!this.enabled) return;
 
-    console.debug(
+    runtimeLogger.debug(
       `${this.PREFIX} [${component}] ${operation}: ${message}`,
       context
     );
@@ -118,7 +122,7 @@ export class NeuralQueueLogger {
       localStorage.setItem('neural-queue-logs', JSON.stringify(logs));
     } catch (error) {
       // 忽略持久化错误
-      console.error('Failed to persist log:', error);
+      runtimeLogger.error('Failed to persist log:', error);
     }
   }
 
@@ -142,7 +146,7 @@ export class NeuralQueueLogger {
     try {
       localStorage.removeItem('neural-queue-logs');
     } catch (error) {
-      console.error('Failed to clear logs:', error);
+      runtimeLogger.error('Failed to clear logs:', error);
     }
   }
 }

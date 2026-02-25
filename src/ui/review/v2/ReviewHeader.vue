@@ -56,6 +56,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { ReviewUIState } from './types';
+import { createLogger } from '@/utils/logger';
 
 const props = defineProps<{
   header: ReviewUIState['header'];
@@ -79,10 +80,12 @@ const emit = defineEmits<{
   (e: 'breadcrumb-click', crumb: { icon?: string; text: string; id?: string; action?: string }, index: number): void;
 }>();
 
+const logger = createLogger('ReviewHeader');
+
 // 🆕 根据 mode 和侧边栏状态过滤工具栏按钮
 const filteredToolbar = computed(() => {
   let toolbar = props.header?.toolbar || [];
-  console.log('[SiYuanMemo][ReviewHeader] filteredToolbar computed:', {
+  logger.debug('[SiYuanMemo][ReviewHeader] filteredToolbar computed:', {
     hasHeader: !!props.header,
     hasToolbar: !!props.header?.toolbar,
     toolbarLength: toolbar.length,

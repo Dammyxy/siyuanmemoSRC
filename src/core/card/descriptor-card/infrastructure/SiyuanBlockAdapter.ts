@@ -8,6 +8,10 @@
  */
 
 import { sql } from '@/core/siyuan';
+import { createLogger } from '@/utils/logger';
+import { SiyuanKramdownGateway } from '@/core/card/common/infrastructure/SiyuanKramdownGateway';
+
+const logger = createLogger('DescriptorSiyuanBlockAdapter');
 
 /**
  * 思源块数据
@@ -27,6 +31,8 @@ export interface QueryBlock {
 }
 
 export class SiyuanBlockAdapter {
+  private readonly kramdownGateway = new SiyuanKramdownGateway(logger);
+
   /**
    * 获取块信息
    * 使用 SQL 查询获取块的内容和父块 ID
@@ -42,12 +48,12 @@ export class SiyuanBlockAdapter {
       const results = await sql(query);
       
       if (!results || results.length === 0) {
-        console.warn('[SiYuanMemo][SiyuanBlockAdapter] Block not found:', blockId);
+        logger.warn('[SiYuanMemo][SiyuanBlockAdapter] Block not found:', blockId);
         return null;
       }
 
       const block = results[0];
-      console.log('[SiYuanMemo][SiyuanBlockAdapter] getBlock result:', {
+      logger.debug('[SiYuanMemo][SiyuanBlockAdapter] getBlock result:', {
         id: block.id,
         content: block.content?.substring(0, 50),
         parentId: block.parent_id
@@ -59,7 +65,7 @@ export class SiyuanBlockAdapter {
         parentId: block.parent_id,
       };
     } catch (error) {
-      console.error('[SiYuanMemo][SiyuanBlockAdapter] Error getting block:', error);
+      logger.error('[SiYuanMemo][SiyuanBlockAdapter] Error getting block:', error);
       return null;
     }
   }
@@ -69,29 +75,7 @@ export class SiyuanBlockAdapter {
    * 使用 /api/block/getBlockKramdown 获取
    */
   async getBlockKramdown(blockId: string): Promise<string | null> {
-    try {
-      const response = await fetch('/api/block/getBlockKramdown', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: blockId }),
-      });
-
-      if (!response.ok) {
-        console.error('[SiYuanMemo][SiyuanBlockAdapter] Failed to get kramdown:', response.statusText);
-        return null;
-      }
-
-      const data = await response.json();
-      if (data.code !== 0 || !data.data) {
-        console.error('[SiYuanMemo][SiyuanBlockAdapter] Invalid kramdown response:', data);
-        return null;
-      }
-
-      return data.data.kramdown || '';
-    } catch (error) {
-      console.error('[SiYuanMemo][SiyuanBlockAdapter] Error getting kramdown:', error);
-      return null;
-    }
+    return await this.kramdownGateway.getBlockKramdown(blockId);
   }
 
   /**
@@ -99,26 +83,10 @@ export class SiyuanBlockAdapter {
    * 使用思源的 Lute 引擎
    */
   kramdownToHtml(kramdown: string): string {
-    try {
-      const Lute = (window as any).Lute;
-      if (!Lute || typeof Lute.New !== 'function') {
-        console.error('[SiYuanMemo][SiyuanBlockAdapter] Lute not available');
-        return kramdown; // 降级：直接返回 kramdown
-      }
-
-      const lute = Lute.New();
-      // 移除 kramdown 末尾的属性行（{: ...}）
-      const lines = kramdown.split('\n');
-      const contentLines = lines.filter(line => !line.trim().startsWith('{:'));
-      const content = contentLines.join('\n');
-      
-      // 转换为 HTML
-      const html = lute.Md2BlockDOM(content);
-      return html;
-    } catch (error) {
-      console.error('[SiYuanMemo][SiyuanBlockAdapter] Error converting kramdown to HTML:', error);
-      return kramdown; // 降级：直接返回 kramdown
-    }
+    return this.kramdownGateway.kramdownToHtml(kramdown, {
+      stripAttributeLines: true,
+      preferSpinBlockDOM: false,
+    });
   }
 
   /**
@@ -129,7 +97,7 @@ export class SiyuanBlockAdapter {
       const block = await this.getBlock(blockId);
       return block?.parentId || null;
     } catch (error) {
-      console.error('[SiYuanMemo][SiyuanBlockAdapter] Error getting parent block ID:', error);
+      logger.error('[SiYuanMemo][SiyuanBlockAdapter] Error getting parent block ID:', error);
       return null;
     }
   }
@@ -153,7 +121,7 @@ export class SiyuanBlockAdapter {
 
       return null;
     } catch (error) {
-      console.error('[SiYuanMemo][SiyuanBlockAdapter] Error getting block attribute:', error);
+      logger.error('[SiYuanMemo][SiyuanBlockAdapter] Error getting block attribute:', error);
       return null;
     }
   }
@@ -179,7 +147,7 @@ export class SiyuanBlockAdapter {
       const results = await sql(query);
       return results || [];
     } catch (error) {
-      console.error('[SiYuanMemo][SiyuanBlockAdapter] Error querying sibling descriptors:', error);
+      logger.error('[SiYuanMemo][SiyuanBlockAdapter] Error querying sibling descriptors:', error);
       return [];
     }
   }

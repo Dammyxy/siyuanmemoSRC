@@ -14,6 +14,7 @@ import { ATTR_PRIORITY } from '@/core/siyuan/block';
 import { clampPriority, DEFAULT_PRIORITY } from '@/core/queue/abstraction/IPriority';
 import { encode, decode } from '@msgpack/msgpack';
 import { migrateCard } from '@/utils/cardMigration';
+import { createLogger } from '@/utils/logger';
 
 /** 存储文件名 */
 const STORAGE_FILES = {
@@ -40,6 +41,9 @@ interface QueueData {
         initialTotal: number;
     };
 }
+
+const logger = createLogger('StorageManager');
+type LegacyStorageSource = 'msgpack' | 'json' | 'none';
 
 /**
  * 存储管理器类
@@ -111,7 +115,7 @@ export class StorageManager {
                 if (dq === 'neural-wandering') (this.settings as any).queues.defaultQueue = 'neural-roam';
             }
         } catch (err) {
-            console.warn('[SiYuanMemo] Failed to load settings, using defaults:', err);
+            logger.warn('Failed to load settings, using defaults:', err);
             this.settings = DEFAULT_SETTINGS;
         }
     }
@@ -210,7 +214,7 @@ export class StorageManager {
     async deleteCards(blockIds: string[]): Promise<void> {
         if (blockIds.length === 0) return;
 
-        console.log('[SiYuanMemo][StorageManager] Deleting cards:', blockIds.length);
+        logger.info('Deleting cards:', blockIds.length);
 
         // 1. 从本地存储删除
         let deletedCount = 0;
@@ -225,16 +229,16 @@ export class StorageManager {
         // 2. 保存更改
         if (deletedCount > 0) {
             await this.saveCards();
-            console.log('[SiYuanMemo][StorageManager] Deleted from local storage:', deletedCount);
+            logger.info('Deleted from local storage:', deletedCount);
         }
 
         // 3. 从 Riff 卡组删除
         try {
             const { removeRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
             await removeRiffCards(BUILTIN_DECK_ID, blockIds);
-            console.log('[SiYuanMemo][StorageManager] Deleted from Riff deck:', blockIds.length);
+            logger.info('Deleted from Riff deck:', blockIds.length);
         } catch (error) {
-            console.error('[SiYuanMemo][StorageManager] Failed to delete from Riff:', error);
+            logger.error('Failed to delete from Riff:', error);
             // 不抛出错误，因为本地已经删除成功
         }
 
@@ -244,9 +248,9 @@ export class StorageManager {
             for (const blockId of blockIds) {
                 await unmarkBlockAsCard(blockId);
             }
-            console.log('[SiYuanMemo][StorageManager] Unmarked blocks:', blockIds.length);
+            logger.info('Unmarked blocks:', blockIds.length);
         } catch (error) {
-            console.error('[SiYuanMemo][StorageManager] Failed to unmark blocks:', error);
+            logger.error('Failed to unmark blocks:', error);
             // 不抛出错误
         }
     }
@@ -260,89 +264,84 @@ export class StorageManager {
      */
     private async loadCards(): Promise<void> {
         try {
-            // 🆕 优先加载 msgpack 格式
-            const data = await this.loadMsgpackData(STORAGE_FILES.CARDS);
-            if (data) {
-                const cards: FSRSCard[] = Array.isArray(data) ? data : [];
+            const { data, source } = await this.loadWithLegacyFallback(STORAGE_FILES.CARDS, STORAGE_FILES.CARDS_JSON);
+            if (source === 'none') {
+                logger.info('No card data found, starting with empty collection');
                 this.cardsCache.clear();
-                
-                // 🔍 调试日志：检查加载的 Xiuyuan 卡片
-                const xiuyuanCards = cards.filter(c => c.id.startsWith('xy_card_'));
-                if (xiuyuanCards.length > 0) {
-                    console.log('[SiYuanMemo][StorageManager] 🔍 Loaded Xiuyuan cards from msgpack:', {
-                        count: xiuyuanCards.length,
-                        samples: xiuyuanCards.slice(0, 2).map(c => ({
-                            id: c.id,
-                            blockId: c.blockId,
-                            hasMeta: !!c.meta,
-                            metaKeys: c.meta ? Object.keys(c.meta) : [],
-                            xiuyuanID: (c.meta as any)?.xiuyuanID,
-                            currentIndex: (c.meta as any)?.currentIndex,
-                        })),
-                    });
-                }
-                
-                // 🔧 规范化每张卡片
-                let normalizedCount = 0;
-                for (const card of cards) {
-                    const normalizedCard = this.normalizeCard(card);
-                    this.cardsCache.set(normalizedCard.id, normalizedCard);
-                    
-                    // 检查是否进行了规范化
-                    if (this.wasCardNormalized(card, normalizedCard)) {
-                        normalizedCount++;
-                    }
-                }
-                
-                console.log(`[SiYuanMemo] Loaded ${cards.length} cards (msgpack)`);
-                
-                // 如果有卡片被规范化，保存到磁盘
-                if (normalizedCount > 0) {
-                    console.log(`[SiYuanMemo] 🔧 Normalized ${normalizedCount} mixed-type cards, saving...`);
-                    this.isDirty = true;
-                    await this.saveCards();
-                }
-                
                 return;
             }
 
-            // 后备：尝试加载 JSON 格式（向后兼容）
-            const jsonData = await this.readPluginData(STORAGE_FILES.CARDS_JSON);
-            if (jsonData) {
-                const parsed = JSON.parse(jsonData);
-                // ✅ 确保解析结果是数组
-                const cards: FSRSCard[] = Array.isArray(parsed) ? parsed : [];
-                this.cardsCache.clear();
-                
-                // 🔧 规范化每张卡片
-                let normalizedCount = 0;
-                for (const card of cards) {
-                    const normalizedCard = this.normalizeCard(card);
-                    this.cardsCache.set(normalizedCard.id, normalizedCard);
-                    
-                    if (this.wasCardNormalized(card, normalizedCard)) {
-                        normalizedCount++;
-                    }
-                }
-                
-                console.log(`[SiYuanMemo] Loaded ${cards.length} cards (JSON, will migrate to msgpack)`);
-                
-                // 如果有卡片被规范化，保存到磁盘
-                if (normalizedCount > 0) {
-                    console.log(`[SiYuanMemo] 🔧 Normalized ${normalizedCount} mixed-type cards, saving...`);
-                    this.isDirty = true;
-                    await this.saveCards();
-                }
-            } else {
-                // ✅ 如果没有任何数据文件，初始化为空
-                console.log('[SiYuanMemo] No card data found, starting with empty collection');
-                this.cardsCache.clear();
-            }
+            const cards: FSRSCard[] = Array.isArray(data) ? data : [];
+            this.logXiuyuanCardSamples('Loaded', cards);
+            const normalizedCount = this.cacheNormalizedCards(cards);
+
+            const sourceLabel = source === 'msgpack' ? 'msgpack' : 'JSON, will migrate to msgpack';
+            logger.info(`Loaded ${cards.length} cards (${sourceLabel})`);
+            await this.persistNormalizedCardsIfNeeded(normalizedCount);
         } catch (err) {
-            console.error('[SiYuanMemo] Failed to load cards:', err);
+            logger.error('Failed to load cards:', err);
             // ✅ 确保即使出错也有一个有效的空缓存
             this.cardsCache.clear();
         }
+    }
+
+    private async loadWithLegacyFallback(msgpackFile: string, jsonFile: string): Promise<{ data: unknown; source: LegacyStorageSource }> {
+        const msgpackData = await this.loadMsgpackData(msgpackFile);
+        if (msgpackData !== null && msgpackData !== undefined) {
+            return { data: msgpackData, source: 'msgpack' };
+        }
+
+        const jsonData = await this.readPluginData(jsonFile);
+        if (!jsonData) {
+            return { data: null, source: 'none' };
+        }
+
+        return { data: JSON.parse(jsonData), source: 'json' };
+    }
+
+    private cacheNormalizedCards(cards: FSRSCard[]): number {
+        this.cardsCache.clear();
+
+        let normalizedCount = 0;
+        for (const card of cards) {
+            const normalizedCard = this.normalizeCard(card);
+            this.cardsCache.set(normalizedCard.id, normalizedCard);
+
+            if (this.wasCardNormalized(card, normalizedCard)) {
+                normalizedCount++;
+            }
+        }
+
+        return normalizedCount;
+    }
+
+    private async persistNormalizedCardsIfNeeded(normalizedCount: number): Promise<void> {
+        if (normalizedCount <= 0) {
+            return;
+        }
+
+        logger.info(`🔧 Normalized ${normalizedCount} mixed-type cards, saving...`);
+        this.isDirty = true;
+        await this.saveCards();
+    }
+
+    private logXiuyuanCardSamples(stage: 'Loaded' | 'Saving', cards: FSRSCard[]): void {
+        const xiuyuanCards = cards.filter(c => c.id.startsWith('xy_card_'));
+        if (xiuyuanCards.length === 0) {
+            return;
+        }
+
+        logger.info(`🔍 ${stage} Xiuyuan cards:`, {
+            count: xiuyuanCards.length,
+            samples: xiuyuanCards.slice(0, 2).map(c => ({
+                id: c.id,
+                blockId: c.blockId,
+                hasMeta: !!c.meta,
+                metaKeys: c.meta ? Object.keys(c.meta) : [],
+                xiuyuanID: (c.meta as any)?.xiuyuanID,
+                currentIndex: (c.meta as any)?.currentIndex,
+            })),
+        });
     }
     
     /**
@@ -374,7 +373,7 @@ export class StorageManager {
                 if (!isNaN(timestamp) && timestamp >= MIN_VALID_TIMESTAMP) {
                     return timestamp;
                 }
-                console.warn(`[SiYuanMemo][StorageManager] Invalid date string in ${fieldName}: "${value}" (timestamp: ${timestamp}) for card ${id || blockId}`);
+                logger.warn(`Invalid date string in ${fieldName}: "${value}" (timestamp: ${timestamp}) for card ${id || blockId}`);
                 return 0;
             }
             
@@ -383,7 +382,7 @@ export class StorageManager {
                 // 同样检查最小有效时间戳
                 const MIN_VALID_TIMESTAMP = 946684800000; // 2000-01-01
                 if (isNaN(value) || value < 0 || (value > 0 && value < MIN_VALID_TIMESTAMP)) {
-                    console.warn(`[SiYuanMemo][StorageManager] Invalid timestamp in ${fieldName}: ${value} for card ${id || blockId}`);
+                    logger.warn(`Invalid timestamp in ${fieldName}: ${value} for card ${id || blockId}`);
                     return 0;
                 }
                 return value;
@@ -471,27 +470,12 @@ export class StorageManager {
         if (!this.isDirty) return;
 
         const cards = this.getAllCards();
-        
-        // 🔍 调试日志：检查 Xiuyuan 卡片的 meta
-        const xiuyuanCards = cards.filter(c => c.id.startsWith('xy_card_'));
-        if (xiuyuanCards.length > 0) {
-            console.log('[SiYuanMemo][StorageManager] 🔍 Saving Xiuyuan cards:', {
-                count: xiuyuanCards.length,
-                samples: xiuyuanCards.slice(0, 2).map(c => ({
-                    id: c.id,
-                    blockId: c.blockId,
-                    hasMeta: !!c.meta,
-                    metaKeys: c.meta ? Object.keys(c.meta) : [],
-                    xiuyuanID: (c.meta as any)?.xiuyuanID,
-                    currentIndex: (c.meta as any)?.currentIndex,
-                })),
-            });
-        }
+        this.logXiuyuanCardSamples('Saving', cards);
         
         // 🆕 使用 msgpack 格式保存
         await this.saveMsgpackData(STORAGE_FILES.CARDS, cards);
         this.isDirty = false;
-        console.log(`[SiYuanMemo] Saved ${cards.length} cards (msgpack)`);
+        logger.info(`Saved ${cards.length} cards (msgpack)`);
     }
 
     getPracticeQueue(): any[] {
@@ -567,7 +551,7 @@ export class StorageManager {
                 return data as QueueData;
             }
         } catch (error) {
-            console.warn('[SiYuanMemo][StorageManager] Failed to load queue backup:', error);
+            logger.warn('Failed to load queue backup:', error);
         }
         return null;
     }
@@ -578,7 +562,7 @@ export class StorageManager {
     async setQueueBackup(data: QueueData): Promise<void> {
         // 🆕 使用 msgpack 格式保存
         await this.saveMsgpackData(STORAGE_FILES.PRACTICE_QUEUE_BACKUP, data);
-        console.debug('[SiYuanMemo][StorageManager] Queue backup saved (msgpack)');
+        logger.debug('Queue backup saved (msgpack)');
     }
 
     /**
@@ -688,7 +672,7 @@ export class StorageManager {
 
             // 安全限制：最多遍历 120 个月（10年）
             if (i >= 120) {
-                console.warn('[SiYuanMemo][StorageManager] Reached maximum month limit (120) for review logs');
+                logger.warn('Reached maximum month limit (120) for review logs');
                 break;
             }
         }
@@ -696,65 +680,62 @@ export class StorageManager {
         // 按时间排序（最新的在前）
         allLogs.sort((a, b) => b.review - a.review);
 
-        console.log('[SiYuanMemo][StorageManager] Loaded', allLogs.length, 'review logs from', Math.floor((now.getTime() - Date.UTC(now.getFullYear() - 10, 0, 1)) / (30 * 24 * 60 * 60 * 1000)), 'months');
+        logger.info('Loaded review logs:', {
+            count: allLogs.length,
+            months: Math.floor((now.getTime() - Date.UTC(now.getFullYear() - 10, 0, 1)) / (30 * 24 * 60 * 60 * 1000)),
+        });
         return allLogs;
+    }
+
+    private normalizePracticeQueueItems(items: unknown[]): any[] {
+        return items.map((x: any) => ({
+            ...(x as any),
+            priority: Number.isFinite(Number((x as any)?.priority)) ? Number((x as any).priority) : DEFAULT_PRIORITY,
+        }));
+    }
+
+    private parsePracticeQueuePayload(data: unknown): { items: any[]; lastAutoSortDay: string } {
+        if (Array.isArray(data)) {
+            return {
+                items: this.normalizePracticeQueueItems(data),
+                lastAutoSortDay: '',
+            };
+        }
+
+        if (data && typeof data === 'object') {
+            const items = Array.isArray((data as any).items) ? (data as any).items : [];
+            return {
+                items: this.normalizePracticeQueueItems(items),
+                lastAutoSortDay: String((data as any).lastAutoSortDay || ''),
+            };
+        }
+
+        return {
+            items: [],
+            lastAutoSortDay: '',
+        };
     }
 
     private async loadPracticeQueue(): Promise<void> {
         try {
-            // 🆕 优先加载 msgpack 格式
-            const data = await this.loadMsgpackData(STORAGE_FILES.PRACTICE_QUEUE);
-            if (data) {
-                if (Array.isArray(data)) {
-                    this.practiceQueue = data.map((x) => ({
-                        ...(x as any),
-                        priority: Number.isFinite(Number((x as any)?.priority)) ? Number((x as any).priority) : DEFAULT_PRIORITY,
-                    }));
-                    this.practiceQueueLastAutoSortDay = '';
-                } else if (data && typeof data === 'object') {
-                    const items = Array.isArray((data as any).items) ? (data as any).items : [];
-                    this.practiceQueue = items.map((x: any) => ({
-                        ...(x as any),
-                        priority: Number.isFinite(Number((x as any)?.priority)) ? Number((x as any).priority) : DEFAULT_PRIORITY,
-                    }));
-                    this.practiceQueueLastAutoSortDay = String((data as any).lastAutoSortDay || '');
-                } else {
-                    this.practiceQueue = [];
-                    this.practiceQueueLastAutoSortDay = '';
-                }
-                console.log(`[SiYuanMemo] Loaded practice queue (msgpack): ${this.practiceQueue.length} items`);
-                await this.autoSortPracticeQueueIfNeeded();
-                return;
-            }
+            const { data, source } = await this.loadWithLegacyFallback(
+                STORAGE_FILES.PRACTICE_QUEUE,
+                STORAGE_FILES.PRACTICE_QUEUE_JSON
+            );
 
-            // 后备：尝试加载 JSON 格式
-            const jsonData = await this.readPluginData(STORAGE_FILES.PRACTICE_QUEUE_JSON);
-            if (jsonData) {
-                const parsed = JSON.parse(jsonData);
-                if (Array.isArray(parsed)) {
-                    this.practiceQueue = parsed.map((x) => ({
-                        ...(x as any),
-                        priority: Number.isFinite(Number((x as any)?.priority)) ? Number((x as any).priority) : DEFAULT_PRIORITY,
-                    }));
-                    this.practiceQueueLastAutoSortDay = '';
-                } else if (parsed && typeof parsed === 'object') {
-                    const items = Array.isArray((parsed as any).items) ? (parsed as any).items : [];
-                    this.practiceQueue = items.map((x: any) => ({
-                        ...(x as any),
-                        priority: Number.isFinite(Number((x as any)?.priority)) ? Number((x as any).priority) : DEFAULT_PRIORITY,
-                    }));
-                    this.practiceQueueLastAutoSortDay = String((parsed as any).lastAutoSortDay || '');
-                } else {
-                    this.practiceQueue = [];
-                    this.practiceQueueLastAutoSortDay = '';
-                }
-                console.log(`[SiYuanMemo] Loaded practice queue (JSON, will migrate): ${this.practiceQueue.length} items`);
-            } else {
+            if (source === 'none') {
                 this.practiceQueue = [];
                 this.practiceQueueLastAutoSortDay = '';
+            } else {
+                const parsed = this.parsePracticeQueuePayload(data);
+                this.practiceQueue = parsed.items;
+                this.practiceQueueLastAutoSortDay = parsed.lastAutoSortDay;
+                logger.info(
+                    `Loaded practice queue (${source === 'msgpack' ? 'msgpack' : 'JSON, will migrate'}): ${this.practiceQueue.length} items`
+                );
             }
         } catch (err) {
-            console.warn('[SiYuanMemo] Failed to load practice queue:', err);
+            logger.warn('Failed to load practice queue:', err);
             this.practiceQueue = [];
             this.practiceQueueLastAutoSortDay = '';
         }
@@ -782,25 +763,21 @@ export class StorageManager {
 
     private async loadIncrementalLearningQueue(): Promise<void> {
         try {
-            // 🆕 优先加载 msgpack 格式
-            const data = await this.loadMsgpackData(STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE);
-            if (data) {
-                this.incrementalLearningQueue = Array.isArray(data) ? data : [];
-                console.log(`[SiYuanMemo] Loaded incremental learning queue (msgpack): ${this.incrementalLearningQueue.length} items`);
-                return;
-            }
+            const { data, source } = await this.loadWithLegacyFallback(
+                STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE,
+                STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE_JSON
+            );
 
-            // 后备：尝试加载 JSON 格式
-            const jsonData = await this.readPluginData(STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE_JSON);
-            if (jsonData) {
-                const parsed = JSON.parse(jsonData);
-                this.incrementalLearningQueue = Array.isArray(parsed) ? parsed : [];
-                console.log(`[SiYuanMemo] Loaded incremental learning queue (JSON, will migrate): ${this.incrementalLearningQueue.length} items`);
-            } else {
+            if (source === 'none') {
                 this.incrementalLearningQueue = [];
+            } else {
+                this.incrementalLearningQueue = Array.isArray(data) ? data : [];
+                logger.info(
+                    `Loaded incremental learning queue (${source === 'msgpack' ? 'msgpack' : 'JSON, will migrate'}): ${this.incrementalLearningQueue.length} items`
+                );
             }
         } catch (err) {
-            console.warn('[SiYuanMemo] Failed to load incremental learning queue:', err);
+            logger.warn('Failed to load incremental learning queue:', err);
             this.incrementalLearningQueue = [];
         }
     }
@@ -887,7 +864,7 @@ export class StorageManager {
 
             return JSON.parse(content);
         } catch (error) {
-            console.error(`[SiYuanMemo][StorageManager] Failed to load ${filename}:`, error);
+            logger.error(`Failed to load ${filename}:`, error);
             return null;
         }
     }
@@ -900,7 +877,7 @@ export class StorageManager {
             const content = JSON.stringify(data, null, 2);
             await this.writePluginData(filename, content);
         } catch (error) {
-            console.error(`[SiYuanMemo][StorageManager] Failed to save ${filename}:`, error);
+            logger.error(`Failed to save ${filename}:`, error);
             throw error;
         }
     }
@@ -927,11 +904,11 @@ export class StorageManager {
         } catch (error) {
             // 特别处理 Base64 解码错误（文件损坏）
             if (error instanceof DOMException && error.name === 'InvalidCharacterError') {
-                console.warn(`[SiYuanMemo][StorageManager] Corrupted msgpack file (invalid Base64): ${filename}, ignoring it`);
+                logger.warn(`Corrupted msgpack file (invalid Base64): ${filename}, ignoring it`);
                 // 不尝试删除文件，因为可能会导致其他错误
                 // 下次保存时会自动覆盖损坏的文件
             } else {
-                console.error(`[SiYuanMemo][StorageManager] Failed to load msgpack ${filename}:`, error);
+                logger.error(`Failed to load msgpack ${filename}:`, error);
             }
             return null;
         }
@@ -954,7 +931,7 @@ export class StorageManager {
             
             await this.writePluginData(filename, content);
         } catch (error) {
-            console.error(`[SiYuanMemo][StorageManager] Failed to save msgpack ${filename}:`, error);
+            logger.error(`Failed to save msgpack ${filename}:`, error);
             throw error;
         }
     }
@@ -987,7 +964,7 @@ export class StorageManager {
                         continue; // 文件正常，跳过迁移
                     } catch (error) {
                         // 文件损坏，删除并重新迁移
-                        console.warn(`[SiYuanMemo][StorageManager] ⚠️ Corrupted msgpack file detected: ${to}, will re-migrate`);
+                        logger.warn(`⚠️ Corrupted msgpack file detected: ${to}, will re-migrate`);
                         cleanedCount++;
                     }
                 }
@@ -998,10 +975,10 @@ export class StorageManager {
                     // JSON 文件不存在
                     if (msgpackContent) {
                         // msgpack 损坏但 JSON 不存在，删除损坏的 msgpack 文件
-                        console.warn(`[SiYuanMemo][StorageManager] ⚠️ No JSON backup found for corrupted ${to}, will start fresh`);
+                        logger.warn(`⚠️ No JSON backup found for corrupted ${to}, will start fresh`);
                         // 注意：我们不主动删除文件，只是让它在下次保存时被覆盖
                     } else {
-                        console.log(`[SiYuanMemo][StorageManager] No data files found for ${name}, will create on first save`);
+                        logger.info(`No data files found for ${name}, will create on first save`);
                     }
                     continue;
                 }
@@ -1012,12 +989,12 @@ export class StorageManager {
                 await this.saveMsgpackData(to, data);
 
                 migratedCount++;
-                console.log(`[SiYuanMemo][StorageManager] ✅ Migrated ${name}: ${from} → ${to}`);
+                logger.info(`✅ Migrated ${name}: ${from} → ${to}`);
 
                 // 可选：删除旧文件（暂时保留，以便回滚）
                 // await siyuanApi.removeFile(`${this.basePath}/${from}`);
             } catch (error) {
-                console.error(`[SiYuanMemo][StorageManager] ❌ Failed to migrate ${name}:`, error);
+                logger.error(`❌ Failed to migrate ${name}:`, error);
             }
         }
 
@@ -1029,7 +1006,7 @@ export class StorageManager {
             if (cleanedCount > 0) {
                 messages.push(`cleaned ${cleanedCount} corrupted files`);
             }
-            console.log(`[SiYuanMemo][StorageManager] 🎉 Msgpack migration complete: ${messages.join(', ')}`);
+            logger.info(`🎉 Msgpack migration complete: ${messages.join(', ')}`);
         }
     }
 
@@ -1078,25 +1055,21 @@ export class StorageManager {
      */
     private async loadRiffBlacklist(): Promise<void> {
         try {
-            // 🆕 优先加载 msgpack 格式
-            const data = await this.loadMsgpackData(STORAGE_FILES.RIFF_BLACKLIST);
-            if (data) {
-                this.riffBlacklist = new Set(Array.isArray(data) ? data : []);
-                console.log('[SiYuanMemo][StorageManager] Loaded Riff blacklist (msgpack):', this.riffBlacklist.size);
-                return;
-            }
+            const { data, source } = await this.loadWithLegacyFallback(
+                STORAGE_FILES.RIFF_BLACKLIST,
+                STORAGE_FILES.RIFF_BLACKLIST_JSON
+            );
 
-            // 后备：尝试加载 JSON 格式
-            const jsonData = await this.readPluginData(STORAGE_FILES.RIFF_BLACKLIST_JSON);
-            if (jsonData) {
-                const parsed = JSON.parse(jsonData);
-                this.riffBlacklist = new Set(Array.isArray(parsed) ? parsed : []);
-                console.log('[SiYuanMemo][StorageManager] Loaded Riff blacklist (JSON, will migrate):', this.riffBlacklist.size);
-            } else {
+            if (source === 'none') {
                 this.riffBlacklist = new Set();
+            } else {
+                this.riffBlacklist = new Set(Array.isArray(data) ? data : []);
+                logger.info(
+                    `Loaded Riff blacklist (${source === 'msgpack' ? 'msgpack' : 'JSON, will migrate'}): ${this.riffBlacklist.size}`
+                );
             }
         } catch (err) {
-            console.warn('[SiYuanMemo][StorageManager] Failed to load Riff blacklist:', err);
+            logger.warn('Failed to load Riff blacklist:', err);
             this.riffBlacklist = new Set();
         }
     }
@@ -1109,9 +1082,9 @@ export class StorageManager {
             const data = Array.from(this.riffBlacklist);
             // 🆕 使用 msgpack 格式保存
             await this.saveMsgpackData(STORAGE_FILES.RIFF_BLACKLIST, data);
-            console.log('[SiYuanMemo][StorageManager] Saved Riff blacklist (msgpack):', data.length);
+            logger.info('Saved Riff blacklist (msgpack):', data.length);
         } catch (err) {
-            console.error('[SiYuanMemo][StorageManager] Failed to save Riff blacklist:', err);
+            logger.error('Failed to save Riff blacklist:', err);
         }
     }
     
@@ -1127,7 +1100,7 @@ export class StorageManager {
      * @returns 修复的卡片数量
      */
     async repairInvalidDates(): Promise<{ fixed: number; total: number }> {
-        console.log('[SiYuanMemo][StorageManager] 🔧 Starting date repair...');
+        logger.info('🔧 Starting date repair...');
         
         let fixedCount = 0;
         const totalCount = this.cardsCache.size;
@@ -1140,12 +1113,12 @@ export class StorageManager {
             if (typeof card.lastReview === 'number') {
                 // 修复无效时间戳：NaN、负数、或小于 2000-01-01 的值（如 0 或 "0001-01-01" 转换后的值）
                 if (isNaN(card.lastReview) || card.lastReview < 0 || (card.lastReview > 0 && card.lastReview < MIN_VALID_TIMESTAMP)) {
-                    console.warn(`[SiYuanMemo][StorageManager] Fixing invalid lastReview for card ${cardId}: ${card.lastReview} -> 0`);
+                    logger.warn(`Fixing invalid lastReview for card ${cardId}: ${card.lastReview} -> 0`);
                     card.lastReview = 0;
                     needsFix = true;
                 }
             } else if (card.lastReview !== undefined && card.lastReview !== null) {
-                console.warn(`[SiYuanMemo][StorageManager] Fixing non-numeric lastReview for card ${cardId}: ${typeof card.lastReview} -> 0`);
+                logger.warn(`Fixing non-numeric lastReview for card ${cardId}: ${typeof card.lastReview} -> 0`);
                 card.lastReview = 0;
                 needsFix = true;
             }
@@ -1154,12 +1127,12 @@ export class StorageManager {
             if (typeof card.due === 'number') {
                 // 修复无效时间戳：NaN、负数、或小于 2000-01-01 的值
                 if (isNaN(card.due) || card.due < 0 || (card.due > 0 && card.due < MIN_VALID_TIMESTAMP)) {
-                    console.warn(`[SiYuanMemo][StorageManager] Fixing invalid due for card ${cardId}: ${card.due} -> ${Date.now()}`);
+                    logger.warn(`Fixing invalid due for card ${cardId}: ${card.due} -> ${Date.now()}`);
                     card.due = Date.now();
                     needsFix = true;
                 }
             } else if (card.due !== undefined && card.due !== null) {
-                console.warn(`[SiYuanMemo][StorageManager] Fixing non-numeric due for card ${cardId}: ${typeof card.due} -> ${Date.now()}`);
+                logger.warn(`Fixing non-numeric due for card ${cardId}: ${typeof card.due} -> ${Date.now()}`);
                 card.due = Date.now();
                 needsFix = true;
             }
@@ -1172,11 +1145,11 @@ export class StorageManager {
         }
         
         if (fixedCount > 0) {
-            console.log(`[SiYuanMemo][StorageManager] 🔧 Fixed ${fixedCount} cards, saving...`);
+            logger.info(`🔧 Fixed ${fixedCount} cards, saving...`);
             this.isDirty = true;
             await this.saveCards();
         } else {
-            console.log('[SiYuanMemo][StorageManager] ✅ No invalid dates found');
+            logger.info('✅ No invalid dates found');
         }
         
         return { fixed: fixedCount, total: totalCount };

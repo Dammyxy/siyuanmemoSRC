@@ -167,6 +167,30 @@ export class AutoCardHandler implements ITransactionHandler {
         }
         return null;
     }
+
+    private async requireXiuyuanApplicationService(
+        unavailableUserMessage?: string,
+        onUnavailable?: () => Promise<void>
+    ): Promise<any | null> {
+        const service = await this.getXiuyuanApplicationService();
+        if (service) {
+            return service;
+        }
+
+        console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available');
+
+        if (onUnavailable) {
+            await onUnavailable();
+            return null;
+        }
+
+        if (unavailableUserMessage) {
+            const { pushErrMsg } = await import('@/core/siyuan/api');
+            await pushErrMsg(unavailableUserMessage);
+        }
+
+        return null;
+    }
     
     /**
      * 获取 CardCreationHelper
@@ -886,11 +910,8 @@ export class AutoCardHandler implements ITransactionHandler {
             if (backClozes.length > 0) {
                 console.log('[SiYuanMemo][AutoCard] Detected back clozes:', backClozes.length);
                 
-                const xiuyuanAppService = await this.getXiuyuanApplicationService();
+                const xiuyuanAppService = await this.requireXiuyuanApplicationService('修缘服务不可用');
                 if (!xiuyuanAppService) {
-                    console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available');
-                    const { pushErrMsg } = await import('@/core/siyuan/api');
-                    await pushErrMsg('修缘服务不可用');
                     return;
                 }
                 
@@ -980,46 +1001,53 @@ export class AutoCardHandler implements ITransactionHandler {
      * @param term 术语
      * @param definition 定义
      */
+    private async createBidirectionalFallbackAsSingleCard(
+        blockId: string,
+        term: string,
+        definition: string
+    ): Promise<void> {
+        const helper = this.getCardHelper();
+        if (!helper) {
+            console.error('[SiYuanMemo][AutoCard] CardCreationHelper not available');
+            const { pushErrMsg } = await import('@/core/siyuan/api');
+            await pushErrMsg('卡片创建服务不可用');
+            return;
+        }
+        
+        const result = await helper.createSymbolCard(blockId, {
+            metadata: {
+                direction: 'forward',
+                question: term,
+                answer: definition,
+                cardSource: 'quick-symbol',
+                symbolType: '<>'
+            }
+        });
+        
+        if (!result.ok) {
+            throw new Error(`Failed to create symbol card: ${result.error}`);
+        }
+        
+        const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
+        await addRiffCards(BUILTIN_DECK_ID, [blockId]);
+        
+        const { markBlockAsCard } = await import('@/core/siyuan/block');
+        const card = result.value;
+        await markBlockAsCard(blockId, card.id, card.priority, 'item');
+        
+        const { pushMsg } = await import('@/core/siyuan/api');
+        await pushMsg('✅ 已创建双向卡片 (<>) - 仅正向');
+    }
+
     private async createBidirectionalCard(blockId: string, term: string, definition: string): Promise<void> {
         try {
             console.log('[SiYuanMemo][AutoCard] Creating bidirectional card using Xiuyuan:', blockId);
             
             // 1. 检查 XiuyuanApplicationService 是否可用
-            const xiuyuanAppService = await this.getXiuyuanApplicationService();
+            const xiuyuanAppService = await this.requireXiuyuanApplicationService(undefined, async () => {
+                await this.createBidirectionalFallbackAsSingleCard(blockId, term, definition);
+            });
             if (!xiuyuanAppService) {
-                console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available, falling back to single card');
-                // 降级：使用 CardCreationHelper 创建符号检测卡
-                const helper = this.getCardHelper();
-                if (!helper) {
-                    console.error('[SiYuanMemo][AutoCard] CardCreationHelper not available');
-                    const { pushErrMsg } = await import('@/core/siyuan/api');
-                    await pushErrMsg('卡片创建服务不可用');
-                    return;
-                }
-                
-                const result = await helper.createSymbolCard(blockId, {
-                    metadata: {
-                        direction: 'forward',
-                        question: term,
-                        answer: definition,
-                        cardSource: 'quick-symbol',
-                        symbolType: '<>'
-                    }
-                });
-                
-                if (!result.ok) {
-                    throw new Error(`Failed to create symbol card: ${result.error}`);
-                }
-                
-                const { addRiffCards, BUILTIN_DECK_ID } = await import('@/core/siyuan/riff');
-                await addRiffCards(BUILTIN_DECK_ID, [blockId]);
-                
-                const { markBlockAsCard } = await import('@/core/siyuan/block');
-                const card = result.value;
-                await markBlockAsCard(blockId, card.id, card.priority, 'item');
-                
-                const { pushMsg } = await import('@/core/siyuan/api');
-                await pushMsg(`✅ 已创建双向卡片 (<>) - 仅正向`);
                 return;
             }
             
@@ -1157,9 +1185,8 @@ export class AutoCardHandler implements ITransactionHandler {
                 console.log('[SiYuanMemo][AutoCard] Detected clozes in definition:', clozes.length);
                 
                 // 使用 Xiuyuan 创建概念定义卡片
-                const xiuyuanAppService = await this.getXiuyuanApplicationService();
+                const xiuyuanAppService = await this.requireXiuyuanApplicationService();
                 if (!xiuyuanAppService) {
-                    console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available');
                     return;
                 }
                 
@@ -1371,10 +1398,10 @@ export class AutoCardHandler implements ITransactionHandler {
             console.log('[SiYuanMemo][AutoCard] Found concept card:', foundConceptId, ', creating Xiuyuan descriptor card');
             
             // 3. 使用 Xiuyuan 创建描述符卡片
-            const xiuyuanAppService = await this.getXiuyuanApplicationService();
-            if (!xiuyuanAppService) {
-                console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available, falling back to basic card');
+            const xiuyuanAppService = await this.requireXiuyuanApplicationService(undefined, async () => {
                 await this.createBasicCardFromDescriptor(blockId, attribute, description, actualSymbol);
+            });
+            if (!xiuyuanAppService) {
                 return;
             }
             
@@ -1624,10 +1651,10 @@ export class AutoCardHandler implements ITransactionHandler {
         content: string,
         clozes: Array<{ text: string; type: 'brace' | 'equal' }>
     ): Promise<void> {
-        const xiuyuanAppService = await this.getXiuyuanApplicationService();
-        if (!xiuyuanAppService) {
-            console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available, creating single card');
+        const xiuyuanAppService = await this.requireXiuyuanApplicationService(undefined, async () => {
             await this.createSingleClozeCard(blockId, content, clozes);
+        });
+        if (!xiuyuanAppService) {
             return;
         }
         
@@ -1781,9 +1808,8 @@ export class AutoCardHandler implements ITransactionHandler {
             console.log('[SiYuanMemo][AutoCard] Parsed child blocks:', childBlocks);
             
             // 4. 使用 Xiuyuan 创建列表模版卡片
-            const xiuyuanAppService = await this.getXiuyuanApplicationService();
+            const xiuyuanAppService = await this.requireXiuyuanApplicationService();
             if (!xiuyuanAppService) {
-                console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available');
                 return;
             }
             
@@ -1853,9 +1879,8 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             
             // 2. 创建 Xiuyuan 概念卡
-            const xiuyuanAppService = await this.getXiuyuanApplicationService();
+            const xiuyuanAppService = await this.requireXiuyuanApplicationService();
             if (!xiuyuanAppService) {
-                console.error('[SiYuanMemo][AutoCard] XiuyuanApplicationService not available');
                 return;
             }
             

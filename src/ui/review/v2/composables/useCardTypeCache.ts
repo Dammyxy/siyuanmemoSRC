@@ -3,6 +3,8 @@
  * 缓存卡片类型检测结果，避免重复检测
  */
 
+import { createLogger } from '@/utils/logger';
+
 interface CardTypeResult {
   isConcept: boolean;
   isDescriptor: boolean;
@@ -22,6 +24,7 @@ interface CardTypeCacheStats {
 
 export function useCardTypeCache(options: CardTypeCacheOptions = {}) {
   const { maxSize = 50, debugMode = false } = options;
+  const logger = createLogger('useCardTypeCache');
   
   const cache = new Map<string, CardTypeResult>();
   let stats: CardTypeCacheStats = {
@@ -39,14 +42,14 @@ export function useCardTypeCache(options: CardTypeCacheOptions = {}) {
     if (result) {
       stats.hits++;
       if (debugMode) {
-        console.log('[useCardTypeCache] Cache hit', blockId, result);
+        logger.debug('[useCardTypeCache] Cache hit', blockId, result);
       }
       return result;
     }
     
     stats.misses++;
     if (debugMode) {
-      console.log('[useCardTypeCache] Cache miss', blockId);
+      logger.debug('[useCardTypeCache] Cache miss', blockId);
     }
     return null;
   }
@@ -67,7 +70,7 @@ export function useCardTypeCache(options: CardTypeCacheOptions = {}) {
     stats.size = cache.size;
 
     if (debugMode) {
-      console.log('[useCardTypeCache] Cache set', blockId, result);
+      logger.debug('[useCardTypeCache] Cache set', blockId, result);
     }
   }
 
@@ -78,7 +81,7 @@ export function useCardTypeCache(options: CardTypeCacheOptions = {}) {
     cache.clear();
     stats.size = 0;
     if (debugMode) {
-      console.log('[useCardTypeCache] Cache cleared');
+      logger.debug('[useCardTypeCache] Cache cleared');
     }
   }
 

@@ -15,6 +15,9 @@ import type { IAdapter, AdapterContext } from '@/ui/review/v2/types';
 import type { FSRSCard } from '@/types/card';
 import type { IQueueStrategy } from '@/core/queue/abstraction/Strategy';
 import { isXiuyuanCard } from '@/core/xiuyuan/cardMeta';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('UnifiedReviewAdapter');
 
 function t(i18n: Record<string, string> | undefined, key: string, fallback: string): string {
   return i18n?.[key] || fallback;
@@ -128,7 +131,7 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
             content: {
                 type: 'protyle',
                 data: (() => {
-                    console.log('[SiYuanMemo][UnifiedReviewAdapter] Setting content.data:', {
+                    logger.debug('Setting content.data', {
                         cardType: (card as any)?.type,
                         isXiuyuan: isXiuyuanCard(card),
                         blockId,
@@ -138,7 +141,7 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                     // 🆕 描述符卡：使用 fieldMapping 中的 descriptor 字段
                     if ((card as any)?.type === 'descriptor' && isXiuyuanCard(card)) {
                         const descriptorId = card.meta.fieldMapping?.descriptor || blockId;
-                        console.log('[SiYuanMemo][UnifiedReviewAdapter] Descriptor card, using descriptor field:', descriptorId);
+                        logger.debug('Descriptor card uses descriptor field for content.data', { descriptorId });
                         return descriptorId;
                     }
                     // 🆕 Xiuyuan 卡片：data 也使用 frontBlockIDs 的第一个块
@@ -148,7 +151,7 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                     return blockId;
                 })(),
                 id: (() => {
-                    console.log('[SiYuanMemo][UnifiedReviewAdapter] Setting content.id:', {
+                    logger.debug('Setting content.id', {
                         cardType: (card as any)?.type,
                         isXiuyuan: isXiuyuanCard(card),
                         blockId,
@@ -158,7 +161,7 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                     // 🆕 描述符卡：使用 fieldMapping 中的 descriptor 字段
                     if ((card as any)?.type === 'descriptor' && isXiuyuanCard(card)) {
                         const descriptorId = card.meta.fieldMapping?.descriptor || blockId;
-                        console.log('[SiYuanMemo][UnifiedReviewAdapter] Descriptor card, using descriptor field:', descriptorId);
+                        logger.debug('Descriptor card uses descriptor field for content.id', { descriptorId });
                         return descriptorId;
                     }
                     // 🆕 Xiuyuan 卡片：使用 frontBlockIDs 的第一个块
@@ -179,7 +182,10 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                             templateID === 'builtin-basic-qa' ||
                             templateID === 'builtin-bidirectional'
                         )) {
-                            console.log(`[UnifiedReviewAdapter] Setting answerBlockID for template ${templateID}:`, backBlockIDs[0]);
+                            logger.debug('Setting answerBlockID from template backBlockIDs', {
+                                templateID,
+                                answerBlockID: backBlockIDs[0],
+                            });
                             return backBlockIDs[0];
                         }
                     }

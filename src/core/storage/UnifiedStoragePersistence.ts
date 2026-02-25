@@ -16,6 +16,9 @@
 
 import type SiyuanMemoPlugin from '../../index';
 import type { UnifiedCardStore } from './UnifiedStorageManager';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('UnifiedStoragePersistence');
 
 /** 统一存储文件名 */
 export const UNIFIED_STORAGE_KEY = 'unified-cards.msgpack';
@@ -34,13 +37,13 @@ export function createPersistenceCallbacks(plugin: SiyuanMemoPlugin) {
     try {
       // 使用插件的 saveData API，会自动编码为 MessagePack 格式
       await plugin.saveData(UNIFIED_STORAGE_KEY, data);
-      console.log('[UnifiedStorage] Saved to msgpack:', {
+      logger.info('Saved to msgpack', {
         version: data.version,
         xiuyuans: Object.keys(data.xiuyuans).length,
         cards: Object.keys(data.cards).length,
       });
     } catch (error) {
-      console.error('[UnifiedStorage] Failed to save:', error);
+      logger.error('Failed to save', error);
       throw error;
     }
   };
@@ -56,11 +59,11 @@ export function createPersistenceCallbacks(plugin: SiyuanMemoPlugin) {
       if (data) {
         // 验证数据结构
         if (!data.version || !data.xiuyuans || !data.cards) {
-          console.warn('[UnifiedStorage] Invalid data structure, using defaults');
+          logger.warn('Invalid data structure, using defaults');
           return createEmptyStore();
         }
 
-        console.log('[UnifiedStorage] Loaded from msgpack:', {
+        logger.info('Loaded from msgpack', {
           version: data.version,
           xiuyuans: Object.keys(data.xiuyuans).length,
           cards: Object.keys(data.cards).length,
@@ -70,10 +73,10 @@ export function createPersistenceCallbacks(plugin: SiyuanMemoPlugin) {
       }
 
       // 文件不存在，返回空数据
-      console.log('[UnifiedStorage] No existing data, using empty store');
+      logger.info('No existing data, using empty store');
       return createEmptyStore();
     } catch (error) {
-      console.error('[UnifiedStorage] Failed to load:', error);
+      logger.error('Failed to load', error);
       // 返回空数据而不是抛出错误，允许系统继续运行
       return createEmptyStore();
     }

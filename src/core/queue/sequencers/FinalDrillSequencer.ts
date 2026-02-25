@@ -14,6 +14,9 @@
 
 import type { ISequencer } from '../abstraction/types';
 import type { QueueItem } from '../types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('FinalDrillSequencer');
 
 export type FinalDrillSequencerConfig = {
   /**
@@ -164,7 +167,7 @@ export class FinalDrillSequencer<TItem extends QueueItem> implements ISequencer<
     // Insert at new position
     this.items.splice(adjustedInsertPos, 0, item);
 
-    console.log('[FinalDrillSequencer] FlipElement:', {
+    logger.debug('FlipElement', {
       queueSize,
       pickPos: pickPos + 1, // Log as 1-indexed for clarity
       insertPos: adjustedInsertPos + 1,

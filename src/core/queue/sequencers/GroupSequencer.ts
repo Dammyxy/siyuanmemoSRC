@@ -12,6 +12,9 @@
 
 import type { ISequencer } from '../abstraction/types';
 import type { QueueItem } from '../types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('GroupSequencer');
 
 export type GroupSequencerConfig<TItem extends QueueItem> = {
   /**
@@ -92,7 +95,7 @@ export class GroupSequencer<TItem extends QueueItem> implements ISequencer<TItem
    */
   reorder?(orderedItems: TItem[]): void {
     // GroupSequencer doesn't support reordering across groups
-    console.warn('[GroupSequencer] Reorder not supported');
+    logger.warn('Reorder not supported');
   }
 
   /**

@@ -2,6 +2,9 @@ import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRe
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
 import type { QuickCardRepository } from '../infrastructure/QuickCardRepository';
 import type { QuickCardType, QuickCardMetadata } from '../domain/types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('QuickCardRenderService');
 
 /**
  * 快速卡片视图模型
@@ -80,7 +83,7 @@ export class QuickCardRenderService extends BaseCardRenderService {
         metadata: card.metadata,
       };
     } catch (error) {
-      console.error('[QuickCardRenderService] Failed to prepare view model:', error);
+      logger.error('[QuickCardRenderService] Failed to prepare view model:', error);
       throw error;
     }
   }
@@ -96,7 +99,7 @@ export class QuickCardRenderService extends BaseCardRenderService {
       const card = await this.repository.loadCard(blockId);
       return card !== null;
     } catch (error) {
-      console.error('[QuickCardRenderService] Failed to detect quick card:', error);
+      logger.error('[QuickCardRenderService] Failed to detect quick card:', error);
       return false;
     }
   }

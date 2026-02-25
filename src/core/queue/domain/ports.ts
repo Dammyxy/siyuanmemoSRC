@@ -20,3 +20,27 @@ export interface AutoFailedCardSinkPort {
 export interface NeuralRoamCardTypeResolverPort {
   resolveCardType(blockId: string): Promise<'item' | 'topic'>;
 }
+
+export const NOOP_QUEUE_PERSISTENCE: QueuePersistencePort = {
+  get() {
+    return null;
+  },
+  async set(): Promise<void> {
+    return;
+  },
+};
+
+export const NOOP_AUTO_FAILED_CARD_SINK: AutoFailedCardSinkPort = {
+  async addAutoFailed(): Promise<void> {
+    return;
+  },
+};
+
+export const NOOP_LEECH_ACTION_EFFECTS: LeechActionEffectsPort = {
+  async notify(): Promise<void> {
+    return;
+  },
+  async setBlockAttrs(): Promise<void> {
+    return;
+  },
+};

@@ -21,15 +21,11 @@ import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import type { AutoFailedCardSinkPort, QueuePersistencePort } from './ports';
+import { NOOP_AUTO_FAILED_CARD_SINK } from './ports';
 import { loadQueueState, saveQueueState } from './queuePersistence';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('FilterGroupQueue');
-const NOOP_AUTO_FAILED_SINK: AutoFailedCardSinkPort = {
-    async addAutoFailed(): Promise<void> {
-        return;
-    }
-};
 
 interface FilterGroupQueueOptions {
     autoFailedSink?: AutoFailedCardSinkPort;
@@ -93,7 +89,7 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
             persistenceContext: 'FilterGroupQueue',
         });
 
-        this.autoFailedSink = options.autoFailedSink ?? NOOP_AUTO_FAILED_SINK;
+        this.autoFailedSink = options.autoFailedSink ?? NOOP_AUTO_FAILED_CARD_SINK;
         
         // 优先使用传入的过滤条件，否则使用空对象（将在 load() 中加载）
         this.cardFilter = Object.keys(filter).length > 0 ? filter : {};
@@ -209,33 +205,12 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
             // ✅ 修复：不强制添加 dueDate 过滤，只使用用户设置的过滤条件
             // 筛选复习队列应该显示所有符合过滤条件的卡片，而不是只显示到期的卡片
             const filteredCards = await this.manager.getCards(this.cardFilter);
-            
-            logger.debug(`Got ${filteredCards.length} filtered cards from manager`);
-            
-            // 获取手动添加的卡片
-            const manualCards = await this.getManuallyAddedCards();
-            
-            logger.debug(`Got ${manualCards.length} manually added cards`);
-            
-            // 合并并去重
-            const allCards = this.mergeUniqueCards(filteredCards, manualCards);
-            
-            logger.debug(`After merge: ${allCards.length} cards`);
-            
-            // 过滤临时黑名单中的卡片
-            const blacklistFiltered = allCards.filter(card => 
-                !this.temporaryBlacklist.has(card.id)
-            );
-            
-            if (blacklistFiltered.length < allCards.length) {
-                logger.debug(`Filtered ${allCards.length - blacklistFiltered.length} cards from temporary blacklist`);
-            }
-            
-            // 按到期日期和优先级排序
-            const sortedCards = this.sortByDuePriority(blacklistFiltered);
-            
-            // 应用自定义排序（如果存在）
-            return this.applyCustomOrder(sortedCards);
+
+            return this.buildDynamicCardsFromBase(filteredCards, {
+                logger,
+                persist: async () => this.save(),
+                baseCardsLabel: 'filtered cards from manager',
+            });
         } catch (error) {
             logger.error('Failed to get cards:', error);
             throw error;
@@ -254,29 +229,10 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
      * @see 需求 5.4, 18.1, 18.4, 6.4
      */
     public async addCard(card: FSRSCard | QueueItem | string): Promise<void> {
-        try {
-            await this.ensureInitialLoad();
-            const { cardId, wasBlacklisted } = await this.addManualCard(
-                card,
-                logger,
-                async () => this.save()
-            );
-            
-            // 触发观察者通知
-            this.manager.notifyObservers({
-                type: 'queue-changed',
-                queueType: this.getType(),
-                timestamp: Date.now()
-            });
-            
-            logger.info(`Card ${cardId} added manually`, {
-                wasBlacklisted,
-                temporaryBlacklistSize: this.temporaryBlacklist.size
-            });
-        } catch (error) {
-            logger.error('Failed to add card:', error);
-            throw error;
-        }
+        await this.addCardToCollection(card, {
+            logger,
+            persist: async () => this.save(),
+        });
     }
     
     /**
@@ -291,26 +247,12 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
      * @see 需求 5.5, 12.2
      */
     public async removeCard(cardIdOrBlockId: string): Promise<void> {
-        try {
-            await this.ensureInitialLoad();
-            const { wasManuallyAdded } = await this.removeManualCard(cardIdOrBlockId, logger, {
-                persistWhenNotManual: true,
-                persist: async () => this.save(),
-            });
-            
-            logger.info(`Card ${cardIdOrBlockId} removed`, {
-                wasManuallyAdded,
-                temporaryBlacklistSize: this.temporaryBlacklist.size
-            });
-        } catch (error) {
-            logger.error('Failed to remove card:', error);
-            // 即使出错，也要尝试加入临时黑名单
-            this.temporaryBlacklist.add(cardIdOrBlockId);
-            void this.save().catch((persistError) => {
-                logger.error('Failed to persist temporary blacklist after removeCard error:', persistError);
-            });
-            throw error;
-        }
+        await this.removeCardFromCollection(cardIdOrBlockId, {
+            logger,
+            persistWhenNotManual: true,
+            persist: async () => this.save(),
+            persistAfterError: async () => this.save(),
+        });
     }
     
     /**
@@ -329,19 +271,11 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
      * @see .kiro/specs/queue-scheduler-separation/requirements.md
      */
     public async handleReview(cardId: string, rating: number): Promise<void> {
-        try {
-            // 使用基类的调度器集成方法
-            await this.handleReviewWithScheduler(cardId, rating);
-            
-            // 过滤组队列特殊逻辑：评分 < 3 时自动添加到最终训练
-            if (rating < 3) {
-                await this.autoFailedSink.addAutoFailed(cardId);
-                logger.info(`Card ${cardId} with rating ${rating} added to FinalDrill`);
-            }
-        } catch (error) {
-            logger.error('Failed to handle review:', error);
-            throw error;
-        }
+        await this.handleReviewWithAutoFailed(cardId, rating, {
+            logger,
+            autoFailedSink: this.autoFailedSink,
+            logEscalation: true,
+        });
     }
     
     /**
@@ -404,11 +338,7 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
             await this.save();
             
             // 触发观察者通知，让 UI 重新加载数据
-            this.manager.notifyObservers({
-                type: 'queue-changed',
-                queueType: this.getType(),
-                timestamp: Date.now()
-            });
+            this.emitQueueChangedEvent();
             
             logger.info('Queue rebuilt successfully');
         } catch (error) {
@@ -432,16 +362,4 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
             logger.error('Failed to clear temporary blacklist:', error);
         }
     }
-    
-    // ========================================================================
-    // 私有辅助方法
-    // ========================================================================
-    
-    /**
-     * 获取手动添加的卡片
-     */
-    private async getManuallyAddedCards(): Promise<FSRSCard[]> {
-        return this.resolveManuallyAddedCards(logger, async () => this.save());
-    }
-    
 }

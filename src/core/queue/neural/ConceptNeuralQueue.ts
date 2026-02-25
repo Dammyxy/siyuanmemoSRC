@@ -8,6 +8,9 @@
  */
 
 import { ConceptQueryEngine, type Neighbor, type BlockData } from './ConceptQueryEngine';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('ConceptNeuralQueue');
 
 export interface QueueItem {
   id: string;
@@ -57,11 +60,11 @@ export class ConceptNeuralQueue {
    */
   async getNextCard(): Promise<QueueItem | null> {
     try {
-      console.log('[SiYuanMemo][ConceptNeuralQueue] getNextCard called');
+      logger.debug('getNextCard called');
       
       // 🆕 如果预加载队列有卡片，直接返回第一张
       if (this.preloadedCards.length > 0) {
-        console.log(`[SiYuanMemo][ConceptNeuralQueue] Returning preloaded card (${this.preloadedCards.length} cards in queue)`);
+        logger.debug('Returning preloaded card', { queueSize: this.preloadedCards.length });
         const card = this.preloadedCards.shift()!; // 取出第一张
         
         // 🔧 修复：将预加载的卡片标记为已访问
@@ -76,7 +79,7 @@ export class ConceptNeuralQueue {
           }
         }
         
-        console.log('[SiYuanMemo][ConceptNeuralQueue] Marked preloaded card as visited:', card.blockId);
+        logger.debug('Marked preloaded card as visited', { blockId: card.blockId });
         
         // 🆕 如果预加载队列少于一半，触发预加载
         if (this.preloadedCards.length < this.preloadQueueSize / 2) {
@@ -86,7 +89,7 @@ export class ConceptNeuralQueue {
         return card;
       }
       
-      console.log('[SiYuanMemo][ConceptNeuralQueue] Current state:', {
+      logger.debug('Current state', {
         currentSeed: this.currentSeed,
         seedsCount: this.seeds.size,
         visitedCount: this.visitedBlocks.size,
@@ -98,10 +101,10 @@ export class ConceptNeuralQueue {
         if (!this.currentSeed || this.shouldRotateSeed()) {
           this.currentSeed = this.selectNextSeed();
           if (!this.currentSeed) {
-            console.log('[SiYuanMemo][ConceptNeuralQueue] No unvisited seeds available');
+            logger.debug('No unvisited seeds available');
             return null;
           }
-          console.log(`[SiYuanMemo][ConceptNeuralQueue] Selected seed: ${this.currentSeed}`);
+          logger.debug('Selected seed', { seed: this.currentSeed });
         }
 
         // 2. 获取当前种子的邻居
@@ -110,7 +113,10 @@ export class ConceptNeuralQueue {
         // 3. 过滤掉已访问的邻居
         const unvisitedNeighbors = neighbors.filter(n => !this.visitedBlocks.has(n.id));
         
-        console.log(`[SiYuanMemo][ConceptNeuralQueue] Found ${unvisitedNeighbors.length} unvisited neighbors (total: ${neighbors.length})`);
+        logger.debug('Calculated unvisited neighbors', {
+          unvisitedCount: unvisitedNeighbors.length,
+          totalCount: neighbors.length,
+        });
 
         // 4. 如果有未访问的邻居，加权随机选择一个
         if (unvisitedNeighbors.length > 0) {
@@ -120,7 +126,7 @@ export class ConceptNeuralQueue {
           
           if (!blockData) {
             // 块不存在，标记为已访问并重试
-            console.warn(`[SiYuanMemo][ConceptNeuralQueue] Block ${selected.id} not found, marking as visited`);
+            logger.warn('Block not found, marking as visited', { blockId: selected.id });
             this.visitedBlocks.add(selected.id);
             continue; // 🆕 使用 continue 替代递归
           }
@@ -135,7 +141,7 @@ export class ConceptNeuralQueue {
             seedState.neighborsViewed++;
           }
           
-          console.log(`[SiYuanMemo][ConceptNeuralQueue] Returning neighbor card: ${selected.id}`);
+          logger.debug('Returning neighbor card', { blockId: selected.id });
           
           const card = this.buildQueueItem(blockData, selected.type, this.getReasonText(selected.type));
           
@@ -149,11 +155,11 @@ export class ConceptNeuralQueue {
 
         // 5. 没有未访问的邻居，检查种子本身是否已展示
         if (!this.visitedBlocks.has(this.currentSeed)) {
-          console.log(`[SiYuanMemo][ConceptNeuralQueue] No unvisited neighbors, returning seed itself: ${this.currentSeed}`);
+          logger.debug('No unvisited neighbors, returning seed itself', { seed: this.currentSeed });
           
           const blockData = await this.queryEngine.fetchBlockData(this.currentSeed);
           if (!blockData) {
-            console.error(`[SiYuanMemo][ConceptNeuralQueue] Seed ${this.currentSeed} not found`);
+            logger.error('Seed not found', { seed: this.currentSeed });
             this.currentSeed = null;
             continue; // 🆕 使用 continue 替代递归
           }
@@ -173,13 +179,13 @@ export class ConceptNeuralQueue {
         }
 
         // 6. 种子和所有邻居都已访问，轮换到下一个种子
-        console.log(`[SiYuanMemo][ConceptNeuralQueue] Seed ${this.currentSeed} exhausted, rotating to next seed`);
+        logger.debug('Seed exhausted, rotating to next seed', { seed: this.currentSeed });
         this.rotateSeed();
         
         // 🆕 继续循环，不使用递归
       }
     } catch (error) {
-      console.error('[SiYuanMemo][ConceptNeuralQueue] Error in getNextCard:', error);
+      logger.error('Error in getNextCard', error);
       return null;
     }
   }
@@ -210,10 +216,10 @@ export class ConceptNeuralQueue {
         const currentSize = this.preloadedCards.length;
         const needToLoad = targetSize - currentSize;
         
-        console.log(`[SiYuanMemo][ConceptNeuralQueue] 🔄 Preloading cards... (current: ${currentSize}, target: ${targetSize}, need: ${needToLoad})`);
+        logger.debug('Preloading cards', { currentSize, targetSize, needToLoad });
         
         if (needToLoad <= 0) {
-          console.log('[SiYuanMemo][ConceptNeuralQueue] ✅ Preload queue is full, skipping');
+          logger.debug('Preload queue is full, skipping');
           return;
         }
         
@@ -235,7 +241,7 @@ export class ConceptNeuralQueue {
           
           if (!nextCard) {
             // 没有更多卡片可加载
-            console.log(`[SiYuanMemo][ConceptNeuralQueue] ⚠️ No more cards to preload (loaded ${loadedCount}/${needToLoad})`);
+            logger.debug('No more cards to preload', { loadedCount, needToLoad });
             break;
           }
           
@@ -250,9 +256,9 @@ export class ConceptNeuralQueue {
         this.displayPath = savedPath;
         this.seeds = savedSeedsState;
         
-        console.log(`[SiYuanMemo][ConceptNeuralQueue] ✅ Preloaded ${loadedCount} cards (queue size: ${this.preloadedCards.length})`);
+        logger.debug('Preloaded cards', { loadedCount, queueSize: this.preloadedCards.length });
       } catch (error) {
-        console.error('[SiYuanMemo][ConceptNeuralQueue] Preload error:', error);
+        logger.error('Preload error', error);
       } finally {
         this.isPreloading = false;
       }
@@ -323,7 +329,7 @@ export class ConceptNeuralQueue {
         this.rotateSeed();
       }
     } catch (error) {
-      console.error('[SiYuanMemo][ConceptNeuralQueue] Error in getNextCardInternal:', error);
+      logger.error('Error in getNextCardInternal', error);
       return null;
     }
   }
@@ -350,7 +356,7 @@ export class ConceptNeuralQueue {
       addedAt: Date.now(),
     });
     
-    console.log(`[SiYuanMemo][ConceptNeuralQueue] Added seed: ${blockId} (priority: ${priorityValue}, total: ${this.seeds.size})`);
+    logger.debug('Added seed', { blockId, priorityValue, total: this.seeds.size });
   }
 
   /**
@@ -386,7 +392,7 @@ export class ConceptNeuralQueue {
         addedAt: Date.now(),
       });
     }
-    console.log(`[SiYuanMemo][ConceptNeuralQueue] Restored ${seedIds.length} seeds`);
+    logger.debug('Restored seeds', { count: seedIds.length });
   }
 
   /**
@@ -403,7 +409,7 @@ export class ConceptNeuralQueue {
     for (const seed of this.seeds.values()) {
       seed.neighborsViewed = 0;
     }
-    console.log('[SiYuanMemo][ConceptNeuralQueue] History cleared, all seed counters reset');
+    logger.debug('History cleared, all seed counters reset');
   }
 
   /**

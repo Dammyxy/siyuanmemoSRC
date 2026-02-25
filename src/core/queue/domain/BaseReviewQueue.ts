@@ -608,6 +608,14 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         this.observers.forEach(observer => observer.onQueueUpdate(this));
     }
 
+    protected emitQueueChangedEvent(): void {
+        this.manager.notifyObservers({
+            type: 'queue-changed',
+            queueType: this.type,
+            timestamp: Date.now(),
+        });
+    }
+
     /**
      * 合并多个卡片数组并按 card.id 去重（后出现的覆盖前出现的）
      */
@@ -661,11 +669,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             this.customOrder = orderedCards.map(card => card.id);
             
             // 通知观察者队列已变更（触发复习界面刷新）
-            this.manager.notifyObservers({
-                type: 'queue-changed',
-                queueType: this.type,
-                timestamp: Date.now()
-            });
+            this.emitQueueChangedEvent();
             
             logger.info(`[${this.type}] Reorder completed successfully (in-memory)`);
             return true;

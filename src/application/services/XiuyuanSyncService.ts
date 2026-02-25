@@ -40,8 +40,10 @@ import { Priority } from '@/core/xiuyuan/domain/Priority';
 import { RiffBlacklistService } from './RiffBlacklistService';
 import { CardTypeDetectionService } from '@/core/xiuyuan/domain/services/CardTypeDetectionService';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
+import { createLogger } from '@/utils/logger';
 
 // ==================== Xiuyuan 同步服务 ====================
+const logger = createLogger('XiuyuanSyncService');
 
 /**
  * Xiuyuan 同步服务（优化版）
@@ -115,7 +117,7 @@ export class XiuyuanSyncService {
         
         // 发布到 EventBus
         this.eventBus.publish(domainEvent as any).catch(error => {
-            console.error(`[XiuyuanSyncService] Failed to publish event ${domainEventName}:`, error);
+            logger.error(`Failed to publish event ${domainEventName}:`, error);
         });
     }
     
@@ -165,22 +167,22 @@ export class XiuyuanSyncService {
      * 执行初始增量同步
      */
     async start(): Promise<void> {
-        console.log('[SiYuanMemo][HybridSync] Starting sync service...');
+        logger.info('Starting sync service...');
         
         // 执行初始增量同步
         if (this.config.incrementalSync.enabled) {
             await this.incrementalSync();
         }
         
-        console.log('[SiYuanMemo][HybridSync] Sync service started');
+        logger.info('Sync service started');
     }
     
     /**
      * 停止同步服务
      */
     stop(): void {
-        console.log('[SiYuanMemo][HybridSync] Stopping sync service...');
-        console.log('[SiYuanMemo][HybridSync] Sync service stopped');
+        logger.info('Stopping sync service...');
+        logger.info('Sync service stopped');
     }
 
     /**
@@ -199,7 +201,38 @@ export class XiuyuanSyncService {
             ...config,
             retry: config.retry || this.config.retry
         };
-        console.log('[XiuyuanSyncService] Config updated:', this.config);
+        logger.info('Config updated:', this.config);
+    }
+
+    private beginSync(type: SyncType): number {
+        const startTime = Date.now();
+        logger.info(`Starting ${type} sync...`);
+        this.publishEvent('syncStart', {
+            type,
+            timestamp: startTime
+        });
+        return startTime;
+    }
+
+    private completeSync(
+        type: SyncType,
+        startTime: number,
+        result: SyncResult,
+        summary: string
+    ): SyncResult {
+        this.publishEvent('syncSuccess', {
+            type,
+            result,
+            timestamp: Date.now(),
+            duration: Date.now() - startTime
+        });
+        logger.info(summary);
+        return result;
+    }
+
+    private failSync(type: SyncType, error: unknown): never {
+        logger.error(`${type} sync failed:`, error);
+        throw error;
     }
 
     
@@ -213,14 +246,7 @@ export class XiuyuanSyncService {
      */
     async incrementalSync(onProgress?: ProgressCallback): Promise<SyncResult> {
         return this.withRetry('incremental', async () => {
-            console.log('[SiYuanMemo][HybridSync] Starting incremental sync...');
-            const startTime = Date.now();
-            
-            // 发布同步开始事件
-            this.publishEvent('syncStart', {
-                type: 'incremental',
-                timestamp: startTime
-            });
+            const startTime = this.beginSync('incremental');
             
             try {
                 // 1. 获取新卡片（since lastSyncTime）
@@ -234,24 +260,24 @@ export class XiuyuanSyncService {
                 // 
                 // 当前方案：禁用时间过滤，通过 localCard 检查来避免重复添加
                 // 性能影响：每次获取所有卡片，但通过 skipped 机制避免重复
-                console.log(`[SiYuanMemo][HybridSync] lastSyncTime: ${this.lastSyncTime}, current: ${Date.now()}, diff: ${Math.floor((Date.now() - this.lastSyncTime) / 1000)}s`);
+                logger.info(`lastSyncTime: ${this.lastSyncTime}, current: ${Date.now()}, diff: ${Math.floor((Date.now() - this.lastSyncTime) / 1000)}s`);
                 
                 const newCards = await getRiffNewCards(
                     this.config.deckId,
                     undefined  // 禁用时间过滤，获取所有卡片
                 );
                 
-                console.log(`[SiYuanMemo][HybridSync] Fetched ${newCards.length} cards from Riff (time filter disabled)`);
+                logger.info(`Fetched ${newCards.length} cards from Riff (time filter disabled)`);
                 
                 // 2. 过滤黑名单
                 this.reportProgress(onProgress, 'incremental', 'filtering', 1, 7, '正在过滤黑名单...');
                 let filtered = newCards;
                 if (this.config.incrementalSync.useBlacklist) {
                     filtered = await this.riffBlacklistService.filterBlacklist(newCards);
-                    console.log(`[SiYuanMemo][HybridSync] Filtered ${newCards.length - filtered.length} blacklisted cards`);
+                    logger.info(`Filtered ${newCards.length - filtered.length} blacklisted cards`);
                 }
                 
-                console.log(`[SiYuanMemo][HybridSync] Processing ${filtered.length} cards for incremental sync`);
+                logger.info(`Processing ${filtered.length} cards for incremental sync`);
                 
                 // 3. 只添加本地不存在的卡片，或更新已存在卡片的优先级
                 this.reportProgress(onProgress, 'incremental', 'adding', 2, 7, '正在同步卡片...');
@@ -263,7 +289,7 @@ export class XiuyuanSyncService {
                 for (const riffCard of filtered) {
                     // 🔧 防护 0：检查是否最近被删除（防止孤儿卡片）
                     if (this.deletionTracker.isRecentlyDeleted(riffCard.id)) {
-                        console.log(`[HybridSync] Block ${riffCard.id} was recently deleted, skipping to prevent orphan cards`);
+                        logger.info(`Block ${riffCard.id} was recently deleted, skipping to prevent orphan cards`);
                         skippedCount++;
                         continue;
                     }
@@ -274,12 +300,12 @@ export class XiuyuanSyncService {
                         const attrs = await getBlockAttrs(riffCard.id);
                         if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
                             const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
-                            console.log(`[HybridSync] Block ${riffCard.id} already has Xiuyuan: ${existingXiuyuanId}, skipping`);
+                            logger.info(`Block ${riffCard.id} already has Xiuyuan: ${existingXiuyuanId}, skipping`);
                             skippedCount++;
                             continue;
                         }
                     } catch (error) {
-                        console.warn(`[HybridSync] Failed to check block attrs for ${riffCard.id}:`, error);
+                        logger.warn(`Failed to check block attrs for ${riffCard.id}:`, error);
                         // 继续执行，不阻断流程
                     }
                     
@@ -288,7 +314,7 @@ export class XiuyuanSyncService {
                     const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
                     
                     if (!xiuyuanIdResult.ok) {
-                        console.error(`[SiYuanMemo][HybridSync] Invalid Xiuyuan ID: ${xiuyuanIdStr}`);
+                        logger.error(`Invalid Xiuyuan ID: ${xiuyuanIdStr}`);
                         skippedCount++;
                         continue;
                     }
@@ -297,42 +323,42 @@ export class XiuyuanSyncService {
                     
                     if (!existingXiuyuanResult.ok) {
                         const errorMsg = 'error' in existingXiuyuanResult ? existingXiuyuanResult.error : 'Unknown error';
-                        console.error(`[SiYuanMemo][HybridSync] Failed to query Xiuyuan:`, errorMsg);
+                        logger.error('Failed to query Xiuyuan:', errorMsg);
                         skippedCount++;
                         continue;
                     }
                     
                     const existingXiuyuan = existingXiuyuanResult.value;
                     
-                    console.log(`[SiYuanMemo][HybridSync] Checking card ${riffCard.id}: existingXiuyuan=${!!existingXiuyuan}`);
+                    logger.info(`Checking card ${riffCard.id}: existingXiuyuan=${!!existingXiuyuan}`);
                     
                     if (!existingXiuyuan) {
                         // ✅ 本地没有，通过 Repository 保存（完全符合 DDD）
-                        console.log(`[HybridSync] ✅ Creating new Xiuyuan from Riff:`, {
+                        logger.info('✅ Creating new Xiuyuan from Riff:', {
                             xiuyuanId: xiuyuanIdStr,
                             blockId: riffCard.id,
                             source: 'riff-sync'
                         });
                         const { xiuyuanEntity } = await this.convertRiffCardToFSRSCard(riffCard);
                         
-                        console.log(`[SiYuanMemo][HybridSync] Created Xiuyuan ${xiuyuanEntity.getId().getValue()} with ${xiuyuanEntity.getCards().length} cards`);
+                        logger.info(`Created Xiuyuan ${xiuyuanEntity.getId().getValue()} with ${xiuyuanEntity.getCards().length} cards`);
                         
                         // ✅ 通过 Repository 保存 Xiuyuan（会自动保存关联的 Card）
                         const saveResult = await this.xiuyuanRepository.save(xiuyuanEntity);
                         if (!saveResult.ok) {
                             const errorMsg = saveResult.ok === false ? saveResult.error.message : 'Unknown error';
-                            console.error(`[SiYuanMemo][HybridSync] Failed to save Xiuyuan ${xiuyuanEntity.getId().getValue()}: ${errorMsg}`);
+                            logger.error(`Failed to save Xiuyuan ${xiuyuanEntity.getId().getValue()}: ${errorMsg}`);
                             continue;
                         }
                         
-                        console.log(`[SiYuanMemo][HybridSync] Successfully saved Xiuyuan ${xiuyuanEntity.getId().getValue()}`);
+                        logger.info(`Successfully saved Xiuyuan ${xiuyuanEntity.getId().getValue()}`);
                         
                         addedCards.push(riffCard);
                         addedCount++;
                     } else {
                         // ✅ 本地已存在 Xiuyuan，只同步块 IAL 中的卡片类型元数据
                         // 🔧 不同步任何调度字段（priority、aFactor 等），本地复习数据永远优先
-                        console.log(`[SiYuanMemo][HybridSync] Updating existing Xiuyuan ${xiuyuanIdStr}`);
+                        logger.info(`Updating existing Xiuyuan ${xiuyuanIdStr}`);
 
                         let needsUpdate = false;
 
@@ -358,7 +384,7 @@ export class XiuyuanSyncService {
                             if (currentCardTypeMarker !== newCardTypeMarker) {
                                 const updateResult = existingXiuyuan.updateCardTypeMarker(newCardTypeMarker);
                                 if (updateResult.ok) {
-                                    console.log(`[SiYuanMemo][HybridSync] Updated cardTypeMarker: ${currentCardTypeMarker} -> ${newCardTypeMarker}`);
+                                    logger.info(`Updated cardTypeMarker: ${currentCardTypeMarker} -> ${newCardTypeMarker}`);
                                     needsUpdate = true;
                                 }
                             }
@@ -370,7 +396,7 @@ export class XiuyuanSyncService {
                             if (currentCardType !== newCardType) {
                                 const updateResult = existingXiuyuan.updateCardType(newCardType);
                                 if (updateResult.ok) {
-                                    console.log(`[SiYuanMemo][HybridSync] Updated cardType: ${currentCardType} -> ${newCardType}`);
+                                    logger.info(`Updated cardType: ${currentCardType} -> ${newCardType}`);
                                     needsUpdate = true;
                                 }
                             }
@@ -380,15 +406,15 @@ export class XiuyuanSyncService {
                         if (needsUpdate) {
                             const saveResult = await this.xiuyuanRepository.save(existingXiuyuan);
                             if (saveResult.ok) {
-                                console.log(`[SiYuanMemo][HybridSync] Successfully updated Xiuyuan ${xiuyuanIdStr}`);
+                                logger.info(`Successfully updated Xiuyuan ${xiuyuanIdStr}`);
                                 updatedCount++;
                             } else {
                                 const errorMsg = saveResult.ok === false ? saveResult.error.message : 'Unknown error';
-                                console.error(`[SiYuanMemo][HybridSync] Failed to save updated Xiuyuan: ${errorMsg}`);
+                                logger.error(`Failed to save updated Xiuyuan: ${errorMsg}`);
                                 skippedCount++;
                             }
                         } else {
-                            console.log(`[SiYuanMemo][HybridSync] No changes detected for Xiuyuan ${xiuyuanIdStr}`);
+                            logger.info(`No changes detected for Xiuyuan ${xiuyuanIdStr}`);
                             skippedCount++;
                         }
                     }
@@ -402,7 +428,7 @@ export class XiuyuanSyncService {
                 const allXiuyuansResult = await this.xiuyuanRepository.findAll();
                 if (!allXiuyuansResult.ok) {
                     const errorMsg = 'error' in allXiuyuansResult ? allXiuyuansResult.error : 'Unknown error';
-                    console.error(`[SiYuanMemo][HybridSync] Failed to get all Xiuyuans:`, errorMsg);
+                    logger.error('Failed to get all Xiuyuans:', errorMsg);
                 } else {
                     const allXiuyuans = allXiuyuansResult.value;
                     
@@ -436,7 +462,7 @@ export class XiuyuanSyncService {
                     });
                     
                     if (xiuyuansToDelete.length > 0) {
-                        console.log(`[SiYuanMemo][HybridSync] Deleting ${xiuyuansToDelete.length} Xiuyuans that no longer exist in Riff`);
+                        logger.info(`Deleting ${xiuyuansToDelete.length} Xiuyuans that no longer exist in Riff`);
                         
                         // ✅ 使用 Repository 删除（符合 DDD 架构）
                         for (const xiuyuan of xiuyuansToDelete) {
@@ -445,11 +471,11 @@ export class XiuyuanSyncService {
                                 deletedCount++;
                             } else {
                                 const errorMsg = 'error' in deleteResult ? deleteResult.error : 'Unknown error';
-                                console.error(`[SiYuanMemo][HybridSync] Failed to delete Xiuyuan ${xiuyuan.getId().getValue()}:`, errorMsg);
+                                logger.error(`Failed to delete Xiuyuan ${xiuyuan.getId().getValue()}:`, errorMsg);
                             }
                         }
                         
-                        console.log(`[SiYuanMemo][HybridSync] Deleted ${deletedCount} Xiuyuans via Repository`);
+                        logger.info(`Deleted ${deletedCount} Xiuyuans via Repository`);
                     }
                 }
                 
@@ -474,21 +500,15 @@ export class XiuyuanSyncService {
                     skippedCount,
                     detectedCount
                 };
-                
-                // 发布同步成功事件
-                this.publishEvent('syncSuccess', {
-                    type: 'incremental',
+
+                return this.completeSync(
+                    'incremental',
+                    startTime,
                     result,
-                    timestamp: Date.now(),
-                    duration: Date.now() - startTime
-                });
-                
-                console.log(`[SiYuanMemo][HybridSync] Incremental sync completed: added ${addedCount}, updated ${updatedCount}, deleted ${deletedCount}, skipped ${skippedCount}, detected ${detectedCount || 0}`);
-                
-                return result;
+                    `Incremental sync completed: added ${addedCount}, updated ${updatedCount}, deleted ${deletedCount}, skipped ${skippedCount}, detected ${detectedCount || 0}`
+                );
             } catch (error) {
-                console.error('[SiYuanMemo][HybridSync] Incremental sync failed:', error);
-                throw error; // 让 withRetry 处理重试
+                return this.failSync('incremental', error);
             }
         });
     }
@@ -503,14 +523,7 @@ export class XiuyuanSyncService {
      */
     async fullSync(onProgress?: ProgressCallback): Promise<SyncResult> {
         return this.withRetry('full', async () => {
-            console.log('[SiYuanMemo][HybridSync] Starting full sync...');
-            const startTime = Date.now();
-            
-            // 发布同步开始事件
-            this.publishEvent('syncStart', {
-                type: 'full',
-                timestamp: startTime
-            });
+            const startTime = this.beginSync('full');
             
             try {
                 // 1. 获取所有卡片（使用 blockId 而不是 cardId）
@@ -526,12 +539,12 @@ export class XiuyuanSyncService {
                 const allXiuyuansResult = await this.xiuyuanRepository.findAll();
                 if (!allXiuyuansResult.ok) {
                     const errorMsg = 'error' in allXiuyuansResult ? allXiuyuansResult.error : 'Unknown error';
-                    console.error(`[SiYuanMemo][HybridSync] Failed to get all Xiuyuans:`, errorMsg);
+                    logger.error('Failed to get all Xiuyuans:', errorMsg);
                     throw new Error(`Failed to get all Xiuyuans: ${errorMsg}`);
                 }
                 
                 const allXiuyuans = allXiuyuansResult.value;
-                console.log(`[SiYuanMemo][HybridSync] Riff: ${riffBlockIds.size} blocks, Local: ${allXiuyuans.length} Xiuyuans`);
+                logger.info(`Riff: ${riffBlockIds.size} blocks, Local: ${allXiuyuans.length} Xiuyuans`);
                 
                 // 2. 🔧 只添加新卡片（本地没有的），不更新已有卡片的复习数据
                 this.reportProgress(onProgress, 'full', 'adding', 2, 7, '正在添加新卡片...');
@@ -544,7 +557,7 @@ export class XiuyuanSyncService {
                     const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
                     
                     if (!xiuyuanIdResult.ok) {
-                        console.error(`[SiYuanMemo][HybridSync] Invalid Xiuyuan ID: ${xiuyuanIdStr}`);
+                        logger.error(`Invalid Xiuyuan ID: ${xiuyuanIdStr}`);
                         continue;
                     }
                     
@@ -552,7 +565,7 @@ export class XiuyuanSyncService {
                     
                     if (!existingXiuyuanResult.ok) {
                         const errorMsg = 'error' in existingXiuyuanResult ? existingXiuyuanResult.error : 'Unknown error';
-                        console.error(`[SiYuanMemo][HybridSync] Failed to query Xiuyuan:`, errorMsg);
+                        logger.error('Failed to query Xiuyuan:', errorMsg);
                         continue;
                     }
                     
@@ -560,7 +573,7 @@ export class XiuyuanSyncService {
                     
                     if (existingXiuyuan) {
                         // ✅ 已存在，跳过（不覆盖本地复习数据）
-                        console.log(`[SiYuanMemo][HybridSync] Xiuyuan exists locally, skipping: ${riffCard.id}`);
+                        logger.info(`Xiuyuan exists locally, skipping: ${riffCard.id}`);
                         skippedCount++;
                     } else {
                         // ✅ 不存在，通过 Repository 保存（完全符合 DDD）
@@ -572,12 +585,12 @@ export class XiuyuanSyncService {
                             addedCount++;
                         } else {
                             const errorMsg = saveResult.ok === false ? saveResult.error.message : 'Unknown error';
-                            console.error(`[SiYuanMemo][HybridSync] Failed to save Xiuyuan ${xiuyuanEntity.getId().getValue()}: ${errorMsg}`);
+                            logger.error(`Failed to save Xiuyuan ${xiuyuanEntity.getId().getValue()}: ${errorMsg}`);
                         }
                     }
                 }
                 
-                console.log(`[SiYuanMemo][HybridSync] Added ${addedCount} new Xiuyuans, skipped ${skippedCount} existing Xiuyuans`);
+                logger.info(`Added ${addedCount} new Xiuyuans, skipped ${skippedCount} existing Xiuyuans`);
                 
                 // 3. 删除：本地有但 Riff 没有（通过 blockId 判断）
                 this.reportProgress(onProgress, 'full', 'deleting', 3, 7, '正在删除过期卡片...');
@@ -610,7 +623,7 @@ export class XiuyuanSyncService {
                 
                 let deletedCount = 0;
                 if (xiuyuansToDelete.length > 0) {
-                    console.log(`[SiYuanMemo][HybridSync] Deleting ${xiuyuansToDelete.length} Xiuyuans that no longer exist in Riff`);
+                    logger.info(`Deleting ${xiuyuansToDelete.length} Xiuyuans that no longer exist in Riff`);
                     
                     for (const xiuyuan of xiuyuansToDelete) {
                         const deleteResult = await this.xiuyuanRepository.delete(xiuyuan);
@@ -618,19 +631,19 @@ export class XiuyuanSyncService {
                             deletedCount++;
                         } else {
                             const errorMsg = 'error' in deleteResult ? deleteResult.error : 'Unknown error';
-                            console.error(`[SiYuanMemo][HybridSync] Failed to delete Xiuyuan ${xiuyuan.getId().getValue()}:`, errorMsg);
+                            logger.error(`Failed to delete Xiuyuan ${xiuyuan.getId().getValue()}:`, errorMsg);
                         }
                     }
                 }
                 
-                console.log(`[SiYuanMemo][HybridSync] Deleted ${deletedCount} Xiuyuans not in Riff`);
+                logger.info(`Deleted ${deletedCount} Xiuyuans not in Riff`);
                 
                 // 4. 清理黑名单：黑名单中 Riff 已不存在的 blockId
                 let blacklistCleanedCount = 0;
                 if (this.config.fullSync.cleanupBlacklist) {
                     this.reportProgress(onProgress, 'full', 'cleanup', 4, 7, '正在清理黑名单...');
                     blacklistCleanedCount = await this.riffBlacklistService.cleanupBlacklist(riffBlockIds);
-                    console.log(`[SiYuanMemo][HybridSync] Cleaned ${blacklistCleanedCount} IDs from blacklist`);
+                    logger.info(`Cleaned ${blacklistCleanedCount} IDs from blacklist`);
                 }
                 
                 // 5. 保存
@@ -671,21 +684,15 @@ export class XiuyuanSyncService {
                     blacklistCleanedCount,
                     detectedCount
                 };
-                
-                // 发布同步成功事件
-                this.publishEvent('syncSuccess', {
-                    type: 'full',
+
+                return this.completeSync(
+                    'full',
+                    startTime,
                     result,
-                    timestamp: Date.now(),
-                    duration: Date.now() - startTime
-                });
-                
-                console.log('[SiYuanMemo][HybridSync] Full sync completed');
-                
-                return result;
+                    `Full sync completed: added ${addedCount}, deleted ${deletedCount}, skipped ${skippedCount}, blacklistCleaned ${blacklistCleanedCount}, detected ${detectedCount || 0}`
+                );
             } catch (error) {
-                console.error('[SiYuanMemo][HybridSync] Full sync failed:', error);
-                throw error; // 让 withRetry 处理重试
+                return this.failSync('full', error);
             }
         });
     }
@@ -705,7 +712,7 @@ export class XiuyuanSyncService {
      * @param riffCard Riff 卡片数据
      */
     private async syncRiffCardToLocal(riffCard: RiffBlock): Promise<void> {
-        console.warn('[SiYuanMemo][HybridSync] syncRiffCardToLocal is deprecated and should not be called');
+        logger.warn('syncRiffCardToLocal is deprecated and should not be called');
         // 此方法已废弃，所有同步逻辑已迁移到 incrementalSync 和 fullSync
     }
     
@@ -727,7 +734,7 @@ export class XiuyuanSyncService {
         templateID: string,
         riffCard: RiffBlock
     ): Promise<void> {
-        console.warn('[SiYuanMemo][HybridSync] rebuildXiuyuanFromBlock not yet implemented');
+        logger.warn('rebuildXiuyuanFromBlock not yet implemented');
         // TODO: 实现以下步骤
         // 1. 获取块的子块（重建 blockIDs）
         // const blockIDs = await this.getXiuyuanBlockIDs(blockId, templateID);
@@ -759,7 +766,7 @@ export class XiuyuanSyncService {
      * @returns 块 ID 数组
      */
     private async getXiuyuanBlockIDs(blockId: string, templateID: string): Promise<string[]> {
-        console.warn('[SiYuanMemo][HybridSync] getXiuyuanBlockIDs not yet implemented');
+        logger.warn('getXiuyuanBlockIDs not yet implemented');
         // TODO: 根据模版类型获取相关块
         // 例如：列表模版需要获取父块和子块
         return [blockId];
@@ -778,7 +785,7 @@ export class XiuyuanSyncService {
         blockIDs: string[],
         templateID: string
     ): Promise<Record<string, string>> {
-        console.warn('[SiYuanMemo][HybridSync] rebuildFieldMapping not yet implemented');
+        logger.warn('rebuildFieldMapping not yet implemented');
         // TODO: 根据模版类型和块 ID 重建字段映射
         return {};
     }
@@ -792,7 +799,7 @@ export class XiuyuanSyncService {
      * @param riffCard Riff 卡片数据
      */
     private async updateXiuyuanReviewData(xiuyuanID: string, riffCard: RiffBlock): Promise<void> {
-        console.warn('[SiYuanMemo][HybridSync] updateXiuyuanReviewData not yet implemented');
+        logger.warn('updateXiuyuanReviewData not yet implemented');
         // TODO: 更新所有关联卡片的复习数据
         // const xiuyuanCards = this.storage.getAllCards().filter(
         //     card => card.meta?.xiuyuanID === xiuyuanID
@@ -820,11 +827,11 @@ export class XiuyuanSyncService {
          */
         async deleteSync(cardID: string): Promise<boolean> {
             if (!this.config.deleteSync.enabled) {
-                console.log('[SiYuanMemo][HybridSync] Delete sync disabled');
+                logger.info('Delete sync disabled');
                 return true;
             }
 
-            console.log(`[SiYuanMemo][HybridSync] Syncing delete for card: ${cardID}`);
+            logger.info(`Syncing delete for card: ${cardID}`);
 
             return this.deleteSyncSingle(cardID);
         }
@@ -840,7 +847,7 @@ export class XiuyuanSyncService {
      */
     async deleteSyncBatch(cardIDs: string[]): Promise<number> {
         if (!this.config.deleteSync.enabled) {
-            console.log('[SiYuanMemo][HybridSync] Delete sync disabled');
+            logger.info('Delete sync disabled');
             return 0;
         }
 
@@ -848,7 +855,7 @@ export class XiuyuanSyncService {
             return 0;
         }
 
-        console.log(`[SiYuanMemo][HybridSync] Batch syncing delete for ${cardIDs.length} cards`);
+        logger.info(`Batch syncing delete for ${cardIDs.length} cards`);
 
         // 使用 Promise.allSettled 并发处理，避免单个失败影响整体
         const results = await Promise.allSettled(
@@ -869,10 +876,10 @@ export class XiuyuanSyncService {
             }
         });
 
-        console.log(`[SiYuanMemo][HybridSync] Batch delete sync completed: ${successCount} success, ${failedCount} failed`);
+        logger.info(`Batch delete sync completed: ${successCount} success, ${failedCount} failed`);
 
         if (failedCardIds.length > 0) {
-            console.warn(`[SiYuanMemo][HybridSync] Failed card IDs:`, failedCardIds);
+            logger.warn('Failed card IDs:', failedCardIds);
         }
 
         return successCount;
@@ -894,15 +901,15 @@ export class XiuyuanSyncService {
                 await removeRiffCards(this.config.deckId, [cardID]);
             });
 
-            console.log(`[SiYuanMemo][HybridSync] Successfully removed card from Riff: ${cardID}`);
+            logger.info(`Successfully removed card from Riff: ${cardID}`);
             return true;
         } catch (error) {
-            console.error(`[SiYuanMemo][HybridSync] Failed to remove card from Riff after retries: ${cardID}`, error);
+            logger.error(`Failed to remove card from Riff after retries: ${cardID}`, error);
 
             // 失败时加入黑名单（如果启用）
             if (this.config.deleteSync.useBlacklistFallback) {
                 await this.riffBlacklistService.addToBlacklist(cardID);
-                console.log(`[SiYuanMemo][HybridSync] Added card to blacklist as fallback: ${cardID}`);
+                logger.info(`Added card to blacklist as fallback: ${cardID}`);
             }
 
             return false;
@@ -941,7 +948,7 @@ export class XiuyuanSyncService {
             return 0;
         }
         
-        console.log(`[SiYuanMemo][HybridSync] Auto-detecting card types for ${cards.length} new cards...`);
+        logger.info(`Auto-detecting card types for ${cards.length} new cards...`);
         
         try {
             // 0. 过滤掉已经有 cardTypeMarker 的卡片（用户手动标记的）
@@ -956,7 +963,7 @@ export class XiuyuanSyncService {
                     if (cardTypeMarker === 'concept' || cardTypeMarker === 'descriptor') {
                         // 跳过已有用户标记的卡片
                         skippedWithMarker++;
-                        console.log(`[SiYuanMemo][HybridSync] Skipping card with cardTypeMarker: ${card.id} (${cardTypeMarker})`);
+                        logger.info(`Skipping card with cardTypeMarker: ${card.id} (${cardTypeMarker})`);
                         continue;
                     }
                     
@@ -968,11 +975,11 @@ export class XiuyuanSyncService {
             }
             
             if (skippedWithMarker > 0) {
-                console.log(`[SiYuanMemo][HybridSync] Skipped ${skippedWithMarker} cards with user-defined cardTypeMarker`);
+                logger.info(`Skipped ${skippedWithMarker} cards with user-defined cardTypeMarker`);
             }
             
             if (cardsToDetect.length === 0) {
-                console.log(`[SiYuanMemo][HybridSync] No cards to detect (all have cardTypeMarker)`);
+                logger.info('No cards to detect (all have cardTypeMarker)');
                 return 0;
             }
             
@@ -1006,16 +1013,16 @@ export class XiuyuanSyncService {
                         await setBlockAttrs(card.id, attrs);
                         updated++;
                     } catch (err) {
-                        console.error(`[SiYuanMemo][HybridSync] Failed to update card type for ${card.id}:`, err);
+                        logger.error(`Failed to update card type for ${card.id}:`, err);
                         failed++;
                     }
                 }));
             }
             
-            console.log(`[SiYuanMemo][HybridSync] Auto-detection completed: ${updated} updated, ${failed} failed, ${skippedWithMarker} skipped (total: ${cards.length})`);
+            logger.info(`Auto-detection completed: ${updated} updated, ${failed} failed, ${skippedWithMarker} skipped (total: ${cards.length})`);
             return updated;
         } catch (error) {
-            console.error('[SiYuanMemo][HybridSync] Auto-detection failed:', error);
+            logger.error('Auto-detection failed:', error);
             return 0;
         }
     }
@@ -1116,7 +1123,7 @@ export class XiuyuanSyncService {
             // 🔍 调试：记录无效日期（仅在开发模式）
             if (!isValid && dateStr && dateStr !== "0001-01-01T00:00:00Z") {
                 // 只警告非零值的无效日期，"0001-01-01" 是新卡片的正常零值
-                console.warn(`[HybridSyncService] Invalid date detected: "${dateStr}" (timestamp: ${timestamp}) for card ${riffBlock.id}`);
+                logger.warn(`Invalid date detected: "${dateStr}" (timestamp: ${timestamp}) for card ${riffBlock.id}`);
             }
             
             return isValid ? timestamp : 0;
@@ -1311,7 +1318,7 @@ export class XiuyuanSyncService {
                 
                 // 指数退避
                 const delay = retryDelay * Math.pow(backoffMultiplier, attempt);
-                console.log(`[SiYuanMemo][HybridSync] Retry ${attempt + 1}/${maxRetries} after ${delay}ms...`);
+                logger.info(`Retry ${attempt + 1}/${maxRetries} after ${delay}ms...`);
                 await this.sleep(delay);
             }
         }

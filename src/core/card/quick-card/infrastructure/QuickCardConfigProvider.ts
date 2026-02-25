@@ -1,5 +1,8 @@
 import type { QuickCardSettings } from '@/types/settings';
 import type { HiddenContentType } from '../domain/types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('QuickCardConfigProvider');
 
 /**
  * 快速卡片配置提供者接口
@@ -56,13 +59,13 @@ export class PluginQuickCardConfigProvider implements IQuickCardConfigProvider {
       const quickCardConfig = settings?.quickCard;
 
       if (!quickCardConfig) {
-        console.warn('[QuickCardConfigProvider] No quickCard config found, using defaults');
+        logger.warn('[QuickCardConfigProvider] No quickCard config found, using defaults');
         return new DefaultQuickCardConfigProvider().getConfig();
       }
 
       return quickCardConfig;
     } catch (error) {
-      console.error('[QuickCardConfigProvider] Failed to get config:', error);
+      logger.error('[QuickCardConfigProvider] Failed to get config:', error);
       return new DefaultQuickCardConfigProvider().getConfig();
     }
   }

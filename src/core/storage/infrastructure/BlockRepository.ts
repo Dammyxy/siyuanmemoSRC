@@ -13,6 +13,9 @@
  */
 
 import { sql } from '@/core/siyuan/api';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('BlockRepository');
 
 /**
  * BlockRepository 类
@@ -48,7 +51,7 @@ export class BlockRepository {
           rootIdMap.set(row.id, row.root_id || '');
         }
       } catch (error) {
-        console.error('[BlockRepository] Failed to query rootIds:', error);
+        logger.error('Failed to query rootIds', error);
         // 为失败的批次设置空字符串
         for (const blockId of batchIds) {
           if (!rootIdMap.has(blockId)) {

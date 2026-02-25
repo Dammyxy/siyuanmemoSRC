@@ -8,6 +8,9 @@
  */
 
 import type { SiyuanBlockAdapter } from './SiyuanBlockAdapter';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('DescriptorCardRepository');
 
 /**
  * 父概念块数据
@@ -56,7 +59,7 @@ export class DescriptorCardRepository {
       // 1. 获取描述符块的 kramdown
       const descriptorKramdown = await this.siyuanAdapter.getBlockKramdown(blockId);
       if (!descriptorKramdown) {
-        console.warn('[SiYuanMemo][DescriptorCardRepository] Failed to get descriptor kramdown:', blockId);
+        logger.warn('[SiYuanMemo][DescriptorCardRepository] Failed to get descriptor kramdown:', blockId);
         return null;
       }
 
@@ -66,7 +69,7 @@ export class DescriptorCardRepository {
       // 3. 获取描述符块内容
       const descriptorBlock = await this.siyuanAdapter.getBlock(blockId);
       if (!descriptorBlock) {
-        console.warn('[SiYuanMemo][DescriptorCardRepository] Failed to get descriptor block:', blockId);
+        logger.warn('[SiYuanMemo][DescriptorCardRepository] Failed to get descriptor block:', blockId);
         return null;
       }
 
@@ -76,15 +79,15 @@ export class DescriptorCardRepository {
       
       if (fsrsCard?.meta?.frontBlockIDs?.[0]) {
         const conceptBlockId = fsrsCard.meta.frontBlockIDs[0];
-        console.log('[SiYuanMemo][DescriptorCardRepository] Using concept from frontBlockIDs:', conceptBlockId);
-        console.log('[SiYuanMemo][DescriptorCardRepository] Descriptor blockId:', blockId);
-        console.log('[SiYuanMemo][DescriptorCardRepository] Are they same?', conceptBlockId === blockId);
+        logger.debug('[SiYuanMemo][DescriptorCardRepository] Using concept from frontBlockIDs:', conceptBlockId);
+        logger.debug('[SiYuanMemo][DescriptorCardRepository] Descriptor blockId:', blockId);
+        logger.debug('[SiYuanMemo][DescriptorCardRepository] Are they same?', conceptBlockId === blockId);
         parentConcept = await this.getConceptBlock(conceptBlockId);
         if (parentConcept) {
-          console.log('[SiYuanMemo][DescriptorCardRepository] Parent concept content:', parentConcept.content);
+          logger.debug('[SiYuanMemo][DescriptorCardRepository] Parent concept content:', parentConcept.content);
         }
       } else {
-        console.log('[SiYuanMemo][DescriptorCardRepository] No frontBlockIDs, searching parent chain');
+        logger.debug('[SiYuanMemo][DescriptorCardRepository] No frontBlockIDs, searching parent chain');
         parentConcept = await this.getParentConcept(blockId);
       }
 
@@ -101,7 +104,7 @@ export class DescriptorCardRepository {
         siblingDescriptors,
       };
     } catch (error) {
-      console.error('[SiYuanMemo][DescriptorCardRepository] Failed to load descriptor card:', error);
+      logger.error('[SiYuanMemo][DescriptorCardRepository] Failed to load descriptor card:', error);
       return null;
     }
   }
@@ -114,13 +117,13 @@ export class DescriptorCardRepository {
       // 获取概念块内容和 kramdown
       const conceptBlock = await this.siyuanAdapter.getBlock(conceptBlockId);
       if (!conceptBlock) {
-        console.warn('[SiYuanMemo][DescriptorCardRepository] Failed to get concept block:', conceptBlockId);
+        logger.warn('[SiYuanMemo][DescriptorCardRepository] Failed to get concept block:', conceptBlockId);
         return null;
       }
 
       const conceptKramdown = await this.siyuanAdapter.getBlockKramdown(conceptBlockId);
       if (!conceptKramdown) {
-        console.warn('[SiYuanMemo][DescriptorCardRepository] Failed to get concept kramdown:', conceptBlockId);
+        logger.warn('[SiYuanMemo][DescriptorCardRepository] Failed to get concept kramdown:', conceptBlockId);
         return null;
       }
 
@@ -134,7 +137,7 @@ export class DescriptorCardRepository {
         isConceptCard: true,
       };
     } catch (error) {
-      console.error('[SiYuanMemo][DescriptorCardRepository] Failed to get concept block:', error);
+      logger.error('[SiYuanMemo][DescriptorCardRepository] Failed to get concept block:', error);
       return null;
     }
   }
@@ -153,11 +156,11 @@ export class DescriptorCardRepository {
         // 获取父块 ID
         const parentId = await this.siyuanAdapter.getParentBlockId(currentId);
         if (!parentId) {
-          console.warn(`[SiYuanMemo][DescriptorCardRepository] No parent at depth ${depth}`);
+          logger.warn(`[SiYuanMemo][DescriptorCardRepository] No parent at depth ${depth}`);
           break;
         }
 
-        console.log(`[SiYuanMemo][DescriptorCardRepository] Checking parent at depth ${depth}:`, parentId);
+        logger.debug(`[SiYuanMemo][DescriptorCardRepository] Checking parent at depth ${depth}:`, parentId);
 
         // 检查父块是否是概念卡
         const cardTypeMarker = await this.siyuanAdapter.getBlockAttribute(
@@ -167,7 +170,7 @@ export class DescriptorCardRepository {
         
         if (cardTypeMarker === 'concept') {
           foundConceptId = parentId;
-          console.log(`[SiYuanMemo][DescriptorCardRepository] Found concept card at depth ${depth}:`, parentId);
+          logger.debug(`[SiYuanMemo][DescriptorCardRepository] Found concept card at depth ${depth}:`, parentId);
           break;
         }
 
@@ -177,7 +180,7 @@ export class DescriptorCardRepository {
           const refConceptId = await this.findConceptCardInBlockRef(parentBlock.content);
           if (refConceptId) {
             foundConceptId = refConceptId;
-            console.log(`[SiYuanMemo][DescriptorCardRepository] Found concept card reference at depth ${depth}:`, refConceptId);
+            logger.debug(`[SiYuanMemo][DescriptorCardRepository] Found concept card reference at depth ${depth}:`, refConceptId);
             break;
           }
         }
@@ -186,20 +189,20 @@ export class DescriptorCardRepository {
       }
 
       if (!foundConceptId) {
-        console.warn('[SiYuanMemo][DescriptorCardRepository] No concept card found in ancestor chain');
+        logger.warn('[SiYuanMemo][DescriptorCardRepository] No concept card found in ancestor chain');
         return null;
       }
 
       // 获取概念块内容和 kramdown
       const conceptBlock = await this.siyuanAdapter.getBlock(foundConceptId);
       if (!conceptBlock) {
-        console.warn('[SiYuanMemo][DescriptorCardRepository] Failed to get concept block:', foundConceptId);
+        logger.warn('[SiYuanMemo][DescriptorCardRepository] Failed to get concept block:', foundConceptId);
         return null;
       }
 
       const conceptKramdown = await this.siyuanAdapter.getBlockKramdown(foundConceptId);
       if (!conceptKramdown) {
-        console.warn('[SiYuanMemo][DescriptorCardRepository] Failed to get concept kramdown:', foundConceptId);
+        logger.warn('[SiYuanMemo][DescriptorCardRepository] Failed to get concept kramdown:', foundConceptId);
         return null;
       }
 
@@ -213,7 +216,7 @@ export class DescriptorCardRepository {
         isConceptCard: true,
       };
     } catch (error) {
-      console.error('[SiYuanMemo][DescriptorCardRepository] Failed to get parent concept:', error);
+      logger.error('[SiYuanMemo][DescriptorCardRepository] Failed to get parent concept:', error);
       return null;
     }
   }
@@ -237,7 +240,7 @@ export class DescriptorCardRepository {
         attribute: this.extractAttribute(block.content),
       }));
     } catch (error) {
-      console.error('[SiYuanMemo][DescriptorCardRepository] Failed to get sibling descriptors:', error);
+      logger.error('[SiYuanMemo][DescriptorCardRepository] Failed to get sibling descriptors:', error);
       return [];
     }
   }
@@ -276,7 +279,7 @@ export class DescriptorCardRepository {
 
       return null;
     } catch (error) {
-      console.error('[SiYuanMemo][DescriptorCardRepository] Error finding concept card in block ref:', error);
+      logger.error('[SiYuanMemo][DescriptorCardRepository] Error finding concept card in block ref:', error);
       return null;
     }
   }

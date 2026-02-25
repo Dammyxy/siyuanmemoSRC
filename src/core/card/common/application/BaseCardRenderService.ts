@@ -12,6 +12,9 @@
 import { getBlockBreadcrumb, getBlockAttrs } from '@/core/siyuan/api';
 import { extractConceptName, hasConceptDefinitionSyntax } from '@/core/xiuyuan/cardMeta';
 import type { BreadcrumbItem } from './types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('BaseCardRenderService');
 
 export abstract class BaseCardRenderService {
   /**
@@ -82,7 +85,7 @@ export abstract class BaseCardRenderService {
       // 去重：使用 Map 按标准化后的 name 去重
       return this.deduplicateBreadcrumbs(processedBreadcrumbs);
     } catch (error) {
-      console.error('[BaseCardRenderService] Failed to load breadcrumbs:', error);
+      logger.error('[BaseCardRenderService] Failed to load breadcrumbs:', error);
       return [];
     }
   }
@@ -111,12 +114,12 @@ export abstract class BaseCardRenderService {
         return [];
       }
       
-      console.log('[BaseCardRenderService] loadConceptContext - breadcrumbResult:', breadcrumbResult);
+      logger.debug('[BaseCardRenderService] loadConceptContext - breadcrumbResult:', breadcrumbResult);
       
       // 排除最后 N 项
       const parentBreadcrumbs = breadcrumbResult.slice(0, -excludeLast);
       
-      console.log('[BaseCardRenderService] loadConceptContext - parentBreadcrumbs:', parentBreadcrumbs);
+      logger.debug('[BaseCardRenderService] loadConceptContext - parentBreadcrumbs:', parentBreadcrumbs);
       
       // 🆕 处理所有块，标记是否为概念块
       const contextItems: Array<BreadcrumbItem & { isConcept: boolean }> = [];
@@ -126,17 +129,17 @@ export abstract class BaseCardRenderService {
         let itemName = item.name || '';
         const itemType = item.type || 'NodeParagraph';
         
-        console.log('[BaseCardRenderService] loadConceptContext - checking item:', { itemId, itemName, itemType });
+        logger.debug('[BaseCardRenderService] loadConceptContext - checking item:', { itemId, itemName, itemType });
         
         // 检查是否是概念块
         const isConcept = await this.isConceptBlock(itemId, itemName);
         
-        console.log('[BaseCardRenderService] loadConceptContext - isConcept:', isConcept);
+        logger.debug('[BaseCardRenderService] loadConceptContext - isConcept:', isConcept);
         
         if (isConcept) {
           // 提取概念名称（隐藏定义）
           itemName = extractConceptName(itemName);
-          console.log('[BaseCardRenderService] loadConceptContext - extracted name:', itemName);
+          logger.debug('[BaseCardRenderService] loadConceptContext - extracted name:', itemName);
         }
         
         contextItems.push({
@@ -147,11 +150,11 @@ export abstract class BaseCardRenderService {
         });
       }
       
-      console.log('[BaseCardRenderService] loadConceptContext - final contextItems:', contextItems);
+      logger.debug('[BaseCardRenderService] loadConceptContext - final contextItems:', contextItems);
       
       return contextItems;
     } catch (error) {
-      console.error('[BaseCardRenderService] Failed to load concept context:', error);
+      logger.error('[BaseCardRenderService] Failed to load concept context:', error);
       return [];
     }
   }
@@ -188,14 +191,14 @@ export abstract class BaseCardRenderService {
       
       // 🆕 优先排除文档块
       if (blockType === 'd') {
-        console.log('[BaseCardRenderService] isConceptBlock - document block, excluded');
+        logger.debug('[BaseCardRenderService] isConceptBlock - document block, excluded');
         return false;
       }
       
       // 方法 2：检查块属性
       const attrs = await getBlockAttrs(blockId);
       
-      console.log('[BaseCardRenderService] isConceptBlock - attrs:', { blockId, attrs, blockType });
+      logger.debug('[BaseCardRenderService] isConceptBlock - attrs:', { blockId, attrs, blockType });
       
       if (attrs?.['custom-fsrs-card-type'] === 'concept') {
         return true;
@@ -212,7 +215,7 @@ export abstract class BaseCardRenderService {
         if (paragraphResult && paragraphResult.length > 0) {
           const paragraphContent = paragraphResult[0].content || '';
           const paragraphMarkdown = paragraphResult[0].markdown || '';
-          console.log('[BaseCardRenderService] isConceptBlock - list item paragraph:', { 
+          logger.debug('[BaseCardRenderService] isConceptBlock - list item paragraph:', { 
             blockId, 
             paragraphContent, 
             paragraphMarkdown 
@@ -224,7 +227,7 @@ export abstract class BaseCardRenderService {
       // 方法 4：其他类型块，直接检查 content 和 markdown
       const blockContent = blockResult[0].content || '';
       const blockMarkdown = blockResult[0].markdown || '';
-      console.log('[BaseCardRenderService] isConceptBlock - block data:', { 
+      logger.debug('[BaseCardRenderService] isConceptBlock - block data:', { 
         blockId, 
         blockContent, 
         blockMarkdown, 
@@ -232,7 +235,7 @@ export abstract class BaseCardRenderService {
       });
       return this.hasConceptSyntax(blockContent) || this.hasBlockReference(blockMarkdown);
     } catch (error) {
-      console.error('[BaseCardRenderService] isConceptBlock error:', error);
+      logger.error('[BaseCardRenderService] isConceptBlock error:', error);
       // 如果查询失败，fallback 到内容检查
       return this.hasConceptSyntax(content);
     }

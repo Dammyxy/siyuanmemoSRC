@@ -19,6 +19,9 @@
 
 import type { FSRSCard } from '@/types/card';
 import { CardState } from './CardScheduleService';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('CardFilterService');
 
 // 为了向后兼容,创建 Card 类型别名
 type Card = FSRSCard;
@@ -56,7 +59,7 @@ export class CardFilterService {
       typeDistribution.set(type, (typeDistribution.get(type) || 0) + 1);
     });
     
-    console.log('[CardFilterService] 🔍 filterByCardTypes called:', {
+    logger.debug('filterByCardTypes called', {
       inputCount: cards.length,
       requestedTypes: cardTypes,
       typeDistribution: Object.fromEntries(typeDistribution),
@@ -81,7 +84,7 @@ export class CardFilterService {
       return typeSet.has(metaCardType);
     });
     
-    console.log('[CardFilterService] 🔍 filterByCardTypes result:', {
+    logger.debug('filterByCardTypes result', {
       outputCount: filtered.length,
       matchedTypes: [...new Set(filtered.map(c => c.type || (c.meta as any)?.cardType))],
     });
@@ -494,7 +497,7 @@ export class CardFilterService {
         return cards;
       }
 
-      console.log('[CardFilterService] 🔍 filterByDocId called:', {
+      logger.debug('filterByDocId called', {
         inputCount: cards.length,
         docId,
         sampleCards: cards.slice(0, 3).map(c => ({
@@ -508,7 +511,7 @@ export class CardFilterService {
         return cardRootId === docId;
       });
 
-      console.log('[CardFilterService] 🔍 filterByDocId result:', {
+      logger.debug('filterByDocId result', {
         outputCount: filtered.length,
         matchedRootIds: [...new Set(filtered.map(c => (c.meta as any)?.rootId))],
       });

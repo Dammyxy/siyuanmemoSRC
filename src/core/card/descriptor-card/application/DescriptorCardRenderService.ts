@@ -12,6 +12,9 @@ import type { BaseCardViewModel } from '@/core/card/common/application/types';
 import { DescriptorCard } from '../domain/DescriptorCard';
 import type { DescriptorCardRepository } from '../infrastructure/DescriptorCardRepository';
 import type { ParentConceptBlock, SiblingDescriptor } from '../infrastructure/DescriptorCardRepository';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('DescriptorCardRenderService');
 
 /**
  * 描述符卡视图模型
@@ -66,7 +69,7 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       // 1. 从仓储加载数据
       const data = await this.repository.loadDescriptorCard(blockId, fsrsCard);
       if (!data) {
-        console.warn('[SiYuanMemo][DescriptorCardRenderService] Failed to load descriptor card:', blockId);
+        logger.warn('[SiYuanMemo][DescriptorCardRenderService] Failed to load descriptor card:', blockId);
         return null;
       }
 
@@ -83,7 +86,7 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       const typeMarker = fsrsCard?.meta?.typeMarker || '';
       const isReverse = typeMarker.includes('reverse');
       
-      console.log('[DescriptorCardRenderService] Card direction:', { 
+      logger.debug('[DescriptorCardRenderService] Card direction:', { 
         typeMarker, 
         isReverse,
         fsrsCardMeta: fsrsCard?.meta 
@@ -107,7 +110,7 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
 
       return viewModel;
     } catch (error) {
-      console.error('[SiYuanMemo][DescriptorCardRenderService] Error preparing view model:', error);
+      logger.error('[SiYuanMemo][DescriptorCardRenderService] Error preparing view model:', error);
       return null;
     }
   }
@@ -141,7 +144,7 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
     
     if (!attributeName || !attributeValue) {
       // 如果解析失败，返回空内容
-      console.warn('[DescriptorCardRenderService] Failed to parse descriptor content:', { 
+      logger.warn('[DescriptorCardRenderService] Failed to parse descriptor content:', { 
         attribute: attributeName, 
         description: attributeValue 
       });
@@ -159,7 +162,7 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
     // 构建祖先上下文 HTML（不包含父概念）
     const ancestorHtml = this.buildAncestorContextHtml(ancestorContext);
 
-    console.log('[DescriptorCardRenderService] Rendering card:', { isReverse, attributeName, attributeValue, parentConceptName });
+    logger.debug('[DescriptorCardRenderService] Rendering card:', { isReverse, attributeName, attributeValue, parentConceptName });
 
     if (isReverse) {
       // 反向卡：描述符 -> 概念
@@ -297,13 +300,13 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
    */
   async isDescriptorCard(blockId: string): Promise<boolean> {
     try {
-      console.log('[SiYuanMemo][DescriptorCardRenderService] Checking if descriptor card:', blockId);
+      logger.debug('[SiYuanMemo][DescriptorCardRenderService] Checking if descriptor card:', blockId);
       // 检查块属性中的 custom-fsrs-card-type
       const cardTypeMarker = await this.repository.getCardTypeMarker(blockId);
-      console.log('[SiYuanMemo][DescriptorCardRenderService] Card type marker:', cardTypeMarker);
+      logger.debug('[SiYuanMemo][DescriptorCardRenderService] Card type marker:', cardTypeMarker);
       return cardTypeMarker === 'descriptor';
     } catch (error) {
-      console.error('[SiYuanMemo][DescriptorCardRenderService] Error checking descriptor card:', error);
+      logger.error('[SiYuanMemo][DescriptorCardRenderService] Error checking descriptor card:', error);
       return false;
     }
   }

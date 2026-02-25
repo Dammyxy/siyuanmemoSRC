@@ -11,6 +11,9 @@
 
 import type { ISequencer } from '../abstraction/types';
 import type { QueueItem } from '../types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('DualQueueSequencer');
 
 export type DualQueueSequencerConfig<TItem extends QueueItem> = {
   /**
@@ -88,7 +91,7 @@ export class DualQueueSequencer<TItem extends QueueItem> implements ISequencer<T
 
   reorder?(orderedItems: TItem[]): void {
     // Cannot reorder dual queue (no concept of order)
-    console.warn('[DualQueueSequencer] Reorder not supported');
+    logger.warn('Reorder not supported');
   }
 
   /**

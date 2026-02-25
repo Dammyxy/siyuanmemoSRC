@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="fsrs-review-v2-content">
     <Transition :name="transitionName">
       <div :key="contentKey" class="fsrs-review-v2-content__inner">
@@ -123,6 +123,7 @@ import {
 // 🆕 性能优化：导入 Composables
 import { useCssClassOptimizer } from './composables/useCssClassOptimizer';
 import { useCardTypeCache } from './composables/useCardTypeCache';
+import { createLogger } from '@/utils/logger';
 
 const props = defineProps<{
   app: any;
@@ -134,6 +135,8 @@ const props = defineProps<{
   showAnswer?: boolean;
   meta?: ReviewUIState['meta'];
 }>();
+
+const logger = createLogger('ReviewContent');
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
@@ -222,7 +225,7 @@ const shouldUseConceptDefinitionRenderer = computed(() => {
   const card = props.content.card;
   const result = checkIsConceptDefinitionCard(card);
   
-  console.log('[SiYuanMemo][ReviewContent] shouldUseConceptDefinitionRenderer:', {
+  logger.debug('[SiYuanMemo][ReviewContent] shouldUseConceptDefinitionRenderer:', {
     contentType: props.content.type,
     hasCard: !!card,
     cardId: card?.id,
@@ -243,7 +246,7 @@ const shouldUseConceptCardRenderer = computed(() => {
   // 使用领域层的辅助函数检测
   const result = checkIsConceptCard(props.content.card);
   
-  console.log('[SiYuanMemo][ReviewContent] shouldUseConceptCardRenderer:', {
+  logger.debug('[SiYuanMemo][ReviewContent] shouldUseConceptCardRenderer:', {
     contentType: props.content.type,
     result
   });
@@ -267,49 +270,49 @@ const shouldUseQuickCardRenderer = computed(() => {
 
 // 概念定义卡加载成功
 function handleConceptDefinitionCardLoaded(result: any) {
-  console.log('[SiYuanMemo][ReviewContent] Concept definition card loaded:', result);
+  logger.debug('[SiYuanMemo][ReviewContent] Concept definition card loaded:', result);
 }
 
 // 概念定义卡加载失败，降级到普通渲染
 function handleConceptDefinitionCardError(error: Error) {
-  console.warn('[SiYuanMemo][ReviewContent] Concept definition card failed, fallback to normal render:', error);
+  logger.warn('[SiYuanMemo][ReviewContent] Concept definition card failed, fallback to normal render:', error);
   isConceptDefinitionCard.value = false;
 }
 
 // 概念卡加载成功
 function handleConceptCardLoaded(result: any) {
-  console.log('[SiYuanMemo][ReviewContent] Concept card loaded:', result);
+  logger.debug('[SiYuanMemo][ReviewContent] Concept card loaded:', result);
 }
 
 // 概念卡加载失败，降级到普通渲染
 function handleConceptCardError(error: Error) {
-  console.warn('[SiYuanMemo][ReviewContent] Concept card failed, fallback to normal render:', error);
+  logger.warn('[SiYuanMemo][ReviewContent] Concept card failed, fallback to normal render:', error);
   isConceptCard.value = false;
 }
 
 // 描述符卡加载成功
 function handleDescriptorCardLoaded(result: any) {
-  console.log('[SiYuanMemo][ReviewContent] Descriptor card loaded:', result);
+  logger.debug('[SiYuanMemo][ReviewContent] Descriptor card loaded:', result);
 }
 
 // 描述符卡加载失败，降级到普通渲染
 function handleDescriptorCardError(error: Error) {
-  console.warn('[SiYuanMemo][ReviewContent] Descriptor card failed, fallback to normal render:', error);
+  logger.warn('[SiYuanMemo][ReviewContent] Descriptor card failed, fallback to normal render:', error);
   isDescriptorCard.value = false;
 }
 
 // 快速卡片加载成功
 function handleQuickCardLoaded(result: any) {
-  console.log('[SiYuanMemo][ReviewContent] Quick card loaded:', result);
+  logger.debug('[SiYuanMemo][ReviewContent] Quick card loaded:', result);
 }
 
 // 快速卡片加载失败，降级到普通渲染
 function handleQuickCardError(error: Error) {
   // 如果是 "not a quick card" 错误，这是预期的降级行为，不需要警告
   if (error.message && error.message.includes('not a quick card')) {
-    console.log('[SiYuanMemo][ReviewContent] Not a quick card, using normal Protyle render');
+    logger.debug('[SiYuanMemo][ReviewContent] Not a quick card, using normal Protyle render');
   } else {
-    console.warn('[SiYuanMemo][ReviewContent] Quick card failed, fallback to normal render:', error);
+    logger.warn('[SiYuanMemo][ReviewContent] Quick card failed, fallback to normal render:', error);
   }
   isQuickCard.value = false;
 }
@@ -345,7 +348,7 @@ async function ensureHostRef(): Promise<boolean> {
 function applyAnswerVisibility(): void {
   const element = hostRef.value;
   if (!element) {
-    console.warn('[SiYuanMemo][ReviewContent] Cannot apply answer visibility: hostRef.value is null');
+    logger.warn('[SiYuanMemo][ReviewContent] Cannot apply answer visibility: hostRef.value is null');
     return;
   }
   
@@ -362,19 +365,19 @@ function applyAnswerVisibility(): void {
 async function renderProtyle(blockId: string): Promise<void> {
   const seq = ++renderSeq;
 
-  console.log('[SiYuanMemo][ReviewContent] renderProtyle called with blockId:', blockId);
+  logger.debug('[SiYuanMemo][ReviewContent] renderProtyle called with blockId:', blockId);
 
   // 🆕 性能优化：检查卡片类型缓存
   const cachedType = getCardType(blockId);
   if (cachedType) {
-    console.log('[SiYuanMemo][ReviewContent] Using cached card type:', cachedType);
+    logger.debug('[SiYuanMemo][ReviewContent] Using cached card type:', cachedType);
     
     // ⚠️ 验证缓存：如果缓存说是概念定义卡，但卡片没有 xiuyuanID，则忽略缓存
     if (cachedType.isConcept) {
       const card = props.content.card;
       const xiuyuanID = card?.xiuyuanID;
       if (!xiuyuanID) {
-        console.warn('[SiYuanMemo][ReviewContent] Cached as concept card but no xiuyuanID, ignoring cache');
+        logger.warn('[SiYuanMemo][ReviewContent] Cached as concept card but no xiuyuanID, ignoring cache');
         // 不使用缓存，继续检测
       } else {
         isConceptDefinitionCard.value = cachedType.isConcept;
@@ -400,7 +403,7 @@ async function renderProtyle(blockId: string): Promise<void> {
     const xiuyuanID = card?.xiuyuanID;
     const typeMarker = card?.meta?.typeMarker;
     
-    console.log('[SiYuanMemo][ReviewContent] Checking concept definition card:', {
+    logger.debug('[SiYuanMemo][ReviewContent] Checking concept definition card:', {
       hasCard: !!card,
       xiuyuanID,
       typeMarker,
@@ -415,7 +418,7 @@ async function renderProtyle(blockId: string): Promise<void> {
       typeMarker === 'concept-definition-reverse' ||
       typeMarker.startsWith('concept-definition-cloze-')
     )) {
-      console.log('[SiYuanMemo][ReviewContent] Detected concept definition card (bidirectional)');
+      logger.debug('[SiYuanMemo][ReviewContent] Detected concept definition card (bidirectional)');
       const result = { isConcept: true, isDescriptor: false, isQuick: false };
       setCardType(blockId, result);
       isConceptDefinitionCard.value = true;
@@ -424,10 +427,10 @@ async function renderProtyle(blockId: string): Promise<void> {
       return;
     } else if (typeMarker && typeMarker.includes('concept-definition')) {
       // 如果有 concept-definition 相关的 typeMarker 但没有 xiuyuanID，说明是旧卡片
-      console.warn('[SiYuanMemo][ReviewContent] Found old concept definition card without xiuyuanID, will use normal render');
+      logger.warn('[SiYuanMemo][ReviewContent] Found old concept definition card without xiuyuanID, will use normal render');
     }
   } catch (error) {
-    console.warn('[SiYuanMemo][ReviewContent] Concept definition card detection failed:', error);
+    logger.warn('[SiYuanMemo][ReviewContent] Concept definition card detection failed:', error);
   }
 
   // 🆕 检测是否为概念卡（builtin-concept-simple）
@@ -436,7 +439,7 @@ async function renderProtyle(blockId: string): Promise<void> {
     const xiuyuanID = card?.xiuyuanID;
     const typeMarker = card?.meta?.typeMarker;
     
-    console.log('[SiYuanMemo][ReviewContent] Checking concept card:', {
+    logger.debug('[SiYuanMemo][ReviewContent] Checking concept card:', {
       hasCard: !!card,
       xiuyuanID,
       typeMarker,
@@ -446,7 +449,7 @@ async function renderProtyle(blockId: string): Promise<void> {
     
     // 概念卡的 typeMarker 是 'C'
     if (xiuyuanID && typeMarker === 'C') {
-      console.log('[SiYuanMemo][ReviewContent] Detected concept card');
+      logger.debug('[SiYuanMemo][ReviewContent] Detected concept card');
       const result = { isConcept: false, isConceptCard: true, isDescriptor: false, isQuick: false };
       setCardType(blockId, result);
       isConceptDefinitionCard.value = false;
@@ -456,14 +459,14 @@ async function renderProtyle(blockId: string): Promise<void> {
       return;
     }
   } catch (error) {
-    console.warn('[SiYuanMemo][ReviewContent] Concept card detection failed:', error);
+    logger.warn('[SiYuanMemo][ReviewContent] Concept card detection failed:', error);
   }
 
   // 🆕 检测是否为描述符卡
   try {
     const isDescriptor = await descriptorCardRenderService.value.isDescriptorCard(blockId);
     if (isDescriptor) {
-      console.log('[SiYuanMemo][ReviewContent] Detected descriptor card');
+      logger.debug('[SiYuanMemo][ReviewContent] Detected descriptor card');
       const result = { isConcept: false, isDescriptor: true, isQuick: false };
       setCardType(blockId, result);
       isConceptDefinitionCard.value = false;
@@ -472,14 +475,14 @@ async function renderProtyle(blockId: string): Promise<void> {
       return;
     }
   } catch (error) {
-    console.warn('[SiYuanMemo][ReviewContent] Descriptor card detection failed:', error);
+    logger.warn('[SiYuanMemo][ReviewContent] Descriptor card detection failed:', error);
   }
 
   // 🆕 检测是否为快速卡片
   try {
     const isQuick = await quickCardRenderService.value.isQuickCard(blockId);
     if (isQuick) {
-      console.log('[SiYuanMemo][ReviewContent] Detected quick card');
+      logger.debug('[SiYuanMemo][ReviewContent] Detected quick card');
       const result = { isConcept: false, isDescriptor: false, isQuick: true };
       setCardType(blockId, result);
       isConceptDefinitionCard.value = false;
@@ -488,7 +491,7 @@ async function renderProtyle(blockId: string): Promise<void> {
       return;
     }
   } catch (error) {
-    console.warn('[SiYuanMemo][ReviewContent] Quick card detection failed:', error);
+    logger.warn('[SiYuanMemo][ReviewContent] Quick card detection failed:', error);
   }
   
   // 🆕 缓存普通卡片类型
@@ -500,17 +503,17 @@ async function renderProtyle(blockId: string): Promise<void> {
   isQuickCard.value = false;
   isDescriptorCard.value = false;
 
-  console.log('[SiYuanMemo][ReviewContent] renderProtyle called:', { blockId, seq });
+  logger.debug('[SiYuanMemo][ReviewContent] renderProtyle called:', { blockId, seq });
 
   // 等待 DOM 准备
   const ready = await ensureHostRef();
   if (!ready) {
-    console.log('[SiYuanMemo][ReviewContent] hostRef not ready after waiting');
+    logger.debug('[SiYuanMemo][ReviewContent] hostRef not ready after waiting');
     return;
   }
 
   if (seq !== renderSeq) {
-    console.log('[SiYuanMemo][ReviewContent] Render cancelled, newer render pending');
+    logger.debug('[SiYuanMemo][ReviewContent] Render cancelled, newer render pending');
     return;
   }
 
@@ -523,7 +526,7 @@ async function renderProtyle(blockId: string): Promise<void> {
     return;
   }
 
-  console.log('[SiYuanMemo][ReviewContent] Destroying old Protyle instance');
+  logger.debug('[SiYuanMemo][ReviewContent] Destroying old Protyle instance');
 
   // Destroy old instance
   try {
@@ -539,7 +542,7 @@ async function renderProtyle(blockId: string): Promise<void> {
   
   // 🆕 预先应用隐藏类，避免闪烁
   if (props.hasHiddenContent && props.showAnswer) {
-    console.log('[SiYuanMemo][ReviewContent] Pre-applying hide classes to prevent flash');
+    logger.debug('[SiYuanMemo][ReviewContent] Pre-applying hide classes to prevent flash');
     hostRef.value.classList.add(
       'card__block--hidemark',
       'card__block--hideli',
@@ -555,7 +558,7 @@ async function renderProtyle(blockId: string): Promise<void> {
     );
   }
 
-  console.log('[SiYuanMemo][ReviewContent] Creating new Protyle with blockId:', blockId);
+  logger.debug('[SiYuanMemo][ReviewContent] Creating new Protyle with blockId:', blockId);
 
   // Create new instance with blockId - Protyle will auto-load content
   editorRef.value = new ProtyleCtor(props.app, hostRef.value, {
@@ -570,7 +573,7 @@ async function renderProtyle(blockId: string): Promise<void> {
     },
     typewriterMode: false,
     after: (protyle: any) => {
-      console.log('[SiYuanMemo][ReviewContent] Protyle after callback called');
+      logger.debug('[SiYuanMemo][ReviewContent] Protyle after callback called');
 
       // 锁定编辑器
       if (typeof protyle.disable === 'function') {
@@ -593,7 +596,7 @@ async function renderProtyle(blockId: string): Promise<void> {
       nextTick(() => {
         setTimeout(() => {
           protyleInitialized = true;
-          console.log('[SiYuanMemo][ReviewContent] Protyle initialized, applying answer visibility');
+          logger.debug('[SiYuanMemo][ReviewContent] Protyle initialized, applying answer visibility');
           
           // 🆕 使用优化的 CSS 类应用
           applyAnswerVisibility();
@@ -602,14 +605,14 @@ async function renderProtyle(blockId: string): Promise<void> {
     },
   });
 
-  console.log('[SiYuanMemo][ReviewContent] Protyle instance created');
+  logger.debug('[SiYuanMemo][ReviewContent] Protyle instance created');
 }
 
 // 渲染答案块（Xiuyuan 模板卡片）
 async function renderAnswerProtyle(blockId: string): Promise<void> {
   const seq = ++answerRenderSeq;
 
-  console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] renderAnswerProtyle called:', { blockId, seq });
+  logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] renderAnswerProtyle called:', { blockId, seq });
 
   // 等待 DOM 准备
   for (let i = 0; i < 20; i++) {
@@ -619,12 +622,12 @@ async function renderAnswerProtyle(blockId: string): Promise<void> {
   }
 
   if (!answerHostRef.value) {
-    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] answerHostRef not ready after waiting');
+    logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] answerHostRef not ready after waiting');
     return;
   }
 
   if (seq !== answerRenderSeq) {
-    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Answer render cancelled, newer render pending');
+    logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Answer render cancelled, newer render pending');
     return;
   }
 
@@ -637,7 +640,7 @@ async function renderAnswerProtyle(blockId: string): Promise<void> {
     return;
   }
 
-  console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Destroying old Answer Protyle instance');
+  logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Destroying old Answer Protyle instance');
 
   // Destroy old instance
   try {
@@ -647,7 +650,7 @@ async function renderAnswerProtyle(blockId: string): Promise<void> {
   // Clear host
   answerHostRef.value.innerHTML = '';
 
-  console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Creating new Answer Protyle with blockId:', blockId);
+  logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Creating new Answer Protyle with blockId:', blockId);
 
   // Create new instance with blockId
   answerEditorRef.value = new ProtyleCtor(props.app, answerHostRef.value, {
@@ -661,14 +664,14 @@ async function renderAnswerProtyle(blockId: string): Promise<void> {
     },
     typewriterMode: false,
     after: (protyle: any) => {
-      console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Answer Protyle after callback called');
+      logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Answer Protyle after callback called');
       if (typeof protyle.disable === 'function') {
         protyle.disable();
       }
     },
   });
 
-  console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Answer Protyle instance created');
+  logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Answer Protyle instance created');
 }
 
 watch(
@@ -677,7 +680,7 @@ watch(
     if (props.content.type !== 'protyle') return;
     const blockId = String(id || '');
     if (!blockId) return;
-    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Watch triggered, blockId:', blockId);
+    logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Watch triggered, blockId:', blockId);
     void renderProtyle(blockId);
   },
   { immediate: true },
@@ -686,20 +689,20 @@ watch(
 watch(
   () => [props.hasHiddenContent, props.showAnswer],
   ([hidden, show]) => {
-    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Watch triggered:', { hidden, show, protyleInitialized });
+    logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Watch triggered:', { hidden, show, protyleInitialized });
     
     // 🆕 只有在 Protyle 初始化后才应用 CSS 类
     if (!protyleInitialized) {
-      console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Protyle not initialized yet, skipping');
+      logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Protyle not initialized yet, skipping');
       return;
     }
     
     if (!hostRef.value) {
-      console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] No hostRef.value');
+      logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] No hostRef.value');
       return;
     }
     
-    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Applying answer visibility from watch');
+    logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Applying answer visibility from watch');
     // 调用统一的答案显示/隐藏逻辑
     applyAnswerVisibility();
   },
@@ -711,11 +714,11 @@ watch(
 watch(
   () => [props.showAnswer, answerBlockID.value],
   ([show, ansBlockID]) => {
-    console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Answer watch triggered:', { show, ansBlockID });
+    logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Answer watch triggered:', { show, ansBlockID });
     
     // showAnswer=false 表示答案已显示，此时渲染答案块
     if (!show && ansBlockID) {
-      console.log('[SiYuanMemo][SiYuanMemo][ReviewContent] Rendering answer block:', ansBlockID);
+      logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Rendering answer block:', ansBlockID);
       void renderAnswerProtyle(ansBlockID as string);
     } else {
       // showAnswer=true 表示答案未显示，销毁答案 Protyle

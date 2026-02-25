@@ -12,6 +12,9 @@
 import type { ICardFaceStrategy } from './ICardFaceStrategy';
 import type { CardFaceData, HiddenContentType, QuickCardMetadata } from '../types';
 import { splitBySymbol, shouldHideListItems } from './utils';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('BasicCardStrategy');
 
 /**
  * 基础卡片策略
@@ -78,7 +81,7 @@ export class BasicCardStrategy implements ICardFaceStrategy {
   } {
     const { symbol, typeMarker, clozeIndex, totalClozes, direction } = metadata;
     
-    console.log('[BasicCardStrategy] parse called:', { 
+    logger.debug('parse called', { 
       symbol, 
       typeMarker, 
       clozeIndex, 
@@ -89,7 +92,7 @@ export class BasicCardStrategy implements ICardFaceStrategy {
     
     const [part1, part2] = splitBySymbol(blockContent, symbol);
     
-    console.log('[BasicCardStrategy] Split result:', { 
+    logger.debug('split result', { 
       part1: part1.substring(0, 50), 
       part2: part2.substring(0, 50) 
     });
@@ -115,13 +118,13 @@ export class BasicCardStrategy implements ICardFaceStrategy {
       // 双向：概念 <> 定义 或 概念《》定义
       // 如果有 typeMarker，根据它来决定方向
       if (typeMarker === 'reverse') {
-        console.log('[BasicCardStrategy] ✅ Using REVERSE direction for bidirectional card');
+        logger.debug('using REVERSE direction for bidirectional card');
         // 反向：定义 -> 概念
         frontHtml = part2;
         backPart = part1;
         backHtml = `${part2}<br/><br/>${part1}`;
       } else {
-        console.log('[BasicCardStrategy] Using FORWARD direction for bidirectional card (typeMarker:', typeMarker, ')');
+        logger.debug('using FORWARD direction for bidirectional card', { typeMarker });
         // 正向（默认）：概念 -> 定义
         frontHtml = part1;
         backPart = part2;
@@ -136,7 +139,7 @@ export class BasicCardStrategy implements ICardFaceStrategy {
     
     // 🆕 处理背面挖空
     if (clozeIndex !== undefined && clozeIndex >= 0 && totalClozes && totalClozes > 0) {
-      console.log('[BasicCardStrategy] Processing back cloze:', { clozeIndex, totalClozes });
+      logger.debug('processing back cloze', { clozeIndex, totalClozes });
       
       // 使用 ClozeDetector 提取挖空
       const { ClozeDetector } = require('@/utils/cloze-detector');
@@ -165,14 +168,14 @@ export class BasicCardStrategy implements ICardFaceStrategy {
           }
         }
         
-        console.log('[BasicCardStrategy] Applied cloze to back:', {
+        logger.debug('applied cloze to back', {
           clozeText: currentCloze.text,
           backHtml: backHtml.substring(0, 100)
         });
       }
     }
     
-    console.log('[BasicCardStrategy] Final result:', {
+    logger.debug('final result', {
       frontHtml: frontHtml.substring(0, 50),
       backHtml: backHtml.substring(0, 50),
     });

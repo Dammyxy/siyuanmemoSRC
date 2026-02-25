@@ -6,6 +6,10 @@
  */
 
 import type { SiyuanBlock } from '../domain/types';
+import { createLogger } from '@/utils/logger';
+import { SiyuanKramdownGateway } from '@/core/card/common/infrastructure/SiyuanKramdownGateway';
+
+const logger = createLogger('QuickCardSiyuanBlockAdapter');
 
 /**
  * 思源 API 响应结构
@@ -28,14 +32,6 @@ interface BlockInfoData {
 }
 
 /**
- * getBlockKramdown API 返回的数据结构
- */
-interface BlockKramdownData {
-  id: string;
-  kramdown: string;
-}
-
-/**
  * 思源块适配器
  * 
  * @description 负责与思源 API 交互，获取块数据
@@ -49,6 +45,8 @@ interface BlockKramdownData {
  * ```
  */
 export class SiyuanBlockAdapter {
+  private readonly kramdownGateway = new SiyuanKramdownGateway(logger);
+
   /**
    * 获取块数据
    * 
@@ -77,51 +75,36 @@ export class SiyuanBlockAdapter {
       });
 
       if (!infoResponse.ok) {
-        console.warn(`[SiYuanMemo][SiyuanBlockAdapter] HTTP error: ${infoResponse.status} ${infoResponse.statusText}`);
+        logger.warn(`[SiYuanMemo][SiyuanBlockAdapter] HTTP error: ${infoResponse.status} ${infoResponse.statusText}`);
         return null;
       }
 
       const infoResult: SiyuanApiResponse<BlockInfoData> = await infoResponse.json();
 
       if (infoResult.code !== 0) {
-        console.warn(`[SiYuanMemo][SiyuanBlockAdapter] API error: ${infoResult.code} ${infoResult.msg}`);
+        logger.warn(`[SiYuanMemo][SiyuanBlockAdapter] API error: ${infoResult.code} ${infoResult.msg}`);
         return null;
       }
 
       if (!infoResult.data) {
-        console.warn(`[SiYuanMemo][SiyuanBlockAdapter] Block not found: ${blockId}`);
+        logger.warn(`[SiYuanMemo][SiyuanBlockAdapter] Block not found: ${blockId}`);
         return null;
       }
 
       // 2. 获取块内容（kramdown）
-      const kramdownResponse = await fetch('/api/block/getBlockKramdown', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ id: blockId }),
-      });
-
-      if (!kramdownResponse.ok) {
-        console.warn(`[SiYuanMemo][SiyuanBlockAdapter] Failed to get kramdown: ${kramdownResponse.status}`);
-        return null;
-      }
-
-      const kramdownResult: SiyuanApiResponse<BlockKramdownData> = await kramdownResponse.json();
-
-      if (kramdownResult.code !== 0 || !kramdownResult.data) {
-        console.warn(`[SiYuanMemo][SiyuanBlockAdapter] Failed to get kramdown for block: ${blockId}`);
+      const kramdown = await this.kramdownGateway.getBlockKramdown(blockId);
+      if (kramdown === null) {
         return null;
       }
 
       // 3. 合并数据
       return {
         id: infoResult.data.id,
-        content: kramdownResult.data.kramdown,
+        content: kramdown,
         parentID: infoResult.data.parentID,
       };
     } catch (error) {
-      console.error(`[SiYuanMemo][SiyuanBlockAdapter] Failed to get block ${blockId}:`, error);
+      logger.error(`[SiYuanMemo][SiyuanBlockAdapter] Failed to get block ${blockId}:`, error);
       return null;
     }
   }
@@ -139,35 +122,8 @@ export class SiyuanBlockAdapter {
    * ```
    */
   kramdownToHtml(kramdown: string): string {
-    try {
-      console.log('[SiYuanMemo][SiyuanBlockAdapter] kramdownToHtml called with:', kramdown.substring(0, 100));
-      
-      // 使用 Lute 渲染 kramdown
-      const lute = (window as any).Lute?.New();
-      if (!lute) {
-        console.warn('[SiYuanMemo][SiyuanBlockAdapter] Lute not available, returning raw kramdown');
-        return kramdown;
-      }
-      
-      // 🔧 尝试使用 SpinBlockDOM 方法，它会处理块引用
-      let html: string;
-      if (typeof lute.SpinBlockDOM === 'function') {
-        console.log('[SiYuanMemo][SiyuanBlockAdapter] Using SpinBlockDOM');
-        html = lute.SpinBlockDOM(kramdown);
-      } else if (typeof lute.Md2BlockDOM === 'function') {
-        console.log('[SiYuanMemo][SiyuanBlockAdapter] Using Md2BlockDOM');
-        html = lute.Md2BlockDOM(kramdown);
-      } else {
-        console.warn('[SiYuanMemo][SiyuanBlockAdapter] No suitable Lute method found');
-        return kramdown;
-      }
-      
-      console.log('[SiYuanMemo][SiyuanBlockAdapter] Rendered HTML:', html?.substring(0, 200));
-      
-      return html || kramdown;
-    } catch (error) {
-      console.error('[SiYuanMemo][SiyuanBlockAdapter] Failed to render kramdown:', error);
-      return kramdown;
-    }
+    return this.kramdownGateway.kramdownToHtml(kramdown, {
+      preferSpinBlockDOM: true,
+    });
   }
 }

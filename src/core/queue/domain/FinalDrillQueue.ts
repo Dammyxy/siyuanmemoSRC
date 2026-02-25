@@ -256,43 +256,13 @@ export class FinalDrillQueue extends BaseReviewQueue {
         try {
             await this.ensureInitialLoad();
             const cardId = resolveCardId(card);
-            
-            // 检查是否已存在
-            const existing = this.entries.get(cardId);
-            
-            if (existing) {
-                // 如果已存在
-                if (existing.source === 'manual') {
-                    // 手动添加的卡片不覆盖
-                    logger.debug(`Card ${cardId} already exists as manual, skipping`);
-                    return;
-                }
-                
-                if (existing.source === 'auto-failed' && source === 'auto-failed') {
-                    // 🆕 自动失败的卡片重复添加，不更新时间戳（保留最早的失败时间）
-                    logger.debug(`Card ${cardId} already exists as auto-failed, keeping original timestamp`);
-                    return;
-                }
-                
-                // 其他情况：auto-failed → manual，允许覆盖
+
+            const changed = this.addOrUpdateEntry(cardId, source);
+            if (!changed) {
+                return;
             }
-            
-            // 添加或更新条目
-            this.entries.set(cardId, {
-                cardId,
-                source,
-                timestamp: Date.now()
-            });
-            
-            // 持久化
-            await this.save();
-            
-            // 触发观察者通知（需求 6.4：卡片添加的队列统计更新）
-            this.manager.notifyObservers({
-                type: 'queue-changed',
-                queueType: this.getType(),
-                timestamp: Date.now()
-            });
+
+            await this.persistEntries({ emitQueueChanged: true });
             
             logger.info(`Card ${cardId} added with source ${source}`);
         } catch (error) {
@@ -310,8 +280,11 @@ export class FinalDrillQueue extends BaseReviewQueue {
     public async removeCard(cardIdOrBlockId: string): Promise<void> {
         try {
             await this.ensureInitialLoad();
-            this.entries.delete(cardIdOrBlockId);
-            await this.save();
+            const changed = this.removeEntry(cardIdOrBlockId);
+            if (!changed) {
+                return;
+            }
+            await this.persistEntries();
             logger.info(`Card ${cardIdOrBlockId} removed`);
         } catch (error) {
             logger.error('Failed to remove card:', error);
@@ -349,11 +322,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
             }
             
             // 通知观察者队列已变化
-            this.manager.notifyObservers({
-                type: 'queue-changed',
-                queueType: QueueType.FinalDrill,
-                timestamp: Date.now()
-            });
+            this.emitQueueChangedEvent();
         } catch (error) {
             logger.error('Failed to handle review:', error);
             throw error;
@@ -436,6 +405,45 @@ export class FinalDrillQueue extends BaseReviewQueue {
     // ========================================================================
     // 私有辅助方法
     // ========================================================================
+
+    private addOrUpdateEntry(cardId: string, source: 'manual' | 'auto-failed'): boolean {
+        const existing = this.entries.get(cardId);
+
+        if (existing?.source === 'manual') {
+            // 手动添加的卡片不覆盖
+            logger.debug(`Card ${cardId} already exists as manual, skipping`);
+            return false;
+        }
+
+        if (existing?.source === 'auto-failed' && source === 'auto-failed') {
+            // 自动失败的卡片重复添加，不更新时间戳（保留最早失败时间）
+            logger.debug(`Card ${cardId} already exists as auto-failed, keeping original timestamp`);
+            return false;
+        }
+
+        this.entries.set(cardId, {
+            cardId,
+            source,
+            timestamp: Date.now(),
+        });
+
+        return true;
+    }
+
+    private removeEntry(cardId: string): boolean {
+        if (!this.entries.has(cardId)) {
+            return false;
+        }
+        this.entries.delete(cardId);
+        return true;
+    }
+
+    private async persistEntries(options: { emitQueueChanged?: boolean } = {}): Promise<void> {
+        await this.save();
+        if (options.emitQueueChanged) {
+            this.emitQueueChangedEvent();
+        }
+    }
     
     /**
      * 将卡片移到队列后面

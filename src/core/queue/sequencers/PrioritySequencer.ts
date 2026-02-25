@@ -1,5 +1,8 @@
 ﻿import type { ISequencer, IDataSourceObserver } from '../abstraction/types';
 import type { QueueItem } from '../types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('PrioritySequencer');
 
 /**
  * PrioritySequencer - Lazy-loading sequencer with priority-based sorting
@@ -229,7 +232,7 @@ export class PrioritySequencer<TItem extends QueueItem> implements ISequencer<TI
    * ```
    */
   onDataChanged(): void {
-    console.log('[PrioritySequencer] onDataChanged() called - invalidating cache');
+    logger.debug('onDataChanged called - invalidating cache');
     this.loaded = false;
     this.items.length = 0;
   }
@@ -319,7 +322,7 @@ export class PrioritySequencer<TItem extends QueueItem> implements ISequencer<TI
    * ```
    */
   async next(): Promise<TItem | null> {
-    console.log('[PrioritySequencer] next() called, loaded:', this.loaded, 'items.length:', this.items.length);
+    logger.debug('next called', { loaded: this.loaded, itemCount: this.items.length });
     
     if (this.fetchNext) {
       return await this.fetchNext();
@@ -327,9 +330,9 @@ export class PrioritySequencer<TItem extends QueueItem> implements ISequencer<TI
     if (!this.fetchAll || !this.getDueMs || !this.getPriority) return null;
     if (!this.loaded) {
       this.loaded = true;
-      console.log('[PrioritySequencer] Loading items via fetchAll()...');
+      logger.debug('loading items via fetchAll');
       const fetched = await this.fetchAll();
-      console.log('[PrioritySequencer] fetchAll() returned:', {
+      logger.debug('fetchAll returned', {
         count: fetched?.length || 0,
         items: fetched?.slice(0, 3).map((it: any) => ({
           cardID: it?.cardID,
@@ -337,7 +340,7 @@ export class PrioritySequencer<TItem extends QueueItem> implements ISequencer<TI
         })),
       });
       if (!fetched || fetched.length === 0) {
-        console.log('[PrioritySequencer] No items fetched, items array remains empty');
+        logger.debug('no items fetched; queue remains empty');
       } else {
         this.items.push(...fetched);
         this.items.sort((a, b) => {
@@ -351,15 +354,15 @@ export class PrioritySequencer<TItem extends QueueItem> implements ISequencer<TI
           if (pa !== pb) return pa - pb;
           return da - db;
         });
-        console.log('[PrioritySequencer] Items sorted, count:', this.items.length);
+        logger.debug('items sorted', { count: this.items.length });
       }
     }
     if (this.items.length === 0) {
-      console.log('[PrioritySequencer] No items available, returning null');
+      logger.debug('no items available, returning null');
       return null;
     }
     const nextItem = this.items.shift() || null;
-    console.log('[PrioritySequencer] Returning item:', {
+    logger.debug('returning item', {
       cardID: (nextItem as any)?.cardID,
       remainingCount: this.items.length,
     });

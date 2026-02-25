@@ -5,6 +5,9 @@
 
 import * as api from './api.ts';
 import { buildCardBlockIdStmt } from './cardBlockSql.ts';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('SiyuanBlock');
 
 /** 块属性前缀 */
 export const ATTR_PREFIX = 'custom-fsrs-';
@@ -93,7 +96,7 @@ export async function getBlockContent(blockId: string): Promise<string> {
         const { dom } = await api.getBlockDOM(blockId);
         return api.domToHtml(dom);
     } catch (err) {
-        console.error('[SiYuanMemo] Failed to get block content:', err);
+        logger.error('Failed to get block content', { blockId, error: err });
         return `<p class="error">加载失败: ${blockId}</p>`;
     }
 }

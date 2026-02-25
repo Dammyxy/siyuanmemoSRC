@@ -1,37 +1,37 @@
-/**
- * CreateListTemplateCardsUseCase - 创建列表模板卡片用例
+﻿/**
+ * CreateListTemplateCardsUseCase - 鍒涘缓鍒楄〃妯℃澘鍗＄墖鐢ㄤ緥
  * 
  * @description
- * 编排列表模板卡片创建的业务流程。
+ * 缂栨帓鍒楄〃妯℃澘鍗＄墖鍒涘缓鐨勪笟鍔℃祦绋嬨€?
  * 
- * **设计原则**：
- * - 用例模式：封装单一业务用例
- * - 编排：协调多个领域对象和服务
- * - 事务边界：定义事务的开始和结束
- * - 使用 Result 类型：统一错误处理
+ * **璁捐鍘熷垯**锛?
+ * - 鐢ㄤ緥妯″紡锛氬皝瑁呭崟涓€涓氬姟鐢ㄤ緥
+ * - 缂栨帓锛氬崗璋冨涓鍩熷璞″拰鏈嶅姟
+ * - 浜嬪姟杈圭晫锛氬畾涔変簨鍔＄殑寮€濮嬪拰缁撴潫
+ * - 浣跨敤 Result 绫诲瀷锛氱粺涓€閿欒澶勭悊
  * 
- * **职责**：
- * - 验证输入命令
- * - 创建列表模板的 Xiuyuan 和卡片
- * - 通过 Repository 持久化
- * - 返回创建的 Xiuyuan 和卡片
+ * **鑱岃矗**锛?
+ * - 楠岃瘉杈撳叆鍛戒护
+ * - 鍒涘缓鍒楄〃妯℃澘鐨?Xiuyuan 鍜屽崱鐗?
+ * - 閫氳繃 Repository 鎸佷箙鍖?
+ * - 杩斿洖鍒涘缓鐨?Xiuyuan 鍜屽崱鐗?
  * 
- * **列表模板特点**：
- * - 1 个 Xiuyuan → N 张 FSRSCard（N = 子列表项数量）
- * - 每张卡片的问题相同（父列表项），答案不同（各个子列表项）
- * - 支持提示功能：使用 `→` 分隔提示和答案
- * - 渐进式显示：复习时显示已学过的答案 + 当前提示
+ * **鍒楄〃妯℃澘鐗圭偣**锛?
+ * - 1 涓?Xiuyuan 鈫?N 寮?FSRSCard锛圢 = 瀛愬垪琛ㄩ」鏁伴噺锛?
+ * - 姣忓紶鍗＄墖鐨勯棶棰樼浉鍚岋紙鐖跺垪琛ㄩ」锛夛紝绛旀涓嶅悓锛堝悇涓瓙鍒楄〃椤癸級
+ * - 鏀寔鎻愮ず鍔熻兘锛氫娇鐢?`鈫抈 鍒嗛殧鎻愮ず鍜岀瓟妗?
+ * - 娓愯繘寮忔樉绀猴細澶嶄範鏃舵樉绀哄凡瀛﹁繃鐨勭瓟妗?+ 褰撳墠鎻愮ず
  * 
- * **业务流程**：
- * 1. 验证 CreateListTemplateCardsCommand
- * 2. 获取父块和子块的内容
- * 3. 创建 Xiuyuan 聚合根
- * 4. 为每个子块创建卡片
- * 5. 持久化 Xiuyuan
- * 6. 返回创建的 Xiuyuan 和卡片
+ * **涓氬姟娴佺▼**锛?
+ * 1. 楠岃瘉 CreateListTemplateCardsCommand
+ * 2. 鑾峰彇鐖跺潡鍜屽瓙鍧楃殑鍐呭
+ * 3. 鍒涘缓 Xiuyuan 鑱氬悎鏍?
+ * 4. 涓烘瘡涓瓙鍧楀垱寤哄崱鐗?
+ * 5. 鎸佷箙鍖?Xiuyuan
+ * 6. 杩斿洖鍒涘缓鐨?Xiuyuan 鍜屽崱鐗?
  */
 
-import { Result, ok, err } from '@/types/result';
+import { Result, err } from '@/types/result';
 import { CreateListTemplateCardsCommand } from '../../commands/xiuyuan/CreateListTemplateCardsCommand';
 import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
@@ -41,45 +41,45 @@ import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
 import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { Priority } from '@/core/xiuyuan/domain/Priority';
 import { sql } from '@/core/siyuan/api';
-import { addRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import { createLogger } from '@/utils/logger';
+import { finalizeXiuyuanCreation } from './shared/FinalizeXiuyuanCreation';
 
 const logger = createLogger('CreateListTemplateCardsUseCase');
 
 /**
- * 解析子列表项文本，提取提示和答案
+ * 瑙ｆ瀽瀛愬垪琛ㄩ」鏂囨湰锛屾彁鍙栨彁绀哄拰绛旀
  * 
- * 格式：`提示 → 答案`
+ * 鏍煎紡锛歚鎻愮ず 鈫?绛旀`
  * 
- * @param text 子列表项文本
- * @returns { cue: 提示文本, answer: 答案文本 }
+ * @param text 瀛愬垪琛ㄩ」鏂囨湰
+ * @returns { cue: 鎻愮ず鏂囨湰, answer: 绛旀鏂囨湰 }
  */
 function parseCueAndAnswer(text: string): { cue: string; answer: string } {
-  const parts = text.split('→');
-  
+  const unicodeArrow = '\u2192';
+  const delimiter = text.includes(unicodeArrow) ? unicodeArrow : '->';
+  const parts = text.split(delimiter);
+
   if (parts.length >= 2) {
     const cue = parts[0].trim();
-    const answer = parts.slice(1).join('→').trim();
-    
+    const answer = parts.slice(1).join(delimiter).trim();
     return { cue, answer };
   }
-  
-  // 没有 `→` 分隔符，整个文本作为答案
+
   return { cue: '', answer: text.trim() };
 }
 
 /**
- * 创建列表模板卡片用例
+ * 鍒涘缓鍒楄〃妯℃澘鍗＄墖鐢ㄤ緥
  * 
  * @class CreateListTemplateCardsUseCase
  */
 export class CreateListTemplateCardsUseCase {
   /**
-   * 构造函数
+   * 鏋勯€犲嚱鏁?
    * 
-   * @param xiuyuanRepository - Xiuyuan 仓储
-   * @param templateRegistry - 模板注册表
+   * @param xiuyuanRepository - Xiuyuan 浠撳偍
+   * @param templateRegistry - 妯℃澘娉ㄥ唽琛?
    */
   constructor(
     private readonly xiuyuanRepository: IXiuyuanRepository,
@@ -87,10 +87,10 @@ export class CreateListTemplateCardsUseCase {
   ) {}
 
   /**
-   * 执行用例
+   * 鎵ц鐢ㄤ緥
    * 
-   * @param command - 创建命令
-   * @returns Result<any> - 成功返回创建的 Xiuyuan 和卡片，失败返回错误
+   * @param command - 鍒涘缓鍛戒护
+   * @returns Result<any> - 鎴愬姛杩斿洖鍒涘缓鐨?Xiuyuan 鍜屽崱鐗囷紝澶辫触杩斿洖閿欒
    * 
    * @example
    * ```typescript
@@ -113,17 +113,17 @@ export class CreateListTemplateCardsUseCase {
    */
   async execute(command: CreateListTemplateCardsCommand): Promise<Result<any>> {
     try {
-      // 1. 检查是否已经创建过列表模版卡
+      // 1. 妫€鏌ユ槸鍚﹀凡缁忓垱寤鸿繃鍒楄〃妯＄増鍗?
       const { getBlockAttrs } = await import('@/core/siyuan/api');
       const attrs = await getBlockAttrs(command.parentBlockId);
       
       if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
         const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
         logger.info(`Block ${command.parentBlockId} already has Xiuyuan: ${existingXiuyuanId}`);
-        return err(new Error('此列表项已经创建过列表模版卡，请勿重复创建'));
+        return err(new Error('List template card already exists for this parent block'));
       }
       
-      // 2. 验证模板
+      // 2. 楠岃瘉妯℃澘
       const template = this.templateRegistry.get(command.templateId);
       if (!template) {
         return err(new Error(`Template not found: ${command.templateId}`));
@@ -133,13 +133,15 @@ export class CreateListTemplateCardsUseCase {
         return err(new Error('Template has no card rules'));
       }
       
-      // 3. 验证子列表项数量（至少需要2个）
+      // 3. 楠岃瘉瀛愬垪琛ㄩ」鏁伴噺锛堣嚦灏戦渶瑕?涓級
       if (!command.childBlockIds || command.childBlockIds.length < 2) {
-        return err(new Error(`需要至少2个有序子列表项（当前：${command.childBlockIds?.length || 0}个）`));
+        return err(
+          new Error(`At least 2 ordered child list items are required (current: ${command.childBlockIds?.length || 0})`)
+        );
       }
 
-      // 4. 获取父列表项的段落块 ID（用于问题显示）
-      // 思源结构：列表项(i) → 段落(p) + 列表容器(l)
+      // 4. 鑾峰彇鐖跺垪琛ㄩ」鐨勬钀藉潡 ID锛堢敤浜庨棶棰樻樉绀猴級
+      // 鎬濇簮缁撴瀯锛氬垪琛ㄩ」(i) 鈫?娈佃惤(p) + 鍒楄〃瀹瑰櫒(l)
       const paragraphResult = await sql(`
         SELECT id FROM blocks
         WHERE parent_id = '${command.parentBlockId}'
@@ -153,7 +155,7 @@ export class CreateListTemplateCardsUseCase {
       
       const parentParagraphId = paragraphResult[0].id;
 
-      // 5. 获取所有子列表项的文本内容
+      // 5. 鑾峰彇鎵€鏈夊瓙鍒楄〃椤圭殑鏂囨湰鍐呭
       const childrenContentResult = await sql(`
         SELECT id, content FROM blocks
         WHERE id IN (${command.childBlockIds.map(id => `'${id}'`).join(',')})
@@ -164,7 +166,7 @@ export class CreateListTemplateCardsUseCase {
         return err(new Error('Failed to fetch children content'));
       }
       
-      // 解析每个子列表项的提示和答案
+      // 瑙ｆ瀽姣忎釜瀛愬垪琛ㄩ」鐨勬彁绀哄拰绛旀
       const childrenData = childrenContentResult.map((row: any) => ({
         id: row.id,
         cue: parseCueAndAnswer(row.content).cue,
@@ -172,8 +174,8 @@ export class CreateListTemplateCardsUseCase {
         content: row.content
       }));
 
-      // 6. 创建值对象
-      // 🔧 统一 ID 格式：使用代表块 ID（父列表项）
+      // 6. 鍒涘缓鍊煎璞?
+      // 馃敡 缁熶竴 ID 鏍煎紡锛氫娇鐢ㄤ唬琛ㄥ潡 ID锛堢埗鍒楄〃椤癸級
       const representativeBlockId = command.parentBlockId;
       const xiuyuanIdResult = XiuyuanId.create(`xy_${representativeBlockId}`);
       if (!xiuyuanIdResult.ok) {
@@ -196,13 +198,13 @@ export class CreateListTemplateCardsUseCase {
       const priorityResult = Priority.create(command.priority || 50);
       const priority = priorityResult.ok ? priorityResult.value : Priority.createDefault();
 
-      // 7. 为每个子列表项创建 CardFace
+      // 7. 涓烘瘡涓瓙鍒楄〃椤瑰垱寤?CardFace
       const faces: CardFace[] = [];
       
       for (const childData of childrenData) {
         const faceResult = CardFace.create({
-          question: parentParagraphId, // 问题是父段落
-          answer: childData.content,   // 答案是子列表项内容
+          question: parentParagraphId, // 闂鏄埗娈佃惤
+          answer: childData.content,   // 绛旀鏄瓙鍒楄〃椤瑰唴瀹?
           questionBlockId: parentParagraphId,
           answerBlockId: childData.id
         });
@@ -214,7 +216,7 @@ export class CreateListTemplateCardsUseCase {
         faces.push(faceResult.value);
       }
 
-      // 8. 创建 Xiuyuan 聚合根（包含列表模板的元数据）
+      // 8. 鍒涘缓 Xiuyuan 鑱氬悎鏍癸紙鍖呭惈鍒楄〃妯℃澘鐨勫厓鏁版嵁锛?
       const xiuyuanResult = Xiuyuan.create({
         id: xiuyuanIdResult.value,
         blockIDs: blockIds,
@@ -223,7 +225,7 @@ export class CreateListTemplateCardsUseCase {
         priority,
         meta: {
           schedulerType: 'fsrs-v6',
-          // 列表模板特有的元数据
+          // 鍒楄〃妯℃澘鐗规湁鐨勫厓鏁版嵁
           listTemplate: {
             parentBlockId: command.parentBlockId,
             parentParagraphId,
@@ -243,51 +245,19 @@ export class CreateListTemplateCardsUseCase {
 
       const xiuyuan = xiuyuanResult.value;
 
-      // 9. 为每个 face 创建 Card 实体
-      for (let i = 0; i < faces.length; i++) {
-        const cardResult = xiuyuan.createCard(i);
-        if (!cardResult.ok) {
-          const error = (cardResult as any).error || new Error(`Failed to create card for face ${i}`);
-          logger.error(`Failed to create card for face ${i}:`, error);
-          return err(error);
-        }
-      }
-
-      // 10. 添加到 Riff（可选，错误不阻断）
-      const deckId = command.deckId || BUILTIN_DECK_ID;
-      
-      try {
-        // 🔧 使用段落块 ID 添加到 Riff（与 Xiuyuan.blockIds[0] 一致）
-        await addRiffCards(deckId, [parentParagraphId]);
-        logger.info('Created list template Xiuyuan and added to Riff:', {
-          xiuyuanId: xiuyuan.getId().getValue(),
-          blockId: parentParagraphId,
-          representativeBlockId,
-          source: 'list-template-creation'
-        });
-      } catch (error) {
-        logger.warn('Failed to add to Riff:', error);
-        // 不阻断流程
-      }
-
-      // 11. 通过 Repository 持久化
-      const saveResult = await this.xiuyuanRepository.save(xiuyuan);
-      if (!saveResult.ok) {
-        return saveResult as Result<any>;
-      }
-
-      // 12. 返回结果
-      return ok({
-        xiuyuan: {
-          id: xiuyuan.getId().getValue(),
-          blockIDs: xiuyuan.getBlockIDs().map(id => id.getValue()),
-          templateID: xiuyuan.getTemplateID().getValue(),
+      return finalizeXiuyuanCreation({
+        xiuyuan,
+        xiuyuanRepository: this.xiuyuanRepository,
+        logger,
+        riff: {
+          deckId: command.deckId,
+          blockIds: [parentParagraphId],
+          source: 'list-template-creation',
+          context: {
+            blockId: parentParagraphId,
+            representativeBlockId,
+          },
         },
-        cards: xiuyuan.getCards().map(card => ({
-          id: card.getId().getValue(),
-          xiuyuanId: card.getXiuyuanId().getValue(),
-          faceIndex: card.getFaceIndex()
-        }))
       });
     } catch (error) {
       logger.error('Failed:', error);
@@ -295,3 +265,6 @@ export class CreateListTemplateCardsUseCase {
     }
   }
 }
+
+
+

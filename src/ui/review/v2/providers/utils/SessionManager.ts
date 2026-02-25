@@ -14,6 +14,9 @@
  */
 
 import { SortedSequencer } from '@/core/queue/sequencers/SortedSequencer';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('SessionManager');
 
 export interface SessionManagerOptions<TCard> {
   /**
@@ -85,7 +88,7 @@ export class SessionManager<TCard> {
     this.sequencer.insertMany(cards);
     this.loaded = true;
     
-    console.log('[SessionManager] Loaded', cards.length, 'cards');
+    logger.debug('Loaded cards', { count: cards.length });
   }
   
   /**
@@ -116,7 +119,7 @@ export class SessionManager<TCard> {
     const removed = this.sequencer.remove(predicate);
     
     if (removed) {
-      console.log('[SessionManager] Removed card');
+      logger.debug('Removed card');
     }
     
     return removed;
@@ -134,7 +137,7 @@ export class SessionManager<TCard> {
   rotate(card: TCard): void {
     this.sequencer.insert(card);
     
-    console.log('[SessionManager] Rotated card');
+    logger.debug('Rotated card');
   }
   
   /**
@@ -155,7 +158,7 @@ export class SessionManager<TCard> {
     // 重新插入（会根据新的 lapses 重新排序）
     this.sequencer.insert(card);
     
-    console.log('[SessionManager] Rotated card with lapses:', cardAny.lapses);
+    logger.debug('Rotated card with lapses', { lapses: cardAny.lapses });
   }
   
   /**
@@ -192,7 +195,7 @@ export class SessionManager<TCard> {
     this.sequencer.clear();
     this.loaded = false;
     
-    console.log('[SessionManager] Cleared session');
+    logger.debug('Cleared session');
   }
   
   /**
