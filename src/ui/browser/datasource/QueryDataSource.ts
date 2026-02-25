@@ -1,28 +1,10 @@
 ﻿import type { BrowserCard } from '../types';
 import { CardState, STATE_LABELS, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from '../types';
 import { sql } from '@/core/siyuan/api';
-import { loadQueueCards, loadQueueCardsSimple } from '../browserService';
+import { loadQueueCardsSimple } from '../browserService';
 import type { ICardDataSource } from '@/application/interfaces/ICardDataSource';
 import type { CardBrowserAction, SortModel } from './types';
-
-function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
-  if (!sortModel?.length) return rows;
-  const [{ colId, sort }] = sortModel;
-  const dir = sort === 'desc' ? -1 : 1;
-  const key = String(colId || '');
-  const copy = [...rows];
-  copy.sort((a: any, b: any) => {
-    const av = (a as any)?.[key];
-    const bv = (b as any)?.[key];
-    if (av == null && bv == null) return 0;
-    if (av == null) return -1 * dir;
-    if (bv == null) return 1 * dir;
-    if (av instanceof Date && bv instanceof Date) return (av.getTime() - bv.getTime()) * dir;
-    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
-    return String(av).localeCompare(String(bv)) * dir;
-  });
-  return copy;
-}
+import { sortBrowserCards } from './DataSourceUtils';
 
 function toBrowserCardFromRow(row: any): BrowserCard | null {
   const blockId = String(row?.id || row?.block_id || row?.blockId || '');
@@ -104,7 +86,7 @@ export class QueryDataSource implements ICardDataSource {
       if (card) rows.push(card);
     }
 
-    const sorted = applySort(rows, params?.sortModel || []);
+    const sorted = sortBrowserCards(rows, params?.sortModel || []);
     return { rows: sorted, totalCount: sorted.length };
   }
 

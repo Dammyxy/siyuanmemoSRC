@@ -529,6 +529,43 @@ export class CardApplicationService {
     this.unifiedStorage.setCard(card);
   }
 
+  private async runBatchUpsertWithoutEvents(params: {
+    cards: unknown[];
+    context: string;
+    shouldUpsert?: (card: FSRSCard) => boolean;
+  }): Promise<{ successCount: number; failedCount: number }> {
+    const normalizedCards = this.normalizeBatchCards(params.cards);
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (const card of normalizedCards) {
+      if (params.shouldUpsert && !params.shouldUpsert(card)) {
+        failedCount++;
+        logger.warn(`${params.context}: skip card because target not found`, {
+          cardId: card.id,
+        });
+        continue;
+      }
+
+      try {
+        await this.upsertCardWithoutEvents(card);
+        successCount++;
+      } catch (error) {
+        failedCount++;
+        logger.error(`${params.context}: failed to upsert card`, {
+          cardId: card.id,
+          error,
+        });
+      }
+    }
+
+    if (successCount > 0) {
+      await this.persistChanges(params.context);
+    }
+
+    return { successCount, failedCount };
+  }
+
   /**
    * 批量删除卡片
    *
@@ -577,31 +614,15 @@ export class CardApplicationService {
    * @param cards FSRSCard 列表
    * @returns 创建结果
    */
-  async batchCreateCardsWithoutEvents(cards: any[]): Promise<{ ok: true; value: { createdCount: number; failedCount: number } } | { ok: false; error: Error }> {
+  async batchCreateCardsWithoutEvents(cards: unknown[]): Promise<{ ok: true; value: { createdCount: number; failedCount: number } } | { ok: false; error: Error }> {
     if (!cards || cards.length === 0) {
       return { ok: true, value: { createdCount: 0, failedCount: 0 } };
     }
 
-    const normalizedCards = this.normalizeBatchCards(cards);
-    let createdCount = 0;
-    let failedCount = 0;
-
-    for (const card of normalizedCards) {
-      try {
-        await this.upsertCardWithoutEvents(card);
-        createdCount++;
-      } catch (error) {
-        failedCount++;
-        logger.error('Error creating card in batchCreateCardsWithoutEvents', {
-          cardId: card.id,
-          error,
-        });
-      }
-    }
-
-    if (createdCount > 0) {
-      await this.persistChanges('batchCreateCardsWithoutEvents');
-    }
+    const { successCount: createdCount, failedCount } = await this.runBatchUpsertWithoutEvents({
+      cards,
+      context: 'batchCreateCardsWithoutEvents',
+    });
 
     return { ok: true, value: { createdCount, failedCount } };
   }
@@ -615,39 +636,16 @@ export class CardApplicationService {
    * @param cards FSRSCard 列表
    * @returns 更新结果
    */
-  async batchUpdateCardsWithoutEvents(cards: any[]): Promise<{ ok: true; value: { updatedCount: number; failedCount: number } } | { ok: false; error: Error }> {
+  async batchUpdateCardsWithoutEvents(cards: unknown[]): Promise<{ ok: true; value: { updatedCount: number; failedCount: number } } | { ok: false; error: Error }> {
     if (!cards || cards.length === 0) {
       return { ok: true, value: { updatedCount: 0, failedCount: 0 } };
     }
 
-    const normalizedCards = this.normalizeBatchCards(cards);
-    let updatedCount = 0;
-    let failedCount = 0;
-
-    for (const card of normalizedCards) {
-      try {
-        const existingCard = this.unifiedStorage.getCard(card.id);
-        if (existingCard) {
-          await this.upsertCardWithoutEvents(card);
-          updatedCount++;
-        } else {
-          failedCount++;
-          logger.warn('Card not found for update in batchUpdateCardsWithoutEvents', {
-            cardId: card.id,
-          });
-        }
-      } catch (error) {
-        failedCount++;
-        logger.error('Error updating card in batchUpdateCardsWithoutEvents', {
-          cardId: card.id,
-          error,
-        });
-      }
-    }
-
-    if (updatedCount > 0) {
-      await this.persistChanges('batchUpdateCardsWithoutEvents');
-    }
+    const { successCount: updatedCount, failedCount } = await this.runBatchUpsertWithoutEvents({
+      cards,
+      context: 'batchUpdateCardsWithoutEvents',
+      shouldUpsert: (card) => Boolean(this.unifiedStorage.getCard(card.id)),
+    });
 
     return { ok: true, value: { updatedCount, failedCount } };
   }

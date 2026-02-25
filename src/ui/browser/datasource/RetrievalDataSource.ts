@@ -6,6 +6,11 @@ import {
 } from './MenuActions';
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import type { FSRSCard } from '../../../types/card';
+import {
+  applyQueueFilters,
+  deleteBrowserCards,
+  sortBrowserCards,
+} from './DataSourceUtils';
 
 // ✅ 五重筛选：支持的筛选参数
 export type RetrievalDataSourceOptions = {
@@ -14,25 +19,6 @@ export type RetrievalDataSourceOptions = {
   queryText?: string;  // 搜索查询
   cardType?: 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only';  // ✅ 卡片类型筛选
 };
-
-function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
-  if (!sortModel?.length) return rows;
-  const [{ colId, sort }] = sortModel;
-  const dir = sort === 'desc' ? -1 : 1;
-  const key = String(colId || '');
-  const copy = [...rows];
-  copy.sort((a: any, b: any) => {
-    const av = (a as any)?.[key];
-    const bv = (b as any)?.[key];
-    if (av == null && bv == null) return 0;
-    if (av == null) return -1 * dir;
-    if (bv == null) return 1 * dir;
-    if (av instanceof Date && bv instanceof Date) return (av.getTime() - bv.getTime()) * dir;
-    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
-    return String(av).localeCompare(String(bv)) * dir;
-  });
-  return copy;
-}
 
 export class RetrievalDataSource implements ICardDataSource {
   id = 'retrieval';
@@ -102,91 +88,16 @@ export class RetrievalDataSource implements ICardDataSource {
       }
       
       // 应用筛选条件
-      const filtered = this.applyFilters(browserCards);
+      const filtered = applyQueueFilters(browserCards, this.options, 'headline');
       
       // 应用排序
-      const sorted = applySort(filtered, params?.sortModel || []);
+      const sorted = sortBrowserCards(filtered, params?.sortModel || []);
       
       return { rows: sorted, totalCount: sorted.length };
     } catch (error) {
       console.error('[SiYuanMemo][RetrievalDataSource] Failed to fetch rows:', error);
       throw error;
     }
-  }
-
-  // ✅ 四重筛选：应用筛选条件
-  private applyFilters(cards: BrowserCard[]): BrowserCard[] {
-    let result = cards;
-
-    // 文档筛选（使用 rootId 而非 boxId）
-    if (this.options.docId) {
-      console.log('[SiYuanMemo][RetrievalDataSource] 🔍 Filtering by docId:', {
-        docId: this.options.docId,
-        totalCards: result.length,
-        cardsWithRootId: result.filter(c => c.rootId).length,
-        sampleRootIds: result.slice(0, 5).map(c => ({ blockId: c.blockId, rootId: c.rootId })),
-      });
-      
-      result = result.filter(c => c.rootId === this.options.docId);
-      
-      console.log('[SiYuanMemo][RetrievalDataSource] 🔍 After docId filter:', {
-        filteredCount: result.length,
-      });
-    }
-
-    // Preset 筛选
-    if (this.options.preset && this.options.preset !== 'all') {
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-      result = result.filter(c => {
-        switch (this.options.preset) {
-          case 'due':
-            return c.due && new Date(c.due) <= today;
-          case 'overdue':
-            return c.due && new Date(c.due) < today;
-          case 'new':
-            return c.state === 0; // New
-          case 'leech':
-            return (c.lapses || 0) > 0;
-          default:
-            return true;
-        }
-      });
-    }
-
-    // 搜索筛选（简单关键词搜索）
-    if (this.options.queryText) {
-      const query = this.options.queryText.toLowerCase().trim();
-      if (query && !query.startsWith('tag:') && !query.startsWith('deck:') && !query.startsWith('state:') && !query.startsWith('doc:')) {
-        result = result.filter(c => {
-          return c.content?.toLowerCase().includes(query) ||
-                 (c as any).headline?.toLowerCase().includes(query);
-        });
-      }
-    }
-
-    // 卡片类型筛选
-    if (this.options.cardType && this.options.cardType !== 'all') {
-      result = result.filter(c => {
-        switch (this.options.cardType) {
-          case 'topic-only':
-            // Topic 类型包括：topic（增量阅读）
-            return c.cardType === 'topic';
-          case 'item-only':
-            // ✅ 修复：item-only 只显示 item 卡片，不包含 concept 和 descriptor
-            return c.cardType === 'item' || !c.cardType;  // 缺失 cardType 的默认为 item
-          case 'concept-only':
-            return c.cardType === 'concept';
-          case 'descriptor-only':
-            return c.cardType === 'descriptor';
-          default:
-            return true;
-        }
-      });
-    }
-
-    return result;
   }
 
   getSupportedActions(): CardBrowserAction[] {
@@ -215,39 +126,21 @@ export class RetrievalDataSource implements ICardDataSource {
 
       // 删除卡片（使用 CardApplicationService 批量删除）
       if (actionId === 'delete-card') {
-        if (!this.plugin) {
-          console.error('[SiYuanMemo][RetrievalDataSource] Plugin not available!');
+        const deletion = await deleteBrowserCards(this.plugin as any, selectedRows, {
+          preferBatch: true,
+          scope: 'RetrievalDataSource',
+        });
+        if (!deletion) {
           return 0;
         }
-        
-        const cardService = this.plugin.getContext?.()?.getCardService?.();
-        if (!cardService) {
-          console.error('[SiYuanMemo][RetrievalDataSource] CardApplicationService not available!');
-          return 0;
+
+        if (deletion.failedCardIds.length > 0) {
+          console.warn('[SiYuanMemo][RetrievalDataSource] 部分卡片删除失败:', deletion.failedCardIds);
         }
-        
-        // 🚀 性能优化：使用批量删除 API
-        const cardIds = selectedRows.map(row => row.fsrsCardId || row.id);
-        
-        console.log(`[SiYuanMemo][RetrievalDataSource] 批量删除 ${cardIds.length} 张卡片`);
-        
-        const result = await cardService.deleteCards({ cardIds });
-        
-        if (result.ok) {
-          console.log(`[SiYuanMemo][RetrievalDataSource] 批量删除成功: ${result.value.deletedCount}/${cardIds.length}`);
-          if (result.value.failedCardIds.length > 0) {
-            console.warn(`[SiYuanMemo][RetrievalDataSource] 部分卡片删除失败:`, result.value.failedCardIds);
-          }
-          
-          // ✅ 返回标准格式，触发浏览器刷新
-          return {
-            updated: result.value.deletedCardIds.map(id => ({ id })),
-            skipped: result.value.failedCardIds.map(id => ({ id }))
-          };
-        } else {
-          console.error(`[SiYuanMemo][RetrievalDataSource] 批量删除失败:`, result.error);
-          return { updated: [], skipped: selectedRows };
-        }
+        return {
+          updated: deletion.deletedCardIds.map((id) => ({ id })),
+          skipped: deletion.failedCardIds.map((id) => ({ id })),
+        };
       }
 
       // 设置优先级

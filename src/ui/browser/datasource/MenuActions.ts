@@ -8,7 +8,7 @@
 import type { CardBrowserAction } from './types';
 import type { BrowserCard } from '../../browser/types';
 import { batchSetPriority } from '../../browser/browserService';
-import { RescheduleService } from '@/core/scheduler/rescheduleService';
+import type { RescheduleService } from '@/core/scheduler/rescheduleService';
 import { ConfigManager } from '@/core/scheduler/ConfigManager';
 import type { CardReadPort } from '@/core/storage/ports';
 import { InsertAtCommand, RemoveCommand, SetPriorityCommand, AutoSortCommand } from '@/core/queue/commands';
@@ -183,16 +183,67 @@ export function buildQueueActions(
 
 // ========== 动作处理器 ==========
 
+type QueueActionType = 'retrieval' | 'incremental' | 'final-drill' | 'filter-group' | 'neural-roam';
+type RescheduleAction = 'postpone' | 'advance' | 'spread';
+
+type BrowserCardExtraFields = BrowserCard & {
+  nextDues?: unknown;
+  question?: string;
+  answer?: string;
+};
+
+type QueueItemPayload = {
+  cardID: string;
+  blockID: string;
+  deckID: string;
+  priority: number;
+  nextDues?: unknown;
+  state?: BrowserCard['state'];
+  lapses?: number;
+  reps?: number;
+  lastReview?: BrowserCard['lastReview'];
+  meta?: BrowserCard['meta'];
+  cardType?: BrowserCard['cardType'];
+  manuallyAdded?: boolean;
+};
+
+type QueueAddLike = {
+  addCard?: (cardIdOrBlockId: string, source?: 'manual' | 'auto-failed') => Promise<void> | void;
+  addItems?: (items: QueueItemPayload[]) => Promise<number> | number;
+  removeCard?: (cardIdOrBlockId: string) => Promise<void> | void;
+};
+
+type UnifiedStorageLike = CardReadPort & {
+  loadData?: (key: string) => Promise<unknown>;
+  saveData?: (key: string, value: unknown) => Promise<void>;
+};
+
+type RescheduleResultLike = {
+  updated?: unknown;
+  skipped?: unknown;
+  averageCardsPerDay?: number;
+};
+
+type RescheduleServiceLike = Pick<
+  RescheduleService,
+  'postponeWithConfig' | 'advanceWithConfig' | 'spreadWithConfig'
+>;
+
+type PluginContextLike = {
+  getRescheduleService?: () => RescheduleServiceLike | undefined;
+  getUnifiedStorage?: () => UnifiedStorageLike | undefined;
+};
+
 /**
  * Queue Trait 访问接口
  */
-export type QueueTraitLike = {
-  getMutableTrait?: () => any;
-  getRemovableTrait?: () => any;
-  getPrioritizableTrait?: () => any;
-  getAutoSortableTrait?: () => any;
-  remove?: (items: any[]) => Promise<number> | number;
-  insertAt?: (items: any[], index: number) => Promise<void> | void;
+export type QueueTraitLike = QueueAddLike & {
+  getMutableTrait?: () => unknown;
+  getRemovableTrait?: () => unknown;
+  getPrioritizableTrait?: () => unknown;
+  getAutoSortableTrait?: () => unknown;
+  remove?: (items: QueueItemPayload[]) => Promise<number> | number;
+  insertAt?: (items: QueueItemPayload[], index: number) => Promise<void> | void;
   setPriority?: (cardID: string, priority: number) => Promise<boolean> | boolean;
   sort?: () => Promise<void> | void;
 };
@@ -202,39 +253,125 @@ export type QueueTraitLike = {
  */
 export type PluginLike = {
   storage?: CardReadPort;
-  rescheduleService?: RescheduleService;
+  rescheduleService?: RescheduleServiceLike;
+  context?: PluginContextLike;
+  getContext?: () => PluginContextLike | undefined;
 };
+
+const queueDisplayName: Record<Exclude<QueueActionType, 'retrieval' | 'neural-roam'>, string> = {
+  incremental: '渐进学习',
+  'final-drill': '刻意练习',
+  'filter-group': '筛选复习',
+};
+
+const queueUnavailableMessage: Record<QueueActionType, string> = {
+  retrieval: '提取练习队列不可用',
+  incremental: '渐进学习队列不可用',
+  'final-drill': '刻意练习队列不可用',
+  'filter-group': '筛选复习队列不可用',
+  'neural-roam': '神经漫游队列不可用',
+};
+
+const conceptOnlyMessage: Record<'retrieval' | 'final-drill' | 'neural-roam', string> = {
+  retrieval: 'Concept 卡片不能加入提取练习队列',
+  'final-drill': 'Concept 卡片不能加入刻意练习队列',
+  'neural-roam': '神经漫游队列只接受 Concept 卡片',
+};
+
+function resolveCardId(card: BrowserCard): string {
+  return card.fsrsCardId || card.id || card.blockId;
+}
+
+function normalizeCount(value: unknown, fallback = 0): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.floor(value));
+  }
+  if (Array.isArray(value)) {
+    return value.length;
+  }
+  return Math.max(0, fallback);
+}
+
+function parseSiyuanTime14(timeStr: string | undefined): Date | null {
+  if (!timeStr) return null;
+  if (/^\d{14}$/.test(timeStr)) {
+    const y = Number.parseInt(timeStr.slice(0, 4), 10);
+    const m = Number.parseInt(timeStr.slice(4, 6), 10) - 1;
+    const d = Number.parseInt(timeStr.slice(6, 8), 10);
+    const h = Number.parseInt(timeStr.slice(8, 10), 10);
+    const min = Number.parseInt(timeStr.slice(10, 12), 10);
+    const s = Number.parseInt(timeStr.slice(12, 14), 10);
+    return new Date(Date.UTC(y, m, d, h, min, s));
+  }
+
+  const isoParsed = new Date(timeStr);
+  if (!Number.isNaN(isoParsed.getTime())) {
+    return isoParsed;
+  }
+  return null;
+}
+
+function resolvePluginContext(plugin: PluginLike | undefined): PluginContextLike | undefined {
+  if (!plugin) {
+    return undefined;
+  }
+  return plugin.context ?? plugin.getContext?.();
+}
+
+function resolveRescheduleService(plugin: PluginLike | undefined): RescheduleServiceLike | undefined {
+  if (plugin?.rescheduleService) {
+    return plugin.rescheduleService;
+  }
+
+  const context = resolvePluginContext(plugin);
+  if (!context?.getRescheduleService) {
+    return undefined;
+  }
+
+  try {
+    return context.getRescheduleService();
+  } catch (error) {
+    logger.warn('Failed to get RescheduleService from context:', error);
+    return undefined;
+  }
+}
+
+function resolveUnifiedStorage(plugin: PluginLike | undefined): UnifiedStorageLike | undefined {
+  const context = resolvePluginContext(plugin);
+  return context?.getUnifiedStorage?.();
+}
 
 /**
  * 将 BrowserCard 转换为队列项
  */
-export function cardsToQueueItems(cards: BrowserCard[]): any[] {
+export function cardsToQueueItems(cards: BrowserCard[]): QueueItemPayload[] {
   logger.debug('[MenuActions] ========== cardsToQueueItems 转换开始 ==========');
   logger.debug('[MenuActions] 输入 BrowserCard 数量:', cards.length);
   
-  const result = cards.map((r, index) => {
-    const cardID = r.fsrsCardId || r.id || r.blockId;
+  const result = cards.map((rawCard, index) => {
+    const card = rawCard as BrowserCardExtraFields;
+    const cardID = resolveCardId(card);
     const item = {
       cardID,
-      blockID: r.blockId,
-      deckID: r.deckId,
-      priority: typeof r.priority === 'number' ? r.priority : 50,
-      nextDues: r.nextDues,
-      state: r.state,
-      lapses: r.lapses,
-      reps: r.reps,
-      lastReview: r.lastReview,
-      meta: r.meta,
+      blockID: card.blockId,
+      deckID: card.deckId,
+      priority: typeof card.priority === 'number' ? card.priority : 50,
+      nextDues: card.nextDues,
+      state: card.state,
+      lapses: card.lapses,
+      reps: card.reps,
+      lastReview: card.lastReview,
+      meta: card.meta,
     };
     
     logger.debug(`[MenuActions] 转换卡片 ${index + 1}/${cards.length}:`, {
       input: {
-        id: r.id,
-        fsrsCardId: r.fsrsCardId,
-        blockId: r.blockId,
-        deckId: r.deckId,
-        nextDues: r.nextDues,
-        priority: r.priority,
+        id: card.id,
+        fsrsCardId: card.fsrsCardId,
+        blockId: card.blockId,
+        deckId: card.deckId,
+        nextDues: card.nextDues,
+        priority: card.priority,
       },
       output: {
         cardID: item.cardID,
@@ -243,15 +380,15 @@ export function cardsToQueueItems(cards: BrowserCard[]): any[] {
         nextDues: item.nextDues,
         priority: item.priority,
       },
-      match: cardID === (r.fsrsCardId || r.id || r.blockId),
+      match: cardID === resolveCardId(card),
     });
     
     // 验证转换结果
     if (!item.cardID) {
-      logger.error(`[MenuActions] ❌ 转换错误：cardID 为空`, { input: r, output: item });
+      logger.error(`[MenuActions] ❌ 转换错误：cardID 为空`, { input: card, output: item });
     }
     if (!item.blockID) {
-      logger.error(`[MenuActions] ❌ 转换错误：blockID 为空`, { input: r, output: item });
+      logger.error(`[MenuActions] ❌ 转换错误：blockID 为空`, { input: card, output: item });
     }
     if (item.cardID !== cardID) {
       logger.error(`[MenuActions] ❌ 转换错误：cardID 不匹配`, {
@@ -353,7 +490,7 @@ export async function setPriority(
   const items = cardsToQueueItems(selectedRows);
 
   // 更新 BrowserCard 中的 priority（用于 UI 刷新）
-  for (const r of selectedRows as any[]) {
+  for (const r of selectedRows) {
     r.priority = p;
   }
 
@@ -422,623 +559,358 @@ export async function batchSetBlockPriority(
 
   // 更新 BrowserCard 中的 priority
   for (const r of selectedRows || []) {
-    (r as any).priority = p;
+    r.priority = p;
   }
 }
 
 /**
  * 时间调整（推迟/提前/分散）
  */
+function collectRescheduleCards(
+  storage: UnifiedStorageLike | undefined,
+  selectedRows: Array<{ blockId: string; cardId?: string }>,
+  action: RescheduleAction
+): unknown[] {
+  if (!storage) {
+    logger.error(`No UnifiedStorageManager available for ${action}WithConfig`);
+    return [];
+  }
+
+  const cards: unknown[] = [];
+  for (const row of selectedRows) {
+    if (!row.cardId) {
+      logger.warn(`[${action}] Row missing cardId, skipping`, row);
+      continue;
+    }
+
+    const card = storage.getCard(row.cardId);
+    if (!card) {
+      logger.warn(`[${action}] Card not found in storage: ${row.cardId}`);
+      continue;
+    }
+
+    cards.push(card);
+  }
+
+  return cards;
+}
+
+function buildLegacyConfig(
+  action: RescheduleAction,
+  configManager: ConfigManager | null,
+  context: Record<string, unknown> | undefined
+): unknown | null {
+  if (!configManager) {
+    logger.error(`ConfigManager unavailable for ${action}`);
+    return null;
+  }
+
+  if (action === 'postpone') {
+    const days = Math.max(1, Number(context?.days || 0));
+    const config = configManager.getDefaultPostponeConfig();
+    config.delayFactor = 1;
+    config.minInterval = days;
+    config.maxInterval = days;
+    return config;
+  }
+
+  if (action === 'advance') {
+    const maxDays = Math.max(1, Number(context?.maxDays || 0));
+    const config = configManager.getDefaultAdvanceConfig();
+    config.maxDays = maxDays;
+    return config;
+  }
+
+  const spreadDays = Math.max(1, Number(context?.maxDays || context?.days || 0));
+  const config = configManager.getDefaultSpreadConfig();
+  config.collectingPeriod = spreadDays;
+  config.reschedulingPeriod = spreadDays;
+  config.considerFutureRepetitions = false;
+  return config;
+}
+
+function updateDueInMemory(selectedRows: BrowserCard[], updated: unknown): void {
+  if (!Array.isArray(updated)) {
+    return;
+  }
+
+  const rowByBlockId = new Map(selectedRows.map((row) => [row.blockId, row]));
+  for (const item of updated as Array<{ blockId?: string; newDue?: string }>) {
+    const blockId = item?.blockId;
+    if (!blockId) {
+      continue;
+    }
+
+    const due = parseSiyuanTime14(item?.newDue);
+    if (!due) {
+      continue;
+    }
+
+    const row = rowByBlockId.get(blockId);
+    if (row) {
+      row.due = due;
+    }
+  }
+}
+
+function buildEmptyAdjustResult(action: RescheduleAction, rowCount: number): {
+  updated: number;
+  skipped: number;
+  averageCardsPerDay?: number;
+} {
+  if (action === 'spread') {
+    return { updated: 0, skipped: rowCount, averageCardsPerDay: 0 };
+  }
+  return { updated: 0, skipped: rowCount };
+}
+
+async function executeReschedule(
+  service: RescheduleServiceLike,
+  action: RescheduleAction,
+  cards: unknown[],
+  config: unknown,
+  meta: { source: string }
+): Promise<RescheduleResultLike | undefined> {
+  switch (action) {
+    case 'postpone':
+      return service.postponeWithConfig(cards as never, config as never, meta as never) as unknown as
+        | RescheduleResultLike
+        | undefined;
+    case 'advance':
+      return service.advanceWithConfig(cards as never, config as never, meta as never) as unknown as
+        | RescheduleResultLike
+        | undefined;
+    case 'spread':
+      return service.spreadWithConfig(cards as never, config as never, meta as never) as unknown as
+        | RescheduleResultLike
+        | undefined;
+    default:
+      return undefined;
+  }
+}
+
 export async function adjustTime(
   plugin: PluginLike | undefined,
   selectedRows: BrowserCard[],
-  action: 'postpone' | 'advance' | 'spread',
-  context?: any
-): Promise<any> {
+  action: RescheduleAction,
+  context?: Record<string, unknown>
+): Promise<{ updated: number; skipped: number; averageCardsPerDay?: number } | null> {
   const rows = (selectedRows || []).map((r) => ({
     blockId: r.blockId,
-    cardId: r.fsrsCardId || r.id || undefined,  // 优先使用 fsrsCardId
-    currentDue: r.due instanceof Date ? r.due : undefined,
+    cardId: resolveCardId(r) || undefined,
   }));
 
-  // 获取 RescheduleService
-  // 优先从 plugin.rescheduleService 获取（已注入）
-  // 其次从 ApplicationContext 获取
-  // 获取 RescheduleService
-  // 优先从 plugin.rescheduleService 获取（已注入）
-  // 其次从 ApplicationContext 获取
-  let service = plugin?.rescheduleService;
-  
-  if (!service && plugin && (plugin as any).context) {
-    try {
-      service = (plugin as any).context.getRescheduleService?.();
-    } catch (error) {
-      logger.warn('Failed to get RescheduleService from context:', error);
-    }
-  }
+  const service = resolveRescheduleService(plugin);
 
   if (!service) {
     logger.error('RescheduleService not available');
     return null;
   }
 
-  const meta = { source: 'browser' };
-  const unifiedStorage = (plugin as any)?.context?.getUnifiedStorage?.();
-  const configManager = unifiedStorage ? new ConfigManager(unifiedStorage) : null;
-
-  const loadFsrsCards = (op: 'postpone' | 'advance' | 'spread') => {
-    if (!unifiedStorage) {
-      logger.error(`No UnifiedStorageManager available for ${op}WithConfig`);
-      return [];
-    }
-
-    const fsrsCards: any[] = [];
-    for (const row of rows) {
-      if (!row.cardId) {
-        logger.warn(`[${op}] Row missing cardId, skipping`, row);
-        continue;
-      }
-
-      const card = unifiedStorage.getCard(row.cardId);
-      if (card) {
-        fsrsCards.push(card);
-      } else {
-        logger.warn(`[${op}] Card not found in storage: ${row.cardId}`);
-      }
-    }
-
-    return fsrsCards;
-  };
-
-  // 解析时间
-  const parseTime = (timeStr: string | undefined): Date | null => {
-    if (!timeStr) return null;
-    if (/^\d{14}$/.test(timeStr)) {
-      const y = parseInt(timeStr.slice(0, 4));
-      const m = parseInt(timeStr.slice(4, 6)) - 1;
-      const d = parseInt(timeStr.slice(6, 8));
-      const h = parseInt(timeStr.slice(8, 10));
-      const min = parseInt(timeStr.slice(10, 12));
-      const s = parseInt(timeStr.slice(12, 14));
-      return new Date(Date.UTC(y, m, d, h, min, s));
-    }
-    const isoParsed = new Date(timeStr);
-    if (!Number.isNaN(isoParsed.getTime())) return isoParsed;
-    return null;
-  };
-
-  // 更新 UI 中的 due 字段
-  const updateUIDue = (updated: any) => {
-    if (!Array.isArray(updated)) {
-      return;
-    }
-    for (const u of updated) {
-      const d = parseTime(String(u?.newDue || ''));
-      const r = (selectedRows || []).find((x) => x.blockId === u?.blockId) as any;
-      if (r && d) {
-        r.due = d;
-        // 需要 import { formatDate } from '../types'
-        // r.dueFormatted = formatDate(d);
-      }
-    }
-  };
-
-  const toCount = (value: any): number => {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return Math.max(0, Math.floor(value));
-    }
-    if (Array.isArray(value)) {
-      return value.length;
-    }
-    return 0;
-  };
-
-  const buildCountResult = (
-    updated: any,
-    skipped: any,
-    extra: Record<string, any> = {}
-  ) => ({
-    updated: toCount(updated),
-    skipped: toCount(skipped),
-    ...extra,
-  });
-
-  let result: any;
-  switch (action) {
-    case 'postpone':
-      // 检查是否使用新的配置对象
-      if (context?.config) {
-        const fsrsCards = loadFsrsCards('postpone');
-        
-        if (fsrsCards.length === 0) {
-          logger.warn('No FSRS cards found for postponeWithConfig');
-          result = buildCountResult(0, rows.length);
-          break;
-        }
-        
-        // 调用 postponeWithConfig
-        const postponeResult = await (service as any).postponeWithConfig?.(
-          fsrsCards,
-          context.config,
-          meta
-        );
-
-        // 转换结果格式以兼容旧接口
-        result = buildCountResult(postponeResult?.updated, postponeResult?.skipped);
-      } else {
-        // 兼容旧的简单参数方式（内部仍走新接口）
-        if (!configManager) {
-          logger.error('ConfigManager unavailable for postpone');
-          result = buildCountResult(0, rows.length);
-          break;
-        }
-
-        const days = Math.max(1, Number(context?.days || 0));
-        const fsrsCards = loadFsrsCards('postpone');
-        if (fsrsCards.length === 0) {
-          result = buildCountResult(0, rows.length);
-          break;
-        }
-
-        const postponeConfig = configManager.getDefaultPostponeConfig();
-        postponeConfig.delayFactor = 1;
-        postponeConfig.minInterval = days;
-        postponeConfig.maxInterval = days;
-
-        const postponeResult = await (service as any).postponeWithConfig?.(
-          fsrsCards,
-          postponeConfig,
-          meta
-        );
-
-        result = buildCountResult(postponeResult?.updated, postponeResult?.skipped);
-      }
-      updateUIDue(result?.updated);
-      break;
-    case 'advance':
-      // 检查是否使用新的配置对象
-      if (context?.config) {
-        if (!unifiedStorage) {
-          logger.error('No UnifiedStorageManager available for advanceWithConfig');
-          result = buildCountResult(0, rows.length);
-          break;
-        }
-        
-        const fsrsCards = loadFsrsCards('advance');
-        
-        if (fsrsCards.length === 0) {
-          logger.warn('No FSRS cards found for advance');
-          result = buildCountResult(0, rows.length);
-          break;
-        }
-        
-        // 调用 advanceWithConfig
-        const advanceResult = await (service as any).advanceWithConfig?.(
-          fsrsCards,
-          context.config,
-          meta
-        );
-        
-        // 转换结果格式以兼容旧接口
-        result = buildCountResult(
-          advanceResult?.updated,
-          Math.max(0, rows.length - toCount(advanceResult?.updated))
-        );
-      } else {
-        // 兼容旧的简单参数方式（内部仍走新接口）
-        if (!configManager) {
-          logger.error('ConfigManager unavailable for advance');
-          result = buildCountResult(0, rows.length);
-          break;
-        }
-
-        const maxDays = Math.max(1, Number(context?.maxDays || 0));
-        const fsrsCards = loadFsrsCards('advance');
-        if (fsrsCards.length === 0) {
-          result = buildCountResult(0, rows.length);
-          break;
-        }
-
-        const advanceConfig = configManager.getDefaultAdvanceConfig();
-        advanceConfig.maxDays = maxDays;
-
-        const advanceResult = await (service as any).advanceWithConfig?.(
-          fsrsCards,
-          advanceConfig,
-          meta
-        );
-
-        result = buildCountResult(
-          advanceResult?.updated,
-          Math.max(0, rows.length - toCount(advanceResult?.updated))
-        );
-      }
-      updateUIDue(result?.updated);
-      break;
-    case 'spread':
-      // 检查是否使用新的配置对象
-      if (context?.config) {
-        if (!unifiedStorage) {
-          logger.error('No UnifiedStorageManager available for spreadWithConfig');
-          result = buildCountResult(0, rows.length, { averageCardsPerDay: 0 });
-          break;
-        }
-        
-        const fsrsCards = loadFsrsCards('spread');
-        
-        if (fsrsCards.length === 0) {
-          logger.warn('No FSRS cards found for spread');
-          result = buildCountResult(0, rows.length, { averageCardsPerDay: 0 });
-          break;
-        }
-        
-        // 调用 spreadWithConfig
-        const spreadResult = await (service as any).spreadWithConfig?.(
-          fsrsCards,
-          context.config,
-          meta
-        );
-
-        result = buildCountResult(
-          spreadResult?.updated,
-          Math.max(0, rows.length - toCount(spreadResult?.updated)),
-          { averageCardsPerDay: spreadResult?.averageCardsPerDay ?? 0 }
-        );
-      } else {
-        // 兼容旧的简单参数方式（内部仍走新接口）
-        if (!configManager) {
-          logger.error('ConfigManager unavailable for spread');
-          result = buildCountResult(0, rows.length, { averageCardsPerDay: 0 });
-          break;
-        }
-
-        const spreadDays = Math.max(1, Number(context?.maxDays || context?.days || 0));
-        const fsrsCards = loadFsrsCards('spread');
-        if (fsrsCards.length === 0) {
-          result = buildCountResult(0, rows.length, { averageCardsPerDay: 0 });
-          break;
-        }
-
-        const spreadConfig = configManager.getDefaultSpreadConfig();
-        spreadConfig.collectingPeriod = spreadDays;
-        spreadConfig.reschedulingPeriod = spreadDays;
-        spreadConfig.considerFutureRepetitions = false;
-
-        const spreadResult = await (service as any).spreadWithConfig?.(
-          fsrsCards,
-          spreadConfig,
-          meta
-        );
-
-        result = buildCountResult(
-          spreadResult?.updated,
-          Math.max(0, rows.length - toCount(spreadResult?.updated)),
-          { averageCardsPerDay: spreadResult?.averageCardsPerDay ?? 0 }
-        );
-      }
-      updateUIDue(result?.updated);
-      break;
+  const storage = resolveUnifiedStorage(plugin);
+  const configManager = storage ? new ConfigManager(storage) : null;
+  const config = context?.config ?? buildLegacyConfig(action, configManager, context);
+  if (!config) {
+    return buildEmptyAdjustResult(action, rows.length);
   }
 
-  return result;
+  const cards = collectRescheduleCards(storage, rows, action);
+  if (cards.length === 0) {
+    return buildEmptyAdjustResult(action, rows.length);
+  }
+
+  const rawResult = await executeReschedule(service, action, cards, config, { source: 'browser' });
+  if (!rawResult) {
+    return buildEmptyAdjustResult(action, rows.length);
+  }
+
+  updateDueInMemory(selectedRows, rawResult.updated);
+
+  const updated = normalizeCount(rawResult.updated);
+  if (action === 'postpone') {
+    return {
+      updated,
+      skipped: normalizeCount(rawResult.skipped),
+    };
+  }
+
+  const skipped = Math.max(0, rows.length - updated);
+  if (action === 'spread') {
+    const averageCardsPerDay =
+      typeof rawResult.averageCardsPerDay === 'number' && Number.isFinite(rawResult.averageCardsPerDay)
+        ? rawResult.averageCardsPerDay
+        : 0;
+    return { updated, skipped, averageCardsPerDay };
+  }
+
+  return { updated, skipped };
 }
 
 /**
  * 加入队列（用于 DeckDataSource）
  */
-export async function addToQueue(
-  queue: any,
+async function addItemsWithFallback(
+  queue: QueueAddLike | undefined,
+  items: QueueItemPayload[],
+  getAddTargetId: (item: QueueItemPayload) => string
+): Promise<{ added: number; failed: number; unavailable: boolean; firstError?: string }> {
+  if (!queue) {
+    return { added: 0, failed: items.length, unavailable: true };
+  }
+
+  if (typeof queue.addCard === 'function') {
+    let added = 0;
+    let failed = 0;
+    let firstError: string | undefined;
+
+    for (const item of items) {
+      const targetId = getAddTargetId(item);
+      try {
+        await Promise.resolve(queue.addCard(targetId, 'manual'));
+        added++;
+      } catch (error) {
+        failed++;
+        const message = error instanceof Error ? error.message : String(error);
+        firstError = firstError ?? message;
+        logger.error(`[MenuActions] Failed to add card ${targetId}`, error);
+      }
+    }
+
+    return { added, failed, unavailable: false, firstError };
+  }
+
+  if (typeof queue.addItems === 'function') {
+    const rawAdded = await Promise.resolve(queue.addItems(items));
+    const added = normalizeCount(rawAdded, items.length);
+    const failed = Math.max(0, items.length - added);
+    return { added, failed, unavailable: false };
+  }
+
+  return { added: 0, failed: items.length, unavailable: true };
+}
+
+function prepareQueueItems(
   selectedRows: BrowserCard[],
-  queueType: 'retrieval' | 'incremental' | 'final-drill' | 'filter-group' | 'neural-roam'  // ✅ 改名：'deliberate' → 'final-drill'
-): Promise<{ added: number; message: string }> {
-  logger.debug('[MenuActions] ========== addToQueue 被调用 ==========');
-  logger.debug('[MenuActions] queueType:', queueType);
-  logger.debug('[MenuActions] selectedRows 数量:', selectedRows?.length);
-  logger.debug('[MenuActions] queue:', queue);
-  logger.debug('[MenuActions] queue 类型:', queue?.constructor?.name);
-  
-  const items = selectedRows.map((r) => {
-    const base = {
-      cardID: r.fsrsCardId || r.id || r.blockId,
-      blockID: r.blockId,
-      deckID: r.deckId,
-      priority: typeof r.priority === 'number' ? r.priority : 50,
+  queueType: QueueActionType
+): QueueItemPayload[] {
+  return selectedRows.map((rawCard) => {
+    const card = rawCard as BrowserCardExtraFields;
+    const item: QueueItemPayload = {
+      cardID: resolveCardId(card),
+      blockID: card.blockId,
+      deckID: card.deckId,
+      priority: typeof card.priority === 'number' ? card.priority : 50,
+      nextDues: card.nextDues,
+      state: card.state,
+      lapses: card.lapses,
+      reps: card.reps,
+      lastReview: card.lastReview,
+      meta: card.meta,
     };
 
-    // 渐进学习需要特殊处理（保留 cardType 和 meta）
     if (queueType === 'incremental') {
-      return {
-        ...base,
-        cardType: (r as any).cardType,
-        meta: {
-          'custom-fsrs-type': (r as any).cardType,
-          rootId: (r as any).rootId,
-          question: (r as any).question,
-          answer: (r as any).answer,
-        },
+      item.cardType = card.cardType;
+      item.meta = {
+        ...(card.meta as Record<string, unknown> | undefined),
+        'custom-fsrs-type': card.cardType,
+        rootId: card.rootId,
+        question: card.question,
+        answer: card.answer,
       };
     }
 
-    return base;
+    return item;
   });
-  
-  logger.debug('[MenuActions] 转换后的 items:', items);
+}
 
-  // 神经漫游：使用 addCard（逐个添加）
+function filterQueueItems(
+  queueType: QueueActionType,
+  items: QueueItemPayload[],
+  selectedRows: BrowserCard[]
+): { items: QueueItemPayload[]; skippedConceptCount: number } {
+  const cardTypeByCardId = new Map<string, BrowserCard['cardType']>();
+  for (const row of selectedRows) {
+    cardTypeByCardId.set(resolveCardId(row), row.cardType);
+  }
+
+  let filteredItems = items;
   if (queueType === 'neural-roam') {
-    logger.debug('[MenuActions] 处理神经漫游队列');
-    
-    // 🆕 过滤非 Concept 卡片：神经漫游只接受 Concept 卡片
-    const filteredItems = items.filter((item) => {
-      const row = selectedRows.find((r) => (r.fsrsCardId || r.id || r.blockId) === item.cardID);
-      const cardType = (row as any)?.cardType;
-      
-      logger.debug(`[MenuActions] 检查卡片: blockID=${item.blockID}, cardID=${item.cardID}, cardType=${cardType}, row=`, row);
-      
-      if (cardType !== 'concept') {
-        logger.debug(`[MenuActions] 过滤非 Concept 卡片: ${item.blockID} (类型: ${cardType})`);
-        return false;
-      }
-      return true;
-    });
-    
-    logger.debug(`[MenuActions] 过滤后：${filteredItems.length}/${items.length} 张卡片`);
-    
-    if (filteredItems.length === 0) {
-      return { added: 0, message: '神经漫游队列只接受 Concept 卡片' };
-    }
-    
-    // 新架构：使用 addCard 方法（逐个添加）
-    if (queue?.addCard) {
-      let added = 0;
-      const errors: string[] = [];
-      
-      for (const item of filteredItems) {
-        try {
-          await queue.addCard(item.blockID, 'manual');
-          added++;
-        } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          logger.error(`[MenuActions] 添加种子块失败: ${item.blockID}`, err);
-          errors.push(`${item.blockID}: ${errorMsg}`);
-        }
-      }
-      
-      const skipped = items.length - filteredItems.length;
-      let message = '';
-      
-      if (added > 0) {
-        message = `已将 ${added} 张卡片设置为神经漫游种子块`;
-        if (skipped > 0) {
-          message += `（过滤了 ${skipped} 张非 Concept 卡片）`;
-        }
-        if (errors.length > 0) {
-          message += `，${errors.length} 张添加失败`;
-        }
-      } else if (errors.length > 0) {
-        message = `添加失败：${errors[0]}`;
-      } else {
-        message = '没有有效的卡片可添加';
-      }
-      
-      return { added, message };
-    }
-    // 旧架构：fallback
-    else if (queue?.addItems) {
-      const added = await Promise.resolve(queue.addItems(filteredItems));
-      const skipped = items.length - filteredItems.length;
-      const message = skipped > 0
-        ? `已将 ${added} 张卡片设置为神经漫游种子块（过滤了 ${skipped} 张非 Concept 卡片）`
-        : `已将卡片设置为神经漫游种子块`;
-      return { added, message };
-    }
-    
-    return { added: 0, message: '神经漫游队列不可用' };
+    filteredItems = items.filter((item) => cardTypeByCardId.get(item.cardID) === 'concept');
+  } else if (queueType === 'retrieval' || queueType === 'final-drill') {
+    filteredItems = items.filter((item) => cardTypeByCardId.get(item.cardID) !== 'concept');
   }
 
-  // 渐进学习和筛选复习使用 addCard（逐个添加）
-  if (queueType === 'incremental' || queueType === 'filter-group') {
-    logger.debug('[MenuActions] 处理渐进学习/筛选复习队列');
-    logger.debug('[MenuActions] queue.addCard 存在:', typeof queue?.addCard === 'function');
-    
-    // 新架构：使用 addCard 方法（逐个添加）
-    if (queue?.addCard) {
-      logger.debug('[MenuActions] ✅ 调用 queue.addCard（逐个添加）');
-      let added = 0;
-      for (const item of items) {
-        try {
-          // 🔧 修复：使用 cardID 而不是 blockID，以支持模板卡（一个块对应多张卡片）
-          await queue.addCard(item.cardID, 'manual');
-          added++;
-        } catch (err) {
-          logger.error(`[MenuActions] 添加卡片失败: ${item.cardID}`, err);
-        }
-      }
-      const queueNames = {
-        incremental: '渐进学习',
-        'filter-group': '筛选复习',
-      };
-      logger.debug('[MenuActions] 队列添加完成，共添加:', added);
-      return { added, message: `已加入 ${added} 张卡片到${queueNames[queueType]}队列` };
-    }
-    // 旧架构：fallback
-    else if (queue?.addItems) {
-      logger.debug('[MenuActions] ✅ 调用 queue.addItems（批量添加）');
-      const added = await Promise.resolve(queue.addItems(items));
-      const queueNames = {
-        incremental: '渐进学习',
-        'filter-group': '筛选复习',
-      };
-      logger.debug('[MenuActions] 队列添加完成，共添加:', added);
-      return { added, message: `已加入 ${added} 张卡片到${queueNames[queueType]}队列` };
-    } else {
-      logger.error('[MenuActions] ❌ queue.addCard 和 queue.addItems 方法都不存在');
-      return { added: 0, message: `${queueType === 'incremental' ? '渐进学习' : '筛选复习'}队列不可用` };
-    }
-  }
-
-  // 刻意练习使用 addCard（单个添加）或 addItems（批量添加，旧架构）
-  if (queueType === 'final-drill') {  // ✅ 改名：'deliberate' → 'final-drill'
-    logger.debug('[MenuActions] 处理刻意练习队列');
-    logger.debug('[MenuActions] queue.addCard 存在:', typeof queue?.addCard === 'function');
-    logger.debug('[MenuActions] queue.addItems 存在:', typeof queue?.addItems === 'function');
-    
-    // 🆕 过滤 Concept 卡片：刻意练习只接受 Item 和 Descriptor 卡片
-    const filteredItems = items.filter((item) => {
-      const row = selectedRows.find((r) => (r.fsrsCardId || r.id || r.blockId) === item.cardID);
-      const cardType = (row as any)?.cardType;
-      
-      // 🔧 修复：过滤 Concept 卡片（不是 Topic）
-      if (cardType === 'concept') {
-        logger.debug(`[MenuActions] 过滤 Concept 卡片: ${item.blockID}`);
-        return false;
-      }
-      return true;
-    });
-    
-    logger.debug(`[MenuActions] 过滤后：${filteredItems.length}/${items.length} 张卡片`);
-    
-    if (filteredItems.length === 0) {
-      return { added: 0, message: 'Concept 卡片不能加入刻意练习队列' };
-    }
-    
-    // ✅ 新架构：使用 addCard 方法（单个添加）
-    if (queue?.addCard) {
-      logger.debug('[MenuActions] ✅ 使用新架构 queue.addCard（逐个添加）');
-      let added = 0;
-      for (const item of filteredItems) {
-        try {
-          // 🔧 修复：使用 cardID 而不是 blockID，以支持模板卡（一个块对应多张卡片）
-          await queue.addCard(item.cardID, 'manual');
-          added++;
-        } catch (err) {
-          logger.error(`[MenuActions] 添加卡片失败: ${item.cardID}`, err);
-        }
-      }
-      logger.debug('[MenuActions] 刻意练习队列添加完成，共添加:', added);
-      const skipped = items.length - filteredItems.length;
-      const message = skipped > 0
-        ? `已加入 ${added} 张卡片到刻意练习队列（过滤了 ${skipped} 张 Concept 卡片）`
-        : `已加入 ${added} 张卡片到刻意练习队列`;
-      return { added, message };
-    }
-    // ✅ 旧架构：使用 addItems 方法（批量添加）
-    else if (queue?.addItems) {
-      logger.debug('[MenuActions] ✅ 使用旧架构 queue.addItems（批量添加）');
-      const added = await Promise.resolve(queue.addItems(filteredItems));
-      logger.debug('[MenuActions] 刻意练习队列添加完成，共添加:', added);
-      const skipped = items.length - filteredItems.length;
-      const message = skipped > 0
-        ? `已加入 ${added} 张卡片到刻意练习队列（过滤了 ${skipped} 张 Concept 卡片）`
-        : `已加入 ${added} 张卡片到刻意练习队列`;
-      return { added, message };
-    } else {
-      logger.error('[MenuActions] ❌ queue.addCard 和 queue.addItems 方法都不存在');
-      return { added: 0, message: '刻意练习队列不可用' };
-    }
-  }
-
-  // 提取练习使用 addItems（批量）
   if (queueType === 'retrieval') {
-    logger.debug('[MenuActions] ========== 处理提取练习队列 ==========');
-    logger.debug('[MenuActions] 原始 selectedRows 完整对象:', selectedRows.map(r => {
-      // 打印完整对象以便调试
-      const fullObj = { ...r };
-      logger.debug('[MenuActions] 单个 BrowserCard 完整数据:', fullObj);
-      return {
-        id: r.id,
-        fsrsCardId: r.fsrsCardId,
-        blockId: r.blockId,
-        deckId: r.deckId,
-        cardType: (r as any).cardType,
-        nextDues: r.nextDues,
-        priority: r.priority,
-        // 打印所有字段
-        allKeys: Object.keys(r),
-      };
-    }));
-    logger.debug('[MenuActions] 转换后的 items（过滤前）:', items.map(item => ({
-      cardID: item.cardID,
-      blockID: item.blockID,
-      deckID: item.deckID,
-      nextDues: item.nextDues,
-      priority: item.priority,
-    })));
-    
-    // 🆕 过滤 Concept 卡片：提取练习只接受 Item 和 Descriptor 卡片
-    const filteredItems = items.filter((item) => {
-      const row = selectedRows.find((r) => (r.fsrsCardId || r.id || r.blockId) === item.cardID);
-      const cardType = (row as any)?.cardType;
-      
-      // 🔧 修复：过滤 Concept 卡片（不是 Topic）
-      if (cardType === 'concept') {
-        logger.debug(`[MenuActions] 过滤 Concept 卡片: ${item.blockID}`);
-        return false;
-      }
-      return true;
-    });
-    
-    // 🆕 为手动添加的卡片添加 manuallyAdded 标记
-    // 这样 getAll() 时不会被过滤，无论 nextDues 是什么
-    const itemsWithManualFlag = filteredItems.map(item => ({
-      ...item,
-      manuallyAdded: true,  // 🆕 标记为手动添加
-    }));
-    
-    logger.debug(`[MenuActions] 过滤后：${itemsWithManualFlag.length}/${items.length} 张卡片`);
-    logger.debug('[MenuActions] 最终传递给 queue.addItems 的数据:');
-    itemsWithManualFlag.forEach((item, index) => {
-      logger.debug(`[MenuActions]   卡片 ${index + 1}:`, {
-        cardID: item.cardID,
-        blockID: item.blockID,
-        deckID: item.deckID,
-        manuallyAdded: item.manuallyAdded,
-        priority: item.priority,
-      });
-    });
-    
-    if (itemsWithManualFlag.length === 0) {
-      logger.debug('[MenuActions] ❌ 没有有效卡片，返回失败');
-      return { added: 0, message: 'Concept 卡片不能加入提取练习队列' };
-    }
-    
-    // 新架构：使用 addCard 方法（逐个添加）
-    if (queue?.addCard) {
-      logger.debug('[MenuActions] ✅ 调用 queue.addCard（逐个添加），参数数量:', itemsWithManualFlag.length);
-      let added = 0;
-      for (const item of itemsWithManualFlag) {
-        try {
-          // 🔧 修复：使用 cardID 而不是 blockID（支持 Xiuyuan 卡片）
-          await queue.addCard(item.cardID, 'manual');
-          added++;
-        } catch (err) {
-          logger.error(`[MenuActions] 添加卡片失败: ${item.cardID}`, err);
-        }
-      }
-      logger.debug('[MenuActions] ✅ queue.addCard 完成，共添加:', added);
-      const skipped = items.length - itemsWithManualFlag.length;
-      const message = skipped > 0
-        ? `已加入 ${added} 张卡片到提取练习队列（过滤了 ${skipped} 张 Concept 卡片）`
-        : `已加入 ${added} 张卡片到提取练习队列`;
-      return { added, message };
-    }
-    // 旧架构：fallback
-    else if (queue?.addItems) {
-      logger.debug('[MenuActions] ✅ 调用 queue.addItems，参数数量:', itemsWithManualFlag.length);
-      const added = await Promise.resolve(queue.addItems(itemsWithManualFlag));
-      logger.debug('[MenuActions] ✅ queue.addItems 返回结果:', added);
-      const skipped = items.length - itemsWithManualFlag.length;
-      const message = skipped > 0
-        ? `已加入 ${added} 张卡片到提取练习队列（过滤了 ${skipped} 张 Concept 卡片）`
-        : `已加入 ${added} 张卡片到提取练习队列`;
-      logger.debug('[MenuActions] ========== 处理完成，返回消息 ==========');
-      return { added, message };
-    } else {
-      logger.error('[MenuActions] ❌ queue.addItems 方法不存在');
-      return { added: 0, message: '提取练习队列不可用' };
-    }
+    filteredItems = filteredItems.map((item) => ({ ...item, manuallyAdded: true }));
   }
 
-  logger.debug('[MenuActions] ❌ 没有匹配的队列类型或队列方法不可用');
-  return { added: 0, message: '加入队列失败' };
+  return {
+    items: filteredItems,
+    skippedConceptCount: Math.max(0, items.length - filteredItems.length),
+  };
+}
+
+export async function addToQueue(
+  queue: QueueAddLike | undefined,
+  selectedRows: BrowserCard[],
+  queueType: QueueActionType
+): Promise<{ added: number; message: string }> {
+  logger.debug('[MenuActions] addToQueue called', {
+    queueType,
+    selectedCount: selectedRows?.length ?? 0,
+  });
+
+  const items = prepareQueueItems(selectedRows, queueType);
+  const filtered = filterQueueItems(queueType, items, selectedRows);
+
+  if (filtered.items.length === 0) {
+    if (queueType === 'retrieval' || queueType === 'final-drill' || queueType === 'neural-roam') {
+      return { added: 0, message: conceptOnlyMessage[queueType] };
+    }
+    return { added: 0, message: '没有有效的卡片可添加' };
+  }
+
+  const addResult = await addItemsWithFallback(
+    queue,
+    filtered.items,
+    queueType === 'neural-roam' ? (item) => item.blockID : (item) => item.cardID
+  );
+
+  if (addResult.unavailable) {
+    logger.warn(`[MenuActions] queue unavailable for ${queueType}`);
+    return { added: 0, message: queueUnavailableMessage[queueType] };
+  }
+
+  if (queueType === 'neural-roam') {
+    if (addResult.added <= 0) {
+      if (addResult.firstError) {
+        return { added: 0, message: `添加失败：${addResult.firstError}` };
+      }
+      return { added: 0, message: '没有有效的卡片可添加' };
+    }
+
+    let message = `已将 ${addResult.added} 张卡片设置为神经漫游种子块`;
+    if (filtered.skippedConceptCount > 0) {
+      message += `（过滤了 ${filtered.skippedConceptCount} 张非 Concept 卡片）`;
+    }
+    if (addResult.failed > 0) {
+      message += `，${addResult.failed} 张添加失败`;
+    }
+    return { added: addResult.added, message };
+  }
+
+  if (queueType === 'retrieval' || queueType === 'final-drill') {
+    const queueName = queueType === 'retrieval' ? '提取练习' : queueDisplayName['final-drill'];
+    let message = `已加入 ${addResult.added} 张卡片到${queueName}队列`;
+    if (filtered.skippedConceptCount > 0) {
+      message += `（过滤了 ${filtered.skippedConceptCount} 张 Concept 卡片）`;
+    }
+    return { added: addResult.added, message };
+  }
+
+  const queueName = queueDisplayName[queueType];
+  return {
+    added: addResult.added,
+    message: `已加入 ${addResult.added} 张卡片到${queueName}队列`,
+  };
 }

@@ -4,10 +4,8 @@
  */
 
 import type { App } from 'siyuan';
-import { riff } from '@/core/siyuan';
-import { markBlockAsCard, ATTR_CARD_ID, getCardBlockIds } from '@/core/siyuan/block';
-import { pushErrMsg, pushMsg, sql } from '@/core/siyuan/api';
-import * as api from '@/core/siyuan/api';
+import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
+import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { createVueDialog } from '@/utils/dialog';
 import { DEFAULT_PRIORITY } from '@/core/queue';
 import type { CardAttributeRow } from '@/core/queue/types';
@@ -28,10 +26,14 @@ export interface BlockMenuHandlerDeps {
   applicationContext: ApplicationContext;  // ✅ 必需：用于访问所有 DDD 架构服务
   cardCreationHelper: CardCreationHelper;  // ✅ 卡片创建辅助类
   plugin?: any;  // 🔧 向后兼容：用于访问遗留服务（将逐步移除）
+  siyuanApi?: ManagerSiyuanPort;
 }
 
 export class BlockMenuHandler {
+  private readonly siyuanApi: ManagerSiyuanPort;
+
   constructor(private deps: BlockMenuHandlerDeps) {
+    this.siyuanApi = deps.siyuanApi ?? new ManagerSiyuanAdapter();
     // ReviewEntry 类已删除，功能直接在 BlockMenuHandler 中实现
   }
 
@@ -152,7 +154,7 @@ export class BlockMenuHandler {
     const blockIds = [...new Set(cards.map(card => card.blockId).filter(Boolean))];
     
     if (blockIds.length === 0) {
-      await pushMsg('无法打开临时练习');
+      await this.siyuanApi.pushMsg('无法打开临时练习');
       return;
     }
     
@@ -169,14 +171,14 @@ export class BlockMenuHandler {
       const manager = this.deps.applicationContext?.getUnifiedDataSourceManager() || this.deps.plugin?.unifiedDataSourceManager;
       if (!manager) {
         console.error('[BlockMenuHandler] UnifiedDataSourceManager not found');
-        await pushMsg('无法添加到刻意练习');
+        await this.siyuanApi.pushMsg('无法添加到刻意练习');
         return;
       }
       
       const finalDrillQueue = manager.getQueue(QueueType.FinalDrill);
       if (!finalDrillQueue) {
         console.error('[BlockMenuHandler] FinalDrill queue not found');
-        await pushMsg('无法找到刻意练习队列');
+        await this.siyuanApi.pushMsg('无法找到刻意练习队列');
         return;
       }
       
@@ -212,7 +214,7 @@ export class BlockMenuHandler {
         }
       }
       
-      await pushMsg(`已添加 ${addedCount} 张卡片到刻意练习队列`);
+      await this.siyuanApi.pushMsg(`已添加 ${addedCount} 张卡片到刻意练习队列`);
       
       const shouldStart = await this.confirmStartFinalDrillDialog(addedCount);
       if (shouldStart) {
@@ -220,7 +222,7 @@ export class BlockMenuHandler {
       }
     } catch (err) {
       console.error('[BlockMenuHandler] Failed to add to FinalDrill:', err);
-      await pushMsg('添加到刻意练习失败');
+      await this.siyuanApi.pushMsg('添加到刻意练习失败');
     }
   }
 
@@ -350,7 +352,7 @@ export class BlockMenuHandler {
       label: `${this.deps.i18n?.retrievalPractice || '提取练习'} - ${this.deps.i18n?.dueMode || '到期'} <span class="ft__secondary">(${dueItemCards.length}/${itemCards.length})</span>`,
       click: async () => {
         if (dueItemCards.length === 0) {
-          await pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
+          await this.siyuanApi.pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
           return;
         }
         await this.openRetrievalPractice(dueItemCards, true);
@@ -362,7 +364,7 @@ export class BlockMenuHandler {
       label: `${this.deps.i18n?.retrievalPractice || '提取练习'} - ${this.deps.i18n?.allMode || '全部'} <span class="ft__secondary">(${itemCards.length})</span>`,
       click: async () => {
         if (itemCards.length === 0) {
-          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+          await this.siyuanApi.pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
           return;
         }
         await this.openRetrievalPractice(itemCards, false);
@@ -377,7 +379,7 @@ export class BlockMenuHandler {
       label: `${this.deps.i18n?.incrementalLearning || '渐进学习'} - ${this.deps.i18n?.dueMode || '到期'} <span class="ft__secondary">(${dueAllCards.length}/${cards.length})</span>`,
       click: async () => {
         if (dueAllCards.length === 0) {
-          await pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
+          await this.siyuanApi.pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
           return;
         }
         await this.openIncrementalLearning(dueAllCards, true);
@@ -389,7 +391,7 @@ export class BlockMenuHandler {
       label: `${this.deps.i18n?.incrementalLearning || '渐进学习'} - ${this.deps.i18n?.allMode || '全部'} <span class="ft__secondary">(${cards.length})</span>`,
       click: async () => {
         if (cards.length === 0) {
-          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+          await this.siyuanApi.pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
           return;
         }
         await this.openIncrementalLearning(cards, false);
@@ -404,7 +406,7 @@ export class BlockMenuHandler {
       label: `${this.deps.i18n?.temporaryDrill || '临时练习'} <span class="ft__secondary">(${cards.length})</span>`,
       click: async () => {
         if (cards.length === 0) {
-          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+          await this.siyuanApi.pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
           return;
         }
         await this.openTemporaryDrill(cards);
@@ -419,7 +421,7 @@ export class BlockMenuHandler {
       label: `${this.deps.i18n?.addToFinalDrillQueue || '添加到刻意练习'} <span class="ft__secondary">(${cards.length})</span>`,
       click: async () => {
         if (cards.length === 0) {
-          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可添加的闪卡');
+          await this.siyuanApi.pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可添加的闪卡');
           return;
         }
         await this.addToFinalDrill(cards);
@@ -455,9 +457,9 @@ export class BlockMenuHandler {
       icon: 'iconEdit',
       label: this.deps.i18n?.editSrsData || '编辑SRS数据',
       click: async () => {
-        let target = blockElements.find((el) => el.hasAttribute(ATTR_CARD_ID));
+        let target = blockElements.find((el) => el.hasAttribute(this.siyuanApi.CARD_ID_ATTR));
         let blockID = target?.getAttribute('data-node-id');
-        let cardID = target?.getAttribute(ATTR_CARD_ID);
+        let cardID = target?.getAttribute(this.siyuanApi.CARD_ID_ATTR);
 
         // ✅ 新架构：从本地存储查询卡片
         if (!cardID && blockIds.length > 0) {
@@ -478,7 +480,7 @@ export class BlockMenuHandler {
         }
 
         if (!blockID || !cardID) {
-          pushErrMsg(this.deps.i18n?.msg_no_flashcard || '未找到闪卡，请先将块制为闪卡');
+          this.siyuanApi.pushErrMsg(this.deps.i18n?.msg_no_flashcard || '未找到闪卡，请先将块制为闪卡');
           return;
         }
 
@@ -489,9 +491,9 @@ export class BlockMenuHandler {
             card: {
               id: cardID,
               blockId: blockID,
-              deckId: riff.BUILTIN_DECK_ID,
+              deckId: this.siyuanApi.BUILTIN_DECK_ID,
             },
-            deckId: riff.BUILTIN_DECK_ID,
+            deckId: this.siyuanApi.BUILTIN_DECK_ID,
             i18n: this.deps.i18n || {},
             plugin: this.deps.plugin,  // 向后兼容
             reviewService: this.deps.applicationContext?.getReviewService?.(),  // ✅ DDD 架构
@@ -514,7 +516,7 @@ export class BlockMenuHandler {
     //     let createdCount = 0;
 
     //     for (const element of blockElements) {
-    //       if (element.hasAttribute(ATTR_CARD_ID)) {
+    //       if (element.hasAttribute(this.siyuanApi.CARD_ID_ATTR)) {
     //         continue;
     //       }
     //       const blockId = element.getAttribute('data-node-id');
@@ -523,7 +525,7 @@ export class BlockMenuHandler {
     //       }
     //       try {
     //         const card = createDefaultCard(blockId);
-    //         await markBlockAsCard(blockId, card.id, card.priority, 'item');
+    //         await this.siyuanApi.markBlockAsCard(blockId, card.id, card.priority, 'item');
     //         this.deps.storage.setCard(card);
     //         createdCount++;
     //       } catch (err) {
@@ -533,9 +535,9 @@ export class BlockMenuHandler {
 
     //     if (createdCount > 0) {
     //       await this.deps.storage.saveCards();
-    //       await pushMsg((this.deps.i18n?.msg_created || '已创建 {n} 张闪卡').replace('{n}', String(createdCount)));
+    //       await this.siyuanApi.pushMsg((this.deps.i18n?.msg_created || '已创建 {n} 张闪卡').replace('{n}', String(createdCount)));
     //     } else {
-    //       await pushMsg(this.deps.i18n?.msg_already_cards || '选中的块已经是闪卡');
+    //       await this.siyuanApi.pushMsg(this.deps.i18n?.msg_already_cards || '选中的块已经是闪卡');
     //     }
     //   },
     // });
@@ -557,7 +559,7 @@ export class BlockMenuHandler {
         // 检查子级是否为有序列表项
         const hasOrderedChildren = await this.hasOrderedListChildren(blockIds[0]);
         if (!hasOrderedChildren) {
-          await pushErrMsg('只能对包含有序子列表项的块使用此功能');
+          await this.siyuanApi.pushErrMsg('只能对包含有序子列表项的块使用此功能');
           return;
         }
         await this.createListTemplateCards(blockIds);
@@ -577,7 +579,7 @@ export class BlockMenuHandler {
           // 点击时检查是否是描述符卡
           const isDescriptor = await this.isDescriptorCard(blockIds[0]);
           if (!isDescriptor) {
-            await pushErrMsg('只能对描述符卡使用此功能');
+            await this.siyuanApi.pushErrMsg('只能对描述符卡使用此功能');
             return;
           }
           await this.rebindDescriptorConcept(blockIds[0]);
@@ -622,12 +624,12 @@ export class BlockMenuHandler {
         // 3. 显示结果消息
         if (deletedCount > 0) {
           if (failedCount > 0) {
-            await pushMsg(`已取消 ${deletedCount} 张闪卡，${failedCount} 张失败`);
+            await this.siyuanApi.pushMsg(`已取消 ${deletedCount} 张闪卡，${failedCount} 张失败`);
           } else {
-            await pushMsg(`已取消 ${deletedCount} 张闪卡`);
+            await this.siyuanApi.pushMsg(`已取消 ${deletedCount} 张闪卡`);
           }
         } else {
-          await pushMsg('未找到可取消的闪卡');
+          await this.siyuanApi.pushMsg('未找到可取消的闪卡');
         }
       },
     });
@@ -669,7 +671,7 @@ export class BlockMenuHandler {
       label: `${this.deps.i18n?.retrievalPractice || '提取练习'} - ${this.deps.i18n?.dueMode || '到期'} <span class="ft__secondary">(${dueItemCards.length}/${itemCards.length})</span>`,
       click: async () => {
         if (dueItemCards.length === 0) {
-          await pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
+          await this.siyuanApi.pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
           return;
         }
         await this.openRetrievalPractice(dueItemCards, true);
@@ -681,7 +683,7 @@ export class BlockMenuHandler {
       label: `${this.deps.i18n?.retrievalPractice || '提取练习'} - ${this.deps.i18n?.allMode || '全部'} <span class="ft__secondary">(${itemCards.length})</span>`,
       click: async () => {
         if (itemCards.length === 0) {
-          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+          await this.siyuanApi.pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
           return;
         }
         await this.openRetrievalPractice(itemCards, false);
@@ -696,7 +698,7 @@ export class BlockMenuHandler {
       label: `${this.deps.i18n?.incrementalLearning || '渐进学习'} - ${this.deps.i18n?.dueMode || '到期'} <span class="ft__secondary">(${dueAllCards.length}/${cardsInDoc.length})</span>`,
       click: async () => {
         if (dueAllCards.length === 0) {
-          await pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
+          await this.siyuanApi.pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
           return;
         }
         await this.openIncrementalLearning(dueAllCards, true);
@@ -708,7 +710,7 @@ export class BlockMenuHandler {
       label: `${this.deps.i18n?.incrementalLearning || '渐进学习'} - ${this.deps.i18n?.allMode || '全部'} <span class="ft__secondary">(${cardsInDoc.length})</span>`,
       click: async () => {
         if (cardsInDoc.length === 0) {
-          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+          await this.siyuanApi.pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
           return;
         }
         await this.openIncrementalLearning(cardsInDoc, false);
@@ -723,7 +725,7 @@ export class BlockMenuHandler {
       label: `${this.deps.i18n?.temporaryDrill || '临时练习'} <span class="ft__secondary">(${cardsInDoc.length})</span>`,
       click: async () => {
         if (cardsInDoc.length === 0) {
-          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
+          await this.siyuanApi.pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
           return;
         }
         await this.openTemporaryDrill(cardsInDoc);
@@ -738,7 +740,7 @@ export class BlockMenuHandler {
       label: `${this.deps.i18n?.addToFinalDrillQueue || '添加到刻意练习'} <span class="ft__secondary">(${cardsInDoc.length})</span>`,
       click: async () => {
         if (cardsInDoc.length === 0) {
-          await pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可添加的闪卡');
+          await this.siyuanApi.pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可添加的闪卡');
           return;
         }
         await this.addToFinalDrill(cardsInDoc);
@@ -961,7 +963,7 @@ export class BlockMenuHandler {
       result.push({
         cardID,
         blockID,
-        deckID: riff.BUILTIN_DECK_ID,
+        deckID: this.siyuanApi.BUILTIN_DECK_ID,
         priority: card.priority || DEFAULT_PRIORITY,
         nextDues: { 1: '', 2: '', 3: '', 4: '' },
         state: card.state || 0,
@@ -976,7 +978,7 @@ export class BlockMenuHandler {
    * 从文档树获取练习卡片
    */
   async getDrillCardsFromDocTree(docId: string): Promise<any[]> {
-    const blockIds = await getCardBlockIds({ type: 'tree', value: docId });
+    const blockIds = await this.siyuanApi.getCardBlockIds({ type: 'tree', value: docId });
     return this.buildDrillCardsFromBlockIds(blockIds);
   }
 
@@ -1001,14 +1003,14 @@ export class BlockMenuHandler {
       const idsStr = batch.map((id) => `'${id}'`).join(',');
       
       // 查询卡片属性，包括卡片类型
-      const rows = await sql(`
+      const rows = await this.siyuanApi.sql(`
         SELECT 
           a1.block_id, 
           a1.value as card_id,
           a2.value as card_type
         FROM attributes a1
         LEFT JOIN attributes a2 ON a1.block_id = a2.block_id AND a2.name = 'custom-fsrs-card-type'
-        WHERE a1.name = '${ATTR_CARD_ID}' 
+        WHERE a1.name = '${this.siyuanApi.CARD_ID_ATTR}' 
           AND a1.block_id IN (${idsStr}) 
           AND a1.value != ''
       `) as CardAttributeWithTypeRow[];
@@ -1032,7 +1034,7 @@ export class BlockMenuHandler {
         result.push({
           cardID,
           blockID,
-          deckID: riff.BUILTIN_DECK_ID,
+          deckID: this.siyuanApi.BUILTIN_DECK_ID,
           priority: DEFAULT_PRIORITY,
           nextDues: { 1: '', 2: '', 3: '', 4: '' },
           state: 0,
@@ -1051,7 +1053,7 @@ export class BlockMenuHandler {
   private async hasOrderedListChildren(parentBlockId: string): Promise<boolean> {
     try {
       // 1. 获取列表容器
-      const listContainerResult = await sql(`
+      const listContainerResult = await this.siyuanApi.sql(`
         SELECT id FROM blocks
         WHERE parent_id = '${parentBlockId}'
         AND type = 'l'
@@ -1065,7 +1067,7 @@ export class BlockMenuHandler {
       const listContainerId = listContainerResult[0].id;
       
       // 2. 检查子列表项是否为有序列表
-      const childrenResult = await sql(`
+      const childrenResult = await this.siyuanApi.sql(`
         SELECT subtype FROM blocks
         WHERE parent_id = '${listContainerId}'
         AND type = 'i'
@@ -1095,7 +1097,7 @@ export class BlockMenuHandler {
   private async createListTemplateCards(blockIds: string[]): Promise<void> {
     try {
       if (!blockIds || blockIds.length === 0) {
-        await pushErrMsg('未选中任何块');
+        await this.siyuanApi.pushErrMsg('未选中任何块');
         return;
       }
 
@@ -1104,14 +1106,14 @@ export class BlockMenuHandler {
       console.log(`[SiYuanMemo] 🎯 Creating ordered list template cards for: ${parentBlockId}`);
 
       // 1. 检查块类型
-      const typeResult = await sql(`
+      const typeResult = await this.siyuanApi.sql(`
         SELECT type, content FROM blocks
         WHERE id = '${parentBlockId}'
         LIMIT 1
       `);
 
       if (!typeResult || typeResult.length === 0) {
-        await pushErrMsg('块不存在');
+        await this.siyuanApi.pushErrMsg('块不存在');
         return;
       }
 
@@ -1119,14 +1121,14 @@ export class BlockMenuHandler {
       const blockContent = typeResult[0].content;
 
       if (blockType !== 'i') {
-        await pushErrMsg(`只能对列表项块使用此功能（当前类型：${blockType}）`);
+        await this.siyuanApi.pushErrMsg(`只能对列表项块使用此功能（当前类型：${blockType}）`);
         return;
       }
 
       // 2. 获取子级列表项（必须是有序列表）
       // 思源的列表结构：列表项(i) → 段落(p) + 列表容器(l) → 子列表项(i)
       // 所以需要先找到列表容器(l)，再查询其子级
-      const allChildrenResult = await sql(`
+      const allChildrenResult = await this.siyuanApi.sql(`
         SELECT id, type, content FROM blocks
         WHERE parent_id = '${parentBlockId}'
         ORDER BY id ASC
@@ -1138,14 +1140,14 @@ export class BlockMenuHandler {
       const listContainer = allChildrenResult?.find((r: any) => r.type === 'l');
       
       if (!listContainer) {
-        await pushErrMsg('未找到列表容器，请确保列表结构正确');
+        await this.siyuanApi.pushErrMsg('未找到列表容器，请确保列表结构正确');
         return;
       }
       
       console.log(`[SiYuanMemo] Found list container:`, listContainer.id);
       
       // 查询列表容器的所有子级（不限制类型，看看实际结构）
-      const allListChildren = await sql(`
+      const allListChildren = await this.siyuanApi.sql(`
         SELECT id, type, subtype, content FROM blocks
         WHERE parent_id = '${listContainer.id}'
         ORDER BY id ASC
@@ -1154,7 +1156,7 @@ export class BlockMenuHandler {
       console.log(`[SiYuanMemo] All list container children:`, allListChildren);
       
       // 查询列表容器的子级列表项（必须是有序列表）
-      const childrenResult = await sql(`
+      const childrenResult = await this.siyuanApi.sql(`
         SELECT id, content FROM blocks
         WHERE parent_id = '${listContainer.id}'
         AND type = 'i'
@@ -1170,7 +1172,7 @@ export class BlockMenuHandler {
         console.log(`[SiYuanMemo] No direct ordered children found, trying descendants...`);
         
         // 使用递归查询找到所有后代列表项（有序列表）
-        const descendantsResult = await sql(`
+        const descendantsResult = await this.siyuanApi.sql(`
           WITH RECURSIVE descendants AS (
             SELECT id, type, subtype, content, parent_id FROM blocks WHERE parent_id = '${listContainer.id}'
             UNION ALL
@@ -1185,7 +1187,7 @@ export class BlockMenuHandler {
       }
 
       if (!finalChildren || finalChildren.length < 2) {
-        await pushErrMsg(`需要至少2个有序子列表项（当前：${finalChildren?.length || 0}个）`);
+        await this.siyuanApi.pushErrMsg(`需要至少2个有序子列表项（当前：${finalChildren?.length || 0}个）`);
         return;
       }
 
@@ -1193,7 +1195,7 @@ export class BlockMenuHandler {
       console.log(`[SiYuanMemo] Found ${childBlockIds.length} children:`, childBlockIds);
 
       // 3. 确认创建
-      await pushMsg(`检测到 ${childBlockIds.length} 个子级列表项，开始创建卡片...`);
+      await this.siyuanApi.pushMsg(`检测到 ${childBlockIds.length} 个子级列表项，开始创建卡片...`);
 
       // 4. 为所有子级创建有序列表模版卡（一次性创建）
       console.log(`[SiYuanMemo] Creating ordered list template cards: ${blockContent} → ${childBlockIds.length} children`);
@@ -1207,16 +1209,16 @@ export class BlockMenuHandler {
       });
 
       if (result.ok) {
-        await pushMsg(`✅ 成功创建 ${childBlockIds.length} 张有序列表模版卡！`);
+        await this.siyuanApi.pushMsg(`✅ 成功创建 ${childBlockIds.length} 张有序列表模版卡！`);
         console.log(`[SiYuanMemo] 🎉 Ordered list template cards creation complete:`, result.value);
       } else {
         const errorMsg = result.ok === false ? result.error.message : 'Unknown error';
-        await pushErrMsg(`创建失败：${errorMsg}`);
+        await this.siyuanApi.pushErrMsg(`创建失败：${errorMsg}`);
         console.error(`[SiYuanMemo] ❌ Ordered list template cards creation failed:`, result.ok === false ? result.error : 'Unknown error');
       }
     } catch (err) {
       console.error('[SiYuanMemo] Failed to create ordered list template cards:', err);
-      await pushErrMsg(`创建失败：${(err as Error).message}`);
+      await this.siyuanApi.pushErrMsg(`创建失败：${(err as Error).message}`);
     }
   }
 
@@ -1244,23 +1246,22 @@ export class BlockMenuHandler {
         
         if (result.ok) {
           // 标记块为闪卡（类型为 concept）
-          await markBlockAsCard(blockId, result.value.id.value, priority === 'high' ? 1 : 0, 'item');
+          await this.siyuanApi.markBlockAsCard(blockId, result.value.id.value, priority === 'high' ? 1 : 0, 'item');
           
           // 更新块属性为 concept 类型
-          await api.setBlockAttrs(blockId, {
+          await this.siyuanApi.setBlockAttrs(blockId, {
             'custom-fsrs-card-type': 'concept'
           });
           
           // ✅ 添加到 Riff（确保同步）
-          const riffAPI = await import('@/core/siyuan/riff');
-          await riffAPI.addRiffCards(riffAPI.BUILTIN_DECK_ID, [blockId]);
+          await this.siyuanApi.addRiffCards(this.siyuanApi.BUILTIN_DECK_ID, [blockId]);
           console.log(`[BlockMenuHandler] Added concept card to Riff: ${blockId}`);
           
           console.log(`[BlockMenuHandler] Created concept card via CardCreationHelper: ${blockId}`);
-          await pushMsg('✅ 已制作为概念卡');
+          await this.siyuanApi.pushMsg('✅ 已制作为概念卡');
         } else {
           console.error(`[BlockMenuHandler] Failed to create concept card: ${result.error.message}`);
-          await pushErrMsg(`创建失败：${result.error.message}`);
+          await this.siyuanApi.pushErrMsg(`创建失败：${result.error.message}`);
         }
       } else {
         // 3. 如果已经是卡片，确保类型为 concept
@@ -1278,15 +1279,15 @@ export class BlockMenuHandler {
           
           if (result.ok) {
             // 更新块属性
-            await api.setBlockAttrs(blockId, {
+            await this.siyuanApi.setBlockAttrs(blockId, {
               'custom-fsrs-card-type': 'concept'
             });
             
             console.log(`[BlockMenuHandler] Updated card type to concept for block: ${blockId}`);
-            await pushMsg('✅ 已更新为概念卡');
+            await this.siyuanApi.pushMsg('✅ 已更新为概念卡');
           } else {
             console.error(`[BlockMenuHandler] Failed to update card type: ${result.error}`);
-            await pushErrMsg(`更新失败：${result.error}`);
+            await this.siyuanApi.pushErrMsg(`更新失败：${result.error}`);
             return;
           }
         }
@@ -1314,14 +1315,14 @@ export class BlockMenuHandler {
       const unifiedDataSourceManager = this.deps.applicationContext?.getUnifiedDataSourceManager?.() || this.deps.plugin?.unifiedDataSourceManager;
       
       if (!unifiedDataSourceManager) {
-        await pushErrMsg('❌ 统一数据源管理器未初始化');
+        await this.siyuanApi.pushErrMsg('❌ 统一数据源管理器未初始化');
         return;
       }
       
       const neuralQueue = unifiedDataSourceManager.getQueue(QueueType.NeuralRoam);
       
       if (!neuralQueue) {
-        await pushErrMsg('❌ 神经漫游队列未初始化');
+        await this.siyuanApi.pushErrMsg('❌ 神经漫游队列未初始化');
         return;
       }
       
@@ -1330,23 +1331,23 @@ export class BlockMenuHandler {
       
       // 6. 如果是高优先级，自动打开神经漫游对话框
       if (priority === 'high') {
-        await pushMsg('🚀 已加入漫游队列（高优先级），正在打开神经漫游...');
+        await this.siyuanApi.pushMsg('🚀 已加入漫游队列（高优先级），正在打开神经漫游...');
         
         // 打开神经漫游对话框
         try {
           await this.deps.dialogManager.openNeuralRoamDialog();
         } catch (err) {
           console.error('[BlockMenuHandler] Failed to open neural roam dialog:', err);
-          await pushErrMsg('❌ 打开神经漫游失败');
+          await this.siyuanApi.pushErrMsg('❌ 打开神经漫游失败');
         }
       } else {
-        await pushMsg('📍 已加入漫游队列');
+        await this.siyuanApi.pushMsg('📍 已加入漫游队列');
       }
       
       console.log(`[BlockMenuHandler] Added concept card to neural roam: ${blockId} (priority: ${priority})`);
     } catch (error) {
       console.error('[BlockMenuHandler] Failed to make concept and add to roam:', error);
-      await pushErrMsg('❌ 操作失败：' + (error as Error).message);
+      await this.siyuanApi.pushErrMsg('❌ 操作失败：' + (error as Error).message);
     }
   }
 
@@ -1364,7 +1365,7 @@ export class BlockMenuHandler {
         WHERE block_id = '${this.escapeSQL(blockId)}'
           AND name = 'custom-fsrs-card-type'
       `;
-      const rows = await sql(stmt);
+      const rows = await this.siyuanApi.sql(stmt);
       return rows && rows.length > 0 && rows[0].value === 'concept';
     } catch (error) {
       console.error('[BlockMenuHandler] Failed to check if concept card:', error);
@@ -1386,7 +1387,7 @@ export class BlockMenuHandler {
         WHERE block_id = '${this.escapeSQL(blockId)}'
           AND name = 'custom-fsrs-card-type'
       `;
-      const rows = await sql(stmt);
+      const rows = await this.siyuanApi.sql(stmt);
       return rows && rows.length > 0 && rows[0].value === 'descriptor';
     } catch (error) {
       console.error('[BlockMenuHandler] Failed to check if descriptor card:', error);
@@ -1406,7 +1407,7 @@ export class BlockMenuHandler {
       // 获取 XiuyuanApplicationService
       const xiuyuanAppService = await this.deps.applicationContext.getXiuyuanApplicationService();
       if (!xiuyuanAppService) {
-        await pushErrMsg('❌ Xiuyuan 应用服务未初始化');
+        await this.siyuanApi.pushErrMsg('❌ Xiuyuan 应用服务未初始化');
         return;
       }
       
@@ -1419,19 +1420,19 @@ export class BlockMenuHandler {
         const { newConceptName, createdConceptCard } = result.value;
         
         if (createdConceptCard) {
-          await pushMsg(`✅ 已重新绑定到概念：${newConceptName}（已自动创建概念卡）`);
+          await this.siyuanApi.pushMsg(`✅ 已重新绑定到概念：${newConceptName}（已自动创建概念卡）`);
         } else {
-          await pushMsg(`✅ 已重新绑定到概念：${newConceptName}`);
+          await this.siyuanApi.pushMsg(`✅ 已重新绑定到概念：${newConceptName}`);
         }
         
         console.log('[BlockMenuHandler] Rebind descriptor concept success:', result.value);
       } else {
-        await pushErrMsg(`❌ 重新绑定失败：${result.error.message}`);
+        await this.siyuanApi.pushErrMsg(`❌ 重新绑定失败：${result.error.message}`);
         console.error('[BlockMenuHandler] Rebind descriptor concept failed:', result.error);
       }
     } catch (error) {
       console.error('[BlockMenuHandler] Failed to rebind descriptor concept:', error);
-      await pushErrMsg(`❌ 重新绑定失败：${(error as Error).message}`);
+      await this.siyuanApi.pushErrMsg(`❌ 重新绑定失败：${(error as Error).message}`);
     }
   }
 

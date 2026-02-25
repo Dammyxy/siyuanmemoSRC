@@ -15,7 +15,11 @@ import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import type { FSRSCard } from '../../../types/card';
 import { validateConsumerCardType } from '../../../diagnostics/type-guards';
-import { DeleteCardCommand } from '@/application/commands/card/DeleteCardCommand';
+import {
+  applyQueueFilters,
+  deleteBrowserCards,
+  sortBrowserCards,
+} from './DataSourceUtils';
 
 export type IncrementalLearningDataSourceOptions = {
   docId?: string;      // 文档筛选
@@ -25,25 +29,6 @@ export type IncrementalLearningDataSourceOptions = {
 };
 
 type I18nDictionary = Record<string, string>;
-
-function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
-  if (!sortModel?.length) return rows;
-  const [{ colId, sort }] = sortModel;
-  const dir = sort === 'desc' ? -1 : 1;
-  const key = String(colId || '');
-  const copy = [...rows];
-  copy.sort((a: any, b: any) => {
-    const av = (a as any)?.[key];
-    const bv = (b as any)?.[key];
-    if (av == null && bv == null) return 0;
-    if (av == null) return -1 * dir;
-    if (bv == null) return 1 * dir;
-    if (av instanceof Date && bv instanceof Date) return (av.getTime() - bv.getTime()) * dir;
-    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
-    return String(av).localeCompare(String(bv)) * dir;
-  });
-  return copy;
-}
 
 export class IncrementalLearningDataSource implements ICardDataSource {
   id = 'incremental-learning';
@@ -84,10 +69,10 @@ export class IncrementalLearningDataSource implements ICardDataSource {
       const browserCards = cards.map(card => this.convertToBrowserCard(card));
       
       // 应用筛选条件
-      const filtered = this.applyFilters(browserCards);
+      const filtered = applyQueueFilters(browserCards, this.options, 'fullContent');
       
       // 应用排序
-      const sorted = applySort(filtered, params?.sortModel || []);
+      const sorted = sortBrowserCards(filtered, params?.sortModel || []);
       
       // 记录加载完成
       const endTime = Date.now();
@@ -120,76 +105,6 @@ export class IncrementalLearningDataSource implements ICardDataSource {
     }
   }
 
-  // 应用筛选条件
-  private applyFilters(cards: BrowserCard[]): BrowserCard[] {
-    let result = cards;
-
-    // 文档筛选（使用 rootId）
-    if (this.options.docId) {
-      result = result.filter(c => c.rootId === this.options.docId);
-    }
-
-    // Preset 筛选
-    if (this.options.preset && this.options.preset !== 'all') {
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-      result = result.filter(c => {
-        switch (this.options.preset) {
-          case 'due':
-            return c.due && new Date(c.due) <= today;
-          case 'overdue':
-            return c.due && new Date(c.due) < today;
-          case 'new':
-            return c.state === CardState.New;
-          case 'leech':
-            return (c.lapses || 0) > 0;
-          default:
-            return true;
-        }
-      });
-    }
-
-    // 搜索筛选（简单关键词搜索）
-    if (this.options.queryText) {
-      const query = this.options.queryText.toLowerCase().trim();
-      if (query && !query.startsWith('tag:') && !query.startsWith('deck:') && !query.startsWith('state:') && !query.startsWith('doc:')) {
-        result = result.filter(c => {
-          return c.content?.toLowerCase().includes(query) ||
-                 c.fullContent?.toLowerCase().includes(query);
-        });
-      }
-    }
-
-    // 卡片类型筛选
-    if (this.options.cardType && this.options.cardType !== 'all') {
-      console.log(`[SiYuanMemo][IncrementalLearningDataSource] Applying cardType filter: ${this.options.cardType}`);
-      console.log(`[SiYuanMemo][IncrementalLearningDataSource] Sample cardTypes before filter:`, result.slice(0, 5).map(c => ({ blockId: c.blockId, cardType: c.cardType })));
-      
-      result = result.filter(c => {
-        switch (this.options.cardType) {
-          case 'topic-only':
-            // Topic 类型包括：topic（增量阅读）
-            return c.cardType === 'topic';
-          case 'item-only':
-            // ✅ 修复：item-only 只显示 item 卡片，不包含 concept 和 descriptor
-            return c.cardType === 'item' || !c.cardType;  // 缺失 cardType 的默认为 item
-          case 'concept-only':
-            return c.cardType === 'concept';
-          case 'descriptor-only':
-            return c.cardType === 'descriptor';
-          default:
-            return true;
-        }
-      });
-      
-      console.log(`[SiYuanMemo][IncrementalLearningDataSource] After cardType filter: ${result.length} cards`);
-      console.log(`[SiYuanMemo][IncrementalLearningDataSource] Sample cardTypes after filter:`, result.slice(0, 5).map(c => ({ blockId: c.blockId, cardType: c.cardType })));
-    }
-
-    return result;
-  }
-  
   /**
    * 将 FSRSCard 转换为 BrowserCard
    * 
@@ -415,37 +330,21 @@ export class IncrementalLearningDataSource implements ICardDataSource {
 
       // 删除卡片（使用 CardApplicationService）
       if (actionId === 'delete-card') {
-        if (!this.plugin) {
-          console.error('[SiYuanMemo][IncrementalLearningDataSource] Plugin not available!');
+        const deletion = await deleteBrowserCards(this.plugin as any, selectedRows, {
+          preferBatch: false,
+          scope: 'IncrementalLearningDataSource',
+        });
+        if (!deletion) {
           return 0;
         }
-        
-        const cardService = this.plugin.getContext?.()?.getCardService?.();
-        if (!cardService) {
-          console.error('[SiYuanMemo][IncrementalLearningDataSource] CardApplicationService not available!');
-          return 0;
+
+        console.log(
+          `[SiYuanMemo][IncrementalLearningDataSource] Deleted ${deletion.deletedCount}/${deletion.attemptedCount} cards`
+        );
+        if (deletion.failedCardIds.length > 0) {
+          console.error('[SiYuanMemo][IncrementalLearningDataSource] Failed card IDs:', deletion.failedCardIds);
         }
-        
-        let deletedCount = 0;
-        
-        for (const row of selectedRows) {
-          // ✅ 修复：直接使用 fsrsCardId（Xiuyuan 卡片的真实 cardId）
-          const cardId = row.fsrsCardId || row.id;
-          
-          console.log(`[SiYuanMemo][IncrementalLearningDataSource] Deleting card: ${cardId} (blockId: ${row.blockId})`);
-          
-          const command: DeleteCardCommand = { cardId };
-          const result = await cardService.deleteCard(command);
-          
-          if (result.ok) {
-            deletedCount++;
-          } else {
-            console.error(`[SiYuanMemo][IncrementalLearningDataSource] Failed to delete card ${cardId}:`, result.error);
-          }
-        }
-        
-        console.log(`[SiYuanMemo][IncrementalLearningDataSource] Deleted ${deletedCount}/${selectedRows.length} cards`);
-        return deletedCount;
+        return deletion.deletedCount;
       }
 
       // 设置优先级

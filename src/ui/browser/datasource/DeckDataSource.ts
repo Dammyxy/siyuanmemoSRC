@@ -1,6 +1,5 @@
 ﻿import type { BrowserCard } from '../types';
-import { formatDate } from '../types';
-import { loadCards, batchReset, batchSuspend } from '../browserService';
+import { batchReset, batchSuspend } from '../browserService';
 import type { ICardDataSource } from '@/application/interfaces/ICardDataSource';
 import type { CardBrowserAction, SortModel } from './types';
 import {
@@ -11,7 +10,13 @@ import {
 } from './MenuActions';
 import { RescheduleService } from '@/core/scheduler/rescheduleService';
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
-import { DeleteCardCommand } from '@/application/commands/card/DeleteCardCommand';
+import {
+  applyCardTypeFilter,
+  applyLegacyPresetFilter,
+  applySimpleQueryFilter,
+  deleteBrowserCards,
+  sortBrowserCards,
+} from './DataSourceUtils';
 
 type DeckDataSourceOptions = {
   preset: string;
@@ -34,41 +39,6 @@ type FsrsPluginLike = {
 type CardApplicationServiceLike = {
   batchUpdateCardsWithoutEvents?: (cards: any[]) => Promise<{ ok: boolean; value?: { updatedCount: number; failedCount: number }; error?: Error }>;
 };
-
-function applySort(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
-  if (!sortModel?.length) return rows;
-  const [{ colId, sort }] = sortModel;
-  const dir = sort === 'desc' ? -1 : 1;
-  const key = String(colId || '');
-  const copy = [...rows];
-  copy.sort((a: any, b: any) => {
-    const av = (a as any)?.[key];
-    const bv = (b as any)?.[key];
-    if (av == null && bv == null) return 0;
-    if (av == null) return -1 * dir;
-    if (bv == null) return 1 * dir;
-    if (av instanceof Date && bv instanceof Date) return (av.getTime() - bv.getTime()) * dir;
-    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
-    return String(av).localeCompare(String(bv)) * dir;
-  });
-  return copy;
-}
-
-function parseSiyuanTime14(timeStr: string | undefined): Date | null {
-  if (!timeStr) return null;
-  if (/^\d{14}$/.test(timeStr)) {
-    const y = parseInt(timeStr.slice(0, 4));
-    const m = parseInt(timeStr.slice(4, 6)) - 1;
-    const d = parseInt(timeStr.slice(6, 8));
-    const h = parseInt(timeStr.slice(8, 10));
-    const min = parseInt(timeStr.slice(10, 12));
-    const s = parseInt(timeStr.slice(12, 14));
-    return new Date(Date.UTC(y, m, d, h, min, s));
-  }
-  const isoParsed = new Date(timeStr);
-  if (!Number.isNaN(isoParsed.getTime())) return isoParsed;
-  return null;
-}
 
 /**
  * DeckDataSource - Deck 数据源实现
@@ -138,34 +108,10 @@ export class DeckDataSource implements ICardDataSource {
         sampleRootIds: rows.slice(0, 5).map(r => ({ blockId: r.blockId, rootId: r.rootId })),
       });
       
-      // 应用 preset 筛选
-      rows = this.applyPresetFilter(rows);
-      
-      // 应用 cardType 筛选
-      if (this.options.cardType && this.options.cardType !== 'all') {
-        if (this.options.cardType === 'topic-only') {
-          // Topic 类型包括：topic（增量阅读）
-          rows = rows.filter(c => c.cardType === 'topic');
-        } else if (this.options.cardType === 'item-only') {
-          // ✅ 修复：item-only 只显示 item 卡片，不包含 concept 和 descriptor
-          rows = rows.filter(c => c.cardType === 'item' || !c.cardType);  // 缺失 cardType 的默认为 item
-        } else if (this.options.cardType === 'concept-only') {
-          rows = rows.filter(c => c.cardType === 'concept');
-        } else if (this.options.cardType === 'descriptor-only') {
-          rows = rows.filter(c => c.cardType === 'descriptor');
-        }
-      }
-      
-      // 应用搜索筛选
-      if (this.options.queryText) {
-        const query = this.options.queryText.toLowerCase().trim();
-        if (query && !query.startsWith('tag:') && !query.startsWith('deck:') && !query.startsWith('state:') && !query.startsWith('doc:')) {
-          rows = rows.filter(c => {
-            return c.content?.toLowerCase().includes(query) ||
-                   c.fullContent?.toLowerCase().includes(query);
-          });
-        }
-      }
+      // 应用 preset / cardType / 搜索筛选
+      rows = applyLegacyPresetFilter(rows, this.options.preset);
+      rows = applyCardTypeFilter(rows, this.options.cardType);
+      rows = applySimpleQueryFilter(rows, this.options.queryText, { secondaryField: 'fullContent' });
       
       // ✅ 四重筛选：应用文档筛选
       if (this.options.currentDocId) {
@@ -188,36 +134,12 @@ export class DeckDataSource implements ICardDataSource {
         });
       }
 
-      const sorted = applySort(rows, params?.sortModel || []);
+      const sorted = sortBrowserCards(rows, params?.sortModel || []);
       return { rows: sorted, totalCount: sorted.length };
       } catch (error) {
         console.error('[SiYuanMemo][DeckDataSource] Failed to fetch from manager:', error);
         throw error;
       }
-  }
-  
-  private applyPresetFilter(cards: BrowserCard[]): BrowserCard[] {
-    if (!this.options.preset || this.options.preset === 'all') {
-      return cards;
-    }
-    
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    
-    return cards.filter(c => {
-      switch (this.options.preset) {
-        case 'due':
-          return c.due && new Date(c.due) <= today;
-        case 'overdue':
-          return c.due && new Date(c.due) < today;
-        case 'new':
-          return c.state === 0; // New
-        case 'leech':
-          return (c.lapses || 0) > 0;
-        default:
-          return true;
-      }
-    });
   }
   
   private convertToBrowserCard(card: any): BrowserCard {
@@ -394,39 +316,21 @@ export class DeckDataSource implements ICardDataSource {
 
     // 🆕 删除卡片（使用 CardApplicationService）
     if (actionId === 'delete-card') {
-      // 检查是否有 plugin 和 ApplicationContext
-      if (!this.plugin) {
-        console.error('[SiYuanMemo][DeckDataSource] Plugin not available!');
+      const deletion = await deleteBrowserCards(this.plugin as any, selectedRows, {
+        preferBatch: false,
+        scope: 'DeckDataSource',
+      });
+      if (!deletion) {
         return 0;
       }
-      
-      const cardService = (this.plugin as any).context?.getCardService?.();
-      if (!cardService) {
-        console.error('[SiYuanMemo][DeckDataSource] CardApplicationService not available!');
-        return 0;
+
+      console.log(
+        `[SiYuanMemo][DeckDataSource] Deleted ${deletion.deletedCount}/${deletion.attemptedCount} cards`
+      );
+      if (deletion.failedCardIds.length > 0) {
+        console.error('[SiYuanMemo][DeckDataSource] Failed card IDs:', deletion.failedCardIds);
       }
-      
-      // 使用 CardApplicationService.deleteCard() 逐个删除卡片
-      let deletedCount = 0;
-      for (const row of selectedRows) {
-        // ✅ 修复：直接使用 fsrsCardId（Xiuyuan 卡片的真实 cardId）
-        const cardId = row.fsrsCardId || row.id;
-        
-        console.log(`[SiYuanMemo][DeckDataSource] Deleting card: ${cardId} (blockId: ${row.blockId})`);
-        
-        const command: DeleteCardCommand = { cardId };
-        const result = await cardService.deleteCard(command);
-        
-        if (result.ok) {
-          deletedCount++;
-          console.log(`[SiYuanMemo][DeckDataSource] ✅ Deleted card: ${cardId}`);
-        } else {
-          console.error(`[SiYuanMemo][DeckDataSource] ❌ Failed to delete card ${cardId}:`, result.error);
-        }
-      }
-      
-      console.log(`[SiYuanMemo][DeckDataSource] Deleted ${deletedCount}/${selectedRows.length} cards`);
-      return deletedCount;
+      return deletion.deletedCount;
     }
 
     // ========== 队列操作（使用统一数据源管理器）==========
