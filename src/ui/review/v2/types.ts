@@ -2,6 +2,10 @@
 import type { Ref } from 'vue';
 import type { AdapterContext as CoreAdapterContext, IAdapter as CoreAdapter } from '@/core/extensions';
 
+import type { FSRSCard } from '@/types/card';
+
+export type ReviewCardKind = 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
+
 export interface ReviewUIState {
   header: {
     stats: {
@@ -42,7 +46,11 @@ export interface ReviewUIState {
     /** Xiuyuan 模板卡片的答案块 ID（点击显示答案后渲染） */
     answerBlockID?: string;
     /** 当前渲染的卡片对象（含 meta 等信息） */
-    card?: Record<string, unknown>;
+    card?: FSRSCard;
+    /** Xiuyuan 列表模板卡标记 */
+    isXiuyuanListTemplate?: boolean;
+    /** Xiuyuan 列表模板渲染元数据 */
+    xiuyuanMeta?: Record<string, unknown> | null;
   };
 
   overlay?: {
@@ -71,8 +79,8 @@ export interface ReviewUIState {
       blockID?: string;
       deckID?: string;
       isReviewCard?: boolean;
-      type?: 'item' | 'topic'; // 🆕 卡片类型
-      cardType?: 'item' | 'topic'; // 🆕 兼容字段
+      type?: ReviewCardKind; // 🆕 卡片类型
+      cardType?: ReviewCardKind; // 🆕 兼容字段
     };
   };
 

@@ -62,7 +62,7 @@ import ReviewContent from './ReviewContent.vue';
 import ReviewHeader from './ReviewHeader.vue';
 import { useReviewSession } from './useReviewSession';
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
-import { ProviderBackedQueueStrategy } from '@/core/extensions';
+import { ProviderBackedQueueStrategy, type QueueProvider } from '@/core/extensions';
 import { createVueDialog } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
@@ -70,16 +70,152 @@ import type { NeuralRoamQueue } from '@/queues/NeuralRoamQueue';
 
 const logger = createLogger('ReviewView');
 
+type ReviewProviderLike = {
+  id?: string;
+  displayName?: string;
+  skipBehavior?: 'drop' | 'rotate' | string;
+  getProgress?: () => unknown;
+  getResumePrompt?: () => { message: string; data: unknown } | null;
+};
+
+type ReviewUIConfigLike = {
+  adapter?: {
+    toUIState: (provider: unknown, item: unknown, context: unknown) => Promise<unknown>;
+    fetchAuxiliaryData?: (item: unknown) => Promise<unknown>;
+  };
+  context?: {
+    queue?: Record<string, unknown>;
+    uiConfig?: {
+      statsType: 'infinite' | 'queue-size' | 'riff-counts';
+      showRatingButtons: boolean;
+      allowSkip: boolean;
+      hiddenContentTypes?: string[];
+      customButtons?: Array<{
+        actionId: string;
+        label: string;
+        icon?: string;
+        danger?: boolean;
+        variant?: 'ghost' | 'info';
+      }>;
+      menuCommands?: IQueueCommand<unknown>[];
+    };
+  };
+};
+
+type ReviewPluginContextLike = {
+  getHybridSyncService?: () => { incrementalSync: () => Promise<void> } | undefined;
+  getStorage?: () => {
+    getSettings?: () => {
+      riffIntegration?: {
+        mode?: string;
+        incrementalSync?: {
+          enabled?: boolean;
+          triggers?: string[];
+        };
+      };
+    };
+    getCardByBlockId?: (blockId: string) => { id: string } | undefined;
+  };
+  getReviewService?: () => {
+    getSiyuanApi?: () => {
+      BUILTIN_DECK_ID: string;
+    } | undefined;
+  };
+};
+
+type ReviewPluginLike = {
+  getContext?: () => ReviewPluginContextLike | undefined;
+  openReviewTab?: (options: {
+    provider?: unknown;
+    queue?: unknown;
+    adapter?: unknown;
+    title: string;
+  }) => void;
+};
+
+type UnderlyingQueueLike = {
+  name?: string;
+  neuralQueue?: {
+    getNavigationState?: () => {
+      currentPathIndex: number;
+      navigationMode: 'explore' | 'follow';
+      hasBookmark: boolean;
+      pathLength: number;
+      displayPath?: string[];
+    };
+    setNavigationMode?: (mode: 'explore' | 'follow') => void;
+    returnToBookmark?: () => boolean;
+    displayPath?: string[];
+  };
+  getCurrentCandidatesForSeed?: () => unknown[];
+  getSeedBlocks?: () => string[];
+  startRoamingFromSeed?: (seedId: string) => Promise<void>;
+  removeCard?: (seedId: string) => Promise<void>;
+  getHistorySnapshot?: () => string[];
+  clearHistory?: () => void;
+};
+
+type QueueStrategyWithUnderlying = {
+  getUnderlyingQueue?: () => unknown;
+};
+
+type CommandLike = {
+  id?: unknown;
+  label?: unknown;
+  icon?: string;
+};
+
+type ProtyleLike = {
+  resize?: () => void;
+};
+
+type ProtyleHostElement = HTMLElement & {
+  __vnode__?: { ctx?: { protyle?: ProtyleLike } };
+  __vueParentComponent?: { protyle?: ProtyleLike };
+};
+
+type WindowWithReviewPlugin = Window & {
+  siyuanMemoPlugin?: ReviewPluginLike;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function getPluginContext(plugin: unknown): ReviewPluginContextLike | undefined {
+  return (plugin as ReviewPluginLike | undefined)?.getContext?.();
+}
+
+function getWindowPlugin(): ReviewPluginLike | null {
+  return (window as WindowWithReviewPlugin).siyuanMemoPlugin || null;
+}
+
+function getProtyleFromHost(host: Element): ProtyleLike | null {
+  const protyleHost = host as ProtyleHostElement;
+  return protyleHost.__vnode__?.ctx?.protyle || protyleHost.__vueParentComponent?.protyle || null;
+}
+
+function getCommandLike(cmd: unknown): CommandLike {
+  if (!isRecord(cmd)) {
+    return {};
+  }
+  return {
+    id: cmd.id,
+    label: cmd.label,
+    icon: typeof cmd.icon === 'string' ? cmd.icon : undefined,
+  };
+}
+
 const props = defineProps<{
   app: any;
   i18n?: Record<string, string>;
-  queue?: any;
-  adapter?: any;
-  provider?: any;
-  reviewUI?: any;
+  queue?: unknown;
+  adapter?: unknown;
+  provider?: unknown;
+  reviewUI?: ReviewUIConfigLike;
   title?: string; // 队列标题（如"提取练习"）
   mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
-  plugin?: any; // 🆕 插件实例，用于访问 hybridSyncService
+  plugin?: unknown; // 🆕 插件实例，用于访问 hybridSyncService
   onReview?: (cardId: string, rating: number) => void; // 🆕 复习回调（用于刻意练习黑名单）
 }>();
 
@@ -125,19 +261,35 @@ function shouldIgnoreDuplicateKey(key: string): boolean {
   return false;
 }
 
+function getUnderlyingQueueFromStrategy(strategy: unknown): UnderlyingQueueLike | null {
+  if (!isRecord(strategy)) {
+    return null;
+  }
+
+  const getUnderlyingQueue = (strategy as QueueStrategyWithUnderlying).getUnderlyingQueue;
+  if (typeof getUnderlyingQueue !== 'function') {
+    return null;
+  }
+
+  const underlying = getUnderlyingQueue();
+  return isRecord(underlying) ? (underlying as UnderlyingQueueLike) : null;
+}
+
+function getUnderlyingQueue(): UnderlyingQueueLike | null {
+  return getUnderlyingQueueFromStrategy(hook.getQueueStrategy());
+}
+
 // 判断是否为神经漫游模式
 const isNeuralRoamMode = computed(() => {
   // 检查底层队列是否为神经漫游
-  const queueStrategy = hook.getQueueStrategy();
-  const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+  const underlyingQueue = getUnderlyingQueue();
   return underlyingQueue?.name === 'NeuralRoamQueue';
 });
 
 // 获取神经漫游队列实例
 const neuralQueueInstance = computed<NeuralRoamQueue | null>(() => {
   if (!isNeuralRoamMode.value) return null;
-  const queueStrategy = hook.getQueueStrategy();
-  const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+  const underlyingQueue = getUnderlyingQueue();
   return underlyingQueue as NeuralRoamQueue;
 });
 
@@ -160,8 +312,7 @@ onMounted(() => {
   // 🌌 恢复侧边栏状态（已删除）
 
   // 🆕 触发增量同步（如果启用）
-  const plugin = props.plugin as any;
-  const context = plugin?.getContext?.();
+  const context = getPluginContext(props.plugin);
   const hybridSyncService = context?.getHybridSyncService?.();
   if (hybridSyncService) {
     const storage = context?.getStorage?.();
@@ -187,23 +338,24 @@ onUnmounted(() => {
 });
 
 const providerAdapter = props.reviewUI?.adapter;
-const providerAny = props.provider as any;
-const providerQueue = props.provider && providerAdapter
-  ? new ProviderBackedQueueStrategy(props.provider, {
+const provider = props.provider as QueueProvider<unknown> | undefined;
+const providerLike = provider as (QueueProvider<unknown> & ReviewProviderLike) | undefined;
+const providerQueue = provider && providerAdapter
+  ? new ProviderBackedQueueStrategy(provider, {
       providerOptions: props.reviewUI?.context?.queue || {},
       uiConfig: props.reviewUI?.context?.uiConfig || { statsType: 'queue-size', showRatingButtons: true, allowSkip: true },
-      statsLabel: String(props.provider?.displayName || props.provider?.id || ''),
-      skipBehavior: providerAny?.skipBehavior === 'rotate' || String(props.provider?.id || '') === 'final-drill' ? 'rotate' : 'drop',
-      getProgress: typeof providerAny?.getProgress === 'function' ? () => providerAny.getProgress() : undefined,
-      getResumePrompt: typeof providerAny?.getResumePrompt === 'function' ? () => providerAny.getResumePrompt() : undefined,
+      statsLabel: String(providerLike?.displayName || providerLike?.id || ''),
+      skipBehavior: providerLike?.skipBehavior === 'rotate' || String(providerLike?.id || '') === 'final-drill' ? 'rotate' : 'drop',
+      getProgress: typeof providerLike?.getProgress === 'function' ? () => providerLike.getProgress() : undefined,
+      getResumePrompt: typeof providerLike?.getResumePrompt === 'function' ? () => providerLike.getResumePrompt() : undefined,
     })
   : null;
 
-const bridgedAdapter = props.provider && providerAdapter
+const bridgedAdapter = provider && providerAdapter
   ? {
-      toUIState: (queue: any, item: any, context: any) => providerAdapter.toUIState(props.provider, item, context),
-      fetchAuxiliaryData: providerAdapter.fetchAuxiliaryData
-        ? (item: any) => providerAdapter.fetchAuxiliaryData(item)
+      toUIState: (_queue: unknown, item: unknown, context: unknown) => providerAdapter.toUIState(provider, item, context),
+      fetchAuxiliaryData: typeof providerAdapter.fetchAuxiliaryData === 'function'
+        ? (item: unknown) => providerAdapter.fetchAuxiliaryData(item)
         : undefined,
     }
   : null;
@@ -385,11 +537,12 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
 
   // 标准菜单项
   for (const cmd of cmds) {
-    const id = String((cmd as any)?.id || '');
-    const label = String((cmd as any)?.label || '');
+    const command = getCommandLike(cmd);
+    const id = String(command.id || '');
+    const label = String(command.label || '');
     if (!id || !label) continue;
     menu.addItem({
-      icon: (cmd as any)?.icon,
+      icon: command.icon,
       label,
       click: () => {
         void hook.executeCommand(id);
@@ -505,8 +658,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
 
         if (protyleHost) {
           // 查找 protyle 实例
-          const protyle = (protyleHost as any)?.['__vnode__']?.['ctx']?.['protyle']
-                         || (protyleHost as any)?.['__vueParentComponent']?.['protyle'];
+          const protyle = getProtyleFromHost(protyleHost);
           logger.debug('[SiYuanMemo][ReviewView] protyle instance:', protyle);
 
           if (protyle && typeof protyle.resize === 'function') {
@@ -540,8 +692,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
     const blockId = cardMeta?.blockID || state.value.content.data;
 
     if (blockId) {
-      const queueStrategy = hook.getQueueStrategy();
-      const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+      const underlyingQueue = getUnderlyingQueue();
 
       if (underlyingQueue) {
         import('@/core/neural/SeedService').then(({ SeedService }) => {
@@ -575,8 +726,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   } else if (actionType === 'nav-toggle-mode') {
     // 🆕 导航模式切换（Phase 3: UI 控件）
     logger.debug('[SiYuanMemo][ReviewView] Navigation mode toggle button clicked');
-    const queueStrategy = hook.getQueueStrategy();
-    const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+    const underlyingQueue = getUnderlyingQueue();
 
     if (underlyingQueue?.name === 'NeuralRoamQueue') {
       const neuralQueue = underlyingQueue.neuralQueue;
@@ -599,8 +749,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   } else if (actionType === 'nav-return-bookmark') {
     // 🆕 返回书签（Phase 3: UI 控件）
     logger.debug('[SiYuanMemo][ReviewView] Return to bookmark button clicked');
-    const queueStrategy = hook.getQueueStrategy();
-    const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+    const underlyingQueue = getUnderlyingQueue();
 
     if (underlyingQueue?.name === 'NeuralRoamQueue') {
       const neuralQueue = underlyingQueue.neuralQueue;
@@ -631,7 +780,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
   const menu = new Menu();
 
   // 获取插件实例
-  const fsrsPlugin = (window as any).siyuanMemoPlugin;
+  const fsrsPlugin = getWindowPlugin();
 
   if (!fsrsPlugin) {
     logger.error('[SiYuanMemo][ReviewView] FSRS plugin instance not found');
@@ -648,7 +797,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
       logger.debug('[SiYuanMemo][ReviewView] Opening in tab and closing dialog');
 
       // 获取插件实例
-      const fsrsPlugin = (window as any).siyuanMemoPlugin;
+      const fsrsPlugin = getWindowPlugin();
       if (!fsrsPlugin) {
         logger.error('[SiYuanMemo][ReviewView] Plugin instance not found');
         return;
@@ -677,7 +826,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
   //     logger.debug('[SiYuanMemo][ReviewView] Opening review in new window');
   //     try {
   //       // 获取插件实例
-  //       const fsrsPlugin = (window as any).siyuanMemoPlugin;
+  //       const fsrsPlugin = getWindowPlugin();
   //       if (!fsrsPlugin) {
   //         logger.error('[SiYuanMemo][ReviewView] Plugin instance not found');
   //         return;
@@ -723,7 +872,7 @@ function openSrsEditorDialog(blockId: string) {
     return;
   }
 
-  const context = (props.plugin as any)?.getContext?.();
+  const context = getPluginContext(props.plugin);
   const reviewService = context?.getReviewService?.();
   const siyuanApi = reviewService?.getSiyuanApi?.();
   if (!siyuanApi) {
@@ -782,10 +931,8 @@ function openCardInNewWindow(blockId: string) {
 function handleNeuralMenu(ev: MouseEvent) {
   logger.debug('[SiYuanMemo][ReviewView] handleNeuralMenu - start', { ev, target: ev.target });
 
-  const queueStrategy = hook.getQueueStrategy();
-  logger.debug('[SiYuanMemo][ReviewView] queueStrategy:', queueStrategy);
-
-  const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+  logger.debug('[SiYuanMemo][ReviewView] queueStrategy:', hook.getQueueStrategy());
+  const underlyingQueue = getUnderlyingQueue();
   logger.debug('[SiYuanMemo][ReviewView] underlyingQueue:', underlyingQueue);
 
   if (!underlyingQueue) {
@@ -970,8 +1117,7 @@ function handleBreadcrumbClick(crumb: { icon?: string; text: string; id?: string
  * Phase 3: UI 控件
  */
 function getNavigationState() {
-  const queueStrategy = hook.getQueueStrategy();
-  const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+  const underlyingQueue = getUnderlyingQueue();
 
   if (underlyingQueue?.name === 'NeuralRoamQueue') {
     const neuralQueue = underlyingQueue.neuralQueue;
@@ -988,8 +1134,7 @@ function getNavigationState() {
  * Phase 3: UI 控件
  */
 function isNeuralRoamQueue(): boolean {
-  const queueStrategy = hook.getQueueStrategy();
-  const underlyingQueue = (queueStrategy as any)?.getUnderlyingQueue?.();
+  const underlyingQueue = getUnderlyingQueue();
   return underlyingQueue?.name === 'NeuralRoamQueue';
 }
 

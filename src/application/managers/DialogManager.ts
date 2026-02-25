@@ -21,15 +21,57 @@ import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapt
 import { createUnifiedReviewDialog } from '@/application/factories/createUnifiedReviewDialog';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
-import { QueueType } from '@/types/unified-data-source';
+import { QueueType, type CardFilter, type IReviewQueue } from '@/types/unified-data-source';
 import { ReviewView } from '@/ui/review/v2';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
 import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
 import { TemporaryDrillQueue } from '@/core/queue/domain/TemporaryDrillQueue';
 import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
 import { createLogger } from '@/utils/logger';
+import type { PluginSettings, RiffIntegrationConfig } from '@/types/settings';
+import type { ICardTemplate } from '@/core/xiuyuan/types';
+import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 
 const logger = createLogger('DialogManager');
+
+type VueDialogHandle = ReturnType<typeof createVueDialog>;
+
+type SettingsPanelSavePayload = {
+  requestRetention?: number;
+  maximumInterval?: number;
+  enableShortTerm?: boolean;
+  params?: number[];
+  dayStartHour?: number;
+  queues?: PluginSettings['queues'];
+  scheduler?: PluginSettings['scheduler'];
+  riffIntegration?: RiffIntegrationConfig;
+  incremental?: PluginSettings['incremental'];
+  quickCard?: PluginSettings['quickCard'];
+  ui?: PluginSettings['ui'];
+};
+
+interface QueueBufferSnapshot {
+  localBuffer?: unknown[];
+  cards?: unknown[];
+  buffer?: unknown[];
+}
+
+interface FilterGroupQueueLike extends IReviewQueue {
+  setFilter?: (filter: CardFilter) => void | Promise<void>;
+  clearTemporaryBlacklist?: () => void | Promise<void>;
+}
+
+interface NeuralQueueLike extends IReviewQueue {
+  clearHistory?: () => void;
+}
+
+interface BlockSqlRow {
+  id: string;
+  type?: string;
+  subtype?: string;
+  content?: string;
+  markdown?: string;
+}
 
 /**
  * DialogManager 类
@@ -54,10 +96,10 @@ export class DialogManager implements IDialogManager {
   // 对话框实例
   // ========================================================================
   
-  private settingsDialog: { dialog: any; destroy: () => void } | null = null;
-  private srsBrowserDialog: { dialog: any; destroy: () => void } | null = null;
-  private templateSelectDialog: { dialog: any; destroy: () => void } | null = null;
-  private currentReviewDialog: { dialog: any; destroy: () => void } | null = null;
+  private settingsDialog: VueDialogHandle | null = null;
+  private srsBrowserDialog: VueDialogHandle | null = null;
+  private templateSelectDialog: VueDialogHandle | null = null;
+  private currentReviewDialog: VueDialogHandle | null = null;
   
   // ========================================================================
   // 构造函数
@@ -90,7 +132,7 @@ export class DialogManager implements IDialogManager {
     const storage = this.context.getStorage();
     const hybridSyncService = this.context.getHybridSyncService();
     const practiceQueueManager = this.context.getPracticeQueueManager();
-    const retrievalQueue = this.context.getRetrievalQueue() as any;
+    const retrievalQueue = this.context.getRetrievalQueue() as QueueBufferSnapshot;
     const queueCount = (() => {
       try {
         const candidates = [
@@ -129,8 +171,8 @@ export class DialogManager implements IDialogManager {
         defaultTab,
         queueCount,
         queueHandlers: {
-          preview: (filter: any) => practiceQueueManager.previewPracticeQueue(filter),
-          add: (filter: any) => practiceQueueManager.addPracticeQueue(filter),
+          preview: (filter: CardFilter) => practiceQueueManager.previewPracticeQueue(filter),
+          add: (filter: CardFilter) => practiceQueueManager.addPracticeQueue(filter),
           start: () => practiceQueueManager.startPracticeQueue(() => {
             void this.openReviewDialog();
           }),
@@ -138,7 +180,7 @@ export class DialogManager implements IDialogManager {
         },
       },
       events: {
-        save: async (settings: any) => {
+        save: async (settings: SettingsPanelSavePayload) => {
           // 🔍 调试日志：检查接收到的 quickCard 配置
           logger.info('[DialogManager] Received settings with quickCard:', settings.quickCard);
           
@@ -146,10 +188,10 @@ export class DialogManager implements IDialogManager {
             ...currentSettings,
             fsrs: {
               ...currentSettings.fsrs,
-              requestRetention: settings.requestRetention,
-              maximumInterval: settings.maximumInterval,
-              enableShortTerm: settings.enableShortTerm,
-              weights: settings.params,
+              requestRetention: settings.requestRetention ?? currentSettings.fsrs.requestRetention,
+              maximumInterval: settings.maximumInterval ?? currentSettings.fsrs.maximumInterval,
+              enableShortTerm: settings.enableShortTerm ?? currentSettings.fsrs.enableShortTerm,
+              weights: settings.params ?? currentSettings.fsrs.weights,
               dayStartHour: settings.dayStartHour ?? 4,
             },
             queues: settings.queues || currentSettings.queues,
@@ -320,7 +362,7 @@ export class DialogManager implements IDialogManager {
    */
   private async checkInitialized(): Promise<boolean> {
     if (!this.context) {
-      await this.siyuanApi.pushErrMsg(this.context.getI18n()?.initFailed || 'FSRS 插件初始化失败，请打开控制台查看错误');
+      await this.siyuanApi.pushErrMsg('FSRS 插件初始化失败，请打开控制台查看错误');
       return false;
     }
     return true;
@@ -444,9 +486,9 @@ export class DialogManager implements IDialogManager {
 
     try {
       // 清理神经漫游队列的历史记录
-      const neuralQueue = this.context.getUnifiedDataSourceManager().getQueue(QueueType.NeuralRoam);
-      if (neuralQueue && typeof (neuralQueue as any).clearHistory === 'function') {
-        (neuralQueue as any).clearHistory();
+      const neuralQueue = this.context.getUnifiedDataSourceManager().getQueue(QueueType.NeuralRoam) as NeuralQueueLike;
+      if (neuralQueue && typeof neuralQueue.clearHistory === 'function') {
+        neuralQueue.clearHistory();
         logger.info('[DialogManager] ✅ Neural roam history cleared');
       }
 
@@ -476,13 +518,13 @@ export class DialogManager implements IDialogManager {
     try {
       const settingsService = this.context.getSettingsService();
       const settings = settingsService.getSettings();
-      const leech = (settings as any)?.leech || {};
+      const leech = settings.leech;
 
       const manager = this.context.getUnifiedDataSourceManager();
       const queue = new LeechReviewQueue(manager, {
-        threshold: Number(leech.threshold) || 8,
-        action: (leech.action || 'notify') as any,
-        tagName: String(leech.tagName || ''),
+        threshold: Number(leech?.threshold) || 8,
+        action: leech?.action || 'notify',
+        tagName: String(leech?.tagName || ''),
         effects: new SiyuanLeechActionEffectsAdapter(),
       });
 
@@ -551,10 +593,10 @@ export class DialogManager implements IDialogManager {
 
     try {
       const manager = this.context.getUnifiedDataSourceManager();
-      const filterGroupQueue = manager.getQueue(QueueType.FilterGroup);
+      const filterGroupQueue = manager.getQueue(QueueType.FilterGroup) as FilterGroupQueueLike;
       
       // 设置临时过滤条件
-      const filter: any = {
+      const filter: CardFilter = {
         blockIds: options.blockIds,
         cardType: 'item',  // 只接受 Item
       };
@@ -572,13 +614,13 @@ export class DialogManager implements IDialogManager {
       });
       
       // 应用过滤条件
-      if (typeof (filterGroupQueue as any).setFilter === 'function') {
-        (filterGroupQueue as any).setFilter(filter);
+      if (typeof filterGroupQueue.setFilter === 'function') {
+        await filterGroupQueue.setFilter(filter);
       }
       
       // 清除临时黑名单（全部模式）
-      if (!options.dueOnly && typeof (filterGroupQueue as any).clearTemporaryBlacklist === 'function') {
-        (filterGroupQueue as any).clearTemporaryBlacklist();
+      if (!options.dueOnly && typeof filterGroupQueue.clearTemporaryBlacklist === 'function') {
+        await filterGroupQueue.clearTemporaryBlacklist();
         logger.info('[DialogManager] ✅ Cleared temporary blacklist for "all" mode');
       }
       
@@ -598,15 +640,15 @@ export class DialogManager implements IDialogManager {
           app: this.plugin.app,
           i18n: this.context.getI18n() || {},
           title: this.context.getI18n()?.retrievalPractice || '提取练习',
-          queue: queue as any,
-          adapter: adapter as any,
+          queue,
+          adapter,
           plugin: this.plugin,
         },
         events: {
           close: () => {
             // 清除过滤条件
-            if (typeof (filterGroupQueue as any).setFilter === 'function') {
-              (filterGroupQueue as any).setFilter({});
+            if (typeof filterGroupQueue.setFilter === 'function') {
+              void filterGroupQueue.setFilter({});
             }
             this.destroyCurrentReviewDialog();
           },
@@ -641,10 +683,10 @@ export class DialogManager implements IDialogManager {
 
     try {
       const manager = this.context.getUnifiedDataSourceManager();
-      const filterGroupQueue = manager.getQueue(QueueType.FilterGroup);
+      const filterGroupQueue = manager.getQueue(QueueType.FilterGroup) as FilterGroupQueueLike;
       
       // 设置临时过滤条件
-      const filter: any = {
+      const filter: CardFilter = {
         blockIds: options.blockIds,
         // 渐进学习接受所有类型（Item + Topic）
       };
@@ -662,13 +704,13 @@ export class DialogManager implements IDialogManager {
       });
       
       // 应用过滤条件
-      if (typeof (filterGroupQueue as any).setFilter === 'function') {
-        (filterGroupQueue as any).setFilter(filter);
+      if (typeof filterGroupQueue.setFilter === 'function') {
+        await filterGroupQueue.setFilter(filter);
       }
       
       // 清除临时黑名单（全部模式）
-      if (!options.dueOnly && typeof (filterGroupQueue as any).clearTemporaryBlacklist === 'function') {
-        (filterGroupQueue as any).clearTemporaryBlacklist();
+      if (!options.dueOnly && typeof filterGroupQueue.clearTemporaryBlacklist === 'function') {
+        await filterGroupQueue.clearTemporaryBlacklist();
         logger.info('[DialogManager] ✅ Cleared temporary blacklist for "all" mode');
       }
       
@@ -688,15 +730,15 @@ export class DialogManager implements IDialogManager {
           app: this.plugin.app,
           i18n: this.context.getI18n() || {},
           title: this.context.getI18n()?.incrementalLearning || '渐进学习',
-          queue: queue as any,
-          adapter: adapter as any,
+          queue,
+          adapter,
           plugin: this.plugin,
         },
         events: {
           close: () => {
             // 清除过滤条件
-            if (typeof (filterGroupQueue as any).setFilter === 'function') {
-              (filterGroupQueue as any).setFilter({});
+            if (typeof filterGroupQueue.setFilter === 'function') {
+              void filterGroupQueue.setFilter({});
             }
             this.destroyCurrentReviewDialog();
           },
@@ -769,7 +811,7 @@ export class DialogManager implements IDialogManager {
    * @param blockIds - 块 ID 列表（多填空卡只使用第一个块）
    * @param template - 多填空模版
    */
-  private async handleListTemplateCard(blockIds: string[], template: any): Promise<void> {
+  private async handleListTemplateCard(blockIds: string[], template: ICardTemplate): Promise<void> {
     try {
       if (blockIds.length === 0) {
         this.siyuanApi.pushErrMsg('未选中任何块');
@@ -806,7 +848,7 @@ export class DialogManager implements IDialogManager {
       `);
       
       // 找到列表容器
-      const listContainer = allChildrenResult?.find((r: any) => r.type === 'l');
+      const listContainer = (allChildrenResult as BlockSqlRow[])?.find((r) => r.type === 'l');
       
       if (!listContainer) {
         this.siyuanApi.pushErrMsg('未找到列表容器，请确保列表结构正确');
@@ -843,7 +885,7 @@ export class DialogManager implements IDialogManager {
         return;
       }
 
-      const childBlockIds = finalChildren.map((row: any) => row.id);
+      const childBlockIds = (finalChildren as BlockSqlRow[]).map((row) => row.id);
 
       // 3. 创建列表模版卡
       const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
@@ -1262,7 +1304,7 @@ export class DialogManager implements IDialogManager {
    * @param blockIds - 块 ID 列表（多填空卡只使用第一个块）
    * @param template - 多填空模版
    */
-  private async handleMultiClozeCard(blockIds: string[], template: any): Promise<void> {
+  private async handleMultiClozeCard(blockIds: string[], template: ICardTemplate): Promise<void> {
     try {
       if (blockIds.length === 0) {
         this.siyuanApi.pushErrMsg('未选中任何块');
@@ -1494,7 +1536,7 @@ export class DialogManager implements IDialogManager {
 
               // 普通模版：自动字段映射
               const fieldMapping: Record<string, string> = {};
-              template.fields.forEach((field: any, index: number) => {
+              template.fields.forEach((field, index: number) => {
                 if (index < blockIds.length) {
                   fieldMapping[field.name] = blockIds[index];
                 }
@@ -1604,7 +1646,7 @@ export class DialogManager implements IDialogManager {
    */
   private async ensureConceptDocumentCard(
     fieldMapping: Record<string, string>,
-    xiuyuanAppService: any
+    xiuyuanAppService: XiuyuanApplicationService
   ): Promise<void> {
     try {
       const conceptBlockId = fieldMapping['concept'];

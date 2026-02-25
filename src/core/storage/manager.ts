@@ -33,7 +33,7 @@ const STORAGE_FILES = {
 
 interface QueueData {
     version: number;
-    items: any[];
+    items: StoredQueueItem[];
     metadata: {
         createdAt: number;
         updatedAt: number;
@@ -42,8 +42,88 @@ interface QueueData {
     };
 }
 
+interface StoredQueueItem extends Record<string, unknown> {
+    cardID?: string;
+    cardId?: string;
+    blockID?: string;
+    blockId?: string;
+    priority?: number;
+}
+
+interface QueuePayload {
+    items: StoredQueueItem[];
+    lastAutoSortDay: string;
+}
+
+interface AttributeRow {
+    block_id?: unknown;
+    blockId?: unknown;
+    value?: unknown;
+}
+
 const logger = createLogger('StorageManager');
 type LegacyStorageSource = 'msgpack' | 'json' | 'none';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function toStoredQueueItem(value: unknown): StoredQueueItem | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    return { ...value };
+}
+
+function normalizeStoredQueueItems(items: unknown[]): StoredQueueItem[] {
+    const out: StoredQueueItem[] = [];
+    for (const raw of items) {
+        const item = toStoredQueueItem(raw);
+        if (!item) {
+            continue;
+        }
+        const priorityValue = Number(item.priority);
+        item.priority = Number.isFinite(priorityValue) ? priorityValue : DEFAULT_PRIORITY;
+        out.push(item);
+    }
+    return out;
+}
+
+function resolveQueueItemCardId(item: StoredQueueItem): string {
+    return String(item.cardID || item.cardId || '');
+}
+
+function resolveQueueItemBlockId(item: StoredQueueItem): string {
+    return String(item.blockID || item.blockId || '');
+}
+
+function normalizeAttributeRows(rows: unknown): AttributeRow[] {
+    if (!Array.isArray(rows)) {
+        return [];
+    }
+    return rows.filter((row): row is AttributeRow => isRecord(row));
+}
+
+function toNumberOrDefault(value: unknown, fallback: number): number {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : fallback;
+}
+
+function toBooleanOrDefault(value: unknown, fallback: boolean): boolean {
+    if (typeof value === 'boolean') {
+        return value;
+    }
+    return fallback;
+}
+
+function toStringArray(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    return value
+        .map((item) => String(item || '').trim())
+        .filter(Boolean);
+}
 
 /**
  * 存储管理器类
@@ -62,7 +142,7 @@ export class StorageManager {
     private cardsCache: Map<string, FSRSCard> = new Map();
     private settings: PluginSettings = DEFAULT_SETTINGS;
     private isDirty: boolean = false;
-    private practiceQueue: any[] = [];
+    private practiceQueue: StoredQueueItem[] = [];
     private practiceQueueLastAutoSortDay = '';
     private riffBlacklist: Set<string> = new Set();
 
@@ -110,9 +190,13 @@ export class StorageManager {
             if (data) {
                 this.settings = { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
                 // ✅ 向后兼容：自动迁移旧的队列名称
-                const dq = (this.settings as any)?.queues?.defaultQueue;
-                if (dq === 'deliberate') (this.settings as any).queues.defaultQueue = 'final-drill';
-                if (dq === 'neural-wandering') (this.settings as any).queues.defaultQueue = 'neural-roam';
+                const defaultQueue = String(this.settings.queues?.defaultQueue || '');
+                if (defaultQueue === 'deliberate') {
+                    this.settings.queues.defaultQueue = 'final-drill';
+                }
+                if (defaultQueue === 'neural-wandering') {
+                    this.settings.queues.defaultQueue = 'neural-roam';
+                }
             }
         } catch (err) {
             logger.warn('Failed to load settings, using defaults:', err);
@@ -271,9 +355,9 @@ export class StorageManager {
                 return;
             }
 
-            const cards: FSRSCard[] = Array.isArray(data) ? data : [];
-            this.logXiuyuanCardSamples('Loaded', cards);
+            const cards: unknown[] = Array.isArray(data) ? data : [];
             const normalizedCount = this.cacheNormalizedCards(cards);
+            this.logXiuyuanCardSamples('Loaded', this.getAllCards());
 
             const sourceLabel = source === 'msgpack' ? 'msgpack' : 'JSON, will migrate to msgpack';
             logger.info(`Loaded ${cards.length} cards (${sourceLabel})`);
@@ -299,7 +383,7 @@ export class StorageManager {
         return { data: JSON.parse(jsonData), source: 'json' };
     }
 
-    private cacheNormalizedCards(cards: FSRSCard[]): number {
+    private cacheNormalizedCards(cards: unknown[]): number {
         this.cardsCache.clear();
 
         let normalizedCount = 0;
@@ -338,8 +422,8 @@ export class StorageManager {
                 blockId: c.blockId,
                 hasMeta: !!c.meta,
                 metaKeys: c.meta ? Object.keys(c.meta) : [],
-                xiuyuanID: (c.meta as any)?.xiuyuanID,
-                currentIndex: (c.meta as any)?.currentIndex,
+                xiuyuanID: isRecord(c.meta) ? c.meta.xiuyuanID : undefined,
+                currentIndex: isRecord(c.meta) ? c.meta.currentIndex : undefined,
             })),
         });
     }
@@ -356,13 +440,14 @@ export class StorageManager {
      * 🔧 注意：type 字段需要从块属性读取，不能随意填充默认值
      * 如果卡片没有 type 字段，保持 undefined，等待从块属性读取
      */
-    private normalizeCard(card: any): FSRSCard {
+    private normalizeCard(card: unknown): FSRSCard {
+        const source = isRecord(card) ? card : {};
         // 处理大小写变体
-        const id = card.id || card.cardID || card.cardId;
-        const blockId = card.blockId || card.blockID;
+        const id = source.id || source.cardID || source.cardId;
+        const blockId = source.blockId || source.blockID;
         
         // 🆕 验证并修复日期字段
-        const validateTimestamp = (value: any, fieldName: string): number => {
+        const validateTimestamp = (value: unknown, fieldName: string): number => {
             // 如果是字符串，尝试解析
             if (typeof value === 'string') {
                 const timestamp = new Date(value).getTime();
@@ -399,40 +484,40 @@ export class StorageManager {
             blockId: String(blockId || id),
             
             // FSRS 核心字段（🆕 验证日期）
-            due: validateTimestamp(card.due, 'due') || Date.now(),
-            state: card.state ?? 0,
-            stability: card.stability ?? 0,
-            difficulty: card.difficulty ?? 0,
-            reps: card.reps ?? 0,
-            lapses: card.lapses ?? 0,
-            lastReview: validateTimestamp(card.lastReview, 'lastReview'),
-            elapsedDays: card.elapsedDays ?? 0,
-            scheduledDays: card.scheduledDays ?? 0,
+            due: validateTimestamp(source.due, 'due') || Date.now(),
+            state: toNumberOrDefault(source.state, 0),
+            stability: toNumberOrDefault(source.stability, 0),
+            difficulty: toNumberOrDefault(source.difficulty, 0),
+            reps: toNumberOrDefault(source.reps, 0),
+            lapses: toNumberOrDefault(source.lapses, 0),
+            lastReview: validateTimestamp(source.lastReview, 'lastReview'),
+            elapsedDays: toNumberOrDefault(source.elapsedDays, 0),
+            scheduledDays: toNumberOrDefault(source.scheduledDays, 0),
             
             // 扩展字段（填充默认值）
-            priority: card.priority ?? 50,
+            priority: toNumberOrDefault(source.priority, 50),
             // ✅ 修复：为 null/undefined 提供默认值 CardType.Item
-            type: card.type ?? CardType.Item,
-            tags: card.tags ?? [],
-            leechCount: card.leechCount ?? 0,
-            isLeech: card.isLeech ?? false,
-            skipped: card.skipped ?? false,
+            type: typeof source.type === 'string' ? source.type : CardType.Item,
+            tags: toStringArray(source.tags),
+            leechCount: toNumberOrDefault(source.leechCount, 0),
+            isLeech: toBooleanOrDefault(source.isLeech, false),
+            skipped: toBooleanOrDefault(source.skipped, false),
             
             // 元数据
-            createdAt: card.createdAt ?? Date.now(),
-            updatedAt: card.updatedAt ?? Date.now(),
+            createdAt: toNumberOrDefault(source.createdAt, Date.now()),
+            updatedAt: toNumberOrDefault(source.updatedAt, Date.now()),
             
             // 保留其他字段（但不包括 deckID）
-            ...(card.schedulerType && { schedulerType: card.schedulerType }),
-            ...(card.syncToRiff !== undefined && { syncToRiff: card.syncToRiff }),
-            ...(card.riffCardId && { riffCardId: card.riffCardId }),
-            ...(card.skipUntil && { skipUntil: card.skipUntil }),
-            ...(card.meta && { meta: card.meta }),
+            ...(typeof source.schedulerType === 'string' && { schedulerType: source.schedulerType }),
+            ...(source.syncToRiff !== undefined && { syncToRiff: source.syncToRiff }),
+            ...(source.riffCardId && { riffCardId: source.riffCardId }),
+            ...(source.skipUntil && { skipUntil: source.skipUntil }),
+            ...(source.meta && { meta: source.meta }),
             
             // 🆕 保留 SuperMemo 重新调度字段（如果存在）
-            ...(card.postponeCount !== undefined && { postponeCount: card.postponeCount }),
-            ...(card.lastPostponeDate !== undefined && { lastPostponeDate: card.lastPostponeDate }),
-            ...(card.rescheduleHistory !== undefined && { rescheduleHistory: card.rescheduleHistory }),
+            ...(source.postponeCount !== undefined && { postponeCount: source.postponeCount }),
+            ...(source.lastPostponeDate !== undefined && { lastPostponeDate: source.lastPostponeDate }),
+            ...(source.rescheduleHistory !== undefined && { rescheduleHistory: source.rescheduleHistory }),
         };
         
         // ✅ 应用迁移逻辑：确保所有必需字段存在（learning_step、postponeCount、rescheduleHistory）
@@ -447,18 +532,19 @@ export class StorageManager {
      * - 原卡片使用大写字段（blockID, cardID）
      * - 原卡片缺少扩展字段
      */
-    private wasCardNormalized(original: any, normalized: FSRSCard): boolean {
+    private wasCardNormalized(original: unknown, _normalized: FSRSCard): boolean {
+        const source = isRecord(original) ? original : {};
         // 检查是否有 QueueItem 特征
-        const hadDeckID = 'deckID' in original;
+        const hadDeckID = 'deckID' in source;
         
         // 检查是否使用大写字段
-        const hadUpperCase = ('blockID' in original) || ('cardID' in original);
+        const hadUpperCase = ('blockID' in source) || ('cardID' in source);
         
         // 检查是否缺少扩展字段
         const lackedExtendedFields = 
-            !('priority' in original) ||
-            !('type' in original) ||
-            !('tags' in original);
+            !('priority' in source) ||
+            !('type' in source) ||
+            !('tags' in source);
         
         return hadDeckID || hadUpperCase || lackedExtendedFields;
     }
@@ -478,27 +564,28 @@ export class StorageManager {
         logger.info(`Saved ${cards.length} cards (msgpack)`);
     }
 
-    getPracticeQueue(): any[] {
+    getPracticeQueue(): StoredQueueItem[] {
         return this.practiceQueue;
     }
 
-    async setPracticeQueue(queue: any[]): Promise<void> {
+    async setPracticeQueue(queue: StoredQueueItem[]): Promise<void> {
         this.practiceQueue = queue;
         await this.savePracticeQueue();
     }
 
-    async addPracticeQueue(cards: any[]): Promise<number> {
-        const existing = new Set(this.practiceQueue.map(card => card.cardID));
+    async addPracticeQueue(cards: StoredQueueItem[]): Promise<number> {
+        const existing = new Set(this.practiceQueue.map(resolveQueueItemCardId).filter(Boolean));
         let added = 0;
-        for (const card of cards) {
-            if (!card?.cardID || existing.has(card.cardID)) {
+        for (const rawCard of cards) {
+            const cardId = resolveQueueItemCardId(rawCard);
+            if (!cardId || existing.has(cardId)) {
                 continue;
             }
-            existing.add(card.cardID);
-            if (!Number.isFinite(Number(card?.priority))) {
-                card.priority = DEFAULT_PRIORITY;
-            }
-            this.practiceQueue.push(card);
+            existing.add(cardId);
+            this.practiceQueue.push({
+                ...rawCard,
+                priority: toNumberOrDefault(rawCard.priority, DEFAULT_PRIORITY),
+            });
             added++;
         }
         if (added > 0) {
@@ -546,9 +633,9 @@ export class StorageManager {
     async getQueueBackup(): Promise<QueueData | null> {
         try {
             // 🆕 使用 msgpack 格式加载
-            const data = await this.loadMsgpackData(STORAGE_FILES.PRACTICE_QUEUE_BACKUP);
+            const data = await this.loadMsgpackData<QueueData>(STORAGE_FILES.PRACTICE_QUEUE_BACKUP);
             if (data) {
-                return data as QueueData;
+                return data;
             }
         } catch (error) {
             logger.warn('Failed to load queue backup:', error);
@@ -687,14 +774,11 @@ export class StorageManager {
         return allLogs;
     }
 
-    private normalizePracticeQueueItems(items: unknown[]): any[] {
-        return items.map((x: any) => ({
-            ...(x as any),
-            priority: Number.isFinite(Number((x as any)?.priority)) ? Number((x as any).priority) : DEFAULT_PRIORITY,
-        }));
+    private normalizePracticeQueueItems(items: unknown[]): StoredQueueItem[] {
+        return normalizeStoredQueueItems(items);
     }
 
-    private parsePracticeQueuePayload(data: unknown): { items: any[]; lastAutoSortDay: string } {
+    private parsePracticeQueuePayload(data: unknown): QueuePayload {
         if (Array.isArray(data)) {
             return {
                 items: this.normalizePracticeQueueItems(data),
@@ -702,11 +786,11 @@ export class StorageManager {
             };
         }
 
-        if (data && typeof data === 'object') {
-            const items = Array.isArray((data as any).items) ? (data as any).items : [];
+        if (isRecord(data)) {
+            const items = Array.isArray(data.items) ? data.items : [];
             return {
                 items: this.normalizePracticeQueueItems(items),
-                lastAutoSortDay: String((data as any).lastAutoSortDay || ''),
+                lastAutoSortDay: String(data.lastAutoSortDay || ''),
             };
         }
 
@@ -750,13 +834,13 @@ export class StorageManager {
 
     // ==================== 渐进学习队列 ====================
 
-    private incrementalLearningQueue: any[] = [];
+    private incrementalLearningQueue: StoredQueueItem[] = [];
 
-    getIncrementalLearningQueue(): any[] {
+    getIncrementalLearningQueue(): StoredQueueItem[] {
         return this.incrementalLearningQueue;
     }
 
-    async setIncrementalLearningQueue(queue: any[]): Promise<void> {
+    async setIncrementalLearningQueue(queue: StoredQueueItem[]): Promise<void> {
         this.incrementalLearningQueue = queue;
         await this.saveIncrementalLearningQueue();
     }
@@ -771,7 +855,7 @@ export class StorageManager {
             if (source === 'none') {
                 this.incrementalLearningQueue = [];
             } else {
-                this.incrementalLearningQueue = Array.isArray(data) ? data : [];
+                this.incrementalLearningQueue = Array.isArray(data) ? normalizeStoredQueueItems(data) : [];
                 logger.info(
                     `Loaded incremental learning queue (${source === 'msgpack' ? 'msgpack' : 'JSON, will migrate'}): ${this.incrementalLearningQueue.length} items`
                 );
@@ -796,20 +880,23 @@ export class StorageManager {
             return;
         }
         const blockIds = this.practiceQueue
-            .map((x) => String((x as any)?.blockID || (x as any)?.blockId || ''))
+            .map((item) => resolveQueueItemBlockId(item))
             .filter(Boolean);
         const priMap = await this.getPrioritiesByBlockIDs(blockIds).catch(() => new Map<string, number>());
-        const keyed = this.practiceQueue.map((it, idx) => {
-            const bid = String((it as any)?.blockID || (it as any)?.blockId || '');
+        const keyed = this.practiceQueue.map((item, idx) => {
+            const bid = resolveQueueItemBlockId(item);
             const p = clampPriority(priMap.get(bid), DEFAULT_PRIORITY);
-            (it as any).priority = p;
-            return { it, idx, p };
+            return {
+                item: { ...item, priority: p },
+                idx,
+                p,
+            };
         });
         keyed.sort((a, b) => {
             if (a.p !== b.p) return a.p - b.p;
             return a.idx - b.idx;
         });
-        this.practiceQueue = keyed.map((x) => x.it);
+        this.practiceQueue = keyed.map((x) => x.item);
         this.practiceQueueLastAutoSortDay = today;
         await this.savePracticeQueue();
     }
@@ -822,11 +909,11 @@ export class StorageManager {
             const batch = ids.slice(i, i + 200);
             const inList = batch.map((id) => `'${this.escapeSQL(id)}'`).join(',');
             const stmt = `SELECT block_id, value FROM attributes WHERE name = '${ATTR_PRIORITY}' AND block_id IN (${inList})`;
-            const rows = await siyuanApi.sql(stmt).catch(() => []);
-            for (const r of rows as any[]) {
-                const bid = String(r?.block_id || r?.blockId || '');
+            const rows = await siyuanApi.sql(stmt).catch((): unknown[] => []);
+            for (const row of normalizeAttributeRows(rows)) {
+                const bid = String(row.block_id ?? row.blockId ?? '');
                 if (!bid) continue;
-                out.set(bid, clampPriority(r?.value, DEFAULT_PRIORITY));
+                out.set(bid, clampPriority(row.value, DEFAULT_PRIORITY));
             }
         }
         return out;
@@ -857,12 +944,12 @@ export class StorageManager {
     /**
      * 加载 JSON 数据
      */
-    async loadData(filename: string): Promise<any> {
+    async loadData<T = unknown>(filename: string): Promise<T | null> {
         try {
             const content = await this.readPluginData(filename);
             if (!content) return null;
 
-            return JSON.parse(content);
+            return JSON.parse(content) as T;
         } catch (error) {
             logger.error(`Failed to load ${filename}:`, error);
             return null;
@@ -872,7 +959,7 @@ export class StorageManager {
     /**
      * 保存 JSON 数据
      */
-    async saveData(filename: string, data: any): Promise<void> {
+    async saveData<T = unknown>(filename: string, data: T): Promise<void> {
         try {
             const content = JSON.stringify(data, null, 2);
             await this.writePluginData(filename, content);
@@ -887,7 +974,7 @@ export class StorageManager {
     /**
      * 加载 msgpack 数据
      */
-    async loadMsgpackData(filename: string): Promise<any> {
+    async loadMsgpackData<T = unknown>(filename: string): Promise<T | null> {
         try {
             const content = await this.readPluginData(filename);
             if (!content) return null;
@@ -900,7 +987,7 @@ export class StorageManager {
             }
             
             // 使用 msgpack 解码
-            return decode(bytes);
+            return decode(bytes) as T;
         } catch (error) {
             // 特别处理 Base64 解码错误（文件损坏）
             if (error instanceof DOMException && error.name === 'InvalidCharacterError') {
@@ -917,7 +1004,7 @@ export class StorageManager {
     /**
      * 保存 msgpack 数据
      */
-    async saveMsgpackData(filename: string, data: any): Promise<void> {
+    async saveMsgpackData<T = unknown>(filename: string, data: T): Promise<void> {
         try {
             // 使用 msgpack 编码
             const buffer = encode(data);

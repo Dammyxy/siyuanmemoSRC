@@ -3,8 +3,8 @@
     <Transition :name="transitionName">
       <div :key="contentKey" class="fsrs-review-v2-content__inner">
         <div v-if="content.type === 'empty'" class="fsrs-review-v2-content__empty">
-          <div class="fsrs-review-v2-content__empty-icon">🔮</div>
-          <div class="fsrs-review-v2-content__empty-title">{{ t('noDueCard', '没有到期卡片') }}</div>
+          <div class="fsrs-review-v2-content__empty-icon">No Card</div>
+          <div class="fsrs-review-v2-content__empty-title">{{ t('noDueCard', 'No due cards') }}</div>
         </div>
 
         <div v-else-if="content.type === 'html'" class="fsrs-review-v2-content__html" v-html="content.data"></div>
@@ -80,6 +80,10 @@
           />
         </div>
 
+        <div v-else-if="renderError" class="fsrs-review-v2-content__render-error">
+          {{ renderError }}
+        </div>
+
         <div v-else class="fsrs-review-v2-content__protyle">
           <!-- 正面：问题块 -->
           <div ref="hostRef" class="fsrs-review-v2-content__protyle-host"></div>
@@ -87,7 +91,7 @@
           <!-- 背面：答案块（Xiuyuan 模板卡片，点击显示答案后显示） -->
           <!-- 注意：showAnswer 语义已反转，showAnswer=false 表示答案已显示 -->
           <div v-if="!showAnswer && answerBlockID" class="fsrs-review-v2-content__answer-divider">
-            <span>{{ t('answerDivider', '─── 答案 ───') }}</span>
+            <span>{{ t('answerDivider', '--- Answer ---') }}</span>
           </div>
           <div v-if="!showAnswer && answerBlockID" ref="answerHostRef" class="fsrs-review-v2-content__protyle-host fsrs-review-v2-content__answer"></div>
         </div>
@@ -125,10 +129,11 @@ import {
 import { useCssClassOptimizer } from './composables/useCssClassOptimizer';
 import { useCardTypeCache } from './composables/useCardTypeCache';
 import { createLogger } from '@/utils/logger';
+import type { ICardStorage } from '@/application/interfaces/ICardStorage';
 
 const props = defineProps<{
-  app: any;
-  plugin?: any;
+  app: siyuan.App;
+  plugin?: ReviewPluginLike;
   content: ReviewUIState['content'];
   overlay?: ReviewUIState['overlay'];
   i18n?: Record<string, string>;
@@ -138,6 +143,19 @@ const props = defineProps<{
 }>();
 
 const logger = createLogger('ReviewContent');
+
+type PluginContextLike = {
+  getCardStorage?: () => ICardStorage | null;
+};
+
+type ReviewPluginLike = {
+  getContext?: () => PluginContextLike | null;
+};
+
+type OverlayRegistry = typeof OVERLAY_REGISTRY;
+type OverlayKey = keyof OverlayRegistry;
+
+type ProtyleAction = typeof siyuan.Constants.CB_GET_ALL;
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
@@ -169,8 +187,9 @@ const contentKey = computed(() => {
 
 const hostRef = ref<HTMLDivElement | null>(null);
 const answerHostRef = ref<HTMLDivElement | null>(null);
-const editorRef = ref<any>(null);
-const answerEditorRef = ref<any>(null);
+const editorRef = ref<siyuan.Protyle | null>(null);
+const answerEditorRef = ref<siyuan.Protyle | null>(null);
+const renderError = ref<string | null>(null);
 let renderSeq = 0;
 let answerRenderSeq = 0;
 let protyleInitialized = false;  // 🆕 跟踪 Protyle 是否已初始化
@@ -270,61 +289,66 @@ const shouldUseQuickCardRenderer = computed(() => {
 });
 
 // 概念定义卡加载成功
-function handleConceptDefinitionCardLoaded(result: any) {
+function clearRendererError(): void {
+  renderError.value = null;
+}
+
+function handleRendererError(rendererName: string, error: Error): void {
+  logger.error(`[SiYuanMemo][ReviewContent] ${rendererName} render failed:`, error);
+  renderError.value = t('cardRenderFailed', 'Failed to render this card');
+}
+
+function handleConceptDefinitionCardLoaded(result: unknown) {
+  clearRendererError();
   logger.debug('[SiYuanMemo][ReviewContent] Concept definition card loaded:', result);
 }
 
-// 概念定义卡加载失败，降级到普通渲染
+// 概念定义卡加载失败，显示错误提示
 function handleConceptDefinitionCardError(error: Error) {
-  logger.warn('[SiYuanMemo][ReviewContent] Concept definition card failed, fallback to normal render:', error);
-  isConceptDefinitionCard.value = false;
+  handleRendererError('Concept definition', error);
 }
 
 // 概念卡加载成功
-function handleConceptCardLoaded(result: any) {
+function handleConceptCardLoaded(result: unknown) {
+  clearRendererError();
   logger.debug('[SiYuanMemo][ReviewContent] Concept card loaded:', result);
 }
 
-// 概念卡加载失败，降级到普通渲染
+// 概念卡加载失败，显示错误提示
 function handleConceptCardError(error: Error) {
-  logger.warn('[SiYuanMemo][ReviewContent] Concept card failed, fallback to normal render:', error);
-  isConceptCard.value = false;
+  handleRendererError('Concept', error);
 }
 
 // 描述符卡加载成功
-function handleDescriptorCardLoaded(result: any) {
+function handleDescriptorCardLoaded(result: unknown) {
+  clearRendererError();
   logger.debug('[SiYuanMemo][ReviewContent] Descriptor card loaded:', result);
 }
 
-// 描述符卡加载失败，降级到普通渲染
+// 描述符卡加载失败，显示错误提示
 function handleDescriptorCardError(error: Error) {
-  logger.warn('[SiYuanMemo][ReviewContent] Descriptor card failed, fallback to normal render:', error);
-  isDescriptorCard.value = false;
+  handleRendererError('Descriptor', error);
 }
 
 // 快速卡片加载成功
-function handleQuickCardLoaded(result: any) {
+function handleQuickCardLoaded(result: unknown) {
+  clearRendererError();
   logger.debug('[SiYuanMemo][ReviewContent] Quick card loaded:', result);
 }
 
-// 快速卡片加载失败，降级到普通渲染
+// 快速卡片加载失败，显示错误提示
 function handleQuickCardError(error: Error) {
-  // 如果是 "not a quick card" 错误，这是预期的降级行为，不需要警告
-  if (error.message && error.message.includes('not a quick card')) {
-    logger.debug('[SiYuanMemo][ReviewContent] Not a quick card, using normal Protyle render');
-  } else {
-    logger.warn('[SiYuanMemo][ReviewContent] Quick card failed, fallback to normal render:', error);
-  }
-  isQuickCard.value = false;
+  handleRendererError('Quick card', error);
 }
 
 // 计算答案块 ID（Xiuyuan 模板卡片）
 const answerBlockID = computed(() => props.content.answerBlockID || '');
 
-const overlayComponent = computed<any | null>(() => {
+const overlayComponent = computed<OverlayRegistry[OverlayKey] | null>(() => {
   const key = String(props.overlay?.component || '');
   if (!key) return null;
-  return (OVERLAY_REGISTRY as any)[key] || null;
+  if (!(key in OVERLAY_REGISTRY)) return null;
+  return OVERLAY_REGISTRY[key as OverlayKey];
 });
 
 function sleep(ms: number): Promise<void> {
@@ -365,6 +389,7 @@ function applyAnswerVisibility(): void {
 
 async function renderProtyle(blockId: string): Promise<void> {
   const seq = ++renderSeq;
+  clearRendererError();
 
   logger.debug('[SiYuanMemo][ReviewContent] renderProtyle called with blockId:', blockId);
 
@@ -499,7 +524,7 @@ async function renderProtyle(blockId: string): Promise<void> {
   const result = { isConcept: false, isDescriptor: false, isQuick: false };
   setCardType(blockId, result);
   
-  // 降级到普通 Protyle 渲染
+  // Use standard Protyle rendering for non-special cards.
   isConceptDefinitionCard.value = false;
   isQuickCard.value = false;
   isDescriptorCard.value = false;
@@ -518,12 +543,12 @@ async function renderProtyle(blockId: string): Promise<void> {
     return;
   }
 
-  const ProtyleCtor = (siyuan as any).Protyle;
-  const Constants = (siyuan as any).Constants;
-  const cbGetAll = Constants?.CB_GET_ALL ?? 2;
+  const ProtyleCtor = siyuan.Protyle;
+  const Constants = siyuan.Constants;
+  const cbGetAll: ProtyleAction = Constants.CB_GET_ALL;
 
   if (!ProtyleCtor) {
-    hostRef.value.innerHTML = `<div class="ft__error" style="padding: 16px; text-align: center;">${t('loadFailed', '加载失败')}</div>`;
+    hostRef.value.innerHTML = `<div class="ft__error" style="padding: 16px; text-align: center;">${t('loadFailed', 'Load failed')}</div>`;
     return;
   }
 
@@ -564,7 +589,7 @@ async function renderProtyle(blockId: string): Promise<void> {
   // Create new instance with blockId - Protyle will auto-load content
   editorRef.value = new ProtyleCtor(props.app, hostRef.value, {
     blockId: blockId,
-    action: [cbGetAll].filter(Boolean),
+    action: [cbGetAll],
     render: {
       background: false,
       gutter: true,
@@ -573,7 +598,7 @@ async function renderProtyle(blockId: string): Promise<void> {
       hideTitleOnZoom: true,
     },
     typewriterMode: false,
-    after: (protyle: any) => {
+    after: (protyle: siyuan.Protyle) => {
       logger.debug('[SiYuanMemo][ReviewContent] Protyle after callback called');
 
       // 锁定编辑器
@@ -581,7 +606,7 @@ async function renderProtyle(blockId: string): Promise<void> {
         protyle.disable();
 
         // 添加双击解锁功能
-        const wysiwygElement = protyle.wysiwyg?.element;
+        const wysiwygElement = protyle.protyle?.wysiwyg?.element;
         if (wysiwygElement) {
           const handleDoubleClick = () => {
             if (typeof protyle.enable === 'function') {
@@ -613,7 +638,7 @@ async function renderProtyle(blockId: string): Promise<void> {
 async function renderAnswerProtyle(blockId: string): Promise<void> {
   const seq = ++answerRenderSeq;
 
-  logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] renderAnswerProtyle called:', { blockId, seq });
+  logger.debug('[SiYuanMemo][ReviewContent] renderAnswerProtyle called:', { blockId, seq });
 
   // 等待 DOM 准备
   for (let i = 0; i < 20; i++) {
@@ -623,25 +648,25 @@ async function renderAnswerProtyle(blockId: string): Promise<void> {
   }
 
   if (!answerHostRef.value) {
-    logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] answerHostRef not ready after waiting');
+    logger.debug('[SiYuanMemo][ReviewContent] answerHostRef not ready after waiting');
     return;
   }
 
   if (seq !== answerRenderSeq) {
-    logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Answer render cancelled, newer render pending');
+    logger.debug('[SiYuanMemo][ReviewContent] Answer render cancelled, newer render pending');
     return;
   }
 
-  const ProtyleCtor = (siyuan as any).Protyle;
-  const Constants = (siyuan as any).Constants;
-  const cbGetAll = Constants?.CB_GET_ALL ?? 2;
+  const ProtyleCtor = siyuan.Protyle;
+  const Constants = siyuan.Constants;
+  const cbGetAll: ProtyleAction = Constants.CB_GET_ALL;
 
   if (!ProtyleCtor) {
-    answerHostRef.value.innerHTML = `<div class="ft__error" style="padding: 16px; text-align: center;">${t('loadFailed', '加载失败')}</div>`;
+    answerHostRef.value.innerHTML = `<div class="ft__error" style="padding: 16px; text-align: center;">${t('loadFailed', 'Load failed')}</div>`;
     return;
   }
 
-  logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Destroying old Answer Protyle instance');
+  logger.debug('[SiYuanMemo][ReviewContent] Destroying old Answer Protyle instance');
 
   // Destroy old instance
   try {
@@ -651,12 +676,12 @@ async function renderAnswerProtyle(blockId: string): Promise<void> {
   // Clear host
   answerHostRef.value.innerHTML = '';
 
-  logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Creating new Answer Protyle with blockId:', blockId);
+  logger.debug('[SiYuanMemo][ReviewContent] Creating new Answer Protyle with blockId:', blockId);
 
   // Create new instance with blockId
   answerEditorRef.value = new ProtyleCtor(props.app, answerHostRef.value, {
     blockId: blockId,
-    action: [cbGetAll].filter(Boolean),
+    action: [cbGetAll],
     render: {
       background: false,
       gutter: true,
@@ -664,15 +689,15 @@ async function renderAnswerProtyle(blockId: string): Promise<void> {
       title: false,
     },
     typewriterMode: false,
-    after: (protyle: any) => {
-      logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Answer Protyle after callback called');
+    after: (protyle: siyuan.Protyle) => {
+      logger.debug('[SiYuanMemo][ReviewContent] Answer Protyle after callback called');
       if (typeof protyle.disable === 'function') {
         protyle.disable();
       }
     },
   });
 
-  logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Answer Protyle instance created');
+  logger.debug('[SiYuanMemo][ReviewContent] Answer Protyle instance created');
 }
 
 watch(
@@ -681,7 +706,7 @@ watch(
     if (props.content.type !== 'protyle') return;
     const blockId = String(id || '');
     if (!blockId) return;
-    logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Watch triggered, blockId:', blockId);
+    logger.debug('[SiYuanMemo][ReviewContent] Watch triggered, blockId:', blockId);
     void renderProtyle(blockId);
   },
   { immediate: true },
@@ -690,20 +715,20 @@ watch(
 watch(
   () => [props.hasHiddenContent, props.showAnswer],
   ([hidden, show]) => {
-    logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Watch triggered:', { hidden, show, protyleInitialized });
+    logger.debug('[SiYuanMemo][ReviewContent] Watch triggered:', { hidden, show, protyleInitialized });
     
     // 🆕 只有在 Protyle 初始化后才应用 CSS 类
     if (!protyleInitialized) {
-      logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Protyle not initialized yet, skipping');
+      logger.debug('[SiYuanMemo][ReviewContent] Protyle not initialized yet, skipping');
       return;
     }
     
     if (!hostRef.value) {
-      logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] No hostRef.value');
+      logger.debug('[SiYuanMemo][ReviewContent] No hostRef.value');
       return;
     }
     
-    logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Applying answer visibility from watch');
+    logger.debug('[SiYuanMemo][ReviewContent] Applying answer visibility from watch');
     // 调用统一的答案显示/隐藏逻辑
     applyAnswerVisibility();
   },
@@ -715,12 +740,12 @@ watch(
 watch(
   () => [props.showAnswer, answerBlockID.value],
   ([show, ansBlockID]) => {
-    logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Answer watch triggered:', { show, ansBlockID });
+    logger.debug('[SiYuanMemo][ReviewContent] Answer watch triggered:', { show, ansBlockID });
     
     // showAnswer=false 表示答案已显示，此时渲染答案块
     if (!show && ansBlockID) {
-      logger.debug('[SiYuanMemo][SiYuanMemo][ReviewContent] Rendering answer block:', ansBlockID);
-      void renderAnswerProtyle(ansBlockID as string);
+      logger.debug('[SiYuanMemo][ReviewContent] Rendering answer block:', ansBlockID);
+      void renderAnswerProtyle(ansBlockID);
     } else {
       // showAnswer=true 表示答案未显示，销毁答案 Protyle
       try {
@@ -733,9 +758,9 @@ watch(
 );
 
 onMounted(() => {
-  const { type, data } = props.content;
+  const { type, id } = props.content;
   if (type !== 'protyle') return;
-  const blockId = String(data || '');
+  const blockId = String(id || '');
   if (!blockId) return;
   void renderProtyle(blockId);
 });
@@ -799,6 +824,16 @@ const content = computed(() => props.content);
 .fsrs-review-v2-content__empty-subtitle {
   font-size: 14px;
   color: var(--b3-theme-on-surface-light);
+}
+
+.fsrs-review-v2-content__render-error {
+  margin: 16px;
+  padding: 12px;
+  border: 1px solid var(--b3-theme-error);
+  border-radius: 8px;
+  color: var(--b3-theme-error);
+  background: color-mix(in srgb, var(--b3-theme-error) 8%, transparent);
+  text-align: center;
 }
 
 .fsrs-review-v2-content__html {
@@ -912,3 +947,4 @@ const content = computed(() => props.content);
   transform: translateX(30px);
 }
 </style>
+

@@ -1,10 +1,175 @@
-﻿import { onMounted, onUnmounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import type { IQueueStrategy, QueueFeedback } from '@/core/queue/abstraction/Strategy';
 import type { AdapterContext, IAdapter, ReviewSessionHook, ReviewUIState } from './types';
 import { createEmptyReviewUIState } from './types';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('useReviewSession');
+
+type RatingValue = 1 | 2 | 3 | 4;
+
+type ItemIdLike = {
+  id?: unknown;
+  cardID?: unknown;
+  cardId?: unknown;
+};
+
+type ItemMetaLike = {
+  meta?: unknown;
+};
+
+type NeuralContextLike = {
+  blockType?: unknown;
+  isFlashcard?: unknown;
+};
+
+type UnderlyingQueueBridge<TItem> = {
+  getUnderlyingQueue: () => unknown;
+};
+
+type NeuralPathLoader<TItem> = {
+  getPathItemByNodeId: (blockId: string) => Promise<TItem | null>;
+};
+
+type UnderlyingWithNeuralQueue<TItem> = {
+  neuralQueue?: unknown;
+  getPathItemByNodeId?: (blockId: string) => Promise<TItem | null>;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function toRatingValue(rating: number): RatingValue {
+  return Math.max(1, Math.min(4, Math.floor(rating))) as RatingValue;
+}
+
+function extractCardId(item: unknown): string {
+  if (!isRecord(item)) {
+    return '';
+  }
+
+  const shaped = item as ItemIdLike;
+  const raw = shaped.cardID ?? shaped.cardId ?? shaped.id;
+  return raw == null ? '' : String(raw);
+}
+
+function extractNeuralContext(item: unknown): NeuralContextLike | null {
+  if (!isRecord(item)) {
+    return null;
+  }
+
+  const metaValue = (item as ItemMetaLike).meta;
+  if (!isRecord(metaValue)) {
+    return null;
+  }
+
+  const neuralContext = metaValue.neuralContext;
+  if (!isRecord(neuralContext)) {
+    return null;
+  }
+
+  return neuralContext as NeuralContextLike;
+}
+
+function shouldShowAnswerForNeuralItem(item: unknown): boolean {
+  const neuralContext = extractNeuralContext(item);
+  if (!neuralContext) {
+    return false;
+  }
+
+  const blockType = String(neuralContext.blockType ?? '');
+  const isFlashcard = neuralContext.isFlashcard;
+  return isFlashcard === false || blockType === 'topic';
+}
+
+function resolveNeuralPathLoader<TItem>(queue: IQueueStrategy<TItem>): NeuralPathLoader<TItem> | null {
+  const queueCandidate = queue as unknown;
+  if (!isRecord(queueCandidate)) {
+    return null;
+  }
+
+  const bridge = queueCandidate as Partial<UnderlyingQueueBridge<TItem>>;
+  if (typeof bridge.getUnderlyingQueue !== 'function') {
+    return null;
+  }
+
+  const underlying = bridge.getUnderlyingQueue();
+  if (!isRecord(underlying)) {
+    return null;
+  }
+
+  const queueLike = underlying as UnderlyingWithNeuralQueue<TItem>;
+  if (typeof queueLike.getPathItemByNodeId === 'function') {
+    return { getPathItemByNodeId: queueLike.getPathItemByNodeId.bind(underlying) };
+  }
+
+  if (!isRecord(queueLike.neuralQueue)) {
+    return null;
+  }
+
+  const nested = queueLike.neuralQueue as Partial<NeuralPathLoader<TItem>>;
+  if (typeof nested.getPathItemByNodeId === 'function') {
+    return {
+      getPathItemByNodeId: nested.getPathItemByNodeId.bind(queueLike.neuralQueue),
+    };
+  }
+
+  return null;
+}
+
+function mergeAux(base: ReviewUIState, aux: Partial<ReviewUIState>): ReviewUIState {
+  const headerAux = aux.header;
+  const contentAux = aux.content;
+  const actionsAux = aux.actions;
+  const metaAux = aux.meta;
+
+  const header = headerAux
+    ? {
+        ...base.header,
+        ...headerAux,
+        stats: {
+          ...base.header.stats,
+          ...(headerAux.stats ?? {}),
+        },
+        breadcrumbs: headerAux.breadcrumbs ?? base.header.breadcrumbs,
+        toolbar: Array.isArray(headerAux.toolbar) ? headerAux.toolbar : base.header.toolbar,
+      }
+    : base.header;
+
+  const content = contentAux
+    ? {
+        ...base.content,
+        ...contentAux,
+      }
+    : base.content;
+
+  const actions = actionsAux
+    ? {
+        ...base.actions,
+        ...actionsAux,
+        grades: actionsAux.grades ?? base.actions.grades,
+        menu: actionsAux.menu ?? base.actions.menu,
+      }
+    : base.actions;
+
+  const meta = metaAux
+    ? {
+        ...base.meta,
+        ...metaAux,
+      }
+    : base.meta;
+
+  return {
+    ...base,
+    ...aux,
+    header,
+    content,
+    actions,
+    meta,
+    overlay: aux.overlay === undefined ? base.overlay : aux.overlay,
+  };
+}
 
 export function useReviewSession<TItem>(
   queue: IQueueStrategy<TItem>,
@@ -18,45 +183,10 @@ export function useReviewSession<TItem>(
   const now = Date.now();
   const context = ref<AdapterContext>({ showAnswer: false, session: { startTime: now, resumed: false } });
 
-  const mergeAux = (base: ReviewUIState, aux: Partial<ReviewUIState>): ReviewUIState => {
-    const merged: ReviewUIState = { ...base, ...aux } as any;
-    if (aux.header) {
-      merged.header = {
-        ...base.header,
-        ...aux.header,
-        stats: { ...base.header.stats, ...(aux.header as any).stats },
-        breadcrumbs: (aux.header as any).breadcrumbs ?? base.header.breadcrumbs,
-        // 🔧 修复：只有当 aux.header.toolbar 存在且是数组时才覆盖，否则保留 base 的 toolbar
-        toolbar: Array.isArray((aux.header as any).toolbar) ? (aux.header as any).toolbar : base.header.toolbar,
-      };
-    }
-    if (aux.content) {
-      merged.content = { ...base.content, ...aux.content } as any;
-    }
-    if (aux.actions) {
-      merged.actions = {
-        ...base.actions,
-        ...aux.actions,
-        grades: (aux.actions as any).grades ?? base.actions.grades,
-        menu: (aux.actions as any).menu ?? base.actions.menu,
-      };
-    }
-    if (aux.meta) {
-      merged.meta = { ...base.meta, ...aux.meta } as any;
-    }
-    return merged;
-  };
-
   let updateSeq = 0;
   const updateState = async (): Promise<void> => {
     const seq = ++updateSeq;
-    const mainState = await adapter.toUIState(queue as any, currentItem.value, context.value);
-    logger.debug('updateState - mainState.header.toolbar:', {
-      hasHeader: !!mainState.header,
-      hasToolbar: !!mainState.header?.toolbar,
-      toolbarLength: mainState.header?.toolbar?.length,
-      toolbar: mainState.header?.toolbar,
-    });
+    const mainState = await adapter.toUIState(queue, currentItem.value, context.value);
     if (seq !== updateSeq) return;
     state.value = mainState;
 
@@ -64,14 +194,11 @@ export function useReviewSession<TItem>(
       adapter.fetchAuxiliaryData(currentItem.value)
         .then((aux) => {
           if (seq !== updateSeq) return;
-          logger.debug('merging aux data:', {
-            hasAuxHeader: !!aux.header,
-            hasAuxToolbar: !!(aux.header as any)?.toolbar,
-            auxToolbar: (aux.header as any)?.toolbar,
-          });
           state.value = mergeAux(state.value, aux);
         })
-        .catch(() => {});
+        .catch((error) => {
+          logger.warn('Failed to fetch auxiliary data:', error);
+        });
     }
   };
 
@@ -83,40 +210,26 @@ export function useReviewSession<TItem>(
 
   const grade = async (rating: number): Promise<void> => {
     try {
-      const feedback: QueueFeedback = { action: 'rate', rating: Math.max(1, Math.min(4, Math.floor(rating))) as 1 | 2 | 3 | 4 };
-      
-      // 🆕 调用 onReview 回调（用于刻意练习黑名单）
+      const normalized = toRatingValue(rating);
+      const feedback: QueueFeedback = { action: 'rate', rating: normalized };
+
       if (options?.onReview && currentItem.value) {
-        try {
-          // 尝试从 currentItem 中提取 cardId
-          const cardId = (currentItem.value as any)?.cardID || (currentItem.value as any)?.id;
-          if (cardId) {
-            options.onReview(cardId, feedback.rating);
-          }
-        } catch (err) {
-          logger.warn('Failed to call onReview callback:', err);
+        const cardId = extractCardId(currentItem.value);
+        if (cardId) {
+          options.onReview(cardId, normalized);
         }
       }
-      
-      // 🚀 性能优化：并行执行评分和预加载下一张卡片，减少 100-200ms 延迟
-      const [_, nextItem] = await Promise.all([
+
+      const [, nextItem] = await Promise.all([
         queue.onFeedback(currentItem.value, feedback),
-        queue.next()
+        queue.next(),
       ]);
 
       currentItem.value = nextItem;
-
-      // 处理队列耗尽：如果 next() 返回 null，显示完成界面
-      if (currentItem.value === null) {
-        logger.info('Queue exhausted, session completed');
-        // 设置为空内容类型，让适配器处理完成状态
-      }
-
       context.value.showAnswer = false;
       await updateState();
     } catch (error) {
       logger.error('Failed to load next card:', error);
-      // 发生错误时也设置为 null，触发错误/完成界面
       currentItem.value = null;
       await updateState();
     }
@@ -126,12 +239,6 @@ export function useReviewSession<TItem>(
     try {
       await queue.onFeedback(currentItem.value, { action: 'skip' });
       currentItem.value = await queue.next();
-
-      // 处理队列耗尽：如果 next() 返回 null，显示完成界面
-      if (currentItem.value === null) {
-        logger.info('Queue exhausted, session completed');
-      }
-
       context.value.showAnswer = false;
       await updateState();
     } catch (error) {
@@ -145,14 +252,9 @@ export function useReviewSession<TItem>(
     try {
       const id = String(cmdId || '');
       if (!id) return;
+
       await queue.onFeedback(currentItem.value, { action: 'custom', customActionId: id });
       currentItem.value = await queue.next();
-
-      // 处理队列耗尽：如果 next() 返回 null，显示完成界面
-      if (currentItem.value === null) {
-        logger.info('Queue exhausted, session completed');
-      }
-
       await updateState();
     } catch (error) {
       logger.error('Failed to execute command:', error);
@@ -163,13 +265,17 @@ export function useReviewSession<TItem>(
 
   const mounted = (): void => {
     void (async () => {
+      const initialTotal = await queue
+        .getStats?.()
+        .then((stats) => Math.max(0, Number(stats?.size) || 0))
+        .catch(() => undefined);
+
       context.value.session = {
         startTime: Date.now(),
         resumed: false,
-        initialTotal: typeof (queue as any)?.getStats === 'function'
-          ? await (queue as any).getStats().then((s: any) => Math.max(0, Number(s?.size) || 0)).catch(() => undefined)
-          : undefined,
+        initialTotal,
       };
+
       currentItem.value = await queue.next();
       await updateState();
     })();
@@ -182,66 +288,29 @@ export function useReviewSession<TItem>(
   onMounted(mounted);
   onUnmounted(unmounted);
 
-  // 🆕 暴露 getQueueStrategy 方法，用于访问底层队列策略（神经漫游功能需要）
-  const getQueueStrategy = (): IQueueStrategy<TItem> => {
-    return queue;
-  };
+  const getQueueStrategy = (): IQueueStrategy<TItem> => queue;
 
-  /**
-   * 🆕 直接加载指定 blockId 的卡片（路径导航专用）
-   *
-   * 用于历史节点跳转场景：不调用 queue.next()，直接从队列中获取指定卡片并更新 UI。
-   * 这样可以在不改变队列状态的情况下"跳转"到历史路径中的某个节点。
-   *
-   * @param blockId 块 ID
-   */
   const loadCardByBlockId = async (blockId: string): Promise<void> => {
     try {
-      // 🔧 修复：尝试从队列获取指定节点的完整数据
-      const underlyingQueue = (queue as any)?.getUnderlyingQueue?.()?.neuralQueue;
-
-      if (underlyingQueue?.getPathItemByNodeId) {
-        // 🆕 使用 blockId 获取指定节点的卡片数据
-        const realItem = await underlyingQueue.getPathItemByNodeId(blockId);
-        if (realItem) {
-          currentItem.value = realItem;
-
-          // 🆕 根据卡片类型设置初始状态
-          // - flashcard（闪卡）: 显示【显示答案】（showAnswer = false）
-          // - topic（主题块）: 直接显示【下一张】（showAnswer = true）
-          const neuralContext = (realItem as any)?.meta?.neuralContext;
-          const blockType = neuralContext?.blockType;
-          const isFlashcard = neuralContext?.isFlashcard;
-
-          // 优先使用 isFlashcard 判断，fallback 到 blockType
-          const shouldShowAnswer = isFlashcard === false || blockType === 'topic';
-          context.value.showAnswer = shouldShowAnswer;
-
-          await updateState();
-          logger.debug(
-            `Loaded real card data for blockId: ${blockId}, blockType: ${blockType}, isFlashcard: ${isFlashcard}, showAnswer: ${context.value.showAnswer}`
-          );
-          return;
-        } else {
-          logger.warn(`Node not found: ${blockId}`);
-        }
+      const loader = resolveNeuralPathLoader(queue);
+      if (!loader) {
+        logger.warn(`Queue does not support path node loading: ${blockId}`);
+        return;
       }
 
-      // 降级：如果无法获取真实数据，使用临时项（可能导致部分功能受限）
-      logger.warn(`Fallback to temp item for blockId: ${blockId}`);
-      const tempItem = {
-        cardID: blockId,
-        blockID: blockId,
-        deckID: 'neural-roaming',
-        priority: 0,
-        meta: {},
-      } as any;
+      const realItem = await loader.getPathItemByNodeId(blockId);
+      if (!realItem) {
+        logger.warn(`Node not found: ${blockId}`);
+        return;
+      }
 
-      currentItem.value = tempItem;
-      context.value.showAnswer = false; // 降级情况默认为 item
+      currentItem.value = realItem;
+      context.value.showAnswer = shouldShowAnswerForNeuralItem(realItem);
       await updateState();
 
-      logger.debug(`Loaded card by blockId: ${blockId}`);
+      logger.debug(
+        `Loaded card by blockId: ${blockId}, showAnswer: ${context.value.showAnswer}`
+      );
     } catch (error) {
       logger.error('Failed to load card by blockId:', error);
     }
@@ -254,9 +323,9 @@ export function useReviewSession<TItem>(
     grade,
     skip,
     executeCommand,
-    getQueueStrategy, // 🆕 添加到返回对象
-    loadCardByBlockId, // 🆕 路径导航专用方法
+    getQueueStrategy,
+    loadCardByBlockId,
     onMounted: mounted,
-    onUnmounted: unmounted
+    onUnmounted: unmounted,
   };
 }

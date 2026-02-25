@@ -49,7 +49,8 @@
  * ```
  */
 
-import type { CardState } from '@/types';
+import type { CardState, FSRSCard } from '@/types';
+import { CardType } from '@/types';
 
 /**
  * 更新 FSRS 卡片命令
@@ -94,9 +95,12 @@ export interface UpdateFSRSCardCommand {
     
     /** 优先级（1-10） */
     priority: number;
+
+    /** 卡片类型 */
+    type: CardType;
     
     /** 元数据（自定义字段） */
-    meta: Record<string, any>;
+    meta: Record<string, unknown>;
   }>;
 }
 
@@ -105,5 +109,5 @@ export interface UpdateFSRSCardCommand {
  */
 export interface UpdateFSRSCardCommandResult {
   /** 更新后的卡片 */
-  card: any; // FSRSCard type
+  card: FSRSCard;
 }

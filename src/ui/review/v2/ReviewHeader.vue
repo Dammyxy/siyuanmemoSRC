@@ -82,6 +82,14 @@ const emit = defineEmits<{
 
 const logger = createLogger('ReviewHeader');
 
+type WindowWithSiyuanLanguages = Window & {
+  siyuan?: {
+    languages?: {
+      flashcard?: Record<string, string>;
+    };
+  };
+};
+
 // 🆕 根据 mode 和侧边栏状态过滤工具栏按钮
 const filteredToolbar = computed(() => {
   let toolbar = props.header?.toolbar || [];
@@ -139,8 +147,8 @@ const filteredToolbar = computed(() => {
 });
 
 function t(key: string, fallback: string): string {
-  const i18n = (window as any)?.siyuan?.languages?.flashcard || {};
-  return (i18n as any)?.[key] || fallback;
+  const i18n = (window as WindowWithSiyuanLanguages).siyuan?.languages?.flashcard;
+  return i18n?.[key] || fallback;
 }
 
 function handleToolbarClick(btn: { type: string; icon?: string; ariaLabel?: string; disabled?: boolean }, event: MouseEvent) {

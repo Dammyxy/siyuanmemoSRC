@@ -93,10 +93,13 @@ import SySelect from '@/components/SiyuanTheme/SySelect.vue'
 import SyTextarea from '@/components/SiyuanTheme/SyTextarea.vue'
 import { usePlugin } from '@/main'
 import { onMounted, ref, watchEffect } from 'vue'
+import type { Plugin } from 'siyuan'
 
 
-const plugin = usePlugin()
-const t = (key: string, fallback: string): string => (plugin as any)?.i18n?.[key] || fallback
+type PluginWithI18n = Plugin & { i18n?: Record<string, string> };
+
+const plugin = usePlugin() as PluginWithI18n
+const t = (key: string, fallback: string): string => plugin?.i18n?.[key] || fallback
 
 const isChecked = ref(false)
 

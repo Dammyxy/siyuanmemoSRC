@@ -307,6 +307,7 @@
   "newCard": "New",
   "reviewCard": "Review",
   "loadFailed": "Failed to load",
+  "cardRenderFailed": "Failed to render this card",
   "dataLoadFailed": "Data load failed",
   "optimizeFailed": "Optimization failed",
   "envNotInit": "Environment not initialized, cannot open tab",

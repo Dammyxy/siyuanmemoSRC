@@ -284,6 +284,7 @@
     "newCard": "新卡",
     "reviewCard": "复习卡",
     "loadFailed": "加载失败",
+    "cardRenderFailed": "卡片渲染失败",
     "dataLoadFailed": "数据加载失败",
     "optimizeFailed": "优化失败",
     "envNotInit": "当前环境未初始化，无法打开页签",

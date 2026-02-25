@@ -1,15 +1,136 @@
-﻿import type { AdapterContext, IAdapter, ReviewUIState } from '../types';
-import type { QueueItem, QueueStats, QueueUIConfig } from '../../../../core/queue/types.ts';
+import type { AdapterContext, IAdapter, ReviewCardKind, ReviewUIState } from '../types';
+import type { QueueStats, QueueUIConfig } from '../../../../core/queue/types.ts';
 import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SubsetPracticeAdapter');
 
+type RatingValue = 1 | 2 | 3 | 4;
+type NextDuesMap = Partial<Record<RatingValue, string>>;
+
+type SubsetReviewItem = {
+  id?: string;
+  cardID?: string;
+  cardId?: string;
+  blockID?: string;
+  blockId?: string;
+  deckID?: string;
+  deckId?: string;
+  lapses?: number;
+  reps?: number;
+  state?: number;
+  lastReview?: number;
+  type?: string;
+  nextDues?: NextDuesMap;
+  meta?: Record<string, unknown>;
+};
+
+type SubsetQueueLike = {
+  getUIConfig?: (item: SubsetReviewItem | null) => QueueUIConfig;
+  getStats?: () => Promise<QueueStats>;
+};
+
+type BreadcrumbRaw = {
+  type?: string;
+  subType?: string;
+  name?: string;
+  title?: string;
+  content?: string;
+  hPath?: string;
+  id?: string;
+};
+
+type PluginLike = {
+  getContext?: () => {
+    getReviewService?: () => {
+      getSiyuanApi?: () => Pick<ReviewSiyuanPort, 'getBlockBreadcrumb' | 'getIconByType'>;
+    };
+  };
+};
+
+const DEFAULT_UI_CONFIG: QueueUIConfig = {
+  statsType: 'queue-size',
+  showRatingButtons: true,
+  allowSkip: true,
+};
+
+const DEFAULT_STATS: QueueStats = {
+  size: 0,
+  label: '',
+};
+
 function t(i18n: Record<string, string> | undefined, key: string, fallback: string): string {
   return i18n?.[key] || fallback;
 }
 
-export class SubsetPracticeAdapter implements IAdapter<QueueItem> {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function resolveQueue(queue: unknown): SubsetQueueLike {
+  return isRecord(queue) ? (queue as SubsetQueueLike) : {};
+}
+
+function resolveSiyuanApiFromPlugin(plugin: unknown): Pick<ReviewSiyuanPort, 'getBlockBreadcrumb' | 'getIconByType'> | undefined {
+  const typed = plugin as PluginLike | undefined;
+  return typed?.getContext?.()?.getReviewService?.()?.getSiyuanApi?.();
+}
+
+function resolveBlockId(item: SubsetReviewItem | null): string {
+  if (!item) return '';
+  return String(item.blockID || item.blockId || '');
+}
+
+function resolveCardId(item: SubsetReviewItem | null): string {
+  if (!item) return '';
+  return String(item.cardID || item.cardId || item.id || '');
+}
+
+function resolveDeckId(item: SubsetReviewItem | null): string {
+  if (!item) return '';
+  return String(item.deckID || item.deckId || '');
+}
+
+function resolveAnswerBlockId(item: SubsetReviewItem | null): string {
+  if (!item || !isRecord(item.meta)) {
+    return '';
+  }
+  const raw = item.meta.answerBlockID;
+  return raw == null ? '' : String(raw);
+}
+
+function getNextDue(item: SubsetReviewItem | null, rating: RatingValue): string {
+  if (!item?.nextDues) {
+    return '';
+  }
+  return String(item.nextDues[rating] || '');
+}
+
+function normalizeCardType(type: unknown): ReviewCardKind {
+  const value = String(type || 'item');
+  if (value === 'topic') return 'topic';
+  if (value === 'concept') return 'concept';
+  if (value === 'descriptor') return 'descriptor';
+  if (value === 'cloze') return 'cloze';
+  return 'item';
+}
+
+function normalizeBreadcrumb(raw: unknown): BreadcrumbRaw {
+  if (!isRecord(raw)) {
+    return {};
+  }
+  return {
+    type: typeof raw.type === 'string' ? raw.type : '',
+    subType: typeof raw.subType === 'string' ? raw.subType : '',
+    name: typeof raw.name === 'string' ? raw.name : '',
+    title: typeof raw.title === 'string' ? raw.title : '',
+    content: typeof raw.content === 'string' ? raw.content : '',
+    hPath: typeof raw.hPath === 'string' ? raw.hPath : '',
+    id: typeof raw.id === 'string' ? raw.id : '',
+  };
+}
+
+export class SubsetPracticeAdapter implements IAdapter<SubsetReviewItem> {
   private readonly i18n?: Record<string, string>;
   private readonly siyuanApi?: Pick<ReviewSiyuanPort, 'getBlockBreadcrumb' | 'getIconByType'>;
   private label: string;
@@ -19,12 +140,11 @@ export class SubsetPracticeAdapter implements IAdapter<QueueItem> {
     i18n?: Record<string, string>;
     label?: string;
     queueName?: string;
-    plugin?: any;
+    plugin?: unknown;
     siyuanApi?: Pick<ReviewSiyuanPort, 'getBlockBreadcrumb' | 'getIconByType'>;
   }) {
     this.i18n = options?.i18n;
-    const pluginSiyuanApi = options?.plugin?.getContext?.()?.getReviewService?.()?.getSiyuanApi?.();
-    this.siyuanApi = options?.siyuanApi || pluginSiyuanApi;
+    this.siyuanApi = options?.siyuanApi || resolveSiyuanApiFromPlugin(options?.plugin);
     this.label = String(options?.label || t(this.i18n, 'reviewSubsetTitle', '子集复习'));
     this.queueName = String(options?.queueName || 'subset-practice');
   }
@@ -33,26 +153,29 @@ export class SubsetPracticeAdapter implements IAdapter<QueueItem> {
     this.label = String(label || this.label);
   }
 
-  async toUIState(queue: any, item: QueueItem | null, context: AdapterContext): Promise<ReviewUIState> {
-    const uiConfig: QueueUIConfig = typeof queue?.getUIConfig === 'function'
-      ? queue.getUIConfig(item)
-      : { statsType: 'queue-size', showRatingButtons: true, allowSkip: true };
+  async toUIState(queue: unknown, item: SubsetReviewItem | null, context: AdapterContext): Promise<ReviewUIState> {
+    const queueLike = resolveQueue(queue);
+    const uiConfig = typeof queueLike.getUIConfig === 'function'
+      ? queueLike.getUIConfig(item)
+      : DEFAULT_UI_CONFIG;
 
-    const stats: QueueStats = typeof queue?.getStats === 'function'
-      ? await queue.getStats()
-      : { size: 0, label: '' };
+    const stats = typeof queueLike.getStats === 'function'
+      ? await queueLike.getStats()
+      : DEFAULT_STATS;
 
     const remaining = Math.max(0, Number(stats.size) || 0);
-    const initial = Number.isFinite(Number(context.session?.initialTotal)) ? Number(context.session?.initialTotal) : 0;
-    const total = Math.max(initial || 0, remaining);
+    const initial = Number.isFinite(Number(context.session?.initialTotal))
+      ? Number(context.session?.initialTotal)
+      : 0;
+    const total = Math.max(initial, remaining);
     const current = remaining;
-    const menu = Array.isArray((uiConfig as any)?.menuCommands) ? (uiConfig as any).menuCommands : [];
+    const menu = Array.isArray(uiConfig.menuCommands) ? uiConfig.menuCommands : [];
 
     const grades = uiConfig.showRatingButtons ? [
-      { label: t(this.i18n, 'cardRatingAgain', '重来'), value: 1, color: 'var(--b3-theme-error)', kb: '1', emoji: '🙈', nextDue: (item as any)?.nextDues?.[1] || '' },
-      { label: t(this.i18n, 'cardRatingHard', '困难'), value: 2, color: 'var(--b3-theme-warning)', kb: '2', emoji: '😬', nextDue: (item as any)?.nextDues?.[2] || '' },
-      { label: t(this.i18n, 'cardRatingGood', '良好'), value: 3, color: 'var(--b3-theme-info)', kb: '3', emoji: '😊', nextDue: (item as any)?.nextDues?.[3] || '' },
-      { label: t(this.i18n, 'cardRatingEasy', '简单'), value: 4, color: 'var(--b3-theme-success)', kb: '4', emoji: '🌈', nextDue: (item as any)?.nextDues?.[4] || '' },
+      { label: t(this.i18n, 'cardRatingAgain', '重来'), value: 1, color: 'var(--b3-theme-error)', kb: '1', emoji: '🙈', nextDue: getNextDue(item, 1) },
+      { label: t(this.i18n, 'cardRatingHard', '困难'), value: 2, color: 'var(--b3-theme-warning)', kb: '2', emoji: '😬', nextDue: getNextDue(item, 2) },
+      { label: t(this.i18n, 'cardRatingGood', '良好'), value: 3, color: 'var(--b3-theme-info)', kb: '3', emoji: '😊', nextDue: getNextDue(item, 3) },
+      { label: t(this.i18n, 'cardRatingEasy', '简单'), value: 4, color: 'var(--b3-theme-success)', kb: '4', emoji: '🌈', nextDue: getNextDue(item, 4) },
     ] : [];
 
     if (!item) {
@@ -65,8 +188,8 @@ export class SubsetPracticeAdapter implements IAdapter<QueueItem> {
             queueName: this.queueName,
             newCards: 0,
             reviewCards: 0,
-            currentNewCards: 0, // 🆕
-            currentReviewCards: 0, // 🆕
+            currentNewCards: 0,
+            currentReviewCards: 0,
           },
           breadcrumbs: [],
           toolbar: [
@@ -91,6 +214,18 @@ export class SubsetPracticeAdapter implements IAdapter<QueueItem> {
       };
     }
 
+    const blockID = resolveBlockId(item);
+    const cardID = resolveCardId(item);
+    const cardType = normalizeCardType(item.type);
+    const answerBlockID = resolveAnswerBlockId(item);
+
+    logger.debug('[SubsetPracticeAdapter] toUIState', {
+      blockID,
+      cardID,
+      hasMeta: !!item.meta,
+      answerBlockID,
+    });
+
     return {
       header: {
         stats: {
@@ -100,8 +235,8 @@ export class SubsetPracticeAdapter implements IAdapter<QueueItem> {
           queueName: this.queueName,
           newCards: total,
           reviewCards: 0,
-          currentNewCards: current, // 🆕 当前新卡数量
-          currentReviewCards: 0, // 🆕 当前复习卡数量（子集复习都是新卡）
+          currentNewCards: current,
+          currentReviewCards: 0,
         },
         breadcrumbs: [],
         toolbar: [
@@ -112,66 +247,61 @@ export class SubsetPracticeAdapter implements IAdapter<QueueItem> {
       },
       content: {
         type: 'protyle',
-        data: String((item as any)?.blockID || ''),
-        id: String((item as any)?.blockID || (item as any)?.cardID || 'card'),
-        // Xiuyuan 模板卡片：从 meta 中获取答案块 ID
-        answerBlockID: (() => {
-          const answerBlockID = String((item as any)?.meta?.answerBlockID || '');
-          logger.debug('[SubsetPracticeAdapter] toUIState - answerBlockID:', {
-            itemBlockID: (item as any)?.blockID,
-            itemCardID: (item as any)?.cardID,
-            hasMeta: !!(item as any)?.meta,
-            meta: (item as any)?.meta,
-            answerBlockID,
-          });
-          return answerBlockID;
-        })(),
-        card: item as any,
+        data: blockID,
+        id: blockID || cardID || 'card',
+        answerBlockID,
       },
       actions: {
         showAnswer: uiConfig.showRatingButtons ? !context.showAnswer : false,
         grades: uiConfig.showRatingButtons ? (context.showAnswer ? grades : []) : [],
         menu,
         cardMeta: {
-          lapses: item?.lapses,
-          reps: item?.reps,
-          state: item?.state,
-          lastReview: item?.lastReview,
-          cardID: item?.cardID,
-          blockID: item?.blockID,
-          deckID: item?.deckID,
-          isReviewCard: (item?.state ?? 0) !== 0,
-          type: (item as any)?.type || 'item', // 🆕 卡片类型
-          cardType: (item as any)?.type || 'item', // 🆕 兼容字段
+          lapses: item.lapses,
+          reps: item.reps,
+          state: item.state,
+          lastReview: item.lastReview,
+          cardID,
+          blockID,
+          deckID: resolveDeckId(item),
+          isReviewCard: (item.state ?? 0) !== 0,
+          type: cardType,
+          cardType,
         },
       },
       meta: {
         transition: 'none',
         canSkip: uiConfig.allowSkip,
         hasHiddenContent: Boolean(uiConfig.hiddenContentTypes?.length),
-        remainingSize: remaining || 0, // 🆕 剩余卡片数量
+        remainingSize: remaining,
       },
     };
   }
 
-  async fetchAuxiliaryData(item: QueueItem | null): Promise<Partial<ReviewUIState>> {
-    if (!this.siyuanApi) {
+  async fetchAuxiliaryData(item: SubsetReviewItem | null): Promise<Partial<ReviewUIState>> {
+    const api = this.siyuanApi;
+    if (!api) {
       throw new Error('SubsetPracticeAdapter requires review siyuan api');
     }
-    const blockID = String((item as any)?.blockID || '');
-    if (!blockID) return {};
-    const bc = await this.siyuanApi.getBlockBreadcrumb(blockID);
-    const breadcrumbs = Array.isArray(bc)
-      ? bc.map((b: any) => {
-          const icon = this.siyuanApi.getIconByType(b?.type, b?.subType);
-          return {
-            icon: `#${icon}`,
-            text: String(b?.name || b?.title || b?.content || b?.hPath || ''),
-            id: String(b?.id || ''),
-          };
-        }).filter((b: any) => b.text)
+
+    const blockID = resolveBlockId(item);
+    if (!blockID) {
+      return {};
+    }
+
+    const rawBreadcrumbs = await api.getBlockBreadcrumb(blockID);
+    const breadcrumbs = Array.isArray(rawBreadcrumbs)
+      ? rawBreadcrumbs
+          .map(normalizeBreadcrumb)
+          .map((node) => ({
+            icon: `#${api.getIconByType(node.type || '', node.subType)}`,
+            text: String(node.name || node.title || node.content || node.hPath || ''),
+            id: String(node.id || ''),
+          }))
+          .filter((node) => node.text)
       : [];
-    return { header: { breadcrumbs } as any };
+
+    return {
+      header: { breadcrumbs } as unknown as ReviewUIState['header'],
+    };
   }
 }
-

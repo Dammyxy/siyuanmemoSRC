@@ -23,6 +23,55 @@ type ProgressSnapshot = {
   initialTotal: number;
 };
 
+type QueueItemWithLegacyIds = QueueItem & {
+  cardID?: unknown;
+  cardId?: unknown;
+  deckID?: unknown;
+  deckId?: unknown;
+  id?: unknown;
+};
+
+type PluginLike = {
+  getContext?: () => {
+    getReviewService?: () => {
+      getSiyuanApi?: () => Pick<ReviewSiyuanPort, 'reviewRiffCard' | 'skipReviewRiffCard' | 'pushErrMsg'>;
+    };
+  };
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function toNonNegativeInt(value: unknown): number {
+  return Math.max(0, Math.floor(Number(value) || 0));
+}
+
+function parseProgressSnapshot(input: unknown): ProgressSnapshot {
+  const snap = isRecord(input) ? input : {};
+  return {
+    inProgress: Boolean(snap.inProgress),
+    answered: toNonNegativeInt(snap.answered),
+    correct: toNonNegativeInt(snap.correct),
+    startedAt: toNonNegativeInt(snap.startedAt),
+    durationMs: toNonNegativeInt(snap.durationMs),
+    updatedAt: toNonNegativeInt(snap.updatedAt),
+    initialTotal: toNonNegativeInt(snap.initialTotal),
+  };
+}
+
+function resolveCardID(item: QueueItem): string {
+  const candidate = item as QueueItemWithLegacyIds;
+  const raw = candidate.cardID ?? candidate.cardId ?? candidate.id;
+  return raw == null ? '' : String(raw);
+}
+
+function resolveDeckID(item: QueueItem): string {
+  const candidate = item as QueueItemWithLegacyIds;
+  const raw = candidate.deckID ?? candidate.deckId;
+  return raw == null ? '' : String(raw);
+}
+
 export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
   private readonly queue: FinalDrillQueueLike;
   private readonly i18n?: Record<string, string>;
@@ -47,16 +96,22 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     queue: FinalDrillQueueLike;
     storage?: PluginFilePort;
     i18n?: Record<string, string>;
-    plugin?: any;
+    plugin?: unknown;
     siyuanApi?: Pick<ReviewSiyuanPort, 'reviewRiffCard' | 'skipReviewRiffCard' | 'pushErrMsg'>;
   }) {
     this.queue = options.queue;
     this.i18n = options.i18n;
-    const contextSiyuanApi = options.plugin?.getContext?.()?.getReviewService?.()?.getSiyuanApi?.();
+
+    const contextSiyuanApi = (options.plugin as PluginLike | undefined)
+      ?.getContext?.()
+      ?.getReviewService?.()
+      ?.getSiyuanApi?.();
+
     this.siyuanApi = options.siyuanApi || contextSiyuanApi;
     if (!this.siyuanApi) {
       throw new Error('FinalDrillV2Session requires review siyuan api');
     }
+
     this.progressAdapter = options.storage
       ? new StorageFileJsonAdapter<ProgressSnapshot>(options.storage, 'review-v2-final-drill.json')
       : null;
@@ -72,16 +127,8 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     await this.refreshItems();
     if (!snap) return;
 
-    const inProgress = Boolean((snap as any).inProgress);
-    const answered = Math.max(0, Math.floor(Number((snap as any).answered) || 0));
-    const correct = Math.max(0, Math.floor(Number((snap as any).correct) || 0));
-    const startedAt = Math.max(0, Math.floor(Number((snap as any).startedAt) || 0));
-    const durationMs = Math.max(0, Math.floor(Number((snap as any).durationMs) || 0));
-    const updatedAt = Math.max(0, Math.floor(Number((snap as any).updatedAt) || 0));
-    const initialTotal = Math.max(0, Math.floor(Number((snap as any).initialTotal) || 0));
-    this.progress = { inProgress, answered, correct, startedAt, durationMs, updatedAt, initialTotal };
-
-    if (inProgress && this.cachedItems.length > 0) {
+    this.progress = parseProgressSnapshot(snap);
+    if (this.progress.inProgress && this.cachedItems.length > 0) {
       this.resumePromptVisible = true;
     }
   }
@@ -110,8 +157,7 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
   }
 
   getUIConfig(_currentItem: QueueItem | null): QueueUIConfig {
-    const cfg: QueueUIConfig = { statsType: 'queue-size', showRatingButtons: true, allowSkip: true };
-    return cfg;
+    return { statsType: 'queue-size', showRatingButtons: true, allowSkip: true };
   }
 
   async next(): Promise<QueueItem | null> {
@@ -134,6 +180,7 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
         await this.saveProgress();
         return;
       }
+
       if (id === 'resume-start-over') {
         this.resumePromptVisible = false;
         const currentQueueSize = (await this.refreshItems()).length;
@@ -154,15 +201,14 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     }
 
     if (!currentItem || this.resumePromptVisible) return;
-
     this.tickDuration();
 
     if (action === 'skip') {
-      const cardID = String((currentItem as any)?.cardID || '');
-      const deckID = String((currentItem as any)?.deckID || '');
+      const cardID = resolveCardID(currentItem);
+      const deckID = resolveDeckID(currentItem);
       if (cardID && deckID) {
         await this.siyuanApi.skipReviewRiffCard(deckID, cardID).catch(async () => {
-          await this.siyuanApi.pushErrMsg(this.t('drillFailed', '机械练习启动失败'));
+          await this.siyuanApi.pushErrMsg(this.t('drillFailed', '最终冲刺操作失败'));
         });
       }
       await this.rotateToEnd(currentItem);
@@ -171,12 +217,11 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     }
 
     if (action !== 'rate') return;
-
     const rating = feedback.rating;
     if (!rating) return;
 
-    const cardID = String((currentItem as any)?.cardID || '');
-    const deckID = String((currentItem as any)?.deckID || '');
+    const cardID = resolveCardID(currentItem);
+    const deckID = resolveDeckID(currentItem);
     if (!cardID || !deckID) return;
 
     this.ensureStarted();
@@ -187,7 +232,7 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     }
 
     await this.siyuanApi.reviewRiffCard(deckID, cardID, rating).catch(async () => {
-      await this.siyuanApi.pushErrMsg(this.t('drillFailed', '机械练习启动失败'));
+      await this.siyuanApi.pushErrMsg(this.t('drillFailed', '最终冲刺操作失败'));
     });
 
     this.progress.answered += 1;

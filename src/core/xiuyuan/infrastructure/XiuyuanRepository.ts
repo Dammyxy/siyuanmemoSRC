@@ -38,13 +38,62 @@ import { Card } from '../domain/Card';
 import { CardId } from '../domain/CardId';
 import { ScheduleInfo } from '../domain/ScheduleInfo';
 import { IXiuyuan } from '../types';
-import { CardState } from '../../../types/card';
+import { CardState, CardType } from '../../../types/card';
+import type { FSRSCard } from '../../../types/card';
 import { UnifiedStorageManager } from '../../storage/UnifiedStorageManager';
 import { setBlockAttrs } from '../../siyuan/api';
 import { TemplateRegistry } from '../templates/TemplateRegistry';
 import { createLogger } from '@/utils/logger';
+import type { CardPersistenceDTO } from '../../../infrastructure/persistence/dto/CardPersistenceDTO';
 
 const logger = createLogger('XiuyuanRepository');
+
+type XiuyuanCardType = 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
+type SchedulerType = 'fsrs-v6' | 'a-factor' | 'sm2';
+
+type ListTemplateChild = {
+  id: string;
+  cue: string;
+  answer: string;
+  index: number;
+};
+
+type FaceSnapshot = {
+  question: string;
+  answer: string;
+  questionBlockId?: string;
+  answerBlockId?: string;
+};
+
+type XiuyuanMeta = Record<string, unknown> & {
+  cardType?: XiuyuanCardType;
+  schedulerType?: SchedulerType;
+  aFactor?: number;
+  listTemplate?: {
+    childrenData?: ListTemplateChild[];
+  };
+};
+
+type CardTypeDetectionPort = {
+  detectCardType: (blockId: string) => Promise<XiuyuanCardType>;
+};
+
+function isListTemplateChild(value: unknown): value is ListTemplateChild {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<ListTemplateChild>;
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.cue === 'string' &&
+    typeof candidate.answer === 'string' &&
+    Number.isFinite(Number(candidate.index))
+  );
+}
+
+function isFaceSnapshot(value: unknown): value is FaceSnapshot {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<FaceSnapshot>;
+  return typeof candidate.question === 'string' && typeof candidate.answer === 'string';
+}
 
 /**
  * XiuyuanRepository 实现
@@ -59,7 +108,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
   constructor(
     private readonly storage: UnifiedStorageManager,
-    private readonly cardTypeDetectionService?: any  // 可选依赖，用于检测卡片类型
+    private readonly cardTypeDetectionService?: CardTypeDetectionPort
   ) {
     this.templateRegistry = new TemplateRegistry();
   }
@@ -90,10 +139,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       
       if (existing) {
         // 更新现有 XiuYuan - 直接更新 Map 中的数据
-        (this.storage as any).xiuyuans.set(xiuyuanId, persistenceModel);
+        this.storage.upsertXiuYuan(persistenceModel);
       } else {
         // 创建新 XiuYuan - 添加到 Map
-        (this.storage as any).xiuyuans.set(xiuyuanId, persistenceModel);
+        this.storage.upsertXiuYuan(persistenceModel);
       }
 
       // 3. 同步卡片状态：保存现有卡片，删除已移除的卡片
@@ -147,7 +196,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         logger.info(`Deleted ${cardsToDelete.length} cards, forcing immediate save`);
         const saveResult = await this.storage.save();
         if (!saveResult.ok) {
-          const error = (saveResult as any).error || new Error('Failed to save after deletion');
+          const error = saveResult.error || new Error('Failed to save after deletion');
           logger.error('Failed to save after deletion:', error);
           return err(error);
         }
@@ -155,14 +204,16 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
       // 5. 写入块属性
       const blockIDs = xiuyuan.getBlockIDs();
-      const meta = xiuyuan.getMeta();
+      const meta = this.toXiuyuanMeta(xiuyuan.getMeta());
+      const listTemplateChildren = this.extractListTemplateChildren(meta);
+      const hasListTemplateChildren = listTemplateChildren.length > 0;
       
       // 5.1 确定卡片类型
-      let cardType: 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze' = 'item';
+      let cardType: XiuyuanCardType = 'item';
       
       // 🆕 优先使用 meta 中明确指定的 cardType
       if (meta.cardType) {
-        cardType = meta.cardType as 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
+        cardType = meta.cardType;
         logger.debug(`Using explicit cardType from meta: ${cardType}`);
       } else {
         const templateID = xiuyuan.getTemplateID().getValue();
@@ -172,7 +223,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           // ✅ 基础类模板：默认为 item
           cardType = 'item';
           logger.debug(`Template ${templateID} is basic category, using cardType: item`);
-        } else if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
+        } else if (hasListTemplateChildren) {
           // 列表模版卡：强制为 item
           cardType = 'item';
           logger.debug('List template detected, using cardType: item');
@@ -240,9 +291,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       }
       
       // 5.3 列表模版卡：为所有子块设置 item 类型
-      if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
-        const childrenData = (meta.listTemplate as any).childrenData as Array<{ id: string; cue: string; answer: string; index: number }>;
-        for (const child of childrenData) {
+      if (hasListTemplateChildren) {
+        for (const child of listTemplateChildren) {
           try {
             await setBlockAttrs(child.id, {
               'custom-fsrs-card-type': 'item',  // ✅ 子块设置为 item
@@ -440,6 +490,35 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
   // ============ 私有方法 ============
 
+  private toXiuyuanMeta(meta: Record<string, unknown>): XiuyuanMeta {
+    return meta as XiuyuanMeta;
+  }
+
+  private extractListTemplateChildren(meta: Record<string, unknown>): ListTemplateChild[] {
+    const typedMeta = this.toXiuyuanMeta(meta);
+    const children = typedMeta.listTemplate?.childrenData;
+    if (!Array.isArray(children)) {
+      return [];
+    }
+    return children.filter(isListTemplateChild);
+  }
+
+  private toFsrsCardType(cardType: XiuyuanCardType): CardType {
+    switch (cardType) {
+      case 'topic':
+        return CardType.Topic;
+      case 'concept':
+        return CardType.Concept;
+      case 'descriptor':
+        return CardType.Descriptor;
+      case 'cloze':
+        return CardType.Item;
+      case 'item':
+      default:
+        return CardType.Item;
+    }
+  }
+
   /**
    * 将 Card 领域实体转换为 FSRSCard
    * 
@@ -448,16 +527,16 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    * @returns FSRSCard
    * @private
    */
-  private async cardToFSRSCard(card: Card, xiuyuan: Xiuyuan): Promise<any> {
+  private async cardToFSRSCard(card: Card, xiuyuan: Xiuyuan): Promise<FSRSCard> {
     const scheduleInfo = card.getScheduleInfo();
-    const meta = xiuyuan.getMeta();
+    const meta = this.toXiuyuanMeta(xiuyuan.getMeta());
     const faceIndex = card.getFaceIndex();
     
     // Get schedulerType from meta, default to 'fsrs-v6' (Requirement 5.5)
-    const schedulerType = (meta.schedulerType as 'fsrs-v6' | 'a-factor' | 'sm2') || 'fsrs-v6';
+    const schedulerType: SchedulerType = meta.schedulerType || 'fsrs-v6';
     
     // ✅ 确定卡片类型（使用与块属性相同的逻辑）
-    let cardType: 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze' = 'item';  // 默认为 item
+    let cardType: XiuyuanCardType = 'item';
     
     // 🆕 获取模板（在外层声明，供后续使用）
     const templateID = xiuyuan.getTemplateID().getValue();
@@ -470,14 +549,14 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     // 🆕 优先使用 meta 中明确指定的 cardType
     logger.debug('Checking meta.cardType:', meta.cardType, 'for blockId:', blockId);
     if (meta.cardType) {
-      cardType = meta.cardType as 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
+      cardType = meta.cardType;
       logger.debug(`Using explicit cardType from meta: ${cardType}`);
     } else {
       if (template && template.category === 'basic') {
         // ✅ 基础类模板：默认为 item
         cardType = 'item';
         logger.debug(`Template ${templateID} is basic category, card type: item`);
-      } else if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
+      } else if (this.extractListTemplateChildren(meta).length > 0) {
         // 列表模版卡：所有子卡片都是 item 类型
         cardType = 'item';
         logger.debug(`List template card detected, forcing cardType to 'item'`);
@@ -493,16 +572,16 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     }
     
     // 🆕 列表模版卡：提取当前卡片的 cue、answer 和 allChildren
-    const listTemplateMeta: any = {};
-    if (meta.listTemplate && typeof meta.listTemplate === 'object' && Array.isArray((meta.listTemplate as any).childrenData)) {
-      const childrenData = (meta.listTemplate as any).childrenData as Array<{ id: string; cue: string; answer: string; index: number }>;
-      const currentChild = childrenData[faceIndex];
+    const listTemplateMeta: Record<string, unknown> = {};
+    const listTemplateChildren = this.extractListTemplateChildren(meta);
+    if (listTemplateChildren.length > 0) {
+      const currentChild = listTemplateChildren[faceIndex];
       
       if (currentChild) {
         listTemplateMeta.cue = currentChild.cue;
         listTemplateMeta.answer = currentChild.answer;
         listTemplateMeta.currentIndex = faceIndex;
-        listTemplateMeta.allChildren = childrenData.map((child: any) => ({
+        listTemplateMeta.allChildren = listTemplateChildren.map((child) => ({
           id: child.id,
           cue: child.cue,
           answer: child.answer,
@@ -536,7 +615,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       learning_step: scheduleInfo.learning_step,
       
       // 类型和模板
-      type: cardType,  // ✅ 使用检测结果
+      type: this.toFsrsCardType(cardType),
       templateID: xiuyuan.getTemplateID().getValue(),
       schedulerType: schedulerType, // Use schedulerType from meta (Requirement 5.5)
       
@@ -640,7 +719,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    * @returns Result<Card>
    * @private
    */
-  private cardFromDTO(dto: any, xiuyuanId: XiuyuanId): Result<Card> {
+  private cardFromDTO(dto: CardPersistenceDTO, xiuyuanId: XiuyuanId): Result<Card> {
     try {
       const cardIdResult = CardId.create(dto.id);
       if (!cardIdResult.ok) return err(new Error(`Invalid CardId: ${dto.id}`));
@@ -698,7 +777,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       if (!templateIDResult.ok) return err(new Error(`Invalid TemplateId: ${data.templateID}`));
 
       // 4. 转换 Faces（从 meta 中恢复）
-      const facesData = (data.meta?.faces as any[]) || [];
+      const rawFaces = data.meta?.faces;
+      const facesData = Array.isArray(rawFaces) ? rawFaces.filter(isFaceSnapshot) : [];
       const faceResults = facesData.map(f => CardFace.create({
         question: f.question,
         answer: f.answer,

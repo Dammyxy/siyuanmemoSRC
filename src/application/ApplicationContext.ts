@@ -10,6 +10,7 @@
  */
 
 import type { Plugin } from 'siyuan';
+import type SiyuanMemoPlugin from '@/index';
 import { StorageManager } from '@/core/storage';
 import { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
 import { createPersistenceCallbacks } from '@/core/storage/UnifiedStoragePersistence';
@@ -58,8 +59,40 @@ import { RiffBlacklistService } from '@/application/services/RiffBlacklistServic
 import { CardContentQueryService } from '@/application/queries/CardContentQueryService';
 import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter';
 import { createLogger } from '@/utils/logger';
+import type { ICardTemplate } from '@/core/xiuyuan/types';
+import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
+import type { RiffSyncEventHandler } from '@/infrastructure/events/RiffSyncEventHandler';
+import type { RiffIntegrationConfig } from '@/types/settings';
 
 const logger = createLogger('ApplicationContext');
+
+type I18nDictionary = Record<string, string>;
+
+interface ApplicationServiceRegistry {
+  storage: StorageManager;
+  unifiedStorage: UnifiedStorageManager;
+  scheduler: SchedulerRouter;
+  unifiedDataSource: UnifiedDataSourceManager;
+  eventBus: EventBus;
+  fileService: FileService;
+  queuePersistenceService: QueuePersistenceService;
+  settingsService: SettingsService;
+  reviewLogService: ReviewLogService;
+  riffBlacklistService: RiffBlacklistService;
+  cardContentQueryService: CardContentQueryService;
+  dialogManager: DialogManager;
+  menuManager: MenuManager;
+  tabManager: TabManager;
+  tabApplicationService: TabApplicationService;
+  dockManager: DockManager;
+  practiceQueueManager: PracticeQueueManager;
+  cardService: CardApplicationService;
+  browserService: BrowserApplicationService;
+  reviewService: ReviewApplicationService;
+}
+
+type ServiceName = keyof ApplicationServiceRegistry;
+type ServiceFactory<K extends ServiceName> = (context: ApplicationContext) => ApplicationServiceRegistry[K];
 
 /**
  * 应用配置接口
@@ -68,7 +101,7 @@ export interface ApplicationConfig {
   /** 思源插件实例 */
   plugin: Plugin;
   /** 国际化资源 */
-  i18n: Record<string, any>;
+  i18n: I18nDictionary;
 }
 
 /**
@@ -107,12 +140,14 @@ export class ApplicationContext {
   
   // Xiuyuan 服务
   private xiuyuanApplicationService?: XiuyuanApplicationService;  // 懒加载
+  private deletionTracker?: IDeletionTracker;
   
   // 应用服务
   private blockMenuHandler: BlockMenuHandler;
   
   // 基础设施服务
   private hybridSyncService?: HybridSyncService;
+  private riffSyncEventHandler?: RiffSyncEventHandler;
   private transactionWebSocketService?: TransactionWebSocketService;
   private fullSyncTimer?: NodeJS.Timeout;
   
@@ -124,26 +159,26 @@ export class ApplicationContext {
    * 服务容器 - 管理所有服务的创建和访问
    * 使用 Map 存储服务实例，支持懒加载
    */
-  private serviceContainer: Map<string, any> = new Map();
+  private serviceContainer: Map<ServiceName, ApplicationServiceRegistry[ServiceName]> = new Map();
   
   /**
    * 服务工厂 - 定义如何创建各种服务
    * 键为服务名称，值为创建服务的工厂函数
    * 工厂函数接收 ApplicationContext 作为参数，用于依赖注入
    */
-  private serviceFactories: Map<string, (context: ApplicationContext) => any> = new Map();
+  private serviceFactories: Map<ServiceName, ServiceFactory<ServiceName>> = new Map();
   
   /**
    * 正在创建的服务集合 - 用于检测循环依赖
    * Phase 8: 性能优化 - 循环依赖检测
    */
-  private creatingServices = new Set<string>();
+  private creatingServices = new Set<ServiceName>();
   
   /**
    * 失败的服务记录 - 用于错误恢复
    * Phase 8: 性能优化 - 错误恢复机制
    */
-  private failedServices = new Map<string, Error>();
+  private failedServices = new Map<ServiceName, Error>();
   
   /**
    * 性能监控配置
@@ -244,7 +279,7 @@ export class ApplicationContext {
     // ✅ 注册 DDD 重构服务工厂
     // 基础设施层服务
     this.registerServiceFactory('fileService', (context) => {
-      return new FileService(context.getPlugin() as any);
+      return new FileService(context.getPlugin() as unknown as SiyuanMemoPlugin);
     });
     
     this.registerServiceFactory('queuePersistenceService', (context) => {
@@ -333,7 +368,7 @@ export class ApplicationContext {
       const cardDeletionService = new CardDeletionService();
 
       // ✅ 获取 DeletionTracker（应该已经在 create() 中创建）
-      const deletionTracker = (context as any).deletionTracker;
+      const deletionTracker = context.deletionTracker;
       if (!deletionTracker) {
         throw new Error('[ApplicationContext] deletionTracker should have been created during initialization');
       }
@@ -371,7 +406,7 @@ export class ApplicationContext {
 
       // 创建应用服务
       return new BrowserApplicationService(
-        context.getUnifiedStorage() as any,  // ✅ 使用 UnifiedStorageManager
+        context.getUnifiedStorage(),  // ✅ 使用 UnifiedStorageManager
         cardScheduleService,
         cardFilterService,
         cardSortService,
@@ -382,7 +417,7 @@ export class ApplicationContext {
     // ✅ 注册复习应用服务工厂
     this.registerServiceFactory('reviewService', (context) => {
       return new ReviewApplicationService(
-        context.getUnifiedStorage() as any,  // ✅ 使用 UnifiedStorageManager
+        context.getUnifiedStorage(),  // ✅ 使用 UnifiedStorageManager
         context.getScheduler()
       );
     });
@@ -411,8 +446,8 @@ export class ApplicationContext {
    * });
    * ```
    */
-  registerServiceFactory(serviceName: string, factory: (context: ApplicationContext) => any): void {
-    this.serviceFactories.set(serviceName, factory);
+  registerServiceFactory<K extends ServiceName>(serviceName: K, factory: ServiceFactory<K>): void {
+    this.serviceFactories.set(serviceName, factory as ServiceFactory<ServiceName>);
   }
   
   /**
@@ -436,12 +471,12 @@ export class ApplicationContext {
    * const dialogManager = this.getService<DialogManager>('dialogManager');
    * ```
    */
-  getService<T>(serviceName: string): T {
+  getService<K extends ServiceName>(serviceName: K): ApplicationServiceRegistry[K] {
     this.ensureNotDisposed();
     
     // ✅ 检查缓存 - 如果服务已创建，直接返回
     if (this.serviceContainer.has(serviceName)) {
-      return this.serviceContainer.get(serviceName) as T;
+      return this.serviceContainer.get(serviceName) as ApplicationServiceRegistry[K];
     }
     
     // ⚠️ 检查是否之前创建失败 - Phase 8: 错误恢复
@@ -486,7 +521,7 @@ export class ApplicationContext {
       // 记录慢服务
       if (this.enablePerformanceMonitoring) {
         const duration = performance.now() - startTime;
-        if (duration > this.performanceThreshold) {
+      if (duration > this.performanceThreshold) {
           logger.warn(
             `[ApplicationContext] Service '${serviceName}' took ${duration.toFixed(2)}ms to create ` +
             `(threshold: ${this.performanceThreshold}ms)`
@@ -494,7 +529,7 @@ export class ApplicationContext {
         }
       }
       
-      return service as T;
+      return service as ApplicationServiceRegistry[K];
     } catch (error) {
       // 记录失败
       this.failedServices.set(serviceName, error as Error);
@@ -513,7 +548,8 @@ export class ApplicationContext {
    * @returns boolean - 服务是否已注册
    */
   hasService(serviceName: string): boolean {
-    return this.serviceContainer.has(serviceName) || this.serviceFactories.has(serviceName);
+    const name = serviceName as ServiceName;
+    return this.serviceContainer.has(name) || this.serviceFactories.has(name);
   }
   
   /**
@@ -522,7 +558,7 @@ export class ApplicationContext {
    * @param serviceName - 服务名称
    * @returns boolean - 服务是否已创建
    */
-  isServiceCreated(serviceName: string): boolean {
+  isServiceCreated(serviceName: ServiceName): boolean {
     return this.serviceContainer.has(serviceName);
   }
   
@@ -785,10 +821,9 @@ export class ApplicationContext {
     let contextRef: ApplicationContext | null = null;
     
     const blockMenuHandler = new BlockMenuHandler({
-      app: (config.plugin as any).app,
+      app: config.plugin.app,
       i18n: config.i18n,
-      storage: unifiedStorageManager as any,  // ✅ 使用新架构 UnifiedStorageManager
-      dialogManager: null as any, // 将在 ApplicationContext 创建后设置
+      dialogManager: undefined as unknown as DialogManager, // 将在 ApplicationContext 创建后设置
       cardCreationHelper: cardCreationHelper,  // ✅ 注入 CardCreationHelper
       openCreateTemplateCardDialog: async (blockIds) => {
         // 使用闭包延迟获取 DialogManager
@@ -808,8 +843,8 @@ export class ApplicationContext {
           }
         }
       },
-      plugin: config.plugin as any,
-      applicationContext: undefined, // 🆕 将在 ApplicationContext 创建后设置
+      plugin: config.plugin,
+      applicationContext: undefined as unknown as ApplicationContext, // 🆕 将在 ApplicationContext 创建后设置
     });
     
     logger.info('[ApplicationContext] ✅ BlockMenuHandler initialized');
@@ -841,12 +876,13 @@ export class ApplicationContext {
     contextRef = context;
     
     // ✅ 存储 deletionTracker 到 context（供 cardService 工厂复用）
-    (context as any).deletionTracker = deletionTracker;
+    context.deletionTracker = deletionTracker;
     logger.info('[ApplicationContext] Stored deletionTracker to context');
     
     // 13. 设置 ApplicationContext 和 DialogManager 引用（解决循环依赖）
     blockMenuHandler.setApplicationContext(context);
-    (blockMenuHandler.deps as any).dialogManager = context.getDialogManager();
+    const blockMenuHandlerDeps = blockMenuHandler as unknown as { deps: { dialogManager: DialogManager } };
+    blockMenuHandlerDeps.deps.dialogManager = context.getDialogManager();
     
     // 13.5. 初始化 UnifiedDataSourceManager 的延迟依赖
     const settingsService = context.getSettingsService();
@@ -856,8 +892,8 @@ export class ApplicationContext {
     
     const advancedRouter = new AdvancedDataRouter(
       cardApplicationService, 
-      unifiedStorageManager as any,  // ✅ 使用 UnifiedStorageManager
-      config.plugin as any, 
+      unifiedStorageManager as unknown as StorageManager,  // ✅ 使用 UnifiedStorageManager
+      config.plugin, 
       settingsService
     );
     // ✅ 设置 ApplicationContext 引用，使 advancedRouter 可以访问 CardContentQueryService
@@ -894,7 +930,7 @@ export class ApplicationContext {
       const cardTypeDetectionService = new CardTypeDetectionService();
       
       // ✅ 复用已创建的 DeletionTracker
-      const deletionTracker = (context as any).deletionTracker;
+      const deletionTracker = context.deletionTracker;
       if (!deletionTracker) {
         throw new Error('[ApplicationContext] deletionTracker should have been created during initialization');
       }
@@ -905,7 +941,7 @@ export class ApplicationContext {
       hybridSyncService = new HybridSyncService(
         {
           deckId: syncSiyuanApi.BUILTIN_DECK_ID,
-          storage: unifiedStorageManager as any,  // ✅ 使用新架构 UnifiedStorageManager
+          storage: unifiedStorageManager as unknown as StorageManager,  // ✅ 使用新架构 UnifiedStorageManager
           riffBlacklistService: context.getRiffBlacklistService(),
           incrementalSync: {
             ...riffConfig.incrementalSync,
@@ -923,7 +959,7 @@ export class ApplicationContext {
       );
       
       // 将 HybridSyncService 设置到 context（使用类型断言）
-      (context as any).hybridSyncService = hybridSyncService;
+      context.hybridSyncService = hybridSyncService;
       
       logger.info('[ApplicationContext] ✅ HybridSyncService initialized with XiuyuanRepository');
       
@@ -933,7 +969,7 @@ export class ApplicationContext {
       const { RiffSyncEventHandler } = await import('@/infrastructure/events/RiffSyncEventHandler');
       logger.info('[ApplicationContext] Creating RiffSyncEventHandler...');
       const riffSyncEventHandler = new RiffSyncEventHandler(sharedEventBus, hybridSyncService);
-      (context as any).riffSyncEventHandler = riffSyncEventHandler;
+      context.riffSyncEventHandler = riffSyncEventHandler;
       logger.info('[ApplicationContext] ✅ RiffSyncEventHandler registered');
       logger.info('[ApplicationContext] EventBus subscriber count for CardDeleted:', sharedEventBus.getSubscriberCount('CardDeleted'));
       
@@ -946,7 +982,7 @@ export class ApplicationContext {
           () => hybridSyncService!.fullSync(),
           riffConfig.fullSync.interval
         );
-        (context as any).fullSyncTimer = fullSyncTimer;
+        context.fullSyncTimer = fullSyncTimer;
         logger.info(`[ApplicationContext] Full sync timer started (interval: ${riffConfig.fullSync.interval}ms)`);
       }
       
@@ -955,12 +991,12 @@ export class ApplicationContext {
         const { RiffSyncHandler } = await import('@/application/handlers/RiffSyncHandler');
         const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
         
-        transactionWebSocketService = new TransactionWebSocketService(config.plugin as any);
+        transactionWebSocketService = new TransactionWebSocketService(config.plugin as unknown as SiyuanMemoPlugin);
         transactionWebSocketService.registerHandler(new RiffSyncHandler(hybridSyncService));
-        transactionWebSocketService.registerHandler(new AutoCardHandler(config.plugin as any));
+        transactionWebSocketService.registerHandler(new AutoCardHandler(config.plugin as unknown as SiyuanMemoPlugin));
         transactionWebSocketService.start();
         
-        (context as any).transactionWebSocketService = transactionWebSocketService;
+        context.transactionWebSocketService = transactionWebSocketService;
         logger.info('[ApplicationContext] ✅ TransactionWebSocketService initialized');
       }
     }
@@ -985,7 +1021,7 @@ export class ApplicationContext {
   getStorage(): StorageManager {
     // ✅ 返回 UnifiedStorageManager 而不是旧的 StorageManager
     // UnifiedStorageManager 实现了 StorageManager 接口，完全兼容
-    return this.unifiedStorageManager as any as StorageManager;
+    return this.unifiedStorageManager as unknown as StorageManager;
   }
   
   /**
@@ -1097,8 +1133,8 @@ export class ApplicationContext {
       );
       
       // ✅ 从代码导入模板（硬编码，不需要持久化）
-      const { BUILTIN_TEMPLATES, ALL_TEMPLATES } = await import('@/core/xiuyuan');
-      const templateRegistry = new Map<string, any>();
+      const { ALL_TEMPLATES } = await import('@/core/xiuyuan');
+      const templateRegistry = new Map<string, ICardTemplate>();
       // 使用 ALL_TEMPLATES 来包含内部使用的变体模板
       for (const template of ALL_TEMPLATES) {
         templateRegistry.set(template.id, template);
@@ -1140,7 +1176,7 @@ export class ApplicationContext {
    * 
    * @param config - 新的同步配置
    */
-  async updateHybridSyncConfig(config: Partial<any>): Promise<void> {
+  async updateHybridSyncConfig(config: Partial<RiffIntegrationConfig>): Promise<void> {
     if (!this.hybridSyncService) {
       logger.warn('[ApplicationContext] HybridSyncService not initialized');
       return;
@@ -1189,14 +1225,14 @@ export class ApplicationContext {
         const { RiffSyncHandler } = await import('@/application/handlers/RiffSyncHandler');
         const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
         
-        this.transactionWebSocketService = new TransactionWebSocketService(this.config.plugin as any);
+        this.transactionWebSocketService = new TransactionWebSocketService(this.config.plugin as unknown as SiyuanMemoPlugin);
         
         // 创建并注册 RiffSyncHandler
         const riffSyncHandler = new RiffSyncHandler(this.hybridSyncService);
         this.transactionWebSocketService.registerHandler(riffSyncHandler);
         
         // 创建并注册 AutoCardHandler
-        const autoCardHandler = new AutoCardHandler(this.config.plugin as any);
+        const autoCardHandler = new AutoCardHandler(this.config.plugin as unknown as SiyuanMemoPlugin);
         this.transactionWebSocketService.registerHandler(autoCardHandler);
         logger.info('[ApplicationContext] ✅ AutoCardHandler registered');
         
@@ -1237,9 +1273,9 @@ export class ApplicationContext {
   /**
    * 获取国际化资源
    * 
-   * @returns Record<string, any> - 国际化资源
+   * @returns I18nDictionary - 国际化资源
    */
-  getI18n(): Record<string, any> {
+  getI18n(): I18nDictionary {
     this.ensureNotDisposed();
     return this.config.i18n;
   }
@@ -1253,8 +1289,8 @@ export class ApplicationContext {
    * 
    * @returns CardApplicationService - 卡片应用服务实例
    */
-  getCardService(): any {
-    return this.getService<any>('cardService');
+  getCardService(): CardApplicationService {
+    return this.getService('cardService');
   }
   
   /**
@@ -1262,8 +1298,8 @@ export class ApplicationContext {
    * 
    * @returns BrowserApplicationService - 浏览器应用服务实例
    */
-  getBrowserService(): any {
-    return this.getService<any>('browserService');
+  getBrowserService(): BrowserApplicationService {
+    return this.getService('browserService');
   }
   
   /**
@@ -1271,8 +1307,8 @@ export class ApplicationContext {
    * 
    * @returns ReviewApplicationService - 复习应用服务实例
    */
-  getReviewService(): any {
-    return this.getService<any>('reviewService');
+  getReviewService(): ReviewApplicationService {
+    return this.getService('reviewService');
   }
   
   // TODO: Phase 3 - 实现其他应用服务访问方法
@@ -1287,8 +1323,8 @@ export class ApplicationContext {
    * 
    * @returns DialogManager - 对话框管理器实例
    */
-  getDialogManager(): any {
-    return this.getService<any>('dialogManager');
+  getDialogManager(): DialogManager {
+    return this.getService('dialogManager');
   }
   
   /**
@@ -1296,8 +1332,8 @@ export class ApplicationContext {
    * 
    * @returns MenuManager - 菜单管理器实例
    */
-  getMenuManager(): any {
-    return this.getService<any>('menuManager');
+  getMenuManager(): MenuManager {
+    return this.getService('menuManager');
   }
   
   /**
@@ -1305,8 +1341,8 @@ export class ApplicationContext {
    * 
    * @returns TabManager - Tab 管理器实例
    */
-  getTabManager(): any {
-    return this.getService<any>('tabManager');
+  getTabManager(): TabManager {
+    return this.getService('tabManager');
   }
   
   /**
@@ -1315,7 +1351,7 @@ export class ApplicationContext {
    * @returns TabApplicationService - Tab 应用服务实例
    */
   getTabApplicationService(): TabApplicationService {
-    return this.getService<TabApplicationService>('tabApplicationService');
+    return this.getService('tabApplicationService');
   }
   
   /**
@@ -1324,7 +1360,7 @@ export class ApplicationContext {
    * @returns DockManager - Dock 管理器实例
    */
   getDockManager(): DockManager {
-    return this.getService<DockManager>('dockManager');
+    return this.getService('dockManager');
   }
   
   /**
@@ -1333,7 +1369,7 @@ export class ApplicationContext {
    * @returns PracticeQueueManager - 练习队列管理器实例
    */
   getPracticeQueueManager(): PracticeQueueManager {
-    return this.getService<PracticeQueueManager>('practiceQueueManager');
+    return this.getService('practiceQueueManager');
   }
   
   /**
@@ -1341,8 +1377,8 @@ export class ApplicationContext {
    * 
    * @returns EventBus - 事件总线实例
    */
-  getEventBus(): any {
-    return this.getService<any>('eventBus');
+  getEventBus(): EventBus {
+    return this.getService('eventBus');
   }
   
   // ========================================================================
@@ -1355,7 +1391,7 @@ export class ApplicationContext {
    * @returns FileService - 文件服务实例
    */
   getFileService(): FileService {
-    return this.getService<FileService>('fileService');
+    return this.getService('fileService');
   }
   
   /**
@@ -1364,7 +1400,7 @@ export class ApplicationContext {
    * @returns QueuePersistenceService - 队列持久化服务实例
    */
   getQueuePersistenceService(): QueuePersistenceService {
-    return this.getService<QueuePersistenceService>('queuePersistenceService');
+    return this.getService('queuePersistenceService');
   }
   
   /**
@@ -1373,7 +1409,7 @@ export class ApplicationContext {
    * @returns SettingsService - 设置服务实例
    */
   getSettingsService(): SettingsService {
-    return this.getService<SettingsService>('settingsService');
+    return this.getService('settingsService');
   }
   
   /**
@@ -1382,7 +1418,7 @@ export class ApplicationContext {
    * @returns ReviewLogService - 复习日志服务实例
    */
   getReviewLogService(): ReviewLogService {
-    return this.getService<ReviewLogService>('reviewLogService');
+    return this.getService('reviewLogService');
   }
   
   /**
@@ -1391,7 +1427,7 @@ export class ApplicationContext {
    * @returns RiffBlacklistService - Riff 黑名单服务实例
    */
   getRiffBlacklistService(): RiffBlacklistService {
-    return this.getService<RiffBlacklistService>('riffBlacklistService');
+    return this.getService('riffBlacklistService');
   }
   
   /**
@@ -1399,8 +1435,8 @@ export class ApplicationContext {
    * 
    * @returns CardContentQueryService - 卡片内容查询服务实例
    */
-  getCardContentQueryService(): any {
-    return this.getService<any>('cardContentQueryService');
+  getCardContentQueryService(): CardContentQueryService {
+    return this.getService('cardContentQueryService');
   }
 
   /**
@@ -1408,7 +1444,7 @@ export class ApplicationContext {
    * 
    * @returns 卡片存储实例
    */
-  getCardStorage(): any {
+  getCardStorage(): StorageManager {
     return this.getStorage(); // StorageManager 实现了 ICardStorage 接口
   }
 
@@ -1417,7 +1453,7 @@ export class ApplicationContext {
    * 
    * @returns 调度器路由实例
    */
-  getSchedulerRouter(): any {
+  getSchedulerRouter(): SchedulerRouter {
     return this.getScheduler(); // SchedulerRouter 实现了 ISchedulerRouter 接口
   }
   
@@ -1453,7 +1489,7 @@ export class ApplicationContext {
       return;
     }
     
-    const errors: Array<{ service: string; error: any }> = [];
+    const errors: Array<{ service: string; error: unknown }> = [];
     
     try {
       logger.info('[ApplicationContext] Starting disposal...');
@@ -1557,7 +1593,7 @@ export class ApplicationContext {
    * 
    * @param errors - 错误收集数组
    */
-  private async disposeServices(errors: Array<{ service: string; error: any }>): Promise<void> {
+  private async disposeServices(errors: Array<{ service: string; error: unknown }>): Promise<void> {
     // 获取所有已创建的服务（按创建顺序）
     const services = Array.from(this.serviceContainer.entries());
     

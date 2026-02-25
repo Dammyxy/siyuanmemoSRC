@@ -18,7 +18,11 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SessionManager');
 
-export interface SessionManagerOptions<TCard> {
+type LapseTrackableCard = {
+  lapses?: number;
+};
+
+export interface SessionManagerOptions<TCard extends LapseTrackableCard> {
   /**
    * 获取卡片的到期时间（毫秒）
    * 用作主排序键
@@ -62,7 +66,7 @@ export interface SessionStats {
  * - Lapse tracking（失败次数追踪）
  * - 统计信息
  */
-export class SessionManager<TCard> {
+export class SessionManager<TCard extends LapseTrackableCard> {
   private readonly sequencer: SortedSequencer<TCard>;
   private loaded = false;
   
@@ -151,14 +155,12 @@ export class SessionManager<TCard> {
    * @param card - 要旋转的卡片
    */
   rotateWithLapse(card: TCard): void {
-    // 增加失败次数
-    const cardAny = card as any;
-    cardAny.lapses = (cardAny.lapses || 0) + 1;
+    card.lapses = (card.lapses || 0) + 1;
     
     // 重新插入（会根据新的 lapses 重新排序）
     this.sequencer.insert(card);
     
-    logger.debug('Rotated card with lapses', { lapses: cardAny.lapses });
+    logger.debug('Rotated card with lapses', { lapses: card.lapses });
   }
   
   /**
@@ -205,7 +207,7 @@ export class SessionManager<TCard> {
    */
   getStats(): SessionStats {
     const cards = this.sequencer.getAll();
-    const lapses = cards.map(c => (c as any).lapses || 0);
+    const lapses = cards.map(c => Number(c.lapses) || 0);
     const cardsWithLapses = lapses.filter(l => l > 0).length;
     
     return {

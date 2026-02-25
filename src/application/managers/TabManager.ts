@@ -1,75 +1,69 @@
 /**
- * TabManager - Tab 管理器
- * 
- * 职责：
- * - 管理所有 Tab 的注册和打开
- * - 统一 Tab 生命周期管理
- * - 提供 Tab 访问接口
- * 
- * @see .kiro/specs/ddd-refactoring/design.md - Section 2.5
+ * TabManager - tab registration and opening.
+ *
+ * This manager keeps the review-tab path deterministic:
+ * - open tab with serializable tab data only
+ * - restore queue/adapter from current architecture on init
  */
 
 import type { Plugin } from 'siyuan';
-import type { ApplicationContext } from '../ApplicationContext';
 import { openTab, Constants } from 'siyuan';
-import { createApp } from 'vue';
+import { createApp, type App as VueApp } from 'vue';
 import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
 import { ReviewView } from '@/ui/review/v2';
+import type { ApplicationContext } from '../ApplicationContext';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
+import type { QueueProvider } from '@/core/extensions/QueueProvider';
+import type { IQueueStrategy } from '@/core/queue/abstraction/Strategy';
+import type { IAdapter } from '@/ui/review/v2/types';
+import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
+import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
+import { QueueType } from '@/types/unified-data-source';
+import { createLogger } from '@/utils/logger';
 /// #if !BROWSER
 import { ipcRenderer } from 'electron';
 /// #endif
 
+const logger = createLogger('TabManager');
+
+type ReviewProviderRef = Pick<QueueProvider<unknown>, 'id'>;
+type ReviewQueueRef = Pick<IQueueStrategy<unknown>, 'getType'>;
+
+interface ReviewTabData {
+  providerId: string;
+  title: string;
+  queueType: QueueType | null;
+}
+
+interface TabRuntimeContext {
+  element: HTMLElement;
+  data?: Partial<ReviewTabData>;
+  vueApp?: VueApp<Element>;
+}
+
+type PluginWithI18n = Plugin & {
+  i18n?: Record<string, string>;
+};
+
 /**
- * 复习 Tab 选项
+ * Review tab options.
+ *
+ * `adapter` is kept for API compatibility. Restoration now rebuilds
+ * queue+adapter from tab data in a single path.
  */
 export interface ReviewTabOptions {
-  /** 提供者（可选） */
-  provider?: any;
-  /** 队列（可选） */
-  queue?: any;
-  /** 适配器 */
-  adapter: any;
-  /** 标题 */
+  provider?: ReviewProviderRef;
+  queue?: ReviewQueueRef;
+  adapter?: IAdapter<unknown>;
   title: string;
 }
 
-/**
- * TabManager 类
- * 
- * 管理所有 Tab 的注册和打开。
- * 
- * 使用示例：
- * ```typescript
- * const tabManager = new TabManager(context, plugin);
- * 
- * // 注册所有 Tab
- * tabManager.registerAll();
- * 
- * // 打开浏览器 Tab
- * tabManager.openBrowserTab();
- * 
- * // 打开复习 Tab
- * tabManager.openReviewTab({
- *   adapter: myAdapter,
- *   title: '提取练习'
- * });
- * ```
- */
 export class TabManager {
-  // ========================================================================
-  // Tab 类型常量
-  // ========================================================================
-  
   private readonly TAB_TYPE: string;
   private readonly REVIEW_TAB_TYPE: string;
   private readonly siyuanApi: ManagerSiyuanPort;
-  
-  // ========================================================================
-  // 构造函数
-  // ========================================================================
-  
+
   constructor(
     private context: ApplicationContext,
     private plugin: Plugin,
@@ -79,34 +73,18 @@ export class TabManager {
     this.TAB_TYPE = this.plugin.name + '-browser';
     this.REVIEW_TAB_TYPE = this.plugin.name + '-review';
   }
-  
-  // ========================================================================
-  // 注册 Tab
-  // ========================================================================
-  
-  /**
-   * 注册所有 Tab
-   * 
-   * 包括：
-   * - SRS 浏览器 Tab
-   * - 复习界面 Tab
-   */
+
   registerAll(): void {
     this.registerBrowserTab();
     this.registerReviewTab();
   }
-  
-  /**
-   * 注册 SRS 浏览器 Tab
-   * 
-   * 浏览器 Tab 用于查看和管理所有卡片。
-   */
+
   private registerBrowserTab(): void {
     const self = this;
-    
+
     this.plugin.addTab({
       type: this.TAB_TYPE,
-      init() {
+      init(this: TabRuntimeContext) {
         const app = createApp(SRSBrowser, {
           app: self.plugin.app,
           i18n: self.context.getI18n() || {},
@@ -114,218 +92,210 @@ export class TabManager {
           plugin: self.plugin,
         });
         app.mount(this.element);
-        (this as any).vueApp = app;
+        this.vueApp = app;
       },
-      destroy() {
-        if ((this as any).vueApp) {
-          (this as any).vueApp.unmount();
-        }
+      destroy(this: TabRuntimeContext) {
+        this.vueApp?.unmount();
+        this.vueApp = undefined;
       },
     });
   }
-  
-  /**
-   * 注册复习界面 Tab
-   * 
-   * 复习 Tab 用于进行卡片复习。
-   */
+
   private registerReviewTab(): void {
-    const plugin = this.plugin;
-    
+    const self = this;
+
     this.plugin.addTab({
       type: this.REVIEW_TAB_TYPE,
-      init() {
-        // 从 Tab data 恢复状态
-        const savedProvider = (this as any).data?.provider;
-        const savedQueue = (this as any).data?.queue;
-        const savedAdapter = (this as any).data?.adapter;
-        const savedTitle = (this as any).data?.title;
-        const savedProviderId = (this as any).data?.providerId || 'retrieval';
-
-        console.log('[FSRS Review Tab] Restoring state:', {
-          hasProvider: !!savedProvider,
-          hasQueue: !!savedQueue,
-          hasAdapter: !!savedAdapter,
-          title: savedTitle,
-          providerId: savedProviderId,
+      init(this: TabRuntimeContext) {
+        const data = self.normalizeReviewTabData(this.data);
+        logger.info('Restoring review tab', {
+          providerId: data.providerId,
+          queueType: data.queueType,
+          title: data.title,
         });
 
-        // 如果有 savedQueue，使用 queue + adapter 模式
-        if (savedQueue && savedAdapter) {
-          console.log('[FSRS Review Tab] Using queue + adapter mode');
-          const app = createApp(ReviewView, {
-            app: plugin.app,
-            i18n: (plugin as any).i18n || {},
-            mode: 'tab',
-            title: savedTitle,
-            queue: savedQueue,
-            adapter: savedAdapter,
-            plugin: plugin, // 🆕 传递 plugin 实例
-          });
-          app.mount(this.element);
-          (this as any).vueApp = app;
-          return;
-        }
+        const queue = self.buildReviewQueue(data.queueType);
+        const adapter = new UnifiedReviewAdapter({ i18n: self.getPluginI18n() });
 
-        // 否则使用 provider 模式（默认）
-        console.log('[FSRS Review Tab] Using provider mode');
         const app = createApp(ReviewView, {
-          app: plugin.app,
-          i18n: (plugin as any).i18n || {},
+          app: self.plugin.app,
+          i18n: self.getPluginI18n(),
           mode: 'tab',
-          title: savedTitle || '提取练习',
-          provider: savedProvider,
-          plugin: plugin, // 🆕 传递 plugin 实例
+          title: data.title,
+          queue,
+          adapter,
+          plugin: self.plugin,
         });
+
         app.mount(this.element);
-        (this as any).vueApp = app;
+        this.vueApp = app;
       },
-      destroy() {
-        if ((this as any).vueApp) {
-          (this as any).vueApp.unmount();
-        }
+      destroy(this: TabRuntimeContext) {
+        this.vueApp?.unmount();
+        this.vueApp = undefined;
       },
     });
   }
-  
-  // ========================================================================
-  // 打开 Tab
-  // ========================================================================
-  
-  /**
-   * 打开 SRS 浏览器 Tab
-   * 
-   * 在右侧打开一个新的浏览器 Tab，用于查看和管理所有卡片。
-   */
+
   openBrowserTab(): void {
     openTab({
       app: this.plugin.app,
       custom: {
         icon: 'iconCard',
-        title: this.context.getI18n()?.srsBrowser || 'SRS 浏览器',
+        title: this.context.getI18n()?.srsBrowser || 'SRS Browser',
         id: this.plugin.name + this.TAB_TYPE,
         data: {},
       },
       position: 'right',
     });
   }
-  
-  /**
-   * 打开复习界面 Tab
-   * 
-   * 在右侧打开一个新的复习 Tab，用于进行卡片复习。
-   * 
-   * @param options - 复习 Tab 选项
-   * @param options.provider - 提供者（可选）
-   * @param options.queue - 队列（可选）
-   * @param options.adapter - 适配器
-   * @param options.title - 标题
-   */
+
   openReviewTab(options: ReviewTabOptions): void {
     try {
-      const providerId = options.provider?.id || (options.queue ? 'queue-based' : 'retrieval');
-      
-      // 🔧 修复循环引用问题：不直接传递对象，而是传递配置信息
-      // 在 Tab 的 init 中重新创建这些对象
+      const tabData = this.resolveReviewTabData(options);
+
       openTab({
         app: this.plugin.app,
         custom: {
           icon: 'iconSiyuanMemo',
-          title: options.title,
+          title: tabData.title,
           id: this.plugin.name + this.REVIEW_TAB_TYPE,
-          data: {
-            // 只传递配置信息，不传递对象实例
-            providerId: providerId,
-            title: options.title,
-            // 如果需要队列信息，传递队列类型而不是实例
-            queueType: options.queue?.getType?.() || null,
-          },
+          data: tabData,
         },
         position: 'right',
       });
-    } catch (err) {
-      console.error('[TabManager] Failed to open review tab:', err);
+    } catch (error) {
+      logger.error('Failed to open review tab', error);
     }
   }
-  
-  /**
-   * 在新窗口中打开复习界面
-   * 
-   * @param options - 复习 Tab 选项
-   */
+
   openReviewInNewWindow(options: ReviewTabOptions): void {
     /// #if !BROWSER
     try {
-      const providerId = options.provider?.id || (options.queue ? 'queue-based' : 'retrieval');
-      
-      // 🔧 修复：不传递完整对象，只传递必要的标识符
-      // 新窗口会重新创建 provider/queue/adapter
-      const json = [{
-        "title": options.title,
-        "icon": "iconSiyuanMemo",
-        "instance": "Tab",
-        "children": {
-          "instance": "Custom",
-          "customModelType": this.REVIEW_TAB_TYPE,
-          "customModelData": {
-            // 只传递标识符，不传递完整对象（避免循环引用）
-            "providerId": providerId,
-            "title": options.title,
-            // 新窗口会根据 providerId 重新创建 provider/queue/adapter
-          }
-        }
-      }];
-      
-      // 发送到主进程（参考思源原生实现）
+      const tabData = this.resolveReviewTabData(options);
+      const json = [
+        {
+          title: tabData.title,
+          icon: 'iconSiyuanMemo',
+          instance: 'Tab',
+          children: {
+            instance: 'Custom',
+            customModelType: this.REVIEW_TAB_TYPE,
+            customModelData: tabData,
+          },
+        },
+      ];
+
       ipcRenderer.send(Constants.SIYUAN_OPEN_WINDOW, {
-        url: `${window.location.protocol}//${window.location.host}/stage/build/app/window.html?v=${Constants.SIYUAN_VERSION}&json=${encodeURIComponent(JSON.stringify(json))}`
+        url: `${window.location.protocol}//${window.location.host}/stage/build/app/window.html?v=${Constants.SIYUAN_VERSION}&json=${encodeURIComponent(JSON.stringify(json))}`,
       });
-      
-      console.log('[TabManager] Opened review in new window');
-    } catch (err) {
-      console.error('[TabManager] Failed to open review in new window:', err);
-      void this.siyuanApi.pushErrMsg(this.context.getI18n()?.openFailed || '打开新窗口失败');
+
+      logger.info('Opened review in new window', { queueType: tabData.queueType, providerId: tabData.providerId });
+    } catch (error) {
+      logger.error('Failed to open review in new window', error);
+      void this.siyuanApi.pushErrMsg(this.context.getI18n()?.openFailed || 'Failed to open new window');
     }
     /// #else
-    // 浏览器环境降级：使用 Tab 模式
-    console.warn('[TabManager] New window not supported in browser, using tab instead');
+    logger.warn('New window is not supported in browser, opening tab instead');
     this.openReviewTab(options);
     /// #endif
   }
-  
-  /**
-   * 打开文档 Tab
-   * 
-   * 在编辑器中打开指定的文档块。
-   * 
-   * @param blockId - 块 ID
-   */
+
   openDocumentTab(blockId: string): void {
     if (!blockId) {
-      console.warn('[TabManager] Cannot open document: blockId is empty');
+      logger.warn('Cannot open document tab: blockId is empty');
       return;
     }
-    
+
     try {
-      (this.plugin.app as any).openTab({
+      openTab({
         app: this.plugin.app,
         doc: { id: blockId },
       });
-    } catch (err) {
-      console.error('[TabManager] Failed to open document tab:', err);
+    } catch (error) {
+      logger.error('Failed to open document tab', error);
     }
   }
-  
-  // ========================================================================
-  // 生命周期管理
-  // ========================================================================
-  
-  /**
-   * 销毁 Tab 管理器
-   * 
-   * 注意：Tab 的生命周期由思源笔记管理，这里不需要手动清理。
-   */
+
   dispose(): void {
-    // Tab 的生命周期由思源笔记管理，不需要手动清理
+    // Tab lifecycle is managed by SiYuan.
+  }
+
+  private getPluginI18n(): Record<string, string> {
+    const candidate = (this.plugin as PluginWithI18n).i18n;
+    return candidate && typeof candidate === 'object' ? candidate : {};
+  }
+
+  private getDefaultReviewTitle(): string {
+    return this.context.getI18n()?.reviewTitle || 'Review';
+  }
+
+  private resolveReviewTabData(options: ReviewTabOptions): ReviewTabData {
+    const queueType = this.normalizeQueueType(options.queue?.getType?.(), options.provider?.id);
+    return {
+      providerId: this.resolveProviderId(options),
+      title: String(options.title || this.getDefaultReviewTitle()),
+      queueType,
+    };
+  }
+
+  private normalizeReviewTabData(data: Partial<ReviewTabData> | undefined): ReviewTabData {
+    const providerId = typeof data?.providerId === 'string' && data.providerId
+      ? data.providerId
+      : 'retrieval';
+    const queueType = this.normalizeQueueType(data?.queueType, providerId);
+    const title = typeof data?.title === 'string' && data.title.trim()
+      ? data.title
+      : this.getDefaultReviewTitle();
+
+    return {
+      providerId,
+      title,
+      queueType,
+    };
+  }
+
+  private resolveProviderId(options: ReviewTabOptions): string {
+    if (typeof options.provider?.id === 'string' && options.provider.id) {
+      return options.provider.id;
+    }
+    return options.queue ? 'queue-based' : 'retrieval';
+  }
+
+  private normalizeQueueType(rawQueueType: unknown, providerId: unknown): QueueType {
+    const queueType = String(rawQueueType || '');
+    if ((Object.values(QueueType) as string[]).includes(queueType)) {
+      return queueType as QueueType;
+    }
+
+    switch (String(providerId || '')) {
+      case 'final-drill':
+      case 'final_drill':
+      case 'deliberate':
+        return QueueType.FinalDrill;
+      case 'incremental-learning':
+      case 'incremental':
+        return QueueType.IncrementalLearning;
+      case 'filter-group':
+      case 'filter_group':
+        return QueueType.FilterGroup;
+      case 'neural-roam':
+      case 'neural-wandering':
+      case 'neural_wandering':
+        return QueueType.NeuralRoam;
+      case 'leech':
+        return QueueType.Leech;
+      default:
+        return QueueType.RetrievalPractice;
+    }
+  }
+
+  private buildReviewQueue(queueType: QueueType): UnifiedQueueStrategy {
+    return new UnifiedQueueStrategy(
+      queueType,
+      this.context.getUnifiedDataSourceManager(),
+      this.context.getEventBus(),
+      this.context.getSchedulerRouter()
+    );
   }
 }

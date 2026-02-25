@@ -30,6 +30,9 @@ export interface XiuyuanCardMeta {
   // === 卡片类型标记 ===
   /** 卡片类型标记（如 'forward', 'reverse', 'concept-definition-cloze-0'） */
   typeMarker?: string;
+
+  /** 字段映射（例如 concept/descriptor/content） */
+  fieldMapping?: Record<string, string>;
   
   // === 列表模版卡专用字段 ===
   /** 当前卡片的提示文本 */

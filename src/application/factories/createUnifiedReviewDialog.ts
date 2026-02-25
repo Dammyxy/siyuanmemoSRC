@@ -93,8 +93,8 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
                 app: plugin.app,
                 i18n: plugin.i18n || {},
                 title: title,
-                queue: queue as any,
-                adapter: adapter as any,
+                queue,
+                adapter,
                 plugin: plugin,  // 传递插件实例，用于访问 hybridSyncService
             },
             events: {

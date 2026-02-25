@@ -1,56 +1,121 @@
-﻿/**
- * Unified Review Adapter
- * 统一复习适配器
- * 
- * 将 FSRSCard 转换为 ReviewUIState，用于 useReviewSession。
- * 
- * @see .kiro/specs/unified-data-source-ui-integration/requirements.md - 需求 4
- * @see .kiro/specs/unified-data-source-ui-integration/design.md - 复习界面集成
- * 
- * 注意：使用 any 类型来简化适配层实现，因为 ReviewUIState 的类型定义非常复杂。
- * 这是一个适配层，主要目的是功能集成。
- */
-
-import type { IAdapter, AdapterContext } from '@/ui/review/v2/types';
+import type { IAdapter, AdapterContext, ReviewUIState, ReviewCardKind } from '@/ui/review/v2/types';
 import type { FSRSCard } from '@/types/card';
 import type { IQueueStrategy } from '@/core/queue/abstraction/Strategy';
+import type { QueueStats } from '@/core/queue/types';
 import { isXiuyuanCard } from '@/core/xiuyuan/cardMeta';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('UnifiedReviewAdapter');
 
+type RatingValue = 1 | 2 | 3 | 4;
+type NextDuesMap = Partial<Record<RatingValue, string>>;
+
+type UnifiedReviewItem = FSRSCard & {
+    blockID?: string;
+    cardID?: string;
+    deckID?: string;
+    deckId?: string;
+    nextDues?: NextDuesMap;
+};
+
+type QueueWithType = {
+    getType: () => string;
+};
+
+const ANSWER_TEMPLATE_IDS = new Set<string>([
+    'builtin-list-item',
+    'builtin-basic-qa',
+    'builtin-bidirectional',
+]);
+
 function t(i18n: Record<string, string> | undefined, key: string, fallback: string): string {
-  return i18n?.[key] || fallback;
+    return i18n?.[key] || fallback;
 }
 
-/**
- * 统一复习适配器
- * 
- * 负责将 FSRSCard 转换为 ReviewUIState，提供 UI 所需的所有数据。
- * 
- * 验证需求：4.1
- */
-export class UnifiedReviewAdapter implements IAdapter<any> {
+function hasQueueType(queue: unknown): queue is QueueWithType {
+    return typeof queue === 'object'
+        && queue !== null
+        && 'getType' in queue
+        && typeof (queue as QueueWithType).getType === 'function';
+}
+
+function resolveBlockId(item: UnifiedReviewItem): string {
+    return item.blockID ?? item.blockId ?? item.id ?? item.cardID ?? '';
+}
+
+function resolveCardId(item: UnifiedReviewItem): string {
+    return item.cardID ?? item.id ?? '';
+}
+
+function resolveDeckId(item: UnifiedReviewItem): string {
+    return item.deckID ?? item.deckId ?? '';
+}
+
+function getNextDue(item: UnifiedReviewItem, rating: RatingValue): string {
+    return item.nextDues?.[rating] ?? '';
+}
+
+function normalizeCardType(type: unknown): ReviewCardKind {
+    const value = String(type ?? 'item');
+    if (value === 'topic') return 'topic';
+    if (value === 'concept') return 'concept';
+    if (value === 'descriptor') return 'descriptor';
+    if (value === 'cloze') return 'cloze';
+    return 'item';
+}
+
+function resolveContentBlockId(card: UnifiedReviewItem, fallbackBlockId: string): string {
+    if (card.type === 'descriptor' && isXiuyuanCard(card)) {
+        const descriptorId = card.meta.fieldMapping?.descriptor;
+        if (descriptorId) {
+            logger.debug('Descriptor card uses descriptor field for content block', { descriptorId });
+            return descriptorId;
+        }
+    }
+
+    if (isXiuyuanCard(card) && card.meta.frontBlockIDs.length > 0) {
+        return card.meta.frontBlockIDs[0];
+    }
+
+    return fallbackBlockId;
+}
+
+function resolveAnswerBlockId(card: UnifiedReviewItem): string {
+    if (!isXiuyuanCard(card)) {
+        return '';
+    }
+
+    const templateID = card.meta.templateID;
+    const backBlockIDs = card.meta.backBlockIDs;
+    if (ANSWER_TEMPLATE_IDS.has(templateID) && backBlockIDs.length > 0) {
+        return backBlockIDs[0];
+    }
+
+    return '';
+}
+
+function normalizeStats(stats: QueueStats | undefined): { size: number; label: string } {
+    if (!stats) {
+        return { size: 0, label: '' };
+    }
+    return {
+        size: stats.size,
+        label: stats.label ?? '',
+    };
+}
+
+export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     private readonly i18n?: Record<string, string>;
 
     constructor(options?: { i18n?: Record<string, string> }) {
         this.i18n = options?.i18n;
     }
 
-    /**
-     * 将卡片转换为 UI 状态
-     * 
-     * @param queue 队列策略
-     * @param item 当前卡片
-     * @param context 适配器上下文
-     * @returns UI 状态
-     */
     async toUIState(
-        queue: IQueueStrategy<any>,
-        item: any | null,
+        queue: IQueueStrategy<UnifiedReviewItem>,
+        item: UnifiedReviewItem | null,
         context: AdapterContext
-    ): Promise<any> {
-        // 如果没有卡片，返回空状态
+    ): Promise<ReviewUIState> {
         if (!item) {
             return {
                 header: {
@@ -65,7 +130,7 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                 content: {
                     type: 'empty',
                     data: '',
-                    id: ''
+                    id: '',
                 },
                 actions: {
                     showAnswer: false,
@@ -74,185 +139,107 @@ export class UnifiedReviewAdapter implements IAdapter<any> {
                 },
                 meta: {
                     transition: 'fade',
-                    hasHiddenContent: false
+                    hasHiddenContent: false,
                 },
-                overlay: null
+                overlay: null,
             };
         }
-        
-        // 获取队列统计
-        const stats = await queue.getStats?.();
-        
-        // 获取 UI 配置
-        const uiConfig = queue.getUIConfig(item);
-        
-        const card = item as FSRSCard;
 
-        // 🔧 兼容 QueueItem (blockID/cardID) 和 FSRSCard (blockId/id) 的属性命名
-        const blockId = (item as any).blockID || card.blockId || (item as any).blockId || card.id || (item as any).cardID;
-        const cardId = (item as any).cardID || card.id || (item as any).id;
-        
-        // 🔑 检查是否为神经漫游队列
-        const isNeuralRoam = (queue as any).getType?.() === 'neural-roam';
-        
-        // 构建工具栏按钮
-        const toolbar = [
+        const stats = normalizeStats(await queue.getStats?.());
+        const uiConfig = queue.getUIConfig(item);
+        const blockId = resolveBlockId(item);
+        const cardId = resolveCardId(item);
+        const cardType = normalizeCardType(item.type);
+
+        const isNeuralRoam = hasQueueType(queue) && queue.getType() === 'neural-roam';
+
+        const toolbar: NonNullable<ReviewUIState['header']['toolbar']> = [
             { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', 'Fullscreen') },
             { icon: '#iconEdit', type: 'edit-srs', ariaLabel: t(this.i18n, 'editSrsData', 'Edit SRS Data') },
             { icon: '#iconOpen', type: 'sticktab', ariaLabel: t(this.i18n, 'openBy', 'Open By') },
         ];
-        
-        // 🆕 仅神经漫游队列显示锁定种子按钮和菜单
         if (isNeuralRoam) {
             toolbar.push(
-                { icon: '#iconLock', type: 'lock-seed', ariaLabel: t(this.i18n, 'lockAsSeed', 'Lock as Seed 🌱') },
+                { icon: '#iconLock', type: 'lock-seed', ariaLabel: t(this.i18n, 'lockAsSeed', 'Lock as Seed') },
                 { icon: '#iconMenu', type: 'neural-menu', ariaLabel: t(this.i18n, 'neuralRoamMenu', 'Neural Roam Menu') }
             );
         }
-        
-        // 构建 UI 状态
-        const state: any = {
+
+        const contentBlockId = resolveContentBlockId(item, blockId);
+        const answerBlockID = resolveAnswerBlockId(item);
+
+        logger.debug('Building review UI state', {
+            cardId,
+            blockId,
+            cardType,
+            isXiuyuan: isXiuyuanCard(item),
+            contentBlockId,
+        });
+
+        return {
             header: {
-                title: '复习',
+                title: t(this.i18n, 'reviewTitle', 'Review'),
                 stats: {
-                    current: stats?.size || 0,
-                    total: stats?.size || 0,
-                    label: stats?.label || '',
-                    queueName: '统一队列',
-                    // 🆕 添加新卡和复习卡的统计
-                    newCards: 0, // 统一队列不区分新卡和复习卡
-                    reviewCards: stats?.size || 0, // 所有卡片都算作复习卡
+                    current: stats.size,
+                    total: stats.size,
+                    label: stats.label,
+                    queueName: t(this.i18n, 'unifiedQueue', 'Unified Queue'),
+                    newCards: 0,
+                    reviewCards: stats.size,
                     currentNewCards: 0,
-                    currentReviewCards: stats?.size || 0,
+                    currentReviewCards: stats.size,
                 },
                 breadcrumbs: [],
-                toolbar: toolbar,
+                toolbar,
             },
             content: {
                 type: 'protyle',
-                data: (() => {
-                    logger.debug('Setting content.data', {
-                        cardType: (card as any)?.type,
-                        isXiuyuan: isXiuyuanCard(card),
-                        blockId,
-                        fieldMapping: isXiuyuanCard(card) ? card.meta.fieldMapping : undefined
-                    });
-                    
-                    // 🆕 描述符卡：使用 fieldMapping 中的 descriptor 字段
-                    if ((card as any)?.type === 'descriptor' && isXiuyuanCard(card)) {
-                        const descriptorId = card.meta.fieldMapping?.descriptor || blockId;
-                        logger.debug('Descriptor card uses descriptor field for content.data', { descriptorId });
-                        return descriptorId;
-                    }
-                    // 🆕 Xiuyuan 卡片：data 也使用 frontBlockIDs 的第一个块
-                    if (isXiuyuanCard(card) && card.meta.frontBlockIDs.length > 0) {
-                        return card.meta.frontBlockIDs[0];
-                    }
-                    return blockId;
-                })(),
-                id: (() => {
-                    logger.debug('Setting content.id', {
-                        cardType: (card as any)?.type,
-                        isXiuyuan: isXiuyuanCard(card),
-                        blockId,
-                        fieldMapping: isXiuyuanCard(card) ? card.meta.fieldMapping : undefined
-                    });
-                    
-                    // 🆕 描述符卡：使用 fieldMapping 中的 descriptor 字段
-                    if ((card as any)?.type === 'descriptor' && isXiuyuanCard(card)) {
-                        const descriptorId = card.meta.fieldMapping?.descriptor || blockId;
-                        logger.debug('Descriptor card uses descriptor field for content.id', { descriptorId });
-                        return descriptorId;
-                    }
-                    // 🆕 Xiuyuan 卡片：使用 frontBlockIDs 的第一个块
-                    if (isXiuyuanCard(card) && card.meta.frontBlockIDs.length > 0) {
-                        return card.meta.frontBlockIDs[0];
-                    }
-                    return blockId;
-                })(),
-                answerBlockID: (() => {
-                    // Xiuyuan 卡片：根据模板类型设置 answerBlockID
-                    if (isXiuyuanCard(card)) {
-                        const templateID = card.meta.templateID;
-                        const backBlockIDs = card.meta.backBlockIDs || [];
-                        
-                        // 列表模板、基础问答、双向卡片：使用 backBlockIDs 的第一个块
-                        if (backBlockIDs.length > 0 && (
-                            templateID === 'builtin-list-item' ||
-                            templateID === 'builtin-basic-qa' ||
-                            templateID === 'builtin-bidirectional'
-                        )) {
-                            logger.debug('Setting answerBlockID from template backBlockIDs', {
-                                templateID,
-                                answerBlockID: backBlockIDs[0],
-                            });
-                            return backBlockIDs[0];
-                        }
-                    }
-                    // 其他模板不设置 answerBlockID
-                    return '';
-                })(),
-                card: card as any,
-                // 🆕 Xiuyuan 列表模版卡：标记需要自定义渲染
-                isXiuyuanListTemplate: isXiuyuanCard(card) && card.meta.templateID === 'builtin-list-item',
-                xiuyuanMeta: isXiuyuanCard(card) ? card.meta : null,
+                data: contentBlockId,
+                id: contentBlockId,
+                answerBlockID,
+                card: item,
+                isXiuyuanListTemplate: isXiuyuanCard(item) && item.meta.templateID === 'builtin-list-item',
+                xiuyuanMeta: isXiuyuanCard(item) ? item.meta : null,
             },
             actions: {
-                showAnswer: !context.showAnswer,  // 🔧 修复：反转 context.showAnswer 的值
+                showAnswer: !context.showAnswer,
                 grades: uiConfig.showRatingButtons ? [
-                    { label: t(this.i18n, 'cardRatingAgain', '重来'), value: 1, color: 'var(--b3-theme-error)', kb: '1', emoji: '🙈', nextDue: (item as any)?.nextDues?.[1] || '' },
-                    { label: t(this.i18n, 'cardRatingHard', '困难'), value: 2, color: 'var(--b3-theme-warning)', kb: '2', emoji: '😬', nextDue: (item as any)?.nextDues?.[2] || '' },
-                    { label: t(this.i18n, 'cardRatingGood', '良好'), value: 3, color: 'var(--b3-theme-info)', kb: '3', emoji: '😊', nextDue: (item as any)?.nextDues?.[3] || '' },
-                    { label: t(this.i18n, 'cardRatingEasy', '简单'), value: 4, color: 'var(--b3-theme-success)', kb: '4', emoji: '🌈', nextDue: (item as any)?.nextDues?.[4] || '' }
+                    { label: t(this.i18n, 'cardRatingAgain', 'Again'), value: 1, color: 'var(--b3-theme-error)', kb: '1', emoji: '🙈', nextDue: getNextDue(item, 1) },
+                    { label: t(this.i18n, 'cardRatingHard', 'Hard'), value: 2, color: 'var(--b3-theme-warning)', kb: '2', emoji: '😬', nextDue: getNextDue(item, 2) },
+                    { label: t(this.i18n, 'cardRatingGood', 'Good'), value: 3, color: 'var(--b3-theme-info)', kb: '3', emoji: '😊', nextDue: getNextDue(item, 3) },
+                    { label: t(this.i18n, 'cardRatingEasy', 'Easy'), value: 4, color: 'var(--b3-theme-success)', kb: '4', emoji: '🌈', nextDue: getNextDue(item, 4) },
                 ] : [],
                 menu: [],
                 cardMeta: {
                     blockID: blockId,
                     cardID: cardId,
-                    deckID: (card as any).deckId || (item as any).deckID || '',
-                    reps: card.reps,
-                    lapses: card.lapses,
-                    state: card.state,
-                    lastReview: card.lastReview,
-                    isReviewCard: card.reps > 0,
-                    type: (card as any)?.type || 'item', // 🆕 卡片类型
-                    cardType: (card as any)?.type || 'item', // 🆕 兼容字段
-                }
+                    deckID: resolveDeckId(item),
+                    reps: item.reps,
+                    lapses: item.lapses,
+                    state: item.state,
+                    lastReview: item.lastReview,
+                    isReviewCard: item.reps > 0,
+                    type: cardType,
+                    cardType,
+                },
             },
             meta: {
                 transition: 'slide-left',
                 hasHiddenContent: !context.showAnswer,
-                remainingSize: stats?.size || 0, // 🆕 剩余卡片数量
+                remainingSize: stats.size,
             },
-            overlay: null
+            overlay: null,
         };
-        
-        return state;
     }
-    
-    /**
-     * 获取辅助数据（可选）
-     * 
-     * 加载卡片的 HTML 内容。
-     * 
-     * @param item 当前卡片
-     * @returns 部分 UI 状态（包含 HTML 内容）
-     */
-    async fetchAuxiliaryData(item: any | null): Promise<any> {
+
+    async fetchAuxiliaryData(item: UnifiedReviewItem | null): Promise<Partial<ReviewUIState>> {
         if (!item) {
             return {};
         }
-        
-        // TODO: 从思源 API 加载块的 HTML 内容
-        // 这里暂时返回空，实际应该调用 getBlockByID 等 API
-        
         return {};
     }
-    
-    /**
-     * 清理资源（可选）
-     */
+
     cleanup(): void {
-        // 无需清理
+        // No disposable resources.
     }
 }

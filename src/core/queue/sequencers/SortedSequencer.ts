@@ -312,15 +312,15 @@ export class SortedSequencer<TItem extends QueueItem> implements ISequencer<TIte
    */
   insert(item: TItem): void {
     logger.debug('insert called', {
-      cardID: (item as any)?.cardID,
-      blockID: (item as any)?.blockID,
+      cardID: item.id,
+      blockID: item.blockId,
       dueTime: this.getDueMs(item),
       priority: this.getPriority ? this.getPriority(item) : undefined,
     });
     logger.debug('queue snapshot before insert', {
       size: this.items.length,
       topFive: this.items.slice(0, 5).map((i) => ({
-      cardID: (i as any)?.cardID,
+      cardID: i.id,
       dueTime: this.getDueMs(i),
       })),
     });
@@ -335,29 +335,29 @@ export class SortedSequencer<TItem extends QueueItem> implements ISequencer<TIte
     const insertedItem = this.items[index];
     if (insertedItem !== item) {
       logger.error('insert verification failed: item not at expected index', {
-        expected: (item as any)?.cardID,
-        actualAtIndex: (insertedItem as any)?.cardID,
+        expected: item.id,
+        actualAtIndex: insertedItem.id,
       });
     } else {
       logger.debug('insert verification passed');
     }
     
     // 验证 cardID
-    const expectedCardID = (item as any)?.cardID;
-    const actualCardID = (insertedItem as any)?.cardID;
+    const expectedCardID = item.id;
+    const actualCardID = insertedItem.id;
     if (expectedCardID !== actualCardID) {
       logger.error('critical: cardID mismatch after insert', {
         expected: expectedCardID,
         actual: actualCardID,
         index,
-        itemBefore: index > 0 ? (this.items[index - 1] as any)?.cardID : null,
-        itemAfter: index < this.items.length - 1 ? (this.items[index + 1] as any)?.cardID : null,
+        itemBefore: index > 0 ? this.items[index - 1].id : null,
+        itemAfter: index < this.items.length - 1 ? this.items[index + 1].id : null,
       });
     }
     
     logger.debug('insert completed', {
       index,
-      cardID: (item as any)?.cardID,
+      cardID: item.id,
       dueTime: this.getDueMs(item),
       queueSize: this.items.length,
     });
@@ -402,8 +402,8 @@ export class SortedSequencer<TItem extends QueueItem> implements ISequencer<TIte
       inputCount: items.length,
       queueSize: this.items.length,
       items: items.map((item) => ({
-      cardID: (item as any)?.cardID,
-      blockID: (item as any)?.blockID,
+      cardID: item.id,
+      blockID: item.blockId,
       dueTime: this.getDueMs(item),
       priority: this.getPriority ? this.getPriority(item) : undefined,
       })),

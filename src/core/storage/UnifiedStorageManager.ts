@@ -929,6 +929,16 @@ export class UnifiedStorageManager {
   }
 
   /**
+   * Upsert a Xiuyuan aggregate snapshot in memory.
+   *
+   * Note: this keeps previous behavior of immediate in-memory update only.
+   * Callers control persistence timing via existing save flows.
+   */
+  upsertXiuYuan(xiuyuan: IXiuyuan): void {
+    this.xiuyuans.set(xiuyuan.id, xiuyuan);
+  }
+
+  /**
    * 获取所有 XiuYuans
    */
   getAllXiuYuans(): IXiuyuan[] {
