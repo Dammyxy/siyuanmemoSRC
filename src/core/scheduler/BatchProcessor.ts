@@ -11,6 +11,9 @@
  */
 
 import type { FSRSCard } from '@/types/card';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('BatchProcessor');
 
 /**
  * 批处理配置
@@ -72,15 +75,24 @@ export class BatchProcessor {
         const failures: Array<{ item: FSRSCard; error: Error }> = [];
         let processed = 0;
 
-        // 将卡片分批
-        const batches: FSRSCard[][] = [];
-        for (let i = 0; i < items.length; i += batchSize) {
-            batches.push(items.slice(i, i + batchSize));
+        if (total === 0) {
+            return {
+                successes,
+                failures,
+                total,
+                successCount: 0,
+                failureCount: 0
+            };
         }
 
-        // 并行处理批次
-        for (let i = 0; i < batches.length; i += parallelBatches) {
-            const currentBatches = batches.slice(i, i + parallelBatches);
+        // 分组处理，避免预先构造完整 batches 数组造成额外内存占用
+        const step = Math.max(1, batchSize * parallelBatches);
+        for (let groupStart = 0; groupStart < total; groupStart += step) {
+            const currentBatches: FSRSCard[][] = [];
+            const groupEnd = Math.min(groupStart + step, total);
+            for (let batchStart = groupStart; batchStart < groupEnd; batchStart += batchSize) {
+                currentBatches.push(items.slice(batchStart, Math.min(batchStart + batchSize, total)));
+            }
             
             // 并行处理当前批次组
             const results = await Promise.allSettled(
@@ -137,7 +149,7 @@ export class BatchProcessor {
         try {
             return await processor(batch);
         } catch (error) {
-            console.error('[BatchProcessor] Batch processing failed:', error);
+            logger.error('Batch processing failed:', error);
             throw error;
         }
     }
@@ -161,7 +173,7 @@ export class BatchProcessor {
 
         // 重试失败的项目
         for (let retry = 0; retry < maxRetries && result.failures.length > 0; retry++) {
-            console.log(`[BatchProcessor] Retrying ${result.failures.length} failed items (attempt ${retry + 1}/${maxRetries})`);
+            logger.warn(`Retrying ${result.failures.length} failed items (attempt ${retry + 1}/${maxRetries})`);
             
             const failedItems = result.failures.map(f => f.item);
             const retryResult = await this.processBatch(failedItems, processor, {

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 概念定义卡渲染服务
  * 
  * 职责：
@@ -11,7 +11,18 @@
 import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
 import { getBlockKramdown, sql } from '@/core/siyuan/api';
-import type { GetXiuyuanQueryResult } from '@/application/queries/xiuyuan/GetXiuyuanQuery';
+import { createLogger } from '@/utils/logger';
+
+interface GetXiuyuanQueryResult {
+  xiuyuan: any;
+}
+
+interface ConceptDefinitionCardRenderPorts {
+  getXiuyuan?: (xiuyuanID: string) => Promise<GetXiuyuanQueryResult>;
+  renderMarkdown?: (kramdown: string) => string;
+}
+
+const logger = createLogger('ConceptDefinitionCardRenderService');
 
 /**
  * 概念定义卡视图模型
@@ -32,7 +43,10 @@ export interface ConceptDefinitionCardViewModel extends BaseCardViewModel {
  */
 export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
 
-  constructor(private i18n: Record<string, string> = {}) {
+  constructor(
+    private i18n: Record<string, string> = {},
+    private ports: ConceptDefinitionCardRenderPorts = {}
+  ) {
     super();
   }
 
@@ -48,7 +62,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
    */
   async prepareViewModel(blockId: string, card?: any): Promise<ConceptDefinitionCardViewModel> {
     // 1. 获取 Xiuyuan 信息
-    console.log('[ConceptDefinitionCardRenderService] prepareViewModel called with:', {
+    logger.debug('[ConceptDefinitionCardRenderService] prepareViewModel called with:', {
       blockId,
       hasCard: !!card,
       cardXiuyuanID: card?.xiuyuanID,
@@ -61,7 +75,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     // 优先使用顶层的 xiuyuanID，如果没有则使用 meta 中的
     const xiuyuanID = card?.xiuyuanID || card?.meta?.xiuyuanID;
     
-    console.log('[ConceptDefinitionCardRenderService] Resolved xiuyuanID:', {
+    logger.debug('[ConceptDefinitionCardRenderService] Resolved xiuyuanID:', {
       xiuyuanID,
       type: typeof xiuyuanID,
       isUndefined: xiuyuanID === undefined,
@@ -70,7 +84,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     });
     
     if (!xiuyuanID) {
-      console.error('[ConceptDefinitionCardRenderService] No xiuyuanID found in card:', card);
+      logger.error('[ConceptDefinitionCardRenderService] No xiuyuanID found in card:', card);
       throw new Error('No xiuyuanID found in card');
     }
 
@@ -102,7 +116,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     const conceptBlockId = isReverse ? face.answerBlockId : face.questionBlockId;
     const definitionBlockId = isReverse ? face.questionBlockId : face.answerBlockId;
 
-    console.log('[ConceptDefinitionCardRenderService] Block IDs from CardFace:', {
+    logger.debug('[ConceptDefinitionCardRenderService] Block IDs from CardFace:', {
       conceptBlockId,
       definitionBlockId,
       faceIndex,
@@ -117,7 +131,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     }
 
     // 5. 获取概念名称
-    console.log('[ConceptDefinitionCardRenderService] About to get concept name:', {
+    logger.debug('[ConceptDefinitionCardRenderService] About to get concept name:', {
       conceptBlockId,
       definitionBlockId,
       isReverse,
@@ -127,7 +141,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     
     const conceptName = await this.getConceptName(conceptBlockId);
     
-    console.log('[ConceptDefinitionCardRenderService] Concept name:', {
+    logger.debug('[ConceptDefinitionCardRenderService] Concept name:', {
       conceptName,
       length: conceptName.length,
       preview: conceptName.substring(0, 50)
@@ -136,7 +150,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     // 6. 获取定义内容
     const { kramdown: definitionKramdown } = await getBlockKramdown(definitionBlockId);
     
-    console.log('[ConceptDefinitionCardRenderService] Definition kramdown:', {
+    logger.debug('[ConceptDefinitionCardRenderService] Definition kramdown:', {
       length: definitionKramdown?.length,
       preview: definitionKramdown?.substring(0, 100)
     });
@@ -152,7 +166,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     const definitionMatch = definitionKramdown.match(/(?:::|:>|:<|：：|：》|：《)(.+?)(?:\s*\{:|$)/s);
     const definitionText = definitionMatch ? definitionMatch[1].trim() : definitionKramdown;
     
-    console.log('[ConceptDefinitionCardRenderService] Parsed definition:', {
+    logger.debug('[ConceptDefinitionCardRenderService] Parsed definition:', {
       original: definitionKramdown.substring(0, 100),
       extracted: definitionText.substring(0, 100),
       matchFound: !!definitionMatch
@@ -244,7 +258,11 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
    * 获取 Xiuyuan 对象
    */
   private async getXiuyuan(xiuyuanID: string): Promise<GetXiuyuanQueryResult> {
-    console.log('[ConceptDefinitionCardRenderService] getXiuyuan called with:', {
+    if (this.ports.getXiuyuan) {
+      return this.ports.getXiuyuan(xiuyuanID);
+    }
+
+    logger.debug('[ConceptDefinitionCardRenderService] getXiuyuan called with:', {
       xiuyuanID,
       type: typeof xiuyuanID,
       isUndefined: xiuyuanID === undefined
@@ -265,7 +283,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       throw new Error('XiuyuanApplicationService not available');
     }
 
-    console.log('[ConceptDefinitionCardRenderService] About to call xiuyuanAppService.getXiuyuan with:', {
+    logger.debug('[ConceptDefinitionCardRenderService] About to call xiuyuanAppService.getXiuyuan with:', {
       xiuyuanID,
       type: typeof xiuyuanID
     });
@@ -274,7 +292,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     // 注意：getXiuyuan 接收的是一个查询对象，不是直接的字符串
     const result = await xiuyuanAppService.getXiuyuan({ xiuyuanId: xiuyuanID });
     
-    console.log('[ConceptDefinitionCardRenderService] getXiuyuan result:', {
+    logger.debug('[ConceptDefinitionCardRenderService] getXiuyuan result:', {
       hasResult: !!result,
       resultType: typeof result,
       resultKeys: result ? Object.keys(result) : [],
@@ -297,7 +315,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     const conceptQuery = `SELECT content FROM blocks WHERE id = '${conceptBlockId}' LIMIT 1`;
     const conceptResult = await sql(conceptQuery);
     
-    console.log('[ConceptDefinitionCardRenderService] getConceptName query result:', {
+    logger.debug('[ConceptDefinitionCardRenderService] getConceptName query result:', {
       conceptBlockId,
       hasResult: !!conceptResult && conceptResult.length > 0,
       content: conceptResult?.[0]?.content
@@ -312,14 +330,14 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     // 如果概念名称包含方向符号（::, :>, :<），说明这是定义块而不是概念文档块
     // 需要从符号前面提取块引用中的概念名称
     if (conceptName.match(/(?:::|:>|:<|：：|：》|：《)/)) {
-      console.log('[ConceptDefinitionCardRenderService] Detected definition block format, extracting concept from block reference');
+      logger.debug('[ConceptDefinitionCardRenderService] Detected definition block format, extracting concept from block reference');
       
       // 格式：((block-id '概念名称')):>定义
       // 提取块引用中的别名作为概念名称
       const blockRefMatch = conceptName.match(/\(\([^\)]+\s+'([^']+)'\)\)/);
       if (blockRefMatch) {
         conceptName = blockRefMatch[1];
-        console.log('[ConceptDefinitionCardRenderService] Extracted concept name from block reference alias:', conceptName);
+        logger.debug('[ConceptDefinitionCardRenderService] Extracted concept name from block reference alias:', conceptName);
       } else {
         // 如果没有别名，尝试从块引用的 ID 获取文档标题
         const blockIdMatch = conceptName.match(/\(\((\d{14}-[a-z0-9]{7})/);
@@ -329,7 +347,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
           const refResult = await sql(refQuery);
           if (refResult && refResult.length > 0) {
             conceptName = refResult[0].content;
-            console.log('[ConceptDefinitionCardRenderService] Extracted concept name from referenced block:', conceptName);
+            logger.debug('[ConceptDefinitionCardRenderService] Extracted concept name from referenced block:', conceptName);
           }
         }
       }
@@ -440,6 +458,10 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
    * 使用 Lute 渲染 Markdown
    */
   private renderMarkdown(kramdown: string): string {
+    if (this.ports.renderMarkdown) {
+      return this.ports.renderMarkdown(kramdown);
+    }
+
     const lute = (window as any).Lute?.New?.();
     if (!lute) {
       throw new Error('Lute not available');
@@ -447,3 +469,4 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     return lute.Md2BlockDOM(kramdown);
   }
 }
+

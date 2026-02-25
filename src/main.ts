@@ -3,15 +3,18 @@
 } from "siyuan";
 import { createApp } from 'vue'
 import App from './App.vue'
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('main');
 
 let plugin = null
 export function usePlugin(pluginProps?: Plugin): Plugin {
-  console.log('usePlugin', pluginProps, plugin)
+  logger.debug('usePlugin', pluginProps, plugin)
   if (pluginProps) {
     plugin = pluginProps
   }
   if (!plugin && !pluginProps) {
-    console.error('need bind plugin')
+    logger.error('need bind plugin')
   }
   return plugin;
 }

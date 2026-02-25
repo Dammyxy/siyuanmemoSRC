@@ -21,6 +21,15 @@ import type {
   GetBrowserCardsQuery,
   GetBrowserCardsQueryResult,
 } from '../queries/browser/GetBrowserCardsQuery';
+import type { CardFilter, IReviewQueue, IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
+
+export type BrowserQueueId =
+  | 'retrieval'
+  | 'final-drill'
+  | 'incremental-learning'
+  | 'filter-group'
+  | 'neural-roam'
+  | 'neural';
 
 /**
  * 数据源创建选项
@@ -68,6 +77,26 @@ export interface IBrowserApplicationService {
    * @returns 统计信息
    */
   getStats(): Promise<any>;
+
+  /**
+   * Resolve queue instance by browser queue id.
+   */
+  getQueueById(queueId: string): IReviewQueue | null;
+
+  /**
+   * Get queue counts used by hierarchy panel.
+   */
+  getQueueCounts(): Promise<Record<string, number>>;
+
+  /**
+   * Set filter on FilterGroup queue.
+   */
+  setFilterGroupFilter(filter: CardFilter): Promise<boolean>;
+
+  /**
+   * Rebuild FilterGroup queue.
+   */
+  rebuildFilterGroupQueue(): Promise<boolean>;
   
   /**
    * 创建数据源
@@ -87,5 +116,5 @@ export interface IBrowserApplicationService {
    * 
    * @returns UnifiedDataSourceManager 实例
    */
-  getUnifiedDataSourceManager(): any;
+  getUnifiedDataSourceManager(): IUnifiedDataSourceManagerFacade | null;
 }

@@ -12,6 +12,10 @@ import { DeckDataSource } from '../datasource/DeckDataSource';
 import { QueryDataSource } from '../datasource/QueryDataSource';
 import { BlockIdsDataSource } from '../datasource/BlockIdsDataSource';
 import { IncrementalLearningDataSource } from '../datasource/IncrementalLearningDataSource';
+import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('DataSourceFactory');
 
 function resolveI18nLabel(plugin: any, key: string, fallback: string): string {
   const i18n = plugin?.getContext?.()?.getI18n?.() || plugin?.i18n;
@@ -45,7 +49,7 @@ export interface DataSourceOptionsWithDoc extends DataSourceOptions {
  */
 export function createQueueDataSource(
   queueId: string,
-  manager: any,
+  manager: IUnifiedDataSourceManagerFacade,
   options: DataSourceOptionsWithDoc,
   plugin?: any
 ): ICardDataSource | null {
@@ -88,7 +92,7 @@ export function createQueueDataSource(
     case 'neural-roam':
       // 神经漫游队列：使用 BlockIds 数据源
       // 🆕 使用动态获取函数，确保每次都获取最新的种子列表
-      const neuralQueue = manager.getQueue('neural-roam');
+      const neuralQueue = manager.getQueue(QueueType.NeuralRoam);
       return new BlockIdsDataSource({
         id: 'neural-roam',
         label: resolveI18nLabel(plugin, 'neuralRoam', 'Neural Roam'),
@@ -98,7 +102,7 @@ export function createQueueDataSource(
         getBlockIdsFn: () => {
           // 每次 fetchRows 时都获取最新的种子列表
           const seeds = neuralQueue?.getSeedBlocks?.() || [];
-          console.log(`[SiYuanMemo][DataSourceFactory] Neural roam seeds: ${seeds.length}`, seeds);
+          logger.info(`Neural roam seeds: ${seeds.length}`, seeds);
           return seeds;
         },
       });
@@ -143,7 +147,7 @@ export function createBlockIdsDataSource(
  * @returns 数据源实例
  */
 export function createDeckDataSource(
-  manager: any,
+  manager: IUnifiedDataSourceManagerFacade,
   options: DataSourceOptionsWithDoc,
   currentDocId?: string | null,
   plugin?: any
@@ -188,7 +192,7 @@ export function createQueryDataSource(sqlStmt: string): ICardDataSource {
  */
 export function createFocusDataSource(
   queueId: string | null,
-  manager: any,
+  manager: IUnifiedDataSourceManagerFacade,
   options: DataSourceOptions,
   getQueueItems?: () => any[],
   plugin?: any
@@ -231,7 +235,7 @@ export function createFocusDataSource(
 
   // 神经漫游队列：使用 BlockIds，支持动态获取
   if (queueId === 'neural-roam') {
-    const neuralQueue = manager.getQueue?.('neural-roam');
+    const neuralQueue = manager.getQueue(QueueType.NeuralRoam);
     return new BlockIdsDataSource({
       id: 'neural-roam',
       label: resolveI18nLabel(plugin, 'neuralRoam', 'Neural Roam'),
@@ -240,7 +244,7 @@ export function createFocusDataSource(
       queueId: 'neural-roam',
       getBlockIdsFn: () => {
         const seeds = neuralQueue?.getSeedBlocks?.() || [];
-        console.log(`[SiYuanMemo][DataSourceFactory] Neural roam seeds (focus): ${seeds.length}`, seeds);
+        logger.info(`Neural roam seeds (focus): ${seeds.length}`, seeds);
         return seeds;
       },
     });

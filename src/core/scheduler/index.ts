@@ -2,6 +2,9 @@
 import type { SchedulerEngineAdapter } from './types';
 import { TSFSRSScheduler } from './strategies/TSFSRSScheduler';
 import { ImprovedTopicScheduler } from './strategies/ImprovedTopicScheduler';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('SchedulerFactory');
 
 export * from './types';
 export * from './strategies/TSFSRSScheduler';
@@ -16,15 +19,15 @@ export * from './SchedulerRouter';
 export function createScheduler(params: FSRSParameters, engine: SchedulerEngine = 'simple-fsrs'): SchedulerEngineAdapter {
     switch (engine) {
         case 'a-factor-v2':
-            console.log('[SiYuanMemo][Scheduler] Using A-Factor-v2 (ImprovedTopicScheduler) Engine');
+            logger.info('Using A-Factor-v2 (ImprovedTopicScheduler) Engine');
             return new ImprovedTopicScheduler(params);
         case 'sm2':
         case 'sm15':
-            console.warn(`[SiYuanMemo][Scheduler] Engine "${engine}" is deprecated, falling back to FSRS-6`);
+            logger.warn(`Engine "${engine}" is deprecated, falling back to FSRS-6`);
             return new TSFSRSScheduler(params);
         case 'simple-fsrs':
         default:
-            console.log('[SiYuanMemo][Scheduler] Using FSRS-6 Engine (TSFSRSScheduler)');
+            logger.info('Using FSRS-6 Engine (TSFSRSScheduler)');
             return new TSFSRSScheduler(params);
     }
 }

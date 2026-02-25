@@ -53,6 +53,7 @@
 import { ref, onMounted } from 'vue';
 import { openTab } from 'siyuan';
 import { ConceptDefinitionCardRenderService } from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
+import { createLogger } from '@/utils/logger';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
@@ -76,7 +77,40 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<ConceptDefinitionCardViewModel | null>(null);
 
-const renderService = new ConceptDefinitionCardRenderService(props.i18n || {});
+const logger = createLogger('ConceptDefinitionCardRenderer');
+
+const resolvePlugin = () => {
+  return (window as any).siyuan?.ws?.app?.plugins?.find(
+    (p: any) => p.name === 'siyuan-plugin-siyuanmemo'
+  );
+};
+
+const renderService = new ConceptDefinitionCardRenderService(props.i18n || {}, {
+  getXiuyuan: async (xiuyuanID: string) => {
+    const plugin = resolvePlugin();
+    if (!plugin) {
+      throw new Error('Plugin not found');
+    }
+
+    const xiuyuanAppService = await plugin.getContext?.()?.getXiuyuanApplicationService?.();
+    if (!xiuyuanAppService) {
+      throw new Error('XiuyuanApplicationService not available');
+    }
+
+    const result = await xiuyuanAppService.getXiuyuan({ xiuyuanId: xiuyuanID });
+    if (!result?.xiuyuan) {
+      throw new Error(`Xiuyuan not found: ${xiuyuanID}`);
+    }
+    return result;
+  },
+  renderMarkdown: (kramdown: string) => {
+    const lute = (window as any).Lute?.New?.();
+    if (!lute) {
+      throw new Error('Lute not available');
+    }
+    return lute.Md2BlockDOM(kramdown);
+  },
+});
 
 // 方法
 function t(key: string, fallback: string): string {
@@ -97,7 +131,7 @@ async function loadViewModel() {
     const errorMessage = err instanceof Error ? err.message : String(err);
     error.value = errorMessage;
     emit('error', err instanceof Error ? err : new Error(errorMessage));
-    console.error('[ConceptDefinitionCardRenderer] Failed to load view model:', err);
+    logger.error('Failed to load view model:', err);
   } finally {
     loading.value = false;
   }
@@ -113,7 +147,7 @@ function jumpToConcept() {
 
   const app = (window as any).siyuan?.ws?.app;
   if (!app) {
-    console.error('[ConceptDefinitionCardRenderer] App instance not found');
+    logger.error('App instance not found');
     return;
   }
 

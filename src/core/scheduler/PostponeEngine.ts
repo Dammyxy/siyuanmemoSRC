@@ -10,10 +10,9 @@
 
 import type { FSRSCard } from '@/types/card';
 import type { PostponeConfig, PostponeResult } from '@/types/reschedule';
-import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
-import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import type { RescheduleLog } from '@/types/scheduler';
 import { BatchProcessor } from './BatchProcessor';
+import type { CardUpdatePort, RescheduleStoragePort } from './ports';
 
 /**
  * PostponeEngine - 实现 SuperMemo Postpone 算法
@@ -26,8 +25,8 @@ export class PostponeEngine {
     private batchProcessor: BatchProcessor;
     
     constructor(
-        private unifiedStorage: UnifiedStorageManager,
-        private cardApplicationService: CardApplicationService
+        private storage: RescheduleStoragePort,
+        private cardUpdater: CardUpdatePort
     ) {
         this.batchProcessor = new BatchProcessor();
     }
@@ -47,13 +46,13 @@ export class PostponeEngine {
         source: string = 'unknown',
         onProgress?: (processed: number, total: number, percentage: number) => void
     ): Promise<PostponeResult> {
+        const now = Date.now();
+
         // 1. 过滤卡片（应用跳过条件）
-        const { filtered, skippedReasons } = this.filterCards(cards, config, isDilute);
+        const { filtered, skippedReasons } = this.filterCards(cards, config, isDilute, now);
         
         // 2. 计算新的 Due Date
-        const updatedCards = filtered.map(card => 
-            this.calculateNewDue(card, config)
-        );
+        const updatedCards = filtered.map(card => this.calculateNewDue(card, config, now));
         
         // 3. 批量更新（使用优化的批处理器）
         const batchResult = await this.batchProcessor.processBatchWithRetry(
@@ -93,7 +92,8 @@ export class PostponeEngine {
     private filterCards(
         cards: FSRSCard[],
         config: PostponeConfig,
-        isDilute: boolean
+        isDilute: boolean,
+        now: number
     ): { filtered: FSRSCard[]; skippedReasons: Record<string, number> } {
         const skippedReasons: Record<string, number> = {};
         const filtered: FSRSCard[] = [];
@@ -103,13 +103,13 @@ export class PostponeEngine {
         
         for (const card of cards) {
             // 如果不是 Dilute 且不包含未到期卡片，只处理 Outstanding 卡片
-            if (!isDilute && !includeNonOutstanding && card.due > Date.now()) {
+            if (!isDilute && !includeNonOutstanding && card.due > now) {
                 skippedReasons['not-outstanding'] = (skippedReasons['not-outstanding'] || 0) + 1;
                 continue;
             }
             
             // 应用跳过条件
-            const skipReason = this.checkSkipConditions(card, config);
+            const skipReason = this.checkSkipConditions(card, config, now);
             if (skipReason) {
                 skippedReasons[skipReason] = (skippedReasons[skipReason] || 0) + 1;
                 continue;
@@ -127,7 +127,7 @@ export class PostponeEngine {
      * @param config Postpone 配置
      * @returns 跳过原因，如果不跳过则返回 null
      */
-    private checkSkipConditions(card: FSRSCard, config: PostponeConfig): string | null {
+    private checkSkipConditions(card: FSRSCard, config: PostponeConfig, now: number): string | null {
         // 按优先级跳过
         if (config.skipConditions.skipByPriority?.enabled) {
             const priority = card.priority ?? 50;
@@ -145,7 +145,7 @@ export class PostponeEngine {
         
         // 按 Retrievability 跳过
         if (config.skipConditions.skipByRetrievability?.enabled) {
-            const retrievability = this.calculateRetrievability(card);
+            const retrievability = this.calculateRetrievability(card, now);
             if (retrievability >= config.skipConditions.skipByRetrievability.threshold) {
                 return 'skip-by-retrievability';
             }
@@ -177,12 +177,12 @@ export class PostponeEngine {
      * @param config Postpone 配置
      * @returns 更新后的卡片
      */
-    private calculateNewDue(card: FSRSCard, config: PostponeConfig): FSRSCard {
+    private calculateNewDue(card: FSRSCard, config: PostponeConfig, now: number): FSRSCard {
         let delayFactor = config.delayFactor;
         
         // 根据 Retrievability 调整延迟因子
         if (config.modifyDelayByRetrievability) {
-            const retrievability = this.calculateRetrievability(card);
+            const retrievability = this.calculateRetrievability(card, now);
             // Retrievability 越低，延迟因子越大
             delayFactor *= (1 + (1 - retrievability));
         }
@@ -206,7 +206,6 @@ export class PostponeEngine {
         newInterval = Math.min(config.maxInterval, newInterval);
         
         // 确保至少推迟 1 天
-        const now = Date.now();
         const minDue = now + 24 * 60 * 60 * 1000;
         const calculatedDue = now + newInterval * 24 * 60 * 60 * 1000;
         const newDue = Math.max(minDue, calculatedDue);
@@ -239,7 +238,7 @@ export class PostponeEngine {
      * @param card 卡片
      * @returns Retrievability (0-1)
      */
-    private calculateRetrievability(card: FSRSCard): number {
+    private calculateRetrievability(card: FSRSCard, now: number): number {
         // 处理边界情况
         if (card.stability <= 0) {
             return 0;
@@ -250,7 +249,7 @@ export class PostponeEngine {
         }
         
         // 计算距上次复习的天数
-        const t = (Date.now() - card.lastReview) / (24 * 60 * 60 * 1000);
+        const t = (now - card.lastReview) / (24 * 60 * 60 * 1000);
         
         // 使用 FSRS 公式计算 Retrievability
         // R = exp(ln(0.9) * t / S)
@@ -277,7 +276,7 @@ export class PostponeEngine {
         }
         
         // ✅ 通过 CardApplicationService 批量更新
-        await this.cardApplicationService.batchUpdateCardsWithoutEvents(cards);
+        await this.cardUpdater.batchUpdateCardsWithoutEvents(cards);
         
         // 记录操作日志
         await this.logOperation(cards, action, source);
@@ -332,9 +331,6 @@ export class PostponeEngine {
         };
         
         // TODO: 将 addRescheduleLog 迁移到应用服务层
-        const storage = this.unifiedStorage as any;
-        if (storage.addRescheduleLog) {
-            await storage.addRescheduleLog(log);
-        }
+        await this.storage.addRescheduleLog?.(log);
     }
 }

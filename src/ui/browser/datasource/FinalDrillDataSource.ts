@@ -4,8 +4,7 @@ import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
 import {
   buildQueueActions,
 } from './MenuActions';
-import type { UnifiedDataSourceManager } from '../../../managers/UnifiedDataSourceManager';
-import { QueueType } from '../../../types/unified-data-source';
+import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import type { FSRSCard } from '../../../types/card';
 import { DeleteCardCommand } from '@/application/commands/card/DeleteCardCommand';
 
@@ -40,11 +39,11 @@ export class FinalDrillDataSource implements ICardDataSource {
   id = 'final-drill';
   label = 'Final Drill';
 
-  private readonly manager: UnifiedDataSourceManager;
+  private readonly manager: IUnifiedDataSourceManagerFacade;
   private readonly options: FinalDrillDataSourceOptions;
   private readonly plugin?: any;  // 🆕 改为 plugin 引用以访问 ApplicationContext
 
-  constructor(manager: UnifiedDataSourceManager, options?: FinalDrillDataSourceOptions, plugin?: any) {
+  constructor(manager: IUnifiedDataSourceManagerFacade, options?: FinalDrillDataSourceOptions, plugin?: any) {
     this.manager = manager;
     this.options = options || {};
     this.plugin = plugin;  // 🆕 保存 plugin 引用

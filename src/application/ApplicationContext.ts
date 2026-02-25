@@ -14,6 +14,7 @@ import { StorageManager } from '@/core/storage';
 import { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
 import { createPersistenceCallbacks } from '@/core/storage/UnifiedStoragePersistence';
 import { SchedulerRouter, RescheduleService, createScheduler, type SchedulerEngineAdapter } from '@/core/scheduler';
+import { UnifiedStorageCardUpdateAdapter } from '@/core/scheduler/adapters/UnifiedStorageCardUpdateAdapter';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import { DialogManager } from '@/application/managers/DialogManager';
 import { MenuManager } from '@/application/managers/MenuManager';
@@ -740,9 +741,10 @@ export class ApplicationContext {
     );
     
     // 4. 初始化 RescheduleService（使用新架构）
+    const schedulerCardUpdater = new UnifiedStorageCardUpdateAdapter(unifiedStorageManager);
     const rescheduleService = new RescheduleService(
       unifiedStorageManager,
-      cardApplicationService
+      schedulerCardUpdater
     );
     
     // 5. 初始化调度器路由（使用新架构）
@@ -753,7 +755,7 @@ export class ApplicationContext {
         fsrsParams: settings.fsrs,
       },
       unifiedStorageManager,
-      cardApplicationService
+      schedulerCardUpdater
     );
     
     // 6. 创建旧调度器（向后兼容）

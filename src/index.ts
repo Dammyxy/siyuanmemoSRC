@@ -6,16 +6,18 @@
  */
 
 import { Plugin, getFrontend } from 'siyuan';
-import { pushErrMsg, pushMsg } from '@/core/siyuan/api';
+import { pushErrMsg, pushMsg } from '@/infrastructure/siyuan/api';
 import { ApplicationContext } from '@/application/ApplicationContext';
 import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import { ConfigMigrator } from '@/utils/configMigrator';
+import { createLogger, installConsoleBridge } from '@/utils/logger';
 import '@/index.scss';
 
 export default class FSRSPlugin extends Plugin implements IPluginFacade {
   public isMobile: boolean = false;
   public isBrowser: boolean = false;
   private context!: ApplicationContext;
+  private readonly logger = createLogger('Plugin');
 
   // ========================================================================
   // IPluginFacade 实现
@@ -61,7 +63,8 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   }
 
   async onload() {
-    console.log('[SiYuanMemo] Plugin loading...');
+    installConsoleBridge();
+    this.logger.info('Plugin loading...');
     this.isInitialized = false;
     this.setupTopBar();
 
@@ -78,7 +81,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       this.registerDock();
       this.registerEventHandlers();
     } catch (err) {
-      console.error('[SiYuanMemo] Plugin initialization failed:', err);
+      this.logger.error('Plugin initialization failed:', err);
       try { await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败'); } catch {}
       // ❌ 初始化失败时不注册事件处理器
       return;
@@ -88,7 +91,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     // 不再将插件实例暴露到全局，使用依赖注入代替
     // (window as any).siyuanMemoPlugin = this;
     
-    console.log('[SiYuanMemo] Plugin loaded successfully');
+    this.logger.info('Plugin loaded successfully');
   }
 
   onLayoutReady(): void {
@@ -100,7 +103,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       this.topBarElement.removeEventListener('contextmenu', this.topBarContextMenuHandler);
     }
     if (this.context) {
-      this.context.dispose().catch(err => console.error('[SiYuanMemo] Error disposing context:', err));
+      this.context.dispose().catch(err => this.logger.error('Error disposing context:', err));
     }
   }
 
@@ -178,7 +181,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
         el.style.display = ''; el.style.opacity = '1'; el.style.pointerEvents = '';
       } catch (err) {
         if (!this.didWarnTopbarMount) {
-          console.warn('[SiYuanMemo] Failed to remount topbar:', err);
+          this.logger.warn('Failed to remount topbar:', err);
           this.didWarnTopbarMount = true;
         }
       }

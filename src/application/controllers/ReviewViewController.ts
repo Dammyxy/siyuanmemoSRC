@@ -12,10 +12,13 @@
  * @see .kiro/specs/unified-data-source-architecture/design.md
  */
 
-import { UnifiedDataSourceManager } from '../../managers/UnifiedDataSourceManager';
-import { IReviewQueue, QueueType, ReviewButtonConfig } from '../../types/unified-data-source';
-import { FSRSCard } from '../../types/card';
-import { NeuralRoamQueue } from '../../core/queue/domain/NeuralRoamQueue';
+import type { IUnifiedDataSourceManagerFacade, IReviewQueue, ReviewButtonConfig } from '@/types/unified-data-source';
+import type { FSRSCard } from '@/types/card';
+import { QueueType as QueueTypeEnum } from '@/types/unified-data-source';
+import { NeuralRoamQueue } from '@/core/queue/domain/NeuralRoamQueue';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('ReviewViewController');
 
 /**
  * ReviewViewController 类
@@ -38,7 +41,7 @@ export class ReviewViewController {
      * 
      * 用于访问数据和队列。
      */
-    private manager: UnifiedDataSourceManager;
+    private manager: IUnifiedDataSourceManagerFacade;
     
     /**
      * 当前卡片
@@ -65,7 +68,7 @@ export class ReviewViewController {
      * 
      * @param manager 统一数据源管理器实例
      */
-    constructor(manager: UnifiedDataSourceManager) {
+    constructor(manager: IUnifiedDataSourceManagerFacade) {
         this.manager = manager;
         this.currentCard = null;
         this.currentQueue = null;
@@ -92,7 +95,7 @@ export class ReviewViewController {
         
         try {
             // 对于神经漫游队列，使用扩散激活获取下一张卡片
-            if (queue.getType() === QueueType.NeuralRoam) {
+            if (queue.getType() === QueueTypeEnum.NeuralRoam) {
                 const neuralQueue = queue as NeuralRoamQueue;
                 this.currentCard = await neuralQueue.getNextCard();
             } else {
@@ -109,7 +112,7 @@ export class ReviewViewController {
             }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error('[ReviewViewController] Failed to load next card:', errorMessage);
+            logger.error('[ReviewViewController] Failed to load next card:', errorMessage);
             throw new Error(`加载下一张卡片失败: ${errorMessage}`);
         }
     }
@@ -136,7 +139,7 @@ export class ReviewViewController {
      */
     public getButtonsForCard(card: FSRSCard): ReviewButtonConfig[] {
         // 检查是否在神经漫游队列中
-        const isNeuralRoam = this.currentQueue?.getType() === QueueType.NeuralRoam;
+        const isNeuralRoam = this.currentQueue?.getType() === QueueTypeEnum.NeuralRoam;
         
         if (card.cardType === 'item') {
             // 项目卡片：显示 4 个评分按钮
@@ -191,7 +194,7 @@ export class ReviewViewController {
      */
     public async handleButtonClick(button: ReviewButtonConfig): Promise<void> {
         if (!this.currentCard || !this.currentQueue) {
-            console.warn('[ReviewViewController] No current card or queue');
+            logger.warn('[ReviewViewController] No current card or queue');
             return;
         }
         
@@ -208,7 +211,7 @@ export class ReviewViewController {
             await this.loadNextCard(this.currentQueue);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error('[ReviewViewController] Failed to handle button click:', errorMessage);
+            logger.error('[ReviewViewController] Failed to handle button click:', errorMessage);
             throw new Error(`处理按钮点击失败: ${errorMessage}`);
         }
     }
@@ -268,8 +271,8 @@ export class ReviewViewController {
     private displayCardWithButtons(card: FSRSCard, buttons: ReviewButtonConfig[]): void {
         // 占位实现
         // 实际应用中，此方法会被 UI 层覆盖
-        console.log('[SiYuanMemo] ReviewViewController: Display card:', card.id);
-        console.log('[SiYuanMemo] ReviewViewController: Buttons:', buttons);
+        logger.info('[SiYuanMemo] ReviewViewController: Display card:', card.id);
+        logger.info('[SiYuanMemo] ReviewViewController: Buttons:', buttons);
     }
     
     /**
@@ -281,7 +284,7 @@ export class ReviewViewController {
     private showEmptyState(): void {
         // 占位实现
         // 实际应用中，此方法会被 UI 层覆盖
-        console.log('[SiYuanMemo] ReviewViewController: Queue is empty');
+        logger.info('[SiYuanMemo] ReviewViewController: Queue is empty');
     }
     
     /**
@@ -311,10 +314,10 @@ export class ReviewViewController {
             // 调用队列的 handleReview() 方法
             await this.currentQueue.handleReview(this.currentCard.id, rating);
             
-            console.log(`[SiYuanMemo] ReviewViewController: Card ${this.currentCard.id} rated: ${rating}`);
+            logger.info(`[SiYuanMemo] ReviewViewController: Card ${this.currentCard.id} rated: ${rating}`);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error('[ReviewViewController] Failed to handle rating:', errorMessage);
+            logger.error('[ReviewViewController] Failed to handle rating:', errorMessage);
             throw new Error(`处理评分失败: ${errorMessage}`);
         }
     }
@@ -346,27 +349,27 @@ export class ReviewViewController {
                 const position = await this.promptForPosition();
                 await this.insertCardAtPosition(this.currentCard.id, position);
                 
-                console.log(`[SiYuanMemo] ReviewViewController: Card ${this.currentCard.id} inserted at position ${position}`);
+                logger.info(`[SiYuanMemo] ReviewViewController: Card ${this.currentCard.id} inserted at position ${position}`);
             } else if (action === 'next') {
                 // 跳过操作：不做任何操作，直接加载下一张卡片
-                console.log(`[SiYuanMemo] ReviewViewController: Card ${this.currentCard.id} skipped`);
+                logger.info(`[SiYuanMemo] ReviewViewController: Card ${this.currentCard.id} skipped`);
             } else if (action === 'lock-seed') {
                 // 锁定种子操作：仅神经漫游队列支持
-                if (this.currentQueue.getType() === QueueType.NeuralRoam) {
+                if (this.currentQueue.getType() === QueueTypeEnum.NeuralRoam) {
                     const neuralQueue = this.currentQueue as NeuralRoamQueue;
                     await neuralQueue.lockCurrentAsSeed(this.currentCard.id);
                     
                     // 显示通知
                     this.showNotification('已锁定为种子块');
                     
-                    console.log(`[SiYuanMemo] ReviewViewController: Card ${this.currentCard.id} locked as seed`);
+                    logger.info(`[SiYuanMemo] ReviewViewController: Card ${this.currentCard.id} locked as seed`);
                 } else {
-                    console.warn('[SiYuanMemo] ReviewViewController: Lock seed action is only available in Neural Roam queue');
+                    logger.warn('[SiYuanMemo] ReviewViewController: Lock seed action is only available in Neural Roam queue');
                 }
             }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error('[ReviewViewController] Failed to handle action:', errorMessage);
+            logger.error('[ReviewViewController] Failed to handle action:', errorMessage);
             throw new Error(`处理操作失败: ${errorMessage}`);
         }
     }
@@ -402,7 +405,7 @@ export class ReviewViewController {
         // 占位实现
         // 实际应用中，此方法需要调用队列的插入方法
         // 当前的队列接口不支持指定位置插入
-        console.log(`[SiYuanMemo] ReviewViewController: Insert card ${cardId} at position ${position}`);
+        logger.info(`[SiYuanMemo] ReviewViewController: Insert card ${cardId} at position ${position}`);
         
         // TODO: 扩展队列接口以支持指定位置插入
         // await this.currentQueue.insertCardAt(cardId, position);
@@ -419,6 +422,7 @@ export class ReviewViewController {
     private showNotification(message: string): void {
         // 占位实现
         // 实际应用中，此方法会被 UI 层覆盖
-        console.log(`[SiYuanMemo] ReviewViewController: Notification: ${message}`);
+        logger.info(`[SiYuanMemo] ReviewViewController: Notification: ${message}`);
     }
 }
+

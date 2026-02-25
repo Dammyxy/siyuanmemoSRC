@@ -12,8 +12,7 @@
 import type { BrowserCard } from '../types';
 import { CardState, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from '../types';
 import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
-import type { UnifiedDataSourceManager } from '../../../managers/UnifiedDataSourceManager';
-import { QueueType } from '../../../types/unified-data-source';
+import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import type { FSRSCard } from '../../../types/card';
 import { validateConsumerCardType } from '../../../diagnostics/type-guards';
 import { DeleteCardCommand } from '@/application/commands/card/DeleteCardCommand';
@@ -50,12 +49,12 @@ export class IncrementalLearningDataSource implements ICardDataSource {
   id = 'incremental-learning';
   label = '渐进学习';
 
-  private readonly manager: UnifiedDataSourceManager;
+  private readonly manager: IUnifiedDataSourceManagerFacade;
   private readonly options: IncrementalLearningDataSourceOptions;
   private readonly plugin?: any;  // 🆕 改为 plugin 引用以访问 ApplicationContext
   private readonly i18n?: I18nDictionary;
 
-  constructor(manager: UnifiedDataSourceManager, options?: IncrementalLearningDataSourceOptions, plugin?: any) {
+  constructor(manager: IUnifiedDataSourceManagerFacade, options?: IncrementalLearningDataSourceOptions, plugin?: any) {
     this.manager = manager;
     this.options = options || {};
     this.plugin = plugin;  // 🆕 保存 plugin 引用

@@ -11,10 +11,9 @@
 
 import type { FSRSCard } from '@/types/card';
 import type { SpreadConfig, SpreadResult, SortingCriterion } from '@/types/reschedule';
-import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
-import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import type { RescheduleLog } from '@/types/scheduler';
 import { BatchProcessor } from './BatchProcessor';
+import type { CardUpdatePort, RescheduleStoragePort } from './ports';
 
 /**
  * SpreadEngine - 实现 SuperMemo Spread/Mercy 算法
@@ -27,8 +26,8 @@ export class SpreadEngine {
     private batchProcessor: BatchProcessor;
     
     constructor(
-        private unifiedStorage: UnifiedStorageManager,
-        private cardApplicationService: CardApplicationService
+        private storage: RescheduleStoragePort,
+        private cardUpdater: CardUpdatePort
     ) {
         this.batchProcessor = new BatchProcessor();
     }
@@ -47,14 +46,16 @@ export class SpreadEngine {
         source: string = 'unknown',
         onProgress?: (processed: number, total: number, percentage: number) => void
     ): Promise<SpreadResult> {
+        const now = Date.now();
+
         // 1. 收集卡片
-        const collectedCards = this.collectCards(cards, config);
+        const collectedCards = this.collectCards(cards, config, now);
         
         // 2. 排序卡片
-        const sortedCards = this.sortCards(collectedCards, config.sortingCriterion);
+        const sortedCards = this.sortCards(collectedCards, config.sortingCriterion, now);
         
         // 3. 分散卡片
-        const updatedCards = this.spreadCards(sortedCards, config);
+        const updatedCards = this.spreadCards(sortedCards, config, now);
         
         // 4. 批量更新（使用优化的批处理器）
         const batchResult = await this.batchProcessor.processBatchWithRetry(
@@ -100,9 +101,9 @@ export class SpreadEngine {
      */
     private collectCards(
         cards: FSRSCard[],
-        config: SpreadConfig
+        config: SpreadConfig,
+        now: number
     ): FSRSCard[] {
-        const now = Date.now();
         const dayMs = 24 * 60 * 60 * 1000;
         const collectingEndDate = now + config.collectingPeriod * dayMs;
         
@@ -125,7 +126,8 @@ export class SpreadEngine {
      */
     private sortCards(
         cards: FSRSCard[],
-        criterion: SortingCriterion
+        criterion: SortingCriterion,
+        now: number
     ): FSRSCard[] {
         const sorted = [...cards];
         
@@ -150,7 +152,6 @@ export class SpreadEngine {
                 
             case 'by-lateness':
                 // 按延迟程度从大到小排序（越晚的越靠前）
-                const now = Date.now();
                 sorted.sort((a, b) => {
                     const latenessA = now - a.due;
                     const latenessB = now - b.due;
@@ -187,9 +188,9 @@ export class SpreadEngine {
      */
     private spreadCards(
         cards: FSRSCard[],
-        config: SpreadConfig
+        config: SpreadConfig,
+        now: number
     ): FSRSCard[] {
-        const now = Date.now();
         const dayMs = 24 * 60 * 60 * 1000;
         const total = cards.length;
         
@@ -233,7 +234,7 @@ export class SpreadEngine {
         }
 
         // ✅ 通过 CardApplicationService 批量更新
-        await this.cardApplicationService.batchUpdateCardsWithoutEvents(cards);
+        await this.cardUpdater.batchUpdateCardsWithoutEvents(cards);
 
         // 记录操作日志
         await this.logOperation(cards, source);
@@ -285,9 +286,6 @@ export class SpreadEngine {
         };
 
         // TODO: 将 addRescheduleLog 迁移到应用服务层
-        const storage = this.unifiedStorage as any;
-        if (storage.addRescheduleLog) {
-            await storage.addRescheduleLog(log);
-        }
+        await this.storage.addRescheduleLog?.(log);
     }
 }

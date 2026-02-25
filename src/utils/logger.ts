@@ -1,95 +1,136 @@
 ﻿/**
- * 插件日志工具
- * 
- * 特性：
- * - 统一的日志接口，自动添加 [SiYuanMemo] 前缀
- * - 开发环境：所有日志正常输出
- * - 生产环境：由 Vite/Terser 自动移除（见 vite.config.ts）
- * - 不劫持全局 console 对象
- * 
- * 使用方法：
- * ```typescript
- * import { logger } from '@/utils/logger';
- * 
- * logger.log('普通日志');
- * logger.debug('调试信息');
- * logger.info('提示信息');
- * logger.warn('警告信息');
- * logger.error('错误信息', error);
- * ```
- * 
- * 带模块标签的日志：
- * ```typescript
- * import { createLogger } from '@/utils/logger';
- * 
- * const logger = createLogger('ModuleName');
- * logger.log('模块日志'); // 输出: [SiYuanMemo][ModuleName] 模块日志
- * ```
- * 
- * 日志级别说明：
- * - log/debug/info: 开发环境输出，生产环境自动移除
- * - warn/error: 所有环境都输出，用于重要提示
+ * 插件统一日志内核
+ *
+ * 目标：
+ * - 所有日志通过统一入口输出
+ * - 支持按级别过滤
+ * - 支持将 legacy console.* 自动桥接到 logger
  */
-class Logger {
+
+type ConsoleMethod = 'trace' | 'debug' | 'info' | 'log' | 'warn' | 'error';
+type LogLevel = ConsoleMethod | 'silent';
+
+const PRIORITY: Record<LogLevel, number> = {
+  trace: 10,
+  debug: 20,
+  info: 30,
+  log: 30,
+  warn: 40,
+  error: 50,
+  silent: 99,
+};
+
+const nativeConsole: Record<ConsoleMethod, (...args: unknown[]) => void> = {
+  trace: console.trace.bind(console),
+  debug: console.debug.bind(console),
+  info: console.info.bind(console),
+  log: console.log.bind(console),
+  warn: console.warn.bind(console),
+  error: console.error.bind(console),
+};
+
+function isDevEnv(): boolean {
+  return Boolean((import.meta as any)?.env?.DEV);
+}
+
+let globalLevel: LogLevel = isDevEnv() ? 'debug' : 'warn';
+let bridgeInstalled = false;
+
+function canEmit(method: ConsoleMethod, localLevel?: LogLevel): boolean {
+  const effectiveLevel = localLevel ?? globalLevel;
+  return PRIORITY[method] >= PRIORITY[effectiveLevel];
+}
+
+function emitNative(method: ConsoleMethod, args: unknown[]): void {
+  const sink = nativeConsole[method] ?? nativeConsole.log;
+  sink(...args);
+}
+
+function isAlreadyPrefixed(args: unknown[]): boolean {
+  const first = args[0];
+  return typeof first === 'string' && first.startsWith('[SiYuanMemo]');
+}
+
+export class Logger {
   private readonly prefix: string;
-  
-  constructor(tag?: string) {
+  private readonly localLevel?: LogLevel;
+
+  constructor(tag?: string, level?: LogLevel) {
     this.prefix = tag ? `[SiYuanMemo][${tag}]` : '[SiYuanMemo]';
+    this.localLevel = level;
   }
-  
-  /**
-   * 普通日志
-   * 生产环境会被 Terser 移除
-   */
-  log(...args: any[]): void {
-    console.log(this.prefix, ...args);
+
+  private emit(method: ConsoleMethod, args: unknown[]): void {
+    if (!canEmit(method, this.localLevel)) {
+      return;
+    }
+    emitNative(method, [this.prefix, ...args]);
   }
-  
-  /**
-   * 调试日志
-   * 生产环境会被 Terser 移除
-   */
-  debug(...args: any[]): void {
-    console.debug(this.prefix, ...args);
+
+  trace(...args: unknown[]): void {
+    this.emit('trace', args);
   }
-  
-  /**
-   * 信息日志
-   * 生产环境会被 Terser 移除
-   */
-  info(...args: any[]): void {
-    console.info(this.prefix, ...args);
+
+  debug(...args: unknown[]): void {
+    this.emit('debug', args);
   }
-  
-  /**
-   * 警告日志
-   * 生产环境保留，用于重要提示
-   */
-  warn(...args: any[]): void {
-    console.warn(this.prefix, ...args);
+
+  info(...args: unknown[]): void {
+    this.emit('info', args);
   }
-  
-  /**
-   * 错误日志
-   * 生产环境保留，用于错误报告
-   */
-  error(...args: any[]): void {
-    console.error(this.prefix, ...args);
+
+  log(...args: unknown[]): void {
+    this.emit('log', args);
+  }
+
+  warn(...args: unknown[]): void {
+    this.emit('warn', args);
+  }
+
+  error(...args: unknown[]): void {
+    this.emit('error', args);
   }
 }
 
-// 导出默认 logger 实例
-export const logger = new Logger();
+export function setGlobalLogLevel(level: LogLevel): void {
+  globalLevel = level;
+}
+
+export function getGlobalLogLevel(): LogLevel {
+  return globalLevel;
+}
 
 /**
- * 创建带标签的 logger 实例
- * @param tag 模块标签，如 'StorageManager'
- * @returns Logger 实例
- * 
- * @example
- * const logger = createLogger('MyModule');
- * logger.log('Hello'); // 输出: [SiYuanMemo][MyModule] Hello
+ * 安装 console 桥接：
+ * - 把遗留 console.* 收敛到 logger
+ * - 已带 [SiYuanMemo] 前缀的日志保持原样输出（避免重复前缀）
  */
+export function installConsoleBridge(): void {
+  if (bridgeInstalled) {
+    return;
+  }
+
+  bridgeInstalled = true;
+
+  const methods: ConsoleMethod[] = ['trace', 'debug', 'info', 'log', 'warn', 'error'];
+  for (const method of methods) {
+    (console as any)[method] = (...args: unknown[]) => {
+      if (!canEmit(method)) {
+        return;
+      }
+
+      if (isAlreadyPrefixed(args)) {
+        emitNative(method, args);
+        return;
+      }
+
+      logger[method](...args);
+    };
+  }
+}
+
+export const logger = new Logger();
+
 export function createLogger(tag: string): Logger {
   return new Logger(tag);
 }

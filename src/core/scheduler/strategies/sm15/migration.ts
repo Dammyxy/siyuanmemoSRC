@@ -12,6 +12,9 @@
 
 import type { FSRSCard } from '@/types';
 import type { SchedulerType } from '../../SchedulerRouter';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('SchedulerMigration');
 
 // === 类型转换工具函数 ===
 
@@ -307,6 +310,6 @@ export function migrateCard(
     }
 
     // 其他迁移（FSRS ↔ SM-2）暂时不支持，保持原样
-    console.warn(`[Migration] Unsupported migration: ${currentScheduler} → ${targetScheduler}`);
+    logger.warn(`Unsupported migration: ${currentScheduler} -> ${targetScheduler}`);
     return card;
 }

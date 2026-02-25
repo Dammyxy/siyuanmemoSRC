@@ -221,7 +221,7 @@ export class ReviewSyncManager implements IDataSourceObserver {
       // 使用 'mode-switched' 事件类型,因为它会触发 loadData()
       if (this.unifiedDataSourceManager) {
         this.unifiedDataSourceManager.notifyObservers({
-          type: 'mode-switched' as any,
+          type: 'mode-switched',
           timestamp: Date.now(),
         });
         console.log('[ReviewSyncManager] Notified observers to refresh UI');

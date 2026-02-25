@@ -9,11 +9,12 @@
  * @see .kiro/specs/unified-data-source-architecture/design.md - SRS 浏览器队列视图集成
  */
 
-import type { UnifiedDataSourceManager } from '../../managers/UnifiedDataSourceManager';
-import type { IDataSourceObserver, DataChangeEvent, QueueType, CardFilter } from '../../types/unified-data-source';
-import type { FSRSCard } from '../../types/card';
+import type { IUnifiedDataSourceManagerFacade, IDataSourceObserver, DataChangeEvent, QueueType, CardFilter } from '@/types/unified-data-source';
 import type { GridApi } from 'ag-grid-community';
 import { filterService } from './services/FilterService';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('SRSBrowserQueueView');
 
 /**
  * SRS 浏览器队列视图
@@ -33,7 +34,7 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
     /**
      * 统一数据源管理器实例
      */
-    private manager: UnifiedDataSourceManager;
+    private manager: IUnifiedDataSourceManagerFacade;
     
     /**
      * 当前队列类型
@@ -61,7 +62,7 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
      * 
      * @param manager 统一数据源管理器实例
      */
-    constructor(manager: UnifiedDataSourceManager) {
+    constructor(manager: IUnifiedDataSourceManagerFacade) {
         this.manager = manager;
         this.currentQueueType = null;
         this.gridApi = null;
@@ -87,7 +88,7 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
      * @param queueType 队列类型
      */
     async switchToQueueView(queueType: QueueType): Promise<void> {
-        console.log(`[SRSBrowserQueueView] Switching to queue view: ${queueType}`);
+        logger.info(`[SRSBrowserQueueView] Switching to queue view: ${queueType}`);
         
         this.currentQueueType = queueType;
         await this.loadQueueData();
@@ -100,12 +101,12 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
      */
     async loadQueueData(): Promise<void> {
         if (!this.currentQueueType) {
-            console.warn('[SRSBrowserQueueView] No queue type selected');
+            logger.warn('[SRSBrowserQueueView] No queue type selected');
             return;
         }
         
         try {
-            console.log(`[SRSBrowserQueueView] Loading queue data for: ${this.currentQueueType}`);
+            logger.info(`[SRSBrowserQueueView] Loading queue data for: ${this.currentQueueType}`);
             
             // 获取队列实例
             const queue = this.manager.getQueue(this.currentQueueType);
@@ -113,17 +114,17 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
             // 获取队列中的所有卡片
             const cards = await queue.getCards();
             
-            console.log(`[SRSBrowserQueueView] Loaded ${cards.length} cards from queue`);
+            logger.info(`[SRSBrowserQueueView] Loaded ${cards.length} cards from queue`);
             
             // 更新 AG-Grid
             if (this.gridApi) {
                 this.gridApi.setRowData(cards);
-                console.log('[SRSBrowserQueueView] Grid updated with queue data');
+                logger.info('[SRSBrowserQueueView] Grid updated with queue data');
             } else {
-                console.warn('[SRSBrowserQueueView] Grid API not initialized');
+                logger.warn('[SRSBrowserQueueView] Grid API not initialized');
             }
         } catch (error) {
-            console.error('[SRSBrowserQueueView] Failed to load queue data:', error);
+            logger.error('[SRSBrowserQueueView] Failed to load queue data:', error);
             throw error;
         }
     }
@@ -138,14 +139,14 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
      * @param event 数据变更事件
      */
     onDataChanged(event: DataChangeEvent): void {
-        console.log('[SRSBrowserQueueView] Data changed:', event);
+        logger.info('Data changed:', event);
         
         // 如果当前有选中的队列，自动刷新
         if (this.currentQueueType) {
             // 使用 setTimeout 确保在下一个事件循环中执行，避免阻塞
             setTimeout(() => {
                 this.loadQueueData().catch(error => {
-                    console.error('[SRSBrowserQueueView] Failed to refresh queue data:', error);
+                    logger.error('Failed to refresh queue data:', error);
                 });
             }, 0);
         }
@@ -160,12 +161,12 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
      */
     async addCardToQueue(cardId: string): Promise<void> {
         if (!this.currentQueueType) {
-            console.warn('[SRSBrowserQueueView] No queue type selected');
+            logger.warn('[SRSBrowserQueueView] No queue type selected');
             throw new Error('No queue type selected');
         }
         
         try {
-            console.log(`[SRSBrowserQueueView] Adding card ${cardId} to queue ${this.currentQueueType}`);
+            logger.info(`[SRSBrowserQueueView] Adding card ${cardId} to queue ${this.currentQueueType}`);
             
             // 获取队列实例
             const queue = this.manager.getQueue(this.currentQueueType);
@@ -173,11 +174,11 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
             // 添加卡片到队列
             await queue.addCard(cardId);
             
-            console.log(`[SRSBrowserQueueView] Card ${cardId} added to queue`);
+            logger.info(`[SRSBrowserQueueView] Card ${cardId} added to queue`);
             
             // 数据会通过观察者模式自动刷新，无需手动调用 loadQueueData()
         } catch (error) {
-            console.error('[SRSBrowserQueueView] Failed to add card to queue:', error);
+            logger.error('[SRSBrowserQueueView] Failed to add card to queue:', error);
             throw error;
         }
     }
@@ -193,7 +194,7 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
      */
     getAvailableQueueTypes(): QueueType[] {
         const queueTypes = this.manager.getAvailableQueueTypes();
-        console.log('[SRSBrowserQueueView] Available queue types:', queueTypes);
+        logger.info('[SRSBrowserQueueView] Available queue types:', queueTypes);
         return queueTypes;
     }
     
@@ -206,7 +207,7 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
      */
     setGridApi(gridApi: GridApi): void {
         this.gridApi = gridApi;
-        console.log('[SRSBrowserQueueView] Grid API set');
+        logger.info('[SRSBrowserQueueView] Grid API set');
     }
     
     /**
@@ -240,12 +241,12 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
     async applyFilter(filter: CardFilter): Promise<void> {
         // 仅在 FilterGroup 队列时应用过滤
         if (this.currentQueueType !== 'filter-group' as QueueType) {
-            console.warn('[SRSBrowserQueueView] Filter can only be applied to FilterGroup queue');
+            logger.warn('[SRSBrowserQueueView] Filter can only be applied to FilterGroup queue');
             return;
         }
         
         try {
-            console.log('[SRSBrowserQueueView] Applying filter:', filter);
+            logger.info('[SRSBrowserQueueView] Applying filter:', filter);
             
             // 保存过滤条件
             this.appliedFilter = filter;
@@ -261,9 +262,9 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
             // 刷新队列显示
             await this.loadQueueData();
             
-            console.log('[SRSBrowserQueueView] Filter applied successfully');
+            logger.info('[SRSBrowserQueueView] Filter applied successfully');
         } catch (error) {
-            console.error('[SRSBrowserQueueView] Failed to apply filter:', error);
+            logger.error('[SRSBrowserQueueView] Failed to apply filter:', error);
             throw error;
         }
     }
@@ -278,12 +279,12 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
     async clearFilter(): Promise<void> {
         // 仅在 FilterGroup 队列时清除过滤
         if (this.currentQueueType !== 'filter-group' as QueueType) {
-            console.warn('[SRSBrowserQueueView] Filter can only be cleared from FilterGroup queue');
+            logger.warn('[SRSBrowserQueueView] Filter can only be cleared from FilterGroup queue');
             return;
         }
         
         try {
-            console.log('[SRSBrowserQueueView] Clearing filter');
+            logger.info('[SRSBrowserQueueView] Clearing filter');
             
             // 清除过滤条件
             this.appliedFilter = null;
@@ -299,9 +300,9 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
             // 刷新队列显示
             await this.loadQueueData();
             
-            console.log('[SRSBrowserQueueView] Filter cleared successfully');
+            logger.info('[SRSBrowserQueueView] Filter cleared successfully');
         } catch (error) {
-            console.error('[SRSBrowserQueueView] Failed to clear filter:', error);
+            logger.error('[SRSBrowserQueueView] Failed to clear filter:', error);
             throw error;
         }
     }
@@ -312,7 +313,7 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
      * 取消注册观察者，清理资源。
      */
     destroy(): void {
-        console.log('[SRSBrowserQueueView] Destroying view');
+        logger.info('[SRSBrowserQueueView] Destroying view');
         
         // 取消注册观察者
         this.unregisterObserver();
@@ -339,10 +340,10 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
             const savedFilter = filterService.loadFilter();
             if (savedFilter) {
                 this.appliedFilter = savedFilter;
-                console.log('[SRSBrowserQueueView] Loaded saved filter:', savedFilter);
+                logger.info('[SRSBrowserQueueView] Loaded saved filter:', savedFilter);
             }
         } catch (error) {
-            console.error('[SRSBrowserQueueView] Failed to load saved filter:', error);
+            logger.error('[SRSBrowserQueueView] Failed to load saved filter:', error);
             // 加载失败不影响正常使用
         }
     }
@@ -354,7 +355,7 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
         if (!this.isRegistered) {
             this.manager.registerObserver(this);
             this.isRegistered = true;
-            console.log('[SRSBrowserQueueView] Registered as observer');
+            logger.info('[SRSBrowserQueueView] Registered as observer');
         }
     }
     
@@ -365,7 +366,8 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
         if (this.isRegistered) {
             this.manager.unregisterObserver(this);
             this.isRegistered = false;
-            console.log('[SRSBrowserQueueView] Unregistered as observer');
+            logger.info('[SRSBrowserQueueView] Unregistered as observer');
         }
     }
 }
+

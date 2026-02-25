@@ -27,8 +27,10 @@
  */
 
 import type { PostponeConfig, AdvanceConfig, SpreadConfig, SortingCriterion } from '@/types/reschedule';
-import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
-import type { CardApplicationService } from '@/application/services/CardApplicationService';
+import type { RescheduleStoragePort } from './ports';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('ConfigManager');
 
 /** 配置存储格式 */
 export interface RescheduleConfigs {
@@ -47,8 +49,7 @@ export class ConfigManager {
     private static readonly CONFIG_FILE = 'reschedule-configs.json';
     
     constructor(
-        private unifiedStorage: UnifiedStorageManager,
-        private cardApplicationService: CardApplicationService
+        private storage: RescheduleStoragePort
     ) {}
     
     /**
@@ -153,14 +154,12 @@ export class ConfigManager {
      */
     private async loadAllConfigs(): Promise<RescheduleConfigs> {
         try {
-            // TODO: 将配置存储迁移到应用服务层
-            const storage = this.unifiedStorage as any;
-            const data = await storage.loadData?.(ConfigManager.CONFIG_FILE);
+            const data = await this.storage.loadData?.(ConfigManager.CONFIG_FILE);
             if (data) {
                 return data as RescheduleConfigs;
             }
         } catch (error) {
-            console.warn('[ConfigManager] Failed to load configs:', error);
+            logger.warn('Failed to load configs:', error);
         }
         
         // 返回空配置
@@ -177,11 +176,9 @@ export class ConfigManager {
      */
     private async saveAllConfigs(configs: RescheduleConfigs): Promise<void> {
         try {
-            // TODO: 将配置存储迁移到应用服务层
-            const storage = this.unifiedStorage as any;
-            await storage.saveData?.(ConfigManager.CONFIG_FILE, configs);
+            await this.storage.saveData?.(ConfigManager.CONFIG_FILE, configs);
         } catch (error) {
-            console.error('[ConfigManager] Failed to save configs:', error);
+            logger.error('Failed to save configs:', error);
             throw error;
         }
     }

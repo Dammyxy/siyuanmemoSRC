@@ -10,8 +10,7 @@ import {
   addToQueue,
 } from './MenuActions';
 import { RescheduleService } from '@/core/scheduler/rescheduleService';
-import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
-import { QueueType } from '@/types/unified-data-source';
+import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import { DeleteCardCommand } from '@/application/commands/card/DeleteCardCommand';
 
 type DeckDataSourceOptions = {
@@ -80,13 +79,13 @@ export class DeckDataSource implements ICardDataSource {
   id = 'deck';
   label = 'Deck';
 
-  private readonly manager: UnifiedDataSourceManager;  // 🆕 新架构
+  private readonly manager: IUnifiedDataSourceManagerFacade;  // 🆕 新架构
   private readonly plugin?: FsrsPluginLike;  // 🔧 保留用于特殊功能（Review Subset、神经漫游、时间调整）
   private readonly cardApplicationService?: CardApplicationServiceLike;  // ✅ Phase 9: 卡片应用服务
   private readonly options: DeckDataSourceOptions;
 
   constructor(
-    manager: UnifiedDataSourceManager, 
+    manager: IUnifiedDataSourceManagerFacade, 
     options: DeckDataSourceOptions, 
     plugin?: FsrsPluginLike,
     cardApplicationService?: CardApplicationServiceLike  // ✅ Phase 9: 注入卡片应用服务

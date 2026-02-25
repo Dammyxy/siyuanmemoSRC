@@ -44,6 +44,9 @@ import { GetCardsQuery, GetCardsQueryResult } from '../queries/card/GetCardsQuer
 import { GetCardsQueryHandler } from '../queries/card/GetCardsQueryHandler';
 import type { ICardReadModel } from '../queries/card/ICardReadModel';
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('CardApplicationService');
 
 /**
  * 卡片应用服务
@@ -76,7 +79,7 @@ export class CardApplicationService {
     private readonly updateCardUseCase: UpdateCardUseCase,
     readModel: ICardReadModel,  // ✅ 使用 Read Model 接口
     scheduleService: CardScheduleService,
-    unifiedStorage: any  // UnifiedStorageManager
+    private readonly unifiedStorage: any  // UnifiedStorageManager
   ) {
     this.readModel = readModel;
     // 初始化查询处理器
@@ -88,8 +91,8 @@ export class CardApplicationService {
     this.getCardsQueryHandler = new GetCardsQueryHandler(readModel);
     
     // ✅ 使用 UnifiedStorageManager 初始化 FSRS 卡片用例
-    this.updateFSRSCardUseCase = new UpdateFSRSCardUseCase(unifiedStorage);
-    this.deleteFSRSCardUseCase = new DeleteFSRSCardUseCase(unifiedStorage);
+    this.updateFSRSCardUseCase = new UpdateFSRSCardUseCase(this.unifiedStorage);
+    this.deleteFSRSCardUseCase = new DeleteFSRSCardUseCase(this.unifiedStorage);
   }
 
   /**
@@ -462,7 +465,22 @@ export class CardApplicationService {
   async saveCards(): Promise<void> {
     // ⚠️ 临时方案：需要访问 UnifiedStorageManager
     // 这违反了 DDD 原则，但为了向后兼容暂时保留
-    throw new Error('saveCards() is deprecated. Use Cases handle persistence automatically.');
+    logger.warn('saveCards() is deprecated. Keeping compatibility fallback path.');
+
+    if (this.unifiedStorage && typeof this.unifiedStorage.saveCards === 'function') {
+      await this.unifiedStorage.saveCards();
+      return;
+    }
+
+    if (this.unifiedStorage && typeof this.unifiedStorage.save === 'function') {
+      const result = await this.unifiedStorage.save();
+      if (!result?.ok) {
+        throw new Error(result?.error?.message || 'Failed to persist cards');
+      }
+      return;
+    }
+
+    throw new Error('No persistence method available on unifiedStorage');
   }
 
   /**
@@ -489,11 +507,11 @@ export class CardApplicationService {
           deletedCount++;
         } else {
           failedCount++;
-          console.error(`[CardApplicationService] Failed to delete card ${cardId}:`, result.error);
+          logger.error(`Failed to delete card ${cardId}:`, result.error);
         }
       } catch (error) {
         failedCount++;
-        console.error(`[CardApplicationService] Error deleting card ${cardId}:`, error);
+        logger.error(`Error deleting card ${cardId}:`, error);
       }
     }
 
@@ -522,11 +540,11 @@ export class CardApplicationService {
 
     for (const card of cards) {
       try {
-        this.storage.setCard(card);
+        this.unifiedStorage.setCard(card);
         createdCount++;
       } catch (error) {
         failedCount++;
-        console.error(`[CardApplicationService] Error creating card ${card.id}:`, error);
+        logger.error(`Error creating card ${card.id}:`, error);
       }
     }
 
@@ -555,17 +573,17 @@ export class CardApplicationService {
 
     for (const card of cards) {
       try {
-        const existingCard = this.storage.getCard(card.id);
+        const existingCard = this.unifiedStorage.getCard(card.id);
         if (existingCard) {
-          this.storage.setCard(card);
+          this.unifiedStorage.setCard(card);
           updatedCount++;
         } else {
           failedCount++;
-          console.warn(`[CardApplicationService] Card ${card.id} not found for update`);
+          logger.warn(`Card ${card.id} not found for update`);
         }
       } catch (error) {
         failedCount++;
-        console.error(`[CardApplicationService] Error updating card ${card.id}:`, error);
+        logger.error(`Error updating card ${card.id}:`, error);
       }
     }
 

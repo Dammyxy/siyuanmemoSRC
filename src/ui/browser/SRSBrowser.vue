@@ -178,11 +178,7 @@ import { useCardTypeDetection } from './composables/useCardTypeDetection';
 import { ConfigManager } from '@/core/scheduler/ConfigManager';
 // ✅ 导入配置模块
 import { createColumnDefs } from './config';
-// 🆕 导入统一数据源适配器
-import { SRSBrowserAdapter } from './SRSBrowserAdapter';
-import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
-import { QueueType } from '@/types/unified-data-source';
-import type { DataChangeEvent, CardFilter } from '@/types/unified-data-source';
+import type { CardFilter } from '@/types/unified-data-source';
 import { filterService } from './services/FilterService';
 import { 
   CARD_STATE_COLORS, 
@@ -206,6 +202,9 @@ import {
 } from './utils/dataSourceFactory';
 import { useSorting } from './composables/useSorting';
 import { useCardActions } from './composables/useCardActions';
+import { useQueueBridge, EMPTY_QUEUE_COUNTS } from './composables/useQueueBridge';
+import { useIncrementalGridUpdates } from './composables/useIncrementalGridUpdates';
+import { useBrowserAdapterSync } from './composables/useBrowserAdapterSync';
 
 // 注册 AG-Grid 模块
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -233,6 +232,16 @@ const pluginStorage = computed(() => pluginContext.value?.getStorage?.());
 const pluginUnifiedDataSourceManager = computed(
   () => props.browserService?.getUnifiedDataSourceManager?.() || pluginContext.value?.getUnifiedDataSourceManager?.()
 );
+const browserServiceRef = computed(() => props.browserService);
+const {
+  getQueueById: resolveQueueById,
+  refreshQueueCounts: refreshQueueCountsBridge,
+  setFilterGroupFilter: setFilterGroupFilterBridge,
+  rebuildFilterGroupQueue: rebuildFilterGroupQueueBridge,
+} = useQueueBridge({
+  browserService: browserServiceRef,
+  pluginUnifiedDataSourceManager,
+});
 
 // 🆕 同步状态指示器相关
 const hybridSyncService = computed(() => pluginContext.value?.getHybridSyncService?.());
@@ -255,8 +264,6 @@ const loading = ref(false);
 const rows = ref<BrowserCard[]>([]);
 const allRows = ref<BrowserCard[]>([]);  // ✅ 所有卡片的完整数据（不受筛选影响，用于【全部】区统计）
 const currentDataSource = ref<ICardDataSource | null>(null);
-// 🆕 统一数据源适配器
-const browserAdapter = ref<SRSBrowserAdapter | null>(null);
 const currentPreset = ref('all');
 const currentCardType = ref<CardTypeFilter>('all');  // ✅ 卡片类型筛选
 const selectedRows = ref<BrowserCard[]>([]);
@@ -269,7 +276,7 @@ const searchQuery = ref('');
 const viewMode = ref<'flat' | 'hierarchy'>('hierarchy');  // ✅ 默认使用层级视图
 const activeQueueId = ref<string | null>(null);
 const activeDocId = ref<string | null>(null);
-const queueCounts = ref<Record<string, number>>({});
+const queueCounts = ref<Record<string, number>>({ ...EMPTY_QUEUE_COUNTS });
 
 // 🆕 过滤条件状态 (filter-group-queue-ui)
 const appliedFilter = ref<CardFilter | null>(null);
@@ -327,26 +334,36 @@ function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
+const isDevMode = String(process.env.DEV_MODE) === 'true';
+
 // ✅ 使用导入的配置
 const columnDefs = ref<ColDef[]>(createColumnDefs(t));
 
 // 判断是否为队列模式（队列模式启用客户端排序，Deck 模式禁用）
 const isQueueMode = computed(() => {
   const qid = String(activeQueueId.value || '');
-  return qid === 'final-drill' || qid === 'retrieval' || qid === 'filter-group' || qid === 'neural' || qid === 'incremental-learning';
+  return qid === 'final-drill'
+    || qid === 'retrieval'
+    || qid === 'filter-group'
+    || qid === 'neural-roam'
+    || qid === 'neural'
+    || qid === 'incremental-learning';
 });
 
 // 🆕 当前队列类型 (filter-group-queue-ui)
 const currentQueueType = computed(() => {
   const qid = String(activeQueueId.value || '');
-  console.log('[SiYuanMemo][SRSBrowser] currentQueueType computed:', {
-    activeQueueId: activeQueueId.value,
-    qid,
-  });
+  if (isDevMode) {
+    console.log('[SiYuanMemo][SRSBrowser] currentQueueType computed:', {
+      activeQueueId: activeQueueId.value,
+      qid,
+    });
+  }
   if (qid === 'filter-group') return 'filter-group';
   if (qid === 'final-drill') return 'final-drill';
   if (qid === 'retrieval') return 'retrieval-practice';
   if (qid === 'incremental-learning') return 'incremental-learning';
+  if (qid === 'neural-roam' || qid === 'neural') return 'neural-roam';
   return '';
 });
 
@@ -395,7 +412,9 @@ const scopedRows = computed(() => {
 const focusedDocIds = computed(() => {
   // 如果没有标记聚焦，返回 null（显示所有文档）
   if (!shouldFocusDocList.value) {
-    console.log('[SiYuanMemo][SRSBrowser] 🔍 focusedDocIds: shouldFocusDocList is false, returning null');
+    if (isDevMode) {
+      console.log('[SiYuanMemo][SRSBrowser] 🔍 focusedDocIds: shouldFocusDocList is false, returning null');
+    }
     return null;
   }
 
@@ -409,25 +428,27 @@ const focusedDocIds = computed(() => {
   
   const result = docs.size > 0 ? Array.from(docs) : null;
   
-  // ✅ 详细日志：显示所有卡片的 rootId（用于调试）
-  const allRootIds = rowsForFocus.value.map(c => ({ blockId: c.blockId, rootId: c.rootId }));
-  const rootIdCounts = new Map<string, number>();
-  for (const card of rowsForFocus.value) {
-    if (card.rootId) {
-      rootIdCounts.set(card.rootId, (rootIdCounts.get(card.rootId) || 0) + 1);
+  if (isDevMode) {
+    // ✅ 详细日志：显示所有卡片的 rootId（用于调试）
+    const allRootIds = rowsForFocus.value.map(c => ({ blockId: c.blockId, rootId: c.rootId }));
+    const rootIdCounts = new Map<string, number>();
+    for (const card of rowsForFocus.value) {
+      if (card.rootId) {
+        rootIdCounts.set(card.rootId, (rootIdCounts.get(card.rootId) || 0) + 1);
+      }
     }
+
+    console.log('[SiYuanMemo][SRSBrowser] 🔍 focusedDocIds computed:', {
+      shouldFocusDocList: shouldFocusDocList.value,
+      rowsForFocusCount: rowsForFocus.value.length,
+      cardsWithRootId: rowsForFocus.value.filter(c => c.rootId).length,
+      allRootIds,
+      rootIdCounts: Object.fromEntries(rootIdCounts),
+      uniqueDocIds: result,
+      uniqueDocIdsExpanded: result ? [...result] : null,
+      docsCount: docs.size,
+    });
   }
-  
-  console.log('[SiYuanMemo][SRSBrowser] 🔍 focusedDocIds computed:', {
-    shouldFocusDocList: shouldFocusDocList.value,
-    rowsForFocusCount: rowsForFocus.value.length,
-    cardsWithRootId: rowsForFocus.value.filter(c => c.rootId).length,
-    allRootIds,  // ✅ 显示所有卡片的 rootId
-    rootIdCounts: Object.fromEntries(rootIdCounts),  // ✅ 显示每个 rootId 的卡片数量
-    uniqueDocIds: result,
-    uniqueDocIdsExpanded: result ? [...result] : null,
-    docsCount: docs.size,
-  });
   
   // ✅ 警告日志：当所有卡片都缺少 rootId 时输出警告
   if (result === null && rowsForFocus.value.length > 0) {
@@ -446,9 +467,15 @@ const globalStats = computed(() => {
   };
 });
 
+const parsedSearchQuery = computed(() => {
+  const query = searchQuery.value || '';
+  if (extractSqlStatement(query) != null) return null;
+  return parseQuery(query);
+});
+
 const filteredCards = computed(() => {
-  if (extractSqlStatement(searchQuery.value) != null) return scopedRows.value;
-  const parsed = parseQuery(searchQuery.value || '');
+  const parsed = parsedSearchQuery.value;
+  if (!parsed) return scopedRows.value;
   return scopedRows.value.filter((c) => matchesParsedQuery(c, parsed));
 });
 
@@ -718,21 +745,25 @@ async function executeFetchRows(forceRefresh = false) {
         dataSourceForFocus!.fetchRows({ sortModel: [], filterModel: {} })
       );
       rowsForFocus.value = focusRows;
-      
-      // 🔍 调试：显示所有卡片的 rootId
-      console.log('[SiYuanMemo][SRSBrowser] 🔍 rowsForFocus after fetch:', {
-        count: focusRows.length,
-        allRootIds: focusRows.map(c => ({ blockId: c.blockId, rootId: c.rootId })),
-      });
+
+      if (isDevMode) {
+        // 🔍 调试：显示所有卡片的 rootId
+        console.log('[SiYuanMemo][SRSBrowser] 🔍 rowsForFocus after fetch:', {
+          count: focusRows.length,
+          allRootIds: focusRows.map(c => ({ blockId: c.blockId, rootId: c.rootId })),
+        });
+      }
     }
   } else {
     rowsForFocus.value = fetchedRows;
-    
-    // 🔍 调试：显示所有卡片的 rootId
-    console.log('[SiYuanMemo][SRSBrowser] 🔍 rowsForFocus (using fetchedRows):', {
-      count: fetchedRows.length,
-      allRootIds: fetchedRows.map(c => ({ blockId: c.blockId, rootId: c.rootId })),
-    });
+
+    if (isDevMode) {
+      // 🔍 调试：显示所有卡片的 rootId
+      console.log('[SiYuanMemo][SRSBrowser] 🔍 rowsForFocus (using fetchedRows):', {
+        count: fetchedRows.length,
+        allRootIds: fetchedRows.map(c => ({ blockId: c.blockId, rootId: c.rootId })),
+      });
+    }
   }
 }
 
@@ -761,7 +792,7 @@ function handleSearchInput() {
 watch(searchQuery, () => {
   handleSearchInput();
   // 🆕 更新全局上下文（DDD 化）
-  const unifiedDataSourceManager = props.browserService?.getUnifiedDataSourceManager?.();
+  const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
   if (unifiedDataSourceManager) {
     setGlobalBrowserContext(unifiedDataSourceManager, searchQuery.value);
   }
@@ -1538,125 +1569,39 @@ async function refreshData(forceRefresh = false, preserveFocusState = false) {
   await loadData(forceRefresh);
 }
 
-// 🆕 增量更新卡片（性能优化）
-// 🆕 批量 DOM 更新状态
-let rafId: number | null = null;
-let pendingUpdates: BrowserCard[] = [];
+const {
+  handleCardUpdatedIncremental,
+  handleCardDeletedIncremental,
+  disposeIncrementalGridUpdates,
+} = useIncrementalGridUpdates({
+  gridApi,
+  rows,
+  rowsForFocus,
+  allRows,
+  loadData,
+  refreshQueueCounts,
+  loadQueueCardsSimple,
+});
 
-async function handleCardUpdatedIncremental(cardIds: string[]) {
-  if (!gridApi.value || cardIds.length === 0) {
-    // 降级：如果 Grid 未初始化或没有卡片，完全重新加载
-    console.log('[SiYuanMemo][SRSBrowser] ⚠️ Falling back to full reload (no grid or no cards)');
-    await loadData(true);
-    await refreshQueueCounts();
-    return;
-  }
-  
-  try {
-    console.log(`[SiYuanMemo][SRSBrowser] ⚡ Incremental update: ${cardIds.length} cards`);
-    
-    // 1. 从数据源获取更新后的卡片数据
-    const updatedCards = await loadQueueCardsSimple(cardIds);
-    
-    if (updatedCards.length === 0) {
-      console.warn('[SiYuanMemo][SRSBrowser] ⚠️ No updated cards returned, skipping update');
-      return;
+const {
+  initBrowserAdapter,
+  destroyBrowserAdapter,
+} = useBrowserAdapterSync({
+  manager: pluginUnifiedDataSourceManager,
+  onCardUpdated: handleCardUpdatedIncremental,
+  onCardDeleted: handleCardDeletedIncremental,
+  onQueueChanged: () => {
+    console.log('[SiYuanMemo][SRSBrowser] Refreshing queue counts and data due to queue changes');
+    void refreshQueueCounts();
+    if (activeQueueId.value) {
+      void refreshData(true);
     }
-    
-    // 2. 更新 rows.value 中的数据
-    const updatedMap = new Map(updatedCards.map(c => [c.blockId, c]));
-    let updateCount = 0;
-    
-    for (const card of rows.value) {
-      const updated = updatedMap.get(card.blockId);
-      if (updated) {
-        Object.assign(card, updated);
-        updateCount++;
-      }
-    }
-    
-    // 3. 收集待更新的行
-    const rowsToUpdate = rows.value.filter(c => cardIds.includes(c.blockId));
-    
-    if (rowsToUpdate.length > 0) {
-      // 🆕 使用 RAF 批量更新 DOM
-      pendingUpdates.push(...rowsToUpdate);
-      
-      if (rafId === null) {
-        rafId = requestAnimationFrame(() => {
-          if (gridApi.value && pendingUpdates.length > 0) {
-            // 批量应用所有更新
-            gridApi.value.applyTransaction({ update: pendingUpdates });
-            console.log(`[SiYuanMemo][SRSBrowser] ✅ Batch updated ${pendingUpdates.length} rows in grid`);
-            pendingUpdates = [];
-          }
-          rafId = null;
-        });
-      }
-    }
-    
-    // 4. 只刷新队列统计（不重新加载数据）
-    await refreshQueueCounts();
-    
-    console.log(`[SiYuanMemo][SRSBrowser] ✅ Incremental update completed: ${updateCount}/${cardIds.length} cards updated`);
-  } catch (error) {
-    console.error('[SiYuanMemo][SRSBrowser] ❌ Incremental update failed, falling back to full reload:', error);
-    await loadData(true);
-    await refreshQueueCounts();
-  }
-}
-
-// 🆕 增量删除卡片（性能优化）
-async function handleCardDeletedIncremental(cardIds: string[]) {
-  if (!gridApi.value || cardIds.length === 0) {
-    // 降级：如果 Grid 未初始化或没有卡片，完全重新加载
-    console.log('[SiYuanMemo][SRSBrowser] ⚠️ Falling back to full reload (no grid or no cards)');
-    await loadData(true);
-    await refreshQueueCounts();
-    return;
-  }
-  
-  try {
-    console.log(`[SiYuanMemo][SRSBrowser] ⚡ Incremental delete: ${cardIds.length} cards`);
-    
-    // 1. 从 rows.value 中移除删除的卡片
-    const rowsToRemove = rows.value.filter(c => cardIds.includes(c.blockId));
-    rows.value = rows.value.filter(c => !cardIds.includes(c.blockId));
-    
-    // 2. 使用 RAF 批量删除 DOM
-    if (rowsToRemove.length > 0) {
-      if (rafId !== null) {
-        // 如果有待处理的更新，先取消
-        cancelAnimationFrame(rafId);
-        rafId = null;
-      }
-      
-      rafId = requestAnimationFrame(() => {
-        if (gridApi.value) {
-          // 先应用待处理的更新（如果有）
-          if (pendingUpdates.length > 0) {
-            gridApi.value.applyTransaction({ update: pendingUpdates });
-            pendingUpdates = [];
-          }
-          
-          // 然后删除行
-          gridApi.value.applyTransaction({ remove: rowsToRemove });
-          console.log(`[SiYuanMemo][SRSBrowser] ✅ Batch removed ${rowsToRemove.length} rows from grid`);
-        }
-        rafId = null;
-      });
-    }
-    
-    // 3. 只刷新队列统计（不重新加载数据）
-    await refreshQueueCounts();
-    
-    console.log(`[SiYuanMemo][SRSBrowser] ✅ Incremental delete completed: ${rowsToRemove.length}/${cardIds.length} cards removed`);
-  } catch (error) {
-    console.error('[SiYuanMemo][SRSBrowser] ❌ Incremental delete failed, falling back to full reload:', error);
-    await loadData(true);
-    await refreshQueueCounts();
-  }
-}
+  },
+  onModeSwitched: () => {
+    console.log('[SiYuanMemo][SRSBrowser] Reloading data due to mode switch');
+    void loadData();
+  },
+});
 
 // 切换预设
 function handlePresetChange() {
@@ -1706,16 +1651,12 @@ function showPerformanceReport() {
 let unsubscribe: (() => void) | null = null;
 
 onBeforeUnmount(() => {
+  disposeIncrementalGridUpdates();
+  destroyBrowserAdapter();
+
   // 🆕 清理全局浏览器上下文
   clearGlobalBrowserContext();
   console.log('[SiYuanMemo][SRSBrowser] Global browser context cleared');
-  
-  // 🆕 清理统一数据源适配器
-  if (browserAdapter.value) {
-    browserAdapter.value.destroy();
-    browserAdapter.value = null;
-    console.log('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager adapter destroyed');
-  }
   
   if (unsubscribe) {
     unsubscribe();
@@ -1734,7 +1675,7 @@ onMounted(() => {
   } catch {}
 
   // 🆕 初始化全局浏览器上下文（DDD 化）
-  const unifiedDataSourceManager = props.browserService?.getUnifiedDataSourceManager?.();
+  const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
   if (unifiedDataSourceManager) {
     setGlobalBrowserContext(unifiedDataSourceManager, searchQuery.value);
     console.log('[SiYuanMemo][SRSBrowser] Global browser context initialized');
@@ -1743,75 +1684,7 @@ onMounted(() => {
   }
 
   // 🆕 初始化统一数据源适配器
-  try {
-    const manager = UnifiedDataSourceManager.getInstance();
-    browserAdapter.value = new SRSBrowserAdapter(manager);
-    
-    // 🆕 防抖相关状态
-    let dataChangeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-    let pendingCardIds = new Set<string>();
-    
-    // 设置数据变更回调（带防抖）
-    browserAdapter.value.setOnDataChangeCallback((event: DataChangeEvent) => {
-      console.log('[SiYuanMemo][SRSBrowser] Data changed event received:', event);
-      
-      // 收集待更新的卡片 ID
-      if (event.cardIds) {
-        event.cardIds.forEach(id => pendingCardIds.add(id));
-      }
-      
-      // 清除之前的定时器
-      if (dataChangeDebounceTimer) {
-        clearTimeout(dataChangeDebounceTimer);
-      }
-      
-      // 设置新的定时器（300ms 防抖）
-      dataChangeDebounceTimer = setTimeout(async () => {
-        const cardIds = Array.from(pendingCardIds);
-        pendingCardIds.clear();
-        
-        if (cardIds.length > 0) {
-          console.log(`[SiYuanMemo][SRSBrowser] ⚡ Processing batched updates: ${cardIds.length} cards`);
-        }
-        
-        // 根据事件类型处理
-        switch (event.type) {
-          case 'card-updated':
-            // 卡片更新：使用增量更新
-            if (cardIds.length > 0) {
-              await handleCardUpdatedIncremental(cardIds);
-            }
-            break;
-          case 'card-deleted':
-            // 卡片删除：使用增量删除
-            if (cardIds.length > 0) {
-              await handleCardDeletedIncremental(cardIds);
-            }
-            break;
-          case 'queue-changed':
-            // 队列变更：刷新队列统计和卡片列表
-            console.log('[SiYuanMemo][SRSBrowser] Refreshing queue counts and data due to queue changes');
-            void refreshQueueCounts();
-            // 如果当前显示的是队列视图，刷新卡片列表
-            if (activeQueueId.value) {
-              void refreshData(true); // 强制刷新缓存
-            }
-            break;
-          case 'mode-switched':
-            // 模式切换：完全重新加载
-            console.log('[SiYuanMemo][SRSBrowser] Reloading data due to mode switch');
-            void loadData();
-            break;
-        }
-      }, 300);
-    });
-    
-    console.log('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager adapter initialized with debouncing');
-  } catch (error) {
-    console.error('[SiYuanMemo][SRSBrowser] Failed to initialize UnifiedDataSourceManager adapter:', error);
-    // 降级到旧的实现，不影响正常使用
-    browserAdapter.value = null;
-  }
+  initBrowserAdapter();
 
   // 订阅增量更新
   unsubscribe = subscribeCacheUpdate((cards, isComplete) => {
@@ -2007,35 +1880,14 @@ function openPracticeMenu(ev: MouseEvent) {
 }
 
 function getQueueById(id: string) {
-  // 🆕 从 UnifiedDataSourceManager 获取队列实例
-  if (browserAdapter.value) {
-    try {
-      const queueTypeMap: Record<string, QueueType> = {
-        'retrieval': QueueType.RetrievalPractice,
-        'final-drill': QueueType.FinalDrill,
-        'incremental-learning': QueueType.IncrementalLearning,
-        'filter-group': QueueType.FilterGroup,
-        'neural-roam': QueueType.NeuralRoam,
-      };
-      
-      const queueType = queueTypeMap[id];
-      if (queueType) {
-        const manager = UnifiedDataSourceManager.getInstance();
-        const queue = manager.getQueue(queueType);
-        if (queue) {
-          console.log(`[SiYuanMemo][SRSBrowser] getQueueById: Using UnifiedDataSourceManager queue for ${id}`);
-          return queue;
-        }
-      }
-    } catch (error) {
-      console.error(`[SiYuanMemo][SRSBrowser] Failed to get queue from UnifiedDataSourceManager:`, error);
-      // ⚠️ 不再降级到旧队列系统，防止数据污染
-      return null;
+  const queue = resolveQueueById(id);
+  if (queue) {
+    if (isDevMode) {
+      console.log(`[SiYuanMemo][SRSBrowser] getQueueById: resolved queue ${id}`);
     }
+    return queue;
   }
-  
-  // ⚠️ 如果 browserAdapter 未初始化，记录错误并返回 null
-  console.error(`[SiYuanMemo][SRSBrowser] browserAdapter not initialized, cannot get queue: ${id}`);
+  console.error(`[SiYuanMemo][SRSBrowser] browserService cannot resolve queue: ${id}`);
   return null;
 }
 
@@ -2084,68 +1936,32 @@ async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {
   if (!queue) return [];
 
   const items = queue?.getAllItems?.() || [];
-  console.log('[SiYuanMemo][SRSBrowser] loadQueueAllCards:', {
-    queueId,
-    itemsCount: items.length,
-    items: items.map((it: any) => ({
-      id: it.id,
-      blockId: it.blockId,
-      deckId: it.deckId,
-    })),
-  });
+  if (isDevMode) {
+    console.log('[SiYuanMemo][SRSBrowser] loadQueueAllCards:', {
+      queueId,
+      itemsCount: items.length,
+      items: items.map((it: any) => ({
+        id: it.id,
+        blockId: it.blockId,
+        deckId: it.deckId,
+      })),
+    });
+  }
 
   const blockIds = extractBlockIds(items);
-  console.log('[SiYuanMemo][SRSBrowser] Extracted blockIds:', blockIds);
+  if (isDevMode) {
+    console.log('[SiYuanMemo][SRSBrowser] Extracted blockIds:', blockIds);
+  }
 
   const cards = await loadQueueCardsSimple(blockIds);
-  console.log('[SiYuanMemo][SRSBrowser] Loaded cards:', cards.length);
+  if (isDevMode) {
+    console.log('[SiYuanMemo][SRSBrowser] Loaded cards:', cards.length);
+  }
   return cards;
 }
 
 async function refreshQueueCounts() {
-  // 🆕 使用统一数据源管理器获取队列数量
-  const manager = pluginUnifiedDataSourceManager.value;
-  
-  if (!manager) {
-    console.warn('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available, queue counts will be 0');
-    queueCounts.value = {
-      retrieval: 0,
-      'final-drill': 0,
-      'neural-roam': 0,
-      'filter-group': 0,
-      'incremental-learning': 0,
-    };
-    return;
-  }
-  
-  try {
-    // 获取各个队列的大小
-    const retrievalQueue = manager.getQueue(QueueType.RetrievalPractice);
-    const finalDrillQueue = manager.getQueue(QueueType.FinalDrill);
-    const filterGroupQueue = manager.getQueue(QueueType.FilterGroup);
-    const incrementalQueue = manager.getQueue(QueueType.IncrementalLearning);
-    const neuralRoamQueue = manager.getQueue(QueueType.NeuralRoam);
-    
-    // 🆕 使用异步的 getSize() 方法获取队列数量
-    queueCounts.value = {
-      retrieval: retrievalQueue ? await retrievalQueue.getSize() : 0,
-      'final-drill': finalDrillQueue ? await finalDrillQueue.getSize() : 0,
-      'neural-roam': neuralRoamQueue ? await neuralRoamQueue.getSize() : 0,
-      'filter-group': filterGroupQueue ? await filterGroupQueue.getSize() : 0,
-      'incremental-learning': incrementalQueue ? await incrementalQueue.getSize() : 0,
-    };
-    
-    console.log('[SiYuanMemo][SRSBrowser] Queue counts refreshed:', queueCounts.value);
-  } catch (error) {
-    console.error('[SiYuanMemo][SRSBrowser] Failed to refresh queue counts:', error);
-    queueCounts.value = {
-      retrieval: 0,
-      'final-drill': 0,
-      'neural-roam': 0,
-      'filter-group': 0,
-      'incremental-learning': 0,
-    };
-  }
+  await refreshQueueCountsBridge(queueCounts);
 }
 
 async function handleSelectQueue(queueId: string) {
@@ -2162,7 +1978,7 @@ async function handleSelectQueue(queueId: string) {
   shouldFocusDocList.value = true;  // ✅ 选择队列后开启聚焦（文档区会自动聚焦到包含队列卡片的文档）
   
   // 🆕 根据队列类型自动调整卡片类型筛选
-  if (queueId === 'neural') {
+  if (queueId === 'neural' || queueId === 'neural-roam') {
     // 神经漫游队列：如果当前选择不是 concept-only 或 descriptor-only，默认设置为 concept-only
     if (currentCardType.value !== 'concept-only' && currentCardType.value !== 'descriptor-only') {
       currentCardType.value = 'concept-only';
@@ -2237,14 +2053,8 @@ async function handleApplyFilter(filter: CardFilter) {
   // 如果当前是 filter-group 队列，设置队列的过滤条件（DDD 化）
   if (activeQueueId.value === 'filter-group') {
     try {
-      const unifiedDataSourceManager = props.browserService?.getUnifiedDataSourceManager?.();
-      if (!unifiedDataSourceManager) {
-        console.error('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available');
-        return;
-      }
-      const queue = unifiedDataSourceManager.getQueue('filter-group' as any);
-      if (queue && 'setFilter' in queue && typeof (queue as any).setFilter === 'function') {
-        (queue as any).setFilter(filter);
+      const applied = await setFilterGroupFilterBridge(filter);
+      if (applied) {
         console.log('[SiYuanMemo][SRSBrowser] Filter set on FilterGroupQueue');
       }
     } catch (error) {
@@ -2269,14 +2079,8 @@ async function handleClearFilter() {
   // 如果当前是 filter-group 队列，清除队列的过滤条件（DDD 化）
   if (activeQueueId.value === 'filter-group') {
     try {
-      const unifiedDataSourceManager = props.browserService?.getUnifiedDataSourceManager?.();
-      if (!unifiedDataSourceManager) {
-        console.error('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available');
-        return;
-      }
-      const queue = unifiedDataSourceManager.getQueue('filter-group' as any);
-      if (queue && 'setFilter' in queue && typeof (queue as any).setFilter === 'function') {
-        (queue as any).setFilter({});
+      const cleared = await setFilterGroupFilterBridge({});
+      if (cleared) {
         console.log('[SiYuanMemo][SRSBrowser] Filter cleared on FilterGroupQueue');
       }
     } catch (error) {
@@ -2305,15 +2109,8 @@ async function handleRebuildQueue() {
   }
   
   try {
-    const unifiedDataSourceManager = props.browserService?.getUnifiedDataSourceManager?.();
-    if (!unifiedDataSourceManager) {
-      console.error('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available');
-      await pushMsg(t('rebuildFailed', 'Failed to reload'), 3000, 'error');
-      return;
-    }
-    const queue = unifiedDataSourceManager.getQueue('filter-group' as any);
-    if (queue && 'rebuild' in queue && typeof (queue as any).rebuild === 'function') {
-      await (queue as any).rebuild();
+    const rebuilt = await rebuildFilterGroupQueueBridge();
+    if (rebuilt) {
       console.log('[SiYuanMemo][SRSBrowser] Queue rebuilt successfully');
       
       // 刷新数据显示

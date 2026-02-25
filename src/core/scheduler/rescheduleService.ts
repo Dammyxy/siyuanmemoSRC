@@ -1,6 +1,4 @@
-﻿import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
-import type { CardApplicationService } from '@/application/services/CardApplicationService';
-import { pushErrMsg } from '@/core/siyuan/api';
+﻿import { pushErrMsg } from '@/infrastructure/siyuan/api';
 import type { RescheduleLog, RescheduleResult, ActionMeta } from '@/types';
 import type { FSRSCard } from '@/types/card';
 import type { PostponeConfig, AdvanceConfig, SpreadConfig, PostponeResult, AdvanceResult, SpreadResult } from '@/types/reschedule';
@@ -8,31 +6,32 @@ import { RescheduleErrorCode, type RescheduleError, type Result } from '@/types/
 import { PostponeEngine } from './PostponeEngine';
 import { AdvanceEngine } from './AdvanceEngine';
 import { SpreadEngine } from './SpreadEngine';
-import { ConfigManager } from './ConfigManager';
 import { ConfigValidator } from './ConfigValidator';
+import type { CardUpdatePort, RescheduleStoragePort } from './ports';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('RescheduleService');
 
 /**
  * RescheduleService - 重新调度服务
  * 
  * 使用 DDD 架构：
- * - 依赖 UnifiedStorageManager 进行数据查询
- * - 依赖 CardApplicationService 进行数据更新
+ * - 依赖 RescheduleStoragePort 进行数据查询
+ * - 依赖 CardUpdatePort 进行数据更新
  * - 协调各个 Engine 执行具体的调度算法
  */
 export class RescheduleService {
     private postponeEngine: PostponeEngine;
     private advanceEngine: AdvanceEngine;
     private spreadEngine: SpreadEngine;
-    private configManager: ConfigManager;
 
     constructor(
-        private unifiedStorage: UnifiedStorageManager,
-        private cardApplicationService: CardApplicationService
+        private unifiedStorage: RescheduleStoragePort,
+        private cardUpdater: CardUpdatePort
     ) {
-        this.postponeEngine = new PostponeEngine(unifiedStorage, cardApplicationService);
-        this.advanceEngine = new AdvanceEngine(unifiedStorage, cardApplicationService);
-        this.spreadEngine = new SpreadEngine(unifiedStorage, cardApplicationService);
-        this.configManager = new ConfigManager(unifiedStorage, cardApplicationService);
+        this.postponeEngine = new PostponeEngine(unifiedStorage, cardUpdater);
+        this.advanceEngine = new AdvanceEngine(unifiedStorage, cardUpdater);
+        this.spreadEngine = new SpreadEngine(unifiedStorage, cardUpdater);
     }
 
     /**
@@ -51,7 +50,7 @@ export class RescheduleService {
             const result = await operation();
             return { ok: true, value: result };
         } catch (error: any) {
-            console.error(`[RescheduleService] ${errorContext}:`, error);
+            logger.error(`${errorContext}:`, error);
 
             // 确定错误代码
             let code = RescheduleErrorCode.UNKNOWN_ERROR;
@@ -76,8 +75,38 @@ export class RescheduleService {
         }
     }
 
-    private async sleep(ms: number): Promise<void> {
-        await new Promise<void>((resolve) => setTimeout(resolve, ms));
+    private async getAllCardsSafe(): Promise<FSRSCard[]> {
+        const getter = this.unifiedStorage.getAllCards;
+        if (!getter) {
+            return [];
+        }
+
+        const value = getter.call(this.unifiedStorage) as FSRSCard[] | Promise<FSRSCard[]>;
+        return await Promise.resolve(value ?? []);
+    }
+
+    private async batchUpdateCardsByBlockDue(
+        updates: Array<{ blockId: string; due: number }>
+    ): Promise<void> {
+        if (this.unifiedStorage.batchUpdateCards) {
+            await this.unifiedStorage.batchUpdateCards(updates);
+            return;
+        }
+
+        const cardsToUpdate: FSRSCard[] = [];
+        for (const update of updates) {
+            const cards = this.unifiedStorage.getCardsByBlockId(update.blockId);
+            for (const card of cards) {
+                cardsToUpdate.push({
+                    ...card,
+                    due: update.due
+                });
+            }
+        }
+
+        if (cardsToUpdate.length > 0) {
+            await this.cardUpdater.batchUpdateCardsWithoutEvents(cardsToUpdate);
+        }
     }
 
     /**
@@ -181,48 +210,40 @@ export class RescheduleService {
                 for (const card of cards) {
                     cardsToUpdateFull.push({
                         ...card,
-                        due: new Date(update.due)
+                        due: update.due
                     });
                 }
             }
             
             if (cardsToUpdateFull.length > 0) {
-                await this.cardApplicationService.batchUpdateCardsWithoutEvents(cardsToUpdateFull);
+                await this.cardUpdater.batchUpdateCardsWithoutEvents(cardsToUpdateFull);
             }
 
-            console.log(`[RescheduleService] Batch update success: ${cardsToUpdate.length} items, skipped: ${result.skipped.length}`);
+            logger.info(`Batch update success: ${cardsToUpdate.length} items, skipped: ${result.skipped.length}`);
             
-            // 记录日志（需要 UnifiedStorageManager 支持 addRescheduleLog）
-            // TODO: 将 addRescheduleLog 迁移到应用服务层
-            const storage = this.unifiedStorage as any;
-            if (storage.addRescheduleLog) {
-                await storage.addRescheduleLog({
-                    ts: Date.now(),
-                    action: type,
-                    source: meta.source,
-                    targets: cardsToUpdate.map(c => c.blockId),
-                    result: { updated: cardsToUpdate.length, skipped: result.skipped.length },
-                    sample: logSample
-                });
-            }
+            await this.unifiedStorage.addRescheduleLog?.({
+                ts: Date.now(),
+                action: type,
+                source: meta.source,
+                targets: cardsToUpdate.map(c => c.blockId),
+                result: { updated: cardsToUpdate.length, skipped: result.skipped.length },
+                sample: logSample
+            });
 
         } catch (err: any) {
-            console.error('[RescheduleService] Batch update failed', err);
+            logger.error('Batch update failed', err);
             await pushErrMsg(`Reschedule failed: ${err.message}`);
             result.errors = [{ message: err.message }];
 
-            const storage = this.unifiedStorage as any;
-            if (storage.addRescheduleLog) {
-                await storage.addRescheduleLog({
-                    ts: Date.now(),
-                    action: type,
-                    source: meta.source,
-                    targets: cardsToUpdate.map(c => c.blockId),
-                    result: { updated: 0, skipped: cardsToUpdate.length + result.skipped.length },
-                    sample: [],
-                    error: { code: 'API_ERROR', message: err.message }
-                });
-            }
+            await this.unifiedStorage.addRescheduleLog?.({
+                ts: Date.now(),
+                action: type,
+                source: meta.source,
+                targets: cardsToUpdate.map(c => c.blockId),
+                result: { updated: 0, skipped: cardsToUpdate.length + result.skipped.length },
+                sample: [],
+                error: { code: 'API_ERROR', message: err.message }
+            });
             throw err;
         }
 
@@ -344,10 +365,9 @@ export class RescheduleService {
         if (cardsToUpdate.length === 0) return result;
 
         try {
-            // ✅ 使用 StorageManager 批量更新
-            await this.storage.batchUpdateCards(cardsToUpdate as any);
-            
-            await this.storage.addRescheduleLog({
+            await this.batchUpdateCardsByBlockDue(cardsToUpdate);
+
+            await this.unifiedStorage.addRescheduleLog?.({
                 ts: Date.now(),
                 action: 'spread',
                 source: meta.source,
@@ -358,7 +378,7 @@ export class RescheduleService {
         } catch (err: any) {
             await pushErrMsg(`Reschedule failed: ${err.message}`);
             result.errors = [{ message: err.message }];
-            await this.storage.addRescheduleLog({
+            await this.unifiedStorage.addRescheduleLog?.({
                 ts: Date.now(),
                 action: 'spread',
                 source: meta.source,
@@ -431,7 +451,7 @@ export class RescheduleService {
         // 验证配置
         const validationError = ConfigValidator.validatePostponeConfig(config);
         if (validationError) {
-            console.error('[RescheduleService] Invalid postpone config:', validationError);
+            logger.error('Invalid postpone config:', validationError);
             await pushErrMsg(`Invalid configuration: ${validationError.message}`);
             return {
                 updated: 0,
@@ -479,7 +499,7 @@ export class RescheduleService {
         // 验证配置
         const validationError = ConfigValidator.validatePostponeConfig(config);
         if (validationError) {
-            console.error('[RescheduleService] Invalid dilute config:', validationError);
+            logger.error('Invalid dilute config:', validationError);
             await pushErrMsg(`Invalid configuration: ${validationError.message}`);
             return {
                 updated: 0,
@@ -529,7 +549,7 @@ export class RescheduleService {
         // 验证配置
         const validationError = ConfigValidator.validatePostponeConfig(config);
         if (validationError) {
-            console.error('[RescheduleService] Invalid auto-postpone config:', validationError);
+            logger.error('Invalid auto-postpone config:', validationError);
             await pushErrMsg(`Invalid configuration: ${validationError.message}`);
             return {
                 updated: 0,
@@ -543,7 +563,7 @@ export class RescheduleService {
         const result = await this.executeWithErrorHandling(
             async () => {
                 // 获取所有卡片
-                const allCards = await this.storage.getAllCards();
+                const allCards = await this.getAllCardsSafe();
                 const now = Date.now();
 
                 // 过滤 outstanding 卡片
@@ -596,7 +616,7 @@ export class RescheduleService {
         // 验证配置
         const validationError = ConfigValidator.validateAdvanceConfig(config);
         if (validationError) {
-            console.error('[RescheduleService] Invalid advance config:', validationError);
+            logger.error('Invalid advance config:', validationError);
             await pushErrMsg(`Invalid configuration: ${validationError.message}`);
             return {
                 updated: 0,
@@ -644,7 +664,7 @@ export class RescheduleService {
         // 验证配置
         const validationError = ConfigValidator.validateSpreadConfig(config);
         if (validationError) {
-            console.error('[RescheduleService] Invalid spread config:', validationError);
+            logger.error('Invalid spread config:', validationError);
             await pushErrMsg(`Invalid configuration: ${validationError.message}`);
             return {
                 updated: 0,
@@ -671,4 +691,5 @@ export class RescheduleService {
         return result.value;
     }
 }
+
 

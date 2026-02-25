@@ -4,8 +4,7 @@ import type { ICardDataSource, CardBrowserAction, SortModel } from './types';
 import {
   buildQueueActions,
 } from './MenuActions';
-import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
-import { QueueType } from '../../../types/unified-data-source';
+import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import type { FSRSCard } from '../../../types/card';
 
 // ✅ 五重筛选：支持的筛选参数
@@ -39,11 +38,11 @@ export class RetrievalDataSource implements ICardDataSource {
   id = 'retrieval';
   label = 'Retrieval';
 
-  private readonly manager: UnifiedDataSourceManager;
+  private readonly manager: IUnifiedDataSourceManagerFacade;
   private readonly options: RetrievalDataSourceOptions;
   private readonly plugin?: any;  // 🆕 改为 plugin 引用以访问 ApplicationContext
 
-  constructor(manager: UnifiedDataSourceManager, options?: RetrievalDataSourceOptions, plugin?: any) {
+  constructor(manager: IUnifiedDataSourceManagerFacade, options?: RetrievalDataSourceOptions, plugin?: any) {
     this.manager = manager;
     this.options = options || {};
     this.plugin = plugin;  // 🆕 保存 plugin 引用

@@ -5,18 +5,20 @@
  * 支持多种调度算法：FSRS v5, SM-2, SM-15, A-Factor, A-Factor v2
  */
 
-import type { FSRSCard, FSRSParameters, Rating, CardType } from '@/types';
+import type { FSRSCard, FSRSParameters, Rating } from '@/types';
 import type { SchedulerEngineAdapter } from './types';
 import type { UnifiedStorageManager } from '../storage/UnifiedStorageManager';
-import type { CardApplicationService } from '@/application/services/CardApplicationService';
+import type { CardUpdatePort } from './ports';
 import { TSFSRSScheduler } from './strategies/TSFSRSScheduler';
 import { SM15Scheduler } from './strategies/SM15Scheduler';
 import { ImprovedTopicScheduler } from './strategies/ImprovedTopicScheduler';
-import { createScheduler } from './index';
 import { migrateCard } from './strategies/sm15/migration';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('SchedulerRouter');
 
 /** 调度器类型 */
-export type SchedulerType = 'fsrs-v5' | 'sm15' | 'a-factor-v2';
+export type SchedulerType = 'fsrs-v6' | 'fsrs-v5' | 'sm15' | 'a-factor-v2';
 
 /** Scheduler Router 配置 */
 export interface SchedulerRouterConfig {
@@ -37,17 +39,15 @@ export interface SchedulerRouterConfig {
 export class SchedulerRouter {
     private config: SchedulerRouterConfig;
     private schedulers: Map<SchedulerType, SchedulerEngineAdapter>;
-    private unifiedStorage: UnifiedStorageManager;
-    private cardApplicationService: CardApplicationService;
+    private cardUpdater: CardUpdatePort;
 
     constructor(
         config: SchedulerRouterConfig,
-        unifiedStorage: UnifiedStorageManager,
-        cardApplicationService: CardApplicationService
+        _unifiedStorage: UnifiedStorageManager,
+        cardUpdater: CardUpdatePort
     ) {
         this.config = config;
-        this.unifiedStorage = unifiedStorage;
-        this.cardApplicationService = cardApplicationService;
+        this.cardUpdater = cardUpdater;
         this.schedulers = new Map();
 
         this._initializeSchedulers();
@@ -80,7 +80,7 @@ export class SchedulerRouter {
      */
     async route(card: FSRSCard, rating: Rating): Promise<FSRSCard> {
         try {
-            console.log('[SchedulerRouter] route() called:', {
+            logger.debug('route() called:', {
                 cardId: card.id,
                 rating,
                 cardType: card.type,
@@ -96,7 +96,7 @@ export class SchedulerRouter {
             
             // 1. 确定调度器类型
             const schedulerType = this.getSchedulerType(card);
-            console.log('[SchedulerRouter] Selected scheduler type:', schedulerType);
+            logger.debug('Selected scheduler type:', schedulerType);
 
             // 2. 获取调度器
             const scheduler = this.schedulers.get(schedulerType);
@@ -104,7 +104,7 @@ export class SchedulerRouter {
                 throw new Error(`Scheduler not found: ${schedulerType}`);
             }
             
-            console.log('[SchedulerRouter] Scheduler found:', {
+            logger.debug('Scheduler found:', {
                 schedulerType,
                 hasReviewMethod: typeof scheduler.review === 'function',
             });
@@ -112,7 +112,7 @@ export class SchedulerRouter {
             // 3. 执行复习
             const updatedCard = scheduler.review(card, rating);
             
-            console.log('[SchedulerRouter] After scheduler.review():', {
+            logger.debug('After scheduler.review():', {
                 updatedCard: updatedCard ? {
                     id: updatedCard.id,
                     due: updatedCard.due,
@@ -134,11 +134,11 @@ export class SchedulerRouter {
             updatedCard.schedulerType = schedulerType;
 
             // 5. 保存到本地数据库（使用 CardApplicationService）
-            await this.cardApplicationService.batchUpdateCardsWithoutEvents([updatedCard]);
+            await this.cardUpdater.batchUpdateCardsWithoutEvents([updatedCard]);
 
             return updatedCard;
         } catch (error) {
-            console.error('[SchedulerRouter] route() failed:', {
+            logger.error('route() failed:', {
                 cardId: card.id,
                 rating,
                 error: error instanceof Error ? error.message : String(error),
@@ -188,7 +188,7 @@ export class SchedulerRouter {
             if (this.schedulers.has(card.schedulerType)) {
                 return card.schedulerType;
             }
-            console.warn(`[SchedulerRouter] Card ${card.id} has unknown scheduler type: ${card.schedulerType}, falling back to default`);
+            logger.warn(`Card ${card.id} has unknown scheduler type: ${card.schedulerType}, falling back to default`);
         }
 
         // 4. 使用默认调度器
@@ -210,7 +210,7 @@ export class SchedulerRouter {
         if (card.type === 'topic') {
             // Topic 卡片只能使用 A-Factor v2
             if (newScheduler !== 'a-factor-v2') {
-                console.error('[SchedulerRouter] Topic cards must use A-Factor v2 scheduler');
+                logger.error('Topic cards must use A-Factor v2 scheduler');
                 return false;
             }
         }
@@ -218,22 +218,22 @@ export class SchedulerRouter {
         // 🔧 修复：Concept 卡片只能使用 A-Factor v2
         if (card.type === 'concept') {
             if (newScheduler !== 'a-factor-v2') {
-                console.error('[SchedulerRouter] Concept cards must use A-Factor v2 scheduler');
+                logger.error('Concept cards must use A-Factor v2 scheduler');
                 return false;
             }
         }
         
         // 🔧 修复：Descriptor 卡片只能使用 FSRS
         if (card.type === 'descriptor') {
-            if (newScheduler !== 'fsrs-v5') {
-                console.error('[SchedulerRouter] Descriptor cards must use FSRS scheduler');
+            if (newScheduler !== 'fsrs-v5' && newScheduler !== 'fsrs-v6') {
+                logger.error('Descriptor cards must use FSRS scheduler');
                 return false;
             }
         }
 
         // 2. 验证新调度器是否存在
         if (!this.schedulers.has(newScheduler)) {
-            console.error(`[SchedulerRouter] Scheduler not found: ${newScheduler}`);
+            logger.error(`Scheduler not found: ${newScheduler}`);
             return false;
         }
 
@@ -248,9 +248,9 @@ export class SchedulerRouter {
         convertedCard.schedulerType = newScheduler;
 
         // 5. 保存到本地（使用 CardApplicationService）
-        await this.cardApplicationService.batchUpdateCardsWithoutEvents([convertedCard]);
+        await this.cardUpdater.batchUpdateCardsWithoutEvents([convertedCard]);
 
-        console.log(`[SchedulerRouter] Switched card ${card.id} from ${card.schedulerType} to ${newScheduler}`);
+        logger.info(`Switched card ${card.id} from ${card.schedulerType} to ${newScheduler}`);
         return true;
     }
 
@@ -287,7 +287,7 @@ export class SchedulerRouter {
                     try {
                         scheduler.updateParams(config.fsrsParams);
                     } catch (err) {
-                        console.warn('[SchedulerRouter] Failed to update params for scheduler:', err);
+                        logger.warn('Failed to update params for scheduler:', err);
                     }
                 }
             }

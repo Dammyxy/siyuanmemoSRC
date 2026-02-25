@@ -48,7 +48,8 @@ export enum QueueType {
 export type DataChangeEventType =
     | 'card-updated'    // 卡片数据更新
     | 'card-deleted'    // 卡片删除
-    | 'queue-changed';  // 队列内容变化
+    | 'queue-changed'   // 队列内容变化
+    | 'mode-switched';  // 模式切换（触发全量刷新）
 
 /**
  * 数据变更事件
@@ -90,6 +91,25 @@ export interface IDataSourceObserver {
      * @param event 数据变更事件
      */
     onDataChanged(event: DataChangeEvent): void;
+}
+
+/**
+ * 统一数据源管理器门面端口（供 UI / 应用服务依赖）
+ *
+ * 说明：
+ * - 这是应用层的抽象契约，不绑定具体类实现
+ * - 用于 DDD 依赖倒置，避免 UI 直接耦合 UnifiedDataSourceManager 具体实现
+ */
+export interface IUnifiedDataSourceManagerFacade {
+    getCard(cardId: string, options?: { silent?: boolean }): Promise<FSRSCard>;
+    getCards(filter?: CardFilter): Promise<FSRSCard[]>;
+    updateCard(card: FSRSCard): Promise<void>;
+    deleteCard?(cardId: string): Promise<void>;
+    getQueue(type: QueueType): IReviewQueue;
+    getAvailableQueueTypes(): QueueType[];
+    registerObserver(observer: IDataSourceObserver): void;
+    unregisterObserver(observer: IDataSourceObserver): void;
+    getI18n?(key: string): string | undefined;
 }
 
 // ============================================================================

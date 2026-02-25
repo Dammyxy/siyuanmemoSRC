@@ -9,10 +9,12 @@
  * @see .kiro/specs/unified-data-source-ui-integration/design.md - 复习界面集成
  */
 
-import type { UnifiedDataSourceManager } from '../../managers/UnifiedDataSourceManager';
-import type { IDataSourceObserver, DataChangeEvent, QueueType, IReviewQueue } from '../../types/unified-data-source';
+import type { IUnifiedDataSourceManagerFacade, IDataSourceObserver, DataChangeEvent, QueueType, IReviewQueue } from '@/types/unified-data-source';
 import type { FSRSCard } from '../../types/card';
 import { ReviewViewController } from '../../application/controllers/ReviewViewController';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('ReviewViewAdapter');
 
 /**
  * 复习界面适配器
@@ -29,7 +31,7 @@ export class ReviewViewAdapter implements IDataSourceObserver {
     /**
      * 统一数据源管理器实例
      */
-    private manager: UnifiedDataSourceManager;
+    private manager: IUnifiedDataSourceManagerFacade;
     
     /**
      * 复习界面控制器实例
@@ -65,11 +67,11 @@ export class ReviewViewAdapter implements IDataSourceObserver {
      * 
      * @param manager 统一数据源管理器实例
      */
-    constructor(manager: UnifiedDataSourceManager, i18n?: Record<string, string>) {
+    constructor(manager: IUnifiedDataSourceManagerFacade, i18n?: Record<string, string>) {
         this.manager = manager;
         this.i18n = i18n;
         
-        console.log('[ReviewViewAdapter] Adapter created');
+        logger.info('Adapter created');
     }
     
     // ========================================================================
@@ -87,7 +89,7 @@ export class ReviewViewAdapter implements IDataSourceObserver {
     async initializeController(queueType: QueueType): Promise<void> {
         try {
             // 记录初始化开始（需求 12.1：记录数据源类型）
-            console.log(`[ReviewViewAdapter] Initializing controller:`, {
+            logger.info(`[ReviewViewAdapter] Initializing controller:`, {
                 queueType,
                 dataSourceMode: 'advanced',
                 timestamp: new Date().toISOString()
@@ -103,11 +105,11 @@ export class ReviewViewAdapter implements IDataSourceObserver {
             if (!this.isRegistered) {
                 this.manager.registerObserver(this);
                 this.isRegistered = true;
-                console.log('[ReviewViewAdapter] Registered as observer');
+                logger.info('[ReviewViewAdapter] Registered as observer');
             }
             
             // 记录初始化成功（需求 12.1）
-            console.log(`[ReviewViewAdapter] Controller initialized successfully:`, {
+            logger.info(`[ReviewViewAdapter] Controller initialized successfully:`, {
                 queueType,
                 dataSourceMode: 'advanced',
                 timestamp: new Date().toISOString()
@@ -117,7 +119,7 @@ export class ReviewViewAdapter implements IDataSourceObserver {
             const errorMessage = error instanceof Error ? error.message : String(error);
             const errorStack = error instanceof Error ? error.stack : undefined;
             
-            console.error('[ReviewViewAdapter] Failed to initialize controller:', {
+            logger.error('[ReviewViewAdapter] Failed to initialize controller:', {
                 queueType,
                 error: errorMessage,
                 stack: errorStack,
@@ -140,12 +142,12 @@ export class ReviewViewAdapter implements IDataSourceObserver {
      */
     async next(): Promise<FSRSCard | null> {
         if (!this.controller || !this.currentQueue) {
-            console.warn('[ReviewViewAdapter] Controller or queue not initialized');
+            logger.warn('[ReviewViewAdapter] Controller or queue not initialized');
             throw new Error('Controller not initialized, fallback to useReviewSession');
         }
         
         try {
-            console.log('[ReviewViewAdapter] Getting next card');
+            logger.info('[ReviewViewAdapter] Getting next card');
             
             // 使用控制器加载下一张卡片
             await this.controller.loadNextCard(this.currentQueue);
@@ -156,11 +158,11 @@ export class ReviewViewAdapter implements IDataSourceObserver {
             // 更新当前卡片 ID
             this.currentCardId = card?.id || null;
             
-            console.log(`[ReviewViewAdapter] Next card: ${this.currentCardId || 'none'}`);
+            logger.info(`[ReviewViewAdapter] Next card: ${this.currentCardId || 'none'}`);
             
             return card;
         } catch (error) {
-            console.error('[ReviewViewAdapter] Failed to get next card:', error);
+            logger.error('[ReviewViewAdapter] Failed to get next card:', error);
             throw error;
         }
     }
@@ -177,17 +179,17 @@ export class ReviewViewAdapter implements IDataSourceObserver {
      */
     async grade(rating: number): Promise<void> {
         if (!this.controller || !this.currentQueue) {
-            console.warn('[ReviewViewAdapter] Controller or queue not initialized');
+            logger.warn('[ReviewViewAdapter] Controller or queue not initialized');
             throw new Error('Controller not initialized, fallback to useReviewSession');
         }
         
         if (!this.currentCardId) {
-            console.warn('[ReviewViewAdapter] No current card to grade');
+            logger.warn('[ReviewViewAdapter] No current card to grade');
             return;
         }
         
         try {
-            console.log(`[ReviewViewAdapter] Grading card ${this.currentCardId} with rating ${rating}`);
+            logger.info(`[ReviewViewAdapter] Grading card ${this.currentCardId} with rating ${rating}`);
             
             // 创建评分按钮配置
             const button = {
@@ -203,13 +205,13 @@ export class ReviewViewAdapter implements IDataSourceObserver {
             const nextCard = this.controller.getCurrentCard();
             this.currentCardId = nextCard?.id || null;
             
-            console.log(`[ReviewViewAdapter] Card graded, next card: ${this.currentCardId || 'none'}`);
+            logger.info(`[ReviewViewAdapter] Card graded, next card: ${this.currentCardId || 'none'}`);
         } catch (error) {
             // 记录详细的错误日志（需求 8.3）
             const errorMessage = error instanceof Error ? error.message : String(error);
             const errorStack = error instanceof Error ? error.stack : undefined;
             
-            console.error('[ReviewViewAdapter] Failed to grade card:', {
+            logger.error('[ReviewViewAdapter] Failed to grade card:', {
                 cardId: this.currentCardId,
                 rating,
                 error: errorMessage,
@@ -237,17 +239,17 @@ export class ReviewViewAdapter implements IDataSourceObserver {
      */
     async skip(): Promise<void> {
         if (!this.controller || !this.currentQueue) {
-            console.warn('[ReviewViewAdapter] Controller or queue not initialized');
+            logger.warn('[ReviewViewAdapter] Controller or queue not initialized');
             throw new Error('Controller not initialized, fallback to useReviewSession');
         }
         
         if (!this.currentCardId) {
-            console.warn('[ReviewViewAdapter] No current card to skip');
+            logger.warn('[ReviewViewAdapter] No current card to skip');
             return;
         }
         
         try {
-            console.log(`[ReviewViewAdapter] Skipping card ${this.currentCardId}`);
+            logger.info(`[ReviewViewAdapter] Skipping card ${this.currentCardId}`);
             
             // 创建跳过按钮配置
             const button = {
@@ -263,13 +265,13 @@ export class ReviewViewAdapter implements IDataSourceObserver {
             const nextCard = this.controller.getCurrentCard();
             this.currentCardId = nextCard?.id || null;
             
-            console.log(`[ReviewViewAdapter] Card skipped, next card: ${this.currentCardId || 'none'}`);
+            logger.info(`[ReviewViewAdapter] Card skipped, next card: ${this.currentCardId || 'none'}`);
         } catch (error) {
             // 记录详细的错误日志（需求 8.3）
             const errorMessage = error instanceof Error ? error.message : String(error);
             const errorStack = error instanceof Error ? error.stack : undefined;
             
-            console.error('[ReviewViewAdapter] Failed to skip card:', {
+            logger.error('[ReviewViewAdapter] Failed to skip card:', {
                 cardId: this.currentCardId,
                 error: errorMessage,
                 stack: errorStack,
@@ -322,13 +324,13 @@ export class ReviewViewAdapter implements IDataSourceObserver {
      * 验证需求：4.4
      */
     destroy(): void {
-        console.log('[ReviewViewAdapter] Destroying adapter');
+        logger.info('[ReviewViewAdapter] Destroying adapter');
         
         // 取消注册观察者
         if (this.isRegistered) {
             this.manager.unregisterObserver(this);
             this.isRegistered = false;
-            console.log('[ReviewViewAdapter] Unregistered as observer');
+            logger.info('[ReviewViewAdapter] Unregistered as observer');
         }
         
         // 清理引用
@@ -353,7 +355,7 @@ export class ReviewViewAdapter implements IDataSourceObserver {
      */
     onDataChanged(event: DataChangeEvent): void {
         // 记录观察者通知（需求 12.3：记录事件类型、受影响的数据、通知时间）
-        console.log('[ReviewViewAdapter] Data changed:', {
+        logger.info('[ReviewViewAdapter] Data changed:', {
             eventType: event.type,
             queueType: event.queueType,
             cardIds: event.cardIds,
@@ -372,6 +374,9 @@ export class ReviewViewAdapter implements IDataSourceObserver {
                 break;
             case 'queue-changed':
                 this.handleQueueChanged(event.queueType);
+                break;
+            case 'mode-switched':
+                this.handleModeSwitched();
                 break;
         }
         
@@ -399,11 +404,11 @@ export class ReviewViewAdapter implements IDataSourceObserver {
      * @param cardIds 受影响的卡片 ID 列表
      */
     private handleCardUpdated(cardIds: string[]): void {
-        console.log(`[ReviewViewAdapter] Handling card-updated event: ${cardIds.length} cards`);
+        logger.info(`[ReviewViewAdapter] Handling card-updated event: ${cardIds.length} cards`);
         
         // 如果当前卡片被更新，触发刷新
         if (this.currentCardId && cardIds.includes(this.currentCardId)) {
-            console.log(`[ReviewViewAdapter] Current card ${this.currentCardId} was updated`);
+            logger.info(`[ReviewViewAdapter] Current card ${this.currentCardId} was updated`);
             // 触发 Vue 组件刷新
             // 实际的刷新逻辑由 Vue 组件通过回调函数处理
         }
@@ -419,11 +424,11 @@ export class ReviewViewAdapter implements IDataSourceObserver {
      * @param cardIds 受影响的卡片 ID 列表
      */
     private handleCardDeleted(cardIds: string[]): void {
-        console.log(`[ReviewViewAdapter] Handling card-deleted event: ${cardIds.length} cards`);
+        logger.info(`[ReviewViewAdapter] Handling card-deleted event: ${cardIds.length} cards`);
         
         // 如果当前卡片被删除，自动跳到下一张
         if (this.currentCardId && cardIds.includes(this.currentCardId)) {
-            console.log(`[ReviewViewAdapter] Current card ${this.currentCardId} was deleted, skipping to next`);
+            logger.info(`[ReviewViewAdapter] Current card ${this.currentCardId} was deleted, skipping to next`);
             void this.skip();
         }
     }
@@ -436,7 +441,7 @@ export class ReviewViewAdapter implements IDataSourceObserver {
      * @param queueType 受影响的队列类型
      */
     private handleQueueChanged(queueType?: QueueType): void {
-        console.log(`[ReviewViewAdapter] Handling queue-changed event: ${queueType || 'all'}`);
+        logger.info(`[ReviewViewAdapter] Handling queue-changed event: ${queueType || 'all'}`);
         
         // 如果是当前队列，刷新队列统计
         if (!queueType || queueType === this.currentQueue?.getType()) {
@@ -444,4 +449,12 @@ export class ReviewViewAdapter implements IDataSourceObserver {
             // 实际的刷新逻辑由 Vue 组件通过回调函数处理
         }
     }
+
+    /**
+     * 处理模式切换事件
+     */
+    private handleModeSwitched(): void {
+        logger.info('Handling mode-switched event');
+    }
 }
+

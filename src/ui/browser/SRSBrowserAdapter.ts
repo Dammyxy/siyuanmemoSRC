@@ -9,12 +9,14 @@
  * @see .kiro/specs/unified-data-source-ui-integration/design.md - SRS 浏览器集成
  */
 
-import type { UnifiedDataSourceManager } from '../../managers/UnifiedDataSourceManager';
-import type { IDataSourceObserver, DataChangeEvent, QueueType } from '../../types/unified-data-source';
-import type { FSRSCard } from '../../types/card';
+import type { IUnifiedDataSourceManagerFacade, IDataSourceObserver, DataChangeEvent, QueueType } from '@/types/unified-data-source';
+import type { FSRSCard } from '@/types/card';
 import type { BrowserCard } from './types';
 import { CardState, calculateRetrievability, formatDueDate, formatHistoryDate, truncateContent } from './types';
-import { validateConsumerCardType } from '../../diagnostics/type-guards';
+import { validateConsumerCardType } from '@/diagnostics/type-guards';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('SRSBrowserAdapter');
 
 /**
  * fetchRows 方法的选项参数
@@ -50,7 +52,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
     /**
      * 统一数据源管理器实例
      */
-    private manager: UnifiedDataSourceManager;
+    private manager: IUnifiedDataSourceManagerFacade;
     
     /**
      * 当前队列类型
@@ -74,10 +76,10 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
      * 
      * @param manager 统一数据源管理器实例
      */
-    constructor(manager: UnifiedDataSourceManager) {
+    constructor(manager: IUnifiedDataSourceManagerFacade) {
         this.manager = manager;
         
-        console.log('[SiYuanMemo][SRSBrowserAdapter] Adapter created');
+        logger.info('Adapter created');
     }
     
     // ========================================================================
@@ -95,7 +97,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
     async initializeQueueView(queueType: QueueType): Promise<void> {
         try {
             // 记录初始化开始（需求 12.1：记录数据源类型）
-            console.log(`[SiYuanMemo][SRSBrowserAdapter] Initializing queue view:`, {
+            logger.info(`[SiYuanMemo][SRSBrowserAdapter] Initializing queue view:`, {
                 queueType,
                 dataSourceMode: 'advanced',
                 timestamp: new Date().toISOString()
@@ -108,11 +110,11 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             if (!this.isRegistered) {
                 this.manager.registerObserver(this);
                 this.isRegistered = true;
-                console.log('[SiYuanMemo][SRSBrowserAdapter] Registered as observer');
+                logger.info('[SiYuanMemo][SRSBrowserAdapter] Registered as observer');
             }
             
             // 记录初始化成功（需求 12.1）
-            console.log(`[SiYuanMemo][SRSBrowserAdapter] Queue view initialized successfully:`, {
+            logger.info(`[SiYuanMemo][SRSBrowserAdapter] Queue view initialized successfully:`, {
                 queueType,
                 dataSourceMode: 'advanced',
                 timestamp: new Date().toISOString()
@@ -122,7 +124,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             const errorMessage = error instanceof Error ? error.message : String(error);
             const errorStack = error instanceof Error ? error.stack : undefined;
             
-            console.error('[SiYuanMemo][SRSBrowserAdapter] Failed to initialize queue view:', {
+            logger.error('[SiYuanMemo][SRSBrowserAdapter] Failed to initialize queue view:', {
                 queueType,
                 error: errorMessage,
                 stack: errorStack,
@@ -147,7 +149,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
      */
     async fetchRows(_options: FetchRowsOptions): Promise<FetchRowsResult> {
         if (!this.currentQueueType) {
-            console.warn('[SiYuanMemo][SRSBrowserAdapter] No queue type selected');
+            logger.warn('[SiYuanMemo][SRSBrowserAdapter] No queue type selected');
             return { rows: [] };
         }
         
@@ -155,7 +157,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
         const startTime = Date.now();
         
         try {
-            console.log(`[SiYuanMemo][SRSBrowserAdapter] Fetching rows for queue: ${this.currentQueueType}`);
+            logger.info(`[SiYuanMemo][SRSBrowserAdapter] Fetching rows for queue: ${this.currentQueueType}`);
             
             // 获取队列实例
             const queue = this.manager.getQueue(this.currentQueueType);
@@ -163,9 +165,9 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             // 获取队列中的所有卡片
             // 注意：使用 getAllCards() 而不是 getCards()
             // getAllCards() 会调用 dataSource.getAll()，包含过滤逻辑
-            console.log(`[SiYuanMemo][SRSBrowserAdapter] Calling getAllCards() on queue`);
+            logger.info(`[SiYuanMemo][SRSBrowserAdapter] Calling getAllCards() on queue`);
             const cards = await queue.getAllCards();
-            console.log(`[SiYuanMemo][SRSBrowserAdapter] getAllCards() returned ${cards.length} cards`);
+            logger.info(`[SiYuanMemo][SRSBrowserAdapter] getAllCards() returned ${cards.length} cards`);
 
             // 运行时类型验证（开发模式）
             validateConsumerCardType('SRSBrowserAdapter', cards);
@@ -177,7 +179,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             const endTime = Date.now();
             const duration = endTime - startTime;
             
-            console.log(`[SiYuanMemo][SRSBrowserAdapter] Fetched rows successfully:`, {
+            logger.info(`[SiYuanMemo][SRSBrowserAdapter] Fetched rows successfully:`, {
                 queueType: this.currentQueueType,
                 cardCount: browserCards.length,
                 startTime: new Date(startTime).toISOString(),
@@ -197,7 +199,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
             const endTime = Date.now();
             const duration = endTime - startTime;
             
-            console.error('[SiYuanMemo][SRSBrowserAdapter] Failed to fetch rows:', {
+            logger.error('[SiYuanMemo][SRSBrowserAdapter] Failed to fetch rows:', {
                 queueType: this.currentQueueType,
                 error: errorMessage,
                 stack: errorStack,
@@ -233,13 +235,13 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
      * 验证需求：3.5
      */
     destroy(): void {
-        console.log('[SiYuanMemo][SRSBrowserAdapter] Destroying adapter');
+        logger.info('[SiYuanMemo][SRSBrowserAdapter] Destroying adapter');
         
         // 取消注册观察者
         if (this.isRegistered) {
             this.manager.unregisterObserver(this);
             this.isRegistered = false;
-            console.log('[SiYuanMemo][SRSBrowserAdapter] Unregistered as observer');
+            logger.info('[SiYuanMemo][SRSBrowserAdapter] Unregistered as observer');
         }
         
         // 清理引用
@@ -262,7 +264,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
      */
     onDataChanged(event: DataChangeEvent): void {
         // 记录观察者通知（需求 12.3：记录事件类型、受影响的数据、通知时间）
-        console.log('[SiYuanMemo][SRSBrowserAdapter] Data changed:', {
+        logger.info('[SiYuanMemo][SRSBrowserAdapter] Data changed:', {
             eventType: event.type,
             queueType: event.queueType,
             cardIds: event.cardIds,
@@ -280,6 +282,9 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
                 break;
             case 'queue-changed':
                 this.handleQueueChanged(event.queueType);
+                break;
+            case 'mode-switched':
+                this.handleModeSwitched();
                 break;
         }
         
@@ -301,7 +306,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
      * @param cardIds 受影响的卡片 ID 列表
      */
     private handleCardUpdated(cardIds: string[]): void {
-        console.log(`[SiYuanMemo][SRSBrowserAdapter] Handling card-updated event: ${cardIds.length} cards`);
+        logger.info(`[SiYuanMemo][SRSBrowserAdapter] Handling card-updated event: ${cardIds.length} cards`);
         
         // 触发 Vue 组件刷新
         // 实际的刷新逻辑由 Vue 组件通过回调函数处理
@@ -315,7 +320,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
      * @param cardIds 受影响的卡片 ID 列表
      */
     private handleCardDeleted(cardIds: string[]): void {
-        console.log(`[SiYuanMemo][SRSBrowserAdapter] Handling card-deleted event: ${cardIds.length} cards`);
+        logger.info(`[SiYuanMemo][SRSBrowserAdapter] Handling card-deleted event: ${cardIds.length} cards`);
         
         // 触发 Vue 组件刷新
         // 实际的刷新逻辑由 Vue 组件通过回调函数处理
@@ -329,13 +334,22 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
      * @param queueType 受影响的队列类型
      */
     private handleQueueChanged(queueType?: QueueType): void {
-        console.log(`[SiYuanMemo][SRSBrowserAdapter] Handling queue-changed event: ${queueType || 'all'}`);
+        logger.info(`[SiYuanMemo][SRSBrowserAdapter] Handling queue-changed event: ${queueType || 'all'}`);
         
         // 如果是当前队列，刷新队列统计
         if (!queueType || queueType === this.currentQueueType) {
             // 触发 Vue 组件刷新
             // 实际的刷新逻辑由 Vue 组件通过回调函数处理
         }
+    }
+
+    /**
+     * 处理模式切换事件
+     *
+     * 模式切换会影响所有队列和可见数据，触发上层做全量刷新。
+     */
+    private handleModeSwitched(): void {
+        logger.info('Handling mode-switched event');
     }
     
     // ========================================================================
@@ -364,7 +378,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
         // 🔧 检查数据完整性
         const isIncomplete = card.meta?.isIncomplete === true;
         if (isIncomplete) {
-            console.warn('[SiYuanMemo][SRSBrowserAdapter] ⚠️ Converting incomplete FSRSCard:', {
+            logger.warn('[SiYuanMemo][SRSBrowserAdapter] ⚠️ Converting incomplete FSRSCard:', {
                 id: card.id,
                 blockId: card.blockId,
                 hasRiffCardId: !!card.riffCardId,
@@ -452,7 +466,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
         
         // 🔧 如果数据不完整，记录详细日志
         if (isIncomplete) {
-            console.log('[SiYuanMemo][SRSBrowserAdapter] ⚠️ Converted incomplete card to BrowserCard:', {
+            logger.info('[SiYuanMemo][SRSBrowserAdapter] ⚠️ Converted incomplete card to BrowserCard:', {
                 id: result.id,
                 fsrsCardId: result.fsrsCardId,
                 blockId: result.blockId,
@@ -515,3 +529,4 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
         }
     }
 }
+

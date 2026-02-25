@@ -11,10 +11,9 @@
 
 import type { FSRSCard } from '@/types/card';
 import type { AdvanceConfig, AdvanceResult } from '@/types/reschedule';
-import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
-import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import type { RescheduleLog } from '@/types/scheduler';
 import { BatchProcessor } from './BatchProcessor';
+import type { CardUpdatePort, RescheduleStoragePort } from './ports';
 
 /**
  * AdvanceEngine - 实现 SuperMemo Advance 算法
@@ -27,8 +26,8 @@ export class AdvanceEngine {
     private batchProcessor: BatchProcessor;
     
     constructor(
-        private unifiedStorage: UnifiedStorageManager,
-        private cardApplicationService: CardApplicationService
+        private storage: RescheduleStoragePort,
+        private cardUpdater: CardUpdatePort
     ) {
         this.batchProcessor = new BatchProcessor();
     }
@@ -188,7 +187,7 @@ export class AdvanceEngine {
         }
 
         // ✅ 通过 CardApplicationService 批量更新
-        await this.cardApplicationService.batchUpdateCardsWithoutEvents(cards);
+        await this.cardUpdater.batchUpdateCardsWithoutEvents(cards);
 
         // 记录操作日志
         await this.logOperation(cards, source);
@@ -240,9 +239,6 @@ export class AdvanceEngine {
         };
 
         // TODO: 将 addRescheduleLog 迁移到应用服务层
-        const storage = this.unifiedStorage as any;
-        if (storage.addRescheduleLog) {
-            await storage.addRescheduleLog(log);
-        }
+        await this.storage.addRescheduleLog?.(log);
     }
 }

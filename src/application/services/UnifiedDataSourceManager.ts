@@ -26,6 +26,9 @@ import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
 import { FinalDrillQueue } from '@/core/queue/domain/FinalDrillQueue';
 import { NeuralRoamQueue } from '@/core/queue/domain/NeuralRoamQueue';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('UnifiedDataSourceManager');
 
 /**
  * UnifiedDataSourceManager 类
@@ -117,6 +120,13 @@ export class UnifiedDataSourceManager {
      * 用于队列数据的持久化（传递给队列构造函数）
      */
     private queuePersistence: any | null;
+
+    /**
+     * 待分发的数据变更事件（同一 tick 合并）
+     */
+    private pendingObserverEvents: Map<string, DataChangeEvent>;
+    private pendingObserverEventOrder: string[];
+    private observerFlushScheduled: boolean;
     
     // ========================================================================
     // 构造函数
@@ -140,6 +150,9 @@ export class UnifiedDataSourceManager {
         // 初始化队列实例缓存
         this.queueInstances = new Map<QueueType, IReviewQueue>();
         this.queuePersistence = null;
+        this.pendingObserverEvents = new Map<string, DataChangeEvent>();
+        this.pendingObserverEventOrder = [];
+        this.observerFlushScheduled = false;
     }
     
     /**
@@ -151,7 +164,7 @@ export class UnifiedDataSourceManager {
      */
     public setQueuePersistence(queuePersistence: any): void {
         this.queuePersistence = queuePersistence;
-        console.log('[UnifiedDataSourceManager] ✅ QueuePersistence service set');
+        logger.info('QueuePersistence service set');
     }
     
     /**
@@ -215,6 +228,57 @@ export class UnifiedDataSourceManager {
     public unregisterObserver(observer: IDataSourceObserver): void {
         this.observers.delete(observer);
     }
+
+    private getObserverEventKey(event: DataChangeEvent): string {
+        return `${event.type}:${event.queueType ?? '*'}`;
+    }
+
+    private mergeObserverEvent(previous: DataChangeEvent, next: DataChangeEvent): DataChangeEvent {
+        const mergedCardIds = Array.from(
+            new Set([...(previous.cardIds ?? []), ...(next.cardIds ?? [])])
+        );
+
+        return {
+            type: next.type,
+            queueType: next.queueType ?? previous.queueType,
+            cardIds: mergedCardIds.length > 0 ? mergedCardIds : undefined,
+            timestamp: Math.max(previous.timestamp, next.timestamp),
+        };
+    }
+
+    private flushObserverNotifications(): void {
+        this.observerFlushScheduled = false;
+
+        if (this.pendingObserverEvents.size === 0) {
+            return;
+        }
+
+        const keys = this.pendingObserverEventOrder;
+        const events = keys
+            .map((key) => this.pendingObserverEvents.get(key))
+            .filter((event): event is DataChangeEvent => Boolean(event));
+
+        this.pendingObserverEvents.clear();
+        this.pendingObserverEventOrder = [];
+
+        const failures: Array<{ observer: IDataSourceObserver; error: Error }> = [];
+
+        for (const event of events) {
+            for (const observer of this.observers) {
+                try {
+                    observer.onDataChanged(event);
+                } catch (error) {
+                    const errorObj = error instanceof Error ? error : new Error(String(error));
+                    failures.push({ observer, error: errorObj });
+                    logger.error('Observer notification failed:', errorObj);
+                }
+            }
+        }
+
+        if (failures.length > 0) {
+            logger.warn(`${failures.length} observer notifications failed; observers=${this.observers.size}`);
+        }
+    }
     
     /**
      * 通知所有观察者
@@ -232,27 +296,23 @@ export class UnifiedDataSourceManager {
      * @see 需求 14.3, 14.4
      */
     public notifyObservers(event: DataChangeEvent): void {
-        // 记录失败的观察者
-        const failures: Array<{ observer: IDataSourceObserver; error: Error }> = [];
-        
-        // 遍历所有观察者
-        for (const observer of this.observers) {
-            try {
-                // 调用观察者的 onDataChanged 方法
-                observer.onDataChanged(event);
-            } catch (error) {
-                // 捕获错误，记录失败信息
-                const errorObj = error instanceof Error ? error : new Error(String(error));
-                failures.push({ observer, error: errorObj });
-                
-                // 记录错误日志（不中断流程）
-                console.error('观察者通知失败:', errorObj);
-            }
+        const normalized: DataChangeEvent = {
+            ...event,
+            timestamp: event.timestamp || Date.now(),
+        };
+
+        const key = this.getObserverEventKey(normalized);
+        const existing = this.pendingObserverEvents.get(key);
+        if (existing) {
+            this.pendingObserverEvents.set(key, this.mergeObserverEvent(existing, normalized));
+        } else {
+            this.pendingObserverEvents.set(key, normalized);
+            this.pendingObserverEventOrder.push(key);
         }
-        
-        // 如果有失败，记录警告日志
-        if (failures.length > 0) {
-            console.warn(`${failures.length} 个观察者通知失败，共 ${this.observers.size} 个观察者`);
+
+        if (!this.observerFlushScheduled) {
+            this.observerFlushScheduled = true;
+            queueMicrotask(() => this.flushObserverNotifications());
         }
     }
     
@@ -283,7 +343,7 @@ export class UnifiedDataSourceManager {
             
             // 如果不是静默模式，记录错误日志
             if (!options?.silent) {
-                console.error(`[UnifiedDataSourceManager] Failed to get card ${cardId}:`, errorMessage);
+                logger.error(`Failed to get card ${cardId}:`, errorMessage);
             }
             
             throw new Error(`获取卡片失败 (${cardId}): ${errorMessage}`);
@@ -308,7 +368,7 @@ export class UnifiedDataSourceManager {
             return cards;
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error('[UnifiedDataSourceManager] Failed to get cards:', errorMessage);
+            logger.error('Failed to get cards:', errorMessage);
             throw new Error(`获取卡片列表失败: ${errorMessage}`);
         }
     }
@@ -343,16 +403,17 @@ export class UnifiedDataSourceManager {
             this.invalidateQueue(QueueType.FilterGroup);
             
             // 3. 通知所有观察者
+            const affectedIds = Array.from(new Set([card.id, card.blockId].filter(Boolean)));
             this.notifyObservers({
                 type: 'card-updated',
-                cardIds: [card.id],
+                cardIds: affectedIds,
                 timestamp: Date.now(),
             });
             
-            console.log(`[UnifiedDataSourceManager] Card updated: ${card.id}`);
+            logger.debug(`Card updated: ${card.id}`);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error(`[UnifiedDataSourceManager] Failed to update card ${card.id}:`, errorMessage);
+            logger.error(`Failed to update card ${card.id}:`, errorMessage);
             throw new Error(`更新卡片失败 (${card.id}): ${errorMessage}`);
         }
     }
@@ -376,6 +437,14 @@ export class UnifiedDataSourceManager {
      */
     public async deleteCard(cardId: string): Promise<void> {
         try {
+            let deletedBlockId: string | undefined;
+            try {
+                const existingCard = await this.getCard(cardId, { silent: true });
+                deletedBlockId = existingCard.blockId;
+            } catch {
+                // 忽略预读取失败，仍按 cardId 继续删除
+            }
+
             // 1. 通过当前路由器删除卡片
             const router = this.getRouter();
             await router.deleteCard(cardId);
@@ -385,16 +454,17 @@ export class UnifiedDataSourceManager {
             this.invalidateAllQueues();
             
             // 3. 通知所有观察者
+            const affectedIds = Array.from(new Set([cardId, deletedBlockId].filter(Boolean)));
             this.notifyObservers({
                 type: 'card-deleted',
-                cardIds: [cardId],
+                cardIds: affectedIds,
                 timestamp: Date.now(),
             });
             
-            console.log(`[UnifiedDataSourceManager] Card deleted: ${cardId}`);
+            logger.debug(`Card deleted: ${cardId}`);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error(`[UnifiedDataSourceManager] Failed to delete card ${cardId}:`, errorMessage);
+            logger.error(`Failed to delete card ${cardId}:`, errorMessage);
             throw new Error(`删除卡片失败 (${cardId}): ${errorMessage}`);
         }
     }
@@ -433,7 +503,7 @@ export class UnifiedDataSourceManager {
         if (typeof (queue as any).load === 'function') {
             // 创建一个加载 Promise 并存储
             const loadPromise = (queue as any).load().catch((error: Error) => {
-                console.error(`[UnifiedDataSourceManager] Failed to load queue ${type}:`, error);
+                logger.error(`Failed to load queue ${type}:`, error);
             });
             
             // 将加载 Promise 附加到队列对象上，供 getCards() 使用
@@ -442,7 +512,7 @@ export class UnifiedDataSourceManager {
         
         this.queueInstances.set(type, queue);
         
-        console.log(`[UnifiedDataSourceManager] ✅ Queue created: ${type}`);
+        logger.info(`Queue created: ${type}`);
         return queue;
     }
     
@@ -506,7 +576,7 @@ export class UnifiedDataSourceManager {
      */
     public invalidateQueue(type: QueueType): void {
         this.queueInstances.delete(type);
-        console.log(`[UnifiedDataSourceManager] Queue cache invalidated: ${type}`);
+        logger.debug(`Queue cache invalidated: ${type}`);
     }
     
     /**
@@ -516,7 +586,7 @@ export class UnifiedDataSourceManager {
      */
     public invalidateAllQueues(): void {
         this.queueInstances.clear();
-        console.log('[UnifiedDataSourceManager] All queue caches invalidated');
+        logger.debug('All queue caches invalidated');
     }
     
     /**

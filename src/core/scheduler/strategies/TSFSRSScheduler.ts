@@ -23,6 +23,9 @@ import {
 } from 'ts-fsrs';
 import type { FSRSCard, FSRSParameters, Rating, CardState } from '@/types';
 import type { SchedulerEngineAdapter } from '../types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('TSFSRSScheduler');
 
 /**
  * 预览缓存项
@@ -328,7 +331,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
         } else {
             // 如果 due 无效，使用当前时间
             dueDate = new Date();
-            console.warn('[TSFSRSScheduler] Invalid due date for card:', card.id, 'using current time');
+            logger.warn('Invalid due date for card:', card.id, 'using current time');
         }
         
         // 安全地转换 lastReview 日期
@@ -377,7 +380,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
         } else {
             // 如果 due 无效，使用当前时间 + 1天
             dueTime = Date.now() + 86400000;
-            console.error('[TSFSRSScheduler] Invalid due date from ts-fsrs:', {
+            logger.error('Invalid due date from ts-fsrs:', {
                 cardId: originalCard.id,
                 tsCardDue: tsCard.due,
                 fallbackDue: new Date(dueTime).toISOString(),
