@@ -14,10 +14,10 @@
           <label>{{ t('spreadCollectingPeriod', '收集期（天）') }}</label>
           <div class="input-with-buttons">
             <div class="quick-buttons">
-              <button class="btn-quick" @click="config.collectingPeriod = 7">{{ t('days7', '7天') }}</button>
-              <button class="btn-quick" @click="config.collectingPeriod = 14">{{ t('days14', '14天') }}</button>
-              <button class="btn-quick" @click="config.collectingPeriod = 30">{{ t('days30', '30天') }}</button>
-              <button class="btn-quick" @click="config.collectingPeriod = 60">{{ t('days60', '60天') }}</button>
+              <button class="btn-quick" :class="{ 'btn-quick--active': config.collectingPeriod === 7 }" @click="config.collectingPeriod = 7">{{ t('days7', '7天') }}</button>
+              <button class="btn-quick" :class="{ 'btn-quick--active': config.collectingPeriod === 14 }" @click="config.collectingPeriod = 14">{{ t('days14', '14天') }}</button>
+              <button class="btn-quick" :class="{ 'btn-quick--active': config.collectingPeriod === 30 }" @click="config.collectingPeriod = 30">{{ t('days30', '30天') }}</button>
+              <button class="btn-quick" :class="{ 'btn-quick--active': config.collectingPeriod === 60 }" @click="config.collectingPeriod = 60">{{ t('days60', '60天') }}</button>
             </div>
             <input 
               type="number" 
@@ -45,10 +45,10 @@
           <label>{{ t('spreadReschedulingPeriod', '重新调度期（天）') }}</label>
           <div class="input-with-buttons">
             <div class="quick-buttons">
-              <button class="btn-quick" @click="config.reschedulingPeriod = 7">{{ t('days7', '7天') }}</button>
-              <button class="btn-quick" @click="config.reschedulingPeriod = 14">{{ t('days14', '14天') }}</button>
-              <button class="btn-quick" @click="config.reschedulingPeriod = 30">{{ t('days30', '30天') }}</button>
-              <button class="btn-quick" @click="config.reschedulingPeriod = 60">{{ t('days60', '60天') }}</button>
+              <button class="btn-quick" :class="{ 'btn-quick--active': config.reschedulingPeriod === 7 }" @click="config.reschedulingPeriod = 7">{{ t('days7', '7天') }}</button>
+              <button class="btn-quick" :class="{ 'btn-quick--active': config.reschedulingPeriod === 14 }" @click="config.reschedulingPeriod = 14">{{ t('days14', '14天') }}</button>
+              <button class="btn-quick" :class="{ 'btn-quick--active': config.reschedulingPeriod === 30 }" @click="config.reschedulingPeriod = 30">{{ t('days30', '30天') }}</button>
+              <button class="btn-quick" :class="{ 'btn-quick--active': config.reschedulingPeriod === 60 }" @click="config.reschedulingPeriod = 60">{{ t('days60', '60天') }}</button>
             </div>
             <input 
               type="number" 
@@ -239,14 +239,48 @@ function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
+function normalizeSpreadConfig(config: Partial<SpreadConfig> | null | undefined): SpreadConfig {
+  const defaults = props.configManager.getDefaultSpreadConfig();
+  const input = config ?? {};
+  return {
+    ...defaults,
+    ...input,
+    collectAllCards: input.collectAllCards ?? false,
+    maxCardsPerDay: normalizeMaxCardsPerDay(input.maxCardsPerDay),
+  };
+}
+
+function normalizeMaxCardsPerDay(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  const parsed = Math.floor(Number(value));
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
 // 配置状态
-const config = ref<SpreadConfig>(props.configManager.getDefaultSpreadConfig());
+const config = ref<SpreadConfig>(normalizeSpreadConfig(undefined));
 const selectedConfigName = ref('');
 const newConfigName = ref('');
 const configNames = ref<string[]>([]);
 
 // 验证错误
-const validationError = ref('');
+const operationError = ref('');
+
+const dueTimestamps = computed(() => {
+  if (!props.allCards || props.allCards.length === 0) {
+    return [];
+  }
+
+  return props.allCards.map((card) =>
+    card.due instanceof Date ? card.due.getTime() : Number(card.due)
+  );
+});
 
 // 🆕 计算收集的卡片数量（基于传入的 allCards，使用 computed 避免异步调用）
 const collectedCount = computed(() => {
@@ -262,20 +296,20 @@ const collectedCount = computed(() => {
   // 全部闪卡模式：根据配置筛选卡片
   const now = Date.now();
   const collectingPeriodMs = config.value.collectingPeriod * 24 * 60 * 60 * 1000;
-  
-  const filtered = props.allCards.filter(card => {
-    const dueTime = card.due instanceof Date ? card.due.getTime() : card.due;
-    
-    if (config.value.considerFutureRepetitions) {
-      // 包括未来复习：收集 due <= (now + collectingPeriod) 的卡片
-      return dueTime <= now + collectingPeriodMs;
-    } else {
-      // 仅到期卡片：收集 due <= now 的卡片
-      return dueTime <= now;
+  const maxDue = now + collectingPeriodMs;
+
+  let total = 0;
+  for (const dueTime of dueTimestamps.value) {
+    if (!Number.isFinite(dueTime)) {
+      continue;
     }
-  });
-  
-  return filtered.length;
+
+    if (config.value.considerFutureRepetitions ? dueTime <= maxDue : dueTime <= now) {
+      total++;
+    }
+  }
+
+  return total;
 });
 
 // 排序选项
@@ -320,6 +354,10 @@ const sortingOptions = computed(() => [
 
 // 操作类型
 const operationType = computed(() => {
+  if (props.queueMode) {
+    return t('spreadOperationEven', '均匀分散');
+  }
+
   if (config.value.collectingPeriod > config.value.reschedulingPeriod) {
     return t('spreadOperationAdvance', '提前复习（考试前）');
   } else if (config.value.collectingPeriod < config.value.reschedulingPeriod) {
@@ -331,6 +369,11 @@ const operationType = computed(() => {
 
 // 收集范围
 const collectingRange = computed(() => {
+  if (props.queueMode) {
+    return t('spreadQueueModeHint', '队列模式：将分散当前队列中的所有卡片（{n} 张）')
+      .replace('{n}', String(collectedCount.value));
+  }
+
   const endDate = new Date();
   endDate.setDate(endDate.getDate() + config.value.collectingPeriod);
   return `${t('now', '现在')} ${t('to', '到')} ${formatDate(endDate)}`;
@@ -357,27 +400,34 @@ function formatDate(date: Date): string {
 }
 
 // 验证配置
-const isValid = computed(() => {
-  validationError.value = '';
-  
+const formError = computed(() => {
   if (config.value.collectingPeriod < 1 || config.value.collectingPeriod > 365) {
-    validationError.value = t('spreadValidationCollectingPeriod', '收集期必须在 1 到 365 天之间');
-    return false;
+    return t('spreadValidationCollectingPeriod', '收集期必须在 1 到 365 天之间');
   }
   
   if (config.value.reschedulingPeriod < 1 || config.value.reschedulingPeriod > 365) {
-    validationError.value = t('spreadValidationReschedulingPeriod', '重新调度期必须在 1 到 365 天之间');
-    return false;
+    return t('spreadValidationReschedulingPeriod', '重新调度期必须在 1 到 365 天之间');
   }
-  
-  if (config.value.maxCardsPerDay !== undefined && 
-      (config.value.maxCardsPerDay < 1 || config.value.maxCardsPerDay > 1000)) {
-    validationError.value = t('spreadValidationMaxCards', '每日卡片数量限制必须在 1 到 1000 之间');
-    return false;
+
+  const rawMaxCardsPerDay = config.value.maxCardsPerDay;
+  const maxCardsPerDay = normalizeMaxCardsPerDay(rawMaxCardsPerDay);
+  const hasRawMaxCards =
+    rawMaxCardsPerDay !== undefined
+    && rawMaxCardsPerDay !== null
+    && rawMaxCardsPerDay !== '';
+
+  if (hasRawMaxCards && maxCardsPerDay === undefined) {
+    return t('spreadValidationMaxCards', '每日卡片数量限制必须在 1 到 1000 之间');
   }
-  
-  return true;
+
+  if (maxCardsPerDay !== undefined && (maxCardsPerDay < 1 || maxCardsPerDay > 1000)) {
+    return t('spreadValidationMaxCards', '每日卡片数量限制必须在 1 到 1000 之间');
+  }
+
+  return '';
 });
+const validationError = computed(() => operationError.value || formError.value);
+const isValid = computed(() => formError.value.length === 0);
 
 // 加载配置列表
 onMounted(async () => {
@@ -395,11 +445,12 @@ async function loadSelectedConfig() {
   try {
     const loaded = await props.configManager.loadConfig(selectedConfigName.value, 'spread');
     if (loaded) {
-      config.value = loaded as SpreadConfig;
+      config.value = normalizeSpreadConfig(loaded as SpreadConfig);
+      operationError.value = '';
     }
   } catch (error) {
     logger.error('Failed to load config:', error);
-    validationError.value = t('spreadLoadConfigFailed', '加载配置失败');
+    operationError.value = t('spreadLoadConfigFailed', '加载配置失败');
   }
 }
 
@@ -408,18 +459,26 @@ async function saveCurrentConfig() {
   if (!newConfigName.value.trim()) return;
   
   try {
-    await props.configManager.saveConfig(newConfigName.value.trim(), config.value, 'spread');
-    configNames.value.push(newConfigName.value.trim());
+    await props.configManager.saveConfig(newConfigName.value.trim(), {
+      ...config.value,
+      collectAllCards: false,
+      maxCardsPerDay: normalizeMaxCardsPerDay(config.value.maxCardsPerDay),
+    }, 'spread');
+    configNames.value = Array.from(new Set([...configNames.value, newConfigName.value.trim()]));
     newConfigName.value = '';
+    operationError.value = '';
   } catch (error) {
     logger.error('Failed to save config:', error);
-    validationError.value = t('spreadSaveConfigFailed', '保存配置失败');
+    operationError.value = t('spreadSaveConfigFailed', '保存配置失败');
   }
 }
 
 function handleConfirm() {
   if (!isValid.value) return;
-  emit('confirm', config.value);
+  emit('confirm', {
+    ...config.value,
+    maxCardsPerDay: normalizeMaxCardsPerDay(config.value.maxCardsPerDay),
+  });
 }
 
 function handleCancel() {
@@ -429,27 +488,32 @@ function handleCancel() {
 
 <style scoped>
 .spread-dialog {
-  padding: 16px;
+  padding: 18px;
   max-height: 80vh;
   overflow-y: auto;
 }
 
 .dialog__info {
   margin-bottom: 20px;
-  padding: 12px;
-  background: var(--b3-theme-surface);
-  border-radius: 6px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, var(--b3-theme-primary-lightest), color-mix(in srgb, var(--b3-theme-primary-lightest) 70%, var(--b3-theme-background)));
+  border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 22%, transparent);
+  border-radius: 10px;
   text-align: center;
+  font-weight: 500;
 }
 
 .form-section {
   margin-bottom: 24px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid var(--b3-border-color);
+  padding: 16px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--b3-theme-surface) 78%, transparent);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--b3-theme-on-background) 6%, transparent);
 }
 
 .form-section:last-of-type {
-  border-bottom: none;
+  margin-bottom: 12px;
 }
 
 .section-title {
@@ -502,6 +566,12 @@ function handleCancel() {
 .btn-quick:hover {
   background: var(--b3-theme-primary-lightest);
   border-color: var(--b3-theme-primary);
+}
+
+.btn-quick--active {
+  background: var(--b3-theme-primary);
+  border-color: var(--b3-theme-primary);
+  color: var(--b3-theme-on-primary);
 }
 
 .form-input {
@@ -604,7 +674,7 @@ function handleCancel() {
 
 .preview-box {
   padding: 16px;
-  background: var(--b3-theme-primary-lightest);
+  background: linear-gradient(135deg, var(--b3-theme-primary-lightest), color-mix(in srgb, var(--b3-theme-primary-lightest) 68%, var(--b3-theme-background)));
   border-radius: 8px;
   border: 1px solid var(--b3-theme-primary-lighter);
 }
@@ -679,9 +749,13 @@ function handleCancel() {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 20px;
-  padding-top: 16px;
+  margin-top: 16px;
+  padding-top: 14px;
   border-top: 1px solid var(--b3-border-color);
+  position: sticky;
+  bottom: -18px;
+  background: color-mix(in srgb, var(--b3-theme-background) 90%, transparent);
+  backdrop-filter: blur(2px);
 }
 
 /* 🆕 队列模式提示样式 */
@@ -690,7 +764,7 @@ function handleCancel() {
   align-items: center;
   gap: 8px;
   padding: 12px;
-  background: var(--b3-theme-primary-lightest);
+  background: linear-gradient(135deg, var(--b3-theme-primary-lightest), color-mix(in srgb, var(--b3-theme-primary-lightest) 70%, var(--b3-theme-surface)));
   border: 1px solid var(--b3-theme-primary-lighter);
   border-radius: 6px;
   color: var(--b3-theme-on-surface);
@@ -702,5 +776,25 @@ function handleCancel() {
   height: 16px;
   flex-shrink: 0;
   fill: var(--b3-theme-primary);
+}
+
+@media (max-width: 900px) {
+  .sorting-options {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-buttons {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .config-select,
+  .config-save {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dialog__actions {
+    flex-direction: column-reverse;
+  }
 }
 </style>

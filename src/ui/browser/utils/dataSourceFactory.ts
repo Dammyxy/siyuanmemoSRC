@@ -26,6 +26,9 @@ type I18nPluginLike = {
   i18n?: I18nDictionary;
 };
 type QueueDataSourcePlugin = ConstructorParameters<typeof FinalDrillDataSource>[2];
+type RetrievalDataSourcePlugin = ConstructorParameters<typeof RetrievalDataSource>[2];
+type FilterGroupDataSourcePlugin = ConstructorParameters<typeof FilterGroupDataSource>[2];
+type IncrementalDataSourcePlugin = ConstructorParameters<typeof IncrementalLearningDataSource>[2];
 type DeckDataSourcePlugin = ConstructorParameters<typeof DeckDataSource>[2];
 type BlockIdsPlugin = ConstructorParameters<typeof BlockIdsDataSource>[0]['plugin'];
 function isI18nPluginLike(value: unknown): value is I18nPluginLike {
@@ -34,6 +37,18 @@ function isI18nPluginLike(value: unknown): value is I18nPluginLike {
 
 function asQueueDataSourcePlugin(plugin: unknown): QueueDataSourcePlugin {
   return plugin as QueueDataSourcePlugin;
+}
+
+function asRetrievalDataSourcePlugin(plugin: unknown): RetrievalDataSourcePlugin {
+  return plugin as RetrievalDataSourcePlugin;
+}
+
+function asFilterGroupDataSourcePlugin(plugin: unknown): FilterGroupDataSourcePlugin {
+  return plugin as FilterGroupDataSourcePlugin;
+}
+
+function asIncrementalDataSourcePlugin(plugin: unknown): IncrementalDataSourcePlugin {
+  return plugin as IncrementalDataSourcePlugin;
 }
 
 function asDeckDataSourcePlugin(plugin: unknown): DeckDataSourcePlugin {
@@ -101,7 +116,7 @@ export function createQueueDataSource(
         preset,
         queryText,
         cardType,
-      }, asQueueDataSourcePlugin(plugin));
+      }, asRetrievalDataSourcePlugin(plugin));
 
     case 'filter-group':
       return new FilterGroupDataSource(manager, {
@@ -109,7 +124,7 @@ export function createQueueDataSource(
         preset,
         queryText,
         cardType,
-      }, asQueueDataSourcePlugin(plugin));
+      }, asFilterGroupDataSourcePlugin(plugin));
 
     case 'incremental-learning':
       return new IncrementalLearningDataSource(manager, {
@@ -117,7 +132,7 @@ export function createQueueDataSource(
         preset,
         queryText,
         cardType,
-      }, asQueueDataSourcePlugin(plugin));
+      }, asIncrementalDataSourcePlugin(plugin));
 
     case 'neural-roam':
       // 神经漫游队列：使用 BlockIds 数据源
@@ -237,7 +252,7 @@ export function createFocusDataSource(
       preset,
       queryText,
       cardType,
-    }, asQueueDataSourcePlugin(plugin));
+    }, asRetrievalDataSourcePlugin(plugin));
   }
 
   if (queueId === 'filter-group') {
@@ -245,7 +260,7 @@ export function createFocusDataSource(
       preset,
       queryText,
       cardType,
-    }, asQueueDataSourcePlugin(plugin));
+    }, asFilterGroupDataSourcePlugin(plugin));
   }
 
   // ✅ 新增：渐进学习队列
@@ -254,7 +269,7 @@ export function createFocusDataSource(
       preset,
       queryText,
       cardType,
-    }, asQueueDataSourcePlugin(plugin));
+    }, asIncrementalDataSourcePlugin(plugin));
   }
 
   // 神经漫游队列：使用 BlockIds，支持动态获取

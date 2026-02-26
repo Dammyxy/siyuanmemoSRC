@@ -5,13 +5,15 @@ import type {
   FetchRowsOptions,
   FetchRowsResult,
 } from './types';
-import { buildQueueActions } from './MenuActions';
+import {
+  buildQueueActions,
+  adjustTime,
+  type PluginLike as MenuActionPluginLike,
+} from './MenuActions';
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import {
-  adjustBrowserCardsDue,
   applyQueueFilters,
   type CardServicePluginLike,
-  type QueueDueAdjustAction,
   deleteBrowserCards,
   removeCardsFromQueue,
   setBrowserCardsPriority,
@@ -31,6 +33,8 @@ type RetrievalActionContext = {
   config?: unknown;
 };
 
+type RetrievalPluginLike = CardServicePluginLike & MenuActionPluginLike;
+
 export type RetrievalDataSourceOptions = {
   docId?: string;
   preset?: string;
@@ -38,8 +42,8 @@ export type RetrievalDataSourceOptions = {
   cardType?: QueueCardTypeFilter;
 };
 
-function isQueueDueAdjustAction(actionId: string): actionId is QueueDueAdjustAction {
-  return actionId === 'postpone' || actionId === 'advance' || actionId === 'spread';
+function isQueueDueAdjustAction(actionId: string): actionId is 'postpone' | 'advance' {
+  return actionId === 'postpone' || actionId === 'advance';
 }
 
 export class RetrievalDataSource implements ICardDataSource {
@@ -48,12 +52,12 @@ export class RetrievalDataSource implements ICardDataSource {
 
   private readonly manager: IUnifiedDataSourceManagerFacade;
   private readonly options: RetrievalDataSourceOptions;
-  private readonly plugin?: CardServicePluginLike;
+  private readonly plugin?: RetrievalPluginLike;
 
   constructor(
     manager: IUnifiedDataSourceManagerFacade,
     options?: RetrievalDataSourceOptions,
-    plugin?: CardServicePluginLike
+    plugin?: RetrievalPluginLike
   ) {
     this.manager = manager;
     this.options = options || {};
@@ -131,11 +135,11 @@ export class RetrievalDataSource implements ICardDataSource {
       }
 
       if (isQueueDueAdjustAction(actionId)) {
-        return adjustBrowserCardsDue(this.manager, selectedRows, actionId, context, {
-          scope: 'RetrievalDataSource',
-          postponeFromNow: true,
-          allowSpread: true,
-        });
+        const result = await adjustTime(this.plugin, selectedRows, actionId, context);
+        if (!result) {
+          throw new Error('RescheduleService unavailable');
+        }
+        return result;
       }
     } catch (error) {
       logger.error('Failed to perform action', { actionId, error });

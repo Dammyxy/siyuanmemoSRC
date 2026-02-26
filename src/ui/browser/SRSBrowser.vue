@@ -2288,11 +2288,16 @@ async function handleOpenSpreadDialog() {
           // - considerFutureRepetitions = false: 传入所有卡片（SpreadEngine 会筛选出 due <= now 的卡片）
           // 因此，无论哪种模式，都应该传入所有卡片，让 SpreadEngine 根据配置筛选
           try {
+            const effectiveConfig = {
+              ...config,
+              collectAllCards: isQueueMode,
+            };
+
             const result = await adjustTime(
               props.plugin,
               cardsToSpread,  // 🆕 使用当前模式的卡片
               'spread',
-              { config }
+              { config: effectiveConfig }
             );
             
             // 4. 显示结果对话框

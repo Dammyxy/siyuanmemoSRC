@@ -100,14 +100,16 @@ export class AdvanceEngine extends BaseRescheduleEngine {
         const dayMs = 24 * 60 * 60 * 1000;
 
         // 特殊处理：极度过期的卡片（上次复习距今超过 N 天）
-        if (config.handleOverdueCards) {
+        if (config.handleOverdueCards && card.lastReview > 0) {
             const daysSinceLastReview = (now - card.lastReview) / dayMs;
             if (daysSinceLastReview > config.maxDays) {
+                const overdueInterval = Math.max(1, Math.floor(daysSinceLastReview));
                 // 安排到今天
                 return {
                     card: {
                         ...card,
                         due: now,
+                        scheduledDays: overdueInterval,
                         updatedAt: now,
                         rescheduleHistory: [
                             ...(card.rescheduleHistory ?? []),
@@ -135,9 +137,11 @@ export class AdvanceEngine extends BaseRescheduleEngine {
             };
         }
 
-        // 随机生成 1 到 N 之间的天数（不包括今天）
-        const randomDays = Math.floor(Math.random() * config.maxDays) + 1;
-        const newDue = now + randomDays * dayMs;
+        // 随机模式：1..N 天；固定模式：统一到 N 天后
+        const targetDays = config.randomize
+            ? Math.floor(Math.random() * config.maxDays) + 1
+            : config.maxDays;
+        const newDue = now + targetDays * dayMs;
 
         // 计算新的间隔
         const newInterval = Math.floor((newDue - card.lastReview) / dayMs);

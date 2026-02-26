@@ -230,6 +230,15 @@ export class ConfigValidator {
             };
         }
 
+        // 验证 collectAllCards（可选）
+        if (config.collectAllCards !== undefined && typeof config.collectAllCards !== 'boolean') {
+            return {
+                code: RescheduleErrorCode.INVALID_CONFIG,
+                message: 'collectAllCards must be a boolean',
+                details: { field: 'collectAllCards', value: config.collectAllCards }
+            };
+        }
+
         // 验证 sortingCriterion
         const validCriteria = ['random', 'by-priority', 'by-interval', 'by-lateness', 'by-easiness', 'by-recency'];
         if (!validCriteria.includes(config.sortingCriterion)) {
@@ -242,10 +251,15 @@ export class ConfigValidator {
 
         // 验证 maxCardsPerDay（可选）
         if (config.maxCardsPerDay !== undefined) {
-            if (typeof config.maxCardsPerDay !== 'number' || isNaN(config.maxCardsPerDay) || config.maxCardsPerDay < 1) {
+            if (
+                typeof config.maxCardsPerDay !== 'number'
+                || isNaN(config.maxCardsPerDay)
+                || config.maxCardsPerDay < 1
+                || config.maxCardsPerDay > 1000
+            ) {
                 return {
                     code: RescheduleErrorCode.INVALID_CONFIG,
-                    message: 'maxCardsPerDay must be a positive number',
+                    message: 'maxCardsPerDay must be between 1 and 1000',
                     details: { field: 'maxCardsPerDay', value: config.maxCardsPerDay }
                 };
             }

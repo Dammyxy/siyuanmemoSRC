@@ -13,10 +13,10 @@
           <label>{{ t('advanceMaxDays', '最大提前天数') }}</label>
           <div class="input-with-buttons">
             <div class="quick-buttons">
-              <button class="btn-quick" @click="config.maxDays = 7">{{ t('days7', '7天') }}</button>
-              <button class="btn-quick" @click="config.maxDays = 14">{{ t('days14', '14天') }}</button>
-              <button class="btn-quick" @click="config.maxDays = 30">{{ t('days30', '30天') }}</button>
-              <button class="btn-quick" @click="config.maxDays = 60">{{ t('days60', '60天') }}</button>
+              <button class="btn-quick" :class="{ 'btn-quick--active': config.maxDays === 7 }" @click="config.maxDays = 7">{{ t('days7', '7天') }}</button>
+              <button class="btn-quick" :class="{ 'btn-quick--active': config.maxDays === 14 }" @click="config.maxDays = 14">{{ t('days14', '14天') }}</button>
+              <button class="btn-quick" :class="{ 'btn-quick--active': config.maxDays === 30 }" @click="config.maxDays = 30">{{ t('days30', '30天') }}</button>
+              <button class="btn-quick" :class="{ 'btn-quick--active': config.maxDays === 60 }" @click="config.maxDays = 60">{{ t('days60', '60天') }}</button>
             </div>
             <input 
               type="number" 
@@ -166,14 +166,30 @@ const emit = defineEmits<{
   (e: 'cancel'): void;
 }>();
 
+function normalizeAdvanceConfig(config: Partial<AdvanceConfig> | null | undefined): AdvanceConfig {
+  const defaults = props.configManager.getDefaultAdvanceConfig();
+  return {
+    ...defaults,
+    ...(config ?? {}),
+  };
+}
+
 // 配置状态
-const config = ref<AdvanceConfig>(props.configManager.getDefaultAdvanceConfig());
+const config = ref<AdvanceConfig>(normalizeAdvanceConfig(undefined));
 const selectedConfigName = ref('');
 const newConfigName = ref('');
 const configNames = ref<string[]>([]);
 
 // 验证错误
-const validationError = ref('');
+const operationError = ref('');
+const formError = computed(() => {
+  if (config.value.maxDays < 1 || config.value.maxDays > 365) {
+    return t('advanceValidationMaxDays', '最大提前天数必须在 1 到 365 天之间');
+  }
+
+  return '';
+});
+const validationError = computed(() => operationError.value || formError.value);
 
 // 预览日期范围
 const previewDateRange = computed(() => {
@@ -193,14 +209,7 @@ const previewDateRange = computed(() => {
 
 // 验证配置
 const isValid = computed(() => {
-  validationError.value = '';
-  
-  if (config.value.maxDays < 1 || config.value.maxDays > 365) {
-    validationError.value = t('advanceValidationMaxDays', '最大提前天数必须在 1 到 365 天之间');
-    return false;
-  }
-  
-  return true;
+  return formError.value.length === 0;
 });
 
 // 加载配置列表
@@ -219,11 +228,12 @@ async function loadSelectedConfig() {
   try {
     const loaded = await props.configManager.loadConfig(selectedConfigName.value, 'advance');
     if (loaded) {
-      config.value = loaded as AdvanceConfig;
+      operationError.value = '';
+      config.value = normalizeAdvanceConfig(loaded as AdvanceConfig);
     }
   } catch (error) {
     logger.error('Failed to load config:', error);
-    validationError.value = t('advanceLoadConfigFailed', '加载配置失败');
+    operationError.value = t('advanceLoadConfigFailed', '加载配置失败');
   }
 }
 
@@ -233,11 +243,12 @@ async function saveCurrentConfig() {
   
   try {
     await props.configManager.saveConfig(newConfigName.value.trim(), config.value, 'advance');
-    configNames.value.push(newConfigName.value.trim());
+    configNames.value = Array.from(new Set([...configNames.value, newConfigName.value.trim()]));
     newConfigName.value = '';
+    operationError.value = '';
   } catch (error) {
     logger.error('Failed to save config:', error);
-    validationError.value = t('advanceSaveConfigFailed', '保存配置失败');
+    operationError.value = t('advanceSaveConfigFailed', '保存配置失败');
   }
 }
 
@@ -253,27 +264,32 @@ function handleCancel() {
 
 <style scoped>
 .advance-dialog {
-  padding: 16px;
+  padding: 18px;
   max-height: 80vh;
   overflow-y: auto;
 }
 
 .dialog__info {
   margin-bottom: 20px;
-  padding: 12px;
-  background: var(--b3-theme-surface);
-  border-radius: 6px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, var(--b3-theme-primary-lightest), color-mix(in srgb, var(--b3-theme-primary-lightest) 75%, var(--b3-theme-background)));
+  border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 28%, transparent);
+  border-radius: 10px;
   text-align: center;
+  font-weight: 500;
 }
 
 .form-section {
   margin-bottom: 24px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid var(--b3-border-color);
+  padding: 16px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--b3-theme-surface) 78%, transparent);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--b3-theme-on-background) 6%, transparent);
 }
 
 .form-section:last-of-type {
-  border-bottom: none;
+  margin-bottom: 12px;
 }
 
 .section-title {
@@ -322,6 +338,12 @@ function handleCancel() {
   border-color: var(--b3-theme-primary);
 }
 
+.btn-quick--active {
+  background: var(--b3-theme-primary);
+  border-color: var(--b3-theme-primary);
+  color: var(--b3-theme-on-primary);
+}
+
 .form-input {
   width: 100%;
   padding: 8px 12px;
@@ -364,7 +386,7 @@ function handleCancel() {
 
 .preview-box {
   padding: 16px;
-  background: var(--b3-theme-primary-lightest);
+  background: linear-gradient(135deg, var(--b3-theme-primary-lightest), color-mix(in srgb, var(--b3-theme-primary-lightest) 70%, var(--b3-theme-background)));
   border-radius: 8px;
   border: 1px solid var(--b3-theme-primary-lighter);
 }
@@ -439,8 +461,28 @@ function handleCancel() {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 20px;
-  padding-top: 16px;
+  margin-top: 16px;
+  padding-top: 14px;
   border-top: 1px solid var(--b3-border-color);
+  position: sticky;
+  bottom: -18px;
+  background: color-mix(in srgb, var(--b3-theme-background) 90%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+@media (max-width: 720px) {
+  .quick-buttons {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .config-select,
+  .config-save {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dialog__actions {
+    flex-direction: column-reverse;
+  }
 }
 </style>

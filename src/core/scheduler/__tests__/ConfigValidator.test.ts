@@ -294,5 +294,32 @@ describe('ConfigValidator', () => {
             const error = ConfigValidator.validateSpreadConfig(config);
             expect(error).toBeNull();
         });
+
+        it('should reject maxCardsPerDay larger than 1000', () => {
+            const config: SpreadConfig = {
+                collectingPeriod: 30,
+                reschedulingPeriod: 30,
+                considerFutureRepetitions: false,
+                sortingCriterion: 'random',
+                maxCardsPerDay: 1001
+            };
+
+            const error = ConfigValidator.validateSpreadConfig(config);
+            expect(error).not.toBeNull();
+            expect(error?.message).toContain('maxCardsPerDay');
+        });
+
+        it('should accept collectAllCards boolean flag', () => {
+            const config: SpreadConfig = {
+                collectingPeriod: 30,
+                reschedulingPeriod: 30,
+                considerFutureRepetitions: false,
+                collectAllCards: true,
+                sortingCriterion: 'random',
+            };
+
+            const error = ConfigValidator.validateSpreadConfig(config);
+            expect(error).toBeNull();
+        });
     });
 });

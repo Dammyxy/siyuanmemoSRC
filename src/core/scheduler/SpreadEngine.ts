@@ -94,6 +94,10 @@ export class SpreadEngine extends BaseRescheduleEngine {
         config: SpreadConfig,
         now: number
     ): FSRSCard[] {
+        if (config.collectAllCards) {
+            return [...cards];
+        }
+
         const dayMs = 24 * 60 * 60 * 1000;
         const collectingEndDate = now + config.collectingPeriod * dayMs;
         
@@ -183,10 +187,13 @@ export class SpreadEngine extends BaseRescheduleEngine {
     ): FSRSCard[] {
         const dayMs = 24 * 60 * 60 * 1000;
         const total = cards.length;
+        const dailyLimit = this.resolveDailyLimit(config.maxCardsPerDay);
+        const dayLoads = new Map<number, number>();
         
         return cards.map((card, index) => {
             // 计算该卡片应该分配到第几天
-            const dayIndex = Math.floor((index / total) * config.reschedulingPeriod);
+            const preferredDay = Math.floor((index / total) * config.reschedulingPeriod);
+            const dayIndex = this.resolveDayIndex(preferredDay, dailyLimit, dayLoads);
             const newDue = now + dayIndex * dayMs;
             
             // 计算新的间隔
@@ -208,5 +215,30 @@ export class SpreadEngine extends BaseRescheduleEngine {
                 ]
             };
         });
+    }
+
+    private resolveDailyLimit(limit: number | undefined): number | null {
+        if (typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0) {
+            return null;
+        }
+        return Math.max(1, Math.floor(limit));
+    }
+
+    private resolveDayIndex(
+        preferredDay: number,
+        dailyLimit: number | null,
+        dayLoads: Map<number, number>
+    ): number {
+        if (!dailyLimit) {
+            return preferredDay;
+        }
+
+        let dayIndex = preferredDay;
+        while ((dayLoads.get(dayIndex) ?? 0) >= dailyLimit) {
+            dayIndex++;
+        }
+
+        dayLoads.set(dayIndex, (dayLoads.get(dayIndex) ?? 0) + 1);
+        return dayIndex;
     }
 }

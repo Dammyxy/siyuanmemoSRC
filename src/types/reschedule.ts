@@ -76,6 +76,7 @@ export interface SpreadConfig {
     collectingPeriod: number;      // 收集期（天）
     reschedulingPeriod: number;    // 重新调度期（天）
     considerFutureRepetitions: boolean;  // 是否考虑未来复习
+    collectAllCards?: boolean;     // 是否直接使用输入卡片集合（队列模式内部使用）
     
     sortingCriterion: SortingCriterion;
     

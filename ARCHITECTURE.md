@@ -1,725 +1,487 @@
-# SiyuanMemo 插件架构报告
+# SiyuanMemo 插件架构说明
 
-> **用途**: 供 AI 助手快速理解当前架构，准确定位需要修改的文件，避免破坏已有设计。
->
-> **插件源码**: `H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\`
->
-> **最后更新**: 2026-02-23
+最后更新：2026-02-26
+
+本文是当前运行时架构与数据流的单一事实来源（Single Source of Truth），供开发者与 AI 代理协作使用。
 
 ---
 
-## 目录
+## 1. 文档目的与边界
 
-1. [整体架构概览](#1-整体架构概览)
-2. [目录结构地图](#2-目录结构地图)
-3. [各层职责与关键文件](#3-各层职责与关键文件)
-4. [核心子系统详解](#4-核心子系统详解)
-5. [数据流：从用户操作到持久化](#5-数据流从用户操作到持久化)
-6. [关键接口与类型定义](#6-关键接口与类型定义)
-7. [需求→代码定位速查表](#7-需求代码定位速查表)
-8. [已知技术债务](#8-已知技术债务)
-9. [修改前必读规则](#9-修改前必读规则)
+本文只描述**当前生效**架构，不保留历史迁移过程。
 
----
+覆盖范围：
 
-## 1. 整体架构概览
+- 当前分层架构与职责边界
+- 真实运行入口（启动、Browser、Review）
+- 关键数据流（浏览器增量刷新、复习评分链路）
+- DDD 改动边界与开发守则
 
-本插件采用**混合架构**：顶层遵循 DDD 四层架构，内部核心模块（`src/core/`）已内化了自己的 DDD 分层。项目整体处于**从旧服务架构向 DDD 渐进迁移**的过程中。
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  src/ui/          ← 表现层（Vue 组件、复习界面、浏览器）          │
-│  src/index.ts     ← 插件入口，生命周期，只做路由不做逻辑          │
-└───────────────────────────┬─────────────────────────────────────┘
-                            ↓ 调用
-┌─────────────────────────────────────────────────────────────────┐
-│  src/application/ ← 应用层（用例、Manager、ApplicationContext）  │
-└───────────────────────────┬─────────────────────────────────────┘
-                            ↓ 调用
-┌─────────────────────────────────────────────────────────────────┐
-│  src/core/        ← 核心业务层（队列、调度器、Xiuyuan 领域）     │
-│  src/domain/      ← 顶层领域（正在迁移中，当前文件较少）         │
-└───────────────────────────┬─────────────────────────────────────┘
-                            ↓ 实现接口
-┌─────────────────────────────────────────────────────────────────┐
-│  src/infrastructure/ ← 基础设施（持久化、文件服务）              │
-│  src/core/siyuan/    ← 思源 API 封装（历史遗留位置）             │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**三大设计原则**：
-- **"一核多策略"**：所有复习模式（标准复习、神经漫游、最终冲刺等）共用同一个 `QueueContext`，通过切换 `IQueueStrategy` 实现差异化行为。
-- **"服务优先"**：核心功能以无 UI 的 Service/UseCase API 形式暴露，UI 是这些 API 的可视化外壳。
-- **"完全抽象"**：UI 层通过 `IAdapter` 接口与具体卡片类型解耦，适配器负责将领域对象转换为 UI 状态。
+如果历史文档与 `src/` 现行代码冲突，以 `src/` 为准。
 
 ---
 
-## 2. 目录结构地图
+## 2. 当前分层架构总览
 
-```
-src/
-├── index.ts                        # 插件入口（< 200 行，只做生命周期和路由）
-├── commands.ts                     # 插件快捷键命令注册
-│
-├── application/                    # 应用层 ─────────────────────────────────
-│   ├── ApplicationContext.ts       # ★ 全局 DI 容器，所有服务的工厂和访问点
-│   ├── managers/                   # UI 无关的管理者（生命周期协调）
-│   │   ├── BlockMenuHandler.ts     # 块右键菜单逻辑
-│   │   ├── DialogManager.ts        # 对话框生命周期管理
-│   │   ├── DockManager.ts          # 侧边栏面板管理
-│   │   ├── MenuManager.ts          # 顶栏菜单管理
-│   │   ├── TabManager.ts           # 标签页管理
-│   │   └── PracticeQueueManager.ts # 练习队列协调
-│   ├── services/                   # 应用服务（跨用例协调）
-│   │   ├── CardApplicationService.ts       # 卡片 CRUD 门面
-│   │   ├── ReviewApplicationService.ts     # 复习流程协调
-│   │   ├── BrowserApplicationService.ts    # 卡片浏览器数据服务
-│   │   ├── XiuyuanApplicationService.ts    # 修远卡组应用服务
-│   │   ├── XiuyuanSyncService.ts           # 修远↔Riff 双向同步
-│   │   ├── UnifiedDataSourceManager.ts     # 统一数据源管理
-│   │   ├── SettingsService.ts              # 设置读写服务
-│   │   ├── ReviewLogService.ts             # 复习日志
-│   │   └── RiffBlacklistService.ts         # Riff 黑名单
-│   ├── usecases/                   # 用例（每个业务动作一个文件）
-│   │   ├── card/
-│   │   │   ├── CreateCardUseCase.ts
-│   │   │   ├── DeleteCardUseCase.ts
-│   │   │   ├── UpdateCardUseCase.ts
-│   │   │   └── DeleteFSRSCardUseCase.ts
-│   │   └── xiuyuan/
-│   │       ├── CreateXiuyuanFromBlocksUseCase.ts
-│   │       ├── CreateConceptDescriptorCardsUseCase.ts
-│   │       ├── CreateListTemplateCardsUseCase.ts
-│   │       └── DeleteXiuyuanUseCase.ts
-│   ├── queries/                    # 查询（只读操作）
-│   │   ├── DataAccessFacade.ts     # ★ AdvancedDataRouter，统一查询入口
-│   │   ├── CardContentQueryService.ts
-│   │   └── card/GetDueCardsQuery*.ts
-│   ├── commands/                   # 命令对象（写操作）
-│   ├── handlers/
-│   │   ├── AutoCardHandler.ts      # 自动创卡监听
-│   │   └── RiffSyncHandler.ts      # Riff 同步事件处理
-│   ├── adapters/
-│   │   ├── UnifiedQueueStrategy.ts # 将 QueueProvider 适配为 IQueueStrategy
-│   │   └── UnifiedReviewAdapter.ts
-│   ├── observers/
-│   │   └── CacheManagerObserver.ts # 缓存刷新观察者
-│   ├── controllers/
-│   │   └── ReviewViewController.ts
-│   └── interfaces/
-│       ├── IPluginFacade.ts        # 插件对外门面接口
-│       ├── IDialogManager.ts
-│       ├── ICardDataSource.ts
-│       └── ISchedulerRouter.ts
-│
-├── core/                           # 核心业务层（旧架构主体）──────────────────
-│   ├── queue/                      # ★★ 队列系统（最核心）
-│   │   ├── QueueContext.ts         # ★ 策略容器（一核多策略）
-│   │   ├── abstraction/
-│   │   │   ├── Strategy.ts         # IQueueStrategy 接口定义
-│   │   │   └── types.ts            # QueueItem, QueueFeedback 等核心类型
-│   │   ├── strategies/             # ★ 队列策略实现（业务逻辑主体）
-│   │   │   ├── RetrievalPracticeQueue.ts   # 标准 FSRS 复习
-│   │   │   ├── FinalDrillQueue.ts          # 最终冲刺（错题重练）
-│   │   │   ├── IncrementalLearningQueue.ts # 增量阅读
-│   │   │   ├── LeechQueue.ts               # 困难卡片专项
-│   │   │   ├── FilterGroupQueue.ts         # 筛选组复习
-│   │   │   └── SubsetPracticeStrategy.ts   # 子集练习
-│   │   ├── sequencers/             # 排序器（决定卡片顺序）
-│   │   │   ├── FSRSSequencer.ts    # ★ 按 FSRS 优先级排序
-│   │   │   ├── PrioritySequencer.ts
-│   │   │   ├── DualQueueSequencer.ts # 新旧卡片交替
-│   │   │   ├── FinalDrillSequencer.ts
-│   │   │   └── ListSequencer.ts
-│   │   ├── schedulers/             # 调度器（决定何时复习）
-│   │   │   ├── RiffScheduler.ts    # 调用 Riff API 提交复习结果
-│   │   │   ├── LeechScheduler.ts
-│   │   │   └── NullScheduler.ts    # 无调度（增量阅读用）
-│   │   ├── datasource/             # 数据源（卡片从哪来）
-│   │   │   ├── IDataSource.ts      # 数据源接口
-│   │   │   ├── RiffDataSource.ts   # ★ 从思源 Riff API 获取
-│   │   │   ├── ObservableDataSource.ts # 可观察数据源（缓存自动失效）
-│   │   │   ├── LocalStorageDataSource.ts
-│   │   │   ├── HybridDataSource.ts # Riff + 本地混合
-│   │   │   ├── DualQueueDataSource.ts
-│   │   │   └── DataSourceFactory.ts
-│   │   ├── neural/                 # 神经漫游队列
-│   │   │   ├── NeuralQueue.ts
-│   │   │   ├── ConceptNeuralQueue.ts
-│   │   │   └── WeightedWalkEngine.ts # 加权随机游走
-│   │   ├── composite/
-│   │   │   └── BaseCompositeQueue.ts
-│   │   ├── commands/               # 队列命令（CQRS 风格）
-│   │   │   ├── InsertAtCommand.ts
-│   │   │   ├── SetPriorityCommand.ts
-│   │   │   └── RemoveCommand.ts
-│   │   ├── filters/
-│   │   │   └── TopicFilter.ts
-│   │   └── factories/
-│   │       └── QueueFactory.ts
-│   │
-│   ├── scheduler/                  # ★ 调度器系统
-│   │   ├── SchedulerRouter.ts      # ★ 路由器：根据卡片类型选择调度策略
-│   │   ├── strategies/
-│   │   │   ├── TSFSRSScheduler.ts  # FSRS v6 算法（ts-fsrs 库）
-│   │   │   ├── SM15Scheduler.ts    # SuperMemo 15 算法
-│   │   │   └── ImprovedTopicScheduler.ts
-│   │   ├── rescheduleService.ts    # 批量重排调度
-│   │   ├── AdvanceEngine.ts        # 提前复习引擎
-│   │   ├── PostponeEngine.ts       # 推迟复习引擎
-│   │   ├── SpreadEngine.ts         # 分散复习引擎
-│   │   └── BatchProcessor.ts
-│   │
-│   ├── xiuyuan/                    # ★ 修远领域（自定义卡组系统）
-│   │   ├── domain/
-│   │   │   ├── Xiuyuan.ts          # 修远聚合根（卡组）
-│   │   │   ├── Card.ts             # 修远卡片实体
-│   │   │   ├── CardId.ts / BlockId.ts / XiuyuanId.ts  # 值对象
-│   │   │   ├── Priority.ts         # 优先级值对象
-│   │   │   ├── ScheduleInfo.ts     # 调度信息值对象
-│   │   │   ├── services/
-│   │   │   │   ├── CardCreationService.ts
-│   │   │   │   ├── CardDeletionService.ts
-│   │   │   │   └── CardTypeDetectionService.ts
-│   │   │   ├── events/
-│   │   │   │   ├── CardCreatedEvent.ts
-│   │   │   │   └── CardReviewedEvent.ts
-│   │   │   └── repositories/
-│   │   │       └── IXiuyuanRepository.ts   # 仓储接口
-│   │   ├── infrastructure/
-│   │   │   └── XiuyuanRepository.ts        # 仓储实现（读写 block 属性）
-│   │   ├── templates/
-│   │   │   ├── TemplateRegistry.ts
-│   │   │   ├── builtin.ts
-│   │   │   ├── builtin-concept.ts  # 概念卡模板
-│   │   │   └── builtin-quick.ts    # 快速卡模板
-│   │   └── cardMeta.ts
-│   │
-│   ├── card/                       # 卡片渲染与类型系统
-│   │   ├── domain/services/
-│   │   │   ├── CardFilterService.ts
-│   │   │   ├── CardScheduleService.ts
-│   │   │   └── CardSortService.ts
-│   │   ├── quick-card/             # 快速卡子系统（自包含 DDD）
-│   │   │   ├── domain/QuickCard.ts
-│   │   │   ├── domain/strategies/  # Basic/Cloze/Concept/Descriptor...
-│   │   │   ├── infrastructure/QuickCardRepository.ts
-│   │   │   └── application/QuickCardRenderService.ts
-│   │   ├── concept/                # 概念卡渲染服务
-│   │   ├── descriptor-card/        # 描述符卡渲染服务
-│   │   └── common/ui/              # 共用 UI（加载态、错误态、面包屑）
-│   │
-│   ├── card-type/
-│   │   ├── CardTypeMarkerService.ts # 给 block 打类型标记
-│   │   └── type-mapping.ts         # 类型枚举与映射
-│   │
-│   ├── card-builder/               # 卡片构建策略
-│   │   ├── detectCardType.ts
-│   │   ├── strategies/             # QA/Cloze/Default
-│   │   └── extractCardMeta.ts
-│   │
-│   ├── siyuan/                     # 思源 API 封装（基础设施，历史遗留位置）
-│   │   ├── api.ts                  # 通用 API（pushMsg, fetchPost 等）
-│   │   ├── riff.ts                 # ★ Riff 卡片 API（创建/删除/复习/查询）
-│   │   ├── block.ts                # 块操作 API
-│   │   └── cardBlockSql.ts         # 卡片相关 SQL 查询
-│   │
-│   ├── storage/
-│   │   ├── UnifiedStorageManager.ts  # ★ 统一存储（settings.json）
-│   │   ├── manager.ts              # 旧存储（legacy）
-│   │   └── StorageManagerAdapter.ts  # 新旧兼容适配器
-│   │
-│   ├── extensions/                 # 扩展层（Provider 模式）
-│   │   ├── QueueProvider.ts        # ★ QueueProvider 接口
-│   │   ├── ProviderBackedQueueStrategy.ts  # Provider → IQueueStrategy 桥接
-│   │   └── providers/FSRSRetrievalProvider.ts
-│   │
-│   ├── infrastructure/websocket/
-│   │   ├── TransactionWebSocketService.ts  # 监听思源事务（块变更）
-│   │   └── QuickCardWebSocketService.ts
-│   │
-│   ├── neural/SeedService.ts
-│   ├── shared/domain/events/EventBus.ts  # 内部领域事件总线
-│   └── box/TransactionObserver.ts
-│
-├── domain/                         # 顶层领域层（DDD 迁移目标，文件较少）
-│   ├── entities/Card.ts
-│   ├── repositories/ICardRepository.ts
-│   └── queues/RetrievalPracticeQueue.ts
-│
-├── infrastructure/                 # 顶层基础设施层
-│   ├── persistence/
-│   │   ├── CardRepository.ts
-│   │   ├── mappers/CardMapper.ts   # 领域↔持久化模型映射
-│   │   └── dto/CardPersistenceDTO.ts
-│   ├── services/
-│   │   ├── FileService.ts          # 文件读写（思源文件 API）
-│   │   └── QueuePersistenceService.ts
-│   └── events/RiffSyncEventHandler.ts
-│
-├── ui/                             # 表现层（Vue 组件）─────────────────────────
-│   ├── review/v2/                  # ★★ 复习界面 2.0（当前主界面）
-│   │   ├── ReviewView.vue          # 复习主视图（根组件）
-│   │   ├── ReviewHeader.vue        # 进度、统计
-│   │   ├── ReviewContent.vue       # 卡片内容区
-│   │   ├── ReviewActions.vue       # 评分按钮区
-│   │   ├── useReviewSession.ts     # ★ 复习会话 composable（核心逻辑）
-│   │   ├── adapters/SubsetPracticeAdapter.ts
-│   │   ├── dialogs/
-│   │   │   ├── ScheduleDateDialog.vue
-│   │   │   └── InsertPositionDialog.vue
-│   │   └── overlays/NeuralRoamTopArea.vue
-│   │
-│   ├── review/components/          # 卡片类型渲染器
-│   │   ├── QuickCardRenderer.vue
-│   │   ├── ConceptCardRenderer.vue
-│   │   ├── DescriptorCardRenderer.vue
-│   │   ├── ConceptDefinitionCardRenderer.vue
-│   │   └── MultiClozeCardRenderer.vue
-│   │
-│   ├── browser/                    # ★ 卡片浏览器（AG-Grid）
-│   │   ├── SRSBrowser.vue
-│   │   ├── composables/
-│   │   │   ├── useCardData.ts
-│   │   │   ├── useCardFilter.ts
-│   │   │   ├── useCardActions.ts
-│   │   │   └── useContextMenu.ts
-│   │   ├── dialogs/
-│   │   │   ├── RescheduleDialog.vue
-│   │   │   ├── PostponeDialog.vue
-│   │   │   ├── AdvanceDialog.vue
-│   │   │   ├── PriorityDialog.vue
-│   │   │   ├── FilterDialog.vue
-│   │   │   └── SpreadDialog.vue
-│   │   ├── datasource/
-│   │   │   ├── RetrievalDataSource.ts
-│   │   │   ├── DeckDataSource.ts
-│   │   │   ├── FinalDrillDataSource.ts
-│   │   │   └── IncrementalLearningDataSource.ts
-│   │   └── config/columnDefs.ts    # AG-Grid 列定义
-│   │
-│   ├── settings/SettingsPanel.vue
-│   ├── srs/SrsEditorDialog.vue
-│   ├── xiuyuan/TemplateSelectDialog.vue
-│   ├── menu/TopBar.ts
-│   └── components/SiyuanTheme/     # 思源风格基础组件
-│       ├── SyButton.vue
-│       ├── SyInput.vue
-│       ├── SySelect.vue
-│       └── ...
-│
-├── types/                          # 全局类型定义
-│   ├── card.ts
-│   ├── settings.ts
-│   ├── review.ts
-│   ├── scheduler.ts
-│   ├── unified-data-source.ts      # ★ QueueType 枚举（队列类型）
-│   ├── result.ts                   # Result<T> 函数式错误处理
-│   └── branded.ts                  # 品牌类型（类型安全 ID）
-│
-├── utils/
-│   ├── logger.ts                   # ★ 统一日志（必须用它，禁止直接 console）
-│   ├── errorReporter.ts
-│   ├── dateUtils.ts
-│   ├── batchQuery.ts               # 批量查询优化
-│   ├── queryCache.ts
-│   └── debounce.ts
-│
-└── i18n/en_US.json, zh_CN.json     # 国际化资源
+插件按 DDD 思路分层，主依赖方向固定为：
+
+`ui -> application -> core -> infrastructure`
+
+```mermaid
+flowchart TD
+  UI["UI 层\nsrc/ui/*\nVue 组件/Composables"] --> APP["应用层\nsrc/application/*\n服务编排/用例/管理器"]
+  APP --> CORE["核心领域层\nsrc/core/*\nQueue/Scheduler/Card/Xiuyuan 领域逻辑"]
+  CORE --> INFRA["基础设施层\nsrc/infrastructure/*\nSiyuan API/持久化/外部适配器"]
+
+  APP --> CTX["ApplicationContext\n组合根 + 依赖注入容器"]
+  CTX --> UDSM["UnifiedDataSourceManager\n统一队列与观察者中心"]
+  CTX --> SR["SchedulerRouter\n调度路由中心"]
 ```
 
 ---
 
-## 3. 各层职责与关键文件
+## 3. 文件职责地图（初版风格）
 
-### 3.1 插件入口 `src/index.ts`
+说明：
 
-**职责**：插件生命周期（onload/onunload）、命令注册、事件路由。目标 **< 200 行**，不含任何业务逻辑。
+- 本节覆盖生产运行主链路文件（不含 `__tests__`、历史备份文件）。
+- 目标是让 AI/开发者拿到路径后可直接定位“这个文件负责什么”。
 
-```typescript
-export default class FSRSPlugin extends Plugin implements IPluginFacade {
-  private context!: ApplicationContext;
+### 3.1 根入口（`src/`）
 
-  async onload() {
-    this.context = await ApplicationContext.create({ plugin: this, i18n: this.i18n });
-    // 注册命令、事件监听
-  }
-  getContext(): ApplicationContext { return this.context; }
-}
-```
+- `src/index.ts`：插件生命周期入口；创建 `ApplicationContext`，注册顶栏、Dock、事件处理器。
+- `src/main.ts`：独立前端挂载入口（调试/开发场景）。
+- `src/App.vue`：应用壳层组件。
+- `src/index.scss`：全局样式入口。
+- `src/commands.ts`：插件命令入口。
+- `src/global.d.ts`：全局类型声明。
+- `src/shims-vue.d.ts`：Vue 模块类型声明。
 
-### 3.2 应用层 `src/application/`
+### 3.2 Application 层（`src/application/*`）
 
-| 文件 | 职责 |
-|------|------|
-| `ApplicationContext.ts` | **全局 DI 容器**，所有服务的工厂与访问点 |
-| `managers/DialogManager.ts` | 复习/设置对话框的打开、关闭、生命周期 |
-| `managers/BlockMenuHandler.ts` | 块右键菜单（"加入卡组"、"复习"等） |
-| `services/CardApplicationService.ts` | 卡片增删改查门面 |
-| `services/ReviewApplicationService.ts` | 复习流程启动、数据源选择 |
-| `services/UnifiedDataSourceManager.ts` | 管理多种数据源（Riff/修远/混合） |
-| `queries/DataAccessFacade.ts` | `AdvancedDataRouter`：统一查询入口 |
-| `usecases/card/CreateCardUseCase.ts` | 创建卡片的完整流程 |
+组合根与主编排：
 
-### 3.3 核心业务层 `src/core/`
+- `src/application/ApplicationContext.ts`：运行时组合根；装配依赖、服务与生命周期。
+- `src/application/services/UnifiedDataSourceManager.ts`：统一队列创建/缓存/观察者通知中心。
+- `src/application/managers/DialogManager.ts`：Browser/Review/Settings 对话框总入口。
+- `src/application/factories/createUnifiedReviewDialog.ts`：统一复习对话框工厂。
+- `src/application/adapters/UnifiedQueueStrategy.ts`：Review 会话到队列域对象的策略适配。
+- `src/application/adapters/UnifiedReviewAdapter.ts`：Review UI 数据与动作适配。
 
-这是**业务逻辑主体**，内部有自己的 DDD 分层。
+高频应用服务：
 
-| 子模块 | 职责 |
-|--------|------|
-| `queue/` | 队列策略、排序、调度、数据源——**复习行为的核心** |
-| `scheduler/` | FSRS v6 / SM-15 算法实现、批量重排 |
-| `xiuyuan/` | 修远卡组领域（自定义卡片格式，完整 DDD） |
-| `card/` | 卡片类型系统、渲染服务 |
-| `siyuan/` | 思源 API 封装（Riff API、块操作、SQL） |
-| `storage/` | 插件数据持久化（settings.json） |
-| `extensions/` | QueueProvider 扩展点 |
+- `src/application/services/CardApplicationService.ts`：卡片用例聚合服务。
+- `src/application/services/BrowserApplicationService.ts`：Browser 查询与统计主服务。
+- `src/application/services/ReviewApplicationService.ts`：复习流程服务。
+- `src/application/services/TabApplicationService.ts`：文档打开单路径服务。
+- `src/application/services/SettingsService.ts`：插件配置管理服务。
+- `src/application/services/ReviewLogService.ts`：复习日志服务。
+- `src/application/services/RiffBlacklistService.ts`：Riff 黑名单服务。
+- `src/application/services/XiuyuanApplicationService.ts`：修远场景应用编排。
+- `src/application/services/XiuyuanSyncService.ts`：修远同步主服务。
 
-### 3.4 表现层 `src/ui/`
+管理器与处理器：
 
-| 子模块 | 职责 |
-|--------|------|
-| `review/v2/` | **当前主复习界面**，基于适配器模式 |
-| `review/components/` | 各卡片类型渲染器组件 |
-| `browser/` | 卡片管理浏览器（AG-Grid） |
-| `settings/` | 设置面板 |
-| `components/SiyuanTheme/` | 遵循思源 UI 规范的基础组件 |
+- `src/application/managers/MenuManager.ts`：菜单编排管理器。
+- `src/application/managers/BlockMenuHandler.ts`：块菜单事件处理。
+- `src/application/managers/TabManager.ts`：标签页管理。
+- `src/application/managers/DockManager.ts`：Dock 管理。
+- `src/application/managers/PracticeQueueManager.ts`：练习队列管理。
+- `src/application/managers/ReviewSyncManager.ts`：复习同步管理。
+- `src/application/handlers/AutoCardHandler.ts`：自动制卡处理链路。
+- `src/application/handlers/RiffSyncHandler.ts`：Riff 同步事件处理链路。
+- `src/application/helpers/CardCreationHelper.ts`：建卡共享辅助逻辑。
 
----
+查询与用例：
 
-## 4. 核心子系统详解
+- `src/application/queries/DataAccessFacade.ts`：查询路由门面（AdvancedDataRouter）。
+- `src/application/queries/CardContentQueryService.ts`：卡片内容查询服务。
+- `src/application/queries/browser/GetBrowserCardsQuery.ts`：Browser 查询请求对象。
+- `src/application/queries/browser/GetBrowserCardsQueryHandler.ts`：Browser 查询处理器。
+- `src/application/queries/card/GetCardQuery*.ts`：卡片查询对象/处理器。
+- `src/application/queries/card/GetCardsQuery*.ts`：批量卡片查询对象/处理器。
+- `src/application/queries/card/GetDueCardsQuery*.ts`：到期卡查询对象/处理器。
+- `src/application/usecases/card/*.ts`：卡片创建/更新/删除用例族。
+- `src/application/usecases/xiuyuan/*.ts`：修远创建/查询/删除/重绑定用例族。
+- `src/application/commands/card/*.ts`：卡片命令对象。
+- `src/application/commands/xiuyuan/*.ts`：修远命令对象。
 
-### 4.1 队列系统（"一核多策略"）
+接口与端口：
 
-`QueueContext` 是容器，持有多个注册的策略，运行时通过 `setStrategy(queueId)` 切换。
+- `src/application/interfaces/*.ts`：应用层接口契约。
+- `src/application/ports/*.ts`：应用层端口定义（由 infrastructure 实现）。
 
-```
-QueueContext<TItem>
-  ├── register(queueId, IQueueStrategy) → 注册策略
-  ├── setStrategy(queueId)              → 切换当前策略
-  ├── getNextItem()                     → 委托给当前策略
-  └── addItem() / removeItem()          → 委托给当前策略
+### 3.3 Core 层（`src/core/*`）
 
-IQueueStrategy<TItem> 接口（src/core/queue/abstraction/Strategy.ts）：
-  ├── next(): Promise<TItem | null>              → 下一张卡
-  ├── onFeedback(item, feedback): Promise<void>  → 处理用户评分
-  ├── getUIConfig(item): QueueUIConfig           → 决定显示哪些按钮
-  └── getStats?(): Promise<QueueStats>           → 队列统计
-```
+队列与调度主链路：
 
-**策略文件**：`src/core/queue/strategies/*.ts`
+- `src/core/queue/domain/BaseReviewQueue.ts`：队列聚合根基类。
+- `src/core/queue/domain/RetrievalPracticeQueue.ts`：检索练习队列。
+- `src/core/queue/domain/FinalDrillQueue.ts`：冲刺队列。
+- `src/core/queue/domain/IncrementalLearningQueue.ts`：增量学习队列。
+- `src/core/queue/domain/FilterGroupQueue.ts`：过滤组队列。
+- `src/core/queue/domain/NeuralRoamQueue.ts`：神经漫游队列。
+- `src/core/queue/domain/LeechReviewQueue.ts`：顽固卡队列。
+- `src/core/queue/domain/SubsetReviewQueue.ts`：子集复习队列。
+- `src/core/queue/domain/TemporaryDrillQueue.ts`：临时训练队列。
+- `src/core/queue/sequencers/*.ts`：队列抽卡顺序策略族。
+- `src/core/queue/schedulers/*.ts`：队列内调度策略族。
+- `src/core/queue/neural/*.ts`：神经漫游引擎与存储。
+- `src/core/scheduler/SchedulerRouter.ts`：全局调度路由器。
+- `src/core/scheduler/rescheduleService.ts`：重排服务。
+- `src/core/scheduler/AdvanceEngine.ts`：提前复习引擎。
+- `src/core/scheduler/PostponeEngine.ts`：延期复习引擎。
+- `src/core/scheduler/SpreadEngine.ts`：分散复习引擎。
+- `src/core/scheduler/strategies/TSFSRSScheduler.ts`：FSRS 调度策略。
+- `src/core/scheduler/strategies/SM15Scheduler.ts`：SM15 调度策略。
+- `src/core/scheduler/strategies/ImprovedTopicScheduler.ts`：主题调度策略。
 
-**"三支柱"组合**（每个队列策略内部由三个对象组成）：
+存储、卡片、修远：
 
-```
-RetrievalPracticeQueue (IQueueStrategy)
-  ├── IDataSource   → 数据来源（RiffDataSource / LocalStorageDataSource）
-  ├── ISequencer    → 下一张怎么选（FSRSSequencer / PrioritySequencer）
-  └── IScheduler    → 复习后怎么更新（RiffScheduler / NullScheduler）
-```
+- `src/core/storage/UnifiedStorageManager.ts`：统一存储门面。
+- `src/core/storage/UnifiedStoragePersistence.ts`：统一持久化回调。
+- `src/core/storage/manager.ts`：存储管理器。
+- `src/core/storage/infrastructure/BlockRepository.ts`：块仓储实现。
+- `src/core/card/common/application/BaseCardRenderService.ts`：卡片渲染基类。
+- `src/core/card/quick-card/**`：快速卡领域模型、策略与仓储。
+- `src/core/card/descriptor-card/**`：描述符卡领域与仓储。
+- `src/core/card/concept/**`：概念卡渲染服务。
+- `src/core/card/concept-definition/**`：概念定义卡渲染服务。
+- `src/core/card/multi-cloze/**`：多 Cloze 渲染服务。
+- `src/core/card-builder/**`：卡片类型识别与元数据提取。
+- `src/core/card-type/**`：卡型标记与规则映射。
+- `src/core/xiuyuan/domain/*.ts`：修远聚合、实体和值对象。
+- `src/core/xiuyuan/domain/events/*.ts`：修远领域事件。
+- `src/core/xiuyuan/domain/services/*.ts`：修远领域服务。
+- `src/core/xiuyuan/infrastructure/XiuyuanRepository.ts`：修远仓储实现。
+- `src/core/xiuyuan/templates/*.ts`：内置模板与模板注册中心。
 
-**队列类型枚举**（`src/types/unified-data-source.ts`）：
+事件与基础能力：
 
-```typescript
-enum QueueType {
-  RETRIEVAL_PRACTICE = 'retrieval',
-  FINAL_DRILL        = 'final_drill',
-  INCREMENTAL_LEARNING = 'incremental',
-  NEURAL_ROAM        = 'neural_roam',
-  FILTER_GROUP       = 'filter_group',
-  LEECH              = 'leech',
-}
-```
+- `src/core/shared/domain/events/EventBus.ts`：事件总线。
+- `src/core/infrastructure/websocket/TransactionWebSocketService.ts`：事务 WebSocket 同步。
+- `src/core/infrastructure/websocket/QuickCardWebSocketService.ts`：快速卡 WebSocket 同步。
+- `src/core/extensions/*.ts`：可扩展 Queue/Review Provider 抽象。
+- `src/core/siyuan/*.ts`：核心 Siyuan API 封装。
 
-**观察者模式（缓存自动失效）**：
-- `ObservableDataSource` 在数据变更时调用 `notifyObservers()`
-- `PrioritySequencer` 等实现 `IDataSourceObserver`，收到通知后自动失效缓存
-- **禁止**手动调用 `reset()`，依赖观察者自动触发
+### 3.4 Infrastructure 层（`src/infrastructure/*`）
 
-### 4.2 调度器系统
+端口实现：
 
-```
-SchedulerRouter（路由器）src/core/scheduler/SchedulerRouter.ts
-  ├── TSFSRSScheduler  → FSRS v6（ts-fsrs 库）— 普通闪卡
-  ├── SM15Scheduler    → SuperMemo 15 — 话题卡
-  └── ImprovedTopicScheduler → 改良话题调度器
+- `src/infrastructure/siyuan/BrowserSiyuanAdapter.ts`：Browser 端口实现。
+- `src/infrastructure/siyuan/ReviewSiyuanAdapter.ts`：Review 端口实现。
+- `src/infrastructure/siyuan/QuerySiyuanAdapter.ts`：查询端口实现。
+- `src/infrastructure/siyuan/ManagerSiyuanAdapter.ts`：管理端口实现。
+- `src/infrastructure/siyuan/CardCreationSiyuanAdapter.ts`：建卡端口实现。
+- `src/infrastructure/siyuan/CardDeletionSiyuanAdapter.ts`：删卡端口实现。
+- `src/infrastructure/siyuan/AutoCardSiyuanAdapter.ts`：自动制卡端口实现。
+- `src/infrastructure/siyuan/AutoCardRiffAdapter.ts`：自动制卡 Riff 端口实现。
+- `src/infrastructure/siyuan/XiuyuanSiyuanAdapter.ts`：修远端口实现。
+- `src/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter.ts`：修远同步端口实现。
 
-批量操作：
-  ├── AdvanceEngine.ts   → 批量提前复习
-  ├── PostponeEngine.ts  → 批量推迟
-  ├── SpreadEngine.ts    → 批量分散
-  └── rescheduleService.ts → 批量重排
-```
+持久化与支撑：
 
-### 4.3 修远（Xiuyuan）领域
+- `src/infrastructure/persistence/CardRepository.ts`：卡片仓储实现。
+- `src/infrastructure/persistence/dto/CardPersistenceDTO.ts`：持久化 DTO。
+- `src/infrastructure/persistence/mappers/*.ts`：Card/Riff/Xiuyuan 映射器。
+- `src/infrastructure/queries/CardReadModel.ts`：读模型实现。
+- `src/infrastructure/services/FileService.ts`：文件服务。
+- `src/infrastructure/services/QueuePersistenceService.ts`：队列持久化服务。
+- `src/infrastructure/queue/SiyuanLeechActionEffectsAdapter.ts`：Leech 副作用适配。
+- `src/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter.ts`：神经漫游卡型解析适配。
+- `src/infrastructure/events/RiffSyncEventHandler.ts`：Riff 事件处理基础设施层。
+- `src/infrastructure/notifications/SiyuanErrorNotificationAdapter.ts`：错误通知适配器。
 
-修远是插件自定义的卡组系统，数据存储在**思源块属性**中（非 Riff 系统）。
+### 3.5 UI 层（`src/ui/*`）
 
-```
-Xiuyuan（卡组聚合根）
-  └── Card（修远卡片）
-        ├── Priority（优先级值对象）
-        └── ScheduleInfo（调度信息值对象）
+Browser：
 
-持久化：XiuyuanRepository → 读写 block 自定义属性
-同步：XiuyuanSyncService → 修远卡片 ↔ Riff 系统双向同步
+- `src/ui/browser/SRSBrowser.vue`：Browser 主视图。
+- `src/ui/browser/SRSBrowserAdapter.ts`：Browser 适配器桥接层。
+- `src/ui/browser/SRSBrowserQueueView.ts`：队列视图逻辑。
+- `src/ui/browser/browserService*.ts`：Browser 服务接口层。
+- `src/ui/browser/composables/useBrowserAdapterSync.ts`：事件同步到 UI。
+- `src/ui/browser/composables/useIncrementalGridUpdates.ts`：增量网格刷新。
+- `src/ui/browser/composables/useQueueBridge.ts`：队列计数桥接。
+- `src/ui/browser/composables/useCardActions.ts`：卡片动作封装。
+- `src/ui/browser/composables/useCardFilter.ts`：筛选状态。
+- `src/ui/browser/composables/useSorting.ts`：排序状态。
+- `src/ui/browser/datasource/*.ts`：不同模式数据源实现。
+- `src/ui/browser/config/columnDefs.ts`：表格列定义。
+- `src/ui/browser/dialogs/*.vue`：Browser 操作对话框（advance/postpone/spread/priority/filter/reschedule）。
+- `src/ui/browser/components/*.vue`：筛选与交互组件。
+- `src/ui/browser/utils/*.ts`：Browser 工具函数。
 
-模板系统（TemplateRegistry）：
-  ├── builtin-quick.ts    → 快速正反卡、挖空卡
-  └── builtin-concept.ts  → 概念定义卡
-```
+Review：
 
-### 4.4 复习界面适配器模式
+- `src/ui/review/v2/ReviewView.vue`：复习主界面。
+- `src/ui/review/v2/useReviewSession.ts`：复习会话状态机。
+- `src/ui/review/v2/ReviewHeader.vue`：复习头部。
+- `src/ui/review/v2/ReviewContent.vue`：复习内容区。
+- `src/ui/review/v2/ReviewActions.vue`：评分动作区。
+- `src/ui/review/v2/adapters/SubsetPracticeAdapter.ts`：子集练习适配器。
+- `src/ui/review/v2/components/*.vue`：v2 组件（跳过菜单、修远模板卡等）。
+- `src/ui/review/v2/dialogs/*.vue`：v2 辅助对话框。
+- `src/ui/review/v2/overlays/*.vue`：叠加层组件。
+- `src/ui/review/v2/providers/utils/SessionManager.ts`：会话管理工具。
+- `src/ui/review/components/*.vue`：卡型渲染组件（Quick/Concept/Descriptor/MultiCloze）。
+- `src/ui/review/ReviewViewAdapter.ts`：Review 适配层。
 
-```
-ReviewView.vue
-  └── useReviewSession.ts（Composable，核心逻辑）
-        ├── 持有当前 IQueueStrategy
-        ├── 调用 strategy.next() 获取下一张卡
-        ├── 通过 IAdapter<TItem> 将卡片转为 UI 状态
-        │     ├── toUIState(queue, item, ctx) → ReviewUIState
-        │     └── fetchAuxiliaryData?(item)   → 面包屑等异步数据
-        └── 调用 strategy.onFeedback() 处理用户评分
-```
+设置与通用组件：
 
-**卡片类型渲染器**（`src/ui/review/components/`）：每种卡片类型（快速卡、概念卡、描述符卡、挖空卡）对应一个独立的 Renderer 组件。
+- `src/ui/settings/SettingsPanel.vue`：设置面板。
+- `src/ui/xiuyuan/TemplateSelectDialog.vue`：修远模板选择对话框。
+- `src/ui/srs/*.vue`：SRS 相关编辑与设置 UI。
+- `src/ui/components/SiyuanTheme/*.vue`：主题化 UI 原子组件。
+- `src/ui/components/neural/NeuralNavigationBar.vue`：神经导航组件。
+- `src/ui/menu/TopBar.ts`：顶栏菜单入口。
 
-### 4.5 卡片浏览器
+### 3.6 类型与工具（`src/types` / `src/utils`）
 
-```
-SRSBrowser.vue（AG-Grid）
-  ├── useCardData.ts   → 加载数据（走 BrowserApplicationService）
-  ├── useCardFilter.ts → 列过滤逻辑
-  ├── useCardActions.ts → 右键菜单操作
-  └── datasource/      → 不同来源（Deck/RetrievalPractice/FinalDrill...）
-```
+类型契约：
 
-**重要**：所有列定义必须有 `colId`，否则列刷新静默失败。
+- `src/types/unified-data-source.ts`：`QueueType` 与统一队列契约。
+- `src/types/card.ts`：卡片领域类型。
+- `src/types/review.ts`：复习流程类型。
+- `src/types/scheduler.ts`：调度类型。
+- `src/types/settings.ts`：配置类型。
+- `src/types/result.ts`：统一 Result 类型。
+- `src/types/reschedule*.ts`：重排类型与错误定义。
+- `src/types/logging.ts`：日志类型定义。
 
-### 4.6 存储系统
+工具基建：
 
-| 数据类型 | 存储位置 | 访问方式 |
-|---------|---------|---------|
-| 插件设置 | `settings.json`（思源 storage） | `UnifiedStorageManager` |
-| 修远卡片数据 | 思源块自定义属性 | `XiuyuanRepository` |
-| Riff 卡片数据 | 思源 Riff 数据库（内核管理） | `riff.ts` 中的 API |
-| 队列状态 | 文件服务（`FileService`） | `QueuePersistenceService` |
-
----
-
-## 5. 数据流：从用户操作到持久化
-
-### 5.1 用户评分一张闪卡
-
-```
-① 用户点击"一般"按钮 (Rating=3)
-   └── ReviewActions.vue → emit('feedback', { action: 'rate', rating: 3 })
-
-② ReviewView.vue
-   └── 调用 useReviewSession.ts → handleFeedback()
-
-③ useReviewSession.ts
-   └── currentStrategy.onFeedback(currentItem, feedback)
-
-④ RetrievalPracticeQueue.onFeedback()
-   ├── RiffScheduler.schedule(item, rating)
-   │     └── reviewRiffCard(deckID, cardID, rating)  ← 思源 Riff API
-   └── sequencer.next() 准备下一张
-
-⑤ riff.ts → fetchPost('/api/riff/reviewRiffCard', ...)
-   └── 思源内核持久化 FSRS 调度数据
-```
-
-### 5.2 创建修远卡片
-
-```
-① 用户在块右键菜单点击"创建修远卡片"
-   └── BlockMenuHandler.ts
-
-② CreateXiuyuanFromBlocksUseCase.execute(blockIds)
-
-③ UseCase 调用：
-   ├── CardTypeDetectionService.detect(block) → 检测卡片类型
-   ├── CardCreationService.create(xiuyuan, block) → 创建卡片实体
-   └── XiuyuanRepository.save(xiuyuan) → 持久化到 block 属性
-
-④ XiuyuanSyncService 触发同步
-   └── addRiffCards(deckId, [blockId]) → 同步到 Riff 系统
-```
-
-### 5.3 打开复习会话
-
-```
-① 用户点击顶栏"开始复习"
-   └── commands.ts / TopBar.ts
-
-② DialogManager.openReviewDialog(options)
-
-③ ReviewView.vue 初始化 useReviewSession
-   └── 根据 QueueType 从 ApplicationContext 获取对应队列策略
-
-④ strategy.next() → dataSource.getDueCards()
-   └── RiffDataSource → getRiffDueCards(deckID) → 思源 API
-```
+- `src/utils/logger.ts`：统一日志入口。
+- `src/utils/dialog.ts`：Vue 对话框创建工具。
+- `src/utils/configMigrator.ts`：配置迁移工具。
+- `src/utils/simpleModeRemovalMigrator.ts`：simple 模式移除迁移工具。
+- `src/utils/cardMigration.ts`：卡片数据迁移工具。
+- `src/utils/queryCache.ts`：查询缓存工具。
+- `src/utils/batchQuery.ts`：批量查询工具。
+- `src/utils/sqlOptimizer.ts`：SQL 优化工具。
+- `src/utils/dateUtils.ts`：日期工具。
+- `src/utils/asyncHelpers.ts` / `debounce.ts`：异步与节流防抖工具。
+- `src/utils/performance*.ts`：性能监控与预算工具。
+- `src/utils/errorReporter.ts`：错误上报工具。
+- `src/utils/EventEmitter.ts`：事件工具。
 
 ---
 
-## 6. 关键接口与类型定义
+## 4. 启动与装配流程（Composition Root）
 
-### 核心接口速查
+运行启动链路：
 
-| 接口 | 文件 | 用途 |
-|------|------|------|
-| `IQueueStrategy<TItem>` | `src/core/queue/abstraction/Strategy.ts` | 队列策略接口 |
-| `QueueFeedback` | `src/core/queue/abstraction/Strategy.ts` | 用户反馈类型 |
-| `QueueItem` | `src/core/queue/abstraction/types.ts` | 队列项基础类型（必须有 blockID） |
-| `IDataSource<TItem>` | `src/core/queue/datasource/IDataSource.ts` | 数据源接口 |
-| `QueueProvider<TItem>` | `src/core/extensions/QueueProvider.ts` | 扩展层队列提供者 |
-| `IXiuyuanRepository` | `src/core/xiuyuan/domain/repositories/IXiuyuanRepository.ts` | 修远仓储接口 |
-| `IPluginFacade` | `src/application/interfaces/IPluginFacade.ts` | 插件对外门面 |
+1. `src/index.ts` 的 `onload()`
+2. 调用 `ApplicationContext.create({ plugin, i18n })`
+3. 由 `ApplicationContext` 统一装配核心服务：
+- `UnifiedStorageManager`
+- `UnifiedDataSourceManager`
+- `SchedulerRouter`
+- `CardApplicationService`
+- `BrowserApplicationService`
+- `ReviewApplicationService`
+- `DialogManager` / `MenuManager` / `TabApplicationService`
+4. 注册顶栏、Dock、事件处理器
 
-### 关键类型
-
-| 类型 | 文件 | 说明 |
-|------|------|------|
-| `QueueType` (enum) | `src/types/unified-data-source.ts` | 所有队列类型枚举 |
-| `ReviewCard` | `src/types/review.ts` | 复习界面卡片数据 |
-| `PluginSettings` | `src/types/settings.ts` | 插件设置结构 |
-| `Result<T, E>` | `src/types/result.ts` | 函数式错误处理 |
-| `QueueUIConfig` | `src/core/queue/types.ts` | UI 显示配置 |
-| `BlockID / CardID` | `src/types/branded.ts` | 品牌类型（防 ID 混淆） |
+`ApplicationContext` 是运行时唯一服务组合根。
 
 ---
 
-## 7. 需求→代码定位速查表
+## 5. 统一队列系统（Unified Data Source）
 
-### 修复 BUG
+队列类型（字面量必须一致）：
 
-| BUG 类型 | 先检查 | 再检查 |
-|----------|--------|--------|
-| 评分后卡片重复/不更新 | `src/core/queue/strategies/RetrievalPracticeQueue.ts` → `onFeedback()` | `src/core/queue/schedulers/RiffScheduler.ts` |
-| 复习界面空白 | `src/ui/review/v2/useReviewSession.ts` → 初始化流程 | `src/core/queue/datasource/RiffDataSource.ts` |
-| 统计数字不准 | `src/core/queue/strategies/[对应队列].ts` → `getStats()` | `src/ui/review/v2/ReviewHeader.vue` |
-| 浏览器列不刷新 | `src/ui/browser/config/columnDefs.ts`（检查是否有 `colId`） | `src/ui/browser/SRSBrowser.vue` |
-| 菜单项不显示 | `src/application/managers/BlockMenuHandler.ts` | `src/application/managers/MenuManager.ts` |
-| 设置保存失败 | `src/application/services/SettingsService.ts` | `src/core/storage/UnifiedStorageManager.ts` |
-| 修远卡片不同步 | `src/application/services/XiuyuanSyncService.ts` | `src/core/xiuyuan/infrastructure/XiuyuanRepository.ts` |
-| 卡片类型检测错误 | `src/core/card-type/CardTypeMarkerService.ts` | `src/core/xiuyuan/domain/services/CardTypeDetectionService.ts` |
-| FSRS 算法结果不对 | `src/core/scheduler/strategies/TSFSRSScheduler.ts` | `src/core/queue/schedulers/RiffScheduler.ts` |
-| 神经漫游卡片异常 | `src/core/queue/neural/NeuralQueue.ts` | `src/core/queue/neural/WeightedWalkEngine.ts` |
-| 推迟/提前复习不生效 | `src/core/scheduler/PostponeEngine.ts` / `AdvanceEngine.ts` | `src/core/siyuan/riff.ts` → `batchSetRiffCardsDueTime()` |
+- `retrieval-practice`
+- `final-drill`
+- `incremental-learning`
+- `filter-group`
+- `neural-roam`
+- `leech`
 
-### 增加功能
+统一队列中心：
 
-| 需求 | 改哪里 |
-|------|--------|
-| **新增队列类型** | 1. `src/types/unified-data-source.ts` 加枚举值<br>2. `src/core/queue/strategies/` 新建策略类（实现 `IQueueStrategy`）<br>3. `src/application/ApplicationContext.ts` 注册到 `QueueContext`<br>4. `src/application/managers/DialogManager.ts` 添加启动入口 |
-| **新增排序器** | `src/core/queue/sequencers/` 新建文件，实现排序接口 |
-| **新增调度算法** | `src/core/scheduler/strategies/` 新建，在 `SchedulerRouter` 注册 |
-| **新增菜单项** | `src/application/managers/BlockMenuHandler.ts` 或 `MenuManager.ts` |
-| **新增设置选项** | 1. `src/types/settings.ts` 加字段<br>2. `src/ui/settings/SettingsPanel.vue` 加 UI<br>3. `src/application/services/SettingsService.ts` 处理读写 |
-| **新增卡片类型渲染器** | 1. `src/ui/review/components/` 新建 Renderer 组件<br>2. `src/core/card/` 对应子目录加渲染服务 |
-| **新增浏览器列** | `src/ui/browser/config/columnDefs.ts`（**必须加 `colId`**） |
-| **新增对话框** | `src/ui/browser/dialogs/` 或 `src/ui/review/v2/dialogs/`，通过 `DialogManager` 管理生命周期 |
-| **修改卡片创建流程** | `src/application/usecases/card/CreateCardUseCase.ts` |
-| **修改卡片类型检测** | `src/core/xiuyuan/domain/services/CardTypeDetectionService.ts` |
-| **新增卡片模板** | `src/core/xiuyuan/templates/` 加定义，在 `TemplateRegistry` 注册 |
-| **修改复习按钮行为** | `src/ui/review/v2/ReviewActions.vue` → `src/ui/review/v2/useReviewSession.ts` |
-| **修改批量重排逻辑** | `src/core/scheduler/rescheduleService.ts` 和对应 Engine |
+- `UnifiedDataSourceManager`（单例）
 
-### 理解数据来源
+职责：
 
-| 问题 | 答案位置 |
-|------|---------|
-| 标准复习卡片哪来的 | `src/core/queue/datasource/RiffDataSource.ts` → `getRiffDueCards()` |
-| 修远卡片哪来的 | `src/core/xiuyuan/infrastructure/XiuyuanRepository.ts` → 读 block 属性 |
-| 设置数据哪来的 | `src/core/storage/UnifiedStorageManager.ts` → `settings.json` |
-| 浏览器表格数据哪来的 | `src/ui/browser/datasource/*.ts` → 各数据源实现 |
-| 神经漫游种子哪来的 | `src/core/neural/SeedService.ts` |
+- 懒加载创建并缓存队列实例（`getQueue`/`createQueue`）
+- 通过 Router 统一卡片读写
+- 卡片变更后使相关队列缓存失效
+- 通过观察者机制派发合并后的数据变更事件
+
+队列具体实现位于：
+
+- `src/core/queue/domain/*`
 
 ---
 
-## 8. 已知技术债务
+## 6. Browser 架构与数据流
 
-| 债务 | 位置 | 说明 |
-|------|------|------|
-| 旧队列文件残留 | `src/core/queue/domain/` | 与 `strategies/` 部分重复，迁移中 |
-| 顶层领域层文件稀少 | `src/domain/` | DDD 迁移目标，当前只有少量文件 |
-| `core/siyuan/` 位置不规范 | `src/core/siyuan/` | 按 DDD 规范应在 `src/infrastructure/api/`，历史遗留 |
-| 备份文件 | `*.backup`, `*.bak`, `*.corrupted` | 多个 Vue 文件存在备份，需清理 |
-| `@deprecated` 访问器 | `src/index.ts` 57~76 行 | 向后兼容 accessor，下个主版本移除 |
-| `src/domain/queues/` | `RetrievalPracticeQueue.ts` | 迁移中间状态 |
+打开链路：
 
----
+1. `DialogManager.openBrowserDialog()`
+2. 挂载 `SRSBrowser.vue`
+3. 注入：
+- `browserService`（`BrowserApplicationService`）
+- `tabApplicationService`（文档打开单路径）
 
-## 9. 修改前必读规则
+`SRSBrowser` 加载逻辑：
 
-### 依赖方向（绝对不可违反）
+- 队列模式：使用统一队列数据源
+- 全量模式：`browserService.getBrowserCards()`
+- 通过 AG Grid 渲染卡片与层级视图
 
-```
-ui/  →  application/  →  core/(domain)  ←  core/(infrastructure)
-                ↓
-         infrastructure/
-```
+增量刷新逻辑：
 
-- **UI 层**只能调用 `application/` 层，**不能**直接调用 `src/core/siyuan/riff.ts`
-- **application/** 层不能包含 FSRS 算法（算法在 `core/scheduler/`）
-- **domain/领域层**不能 `import` Vue 或思源 API
-- 新增代码前先确认文件应放哪一层
+- `useBrowserAdapterSync` 监听队列/数据变更
+- `useIncrementalGridUpdates` 按受影响 ID 补丁更新行
+- `useQueueBridge` 刷新队列计数（`browserService.getQueueCounts()`）
 
-### 操作 Protyle 的规则
+Browser 打开文档为单路径：
 
-```typescript
-// ✅ 正确：传 blockId，让 Protyle 自己加载
-new Protyle(app, element, { blockId: 'xxx', mode: 'wysiwyg' });
-
-// ❌ 错误：手动操作 innerHTML（会导致白屏）
-element.innerHTML = '<div>...</div>';
-```
-
-### 必须使用的工具
-
-```typescript
-// 日志：必须用 logger，禁止直接 console.log
-import { logger } from '@/utils/logger';
-logger.info('message', data);
-
-// 错误处理：推荐 Result 类型，强制调用者处理失败
-import type { Result } from '@/types/result';
-// { ok: true; value: T } | { ok: false; error: E }
-```
-
-### AG-Grid 特别注意
-
-浏览器中所有列定义**必须有 `colId`**，否则列刷新会静默失败：
-
-```typescript
-// ✅ 正确
-{ field: 'nextDue', colId: 'nextDue', headerName: '到期时间' }
-
-// ❌ 错误（列不会刷新）
-{ field: 'nextDue', headerName: '到期时间' }
-```
-
-### 构建验证（提交前必须通过）
-
-```bash
-npm run build    # 构建成功
-npx tsc          # 零类型错误
-```
-
-### 常用设计模式速查
-
-| 场景 | 模式 | 参考位置 |
-|------|------|---------|
-| 新增复习模式 | Strategy 模式 | `src/core/queue/abstraction/Strategy.ts` |
-| 数据变更自动刷新 | Observer 模式 | `src/core/queue/datasource/ObservableDataSource.ts` |
-| 卡片类型→UI 状态 | Adapter 模式 | `src/ui/review/v2/adapters/` |
-| 服务定位/依赖注入 | DI Container | `src/application/ApplicationContext.ts` |
-| 类型安全 ID | Branded Types | `src/types/branded.ts` |
-| 函数式错误处理 | Result 类型 | `src/types/result.ts` |
+- `tabApplicationService.openDocumentTab({ docId })`
 
 ---
 
-*文档生成时间: 2026-02-23*
-*基于实际源码分析（657 个源文件）*
+## 7. Review 架构与数据流
+
+打开链路：
+
+1. `DialogManager.openReviewDialog*()`
+2. `createUnifiedReviewDialog(...)`
+3. 创建：
+- `UnifiedQueueStrategy`
+- `UnifiedReviewAdapter`
+4. 挂载 `ReviewView.vue`
+
+会话驱动：
+
+- `useReviewSession.ts` 统一处理 `next/reveal/grade/skip/custom`
+
+评分链路（主链）：
+
+1. `useReviewSession.grade()`
+2. `queueStrategy.onFeedback({ action: 'rate', rating })`
+3. 队列域对象 `handleReview()`
+4. `SchedulerRouter` 计算并更新卡片
+5. `UnifiedDataSourceManager` 发出数据变更事件
+6. Browser 侧收到增量事件并刷新显示
+
+```mermaid
+sequenceDiagram
+  participant UI as ReviewView/useReviewSession
+  participant QS as UnifiedQueueStrategy
+  participant Q as QueueDomain
+  participant SR as SchedulerRouter
+  participant UDSM as UnifiedDataSourceManager
+  participant B as SRSBrowser
+
+  UI->>QS: onFeedback(rate)
+  QS->>Q: handleReview(cardId, rating)
+  Q->>SR: route(card, rating)
+  SR-->>Q: updatedCard
+  Q->>UDSM: onCardUpdatedFromScheduler/notify
+  UDSM-->>B: card-updated event
+  B->>B: incremental grid patch
+```
+
+---
+
+## 8. 调度系统（Scheduler）
+
+核心路由器：
+
+- `src/core/scheduler/SchedulerRouter.ts`
+
+职责：
+
+- 按卡片类型/覆盖配置/卡片调度字段选择调度器
+- 执行调度计算并持久化更新
+- 对不支持调度类型显式报错（不做静默降级）
+
+调度器工厂：
+
+- `src/core/scheduler/index.ts`
+
+当前支持引擎：
+
+- `simple-fsrs`
+- `sm15`
+- `a-factor-v2`
+
+`sm2` 已不再支持（显式错误）。
+
+---
+
+## 9. 同步与事件系统
+
+同步相关组件：
+
+- `XiuyuanSyncService`
+- `TransactionWebSocketService`
+- `RiffSyncHandler`
+- `AutoCardHandler`
+
+事件体系：
+
+- 共享 `EventBus`（由 `ApplicationContext` 管理）
+- `UnifiedDataSourceManager` 的观察者通知驱动 UI 刷新
+- Browser/Review 的状态更新遵循事件驱动，而非分散轮询
+
+---
+
+## 10. 关键接口契约
+
+关键契约（改动前必须确认）：
+
+- `IReviewQueue`（`types/unified-data-source.ts`）
+- `IUnifiedDataSourceManagerFacade`
+- `IDataRouter`
+- `IQueueStrategy`
+
+约束：
+
+- UI 层依赖应用层抽象，不直接耦合底层基础设施细节
+- 领域逻辑放在 `core/*/domain`，应用层只做编排
+
+---
+
+## 11. AI/开发改动守则
+
+改动时按以下规则执行：
+
+1. 优先改主链路入口（第 3 节）
+2. 保持单路径确定性，不新增“兜底降级”分支
+3. 在触达切片内顺手去重与清债
+4. 严守 DDD 边界：
+- 领域规则在 `core`
+- 流程编排在 `application`
+- API/持久化细节在 `infrastructure`
+5. 最低验证：
+- `pnpm build`
+
+默认不要把以下路径当主架构：
+
+- `src/domain/queues/*`
+- `src/index.simplified.ts`
+- 各类备份/损坏文件（`*.backup`, `*.bak`, `*.corrupted`）
+
+---
+
+## 12. 当前状态快照
+
+当前收敛状态：
+
+- Browser/Review 主链路已统一
+- 队列访问统一收口到 `UnifiedDataSourceManager`
+- 调度路径为显式约束，不做静默回退
+
+非测试生产代码复扫结果（当前基线）：
+
+- `Result<any>`：0
+- `as any`：0
+- 运行时 `getAllItems(` 调用：0
+
+剩余重点：
+
+- 历史文档/注释中的编码乱码（mojibake）属于文档债务，非运行时架构债务

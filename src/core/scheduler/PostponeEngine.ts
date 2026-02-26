@@ -169,6 +169,7 @@ export class PostponeEngine extends BaseRescheduleEngine {
      */
     private calculateNewDue(card: FSRSCard, config: PostponeConfig, now: number): FSRSCard {
         let delayFactor = config.delayFactor;
+        const dayMs = 24 * 60 * 60 * 1000;
         
         // 根据 Retrievability 调整延迟因子
         if (config.modifyDelayByRetrievability) {
@@ -188,23 +189,24 @@ export class PostponeEngine extends BaseRescheduleEngine {
         delayFactor = Math.max(0.1, Math.min(10.0, delayFactor));
         
         // 计算新的间隔
-        const currentInterval = card.scheduledDays;
+        const currentInterval = Math.max(1, card.scheduledDays);
         let newInterval = Math.floor(currentInterval * delayFactor);
         
         // 应用最小/最大间隔限制
         newInterval = Math.max(config.minInterval, newInterval);
         newInterval = Math.min(config.maxInterval, newInterval);
         
-        // 确保至少推迟 1 天
-        const minDue = now + 24 * 60 * 60 * 1000;
-        const calculatedDue = now + newInterval * 24 * 60 * 60 * 1000;
+        // 基于 lastReview 计算目标到期时间，并保证不会反向提前
+        const calculatedDue = card.lastReview + newInterval * dayMs;
+        const minDue = Math.max(card.due, now) + dayMs;
         const newDue = Math.max(minDue, calculatedDue);
+        const actualInterval = Math.max(1, Math.floor((newDue - card.lastReview) / dayMs));
         
         // 更新卡片
         return {
             ...card,
             due: newDue,
-            scheduledDays: newInterval,
+            scheduledDays: actualInterval,
             postponeCount: (card.postponeCount ?? 0) + 1,
             lastPostponeDate: now,
             updatedAt: now,

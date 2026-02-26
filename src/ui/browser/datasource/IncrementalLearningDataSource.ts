@@ -10,11 +10,14 @@ import type {
   FetchRowsOptions,
   FetchRowsResult,
 } from './types';
-import { buildQueueActions } from './MenuActions';
+import {
+  buildQueueActions,
+  adjustTime,
+  type PluginLike as MenuActionPluginLike,
+} from './MenuActions';
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import { validateConsumerCardType } from '../../../diagnostics/type-guards';
 import {
-  adjustBrowserCardsDue,
   applyQueueFilters,
   type CardServicePluginLike,
   deleteBrowserCards,
@@ -40,11 +43,12 @@ type IncrementalLearningActionContext = {
 type IncrementalPluginLike = CardServicePluginLike & {
   i18n?: I18nDictionary;
   getContext?: () =>
-    | (CardServicePluginLike['context'] & {
+    | (CardServicePluginLike['context'] &
+      MenuActionPluginLike['context'] & {
         getI18n?: () => I18nDictionary | undefined;
       })
     | undefined;
-};
+} & MenuActionPluginLike;
 
 export type IncrementalLearningDataSourceOptions = {
   docId?: string;
@@ -158,11 +162,11 @@ export class IncrementalLearningDataSource implements ICardDataSource {
       }
 
       if (isIncrementalTimeAction(actionId)) {
-        return adjustBrowserCardsDue(this.manager, selectedRows, actionId, context, {
-          scope: 'IncrementalLearningDataSource',
-          postponeFromNow: false,
-          allowSpread: false,
-        });
+        const result = await adjustTime(this.plugin, selectedRows, actionId, context);
+        if (!result) {
+          throw new Error('RescheduleService unavailable');
+        }
+        return result;
       }
 
       logger.warn('Unknown action', { actionId });

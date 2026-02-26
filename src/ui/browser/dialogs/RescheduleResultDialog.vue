@@ -119,6 +119,12 @@ const operationName = computed(() => {
 
 function formatSkipReason(reason: string): string {
   const reasonMap: Record<string, string> = {
+    'not-outstanding': '未到期',
+    'skip-by-priority': '高优先级',
+    'skip-by-interval': '长间隔',
+    'skip-by-retrievability': '高可提取性',
+    'skip-by-afactor': '低 A-Factor',
+    'skip-by-postpone-count': '推迟次数过多',
     'priority': '优先级过高',
     'interval': '间隔过长',
     'retrievability': '记忆强度过高',
@@ -137,7 +143,7 @@ function handleClose() {
 
 <style scoped>
 .reschedule-result-dialog {
-  padding: 20px;
+  padding: 22px;
   min-width: 400px;
 }
 
@@ -178,7 +184,8 @@ function handleClose() {
   align-items: center;
   padding: 16px;
   border-radius: 8px;
-  background: var(--b3-theme-surface);
+  background: color-mix(in srgb, var(--b3-theme-surface) 82%, transparent);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--b3-theme-on-background) 6%, transparent);
 }
 
 .stat-item--success {
@@ -218,7 +225,8 @@ function handleClose() {
 .error-details {
   margin-bottom: 20px;
   padding: 16px;
-  background: var(--b3-theme-surface);
+  background: color-mix(in srgb, var(--b3-theme-surface) 82%, transparent);
+  border: 1px solid var(--b3-border-color);
   border-radius: 8px;
 }
 
@@ -269,5 +277,20 @@ function handleClose() {
   justify-content: flex-end;
   padding-top: 16px;
   border-top: 1px solid var(--b3-border-color);
+}
+
+@media (max-width: 700px) {
+  .reschedule-result-dialog {
+    min-width: 0;
+    padding: 16px;
+  }
+
+  .result-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .dialog__actions {
+    justify-content: stretch;
+  }
 }
 </style>

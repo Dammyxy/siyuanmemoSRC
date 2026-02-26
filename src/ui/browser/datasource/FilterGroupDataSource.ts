@@ -5,13 +5,15 @@ import type {
   FetchRowsOptions,
   FetchRowsResult,
 } from './types';
-import { buildQueueActions } from './MenuActions';
+import {
+  buildQueueActions,
+  adjustTime,
+  type PluginLike as MenuActionPluginLike,
+} from './MenuActions';
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import {
-  adjustBrowserCardsDue,
   applyQueueFilters,
   type CardServicePluginLike,
-  type QueueDueAdjustAction,
   deleteBrowserCards,
   removeCardsFromQueue,
   setBrowserCardsPriority,
@@ -31,6 +33,8 @@ type FilterGroupActionContext = {
   config?: unknown;
 };
 
+type FilterGroupPluginLike = CardServicePluginLike & MenuActionPluginLike;
+
 // 五重筛选：支持的筛选参数
 export type FilterGroupDataSourceOptions = {
   docId?: string;
@@ -39,8 +43,8 @@ export type FilterGroupDataSourceOptions = {
   cardType?: QueueCardTypeFilter;
 };
 
-function isQueueDueAdjustAction(actionId: string): actionId is QueueDueAdjustAction {
-  return actionId === 'postpone' || actionId === 'advance' || actionId === 'spread';
+function isQueueDueAdjustAction(actionId: string): actionId is 'postpone' | 'advance' {
+  return actionId === 'postpone' || actionId === 'advance';
 }
 
 export class FilterGroupDataSource implements ICardDataSource {
@@ -49,12 +53,12 @@ export class FilterGroupDataSource implements ICardDataSource {
 
   private readonly manager: IUnifiedDataSourceManagerFacade;
   private readonly options: FilterGroupDataSourceOptions;
-  private readonly plugin?: CardServicePluginLike;
+  private readonly plugin?: FilterGroupPluginLike;
 
   constructor(
     manager: IUnifiedDataSourceManagerFacade,
     options?: FilterGroupDataSourceOptions,
-    plugin?: CardServicePluginLike
+    plugin?: FilterGroupPluginLike
   ) {
     this.manager = manager;
     this.options = options || {};
@@ -129,11 +133,11 @@ export class FilterGroupDataSource implements ICardDataSource {
       }
 
       if (isQueueDueAdjustAction(actionId)) {
-        return adjustBrowserCardsDue(this.manager, selectedRows, actionId, context, {
-          scope: 'FilterGroupDataSource',
-          postponeFromNow: false,
-          allowSpread: true,
-        });
+        const result = await adjustTime(this.plugin, selectedRows, actionId, context);
+        if (!result) {
+          throw new Error('RescheduleService unavailable');
+        }
+        return result;
       }
     } catch (error) {
       logger.error('Failed to perform action', { actionId, error });

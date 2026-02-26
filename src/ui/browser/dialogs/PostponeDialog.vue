@@ -280,40 +280,59 @@ const emit = defineEmits<{
   (e: 'cancel'): void;
 }>();
 
+function normalizePostponeConfig(config: Partial<PostponeConfig> | null | undefined): PostponeConfig {
+  const defaults = props.configManager.getDefaultPostponeConfig();
+  const input = config ?? {};
+  const skipInput = (input.skipConditions ?? {}) as PostponeConfig['skipConditions'];
+  const defaultSkip = defaults.skipConditions;
+
+  return {
+    ...defaults,
+    ...input,
+    skipConditions: {
+      ...defaultSkip,
+      ...skipInput,
+      skipByPriority: { ...defaultSkip.skipByPriority!, ...skipInput.skipByPriority },
+      skipByInterval: { ...defaultSkip.skipByInterval!, ...skipInput.skipByInterval },
+      skipByRetrievability: { ...defaultSkip.skipByRetrievability!, ...skipInput.skipByRetrievability },
+      skipByAFactor: { ...defaultSkip.skipByAFactor!, ...skipInput.skipByAFactor },
+      skipByPostponeCount: { ...defaultSkip.skipByPostponeCount!, ...skipInput.skipByPostponeCount },
+    },
+  };
+}
+
 // 配置状态
-const config = ref<PostponeConfig>(props.configManager.getDefaultPostponeConfig());
+const config = ref<PostponeConfig>(normalizePostponeConfig(undefined));
 const selectedConfigName = ref('');
 const newConfigName = ref('');
 const configNames = ref<string[]>([]);
 
 // 验证错误
-const validationError = ref('');
-
-// 验证配置
-const isValid = computed(() => {
-  validationError.value = '';
-  
+const operationError = ref('');
+const formError = computed(() => {
   if (config.value.delayFactor < 1.0 || config.value.delayFactor > 10.0) {
-    validationError.value = t('postponeValidationDelayFactor', '延迟因子必须在 1.0 到 10.0 之间');
-    return false;
+    return t('postponeValidationDelayFactor', '延迟因子必须在 1.0 到 10.0 之间');
   }
   
   if (config.value.minInterval < 1 || config.value.minInterval > 365) {
-    validationError.value = t('postponeValidationMinInterval', '最小间隔必须在 1 到 365 天之间');
-    return false;
+    return t('postponeValidationMinInterval', '最小间隔必须在 1 到 365 天之间');
   }
   
   if (config.value.maxInterval < 1 || config.value.maxInterval > 3650) {
-    validationError.value = t('postponeValidationMaxInterval', '最大间隔必须在 1 到 3650 天之间');
-    return false;
+    return t('postponeValidationMaxInterval', '最大间隔必须在 1 到 3650 天之间');
   }
   
   if (config.value.minInterval > config.value.maxInterval) {
-    validationError.value = t('postponeValidationIntervalRange', '最小间隔不能大于最大间隔');
-    return false;
+    return t('postponeValidationIntervalRange', '最小间隔不能大于最大间隔');
   }
-  
-  return true;
+
+  return '';
+});
+const validationError = computed(() => operationError.value || formError.value);
+
+// 验证配置
+const isValid = computed(() => {
+  return formError.value.length === 0;
 });
 
 // 加载配置列表
@@ -332,11 +351,12 @@ async function loadSelectedConfig() {
   try {
     const loaded = await props.configManager.loadConfig(selectedConfigName.value, 'postpone');
     if (loaded) {
-      config.value = loaded as PostponeConfig;
+      config.value = normalizePostponeConfig(loaded as PostponeConfig);
+      operationError.value = '';
     }
   } catch (error) {
     logger.error('Failed to load config:', error);
-    validationError.value = t('postponeLoadConfigFailed', '加载配置失败');
+    operationError.value = t('postponeLoadConfigFailed', '加载配置失败');
   }
 }
 
@@ -346,11 +366,12 @@ async function saveCurrentConfig() {
   
   try {
     await props.configManager.saveConfig(newConfigName.value.trim(), config.value, 'postpone');
-    configNames.value.push(newConfigName.value.trim());
+    configNames.value = Array.from(new Set([...configNames.value, newConfigName.value.trim()]));
     newConfigName.value = '';
+    operationError.value = '';
   } catch (error) {
     logger.error('Failed to save config:', error);
-    validationError.value = t('postponeSaveConfigFailed', '保存配置失败');
+    operationError.value = t('postponeSaveConfigFailed', '保存配置失败');
   }
 }
 
@@ -366,27 +387,32 @@ function handleCancel() {
 
 <style scoped>
 .postpone-dialog {
-  padding: 16px;
+  padding: 18px;
   max-height: 80vh;
   overflow-y: auto;
 }
 
 .dialog__info {
   margin-bottom: 20px;
-  padding: 12px;
-  background: var(--b3-theme-surface);
-  border-radius: 6px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, var(--b3-theme-primary-lightest), color-mix(in srgb, var(--b3-theme-primary-lightest) 72%, var(--b3-theme-background)));
+  border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 25%, transparent);
+  border-radius: 10px;
   text-align: center;
+  font-weight: 500;
 }
 
 .form-section {
   margin-bottom: 24px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid var(--b3-border-color);
+  padding: 16px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--b3-theme-surface) 78%, transparent);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--b3-theme-on-background) 6%, transparent);
 }
 
 .form-section:last-of-type {
-  border-bottom: none;
+  margin-bottom: 12px;
 }
 
 .section-title {
@@ -478,8 +504,9 @@ function handleCancel() {
 .skip-condition {
   margin-bottom: 16px;
   padding: 12px;
-  background: var(--b3-theme-surface);
-  border-radius: 6px;
+  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 45%, var(--b3-theme-surface));
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 18%, transparent);
 }
 
 .condition-input {
@@ -546,8 +573,33 @@ function handleCancel() {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 20px;
-  padding-top: 16px;
+  margin-top: 16px;
+  padding-top: 14px;
   border-top: 1px solid var(--b3-border-color);
+  position: sticky;
+  bottom: -18px;
+  background: color-mix(in srgb, var(--b3-theme-background) 90%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+@media (max-width: 900px) {
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .config-select,
+  .config-save {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .condition-input {
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+
+  .dialog__actions {
+    flex-direction: column-reverse;
+  }
 }
 </style>
