@@ -1,6 +1,7 @@
-﻿import type { FSRSParameters, SchedulerEngine } from '@/types';
+import type { FSRSParameters, SchedulerEngine } from '@/types';
 import type { SchedulerEngineAdapter } from './types';
 import { TSFSRSScheduler } from './strategies/TSFSRSScheduler';
+import { SM15Scheduler } from './strategies/SM15Scheduler';
 import { ImprovedTopicScheduler } from './strategies/ImprovedTopicScheduler';
 import { createLogger } from '@/utils/logger';
 
@@ -13,21 +14,22 @@ export * from './rescheduleService';
 export * from './SchedulerRouter';
 
 /**
- * 创建调度器工厂
- * 根据配置的引擎类型返回相应的调度器实例
+ * Create scheduler adapter by configured engine.
  */
 export function createScheduler(params: FSRSParameters, engine: SchedulerEngine = 'simple-fsrs'): SchedulerEngineAdapter {
     switch (engine) {
         case 'a-factor-v2':
             logger.info('Using A-Factor-v2 (ImprovedTopicScheduler) Engine');
             return new ImprovedTopicScheduler(params);
-        case 'sm2':
         case 'sm15':
-            logger.warn(`Engine "${engine}" is deprecated, falling back to FSRS-6`);
-            return new TSFSRSScheduler(params);
+            logger.info('Using SM-15 Engine');
+            return new SM15Scheduler(params);
+        case 'sm2':
+            throw new Error('Engine "sm2" is no longer supported. Please migrate to "simple-fsrs", "sm15", or "a-factor-v2".');
         case 'simple-fsrs':
-        default:
             logger.info('Using FSRS-6 Engine (TSFSRSScheduler)');
             return new TSFSRSScheduler(params);
+        default:
+            throw new Error(`Unsupported scheduler engine: ${engine}`);
     }
 }

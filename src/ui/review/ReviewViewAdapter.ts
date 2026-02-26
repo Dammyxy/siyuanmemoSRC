@@ -141,19 +141,16 @@ export class ReviewViewAdapter implements IDataSourceObserver {
      * @returns 下一张卡片，如果队列为空则返回 null
      */
     async next(): Promise<FSRSCard | null> {
-        if (!this.controller || !this.currentQueue) {
-            logger.warn('[ReviewViewAdapter] Controller or queue not initialized');
-            throw new Error('Controller not initialized, fallback to useReviewSession');
-        }
+        const { controller, queue } = this.requireActiveSession();
         
         try {
             logger.info('[ReviewViewAdapter] Getting next card');
             
             // 使用控制器加载下一张卡片
-            await this.controller.loadNextCard(this.currentQueue);
+            await controller.loadNextCard(queue);
             
             // 获取当前卡片
-            const card = this.controller.getCurrentCard();
+            const card = controller.getCurrentCard();
             
             // 更新当前卡片 ID
             this.currentCardId = card?.id || null;
@@ -178,10 +175,7 @@ export class ReviewViewAdapter implements IDataSourceObserver {
      * @throws Error 如果评分失败
      */
     async grade(rating: number): Promise<void> {
-        if (!this.controller || !this.currentQueue) {
-            logger.warn('[ReviewViewAdapter] Controller or queue not initialized');
-            throw new Error('Controller not initialized, fallback to useReviewSession');
-        }
+        const { controller } = this.requireActiveSession();
         
         if (!this.currentCardId) {
             logger.warn('[ReviewViewAdapter] No current card to grade');
@@ -199,10 +193,10 @@ export class ReviewViewAdapter implements IDataSourceObserver {
             };
             
             // 使用控制器处理评分
-            await this.controller.handleButtonClick(button);
+            await controller.handleButtonClick(button);
             
             // 更新当前卡片 ID（控制器已自动加载下一张卡片）
-            const nextCard = this.controller.getCurrentCard();
+            const nextCard = controller.getCurrentCard();
             this.currentCardId = nextCard?.id || null;
             
             logger.info(`[ReviewViewAdapter] Card graded, next card: ${this.currentCardId || 'none'}`);
@@ -238,10 +232,7 @@ export class ReviewViewAdapter implements IDataSourceObserver {
      * @throws Error 如果跳过失败
      */
     async skip(): Promise<void> {
-        if (!this.controller || !this.currentQueue) {
-            logger.warn('[ReviewViewAdapter] Controller or queue not initialized');
-            throw new Error('Controller not initialized, fallback to useReviewSession');
-        }
+        const { controller } = this.requireActiveSession();
         
         if (!this.currentCardId) {
             logger.warn('[ReviewViewAdapter] No current card to skip');
@@ -259,10 +250,10 @@ export class ReviewViewAdapter implements IDataSourceObserver {
             };
             
             // 使用控制器处理跳过
-            await this.controller.handleButtonClick(button);
+            await controller.handleButtonClick(button);
             
             // 更新当前卡片 ID（控制器已自动加载下一张卡片）
-            const nextCard = this.controller.getCurrentCard();
+            const nextCard = controller.getCurrentCard();
             this.currentCardId = nextCard?.id || null;
             
             logger.info(`[ReviewViewAdapter] Card skipped, next card: ${this.currentCardId || 'none'}`);
@@ -392,6 +383,18 @@ export class ReviewViewAdapter implements IDataSourceObserver {
 
     private t(key: string, fallback: string): string {
         return this.i18n?.[key] || fallback;
+    }
+
+    private requireActiveSession(): { controller: ReviewViewController; queue: IReviewQueue } {
+        if (!this.controller || !this.currentQueue) {
+            logger.warn('[ReviewViewAdapter] Controller or queue not initialized');
+            throw new Error('Review controller is not initialized');
+        }
+
+        return {
+            controller: this.controller,
+            queue: this.currentQueue,
+        };
     }
     
     /**

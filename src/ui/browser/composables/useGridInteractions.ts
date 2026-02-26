@@ -19,16 +19,11 @@ type GridRowEvent = {
   event?: MouseEvent;
 };
 
-type TabManagerLike = {
-  openDocumentTab: (docId: string) => void;
-};
-
 type TabApplicationServiceLike = {
   openDocumentTab: (params: { docId: string }) => Promise<void> | void;
 };
 
 export interface GridInteractionsOptions {
-  tabManager?: TabManagerLike;  // ⚠️ 已废弃，使用 tabApplicationService
   tabApplicationService?: TabApplicationServiceLike;  // ✅ Phase 9: 使用 TabApplicationService
   i18n?: Record<string, string>;
 }
@@ -117,11 +112,6 @@ export function useGridInteractions(props: GridInteractionsOptions) {
     // ✅ Phase 9: 优先使用 TabApplicationService（DDD 架构）
     if (props.tabApplicationService) {
       await Promise.resolve(props.tabApplicationService.openDocumentTab({ docId: blockId }));
-      return;
-    }
-    if (props.tabManager) {
-      // ⚠️ 向后兼容：使用旧的 TabManager
-      props.tabManager.openDocumentTab(blockId);
       return;
     }
     logger.warn('[SiYuanMemo][CardBrowser] Tab service unavailable, cannot open document:', blockId);

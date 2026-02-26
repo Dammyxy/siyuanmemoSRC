@@ -14,7 +14,7 @@ import type SiyuanMemoPlugin from '@/index';
 import { StorageManager } from '@/core/storage';
 import { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
 import { createPersistenceCallbacks } from '@/core/storage/UnifiedStoragePersistence';
-import { SchedulerRouter, RescheduleService, createScheduler, type SchedulerEngineAdapter } from '@/core/scheduler';
+import { SchedulerRouter, RescheduleService } from '@/core/scheduler';
 import { UnifiedStorageCardUpdateAdapter } from '@/core/scheduler/adapters/UnifiedStorageCardUpdateAdapter';
 import { SiyuanErrorNotificationAdapter } from '@/infrastructure/notifications/SiyuanErrorNotificationAdapter';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
@@ -132,7 +132,6 @@ export class ApplicationContext {
   private storageManager: StorageManager;
   private unifiedStorageManager: UnifiedStorageManager;  // 🆕 统一存储管理器
   private schedulerRouter: SchedulerRouter;
-  private scheduler: SchedulerEngineAdapter; // 向后兼容的旧调度器
   private rescheduleService: RescheduleService;
   private unifiedDataSourceManager: UnifiedDataSourceManager;
   
@@ -220,7 +219,6 @@ export class ApplicationContext {
       storageManager: StorageManager;
       unifiedStorageManager: UnifiedStorageManager;  // 🆕 统一存储管理器
       schedulerRouter: SchedulerRouter;
-      scheduler: SchedulerEngineAdapter;
       rescheduleService: RescheduleService;
       unifiedDataSourceManager: UnifiedDataSourceManager;
       blockMenuHandler: BlockMenuHandler;
@@ -234,7 +232,6 @@ export class ApplicationContext {
     this.storageManager = services.storageManager;
     this.unifiedStorageManager = services.unifiedStorageManager;  // 🆕 统一存储管理器
     this.schedulerRouter = services.schedulerRouter;
-    this.scheduler = services.scheduler;
     this.rescheduleService = services.rescheduleService;
     this.unifiedDataSourceManager = services.unifiedDataSourceManager;
     this.blockMenuHandler = services.blockMenuHandler;
@@ -801,10 +798,7 @@ export class ApplicationContext {
       },
       schedulerCardUpdater
     );
-    
-    // 6. 创建旧调度器（向后兼容）
-    const scheduler = createScheduler(settings.fsrs, settings.schedulerEngine);
-    
+
     // 创建 CardCreationHelper
     const cardCreationHelper = new CardCreationHelper(cardApplicationService);
     logger.info('[ApplicationContext] ✅ CardCreationHelper initialized');
@@ -864,7 +858,6 @@ export class ApplicationContext {
       storageManager,
       unifiedStorageManager,  // 🆕 传入统一存储管理器
       schedulerRouter,
-      scheduler,
       rescheduleService,
       unifiedDataSourceManager,
       blockMenuHandler,
@@ -1043,16 +1036,7 @@ export class ApplicationContext {
   getScheduler(): SchedulerRouter {
     return this.schedulerRouter;
   }
-  
-  /**
-   * 获取旧调度器（向后兼容）
-   * 
-   * @returns SchedulerEngineAdapter - 调度器实例
-   */
-  getLegacyScheduler(): SchedulerEngineAdapter {
-    return this.scheduler;
-  }
-  
+
   /**
    * 获取重新调度服务
    * 

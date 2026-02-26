@@ -247,16 +247,13 @@ type BrowserPluginContext = {
   getBrowserService?: () => IBrowserApplicationService | null;
   getStorage?: () => BrowserStoragePort | null;
   getUnifiedDataSourceManager?: () => IUnifiedDataSourceManagerFacade | null;
+  getTabApplicationService?: () => BrowserTabApplicationServicePort | null;
   getHybridSyncService?: () => unknown;
   getDialogManager?: () => unknown;
 };
 
 type BrowserPluginPort = IPluginFacade & {
   getContext?: () => BrowserPluginContext | null;
-};
-
-type BrowserTabManagerPort = {
-  openDocumentTab: (blockId: string) => void;
 };
 
 type BrowserTabApplicationServicePort = {
@@ -270,13 +267,15 @@ const props = defineProps<{
   mode?: 'dialog' | 'tab' | 'dock';
   plugin?: BrowserPluginPort;
   browserService?: IBrowserApplicationService;  // ✅ DDD 架构：浏览器应用服务
-  tabManager?: BrowserTabManagerPort;      // ⚠️ 已废弃，使用 tabApplicationService
   tabApplicationService?: BrowserTabApplicationServicePort;  // ✅ Phase 9: Tab 应用服务
 }>();
 
 const mode = computed(() => props.mode || 'dialog');
 
 const pluginContext = computed(() => props.plugin?.getContext?.() || null);
+const tabApplicationServiceRef = computed(
+  () => props.tabApplicationService || pluginContext.value?.getTabApplicationService?.() || null
+);
 
 const browserAppServiceRef = computed(
   () => props.browserService || pluginContext.value?.getBrowserService?.()
@@ -384,6 +383,16 @@ const previewStyle = computed(() => {
 // 国际化
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
+}
+
+async function openDocumentTabById(blockId: string): Promise<boolean> {
+  const tabApplicationService = tabApplicationServiceRef.value;
+  if (!tabApplicationService) {
+    await pushErrMsg(t('envNotInit', 'Environment not initialized, cannot open tab'));
+    return false;
+  }
+  await Promise.resolve(tabApplicationService.openDocumentTab({ docId: blockId }));
+  return true;
 }
 
 async function pushMsg(msg: string, duration?: number, level?: 'error'): Promise<void> {
@@ -798,7 +807,6 @@ async function executeFetchRows(forceRefresh = false) {
       activeQueueId.value,
       unifiedDataSourceManager,
       focusOptions,
-      () => getQueueById(activeQueueId.value)?.getAllItems?.() || [],
       props.plugin  // 🆕 传递 plugin 参数以访问 ApplicationContext
     );
 
@@ -1018,13 +1026,7 @@ async function onRowDoubleClicked(event: RowDoubleClickedEvent<BrowserCard>) {
     return;
   }
   
-  if (props.tabApplicationService) {
-    await Promise.resolve(props.tabApplicationService.openDocumentTab({ docId: blockId }));
-  } else if (props.tabManager) {
-    props.tabManager.openDocumentTab(blockId);
-  } else {
-    await pushErrMsg(t('envNotInit', 'Environment not initialized, cannot open tab'));
-  }
+  await openDocumentTabById(blockId);
 }
 
 // 拖拽分隔条逻辑
@@ -1310,13 +1312,7 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   if (actionId === 'open') {
     const blockId = String(anchorRow?.blockId || targetCards[0]?.blockId || '');
     if (blockId) {
-      if (props.tabApplicationService) {
-        await Promise.resolve(props.tabApplicationService.openDocumentTab({ docId: blockId }));
-      } else if (props.tabManager) {
-        props.tabManager.openDocumentTab(blockId);
-      } else {
-        await pushErrMsg(t('envNotInit', 'Environment not initialized, cannot open tab'));
-      }
+      await openDocumentTabById(blockId);
       return;
     }
     await pushErrMsg(t('envNotInit', 'Environment not initialized, cannot open tab'));
@@ -1653,7 +1649,6 @@ const {
   rows,
   rowsForFocus,
   allRows,
-  loadData,
   refreshQueueCounts,
   loadQueueCardsSimple,
 });

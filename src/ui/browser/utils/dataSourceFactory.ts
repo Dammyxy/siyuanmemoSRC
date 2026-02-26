@@ -12,7 +12,6 @@ import { DeckDataSource } from '../datasource/DeckDataSource';
 import { QueryDataSource } from '../datasource/QueryDataSource';
 import { BlockIdsDataSource } from '../datasource/BlockIdsDataSource';
 import { IncrementalLearningDataSource } from '../datasource/IncrementalLearningDataSource';
-import { extractBlockIds } from './helpers';
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 
@@ -29,12 +28,6 @@ type I18nPluginLike = {
 type QueueDataSourcePlugin = ConstructorParameters<typeof FinalDrillDataSource>[2];
 type DeckDataSourcePlugin = ConstructorParameters<typeof DeckDataSource>[2];
 type BlockIdsPlugin = ConstructorParameters<typeof BlockIdsDataSource>[0]['plugin'];
-type QueueItemLike = {
-  blockID?: unknown;
-  blockId?: unknown;
-  block_id?: unknown;
-};
-
 function isI18nPluginLike(value: unknown): value is I18nPluginLike {
   return typeof value === 'object' && value !== null;
 }
@@ -219,7 +212,6 @@ export function createQueryDataSource(sqlStmt: string): ICardDataSource {
  * @param queueId - 队列 ID（null 表示全部卡片模式）
  * @param manager - UnifiedDataSourceManager 实例
  * @param options - 筛选选项（不含 docId）
- * @param getQueueItems - 获取队列项的函数（仅队列模式需要）
  * @param plugin - Plugin 实例（用于访问 ApplicationContext）
  * @returns 数据源实例或 null
  */
@@ -227,7 +219,6 @@ export function createFocusDataSource(
   queueId: string | null,
   manager: IUnifiedDataSourceManagerFacade,
   options: DataSourceOptions,
-  getQueueItems?: () => QueueItemLike[],
   plugin?: unknown
 ): ICardDataSource | null {
   const { preset, queryText, cardType } = options;
@@ -283,14 +274,6 @@ export function createFocusDataSource(
     });
   }
   
-  // 其他队列：使用 BlockIds（静态）
-  if (queueId && getQueueItems) {
-    const items = getQueueItems();
-    const blockIds = extractBlockIds(items);
-    // 注意：BlockIdsDataSource 仍然需要 plugin 对象
-    return createBlockIdsDataSource(queueId, blockIds, plugin);
-  }
-
   // 全部卡片模式：创建不含文档筛选的 DeckDataSource
   if (!queueId) {
     return new DeckDataSource(

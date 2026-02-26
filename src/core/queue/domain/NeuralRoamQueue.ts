@@ -38,13 +38,6 @@ interface NeuralRoamQueueOptions {
     cardTypeResolver?: NeuralRoamCardTypeResolverPort;
 }
 
-interface NeuralRoamSeedItem {
-    id: string;
-    blockId: string;
-    cardID: string;
-    type: 'concept';
-}
-
 const DEFAULT_CARD_TYPE_RESOLVER: NeuralRoamCardTypeResolverPort = {
     async resolveCardType(): Promise<'item' | 'topic'> {
         return 'topic';
@@ -329,27 +322,6 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     public async reorder(): Promise<boolean> {
         logger.warn('Reorder not supported');
         return false;
-    }
-
-    /**
-     * 获取所有项目（种子列表）
-     * 
-     * 返回所有种子块的信息，用于浏览器显示
-     * 注意：不设置 deckId 和 rootId，让 loadQueueCards 从数据库查询真实值
-     * 
-     * @returns 种子项目列表
-     */
-    public getAllItems(): NeuralRoamSeedItem[] {
-        const seeds = this.conceptQueue.getSeeds();
-        
-        // 将种子 ID 转换为队列项格式
-        // 注意：只设置必要的字段，让 loadQueueCards 补充其他信息
-        return seeds.map(blockId => ({
-            id: blockId,
-            blockId: blockId,
-            cardID: blockId,
-            type: 'concept',
-        }));
     }
 
     /**

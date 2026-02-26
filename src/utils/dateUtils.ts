@@ -65,7 +65,7 @@ export function getTodayRange(dayStartHour: number = 4): TodayRange {
   if (currentHour < dayStartHour) {
     // 当前时间早于dayStartHour，"今天"从昨天的dayStartHour开始
     todayStart = new Date(now);
-    todayStart.setDate(todayStart.getDate() - 1); // 回退到昨天
+    todayStart.setDate(todayStart.getDate() - 1); // adjust baseline day to yesterday
     todayStart.setHours(dayStartHour, 0, 0, 0);
   } else {
     // 当前时间晚于或等于dayStartHour，"今天"从今天的dayStartHour开始

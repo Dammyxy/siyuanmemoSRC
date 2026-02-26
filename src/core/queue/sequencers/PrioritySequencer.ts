@@ -103,8 +103,7 @@ export class PrioritySequencer<TItem extends QueueItem> implements ISequencer<TI
     if (!item) {
       return '';
     }
-    const legacyItem = item as QueueItem & { cardID?: string; cardId?: string };
-    return String(legacyItem.id || legacyItem.cardID || legacyItem.cardId || '');
+    return String(item.id || '');
   }
 
   private toDebugSample(item: TItem): { id: string; blockId: string; nextDues: QueueItem['nextDues'] } {

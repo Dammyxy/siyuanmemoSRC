@@ -117,8 +117,7 @@ export class WeightedWalkEngine {
       random -= weight;
     }
 
-    // 降级：返回最后一个（理论上不应该到达这里）
-    return items[items.length - 1];
+    throw new Error('Weighted random selection invariant violated: no candidate selected');
   }
 
   /**

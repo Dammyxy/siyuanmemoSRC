@@ -139,7 +139,6 @@ export class DialogManager implements IDialogManager {
   openSettingsDialog(defaultTab?: string): void {
     const settingsService = this.context.getSettingsService();
     const currentSettings = settingsService.getSettings();
-    const scheduler = this.context.getLegacyScheduler();
     const schedulerRouter = this.context.getScheduler();
     const storage = this.context.getStorage();
     const hybridSyncService = this.context.getHybridSyncService();
@@ -218,17 +217,12 @@ export class DialogManager implements IDialogManager {
           logger.info('[DialogManager] Merged settings with quickCard:', updatedSettings.quickCard);
           
           await settingsService.updateSettings(updatedSettings);
-          scheduler.updateParams(updatedSettings.fsrs);
-
-          // 更新 SchedulerRouter 配置
-          if (settings.scheduler) {
-            schedulerRouter.updateConfig({
-              defaultScheduler: settings.scheduler.defaultScheduler,
-              enableRiffSync: settings.scheduler.enableRiffSync,
-              fsrsParams: updatedSettings.fsrs,
-            });
-            logger.info('[DialogManager] ✅ SchedulerRouter config updated');
-          }
+          schedulerRouter.updateConfig({
+            defaultScheduler: updatedSettings.scheduler.defaultScheduler,
+            enableRiffSync: updatedSettings.scheduler.enableRiffSync,
+            fsrsParams: updatedSettings.fsrs,
+          });
+          logger.info('[DialogManager] ✅ SchedulerRouter config updated');
 
           // 更新 HybridSyncService 配置 (符合 DDD 架构)
           if (settings.riffIntegration && hybridSyncService) {
@@ -296,7 +290,7 @@ export class DialogManager implements IDialogManager {
     const storage = this.context.getStorage();
     const scheduler = this.context.getScheduler();
     const browserService = this.context.getBrowserService();
-    const tabManager = this.context.getTabManager();  // ✅ 获取 TabManager
+    const tabApplicationService = this.context.getTabApplicationService();
     
     // ✅ 响应式宽度计算 - 接近全屏，确保所有字段都能显示
     const screenWidth = window.innerWidth;
@@ -331,7 +325,7 @@ export class DialogManager implements IDialogManager {
         storage,
         scheduler,
         browserService,  // ✅ DDD 架构
-        tabManager,      // ✅ DDD 架构
+        tabApplicationService,
         i18n: this.context.getI18n(),
       },
       events: {

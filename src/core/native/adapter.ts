@@ -27,8 +27,7 @@ type NativeQueueCard = {
 };
 
 type NativeQueuePort = {
-  getAllCards?: () => Promise<NativeQueueCard[]>;
-  getAllItems?: () => NativeQueueItem[];
+  getAllCards: () => Promise<NativeQueueCard[]>;
 };
 
 function normalizeQueueCard(card: NativeQueueCard): NativeQueueItem {
@@ -43,16 +42,12 @@ function normalizeQueueCard(card: NativeQueueCard): NativeQueueItem {
 }
 
 async function resolveQueueItems(queue: NativeQueuePort): Promise<NativeQueueItem[]> {
-  if (typeof queue.getAllCards === 'function') {
-    const cards = await queue.getAllCards();
-    return cards.map(normalizeQueueCard);
+  if (typeof queue.getAllCards !== 'function') {
+    throw new Error('Native review adapter requires queue.getAllCards()');
   }
 
-  if (typeof queue.getAllItems === 'function') {
-    throw new Error('Native review adapter requires queue.getAllCards(); legacy getAllItems() path was removed');
-  }
-
-  return [];
+  const cards = await queue.getAllCards();
+  return cards.map(normalizeQueueCard);
 }
 
 /**

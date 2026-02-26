@@ -8,7 +8,6 @@ interface UseIncrementalGridUpdatesOptions {
   rows: Ref<BrowserCard[]>;
   rowsForFocus: Ref<BrowserCard[]>;
   allRows: Ref<BrowserCard[]>;
-  loadData: (forceRefresh?: boolean) => Promise<void>;
   refreshQueueCounts: () => Promise<void>;
   loadQueueCardsSimple: (cardIds: string[]) => Promise<BrowserCard[]>;
 }
@@ -30,6 +29,14 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
   let rafId: number | null = null;
   const pendingUpdateMap = new Map<string, BrowserCard>();
 
+  const refreshQueueCountsSafely = async () => {
+    try {
+      await options.refreshQueueCounts();
+    } catch (error) {
+      logger.error('Failed to refresh queue counts:', error);
+    }
+  };
+
   const scheduleGridUpdate = () => {
     if (rafId !== null) return;
 
@@ -46,9 +53,8 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
 
   const handleCardUpdatedIncremental = async (cardIds: string[]) => {
     if (!options.gridApi.value || cardIds.length === 0) {
-      logger.debug('Falling back to full reload (no grid or no cards)');
-      await options.loadData(true);
-      await options.refreshQueueCounts();
+      logger.debug('Skipping incremental update: grid unavailable or empty card IDs');
+      await refreshQueueCountsSafely();
       return;
     }
 
@@ -65,9 +71,11 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
       const blockIdsToReload = collectUniqueBlockIds(impactedRows);
       const updatedCards = await options.loadQueueCardsSimple(blockIdsToReload);
       if (updatedCards.length === 0) {
-        logger.warn('Incremental update missed card payload, fallback to full reload');
-        await options.loadData(true);
-        await options.refreshQueueCounts();
+        logger.error('Incremental update returned no card payload for impacted rows', {
+          cardIds,
+          blockIdsToReload,
+        });
+        await refreshQueueCountsSafely();
         return;
       }
 
@@ -96,20 +104,18 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
         scheduleGridUpdate();
       }
 
-      await options.refreshQueueCounts();
+      await refreshQueueCountsSafely();
       logger.info(`Incremental update completed: ${rowsToUpdate.length}/${cardIds.length} rows patched`);
     } catch (error) {
-      logger.error('Incremental update failed, falling back to full reload:', error);
-      await options.loadData(true);
-      await options.refreshQueueCounts();
+      logger.error('Incremental update failed:', error);
+      await refreshQueueCountsSafely();
     }
   };
 
   const handleCardDeletedIncremental = async (cardIds: string[]) => {
     if (!options.gridApi.value || cardIds.length === 0) {
-      logger.debug('Falling back to full reload (no grid or no cards)');
-      await options.loadData(true);
-      await options.refreshQueueCounts();
+      logger.debug('Skipping incremental delete: grid unavailable or empty card IDs');
+      await refreshQueueCountsSafely();
       return;
     }
 
@@ -118,7 +124,7 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
       const rowsToRemove = options.rows.value.filter((row) => isRowMatchedByEventIds(row, eventIdSet));
 
       if (rowsToRemove.length === 0) {
-        await options.refreshQueueCounts();
+        await refreshQueueCountsSafely();
         logger.debug('No visible rows matched delete event IDs');
         return;
       }
@@ -154,12 +160,11 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
         rafId = null;
       });
 
-      await options.refreshQueueCounts();
+      await refreshQueueCountsSafely();
       logger.info(`Incremental delete completed: ${rowsToRemove.length}/${cardIds.length} rows removed`);
     } catch (error) {
-      logger.error('Incremental delete failed, falling back to full reload:', error);
-      await options.loadData(true);
-      await options.refreshQueueCounts();
+      logger.error('Incremental delete failed:', error);
+      await refreshQueueCountsSafely();
     }
   };
 

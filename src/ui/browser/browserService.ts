@@ -1413,10 +1413,6 @@ export async function batchSetPriority(
 /**
  * 批量删除卡片
  * ✅ 使用统一数据源 manager 删除
- * 
- * TODO: [DDD Migration - Task 15.3] This function is used as fallback during migration.
- * Can be deprecated once all callers are migrated to CardApplicationService.
- * Currently used by: BlockMenuHandler (fallback path when ApplicationContext not available)
  */
 export async function batchDelete(
     blockIds: string[],

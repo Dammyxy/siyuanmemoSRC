@@ -486,20 +486,16 @@ export class NativeReviewSession {
           },
         });
 
-        if (rect) {
-          menu.open({
-            x: rect.left,
-            y: rect.bottom,
-            isLeft: true,
-          });
-        } else {
-          // 降级：使用鼠标位置
-          menu.open({
-            x: event.clientX,
-            y: event.clientY,
-            isLeft: true,
-          });
+        if (!rect) {
+          logger.error('Failed to open more menu: anchor rect is unavailable');
+          return;
         }
+
+        menu.open({
+          x: rect.left,
+          y: rect.bottom,
+          isLeft: true,
+        });
       }
     });
 

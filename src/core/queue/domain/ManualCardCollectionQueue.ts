@@ -377,8 +377,4 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
     }
   }
 
-  protected getDeprecatedAllItems(logger: ManualCardQueueLogger): FSRSCard[] {
-    logger.warn('getAllItems() is deprecated, use getAllCards() instead');
-    return this.cards;
-  }
 }

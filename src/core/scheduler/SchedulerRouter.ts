@@ -178,11 +178,11 @@ export class SchedulerRouter {
 
         // 3. 检查卡片自身的调度器类型
         if (card.schedulerType) {
-            // 验证调度器是否存在
-            if (this.schedulers.has(card.schedulerType)) {
-                return card.schedulerType;
+            const resolvedSchedulerType = this.resolveCardSchedulerType(card.schedulerType);
+            if (resolvedSchedulerType) {
+                return resolvedSchedulerType;
             }
-            logger.warn(`Card ${card.id} has unknown scheduler type: ${card.schedulerType}, falling back to default`);
+            throw new Error(`Card ${card.id} has unsupported scheduler type: ${card.schedulerType}`);
         }
 
         // 4. 使用默认调度器
@@ -286,27 +286,47 @@ export class SchedulerRouter {
         oldScheduler: SchedulerType,
         newScheduler: SchedulerType
     ): FSRSCard {
+        if (oldScheduler === newScheduler) {
+            return { ...card };
+        }
+
         // 🆕 Phase 4: 使用迁移工具进行状态转换
         const migrated = migrateCard(card, newScheduler);
 
-        // 如果迁移工具不支持该路径，回退到简化版转换
         if (migrated === card) {
-            // 简化版转换（保持向后兼容）
-            const converted = { ...card };
-
-            // 从其他算法切换到 A-Factor v2
-            if (oldScheduler !== 'a-factor-v2') {
-                if (newScheduler === 'a-factor-v2') {
-                    // FSRS difficulty (1-10) → A-Factor (1.2-6.0)
-                    const difficulty = card.difficulty || 5;
-                    converted.aFactor = 1.2 + ((difficulty - 1) / 9) * 4.8;
-                }
-            }
-
-            return converted;
+            throw new Error(`Scheduler migration not supported: ${oldScheduler} -> ${newScheduler}`);
         }
 
         return migrated;
+    }
+
+    private resolveCardSchedulerType(raw: unknown): SchedulerType | null {
+        if (typeof raw !== 'string') {
+            return null;
+        }
+
+        const normalized = raw.trim();
+        if (!normalized) {
+            return null;
+        }
+
+        if (normalized === 'simple-fsrs' || normalized === 'fsrs') {
+            return 'fsrs-v6';
+        }
+
+        if (normalized === 'sm15') {
+            return 'sm15';
+        }
+
+        if (normalized === 'a-factor-v2') {
+            return 'a-factor-v2';
+        }
+
+        if (normalized === 'fsrs-v6' || normalized === 'fsrs-v5') {
+            return normalized;
+        }
+
+        return null;
     }
 
     private getPreferredSchedulerForType(cardType?: string): SchedulerType | null {

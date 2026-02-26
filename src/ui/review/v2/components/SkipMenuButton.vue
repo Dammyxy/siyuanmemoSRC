@@ -83,18 +83,14 @@ function toggleMenu(ev: MouseEvent) {
   
   // 获取整个按钮组的位置，让菜单从按钮上方向上展开
   const buttonGroup = (ev.currentTarget as HTMLElement).parentElement;
-  if (buttonGroup) {
-    const rect = buttonGroup.getBoundingClientRect();
-    // 使用按钮顶部位置，让菜单向上展开（思源会自动将菜单放在这个点上方）
-    logger.debug('[SkipMenuButton] Opening menu above button at:', { x: rect.left, y: rect.top });
-    menu.open({ x: rect.left, y: rect.top, isLeft: true });
-  } else {
-    // 降级方案：使用当前按钮的位置
-    const target = ev.currentTarget as HTMLElement;
-    const rect = target.getBoundingClientRect();
-    logger.debug('[SkipMenuButton] Opening menu above button at:', { x: rect.left, y: rect.top });
-    menu.open({ x: rect.left, y: rect.top, isLeft: true });
+  if (!buttonGroup) {
+    logger.error('[SkipMenuButton] Failed to open menu: button group container is missing');
+    return;
   }
+  const rect = buttonGroup.getBoundingClientRect();
+  // 使用按钮顶部位置，让菜单向上展开（思源会自动将菜单放在这个点上方）
+  logger.debug('[SkipMenuButton] Opening menu above button at:', { x: rect.left, y: rect.top });
+  menu.open({ x: rect.left, y: rect.top, isLeft: true });
 }
 </script>
 

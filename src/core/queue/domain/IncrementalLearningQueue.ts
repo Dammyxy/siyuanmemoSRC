@@ -233,15 +233,4 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
             { type: 'action', label: 'Next', action: 'next' },
         ];
     }
-    /**
-     * ✅ 兼容方法：获取所有队列项（同步）
-     * 
-     * 这是为了兼容旧架构的 getAllItems() 方法。
-     * 新代码应该使用 getAllCards() 方法。
-     * 
-     * @deprecated 使用 getAllCards() 代替
-     */
-    public getAllItems(): FSRSCard[] {
-        return this.getDeprecatedAllItems(logger);
-    }
 }

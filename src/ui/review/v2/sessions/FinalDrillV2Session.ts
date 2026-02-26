@@ -133,10 +133,6 @@ export class FinalDrillV2Session implements IQueueStrategy<QueueItem> {
     }
   }
 
-  getAllItems(): QueueItem[] {
-    return [...this.cachedItems];
-  }
-
   getResumePrompt(): { message: string; data: unknown } | null {
     if (!this.resumePromptVisible) return null;
     return {
