@@ -33,7 +33,7 @@ export interface CardCreationOptions {
   /** 优先级（0-100，默认 50） */
   priority?: number;
   /** 扩展元数据 */
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   /** 卡片类型（可选，用于覆盖默认类型） */
   cardType?: 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
 }

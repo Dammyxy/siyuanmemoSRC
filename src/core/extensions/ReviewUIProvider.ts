@@ -10,9 +10,9 @@ export interface AdapterContext {
   };
 }
 
-export interface IAdapter<TItem = any, TUIState = unknown> {
+export interface IAdapter<TItem = unknown, TUIState = unknown> {
   toUIState(
-    queue: QueueProvider<TItem> | any,
+    queue: QueueProvider<TItem> | unknown,
     item: TItem | null,
     context: AdapterContext,
   ): Promise<TUIState>;
@@ -26,7 +26,7 @@ export interface ProviderContext {
   ui?: Record<string, unknown>;
 }
 
-export interface ReviewUIProvider<TItem = any, TUIState = unknown> {
+export interface ReviewUIProvider<TItem = unknown, TUIState = unknown> {
   component: Component;
   adapter: IAdapter<TItem, TUIState>;
   context?: ProviderContext;

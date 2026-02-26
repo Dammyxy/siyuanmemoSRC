@@ -8,6 +8,6 @@ export interface QuerySiyuanPort {
   readonly ATTR_SUSPENDED: string;
   readonly ATTR_CARD_TYPE: string;
 
-  sql(stmt: string): Promise<any[]>;
+  sql(stmt: string): Promise<unknown[]>;
   batchSetRiffCardsDueTime(cards: RiffDueTimeUpdate[]): Promise<void>;
 }

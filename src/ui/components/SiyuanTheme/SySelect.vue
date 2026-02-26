@@ -2,7 +2,7 @@
   <select
     class="b3-select fn__flex-center fn__size200"
     :value="modelValue"
-    @input="$emit('update:modelValue', ($event.target as any).value)"
+    @input="handleInput"
   >
     <option
       v-for="item of options"
@@ -22,5 +22,12 @@ defineProps<{
   }>
   modelValue: string
 }>()
-defineEmits(['update:modelValue'])
+const emit = defineEmits<{
+  (e: 'update:modelValue', value: string): void
+}>()
+
+function handleInput(event: Event): void {
+  const target = event.target as HTMLSelectElement | null
+  emit('update:modelValue', target?.value ?? '')
+}
 </script>

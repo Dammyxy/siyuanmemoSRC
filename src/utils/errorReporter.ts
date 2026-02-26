@@ -40,13 +40,13 @@ export interface IErrorReporter {
    * @param context - Optional context information about where/when the error occurred
    * 
    * @remarks
-   * The context object can contain any relevant information that helps
+   * The context object can contain relevant information that helps
    * diagnose the error, such as:
    * - operation: The operation that was being performed
    * - component: The component where the error occurred
    * - userId: The user who encountered the error
    * - timestamp: When the error occurred
-   * - Any other relevant metadata
+   * - Additional relevant metadata
    * 
    * @example
    * ```typescript
@@ -57,7 +57,7 @@ export interface IErrorReporter {
    * });
    * ```
    */
-  report(error: Error, context?: Record<string, any>): void;
+  report(error: Error, context?: Record<string, unknown>): void;
 }
 
 /**
@@ -93,13 +93,13 @@ export class ConsoleErrorReporter implements IErrorReporter {
   /**
    * Report an error to the console
    * 
-   * Logs the error message, stack trace, and any provided context
+   * Logs the error message, stack trace, and provided context
    * information to the console using the error log level.
    * 
    * @param error - The error to report
    * @param context - Optional context information
    */
-  report(error: Error, context?: Record<string, any>): void {
+  report(error: Error, context?: Record<string, unknown>): void {
     // Log the error message
     logger.error('Error reported:', error.message);
     
@@ -135,6 +135,11 @@ export class ConsoleErrorReporter implements IErrorReporter {
  * ```
  */
 export const defaultErrorReporter: IErrorReporter = new ConsoleErrorReporter();
+
+function readContextOperation(context?: Record<string, unknown>): string | undefined {
+  const operation = context?.operation;
+  return typeof operation === 'string' ? operation : undefined;
+}
 
 /**
  * Converts technical error messages into user-friendly messages
@@ -199,8 +204,9 @@ export const defaultErrorReporter: IErrorReporter = new ConsoleErrorReporter();
  * 
  * @public
  */
-export function formatUserError(error: Error, context?: Record<string, any>): string {
+export function formatUserError(error: Error, context?: Record<string, unknown>): string {
   const errorMessage = error.message.toLowerCase();
+  const operation = readContextOperation(context);
   
   // Database errors
   if (errorMessage.includes('sqlite_busy') || errorMessage.includes('database is locked')) {
@@ -250,15 +256,15 @@ export function formatUserError(error: Error, context?: Record<string, any>): st
   }
   
   // Context-specific errors
-  if (context?.operation === 'getAll' || context?.operation === 'fetchCards') {
+  if (operation === 'getAll' || operation === 'fetchCards') {
     return '加载卡片失败，请稍后重试';
   }
   
-  if (context?.operation === 'save' || context?.operation === 'update') {
+  if (operation === 'save' || operation === 'update') {
     return '保存数据失败，请稍后重试';
   }
   
-  if (context?.operation === 'delete' || context?.operation === 'remove') {
+  if (operation === 'delete' || operation === 'remove') {
     return '删除操作失败，请稍后重试';
   }
   

@@ -4,8 +4,31 @@
  * 提供插件配置的读取和保存功能
  */
 
-import type { PluginSettings, FSRSParameters } from '@/types/settings';
+import type { PluginSettings } from '@/types/settings';
 import type { Plugin } from 'siyuan';
+
+type SettingsServiceLike = {
+  getSettings: () => PluginSettings;
+  updateSettings: (settings: PluginSettings) => Promise<void>;
+};
+
+type PluginWithContext = Plugin & {
+  context?: {
+    getSettingsService?: () => SettingsServiceLike;
+  };
+};
+
+function getSettingsService(plugin: Plugin): SettingsServiceLike | null {
+  const context = (plugin as PluginWithContext).context;
+  const service = context?.getSettingsService?.();
+  if (!service) {
+    return null;
+  }
+  if (typeof service.getSettings !== 'function' || typeof service.updateSettings !== 'function') {
+    return null;
+  }
+  return service;
+}
 
 /**
  * 获取dayStartHour配置
@@ -15,8 +38,7 @@ import type { Plugin } from 'siyuan';
  */
 export function getDayStartHour(plugin: Plugin): number {
   try {
-    const context = (plugin as any).context;
-    const settings = context?.getSettingsService?.()?.getSettings() as PluginSettings | undefined;
+    const settings = getSettingsService(plugin)?.getSettings();
     const dayStartHour = settings?.fsrs?.dayStartHour;
     
     if (dayStartHour === undefined) {
@@ -45,13 +67,12 @@ export async function saveDayStartHour(plugin: Plugin, dayStartHour: number): Pr
   }
   
   try {
-    const context = (plugin as any).context;
-    const settingsService = context?.getSettingsService?.();
+    const settingsService = getSettingsService(plugin);
     if (!settingsService) {
       throw new Error('SettingsService not initialized');
     }
     
-    const settings = settingsService.getSettings() as PluginSettings;
+    const settings = settingsService.getSettings();
     const newSettings: PluginSettings = {
       ...settings,
       fsrs: {
@@ -74,7 +95,7 @@ export async function saveDayStartHour(plugin: Plugin, dayStartHour: number): Pr
  * @param value - 待验证的值
  * @returns 验证后的值（如果无效则返回默认值4）
  */
-function validateDayStartHour(value: any): number {
+function validateDayStartHour(value: unknown): number {
   // 1. 检查类型和范围
   if (
     typeof value !== 'number' ||

@@ -23,6 +23,16 @@ import { detectCardType, initializeAFactor } from '@/core/card-builder/detectCar
 import { getBlockAttrs, setBlockAttrs, sql } from '@/core/siyuan/api';
 import { getRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 
+type RiffBlockLite = { id: string };
+
+function isPagedRiffResponse(value: unknown): value is { blocks: RiffBlockLite[] } {
+    if (typeof value !== 'object' || value === null) {
+        return false;
+    }
+    const blocks = (value as { blocks?: unknown }).blocks;
+    return Array.isArray(blocks);
+}
+
 /**
  * 迁移结果统计
  */
@@ -47,12 +57,15 @@ export async function migrateExistingCards(forceRemigrate = false): Promise<Migr
 
     // 1. 从 Riff 获取所有卡片（包括没有 fsrs 标记的）
     // 分页获取所有卡片
-    let allBlocks: any[] = [];
+    const allBlocks: RiffBlockLite[] = [];
     let page = 1;
     const pageSize = 100;
 
     while (true) {
         const response = await getRiffCards(BUILTIN_DECK_ID, page, pageSize);
+        if (!isPagedRiffResponse(response)) {
+            throw new Error('Unexpected riff response format while migrating cards');
+        }
         allBlocks.push(...response.blocks);
 
         // 如果获取的卡片数量少于 pageSize，说明已经是最后一页了
@@ -63,7 +76,7 @@ export async function migrateExistingCards(forceRemigrate = false): Promise<Migr
         page++;
     }
 
-    const blockIds = allBlocks.map((card: any) => card.id);
+    const blockIds = allBlocks.map((card) => card.id);
     console.log(`[Migration] Found ${blockIds.length} cards in Riff to migrate`);
 
     // 2. 批量迁移
@@ -253,8 +266,8 @@ export async function migrateSingleCard(blockId: string, forceRemigrate = false)
             cardType,
             aFactor: cardType === 'topic' ? parseFloat(updates[ATTR_A_FACTOR]) : undefined,
         };
-    } catch (err: any) {
-        const errorMsg = err?.message || String(err);
+    } catch (err: unknown) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
 
         // 区分不同类型的错误
         if (errorMsg.includes('tree not found') || errorMsg.includes('Not found entity')) {

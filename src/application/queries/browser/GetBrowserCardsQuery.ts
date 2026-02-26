@@ -60,7 +60,7 @@ export interface BrowserCard {
   tags: string[];          // 标签列表
   
   // 原始数据（用于特殊处理）
-  meta?: any;
+  meta?: Record<string, unknown>;
 }
 
 /**

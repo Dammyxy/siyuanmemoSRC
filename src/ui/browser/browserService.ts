@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 卡片浏览器数据服务 v2
  * 
  * 重构版本：使用统一数据源架构
@@ -459,18 +459,18 @@ async function loadAllCardsRaw(
         if (!forceRefresh) {
             const cached = cardCache.get();
             if (cached) {
-                console.log('[SiYuanMemo][CardBrowser] 命中缓存，返回', cached.length, '张卡片');
+                logger.info('[SiYuanMemo][CardBrowser] 命中缓存，返回', cached.length, '张卡片');
                 return cached;
             }
 
             const loadingPromise = cardCache.getLoadingPromise();
             if (loadingPromise) {
-                console.log('[SiYuanMemo][CardBrowser] 等待并发加载完成...');
+                logger.info('[SiYuanMemo][CardBrowser] 等待并发加载完成...');
                 return loadingPromise;
             }
         }
 
-        console.log('[SiYuanMemo][CardBrowser] 开始加载卡片数据（使用统一数据源）...');
+        logger.info('[SiYuanMemo][CardBrowser] 开始加载卡片数据（使用统一数据源）...');
         const startTime = Date.now();
 
         const loadPromise = (async () => {
@@ -486,7 +486,7 @@ async function loadAllCardsRaw(
                 }
 
                 const blockIds = fsrsCards.map(c => c.blockId).filter(Boolean);
-                console.log('[SiYuanMemo][CardBrowser] 获取到', blockIds.length, '张卡片，开始加载属性...');
+                logger.info('[SiYuanMemo][CardBrowser] 获取到', blockIds.length, '张卡片，开始加载属性...');
 
                 // 分批加载属性
                 const cards: BrowserCard[] = [];
@@ -498,7 +498,7 @@ async function loadAllCardsRaw(
                     
                     const { attrsMap, rootIdMap, tagsMap, contentMap } = await fetchBlockInfoBatched(batchIds);
                     
-                    console.log(`[SiYuanMemo][CardBrowser] 🔍 Batch ${i}: contentMap size = ${contentMap.size}`);
+                    logger.info(`[SiYuanMemo][CardBrowser] 🔍 Batch ${i}: contentMap size = ${contentMap.size}`);
                     
                     const batchBrowserCards: BrowserCard[] = batchCards.map((card) => {
                         const customAttrs = attrsMap.get(card.blockId) || {};
@@ -512,7 +512,7 @@ async function loadAllCardsRaw(
                         const dbContent = contentMap.get(card.blockId);
                         
                         if (!currentContent && dbContent) {
-                            console.log(`[SiYuanMemo][CardBrowser] 🔍 Document block card ${card.blockId}:`, {
+                            logger.info(`[SiYuanMemo][CardBrowser] 🔍 Document block card ${card.blockId}:`, {
                                 fsrsType: card.type,
                                 browserCardType: browserCard.cardType,
                                 hasDbContent: !!dbContent,
@@ -524,7 +524,7 @@ async function loadAllCardsRaw(
                             // 使用数据库内容（文档块的 content 就是标题）
                             browserCard.fullContent = dbContent;
                             browserCard.content = truncateContent(dbContent, 100);
-                            console.log(`[SiYuanMemo][CardBrowser] ✅ Updated document block card:`, {
+                            logger.info(`[SiYuanMemo][CardBrowser] ✅ Updated document block card:`, {
                                 blockId: card.blockId,
                                 cardType: card.type,
                                 afterUpdate_content: browserCard.content,
@@ -543,11 +543,11 @@ async function loadAllCardsRaw(
                 }
 
                 const elapsed = Date.now() - startTime;
-                console.log(`[SiYuanMemo][CardBrowser] ✅ 加载完成，共 ${cards.length} 张卡片，耗时 ${elapsed}ms`);
+                logger.info(`[SiYuanMemo][CardBrowser] ✅ 加载完成，共 ${cards.length} 张卡片，耗时 ${elapsed}ms`);
                 
                 return cards;
             } catch (err) {
-                console.error('[SiYuanMemo][CardBrowser] 加载卡片失败:', err);
+                logger.error('[SiYuanMemo][CardBrowser] 加载卡片失败:', err);
                 return [];
             } finally {
                 cardCache.setLoadingPromise(null);
@@ -612,9 +612,9 @@ async function fetchBlockInfoBatched(
             const content = String(row.content || '').trim();
             if (content) {
                 contentMap.set(row.id, content);
-                console.log(`[SiYuanMemo][fetchBlockInfoBatched] 📝 Block ${row.id}: type=${row.type}, content="${content.substring(0, 50)}..."`);
+                logger.info(`[SiYuanMemo][fetchBlockInfoBatched] 📝 Block ${row.id}: type=${row.type}, content="${content.substring(0, 50)}..."`);
             } else {
-                console.log(`[SiYuanMemo][fetchBlockInfoBatched] ⚠️ Block ${row.id}: type=${row.type}, content is empty`);
+                logger.info(`[SiYuanMemo][fetchBlockInfoBatched] ⚠️ Block ${row.id}: type=${row.type}, content is empty`);
             }
             
             const ial = String(row.ial || '');
@@ -657,7 +657,7 @@ export async function loadCards(
     plugin?: Plugin
 ): Promise<BrowserCard[]> {
     if (!plugin) {
-        console.error('[SiYuanMemo][CardBrowser] Plugin instance is required');
+        logger.error('[SiYuanMemo][CardBrowser] Plugin instance is required');
         return [];
     }
 
@@ -666,7 +666,7 @@ export async function loadCards(
 
     const unifiedDataSourceManager = resolveUnifiedDataSourceManager(plugin);
     if (!unifiedDataSourceManager) {
-        console.error('[SiYuanMemo][CardBrowser] UnifiedDataSourceManager not found');
+        logger.error('[SiYuanMemo][CardBrowser] UnifiedDataSourceManager not found');
         return [];
     }
 
@@ -701,7 +701,7 @@ export async function loadCards(
             });
 
             // 🔍 调试：输出所有卡片的类型和内容
-            console.log('[SiYuanMemo][CardBrowser] 📊 Final cards summary:', {
+            logger.info('[SiYuanMemo][CardBrowser] 📊 Final cards summary:', {
                 total: cards.length,
                 byType: cards.reduce((acc, c) => {
                     acc[c.cardType || 'unknown'] = (acc[c.cardType || 'unknown'] || 0) + 1;
@@ -718,7 +718,7 @@ export async function loadCards(
 
             return cards;
         } catch (err) {
-            console.error('[SiYuanMemo][CardBrowser] Load cards error:', err);
+            logger.error('[SiYuanMemo][CardBrowser] Load cards error:', err);
             return [];
         }
     });
@@ -729,7 +729,7 @@ export async function loadCards(
  */
 export function invalidateCardCache(): void {
     cardCache.clear();
-    console.log('[SiYuanMemo][CardBrowser] 缓存已清除');
+    logger.info('[SiYuanMemo][CardBrowser] 缓存已清除');
 }
 
 /**
@@ -739,7 +739,7 @@ export function forceInvalidateAllCache(): void {
     cardCache.clear();
     // 清除所有监听器，强制重新加载
     listeners.clear();
-    console.log('[SiYuanMemo][CardBrowser] 所有缓存已强制清除');
+    logger.info('[SiYuanMemo][CardBrowser] 所有缓存已强制清除');
 }
 
 /**
@@ -1076,7 +1076,7 @@ export async function getDocTree(rootIds: string[]): Promise<DocTreeNode[]> {
         
         return result;
     } catch (err) {
-        console.error('[SiYuanMemo][CardBrowser] getDocTree error:', err);
+        logger.error('[SiYuanMemo][CardBrowser] getDocTree error:', err);
         return ids.map((id) => ({ id, title: id }));
     }
 }
@@ -1122,7 +1122,7 @@ export async function loadQueueCards(
             
             // 🆕 如果块没有对应的 FSRS 卡片，创建虚拟卡片
             if (!card) {
-                console.log(`[SiYuanMemo][loadQueueCards] Block ${id} has no FSRS card, creating virtual card`);
+                logger.info(`[SiYuanMemo][loadQueueCards] Block ${id} has no FSRS card, creating virtual card`);
                 
                 const customAttrs = attrsMap.get(id) || {};
                 const dbContent = contentMap.get(id) || '';
@@ -1194,7 +1194,7 @@ export async function loadQueueCards(
         
         return cards;
     } catch (err) {
-        console.error('[SiYuanMemo][CardBrowser] loadQueueCards error:', err);
+        logger.error('[SiYuanMemo][CardBrowser] loadQueueCards error:', err);
         return [];
     }
 }

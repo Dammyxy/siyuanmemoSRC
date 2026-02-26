@@ -29,7 +29,7 @@ type TransactionObserverStoragePort = CardWritePort & {
 
 interface DoOperation {
     action: string;
-    data: any;
+    data: unknown;
     id: string;
     parentID?: string;
     previousID?: string;
@@ -44,6 +44,33 @@ interface TransactionDetail {
     }[];
 }
 
+type XiuyuanCreateListTemplateResult =
+    | {
+        ok: true;
+        value: {
+            xiuyuan: { id: string };
+            cards: Array<{ id: string }>;
+        };
+    }
+    | {
+        ok: false;
+        error: unknown;
+    };
+
+interface XiuyuanApplicationServiceLike {
+    createListTemplateCards(command: {
+        parentBlockId: string;
+        childBlockIds: string[];
+        templateId: string;
+        deckId: string;
+    }): Promise<XiuyuanCreateListTemplateResult>;
+}
+
+interface TransactionObserverContextLike {
+    getStorage?: () => TransactionObserverStoragePort | null;
+    getXiuyuanApplicationService?: () => Promise<XiuyuanApplicationServiceLike>;
+}
+
 /**
  * @deprecated 使用 AutoCardHandler 替代
  */
@@ -51,7 +78,7 @@ export class TransactionObserver {
     private plugin: FSRSPlugin;
     private builder: CardBuilderContext;
     private processing: Set<string> = new Set();
-    private debounceTimer: any = null;
+    private debounceTimer: ReturnType<typeof setTimeout> | null = null;
     private pendingBlocks: Set<string> = new Set();
     private enabled: boolean = false;
 
@@ -60,9 +87,9 @@ export class TransactionObserver {
         this.builder = new CardBuilderContext();
     }
 
-    private getContext(): any | null {
+    private getContext(): TransactionObserverContextLike | null {
         try {
-            return this.plugin?.getContext?.() ?? null;
+            return (this.plugin?.getContext?.() as TransactionObserverContextLike | null) ?? null;
         } catch (error) {
             logger.warn('[TransactionObserver] Failed to get ApplicationContext:', error);
             return null;
@@ -125,10 +152,11 @@ export class TransactionObserver {
         this.enabled = enabled;
     }
 
-    private handleTransaction = (event: any) => {
+    private handleTransaction = (event: { detail?: TransactionDetail }): void => {
         if (!this.enabled) return;
 
-        const detail = event.detail as TransactionDetail;
+        if (!event.detail) return;
+        const detail = event.detail;
         logger.info('[SiYuanMemo] WS Event:', detail.cmd);
 
         if (detail.cmd !== 'transactions' || !detail.data) return;
@@ -199,7 +227,7 @@ export class TransactionObserver {
             logger.info(`[SiYuanMemo] Check block ${blockId}, content: ${kramdown}`);
             if (!kramdown) return;
 
-            // 2. Check if content matches any strategy (Excluding default)
+            // 2. Check if content matches a supported strategy (Excluding default)
             const strategy = this.builder.matchStrategy(blockId, kramdown, true);
             logger.info(`[SiYuanMemo] Strategy match result for ${blockId}:`, strategy ? strategy.strategyName : 'None');
             if (!strategy) {
@@ -524,7 +552,7 @@ export class TransactionObserver {
                 return;
             }
             
-            const childBlockIds = childrenResult.map((row: any) => row.id);
+            const childBlockIds = childrenResult.map((row: { id: string }) => row.id);
             logger.info(`[SiYuanMemo] 📝 Creating list template with ${childBlockIds.length} ordered children for parent: ${parentBlockId}`);
             logger.info(`[SiYuanMemo] Child block IDs:`, childBlockIds);
             

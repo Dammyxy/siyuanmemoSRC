@@ -19,6 +19,7 @@ import type { ICardDataSource } from '../interfaces/ICardDataSource';
 import { DeckDataSource } from '@/ui/browser/datasource/DeckDataSource';
 import { createQueueDataSource, createQueryDataSource } from '@/ui/browser/utils/dataSourceFactory';
 import { createLogger } from '@/utils/logger';
+import { hasFilterSetter, hasRebuildAction } from './browser/filterGroupQueueContract';
 
 const EMPTY_QUEUE_COUNTS: Record<string, number> = {
   retrieval: 0,
@@ -171,8 +172,8 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   }
 
   async setFilterGroupFilter(filter: CardFilter): Promise<boolean> {
-    const filterGroupQueue = this.getQueueById('filter-group') as any;
-    if (!filterGroupQueue || typeof filterGroupQueue.setFilter !== 'function') {
+    const filterGroupQueue = this.getQueueById('filter-group');
+    if (!hasFilterSetter(filterGroupQueue)) {
       return false;
     }
 
@@ -181,8 +182,8 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   }
 
   async rebuildFilterGroupQueue(): Promise<boolean> {
-    const filterGroupQueue = this.getQueueById('filter-group') as any;
-    if (!filterGroupQueue || typeof filterGroupQueue.rebuild !== 'function') {
+    const filterGroupQueue = this.getQueueById('filter-group');
+    if (!hasRebuildAction(filterGroupQueue)) {
       return false;
     }
 

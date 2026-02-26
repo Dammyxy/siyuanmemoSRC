@@ -41,7 +41,7 @@ export type ConditionalSchedulerConfig<TCard, TGrade> = {
  * - Executes special action (e.g., remove card)
  * - Falls back to base scheduler
  */
-export class ConditionalScheduler<TCard = any, TGrade = number> implements IScheduler<TCard, TGrade> {
+export class ConditionalScheduler<TCard = unknown, TGrade = number> implements IScheduler<TCard, TGrade> {
   private readonly base: IScheduler<TCard, TGrade>;
   private readonly condition: (card: TCard, grade: TGrade) => boolean;
   private readonly onCondition: (card: TCard, grade: TGrade) => Promise<TCard | null>;

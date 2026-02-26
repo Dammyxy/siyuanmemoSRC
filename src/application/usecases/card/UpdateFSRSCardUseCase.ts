@@ -41,6 +41,7 @@ import type { UpdateFSRSCardStoragePort } from '@/core/storage/ports';
 import type { FSRSCard } from '@/types';
 import { ok, err, type Result } from '@/types/result';
 import type { UpdateFSRSCardCommand, UpdateFSRSCardCommandResult } from '@/application/commands/card/UpdateFSRSCardCommand';
+import { throwOnFailedStorageOperation } from './shared/StorageOperationResult';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('UpdateFSRSCardUseCase');
@@ -101,10 +102,7 @@ export class UpdateFSRSCardUseCase {
   private async persistUpdatedCard(card: FSRSCard): Promise<void> {
     if (typeof this.storage.updateCard === 'function') {
       const updateResult = await this.storage.updateCard(card);
-      if (updateResult && typeof updateResult === 'object' && 'ok' in (updateResult as any) && !(updateResult as any).ok) {
-        const error = (updateResult as any).error;
-        throw error instanceof Error ? error : new Error(`Failed to update card: ${card.id}`);
-      }
+      throwOnFailedStorageOperation(updateResult, `Failed to update card: ${card.id}`);
       return;
     }
 

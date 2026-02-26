@@ -197,6 +197,7 @@ import { confirmDialog, createVueDialog } from '@/utils/dialog';
 import ScheduleDateDialog from '@/ui/review/v2/dialogs/ScheduleDateDialog.vue';
 import type { ScheduleOptions } from '@/ui/review/v2/dialogs/ScheduleDateDialog.vue';
 import type FSRSPlugin from '@/index';
+import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 
 const props = defineProps<{
   card: { 
@@ -211,7 +212,7 @@ const props = defineProps<{
   deckID?: string;
   i18n?: Record<string, string>;
   plugin?: FSRSPlugin;
-  reviewService?: any;  // ✅ DDD 架构：复习应用服务
+  reviewService?: ReviewApplicationService;
 }>();
 
 // 标准化 props 数据

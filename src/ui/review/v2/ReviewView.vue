@@ -55,7 +55,7 @@
 </template>
 
 <script setup lang="ts">
-import { Menu, openTab, showMessage } from 'siyuan';
+import { Menu, openTab, showMessage, type App } from 'siyuan';
 import { onMounted, onUnmounted, ref, computed, watch } from 'vue';
 import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
@@ -207,7 +207,7 @@ function getCommandLike(cmd: unknown): CommandLike {
 }
 
 const props = defineProps<{
-  app: any;
+  app: App;
   i18n?: Record<string, string>;
   queue?: unknown;
   adapter?: unknown;
@@ -552,20 +552,19 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
 
   // 使用按钮位置定位菜单（与思源原生闪卡一致）
   const target = ev.currentTarget as HTMLElement;
-  if (target) {
-    const rect = target.getBoundingClientRect();
-    logger.debug('[SiYuanMemo][ReviewView] Opening menu at button position:', {
-      rectLeft: rect.left,
-      rectBottom: rect.bottom,
-      rectTop: rect.top,
-      rectRight: rect.right,
-    });
-    menu.open({ x: rect.left, y: rect.bottom });
-  } else {
-    // 降级：使用鼠标位置
-    logger.debug('[SiYuanMemo][ReviewView] currentTarget is null, using mouse position');
-    menu.open({ x: ev.clientX, y: ev.clientY });
+  if (!target) {
+    logger.error('[SiYuanMemo][ReviewView] Cannot open menu: currentTarget is null');
+    return;
   }
+
+  const rect = target.getBoundingClientRect();
+  logger.debug('[SiYuanMemo][ReviewView] Opening menu at button position:', {
+    rectLeft: rect.left,
+    rectBottom: rect.bottom,
+    rectTop: rect.top,
+    rectRight: rect.right,
+  });
+  menu.open({ x: rect.left, y: rect.bottom });
 }
 
 function buildCardStatsHTML(meta: NonNullable<ReviewUIState['actions']['cardMeta']>): string {

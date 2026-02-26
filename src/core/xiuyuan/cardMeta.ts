@@ -84,14 +84,28 @@ export function generateXiuyuanCardID(xiuyuanID: string, faceIndex: number): str
   return `xy_card_${xiuyuanID}_${faceIndex}_${timestamp}_${random}`;
 }
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(item => typeof item === 'string');
+}
+
 /**
  * 检查卡片是否是 Xiuyuan 卡片
  * 
  * @param card FSRSCard
  * @returns 是否是 Xiuyuan 卡片
  */
-export function isXiuyuanCard(card: any): card is { meta: XiuyuanCardMeta } {
-  return !!(card?.meta?.xiuyuanID && card?.meta?.frontBlockIDs);
+export function isXiuyuanCard(card: unknown): card is { meta: XiuyuanCardMeta } {
+  if (!card || typeof card !== 'object') {
+    return false;
+  }
+
+  const meta = (card as { meta?: unknown }).meta;
+  if (!meta || typeof meta !== 'object') {
+    return false;
+  }
+
+  const metaRecord = meta as Record<string, unknown>;
+  return typeof metaRecord.xiuyuanID === 'string' && isStringArray(metaRecord.frontBlockIDs);
 }
 
 /**
@@ -100,7 +114,7 @@ export function isXiuyuanCard(card: any): card is { meta: XiuyuanCardMeta } {
  * @param card FSRSCard
  * @returns 是否是概念定义卡
  */
-export function isConceptDefinitionCard(card: any): boolean {
+export function isConceptDefinitionCard(card: unknown): boolean {
   if (!isXiuyuanCard(card)) return false;
   
   const typeMarker = card.meta.typeMarker;
@@ -117,7 +131,7 @@ export function isConceptDefinitionCard(card: any): boolean {
  * @param card FSRSCard
  * @returns 是否是概念卡
  */
-export function isConceptCard(card: any): boolean {
+export function isConceptCard(card: unknown): boolean {
   if (!isXiuyuanCard(card)) return false;
   return card.meta.typeMarker === 'C';
 }

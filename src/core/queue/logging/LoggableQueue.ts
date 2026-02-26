@@ -1,7 +1,7 @@
 ﻿/**
  * LoggableQueue - Queue Decorator with Operation Logging
  * 
- * This module implements a decorator pattern that wraps any queue implementation
+ * This module implements a decorator pattern that wraps a queue implementation
  * to add automatic operation logging capabilities. It records all queue operations
  * with timestamps, durations, and contextual details for debugging and analysis.
  * 
@@ -10,7 +10,7 @@
  * The decorator pattern allows us to add logging functionality to existing queues
  * without modifying their implementation. This provides:
  * - **Separation of concerns**: Logging logic is isolated from queue logic
- * - **Flexibility**: Can wrap any queue implementation
+ * - **Flexibility**: Can wrap different queue implementations
  * - **Composability**: Can be combined with other decorators
  * 
  * ## Architecture
@@ -18,7 +18,7 @@
  * ```
  * ┌─────────────────────────────────────┐
  * │      LoggableQueue (Decorator)      │
- * │  - Wraps any IQueue implementation  │
+ * │  - Wraps an IQueue implementation    │
  * │  - Records all operations           │
  * │  - Manages log size limits          │
  * └──────────────┬──────────────────────┘
@@ -84,12 +84,29 @@ import type { QueueItem } from '../types';
 import type { 
   ILoggableQueue, 
   QueueOperation, 
-  OperationLogConfig,
-  DEFAULT_LOG_CONFIG 
+  OperationLogConfig
 } from '../../../types/logging';
 
+type QueueLoggableItem = QueueItem & { blockID?: string };
+
+interface WrappedQueuePort<TItem extends QueueLoggableItem> {
+  next(): Promise<TItem | null>;
+  insertAt?(items: TItem[], index: number): Promise<void>;
+  remove?(items: TItem[]): Promise<number>;
+  rotateToEnd?(item: TItem): Promise<void>;
+  reset?(): Promise<void>;
+  getAllCards?(): Promise<TItem[]>;
+}
+
+function resolveItemId<TItem extends QueueLoggableItem>(item: TItem | null | undefined): string | undefined {
+  if (!item) {
+    return undefined;
+  }
+  return item.blockId ?? item.blockID;
+}
+
 /**
- * LoggableQueue - Decorator that adds operation logging to any queue
+ * LoggableQueue - Decorator that adds operation logging to a queue
  * 
  * This class wraps an existing queue implementation and automatically logs
  * all operations performed on it. The log includes operation type, timestamp,
@@ -136,9 +153,9 @@ import type {
  * console.log(`Total operations: ${logs.length}`);
  * ```
  */
-export class LoggableQueue<TItem extends QueueItem> implements ILoggableQueue<TItem> {
+export class LoggableQueue<TItem extends QueueLoggableItem> implements ILoggableQueue<TItem> {
   /** The wrapped queue instance */
-  private readonly wrappedQueue: any;
+  private readonly wrappedQueue: WrappedQueuePort<TItem>;
   
   /** Operation log storage */
   private operationLog: QueueOperation[] = [];
@@ -161,7 +178,7 @@ export class LoggableQueue<TItem extends QueueItem> implements ILoggableQueue<TI
    * ```
    */
   constructor(
-    wrappedQueue: any,
+    wrappedQueue: WrappedQueuePort<TItem>,
     config: Partial<OperationLogConfig> = {}
   ) {
     this.wrappedQueue = wrappedQueue;
@@ -199,7 +216,7 @@ export class LoggableQueue<TItem extends QueueItem> implements ILoggableQueue<TI
         duration: startTime ? performance.now() - startTime : undefined,
         details: this.config.includeDetails ? {
           itemReturned: item !== null,
-          itemId: item?.blockID
+          itemId: resolveItemId(item)
         } : {}
       });
       
@@ -245,7 +262,7 @@ export class LoggableQueue<TItem extends QueueItem> implements ILoggableQueue<TI
         details: this.config.includeDetails ? {
           itemCount: items.length,
           index,
-          itemIds: items.map(item => item.blockID)
+          itemIds: items.map(item => resolveItemId(item))
         } : {}
       });
     } catch (error) {
@@ -293,7 +310,7 @@ export class LoggableQueue<TItem extends QueueItem> implements ILoggableQueue<TI
         details: this.config.includeDetails ? {
           itemCount: items.length,
           removedCount,
-          itemIds: items.map(item => item.blockID)
+          itemIds: items.map(item => resolveItemId(item))
         } : {}
       });
       
@@ -337,7 +354,7 @@ export class LoggableQueue<TItem extends QueueItem> implements ILoggableQueue<TI
         timestamp: Date.now(),
         duration: startTime ? performance.now() - startTime : undefined,
         details: this.config.includeDetails ? {
-          itemId: item.blockID
+          itemId: resolveItemId(item)
         } : {}
       });
     } catch (error) {
@@ -346,7 +363,7 @@ export class LoggableQueue<TItem extends QueueItem> implements ILoggableQueue<TI
         timestamp: Date.now(),
         duration: startTime ? performance.now() - startTime : undefined,
         details: this.config.includeDetails ? {
-          itemId: item.blockID,
+          itemId: resolveItemId(item),
           error: error instanceof Error ? error.message : String(error)
         } : {}
       });

@@ -9,7 +9,7 @@ export interface QueueMonitor {
 
 export class ConsoleQueueMonitor implements QueueMonitor {
   onEvent(event: QueueEvent): void {
-    if ((process.env as any)?.DEV_MODE !== 'true') return;
+    if (process.env.DEV_MODE !== 'true') return;
 
     if (event.ok) {
       logger.debug('[Queue]', event.op, event.queueId, {

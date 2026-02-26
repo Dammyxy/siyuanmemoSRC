@@ -170,9 +170,16 @@ export class PerformanceMonitor {
      */
     static logMemoryUsage(): void {
         if (!this.enabled) return;
-        
-        if ((performance as any).memory) {
-            const memory = (performance as any).memory;
+
+        type MemoryInfo = {
+            usedJSHeapSize: number;
+            totalJSHeapSize: number;
+            jsHeapSizeLimit: number;
+        };
+        const perf = performance as Performance & { memory?: MemoryInfo };
+
+        if (perf.memory) {
+            const memory = perf.memory;
             console.log('[MEMORY]', {
                 used: `${(memory.usedJSHeapSize / 1048576).toFixed(2)} MB`,
                 total: `${(memory.totalJSHeapSize / 1048576).toFixed(2)} MB`,

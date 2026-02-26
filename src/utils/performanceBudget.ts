@@ -58,19 +58,20 @@ export function checkBudget(
  */
 export function withBudget(budgetKey: PerformanceBudgetKey) {
   return function (
-    target: any,
+    target: object,
     propertyKey: string,
     descriptor: PropertyDescriptor
   ) {
-    const originalMethod = descriptor.value;
+    const originalMethod = descriptor.value as (...args: unknown[]) => unknown;
 
-    descriptor.value = async function (...args: any[]) {
+    descriptor.value = async function (...args: unknown[]) {
       const start = performance.now();
       try {
         return await originalMethod.apply(this, args);
       } finally {
         const duration = performance.now() - start;
-        checkBudget(budgetKey, duration, `${target.constructor.name}.${propertyKey}`);
+        const targetName = (target as { constructor?: { name?: string } }).constructor?.name || 'unknown';
+        checkBudget(budgetKey, duration, `${targetName}.${propertyKey}`);
       }
     };
 
@@ -81,12 +82,12 @@ export function withBudget(budgetKey: PerformanceBudgetKey) {
 /**
  * 性能预算包装函数
  */
-export function measureWithBudget<T extends (...args: any[]) => any>(
+export function measureWithBudget<T extends (...args: unknown[]) => unknown>(
   budgetKey: PerformanceBudgetKey,
   fn: T,
   context?: string
 ): T {
-  return (async (...args: Parameters<T>) => {
+  return (async (...args: Parameters<T>): Promise<Awaited<ReturnType<T>>> => {
     const start = performance.now();
     try {
       return await fn(...args);
@@ -94,5 +95,5 @@ export function measureWithBudget<T extends (...args: any[]) => any>(
       const duration = performance.now() - start;
       checkBudget(budgetKey, duration, context);
     }
-  }) as T;
+  }) as unknown as T;
 }

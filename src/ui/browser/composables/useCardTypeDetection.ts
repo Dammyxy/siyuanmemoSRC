@@ -1,6 +1,9 @@
-﻿import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import type { BrowserCard } from '../types';
 import { batchDetectCardTypes } from '../browserService';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('useCardTypeDetection');
 
 /**
  * 卡片类型检测 Composable
@@ -42,17 +45,17 @@ export function useCardTypeDetection(cards: () => BrowserCard[]) {
 
         // 版本检查
         if (data.version !== STORAGE_VERSION) {
-          console.warn('[CardTypeDetection] Storage version mismatch, clearing...');
+          logger.warn('[CardTypeDetection] Storage version mismatch, clearing...');
           clearHistory();
           return;
         }
 
         detectionHistory.value = new Set(data.blockIds || []);
         lastDetectionTime.value = data.timestamp || 0;
-        console.log('[CardTypeDetection] ✅ Loaded history:', detectionHistory.value.size, 'cards');
+        logger.info('[CardTypeDetection] ✅ Loaded history:', detectionHistory.value.size, 'cards');
       }
     } catch (err) {
-      console.error('[CardTypeDetection] Failed to load history:', err);
+      logger.error('[CardTypeDetection] Failed to load history:', err);
       clearHistory();
     }
   }
@@ -69,7 +72,7 @@ export function useCardTypeDetection(cards: () => BrowserCard[]) {
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (err) {
-      console.error('[CardTypeDetection] Failed to save history:', err);
+      logger.error('[CardTypeDetection] Failed to save history:', err);
     }
   }
 
@@ -80,7 +83,7 @@ export function useCardTypeDetection(cards: () => BrowserCard[]) {
     detectionHistory.value.clear();
     lastDetectionTime.value = 0;
     localStorage.removeItem(STORAGE_KEY);
-    console.log('[CardTypeDetection] 🗑️ History cleared');
+    logger.info('[CardTypeDetection] 🗑️ History cleared');
   }
 
   // ========== 核心逻辑 ==========
@@ -105,17 +108,17 @@ export function useCardTypeDetection(cards: () => BrowserCard[]) {
   async function detect(): Promise<void> {
     // ✅ 强制重置状态（防止上次异常导致的卡住）
     if (isDetecting.value) {
-      console.warn('[CardTypeDetection] ⚠️ isDetecting was true, forcing reset');
+      logger.warn('[CardTypeDetection] ⚠️ isDetecting was true, forcing reset');
       isDetecting.value = false;
     }
 
     const unidentified = getUnidentifiedCards();
     if (unidentified.length === 0) {
-      console.log('[CardTypeDetection] ✅ No unidentified cards found');
+      logger.info('[CardTypeDetection] ✅ No unidentified cards found');
       return;
     }
 
-    console.log(`[CardTypeDetection] 🔍 Detecting ${unidentified.length} unidentified cards...`);
+    logger.info(`[CardTypeDetection] 🔍 Detecting ${unidentified.length} unidentified cards...`);
     isDetecting.value = true;
 
     const startTime = Date.now();
@@ -134,7 +137,7 @@ export function useCardTypeDetection(cards: () => BrowserCard[]) {
       ]);
 
       stats.value = result;
-      console.log('[CardTypeDetection] ✅ Detection complete:', result);
+      logger.info('[CardTypeDetection] ✅ Detection complete:', result);
 
       // 更新检测历史
       for (const card of unidentified) {
@@ -143,7 +146,7 @@ export function useCardTypeDetection(cards: () => BrowserCard[]) {
       saveHistory();
 
     } catch (err) {
-      console.error('[CardTypeDetection] ❌ Detection failed:', err);
+      logger.error('[CardTypeDetection] ❌ Detection failed:', err);
 
       // ✅ 异常时也要更新历史（标记这些卡片为已检测，避免重复失败）
       for (const card of unidentified) {
@@ -158,12 +161,12 @@ export function useCardTypeDetection(cards: () => BrowserCard[]) {
       const remainingTime = Math.max(0, MIN_DISPLAY_TIME - elapsed);
 
       if (remainingTime > 0) {
-        console.log(`[CardTypeDetection] ⏳ Waiting ${remainingTime}ms before resetting state...`);
+        logger.info(`[CardTypeDetection] ⏳ Waiting ${remainingTime}ms before resetting state...`);
         await new Promise(resolve => setTimeout(resolve, remainingTime));
       }
 
       isDetecting.value = false;
-      console.log('[CardTypeDetection] ✅ State reset complete');
+      logger.info('[CardTypeDetection] ✅ State reset complete');
     }
   }
 
@@ -174,7 +177,7 @@ export function useCardTypeDetection(cards: () => BrowserCard[]) {
 
     // ✅ 强制重置状态（防止从上次继承）
     if (isDetecting.value) {
-      console.warn('[CardTypeDetection] ⚠️ Detected stale isDetecting state on mount, resetting...');
+      logger.warn('[CardTypeDetection] ⚠️ Detected stale isDetecting state on mount, resetting...');
       isDetecting.value = false;
     }
   });

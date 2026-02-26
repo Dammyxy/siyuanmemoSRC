@@ -15,7 +15,7 @@ export class BrowserSiyuanAdapter implements BrowserSiyuanPort {
   readonly ATTR_CARD_TYPE = ATTR_CARD_TYPE;
   readonly ATTR_A_FACTOR = ATTR_A_FACTOR;
 
-  async sql(stmt: string): Promise<any[]> {
+  async sql(stmt: string): Promise<unknown[]> {
     return sql(stmt);
   }
 

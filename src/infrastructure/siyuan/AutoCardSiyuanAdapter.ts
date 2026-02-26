@@ -14,7 +14,7 @@ export class AutoCardSiyuanAdapter implements AutoCardSiyuanPort {
     return getBlockKramdown(blockId);
   }
 
-  async sql(stmt: string): Promise<any[]> {
+  async sql(stmt: string): Promise<unknown[]> {
     return sql(stmt);
   }
 
@@ -40,6 +40,6 @@ export class AutoCardSiyuanAdapter implements AutoCardSiyuanPort {
     priority?: number,
     cardType?: AutoCardType
   ): Promise<void> {
-    await markBlockAsCard(blockId, cardId, priority, cardType as any);
+    await markBlockAsCard(blockId, cardId, priority, cardType);
   }
 }

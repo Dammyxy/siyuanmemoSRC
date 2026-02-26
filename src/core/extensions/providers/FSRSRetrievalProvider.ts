@@ -9,9 +9,8 @@ import * as riff from '../../siyuan/riff.ts';
 import { sql } from '../../siyuan/api.ts';
 import { ATTR_PRIORITY } from '../../siyuan/block.ts';
 import { computeProtectionStats, clampPriority, DEFAULT_PRIORITY } from '../../queue/abstraction/IPriority.ts';
-import { normalizeBlockId, normalizeDeckId, normalizeRiffCardId } from '../../queue/abstraction/QueueCardRef.ts';
 import type { CardReadPort, CardWritePort, ReviewLogWritePort } from '../../storage/ports.ts';
-import type { QueueItem } from '../../queue/types.ts';
+import { normalizeDueCard, type RiffQueueItem } from '../../siyuan/riff/normalizers.ts';
 import type { QueueProvider } from '../QueueProvider.ts';
 import type { QueueStats } from '../types.ts';
 import { createLogger } from '../../../utils/logger.ts';
@@ -19,14 +18,7 @@ import { createLogger } from '../../../utils/logger.ts';
 const logger = createLogger('FSRSRetrievalProvider');
 
 type Rating = 1 | 2 | 3 | 4;
-type LegacyQueueItem = QueueItem & {
-  cardID: string;
-  blockID: string;
-  deckID: string;
-  cardId?: string;
-  blockId?: string;
-  deckId?: string;
-};
+type LegacyQueueItem = RiffQueueItem;
 
 type FSRSRetrievalStoragePort = CardReadPort & CardWritePort & ReviewLogWritePort;
 
@@ -46,11 +38,6 @@ function isObjectRecord(value: unknown): value is Record<string | number, unknow
   return typeof value === 'object' && value !== null;
 }
 
-function toOptionalNumber(value: unknown): number | undefined {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : undefined;
-}
-
 function normalizeRating(rating: number): Rating {
   const normalized = Math.max(1, Math.min(4, Math.floor(rating)));
   return normalized as Rating;
@@ -58,50 +45,6 @@ function normalizeRating(rating: number): Rating {
 
 function resolveItemCardId(item: LegacyQueueItem): string {
   return String(item.cardID || item.cardId || item.id || '');
-}
-
-function normalizeNextDues(input: unknown): Record<1 | 2 | 3 | 4, string> {
-  const raw = isObjectRecord(input) && isObjectRecord(input.nextDues) ? input.nextDues : null;
-  if (!raw) return { 1: '', 2: '', 3: '', 4: '' };
-
-  const byNumber = {
-    1: String(raw[1] ?? raw['1'] ?? ''),
-    2: String(raw[2] ?? raw['2'] ?? ''),
-    3: String(raw[3] ?? raw['3'] ?? ''),
-    4: String(raw[4] ?? raw['4'] ?? ''),
-  };
-  if (byNumber[1] || byNumber[2] || byNumber[3] || byNumber[4]) {
-    return byNumber;
-  }
-
-  return {
-    1: String(raw.again ?? ''),
-    2: String(raw.hard ?? ''),
-    3: String(raw.good ?? ''),
-    4: String(raw.easy ?? ''),
-  };
-}
-
-function normalizeDueCard(raw: unknown, fallbackDeckID: string): LegacyQueueItem | null {
-  const cardID = normalizeRiffCardId(raw);
-  const blockID = normalizeBlockId(raw);
-  const deckID = normalizeDeckId(raw, fallbackDeckID);
-  if (!cardID || !blockID) return null;
-
-  const record = isObjectRecord(raw) ? raw : {};
-  return {
-    id: cardID,
-    blockId: blockID,
-    deckId: deckID,
-    cardID,
-    blockID,
-    deckID,
-    priority: DEFAULT_PRIORITY,
-    nextDues: normalizeNextDues(raw),
-    state: toOptionalNumber(record.state),
-    lapses: toOptionalNumber(record.lapses),
-    reps: toOptionalNumber(record.reps),
-  };
 }
 
 function normalizePriorityRows(rows: unknown): PriorityAttributeRow[] {

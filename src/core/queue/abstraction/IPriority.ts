@@ -5,7 +5,7 @@ export const HIGHEST_PRIORITY: Priority = 0;
 export const LOWEST_PRIORITY: Priority = 100;
 export const HIGH_PRIORITY_THRESHOLD: Priority = 10;
 
-export function clampPriority(value: any, fallback: Priority = DEFAULT_PRIORITY): Priority {
+export function clampPriority(value: unknown, fallback: Priority = DEFAULT_PRIORITY): Priority {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(HIGHEST_PRIORITY, Math.min(LOWEST_PRIORITY, Math.round(n)));

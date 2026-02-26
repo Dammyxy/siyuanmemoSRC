@@ -34,6 +34,7 @@ import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanR
 import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
 import { CardId } from '@/core/xiuyuan/domain/CardId';
 import { Card } from '@/core/xiuyuan/domain/Card';
+import { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
 
 export class UpdateCardUseCase {
   constructor(
@@ -161,7 +162,7 @@ export class UpdateCardUseCase {
    * @param cardId - 卡片 ID（用于值比较）
    * @returns CardId | null - 找到返回实际的 CardId 实例，未找到返回 null
    */
-  private findActualCardId(xiuyuan: any, cardId: CardId): CardId | null {
+  private findActualCardId(xiuyuan: Xiuyuan, cardId: CardId): CardId | null {
     const cards = xiuyuan.getCards();
     for (const card of cards) {
       if (card.getId().equals(cardId)) {

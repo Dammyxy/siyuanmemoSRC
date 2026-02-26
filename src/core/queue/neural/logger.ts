@@ -30,7 +30,7 @@ export interface ErrorLog {
   operation: string;
   cardId?: string;
   error: Error | string;
-  context?: Record<string, any>;
+  context?: Record<string, unknown>;
 }
 
 /**
@@ -68,7 +68,7 @@ export class NeuralQueueLogger {
   /**
    * 记录警告日志
    */
-  static warn(component: string, operation: string, message: string, context?: Record<string, any>): void {
+  static warn(component: string, operation: string, message: string, context?: Record<string, unknown>): void {
     if (!this.enabled) return;
 
     runtimeLogger.warn(
@@ -80,7 +80,7 @@ export class NeuralQueueLogger {
   /**
    * 记录信息日志
    */
-  static info(component: string, operation: string, message: string, context?: Record<string, any>): void {
+  static info(component: string, operation: string, message: string, context?: Record<string, unknown>): void {
     if (!this.enabled) return;
 
     runtimeLogger.info(
@@ -92,7 +92,7 @@ export class NeuralQueueLogger {
   /**
    * 记录调试日志
    */
-  static debug(component: string, operation: string, message: string, context?: Record<string, any>): void {
+  static debug(component: string, operation: string, message: string, context?: Record<string, unknown>): void {
     if (!this.enabled) return;
 
     runtimeLogger.debug(
@@ -133,7 +133,8 @@ export class NeuralQueueLogger {
     try {
       const logsJson = localStorage.getItem('neural-queue-logs');
       if (!logsJson) return [];
-      return JSON.parse(logsJson);
+      const parsed: unknown = JSON.parse(logsJson);
+      return Array.isArray(parsed) ? (parsed as ErrorLog[]) : [];
     } catch {
       return [];
     }
@@ -156,10 +157,10 @@ export class NeuralQueueLogger {
  */
 export const logger = {
   error: (log: Omit<ErrorLog, 'timestamp' | 'level'>) => NeuralQueueLogger.error(log),
-  warn: (component: string, operation: string, message: string, context?: Record<string, any>) =>
+  warn: (component: string, operation: string, message: string, context?: Record<string, unknown>) =>
     NeuralQueueLogger.warn(component, operation, message, context),
-  info: (component: string, operation: string, message: string, context?: Record<string, any>) =>
+  info: (component: string, operation: string, message: string, context?: Record<string, unknown>) =>
     NeuralQueueLogger.info(component, operation, message, context),
-  debug: (component: string, operation: string, message: string, context?: Record<string, any>) =>
+  debug: (component: string, operation: string, message: string, context?: Record<string, unknown>) =>
     NeuralQueueLogger.debug(component, operation, message, context),
 };

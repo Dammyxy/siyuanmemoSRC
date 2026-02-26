@@ -25,7 +25,53 @@ export interface BlockData {
   id: string;
   content: string;
   type: string;
-  [key: string]: any;
+  parent_id?: string;
+  root_id?: string;
+}
+
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === 'object' && value !== null;
+}
+
+function pickBacklinkNodeId(node: UnknownRecord): string | null {
+  if (typeof node.blockID === 'string' && node.blockID.length > 0) {
+    return node.blockID;
+  }
+  if (typeof node.id === 'string' && node.id.length > 0) {
+    return node.id;
+  }
+  return null;
+}
+
+function extractBacklinkIds(backlinks: unknown[], conceptId: string): string[] {
+  const collectedIds: string[] = [];
+  const seenIds = new Set<string>();
+
+  const walk = (node: unknown): void => {
+    if (!isRecord(node)) {
+      return;
+    }
+
+    const nodeId = pickBacklinkNodeId(node);
+    if (nodeId && nodeId !== conceptId && !seenIds.has(nodeId)) {
+      seenIds.add(nodeId);
+      collectedIds.push(nodeId);
+    }
+
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) {
+        walk(child);
+      }
+    }
+  };
+
+  for (const backlink of backlinks) {
+    walk(backlink);
+  }
+
+  return collectedIds;
 }
 
 export class ConceptQueryEngineOptimized {
@@ -110,33 +156,17 @@ export class ConceptQueryEngineOptimized {
           return [];
         }
 
-        const data = await response.json();
-        
-        if (data.code !== 0) {
-          logger.error(`API error: ${data.msg}`);
+        const data: unknown = await response.json();
+        if (!isRecord(data) || data.code !== 0) {
+          const errorMessage = isRecord(data) && typeof data.msg === 'string' ? data.msg : 'unknown error';
+          logger.error(`API error: ${errorMessage}`);
           return [];
         }
 
-        const backlinks = data.data?.backlinks || [];
+        const backlinks = isRecord(data.data) && Array.isArray(data.data.backlinks) ? data.data.backlinks : [];
         logger.debug(`Raw backlinks count: ${backlinks.length}`);
-        
-        // 递归提取所有块 ID
-        const backlinkIds: string[] = [];
-        
-        const extractBlockIds = (node: any) => {
-          if (node.children && Array.isArray(node.children)) {
-            for (const child of node.children) {
-              if (child.id && child.id !== conceptId) {
-                backlinkIds.push(child.id);
-              }
-              extractBlockIds(child);
-            }
-          }
-        };
-        
-        for (const backlink of backlinks) {
-          extractBlockIds(backlink);
-        }
+
+        const backlinkIds = extractBacklinkIds(backlinks, conceptId);
 
         logger.debug(`Found ${backlinkIds.length} backlink blocks`);
         
@@ -294,9 +324,21 @@ export class ConceptQueryEngineOptimized {
         const result = new Map<string, BlockData>();
         
         for (const row of rows || []) {
-          result.set(row.id, row);
+          const rowRecord = row as UnknownRecord;
+          const blockId = typeof rowRecord.id === 'string' ? rowRecord.id : null;
+          if (!blockId) {
+            continue;
+          }
+          const blockData: BlockData = {
+            id: blockId,
+            content: typeof rowRecord.content === 'string' ? rowRecord.content : '',
+            type: typeof rowRecord.type === 'string' ? rowRecord.type : '',
+            parent_id: typeof rowRecord.parent_id === 'string' ? rowRecord.parent_id : undefined,
+            root_id: typeof rowRecord.root_id === 'string' ? rowRecord.root_id : undefined,
+          };
+          result.set(blockId, blockData);
           // 缓存单个块数据
-          this.blockDataCache.set(row.id, row);
+          this.blockDataCache.set(blockId, blockData);
         }
         
         return result;

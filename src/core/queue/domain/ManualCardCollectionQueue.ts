@@ -97,7 +97,7 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
     const { value, fromStorage } = loadQueueState<string[]>({
       persistence: this.queuePersistence,
       key: this.storageKey,
-      fallback: [],
+      initialValue: [],
       validate: (candidate): candidate is string[] => Array.isArray(candidate),
       logger,
       context: this.persistenceContext,

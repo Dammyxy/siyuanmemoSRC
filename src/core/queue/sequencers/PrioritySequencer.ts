@@ -99,6 +99,22 @@ export class PrioritySequencer<TItem extends QueueItem> implements ISequencer<TI
   private readonly items: TItem[] = [];
   private loaded = false;
 
+  private getDebugItemId(item: TItem | null): string {
+    if (!item) {
+      return '';
+    }
+    const legacyItem = item as QueueItem & { cardID?: string; cardId?: string };
+    return String(legacyItem.id || legacyItem.cardID || legacyItem.cardId || '');
+  }
+
+  private toDebugSample(item: TItem): { id: string; blockId: string; nextDues: QueueItem['nextDues'] } {
+    return {
+      id: this.getDebugItemId(item),
+      blockId: String(item.blockId || ''),
+      nextDues: item.nextDues,
+    };
+  }
+
   /**
    * Creates a new PrioritySequencer
    * 
@@ -334,10 +350,7 @@ export class PrioritySequencer<TItem extends QueueItem> implements ISequencer<TI
       const fetched = await this.fetchAll();
       logger.debug('fetchAll returned', {
         count: fetched?.length || 0,
-        items: fetched?.slice(0, 3).map((it: any) => ({
-          cardID: it?.cardID,
-          nextDues: it?.nextDues,
-        })),
+        items: fetched?.slice(0, 3).map((it) => this.toDebugSample(it)),
       });
       if (!fetched || fetched.length === 0) {
         logger.debug('no items fetched; queue remains empty');
@@ -363,7 +376,7 @@ export class PrioritySequencer<TItem extends QueueItem> implements ISequencer<TI
     }
     const nextItem = this.items.shift() || null;
     logger.debug('returning item', {
-      cardID: (nextItem as any)?.cardID,
+      cardID: this.getDebugItemId(nextItem),
       remainingCount: this.items.length,
     });
     return nextItem;

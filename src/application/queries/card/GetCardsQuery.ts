@@ -5,6 +5,8 @@
  * 用于查询卡片列表的查询对象，支持可选的过滤条件
  */
 
+import type { FSRSCard } from '@/types/card';
+
 /**
  * 卡片过滤条件
  */
@@ -27,7 +29,7 @@ export interface CardFilter {
   /**
    * 自定义过滤函数
    */
-  customFilter?: (card: any) => boolean;
+  customFilter?: (card: FSRSCard) => boolean;
 }
 
 /**
@@ -47,7 +49,7 @@ export interface GetCardsQueryResult {
   /**
    * 卡片列表
    */
-  cards: any[]; // 使用 any 避免循环依赖，实际类型是 FSRSCard[]
+  cards: FSRSCard[];
   
   /**
    * 卡片总数

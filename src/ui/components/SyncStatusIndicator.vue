@@ -59,20 +59,36 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
+import type {
+  HybridSyncEvents,
+  SyncProgress,
+  SyncResult,
+  SyncStatus,
+} from '@/application/services/XiuyuanSyncService.types';
 
-interface SyncResult {
-  success: boolean;
-  addedCount: number;
-  deletedCount: number;
-  skippedCount: number;
-  blacklistCleanedCount?: number;
-  detectedCount?: number;
-  errorMessage?: string;
-}
+type SyncStatusSnapshot = {
+  status: SyncStatus;
+  lastSyncTime: number;
+  lastFullSyncTime: number;
+};
 
-interface SyncStatus {
-  status: 'idle' | 'syncing' | 'success' | 'error';
+type SyncServiceLike = {
+  getSyncStatus: () => SyncStatusSnapshot;
+  incrementalSync: (onProgress?: (progress: SyncProgress) => void) => Promise<SyncResult>;
+  fullSync: (onProgress?: (progress: SyncProgress) => void) => Promise<SyncResult>;
+  on: <K extends keyof HybridSyncEvents>(
+    eventName: K,
+    handler: (data: HybridSyncEvents[K]) => void
+  ) => void;
+  off: <K extends keyof HybridSyncEvents>(
+    eventName: K,
+    handler: (data: HybridSyncEvents[K]) => void
+  ) => void;
+};
+
+interface SyncStatusViewModel {
+  status: SyncStatus;
   lastSyncTime: number;
   lastFullSyncTime: number;
   lastResult?: SyncResult;
@@ -80,7 +96,7 @@ interface SyncStatus {
 }
 
 const props = defineProps<{
-  hybridSyncService?: any;  // HybridSyncService 实例
+  hybridSyncService?: SyncServiceLike;
   i18n?: Record<string, string>;
 }>();
 
@@ -88,13 +104,13 @@ const emit = defineEmits<{
   (e: 'sync', type: 'incremental' | 'full'): void;
 }>();
 
-const syncStatus = ref<SyncStatus>({
+const syncStatus = ref<SyncStatusViewModel>({
   status: 'idle',
   lastSyncTime: 0,
   lastFullSyncTime: 0,
 });
 
-let statusCheckInterval: NodeJS.Timeout | null = null;
+let statusCheckInterval: ReturnType<typeof setInterval> | null = null;
 let unsubscribe: (() => void) | null = null;
 
 function t(key: string, fallback: string): string {
@@ -130,12 +146,13 @@ function formatTime(timestamp: number): string {
  * 更新同步状态（仅更新时间戳）
  */
 function updateSyncStatus() {
-  if (!props.hybridSyncService) {
+  const syncService = props.hybridSyncService;
+  if (!syncService) {
     syncStatus.value.status = 'idle';
     return;
   }
   
-  const status = props.hybridSyncService.getSyncStatus();
+  const status = syncService.getSyncStatus();
   syncStatus.value.lastSyncTime = status.lastSyncTime;
   syncStatus.value.lastFullSyncTime = status.lastFullSyncTime;
 }
@@ -144,14 +161,15 @@ function updateSyncStatus() {
  * 手动同步
  */
 async function handleManualSync() {
-  if (!props.hybridSyncService) {
+  const syncService = props.hybridSyncService;
+  if (!syncService) {
     console.warn('[SiYuanMemo][SyncStatusIndicator] HybridSyncService not available');
     return;
   }
   
   try {
     // 使用进度回调
-    await props.hybridSyncService.incrementalSync();
+    await syncService.incrementalSync();
     emit('sync', 'incremental');
   } catch (error) {
     console.error('[SiYuanMemo][SyncStatusIndicator] Manual sync failed:', error);
@@ -162,14 +180,15 @@ async function handleManualSync() {
  * 全量同步
  */
 async function handleFullSync() {
-  if (!props.hybridSyncService) {
+  const syncService = props.hybridSyncService;
+  if (!syncService) {
     console.warn('[SiYuanMemo][SyncStatusIndicator] HybridSyncService not available');
     return;
   }
   
   try {
     // 使用进度回调
-    await props.hybridSyncService.fullSync();
+    await syncService.fullSync();
     emit('sync', 'full');
   } catch (error) {
     console.error('[SiYuanMemo][SyncStatusIndicator] Full sync failed:', error);
@@ -184,19 +203,20 @@ async function handleRetry() {
 }
 
 onMounted(() => {
-  if (!props.hybridSyncService) return;
+  const syncService = props.hybridSyncService;
+  if (!syncService) return;
   
   // 初始化状态
   updateSyncStatus();
   
   // 🆕 监听同步事件
-  const onSyncStart = (data: any) => {
+  const onSyncStart = (data: HybridSyncEvents['syncStart']) => {
     console.log('[SiYuanMemo][SyncStatusIndicator] Sync started:', data.type);
     syncStatus.value.status = 'syncing';
     syncStatus.value.errorMessage = undefined;
   };
   
-  const onSyncSuccess = (data: any) => {
+  const onSyncSuccess = (data: HybridSyncEvents['syncSuccess']) => {
     console.log('[SiYuanMemo][SyncStatusIndicator] Sync success:', data);
     syncStatus.value.status = 'success';
     syncStatus.value.lastResult = data.result;
@@ -209,7 +229,7 @@ onMounted(() => {
     }
   };
   
-  const onSyncError = (data: any) => {
+  const onSyncError = (data: HybridSyncEvents['syncError']) => {
     console.error('[SiYuanMemo][SyncStatusIndicator] Sync error:', data);
     if (!data.willRetry) {
       syncStatus.value.status = 'error';
@@ -218,15 +238,15 @@ onMounted(() => {
   };
   
   // 注册事件监听器
-  props.hybridSyncService.on('syncStart', onSyncStart);
-  props.hybridSyncService.on('syncSuccess', onSyncSuccess);
-  props.hybridSyncService.on('syncError', onSyncError);
+  syncService.on('syncStart', onSyncStart);
+  syncService.on('syncSuccess', onSyncSuccess);
+  syncService.on('syncError', onSyncError);
   
   // 清理函数
   unsubscribe = () => {
-    props.hybridSyncService!.off('syncStart', onSyncStart);
-    props.hybridSyncService!.off('syncSuccess', onSyncSuccess);
-    props.hybridSyncService!.off('syncError', onSyncError);
+    syncService.off('syncStart', onSyncStart);
+    syncService.off('syncSuccess', onSyncSuccess);
+    syncService.off('syncError', onSyncError);
   };
   
   // 定期更新时间戳（每5秒，用于显示相对时间）

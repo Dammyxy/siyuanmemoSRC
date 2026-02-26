@@ -1,21 +1,21 @@
-/**
- * UnifiedStorageManager - 统一存储管理器
+﻿/**
+ * UnifiedStorageManager - 缁熶竴瀛樺偍绠＄悊鍣?
  * 
  * @module UnifiedStorageManager
  * @description
- * 统一管理 XiuYuan 和 FSRSCard 数据，使用 MessagePack 格式持久化，
- * 提供内存索引以支持高性能查询（< 100ms for 100,000 cards）。
+ * 缁熶竴绠＄悊 XiuYuan 鍜?FSRSCard 鏁版嵁锛屼娇鐢?MessagePack 鏍煎紡鎸佷箙鍖栵紝
+ * 鎻愪緵鍐呭瓨绱㈠紩浠ユ敮鎸侀珮鎬ц兘鏌ヨ锛? 100ms for 100,000 cards锛夈€?
  * 
- * **核心功能**：
- * - 统一存储：XiuYuan 和 Card 存储在同一个 MessagePack 文件
- * - 内存索引：blockID, xiuyuanID, type, due, priority 索引
- * - 防抖保存：1 秒延迟自动保存，避免频繁 I/O
- * - 数据一致性：检测孤儿卡片、空 XiuYuan、无效引用
+ * **鏍稿績鍔熻兘**锛?
+ * - 缁熶竴瀛樺偍锛歑iuYuan 鍜?Card 瀛樺偍鍦ㄥ悓涓€涓?MessagePack 鏂囦欢
+ * - 鍐呭瓨绱㈠紩锛歜lockID, xiuyuanID, type, due, priority 绱㈠紩
+ * - 闃叉姈淇濆瓨锛? 绉掑欢杩熻嚜鍔ㄤ繚瀛橈紝閬垮厤棰戠箒 I/O
+ * - 鏁版嵁涓€鑷存€э細妫€娴嬪鍎垮崱鐗囥€佺┖ XiuYuan銆佹棤鏁堝紩鐢?
  * 
- * **性能要求**：
- * - 加载 100,000 卡片 < 2s
- * - 查询到期卡片 < 100ms
- * - 创建/删除/更新卡片 < 50ms
+ * **鎬ц兘瑕佹眰**锛?
+ * - 鍔犺浇 100,000 鍗＄墖 < 2s
+ * - 鏌ヨ鍒版湡鍗＄墖 < 100ms
+ * - 鍒涘缓/鍒犻櫎/鏇存柊鍗＄墖 < 50ms
  * 
  * **Validates: Requirements 1.1, 1.2, 1.6**
  */
@@ -28,17 +28,18 @@ import type { CardPersistenceDTO } from '../../infrastructure/persistence/dto/Ca
 import { CardMapper } from '../../infrastructure/persistence/mappers/CardMapper';
 
 /**
- * 统一存储数据结构
+ * 缁熶竴瀛樺偍鏁版嵁缁撴瀯
  */
 export interface UnifiedCardStore {
   version: number;
   xiuyuans: Record<string, IXiuyuan>;
   cards: Record<string, FSRSCard>;
   cardDTOs?: Record<string, CardPersistenceDTO>;
+  riffBlacklist?: string[];
 }
 
 /**
- * 存储统计信息
+ * 瀛樺偍缁熻淇℃伅
  */
 export interface StorageStats {
   totalCards: number;
@@ -51,34 +52,35 @@ export interface StorageStats {
 }
 
 /**
- * 统一存储管理器
+ * 缁熶竴瀛樺偍绠＄悊鍣?
  */
 export class UnifiedStorageManager {
-  // === 数据存储 ===
+  // === 鏁版嵁瀛樺偍 ===
   private xiuyuans: Map<string, IXiuyuan> = new Map();
-  private cardDTOs: Map<string, CardPersistenceDTO> = new Map();  // ✅ 只维护 DTO Map
+  private cardDTOs: Map<string, CardPersistenceDTO> = new Map();  // 鉁?鍙淮鎶?DTO Map
+  private riffBlacklist: Set<string> = new Set();
 
-  // === 内存索引 ===
+  // === 鍐呭瓨绱㈠紩 ===
   private indexByBlockID: Map<string, string[]> = new Map();
   private indexByXiuyuanID: Map<string, string[]> = new Map();
   private indexByType: Map<CardType, string[]> = new Map();
   private indexByDue: FSRSCard[] = [];
   private indexByPriority: Map<number, string[]> = new Map();
 
-  // === 脏标记和自动保存 ===
+  // === 鑴忔爣璁板拰鑷姩淇濆瓨 ===
   private dirty: boolean = false;
   private saveTimer: NodeJS.Timeout | null = null;
-  private readonly SAVE_DELAY = 1000; // 1 秒延迟
+  private readonly SAVE_DELAY = 1000; // 1 绉掑欢杩?
 
-  // === 持久化回调 ===
+  // === 鎸佷箙鍖栧洖璋?===
   private saveCallback: ((data: UnifiedCardStore) => Promise<void>) | null = null;
   private loadCallback: (() => Promise<UnifiedCardStore>) | null = null;
 
   /**
-   * ✅ 构造函数：确保所有 Map 都已初始化
+   * 鉁?鏋勯€犲嚱鏁帮細纭繚鎵€鏈?Map 閮藉凡鍒濆鍖?
    */
   constructor() {
-    // 防御性检查：确保所有 Map 都已初始化
+    // 闃插尽鎬ф鏌ワ細纭繚鎵€鏈?Map 閮藉凡鍒濆鍖?
     if (!this.cardDTOs) {
       console.warn('[UnifiedStorageManager] cardDTOs not initialized in constructor, re-initializing...');
       this.cardDTOs = new Map();
@@ -105,9 +107,9 @@ export class UnifiedStorageManager {
   }
 
   /**
-   * 设置持久化回调
-   * @param save 保存回调函数（接收数据作为参数）
-   * @param load 加载回调函数
+   * 璁剧疆鎸佷箙鍖栧洖璋?
+   * @param save 淇濆瓨鍥炶皟鍑芥暟锛堟帴鏀舵暟鎹綔涓哄弬鏁帮級
+   * @param load 鍔犺浇鍥炶皟鍑芥暟
    */
   setPersistenceCallbacks(
     save: (data: UnifiedCardStore) => Promise<void>,
@@ -118,7 +120,7 @@ export class UnifiedStorageManager {
   }
 
   /**
-   * 加载数据
+   * 鍔犺浇鏁版嵁
    */
   async load(): Promise<Result<void>> {
     try {
@@ -128,31 +130,37 @@ export class UnifiedStorageManager {
 
       const store = await this.loadCallback();
 
-      // 清空现有数据
+      // 娓呯┖鐜版湁鏁版嵁
       this.xiuyuans.clear();
       this.cardDTOs.clear();
+      this.riffBlacklist.clear();
 
-      // 加载 XiuYuans
+      // 鍔犺浇 XiuYuans
       for (const [id, xiuyuan] of Object.entries(store.xiuyuans)) {
         this.xiuyuans.set(id, xiuyuan);
       }
 
-      // ✅ 优先加载 CardDTOs（新架构）
+      // 鉁?浼樺厛鍔犺浇 CardDTOs锛堟柊鏋舵瀯锛?
       if (store.cardDTOs && Object.keys(store.cardDTOs).length > 0) {
-        // 从 CardDTOs 加载（新架构）
+        // 浠?CardDTOs 鍔犺浇锛堟柊鏋舵瀯锛?
         for (const [id, dto] of Object.entries(store.cardDTOs)) {
           this.cardDTOs.set(id, dto);
         }
       } else {
-        // 降级：从 Cards 加载（旧数据兼容，自动迁移）
+        // 闄嶇骇锛氫粠 Cards 鍔犺浇锛堟棫鏁版嵁鍏煎锛岃嚜鍔ㄨ縼绉伙級
         for (const [id, card] of Object.entries(store.cards)) {
           const dto = CardMapper.toPersistence(card);
           this.cardDTOs.set(id, dto);
         }
-        console.log('[UnifiedStorageManager] ⚠️ Migrated old cards data to cardDTOs format');
+        console.log('[UnifiedStorageManager] 鈿狅笍 Migrated old cards data to cardDTOs format');
       }
 
-      // 重建索引
+      // 閲嶅缓绱㈠紩
+      if (Array.isArray(store.riffBlacklist)) {
+        this.riffBlacklist = new Set(
+          store.riffBlacklist.filter((id): id is string => typeof id === 'string' && id.length > 0)
+        );
+      }
       this.rebuildIndexes();
 
       this.dirty = false;
@@ -163,7 +171,7 @@ export class UnifiedStorageManager {
   }
 
   /**
-   * 保存数据
+   * 淇濆瓨鏁版嵁
    */
   async save(): Promise<Result<void>> {
     try {
@@ -171,12 +179,12 @@ export class UnifiedStorageManager {
         return err(new Error('Save callback not set'));
       }
 
-      // 获取当前数据并传递给保存回调
+      // 鑾峰彇褰撳墠鏁版嵁骞朵紶閫掔粰淇濆瓨鍥炶皟
       const storeData = this.getStoreData();
       await this.saveCallback(storeData);
       this.dirty = false;
 
-      // 清除保存定时器
+      // 娓呴櫎淇濆瓨瀹氭椂鍣?
       if (this.saveTimer) {
         clearTimeout(this.saveTimer);
         this.saveTimer = null;
@@ -189,7 +197,7 @@ export class UnifiedStorageManager {
   }
 
   /**
-   * 调度保存（防抖）
+   * 璋冨害淇濆瓨锛堥槻鎶栵級
    */
   private scheduleSave(): void {
     this.dirty = true;
@@ -206,41 +214,41 @@ export class UnifiedStorageManager {
   }
 
   /**
-   * 重建所有索引
+   * 閲嶅缓鎵€鏈夌储寮?
    */
   private rebuildIndexes(): void {
-    // 清空索引
+    // 娓呯┖绱㈠紩
     this.indexByBlockID.clear();
     this.indexByXiuyuanID.clear();
     this.indexByType.clear();
     this.indexByDue = [];
     this.indexByPriority.clear();
 
-    // 重建索引
+    // 閲嶅缓绱㈠紩
     for (const dto of this.cardDTOs.values()) {
       const card = CardMapper.toDomain(dto);
       this.updateIndexesForCard(card, 'add');
     }
 
-    // 排序 due 索引
+    // 鎺掑簭 due 绱㈠紩
     this.indexByDue.sort((a, b) => a.due - b.due);
   }
 
   /**
-   * 更新卡片索引
-   * @param card 卡片
-   * @param action 操作类型（add 或 remove）
+   * 鏇存柊鍗＄墖绱㈠紩
+   * @param card 鍗＄墖
+   * @param action 鎿嶄綔绫诲瀷锛坅dd 鎴?remove锛?
    */
   private updateIndexesForCard(card: FSRSCard, action: 'add' | 'remove'): void {
     if (action === 'add') {
-      // blockID 索引
+      // blockID 绱㈠紩
       const blockCards = this.indexByBlockID.get(card.blockId) || [];
       if (!blockCards.includes(card.id)) {
         blockCards.push(card.id);
         this.indexByBlockID.set(card.blockId, blockCards);
       }
 
-      // xiuyuanID 索引
+      // xiuyuanID 绱㈠紩
       const xiuyuanID = card.meta?.xiuyuanID;
       if (xiuyuanID) {
         const xiuyuanCards = this.indexByXiuyuanID.get(xiuyuanID) || [];
@@ -250,24 +258,24 @@ export class UnifiedStorageManager {
         }
       }
 
-      // type 索引
+      // type 绱㈠紩
       const typeCards = this.indexByType.get(card.type) || [];
       if (!typeCards.includes(card.id)) {
         typeCards.push(card.id);
         this.indexByType.set(card.type, typeCards);
       }
 
-      // due 索引
+      // due 绱㈠紩
       this.indexByDue.push(card);
 
-      // priority 索引
+      // priority 绱㈠紩
       const priorityCards = this.indexByPriority.get(card.priority) || [];
       if (!priorityCards.includes(card.id)) {
         priorityCards.push(card.id);
         this.indexByPriority.set(card.priority, priorityCards);
       }
     } else {
-      // 移除 blockID 索引
+      // 绉婚櫎 blockID 绱㈠紩
       const blockCards = this.indexByBlockID.get(card.blockId);
       if (blockCards) {
         const index = blockCards.indexOf(card.id);
@@ -279,7 +287,7 @@ export class UnifiedStorageManager {
         }
       }
 
-      // 移除 xiuyuanID 索引
+      // 绉婚櫎 xiuyuanID 绱㈠紩
       const xiuyuanID = card.meta?.xiuyuanID;
       if (xiuyuanID) {
         const xiuyuanCards = this.indexByXiuyuanID.get(xiuyuanID);
@@ -294,7 +302,7 @@ export class UnifiedStorageManager {
         }
       }
 
-      // 移除 type 索引
+      // 绉婚櫎 type 绱㈠紩
       const typeCards = this.indexByType.get(card.type);
       if (typeCards) {
         const index = typeCards.indexOf(card.id);
@@ -306,13 +314,13 @@ export class UnifiedStorageManager {
         }
       }
 
-      // 移除 due 索引
+      // 绉婚櫎 due 绱㈠紩
       const dueIndex = this.indexByDue.findIndex(c => c.id === card.id);
       if (dueIndex !== -1) {
         this.indexByDue.splice(dueIndex, 1);
       }
 
-      // 移除 priority 索引
+      // 绉婚櫎 priority 绱㈠紩
       const priorityCards = this.indexByPriority.get(card.priority);
       if (priorityCards) {
         const index = priorityCards.indexOf(card.id);
@@ -327,7 +335,7 @@ export class UnifiedStorageManager {
   }
 
   /**
-   * 获取存储数据（用于持久化）
+   * 鑾峰彇瀛樺偍鏁版嵁锛堢敤浜庢寔涔呭寲锛?
    */
   getStoreData(): UnifiedCardStore {
     const xiuyuans: Record<string, IXiuyuan> = {};
@@ -340,7 +348,7 @@ export class UnifiedStorageManager {
       cardDTOs[id] = dto;
     }
 
-    // ✅ 为了向后兼容，仍然保存 cards 字段（从 cardDTOs 转换）
+    // 鉁?涓轰簡鍚戝悗鍏煎锛屼粛鐒朵繚瀛?cards 瀛楁锛堜粠 cardDTOs 杞崲锛?
     const cards: Record<string, FSRSCard> = {};
     for (const [id, dto] of this.cardDTOs.entries()) {
       cards[id] = CardMapper.toDomain(dto);
@@ -349,24 +357,25 @@ export class UnifiedStorageManager {
     return {
       version: 1,
       xiuyuans,
-      cards,  // 向后兼容
-      cardDTOs,  // 主数据源
+      cards,  // 鍚戝悗鍏煎
+      cardDTOs,  // 涓绘暟鎹簮
+      riffBlacklist: Array.from(this.riffBlacklist),
     };
   }
 
-  // === CRUD 操作 ===
+  // === CRUD 鎿嶄綔 ===
 
   /**
-   * 创建卡片
-   * @param xiuyuan XiuYuan 实体
-   * @param card FSRSCard 实体
+   * 鍒涘缓鍗＄墖
+   * @param xiuyuan XiuYuan 瀹炰綋
+   * @param card FSRSCard 瀹炰綋
    */
   async createCard(xiuyuan: IXiuyuan, card: FSRSCard): Promise<Result<void>> {
     try {
-      // 转换 FSRSCard 为 DTO
+      // 杞崲 FSRSCard 涓?DTO
       const dto = CardMapper.toPersistence(card);
       
-      // 调用 DTO 方法（保持向后兼容）
+      // 璋冪敤 DTO 鏂规硶锛堜繚鎸佸悜鍚庡吋瀹癸級
       return await this.createCardDTO(xiuyuan, dto);
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
@@ -374,23 +383,23 @@ export class UnifiedStorageManager {
   }
 
   /**
-   * 批量创建卡片
-   * @param xiuyuan XiuYuan 实体
-   * @param cards FSRSCard 实体数组
+   * 鎵归噺鍒涘缓鍗＄墖
+   * @param xiuyuan XiuYuan 瀹炰綋
+   * @param cards FSRSCard 瀹炰綋鏁扮粍
    */
   /**
-     * 批量创建卡片（原子性操作）
-     * @param xiuyuan XiuYuan 实体
-     * @param cards 卡片数组
-     * @returns 成功或失败结果
+     * 鎵归噺鍒涘缓鍗＄墖锛堝師瀛愭€ф搷浣滐級
+     * @param xiuyuan XiuYuan 瀹炰綋
+     * @param cards 鍗＄墖鏁扮粍
+     * @returns 鎴愬姛鎴栧け璐ョ粨鏋?
      * 
-     * 特性：
-     * - 原子性：要么全部成功，要么全部失败
-     * - 失败回滚：如果任何操作失败，回滚所有更改
-     * - 性能优化：一次性更新索引，一次保存
+     * 鐗规€э細
+     * - 鍘熷瓙鎬э細瑕佷箞鍏ㄩ儴鎴愬姛锛岃涔堝叏閮ㄥけ璐?
+     * - 澶辫触鍥炴粴锛氬鏋滀换浣曟搷浣滃け璐ワ紝鍥炴粴鎵€鏈夋洿鏀?
+     * - 鎬ц兘浼樺寲锛氫竴娆℃€ф洿鏂扮储寮曪紝涓€娆′繚瀛?
      */
     async batchCreateCards(xiuyuan: IXiuyuan, cards: FSRSCard[]): Promise<Result<void>> {
-      // 验证输入
+      // 楠岃瘉杈撳叆
       if (!xiuyuan || !xiuyuan.id) {
         return err(new Error('Invalid xiuyuan: missing id'));
       }
@@ -398,7 +407,7 @@ export class UnifiedStorageManager {
         return err(new Error('Invalid cards: empty array'));
       }
 
-      // 验证所有卡片
+      // 楠岃瘉鎵€鏈夊崱鐗?
       for (const card of cards) {
         if (!card.id) {
           return err(new Error('Invalid card: missing id'));
@@ -412,11 +421,11 @@ export class UnifiedStorageManager {
         }
       }
 
-      // 保存原始状态用于回滚
+      // 淇濆瓨鍘熷鐘舵€佺敤浜庡洖婊?
       const xiuyuanExisted = this.xiuyuans.has(xiuyuan.id);
       const originalXiuyuan = xiuyuanExisted ? this.xiuyuans.get(xiuyuan.id) : undefined;
 
-      // 保存原始索引状态（用于回滚）
+      // 淇濆瓨鍘熷绱㈠紩鐘舵€侊紙鐢ㄤ簬鍥炴粴锛?
       const originalIndexByBlockID = new Map(this.indexByBlockID);
       const originalIndexByXiuyuanID = new Map(this.indexByXiuyuanID);
       const originalIndexByType = new Map(this.indexByType);
@@ -424,45 +433,45 @@ export class UnifiedStorageManager {
       const originalIndexByDue = [...this.indexByDue];
 
       try {
-        // 1. 保存 XiuYuan（如果不存在）
+        // 1. 淇濆瓨 XiuYuan锛堝鏋滀笉瀛樺湪锛?
         if (!xiuyuanExisted) {
           this.xiuyuans.set(xiuyuan.id, xiuyuan);
         }
 
-        // 2. 批量保存 Cards（转换为 DTO）
+        // 2. 鎵归噺淇濆瓨 Cards锛堣浆鎹负 DTO锛?
         for (const card of cards) {
           const dto = CardMapper.toPersistence(card);
           this.cardDTOs.set(dto.id, dto);
         }
 
-        // 3. 一次性更新所有索引
+        // 3. 涓€娆℃€ф洿鏂版墍鏈夌储寮?
         for (const card of cards) {
           this.updateIndexesForCard(card, 'add');
         }
 
-        // 4. 重新排序 due 索引（只排序一次）
+        // 4. 閲嶆柊鎺掑簭 due 绱㈠紩锛堝彧鎺掑簭涓€娆★級
         this.indexByDue.sort((a, b) => a.due - b.due);
 
-        // 5. 调度保存（只保存一次）
+        // 5. 璋冨害淇濆瓨锛堝彧淇濆瓨涓€娆★級
         this.scheduleSave();
 
         return ok(undefined);
       } catch (error) {
-        // 回滚所有更改
+        // 鍥炴粴鎵€鏈夋洿鏀?
 
-        // 回滚 XiuYuan
+        // 鍥炴粴 XiuYuan
         if (!xiuyuanExisted) {
           this.xiuyuans.delete(xiuyuan.id);
         } else if (originalXiuyuan) {
           this.xiuyuans.set(xiuyuan.id, originalXiuyuan);
         }
 
-        // 回滚 Cards
+        // 鍥炴粴 Cards
         for (const card of cards) {
           this.cardDTOs.delete(card.id);
         }
 
-        // 回滚索引
+        // 鍥炴粴绱㈠紩
         this.indexByBlockID = originalIndexByBlockID;
         this.indexByXiuyuanID = originalIndexByXiuyuanID;
         this.indexByType = originalIndexByType;
@@ -473,30 +482,30 @@ export class UnifiedStorageManager {
       }
     }
 
-    // === DTO CRUD 操作 ===
+    // === DTO CRUD 鎿嶄綔 ===
 
     /**
-     * 创建卡片（使用 DTO）
-     * @param xiuyuan XiuYuan 实体
+     * 鍒涘缓鍗＄墖锛堜娇鐢?DTO锛?
+     * @param xiuyuan XiuYuan 瀹炰綋
      * @param dto CardPersistenceDTO
      */
     async createCardDTO(xiuyuan: IXiuyuan, dto: CardPersistenceDTO): Promise<Result<void>> {
       try {
-        // 保存 XiuYuan（如果不存在）
+        // 淇濆瓨 XiuYuan锛堝鏋滀笉瀛樺湪锛?
         if (!this.xiuyuans.has(xiuyuan.id)) {
           this.xiuyuans.set(xiuyuan.id, xiuyuan);
         }
 
-        // 保存 DTO
+        // 淇濆瓨 DTO
         this.cardDTOs.set(dto.id, dto);
 
-        // 更新索引（使用 DTO 的顶层字段）
+        // 鏇存柊绱㈠紩锛堜娇鐢?DTO 鐨勯《灞傚瓧娈碉級
         this.updateIndexesForDTO(dto, 'add');
 
-        // 重新排序 due 索引以保持一致性
+        // 閲嶆柊鎺掑簭 due 绱㈠紩浠ヤ繚鎸佷竴鑷存€?
         this.indexByDue.sort((a, b) => a.due - b.due);
 
-        // 调度保存
+        // 璋冨害淇濆瓨
         this.scheduleSave();
 
         return ok(undefined);
@@ -506,22 +515,22 @@ export class UnifiedStorageManager {
     }
 
     /**
-     * 获取卡片 DTO
-     * @param cardId 卡片 ID
+     * 鑾峰彇鍗＄墖 DTO
+     * @param cardId 鍗＄墖 ID
      */
     getCardDTO(cardId: string): CardPersistenceDTO | undefined {
       return this.cardDTOs.get(cardId);
     }
 
     /**
-     * 更新卡片（使用 DTO）
-     * @param dto 更新后的 DTO
+     * 鏇存柊鍗＄墖锛堜娇鐢?DTO锛?
+     * @param dto 鏇存柊鍚庣殑 DTO
      */
     async updateCardDTO(dto: CardPersistenceDTO): Promise<Result<void>> {
       try {
-        // ✅ 防御性检查：确保 cardDTOs Map 已初始化
+        // 鉁?闃插尽鎬ф鏌ワ細纭繚 cardDTOs Map 宸插垵濮嬪寲
         if (!this.cardDTOs) {
-          console.error('[UnifiedStorageManager] ❌ CRITICAL: cardDTOs Map is undefined!');
+          console.error('[UnifiedStorageManager] 鉂?CRITICAL: cardDTOs Map is undefined!');
           return err(new Error('Storage not initialized: cardDTOs Map is undefined'));
         }
 
@@ -540,10 +549,10 @@ export class UnifiedStorageManager {
           cardDTOsSize: this.cardDTOs?.size,
         });
 
-        // 移除旧索引
+        // 绉婚櫎鏃х储寮?
         this.updateIndexesForDTO(oldDTO, 'remove');
 
-        // 更新 DTO
+        // 鏇存柊 DTO
         this.cardDTOs.set(dto.id, dto);
 
         console.log('[UnifiedStorageManager] updateCardDTO - After update:', {
@@ -552,13 +561,13 @@ export class UnifiedStorageManager {
           cardDTOsSize: this.cardDTOs.size,
         });
 
-        // 添加新索引
+        // 娣诲姞鏂扮储寮?
         this.updateIndexesForDTO(dto, 'add');
 
-        // 重新排序 due 索引
+        // 閲嶆柊鎺掑簭 due 绱㈠紩
         this.indexByDue.sort((a, b) => a.due - b.due);
 
-        // 调度保存
+        // 璋冨害淇濆瓨
         this.scheduleSave();
 
         return ok(undefined);
@@ -568,12 +577,12 @@ export class UnifiedStorageManager {
     }
 
     /**
-     * 批量创建卡片（使用 DTO，原子性操作）
-     * @param xiuyuan XiuYuan 实体
-     * @param dtos CardPersistenceDTO 数组
+     * 鎵归噺鍒涘缓鍗＄墖锛堜娇鐢?DTO锛屽師瀛愭€ф搷浣滐級
+     * @param xiuyuan XiuYuan 瀹炰綋
+     * @param dtos CardPersistenceDTO 鏁扮粍
      */
     async batchCreateCardsDTO(xiuyuan: IXiuyuan, dtos: CardPersistenceDTO[]): Promise<Result<void>> {
-      // 验证输入
+      // 楠岃瘉杈撳叆
       if (!xiuyuan || !xiuyuan.id) {
         return err(new Error('Invalid xiuyuan: missing id'));
       }
@@ -581,7 +590,7 @@ export class UnifiedStorageManager {
         return err(new Error('Invalid dtos: empty array'));
       }
 
-      // 验证所有 DTO
+      // 楠岃瘉鎵€鏈?DTO
       for (const dto of dtos) {
         if (!dto.id) {
           return err(new Error('Invalid dto: missing id'));
@@ -594,11 +603,11 @@ export class UnifiedStorageManager {
         }
       }
 
-      // 保存原始状态用于回滚
+      // 淇濆瓨鍘熷鐘舵€佺敤浜庡洖婊?
       const xiuyuanExisted = this.xiuyuans.has(xiuyuan.id);
       const originalXiuyuan = xiuyuanExisted ? this.xiuyuans.get(xiuyuan.id) : undefined;
 
-      // 保存原始索引状态（用于回滚）
+      // 淇濆瓨鍘熷绱㈠紩鐘舵€侊紙鐢ㄤ簬鍥炴粴锛?
       const originalIndexByBlockID = new Map(this.indexByBlockID);
       const originalIndexByXiuyuanID = new Map(this.indexByXiuyuanID);
       const originalIndexByType = new Map(this.indexByType);
@@ -606,44 +615,44 @@ export class UnifiedStorageManager {
       const originalIndexByDue = [...this.indexByDue];
 
       try {
-        // 1. 保存 XiuYuan（如果不存在）
+        // 1. 淇濆瓨 XiuYuan锛堝鏋滀笉瀛樺湪锛?
         if (!xiuyuanExisted) {
           this.xiuyuans.set(xiuyuan.id, xiuyuan);
         }
 
-        // 2. 批量保存 DTOs
+        // 2. 鎵归噺淇濆瓨 DTOs
         for (const dto of dtos) {
           this.cardDTOs.set(dto.id, dto);
         }
 
-        // 3. 一次性更新所有索引
+        // 3. 涓€娆℃€ф洿鏂版墍鏈夌储寮?
         for (const dto of dtos) {
           this.updateIndexesForDTO(dto, 'add');
         }
 
-        // 4. 重新排序 due 索引（只排序一次）
+        // 4. 閲嶆柊鎺掑簭 due 绱㈠紩锛堝彧鎺掑簭涓€娆★級
         this.indexByDue.sort((a, b) => a.due - b.due);
 
-        // 5. 调度保存（只保存一次）
+        // 5. 璋冨害淇濆瓨锛堝彧淇濆瓨涓€娆★級
         this.scheduleSave();
 
         return ok(undefined);
       } catch (error) {
-        // 回滚所有更改
+        // 鍥炴粴鎵€鏈夋洿鏀?
 
-        // 回滚 XiuYuan
+        // 鍥炴粴 XiuYuan
         if (!xiuyuanExisted) {
           this.xiuyuans.delete(xiuyuan.id);
         } else if (originalXiuyuan) {
           this.xiuyuans.set(xiuyuan.id, originalXiuyuan);
         }
 
-        // 回滚 DTOs
+        // 鍥炴粴 DTOs
         for (const dto of dtos) {
           this.cardDTOs.delete(dto.id);
         }
 
-        // 回滚索引
+        // 鍥炴粴绱㈠紩
         this.indexByBlockID = originalIndexByBlockID;
         this.indexByXiuyuanID = originalIndexByXiuyuanID;
         this.indexByType = originalIndexByType;
@@ -655,20 +664,20 @@ export class UnifiedStorageManager {
     }
 
     /**
-     * 更新索引（使用 DTO 的顶层字段）
+     * 鏇存柊绱㈠紩锛堜娇鐢?DTO 鐨勯《灞傚瓧娈碉級
      * @param dto CardPersistenceDTO
-     * @param action 操作类型（add 或 remove）
+     * @param action 鎿嶄綔绫诲瀷锛坅dd 鎴?remove锛?
      */
     private updateIndexesForDTO(dto: CardPersistenceDTO, action: 'add' | 'remove'): void {
       if (action === 'add') {
-        // blockID 索引
+        // blockID 绱㈠紩
         const blockCards = this.indexByBlockID.get(dto.blockId) || [];
         if (!blockCards.includes(dto.id)) {
           blockCards.push(dto.id);
           this.indexByBlockID.set(dto.blockId, blockCards);
         }
 
-        // xiuyuanID 索引（使用顶层字段，避免解析 meta）
+        // xiuyuanID 绱㈠紩锛堜娇鐢ㄩ《灞傚瓧娈碉紝閬垮厤瑙ｆ瀽 meta锛?
         if (dto.xiuyuanID) {
           const xiuyuanCards = this.indexByXiuyuanID.get(dto.xiuyuanID) || [];
           if (!xiuyuanCards.includes(dto.id)) {
@@ -677,25 +686,25 @@ export class UnifiedStorageManager {
           }
         }
 
-        // type 索引
+        // type 绱㈠紩
         const typeCards = this.indexByType.get(dto.type) || [];
         if (!typeCards.includes(dto.id)) {
           typeCards.push(dto.id);
           this.indexByType.set(dto.type, typeCards);
         }
 
-        // priority 索引
+        // priority 绱㈠紩
         const priorityCards = this.indexByPriority.get(dto.priority) || [];
         if (!priorityCards.includes(dto.id)) {
           priorityCards.push(dto.id);
           this.indexByPriority.set(dto.priority, priorityCards);
         }
 
-        // due 索引（使用 FSRSCard，因为 indexByDue 存储的是 FSRSCard）
+        // due 绱㈠紩锛堜娇鐢?FSRSCard锛屽洜涓?indexByDue 瀛樺偍鐨勬槸 FSRSCard锛?
         const fsrsCard = CardMapper.toDomain(dto);
         this.indexByDue.push(fsrsCard);
       } else {
-        // 移除 blockID 索引
+        // 绉婚櫎 blockID 绱㈠紩
         const blockCards = this.indexByBlockID.get(dto.blockId);
         if (blockCards) {
           const index = blockCards.indexOf(dto.id);
@@ -707,7 +716,7 @@ export class UnifiedStorageManager {
           }
         }
 
-        // 移除 xiuyuanID 索引
+        // 绉婚櫎 xiuyuanID 绱㈠紩
         if (dto.xiuyuanID) {
           const xiuyuanCards = this.indexByXiuyuanID.get(dto.xiuyuanID);
           if (xiuyuanCards) {
@@ -721,7 +730,7 @@ export class UnifiedStorageManager {
           }
         }
 
-        // 移除 type 索引
+        // 绉婚櫎 type 绱㈠紩
         const typeCards = this.indexByType.get(dto.type);
         if (typeCards) {
           const index = typeCards.indexOf(dto.id);
@@ -733,7 +742,7 @@ export class UnifiedStorageManager {
           }
         }
 
-        // 移除 priority 索引
+        // 绉婚櫎 priority 绱㈠紩
         const priorityCards = this.indexByPriority.get(dto.priority);
         if (priorityCards) {
           const index = priorityCards.indexOf(dto.id);
@@ -745,7 +754,7 @@ export class UnifiedStorageManager {
           }
         }
 
-        // 移除 due 索引
+        // 绉婚櫎 due 绱㈠紩
         const dueIndex = this.indexByDue.findIndex(c => c.id === dto.id);
         if (dueIndex !== -1) {
           this.indexByDue.splice(dueIndex, 1);
@@ -756,25 +765,25 @@ export class UnifiedStorageManager {
 
 
   /**
-   * 获取卡片
-   * @param cardId 卡片 ID
+   * 鑾峰彇鍗＄墖
+   * @param cardId 鍗＄墖 ID
    */
   getCard(cardId: string): FSRSCard | undefined {
     const dto = this.cardDTOs.get(cardId);
     if (!dto) return undefined;
-    return CardMapper.toDomain(dto);  // ✅ 动态转换
+    return CardMapper.toDomain(dto);  // 鉁?鍔ㄦ€佽浆鎹?
   }
 
   /**
-   * 更新卡片
-   * @param card 更新后的卡片
+   * 鏇存柊鍗＄墖
+   * @param card 鏇存柊鍚庣殑鍗＄墖
    */
   async updateCard(card: FSRSCard): Promise<Result<void>> {
     try {
-      // 转换 FSRSCard 为 DTO
+      // 杞崲 FSRSCard 涓?DTO
       const dto = CardMapper.toPersistence(card);
       
-      // 调用 DTO 方法（保持向后兼容）
+      // 璋冪敤 DTO 鏂规硶锛堜繚鎸佸悜鍚庡吋瀹癸級
       return await this.updateCardDTO(dto);
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
@@ -782,8 +791,8 @@ export class UnifiedStorageManager {
   }
 
   /**
-   * 删除卡片
-   * @param cardId 卡片 ID
+   * 鍒犻櫎鍗＄墖
+   * @param cardId 鍗＄墖 ID
    */
   async deleteCard(cardId: string): Promise<Result<void>> {
     try {
@@ -794,23 +803,23 @@ export class UnifiedStorageManager {
 
       const card = CardMapper.toDomain(dto);
 
-      // 移除索引
+      // 绉婚櫎绱㈠紩
       this.updateIndexesForCard(card, 'remove');
 
-      // 删除卡片
+      // 鍒犻櫎鍗＄墖
       this.cardDTOs.delete(cardId);
 
-      // 检查是否需要删除 XiuYuan
+      // 妫€鏌ユ槸鍚﹂渶瑕佸垹闄?XiuYuan
       const xiuyuanID = card.meta?.xiuyuanID;
       if (xiuyuanID) {
         const xiuyuanCards = this.indexByXiuyuanID.get(xiuyuanID);
         if (!xiuyuanCards || xiuyuanCards.length === 0) {
-          // 没有其他卡片引用此 XiuYuan，删除它
+          // 娌℃湁鍏朵粬鍗＄墖寮曠敤姝?XiuYuan锛屽垹闄ゅ畠
           this.xiuyuans.delete(xiuyuanID);
         }
       }
 
-      // 调度保存
+      // 璋冨害淇濆瓨
       this.scheduleSave();
 
       return ok(undefined);
@@ -820,7 +829,7 @@ export class UnifiedStorageManager {
   }
 
   /**
-   * 删除 XiuYuan（级联删除所有关联卡片）
+   * 鍒犻櫎 XiuYuan锛堢骇鑱斿垹闄ゆ墍鏈夊叧鑱斿崱鐗囷級
    * @param xiuyuanId XiuYuan ID
    */
   async deleteXiuYuan(xiuyuanId: string): Promise<Result<void>> {
@@ -830,10 +839,10 @@ export class UnifiedStorageManager {
         return err(new Error(`XiuYuan not found: ${xiuyuanId}`));
       }
 
-      // 获取所有关联卡片
+      // 鑾峰彇鎵€鏈夊叧鑱斿崱鐗?
       const cardIds = this.indexByXiuyuanID.get(xiuyuanId) || [];
 
-      // 删除所有关联卡片
+      // 鍒犻櫎鎵€鏈夊叧鑱斿崱鐗?
       for (const cardId of [...cardIds]) {
         const dto = this.cardDTOs.get(cardId);
         if (dto) {
@@ -843,10 +852,10 @@ export class UnifiedStorageManager {
         }
       }
 
-      // 删除 XiuYuan
+      // 鍒犻櫎 XiuYuan
       this.xiuyuans.delete(xiuyuanId);
 
-      // 调度保存
+      // 璋冨害淇濆瓨
       this.scheduleSave();
 
       return ok(undefined);
@@ -855,11 +864,11 @@ export class UnifiedStorageManager {
     }
   }
 
-  // === 查询方法 ===
+  // === 鏌ヨ鏂规硶 ===
 
   /**
-   * 获取到期卡片
-   * @param limit 限制数量
+   * 鑾峰彇鍒版湡鍗＄墖
+   * @param limit 闄愬埗鏁伴噺
    */
   getDueCards(limit: number): FSRSCard[] {
     const now = Date.now();
@@ -878,19 +887,19 @@ export class UnifiedStorageManager {
   }
 
   /**
-   * 根据块 ID 获取卡片
-   * @param blockId 块 ID
+   * 鏍规嵁鍧?ID 鑾峰彇鍗＄墖
+   * @param blockId 鍧?ID
    */
   getCardsByBlockId(blockId: string): FSRSCard[] {
     const cardIds = this.indexByBlockID.get(blockId) || [];
     return cardIds
       .map(id => this.cardDTOs.get(id))
       .filter((dto): dto is CardPersistenceDTO => dto !== undefined)
-      .map(dto => CardMapper.toDomain(dto));  // ✅ 动态转换
+      .map(dto => CardMapper.toDomain(dto));  // 鉁?鍔ㄦ€佽浆鎹?
   }
 
   /**
-   * 根据 XiuYuan ID 获取卡片
+   * 鏍规嵁 XiuYuan ID 鑾峰彇鍗＄墖
    * @param xiuyuanId XiuYuan ID
    */
   getCardsByXiuyuanId(xiuyuanId: string): FSRSCard[] {
@@ -898,30 +907,30 @@ export class UnifiedStorageManager {
     return cardIds
       .map(id => this.cardDTOs.get(id))
       .filter((dto): dto is CardPersistenceDTO => dto !== undefined)
-      .map(dto => CardMapper.toDomain(dto));  // ✅ 动态转换
+      .map(dto => CardMapper.toDomain(dto));  // 鉁?鍔ㄦ€佽浆鎹?
   }
 
   /**
-   * 根据类型获取卡片
-   * @param type 卡片类型
+   * 鏍规嵁绫诲瀷鑾峰彇鍗＄墖
+   * @param type 鍗＄墖绫诲瀷
    */
   getCardsByType(type: CardType): FSRSCard[] {
     const cardIds = this.indexByType.get(type) || [];
     return cardIds
       .map(id => this.cardDTOs.get(id))
       .filter((dto): dto is CardPersistenceDTO => dto !== undefined)
-      .map(dto => CardMapper.toDomain(dto));  // ✅ 动态转换
+      .map(dto => CardMapper.toDomain(dto));  // 鉁?鍔ㄦ€佽浆鎹?
   }
 
   /**
-   * 获取所有卡片
+   * 鑾峰彇鎵€鏈夊崱鐗?
    */
   getAllCards(): FSRSCard[] {
-    return Array.from(this.cardDTOs.values()).map(dto => CardMapper.toDomain(dto));  // ✅ 动态转换
+    return Array.from(this.cardDTOs.values()).map(dto => CardMapper.toDomain(dto));  // 鉁?鍔ㄦ€佽浆鎹?
   }
 
   /**
-   * 获取 XiuYuan
+   * 鑾峰彇 XiuYuan
    * @param xiuyuanId XiuYuan ID
    */
   getXiuYuan(xiuyuanId: string): IXiuyuan | undefined {
@@ -939,22 +948,22 @@ export class UnifiedStorageManager {
   }
 
   /**
-   * 获取所有 XiuYuans
+   * 鑾峰彇鎵€鏈?XiuYuans
    */
   getAllXiuYuans(): IXiuyuan[] {
     return Array.from(this.xiuyuans.values());
   }
 
-  // === 数据一致性 ===
+  // === 鏁版嵁涓€鑷存€?===
 
   /**
-   * 验证数据一致性
-   * @returns 问题列表
+   * 楠岃瘉鏁版嵁涓€鑷存€?
+   * @returns 闂鍒楄〃
    */
   async validateConsistency(): Promise<string[]> {
     const issues: string[] = [];
 
-    // 检查孤儿卡片（没有 xiuyuanID 或 xiuyuanID 无效）
+    // 妫€鏌ュ鍎垮崱鐗囷紙娌℃湁 xiuyuanID 鎴?xiuyuanID 鏃犳晥锛?
     for (const dto of this.cardDTOs.values()) {
       const card = CardMapper.toDomain(dto);
       const xiuyuanID = card.meta?.xiuyuanID;
@@ -965,7 +974,7 @@ export class UnifiedStorageManager {
       }
     }
 
-    // 检查空 XiuYuan（没有关联卡片）
+    // 妫€鏌ョ┖ XiuYuan锛堟病鏈夊叧鑱斿崱鐗囷級
     for (const xiuyuan of this.xiuyuans.values()) {
       const cardIds = this.indexByXiuyuanID.get(xiuyuan.id);
       if (!cardIds || cardIds.length === 0) {
@@ -977,13 +986,13 @@ export class UnifiedStorageManager {
   }
 
   /**
-   * 自动修复数据一致性问题
-   * @returns 修复的问题数量
+   * 鑷姩淇鏁版嵁涓€鑷存€ч棶棰?
+   * @returns 淇鐨勯棶棰樻暟閲?
    */
   async autoFix(): Promise<number> {
     let fixedCount = 0;
 
-    // 删除孤儿卡片
+    // 鍒犻櫎瀛ゅ効鍗＄墖
     const orphanCards: string[] = [];
     for (const dto of this.cardDTOs.values()) {
       const card = CardMapper.toDomain(dto);
@@ -1003,7 +1012,7 @@ export class UnifiedStorageManager {
       }
     }
 
-    // 删除空 XiuYuan
+    // 鍒犻櫎绌?XiuYuan
     const emptyXiuYuans: string[] = [];
     for (const xiuyuan of this.xiuyuans.values()) {
       const cardIds = this.indexByXiuyuanID.get(xiuyuan.id);
@@ -1025,7 +1034,7 @@ export class UnifiedStorageManager {
   }
 
   /**
-   * 获取统计信息
+   * 鑾峰彇缁熻淇℃伅
    */
   getStats(): StorageStats {
     const stats: StorageStats = {
@@ -1042,10 +1051,10 @@ export class UnifiedStorageManager {
 
     for (const dto of this.cardDTOs.values()) {
       const card = CardMapper.toDomain(dto);
-      // 按类型统计
+      // 鎸夌被鍨嬬粺璁?
       stats.cardsByType[card.type] = (stats.cardsByType[card.type] || 0) + 1;
 
-      // 按状态统计
+      // 鎸夌姸鎬佺粺璁?
       if (card.state === 0) {
         stats.newCards++;
       } else if (card.state === 1 || card.state === 3) {
@@ -1054,7 +1063,7 @@ export class UnifiedStorageManager {
         stats.reviewCards++;
       }
 
-      // 到期卡片统计
+      // 鍒版湡鍗＄墖缁熻
       if (card.due <= now && card.state !== 4) {
         stats.dueCards++;
       }
@@ -1063,26 +1072,63 @@ export class UnifiedStorageManager {
     return stats;
   }
 
+  addToRiffBlacklist(blockID: string): void {
+    this.riffBlacklist.add(blockID);
+    this.scheduleSave();
+  }
+
+  removeFromRiffBlacklist(blockID: string): void {
+    if (!this.riffBlacklist.has(blockID)) {
+      return;
+    }
+
+    this.riffBlacklist.delete(blockID);
+    this.scheduleSave();
+  }
+
+  isInRiffBlacklist(blockID: string): boolean {
+    return this.riffBlacklist.has(blockID);
+  }
+
+  getRiffBlacklist(): Set<string> {
+    return new Set(this.riffBlacklist);
+  }
+
+  async clearRiffBlacklist(): Promise<void> {
+    if (this.riffBlacklist.size === 0) {
+      return;
+    }
+
+    this.riffBlacklist.clear();
+    const result = await this.save();
+    if (!result.ok) {
+      throw result.error;
+    }
+  }
+
   // ========================================================================
-  // StorageManager 兼容接口（适配器方法）
+  // StorageManager 鍏煎鎺ュ彛锛堥€傞厤鍣ㄦ柟娉曪級
   // ========================================================================
 
   /**
-   * 设置卡片（StorageManager 兼容方法）
-   * 内部调用 updateCard 或 createCard
+   * 璁剧疆鍗＄墖锛圫torageManager 鍏煎鏂规硶锛?
+   * 鍐呴儴璋冪敤 updateCard 鎴?createCard
    * 
-   * **DDD 架构要求**：所有卡片必须属于 Xiuyuan 聚合根
-   * - 如果卡片没有 xiuyuanID，会抛出错误
-   * - 如果 xiuyuan 不存在，会抛出错误
+   * **DDD 鏋舵瀯瑕佹眰**锛氭墍鏈夊崱鐗囧繀椤诲睘浜?Xiuyuan 鑱氬悎鏍?
+   * - 濡傛灉鍗＄墖娌℃湁 xiuyuanID锛屼細鎶涘嚭閿欒
+   * - 濡傛灉 xiuyuan 涓嶅瓨鍦紝浼氭姏鍑洪敊璇?
    */
   setCard(card: FSRSCard): void {
     const existing = this.cardDTOs.get(card.id);
     if (existing) {
-      // 更新现有卡片
+      // 鏇存柊鐜版湁鍗＄墖
       this.updateCard(card);
     } else {
-      // 创建新卡片 - 必须有 xiuyuanID
-      const xiuyuanId = (card.meta as any)?.xiuyuanID;
+      // 鍒涘缓鏂板崱鐗?- 蹇呴』鏈?xiuyuanID
+      const xiuyuanId =
+        typeof card.meta === 'object' && card.meta !== null
+          ? (card.meta as { xiuyuanID?: string }).xiuyuanID
+          : undefined;
       if (!xiuyuanId) {
         throw new Error(`[UnifiedStorageManager] Cannot create card without xiuyuanID: ${card.id}. All cards must belong to a Xiuyuan aggregate.`);
       }
@@ -1097,8 +1143,8 @@ export class UnifiedStorageManager {
   }
 
   /**
-   * 移除卡片（StorageManager 兼容方法）
-   * 内部调用 deleteCard（同步版本）
+   * 绉婚櫎鍗＄墖锛圫torageManager 鍏煎鏂规硶锛?
+   * 鍐呴儴璋冪敤 deleteCard锛堝悓姝ョ増鏈級
    */
   removeCard(cardId: string): boolean {
     const dto = this.cardDTOs.get(cardId);
@@ -1108,13 +1154,13 @@ export class UnifiedStorageManager {
 
     const card = CardMapper.toDomain(dto);
 
-    // 从 Map 中删除
+    // 浠?Map 涓垹闄?
     this.cardDTOs.delete(cardId);
 
-    // 更新索引
+    // 鏇存柊绱㈠紩
     this.updateIndexesForCard(card, 'remove');
 
-    // 标记为脏
+    // 鏍囪涓鸿剰
     this.dirty = true;
     this.scheduleSave();
 
@@ -1122,22 +1168,20 @@ export class UnifiedStorageManager {
   }
 
   /**
-   * 保存卡片（StorageManager 兼容方法）
-   * 内部调用 save
+   * 淇濆瓨鍗＄墖锛圫torageManager 鍏煎鏂规硶锛?
+   * 鍐呴儴璋冪敤 save
    */
   async saveCards(): Promise<void> {
     const result = await this.save();
     if (!result.ok) {
-      const errorMsg = result.ok === false && 'error' in result 
-        ? (result as any).error?.message 
-        : 'Failed to save cards';
+      const errorMsg = result.error?.message ?? 'Failed to save cards';
       throw new Error(errorMsg);
     }
   }
 
   /**
-   * 通过 blockId 获取卡片（StorageManager 兼容方法）
-   * 注意：返回第一个匹配的卡片
+   * 閫氳繃 blockId 鑾峰彇鍗＄墖锛圫torageManager 鍏煎鏂规硶锛?
+   * 娉ㄦ剰锛氳繑鍥炵涓€涓尮閰嶇殑鍗＄墖
    */
   getCardByBlockId(blockId: string): FSRSCard | undefined {
     const cards = this.getCardsByBlockId(blockId);
@@ -1145,11 +1189,11 @@ export class UnifiedStorageManager {
   }
 
   // ========================================================================
-  // StorageStats 兼容接口
+  // StorageStats 鍏煎鎺ュ彛
   // ========================================================================
 
   /**
-   * 获取统计信息（扩展版本）
+   * 鑾峰彇缁熻淇℃伅锛堟墿灞曠増鏈級
    */
   getStatsExtended(): StorageStats & {
     xiuyuanCount: number;
@@ -1165,3 +1209,4 @@ export class UnifiedStorageManager {
     };
   }
 }
+

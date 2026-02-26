@@ -15,15 +15,15 @@ import { BUILTIN_DECK_ID, reviewRiffCard, skipReviewRiffCard } from '@/core/siyu
 export class ReviewSiyuanAdapter implements ReviewSiyuanPort {
   readonly BUILTIN_DECK_ID = BUILTIN_DECK_ID;
 
-  async sql(stmt: string): Promise<any[]> {
-    return sql(stmt);
+  async sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
+    return sql<TRow>(stmt);
   }
 
   async getBlockAttrs(blockId: string): Promise<Record<string, string>> {
     return getBlockAttrs(blockId);
   }
 
-  async getBlockInfo(blockId: string): Promise<any> {
+  async getBlockInfo(blockId: string): Promise<Record<string, unknown>> {
     return getBlockInfo(blockId);
   }
 
@@ -31,7 +31,7 @@ export class ReviewSiyuanAdapter implements ReviewSiyuanPort {
     return getBlockDOM(blockId);
   }
 
-  async getBlockBreadcrumb(blockId: string): Promise<any[]> {
+  async getBlockBreadcrumb(blockId: string): Promise<Record<string, unknown>[]> {
     return getBlockBreadcrumb(blockId);
   }
 

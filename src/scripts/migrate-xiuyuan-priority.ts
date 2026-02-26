@@ -45,8 +45,8 @@ export async function migrateXiuyuanPriority(storage: UnifiedStorageManager): Pr
           // 更新 priority
           xiuyuan.priority = newPriority;
           
-          // 保存到 storage（直接更新 Map）
-          (storage as any).xiuyuans.set(xiuyuan.id, xiuyuan);
+          // 保存到 storage
+          storage.upsertXiuYuan(xiuyuan);
           
           stats.migrated++;
         }

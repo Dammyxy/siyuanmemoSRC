@@ -59,6 +59,12 @@ export class ListSequencer<TItem extends QueueItem> implements ISequencer<TItem>
   }
 
   private getItemId(item: TItem): string {
-    return String((item as any)?.cardID || (item as any)?.blockID || (item as any)?.id || '');
+    const candidate = item as TItem & {
+      cardID?: string;
+      blockID?: string;
+      blockId?: string;
+      id?: string;
+    };
+    return String(candidate.cardID || candidate.blockID || candidate.blockId || candidate.id || '');
   }
 }

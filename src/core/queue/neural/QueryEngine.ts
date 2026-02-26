@@ -24,7 +24,23 @@ export interface CardData {
   type: string; // 思源块类型
   blockType: NeuralBlockType; // 神经块类型：flashcard 或 topic
   hasFlashcard: boolean;
-  [key: string]: any;
+}
+
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === 'object' && value !== null;
+}
+
+function toNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function getBacklinkId(backlink: unknown): string | null {
+  if (!isRecord(backlink)) {
+    return null;
+  }
+  return toNonEmptyString(backlink.blockID) ?? toNonEmptyString(backlink.id);
 }
 
 export class QueryEngine {
@@ -183,13 +199,16 @@ export class QueryEngine {
         throw new Error(`API request failed: ${response.status}`);
       }
 
-      const data = await response.json();
-      if (data.code !== 0) {
-        throw new Error(`API error: ${data.msg}`);
+      const data: unknown = await response.json();
+      if (!isRecord(data) || data.code !== 0) {
+        const message = isRecord(data) && typeof data.msg === 'string' ? data.msg : 'unknown error';
+        throw new Error(`API error: ${message}`);
       }
 
-      const backlinks = data.data?.backlinks || [];
-      const backlinkIds = backlinks.map((bl: any) => bl.blockID || bl.id).filter(Boolean);
+      const backlinks = isRecord(data.data) && Array.isArray(data.data.backlinks) ? data.data.backlinks : [];
+      const backlinkIds = backlinks
+        .map(getBacklinkId)
+        .filter((id): id is string => typeof id === 'string');
 
       logger.info(`Fetched ${backlinkIds.length} backlinks from API`);
 
@@ -567,18 +586,18 @@ export class QueryEngine {
       const rows = await api.sql(stmt);
       if (rows.length === 0) return null;
 
-      const row = rows[0];
+      const row = rows[0] as UnknownRecord;
       const hasFlashcard = row.has_flashcard === 1;
-      const blockType = this.classifyBlock(row.type, hasFlashcard);
+      const siyuanBlockType = typeof row.type === 'string' ? row.type : '';
+      const blockType = this.classifyBlock(siyuanBlockType, hasFlashcard);
 
       return {
-        id: row.id,
-        content: row.content || '',
-        rootId: row.root_id || '',
-        type: row.type || '',
+        id: typeof row.id === 'string' ? row.id : cardId,
+        content: typeof row.content === 'string' ? row.content : '',
+        rootId: typeof row.root_id === 'string' ? row.root_id : '',
+        type: siyuanBlockType,
         blockType,
         hasFlashcard,
-        ...row,
       };
     } catch (error) {
       logger.error('Failed to fetch card data:', error);

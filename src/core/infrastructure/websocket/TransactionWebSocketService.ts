@@ -15,36 +15,12 @@
 
 import type FSRSPlugin from '@/index';
 import { createLogger } from '@/utils/logger';
+import { resolveMainWebSocket, resolveWorkspaceDir } from './runtime';
+import { parseTransactionsPayload, parseWSMessage, type Transaction } from './transaction-types';
 
 const logger = createLogger('TransactionWebSocketService');
 
-/**
- * WebSocket 消息结构
- */
-interface WSMessage {
-    cmd: string;
-    data?: any;
-}
-
-/**
- * Transaction 操作
- */
-export interface DoOperation {
-    action: string;
-    data: any;
-    id: string;
-    parentID?: string;
-    previousID?: string;
-    nextID?: string;
-}
-
-/**
- * Transaction 详情
- */
-export interface Transaction {
-    doOperations: DoOperation[];
-    undoOperations: DoOperation[] | null;
-}
+export type { DoOperation, Transaction } from './transaction-types';
 
 /**
  * Transaction 处理器接口
@@ -90,8 +66,7 @@ export class TransactionWebSocketService {
      */
     private getMainWebSocket(): WebSocket | null {
         try {
-            const siyuan = (window as any).siyuan;
-            return siyuan?.ws?.ws || null;
+            return resolveMainWebSocket();
         } catch (error) {
             logger.error('Failed to get main WebSocket:', error);
             return null;
@@ -211,14 +186,17 @@ export class TransactionWebSocketService {
             // 🆕 更新最后消息时间
             this.lastMessageTime = Date.now();
             
-            const message: WSMessage = JSON.parse(event.data);
+            const message = parseWSMessage(event.data);
+            if (!message) {
+                return;
+            }
             
             // 只处理 transactions 命令
             if (message.cmd !== 'transactions') {
                 return;
             }
             
-            this.handleTransactions(message.data);
+            this.handleTransactions(parseTransactionsPayload(message.data));
         } catch (error) {
             logger.error('Failed to parse message:', error);
         }
@@ -228,7 +206,7 @@ export class TransactionWebSocketService {
      * 处理 transactions 事件并分发给所有处理器
      */
     private handleTransactions(data: Transaction[]): void {
-        if (!data || !Array.isArray(data)) {
+        if (data.length === 0) {
             return;
         }
         
@@ -266,7 +244,7 @@ export class TransactionWebSocketService {
             const timeSinceLastMessage = now - this.lastMessageTime;
             
             if (timeSinceLastMessage > this.MESSAGE_TIMEOUT) {
-                const workspaceDir = (window as any).siyuan?.config?.system?.workspaceDir || 'unknown';
+                const workspaceDir = resolveWorkspaceDir();
                 const ws = this.getMainWebSocket();
                 
                 logger.warn(

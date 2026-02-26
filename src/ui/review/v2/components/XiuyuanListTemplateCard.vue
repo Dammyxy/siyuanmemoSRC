@@ -60,11 +60,48 @@ import { ref, computed, onMounted } from 'vue';
 import type { XiuyuanCardMeta } from '@/core/xiuyuan/cardMeta';
 import { createLogger } from '@/utils/logger';
 
+type BreadcrumbRecord = {
+  id: string;
+  name: string;
+  type: string;
+};
+
+type SiyuanApiLike = {
+  getBlockDOM: (blockId: string) => Promise<{ dom?: string } | null | undefined>;
+  getBlockBreadcrumb: (blockId: string) => Promise<unknown>;
+};
+
+type ReviewServiceLike = {
+  getSiyuanApi?: () => SiyuanApiLike | undefined;
+};
+
+type PluginContextLike = {
+  getReviewService?: () => ReviewServiceLike | undefined;
+};
+
+type XiuyuanTemplatePluginLike = {
+  getContext?: () => PluginContextLike | undefined;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function toBreadcrumbRecord(item: unknown): BreadcrumbRecord | null {
+  if (!isRecord(item)) {
+    return null;
+  }
+  const id = typeof item.id === 'string' ? item.id : '';
+  const name = typeof item.name === 'string' ? item.name : '';
+  const type = typeof item.type === 'string' ? item.type : 'NodeParagraph';
+  return { id, name, type };
+}
+
 const props = defineProps<{
   meta: XiuyuanCardMeta;
   showAnswer: boolean;
   questionBlockId: string;
-  plugin?: any;
+  plugin?: XiuyuanTemplatePluginLike;
 }>();
 
 const logger = createLogger('XiuyuanListTemplateCard');
@@ -121,11 +158,9 @@ onMounted(async () => {
       // - 倒数第二项：列表项块（问题标题，会在正文中显示）
       const parentBreadcrumbs = breadcrumbResult.slice(0, -2);
       
-      const allBreadcrumbs = parentBreadcrumbs.map((item: any) => ({
-        id: item.id || '',
-        name: item.name || '',
-        type: item.type || 'NodeParagraph',
-      }));
+      const allBreadcrumbs = parentBreadcrumbs
+        .map(toBreadcrumbRecord)
+        .filter((item): item is BreadcrumbRecord => item !== null);
       
       // 🔧 去重：使用 Map 按标准化后的 name 去重
       const dedupMap = new Map<string, { id: string; name: string; type: string }>();

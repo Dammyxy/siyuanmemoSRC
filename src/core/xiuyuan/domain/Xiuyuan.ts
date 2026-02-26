@@ -408,7 +408,8 @@ export class Xiuyuan {
     
     // 描述符模板需要包含概念块ID
     if (this.isDescriptorTemplate(templateID)) {
-      const conceptId = (this.meta.fieldMapping as any)?.concept;
+      const fieldMapping = this.meta.fieldMapping as { concept?: string } | undefined;
+      const conceptId = fieldMapping?.concept;
       return conceptId 
         ? [conceptId, face.questionBlockId].filter(Boolean)
         : [face.questionBlockId].filter(Boolean);

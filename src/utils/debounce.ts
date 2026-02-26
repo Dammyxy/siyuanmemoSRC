@@ -1,20 +1,19 @@
 /**
- * 防抖和节流工具函数
+ * Debounce and throttle helpers.
  */
+
+type Procedure<TThis, TArgs extends unknown[], TResult> = (this: TThis, ...args: TArgs) => TResult;
 
 /**
- * 防抖函数 - 延迟执行，只执行最后一次
- * @param fn 要防抖的函数
- * @param delay 延迟时间（毫秒）
- * @returns 防抖后的函数
+ * Debounce: execute only after calls stop for `delay` ms.
  */
-export function debounce<T extends (...args: any[]) => any>(
-  fn: T,
+export function debounce<TThis, TArgs extends unknown[], TResult>(
+  fn: Procedure<TThis, TArgs, TResult>,
   delay: number
-): (...args: Parameters<T>) => void {
+): (this: TThis, ...args: TArgs) => void {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-  return function (this: any, ...args: Parameters<T>) {
+  return function (this: TThis, ...args: TArgs): void {
     if (timeoutId !== null) {
       clearTimeout(timeoutId);
     }
@@ -27,20 +26,17 @@ export function debounce<T extends (...args: any[]) => any>(
 }
 
 /**
- * 节流函数 - 限制执行频率
- * @param fn 要节流的函数
- * @param limit 时间限制（毫秒）
- * @returns 节流后的函数
+ * Throttle: limit execution to at most once per `limit` ms.
  */
-export function throttle<T extends (...args: any[]) => any>(
-  fn: T,
+export function throttle<TThis, TArgs extends unknown[], TResult>(
+  fn: Procedure<TThis, TArgs, TResult>,
   limit: number
-): (...args: Parameters<T>) => void {
+): (this: TThis, ...args: TArgs) => void {
   let inThrottle = false;
-  let lastArgs: Parameters<T> | null = null;
-  let lastContext: any = null;
+  let lastArgs: TArgs | null = null;
+  let lastContext: TThis | null = null;
 
-  return function (this: any, ...args: Parameters<T>) {
+  return function (this: TThis, ...args: TArgs): void {
     lastArgs = args;
     lastContext = this;
 
@@ -50,8 +46,7 @@ export function throttle<T extends (...args: any[]) => any>(
 
       setTimeout(() => {
         inThrottle = false;
-        // 执行最后一次调用
-        if (lastArgs !== null) {
+        if (lastArgs !== null && lastContext !== null) {
           fn.apply(lastContext, lastArgs);
         }
       }, limit);
@@ -60,16 +55,14 @@ export function throttle<T extends (...args: any[]) => any>(
 }
 
 /**
- * 请求动画帧节流 - 用于 UI 更新
- * @param fn 要节流的函数
- * @returns 节流后的函数
+ * requestAnimationFrame-based throttle for UI updates.
  */
-export function rafThrottle<T extends (...args: any[]) => any>(
-  fn: T
-): (...args: Parameters<T>) => void {
+export function rafThrottle<TThis, TArgs extends unknown[], TResult>(
+  fn: Procedure<TThis, TArgs, TResult>
+): (this: TThis, ...args: TArgs) => void {
   let rafId: number | null = null;
 
-  return function (this: any, ...args: Parameters<T>) {
+  return function (this: TThis, ...args: TArgs): void {
     if (rafId !== null) {
       return;
     }
@@ -82,10 +75,7 @@ export function rafThrottle<T extends (...args: any[]) => any>(
 }
 
 /**
- * 批处理函数 - 收集多次调用，批量执行
- * @param fn 批处理函数
- * @param delay 批处理延迟（毫秒）
- * @returns 批处理包装函数
+ * Batch incoming items and flush after `delay` ms.
  */
 export function batch<T, R>(
   fn: (items: T[]) => R,
@@ -94,7 +84,7 @@ export function batch<T, R>(
   let items: T[] = [];
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-  return function (item: T) {
+  return function (item: T): void {
     items.push(item);
 
     if (timeoutId !== null) {

@@ -126,15 +126,22 @@ import SkipMenuButton from './components/SkipMenuButton.vue';
 import InsertPositionDialog from './dialogs/InsertPositionDialog.vue';
 import ScheduleDateDialog, { type ScheduleOptions } from './dialogs/ScheduleDateDialog.vue';
 import { createLogger } from '@/utils/logger';
+import type FSRSPlugin from '@/index';
+import type { IReviewQueue } from '@/types/unified-data-source';
 
 const logger = createLogger('ReviewActions');
+
+type ReviewQueueLike = IReviewQueue & {
+  getRemainingSize?: () => number;
+  insertAt?: (cardId: string, position: number) => Promise<void>;
+};
 
 const props = defineProps<{
   actions: ReviewUIState['actions'];
   i18n?: Record<string, string>;
   meta?: ReviewUIState['meta'];
-  queue?: any; // 队列实例
-  plugin?: any; // 🆕 插件实例，用于访问服务
+  queue?: ReviewQueueLike;
+  plugin?: FSRSPlugin;
 }>();
 
 const emit = defineEmits<{
@@ -143,7 +150,7 @@ const emit = defineEmits<{
   (e: 'skip'): void;
   (e: 'back'): void;
   (e: 'command', cmdId: string): void;
-  (e: 'openMenu', menu: any[], ev: MouseEvent): void;
+  (e: 'openMenu', menu: ReviewUIState['actions']['menu'], ev: MouseEvent): void;
 }>();
 
 // 卡片类型检测 - Topic 和 Concept 卡片都使用"下一张"模式

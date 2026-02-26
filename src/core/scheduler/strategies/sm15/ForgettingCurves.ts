@@ -8,6 +8,8 @@
 import { ForgettingCurve } from './ForgettingCurve';
 import { SM15_CONSTANTS } from './types';
 import type { SM15 } from './SM15';
+import type { SM15Item } from './SM15Item';
+import type { Point } from './types';
 
 const { RANGE_REPETITION, RANGE_AF, MIN_AF, NOTCH_AF, REMEMBERED } = SM15_CONSTANTS;
 
@@ -98,7 +100,7 @@ export class ForgettingCurves {
      * @param item SM15Item 实例
      * @param now 当前时间
      */
-    registerPoint(grade: number, item: any, now: Date): void {
+    registerPoint(grade: number, item: SM15Item, now: Date): void {
         // 计算 A-Factor 索引
         const afIndex = item.repetition > 0 ? item.afIndex() : item.lapse;
 

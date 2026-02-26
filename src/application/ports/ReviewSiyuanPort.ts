@@ -1,13 +1,15 @@
 import type { Rating } from '@/types';
 
+export type SiyuanRecord = Record<string, unknown>;
+
 export interface ReviewSiyuanPort {
   readonly BUILTIN_DECK_ID: string;
 
-  sql(stmt: string): Promise<any[]>;
+  sql<TRow extends SiyuanRecord = SiyuanRecord>(stmt: string): Promise<TRow[]>;
   getBlockAttrs(blockId: string): Promise<Record<string, string>>;
-  getBlockInfo(blockId: string): Promise<any>;
+  getBlockInfo(blockId: string): Promise<SiyuanRecord>;
   getBlockDOM(blockId: string): Promise<{ dom: string }>;
-  getBlockBreadcrumb(blockId: string): Promise<any[]>;
+  getBlockBreadcrumb(blockId: string): Promise<SiyuanRecord[]>;
   getIconByType(type: string, subType?: string): string;
 
   reviewRiffCard(deckID: string, cardID: string, rating: Rating): Promise<void>;

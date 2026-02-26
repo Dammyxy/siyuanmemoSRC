@@ -7,12 +7,10 @@
  * - 删除同步：双向删除同步（插件删除 → Riff 删除，Riff 删除 → 本地删除）
  * 
  * 优化特性：
- * - 事件驱动架构（使用 EventEmitter）
+ * - 事件驱动架构（使用 EventBus）
  * - 自动重试机制（最多 3 次，指数退避）
  * - 详细的进度回调（7 个阶段）
  * - 简化职责（定时器由外部管理）
- * 
- * @deprecated 旧名称 HybridSyncService 已废弃，请使用 XiuyuanSyncService
  */
 
 import { initializeAFactor } from '@/core/card-builder';
@@ -21,12 +19,12 @@ import type {
     XiuyuanSyncSiyuanPort
 } from '@/application/ports/XiuyuanSyncSiyuanPort';
 import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter';
-import type { EventBus } from '@/core/shared/domain/events/EventBus';
+import type { EventBus, EventHandler } from '@/core/shared/domain/events/EventBus';
+import { DomainEvent } from '@/core/shared/domain/events/DomainEvent';
 import type {
     HybridSyncConfig,
     HybridSyncEvents,
     SyncResult,
-    SyncStatus,
     SyncType,
     ProgressCallback,
     SyncProgress,
@@ -43,9 +41,27 @@ import { RiffBlacklistService } from './RiffBlacklistService';
 import { CardTypeDetectionService } from '@/core/xiuyuan/domain/services/CardTypeDetectionService';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
 import { createLogger } from '@/utils/logger';
+import { CardState } from '@/types/card';
 
 // ==================== Xiuyuan 同步服务 ====================
 const logger = createLogger('XiuyuanSyncService');
+
+class XiuyuanSyncBridgeEvent<TPayload extends object> extends DomainEvent {
+    constructor(
+        private readonly eventName: string,
+        public readonly payload: TPayload
+    ) {
+        super('xiuyuan-sync');
+    }
+
+    getEventName(): string {
+        return this.eventName;
+    }
+
+    override toJSON(): Record<string, unknown> {
+        return this.payload as Record<string, unknown>;
+    }
+}
 
 /**
  * Xiuyuan 同步服务（优化版）
@@ -71,6 +87,7 @@ export class XiuyuanSyncService {
     private deletionTracker: IDeletionTracker;
     private lastSyncTime: number = 0;
     private lastFullSyncTime: number = 0;
+    private readonly syncEventHandlers: Map<string, Map<(data: unknown) => void, EventHandler<DomainEvent>>> = new Map();
     
     // 默认重试配置
     private readonly DEFAULT_RETRY_CONFIG = {
@@ -109,61 +126,79 @@ export class XiuyuanSyncService {
         eventName: K,
         eventData: HybridSyncEvents[K]
     ): void {
-        // 使用 EventBus 发布事件
-        // 事件名称格式: xiuyuan.sync.<eventName>
-        const domainEventName = `xiuyuan.sync.${eventName}`;
-        
-        // 创建一个简单的领域事件对象
-        const domainEvent = {
-            getEventName: () => domainEventName,
-            occurredOn: new Date(),
-            toJSON: () => eventData
-        };
-        
-        // 发布到 EventBus
-        this.eventBus.publish(domainEvent as any).catch(error => {
+        const domainEventName = this.toDomainEventName(eventName);
+        const domainEvent = new XiuyuanSyncBridgeEvent(domainEventName, eventData);
+        this.eventBus.publish(domainEvent).catch(error => {
             logger.error(`Failed to publish event ${domainEventName}:`, error);
         });
     }
     
     /**
-     * 订阅同步事件（兼容旧的 EventEmitter API）
-     * 
-     * @param eventName 事件名称
-     * @param handler 事件处理函数
+     * 订阅同步事件
      */
     on<K extends keyof HybridSyncEvents>(
         eventName: K,
         handler: (data: HybridSyncEvents[K]) => void
     ): void {
-        const domainEventName = `xiuyuan.sync.${eventName}`;
-        
-        // 包装处理函数以适配 EventBus
-        const wrappedHandler = (event: any) => {
-            const eventData = typeof event.toJSON === 'function' ? event.toJSON() : event;
-            handler(eventData);
+        const domainEventName = this.toDomainEventName(eventName);
+        const registry = this.getOrCreateEventRegistry(domainEventName);
+        const handlerKey = handler as (data: unknown) => void;
+        if (registry.has(handlerKey)) {
+            return;
+        }
+
+        const wrappedHandler: EventHandler<XiuyuanSyncBridgeEvent<HybridSyncEvents[K]>> = event => {
+            handler(event.payload);
         };
-        
-        // 订阅 EventBus 事件
-        this.eventBus.subscribe(domainEventName, wrappedHandler);
+
+        registry.set(handlerKey, wrappedHandler as EventHandler<DomainEvent>);
+        this.eventBus.subscribe<XiuyuanSyncBridgeEvent<HybridSyncEvents[K]>>(domainEventName, wrappedHandler);
     }
     
     /**
-     * 取消订阅同步事件（兼容旧的 EventEmitter API）
-     * 
-     * @param eventName 事件名称
-     * @param handler 事件处理函数
+     * 取消订阅同步事件
      */
     off<K extends keyof HybridSyncEvents>(
         eventName: K,
         handler: (data: HybridSyncEvents[K]) => void
     ): void {
-        const domainEventName = `xiuyuan.sync.${eventName}`;
-        
-        // 注意：由于我们包装了处理函数，这里的取消订阅可能不会完全工作
-        // 如果需要精确的取消订阅，需要保存包装后的处理函数引用
-        // 目前这是一个简化实现
-        this.eventBus.unsubscribe(domainEventName, handler as any);
+        const domainEventName = this.toDomainEventName(eventName);
+        const registry = this.syncEventHandlers.get(domainEventName);
+        if (!registry) {
+            return;
+        }
+
+        const handlerKey = handler as (data: unknown) => void;
+        const wrappedHandler = registry.get(handlerKey);
+        if (!wrappedHandler) {
+            return;
+        }
+
+        this.eventBus.unsubscribe(domainEventName, wrappedHandler);
+        registry.delete(handlerKey);
+
+        if (registry.size === 0) {
+            this.syncEventHandlers.delete(domainEventName);
+        }
+    }
+
+    private toDomainEventName<K extends keyof HybridSyncEvents>(eventName: K): string {
+        return `xiuyuan.sync.${eventName}`;
+    }
+
+    private getOrCreateEventRegistry(eventName: string): Map<(data: unknown) => void, EventHandler<DomainEvent>> {
+        const existingRegistry = this.syncEventHandlers.get(eventName);
+        if (existingRegistry) {
+            return existingRegistry;
+        }
+
+        const newRegistry = new Map<(data: unknown) => void, EventHandler<DomainEvent>>();
+        this.syncEventHandlers.set(eventName, newRegistry);
+        return newRegistry;
+    }
+
+    private isManagedRiffXiuyuanId(xiuyuanId: string): boolean {
+        return xiuyuanId.startsWith('xy_') && !xiuyuanId.startsWith('xy_migrated_');
     }
     
     /**
@@ -256,23 +291,14 @@ export class XiuyuanSyncService {
             try {
                 // 1. 获取新卡片（since lastSyncTime）
                 this.reportProgress(onProgress, 'incremental', 'fetching', 0, 1, '正在获取新卡片...');
-                
-                // 🔧 禁用时间过滤
-                // 原因：时间过滤会导致新卡片被过滤掉，具体原因待调查：
-                // 1. 卡片的 created 时间可能有问题（如 "0001-01-01T00:00:00Z"）
-                // 2. lastSyncTime 更新时机可能不对
-                // 3. Riff API 延迟导致时间窗口不够
-                // 
-                // 当前方案：禁用时间过滤，通过 localCard 检查来避免重复添加
-                // 性能影响：每次获取所有卡片，但通过 skipped 机制避免重复
-                logger.info(`lastSyncTime: ${this.lastSyncTime}, current: ${Date.now()}, diff: ${Math.floor((Date.now() - this.lastSyncTime) / 1000)}s`);
-                
-                const newCards = await this.siyuanApi.getRiffNewCards(
-                    this.config.deckId,
-                    undefined  // 禁用时间过滤，获取所有卡片
-                );
-                
-                logger.info(`Fetched ${newCards.length} cards from Riff (time filter disabled)`);
+                const since = this.lastSyncTime > 0 ? this.lastSyncTime : undefined;
+                logger.info('Incremental sync fetch window:', {
+                    since,
+                    startTime,
+                });
+
+                const newCards = await this.siyuanApi.getRiffNewCards(this.config.deckId, since);
+                logger.info(`Fetched ${newCards.length} cards from Riff`);
                 
                 // 2. 过滤黑名单
                 this.reportProgress(onProgress, 'incremental', 'filtering', 1, 7, '正在过滤黑名单...');
@@ -443,15 +469,7 @@ export class XiuyuanSyncService {
                     const xiuyuansToDelete = allXiuyuans.filter(xiuyuan => {
                         const xiuyuanId = xiuyuan.getId().getValue();
                         
-                        // 🔧 检查是否为 Riff 同步创建的 Xiuyuan
-                        // 新格式：xy_{blockId}，需要检查对应的块是否还在 Riff 中
-                        // 旧格式：xy_riff_{blockId}，兼容处理
-                        if (!xiuyuanId.startsWith('xy_riff_') && !xiuyuanId.startsWith('xy_')) {
-                            return false;
-                        }
-                        
-                        // 跳过迁移数据
-                        if (xiuyuanId.startsWith('xy_migrated_')) {
+                        if (!this.isManagedRiffXiuyuanId(xiuyuanId)) {
                             return false;
                         }
                         
@@ -494,8 +512,8 @@ export class XiuyuanSyncService {
                     detectedCount = await this.detectCardTypesForNewCards(addedCards);
                 }
                 
-                // 7. 更新时间戳
-                this.lastSyncTime = Date.now();
+                // 7. 更新时间戳（使用本轮开始时间，避免同步期间新增卡片被跳过）
+                this.lastSyncTime = startTime;
                 
                 const result: SyncResult = {
                     success: true,
@@ -603,15 +621,7 @@ export class XiuyuanSyncService {
                 const xiuyuansToDelete = allXiuyuans.filter(xiuyuan => {
                     const xiuyuanId = xiuyuan.getId().getValue();
                     
-                    // 🔧 检查是否为 Riff 同步创建的 Xiuyuan
-                    // 新格式：xy_{blockId}，需要检查对应的块是否还在 Riff 中
-                    // 旧格式：xy_riff_{blockId}，兼容处理
-                    if (!xiuyuanId.startsWith('xy_riff_') && !xiuyuanId.startsWith('xy_')) {
-                        return false;
-                    }
-                    
-                    // 跳过迁移数据
-                    if (xiuyuanId.startsWith('xy_migrated_')) {
+                    if (!this.isManagedRiffXiuyuanId(xiuyuanId)) {
                         return false;
                     }
                     
@@ -702,133 +712,10 @@ export class XiuyuanSyncService {
     }
     
     /**
-     * 同步单个 Riff 卡片到本地
-     * 
-     * 检查是否为 Xiuyuan 卡片，如果是则更新所有关联的 FSRSCard
-     * 
-     * @param riffCard Riff 卡片数据
+     * 删除同步（单个卡片）
+     *
+     * 尝试从 Riff 删除卡片，失败时由调用方决定后续处理。
      */
-    /**
-     * 🔧 从 Riff 同步卡片到本地（已废弃）
-     * 
-     * @deprecated 此方法已不再使用，所有同步逻辑已迁移到 incrementalSync 和 fullSync
-     * 
-     * @param riffCard Riff 卡片数据
-     */
-    private async syncRiffCardToLocal(riffCard: RiffBlock): Promise<void> {
-        logger.warn('syncRiffCardToLocal is deprecated and should not be called');
-        // 此方法已废弃，所有同步逻辑已迁移到 incrementalSync 和 fullSync
-    }
-    
-    // ==================== 跨设备重建逻辑（TODO）====================
-    
-    /**
-     * 从块重建 Xiuyuan（跨设备同步）
-     * 
-     * TODO: 实现跨设备重建逻辑
-     * 
-     * @param blockId 代表块 ID
-     * @param xiuyuanID Xiuyuan ID
-     * @param templateID 模版 ID
-     * @param riffCard Riff 卡片数据
-     */
-    private async rebuildXiuyuanFromBlock(
-        blockId: string,
-        xiuyuanID: string,
-        templateID: string,
-        riffCard: RiffBlock
-    ): Promise<void> {
-        logger.warn('rebuildXiuyuanFromBlock not yet implemented');
-        // TODO: 实现以下步骤
-        // 1. 获取块的子块（重建 blockIDs）
-        // const blockIDs = await this.getXiuyuanBlockIDs(blockId, templateID);
-        // 
-        // 2. 重建 fieldMapping
-        // const fieldMapping = await this.rebuildFieldMapping(blockIDs, templateID);
-        // 
-        // 3. 调用 XiuyuanService.createFromBlocks
-        // const result = await this.xiuyuanService.createFromBlocks(
-        //     blockIDs,
-        //     templateID,
-        //     fieldMapping,
-        //     BUILTIN_DECK_ID
-        // );
-        // 
-        // 4. 更新复习数据
-        // if (result.ok) {
-        //     await this.updateXiuyuanReviewData(xiuyuanID, riffCard);
-        // }
-    }
-    
-    /**
-     * 获取 Xiuyuan 的所有块 ID
-     * 
-     * TODO: 实现获取子块逻辑
-     * 
-     * @param blockId 代表块 ID
-     * @param templateID 模版 ID
-     * @returns 块 ID 数组
-     */
-    private async getXiuyuanBlockIDs(blockId: string, templateID: string): Promise<string[]> {
-        logger.warn('getXiuyuanBlockIDs not yet implemented');
-        // TODO: 根据模版类型获取相关块
-        // 例如：列表模版需要获取父块和子块
-        return [blockId];
-    }
-    
-    /**
-     * 重建字段映射
-     * 
-     * TODO: 实现字段映射重建逻辑
-     * 
-     * @param blockIDs 块 ID 数组
-     * @param templateID 模版 ID
-     * @returns 字段映射
-     */
-    private async rebuildFieldMapping(
-        blockIDs: string[],
-        templateID: string
-    ): Promise<Record<string, string>> {
-        logger.warn('rebuildFieldMapping not yet implemented');
-        // TODO: 根据模版类型和块 ID 重建字段映射
-        return {};
-    }
-    
-    /**
-     * 更新 Xiuyuan 的复习数据
-     * 
-     * TODO: 实现复习数据更新逻辑
-     * 
-     * @param xiuyuanID Xiuyuan ID
-     * @param riffCard Riff 卡片数据
-     */
-    private async updateXiuyuanReviewData(xiuyuanID: string, riffCard: RiffBlock): Promise<void> {
-        logger.warn('updateXiuyuanReviewData not yet implemented');
-        // TODO: 更新所有关联卡片的复习数据
-        // const xiuyuanCards = this.storage.getAllCards().filter(
-        //     card => card.meta?.xiuyuanID === xiuyuanID
-        // );
-        // 
-        // const riffData = riffCard.riffCard || {};
-        // for (const card of xiuyuanCards) {
-        //     // 更新复习数据
-        // }
-    }
-    
-    /**
-     * 删除同步
-     * 
-     * 尝试从 Riff 删除卡片，失败时加入黑名单
-     * 支持自动重试机制
-     */
-    /**
-         * 删除同步（单个卡片）
-         * 
-         * 尝试从 Riff 删除卡片，失败时加入黑名单。
-         * 支持自动重试机制。
-         * 
-         * @deprecated 建议使用 deleteSyncBatch() 进行批量删除
-         */
         async deleteSync(cardID: string): Promise<boolean> {
             if (!this.config.deleteSync.enabled) {
                 logger.info('Delete sync disabled');
@@ -913,23 +800,6 @@ export class XiuyuanSyncService {
         }
     }
     
-    /**
-     * 获取同步状态（向后兼容）
-     * 
-     * @deprecated 建议使用事件监听代替轮询状态
-     */
-    getSyncStatus(): {
-        status: SyncStatus;
-        lastSyncTime: number;
-        lastFullSyncTime: number;
-    } {
-        return {
-            status: 'idle', // 不再维护内部状态
-            lastSyncTime: this.lastSyncTime,
-            lastFullSyncTime: this.lastFullSyncTime
-        };
-    }
-    
     // ==================== 私有方法 ====================
     
     /**
@@ -946,94 +816,72 @@ export class XiuyuanSyncService {
         }
         
         logger.info(`Auto-detecting card types for ${cards.length} new cards...`);
+
+        // 0. 过滤掉已经有 cardTypeMarker 的卡片（用户手动标记的）
+        const cardsToDetect: RiffBlock[] = [];
+        let skippedWithMarker = 0;
         
-        try {
-            // 0. 过滤掉已经有 cardTypeMarker 的卡片（用户手动标记的）
-            const cardsToDetect: RiffBlock[] = [];
-            let skippedWithMarker = 0;
+        for (const card of cards) {
+            const attrs = await this.siyuanApi.getBlockAttrs(card.id);
+            const cardTypeMarker = attrs?.['custom-fsrs-card-type'];
             
-            for (const card of cards) {
-                try {
-                    const attrs = await this.siyuanApi.getBlockAttrs(card.id);
-                    const cardTypeMarker = attrs?.['custom-fsrs-card-type'];
-                    
-                    if (cardTypeMarker === 'concept' || cardTypeMarker === 'descriptor') {
-                        // 跳过已有用户标记的卡片
-                        skippedWithMarker++;
-                        logger.info(`Skipping card with cardTypeMarker: ${card.id} (${cardTypeMarker})`);
-                        continue;
-                    }
-                    
-                    cardsToDetect.push(card);
-                } catch (err) {
-                    // 如果获取属性失败，仍然尝试检测
-                    cardsToDetect.push(card);
-                }
+            if (cardTypeMarker === 'concept' || cardTypeMarker === 'descriptor') {
+                // 跳过已有用户标记的卡片
+                skippedWithMarker++;
+                logger.info(`Skipping card with cardTypeMarker: ${card.id} (${cardTypeMarker})`);
+                continue;
             }
-            
-            if (skippedWithMarker > 0) {
-                logger.info(`Skipped ${skippedWithMarker} cards with user-defined cardTypeMarker`);
-            }
-            
-            if (cardsToDetect.length === 0) {
-                logger.info('No cards to detect (all have cardTypeMarker)');
-                return 0;
-            }
-            
-            // 1. 批量检测类型
-            const blockIds = cardsToDetect.map(c => c.id);
-            const typeMap = await this.cardTypeDetectionService.batchDetectCardTypes(blockIds);
-            
-            // 2. 批量更新块属性（每批 50 张，避免阻塞）
-            let updated = 0;
-            let failed = 0;
-            const BATCH_SIZE = 50;
-            
-            for (let i = 0; i < cardsToDetect.length; i += BATCH_SIZE) {
-                const batch = cardsToDetect.slice(i, i + BATCH_SIZE);
-                
-                await Promise.all(batch.map(async (card) => {
-                    try {
-                        const cardType = typeMap.get(card.id);
-                        if (!cardType) {
-                            failed++;
-                            return;
-                        }
-                        
-                        const attrs: Record<string, string> = {
-                            [this.siyuanApi.ATTR_CARD_TYPE]: cardType,
-                        };
-                        
-                        // 🔧 修复：不再写入 A-Factor 块属性，只保留在卡片数据中
-                        // Topic 卡片的 A-Factor 存储在 FSRSCard.aFactor 中
-                        
-                        await this.siyuanApi.setBlockAttrs(card.id, attrs);
-                        updated++;
-                    } catch (err) {
-                        logger.error(`Failed to update card type for ${card.id}:`, err);
-                        failed++;
-                    }
-                }));
-            }
-            
-            logger.info(`Auto-detection completed: ${updated} updated, ${failed} failed, ${skippedWithMarker} skipped (total: ${cards.length})`);
-            return updated;
-        } catch (error) {
-            logger.error('Auto-detection failed:', error);
+
+            cardsToDetect.push(card);
+        }
+        
+        if (skippedWithMarker > 0) {
+            logger.info(`Skipped ${skippedWithMarker} cards with user-defined cardTypeMarker`);
+        }
+        
+        if (cardsToDetect.length === 0) {
+            logger.info('No cards to detect (all have cardTypeMarker)');
             return 0;
         }
-    }
-    
-    /**
-     * 智能检测卡片类型（用于快速制卡）
-     * 
-     * @deprecated 使用 CardTypeDetectionService.detectCardType() 代替
-     * 
-     * @param riffBlock Riff 卡片数据
-     * @returns 'topic' | 'item'
-     */
-    private async smartDetectCardType(riffBlock: RiffBlock): Promise<'topic' | 'item'> {
-        return await this.cardTypeDetectionService.detectCardType(riffBlock.id);
+        
+        // 1. 批量检测类型
+        const blockIds = cardsToDetect.map(c => c.id);
+        const typeMap = await this.cardTypeDetectionService.batchDetectCardTypes(blockIds);
+        
+        // 2. 批量更新块属性（每批 50 张，避免阻塞）
+        let updated = 0;
+        let failed = 0;
+        const BATCH_SIZE = 50;
+        
+        for (let i = 0; i < cardsToDetect.length; i += BATCH_SIZE) {
+            const batch = cardsToDetect.slice(i, i + BATCH_SIZE);
+            
+            await Promise.all(batch.map(async (card) => {
+                try {
+                    const cardType = typeMap.get(card.id);
+                    if (!cardType) {
+                        failed++;
+                        return;
+                    }
+                    
+                    const attrs: Record<string, string> = {
+                        [this.siyuanApi.ATTR_CARD_TYPE]: cardType,
+                    };
+                    
+                    // 🔧 修复：不再写入 A-Factor 块属性，只保留在卡片数据中
+                    // Topic 卡片的 A-Factor 存储在 FSRSCard.aFactor 中
+                    
+                    await this.siyuanApi.setBlockAttrs(card.id, attrs);
+                    updated++;
+                } catch (err) {
+                    logger.error(`Failed to update card type for ${card.id}:`, err);
+                    failed++;
+                }
+            }));
+        }
+        
+        logger.info(`Auto-detection completed: ${updated} updated, ${failed} failed, ${skippedWithMarker} skipped (total: ${cards.length})`);
+        return updated;
     }
     
     /**
@@ -1102,7 +950,7 @@ export class XiuyuanSyncService {
                 cardType = cardTypeAttr;
             } else {
                 // 🆕 智能识别：快速制卡没有块属性，需要自动检测
-                cardType = await this.smartDetectCardType(riffBlock);
+                cardType = await this.cardTypeDetectionService.detectCardType(riffBlock.id);
             }
         }
         
@@ -1212,7 +1060,7 @@ export class XiuyuanSyncService {
             difficulty: riffCard?.difficulty || 0,
             reps: riffCard?.reps || 0,
             lapses: riffCard?.lapses || 0,
-            state: (riffCard?.state || 0) as any,
+            state: this.resolveCardState(riffCard?.state),
             lastReview: new Date(parseValidDate(riffCard?.lastReview) || now),
             elapsedDays: riffCard?.elapsedDays || 0,
             scheduledDays: riffCard?.scheduledDays || 0,
@@ -1247,6 +1095,20 @@ export class XiuyuanSyncService {
         
         // ✅ 返回完整的 Xiuyuan 实体（包含 Card）
         return { xiuyuanEntity };
+    }
+
+    private resolveCardState(rawState: unknown): CardState {
+        if (
+            rawState === CardState.New
+            || rawState === CardState.Learning
+            || rawState === CardState.Review
+            || rawState === CardState.Relearning
+            || rawState === CardState.Suspended
+        ) {
+            return rawState;
+        }
+
+        return CardState.New;
     }
     
     /**
@@ -1346,20 +1208,3 @@ export class XiuyuanSyncService {
     }
 }
 
-// ==================== 向后兼容 ====================
-
-/**
- * @deprecated 使用 XiuyuanSyncService 代替
- * 
- * 为了向后兼容，保留旧名称作为类型别名。
- * 此别名将在下一个主版本中移除。
- */
-export type HybridSyncService = XiuyuanSyncService;
-
-/**
- * @deprecated 使用 XiuyuanSyncService 代替
- * 
- * 为了向后兼容，导出类的别名。
- * 此导出将在下一个主版本中移除。
- */
-export const HybridSyncService = XiuyuanSyncService;

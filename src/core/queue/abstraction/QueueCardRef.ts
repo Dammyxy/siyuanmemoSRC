@@ -1,4 +1,4 @@
-﻿import type { BlockID, CardID } from '../../../types/branded';
+import type { BlockID, CardID } from '../../../types/branded';
 import { createBlockID, createCardID } from '../../../types/branded';
 
 export interface QueueCardRef {
@@ -21,22 +21,50 @@ export interface QueueCardRef {
   originalRef?: unknown;
 }
 
-export function normalizeRiffCardId(raw: any): CardID {
-  const v = raw?.riffCardID
-    ?? raw?.riffCardId
-    ?? raw?.cardID
-    ?? raw?.cardId
-    ?? raw?.riffCard?.id
-    ?? raw?.riffCard?.ID;
-  return createCardID(v ? String(v) : '');
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === 'object' && value !== null;
 }
 
-export function normalizeBlockId(raw: any): BlockID {
-  const v = raw?.blockID ?? raw?.blockId ?? raw?.block_id ?? raw?.id;
-  return createBlockID(v ? String(v) : '');
+function pickValue(record: UnknownRecord, keys: readonly string[]): unknown {
+  for (const key of keys) {
+    const candidate = record[key];
+    if (candidate !== undefined && candidate !== null) {
+      return candidate;
+    }
+  }
+  return undefined;
 }
 
-export function normalizeDeckId(raw: any, fallbackDeckID = ''): string {
-  const v = raw?.deckID ?? raw?.deckId ?? raw?.deck_id ?? fallbackDeckID;
-  return v ? String(v) : '';
+function toStringOrEmpty(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return '';
+}
+
+export function normalizeRiffCardId(raw: unknown): CardID {
+  const record = isRecord(raw) ? raw : {};
+  const riffCard = isRecord(record.riffCard) ? record.riffCard : null;
+
+  const value = pickValue(record, ['riffCardID', 'riffCardId', 'cardID', 'cardId'])
+    ?? (riffCard ? pickValue(riffCard, ['id', 'ID']) : undefined);
+
+  return createCardID(toStringOrEmpty(value));
+}
+
+export function normalizeBlockId(raw: unknown): BlockID {
+  const record = isRecord(raw) ? raw : {};
+  const value = pickValue(record, ['blockID', 'blockId', 'block_id', 'id']);
+  return createBlockID(toStringOrEmpty(value));
+}
+
+export function normalizeDeckId(raw: unknown, fallbackDeckID = ''): string {
+  const record = isRecord(raw) ? raw : {};
+  const value = pickValue(record, ['deckID', 'deckId', 'deck_id']) ?? fallbackDeckID;
+  return toStringOrEmpty(value);
 }

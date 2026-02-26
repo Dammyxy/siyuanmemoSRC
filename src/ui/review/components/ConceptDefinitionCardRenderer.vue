@@ -57,12 +57,16 @@ import { createLogger } from '@/utils/logger';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
-import type { ConceptDefinitionCardViewModel } from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
+import { resolveSiyuanApp } from '@/core/card/concept-definition/application/runtime';
+import type {
+  ConceptDefinitionCardInput,
+  ConceptDefinitionCardViewModel,
+} from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
 
 const props = defineProps<{
   blockId: string;
   cardId?: string;
-  card?: any; // FSRSCard，包含 xiuyuanID 和 faceIndex
+  card?: ConceptDefinitionCardInput; // FSRSCard，包含 xiuyuanID 和 faceIndex
   showAnswer?: boolean;
   i18n?: Record<string, string>;
 }>();
@@ -79,38 +83,7 @@ const viewModel = ref<ConceptDefinitionCardViewModel | null>(null);
 
 const logger = createLogger('ConceptDefinitionCardRenderer');
 
-const resolvePlugin = () => {
-  return (window as any).siyuan?.ws?.app?.plugins?.find(
-    (p: any) => p.name === 'siyuan-plugin-siyuanmemo'
-  );
-};
-
-const renderService = new ConceptDefinitionCardRenderService(props.i18n || {}, {
-  getXiuyuan: async (xiuyuanID: string) => {
-    const plugin = resolvePlugin();
-    if (!plugin) {
-      throw new Error('Plugin not found');
-    }
-
-    const xiuyuanAppService = await plugin.getContext?.()?.getXiuyuanApplicationService?.();
-    if (!xiuyuanAppService) {
-      throw new Error('XiuyuanApplicationService not available');
-    }
-
-    const result = await xiuyuanAppService.getXiuyuan({ xiuyuanId: xiuyuanID });
-    if (!result?.xiuyuan) {
-      throw new Error(`Xiuyuan not found: ${xiuyuanID}`);
-    }
-    return result;
-  },
-  renderMarkdown: (kramdown: string) => {
-    const lute = (window as any).Lute?.New?.();
-    if (!lute) {
-      throw new Error('Lute not available');
-    }
-    return lute.Md2BlockDOM(kramdown);
-  },
-});
+const renderService = new ConceptDefinitionCardRenderService(props.i18n || {});
 
 // 方法
 function t(key: string, fallback: string): string {
@@ -145,7 +118,7 @@ function jumpToConcept() {
     return;
   }
 
-  const app = (window as any).siyuan?.ws?.app;
+  const app = resolveSiyuanApp<Parameters<typeof openTab>[0]['app']>();
   if (!app) {
     logger.error('App instance not found');
     return;

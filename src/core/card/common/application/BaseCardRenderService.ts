@@ -16,6 +16,12 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('BaseCardRenderService');
 
+type RawBreadcrumbItem = {
+  id?: string;
+  name?: string;
+  type?: string;
+};
+
 export abstract class BaseCardRenderService {
   /**
    * 加载块的面包屑
@@ -62,7 +68,7 @@ export abstract class BaseCardRenderService {
       
       // 处理每个面包屑项，应用 CDF 规则
       const processedBreadcrumbs = await Promise.all(
-        filteredBreadcrumbs.map(async (item: any) => {
+        filteredBreadcrumbs.map(async (item: RawBreadcrumbItem) => {
           const itemId = item.id || '';
           let itemName = item.name || '';
           

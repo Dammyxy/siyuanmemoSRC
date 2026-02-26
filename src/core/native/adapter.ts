@@ -49,8 +49,7 @@ async function resolveQueueItems(queue: NativeQueuePort): Promise<NativeQueueIte
   }
 
   if (typeof queue.getAllItems === 'function') {
-    logger.warn('Using legacy getAllItems() fallback for native adapter');
-    return queue.getAllItems();
+    throw new Error('Native review adapter requires queue.getAllCards(); legacy getAllItems() path was removed');
   }
 
   return [];
@@ -90,12 +89,14 @@ function calculateNextDues(_item: NativeQueueItem): ICard['nextDues'] {
   const oneMinute = 1 * 60 * 1000;
   const oneDay = 24 * 60 * 60 * 1000;
 
-  return {
+  const nextDues: ICard['nextDues'] = {
     1: `${oneMinute}ms`,        // 1 分钟
     2: `${5 * oneMinute}ms`,    // 5 分钟
     3: `${10 * oneMinute}ms`,   // 10 分钟
     4: `${6 * oneDay}ms`,       // 6 天
-  } as any;
+  };
+
+  return nextDues;
 }
 
 /**

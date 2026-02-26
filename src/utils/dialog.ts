@@ -5,6 +5,15 @@
 
 import { Dialog } from 'siyuan';
 import { createApp, type Component } from 'vue';
+import { createLogger } from '@/utils/logger';
+
+type DialogEventHandler = (...args: unknown[]) => void;
+type CustomEventLike = Event & {
+    detail?: unknown;
+    _fsrsForwarded?: boolean;
+};
+
+const logger = createLogger('DialogHelper');
 
 /**
  * 创建一个 Vue 组件的 Dialog
@@ -13,8 +22,8 @@ export function createVueDialog<T extends Component>(options: {
     title?: string;  // 改为可选
     hideTitle?: boolean;  // 添加选项：隐藏默认标题栏
     component: T;
-    props?: Record<string, any>;
-    events?: Record<string, (...args: any[]) => void>;
+    props?: Record<string, unknown>;
+    events?: Record<string, DialogEventHandler>;
     width?: string;
     height?: string;
     onClose?: () => void;
@@ -25,10 +34,12 @@ export function createVueDialog<T extends Component>(options: {
 }): { dialog: Dialog; destroy: () => void } {
     const containerId = `fsrs-dialog-${Date.now()}`;
 
-    console.log('[SiYuanMemo][Dialog] Creating dialog with events:', options.events ? Object.keys(options.events) : 'none');
+    logger.debug('Creating dialog with events', {
+        events: options.events ? Object.keys(options.events) : [],
+    });
 
     // 将 events 转换为 onXxx 格式的 props
-    const eventProps: Record<string, any> = {};
+    const eventProps: Record<string, unknown> = {};
     if (options.events) {
         for (const [key, handler] of Object.entries(options.events)) {
             // 将 kebab-case 转换为 camelCase，然后加上 'on' 前缀
@@ -36,11 +47,11 @@ export function createVueDialog<T extends Component>(options: {
             const camelCase = key.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
             const propKey = `on${camelCase.charAt(0).toUpperCase()}${camelCase.slice(1)}`;
             eventProps[propKey] = handler;
-            console.log(`[SiYuanMemo][Dialog] Event mapping: ${key} -> ${propKey}`);
+            logger.debug('Event mapping', { source: key, target: propKey });
         }
     }
 
-    console.log('[SiYuanMemo][Dialog] Final eventProps:', Object.keys(eventProps));
+    logger.debug('Final event props', { keys: Object.keys(eventProps) });
 
     // 创建 Vue 应用
     const app = createApp(options.component, {
@@ -86,7 +97,7 @@ export function createVueDialog<T extends Component>(options: {
             try {
                 app.unmount();
             } catch (e) {
-                console.warn('[SiYuanMemo] Unmount error:', e);
+                logger.warn('Unmount error', e);
             }
             options.onClose?.();
         },
@@ -138,7 +149,7 @@ export function createVueDialog<T extends Component>(options: {
                         selection.addRange(range);
                     }
                 } catch (e) {
-                    console.warn('[SiYuanMemo][Dialog] Range selection error:', e);
+                    logger.warn('Range selection error', e);
                 }
             } else {
                 // 如果没有按钮，聚焦到容器
@@ -150,10 +161,11 @@ export function createVueDialog<T extends Component>(options: {
         // 并转发到 Vue 组件
         if (options.dataKey && dialog.element.firstElementChild) {
             const forwardEvent = (event: Event) => {
+                const sourceEvent = event as CustomEventLike;
                 // 检查是否是来自思源热键系统的 CustomEvent
-                if ('detail' in event && typeof (event as any).detail === 'string') {
+                if (typeof sourceEvent.detail === 'string') {
                     // 防止无限递归：如果事件已经是我们转发的，不再处理
-                    if ((event as any)._fsrsForwarded) {
+                    if (sourceEvent._fsrsForwarded) {
                         return;
                     }
 
@@ -163,7 +175,7 @@ export function createVueDialog<T extends Component>(options: {
                         cancelable: true,
                     });
                     Object.defineProperty(forwardedEvent, 'detail', {
-                        value: (event as any).detail,
+                        value: sourceEvent.detail,
                         writable: false,
                     });
                     // 标记为已转发，防止二次处理
@@ -182,7 +194,7 @@ export function createVueDialog<T extends Component>(options: {
             dialog.element.firstElementChild.addEventListener('click', forwardEvent);
         }
     } else {
-        console.error('[SiYuanMemo] Container not found:', containerId);
+        logger.error('Container not found', { containerId });
     }
 
     return {
@@ -191,7 +203,7 @@ export function createVueDialog<T extends Component>(options: {
             try {
                 app.unmount();
             } catch (e) {
-                console.warn('[SiYuanMemo] Unmount error:', e);
+                logger.warn('Unmount error', e);
             }
             dialog.destroy();
         },

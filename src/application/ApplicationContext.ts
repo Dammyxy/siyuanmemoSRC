@@ -26,7 +26,7 @@ import { PracticeQueueManager } from '@/application/managers/PracticeQueueManage
 import { TabApplicationService } from '@/application/services/TabApplicationService';
 import { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
-import { HybridSyncService } from '@/application/services/XiuyuanSyncService';
+import { XiuyuanSyncService } from '@/application/services/XiuyuanSyncService';
 import { TransactionWebSocketService } from '@/core/infrastructure/websocket/TransactionWebSocketService';
 import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
 import { AdvancedDataRouter } from '@/application/queries/DataAccessFacade';
@@ -146,7 +146,7 @@ export class ApplicationContext {
   private blockMenuHandler: BlockMenuHandler;
   
   // 基础设施服务
-  private hybridSyncService?: HybridSyncService;
+  private hybridSyncService?: XiuyuanSyncService;
   private riffSyncEventHandler?: RiffSyncEventHandler;
   private transactionWebSocketService?: TransactionWebSocketService;
   private fullSyncTimer?: NodeJS.Timeout;
@@ -225,7 +225,7 @@ export class ApplicationContext {
       unifiedDataSourceManager: UnifiedDataSourceManager;
       blockMenuHandler: BlockMenuHandler;
       sharedEventBus?: EventBus;  // ✅ 新增：共享的 EventBus 实例
-      hybridSyncService?: HybridSyncService;
+      hybridSyncService?: XiuyuanSyncService;
       transactionWebSocketService?: TransactionWebSocketService;
       fullSyncTimer?: NodeJS.Timeout;
     }
@@ -305,8 +305,10 @@ export class ApplicationContext {
     });
     
     this.registerServiceFactory('riffBlacklistService', (context) => {
-      const fileService = context.getFileService();
-      return new RiffBlacklistService(fileService);
+      return new RiffBlacklistService(
+        context.getUnifiedStorage(),
+        { enabled: true }
+      );
     });
     
     // ✅ 卡片内容查询服务
@@ -850,7 +852,7 @@ export class ApplicationContext {
     logger.info('[ApplicationContext] ✅ BlockMenuHandler initialized');
     
     // 11. 初始化 HybridSyncService（如果配置启用）
-    let hybridSyncService: HybridSyncService | undefined;
+    let hybridSyncService: XiuyuanSyncService | undefined;
     let fullSyncTimer: NodeJS.Timeout | undefined;
     let transactionWebSocketService: TransactionWebSocketService | undefined;
     
@@ -938,7 +940,7 @@ export class ApplicationContext {
       
       // 创建 HybridSyncService
       // 构造函数签名：(config, eventBus, xiuyuanRepository, riffBlacklistService, cardTypeDetectionService, deletionTracker, siyuanApi)
-      hybridSyncService = new HybridSyncService(
+      hybridSyncService = new XiuyuanSyncService(
         {
           deckId: syncSiyuanApi.BUILTIN_DECK_ID,
           storage: unifiedStorageManager as unknown as StorageManager,  // ✅ 使用新架构 UnifiedStorageManager
@@ -1162,7 +1164,7 @@ export class ApplicationContext {
    * 
    * @returns HybridSyncService | undefined - 混合同步服务实例
    */
-  getHybridSyncService(): HybridSyncService | undefined {
+  getHybridSyncService(): XiuyuanSyncService | undefined {
     return this.hybridSyncService;
   }
   

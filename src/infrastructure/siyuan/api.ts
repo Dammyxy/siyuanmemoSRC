@@ -5,10 +5,30 @@
 
 const API_BASE = '/api';
 
+type JsonRecord = Record<string, unknown>;
+
+interface ApiEnvelope<T> {
+    code: number;
+    msg?: string;
+    data: T;
+}
+
+interface ListDocsByPathResponse<TFile extends JsonRecord> {
+    files?: TFile[];
+}
+
+function isRecord(value: unknown): value is JsonRecord {
+    return typeof value === 'object' && value !== null;
+}
+
+function isApiEnvelope(value: unknown): value is ApiEnvelope<unknown> {
+    return isRecord(value) && typeof value.code === 'number';
+}
+
 /**
  * 发送 POST 请求到思源内核
  */
-export async function request<T = any>(endpoint: string, data: any = {}): Promise<T> {
+export async function request<T = unknown>(endpoint: string, data: unknown = {}): Promise<T> {
     const response = await fetch(`${API_BASE}${endpoint}`, {
         method: 'POST',
         headers: {
@@ -17,13 +37,16 @@ export async function request<T = any>(endpoint: string, data: any = {}): Promis
         body: JSON.stringify(data),
     });
 
-    const result = await response.json();
+    const result: unknown = await response.json();
+    if (!isApiEnvelope(result)) {
+        throw new Error(`Siyuan API Error: invalid response envelope from ${endpoint}`);
+    }
 
     if (result.code !== 0) {
         throw new Error(`Siyuan API Error: ${result.msg}`);
     }
 
-    return result.data;
+    return result.data as T;
 }
 
 // ==================== 块操作 ====================
@@ -31,15 +54,15 @@ export async function request<T = any>(endpoint: string, data: any = {}): Promis
 /**
  * 获取块信息
  */
-export async function getBlockInfo(id: string): Promise<any> {
-    return request('/block/getBlockInfo', { id });
+export async function getBlockInfo(id: string): Promise<JsonRecord> {
+    return request<JsonRecord>('/block/getBlockInfo', { id });
 }
 
 /**
  * 根据块 ID 获取块（兼容旧 API 命名）
  */
-export async function getBlockByID(id: string): Promise<any | null> {
-    const rows = await sql(`SELECT * FROM blocks WHERE id = '${id}' LIMIT 1`);
+export async function getBlockByID(id: string): Promise<JsonRecord | null> {
+    const rows = await sql<JsonRecord>(`SELECT * FROM blocks WHERE id = '${id}' LIMIT 1`);
     return rows[0] ?? null;
 }
 
@@ -60,8 +83,8 @@ export async function getBlockDOM(id: string): Promise<{ dom: string }> {
 /**
  * 获取块面包屑
  */
-export async function getBlockBreadcrumb(id: string): Promise<any[]> {
-    return request('/block/getBlockBreadcrumb', { id });
+export async function getBlockBreadcrumb(id: string): Promise<JsonRecord[]> {
+    return request<JsonRecord[]>('/block/getBlockBreadcrumb', { id });
 }
 
 /**
@@ -143,8 +166,8 @@ export function getIconByType(type: string, subType?: string): string {
     return iconName;
 }
 
-export async function getBlockDocInfo(id: string): Promise<any> {
-    return request('/block/getDocInfo', { id });
+export async function getBlockDocInfo(id: string): Promise<JsonRecord> {
+    return request<JsonRecord>('/block/getDocInfo', { id });
 }
 
 // ==================== 块属性 ====================
@@ -168,24 +191,24 @@ export async function setBlockAttrs(id: string, attrs: Record<string, string>): 
 /**
  * 执行 SQL 查询
  */
-export async function sql(stmt: string): Promise<any[]> {
-    return request('/query/sql', { stmt });
+export async function sql<TRow extends JsonRecord = JsonRecord>(stmt: string): Promise<TRow[]> {
+    return request<TRow[]>('/query/sql', { stmt });
 }
 
 /**
  * 根据块 ID 查询块信息
  */
-export async function getBlocksByIds(ids: string[]): Promise<any[]> {
+export async function getBlocksByIds<TRow extends JsonRecord = JsonRecord>(ids: string[]): Promise<TRow[]> {
     if (ids.length === 0) return [];
 
     const idsStr = ids.map(id => `'${id}'`).join(',');
-    return sql(`SELECT * FROM blocks WHERE id IN (${idsStr})`);
+    return sql<TRow>(`SELECT * FROM blocks WHERE id IN (${idsStr})`);
 }
 
 /**
  * 查询带有指定属性的块
  */
-export async function getBlocksByAttr(name: string, value?: string): Promise<any[]> {
+export async function getBlocksByAttr<TRow extends JsonRecord = JsonRecord>(name: string, value?: string): Promise<TRow[]> {
     let stmt = `SELECT * FROM blocks WHERE id IN (
     SELECT block_id FROM attributes WHERE name = '${name}'`;
 
@@ -194,21 +217,21 @@ export async function getBlocksByAttr(name: string, value?: string): Promise<any
     }
 
     stmt += ')';
-    return sql(stmt);
+    return sql<TRow>(stmt);
 }
 
 /**
  * 查询文档下的所有块
  */
-export async function getBlocksByDoc(docId: string): Promise<any[]> {
-    return sql(`SELECT * FROM blocks WHERE root_id = '${docId}' AND type != 'd'`);
+export async function getBlocksByDoc<TRow extends JsonRecord = JsonRecord>(docId: string): Promise<TRow[]> {
+    return sql<TRow>(`SELECT * FROM blocks WHERE root_id = '${docId}' AND type != 'd'`);
 }
 
 /**
  * 查询块的反向链接
  */
-export async function getBacklinks(id: string): Promise<any[]> {
-    return sql(`SELECT * FROM blocks WHERE id IN (
+export async function getBacklinks<TRow extends JsonRecord = JsonRecord>(id: string): Promise<TRow[]> {
+    return sql<TRow>(`SELECT * FROM blocks WHERE id IN (
     SELECT block_id FROM refs WHERE def_block_id = '${id}'
   )`);
 }
@@ -218,20 +241,20 @@ export async function getBacklinks(id: string): Promise<any[]> {
 /**
  * 获取文档信息
  */
-export async function getDocInfo(id: string): Promise<any> {
-    return request('/filetree/getDoc', { id, size: 0 });
+export async function getDocInfo(id: string): Promise<JsonRecord> {
+    return request<JsonRecord>('/filetree/getDoc', { id, size: 0 });
 }
 
-export async function getDocContent(id: string, size = 102400, mode = 0): Promise<any> {
-    return request('/filetree/getDoc', { id, size, mode });
+export async function getDocContent(id: string, size = 102400, mode = 0): Promise<JsonRecord> {
+    return request<JsonRecord>('/filetree/getDoc', { id, size, mode });
 }
 
 /**
  * 获取子文档列表
  */
-export async function listDocsByPath(notebook: string, path: string): Promise<any[]> {
-    const result = await request('/filetree/listDocsByPath', { notebook, path });
-    return result.files || [];
+export async function listDocsByPath<TFile extends JsonRecord = JsonRecord>(notebook: string, path: string): Promise<TFile[]> {
+    const result = await request<ListDocsByPathResponse<TFile>>('/filetree/listDocsByPath', { notebook, path });
+    return Array.isArray(result.files) ? result.files : [];
 }
 
 // ==================== 文件存储 ====================
@@ -273,7 +296,10 @@ export async function putFile(path: string, file: string | Blob, isDir = false):
         body: formData,
     });
 
-    const result = await response.json();
+    const result: unknown = await response.json();
+    if (!isApiEnvelope(result)) {
+        throw new Error('Failed to write file: invalid response envelope');
+    }
     if (result.code !== 0) {
         throw new Error(`Failed to write file: ${result.msg}`);
     }

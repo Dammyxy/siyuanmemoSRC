@@ -13,6 +13,11 @@ import { detectAnswerSyntax, detectTypeByStructure, type CardType } from '@/core
 
 const logger = createLogger('detectCardType');
 
+interface ChildBlockRow {
+  type?: string;
+  content?: string;
+}
+
 /**
  * 获取块类型（通过 SQL 查询）
  *
@@ -83,8 +88,8 @@ export async function hasAnswerBlocks(blockId: string): Promise<boolean> {
 
     logger.debug(`Block ${blockId}: ${cardType} (type: ${blockType})`);
     return cardType === 'item';
-  } catch (err: any) {
-    const errorMsg = err?.message || String(err);
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
 
     if (errorMsg.includes('tree not found') || errorMsg.includes('Not found entity')) {
       logger.warn(`Block ${blockId}: topic (document tree deleted - "${errorMsg}")`);
@@ -111,7 +116,7 @@ export async function hasAnswerBlocks(blockId: string): Promise<boolean> {
 async function checkHasChildren(blockId: string, childTypes?: string[]): Promise<boolean> {
   try {
     let typeFilter = '';
-    let typeDesc = 'any';
+    let typeDesc = 'all';
 
     if (childTypes && childTypes.length > 0) {
       const typeList = childTypes.map((t) => `'${t}'`).join(', ');
@@ -119,18 +124,18 @@ async function checkHasChildren(blockId: string, childTypes?: string[]): Promise
       typeDesc = childTypes.join(',');
     }
 
-    const childBlocks = await sql(`
+    const childBlocks = (await sql(`
       SELECT id, type, content
       FROM blocks
       WHERE parent_id = '${blockId}'
       AND type != 'd'
       ${typeFilter}
       LIMIT 5
-    `);
+    `)) as ChildBlockRow[];
 
     if (childBlocks && childBlocks.length > 0) {
       const childInfo = childBlocks
-        .map((b: any) => `${b.type}:${b.content?.substring(0, 20) || '(empty)'}`)
+        .map((b) => `${b.type}:${b.content?.substring(0, 20) || '(empty)'}`)
         .join(', ');
       logger.debug(`Block ${blockId} has ${childBlocks.length} children (type: ${typeDesc}): ${childInfo}`);
       return true;
@@ -196,4 +201,3 @@ export async function batchDetectCardType(
 
   return result;
 }
-

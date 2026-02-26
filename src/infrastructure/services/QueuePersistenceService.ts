@@ -47,7 +47,7 @@ export interface IQueuePersistenceService {
    * @param key 队列唯一键名
    * @param value 队列数据（必须是 JSON 可序列化的）
    */
-  set(key: string, value: any): Promise<void>;
+  set(key: string, value: unknown): Promise<void>;
   
   /**
    * 删除队列数据
@@ -87,7 +87,7 @@ export class QueuePersistenceService implements IQueuePersistenceService {
   private static readonly STORAGE_FILE = 'queues.msgpack';
   private static readonly DEBOUNCE_DELAY = 300; // 300ms 防抖延迟
   
-  private cache: Map<string, any> = new Map();
+  private cache: Map<string, unknown> = new Map();
   private saveTimer: NodeJS.Timeout | null = null;
   private initialized = false;
 
@@ -103,7 +103,7 @@ export class QueuePersistenceService implements IQueuePersistenceService {
     }
 
     try {
-      const data = await this.fileService.readMsgpack<Record<string, any>>(
+      const data = await this.fileService.readMsgpack<Record<string, unknown>>(
         QueuePersistenceService.STORAGE_FILE
       );
       
@@ -142,7 +142,7 @@ export class QueuePersistenceService implements IQueuePersistenceService {
   /**
    * 设置队列数据
    */
-  async set(key: string, value: any): Promise<void> {
+  async set(key: string, value: unknown): Promise<void> {
     if (!this.initialized) {
       throw new QueuePersistenceError(
         'set',

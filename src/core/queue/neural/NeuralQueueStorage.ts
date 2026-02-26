@@ -163,7 +163,7 @@ export class NeuralQueueStorage {
    * @returns 验证后的有效种子块 ID 数组
    * @private
    */
-  private static validateSeedArray(seeds: any): string[] {
+  private static validateSeedArray(seeds: unknown): string[] {
     if (!Array.isArray(seeds)) {
       logger.warn('Invalid seeds format (not an array)');
       return [];
@@ -186,7 +186,7 @@ export class NeuralQueueStorage {
    * @returns 清理后的遗落块对象
    * @private
    */
-  private static cleanupMissedBlocks(missedBlocksObj: Record<string, any>): Record<string, MissedBlock[]> {
+  private static cleanupMissedBlocks(missedBlocksObj: Record<string, unknown>): Record<string, MissedBlock[]> {
     const cleaned: Record<string, MissedBlock[]> = {};
 
     for (const [seedId, missedList] of Object.entries(missedBlocksObj)) {
@@ -236,29 +236,41 @@ export class NeuralQueueStorage {
    * @private
    * Requirements: 8.6
    */
-  private static validateOrbitState(state: any): boolean {
+  private static validateOrbitState(state: unknown): boolean {
     if (!state || typeof state !== 'object') {
       return false;
     }
 
+    const orbitState = state as Record<string, unknown>;
+
     // 验证 seedNodes
-    if (state.seedNodes !== undefined && !Array.isArray(state.seedNodes)) {
+    if (orbitState.seedNodes !== undefined && !Array.isArray(orbitState.seedNodes)) {
       return false;
     }
 
     // 验证 missedBlocks
-    if (state.missedBlocks !== undefined) {
-      if (typeof state.missedBlocks !== 'object') {
+    if (orbitState.missedBlocks !== undefined) {
+      if (!orbitState.missedBlocks || typeof orbitState.missedBlocks !== 'object') {
         return false;
       }
+
+      const missedBlocksRecord = orbitState.missedBlocks as Record<string, unknown>;
       // 验证每个遗落块数组
-      for (const key in state.missedBlocks) {
-        if (!Array.isArray(state.missedBlocks[key])) {
+      for (const missedList of Object.values(missedBlocksRecord)) {
+        if (!Array.isArray(missedList)) {
           return false;
         }
         // 验证遗落块结构
-        for (const block of state.missedBlocks[key]) {
-          if (!block.id || !block.associationType || typeof block.missedAt !== 'number') {
+        for (const block of missedList) {
+          if (!block || typeof block !== 'object') {
+            return false;
+          }
+          const missedBlock = block as Record<string, unknown>;
+          if (
+            typeof missedBlock.id !== 'string' ||
+            !missedBlock.associationType ||
+            typeof missedBlock.missedAt !== 'number'
+          ) {
             return false;
           }
         }
@@ -266,13 +278,22 @@ export class NeuralQueueStorage {
     }
 
     // 验证 navigationPath
-    if (state.navigationPath !== undefined) {
-      if (!Array.isArray(state.navigationPath)) {
+    if (orbitState.navigationPath !== undefined) {
+      if (!Array.isArray(orbitState.navigationPath)) {
         return false;
       }
       // 验证路径节点结构
-      for (const node of state.navigationPath) {
-        if (!node.cardId || !node.cardTitle || !node.associationType || typeof node.timestamp !== 'number') {
+      for (const node of orbitState.navigationPath) {
+        if (!node || typeof node !== 'object') {
+          return false;
+        }
+        const pathNode = node as Record<string, unknown>;
+        if (
+          typeof pathNode.cardId !== 'string' ||
+          typeof pathNode.cardTitle !== 'string' ||
+          !pathNode.associationType ||
+          typeof pathNode.timestamp !== 'number'
+        ) {
           return false;
         }
       }

@@ -3,21 +3,24 @@
  * 
  * 职责：
  * - 检测 Riff 相关操作（addFlashcards/removeFlashcards/updateAttrs）
- * - 触发 HybridSyncService 的增量同步
+ * - 触发 XiuyuanSyncService 的增量同步
  * - 防抖处理（300ms）
  * 
  * 实现要点：
  * 1. 检测 addFlashcards/removeFlashcards 操作
  * 2. 检测 updateAttrs 中的 custom-riff-decks 变化
  * 3. 防抖 300ms
- * 4. 调用 HybridSyncService.incrementalSync()
+ * 4. 调用 XiuyuanSyncService.incrementalSync()
  * 
  * @see .kiro/specs/quick-card-symbols/design.md - Section 2.2
  * @see .kiro/specs/quick-card-symbols/tasks.md - Task 1.2
  */
 
 import type { ITransactionHandler, Transaction } from '../../core/infrastructure/websocket/TransactionWebSocketService';
-import type { HybridSyncService } from '../XiuyuanSyncService';
+import type { XiuyuanSyncService } from '@/application/services/XiuyuanSyncService';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('RiffSyncHandler');
 
 /**
  * Riff 同步处理器
@@ -25,12 +28,12 @@ import type { HybridSyncService } from '../XiuyuanSyncService';
  * 监听 Riff 相关的 transaction 操作，触发增量同步
  */
 export class RiffSyncHandler implements ITransactionHandler {
-    private hybridSyncService: HybridSyncService;
+    private xiuyuanSyncService: XiuyuanSyncService;
     private debounceTimer: NodeJS.Timeout | null = null;
     private readonly DEBOUNCE_DELAY = 300; // 300ms
     
-    constructor(hybridSyncService: HybridSyncService) {
-        this.hybridSyncService = hybridSyncService;
+    constructor(xiuyuanSyncService: XiuyuanSyncService) {
+        this.xiuyuanSyncService = xiuyuanSyncService;
     }
     
     /**
@@ -46,7 +49,7 @@ export class RiffSyncHandler implements ITransactionHandler {
             return;
         }
         
-        console.log('[RiffSync] Detected Riff changes');
+        logger.info('Detected Riff changes');
         
         // 防抖处理
         if (this.debounceTimer) {
@@ -54,19 +57,19 @@ export class RiffSyncHandler implements ITransactionHandler {
         }
         
         this.debounceTimer = setTimeout(async () => {
-            console.log('[RiffSync] Waiting for Riff API to update...');
+            logger.debug('Waiting for Riff API to update...');
             
             // ⏰ 延迟 500ms，等待 Riff API 更新
             // 这样可以确保 getRiffNewCards 能获取到最新的卡片
             await new Promise(resolve => setTimeout(resolve, 500));
             
-            console.log('[RiffSync] Triggering incremental sync...');
-            this.hybridSyncService.incrementalSync()
+            logger.debug('Triggering incremental sync...');
+            this.xiuyuanSyncService.incrementalSync()
                 .then((result) => {
-                    console.log('[RiffSync] Incremental sync completed:', result);
+                    logger.info('Incremental sync completed:', result);
                 })
                 .catch((error) => {
-                    console.error('[RiffSync] Incremental sync failed:', error);
+                    logger.error('Incremental sync failed:', error);
                 });
         }, this.DEBOUNCE_DELAY);
     }
@@ -89,18 +92,18 @@ export class RiffSyncHandler implements ITransactionHandler {
             for (const op of tx.doOperations) {
                 // 检测 Riff 相关操作
                 if (op.action === 'addFlashcards') {
-                    console.log('[RiffSync] Detected addFlashcards:', op.id);
+                    logger.debug('Detected addFlashcards:', op.id);
                     return true;
                 }
                 
                 if (op.action === 'removeFlashcards') {
-                    console.log('[RiffSync] Detected removeFlashcards:', op.id);
+                    logger.debug('Detected removeFlashcards:', op.id);
                     return true;
                 }
                 
                 // 检测 updateAttrs 中的 custom-riff-decks 变化
                 if (op.action === 'updateAttrs' && op.data?.new?.['custom-riff-decks']) {
-                    console.log('[RiffSync] Detected updateAttrs with custom-riff-decks:', op.id);
+                    logger.debug('Detected updateAttrs with custom-riff-decks:', op.id);
                     return true;
                 }
             }

@@ -51,12 +51,15 @@ export class DefaultQuickCardConfigProvider implements IQuickCardConfigProvider 
  * @description 从插件存储中获取快速卡片配置
  */
 export class PluginQuickCardConfigProvider implements IQuickCardConfigProvider {
-  constructor(private readonly getSettings: () => any) {}
+  constructor(private readonly getSettings: () => unknown) {}
 
   getConfig(): QuickCardSettings {
     try {
       const settings = this.getSettings();
-      const quickCardConfig = settings?.quickCard;
+      const quickCardConfig =
+        typeof settings === 'object' && settings !== null
+          ? (settings as { quickCard?: QuickCardSettings }).quickCard
+          : undefined;
 
       if (!quickCardConfig) {
         logger.warn('[QuickCardConfigProvider] No quickCard config found, using defaults');

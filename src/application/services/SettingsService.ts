@@ -344,24 +344,26 @@ export class SettingsService implements ISettingsService {
    * 深度合并对象
    */
   private deepMerge<T>(target: T, source: Partial<T>): T {
-    const result = { ...target };
+    const result: Record<string, unknown> = { ...(target as Record<string, unknown>) };
+    const sourceRecord = source as Record<string, unknown>;
 
-    for (const key in source) {
-      if (source.hasOwnProperty(key)) {
-        const sourceValue = source[key];
-        const targetValue = result[key];
+    for (const key of Object.keys(sourceRecord)) {
+      const sourceValue = sourceRecord[key];
+      const targetValue = result[key];
 
-        if (this.isPlainObject(sourceValue) && this.isPlainObject(targetValue)) {
-          // 递归合并对象
-          result[key] = this.deepMerge(targetValue, sourceValue as any);
-        } else {
-          // 直接赋值
-          result[key] = sourceValue as any;
-        }
+      if (this.isPlainObject(sourceValue) && this.isPlainObject(targetValue)) {
+        // 递归合并对象
+        result[key] = this.deepMerge(
+          targetValue as Record<string, unknown>,
+          sourceValue as Partial<Record<string, unknown>>
+        );
+      } else {
+        // 直接赋值
+        result[key] = sourceValue;
       }
     }
 
-    return result;
+    return result as T;
   }
 
   /**
@@ -374,7 +376,7 @@ export class SettingsService implements ISettingsService {
   /**
    * 检查是否是普通对象
    */
-  private isPlainObject(value: any): boolean {
+  private isPlainObject(value: unknown): value is Record<string, unknown> {
     return (
       value !== null &&
       typeof value === 'object' &&

@@ -74,16 +74,30 @@ import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import type { ConceptCardViewModel } from '@/core/card/concept/application/ConceptCardRenderService';
 
+interface ConceptCardInput {
+  xiuyuanID?: string;
+}
+
+type OpenTabOptions = Parameters<typeof openTab>[0];
+type OpenTabApp = OpenTabOptions['app'];
+type SiyuanWindow = Window & {
+  siyuan?: {
+    ws?: {
+      app?: OpenTabApp;
+    };
+  };
+};
+
 const props = defineProps<{
   blockId: string;
   cardId?: string;
-  card?: any;
+  card?: ConceptCardInput;
   showAnswer?: boolean;
   i18n?: Record<string, string>;
 }>();
 
 const emit = defineEmits<{
-  loaded: [result: any];
+  loaded: [result: { viewModel: ConceptCardViewModel | null }];
   error: [error: Error];
 }>();
 
@@ -118,7 +132,7 @@ async function loadViewModel() {
 function jumpToConcept() {
   if (!viewModel.value) return;
   
-  const app = (window as any).siyuan?.ws?.app;
+  const app = (window as SiyuanWindow).siyuan?.ws?.app;
   if (!app) {
     console.error('[ConceptCardRenderer] App instance not found');
     return;

@@ -116,7 +116,7 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
         const { value: data, fromStorage } = loadQueueState<FilterGroupQueueData | null>({
             persistence: this.queuePersistence,
             key: this.STORAGE_KEY,
-            fallback: null,
+            initialValue: null,
             validate: (candidate): candidate is FilterGroupQueueData =>
                 Boolean(candidate) &&
                 typeof candidate === 'object' &&

@@ -39,6 +39,12 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('TopicFilter');
 
+type CardTypeRow = {
+  block_id?: string;
+  blockId?: string;
+  value?: string;
+};
+
 /**
  * Topic/Item card filter utility
  */
@@ -50,8 +56,8 @@ export class TopicFilter {
    * and focus only on flashcards that need active recall.
    * 
    * ## Error Handling
-   * If the query fails, returns all cards unchanged (backward compatible).
-   * This ensures that a database error doesn't prevent users from reviewing cards.
+   * If the query fails, this method throws.
+   * Callers should surface the error and fix the source issue instead of silently degrading.
    * 
    * @param items - Queue items to filter
    * @returns Filtered items with Topic cards removed
@@ -86,8 +92,7 @@ export class TopicFilter {
       return filtered;
     } catch (error) {
       logger.error('Failed to filter items', error);
-      // Fallback: return all cards
-      return items;
+      throw error instanceof Error ? error : new Error(String(error));
     }
   }
 
@@ -98,8 +103,7 @@ export class TopicFilter {
    * without the pressure of active recall testing.
    * 
    * ## Error Handling
-   * If the query fails, returns empty array. This is intentional because
-   * Topic filtering failure should not show Items as Topics.
+   * If the query fails, this method throws.
    * 
    * @param items - Queue items to filter
    * @returns Filtered items with only Topic cards
@@ -133,8 +137,7 @@ export class TopicFilter {
       return filtered;
     } catch (error) {
       logger.error('Failed to filter topics', error);
-      // Fallback: return empty array (safer for Topic filtering)
-      return [];
+      throw error instanceof Error ? error : new Error(String(error));
     }
   }
 
@@ -145,7 +148,7 @@ export class TopicFilter {
    * according to a configurable ratio (e.g., 25% Topics, 75% Items).
    * 
    * ## Error Handling
-   * If the query fails, returns all cards as Items (safer fallback).
+   * If the query fails, this method throws.
    * 
    * @param items - Queue items to separate
    * @returns Object with separated topics and items arrays
@@ -197,8 +200,7 @@ export class TopicFilter {
       return { topics, items: itemCards };
     } catch (error) {
       logger.error('Failed to separate cards', error);
-      // Fallback: treat all as Items
-      return { topics: [], items };
+      throw error instanceof Error ? error : new Error(String(error));
     }
   }
 
@@ -214,8 +216,7 @@ export class TopicFilter {
    * - Returns a Map for O(1) lookup performance
    * 
    * ## Error Handling
-   * If the query fails, returns an empty Map. The caller will treat all cards
-   * as Item cards (not Topic), maintaining backward compatibility.
+   * If the query fails, this method throws.
    * 
    * @param blockIds - Array of block IDs to query
    * @returns Map of block ID to card type ('topic' or undefined for items)
@@ -241,7 +242,7 @@ export class TopicFilter {
 
         const rows = await sql(stmt);
 
-        for (const row of rows as any[]) {
+        for (const row of rows as CardTypeRow[]) {
           const blockId = String(row?.block_id || row?.blockId || '');
           const cardType = String(row?.value || '');
           if (blockId && cardType) {
@@ -253,7 +254,7 @@ export class TopicFilter {
       return result;
     } catch (error) {
       logger.error('Failed to batch get card types', error);
-      return result;
+      throw error instanceof Error ? error : new Error(String(error));
     }
   }
 

@@ -11,7 +11,7 @@ export interface ManagerSiyuanPort {
 
   pushMsg(msg: string, timeout?: number): Promise<void>;
   pushErrMsg(msg: string, timeout?: number): Promise<void>;
-  sql(stmt: string): Promise<any[]>;
+  sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]>;
 
   getBlockKramdown(blockId: string): Promise<{ kramdown: string }>;
   getBlockText(blockId: string): Promise<string>;

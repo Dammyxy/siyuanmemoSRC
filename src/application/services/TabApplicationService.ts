@@ -43,7 +43,7 @@ export interface OpenCustomTabOptions {
     /** 标题 */
     title: string;
     /** 自定义数据 */
-    data?: any;
+    data?: unknown;
     /** ID */
     id?: string;
   };

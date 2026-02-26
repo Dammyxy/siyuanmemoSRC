@@ -35,6 +35,45 @@ export interface QueueOperation {
   cardIds?: string[];
 }
 
+interface QueueWithLastOperation extends IReviewQueue {
+  lastOperation?: unknown;
+}
+
+function isQueueOperation(value: unknown): value is QueueOperation {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const operation = value as Record<string, unknown>;
+  const validType = operation.type === 'card-added'
+    || operation.type === 'card-updated'
+    || operation.type === 'card-removed'
+    || operation.type === 'queue-cleared'
+    || operation.type === 'queue-rebuilt'
+    || operation.type === 'unknown';
+
+  if (!validType) {
+    return false;
+  }
+
+  if (operation.cardId !== undefined && typeof operation.cardId !== 'string') {
+    return false;
+  }
+
+  if (operation.cardIds !== undefined) {
+    if (!Array.isArray(operation.cardIds) || operation.cardIds.some(id => typeof id !== 'string')) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function extractLastOperation(queue: IReviewQueue): QueueOperation | null {
+  const candidate = (queue as QueueWithLastOperation).lastOperation;
+  return isQueueOperation(candidate) ? candidate : null;
+}
+
 /**
  * CacheManagerObserver 类
  * 
@@ -76,7 +115,7 @@ export class CacheManagerObserver implements QueueObserver {
    * key: cardId
    * value: 格式化后的数据
    */
-  private formattedDataCache: LRUCache<string, any>;
+  private formattedDataCache: LRUCache<string, unknown>;
   
   /**
    * 最后一次队列操作
@@ -114,9 +153,9 @@ export class CacheManagerObserver implements QueueObserver {
    */
   onQueueUpdate(queue: IReviewQueue): void {
     // 获取队列的最后一次操作类型
-    const lastOperation = (queue as any).lastOperation as QueueOperation | undefined;
+    const lastOperation = extractLastOperation(queue);
     
-    if (!lastOperation) {
+    if (lastOperation === null) {
       // 未知操作，保守策略：全量失效
       if (this.debugMode) {
         console.log('[CacheManagerObserver] Unknown operation, invalidating all cache');
@@ -187,7 +226,7 @@ export class CacheManagerObserver implements QueueObserver {
     // 删除该卡片的所有 nextDues 缓存
     // 因为缓存键包含卡片状态，所以需要遍历所有键
     const keysToDelete: string[] = [];
-    for (const [key] of this.nextDuesCache['cache'].entries()) {
+    for (const key of this.nextDuesCache.keys()) {
       if (key.startsWith(cardId + '-')) {
         keysToDelete.push(key);
       }
@@ -258,7 +297,7 @@ export class CacheManagerObserver implements QueueObserver {
    * 
    * @returns 格式化数据缓存实例
    */
-  getFormattedDataCache(): LRUCache<string, any> {
+  getFormattedDataCache(): LRUCache<string, unknown> {
     return this.formattedDataCache;
   }
   
@@ -280,15 +319,15 @@ export class CacheManagerObserver implements QueueObserver {
     return {
       nextDuesCache: {
         size: this.nextDuesCache.size,
-        maxSize: (this.nextDuesCache as any).maxSize,
+        maxSize: this.nextDuesCache.capacity,
       },
       cardTypeCache: {
         size: this.cardTypeCache.size,
-        maxSize: (this.cardTypeCache as any).maxSize,
+        maxSize: this.cardTypeCache.capacity,
       },
       formattedDataCache: {
         size: this.formattedDataCache.size,
-        maxSize: (this.formattedDataCache as any).maxSize,
+        maxSize: this.formattedDataCache.capacity,
       },
     };
   }

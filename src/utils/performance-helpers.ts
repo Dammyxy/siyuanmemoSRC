@@ -27,13 +27,13 @@
  * // 300ms 后执行，输出 "Searching: world"
  * ```
  */
-export function debounce<T extends (...args: any[]) => any>(
+export function debounce<T extends (...args: unknown[]) => unknown>(
   fn: T,
   delay: number
 ): (...args: Parameters<T>) => void {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   
-  return function(this: any, ...args: Parameters<T>) {
+  return function(this: unknown, ...args: Parameters<T>) {
     if (timeoutId) clearTimeout(timeoutId);
     timeoutId = setTimeout(() => fn.apply(this, args), delay);
   };
@@ -58,13 +58,13 @@ export function debounce<T extends (...args: any[]) => any>(
  * // 每秒最多执行一次
  * ```
  */
-export function throttle<T extends (...args: any[]) => any>(
+export function throttle<T extends (...args: unknown[]) => unknown>(
   fn: T,
   delay: number
 ): (...args: Parameters<T>) => void {
   let lastCall = 0;
   
-  return function(this: any, ...args: Parameters<T>) {
+  return function(this: unknown, ...args: Parameters<T>) {
     const now = Date.now();
     if (now - lastCall >= delay) {
       lastCall = now;
@@ -136,7 +136,9 @@ export class LRUCache<K, V> {
     // 检查大小
     if (this.cache.size > this.maxSize) {
       const firstKey = this.cache.keys().next().value;
-      this.cache.delete(firstKey);
+      if (firstKey !== undefined) {
+        this.cache.delete(firstKey);
+      }
     }
   }
   
@@ -174,6 +176,20 @@ export class LRUCache<K, V> {
    */
   get size(): number {
     return this.cache.size;
+  }
+
+  /**
+   * 获取缓存容量上限
+   */
+  get capacity(): number {
+    return this.maxSize;
+  }
+
+  /**
+   * 获取缓存键迭代器
+   */
+  keys(): IterableIterator<K> {
+    return this.cache.keys();
   }
 }
 
@@ -379,7 +395,7 @@ export class RequestDeduplicator<K, V> {
  * ```
  */
 export class Batcher<K, V> {
-  private queue: Array<{ key: K; resolve: (value: V) => void; reject: (error: any) => void }> = [];
+  private queue: Array<{ key: K; resolve: (value: V) => void; reject: (error: unknown) => void }> = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
   private delay: number;
   private maxSize: number;

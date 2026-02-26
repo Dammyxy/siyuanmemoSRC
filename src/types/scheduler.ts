@@ -33,7 +33,7 @@ export interface RescheduleResult {
     }>;
     errors?: Array<{
         message: string;
-        context?: any;
+        context?: unknown;
     }>;
 }
 

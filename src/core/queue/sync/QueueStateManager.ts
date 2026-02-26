@@ -20,7 +20,7 @@ export interface QueueStateChangeEvent {
     data: {
         rating?: 1 | 2 | 3 | 4;
         cardType?: 'topic' | 'item';
-        [key: string]: any;
+        [key: string]: unknown;
     };
 }
 
@@ -148,8 +148,8 @@ export class QueueStateManager {
                 if (registration.onUpdate) {
                     try {
                         const pending = registration.onUpdate(event);
-                        if (pending && typeof (pending as Promise<void>).catch === 'function') {
-                            void (pending as Promise<void>).catch((err) => {
+                        if (pending && typeof (pending as PromiseLike<void>).then === 'function') {
+                            void Promise.resolve(pending).catch((err) => {
                                 logger.error('onUpdate callback rejected', {
                                     queueId,
                                     error: err,

@@ -1,5 +1,5 @@
 /**
- * PracticeQueueManager - 管理练习队列操作
+ * PracticeQueueManager - manages practice queue operations.
  */
 
 import type { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
@@ -12,72 +12,65 @@ const logger = createLogger('PracticeQueueManager');
 
 export type PracticeQueueFilter = { type: 'doc' | 'tree' | 'sql'; value: string };
 
+interface RetrievalQueuePort {
+  addCard?: (blockId: string, source: string) => Promise<void>;
+  addItems?: (items: QueueItem[]) => number | Promise<number>;
+  clear: () => Promise<void>;
+  getAllCards?: () => Promise<QueueItem[]>;
+  getSize?: () => Promise<number>;
+}
+
 export class PracticeQueueManager {
   private readonly siyuanApi: ManagerSiyuanPort;
 
   constructor(
-    private retrievalQueue: any,
+    private retrievalQueue: RetrievalQueuePort,
     private blockMenuHandler: BlockMenuHandler,
-    private i18n: Record<string, any>,
+    private i18n: Record<string, string>,
     ports?: { siyuanApi?: ManagerSiyuanPort }
   ) {
     this.siyuanApi = ports?.siyuanApi ?? new ManagerSiyuanAdapter();
   }
 
-  /**
-   * 获取练习队列的块 ID 列表
-   */
   private async getPracticeQueueBlockIds(filter: PracticeQueueFilter): Promise<string[]> {
     return this.siyuanApi.getCardBlockIds({ type: filter.type, value: filter.value });
   }
 
-  /**
-   * 预览练习队列（返回卡片数量）
-   */
   async previewPracticeQueue(filter: PracticeQueueFilter): Promise<number> {
     const blockIds = await this.getPracticeQueueBlockIds(filter);
     return blockIds.length;
   }
 
-  /**
-   * 添加卡片到练习队列
-   */
   async addPracticeQueue(filter: PracticeQueueFilter): Promise<number> {
     const blockIds = await this.getPracticeQueueBlockIds(filter);
-    if (blockIds.length === 0) return 0;
-    
-    // ✅ 新架构：使用 addCard 方法（逐个添加）
-    if (this.retrievalQueue?.addCard) {
+    if (blockIds.length === 0) {
+      return 0;
+    }
+
+    if (this.retrievalQueue.addCard) {
       let added = 0;
       for (const blockId of blockIds) {
         try {
           await this.retrievalQueue.addCard(blockId, 'manual');
           added++;
-        } catch (err) {
-          logger.error(`Failed to add card: ${blockId}`, err);
+        } catch (error) {
+          logger.error(`Failed to add card: ${blockId}`, error);
         }
       }
       return added;
     }
-    
-    // ✅ 旧架构：使用 addItems 方法（批量添加）
-    if (this.retrievalQueue?.addItems) {
+
+    if (this.retrievalQueue.addItems) {
       const cards = await this.blockMenuHandler.buildDrillCardsFromBlockIds(blockIds);
-      return this.retrievalQueue.addItems(cards as QueueItem[]);
+      return await this.retrievalQueue.addItems(cards as unknown as QueueItem[]);
     }
-    
+
     return 0;
   }
 
-  /**
-   * 清空练习队列
-   */
   async clearPracticeQueue(): Promise<void> {
     try {
-      // 清空队列
       await this.retrievalQueue.clear();
-      
-      // 显示成功消息
       await this.siyuanApi.pushMsg('✅ 已清空练习队列');
     } catch (error) {
       logger.error('Failed to clear queue:', error);
@@ -85,30 +78,29 @@ export class PracticeQueueManager {
     }
   }
 
-  /**
-   * 开始练习队列
-   */
-  async startPracticeQueue(onOpenDialog: (cards: any[], mode: 'queue' | 'block') => void): Promise<void> {
-    // ✅ 新架构：使用 getAllCards 或 getSize
-    let cards: any[] = [];
+  async startPracticeQueue(
+    onOpenDialog: (cards: QueueItem[], mode: 'queue' | 'block') => void
+  ): Promise<void> {
+    let cards: QueueItem[] = [];
     let isEmpty = false;
-    
-    if (typeof this.retrievalQueue?.getAllCards === 'function') {
-      cards = await this.retrievalQueue.getAllCards();
+
+    if (typeof this.retrievalQueue.getAllCards === 'function') {
+      const queueCards = await this.retrievalQueue.getAllCards();
+      cards = Array.isArray(queueCards) ? queueCards : [];
       isEmpty = cards.length === 0;
-    } else if (typeof this.retrievalQueue?.getSize === 'function') {
+    } else if (typeof this.retrievalQueue.getSize === 'function') {
       const size = await this.retrievalQueue.getSize();
       isEmpty = size === 0;
     } else {
       logger.warn('Retrieval queue does not implement getAllCards/getSize');
       isEmpty = true;
     }
-    
+
     if (isEmpty) {
-      await this.siyuanApi.pushMsg(this.i18n?.practiceQueueEmpty || '练习队列为空');
+      await this.siyuanApi.pushMsg(this.i18n.practiceQueueEmpty || '练习队列为空');
       return;
     }
-    
+
     onOpenDialog(cards, 'queue');
   }
 }

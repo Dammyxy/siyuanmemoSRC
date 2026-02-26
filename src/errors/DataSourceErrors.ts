@@ -23,6 +23,10 @@
  * 提供错误代码和上下文信息。
  */
 export class DataSourceError extends Error {
+    public static isRecord(value: unknown): value is Record<string, unknown> {
+        return typeof value === 'object' && value !== null;
+    }
+
     /**
      * 错误代码
      * 
@@ -35,7 +39,7 @@ export class DataSourceError extends Error {
      * 
      * 包含额外的调试信息。
      */
-    public readonly context?: Record<string, any>;
+    public readonly context?: Record<string, unknown>;
     
     /**
      * 构造函数
@@ -44,7 +48,7 @@ export class DataSourceError extends Error {
      * @param code 错误代码
      * @param context 可选的错误上下文
      */
-    constructor(message: string, code: string, context?: Record<string, any>) {
+    constructor(message: string, code: string, context?: Record<string, unknown>) {
         super(message);
         this.name = 'DataSourceError';
         this.code = code;
@@ -72,7 +76,7 @@ export class ModeError extends DataSourceError {
      * @param message 错误消息
      * @param context 可选的错误上下文
      */
-    constructor(message: string, context?: Record<string, any>) {
+    constructor(message: string, context?: Record<string, unknown>) {
         super(message, 'MODE_ERROR', context);
         this.name = 'ModeError';
         Object.setPrototypeOf(this, ModeError.prototype);
@@ -97,7 +101,7 @@ export class QueueError extends DataSourceError {
      * @param message 错误消息
      * @param context 可选的错误上下文
      */
-    constructor(message: string, context?: Record<string, any>) {
+    constructor(message: string, context?: Record<string, unknown>) {
         super(message, 'QUEUE_ERROR', context);
         this.name = 'QueueError';
         Object.setPrototypeOf(this, QueueError.prototype);
@@ -121,7 +125,7 @@ export class SyncError extends DataSourceError {
      * @param message 错误消息
      * @param context 可选的错误上下文
      */
-    constructor(message: string, context?: Record<string, any>) {
+    constructor(message: string, context?: Record<string, unknown>) {
         super(message, 'SYNC_ERROR', context);
         this.name = 'SyncError';
         Object.setPrototypeOf(this, SyncError.prototype);
@@ -146,7 +150,7 @@ export class StorageError extends DataSourceError {
      * @param message 错误消息
      * @param context 可选的错误上下文
      */
-    constructor(message: string, context?: Record<string, any>) {
+    constructor(message: string, context?: Record<string, unknown>) {
         super(message, 'STORAGE_ERROR', context);
         this.name = 'StorageError';
         Object.setPrototypeOf(this, StorageError.prototype);
@@ -177,7 +181,7 @@ export class NetworkError extends DataSourceError {
      * @param statusCode 可选的 HTTP 状态码
      * @param context 可选的错误上下文
      */
-    constructor(message: string, statusCode?: number, context?: Record<string, any>) {
+    constructor(message: string, statusCode?: number, context?: Record<string, unknown>) {
         super(message, 'NETWORK_ERROR', context);
         this.name = 'NetworkError';
         this.statusCode = statusCode;
@@ -198,7 +202,7 @@ export class ErrorFactory {
      * @param context 可选的错误上下文
      * @returns ModeError 实例
      */
-    static createModeError(message: string, context?: Record<string, any>): ModeError {
+    static createModeError(message: string, context?: Record<string, unknown>): ModeError {
         return new ModeError(message, context);
     }
     
@@ -209,7 +213,7 @@ export class ErrorFactory {
      * @param context 可选的错误上下文
      * @returns QueueError 实例
      */
-    static createQueueError(message: string, context?: Record<string, any>): QueueError {
+    static createQueueError(message: string, context?: Record<string, unknown>): QueueError {
         return new QueueError(message, context);
     }
     
@@ -220,7 +224,7 @@ export class ErrorFactory {
      * @param context 可选的错误上下文
      * @returns SyncError 实例
      */
-    static createSyncError(message: string, context?: Record<string, any>): SyncError {
+    static createSyncError(message: string, context?: Record<string, unknown>): SyncError {
         return new SyncError(message, context);
     }
     
@@ -231,7 +235,7 @@ export class ErrorFactory {
      * @param context 可选的错误上下文
      * @returns StorageError 实例
      */
-    static createStorageError(message: string, context?: Record<string, any>): StorageError {
+    static createStorageError(message: string, context?: Record<string, unknown>): StorageError {
         return new StorageError(message, context);
     }
     
@@ -246,7 +250,7 @@ export class ErrorFactory {
     static createNetworkError(
         message: string,
         statusCode?: number,
-        context?: Record<string, any>
+        context?: Record<string, unknown>
     ): NetworkError {
         return new NetworkError(message, statusCode, context);
     }
@@ -260,18 +264,22 @@ export class ErrorFactory {
      * @param defaultMessage 默认错误消息
      * @returns DataSourceError 实例
      */
-    static fromNativeError(error: any, defaultMessage: string = '操作失败'): DataSourceError {
+    static fromNativeError(error: unknown, defaultMessage: string = '操作失败'): DataSourceError {
         const message = error instanceof Error ? error.message : String(error);
+        const errorName = error instanceof Error
+            ? error.name
+            : (DataSourceError.isRecord(error) && typeof error.name === 'string' ? error.name : '');
+        const lowerMessage = String(message).toLowerCase();
         
         // 检查是否为存储配额错误
-        if (error.name === 'QuotaExceededError') {
+        if (errorName === 'QuotaExceededError') {
             return new StorageError('存储空间不足，请清理旧数据', {
                 originalError: error,
             });
         }
         
         // 检查是否为网络错误
-        if (error.name === 'NetworkError' || error.message?.includes('network')) {
+        if (errorName === 'NetworkError' || lowerMessage.includes('network')) {
             return new NetworkError('网络连接失败，请检查网络连接', undefined, {
                 originalError: error,
             });
@@ -350,7 +358,7 @@ export class ErrorHandler {
      * @param error 错误实例
      * @param context 额外的上下文信息
      */
-    static logError(error: DataSourceError, context?: Record<string, any>): void {
+    static logError(error: DataSourceError, context?: Record<string, unknown>): void {
         const logContext = {
             ...error.context,
             ...context,

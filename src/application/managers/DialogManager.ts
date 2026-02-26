@@ -1,4 +1,4 @@
-/**
+﻿/**
  * DialogManager - 对话框管理器
  * 
  * 职责：
@@ -63,6 +63,18 @@ interface FilterGroupQueueLike extends IReviewQueue {
 
 interface NeuralQueueLike extends IReviewQueue {
   clearHistory?: () => void;
+}
+
+function hasFilterSetter(queue: IReviewQueue | null): queue is FilterGroupQueueLike {
+  return Boolean(queue && typeof (queue as FilterGroupQueueLike).setFilter === 'function');
+}
+
+function hasTemporaryBlacklistCleaner(queue: IReviewQueue | null): queue is FilterGroupQueueLike {
+  return Boolean(queue && typeof (queue as FilterGroupQueueLike).clearTemporaryBlacklist === 'function');
+}
+
+function hasNeuralHistoryCleaner(queue: IReviewQueue | null): queue is NeuralQueueLike {
+  return Boolean(queue && typeof (queue as NeuralQueueLike).clearHistory === 'function');
 }
 
 interface BlockSqlRow {
@@ -486,8 +498,8 @@ export class DialogManager implements IDialogManager {
 
     try {
       // 清理神经漫游队列的历史记录
-      const neuralQueue = this.context.getUnifiedDataSourceManager().getQueue(QueueType.NeuralRoam) as NeuralQueueLike;
-      if (neuralQueue && typeof neuralQueue.clearHistory === 'function') {
+      const neuralQueue = this.context.getUnifiedDataSourceManager().getQueue(QueueType.NeuralRoam);
+      if (hasNeuralHistoryCleaner(neuralQueue)) {
         neuralQueue.clearHistory();
         logger.info('[DialogManager] ✅ Neural roam history cleared');
       }
@@ -593,7 +605,7 @@ export class DialogManager implements IDialogManager {
 
     try {
       const manager = this.context.getUnifiedDataSourceManager();
-      const filterGroupQueue = manager.getQueue(QueueType.FilterGroup) as FilterGroupQueueLike;
+      const filterGroupQueue = manager.getQueue(QueueType.FilterGroup);
       
       // 设置临时过滤条件
       const filter: CardFilter = {
@@ -614,12 +626,12 @@ export class DialogManager implements IDialogManager {
       });
       
       // 应用过滤条件
-      if (typeof filterGroupQueue.setFilter === 'function') {
+      if (hasFilterSetter(filterGroupQueue)) {
         await filterGroupQueue.setFilter(filter);
       }
       
       // 清除临时黑名单（全部模式）
-      if (!options.dueOnly && typeof filterGroupQueue.clearTemporaryBlacklist === 'function') {
+      if (!options.dueOnly && hasTemporaryBlacklistCleaner(filterGroupQueue)) {
         await filterGroupQueue.clearTemporaryBlacklist();
         logger.info('[DialogManager] ✅ Cleared temporary blacklist for "all" mode');
       }
@@ -647,7 +659,7 @@ export class DialogManager implements IDialogManager {
         events: {
           close: () => {
             // 清除过滤条件
-            if (typeof filterGroupQueue.setFilter === 'function') {
+            if (hasFilterSetter(filterGroupQueue)) {
               void filterGroupQueue.setFilter({});
             }
             this.destroyCurrentReviewDialog();
@@ -683,7 +695,7 @@ export class DialogManager implements IDialogManager {
 
     try {
       const manager = this.context.getUnifiedDataSourceManager();
-      const filterGroupQueue = manager.getQueue(QueueType.FilterGroup) as FilterGroupQueueLike;
+      const filterGroupQueue = manager.getQueue(QueueType.FilterGroup);
       
       // 设置临时过滤条件
       const filter: CardFilter = {
@@ -704,12 +716,12 @@ export class DialogManager implements IDialogManager {
       });
       
       // 应用过滤条件
-      if (typeof filterGroupQueue.setFilter === 'function') {
+      if (hasFilterSetter(filterGroupQueue)) {
         await filterGroupQueue.setFilter(filter);
       }
       
       // 清除临时黑名单（全部模式）
-      if (!options.dueOnly && typeof filterGroupQueue.clearTemporaryBlacklist === 'function') {
+      if (!options.dueOnly && hasTemporaryBlacklistCleaner(filterGroupQueue)) {
         await filterGroupQueue.clearTemporaryBlacklist();
         logger.info('[DialogManager] ✅ Cleared temporary blacklist for "all" mode');
       }
@@ -737,7 +749,7 @@ export class DialogManager implements IDialogManager {
         events: {
           close: () => {
             // 清除过滤条件
-            if (typeof filterGroupQueue.setFilter === 'function') {
+            if (hasFilterSetter(filterGroupQueue)) {
               void filterGroupQueue.setFilter({});
             }
             this.destroyCurrentReviewDialog();
@@ -1764,3 +1776,4 @@ export class DialogManager implements IDialogManager {
     }
   }
 }
+

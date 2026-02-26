@@ -76,8 +76,16 @@ const props = defineProps<{
   i18n?: Record<string, string>;
 }>();
 
+type FsrsSettingsChangePayload = {
+  fsrsParams: {
+    request_retention: number;
+    maximum_interval: number;
+    w: number[];
+  };
+};
+
 const emit = defineEmits<{
-  (e: 'change', config: any): void;
+  (e: 'change', config: FsrsSettingsChangePayload): void;
 }>();
 
 function t(key: string, fallback: string): string {

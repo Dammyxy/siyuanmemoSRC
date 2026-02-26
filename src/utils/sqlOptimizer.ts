@@ -310,13 +310,13 @@ export function analyzeSQLPerformance(query: string): {
  */
 export function monitorSQLPerformance(threshold = 100) {
   return function (
-    target: any,
+    target: object,
     propertyKey: string,
     descriptor: PropertyDescriptor
   ) {
     const originalMethod = descriptor.value;
 
-    descriptor.value = async function (...args: any[]) {
+    descriptor.value = async function (...args: unknown[]) {
       const start = performance.now();
       try {
         return await originalMethod.apply(this, args);

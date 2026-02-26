@@ -113,17 +113,17 @@ type doOperation = {
 
 interface Window {
   siyuan: {
-    notebooks: any;
-    menus: any;
-    dialogs: any;
-    blockPanels: any;
-    storage: any;
-    user: any;
-    ws: any;
-    languages: any;
+    notebooks: unknown;
+    menus: unknown;
+    dialogs: unknown;
+    blockPanels: unknown;
+    storage: unknown;
+    user: unknown;
+    ws: unknown;
+    languages: unknown;
   };
   _sy_plugin_sample: {
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 

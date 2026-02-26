@@ -12,10 +12,10 @@ export interface HybridSyncConfig {
     deckId: string;
     
     /** 存储管理器 */
-    storage: any; // StorageManager
+    storage: unknown;
     
     /** Riff 黑名单服务 */
-    riffBlacklistService?: any; // RiffBlacklistService (optional for backward compatibility)
+    riffBlacklistService?: unknown;
     
     /** 增量同步配置 */
     incrementalSync: {

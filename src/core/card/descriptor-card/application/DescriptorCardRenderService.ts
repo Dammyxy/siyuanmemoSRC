@@ -16,6 +16,14 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DescriptorCardRenderService');
 
+export interface DescriptorCardInput {
+  meta?: {
+    frontBlockIDs?: string[];
+    typeMarker?: string;
+  };
+  [key: string]: unknown;
+}
+
 /**
  * 描述符卡视图模型
  */
@@ -64,7 +72,7 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
    * @param fsrsCard 可选的 FSRSCard，用于获取 fieldMapping
    * @returns 视图模型，如果加载失败返回 null
    */
-  async prepareViewModel(blockId: string, fsrsCard?: any): Promise<DescriptorCardViewModel | null> {
+  async prepareViewModel(blockId: string, fsrsCard?: DescriptorCardInput): Promise<DescriptorCardViewModel | null> {
     try {
       // 1. 从仓储加载数据
       const data = await this.repository.loadDescriptorCard(blockId, fsrsCard);

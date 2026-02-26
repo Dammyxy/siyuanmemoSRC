@@ -23,7 +23,53 @@ export interface BlockData {
   id: string;
   content: string;
   type: string;
-  [key: string]: any;
+  parent_id?: string;
+  root_id?: string;
+}
+
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === 'object' && value !== null;
+}
+
+function pickBacklinkNodeId(node: UnknownRecord): string | null {
+  if (typeof node.blockID === 'string' && node.blockID.length > 0) {
+    return node.blockID;
+  }
+  if (typeof node.id === 'string' && node.id.length > 0) {
+    return node.id;
+  }
+  return null;
+}
+
+function extractBacklinkIds(backlinks: unknown[], conceptId: string): string[] {
+  const collectedIds: string[] = [];
+  const seenIds = new Set<string>();
+
+  const walk = (node: unknown): void => {
+    if (!isRecord(node)) {
+      return;
+    }
+
+    const nodeId = pickBacklinkNodeId(node);
+    if (nodeId && nodeId !== conceptId && !seenIds.has(nodeId)) {
+      seenIds.add(nodeId);
+      collectedIds.push(nodeId);
+    }
+
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) {
+        walk(child);
+      }
+    }
+  };
+
+  for (const backlink of backlinks) {
+    walk(backlink);
+  }
+
+  return collectedIds;
 }
 
 export class ConceptQueryEngine {
@@ -89,42 +135,22 @@ export class ConceptQueryEngine {
         return [];
       }
 
-      const data = await response.json();
-      
-      if (data.code !== 0) {
-        logger.error(`API error: ${data.msg}`);
+      const data: unknown = await response.json();
+      if (!isRecord(data) || data.code !== 0) {
+        const errorMessage = isRecord(data) && typeof data.msg === 'string' ? data.msg : 'unknown error';
+        logger.error(`API error: ${errorMessage}`);
         return [];
       }
 
       // 解析反链数据
-      const backlinks = data.data?.backlinks || [];
+      const backlinks = isRecord(data.data) && Array.isArray(data.data.backlinks) ? data.data.backlinks : [];
       logger.debug(`Raw backlinks count: ${backlinks.length}`);
       
       if (backlinks.length > 0) {
         logger.debug('First backlink sample:', backlinks[0]);
       }
-      
-      // 递归提取所有块 ID
-      const backlinkIds: string[] = [];
-      
-      const extractBlockIds = (node: any) => {
-        // 如果有 children，递归提取
-        if (node.children && Array.isArray(node.children)) {
-          for (const child of node.children) {
-            // 提取子节点的 ID
-            if (child.id && child.id !== conceptId) {
-              backlinkIds.push(child.id);
-            }
-            // 递归处理子节点的 children
-            extractBlockIds(child);
-          }
-        }
-      };
-      
-      // 遍历所有反链节点
-      for (const backlink of backlinks) {
-        extractBlockIds(backlink);
-      }
+
+      const backlinkIds = extractBacklinkIds(backlinks, conceptId);
 
       logger.debug(`Found ${backlinkIds.length} backlink blocks`, backlinkIds.slice(0, 10));
       
@@ -344,7 +370,14 @@ export class ConceptQueryEngine {
         return null;
       }
 
-      return rows[0];
+      const row = rows[0] as UnknownRecord;
+      return {
+        id: typeof row.id === 'string' ? row.id : blockId,
+        content: typeof row.content === 'string' ? row.content : '',
+        type: typeof row.type === 'string' ? row.type : '',
+        parent_id: typeof row.parent_id === 'string' ? row.parent_id : undefined,
+        root_id: typeof row.root_id === 'string' ? row.root_id : undefined,
+      };
     } catch (error) {
       logger.error('Failed to fetch block data:', error);
       return null;

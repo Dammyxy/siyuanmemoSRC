@@ -6,7 +6,7 @@ import { addRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 export class XiuyuanSiyuanAdapter implements XiuyuanSiyuanPort {
   readonly BUILTIN_DECK_ID = BUILTIN_DECK_ID;
 
-  async sql(stmt: string): Promise<any[]> {
+  async sql(stmt: string): Promise<unknown[]> {
     return sql(stmt);
   }
 

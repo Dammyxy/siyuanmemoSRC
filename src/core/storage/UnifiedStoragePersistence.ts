@@ -94,5 +94,6 @@ function createEmptyStore(): UnifiedCardStore {
     xiuyuans: {},
     cards: {},
     cardDTOs: {},
+    riffBlacklist: [],
   };
 }

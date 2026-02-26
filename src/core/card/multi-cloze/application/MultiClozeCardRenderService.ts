@@ -22,6 +22,19 @@ export interface MultiClozeCardViewModel extends BaseCardViewModel {
   totalFaces: number;
 }
 
+interface MultiClozeCardFace {
+  question: string;
+  answer: string;
+}
+
+interface MultiClozeCardInput {
+  blockId: string;
+  meta?: {
+    faces?: MultiClozeCardFace[];
+    faceIndex?: number;
+  };
+}
+
 /**
  * 多挖孔卡渲染服务
  */
@@ -32,7 +45,7 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
    * @param card FSRSCard，包含 meta.faces 和 meta.faceIndex
    * @returns 视图模型
    */
-  async prepareViewModel(card: any): Promise<MultiClozeCardViewModel> {
+  async prepareViewModel(card: MultiClozeCardInput): Promise<MultiClozeCardViewModel> {
     const faces = card.meta?.faces || [];
     const faceIndex = card.meta?.faceIndex ?? 0;
     let currentFace = faces[faceIndex] || { question: '', answer: '' };

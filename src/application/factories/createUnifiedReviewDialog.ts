@@ -15,13 +15,26 @@ import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapte
 import type { IReviewQueue, QueueType } from '@/types/unified-data-source';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('createUnifiedReviewDialog');
+
+type ReviewDialogPluginLike = {
+    app: unknown;
+    i18n?: Record<string, string>;
+    reviewSyncManager?: { reviewCount?: number };
+    getContext?: () => {
+        getSchedulerRouter: () => unknown;
+        getHybridSyncService?: () => { incrementalSync: () => Promise<unknown> } | undefined;
+    } | undefined;
+};
 
 /**
  * 创建统一复习对话框的选项
  */
 export interface CreateUnifiedReviewDialogOptions {
     /** 插件实例 */
-    plugin: any;
+    plugin: ReviewDialogPluginLike;
     
     /** 队列类型 */
     queueType: QueueType;
@@ -64,7 +77,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
     const { plugin, queueType, queueInstance, title, eventBus, onClose } = options;
     
     try {
-        console.log(`[SiYuanMemo][createUnifiedReviewDialog] Creating dialog for queue: ${queueType}`);
+        logger.info(`Creating dialog for queue: ${queueType}`);
         
         // 获取依赖
         const manager = UnifiedDataSourceManager.getInstance();
@@ -114,9 +127,9 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
                     if (syncManager.reviewCount > 0) {
                         try {
                             await context.getHybridSyncService?.()?.incrementalSync();
-                            console.log('[SiYuanMemo][createUnifiedReviewDialog] Data synced on close');
+                            logger.info('Data synced on close');
                         } catch (err) {
-                            console.error('[SiYuanMemo][createUnifiedReviewDialog] Sync failed on close:', err);
+                            logger.error('Sync failed on close:', err);
                         }
                     }
                 }
@@ -126,12 +139,12 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
             },
         });
         
-        console.log(`[SiYuanMemo][createUnifiedReviewDialog] Dialog created successfully for queue: ${queueType}`);
+        logger.info(`Dialog created successfully for queue: ${queueType}`);
         
         return dialog;
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error(`[SiYuanMemo][createUnifiedReviewDialog] Failed to create dialog:`, {
+        logger.error('Failed to create dialog:', {
             queueType,
             error: errorMessage
         });

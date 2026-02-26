@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Data Access Facade
  * 数据访问门面
  * 
@@ -23,6 +23,7 @@ import {
     getAdvancedModeContextMenuOptions,
 } from '../../types/unified-data-source';
 import { FSRSCard } from '../../types/card';
+import type { Plugin } from 'siyuan';
 import type { StorageManager } from '../../core/storage/manager';
 import type { CardApplicationService } from '../services/CardApplicationService';
 import { CardFilterService } from '../../core/card/domain/services/CardFilterService';
@@ -32,6 +33,40 @@ import { getDayStartHour } from '../../utils/configUtils';
 import { migrateCard } from '../../utils/cardMigration';
 import type { QuerySiyuanPort } from '../ports/QuerySiyuanPort';
 import { QuerySiyuanAdapter } from '@/infrastructure/siyuan/QuerySiyuanAdapter';
+import { createLogger } from '@/utils/logger';
+
+type BlockContentResult = {
+    content: string;
+    type: string;
+    isDocument: boolean;
+};
+
+interface CardContentQueryServiceLike {
+    getBlockContentsWithType(blockIds: string[]): Promise<Map<string, BlockContentResult>>;
+}
+
+interface DataAccessContextLike {
+    getCardContentQueryService?: () => CardContentQueryServiceLike;
+    getI18n?: () => Record<string, string>;
+    getHybridSyncService?: () => unknown;
+}
+
+type DataAccessPlugin = Plugin & {
+    getContext?: () => DataAccessContextLike | null;
+    i18n?: Record<string, string>;
+};
+
+interface SettingsServiceLike {
+    getSettings?: () => {
+        riffIntegration?: {
+            deleteSync?: {
+                enabled?: boolean;
+            };
+        };
+    };
+}
+
+const logger = createLogger('DataAccessFacade');
 
 /**
  * DataAccessFacade 类
@@ -87,21 +122,21 @@ export class DataAccessFacade implements IDataRouter {
      * 
      * 用于访问插件设置
      */
-    private settingsService: any;
+    private settingsService?: SettingsServiceLike;
     
     /**
      * 插件实例
      * 
      * 用于访问插件配置(如 dayStartHour)
      */
-    private plugin: any;
+    private plugin?: DataAccessPlugin;
     
     /**
      * ApplicationContext 实例
      * 
      * 用于访问应用服务（如 CardContentQueryService）
      */
-    private applicationContext: any;
+    private applicationContext: DataAccessContextLike | null;
     
     /**
      * Riff 同步启用标志
@@ -133,8 +168,8 @@ export class DataAccessFacade implements IDataRouter {
     constructor(
         cardService: CardApplicationService,
         storage: StorageManager,
-        plugin?: any,
-        settingsService?: any,
+        plugin?: DataAccessPlugin,
+        settingsService?: SettingsServiceLike,
         siyuanApi: QuerySiyuanPort = new QuerySiyuanAdapter()
     ) {
         this.cardService = cardService;
@@ -147,7 +182,10 @@ export class DataAccessFacade implements IDataRouter {
         this.applicationContext = null;  // 将在 setApplicationContext() 中设置
         
         // 🔍 调试日志：检查 plugin 是否正确传递
-        console.log('[DataAccessFacade] Constructor called with plugin:', !!plugin, 'context:', !!plugin?.getContext?.());
+        logger.debug('[DataAccessFacade] Constructor called with plugin/context', {
+            hasPlugin: !!plugin,
+            hasContextProvider: !!plugin?.getContext,
+        });
     }
     
     /**
@@ -158,9 +196,9 @@ export class DataAccessFacade implements IDataRouter {
      * 
      * @param context ApplicationContext 实例
      */
-    setApplicationContext(context: any): void {
+    setApplicationContext(context: DataAccessContextLike): void {
         this.applicationContext = context;
-        console.log('[DataAccessFacade] ApplicationContext set');
+        logger.debug('[DataAccessFacade] ApplicationContext set');
     }
     
     // ========================================================================
@@ -221,14 +259,14 @@ export class DataAccessFacade implements IDataRouter {
         
         if (cacheValid && !filter) {
             // 使用缓存（仅在无过滤器时）
-            console.log(`[SiYuanMemo][DataAccessFacade] 🚀 Using cached cards (${this.cardsCache!.length} cards)`);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🚀 Using cached cards (${this.cardsCache!.length} cards)`);
             cards = this.cardsCache!;
         } else {
             // 通过 CardApplicationService 获取所有卡片
             const result = await this.cardService.getCards({});
             cards = result.cards;
             
-            console.log(`[SiYuanMemo][DataAccessFacade] 🔍 getCards() returned ${cards.length} cards`);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 getCards() returned ${cards.length} cards`);
             
             // 应用迁移逻辑:确保所有卡片都有 learning_step 字段
             cards = cards.map(card => migrateCard(card));
@@ -237,7 +275,7 @@ export class DataAccessFacade implements IDataRouter {
             if (!filter) {
                 this.cardsCache = cards;
                 this.cardsCacheTimestamp = now;
-                console.log(`[SiYuanMemo][DataAccessFacade] � Cards cached (${cards.length} cards)`);
+                logger.info(`[SiYuanMemo][DataAccessFacade] Cards cached (${cards.length} cards)`);
             }
         }
         
@@ -250,23 +288,23 @@ export class DataAccessFacade implements IDataRouter {
         });
         
         if (cardsNeedingData.length > 0) {
-            console.log(`[SiYuanMemo][DataAccessFacade] 🔧 Filling missing rootId/content for ${cardsNeedingData.length} cards`);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🔧 Filling missing rootId/content for ${cardsNeedingData.length} cards`);
             await this.fillMissingRootIds(cardsNeedingData);
         }
         
         // 应用过滤器
         if (filter) {
-            console.log(`[SiYuanMemo][DataAccessFacade] 🔍 Applying filter:`, filter);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 Applying filter:`, filter);
             cards = this.applyFilter(cards, filter);
-            console.log(`[SiYuanMemo][DataAccessFacade] 🔍 After applyFilter: ${cards.length} cards`);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 After applyFilter: ${cards.length} cards`);
         }
         
         // 过滤掉 blockId 无效的卡片
         const invalidCards = cards.filter(card => !card.blockId || card.blockId === 'undefined' || card.blockId === '');
         if (invalidCards.length > 0) {
-            console.warn(`[SiYuanMemo][DataAccessFacade] ⚠️ Filtering out ${invalidCards.length} cards with invalid blockId`);
+            logger.warn(`[SiYuanMemo][DataAccessFacade] ⚠️ Filtering out ${invalidCards.length} cards with invalid blockId`);
             cards = this.cardFilterService.filterValidBlockIds(cards);
-            console.log(`[SiYuanMemo][DataAccessFacade] 🔍 After blockId filtering: ${cards.length} cards`);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 After blockId filtering: ${cards.length} cards`);
         }
         
         return cards;
@@ -279,7 +317,7 @@ export class DataAccessFacade implements IDataRouter {
     invalidateCardsCache(): void {
         this.cardsCache = null;
         this.cardsCacheTimestamp = 0;
-        console.log(`[SiYuanMemo][DataAccessFacade] 🚀 Cards cache invalidated`);
+        logger.info(`[SiYuanMemo][DataAccessFacade] 🚀 Cards cache invalidated`);
     }
     
     /**
@@ -391,7 +429,7 @@ export class DataAccessFacade implements IDataRouter {
             { id: cardId, due: dueDate }
         ]);
         
-        console.log(`[SiYuanMemo][AdvancedDataRouter] Synced card ${cardId} to Riff`);
+        logger.info(`[SiYuanMemo][AdvancedDataRouter] Synced card ${cardId} to Riff`);
     }
     
     // ========================================================================
@@ -453,31 +491,31 @@ export class DataAccessFacade implements IDataRouter {
         
         // 过滤块 ID
         if (filter.blockIds && filter.blockIds.length > 0) {
-            console.log(`[SiYuanMemo][DataAccessFacade] 🔍 Filtering by blockIds: ${filter.blockIds.length} blocks`);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 Filtering by blockIds: ${filter.blockIds.length} blocks`);
             filtered = this.cardFilterService.filterByBlockIds(filtered, filter.blockIds);
-            console.log(`[SiYuanMemo][DataAccessFacade] 🔍 After blockIds filter: ${filtered.length} cards`);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 After blockIds filter: ${filtered.length} cards`);
         }
         
         // 过滤卡片类型
         if (filter.cardType) {
             const allowedTypes = Array.isArray(filter.cardType) ? filter.cardType : [filter.cardType];
-            console.log(`[SiYuanMemo][DataAccessFacade] 🔍 Filtering by cardType:`, allowedTypes);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 Filtering by cardType:`, allowedTypes);
             filtered = this.cardFilterService.filterByCardTypes(filtered, allowedTypes);
-            console.log(`[SiYuanMemo][DataAccessFacade] 🔍 After cardType filter: ${filtered.length} cards`);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 After cardType filter: ${filtered.length} cards`);
         }
         
         // 过滤到期日期
         if (filter.dueDate) {
-            console.log(`[SiYuanMemo][DataAccessFacade] 🔍 Filtering by dueDate:`, filter.dueDate);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 Filtering by dueDate:`, filter.dueDate);
             
             // 获取自定义每日刷新时间
             const dayStartHour = this.plugin ? getDayStartHour(this.plugin) : 4;
             const dayEnd = getCurrentDayEnd(dayStartHour);
             
-            console.log(`[SiYuanMemo][DataAccessFacade] 🔍 Using dayStartHour=${dayStartHour}, dayEnd=${new Date(dayEnd).toISOString()}`);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 Using dayStartHour=${dayStartHour}, dayEnd=${new Date(dayEnd).toISOString()}`);
             
             filtered = this.cardFilterService.filterByDueDate(filtered, filter.dueDate, dayEnd);
-            console.log(`[SiYuanMemo][DataAccessFacade] 🔍 After dueDate filter: ${filtered.length} cards`);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 After dueDate filter: ${filtered.length} cards`);
         }
         
         // 过滤标签
@@ -533,9 +571,9 @@ export class DataAccessFacade implements IDataRouter {
         // 过滤关键词
         if (filter.keyword && filter.keyword.trim()) {
             const keyword = filter.keyword.trim();
-            console.log(`[SiYuanMemo][DataAccessFacade] 🔍 Filtering by keyword: "${keyword}"`);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 Filtering by keyword: "${keyword}"`);
             filtered = this.cardFilterService.filterByKeyword(filtered, keyword);
-            console.log(`[SiYuanMemo][DataAccessFacade] 🔍 After keyword filter: ${filtered.length} cards`);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 After keyword filter: ${filtered.length} cards`);
         }
         
         return filtered;
@@ -573,7 +611,7 @@ export class DataAccessFacade implements IDataRouter {
         const cardsNeedingRootId = cards.filter(c => !c.meta?.rootId);
         const cardsNeedingContent = cards.filter(c => !c.meta?.content || String(c.meta.content).trim() === '');
         
-        console.log(`[SiYuanMemo][DataAccessFacade] Cards needing data: ${cardsNeedingRootId.length} need rootId, ${cardsNeedingContent.length} need content`);
+        logger.info(`[SiYuanMemo][DataAccessFacade] Cards needing data: ${cardsNeedingRootId.length} need rootId, ${cardsNeedingContent.length} need content`);
         
         // 查询 rootId（如果需要）
         let rootIdMap = new Map<string, string>();
@@ -592,10 +630,10 @@ export class DataAccessFacade implements IDataRouter {
             }
             
             const blockIds = cardsNeedingContent.map(c => c.blockId);
-            console.log(`[SiYuanMemo][DataAccessFacade] 🔍 Querying content for blockIds:`, blockIds);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 Querying content for blockIds:`, blockIds);
             
             const contentResults = await cardContentQueryService.getBlockContentsWithType(blockIds);
-            console.log(`[SiYuanMemo][DataAccessFacade] 🔍 Got ${contentResults.size} results from CardContentQueryService`);
+            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 Got ${contentResults.size} results from CardContentQueryService`);
             
             // 更新需要 content 的卡片
             let successCount = 0;
@@ -607,7 +645,7 @@ export class DataAccessFacade implements IDataRouter {
                 
                 if (!contentResult) {
                     notFoundCount++;
-                    console.warn(`[SiYuanMemo][DataAccessFacade] ⚠️ Block not found in database: ${card.blockId}`);
+                    logger.warn(`[SiYuanMemo][DataAccessFacade] ⚠️ Block not found in database: ${card.blockId}`);
                     continue;
                 }
                 
@@ -624,14 +662,14 @@ export class DataAccessFacade implements IDataRouter {
                 
                 if (content) {
                     successCount++;
-                    console.log(`[SiYuanMemo][DataAccessFacade] ✅ Filled ${contentResult.isDocument ? 'document title' : 'block content'} for ${card.blockId}: "${content.substring(0, 50)}..."`);
+                    logger.info(`[SiYuanMemo][DataAccessFacade] ✅ Filled ${contentResult.isDocument ? 'document title' : 'block content'} for ${card.blockId}: "${content.substring(0, 50)}..."`);
                 } else {
                     emptyCount++;
-                    console.warn(`[SiYuanMemo][DataAccessFacade] ⚠️ Empty content for ${card.blockId} (type: ${contentResult.type})`);
+                    logger.warn(`[SiYuanMemo][DataAccessFacade] ⚠️ Empty content for ${card.blockId} (type: ${contentResult.type})`);
                 }
             }
             
-            console.log(`[SiYuanMemo][DataAccessFacade] ✅ Content fill summary: ${successCount} success, ${emptyCount} empty, ${notFoundCount} not found`);
+            logger.info(`[SiYuanMemo][DataAccessFacade] ✅ Content fill summary: ${successCount} success, ${emptyCount} empty, ${notFoundCount} not found`);
         }
         
         // 更新需要 rootId 的卡片
@@ -643,7 +681,7 @@ export class DataAccessFacade implements IDataRouter {
             card.meta.rootId = rootId;
         }
         
-        console.log(`[SiYuanMemo][DataAccessFacade] ✅ Filled rootId for ${cardsNeedingRootId.length} cards, content for ${cardsNeedingContent.length} cards`);
+        logger.info(`[SiYuanMemo][DataAccessFacade] ✅ Filled rootId for ${cardsNeedingRootId.length} cards, content for ${cardsNeedingContent.length} cards`);
     }
 }
 

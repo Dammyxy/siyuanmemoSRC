@@ -125,7 +125,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
         const { value: data, fromStorage } = loadQueueState<FinalDrillEntry[]>({
             persistence: this.queuePersistence,
             key: this.STORAGE_KEY,
-            fallback: [],
+            initialValue: [],
             validate: (candidate): candidate is FinalDrillEntry[] => Array.isArray(candidate),
             logger,
             context: 'FinalDrillQueue',
@@ -572,7 +572,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
      * 
      * @deprecated 使用 getAllCards() 代替
      */
-    public getAllItems(): any[] {
+    public getAllItems(): FSRSCard[] {
         logger.warn('getAllItems() is deprecated, use getAllCards() instead');
         // 返回当前缓存的卡片
         return this.cards;

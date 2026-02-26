@@ -384,7 +384,7 @@ export class CardApplicationService {
    * }
    * ```
    */
-  getCardByBlockId(blockId: string): any {
+  getCardByBlockId(blockId: string): FSRSCard | null {
     try {
       const card = this.readModel.getCardByBlockId(blockId);
       return card || null;
@@ -414,9 +414,8 @@ export class CardApplicationService {
    * await cardService.saveCards();
    * ```
    */
-  setCard(card: any): void {
-    // ⚠️ 临时方案：需要访问 UnifiedStorageManager
-    // 这违反了 DDD 原则，但为了向后兼容暂时保留
+  setCard(card: FSRSCard): void {
+    void card;
     throw new Error('setCard() is deprecated. Please use updateCard() or appropriate Use Case.');
   }
   
@@ -439,8 +438,7 @@ export class CardApplicationService {
    * ```
    */
   removeCard(cardId: string): void {
-    // ⚠️ 临时方案：需要访问 UnifiedStorageManager
-    // 这违反了 DDD 原则，但为了向后兼容暂时保留
+    void cardId;
     throw new Error('removeCard() is deprecated. Please use deleteCard() Use Case.');
   }
   
@@ -465,7 +463,7 @@ export class CardApplicationService {
    * ```
    */
   async saveCards(): Promise<void> {
-    logger.warn('saveCards() is deprecated. Keeping compatibility fallback path.');
+    logger.warn('saveCards() is deprecated. Persist through unified storage.');
     await this.persistChanges('saveCards');
   }
 

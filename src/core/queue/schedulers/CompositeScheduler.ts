@@ -34,7 +34,7 @@ export type CompositeSchedulerConfig<TCard, TGrade> = {
 /**
  * Scheduler that delegates to different schedulers based on card type
  */
-export class CompositeScheduler<TCard = any, TGrade = number> implements IScheduler<TCard, TGrade> {
+export class CompositeScheduler<TCard = unknown, TGrade = number> implements IScheduler<TCard, TGrade> {
   private readonly schedulers: Record<string, IScheduler<TCard, TGrade>>;
   private readonly selector: SchedulerSelector<TCard, TGrade>;
   private readonly defaultScheduler?: string;

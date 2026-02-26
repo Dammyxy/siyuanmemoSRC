@@ -30,7 +30,7 @@ const nativeConsole: Record<ConsoleMethod, (...args: unknown[]) => void> = {
 };
 
 function isDevEnv(): boolean {
-  return Boolean((import.meta as any)?.env?.DEV);
+  return Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
 }
 
 let globalLevel: LogLevel = isDevEnv() ? 'debug' : 'warn';
@@ -113,8 +113,9 @@ export function installConsoleBridge(): void {
   bridgeInstalled = true;
 
   const methods: ConsoleMethod[] = ['trace', 'debug', 'info', 'log', 'warn', 'error'];
+  const consoleRecord = console as Record<ConsoleMethod, (...args: unknown[]) => void>;
   for (const method of methods) {
-    (console as any)[method] = (...args: unknown[]) => {
+    consoleRecord[method] = (...args: unknown[]) => {
       if (!canEmit(method)) {
         return;
       }

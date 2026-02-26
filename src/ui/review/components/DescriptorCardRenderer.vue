@@ -87,17 +87,26 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { openTab } from 'siyuan';
+import { openTab, type App } from 'siyuan';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import type { DescriptorCardViewModel } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 import type { DescriptorCardRenderService } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
+import type { FSRSCard } from '@/types/card';
+
+type WindowWithSiyuanApp = Window & {
+  siyuan?: {
+    ws?: {
+      app?: App;
+    };
+  };
+};
 
 const props = defineProps<{
   blockId: string;
   cardId?: string;
-  card?: any; // 🆕 FSRSCard，用于获取 frontBlockIDs
+  card?: FSRSCard; // 🆕 FSRSCard，用于获取 frontBlockIDs
   renderService: DescriptorCardRenderService;
   showAnswer?: boolean; // 是否显示答案（背面）
   i18n?: Record<string, string>;
@@ -150,12 +159,16 @@ function closeConceptModal() {
   showConceptModal.value = false;
 }
 
+function getSiyuanApp(): App | null {
+  return (window as WindowWithSiyuanApp).siyuan?.ws?.app ?? null;
+}
+
 function jumpToConcept() {
   if (!viewModel.value?.parentConcept) {
     return;
   }
 
-  const app = (window as any).siyuan?.ws?.app;
+  const app = getSiyuanApp();
   if (!app) {
     console.error('[DescriptorCardRenderer] App instance not found');
     return;

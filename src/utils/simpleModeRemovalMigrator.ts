@@ -7,6 +7,16 @@
 import type { RiffIntegrationConfig } from '@/types/settings';
 import { pushMsg, pushErrMsg } from '@/core/siyuan/api';
 
+interface MigrationSyncResult {
+    success: boolean;
+    syncedCount?: number;
+    error?: unknown;
+}
+
+interface MigrationSyncService {
+    incrementalSync: () => Promise<MigrationSyncResult>;
+}
+
 /**
  * 简单模式移除迁移器
  */
@@ -90,7 +100,7 @@ export class SimpleModeRemovalMigrator {
      * @param syncService - HybridSyncService 实例
      * @returns 同步是否成功
      */
-    static async triggerMigrationSync(syncService: any): Promise<boolean> {
+    static async triggerMigrationSync(syncService: MigrationSyncService): Promise<boolean> {
         try {
             console.log('[SiYuanMemo][SimpleModeRemovalMigrator] Triggering incremental sync for migration');
             const result = await syncService.incrementalSync();
@@ -133,7 +143,7 @@ export class SimpleModeRemovalMigrator {
      */
     static async performMigration(
         config: RiffIntegrationConfig,
-        syncService?: any
+        syncService?: MigrationSyncService
     ): Promise<{
         migratedConfig: Omit<RiffIntegrationConfig, 'mode'>;
         success: boolean;

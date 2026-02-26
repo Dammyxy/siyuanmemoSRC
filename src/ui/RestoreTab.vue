@@ -9,6 +9,44 @@
 import { onMounted, ref } from 'vue';
 import type { App } from 'siyuan';
 
+type DialogManagerLike = {
+  openReviewDialog: () => void;
+  openFinalDrillDialog: () => void;
+  openNeuralRoamDialog: (options: { seedBlockId?: string }) => void;
+  openLeechReviewDialog: () => void;
+  openFilterGroupPracticeDialog: () => void;
+  openSubsetReviewDialog: (blockIds: string[]) => void;
+};
+
+type PluginContextLike = {
+  getDialogManager: () => DialogManagerLike;
+};
+
+type RestorePluginLike = {
+  getContext: () => PluginContextLike;
+};
+
+type WindowWithRestorePlugin = Window & {
+  siyuanMemoPlugin?: RestorePluginLike;
+};
+
+type RestoreTabLike = {
+  panel?: {
+    element?: {
+      classList?: {
+        contains: (className: string) => boolean;
+      };
+    };
+  };
+  close?: () => void;
+};
+
+type AppWithFindTab = App & {
+  editor?: {
+    findTab?: (predicate: (tab: RestoreTabLike) => boolean) => RestoreTabLike | undefined;
+  };
+};
+
 const props = defineProps<{
   app: App;
   data: {
@@ -21,13 +59,21 @@ const props = defineProps<{
 const loading = ref(true);
 const error = ref('');
 
+function getRestorePlugin(): RestorePluginLike | null {
+  return (window as WindowWithRestorePlugin).siyuanMemoPlugin ?? null;
+}
+
+function isRestoreTab(tab: RestoreTabLike): boolean {
+  return tab.panel?.element?.classList?.contains('sy-plugin-siyuanmemo-restore-tab') === true;
+}
+
 onMounted(async () => {
   console.log('[FSRS RestoreTab] Component mounted with data:', props.data);
 
   try {
     // 触发 FSRS 插件打开对应的复习界面
     // 使用事件总线或直接调用插件方法
-    const fsrsPlugin = (window as any).siyuanMemoPlugin;
+    const fsrsPlugin = getRestorePlugin();
 
     if (!fsrsPlugin) {
       throw new Error('FSRS 插件未找到');
@@ -66,8 +112,9 @@ onMounted(async () => {
 
     // 成功后关闭当前 Tab（因为会打开新的对话框）
     setTimeout(() => {
-      const tab = props.app.editor?.findTab((tab: any) => tab.panel?.element?.classList.contains('sy-plugin-siyuanmemo-restore-tab'));
-      if (tab) {
+      const appWithFindTab = props.app as AppWithFindTab;
+      const tab = appWithFindTab.editor?.findTab?.(isRestoreTab);
+      if (tab && typeof tab.close === 'function') {
         tab.close();
       }
     }, 100);

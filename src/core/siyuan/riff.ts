@@ -5,6 +5,24 @@
 
 import { request, getBlocksByIds } from './api.ts';
 
+type ReviewedCardsPayload = {
+    reviewedCards?: RiffReviewCard[];
+};
+
+function withReviewedCards<T extends Record<string, unknown>>(
+    payload: T,
+    reviewedCards: readonly RiffReviewCard[]
+): T & ReviewedCardsPayload {
+    if (reviewedCards.length === 0) {
+        return payload;
+    }
+
+    return {
+        ...payload,
+        reviewedCards: [...reviewedCards],
+    };
+}
+
 // ==================== 卡包管理 ====================
 
 /** 获取所有闪卡卡包 */
@@ -141,10 +159,14 @@ export async function getRiffNewCards(deckID: string, since?: number): Promise<R
     // 获取所有卡片
     const allCards = await getRiffCards(deckID, { includeNew: true });
     
-    // 如果指定了 since，只返回新卡片
-    if (since) {
+    // 如果指定了 since，只返回新卡片。
+    // created 无法解析时按“未知创建时间”处理，纳入增量集合，避免漏同步。
+    if (since !== undefined && since > 0) {
         return allCards.filter(card => {
-            const created = new Date(card.created).getTime();
+            const created = Date.parse(card.created);
+            if (!Number.isFinite(created) || created <= 0) {
+                return true;
+            }
             return created > since;
         });
     }
@@ -177,16 +199,13 @@ export async function getRiffDueCards(
     deckID: string,
     notebook?: string,
     rootID?: string,
-    reviewedCards: any[] = []
+    reviewedCards: readonly RiffReviewCard[] = []
 ): Promise<RiffReviewData> {
-    const payload: any = {
+    const payload = withReviewedCards({
         deckID,
         notebook: notebook || '',
         rootID: rootID || '',
-    };
-    if (reviewedCards.length > 0) {
-        payload.reviewedCards = reviewedCards;
-    }
+    }, reviewedCards);
     return request('/riff/getRiffDueCards', payload);
 }
 
@@ -195,16 +214,13 @@ export async function reviewRiffCard(
     deckID: string,
     cardID: string,
     rating: 1 | 2 | 3 | 4,
-    reviewedCards: any[] = []
+    reviewedCards: readonly RiffReviewCard[] = []
 ): Promise<void> {
-    const payload: any = {
+    const payload = withReviewedCards({
         deckID,
         cardID,
         rating,
-    };
-    if (reviewedCards.length > 0) {
-        payload.reviewedCards = reviewedCards;
-    }
+    }, reviewedCards);
     return request('/riff/reviewRiffCard', payload);
 }
 
@@ -232,23 +248,17 @@ export async function batchSetRiffCardsDueTime(
 
 export async function getTreeRiffDueCards(
     rootID: string,
-    reviewedCards: any[] = []
+    reviewedCards: readonly RiffReviewCard[] = []
 ): Promise<RiffReviewData> {
-    const payload: any = { rootID };
-    if (reviewedCards.length > 0) {
-        payload.reviewedCards = reviewedCards;
-    }
+    const payload = withReviewedCards({ rootID }, reviewedCards);
     return request('/riff/getTreeRiffDueCards', payload);
 }
 
 export async function getNotebookRiffDueCards(
     notebook: string,
-    reviewedCards: any[] = []
+    reviewedCards: readonly RiffReviewCard[] = []
 ): Promise<RiffReviewData> {
-    const payload: any = { notebook };
-    if (reviewedCards.length > 0) {
-        payload.reviewedCards = reviewedCards;
-    }
+    const payload = withReviewedCards({ notebook }, reviewedCards);
     return request('/riff/getNotebookRiffDueCards', payload);
 }
 

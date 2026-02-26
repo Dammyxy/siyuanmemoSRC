@@ -43,6 +43,13 @@ export interface SiblingDescriptor {
   attribute: string; // 属性名（;; 前面的部分）
 }
 
+interface DescriptorCardInput {
+  meta?: {
+    frontBlockIDs?: string[];
+  };
+  [key: string]: unknown;
+}
+
 export class DescriptorCardRepository {
   constructor(
     private siyuanAdapter: SiyuanBlockAdapter
@@ -54,7 +61,7 @@ export class DescriptorCardRepository {
    * @param blockId 描述符块 ID
    * @param fsrsCard 可选的 FSRSCard，用于获取 frontBlockIDs
    */
-  async loadDescriptorCard(blockId: string, fsrsCard?: any): Promise<DescriptorCardData | null> {
+  async loadDescriptorCard(blockId: string, fsrsCard?: DescriptorCardInput): Promise<DescriptorCardData | null> {
     try {
       // 1. 获取描述符块的 kramdown
       const descriptorKramdown = await this.siyuanAdapter.getBlockKramdown(blockId);

@@ -35,6 +35,12 @@ interface FieldItem {
   value: string;
 }
 
+interface BlockMetaRow {
+  created?: unknown;
+  updated?: unknown;
+  tag?: unknown;
+}
+
 const props = defineProps<{
   blockId: string;
   i18n?: Record<string, string>;
@@ -55,8 +61,15 @@ const loading = ref(true);
 const error = ref('');
 const fields = ref<FieldItem[]>([]);
 
+function toBlockMetaRow(raw: unknown): BlockMetaRow | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  return raw as BlockMetaRow;
+}
+
 /** 解析思源时间格式 */
-function parseTime(v: any): Date | null {
+function parseTime(v: unknown): Date | null {
   if (!v) return null;
   const raw = String(v).trim();
   if (/^\d{14}$/.test(raw)) {
@@ -72,7 +85,7 @@ function parseTime(v: any): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-const fmt = (v: any) => v ?? '-';
+const fmt = (v: unknown) => (v == null ? '-' : String(v));
 const fmtDate = (d: Date | null) => d?.toLocaleString() || '-';
 
 onMounted(async () => {
@@ -84,7 +97,7 @@ onMounted(async () => {
 
     // 获取块信息
     const rows = await siyuanApi.sql(`SELECT created, updated, tag FROM blocks WHERE id = '${props.blockId}'`);
-    const block = rows?.[0];
+    const block = toBlockMetaRow(rows?.[0]);
     if (!block) {
       error.value = t('blockNotFound', '未找到块信息');
       return;
@@ -101,22 +114,14 @@ onMounted(async () => {
     let mastery = 0;
     if (card?.stability && card.stability > 0) {
       const scheduler = createScheduler(DEFAULT_SETTINGS.fsrs);
-      mastery = Math.round(scheduler.getRetrievability({
-        due: card.due,
-        stability: card.stability,
-        difficulty: card.difficulty ?? 0,
-        elapsedDays: card.elapsedDays ?? 0,
-        scheduledDays: card.scheduledDays ?? 0,
-        reps: card.reps ?? 0,
-        lapses: card.lapses ?? 0,
-        state: card.state ?? 0,
-        lastReview: card.lastReview ?? Date.now(),
-      } as any, new Date()) * 100);
+      mastery = Math.round(scheduler.getRetrievability(card, new Date()) * 100);
     }
 
     // 解析问答（从属性中获取）
     const question = Object.entries(attrs).find(([k]) => /question/i.test(k))?.[1] || '';
     const answer = Object.entries(attrs).find(([k]) => /answer/i.test(k))?.[1] || '';
+
+    const tagValue = typeof block.tag === 'string' && block.tag.trim() ? block.tag : '-';
 
     // 构建字段
     const items: FieldItem[] = [
@@ -128,7 +133,7 @@ onMounted(async () => {
       { key: 'difficulty', label: t('difficulty', '难度'), value: (card?.difficulty ?? 0).toFixed(2) },
       { key: 'lapses', label: t('lapses', '遗忘次数'), value: fmt(card?.lapses ?? 0) },
       { key: 'due', label: t('due', '下次复习'), value: card?.due ? fmtDate(new Date(card.due)) : '-' },
-      { key: 'tags', label: t('tags', '关联标签'), value: block.tag || '-' },
+      { key: 'tags', label: t('tags', '关联标签'), value: tagValue },
       { key: 'deck', label: t('deck', '所属卡片组'), value: deckName },
     ];
 
@@ -136,9 +141,9 @@ onMounted(async () => {
     if (answer) items.push({ key: 'answer', label: t('answer', '答案'), value: answer });
 
     fields.value = items;
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('[SiYuanMemo] Meta load error:', e);
-    error.value = e?.message || t('loadError', '加载失败');
+    error.value = e instanceof Error ? e.message : t('loadError', '加载失败');
   } finally {
     loading.value = false;
   }

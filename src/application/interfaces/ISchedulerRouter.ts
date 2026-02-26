@@ -28,14 +28,14 @@ export interface ISchedulerRouter {
    * @param type - 调度器类型（如 'fsrs', 'sm2' 等）
    * @returns 调度器实例，如果不存在则返回 undefined
    */
-  getScheduler(type: string): any;
+  getScheduler(type: string): unknown;
   
   /**
    * 获取所有调度器
    * 
    * @returns 调度器类型到实例的映射
    */
-  getAllSchedulers(): Map<string, any>;
+  getAllSchedulers(): Map<string, unknown>;
   
   /**
    * 注册新的调度器
@@ -43,7 +43,7 @@ export interface ISchedulerRouter {
    * @param type - 调度器类型
    * @param scheduler - 调度器实例
    */
-  registerScheduler?(type: string, scheduler: any): void;
+  registerScheduler?(type: string, scheduler: unknown): void;
   
   /**
    * 检查调度器是否存在

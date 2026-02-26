@@ -19,7 +19,7 @@ export interface GetAllXiuyuansQueryResult {
   /**
    * Xiuyuan 列表
    */
-  xiuyuans: any[]; // 使用 any 避免循环依赖，实际类型是 IXiuyuan[]
+  xiuyuans: unknown[];
   
   /**
    * 总数

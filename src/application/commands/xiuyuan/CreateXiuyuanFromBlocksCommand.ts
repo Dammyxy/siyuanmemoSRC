@@ -39,7 +39,7 @@ export interface CreateXiuyuanFromBlocksCommand {
    * 自定义模版（可选）
    * 用于动态生成 cardRules 的场景（如多填空卡片）
    */
-  template?: any;
+  template?: unknown;
   
   /**
    * 填空信息（可选）

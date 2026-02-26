@@ -47,7 +47,7 @@ export interface DataSourceOptions {
   /** 队列 ID */
   queueId?: string;
   /** 插件实例 */
-  plugin?: any;
+  plugin?: unknown;
 }
 
 /**
@@ -77,7 +77,7 @@ export interface IBrowserApplicationService {
    * 
    * @returns 统计信息
    */
-  getStats(): Promise<any>;
+  getStats(): Promise<unknown>;
 
   /**
    * Resolve queue instance by browser queue id.

@@ -47,7 +47,7 @@ export interface IFileService {
    * @param fileName 文件名
    * @param data 要序列化的对象
    */
-  writeJSON(fileName: string, data: any): Promise<void>;
+  writeJSON(fileName: string, data: unknown): Promise<void>;
   
   /**
    * 读取 MessagePack 文件
@@ -61,7 +61,7 @@ export interface IFileService {
    * @param fileName 文件名
    * @param data 要序列化的对象
    */
-  writeMsgpack(fileName: string, data: any): Promise<void>;
+  writeMsgpack(fileName: string, data: unknown): Promise<void>;
 }
 
 /**
@@ -76,6 +76,11 @@ export class FileOperationError extends Error {
     super(`Failed to ${operation} file "${fileName}": ${cause.message}`);
     this.name = 'FileOperationError';
   }
+}
+
+interface FileErrorLike {
+  code?: string;
+  message?: string;
 }
 
 /**
@@ -199,7 +204,7 @@ export class FileService implements IFileService {
   /**
    * 写入 JSON 文件
    */
-  async writeJSON(fileName: string, data: any): Promise<void> {
+  async writeJSON(fileName: string, data: unknown): Promise<void> {
     try {
       // 验证数据可以序列化为 JSON
       const jsonString = JSON.stringify(data, null, 2);
@@ -258,7 +263,7 @@ export class FileService implements IFileService {
   /**
    * 写入 MessagePack 文件
    */
-  async writeMsgpack(fileName: string, data: any): Promise<void> {
+  async writeMsgpack(fileName: string, data: unknown): Promise<void> {
     try {
       // SiYuan Plugin API 的 saveData 会自动处理 MessagePack 格式
       await this.plugin.saveData(fileName, data);
@@ -275,12 +280,19 @@ export class FileService implements IFileService {
   /**
    * 检查是否是文件不存在错误
    */
-  private isFileNotFoundError(error: any): boolean {
+  private isFileNotFoundError(error: unknown): boolean {
     // 检查常见的文件不存在错误标识
-    return (
-      error?.code === 'ENOENT' ||
-      error?.message?.includes('not found') ||
-      error?.message?.includes('does not exist')
-    );
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    const candidate = error as FileErrorLike;
+    const message = typeof candidate.message === 'string'
+      ? candidate.message.toLowerCase()
+      : '';
+
+    return candidate.code === 'ENOENT'
+      || message.includes('not found')
+      || message.includes('does not exist');
   }
 }

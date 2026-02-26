@@ -2,6 +2,9 @@ import { ref } from 'vue';
 import type { ColumnState, GridApi, CellContextMenuEvent, RowSelectionOptions } from 'ag-grid-community';
 import type { SortModel } from '@/application/interfaces/ICardDataSource';
 import { BrowserCard } from '../types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('useGridInteractions');
 
 type GridReadyParams = {
   api: GridApi;
@@ -51,7 +54,7 @@ export function useGridInteractions(props: GridInteractionsOptions) {
   };
 
   const onDisplayedColumnsChanged = (_params: GridSortParams) => {
-    console.log('[SiYuanMemo][CardBrowser] Displayed columns changed');
+    logger.info('[SiYuanMemo][CardBrowser] Displayed columns changed');
   };
 
   const onSortChanged = (params: GridSortParams) => {
@@ -65,7 +68,7 @@ export function useGridInteractions(props: GridInteractionsOptions) {
 
     // 检查排序是否真的改变了
     const api = params.api || gridApi.value;
-    console.log('[SiYuanMemo][CardBrowser] onSortChanged:', {
+    logger.info('[SiYuanMemo][CardBrowser] onSortChanged:', {
       sortModel: currentSortModel.value,
       sortModelLength: currentSortModel.value.length,
       sortModelArray: sortArray,
@@ -107,7 +110,7 @@ export function useGridInteractions(props: GridInteractionsOptions) {
   const onRowDoubleClicked = async (event: GridRowEvent) => {
     const blockId = event.data?.blockId;
     if (!blockId) {
-      console.warn('[SiYuanMemo][CardBrowser] No blockId found in row data:', event.data);
+      logger.warn('[SiYuanMemo][CardBrowser] No blockId found in row data:', event.data);
       return;
     }
 
@@ -121,7 +124,7 @@ export function useGridInteractions(props: GridInteractionsOptions) {
       props.tabManager.openDocumentTab(blockId);
       return;
     }
-    console.warn('[SiYuanMemo][CardBrowser] Tab service unavailable, cannot open document:', blockId);
+    logger.warn('[SiYuanMemo][CardBrowser] Tab service unavailable, cannot open document:', blockId);
   };
 
   // 右键菜单事件
@@ -135,11 +138,11 @@ export function useGridInteractions(props: GridInteractionsOptions) {
   // 排序相关方法
   const applySort = (colId: string, sortDirection: 'asc' | 'desc', api: GridApi | null) => {
     if (!api) {
-      console.error('[SiYuanMemo][CardBrowser] Grid API not ready');
+      logger.error('[SiYuanMemo][CardBrowser] Grid API not ready');
       return;
     }
 
-    console.log('[SiYuanMemo][CardBrowser] Applying sort:', { colId, sortDirection });
+    logger.info('[SiYuanMemo][CardBrowser] Applying sort:', { colId, sortDirection });
 
     try {
       api.applyColumnState({
@@ -152,16 +155,16 @@ export function useGridInteractions(props: GridInteractionsOptions) {
         defaultState: { sort: null }, // 清除其他列的排序
       });
 
-      console.log('[SiYuanMemo][CardBrowser] Sort applied successfully');
+      logger.info('[SiYuanMemo][CardBrowser] Sort applied successfully');
     } catch (err) {
-      console.error('[SiYuanMemo][CardBrowser] Apply sort failed:', err);
+      logger.error('[SiYuanMemo][CardBrowser] Apply sort failed:', err);
     }
   };
 
   // 随机排序
   const applyRandomSort = (api: GridApi | null) => {
     if (!api) {
-      console.error('[SiYuanMemo][CardBrowser] Grid API not ready for random sort');
+      logger.error('[SiYuanMemo][CardBrowser] Grid API not ready for random sort');
       return;
     }
 
@@ -169,11 +172,11 @@ export function useGridInteractions(props: GridInteractionsOptions) {
       // 获取当前显示的所有行数据
       const rowCount = api.getDisplayedRowCount?.() ?? 0;
       if (rowCount === 0) {
-        console.warn('[SiYuanMemo][CardBrowser] No rows to shuffle');
+        logger.warn('[SiYuanMemo][CardBrowser] No rows to shuffle');
         return;
       }
 
-      console.log('[SiYuanMemo][CardBrowser] Shuffling', rowCount, 'rows');
+      logger.info('[SiYuanMemo][CardBrowser] Shuffling', rowCount, 'rows');
 
       // 收集所有行数据
       const rows: BrowserCard[] = [];
@@ -203,10 +206,10 @@ export function useGridInteractions(props: GridInteractionsOptions) {
       // 在下一个 tick 设置新数据
       setTimeout(() => {
         api.setGridOption?.('rowData', rows);
-        console.log('[SiYuanMemo][CardBrowser] Shuffle completed via setGridOption');
+        logger.info('[SiYuanMemo][CardBrowser] Shuffle completed via setGridOption');
       }, 0);
     } catch (err) {
-      console.error('[SiYuanMemo][CardBrowser] Random sort failed:', err);
+      logger.error('[SiYuanMemo][CardBrowser] Random sort failed:', err);
     }
   };
 

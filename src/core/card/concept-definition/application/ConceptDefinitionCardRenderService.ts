@@ -12,9 +12,25 @@ import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRe
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
 import { getBlockKramdown, sql } from '@/core/siyuan/api';
 import { createLogger } from '@/utils/logger';
+import {
+  resolveLuteRenderer,
+  resolveSiyuanMemoPlugin,
+  type XiuyuanEntityPort,
+  type XiuyuanQueryResult,
+} from './runtime';
 
 interface GetXiuyuanQueryResult {
-  xiuyuan: any;
+  xiuyuan: XiuyuanEntityPort;
+}
+
+export interface ConceptDefinitionCardInput {
+  xiuyuanID?: string;
+  meta?: {
+    xiuyuanID?: string;
+    typeMarker?: string;
+    faceIndex?: number;
+  };
+  [key: string]: unknown;
 }
 
 interface ConceptDefinitionCardRenderPorts {
@@ -23,6 +39,14 @@ interface ConceptDefinitionCardRenderPorts {
 }
 
 const logger = createLogger('ConceptDefinitionCardRenderService');
+
+function isXiuyuanQueryResult(value: unknown): value is XiuyuanQueryResult {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as XiuyuanQueryResult;
+  return !!candidate.xiuyuan && typeof candidate.xiuyuan.getFaces === 'function';
+}
 
 /**
  * 概念定义卡视图模型
@@ -60,7 +84,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
    * @param card FSRSCard，包含 xiuyuanID 和 typeMarker
    * @returns 视图模型
    */
-  async prepareViewModel(blockId: string, card?: any): Promise<ConceptDefinitionCardViewModel> {
+  async prepareViewModel(blockId: string, card?: ConceptDefinitionCardInput): Promise<ConceptDefinitionCardViewModel> {
     // 1. 获取 Xiuyuan 信息
     logger.debug('[ConceptDefinitionCardRenderService] prepareViewModel called with:', {
       blockId,
@@ -112,7 +136,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     // - 反向卡：questionBlockId = 定义块，answerBlockId = 概念块
     // 但我们总是需要：概念块用于显示概念名称，定义块用于显示定义内容
     
-    const isReverse = card?.meta?.typeMarker?.includes('reverse');
+    const isReverse = card?.meta?.typeMarker?.includes('reverse') === true;
     const conceptBlockId = isReverse ? face.answerBlockId : face.questionBlockId;
     const definitionBlockId = isReverse ? face.questionBlockId : face.answerBlockId;
 
@@ -269,16 +293,15 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     });
     
     // 通过 window 获取 plugin 实例
-    const plugin = (window as any).siyuan?.ws?.app?.plugins?.find(
-      (p: any) => p.name === 'siyuan-plugin-siyuanmemo'
-    );
+    const plugin = resolveSiyuanMemoPlugin();
 
     if (!plugin) {
       throw new Error('Plugin not found');
     }
 
     // 获取 XiuyuanApplicationService
-    const xiuyuanAppService = await plugin.getContext?.()?.getXiuyuanApplicationService?.();
+    const context = await plugin.getContext?.();
+    const xiuyuanAppService = await context?.getXiuyuanApplicationService?.();
     if (!xiuyuanAppService) {
       throw new Error('XiuyuanApplicationService not available');
     }
@@ -290,22 +313,22 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
 
     // 从 XiuyuanApplicationService 获取 Xiuyuan
     // 注意：getXiuyuan 接收的是一个查询对象，不是直接的字符串
-    const result = await xiuyuanAppService.getXiuyuan({ xiuyuanId: xiuyuanID });
+    const rawResult = await xiuyuanAppService.getXiuyuan({ xiuyuanId: xiuyuanID });
     
     logger.debug('[ConceptDefinitionCardRenderService] getXiuyuan result:', {
-      hasResult: !!result,
-      resultType: typeof result,
-      resultKeys: result ? Object.keys(result) : [],
-      hasXiuyuan: !!result?.xiuyuan,
-      xiuyuanType: result?.xiuyuan ? typeof result.xiuyuan : 'undefined',
-      xiuyuanValue: result?.xiuyuan
+      hasResult: !!rawResult,
+      resultType: typeof rawResult,
+      resultKeys: rawResult ? Object.keys(rawResult) : [],
+      hasXiuyuan: isXiuyuanQueryResult(rawResult),
+      xiuyuanType: isXiuyuanQueryResult(rawResult) ? typeof rawResult.xiuyuan : 'undefined',
+      xiuyuanValue: isXiuyuanQueryResult(rawResult) ? rawResult.xiuyuan : undefined,
     });
     
-    if (!result || !result.xiuyuan) {
+    if (!isXiuyuanQueryResult(rawResult)) {
       throw new Error(`Xiuyuan not found: ${xiuyuanID}`);
     }
 
-    return result;
+    return { xiuyuan: rawResult.xiuyuan };
   }
 
   /**
@@ -462,7 +485,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       return this.ports.renderMarkdown(kramdown);
     }
 
-    const lute = (window as any).Lute?.New?.();
+    const lute = resolveLuteRenderer();
     if (!lute) {
       throw new Error('Lute not available');
     }

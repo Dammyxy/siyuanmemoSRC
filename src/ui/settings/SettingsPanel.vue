@@ -202,8 +202,13 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import type { FilterGroupDefinition, FSRSParameters, QueueSettings, SchedulerConfig } from '../../types';
+import type { FilterGroupDefinition, FSRSParameters, QueueSettings, SchedulerConfig, QuickCardSettings } from '../../types';
 import { getTodayRange, formatTodayRange } from '../../utils/dateUtils';  // 🆕 导入日期工具
+import { createLogger } from '@/utils/logger';
+
+type OptimizationConfig = Record<string, unknown>;
+
+const logger = createLogger('SettingsPanel');
 
 // FSRS-5 默认权重参数
 const DEFAULT_PARAMS = [
@@ -216,19 +221,19 @@ const DEFAULT_PARAMS = [
 
 // Emits
 const emit = defineEmits<{
-  (e: 'save', settings: any): void;
+  (e: 'save', settings: Record<string, unknown>): void;
   (e: 'close'): void;
   (e: 'repair-dates'): void;  // 🆕 数据修复事件
-  (e: 'optimize-parameters', config: any): Promise<any>;  // 🆕 参数优化事件
+  (e: 'optimize-parameters', config: OptimizationConfig): Promise<OptimizationConfig | void>;  // 🆕 参数优化事件
 }>();
 
 const props = defineProps<{
   fsrsSettings?: FSRSParameters;
   queueSettings?: QueueSettings;
   schedulerSettings?: SchedulerConfig;  // 🆕 新增
-  riffIntegrationSettings?: any;  // 🆕 Riff 集成配置
+  riffIntegrationSettings?: Record<string, unknown>;  // 🆕 Riff 集成配置
   incrementalSettings?: { autoCardEnabled: boolean };
-  quickCardSettings?: any;  // 🆕 快速制卡配置
+  quickCardSettings?: Partial<QuickCardSettings>;  // 🆕 快速制卡配置
   i18n?: Record<string, string>;
   defaultTab?: string;
   queueCount?: number;
@@ -239,7 +244,7 @@ const props = defineProps<{
     clear: () => Promise<void>;
   };
   optimizationHandlers?: {  // 🆕 参数优化处理器
-    optimize: (config: any) => Promise<any>;
+    optimize: (config: OptimizationConfig) => Promise<OptimizationConfig>;
   };
 }>();
 
@@ -277,9 +282,7 @@ interface Settings {
   enableShortTerm: boolean;
   params: number[];
   dayStartHour: number;  // 🆕 每日刷新时间
-  quickCard: {  // 🆕 快速制卡设置
-    enabled: boolean;
-  };
+  quickCard: QuickCardSettings;  // 🆕 快速制卡设置
 }
 
 const settings = ref<Settings>({
@@ -290,11 +293,23 @@ const settings = ref<Settings>({
   dayStartHour: 4,  // 🆕 默认值：凌晨4点
   quickCard: {  // 🆕 默认值
     enabled: false,
+    enabledSymbols: {
+      basic: true,
+      concept: true,
+      descriptor: true,
+      cloze: true,
+      multiLine: true,
+    },
+    debounceDelay: {
+      quick: 300,
+      list: 2000,
+    },
+    descriptorUseXiuyuan: true,
   },
 });
 
 // 🆕 快速制卡设置
-const quickCardSettings = ref({
+const quickCardSettings = ref<QuickCardSettings>({
   enabled: true,
   enabledSymbols: {
     basic: true,
@@ -365,7 +380,7 @@ const todayRangeText = computed(() => {
 // 加载设置
 function loadSettings() {
   // 🔍 调试日志：检查接收到的 quickCardSettings
-  console.log('[SettingsPanel] Loading settings with quickCardSettings:', props.quickCardSettings);
+  logger.debug('Loading settings with quickCardSettings', { quickCardSettings: props.quickCardSettings });
   
   if (props.fsrsSettings) {
     settings.value = {
@@ -392,7 +407,7 @@ function loadSettings() {
     };
     
     // 🔍 调试日志：检查初始化后的 settings.quickCard
-    console.log('[SettingsPanel] Initialized settings.quickCard:', settings.value.quickCard);
+    logger.debug('Initialized settings.quickCard', { quickCard: settings.value.quickCard });
   }
   
   // 🆕 加载快速制卡设置
@@ -507,7 +522,7 @@ function saveSettings() {
   };
   
   // 🔍 调试日志：检查 quickCard 配置
-  console.log('[SettingsPanel] Saving settings with quickCard:', settingsToSave.quickCard);
+  logger.debug('Saving settings with quickCard', { quickCard: settingsToSave.quickCard });
   
   emit('save', settingsToSave);
 }
@@ -522,6 +537,18 @@ function resetSettings() {
     dayStartHour: 4,  // 🆕 重置为默认值4
     quickCard: {  // 🆕 重置快速制卡设置
       enabled: false,
+      enabledSymbols: {
+        basic: true,
+        concept: true,
+        descriptor: true,
+        cloze: true,
+        multiLine: true,
+      },
+      debounceDelay: {
+        quick: 300,
+        list: 2000,
+      },
+      descriptorUseXiuyuan: true,
     },
   };
 }
@@ -544,7 +571,7 @@ function handleDayStartHourChange() {
     settings.value.dayStartHour = 23;
   }
   
-  console.log('[SiYuanMemo][Settings] dayStartHour changed:', settings.value.dayStartHour);
+  logger.debug('dayStartHour changed', { dayStartHour: settings.value.dayStartHour });
 }
 
 // 🆕 快速设置 dayStartHour
@@ -573,9 +600,9 @@ async function handleRepairDates() {
     // 调用插件的修复方法
     // 注意：这里需要通过 emit 或其他方式调用插件的 storage.repairInvalidDates()
     // 由于 SettingsPanel 是一个独立组件，我们需要通过 emit 传递修复请求
-    emit('repair-dates' as any);
+    emit('repair-dates');
   } catch (err) {
-    console.error('[SiYuanMemo][SettingsPanel] Failed to repair dates:', err);
+    logger.error('Failed to repair dates', err);
   } finally {
     isRepairing.value = false;
   }

@@ -3,10 +3,10 @@
  * 用于 HybridSyncService 的事件通知
  */
 
-export type EventListener<T = any> = (data: T) => void;
+export type EventListener<T = unknown> = (data: T) => void;
 
-export class EventEmitter<TEvents extends Record<string, any> = Record<string, any>> {
-    private listeners: Map<keyof TEvents, Set<EventListener>> = new Map();
+export class EventEmitter<TEvents extends Record<string, unknown> = Record<string, unknown>> {
+    private listeners: Map<keyof TEvents, Set<EventListener<unknown>>> = new Map();
 
     /**
      * 监听事件
@@ -15,7 +15,7 @@ export class EventEmitter<TEvents extends Record<string, any> = Record<string, a
         if (!this.listeners.has(event)) {
             this.listeners.set(event, new Set());
         }
-        this.listeners.get(event)!.add(listener);
+        this.listeners.get(event)!.add(listener as EventListener<unknown>);
     }
 
     /**
@@ -35,7 +35,7 @@ export class EventEmitter<TEvents extends Record<string, any> = Record<string, a
     off<K extends keyof TEvents>(event: K, listener: EventListener<TEvents[K]>): void {
         const eventListeners = this.listeners.get(event);
         if (eventListeners) {
-            eventListeners.delete(listener);
+            eventListeners.delete(listener as EventListener<unknown>);
             if (eventListeners.size === 0) {
                 this.listeners.delete(event);
             }
@@ -50,7 +50,7 @@ export class EventEmitter<TEvents extends Record<string, any> = Record<string, a
         if (eventListeners) {
             eventListeners.forEach(listener => {
                 try {
-                    listener(data);
+                    (listener as EventListener<TEvents[K]>)(data);
                 } catch (error) {
                     console.error(`[SiYuanMemo][EventEmitter] Error in listener for event "${String(event)}":`, error);
                 }

@@ -34,7 +34,7 @@ export async function markBlockAsCard(
     blockId: string, 
     cardId: string, 
     priority?: number,
-    cardType?: 'topic' | 'item'
+    cardType?: 'topic' | 'item' | 'concept' | 'descriptor'
 ): Promise<void> {
     const attrs: Record<string, string> = {
         [ATTR_CARD_ID]: cardId,

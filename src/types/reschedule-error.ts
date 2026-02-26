@@ -29,7 +29,7 @@ export interface RescheduleError {
     /** 相关的卡片 ID（如果适用） */
     cardId?: string;
     /** 额外的错误详情 */
-    details?: any;
+    details?: unknown;
 }
 
 /**

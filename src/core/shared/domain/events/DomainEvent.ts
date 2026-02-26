@@ -101,7 +101,7 @@ export abstract class DomainEvent {
    * 
    * @returns JSON 对象
    */
-  toJSON(): Record<string, any> {
+  toJSON(): Record<string, unknown> {
     return {
       eventId: this.eventId,
       eventName: this.getEventName(),
@@ -118,12 +118,13 @@ export abstract class DomainEvent {
    * 
    * @returns 事件负载
    */
-  protected getPayload(): Record<string, any> {
+  protected getPayload(): Record<string, unknown> {
     // 默认返回所有公共属性
-    const payload: Record<string, any> = {};
-    for (const key of Object.keys(this)) {
+    const payload: Record<string, unknown> = {};
+    const eventData = this as unknown as Record<string, unknown>;
+    for (const key of Object.keys(eventData)) {
       if (key !== 'eventId' && key !== 'occurredOn' && key !== 'eventName' && key !== 'aggregateId') {
-        payload[key] = (this as any)[key];
+        payload[key] = eventData[key];
       }
     }
     return payload;

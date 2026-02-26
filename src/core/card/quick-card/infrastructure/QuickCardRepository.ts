@@ -214,7 +214,9 @@ export class QuickCardRepository {
    * @param cardId - 卡片 ID
    * @returns FSRSCard 或 null
    */
-  private async getFSRSCard(cardId: string): Promise<any | null> {
+  private async getFSRSCard(
+    cardId: string
+  ): Promise<Awaited<ReturnType<ICardStorage['getCard']>>> {
     try {
       // 通过依赖注入的 cardStorage 获取卡片
       if (!this.cardStorage) {

@@ -33,9 +33,10 @@ import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import type { MultiClozeCardViewModel } from '@/core/card/multi-cloze/application/MultiClozeCardRenderService';
+import type { FSRSCard } from '@/types/card';
 
 const props = defineProps<{
-  card: any;
+  card: FSRSCard;
   showAnswer?: boolean;
 }>();
 

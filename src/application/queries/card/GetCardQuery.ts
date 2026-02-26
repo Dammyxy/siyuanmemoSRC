@@ -23,5 +23,5 @@ export interface GetCardQueryResult {
    * 卡片数据（FSRSCard 格式）
    * 如果卡片不存在，则为 null
    */
-  card: any | null; // 使用 any 避免循环依赖，实际类型是 FSRSCard | null
+  card: unknown | null;
 }

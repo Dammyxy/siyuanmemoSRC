@@ -84,7 +84,11 @@ export function splitBySymbol(content: string, symbol: string): [string, string]
  * console.log(shouldHideListItems(metadata2)); // false
  * ```
  */
-export function shouldHideListItems(metadata: any): boolean {
+export function shouldHideListItems(metadata: unknown): boolean {
   // 如果元数据中包含 hasListChildren 标记，则需要隐藏
-  return metadata.hasListChildren === true;
+  return (
+    typeof metadata === 'object' &&
+    metadata !== null &&
+    (metadata as { hasListChildren?: unknown }).hasListChildren === true
+  );
 }

@@ -13,6 +13,29 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('NativeReviewSession');
 
+type SiyuanDialogEntry = {
+  element?: Element | null;
+};
+
+type SiyuanRuntime = {
+  languages?: Record<string, string>;
+  dialogs?: SiyuanDialogEntry[];
+};
+
+type WindowWithSiyuan = Window & {
+  siyuan?: SiyuanRuntime;
+  fullscreen?: (element: Element, btn?: Element) => void;
+  resize?: (protyle: Protyle | { resize?: () => void } | null) => void;
+};
+
+function getRuntimeWindow(): WindowWithSiyuan {
+  return window as WindowWithSiyuan;
+}
+
+function getLanguages(): Record<string, string> {
+  return getRuntimeWindow().siyuan?.languages ?? {};
+}
+
 /**
  * 生成卡片计数 HTML
  */
@@ -30,7 +53,7 @@ function genCardCount(cardsData: ICardData, allIndex = 0): string {
     }
   });
 
-  const languages = (window as any)?.siyuan?.languages || {};
+  const languages = getLanguages();
   return `<span class="ariaLabel" aria-label="${languages.flashcardNewCard || 'New Card'}">
     <span class="ft__error">${newIndex}</span> /
     <span class="ariaLabel ft__primary" aria-label="${languages.flashcardNewCard || 'New Card'}">${cardsData.unreviewedNewCardCount}</span>
@@ -52,7 +75,7 @@ function genCardHTML(options: {
   isTab: boolean;
   title?: string;
 }): string {
-  const languages = (window as any)?.siyuan?.languages || {};
+  const languages = getLanguages();
   const titleText = options.title || languages.riffCard || 'Flashcard';
 
   const iconsHTML = `<div class="block__icons">
@@ -192,11 +215,12 @@ export class NativeReviewSession {
 
     // 调试：检查思源热键系统能否识别
     setTimeout(() => {
+      const runtime = getRuntimeWindow();
       logger.debug('Checking SiYuan hotkey system:', {
         dialogElement: this.dialog?.element,
         dataKey: this.dialog?.element.getAttribute('data-key'),
-        siyuanDialogs: (window as any).siyuan?.dialogs,
-        foundInDialogsArray: (window as any).siyuan?.dialogs?.find((item: any) =>
+        siyuanDialogs: runtime.siyuan?.dialogs,
+        foundInDialogsArray: runtime.siyuan?.dialogs?.find((item) =>
           item.element?.getAttribute('data-key') === 'dialog-opencard'
         ),
         foundInDOM: document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]'),
@@ -444,7 +468,7 @@ export class NativeReviewSession {
         const rect = moreButton?.getBoundingClientRect?.();
         logger.debug('More button rect:', { rect, moreButton });
 
-        const languages = (window as any)?.siyuan?.languages || {};
+        const languages = getLanguages();
         const menu = new Menu();
         menu.addItem({
           icon: 'iconPause',
@@ -521,7 +545,10 @@ export class NativeReviewSession {
     const card = this.cardsData.cards[index];
 
     // 保存当前卡片的答案块 ID（从 meta 中获取，Xiuyuan 模板卡片）
-    this.currentAnswerBlockID = (card as any).meta?.answerBlockID || null;
+    const cardMeta = (card as unknown as { meta?: { answerBlockID?: unknown } }).meta;
+    this.currentAnswerBlockID = typeof cardMeta?.answerBlockID === 'string'
+      ? cardMeta.answerBlockID
+      : null;
 
     if (this.protyle && card.blockID) {
       // 方法：重新创建 Protyle 实例，传入正确的 blockId
@@ -722,7 +749,8 @@ export class NativeReviewSession {
     const fullscreenBtn = this.dialog?.element.querySelector('[data-type="fullscreen"]') as HTMLElement;
 
     if (cardMain && this.protyle) {
-      const fullscreen = (window as any).fullscreen || ((_element: Element, _btn?: Element) => {
+      const runtime = getRuntimeWindow();
+      const fullscreen = runtime.fullscreen || ((_element: Element, _btn?: Element) => {
         // 简化版全屏实现（如果全局函数不可用）
         const isFullscreen = _element.classList.contains('fullscreen');
         if (isFullscreen) {
@@ -731,7 +759,7 @@ export class NativeReviewSession {
           _element.classList.add('fullscreen');
         }
       });
-      const resize = (window as any).resize || ((protyle: any) => {
+      const resize = runtime.resize || ((protyle: Protyle | { resize?: () => void } | null) => {
         // 简化版 resize（如果全局函数不可用）
         if (protyle && protyle.resize) {
           protyle.resize();
@@ -754,7 +782,7 @@ export class NativeReviewSession {
       clientY: event.clientY,
     });
 
-    const languages = (window as any)?.siyuan?.languages || {};
+    const languages = getLanguages();
 
     const menu = new Menu();
     menu.addItem({
@@ -801,7 +829,7 @@ export class NativeReviewSession {
    * 复习完成
    */
   private complete() {
-    const languages = (window as any)?.siyuan?.languages || {};
+    const languages = getLanguages();
     const element = this.dialog?.element;
 
     // 显示完成状态

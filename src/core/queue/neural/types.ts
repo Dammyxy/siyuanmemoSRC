@@ -345,3 +345,13 @@ export interface OrbitState {
   /** 候选节点列表 */
   candidateNodes: CandidateNode[];
 }
+
+export interface OrbitStateV2 {
+  historyPath: NavigationPathNode[];
+  currentNodeId: string | null;
+  selectedDirection: 'AUTO' | AssociationType;
+  autoModeDirections: AssociationType[];
+  candidatesByDirection: Map<AssociationType, WeightedNeighbor[]>;
+  seedMissedBlocks: Map<string, MissedBlock[]>;
+  directionMissedBlocks: Map<AssociationType, MissedBlock[]>;
+}

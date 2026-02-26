@@ -43,6 +43,7 @@ import type { DeleteFSRSCardCommand, DeleteFSRSCardCommandResult } from '@/appli
 import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
 import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
 import { buildClearedBlockAttrs } from './shared/CardBlockAttrCleaner';
+import { throwOnFailedStorageOperation } from './shared/StorageOperationResult';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DeleteFSRSCardUseCase');
@@ -115,10 +116,7 @@ export class DeleteFSRSCardUseCase {
   private async deleteCardFromStorage(cardId: string): Promise<void> {
     if (typeof this.storage.deleteCard === 'function') {
       const result = await this.storage.deleteCard(cardId);
-      if (result && typeof result === 'object' && 'ok' in (result as any) && !(result as any).ok) {
-        const error = (result as any).error;
-        throw error instanceof Error ? error : new Error(`Failed to delete card: ${cardId}`);
-      }
+      throwOnFailedStorageOperation(result, `Failed to delete card: ${cardId}`);
       return;
     }
 

@@ -18,6 +18,14 @@ interface LegacyRiffIntegrationConfig {
     incrementalUpdateInterval: number;
 }
 
+function isLegacyConfig(config: unknown): config is LegacyRiffIntegrationConfig {
+    if (typeof config !== 'object' || config === null) {
+        return false;
+    }
+    const mode = (config as { mode?: unknown }).mode;
+    return mode === 'disabled' || mode === 'data-only' || mode === 'full-scheduler';
+}
+
 /**
  * 配置迁移器
  */
@@ -28,15 +36,8 @@ export class ConfigMigrator {
      * @param config - 配置对象
      * @returns 是否需要迁移
      */
-    static needsMigration(config: any): boolean {
-        // 如果配置为空或已经是新格式，不需要迁移
-        if (!config) {
-            return false;
-        }
-        
-        // 检查是否是旧格式（包含 mode: 'disabled' | 'data-only' | 'full-scheduler'）
-        const mode = config.mode;
-        return mode === 'disabled' || mode === 'data-only' || mode === 'full-scheduler';
+    static needsMigration(config: unknown): boolean {
+        return isLegacyConfig(config);
     }
     
     /**

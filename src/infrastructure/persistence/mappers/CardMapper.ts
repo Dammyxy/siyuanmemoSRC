@@ -41,11 +41,11 @@ function deepClone<T>(obj: T): T {
 
   // 处理数组
   if (Array.isArray(obj)) {
-    return obj.map(item => deepClone(item)) as any;
+    return obj.map(item => deepClone(item)) as unknown as T;
   }
 
   // 处理对象
-  const cloned: any = {};
+  const cloned: Record<string, unknown> = {};
   for (const key in obj) {
     if (Object.prototype.hasOwnProperty.call(obj, key)) {
       const value = obj[key];
@@ -58,7 +58,37 @@ function deepClone<T>(obj: T): T {
     }
   }
   
-  return cloned;
+  return cloned as T;
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === 'number' ? value : undefined;
+}
+
+function asStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) {
+    return undefined;
+  }
+  return value;
+}
+
+function asStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!isObjectRecord(value)) {
+    return undefined;
+  }
+  const entries = Object.entries(value);
+  if (entries.some(([, entryValue]) => typeof entryValue !== 'string')) {
+    return undefined;
+  }
+  return value as Record<string, string>;
 }
 
 /**
@@ -78,16 +108,18 @@ export class CardMapper {
    * @returns 持久化模型
    */
   static toPersistence(card: FSRSCard): CardPersistenceDTO {
+    const cardMeta = isObjectRecord(card.meta) ? card.meta : undefined;
+
     // 提取 meta 中的 Xiuyuan 字段
-    const xiuyuanID = card.meta?.xiuyuanID as string | undefined;
-    const templateID = card.meta?.templateID as string | undefined;
-    const frontBlockIDs = card.meta?.frontBlockIDs as string[] | undefined;
-    const backBlockIDs = card.meta?.backBlockIDs as string[] | undefined;
-    const fieldMapping = card.meta?.fieldMapping as Record<string, string> | undefined;
-    const xiuyuanPriority = card.meta?.priority as number | undefined;
+    const xiuyuanID = asString(cardMeta?.xiuyuanID);
+    const templateID = asString(cardMeta?.templateID);
+    const frontBlockIDs = asStringArray(cardMeta?.frontBlockIDs);
+    const backBlockIDs = asStringArray(cardMeta?.backBlockIDs);
+    const fieldMapping = asStringRecord(cardMeta?.fieldMapping);
+    const xiuyuanPriority = asNumber(cardMeta?.priority);
 
     // 清理 meta：移除已提取的字段（使用深拷贝避免修改原始数据）
-    const cleanedMeta = card.meta ? deepClone(card.meta) : undefined;
+    const cleanedMeta = cardMeta ? deepClone(cardMeta) : undefined;
     if (cleanedMeta) {
       delete cleanedMeta.xiuyuanID;
       delete cleanedMeta.templateID;
@@ -181,7 +213,7 @@ export class CardMapper {
    */
   static toDomain(dto: CardPersistenceDTO): FSRSCard {
     // 重建 meta 字段
-    const meta: Record<string, any> = {
+    const meta: Record<string, unknown> = {
       ...(dto.meta || {}),
     };
 
@@ -209,7 +241,7 @@ export class CardMapper {
     const card: FSRSCard = {
       // 标识
       id: dto.id,
-      xiuyuanID: dto.xiuyuanID || meta.xiuyuanID || '', // 🆕 从 DTO 或 meta 中获取
+      xiuyuanID: dto.xiuyuanID || asString(meta.xiuyuanID) || '', // 🆕 从 DTO 或 meta 中获取
       blockId: dto.blockId,
 
       // FSRS 核心
@@ -260,7 +292,7 @@ export class CardMapper {
       // 重新调度
       postponeCount: dto.postponeCount,
       lastPostponeDate: dto.lastPostponeDate,
-      rescheduleHistory: dto.rescheduleHistory as any,
+      rescheduleHistory: dto.rescheduleHistory,
 
       // 重建的 meta
       meta: Object.keys(meta).length > 0 ? meta : undefined,
@@ -440,7 +472,7 @@ export class CardMapper {
       schedulerMeta: dto.schedulerMeta,
       postponeCount: dto.postponeCount,
       lastPostponeDate: dto.lastPostponeDate,
-      rescheduleHistory: dto.rescheduleHistory as any[],
+      rescheduleHistory: dto.rescheduleHistory,
       xiuyuanMetadata,
       extensionData: dto.meta,
     });

@@ -22,6 +22,10 @@ interface LuteInstance {
   Md2BlockDOM?: (kramdown: string) => string;
 }
 
+interface LuteFactoryContainer {
+  New?: () => LuteInstance;
+}
+
 export interface KramdownRenderOptions {
   stripAttributeLines?: boolean;
   preferSpinBlockDOM?: boolean;
@@ -37,6 +41,14 @@ export class SiyuanKramdownGateway {
 
   constructor(logger?: LoggerLike) {
     this.logger = logger ?? gatewayLogger;
+  }
+
+  private readLuteFactory(): LuteFactoryContainer | null {
+    const lute = (window as Window & { Lute?: unknown }).Lute;
+    if (!lute || typeof lute !== 'object') {
+      return null;
+    }
+    return lute as LuteFactoryContainer;
   }
 
   async getBlockKramdown(blockId: string): Promise<string | null> {
@@ -80,13 +92,14 @@ export class SiyuanKramdownGateway {
         options,
       });
 
-      const luteFactory = (window as any).Lute?.New;
+      const luteContainer = this.readLuteFactory();
+      const luteFactory = luteContainer?.New;
       if (typeof luteFactory !== 'function') {
         this.logger.warn('Lute not available, returning raw kramdown');
         return kramdown;
       }
 
-      const lute: LuteInstance = luteFactory.call((window as any).Lute);
+      const lute: LuteInstance = luteFactory.call(luteContainer);
       const content = options.stripAttributeLines ? this.stripAttributeLines(kramdown) : kramdown;
 
       const html = this.renderWithLute(content, lute, Boolean(options.preferSpinBlockDOM));

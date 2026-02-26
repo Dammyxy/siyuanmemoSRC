@@ -75,7 +75,7 @@ export type QueueFeedback = {
  * }
  * ```
  */
-export interface IQueueStrategy<TItem extends import('../types').QueueItem = any> {
+export interface IQueueStrategy<TItem extends import('../types').QueueItem = import('../types').QueueItem> {
   /**
    * Get UI configuration for the current item
    * 

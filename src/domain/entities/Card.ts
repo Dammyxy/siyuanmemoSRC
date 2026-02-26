@@ -19,8 +19,11 @@
  * @see ICardRepository - 仓储接口
  */
 
-import type { CardState, CardType } from '../../types/card';
+import type { CardState, CardType, FSRSCard } from '../../types/card';
 import { ok, err, isErr, type Result } from '../../types/result';
+
+type SchedulerMeta = FSRSCard['schedulerMeta'];
+type RescheduleHistory = FSRSCard['rescheduleHistory'];
 
 /**
  * 卡片 ID 值对象
@@ -130,10 +133,10 @@ export interface CardProps {
   schedulerType?: 'fsrs-v6' | 'sm2' | 'sm15' | 'a-factor' | 'a-factor-v2' | 'riff';
   syncToRiff?: boolean;
   riffCardId?: string;
-  schedulerMeta?: any;
+  schedulerMeta?: SchedulerMeta;
   postponeCount?: number;
   lastPostponeDate?: number;
-  rescheduleHistory?: any[];
+  rescheduleHistory?: RescheduleHistory;
   xiuyuanMetadata?: XiuyuanMetadata;
   extensionData?: Record<string, unknown>;
 }
@@ -194,12 +197,12 @@ export class Card {
   private _schedulerType?: 'fsrs-v6' | 'sm2' | 'sm15' | 'a-factor' | 'a-factor-v2' | 'riff';
   private _syncToRiff?: boolean;
   private _riffCardId?: string;
-  private _schedulerMeta?: any;
+  private _schedulerMeta?: SchedulerMeta;
 
   // === 重新调度相关 ===
   private _postponeCount?: number;
   private _lastPostponeDate?: number;
-  private _rescheduleHistory?: any[];
+  private _rescheduleHistory?: RescheduleHistory;
 
   // === Xiuyuan 元数据 ===
   private _xiuyuanMetadata?: XiuyuanMetadata;
@@ -613,7 +616,7 @@ export class Card {
     return this._riffCardId;
   }
 
-  get schedulerMeta(): any {
+  get schedulerMeta(): SchedulerMeta {
     return this._schedulerMeta;
   }
 
@@ -625,7 +628,7 @@ export class Card {
     return this._lastPostponeDate;
   }
 
-  get rescheduleHistory(): any[] | undefined {
+  get rescheduleHistory(): RescheduleHistory {
     return this._rescheduleHistory;
   }
 

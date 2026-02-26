@@ -71,9 +71,9 @@ export class RescheduleService {
     try {
       const value = await operation();
       return { ok: true, value };
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error(`${errorContext}:`, error);
-      const message = error?.message || 'Unknown error occurred';
+      const message = error instanceof Error ? error.message : 'Unknown error occurred';
       return {
         ok: false,
         error: {

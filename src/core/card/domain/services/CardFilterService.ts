@@ -26,6 +26,18 @@ const logger = createLogger('CardFilterService');
 // 为了向后兼容,创建 Card 类型别名
 type Card = FSRSCard;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function readMetaString(card: Card, key: string): string {
+  if (!isRecord(card.meta)) {
+    return '';
+  }
+  const value = card.meta[key];
+  return typeof value === 'string' ? value : '';
+}
+
 /**
  * CardFilterService 类
  * 
@@ -66,7 +78,7 @@ export class CardFilterService {
       sampleCards: cards.slice(0, 3).map(c => ({ 
         blockId: c.blockId, 
         type: c.type,
-        meta: c.meta ? { cardType: (c.meta as any).cardType } : null
+        meta: c.meta ? { cardType: readMetaString(c, 'cardType') } : null
       })),
     });
     
@@ -80,13 +92,13 @@ export class CardFilterService {
       }
       
       // 检查 meta.cardType
-      const metaCardType = (card.meta as any)?.cardType || '';
+      const metaCardType = readMetaString(card, 'cardType');
       return typeSet.has(metaCardType);
     });
     
     logger.debug('filterByCardTypes result', {
       outputCount: filtered.length,
-      matchedTypes: [...new Set(filtered.map(c => c.type || (c.meta as any)?.cardType))],
+      matchedTypes: [...new Set(filtered.map(c => c.type || readMetaString(c, 'cardType')))],
     });
     
     return filtered;
@@ -502,18 +514,18 @@ export class CardFilterService {
         docId,
         sampleCards: cards.slice(0, 3).map(c => ({
           blockId: c.blockId,
-          rootId: (c.meta as any)?.rootId
+          rootId: readMetaString(c, 'rootId')
         })),
       });
 
       const filtered = cards.filter(card => {
-        const cardRootId = (card.meta as any)?.rootId || '';
+        const cardRootId = readMetaString(card, 'rootId');
         return cardRootId === docId;
       });
 
       logger.debug('filterByDocId result', {
         outputCount: filtered.length,
-        matchedRootIds: [...new Set(filtered.map(c => (c.meta as any)?.rootId))],
+        matchedRootIds: [...new Set(filtered.map(c => readMetaString(c, 'rootId')))],
       });
 
       return filtered;

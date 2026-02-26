@@ -18,6 +18,7 @@ import {
   AssociationType,
   WeightedNeighbor,
   NeuralContext,
+  OrbitStateV2,
 } from './types.ts';
 import { createLogger } from '@/utils/logger';
 
@@ -531,7 +532,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
         logger.info(`Added ${descendants.length} descendants of ${blockId} to history`);
       }
     } catch (error) {
-      // 如果查询子块失败，只添加当前块（降级处理）
+      // 子块查询失败时保持当前块已入历史，避免重复展示。
       logger.error(`Failed to fetch descendants for ${blockId}:`, error);
       this.historyFilter.add(blockId);
     }
@@ -793,7 +794,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
         id: neighbor.id,
         blockId: neighbor.id, // 修复：添加缺失的 blockId 字段
         title: contentMap.get(neighbor.id) || neighbor.id.substring(0, 8) + '...', // 添加块内容
-        weight: (neighbor as any).weight || 0,
+        weight: 0,
         associationType: neighbor.type, // 修复：使用正确的字段名 type
         reason: this.getReasonText(neighbor.type), // 修复：使用正确的字段名 type
       });
@@ -831,7 +832,7 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    */
   public async getOrbitStateV2(
     selectedDirection: 'AUTO' | AssociationType
-  ): Promise<any> {
+  ): Promise<OrbitStateV2> {
     // 🔧 在获取状态前验证种子块（非阻塞，使用缓存）
     this.validateSeedBlocks().catch(err => {
       logger.warn('Seed validation failed during getOrbitStateV2:', err);

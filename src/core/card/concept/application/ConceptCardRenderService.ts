@@ -23,6 +23,10 @@ export interface ConceptCardViewModel extends BaseCardViewModel {
   contentHtml: string;
 }
 
+interface ConceptCardInput {
+  xiuyuanID?: string;
+}
+
 /**
  * 概念卡渲染服务
  */
@@ -34,7 +38,7 @@ export class ConceptCardRenderService extends BaseCardRenderService {
    * @param card FSRSCard，包含 xiuyuanID
    * @returns 视图模型
    */
-  async prepareViewModel(blockId: string, card?: any): Promise<ConceptCardViewModel> {
+  async prepareViewModel(blockId: string, card?: ConceptCardInput): Promise<ConceptCardViewModel> {
     logger.debug('[ConceptCardRenderService] prepareViewModel called with:', {
       blockId,
       hasCard: !!card,

@@ -7,6 +7,9 @@ import type { ColumnState, GridApi } from 'ag-grid-community';
 import type { SortModel } from '@/application/interfaces/ICardDataSource';
 import type { BrowserCard } from '../types';
 import { SORT_FIELD_CONFIGS } from '../constants';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('useSorting');
 
 type QueueLike = {
   reorder?: (cards: BrowserCard[]) => Promise<unknown> | unknown;
@@ -59,11 +62,11 @@ export function useSorting(options: UseSortingOptions) {
   // 应用列排序
   function applySort(colId: string, sortDirection: 'asc' | 'desc') {
     if (!gridApi.value) {
-      console.error('[useSorting] Grid API not ready');
+      logger.error('[useSorting] Grid API not ready');
       return;
     }
 
-    console.log('[useSorting] Applying sort:', { colId, sortDirection });
+    logger.info('[useSorting] Applying sort:', { colId, sortDirection });
 
     try {
       gridApi.value.applyColumnState({
@@ -71,27 +74,27 @@ export function useSorting(options: UseSortingOptions) {
         defaultState: { sort: null },
       });
       hasRandomSort.value = false;
-      console.log('[useSorting] Sort applied successfully');
+      logger.info('[useSorting] Sort applied successfully');
     } catch (err) {
-      console.error('[useSorting] Apply sort failed:', err);
+      logger.error('[useSorting] Apply sort failed:', err);
     }
   }
 
   // 随机排序 (Fisher-Yates)
   function applyRandomSort() {
     if (!gridApi.value) {
-      console.error('[useSorting] Grid API not ready for random sort');
+      logger.error('[useSorting] Grid API not ready for random sort');
       return;
     }
 
     try {
       const rowCount = gridApi.value.getDisplayedRowCount?.() ?? 0;
       if (rowCount === 0) {
-        console.warn('[useSorting] No rows to shuffle');
+        logger.warn('[useSorting] No rows to shuffle');
         return;
       }
 
-      console.log('[useSorting] Shuffling', rowCount, 'rows');
+      logger.info('[useSorting] Shuffling', rowCount, 'rows');
 
       // 收集所有行数据
       const rows: BrowserCard[] = [];
@@ -121,11 +124,11 @@ export function useSorting(options: UseSortingOptions) {
       nextTick(() => {
         if (gridApi.value) {
           gridApi.value.setGridOption?.('rowData', rows);
-          console.log('[useSorting] Shuffle completed via setGridOption');
+          logger.info('[useSorting] Shuffle completed via setGridOption');
         }
       });
     } catch (err) {
-      console.error('[useSorting] Random sort failed:', err);
+      logger.error('[useSorting] Random sort failed:', err);
     }
   }
 
@@ -192,10 +195,10 @@ export function useSorting(options: UseSortingOptions) {
     }
 
     try {
-      console.log('[useSorting] Applying sort to queue:', { queueId: qid, cardsCount: orderedCards.length });
+      logger.info('[useSorting] Applying sort to queue:', { queueId: qid, cardsCount: orderedCards.length });
 
       const ok = await Promise.resolve(queue.reorder(orderedCards));
-      console.log('[useSorting] Queue reorder result:', { ok });
+      logger.info('[useSorting] Queue reorder result:', { ok });
 
       if (!ok) {
         await pushErrMsg(t('sortApplyFailed', '应用排序失败'));
@@ -206,7 +209,7 @@ export function useSorting(options: UseSortingOptions) {
       hasRandomSort.value = false;
       await loadData();
     } catch (err: unknown) {
-      console.error('[useSorting] apply sort to queue failed:', err);
+      logger.error('[useSorting] apply sort to queue failed:', err);
       await pushErrMsg(getErrorMessage(err, t('sortApplyFailed', '应用排序失败')));
     }
   }

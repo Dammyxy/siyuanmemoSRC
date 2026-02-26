@@ -9,7 +9,7 @@ export class DockManager {
   constructor(
     private plugin: Plugin,
     private context: ApplicationContext,
-    private i18n: Record<string, any>
+    private i18n: Record<string, string>
   ) {}
 
   /**

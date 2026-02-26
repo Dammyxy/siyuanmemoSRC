@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="filter-dialog" role="dialog" aria-modal="true" aria-labelledby="filter-dialog-title">
     <div class="dialog__header">
       <h3 id="filter-dialog-title" class="dialog__title">{{ t('filterDialogTitle', '卡片筛选') }}</h3>
@@ -263,6 +263,9 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import type { CardFilter } from '@/types/unified-data-source';
 import { filterService } from '../services/FilterService';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('FilterDialog');
 
 const props = defineProps<{
   isOpen: boolean;
@@ -414,35 +417,35 @@ function updateDateMax(key: DateFieldKey, value: Date) {
 }
 
 function toggleCardType(type: string) {
-  console.log('[FilterDialog] toggleCardType called with:', type);
-  console.log('[FilterDialog] Current cardType set:', filterState.value.values.cardType);
+  logger.info('[FilterDialog] toggleCardType called with:', type);
+  logger.info('[FilterDialog] Current cardType set:', filterState.value.values.cardType);
   
   const set = filterState.value.values.cardType;
   if (set.has(type)) {
     set.delete(type);
-    console.log('[FilterDialog] Removed', type, 'from cardType');
+    logger.info('[FilterDialog] Removed', type, 'from cardType');
   } else {
     set.add(type);
-    console.log('[FilterDialog] Added', type, 'to cardType');
+    logger.info('[FilterDialog] Added', type, 'to cardType');
   }
   
-  console.log('[FilterDialog] Updated cardType set:', filterState.value.values.cardType);
+  logger.info('[FilterDialog] Updated cardType set:', filterState.value.values.cardType);
 }
 
 function toggleCardStatus(status: string) {
-  console.log('[FilterDialog] toggleCardStatus called with:', status);
-  console.log('[FilterDialog] Current cardStatus set:', filterState.value.values.cardStatus);
+  logger.info('[FilterDialog] toggleCardStatus called with:', status);
+  logger.info('[FilterDialog] Current cardStatus set:', filterState.value.values.cardStatus);
   
   const set = filterState.value.values.cardStatus;
   if (set.has(status)) {
     set.delete(status);
-    console.log('[FilterDialog] Removed', status, 'from cardStatus');
+    logger.info('[FilterDialog] Removed', status, 'from cardStatus');
   } else {
     set.add(status);
-    console.log('[FilterDialog] Added', status, 'to cardStatus');
+    logger.info('[FilterDialog] Added', status, 'to cardStatus');
   }
   
-  console.log('[FilterDialog] Updated cardStatus set:', filterState.value.values.cardStatus);
+  logger.info('[FilterDialog] Updated cardStatus set:', filterState.value.values.cardStatus);
 }
 
 function validate() {
@@ -521,37 +524,37 @@ function loadPreset() {
 }
 
 async function showSavePresetDialog() {
-  console.log('[FilterDialog] showSavePresetDialog called');
+  logger.info('[FilterDialog] showSavePresetDialog called');
   
   try {
     // 使用自定义对话框替代 prompt()
     const name = await showInputDialog('Enter preset name:');
-    console.log('[FilterDialog] Preset name entered:', name);
+    logger.info('[FilterDialog] Preset name entered:', name);
     
     if (!name) {
-      console.log('[FilterDialog] No name entered, aborting');
+      logger.info('[FilterDialog] No name entered, aborting');
       return;
     }
     
     const filter = filterService.toCardFilter(filterState.value as unknown as Parameters<typeof filterService.toCardFilter>[0]);
-    console.log('[FilterDialog] Filter to save:', filter);
+    logger.info('[FilterDialog] Filter to save:', filter);
     
     savedPresets.value.push({ name, filter });
-    console.log('[FilterDialog] Presets after push:', savedPresets.value);
+    logger.info('[FilterDialog] Presets after push:', savedPresets.value);
     
     filterService.savePresets(savedPresets.value);
-    console.log('[FilterDialog] Presets saved to localStorage');
+    logger.info('[FilterDialog] Presets saved to localStorage');
     
     selectedPreset.value = name;
-    console.log('[FilterDialog] Selected preset set to:', name);
+    logger.info('[FilterDialog] Selected preset set to:', name);
   } catch (error) {
-    console.error('[FilterDialog] Error in showSavePresetDialog:', error);
+    logger.error('[FilterDialog] Error in showSavePresetDialog:', error);
   }
 }
 
 // 简单的输入对话框实现
 function showInputDialog(message: string): Promise<string | null> {
-  console.log('[FilterDialog] showInputDialog called with message:', message);
+  logger.info('[FilterDialog] showInputDialog called with message:', message);
   
   return new Promise((resolve) => {
     try {
@@ -576,18 +579,18 @@ function showInputDialog(message: string): Promise<string | null> {
       `;
       
       document.body.appendChild(dialog);
-      console.log('[FilterDialog] Dialog appended to body');
+      logger.info('[FilterDialog] Dialog appended to body');
       
       const input = dialog.querySelector('#preset-name-input') as HTMLInputElement;
       if (input) {
         input.focus();
-        console.log('[FilterDialog] Input focused');
+        logger.info('[FilterDialog] Input focused');
       } else {
-        console.error('[FilterDialog] Input element not found');
+        logger.error('[FilterDialog] Input element not found');
       }
       
       const cleanup = () => {
-        console.log('[FilterDialog] Cleaning up dialog');
+        logger.info('[FilterDialog] Cleaning up dialog');
         if (dialog.parentNode) {
           document.body.removeChild(dialog);
         }
@@ -596,7 +599,7 @@ function showInputDialog(message: string): Promise<string | null> {
       const cancelBtn = dialog.querySelector('.b3-button--cancel');
       if (cancelBtn) {
         cancelBtn.addEventListener('click', () => {
-          console.log('[FilterDialog] Cancel clicked');
+          logger.info('[FilterDialog] Cancel clicked');
           cleanup();
           resolve(null);
         });
@@ -606,7 +609,7 @@ function showInputDialog(message: string): Promise<string | null> {
       if (okBtn) {
         okBtn.addEventListener('click', () => {
           const value = input.value.trim();
-          console.log('[FilterDialog] OK clicked, value:', value);
+          logger.info('[FilterDialog] OK clicked, value:', value);
           cleanup();
           resolve(value || null);
         });
@@ -616,18 +619,18 @@ function showInputDialog(message: string): Promise<string | null> {
         input.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') {
             const value = input.value.trim();
-            console.log('[FilterDialog] Enter pressed, value:', value);
+            logger.info('[FilterDialog] Enter pressed, value:', value);
             cleanup();
             resolve(value || null);
           } else if (e.key === 'Escape') {
-            console.log('[FilterDialog] Escape pressed');
+            logger.info('[FilterDialog] Escape pressed');
             cleanup();
             resolve(null);
           }
         });
       }
     } catch (error) {
-      console.error('[FilterDialog] Error creating dialog:', error);
+      logger.error('[FilterDialog] Error creating dialog:', error);
       resolve(null);
     }
   });

@@ -133,7 +133,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     public async getAllCards(): Promise<FSRSCard[]> {
         await this.ensureInitialLoad();
         const rawCards = await this.getCards();
-        const cards = normalizeToFSRSCard(rawCards as any[]);
+        const cards = normalizeToFSRSCard(rawCards);
         this.cards = [...cards];
         validateQueueReturnType(this.name ?? this.type, 'getAllCards', cards);
         return cards;

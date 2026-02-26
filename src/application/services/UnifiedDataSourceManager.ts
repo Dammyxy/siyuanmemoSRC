@@ -34,6 +34,18 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('UnifiedDataSourceManager');
 
+interface UnifiedManagerPluginContextLike {
+    getScheduler?: () => unknown;
+    getSettingsService?: () => {
+        getSettings?: () => { queues?: { dayStartHour?: unknown } };
+    } | null | undefined;
+}
+
+interface UnifiedManagerPluginLike {
+    getContext?: () => UnifiedManagerPluginContextLike | null | undefined;
+    schedulerRouter?: unknown;
+}
+
 /**
  * UnifiedDataSourceManager 类
  * 
@@ -203,22 +215,29 @@ export class UnifiedDataSourceManager {
         return this.advancedRouter;
     }
 
-    private resolvePlugin(): any {
-        const router = this.getRouter() as IDataRouter & { plugin?: any };
-        return router.plugin;
+    private resolvePlugin(): UnifiedManagerPluginLike | null {
+        const router = this.getRouter() as IDataRouter & { plugin?: unknown };
+        if (!router.plugin || typeof router.plugin !== 'object') {
+            return null;
+        }
+        return router.plugin as UnifiedManagerPluginLike;
+    }
+
+    private isQueueSchedulerPort(candidate: unknown): candidate is QueueSchedulerPort {
+        return typeof (candidate as { route?: unknown })?.route === 'function';
     }
 
     public getSchedulerRouter(): QueueSchedulerPort {
         const plugin = this.resolvePlugin();
-        const schedulerRouter =
+        const schedulerRouterCandidate =
             plugin?.getContext?.()?.getScheduler?.() ??
             plugin?.schedulerRouter;
 
-        if (!schedulerRouter || typeof schedulerRouter.route !== 'function') {
+        if (!this.isQueueSchedulerPort(schedulerRouterCandidate)) {
             throw new Error('SchedulerRouter not available - plugin initialization failed');
         }
 
-        return schedulerRouter as QueueSchedulerPort;
+        return schedulerRouterCandidate;
     }
 
     public getDayStartHour(): number {

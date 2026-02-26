@@ -8,6 +8,7 @@
 import { exponentialRegression } from './regression';
 import { SM15_CONSTANTS } from './types';
 import type { SM15 } from './SM15';
+import type { SM15Item } from './SM15Item';
 import type { Point, RegressionModel } from './types';
 
 const { MAX_POINTS_COUNT, GRADE_OFFSET, MAX_GRADE } = SM15_CONSTANTS;
@@ -52,7 +53,7 @@ export class FI_G {
      * @param item SM15Item 实例
      * @param now 当前时间
      */
-    update(grade: number, item: any, now: Date): void {
+    update(grade: number, item: SM15Item, now: Date): void {
         // 计算预期 FI
         const expectedFI = (item.uf(now) / item.of) * item.sm.requestedFI;
 

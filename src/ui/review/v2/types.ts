@@ -107,7 +107,7 @@ export interface ReviewUIState {
 }
 
 export type AdapterContext = CoreAdapterContext;
-export type IAdapter<TItem = any> = CoreAdapter<TItem, ReviewUIState>;
+export type IAdapter<TItem = unknown> = CoreAdapter<TItem, ReviewUIState>;
 
 export interface ReviewSessionHook {
   state: Ref<ReviewUIState>;
@@ -116,7 +116,7 @@ export interface ReviewSessionHook {
   grade: (rating: number) => Promise<void>;
   skip: () => Promise<void>;
   executeCommand: (cmdId: string) => Promise<void>;
-  getQueueStrategy: () => any; // 🆕 获取底层队列策略（用于神经漫游等特殊功能）
+  getQueueStrategy: () => unknown; // 🆕 获取底层队列策略（用于神经漫游等特殊功能）
   loadCardByBlockId: (blockId: string) => Promise<void>; // 🆕 直接加载指定卡片（Phase 3: UI 控件）
   onMounted: () => void;
   onUnmounted: () => void;

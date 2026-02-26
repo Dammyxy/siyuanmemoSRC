@@ -66,7 +66,14 @@ async function getAesKey() {
   );
 }
 
-async function encryptPayload(payload: any) {
+function toPayloadRecord(payload: unknown): Record<string, unknown> {
+  if (typeof payload === 'object' && payload !== null) {
+    return payload as Record<string, unknown>;
+  }
+  return { value: payload };
+}
+
+async function encryptPayload(payload: unknown) {
   const cryptoObj = window.crypto;
   const data = JSON.stringify(payload);
   const key = await getAesKey();
@@ -133,10 +140,14 @@ export async function readBlockPracticeProgress() {
   }
 }
 
-export async function writeBlockPracticeProgress(payload: any) {
+export async function writeBlockPracticeProgress(payload: unknown) {
   const savedAt = Date.now();
   const expiresAt = savedAt + 7 * 24 * 60 * 60 * 1000;
-  const encrypted = await encryptPayload({ ...payload, savedAt, expiresAt });
+  const encrypted = await encryptPayload({
+    ...toPayloadRecord(payload),
+    savedAt,
+    expiresAt,
+  });
   localStorage.setItem(getBlockPracticeStorageKey(), encrypted);
 }
 

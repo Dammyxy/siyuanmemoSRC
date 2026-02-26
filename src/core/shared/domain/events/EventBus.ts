@@ -56,7 +56,7 @@ export class EventBus {
    * key: 事件名称
    * value: 处理器数组
    */
-  private handlers: Map<string, EventHandler<any>[]> = new Map();
+  private handlers: Map<string, EventHandler<DomainEvent>[]> = new Map();
   
   /**
    * 是否启用调试日志
@@ -95,7 +95,7 @@ export class EventBus {
       this.handlers.set(eventName, []);
     }
     
-    this.handlers.get(eventName)!.push(handler);
+    this.handlers.get(eventName)!.push(handler as EventHandler<DomainEvent>);
     
     if (this.debugMode) {
       logger.debug(`Subscribed to event: ${eventName}`);
@@ -119,10 +119,10 @@ export class EventBus {
    * eventBus.unsubscribe('card.created', handler);
    * ```
    */
-  unsubscribe(eventName: string, handler: EventHandler<any>): void {
+  unsubscribe<T extends DomainEvent>(eventName: string, handler: EventHandler<T>): void {
     const handlers = this.handlers.get(eventName);
     if (handlers) {
-      const index = handlers.indexOf(handler);
+      const index = handlers.indexOf(handler as EventHandler<DomainEvent>);
       if (index !== -1) {
         handlers.splice(index, 1);
         

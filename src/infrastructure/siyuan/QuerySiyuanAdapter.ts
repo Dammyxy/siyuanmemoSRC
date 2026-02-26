@@ -8,7 +8,7 @@ export class QuerySiyuanAdapter implements QuerySiyuanPort {
   readonly ATTR_SUSPENDED = ATTR_SUSPENDED;
   readonly ATTR_CARD_TYPE = ATTR_CARD_TYPE;
 
-  async sql(stmt: string): Promise<any[]> {
+  async sql(stmt: string): Promise<unknown[]> {
     return sql(stmt);
   }
 

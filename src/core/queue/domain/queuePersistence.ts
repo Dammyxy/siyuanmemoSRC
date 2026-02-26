@@ -13,7 +13,7 @@ export interface QueueLoadResult<T> {
 interface LoadQueueStateOptions<T> {
   persistence: QueuePersistencePort;
   key: string;
-  fallback: T;
+  initialValue: T;
   logger: QueuePersistenceLogger;
   context: string;
   validate?: (value: unknown) => value is T;
@@ -28,23 +28,23 @@ interface SaveQueueStateOptions<T> {
 }
 
 export function loadQueueState<T>(options: LoadQueueStateOptions<T>): QueueLoadResult<T> {
-  const { persistence, key, fallback, logger, context, validate } = options;
+  const { persistence, key, initialValue, logger, context, validate } = options;
 
   try {
     const raw = persistence.get<unknown>(key);
     if (raw == null) {
-      return { value: fallback, fromStorage: false };
+      return { value: initialValue, fromStorage: false };
     }
 
     if (validate && !validate(raw)) {
-      logger.warn(`[${context}] Invalid persisted queue state for key "${key}", using fallback`);
-      return { value: fallback, fromStorage: false };
+      logger.warn(`[${context}] Invalid persisted queue state for key "${key}", using initial value`);
+      return { value: initialValue, fromStorage: false };
     }
 
     return { value: raw as T, fromStorage: true };
   } catch (error) {
     logger.error(`[${context}] Failed to load queue state for key "${key}":`, error);
-    return { value: fallback, fromStorage: false };
+    return { value: initialValue, fromStorage: false };
   }
 }
 

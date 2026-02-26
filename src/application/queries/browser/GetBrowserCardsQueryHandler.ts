@@ -139,7 +139,7 @@ export class GetBrowserCardsQueryHandler {
       logger.debug('Applying document filter:', query.docId);
       
       // 🔧 先填充 rootId（批量查询）
-      const cardsNeedingRootId = filteredCards.filter(c => !(c.meta as any)?.rootId);
+      const cardsNeedingRootId = filteredCards.filter(c => !this.readMetaString(c, 'rootId'));
       if (cardsNeedingRootId.length > 0) {
         logger.debug('Filling rootId before document filter:', { count: cardsNeedingRootId.length });
         await this.fillRootIds(cardsNeedingRootId);
@@ -229,6 +229,26 @@ export class GetBrowserCardsQueryHandler {
       suspendedCards: this.cardFilterService.countByState(cards, CardState.Suspended),
     };
   }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+  }
+
+  private ensureMetaObject(card: FSRSCard): Record<string, unknown> {
+    if (!this.isRecord(card.meta)) {
+      card.meta = {};
+    }
+    return card.meta as Record<string, unknown>;
+  }
+
+  private readMetaString(card: FSRSCard, key: string): string | undefined {
+    if (!this.isRecord(card.meta)) {
+      return undefined;
+    }
+
+    const value = card.meta[key];
+    return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+  }
   
   /**
    * 填充卡片的 rootId（用于文档筛选）
@@ -267,10 +287,8 @@ export class GetBrowserCardsQueryHandler {
         for (const card of cards) {
           const rootId = rootIdMap.get(card.blockId);
           if (rootId) {
-            if (!card.meta) {
-              card.meta = {};
-            }
-            (card.meta as any).rootId = rootId;
+            const meta = this.ensureMetaObject(card);
+            meta.rootId = rootId;
           }
         }
       }
@@ -331,10 +349,8 @@ export class GetBrowserCardsQueryHandler {
         for (const card of cardsNeedingContent) {
           const content = contentMap.get(card.blockId);
           if (content) {
-            if (!card.meta) {
-              card.meta = {};
-            }
-            (card.meta as any).content = content;
+            const meta = this.ensureMetaObject(card);
+            meta.content = content;
           }
         }
       }
@@ -411,7 +427,7 @@ export class GetBrowserCardsQueryHandler {
     const rootId = (card.meta?.rootId as string) || '';
     
     const cardType = card.type as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined;
-    const finalCardType = (customAttrs[this.siyuanApi.ATTR_CARD_TYPE] as any) || cardType;
+    const finalCardType = customAttrs[this.siyuanApi.ATTR_CARD_TYPE] || cardType;
     
     return {
       id: card.id,

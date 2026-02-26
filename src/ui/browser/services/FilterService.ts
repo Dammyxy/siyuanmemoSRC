@@ -1,4 +1,4 @@
-﻿/**
+/**
  * FilterService - 过滤条件管理服务
  * 
  * 职责：
@@ -12,6 +12,9 @@
  */
 
 import type { CardFilter, NumericRangeFilter, DateRangeFilter } from '@/types/unified-data-source';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('FilterService');
 
 // ============================================================================
 // 类型定义
@@ -136,9 +139,9 @@ export class FilterService {
         try {
             const serialized = this.serializeFilter(filter);
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(serialized));
-            console.log('[FilterService] Filter saved:', filter);
+            logger.info('[FilterService] Filter saved:', filter);
         } catch (error) {
-            console.error('[FilterService] Failed to save filter:', error);
+            logger.error('[FilterService] Failed to save filter:', error);
             // 不抛出错误，仅记录日志（需求 8.4）
         }
     }
@@ -158,10 +161,10 @@ export class FilterService {
 
             const parsed = JSON.parse(stored) as Record<string, unknown>;
             const filter = this.deserializeFilter(parsed);
-            console.log('[FilterService] Filter loaded:', filter);
+            logger.info('[FilterService] Filter loaded:', filter);
             return filter;
         } catch (error) {
-            console.error('[FilterService] Failed to load filter:', error);
+            logger.error('[FilterService] Failed to load filter:', error);
             // 不抛出错误，返回 null（需求 8.4）
             return null;
         }
@@ -179,9 +182,9 @@ export class FilterService {
                 filter: this.serializeFilter(p.filter),
             }));
             localStorage.setItem(this.PRESETS_KEY, JSON.stringify(serialized));
-            console.log('[FilterService] Presets saved:', presets.length);
+            logger.info('[FilterService] Presets saved:', presets.length);
         } catch (error) {
-            console.error('[FilterService] Failed to save presets:', error);
+            logger.error('[FilterService] Failed to save presets:', error);
         }
     }
 
@@ -202,10 +205,10 @@ export class FilterService {
                 name: p.name,
                 filter: this.deserializeFilter(p.filter),
             }));
-            console.log('[FilterService] Presets loaded:', presets.length);
+            logger.info('[FilterService] Presets loaded:', presets.length);
             return presets;
         } catch (error) {
-            console.error('[FilterService] Failed to load presets:', error);
+            logger.error('[FilterService] Failed to load presets:', error);
             return [];
         }
     }
@@ -299,12 +302,12 @@ export class FilterService {
     toCardFilter(state: FilterDialogState): CardFilter {
         const filter: CardFilter = {};
 
-        console.log('[FilterService] toCardFilter called with state:', state);
+        logger.info('[FilterService] toCardFilter called with state:', state);
 
         // 关键词过滤（只要有内容就生效，不需要 enabled 检查）
         if (state.values.keyword && state.values.keyword.trim()) {
             filter.keyword = state.values.keyword.trim();
-            console.log('[FilterService] Set keyword to:', filter.keyword);
+            logger.info('[FilterService] Set keyword to:', filter.keyword);
         }
 
         // 数值范围过滤条件
@@ -373,37 +376,37 @@ export class FilterService {
         }
 
         // 多选过滤条件
-        console.log('[FilterService] cardType enabled:', state.enabled.cardType);
-        console.log('[FilterService] cardType values:', state.values.cardType);
-        console.log('[FilterService] cardType size:', state.values.cardType.size);
+        logger.info('[FilterService] cardType enabled:', state.enabled.cardType);
+        logger.info('[FilterService] cardType values:', state.values.cardType);
+        logger.info('[FilterService] cardType size:', state.values.cardType.size);
 
         // cardType 和 cardStatus 不需要 enabled 检查，只要 Set 不为空就添加到 filter
         if (state.values.cardType.size > 0) {
             // 如果只选择了一个类型，直接设置
             if (state.values.cardType.size === 1) {
                 filter.cardType = Array.from(state.values.cardType)[0] as 'item' | 'topic';
-                console.log('[FilterService] Set cardType to:', filter.cardType);
+                logger.info('[FilterService] Set cardType to:', filter.cardType);
             } else {
                 // 如果选择了多个类型，设置为数组
                 filter.cardType = Array.from(state.values.cardType);
-                console.log('[FilterService] Set cardType to multiple types:', filter.cardType);
+                logger.info('[FilterService] Set cardType to multiple types:', filter.cardType);
             }
         } else {
-            console.log('[FilterService] cardType Set is empty');
+            logger.info('[FilterService] cardType Set is empty');
         }
 
-        console.log('[FilterService] cardStatus enabled:', state.enabled.cardStatus);
-        console.log('[FilterService] cardStatus values:', state.values.cardStatus);
-        console.log('[FilterService] cardStatus size:', state.values.cardStatus.size);
+        logger.info('[FilterService] cardStatus enabled:', state.enabled.cardStatus);
+        logger.info('[FilterService] cardStatus values:', state.values.cardStatus);
+        logger.info('[FilterService] cardStatus size:', state.values.cardStatus.size);
         
         if (state.values.cardStatus.size > 0) {
             filter.cardStatus = Array.from(state.values.cardStatus) as Array<'new' | 'learning' | 'review' | 'relearning'>;
-            console.log('[FilterService] Set cardStatus to:', filter.cardStatus);
+            logger.info('[FilterService] Set cardStatus to:', filter.cardStatus);
         } else {
-            console.log('[FilterService] cardStatus Set is empty');
+            logger.info('[FilterService] cardStatus Set is empty');
         }
 
-        console.log('[FilterService] Final filter:', filter);
+        logger.info('[FilterService] Final filter:', filter);
         return filter;
     }
 

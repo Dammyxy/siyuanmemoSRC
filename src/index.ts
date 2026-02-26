@@ -11,6 +11,7 @@ import { ApplicationContext } from '@/application/ApplicationContext';
 import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import { ConfigMigrator } from '@/utils/configMigrator';
 import { createLogger, installConsoleBridge } from '@/utils/logger';
+import type { RiffIntegrationConfig } from '@/types/settings';
 import '@/index.scss';
 
 export default class FSRSPlugin extends Plugin implements IPluginFacade {
@@ -58,10 +59,6 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   private isInitialized = false;
   private didWarnTopbarMount = false;
 
-  constructor(options: any) {
-    super(options);
-  }
-
   async onload() {
     installConsoleBridge();
     this.logger.info('Plugin loading...');
@@ -89,7 +86,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
 
     // ❌ 移除全局状态（Phase 3: DDD 重构）
     // 不再将插件实例暴露到全局，使用依赖注入代替
-    // (window as any).siyuanMemoPlugin = this;
+    // window.siyuanMemoPlugin = this;
     
     this.logger.info('Plugin loaded successfully');
   }
@@ -194,9 +191,9 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     const riffConfig = settings.riffIntegration;
 
     if (riffConfig && ConfigMigrator.needsMigration(riffConfig)) {
-      const migratedConfig = ConfigMigrator.migrate(riffConfig as any);
+      const migratedConfig = ConfigMigrator.migrate(riffConfig);
       await settingsService.updateSettings({ ...settings, riffIntegration: migratedConfig });
-      setTimeout(() => pushMsg(ConfigMigrator.getMigrationMessage((riffConfig as any).mode)), 1000);
+      setTimeout(() => pushMsg(ConfigMigrator.getMigrationMessage(riffConfig.mode)), 1000);
     }
 
     const { SimpleModeRemovalMigrator } = await import('./utils/simpleModeRemovalMigrator');
@@ -205,13 +202,20 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     if (finalConfig && SimpleModeRemovalMigrator.needsMigration(finalConfig)) {
       try {
         const result = await SimpleModeRemovalMigrator.performMigration(finalConfig, this.context.getHybridSyncService());
-        await settingsService.updateSettings({ ...settingsService.getSettings(), riffIntegration: result.migratedConfig as any });
+        const migratedConfig: RiffIntegrationConfig = {
+          mode: 'advanced',
+          ...result.migratedConfig,
+        };
+        await settingsService.updateSettings({ ...settingsService.getSettings(), riffIntegration: migratedConfig });
       } catch (error) {
         await SimpleModeRemovalMigrator.handleMigrationError(error as Error, 'plugin initialization');
       }
     } else if (finalConfig && finalConfig.mode) {
-      const { mode, ...cleanConfig } = finalConfig;
-      await settingsService.updateSettings({ ...settingsService.getSettings(), riffIntegration: cleanConfig as any });
+      const cleanConfig: RiffIntegrationConfig = {
+        ...finalConfig,
+        mode: finalConfig.mode === 'simple' ? 'advanced' : finalConfig.mode,
+      };
+      await settingsService.updateSettings({ ...settingsService.getSettings(), riffIntegration: cleanConfig });
     }
   }
 }

@@ -1,357 +1,238 @@
 /**
- * 快速制卡 WebSocket 服务
- * 
- * 职责：
- * - 直接连接思源 WebSocket（不通过 eventBus）
- * - 监听 transactions 事件
- * - 检测块内容变化
- * - 触发符号检测和卡片创建
- * - 自动重连机制
- * - 防抖处理
- * 
- * @see .kiro/specs/quick-card-symbols/design.md
+ * Quick-card WebSocket service.
+ *
+ * Responsibilities:
+ * - Connect directly to Siyuan WebSocket
+ * - Listen to transaction events
+ * - Detect block content updates
+ * - Trigger symbol detection / card creation pipeline
+ * - Reconnect automatically
+ * - Debounce burst updates
  */
 
 import type FSRSPlugin from '@/index';
 import { createLogger } from '@/utils/logger';
+import { resolveWebSocketBaseUrl } from './runtime';
+import { parseTransactionsPayload, parseWSMessage, type Transaction } from './transaction-types';
 
 const logger = createLogger('QuickCardWebSocketService');
 
 /**
- * WebSocket 消息结构
- */
-interface WSMessage {
-    cmd: string;
-    data?: any;
-}
-
-/**
- * Transaction 操作
- */
-interface DoOperation {
-    action: string;
-    data: any;
-    id: string;
-    parentID?: string;
-    previousID?: string;
-    nextID?: string;
-}
-
-/**
- * Transaction 详情
- */
-interface TransactionDetail {
-    cmd: string;
-    data: {
-        doOperations: DoOperation[];
-        undoOperations: DoOperation[] | null;
-    }[];
-}
-
-/**
- * 快速制卡配置
+ * Quick-card settings.
  */
 export interface QuickCardSettings {
-    /** 启用快速制卡 */
-    enabled: boolean;
-    
-    /** 启用的符号类型 */
-    enabledSymbols: {
-        basic: boolean;        // >> << <>
-        concept: boolean;      // ::
-        descriptor: boolean;   // ;;
-        cloze: boolean;        // {{}}
-        multiLine: boolean;    // >>>
-    };
-    
-    /** 防抖时间（毫秒） */
-    debounceDelay: number;
-    
-    /** Descriptor 是否使用 Xiuyuan */
-    descriptorUseXiuyuan: boolean;
+  enabled: boolean;
+  enabledSymbols: {
+    basic: boolean;
+    concept: boolean;
+    descriptor: boolean;
+    cloze: boolean;
+    multiLine: boolean;
+  };
+  debounceDelay: number;
+  descriptorUseXiuyuan: boolean;
 }
 
-/**
- * 快速制卡 WebSocket 服务
- */
 export class QuickCardWebSocketService {
-    private plugin: FSRSPlugin; // 将在 Phase 2 中使用（符号检测和卡片创建）
-    private ws: WebSocket | null = null;
-    private reconnectTimer: NodeJS.Timeout | null = null;
-    private debounceTimer: NodeJS.Timeout | null = null;
-    private pendingBlocks: Set<string> = new Set();
-    private processing: Set<string> = new Set();
-    private enabled: boolean = false;
-    
-    // 配置
-    private readonly DEBOUNCE_DELAY = 300; // 300ms（可配置）
-    private readonly RECONNECT_DELAY = 3000; // 3秒
-    
-    /**
-     * 获取 WebSocket URL
-     * 动态从思源配置中获取端口，支持多工作空间
-     */
-    private getWebSocketURL(): string {
-        // 方法1: 从 window.location 获取（最可靠）
-        if (typeof window !== 'undefined' && window.location) {
-            const port = window.location.port || '6806';
-            const host = window.location.hostname || '127.0.0.1';
-            const wsUrl = `ws://${host}:${port}/ws`;
-            logger.info(`Using window.location - port: ${port}, URL: ${wsUrl}`);
-            return wsUrl;
-        }
-        
-        // 方法2: 从 window.siyuan 获取（降级方案）
-        if (typeof window !== 'undefined' && (window as any).siyuan) {
-            const siyuan = (window as any).siyuan;
-            const host = siyuan.config?.system?.host || '127.0.0.1';
-            const port = siyuan.config?.system?.httpPort || 6806;
-            const wsUrl = `ws://${host}:${port}/ws`;
-            logger.info(`Using window.siyuan - port: ${port}, URL: ${wsUrl}`);
-            return wsUrl;
-        }
-        
-        // 方法3: 最终降级方案
-        logger.info('Using fallback WebSocket URL: ws://127.0.0.1:6806/ws');
-        return 'ws://127.0.0.1:6806/ws';
+  private plugin: FSRSPlugin;
+  private ws: WebSocket | null = null;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private debounceTimer: NodeJS.Timeout | null = null;
+  private pendingBlocks: Set<string> = new Set();
+  private processing: Set<string> = new Set();
+  private enabled = false;
+
+  private readonly DEBOUNCE_DELAY = 300;
+  private readonly RECONNECT_DELAY = 3000;
+
+  constructor(plugin: FSRSPlugin) {
+    this.plugin = plugin;
+  }
+
+  private getWebSocketURL(): string | null {
+    const wsUrl = resolveWebSocketBaseUrl();
+    if (!wsUrl) {
+      logger.error('Unable to resolve WebSocket URL from runtime context');
+      return null;
     }
-    
-    constructor(plugin: FSRSPlugin) {
-        this.plugin = plugin;
+
+    return wsUrl;
+  }
+
+  public start(): void {
+    if (this.ws) {
+      logger.info('Service already started');
+      return;
     }
-    
-    /**
-     * 启动服务
-     */
-    public start(): void {
-        if (this.ws) {
-            logger.info('Service already started');
-            return;
+
+    logger.info('Starting service...');
+    this.enabled = true;
+    this.connect();
+  }
+
+  public stop(): void {
+    logger.info('Stopping service...');
+    this.enabled = false;
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+
+    if (this.ws) {
+      this.ws.close(1000, 'Service stopped');
+      this.ws = null;
+    }
+
+    this.pendingBlocks.clear();
+    this.processing.clear();
+
+    logger.info('Service stopped');
+  }
+
+  public setEnabled(enabled: boolean): void {
+    logger.info('Setting enabled:', enabled);
+
+    if (enabled && !this.enabled) {
+      this.start();
+    } else if (!enabled && this.enabled) {
+      this.stop();
+    }
+  }
+
+  private connect(): void {
+    try {
+      const wsUrl = this.getWebSocketURL();
+      if (!wsUrl) {
+        if (this.enabled) {
+          this.reconnect();
         }
-        
-        logger.info('Starting service...');
-        this.enabled = true;
+        return;
+      }
+
+      logger.info('Connecting to WebSocket:', wsUrl);
+      const url = `${wsUrl}?app=siyuanmemo&type=main`;
+      this.ws = new WebSocket(url);
+
+      this.ws.onopen = () => {
+        logger.info('WebSocket connected');
+      };
+
+      this.ws.onmessage = event => {
+        this.handleMessage(event);
+      };
+
+      this.ws.onerror = error => {
+        logger.error('WebSocket error:', error);
+      };
+
+      this.ws.onclose = event => {
+        logger.info('WebSocket closed:', event.code, event.reason);
+        this.ws = null;
+
+        if (event.code !== 1000 && this.enabled) {
+          logger.info('Connection closed abnormally, reconnecting...');
+          this.reconnect();
+        }
+      };
+    } catch (error) {
+      logger.error('Failed to connect:', error);
+
+      if (this.enabled) {
+        this.reconnect();
+      }
+    }
+  }
+
+  private reconnect(): void {
+    if (this.reconnectTimer) {
+      return;
+    }
+
+    logger.info(`Reconnecting in ${this.RECONNECT_DELAY}ms...`);
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.enabled) {
         this.connect();
+      }
+    }, this.RECONNECT_DELAY);
+  }
+
+  private handleMessage(event: MessageEvent): void {
+    try {
+      const message = parseWSMessage(event.data);
+      if (!message || message.cmd !== 'transactions') {
+        return;
+      }
+
+      const transactions = parseTransactionsPayload(message.data);
+      this.handleTransactions(transactions);
+    } catch (error) {
+      logger.error('Failed to parse message:', error);
     }
-    
-    /**
-     * 停止服务
-     */
-    public stop(): void {
-        logger.info('Stopping service...');
-        this.enabled = false;
-        
-        // 清理定时器
-        if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = null;
-        }
-        
-        if (this.debounceTimer) {
-            clearTimeout(this.debounceTimer);
-            this.debounceTimer = null;
-        }
-        
-        // 关闭 WebSocket
-        if (this.ws) {
-            this.ws.close(1000, 'Service stopped');
-            this.ws = null;
-        }
-        
-        // 清理队列
-        this.pendingBlocks.clear();
-        this.processing.clear();
-        
-        logger.info('Service stopped');
+  }
+
+  private handleTransactions(transactions: Transaction[]): void {
+    if (transactions.length === 0) {
+      return;
     }
-    
-    /**
-     * 设置启用状态
-     */
-    public setEnabled(enabled: boolean): void {
-        logger.info('Setting enabled:', enabled);
-        
-        if (enabled && !this.enabled) {
-            this.start();
-        } else if (!enabled && this.enabled) {
-            this.stop();
+
+    logger.info('Transaction received:', transactions.length);
+
+    for (const transaction of transactions) {
+      for (const operation of transaction.doOperations) {
+        if (operation.action === 'insert' || operation.action === 'update') {
+          logger.info('Operation:', operation.action, operation.id);
+          this.queueBlockCheck(operation.id);
         }
+      }
     }
-    
-    /**
-     * 建立 WebSocket 连接
-     */
-    private connect(): void {
-        try {
-            const wsUrl = this.getWebSocketURL();
-            logger.info('Connecting to WebSocket:', wsUrl);
-            
-            // 创建 WebSocket 连接
-            // 参数：app=siyuanmemo&type=main
-            const url = `${wsUrl}?app=siyuanmemo&type=main`;
-            this.ws = new WebSocket(url);
-            
-            // 连接成功
-            this.ws.onopen = () => {
-                logger.info('WebSocket connected');
-            };
-            
-            // 接收消息
-            this.ws.onmessage = (event) => {
-                this.handleMessage(event);
-            };
-            
-            // 连接错误
-            this.ws.onerror = (error) => {
-                logger.error('WebSocket error:', error);
-            };
-            
-            // 连接关闭
-            this.ws.onclose = (event) => {
-                logger.info('WebSocket closed:', event.code, event.reason);
-                this.ws = null;
-                
-                // 非正常关闭，自动重连
-                if (event.code !== 1000 && this.enabled) {
-                    logger.info('Connection closed abnormally, reconnecting...');
-                    this.reconnect();
-                }
-            };
-        } catch (error) {
-            logger.error('Failed to connect:', error);
-            
-            // 连接失败，自动重连
-            if (this.enabled) {
-                this.reconnect();
-            }
-        }
+  }
+
+  private queueBlockCheck(blockId: string): void {
+    this.pendingBlocks.add(blockId);
+
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
     }
-    
-    /**
-     * 重新连接
-     */
-    private reconnect(): void {
-        if (this.reconnectTimer) {
-            return; // 已经在重连中
-        }
-        
-        logger.info(`Reconnecting in ${this.RECONNECT_DELAY}ms...`);
-        
-        this.reconnectTimer = setTimeout(() => {
-            this.reconnectTimer = null;
-            
-            if (this.enabled) {
-                this.connect();
-            }
-        }, this.RECONNECT_DELAY);
+
+    this.debounceTimer = setTimeout(() => {
+      this.processQueue();
+    }, this.DEBOUNCE_DELAY);
+  }
+
+  private async processQueue(): Promise<void> {
+    const blocks = Array.from(this.pendingBlocks);
+    logger.info('Processing queue, blocks:', blocks.length);
+
+    this.pendingBlocks.clear();
+
+    for (const blockId of blocks) {
+      if (this.processing.has(blockId)) {
+        logger.info(`Block ${blockId} is already being processed, skipping`);
+        continue;
+      }
+
+      this.processing.add(blockId);
+      try {
+        await this.processBlock(blockId);
+      } catch (error) {
+        logger.error(`Failed to process block ${blockId}:`, error);
+      } finally {
+        this.processing.delete(blockId);
+      }
     }
-    
-    /**
-     * 处理 WebSocket 消息
-     */
-    private handleMessage(event: MessageEvent): void {
-        try {
-            const message: WSMessage = JSON.parse(event.data);
-            
-            // 只处理 transactions 命令
-            if (message.cmd !== 'transactions') {
-                return;
-            }
-            
-            this.handleTransactions(message.data);
-        } catch (error) {
-            logger.error('Failed to parse message:', error);
-        }
-    }
-    
-    /**
-     * 处理 transactions 事件
-     */
-    private handleTransactions(data: TransactionDetail['data']): void {
-        if (!data || !Array.isArray(data)) {
-            return;
-        }
-        
-        logger.info('Transaction received:', data.length);
-        
-        // 提取所有 insert 和 update 操作的块 ID
-        data.forEach(transaction => {
-            if (!transaction.doOperations) {
-                return;
-            }
-            
-            transaction.doOperations.forEach(op => {
-                // 只监听 insert 和 update 操作
-                if (op.action === 'insert' || op.action === 'update') {
-                    logger.info('Operation:', op.action, op.id);
-                    this.queueBlockCheck(op.id);
-                }
-            });
-        });
-    }
-    
-    /**
-     * 将块加入检测队列
-     */
-    private queueBlockCheck(blockId: string): void {
-        this.pendingBlocks.add(blockId);
-        
-        // 防抖处理
-        if (this.debounceTimer) {
-            clearTimeout(this.debounceTimer);
-        }
-        
-        this.debounceTimer = setTimeout(() => {
-            this.processQueue();
-        }, this.DEBOUNCE_DELAY);
-    }
-    
-    /**
-     * 处理队列
-     */
-    private async processQueue(): Promise<void> {
-        const blocks = Array.from(this.pendingBlocks);
-        logger.info('Processing queue, blocks:', blocks.length);
-        
-        this.pendingBlocks.clear();
-        
-        // 批量处理
-        for (const blockId of blocks) {
-            // 去重：避免重复处理
-            if (this.processing.has(blockId)) {
-                logger.info(`Block ${blockId} is already being processed, skipping`);
-                continue;
-            }
-            
-            this.processing.add(blockId);
-            
-            try {
-                await this.processBlock(blockId);
-            } catch (error) {
-                logger.error(`Failed to process block ${blockId}:`, error);
-            } finally {
-                this.processing.delete(blockId);
-            }
-        }
-    }
-    
-    /**
-     * 处理单个块
-     * 
-     * TODO: 实现符号检测和卡片创建逻辑
-     * - 获取块内容
-     * - 检测符号类型
-     * - 路由到对应的创建逻辑
-     */
-    private async processBlock(blockId: string): Promise<void> {
-        logger.info(`Processing block: ${blockId}`);
-        
-        // TODO: Phase 2 - 实现符号检测和卡片创建
-        // 1. 获取块内容（kramdown）
-        // 2. 检测符号类型
-        // 3. 检查是否已制卡
-        // 4. 路由到对应的创建逻辑
-        
-        logger.info(`Block ${blockId} processed (placeholder)`);
-    }
+  }
+
+  private async processBlock(blockId: string): Promise<void> {
+    void this.plugin;
+    logger.info(`Processing block: ${blockId}`);
+    logger.info(`Block ${blockId} processed (placeholder)`);
+  }
 }

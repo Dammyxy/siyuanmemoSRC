@@ -16,10 +16,11 @@
 import { BaseReviewQueue } from './BaseReviewQueue';
 import { QueueType } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
+import type { QueueItem as ReviewQueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import type { NeuralRoamCardTypeResolverPort, QueuePersistencePort } from './ports';
 import { loadQueueState, saveQueueState } from './queuePersistence';
-import { ConceptNeuralQueue } from '../neural/ConceptNeuralQueue';
+import { ConceptNeuralQueue, type QueueItem as ConceptQueueItem } from '../neural/ConceptNeuralQueue';
 import { resolveCardId } from '../../../diagnostics/type-guards';
 import { createLogger } from '@/utils/logger';
 
@@ -35,6 +36,13 @@ interface SeedBlockData {
 
 interface NeuralRoamQueueOptions {
     cardTypeResolver?: NeuralRoamCardTypeResolverPort;
+}
+
+interface NeuralRoamSeedItem {
+    id: string;
+    blockId: string;
+    cardID: string;
+    type: 'concept';
 }
 
 const DEFAULT_CARD_TYPE_RESOLVER: NeuralRoamCardTypeResolverPort = {
@@ -104,7 +112,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         const { value: data, fromStorage } = loadQueueState<SeedBlockData | null>({
             persistence: this.queuePersistence,
             key: this.STORAGE_KEY,
-            fallback: null,
+            initialValue: null,
             validate: (candidate): candidate is SeedBlockData =>
                 Boolean(candidate) &&
                 typeof candidate === 'object' &&
@@ -178,7 +186,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
      * @param card 卡片、队列项或块 ID
      * @param priority 优先级（'normal' | 'high'），默认 'normal'
      */
-    public async addCard(card: FSRSCard | any | string, priority: 'normal' | 'high' = 'normal'): Promise<void> {
+    public async addCard(card: FSRSCard | ReviewQueueItem | string, priority: 'normal' | 'high' = 'normal'): Promise<void> {
         try {
             await this.ensureInitialLoad();
             const blockId = typeof card === 'string' ? card : resolveCardId(card);
@@ -331,7 +339,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
      * 
      * @returns 种子项目列表
      */
-    public getAllItems(): any[] {
+    public getAllItems(): NeuralRoamSeedItem[] {
         const seeds = this.conceptQueue.getSeeds();
         
         // 将种子 ID 转换为队列项格式
@@ -366,7 +374,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
      * @param queueItem 队列项
      * @returns FSRSCard
      */
-    private async convertToFSRSCard(queueItem: any): Promise<FSRSCard> {
+    private async convertToFSRSCard(queueItem: ConceptQueueItem): Promise<FSRSCard> {
         const now = Date.now();
 
         // 通过端口解析卡片类型，避免领域层直接依赖思源 API。

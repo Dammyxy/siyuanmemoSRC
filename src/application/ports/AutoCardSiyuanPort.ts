@@ -3,7 +3,7 @@ export type AutoCardType = 'topic' | 'item' | 'descriptor';
 
 export interface AutoCardSiyuanPort {
   getBlockKramdown(blockId: string): Promise<{ kramdown: string }>;
-  sql(stmt: string): Promise<any[]>;
+  sql(stmt: string): Promise<unknown[]>;
   getBlockAttrs(blockId: string): Promise<AutoCardBlockAttrs>;
   setBlockAttrs(blockId: string, attrs: AutoCardBlockAttrs): Promise<void>;
   pushMsg(msg: string, timeout?: number): Promise<void>;

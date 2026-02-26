@@ -151,7 +151,7 @@ export interface QueueOperation {
    * - `rotate`: { itemId: string, fromIndex: number, toIndex: number }
    * - `reset`: { previousSize: number }
    */
-  details: Record<string, any>;
+  details: Record<string, unknown>;
 }
 
 /**

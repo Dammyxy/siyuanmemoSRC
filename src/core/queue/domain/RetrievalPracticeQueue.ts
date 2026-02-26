@@ -227,7 +227,7 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
      * 
      * @deprecated 使用 getAllCards() 代替
      */
-    public getAllItems(): any[] {
+    public getAllItems(): FSRSCard[] {
         return this.getDeprecatedAllItems(logger);
     }
 }

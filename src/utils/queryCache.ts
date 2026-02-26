@@ -10,7 +10,7 @@ interface CacheEntry<T> {
 /**
  * 简单的 TTL 缓存
  */
-export class QueryCache<T = any> {
+export class QueryCache<T = unknown> {
   private cache = new Map<string, CacheEntry<T>>();
   private ttl: number;
   private maxSize: number;
@@ -162,7 +162,7 @@ export class LRUCache<K, V> {
 /**
  * 带缓存的异步函数包装器
  */
-export function withCache<T extends (...args: any[]) => Promise<any>>(
+export function withCache<T extends (...args: unknown[]) => Promise<unknown>>(
   fn: T,
   options: {
     ttl?: number;

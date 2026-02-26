@@ -22,5 +22,5 @@ export interface GetXiuyuanQueryResult {
   /**
    * Xiuyuan 数据
    */
-  xiuyuan: any; // 使用 any 避免循环依赖，实际类型是 IXiuyuan
+  xiuyuan: unknown;
 }

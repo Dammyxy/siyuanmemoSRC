@@ -1,4 +1,4 @@
-/**
+﻿/**
  * MenuManager - 菜单管理器
  * 
  * 职责：
@@ -19,6 +19,9 @@ import type { Plugin } from 'siyuan';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { DialogManager } from './DialogManager';
 import { Menu } from 'siyuan';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('MenuManager');
 
 /**
  * MenuManager 类
@@ -53,7 +56,7 @@ export class MenuManager {
   constructor(
     private context: ApplicationContext,
     private plugin: Plugin,
-    private i18n: Record<string, any>,
+    private i18n: Record<string, string>,
     private dialogManager: DialogManager
   ) {}
   
@@ -224,9 +227,10 @@ export class MenuManager {
    * 
    * @param e - 菜单事件
    */
-  openBlockMenu(e: any): void {
+  openBlockMenu(e: unknown): void {
     // TODO: 实现块右键菜单
-    console.log('[MenuManager] Block menu not implemented yet');
+    logger.debug('Block menu not implemented yet');
+    void e;
   }
   
   // ========================================================================
@@ -308,3 +312,4 @@ export class MenuManager {
     // 清理资源（如果有的话）
   }
 }
+
