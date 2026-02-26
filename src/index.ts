@@ -43,6 +43,15 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   openSettings(defaultTab?: string): void {
     this.context.getDialogManager()?.openSettingsDialog(defaultTab);
   }
+
+  /**
+   * 打开子集复习对话框
+   *
+   * 供浏览器右键菜单「选中复习」使用。
+   */
+  async openSubsetReviewDialog(blockIds: string[]): Promise<void> {
+    await this.context.getDialogManager()?.openSubsetReviewDialog(blockIds);
+  }
   
   /**
    * 获取到期卡片数量

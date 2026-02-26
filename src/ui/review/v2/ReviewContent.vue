@@ -105,7 +105,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import * as siyuan from 'siyuan';
 import type { ReviewUIState } from './types';
 import { OVERLAY_REGISTRY } from './overlays/index';
@@ -222,6 +222,9 @@ const isConceptDefinitionCard = ref(false);
 // 概念卡状态
 const isConceptCard = ref(false);
 
+const forceProtyleRender = computed(() => props.content.card?.meta?.forceProtyleRender === true);
+const forceQuickRender = computed(() => props.content.card?.meta?.forceQuickRender === true);
+
 // 🆕 判断是否应该使用多挖空卡渲染器
 const shouldUseMultiClozeRenderer = computed(() => {
   // 检查是否为 Xiuyuan 多挖空卡
@@ -240,6 +243,7 @@ const shouldUseMultiClozeRenderer = computed(() => {
 const shouldUseConceptDefinitionRenderer = computed(() => {
   // 只有在 protyle 类型时才检测
   if (props.content.type !== 'protyle') return false;
+  if (forceProtyleRender.value || forceQuickRender.value) return false;
   
   // 使用领域层的辅助函数检测
   const card = props.content.card;
@@ -264,6 +268,7 @@ const shouldUseConceptCardRenderer = computed(() => {
   if (props.content.type !== 'protyle') return false;
   
   // 使用领域层的辅助函数检测
+  if (forceProtyleRender.value || forceQuickRender.value) return false;
   const result = checkIsConceptCard(props.content.card);
   
   logger.debug('[SiYuanMemo][ReviewContent] shouldUseConceptCardRenderer:', {
@@ -278,14 +283,24 @@ const shouldUseConceptCardRenderer = computed(() => {
 const shouldUseDescriptorCardRenderer = computed(() => {
   // 只有在 protyle 类型且检测到描述符卡时才使用
   // 概念定义卡和概念卡优先级更高
-  return props.content.type === 'protyle' && !isConceptDefinitionCard.value && !isConceptCard.value && isDescriptorCard.value;
+  return props.content.type === 'protyle'
+    && !forceProtyleRender.value
+    && !forceQuickRender.value
+    && !isConceptDefinitionCard.value
+    && !isConceptCard.value
+    && isDescriptorCard.value;
 });
 
 // 判断是否应该使用快速卡片渲染器
 const shouldUseQuickCardRenderer = computed(() => {
   // 只有在 protyle 类型且检测到快速卡片时才使用
   // 概念定义卡、概念卡和描述符卡优先级更高
-  return props.content.type === 'protyle' && !isConceptDefinitionCard.value && !isConceptCard.value && !isDescriptorCard.value && isQuickCard.value;
+  return props.content.type === 'protyle'
+    && !forceProtyleRender.value
+    && !isConceptDefinitionCard.value
+    && !isConceptCard.value
+    && !isDescriptorCard.value
+    && isQuickCard.value;
 });
 
 // 概念定义卡加载成功
@@ -338,6 +353,23 @@ function handleQuickCardLoaded(result: unknown) {
 
 // 快速卡片加载失败，显示错误提示
 function handleQuickCardError(error: Error) {
+  const message = String(error?.message || '');
+  if (message.includes('not a quick card')) {
+    const blockId = String(props.content.id || '');
+    logger.debug('[SiYuanMemo][ReviewContent] Quick renderer miss, fallback to Protyle', {
+      blockId,
+      cardId: props.content.card?.id,
+    });
+    if (blockId) {
+      setCardType(blockId, { isConcept: false, isDescriptor: false, isQuick: false });
+    }
+    isQuickCard.value = false;
+    renderError.value = null;
+    if (props.content.type === 'protyle' && blockId) {
+      void renderProtyle(blockId);
+    }
+    return;
+  }
   handleRendererError('Quick card', error);
 }
 
@@ -391,11 +423,20 @@ async function renderProtyle(blockId: string): Promise<void> {
   const seq = ++renderSeq;
   clearRendererError();
 
+  // Reset renderer flags early to prevent stale card type leaking between cards.
+  isConceptDefinitionCard.value = false;
+  isConceptCard.value = false;
+  isDescriptorCard.value = false;
+  isQuickCard.value = false;
+  const forceProtyleRenderFromMeta = props.content.card?.meta?.forceProtyleRender === true;
+  const forceQuickRenderFromMeta =
+    !forceProtyleRenderFromMeta && props.content.card?.meta?.forceQuickRender === true;
+
   logger.debug('[SiYuanMemo][ReviewContent] renderProtyle called with blockId:', blockId);
 
   // 🆕 性能优化：检查卡片类型缓存
   const cachedType = getCardType(blockId);
-  if (cachedType) {
+  if (cachedType && !forceProtyleRenderFromMeta && !forceQuickRenderFromMeta) {
     logger.debug('[SiYuanMemo][ReviewContent] Using cached card type:', cachedType);
     
     // ⚠️ 验证缓存：如果缓存说是概念定义卡，但卡片没有 xiuyuanID，则忽略缓存
@@ -407,12 +448,14 @@ async function renderProtyle(blockId: string): Promise<void> {
         // 不使用缓存，继续检测
       } else {
         isConceptDefinitionCard.value = cachedType.isConcept;
+        isConceptCard.value = false;
         isDescriptorCard.value = cachedType.isDescriptor;
         isQuickCard.value = cachedType.isQuick;
         return;
       }
     } else {
       isConceptDefinitionCard.value = cachedType.isConcept;
+      isConceptCard.value = false;
       isDescriptorCard.value = cachedType.isDescriptor;
       isQuickCard.value = cachedType.isQuick;
       
@@ -423,101 +466,161 @@ async function renderProtyle(blockId: string): Promise<void> {
     }
   }
 
-  // 🆕 检测是否为概念定义卡（优先级最高）
-  try {
-    const card = props.content.card;
-    const xiuyuanID = card?.xiuyuanID;
-    const typeMarker = card?.meta?.typeMarker;
-    
-    logger.debug('[SiYuanMemo][ReviewContent] Checking concept definition card:', {
-      hasCard: !!card,
-      xiuyuanID,
-      typeMarker,
-      hasXiuyuanID: !!xiuyuanID,
-      hasTypeMarker: !!typeMarker
+  if (forceQuickRenderFromMeta) {
+    logger.debug('[SiYuanMemo][ReviewContent] Force quick render enabled by card meta', {
+      blockId,
+      cardId: props.content.card?.id,
     });
-    
-    // 支持新的双向卡片格式：concept-definition-forward/reverse 和 concept-definition-cloze-{index}-forward/reverse
-    // 必须同时有 xiuyuanID 和 typeMarker
-    if (xiuyuanID && typeMarker && (
-      typeMarker === 'concept-definition-forward' || 
-      typeMarker === 'concept-definition-reverse' ||
-      typeMarker.startsWith('concept-definition-cloze-')
-    )) {
-      logger.debug('[SiYuanMemo][ReviewContent] Detected concept definition card (bidirectional)');
-      const result = { isConcept: true, isDescriptor: false, isQuick: false };
-      setCardType(blockId, result);
-      isConceptDefinitionCard.value = true;
-      isDescriptorCard.value = false;
-      isQuickCard.value = false;
-      return;
-    } else if (typeMarker && typeMarker.includes('concept-definition')) {
-      // 如果有 concept-definition 相关的 typeMarker 但没有 xiuyuanID，说明是旧卡片
-      logger.warn('[SiYuanMemo][ReviewContent] Found old concept definition card without xiuyuanID, will use normal render');
+    try {
+      const isQuick = await quickCardRenderService.value.isQuickCard(blockId, props.content.card?.id);
+      if (seq !== renderSeq) {
+        logger.debug('[SiYuanMemo][ReviewContent] Quick detection cancelled, newer render pending');
+        return;
+      }
+      if (isQuick) {
+        logger.debug('[SiYuanMemo][ReviewContent] Detected quick card by forceQuickRender');
+        const result = { isConcept: false, isDescriptor: false, isQuick: true };
+        setCardType(blockId, result);
+        isConceptDefinitionCard.value = false;
+        isConceptCard.value = false;
+        isQuickCard.value = true;
+        isDescriptorCard.value = false;
+        return;
+      }
+      logger.warn('[SiYuanMemo][ReviewContent] forceQuickRender set but block is not quick card, fallback to Protyle', {
+        blockId,
+        cardId: props.content.card?.id,
+      });
+    } catch (error) {
+      logger.warn('[SiYuanMemo][ReviewContent] Forced quick detection failed, fallback to Protyle:', error);
     }
-  } catch (error) {
-    logger.warn('[SiYuanMemo][ReviewContent] Concept definition card detection failed:', error);
-  }
+  } else if (!forceProtyleRenderFromMeta) {
+    // 🆕 检测是否为概念定义卡（优先级最高）
+    try {
+      const card = props.content.card;
+      const xiuyuanID = card?.xiuyuanID;
+      const typeMarker = card?.meta?.typeMarker;
+      
+      logger.debug('[SiYuanMemo][ReviewContent] Checking concept definition card:', {
+        hasCard: !!card,
+        xiuyuanID,
+        typeMarker,
+        hasXiuyuanID: !!xiuyuanID,
+        hasTypeMarker: !!typeMarker
+      });
+      
+      // 支持新的双向卡片格式：concept-definition-forward/reverse 和 concept-definition-cloze-{index}-forward/reverse
+      // 必须同时有 xiuyuanID 和 typeMarker
+      if (xiuyuanID && typeMarker && (
+        typeMarker === 'concept-definition-forward' || 
+        typeMarker === 'concept-definition-reverse' ||
+        typeMarker.startsWith('concept-definition-cloze-')
+      )) {
+        logger.debug('[SiYuanMemo][ReviewContent] Detected concept definition card (bidirectional)');
+        const result = { isConcept: true, isDescriptor: false, isQuick: false };
+        setCardType(blockId, result);
+        isConceptDefinitionCard.value = true;
+        isConceptCard.value = false;
+        isDescriptorCard.value = false;
+        isQuickCard.value = false;
+        return;
+      } else if (typeMarker && typeMarker.includes('concept-definition')) {
+        // 如果有 concept-definition 相关的 typeMarker 但没有 xiuyuanID，说明是旧卡片
+        logger.warn('[SiYuanMemo][ReviewContent] Found old concept definition card without xiuyuanID, will use normal render');
+      }
+    } catch (error) {
+      logger.warn('[SiYuanMemo][ReviewContent] Concept definition card detection failed:', error);
+    }
 
-  // 🆕 检测是否为概念卡（builtin-concept-simple）
-  try {
-    const card = props.content.card;
-    const xiuyuanID = card?.xiuyuanID;
-    const typeMarker = card?.meta?.typeMarker;
-    
-    logger.debug('[SiYuanMemo][ReviewContent] Checking concept card:', {
-      hasCard: !!card,
-      xiuyuanID,
-      typeMarker,
-      hasXiuyuanID: !!xiuyuanID,
-      hasTypeMarker: !!typeMarker
+    // 🆕 检测是否为概念卡（builtin-concept-simple）
+    try {
+      const card = props.content.card;
+      const xiuyuanID = card?.xiuyuanID;
+      const typeMarker = card?.meta?.typeMarker;
+      
+      logger.debug('[SiYuanMemo][ReviewContent] Checking concept card:', {
+        hasCard: !!card,
+        xiuyuanID,
+        typeMarker,
+        hasXiuyuanID: !!xiuyuanID,
+        hasTypeMarker: !!typeMarker
+      });
+      
+      // 概念卡的 typeMarker 是 'C'
+      if (xiuyuanID && typeMarker === 'C') {
+        logger.debug('[SiYuanMemo][ReviewContent] Detected concept card');
+        const result = { isConcept: false, isConceptCard: true, isDescriptor: false, isQuick: false };
+        setCardType(blockId, result);
+        isConceptDefinitionCard.value = false;
+        isConceptCard.value = true;
+        isDescriptorCard.value = false;
+        isQuickCard.value = false;
+        return;
+      }
+    } catch (error) {
+      logger.warn('[SiYuanMemo][ReviewContent] Concept card detection failed:', error);
+    }
+
+    // 🆕 检测是否为描述符卡
+    try {
+      const descriptorTypeMarker = props.content.card?.meta?.typeMarker;
+      if (typeof descriptorTypeMarker === 'string' && descriptorTypeMarker.startsWith('concept-descriptor')) {
+        logger.debug('[SiYuanMemo][ReviewContent] Detected descriptor card by typeMarker:', {
+          typeMarker: descriptorTypeMarker,
+        });
+        const result = { isConcept: false, isDescriptor: true, isQuick: false };
+        setCardType(blockId, result);
+        isConceptDefinitionCard.value = false;
+        isConceptCard.value = false;
+        isDescriptorCard.value = true;
+        isQuickCard.value = false;
+        return;
+      }
+
+      const isDescriptor = await descriptorCardRenderService.value.isDescriptorCard(blockId);
+      if (seq !== renderSeq) {
+        logger.debug('[SiYuanMemo][ReviewContent] Descriptor detection cancelled, newer render pending');
+        return;
+      }
+      if (isDescriptor) {
+        logger.debug('[SiYuanMemo][ReviewContent] Detected descriptor card');
+        const result = { isConcept: false, isDescriptor: true, isQuick: false };
+        setCardType(blockId, result);
+        isConceptDefinitionCard.value = false;
+        isConceptCard.value = false;
+        isDescriptorCard.value = true;
+        isQuickCard.value = false;
+        return;
+      }
+    } catch (error) {
+      logger.warn('[SiYuanMemo][ReviewContent] Descriptor card detection failed:', error);
+    }
+
+    // 🆕 检测是否为快速卡片
+    try {
+      const isQuick = await quickCardRenderService.value.isQuickCard(blockId, props.content.card?.id);
+      if (seq !== renderSeq) {
+        logger.debug('[SiYuanMemo][ReviewContent] Quick detection cancelled, newer render pending');
+        return;
+      }
+      if (isQuick) {
+        logger.debug('[SiYuanMemo][ReviewContent] Detected quick card');
+        const result = { isConcept: false, isDescriptor: false, isQuick: true };
+        setCardType(blockId, result);
+        isConceptDefinitionCard.value = false;
+        isConceptCard.value = false;
+        isQuickCard.value = true;
+        isDescriptorCard.value = false;
+        return;
+      }
+    } catch (error) {
+      logger.warn('[SiYuanMemo][ReviewContent] Quick card detection failed:', error);
+    }
+  } else {
+    logger.debug('[SiYuanMemo][ReviewContent] Force Protyle render enabled by card meta', {
+      blockId,
+      cardId: props.content.card?.id,
     });
-    
-    // 概念卡的 typeMarker 是 'C'
-    if (xiuyuanID && typeMarker === 'C') {
-      logger.debug('[SiYuanMemo][ReviewContent] Detected concept card');
-      const result = { isConcept: false, isConceptCard: true, isDescriptor: false, isQuick: false };
-      setCardType(blockId, result);
-      isConceptDefinitionCard.value = false;
-      isConceptCard.value = true;
-      isDescriptorCard.value = false;
-      isQuickCard.value = false;
-      return;
-    }
-  } catch (error) {
-    logger.warn('[SiYuanMemo][ReviewContent] Concept card detection failed:', error);
-  }
-
-  // 🆕 检测是否为描述符卡
-  try {
-    const isDescriptor = await descriptorCardRenderService.value.isDescriptorCard(blockId);
-    if (isDescriptor) {
-      logger.debug('[SiYuanMemo][ReviewContent] Detected descriptor card');
-      const result = { isConcept: false, isDescriptor: true, isQuick: false };
-      setCardType(blockId, result);
-      isConceptDefinitionCard.value = false;
-      isDescriptorCard.value = true;
-      isQuickCard.value = false;
-      return;
-    }
-  } catch (error) {
-    logger.warn('[SiYuanMemo][ReviewContent] Descriptor card detection failed:', error);
-  }
-
-  // 🆕 检测是否为快速卡片
-  try {
-    const isQuick = await quickCardRenderService.value.isQuickCard(blockId, props.content.card?.id);
-    if (isQuick) {
-      logger.debug('[SiYuanMemo][ReviewContent] Detected quick card');
-      const result = { isConcept: false, isDescriptor: false, isQuick: true };
-      setCardType(blockId, result);
-      isConceptDefinitionCard.value = false;
-      isQuickCard.value = true;
-      isDescriptorCard.value = false;
-      return;
-    }
-  } catch (error) {
-    logger.warn('[SiYuanMemo][ReviewContent] Quick card detection failed:', error);
   }
   
   // 🆕 缓存普通卡片类型
@@ -526,6 +629,7 @@ async function renderProtyle(blockId: string): Promise<void> {
   
   // Use standard Protyle rendering for non-special cards.
   isConceptDefinitionCard.value = false;
+  isConceptCard.value = false;
   isQuickCard.value = false;
   isDescriptorCard.value = false;
 
@@ -756,14 +860,6 @@ watch(
   },
   { immediate: true },
 );
-
-onMounted(() => {
-  const { type, id } = props.content;
-  if (type !== 'protyle') return;
-  const blockId = String(id || '');
-  if (!blockId) return;
-  void renderProtyle(blockId);
-});
 
 onUnmounted(() => {
   try {

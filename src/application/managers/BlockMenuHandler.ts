@@ -1134,14 +1134,10 @@ export class BlockMenuHandler {
         });
         
         if (result.ok) {
-          // 标记块为闪卡（类型为 concept）
-          await this.siyuanApi.markBlockAsCard(blockId, result.value.id.value, priority === 'high' ? 1 : 0, 'item');
-          
-          // 更新块属性为 concept 类型
-          await this.siyuanApi.setBlockAttrs(blockId, {
-            'custom-fsrs-card-type': 'concept'
-          });
-          
+          // 概念卡采用 Xiuyuan 最小属性模型：
+          // 由 XiuyuanRepository 负责写入 custom-xiuyuan-* + custom-fsrs-card-type
+          // 这里不再额外写 legacy custom-fsrs-card-id/custom-fsrs-flashcard/custom-fsrs-priority。
+
           // ✅ 添加到 Riff（确保同步）
           await this.siyuanApi.addRiffCards(this.siyuanApi.BUILTIN_DECK_ID, [blockId]);
           logger.info(`[BlockMenuHandler] Added concept card to Riff: ${blockId}`);

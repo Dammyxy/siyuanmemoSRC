@@ -1297,6 +1297,51 @@ function getActionLabel(action: { id: string; label: string }): string {
   return t(m.key, action.label || m.fallback);
 }
 
+function getReviewSubsetAction() {
+  return {
+    id: 'review-subset',
+    label: t('reviewSubset', 'Review Subset'),
+    icon: 'iconPlay',
+  };
+}
+
+function ensureReviewSubsetAction(actions: Array<{ id: string; label: string; icon?: string }>) {
+  if (typeof props.plugin?.openSubsetReviewDialog !== 'function') {
+    return actions;
+  }
+
+  if (actions.some((action) => action.id === 'review-subset')) {
+    return actions;
+  }
+
+  return [getReviewSubsetAction(), ...actions];
+}
+
+function resolveSubsetBlockIds(cards: BrowserCard[]): string[] {
+  return Array.from(
+    new Set(
+      (cards || [])
+        .map((card) => String(card?.blockId || ''))
+        .filter(Boolean)
+    )
+  );
+}
+
+async function openSubsetReviewFromSelection(cards: BrowserCard[]): Promise<void> {
+  if (typeof props.plugin?.openSubsetReviewDialog !== 'function') {
+    await pushErrMsg(t('initFailed', 'FSRS plugin initialization failed, please check console for errors'));
+    return;
+  }
+
+  const blockIds = resolveSubsetBlockIds(cards);
+  if (blockIds.length === 0) {
+    await pushErrMsg(t('drillNoCards', 'No flashcards available in the current range'));
+    return;
+  }
+
+  await Promise.resolve(props.plugin.openSubsetReviewDialog(blockIds));
+}
+
 async function handleAction(actionId: string, targetCards: BrowserCard[], anchorRow?: BrowserCard) {
   logger.debug('handleAction called:', {
     actionId,
@@ -1316,6 +1361,11 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
       return;
     }
     await pushErrMsg(t('envNotInit', 'Environment not initialized, cannot open tab'));
+    return;
+  }
+
+  if (actionId === 'review-subset') {
+    await openSubsetReviewFromSelection(targetCards);
     return;
   }
 
@@ -1430,7 +1480,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   
   // ✅ 过滤掉 undefined/null 的 action
   const rawActions = ds?.getSupportedActions?.() || [];
-  const actions = rawActions.filter(a => a && a.id);
+  const actions = ensureReviewSubsetAction(rawActions.filter(a => a && a.id));
   logger.debug('context menu actions:', {
     rawCount: rawActions.length,
     validCount: actions.length,
@@ -1495,29 +1545,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   menu.addItem({ type: 'separator' });
 
   // ========== 卡片类型菜单（Topic/Item + 概念卡/描述符卡）==========
-  const cardTypeMenu: BrowserMenuItem[] = [
-    {
-      icon: 'iconFile',
-      label: t('markAsTopic', 'Mark as Topic'),
-      click: () => void markCardsAsTopic(selected),
-    },
-    {
-      icon: 'iconCheck',
-      label: t('markAsItem', 'Mark as Item'),
-      click: () => void markCardsAsItem(selected),
-    },
-    { type: 'separator' },  // 分隔线
-    {
-      icon: '🧠',
-      label: t('markAsConcept', 'Mark as Concept Card'),
-      click: () => void markCardsAsConcept(selected),
-    },
-    {
-      icon: '🏷️',
-      label: t('markAsDescriptor', 'Mark as Descriptor Card'),
-      click: () => void markCardsAsDescriptor(selected),
-    },
-  ];
+  const cardTypeMenu: BrowserMenuItem[] = buildCardTypeSubmenu(selected);
 
   menu.addItem({
     icon: 'iconHR',
@@ -1592,7 +1620,7 @@ function showBatchMenu(event?: MouseEvent) {
   const menu = new Menu('card-browser-batch');
 
   const ds = currentDataSource.value;
-  const actions = ds?.getSupportedActions?.() || [];
+  const actions = ensureReviewSubsetAction((ds?.getSupportedActions?.() || []).filter(action => action && action.id));
   const selected = selectedRows.value || [];
   const anchorRow = selected[0];
 
@@ -1979,10 +2007,6 @@ const {
 });
 
 const {
-  markCardsAsTopic,
-  markCardsAsItem,
-  markCardsAsConcept,
-  markCardsAsDescriptor,
   migrateTopicItem,
   buildCardTypeSubmenu,
 } = useCardActions({

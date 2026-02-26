@@ -11,15 +11,15 @@
       (p / q)
     </button>
     <span class="fn__space"></span>
-    <button
-      data-type="-3"
-      aria-label="0 / x"
-      class="b3-button b3-button--white b3-tooltips__n b3-tooltips"
-      @click="emit('skip')"
-    >
-      <div class="card__icon">💤</div>
-      {{ t('skip', '跳过') }} (0)
-    </button>
+    <div style="width: 25%; min-width: 120px;">
+      <SkipMenuButton
+        :i18n="i18n"
+        :queue-size="remainingSize"
+        @skip="emit('skip')"
+        @insert="handleInsert"
+        @schedule="handleSchedule"
+      />
+    </div>
     <span class="fn__space"></span>
     <button
       data-type="-1"

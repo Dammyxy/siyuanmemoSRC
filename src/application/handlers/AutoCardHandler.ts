@@ -88,6 +88,7 @@ export class AutoCardHandler implements ITransactionHandler {
     private quickQueue: Set<string> = new Set();
     private listQueue: Set<string> = new Set();
     private processing: Set<string> = new Set();
+    private readonly conceptCardEnsureInFlight = new Set<string>();
     
     private quickTimer: NodeJS.Timeout | null = null;
     private listTimer: NodeJS.Timeout | null = null;
@@ -190,6 +191,14 @@ export class AutoCardHandler implements ITransactionHandler {
             this.cardHelper = new CardCreationHelper(cardService);
         }
         return this.cardHelper;
+    }
+
+    private hasXiuyuanBinding(attrs: Record<string, string> | null | undefined): boolean {
+        if (!attrs) {
+            return false;
+        }
+        const xiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
+        return typeof xiuyuanId === 'string' && xiuyuanId.trim().length > 0;
     }
     
     private async createConceptCardViaDDD(
@@ -386,7 +395,7 @@ export class AutoCardHandler implements ITransactionHandler {
 
                         const attrs = await this.siyuanApi.getBlockAttrs(blockId);
             
-            if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
+            if (this.hasXiuyuanBinding(attrs)) {
                 logger.debug('[SiYuanMemo][AutoCard] Block is already part of a Xiuyuan card, skipping:', blockId);
                 return;
             }
@@ -1162,7 +1171,7 @@ export class AutoCardHandler implements ITransactionHandler {
             
 
                         const currentAttrs = await this.siyuanApi.getBlockAttrs(blockId);
-            if (currentAttrs && (currentAttrs['custom-xiuyuan-id'] || currentAttrs['custom-fsrs-xiuyuan-id'])) {
+            if (this.hasXiuyuanBinding(currentAttrs)) {
                 logger.debug('[SiYuanMemo][AutoCard] Block already has Xiuyuan card (race condition detected), skipping:', blockId);
                 return;
             }
@@ -1477,27 +1486,28 @@ export class AutoCardHandler implements ITransactionHandler {
     
     // Ensure referenced concept document has its own concept card.
     private async ensureConceptDocumentCard(conceptBlockId: string, conceptName: string): Promise<void> {
+        if (this.conceptCardEnsureInFlight.has(conceptBlockId)) {
+            logger.debug('[SiYuanMemo][AutoCard] Concept document ensure already in flight, skipping:', conceptBlockId);
+            return;
+        }
+
+        this.conceptCardEnsureInFlight.add(conceptBlockId);
         try {
             logger.debug('[SiYuanMemo][AutoCard] Ensuring concept document card:', conceptBlockId, conceptName);
-            
-                        
 
-            const cardQuery = `
-                SELECT value 
-                FROM attributes 
-                WHERE block_id = '${conceptBlockId}' 
-                  AND name = 'custom-fsrs-card-id'
-            `;
-            const cardResult = await this.siyuanApi.sql(cardQuery);
-            
-            if (cardResult && cardResult.length > 0) {
-                logger.debug('[SiYuanMemo][AutoCard] Concept document already has card:', conceptBlockId);
+            const attrs = await this.siyuanApi.getBlockAttrs(conceptBlockId);
+            const hasXiuyuanId = this.hasXiuyuanBinding(attrs);
+            const hasLegacyCardId = typeof attrs?.['custom-fsrs-card-id'] === 'string'
+                && attrs['custom-fsrs-card-id'].trim().length > 0;
+            const isConceptType = attrs?.['custom-fsrs-card-type'] === 'concept';
+
+            const existingCard = this.getCardService().getCardByBlockId(conceptBlockId);
+
+            if (hasXiuyuanId || hasLegacyCardId || isConceptType || existingCard) {
+                logger.debug('[SiYuanMemo][AutoCard] Concept document already has card metadata:', conceptBlockId);
                 return;
             }
-            
 
-            
-                        
             logger.debug('[SiYuanMemo][AutoCard] Creating Xiuyuan concept card for:', conceptName);
             
             const xiuyuanAppService = await this.requireXiuyuanApplicationService();
@@ -1528,6 +1538,8 @@ export class AutoCardHandler implements ITransactionHandler {
             
         } catch (error) {
             logger.error('[SiYuanMemo][AutoCard] Failed to ensure concept document card:', error);
+        } finally {
+            this.conceptCardEnsureInFlight.delete(conceptBlockId);
         }
     }
     

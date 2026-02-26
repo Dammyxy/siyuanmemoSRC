@@ -13,8 +13,8 @@ import {
 import { addRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 import { ATTR_CARD_ID, getCardBlockIds, getBlockText, markBlockAsCard } from '@/core/siyuan/block';
 
-function toBlockCardType(cardType?: ManagerCardType): 'topic' | 'item' | undefined {
-  if (cardType === 'topic' || cardType === 'item') {
+function toBlockCardType(cardType?: ManagerCardType): 'topic' | 'item' | 'concept' | 'descriptor' | undefined {
+  if (cardType === 'topic' || cardType === 'item' || cardType === 'concept' || cardType === 'descriptor') {
     return cardType;
   }
   return undefined;

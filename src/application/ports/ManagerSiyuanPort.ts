@@ -1,4 +1,4 @@
-export type ManagerCardType = 'topic' | 'item' | 'descriptor';
+export type ManagerCardType = 'topic' | 'item' | 'concept' | 'descriptor';
 
 export type ManagerCardBlockIdFilter = {
   type: 'doc' | 'tree' | 'sql' | 'backlink';

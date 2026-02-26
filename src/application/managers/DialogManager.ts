@@ -85,6 +85,11 @@ interface BlockSqlRow {
   markdown?: string;
 }
 
+interface AttributeSqlRow {
+  name?: string;
+  value?: string;
+}
+
 /**
  * DialogManager 类
  * 
@@ -112,6 +117,7 @@ export class DialogManager implements IDialogManager {
   private srsBrowserDialog: VueDialogHandle | null = null;
   private templateSelectDialog: VueDialogHandle | null = null;
   private currentReviewDialog: VueDialogHandle | null = null;
+  private readonly conceptCardEnsureInFlight = new Set<string>();
   
   // ========================================================================
   // 构造函数
@@ -1659,99 +1665,129 @@ export class DialogManager implements IDialogManager {
     xiuyuanAppService: XiuyuanApplicationService
   ): Promise<void> {
     try {
-      const conceptBlockId = fieldMapping['concept'];
-      if (!conceptBlockId) {
+      const conceptFieldBlockId = fieldMapping['concept'];
+      if (!conceptFieldBlockId) {
         logger.warn('[DialogManager] No concept field in fieldMapping');
         return;
       }
-      
-      logger.info('[DialogManager] Ensuring concept document card:', conceptBlockId);
-      
-      // 1. 获取概念块的引用目标（文档块）
-      const blockQuery = `
-        SELECT * FROM blocks WHERE id = '${conceptBlockId}'
-      `;
-      const blockResult = await this.siyuanApi.sql(blockQuery);
-      
-      if (!blockResult || blockResult.length === 0) {
-        logger.warn('[DialogManager] Concept block not found:', conceptBlockId);
+
+      const safeConceptFieldBlockId = conceptFieldBlockId.replace(/'/g, "''");
+      logger.info('[DialogManager] Ensuring concept document card:', conceptFieldBlockId);
+
+      // 1. 解析概念文档块 ID（支持直接传文档块 ID，或传引用块 ID）
+      const conceptBlockRows = await this.siyuanApi.sql<BlockSqlRow>(`
+        SELECT id, type, content, markdown
+        FROM blocks
+        WHERE id = '${safeConceptFieldBlockId}'
+        LIMIT 1
+      `);
+
+      if (!conceptBlockRows || conceptBlockRows.length === 0) {
+        logger.warn('[DialogManager] Concept field block not found:', conceptFieldBlockId);
         return;
       }
-      
-      const block = blockResult[0];
-      
-      // 2. 提取块引用 ID
-      const refMatch = block.markdown?.match(/\(\((\d{14}-[a-z0-9]{7})\s+'[^']*'\)\)/);
-      if (!refMatch) {
-        logger.warn('[DialogManager] No block reference found in concept block');
+
+      const conceptFieldBlock = conceptBlockRows[0];
+      let conceptDocumentId = conceptFieldBlock.id;
+      let conceptDocumentBlock: BlockSqlRow = conceptFieldBlock;
+
+      if (conceptFieldBlock.type !== 'd') {
+        const refMatch = conceptFieldBlock.markdown?.match(/\(\((\d{14}-[a-z0-9]{7})(?:\s+'[^']*')?\)\)/);
+        if (!refMatch) {
+          logger.warn('[DialogManager] No document block reference found in concept field block');
+          return;
+        }
+
+        conceptDocumentId = refMatch[1];
+        const safeConceptDocumentId = conceptDocumentId.replace(/'/g, "''");
+        const conceptDocumentRows = await this.siyuanApi.sql<BlockSqlRow>(`
+          SELECT id, type, content
+          FROM blocks
+          WHERE id = '${safeConceptDocumentId}'
+          LIMIT 1
+        `);
+
+        if (!conceptDocumentRows || conceptDocumentRows.length === 0) {
+          logger.warn('[DialogManager] Referenced concept document not found:', conceptDocumentId);
+          return;
+        }
+
+        conceptDocumentBlock = conceptDocumentRows[0];
+      }
+
+      if (conceptDocumentBlock.type !== 'd') {
+        logger.warn('[DialogManager] Resolved concept block is not a document:', conceptDocumentBlock.type);
         return;
       }
-      
-      const refBlockId = refMatch[1];
-      logger.info('[DialogManager] Found reference block ID:', refBlockId);
-      
-      // 3. 验证引用的块是文档块
-      const refBlockQuery = `
-        SELECT * FROM blocks WHERE id = '${refBlockId}'
-      `;
-      const refBlockResult = await this.siyuanApi.sql(refBlockQuery);
-      
-      if (!refBlockResult || refBlockResult.length === 0) {
-        logger.warn('[DialogManager] Referenced block not found:', refBlockId);
+
+      if (this.conceptCardEnsureInFlight.has(conceptDocumentId)) {
+        logger.debug('[DialogManager] Concept document ensure already in flight, skipping:', conceptDocumentId);
         return;
       }
-      
-      const refBlock = refBlockResult[0];
-      if (refBlock.type !== 'd') {
-        logger.warn('[DialogManager] Referenced block is not a document:', refBlock.type);
-        return;
+
+      this.conceptCardEnsureInFlight.add(conceptDocumentId);
+      try {
+        const safeConceptDocumentId = conceptDocumentId.replace(/'/g, "''");
+        const attrRows = await this.siyuanApi.sql<AttributeSqlRow>(`
+          SELECT name, value
+          FROM attributes
+          WHERE block_id = '${safeConceptDocumentId}'
+            AND name IN (
+              'custom-fsrs-card-id',
+              'custom-xiuyuan-id',
+              'custom-fsrs-xiuyuan-id',
+              'custom-fsrs-card-type'
+            )
+        `);
+
+        const hasXiuyuanId = (attrRows || []).some((row) => {
+          if (row.name !== 'custom-xiuyuan-id' && row.name !== 'custom-fsrs-xiuyuan-id') {
+            return false;
+          }
+          return typeof row.value === 'string' && row.value.trim().length > 0;
+        });
+
+        const hasLegacyCardId = (attrRows || []).some((row) =>
+          row.name === 'custom-fsrs-card-id' && typeof row.value === 'string' && row.value.trim().length > 0
+        );
+
+        const isConceptType = (attrRows || []).some((row) =>
+          row.name === 'custom-fsrs-card-type' && row.value === 'concept'
+        );
+
+        if (hasXiuyuanId || hasLegacyCardId || isConceptType) {
+          logger.info('[DialogManager] Concept document already has card metadata:', conceptDocumentId);
+          return;
+        }
+
+        const conceptName = conceptDocumentBlock.content || '未命名概念';
+        logger.info('[DialogManager] Creating Xiuyuan concept card for:', conceptName);
+
+        const result = await xiuyuanAppService.createFromBlocks({
+          blockIds: [conceptDocumentId],
+          templateId: 'builtin-concept-simple',
+          fieldMapping: {
+            concept: conceptDocumentId,
+          },
+          deckId: this.siyuanApi.BUILTIN_DECK_ID,
+        });
+
+        if (!result.ok) {
+          const error = (result as { ok: false; error: Error }).error;
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          logger.error('[DialogManager] Failed to create concept card:', errorMsg);
+          return;
+        }
+
+        await this.siyuanApi.setBlockAttrs(conceptDocumentId, {
+          'custom-fsrs-card-type': 'concept',
+        });
+
+        logger.info('[DialogManager] Concept card created for document:', conceptDocumentId);
+        this.siyuanApi.pushMsg(`✅ 已为概念「${conceptName}」创建概念卡`);
+      } finally {
+        this.conceptCardEnsureInFlight.delete(conceptDocumentId);
       }
-      
-      const conceptName = refBlock.content || '未命名概念';
-      logger.info('[DialogManager] Concept document:', conceptName);
-      
-      // 4. 检查是否已经是卡片
-      const cardQuery = `
-        SELECT value 
-        FROM attributes 
-        WHERE block_id = '${refBlockId}' 
-          AND name = 'custom-fsrs-card-id'
-      `;
-      const cardResult = await this.siyuanApi.sql(cardQuery);
-      
-      if (cardResult && cardResult.length > 0) {
-        logger.info('[DialogManager] Concept document already has card:', refBlockId);
-        return;
-      }
-      
-      // 5. 创建 Xiuyuan 概念卡
-      logger.info('[DialogManager] Creating Xiuyuan concept card for:', conceptName);
-      
-      const result = await xiuyuanAppService.createFromBlocks({
-        blockIds: [refBlockId],
-        templateId: 'builtin-concept-simple',
-        fieldMapping: {
-          concept: refBlockId
-        },
-        deckId: this.siyuanApi.BUILTIN_DECK_ID
-      });
-      
-      if (!result.ok) {
-        const error = (result as { ok: false; error: Error }).error;
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        logger.error('[DialogManager] Failed to create concept card:', errorMsg);
-        return;
-      }
-      
-      // 6. 标记为概念卡类型
-      await this.siyuanApi.setBlockAttrs(refBlockId, {
-        'custom-fsrs-card-type': 'concept'
-      });
-      
-      logger.info('[DialogManager] Concept card created for document:', refBlockId);
-      
-      this.siyuanApi.pushMsg(`✅ 已为概念「${conceptName}」创建概念卡`);
-      
     } catch (error) {
       logger.error('[DialogManager] Failed to ensure concept document card:', error);
     }

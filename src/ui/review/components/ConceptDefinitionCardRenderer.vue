@@ -50,7 +50,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { openTab } from 'siyuan';
 import { ConceptDefinitionCardRenderService } from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
 import { createLogger } from '@/utils/logger';
@@ -110,6 +110,23 @@ async function loadViewModel() {
   }
 }
 
+const renderIdentity = computed(() => {
+  const card = props.card;
+  const meta = card?.meta;
+  const cardXiuyuanID = typeof card?.xiuyuanID === 'string' ? card.xiuyuanID : '';
+  const metaXiuyuanID = typeof meta?.xiuyuanID === 'string' ? meta.xiuyuanID : '';
+  const faceIndex = typeof meta?.faceIndex === 'number' ? String(meta.faceIndex) : '';
+  const typeMarker = typeof meta?.typeMarker === 'string' ? meta.typeMarker : '';
+
+  return [
+    props.blockId || '',
+    props.cardId || '',
+    cardXiuyuanID || metaXiuyuanID,
+    faceIndex,
+    typeMarker,
+  ].join('|');
+});
+
 /**
  * 跳转到概念文档
  */
@@ -131,9 +148,13 @@ function jumpToConcept() {
 }
 
 // 生命周期
-onMounted(async () => {
-  await loadViewModel();
-});
+watch(
+  renderIdentity,
+  async () => {
+    await loadViewModel();
+  },
+  { immediate: true }
+);
 </script>
 
 <style scoped>

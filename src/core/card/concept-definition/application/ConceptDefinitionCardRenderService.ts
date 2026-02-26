@@ -39,6 +39,8 @@ interface ConceptDefinitionCardRenderPorts {
 }
 
 const logger = createLogger('ConceptDefinitionCardRenderService');
+const DEFINITION_DELIMITER_PATTERN = /(?:::|:>|:<|：：|：》|：《)/;
+const TRAILING_BLOCK_ATTR_PATTERN = /\s*\{:[^{}]*\}\s*$/s;
 
 function isXiuyuanQueryResult(value: unknown): value is XiuyuanQueryResult {
   if (!value || typeof value !== 'object') {
@@ -130,15 +132,22 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
 
     const face = faces[faceIndex];
     
-    // 4. 获取概念块 ID 和定义块 ID
-    // 注意：CardFace 中的 questionBlockId 和 answerBlockId 根据卡片方向不同而不同
-    // - 正向卡：questionBlockId = 概念块，answerBlockId = 定义块
-    // - 反向卡：questionBlockId = 定义块，answerBlockId = 概念块
-    // 但我们总是需要：概念块用于显示概念名称，定义块用于显示定义内容
-    
-    const isReverse = card?.meta?.typeMarker?.includes('reverse') === true;
-    const conceptBlockId = isReverse ? face.answerBlockId : face.questionBlockId;
-    const definitionBlockId = isReverse ? face.questionBlockId : face.answerBlockId;
+    // 4. 解析方向与挖空索引
+    const parsedTypeMarker = this.parseTypeMarker(card?.meta?.typeMarker);
+    const { clozeIndex } = parsedTypeMarker;
+
+    // 5. 获取概念块 ID 和定义块 ID
+    // 注意：渲染转换可能只修改 typeMarker，不会重写 CardFace 的 question/answer 映射。
+    // 因此这里优先通过块内容语法识别定义块，避免方向切换后取错块。
+    const {
+      conceptBlockId,
+      definitionBlockId,
+      definitionKramdown,
+      inferredReverseFromFace,
+    } = await this.resolveConceptAndDefinitionBlocks(face, parsedTypeMarker.isReverse);
+    const isReverse = parsedTypeMarker.hasExplicitDirection
+      ? parsedTypeMarker.isReverse
+      : inferredReverseFromFace;
 
     logger.debug('[ConceptDefinitionCardRenderService] Block IDs from CardFace:', {
       conceptBlockId,
@@ -154,7 +163,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       throw new Error('Missing concept or definition block ID in CardFace');
     }
 
-    // 5. 获取概念名称
+    // 6. 获取概念名称
     logger.debug('[ConceptDefinitionCardRenderService] About to get concept name:', {
       conceptBlockId,
       definitionBlockId,
@@ -171,9 +180,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       preview: conceptName.substring(0, 50)
     });
 
-    // 6. 获取定义内容
-    const { kramdown: definitionKramdown } = await getBlockKramdown(definitionBlockId);
-    
+    // 7. 获取定义内容
     logger.debug('[ConceptDefinitionCardRenderService] Definition kramdown:', {
       length: definitionKramdown?.length,
       preview: definitionKramdown?.substring(0, 100)
@@ -183,24 +190,17 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       throw new Error(`Definition block has no content: ${definitionBlockId}`);
     }
 
-    // 7. 解析定义块内容
-    // 格式：((ref '概念')):>定义 或 ((ref '概念')):<定义 或 ((ref '概念'))::定义 {: 属性}
-    // 我们需要提取符号后面的部分（去掉属性）
-    // 支持的符号：::, :>, :<, ：：, ：》, ：《
-    const definitionMatch = definitionKramdown.match(/(?:::|:>|:<|：：|：》|：《)(.+?)(?:\s*\{:|$)/s);
-    const definitionText = definitionMatch ? definitionMatch[1].trim() : definitionKramdown;
+    // 8. 解析定义块内容
+    const definitionText = this.extractDefinitionText(definitionKramdown);
     
     logger.debug('[ConceptDefinitionCardRenderService] Parsed definition:', {
       original: definitionKramdown.substring(0, 100),
       extracted: definitionText.substring(0, 100),
-      matchFound: !!definitionMatch
+      hasDelimiter: this.hasDefinitionDelimiter(definitionKramdown),
     });
 
-    // 8. 解析挖空
+    // 9. 解析挖空
     const clozes = this.parseClozes(definitionText);
-
-    // 9. 确定当前挖空索引（isReverse 已在前面计算）
-    const { clozeIndex } = this.parseTypeMarker(card?.meta?.typeMarker);
 
     // 10. 生成定义 HTML（隐藏当前挖空）
     const processedKramdown = this.processDefinitionKramdown(
@@ -249,7 +249,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       const reverseQuestion = canInlineDefinition
         ? this.t('conceptDefinitionReverseQuestionInline', '{definition}是哪个概念的定义？')
             .replace('{definition}', normalizedDefinition)
-        : this.t('conceptDefinitionReverseQuestion', '定义内容是哪个概念的定义？');
+        : this.t('conceptDefinitionReverseQuestion', '以下是哪个概念的定义？');
       const reverseDefinitionSection = canInlineDefinition
         ? ''
         : `<div class="definition-content">${definitionHtml}</div>`;
@@ -363,7 +363,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     
     // 如果概念名称包含方向符号（::, :>, :<），说明这是定义块而不是概念文档块
     // 需要从符号前面提取块引用中的概念名称
-    if (conceptName.match(/(?:::|:>|:<|：：|：》|：《)/)) {
+    if (this.hasDefinitionDelimiter(conceptName)) {
       logger.debug('[ConceptDefinitionCardRenderService] Detected definition block format, extracting concept from block reference');
       
       // 格式：((block-id '概念名称')):>定义
@@ -385,9 +385,115 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
           }
         }
       }
+
+      // 兜底：仍然是“概念::定义”格式时，直接按分隔符左侧截取概念名
+      if (this.hasDefinitionDelimiter(conceptName)) {
+        conceptName = conceptName.split(DEFINITION_DELIMITER_PATTERN)[0]?.trim() || conceptName;
+        logger.debug('[ConceptDefinitionCardRenderService] Fallback extracted concept name by delimiter split:', conceptName);
+      }
     }
 
     return conceptName;
+  }
+
+  private hasDefinitionDelimiter(content: string): boolean {
+    if (!content) return false;
+    return DEFINITION_DELIMITER_PATTERN.test(content);
+  }
+
+  private stripTrailingBlockAttrs(kramdown: string): string {
+    if (!kramdown) return '';
+    return kramdown.replace(TRAILING_BLOCK_ATTR_PATTERN, '').trim();
+  }
+
+  private extractDefinitionText(definitionKramdown: string): string {
+    const cleaned = this.stripTrailingBlockAttrs(definitionKramdown);
+    const match = cleaned.match(/(?:::|:>|:<|：：|：》|：《)\s*([\s\S]+)$/);
+    if (!match) {
+      return cleaned;
+    }
+    return this.stripTrailingBlockAttrs(match[1]);
+  }
+
+  private async resolveConceptAndDefinitionBlocks(
+    face: { questionBlockId?: string; answerBlockId?: string },
+    isReverse: boolean
+  ): Promise<{
+    conceptBlockId: string;
+    definitionBlockId: string;
+    definitionKramdown: string;
+    inferredReverseFromFace: boolean;
+  }> {
+    let conceptBlockId = isReverse ? face.answerBlockId : face.questionBlockId;
+    let definitionBlockId = isReverse ? face.questionBlockId : face.answerBlockId;
+
+    if (!conceptBlockId || !definitionBlockId) {
+      throw new Error('Missing concept or definition block ID in CardFace');
+    }
+
+    const questionBlockId = face.questionBlockId;
+    const answerBlockId = face.answerBlockId;
+
+    if (questionBlockId && answerBlockId) {
+      try {
+        const [questionData, answerData] = await Promise.all([
+          getBlockKramdown(questionBlockId),
+          getBlockKramdown(answerBlockId),
+        ]);
+
+        const questionKramdown = questionData?.kramdown || '';
+        const answerKramdown = answerData?.kramdown || '';
+        const questionLooksDefinition = this.hasDefinitionDelimiter(questionKramdown);
+        const answerLooksDefinition = this.hasDefinitionDelimiter(answerKramdown);
+
+        logger.debug('[ConceptDefinitionCardRenderService] Block role probe by syntax:', {
+          questionBlockId,
+          answerBlockId,
+          questionLooksDefinition,
+          answerLooksDefinition,
+          typeMarkerReverse: isReverse,
+        });
+
+        if (questionLooksDefinition !== answerLooksDefinition) {
+          const definitionFromQuestion = questionLooksDefinition;
+          conceptBlockId = definitionFromQuestion ? answerBlockId : questionBlockId;
+          definitionBlockId = definitionFromQuestion ? questionBlockId : answerBlockId;
+          const definitionKramdown = definitionFromQuestion ? questionKramdown : answerKramdown;
+
+          logger.debug('[ConceptDefinitionCardRenderService] Resolved block roles by syntax:', {
+            conceptBlockId,
+            definitionBlockId,
+          });
+
+          return {
+            conceptBlockId,
+            definitionBlockId,
+            definitionKramdown,
+            inferredReverseFromFace: definitionFromQuestion,
+          };
+        }
+
+        const definitionKramdown = definitionBlockId === questionBlockId
+          ? questionKramdown
+          : answerKramdown;
+        return {
+          conceptBlockId,
+          definitionBlockId,
+          definitionKramdown,
+          inferredReverseFromFace: questionLooksDefinition && !answerLooksDefinition,
+        };
+      } catch (error) {
+        logger.warn('[ConceptDefinitionCardRenderService] Block role probe failed, fallback to typeMarker direction:', error);
+      }
+    }
+
+    const { kramdown: definitionKramdown } = await getBlockKramdown(definitionBlockId);
+    return {
+      conceptBlockId,
+      definitionBlockId,
+      definitionKramdown: definitionKramdown || '',
+      inferredReverseFromFace: isReverse,
+    };
   }
 
   /**
@@ -412,17 +518,21 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
   /**
    * 解析 typeMarker，提取挖空索引和方向
    */
-  private parseTypeMarker(typeMarker?: string): { clozeIndex: number; isReverse: boolean } {
+  private parseTypeMarker(typeMarker?: string): {
+    clozeIndex: number;
+    isReverse: boolean;
+    hasExplicitDirection: boolean;
+  } {
     if (!typeMarker) {
-      return { clozeIndex: 0, isReverse: false };
+      return { clozeIndex: 0, isReverse: false, hasExplicitDirection: false };
     }
 
     // concept-definition-forward / concept-definition-reverse
     if (typeMarker === 'concept-definition-forward') {
-      return { clozeIndex: 0, isReverse: false };
+      return { clozeIndex: 0, isReverse: false, hasExplicitDirection: true };
     }
     if (typeMarker === 'concept-definition-reverse') {
-      return { clozeIndex: 0, isReverse: true };
+      return { clozeIndex: 0, isReverse: true, hasExplicitDirection: true };
     }
 
     // concept-definition-cloze-{index}-forward / concept-definition-cloze-{index}-reverse
@@ -430,7 +540,8 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     if (clozeMatch) {
       return {
         clozeIndex: parseInt(clozeMatch[1]),
-        isReverse: clozeMatch[2] === 'reverse'
+        isReverse: clozeMatch[2] === 'reverse',
+        hasExplicitDirection: true,
       };
     }
 
@@ -439,11 +550,12 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     if (oldClozeMatch) {
       return {
         clozeIndex: parseInt(oldClozeMatch[1]),
-        isReverse: false
+        isReverse: false,
+        hasExplicitDirection: false,
       };
     }
 
-    return { clozeIndex: 0, isReverse: false };
+    return { clozeIndex: 0, isReverse: false, hasExplicitDirection: false };
   }
 
   /**

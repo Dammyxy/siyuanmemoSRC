@@ -430,4 +430,26 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
     }
   }
 
+  public override async skip(cardId: string): Promise<void> {
+    await this.ensureInitialLoad();
+
+    const cards = await this.getCards();
+    const index = cards.findIndex((card) => card.id === cardId || card.blockId === cardId);
+    if (index === -1) {
+      return;
+    }
+
+    const [skippedCard] = cards.splice(index, 1);
+    if (!skippedCard) {
+      return;
+    }
+    cards.push(skippedCard);
+
+    this.customOrder = cards.map((card) => card.id);
+    this.cards = [...cards];
+    this.clearSizeCache();
+    this.emitQueueChangedEvent();
+    this.notifyObservers();
+  }
+
 }

@@ -113,4 +113,9 @@ export interface IPluginFacade {
    * ```
    */
   getDueCount(): Promise<number>;
+
+  /**
+   * 打开子集复习（临时队列）
+   */
+  openSubsetReviewDialog(blockIds: string[]): Promise<void>;
 }

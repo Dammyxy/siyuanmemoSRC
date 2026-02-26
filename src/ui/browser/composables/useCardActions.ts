@@ -31,6 +31,45 @@ type BrowserMenuItem = {
   submenu?: BrowserMenuItem[];
 };
 
+type RenderTarget =
+  | 'default'
+  | 'quick'
+  | 'concept'
+  | 'concept-definition-forward'
+  | 'concept-definition-reverse'
+  | 'descriptor-forward'
+  | 'descriptor-reverse';
+
+type RenderTargetSpec = {
+  typeMarker?: string;
+  templateID?: string;
+};
+
+const RENDER_TARGET_SPECS: Record<RenderTarget, RenderTargetSpec> = {
+  default: {},
+  quick: {},
+  concept: {
+    typeMarker: 'C',
+    templateID: 'builtin-concept-simple',
+  },
+  'concept-definition-forward': {
+    typeMarker: 'concept-definition-forward',
+    templateID: 'builtin-concept-definition-forward',
+  },
+  'concept-definition-reverse': {
+    typeMarker: 'concept-definition-reverse',
+    templateID: 'builtin-concept-definition-reverse',
+  },
+  'descriptor-forward': {
+    typeMarker: 'concept-descriptor-forward',
+    templateID: 'builtin-concept-descriptor',
+  },
+  'descriptor-reverse': {
+    typeMarker: 'concept-descriptor-reverse',
+    templateID: 'builtin-concept-descriptor-reverse',
+  },
+};
+
 function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) {
     return error.message;
@@ -46,6 +85,172 @@ export function useCardActions(options: UseCardActionsOptions) {
 
   // 初始化 CardTypeMarkerService
   const cardTypeMarkerService = storage ? new CardTypeMarkerService(storage) : null;
+
+  function renderTargetLabel(target: RenderTarget): string {
+    switch (target) {
+      case 'default':
+        return t('renderAsDefault', '标准渲染（编辑器）');
+      case 'quick':
+        return t('renderAsQuick', '快速渲染');
+      case 'concept':
+        return t('renderAsConcept', '概念卡渲染');
+      case 'concept-definition-forward':
+        return t('renderAsConceptDefinitionForward', '概念定义卡渲染（正向）');
+      case 'concept-definition-reverse':
+        return t('renderAsConceptDefinitionReverse', '概念定义卡渲染（反向）');
+      case 'descriptor-forward':
+        return t('renderAsDescriptorForward', '描述符渲染（正向）');
+      case 'descriptor-reverse':
+        return t('renderAsDescriptorReverse', '描述符渲染（反向）');
+      default:
+        return t('convertRenderMenu', '转换渲染');
+    }
+  }
+
+  function collectFsrsCardIds(cards: BrowserCard[]): { cardIds: string[]; skipped: number } {
+    const cardIds: string[] = [];
+    let skipped = 0;
+
+    for (const card of cards) {
+      if (card.fsrsCardId) {
+        cardIds.push(card.fsrsCardId);
+      } else {
+        skipped++;
+        logger.warn('Card missing fsrsCardId, skipping:', card.id, card.blockId);
+      }
+    }
+
+    return { cardIds, skipped };
+  }
+
+  function toMetaRecord(meta: unknown): Record<string, unknown> {
+    if (meta && typeof meta === 'object') {
+      return { ...(meta as Record<string, unknown>) };
+    }
+    return {};
+  }
+
+  function applyRenderTargetMeta(
+    sourceMeta: Record<string, unknown>,
+    target: RenderTarget
+  ): { meta: Record<string, unknown>; changed: boolean } {
+    const meta = { ...sourceMeta };
+    const spec = RENDER_TARGET_SPECS[target];
+
+    if (target === 'default') {
+      const hadForceProtyleRender = meta.forceProtyleRender === true;
+      const hadForceQuickRender = Object.prototype.hasOwnProperty.call(meta, 'forceQuickRender');
+      if (!hadForceProtyleRender) {
+        meta.forceProtyleRender = true;
+      }
+      if (hadForceQuickRender) {
+        delete meta.forceQuickRender;
+      }
+      return { meta, changed: !hadForceProtyleRender || hadForceQuickRender };
+    }
+
+    if (target === 'quick') {
+      const hadForceQuickRender = meta.forceQuickRender === true;
+      const hadForceProtyleRender = Object.prototype.hasOwnProperty.call(meta, 'forceProtyleRender');
+      if (!hadForceQuickRender) {
+        meta.forceQuickRender = true;
+      }
+      if (hadForceProtyleRender) {
+        delete meta.forceProtyleRender;
+      }
+      return { meta, changed: !hadForceQuickRender || hadForceProtyleRender };
+    }
+
+    const currentTypeMarker = typeof meta.typeMarker === 'string' ? meta.typeMarker : undefined;
+    const currentTemplateID = typeof meta.templateID === 'string' ? meta.templateID : undefined;
+    const hadForceProtyleRender = Object.prototype.hasOwnProperty.call(meta, 'forceProtyleRender');
+    const hadForceQuickRender = Object.prototype.hasOwnProperty.call(meta, 'forceQuickRender');
+
+    let changed = false;
+    if (spec.typeMarker && currentTypeMarker !== spec.typeMarker) {
+      meta.typeMarker = spec.typeMarker;
+      changed = true;
+    }
+    if (spec.templateID && currentTemplateID !== spec.templateID) {
+      meta.templateID = spec.templateID;
+      changed = true;
+    }
+    if (hadForceProtyleRender) {
+      delete meta.forceProtyleRender;
+      changed = true;
+    }
+    if (hadForceQuickRender) {
+      delete meta.forceQuickRender;
+      changed = true;
+    }
+
+    return { meta, changed };
+  }
+
+  async function convertCardsRender(cards: BrowserCard[], target: RenderTarget): Promise<void> {
+    if (!cards?.length) return;
+
+    if (!storage) {
+      await pushErrMsg('存储服务未初始化，无法转换渲染', 3000);
+      return;
+    }
+
+    const { cardIds, skipped } = collectFsrsCardIds(cards);
+    if (cardIds.length === 0) {
+      await pushErrMsg('未找到有效的卡片 ID', 3000);
+      return;
+    }
+
+    let updated = 0;
+    let missing = 0;
+    let unchanged = 0;
+
+    for (const cardId of cardIds) {
+      const fsrsCard = storage.getCard(cardId);
+      if (!fsrsCard) {
+        missing++;
+        logger.warn(`Card not found in storage, skipping render conversion: ${cardId}`);
+        continue;
+      }
+
+      const currentMeta = toMetaRecord(fsrsCard.meta);
+      const { meta, changed } = applyRenderTargetMeta(currentMeta, target);
+
+      if (!changed) {
+        unchanged++;
+        continue;
+      }
+
+      storage.setCard({
+        ...fsrsCard,
+        meta,
+      });
+      updated++;
+    }
+
+    if (updated === 0) {
+      const noChangeMsg = `未发生渲染变更（无可更新卡片）`;
+      await pushMsg(noChangeMsg, 3000);
+      return;
+    }
+
+    await storage.saveCards();
+
+    const detailParts: string[] = [];
+    if (skipped > 0) detailParts.push(`缺少ID ${skipped} 张`);
+    if (missing > 0) detailParts.push(`存储缺失 ${missing} 张`);
+    if (unchanged > 0) detailParts.push(`已是目标渲染 ${unchanged} 张`);
+    const detail = detailParts.length > 0 ? `（${detailParts.join('，')}）` : '';
+    const targetLabel = renderTargetLabel(target);
+
+    await pushMsg(
+      `✅ 已将 ${updated} 张卡片转换为${targetLabel}${detail}（仅更新渲染标记，不改变队列类型）`,
+      4000
+    );
+
+    invalidateCardCache();
+    await loadData();
+  }
 
   /**
    * 标记卡片为 Topic
@@ -207,17 +412,7 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
   async function markCardsAsConcept(cards: BrowserCard[]): Promise<void> {
     if (!cards?.length) return;
 
-    // 收集有效的卡片 ID（必须有 fsrsCardId）
-    const cardIds: string[] = [];
-    const skippedCount = cards.length;
-    
-    for (const card of cards) {
-      if (card.fsrsCardId) {
-        cardIds.push(card.fsrsCardId);
-      } else {
-        logger.warn('Card missing fsrsCardId, skipping:', card.id, card.blockId);
-      }
-    }
+    const { cardIds, skipped } = collectFsrsCardIds(cards);
 
     if (cardIds.length === 0) {
       await pushErrMsg('未找到有效的卡片 ID', 3000);
@@ -234,10 +429,10 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
       // 使用 CardTypeMarkerService 批量设置
       await cardTypeMarkerService.batchSetMarker(cardIds, 'concept');
 
-      const skipped = skippedCount - cardIds.length;
+      const renderHint = '（仅更新队列类型，不改变模板渲染）';
       const msg = skipped > 0 
-        ? `✅ 已将 ${cardIds.length} 张卡片标记为概念卡（跳过 ${skipped} 张）`
-        : `✅ 已将 ${cardIds.length} 张卡片标记为概念卡`;
+        ? `✅ 已将 ${cardIds.length} 张卡片标记为概念卡（跳过 ${skipped} 张）${renderHint}`
+        : `✅ 已将 ${cardIds.length} 张卡片标记为概念卡${renderHint}`;
       await pushMsg(msg, 3000);
 
       invalidateCardCache();
@@ -254,17 +449,7 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
   async function markCardsAsDescriptor(cards: BrowserCard[]): Promise<void> {
     if (!cards?.length) return;
 
-    // 收集有效的卡片 ID（必须有 fsrsCardId）
-    const cardIds: string[] = [];
-    const skippedCount = cards.length;
-    
-    for (const card of cards) {
-      if (card.fsrsCardId) {
-        cardIds.push(card.fsrsCardId);
-      } else {
-        logger.warn('Card missing fsrsCardId, skipping:', card.id, card.blockId);
-      }
-    }
+    const { cardIds, skipped } = collectFsrsCardIds(cards);
 
     if (cardIds.length === 0) {
       await pushErrMsg('未找到有效的卡片 ID', 3000);
@@ -281,10 +466,10 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
       // 使用 CardTypeMarkerService 批量设置
       await cardTypeMarkerService.batchSetMarker(cardIds, 'descriptor');
 
-      const skipped = skippedCount - cardIds.length;
+      const renderHint = '（仅更新队列类型，不改变模板渲染）';
       const msg = skipped > 0 
-        ? `✅ 已将 ${cardIds.length} 张卡片标记为描述符卡（跳过 ${skipped} 张）`
-        : `✅ 已将 ${cardIds.length} 张卡片标记为描述符卡`;
+        ? `✅ 已将 ${cardIds.length} 张卡片标记为描述符卡（跳过 ${skipped} 张）${renderHint}`
+        : `✅ 已将 ${cardIds.length} 张卡片标记为描述符卡${renderHint}`;
       await pushMsg(msg, 3000);
 
       invalidateCardCache();
@@ -313,13 +498,55 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
       { type: 'separator' },
       {
         icon: '🧠',
-        label: t('markAsConcept2', '标记为概念卡'),
+        label: t('markAsConcept2', '标记为概念卡（队列）'),
         click: () => void markCardsAsConcept(selected),
       },
       {
         icon: '🏷️',
-        label: t('markAsDescriptor2', '标记为描述符卡'),
+        label: t('markAsDescriptor2', '标记为描述符卡（队列）'),
         click: () => void markCardsAsDescriptor(selected),
+      },
+      { type: 'separator' },
+      {
+        icon: 'iconRefresh',
+        label: t('convertRenderMenu', '转换渲染'),
+        submenu: [
+          {
+            icon: 'iconEdit',
+            label: t('renderAsDefault', '标准渲染（编辑器）'),
+            click: () => void convertCardsRender(selected, 'default'),
+          },
+          {
+            icon: '⚡',
+            label: t('renderAsQuick', '快速渲染'),
+            click: () => void convertCardsRender(selected, 'quick'),
+          },
+          {
+            icon: '🧠',
+            label: t('renderAsConcept', '概念卡渲染'),
+            click: () => void convertCardsRender(selected, 'concept'),
+          },
+          {
+            icon: '📘',
+            label: t('renderAsConceptDefinitionForward', '概念定义卡渲染（正向）'),
+            click: () => void convertCardsRender(selected, 'concept-definition-forward'),
+          },
+          {
+            icon: '📙',
+            label: t('renderAsConceptDefinitionReverse', '概念定义卡渲染（反向）'),
+            click: () => void convertCardsRender(selected, 'concept-definition-reverse'),
+          },
+          {
+            icon: '🏷️',
+            label: t('renderAsDescriptorForward', '描述符渲染（正向）'),
+            click: () => void convertCardsRender(selected, 'descriptor-forward'),
+          },
+          {
+            icon: '🔁',
+            label: t('renderAsDescriptorReverse', '描述符渲染（反向）'),
+            click: () => void convertCardsRender(selected, 'descriptor-reverse'),
+          },
+        ],
       },
     ];
   }
@@ -329,6 +556,7 @@ Item（卡片）= 问答卡片，使用 FSRS 算法
     markCardsAsItem,
     markCardsAsConcept,
     markCardsAsDescriptor,
+    convertCardsRender,
     migrateTopicItem,
     buildCardTypeSubmenu,
   };
