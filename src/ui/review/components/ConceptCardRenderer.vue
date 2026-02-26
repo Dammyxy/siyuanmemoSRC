@@ -73,6 +73,9 @@ import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import type { ConceptCardViewModel } from '@/core/card/concept/application/ConceptCardRenderService';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('ConceptCardRenderer');
 
 interface ConceptCardInput {
   xiuyuanID?: string;
@@ -123,7 +126,7 @@ async function loadViewModel() {
     const errorMessage = err instanceof Error ? err.message : String(err);
     error.value = errorMessage;
     emit('error', err instanceof Error ? err : new Error(errorMessage));
-    console.error('[ConceptCardRenderer] Failed to load view model:', err);
+    logger.error('[ConceptCardRenderer] Failed to load view model:', err);
   } finally {
     loading.value = false;
   }
@@ -134,7 +137,7 @@ function jumpToConcept() {
   
   const app = (window as SiyuanWindow).siyuan?.ws?.app;
   if (!app) {
-    console.error('[ConceptCardRenderer] App instance not found');
+    logger.error('[ConceptCardRenderer] App instance not found');
     return;
   }
   

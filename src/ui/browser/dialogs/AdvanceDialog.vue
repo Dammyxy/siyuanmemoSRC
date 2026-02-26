@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="advance-dialog">
     <div class="dialog__content">
       <div class="dialog__info">
@@ -146,6 +146,9 @@
 import { ref, computed, onMounted } from 'vue';
 import type { AdvanceConfig } from '@/types/reschedule';
 import { ConfigManager } from '@/core/scheduler/ConfigManager';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('AdvanceDialog');
 
 const props = defineProps<{
   count: number;
@@ -205,7 +208,7 @@ onMounted(async () => {
   try {
     configNames.value = await props.configManager.listConfigNames('advance');
   } catch (error) {
-    console.error('Failed to load config names:', error);
+    logger.error('Failed to load config names:', error);
   }
 });
 
@@ -219,7 +222,7 @@ async function loadSelectedConfig() {
       config.value = loaded as AdvanceConfig;
     }
   } catch (error) {
-    console.error('Failed to load config:', error);
+    logger.error('Failed to load config:', error);
     validationError.value = t('advanceLoadConfigFailed', '加载配置失败');
   }
 }
@@ -233,7 +236,7 @@ async function saveCurrentConfig() {
     configNames.value.push(newConfigName.value.trim());
     newConfigName.value = '';
   } catch (error) {
-    console.error('Failed to save config:', error);
+    logger.error('Failed to save config:', error);
     validationError.value = t('advanceSaveConfigFailed', '保存配置失败');
   }
 }

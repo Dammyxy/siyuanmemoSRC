@@ -20,6 +20,9 @@
 
 import type { QueueObserver, IReviewQueue } from '@/types/unified-data-source';
 import { LRUCache } from '@/utils/performance-helpers';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('CacheManagerObserver');
 
 /**
  * 卡片类型
@@ -158,7 +161,7 @@ export class CacheManagerObserver implements QueueObserver {
     if (lastOperation === null) {
       // 未知操作，保守策略：全量失效
       if (this.debugMode) {
-        console.log('[CacheManagerObserver] Unknown operation, invalidating all cache');
+        logger.info('[CacheManagerObserver] Unknown operation, invalidating all cache');
       }
       this.invalidateAll();
       return;
@@ -168,7 +171,7 @@ export class CacheManagerObserver implements QueueObserver {
     this.lastOperation = lastOperation;
     
     if (this.debugMode) {
-      console.log('[CacheManagerObserver] Queue operation:', lastOperation);
+      logger.info('[CacheManagerObserver] Queue operation:', lastOperation);
     }
     
     // 根据操作类型决定失效策略
@@ -200,14 +203,14 @@ export class CacheManagerObserver implements QueueObserver {
       case 'card-added':
         // 新增卡片：不影响现有缓存
         if (this.debugMode) {
-          console.log('[CacheManagerObserver] Card added, no cache invalidation needed');
+          logger.info('[CacheManagerObserver] Card added, no cache invalidation needed');
         }
         break;
         
       default:
         // 未知操作，保守策略：全量失效
         if (this.debugMode) {
-          console.warn('[CacheManagerObserver] Unknown operation type:', lastOperation.type);
+          logger.warn('[CacheManagerObserver] Unknown operation type:', lastOperation.type);
         }
         this.invalidateAll();
     }
@@ -220,7 +223,7 @@ export class CacheManagerObserver implements QueueObserver {
    */
   private invalidateCard(cardId: string): void {
     if (this.debugMode) {
-      console.log('[CacheManagerObserver] Invalidating cache for card:', cardId);
+      logger.info('[CacheManagerObserver] Invalidating cache for card:', cardId);
     }
     
     // 删除该卡片的所有 nextDues 缓存
@@ -242,7 +245,7 @@ export class CacheManagerObserver implements QueueObserver {
     this.formattedDataCache.delete(cardId);
     
     if (this.debugMode) {
-      console.log('[CacheManagerObserver] Invalidated', keysToDelete.length, 'cache entries');
+      logger.info('[CacheManagerObserver] Invalidated', keysToDelete.length, 'cache entries');
     }
   }
   
@@ -253,7 +256,7 @@ export class CacheManagerObserver implements QueueObserver {
    */
   private invalidateCards(cardIds: string[]): void {
     if (this.debugMode) {
-      console.log('[CacheManagerObserver] Invalidating cache for cards:', cardIds.length);
+      logger.info('[CacheManagerObserver] Invalidating cache for cards:', cardIds.length);
     }
     
     for (const cardId of cardIds) {
@@ -266,7 +269,7 @@ export class CacheManagerObserver implements QueueObserver {
    */
   private invalidateAll(): void {
     if (this.debugMode) {
-      console.log('[CacheManagerObserver] Invalidating all cache');
+      logger.info('[CacheManagerObserver] Invalidating all cache');
     }
     
     this.nextDuesCache.clear();

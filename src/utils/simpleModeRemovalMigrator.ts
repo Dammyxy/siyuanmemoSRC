@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Simple Mode Removal Migrator
  * 
  * 负责将简单模式配置迁移到高级模式，作为移除简单模式功能的一部分
@@ -6,6 +6,9 @@
 
 import type { RiffIntegrationConfig } from '@/types/settings';
 import { pushMsg, pushErrMsg } from '@/core/siyuan/api';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('SimpleModeRemovalMigrator');
 
 interface MigrationSyncResult {
     success: boolean;
@@ -48,15 +51,15 @@ export class SimpleModeRemovalMigrator {
      * @returns 新版配置（移除 mode 字段）
      */
     static migrate(oldConfig: RiffIntegrationConfig): Omit<RiffIntegrationConfig, 'mode'> {
-        console.log('[SiYuanMemo][SimpleModeRemovalMigrator] Migrating from simple mode to advanced mode');
-        console.log('[SiYuanMemo][SimpleModeRemovalMigrator] Old config:', oldConfig);
+        logger.info('[SiYuanMemo][SimpleModeRemovalMigrator] Migrating from simple mode to advanced mode');
+        logger.info('[SiYuanMemo][SimpleModeRemovalMigrator] Old config:', oldConfig);
         
         // 创建新配置，移除 mode 字段
         const { mode, ...newConfig } = oldConfig;
         
         // 确保启用增量同步，以便迁移数据
         if (!newConfig.incrementalSync.enabled) {
-            console.log('[SiYuanMemo][SimpleModeRemovalMigrator] Enabling incremental sync for migration');
+            logger.info('[SiYuanMemo][SimpleModeRemovalMigrator] Enabling incremental sync for migration');
             newConfig.incrementalSync = {
                 ...newConfig.incrementalSync,
                 enabled: true,
@@ -67,7 +70,7 @@ export class SimpleModeRemovalMigrator {
         // 确保使用本地调度器
         newConfig.useLocalScheduler = true;
         
-        console.log('[SiYuanMemo][SimpleModeRemovalMigrator] New config:', newConfig);
+        logger.info('[SiYuanMemo][SimpleModeRemovalMigrator] New config:', newConfig);
         return newConfig;
     }
     
@@ -88,7 +91,7 @@ export class SimpleModeRemovalMigrator {
 详情请查看设置面板。`;
             
             await pushMsg(message, 10000);
-            console.log('[SiYuanMemo][SimpleModeRemovalMigrator] Migration notification displayed');
+            logger.info('[SiYuanMemo][SimpleModeRemovalMigrator] Migration notification displayed');
         }
     }
     
@@ -102,19 +105,19 @@ export class SimpleModeRemovalMigrator {
      */
     static async triggerMigrationSync(syncService: MigrationSyncService): Promise<boolean> {
         try {
-            console.log('[SiYuanMemo][SimpleModeRemovalMigrator] Triggering incremental sync for migration');
+            logger.info('[SiYuanMemo][SimpleModeRemovalMigrator] Triggering incremental sync for migration');
             const result = await syncService.incrementalSync();
             
             if (result.success) {
-                console.log('[SiYuanMemo][SimpleModeRemovalMigrator] ✅ Migration sync completed successfully');
-                console.log(`[SiYuanMemo][SimpleModeRemovalMigrator] Synced ${result.syncedCount} cards`);
+                logger.info('[SiYuanMemo][SimpleModeRemovalMigrator] ✅ Migration sync completed successfully');
+                logger.info(`[SiYuanMemo][SimpleModeRemovalMigrator] Synced ${result.syncedCount} cards`);
                 return true;
             } else {
-                console.error('[SiYuanMemo][SimpleModeRemovalMigrator] ❌ Migration sync failed:', result.error);
+                logger.error('[SiYuanMemo][SimpleModeRemovalMigrator] ❌ Migration sync failed:', result.error);
                 return false;
             }
         } catch (error) {
-            console.error('[SiYuanMemo][SimpleModeRemovalMigrator] ❌ Migration sync error:', error);
+            logger.error('[SiYuanMemo][SimpleModeRemovalMigrator] ❌ Migration sync error:', error);
             return false;
         }
     }
@@ -128,8 +131,8 @@ export class SimpleModeRemovalMigrator {
     static async handleMigrationError(error: Error, context: string): Promise<void> {
         const errorMessage = `数据迁移失败（${context}），但系统将继续使用高级模式。您可以手动触发全量同步。`;
         
-        console.error(`[SiYuanMemo][SimpleModeRemovalMigrator] ❌ Migration error in ${context}:`, error);
-        console.error('[SiYuanMemo][SimpleModeRemovalMigrator] Stack trace:', error.stack);
+        logger.error(`[SiYuanMemo][SimpleModeRemovalMigrator] ❌ Migration error in ${context}:`, error);
+        logger.error('[SiYuanMemo][SimpleModeRemovalMigrator] Stack trace:', error.stack);
         
         await pushErrMsg(errorMessage, 10000);
     }
@@ -152,7 +155,7 @@ export class SimpleModeRemovalMigrator {
         const wasSimpleMode = this.needsMigration(config);
         
         if (!wasSimpleMode) {
-            console.log('[SiYuanMemo][SimpleModeRemovalMigrator] No migration needed');
+            logger.info('[SiYuanMemo][SimpleModeRemovalMigrator] No migration needed');
             // 即使不是简单模式，也移除 mode 字段以保持一致性
             const { mode, ...cleanConfig } = config;
             return {

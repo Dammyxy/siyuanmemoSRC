@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <button
     v-if="shouldShow"
     class="b3-button b3-button--outline filter-button"
@@ -16,6 +16,9 @@
 import { computed } from 'vue';
 import type { CardFilter } from '@/types/unified-data-source';
 import { filterService } from '../services/FilterService';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('FilterButton');
 
 // ============================================================================
 // Props & Emits
@@ -44,7 +47,7 @@ const emit = defineEmits<{
  */
 const shouldShow = computed(() => {
   const result = props.queueType === 'filter-group' || props.queueType === 'FilterGroup';
-  console.log('[SiYuanMemo][FilterButton] shouldShow computed:', {
+  logger.info('[SiYuanMemo][FilterButton] shouldShow computed:', {
     queueType: props.queueType,
     result,
   });

@@ -6,6 +6,9 @@
  * 2. List all cards with types: FSRSDebug.listAllCardTypes()
  * 3. Test Topic filter: FSRSDebug.testTopicFilter()
  */
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('FSRSDebug');
 
 type CardTypeValue = 'topic' | 'item' | 'undefined (defaults to Item)';
 
@@ -87,14 +90,14 @@ const fsrsDebug: FSRSDebugApi = {
       const cardType = toCardTypeValue(attrs['custom-fsrs-card-type']);
       const isCard = attrs['custom-fsrs-card-id'];
 
-      console.log(`Block: ${blockId}`);
-      console.log(`  Is Card: ${isCard ? 'Yes' : 'No'}`);
-      console.log(`  Card Type: ${cardType}`);
-      console.log('  All Attributes:', attrs);
+      logger.info(`Block: ${blockId}`);
+      logger.info(`  Is Card: ${isCard ? 'Yes' : 'No'}`);
+      logger.info(`  Card Type: ${cardType}`);
+      logger.info('  All Attributes:', attrs);
 
       return { blockId, isCard: !!isCard, cardType };
     } catch (error) {
-      console.error('Error:', error);
+      logger.error('Error:', error);
       return null;
     }
   },
@@ -121,7 +124,7 @@ const fsrsDebug: FSRSDebugApi = {
       const data = readJson<SqlResponse>(rawData);
       const blockIds = (data?.data ?? []).map(row => row.block_id);
 
-      console.log(`Found ${blockIds.length} cards. Checking types...`);
+      logger.info(`Found ${blockIds.length} cards. Checking types...`);
 
       const results = await Promise.all(blockIds.map(id => fsrsDebug.getCardType(id)));
       const validResults = results.filter((result): result is CardTypeInfo => result !== null);
@@ -134,11 +137,11 @@ const fsrsDebug: FSRSDebugApi = {
       };
 
       console.table(validResults);
-      console.log('Summary:', summary);
+      logger.info('Summary:', summary);
 
       return validResults;
     } catch (error) {
-      console.error('Error:', error);
+      logger.error('Error:', error);
       return null;
     }
   },
@@ -160,11 +163,11 @@ const fsrsDebug: FSRSDebugApi = {
       const cards = data?.data?.cards ?? [];
 
       if (cards.length === 0) {
-        console.log('No Riff cards found');
+        logger.info('No Riff cards found');
         return [];
       }
 
-      console.log(`Total Riff cards: ${cards.length}`);
+      logger.info(`Total Riff cards: ${cards.length}`);
 
       const sample = cards.slice(0, 10);
       const results = await Promise.all(sample.map(card => fsrsDebug.getCardType(card.blockID)));
@@ -175,14 +178,14 @@ const fsrsDebug: FSRSDebugApi = {
       const topicCount = validResults.filter(result => result.cardType === 'topic').length;
       const itemCount = validResults.filter(result => result.cardType === 'item').length;
 
-      console.log('Sample (first 10 cards):');
-      console.log(`  Topic: ${topicCount}`);
-      console.log(`  Item: ${itemCount}`);
-      console.log(`  Undefined: ${validResults.length - topicCount - itemCount}`);
+      logger.info('Sample (first 10 cards):');
+      logger.info(`  Topic: ${topicCount}`);
+      logger.info(`  Item: ${itemCount}`);
+      logger.info(`  Undefined: ${validResults.length - topicCount - itemCount}`);
 
       return validResults;
     } catch (error) {
-      console.error('Error:', error);
+      logger.error('Error:', error);
       return null;
     }
   },
@@ -204,12 +207,12 @@ const fsrsDebug: FSRSDebugApi = {
       });
       const data = await response.json();
 
-      console.log(`Set ${blockId} to ${cardType}:`, data);
+      logger.info(`Set ${blockId} to ${cardType}:`, data);
 
       await fsrsDebug.getCardType(blockId);
       return data;
     } catch (error) {
-      console.error('Error:', error);
+      logger.error('Error:', error);
       return null;
     }
   },
@@ -217,7 +220,7 @@ const fsrsDebug: FSRSDebugApi = {
 
 window.FSRSDebug = fsrsDebug;
 
-console.log(`
+logger.info(`
 🔧 FSRS Debug Tools Loaded!
 
 Usage:

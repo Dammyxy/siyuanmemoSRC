@@ -16,9 +16,10 @@ import { InterfaceValidator } from './validators/InterfaceValidator.ts';
 import { MigrationAnalyzer } from './analyzers/MigrationAnalyzer.ts';
 import { ReportGenerator } from './reporters/ReportGenerator.ts';
 import { ApiCompatibilityChecker } from './validators/ApiCompatibilityChecker.ts';
+import { diagnosticsOutput } from './utils/output';
 
 const logProgress = (message: string) => {
-    console.log(`[Diagnostics CLI] ${message}`);
+    diagnosticsOutput.info(`[Diagnostics CLI] ${message}`);
 };
 
 const parseArgs = () => {
@@ -35,7 +36,7 @@ async function run() {
     const { command, rootDir, output, compatOutput } = parseArgs();
 
     if (!command) {
-        console.error('Usage: diagnostics <scan|validate|analyze|report> [--root <path>] [--output <path>]');
+        diagnosticsOutput.error('Usage: diagnostics <scan|validate|analyze|report> [--root <path>] [--output <path>]');
         process.exit(1);
     }
 
@@ -49,18 +50,18 @@ async function run() {
         case 'scan': {
             logProgress('Starting architecture scan...');
             const scanResult = await scanner.scan(rootDir);
-            console.log(JSON.stringify(scanResult, null, 2));
+            diagnosticsOutput.printJson(scanResult);
             break;
         }
 
         case 'validate': {
             logProgress('Running interface validation...');
             const validationResult = await validator.validateAllQueues(rootDir);
-            console.log(JSON.stringify(validationResult, null, 2));
+            diagnosticsOutput.printJson(validationResult);
 
             logProgress('Running API compatibility check...');
             const compatResult = compatibilityChecker.checkCompatibility(rootDir);
-            console.log(JSON.stringify(compatResult, null, 2));
+            diagnosticsOutput.printJson(compatResult);
 
             if (compatOutput) {
                 const report = compatibilityChecker.generateCompatibilityReport(compatResult);
@@ -74,7 +75,7 @@ async function run() {
             const scanResult = await scanner.scan(rootDir);
             logProgress('Analyzing migration path...');
             const migrationPlan = await analyzer.analyzeMigrationPath(scanResult);
-            console.log(JSON.stringify(migrationPlan, null, 2));
+            diagnosticsOutput.printJson(migrationPlan);
             break;
         }
 
@@ -107,12 +108,12 @@ async function run() {
         }
 
         default:
-            console.error(`Unknown command: ${command}`);
+            diagnosticsOutput.error(`Unknown command: ${command}`);
             process.exit(1);
     }
 }
 
 run().catch(error => {
-    console.error('[Diagnostics CLI] Failed:', error);
+    diagnosticsOutput.error('[Diagnostics CLI] Failed:', error);
     process.exit(1);
 });

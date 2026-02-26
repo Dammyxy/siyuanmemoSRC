@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Data Source Errors
  * 数据源错误类
  * 
@@ -22,6 +22,10 @@
  * 所有数据源相关错误的基类。
  * 提供错误代码和上下文信息。
  */
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('DataSourceErrors');
+
 export class DataSourceError extends Error {
     public static isRecord(value: unknown): value is Record<string, unknown> {
         return typeof value === 'object' && value !== null;
@@ -366,6 +370,6 @@ export class ErrorHandler {
             name: error.name,
         };
         
-        console.error(`[${error.name}] ${error.message}`, logContext);
+        logger.error(`[${error.name}] ${error.message}`, logContext);
     }
 }

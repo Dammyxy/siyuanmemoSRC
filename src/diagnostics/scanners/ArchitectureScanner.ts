@@ -13,6 +13,7 @@ import * as path from 'path';
 import { UsagePoint, ArchitectureScanResult, ArchitectureType } from '../types';
 import { ImportAnalyzer } from './ImportAnalyzer';
 import { TypeUsageAnalyzer } from './TypeUsageAnalyzer';
+import { diagnosticsOutput } from '../utils/output';
 
 /**
  * 架构扫描器
@@ -30,7 +31,7 @@ export class ArchitectureScanner {
      * @returns 扫描结果
      */
     async scan(rootDir: string): Promise<ArchitectureScanResult> {
-        console.log(`[ArchitectureScanner] Starting scan from: ${rootDir}`);
+        diagnosticsOutput.info(`[ArchitectureScanner] Starting scan from: ${rootDir}`);
 
         const oldArchitectureUsages: UsagePoint[] = [];
         const newArchitectureUsages: UsagePoint[] = [];
@@ -74,7 +75,7 @@ export class ArchitectureScanner {
 
         const summary = this.generateSummary(tsFiles, oldArchitectureUsages, newArchitectureUsages, mixedUsages);
 
-        console.log(`[ArchitectureScanner] Scan complete:`, {
+        diagnosticsOutput.info(`[ArchitectureScanner] Scan complete:`, {
             totalFiles: tsFiles.length,
             oldArchitectureFiles: oldArchitectureUsages.length,
             newArchitectureFiles: newArchitectureUsages.length,
@@ -133,7 +134,7 @@ export class ArchitectureScanner {
 
             usages.push(...importResult.usages, ...typeUsages);
         } catch (error) {
-            console.warn(`[ArchitectureScanner] Failed to analyze file: ${filePath}`, error);
+            diagnosticsOutput.warn(`[ArchitectureScanner] Failed to analyze file: ${filePath}`, error);
         }
 
         return usages;

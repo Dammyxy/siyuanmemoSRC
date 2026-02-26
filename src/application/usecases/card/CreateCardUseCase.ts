@@ -444,10 +444,10 @@ export class CreateCardUseCase {
     });
   }
 
-  private toError(error: unknown, fallback: string): Error {
+  private toError(error: unknown, defaultMessage: string): Error {
     if (error instanceof Error) {
       return error;
     }
-    return new Error(fallback);
+    return new Error(defaultMessage);
   }
 }

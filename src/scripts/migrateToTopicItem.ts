@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 数据迁移脚本：Topic/Item 类型识别
  *
  * 功能：
@@ -22,6 +22,9 @@ import { getAllCardBlockIds, getCardBlocksInDoc, ATTR_CARD_TYPE, ATTR_A_FACTOR, 
 import { detectCardType, initializeAFactor } from '@/core/card-builder/detectCardType';
 import { getBlockAttrs, setBlockAttrs, sql } from '@/core/siyuan/api';
 import { getRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('migrateToTopicItem');
 
 type RiffBlockLite = { id: string };
 
@@ -53,7 +56,7 @@ export interface MigrationResult {
  */
 export async function migrateExistingCards(forceRemigrate = false): Promise<MigrationResult> {
     const startTime = Date.now();
-    console.log('[Migration] Starting Topic/Item migration for all cards...');
+    logger.info('[Migration] Starting Topic/Item migration for all cards...');
 
     // 1. 从 Riff 获取所有卡片（包括没有 fsrs 标记的）
     // 分页获取所有卡片
@@ -77,13 +80,13 @@ export async function migrateExistingCards(forceRemigrate = false): Promise<Migr
     }
 
     const blockIds = allBlocks.map((card) => card.id);
-    console.log(`[Migration] Found ${blockIds.length} cards in Riff to migrate`);
+    logger.info(`[Migration] Found ${blockIds.length} cards in Riff to migrate`);
 
     // 2. 批量迁移
     const result = await migrateCards(blockIds, forceRemigrate);
 
     const duration = Date.now() - startTime;
-    console.log('[Migration] Migration completed:', {
+    logger.info('[Migration] Migration completed:', {
         ...result,
         duration: `${duration}ms`,
     });
@@ -99,17 +102,17 @@ export async function migrateExistingCards(forceRemigrate = false): Promise<Migr
  */
 export async function migrateCardsInDoc(docId: string): Promise<MigrationResult> {
     const startTime = Date.now();
-    console.log(`[Migration] Starting Topic/Item migration for doc: ${docId}`);
+    logger.info(`[Migration] Starting Topic/Item migration for doc: ${docId}`);
 
     // 1. 获取文档中的所有闪卡块
     const blockIds = await getCardBlocksInDoc(docId);
-    console.log(`[Migration] Found ${blockIds.length} cards in doc`);
+    logger.info(`[Migration] Found ${blockIds.length} cards in doc`);
 
     // 2. 批量迁移
     const result = await migrateCards(blockIds);
 
     const duration = Date.now() - startTime;
-    console.log('[Migration] Doc migration completed:', {
+    logger.info('[Migration] Doc migration completed:', {
         ...result,
         duration: `${duration}ms`,
     });
@@ -154,13 +157,13 @@ export async function migrateCards(blockIds: string[], forceRemigrate = false): 
                 }
             } else {
                 errors++;
-                console.error('[Migration] Card migration failed:', result.reason);
+                logger.error('[Migration] Card migration failed:', result.reason);
             }
         }
 
         // 进度日志
         const progress = Math.min(i + batchSize, blockIds.length);
-        console.log(`[Migration] Progress: ${progress}/${blockIds.length} (${topics} topics, ${items} items)`);
+        logger.info(`[Migration] Progress: ${progress}/${blockIds.length} (${topics} topics, ${items} items)`);
     }
 
     return {
@@ -204,7 +207,7 @@ export async function migrateSingleCard(blockId: string, forceRemigrate = false)
                 
                 await setBlockAttrs(blockId, updates);
                 
-                console.log(`[Migration] Respecting cardTypeMarker: ${blockId} -> ${cardTypeMarker} (${inferredType})`);
+                logger.info(`[Migration] Respecting cardTypeMarker: ${blockId} -> ${cardTypeMarker} (${inferredType})`);
                 
                 return {
                     blockId,
@@ -248,13 +251,13 @@ export async function migrateSingleCard(blockId: string, forceRemigrate = false)
             const aFactor = initializeAFactor(validPriority);
             updates[ATTR_A_FACTOR] = aFactor.toString();
 
-            console.log('[Migration] Topic card:', {
+            logger.info('[Migration] Topic card:', {
                 blockId,
                 priority: validPriority,
                 aFactor,
             });
         } else {
-            console.log('[Migration] Item card:', { blockId });
+            logger.info('[Migration] Item card:', { blockId });
         }
 
         // 8. 写入块属性
@@ -271,16 +274,16 @@ export async function migrateSingleCard(blockId: string, forceRemigrate = false)
 
         // 区分不同类型的错误
         if (errorMsg.includes('tree not found') || errorMsg.includes('Not found entity')) {
-            console.warn(`[Migration] Block ${blockId}: Skipped (document tree deleted)`);
+            logger.warn(`[Migration] Block ${blockId}: Skipped (document tree deleted)`);
             return { blockId, migrated: false, cardType: undefined };
         }
 
         if (errorMsg.includes('正在进行数据索引') || errorMsg.includes('索引')) {
-            console.warn(`[Migration] Block ${blockId}: Skipped (indexing in progress)`);
+            logger.warn(`[Migration] Block ${blockId}: Skipped (indexing in progress)`);
             return { blockId, migrated: false, cardType: undefined };
         }
 
-        console.error(`[Migration] Failed to migrate card ${blockId}:`, errorMsg);
+        logger.error(`[Migration] Failed to migrate card ${blockId}:`, errorMsg);
         throw err;
     }
 }
@@ -310,7 +313,7 @@ export async function checkMigrationNeeded(): Promise<boolean> {
 
         return false;
     } catch (err) {
-        console.error('[Migration] Failed to check migration status:', err);
+        logger.error('[Migration] Failed to check migration status:', err);
         return false;
     }
 }

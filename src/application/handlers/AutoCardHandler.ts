@@ -1180,7 +1180,7 @@ export class AutoCardHandler implements ITransactionHandler {
             });
             
             if (!result.ok) {
-                const errorMsg = this.getErrorMessage(result.error, 'unknown error');
+                const errorMsg = this.getErrorMessage(result.error);
                 logger.error('[SiYuanMemo][AutoCard] Failed to create Xiuyuan descriptor card:', errorMsg);
                 await this.siyuanApi.pushErrMsg(`创建描述符卡片失败：${errorMsg}`);
                 return;
@@ -1350,7 +1350,7 @@ export class AutoCardHandler implements ITransactionHandler {
             });
             
             if (!result.ok) {
-                const errorMsg = this.getErrorMessage(result.error, 'unknown error');
+                const errorMsg = this.getErrorMessage(result.error);
                 logger.error('[SiYuanMemo][AutoCard] Failed to create Xiuyuan cloze cards:', errorMsg);
                 await this.siyuanApi.pushErrMsg(`创建填空卡片失败：${errorMsg}`);
                 return;
@@ -1945,13 +1945,13 @@ export class AutoCardHandler implements ITransactionHandler {
     }
 
     // Normalize unknown error input to a readable message.
-    private getErrorMessage(error: unknown, fallback = 'unknown error'): string {
+    private getErrorMessage(error: unknown): string {
         if (error instanceof Error) {
             return error.message;
         }
         if (typeof error === 'string' && error.length > 0) {
             return error;
         }
-        return fallback;
+        return 'unknown error';
     }
 }

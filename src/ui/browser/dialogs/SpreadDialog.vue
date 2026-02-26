@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="spread-dialog">
     <div class="dialog__content">
       <div class="dialog__info">
@@ -217,6 +217,9 @@ import type { SpreadConfig } from '@/types/reschedule';
 import { SortingCriterion } from '@/types/reschedule';
 import { ConfigManager } from '@/core/scheduler/ConfigManager';
 import type { BrowserCard } from '../types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('SpreadDialog');
 
 const props = defineProps<{
   count: number;
@@ -381,7 +384,7 @@ onMounted(async () => {
   try {
     configNames.value = await props.configManager.listConfigNames('spread');
   } catch (error) {
-    console.error('Failed to load config names:', error);
+    logger.error('Failed to load config names:', error);
   }
 });
 
@@ -395,7 +398,7 @@ async function loadSelectedConfig() {
       config.value = loaded as SpreadConfig;
     }
   } catch (error) {
-    console.error('Failed to load config:', error);
+    logger.error('Failed to load config:', error);
     validationError.value = t('spreadLoadConfigFailed', '加载配置失败');
   }
 }
@@ -409,7 +412,7 @@ async function saveCurrentConfig() {
     configNames.value.push(newConfigName.value.trim());
     newConfigName.value = '';
   } catch (error) {
-    console.error('Failed to save config:', error);
+    logger.error('Failed to save config:', error);
     validationError.value = t('spreadSaveConfigFailed', '保存配置失败');
   }
 }

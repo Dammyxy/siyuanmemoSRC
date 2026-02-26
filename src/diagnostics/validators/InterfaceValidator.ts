@@ -14,10 +14,11 @@ import * as path from 'path';
 import { ValidationResult, ValidationError, ValidationWarning } from '../types';
 import { MethodChecker } from './MethodChecker';
 import { TypeChecker } from './TypeChecker';
+import { diagnosticsOutput } from '../utils/output';
 
 export class InterfaceValidator {
     async validateAllQueues(rootDir: string): Promise<ValidationResult> {
-        console.log(`[InterfaceValidator] Starting validation from: ${rootDir}`);
+        diagnosticsOutput.info(`[InterfaceValidator] Starting validation from: ${rootDir}`);
 
         const errors: ValidationError[] = [];
         const warnings: ValidationWarning[] = [];
@@ -130,7 +131,7 @@ export class InterfaceValidator {
             }
         }
 
-        console.log('[InterfaceValidator] Validation complete');
+        diagnosticsOutput.info('[InterfaceValidator] Validation complete');
 
         return {
             isValid: errors.length === 0,

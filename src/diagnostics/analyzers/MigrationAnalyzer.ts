@@ -12,6 +12,7 @@ import { ArchitectureScanResult, MigrationPlan, MigrationOpportunity, Dependency
 import { SafetyAnalyzer } from './SafetyAnalyzer';
 import { PriorityCalculator } from './PriorityCalculator';
 import { DependencyAnalyzer } from './DependencyAnalyzer';
+import { diagnosticsOutput } from '../utils/output';
 
 export class MigrationAnalyzer {
     private safetyAnalyzer = new SafetyAnalyzer();
@@ -21,7 +22,7 @@ export class MigrationAnalyzer {
     async analyzeMigrationPath(
         scanResult: ArchitectureScanResult
     ): Promise<MigrationPlan> {
-        console.log('[MigrationAnalyzer] Starting migration analysis');
+        diagnosticsOutput.info('[MigrationAnalyzer] Starting migration analysis');
 
         const allUsages = [
             ...scanResult.oldArchitectureUsages,
@@ -56,7 +57,7 @@ export class MigrationAnalyzer {
         const sharedDependencies = this.identifySharedDependencies(scanResult);
         const migrationSteps = this.buildMigrationSteps(safeMigrations);
 
-        console.log('[MigrationAnalyzer] Migration analysis complete');
+        diagnosticsOutput.info('[MigrationAnalyzer] Migration analysis complete');
 
         return {
             safeMigrations,

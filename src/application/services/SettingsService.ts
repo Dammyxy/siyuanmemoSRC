@@ -19,6 +19,9 @@
 import type { IFileService } from '../../infrastructure/services/FileService';
 import type { PluginSettings, RiffIntegrationConfig } from '../../types/settings';
 import { DEFAULT_SETTINGS, DEFAULT_RIFF_CONFIG } from '../../types/settings';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('SettingsService');
 
 /**
  * 设置服务接口
@@ -90,14 +93,14 @@ export class SettingsService implements ISettingsService {
       const loadedSettings = await this.fileService.readJSON<PluginSettings>(this.SETTINGS_FILE);
       
       // 🔍 调试日志：检查从文件读取的原始数据
-      console.log('[SettingsService] Loaded settings from file:', loadedSettings?.quickCard);
+      logger.info('[SettingsService] Loaded settings from file:', loadedSettings?.quickCard);
       
       if (loadedSettings) {
         // 合并加载的设置和默认设置（处理新增字段）
         this.currentSettings = this.mergeWithDefaults(loadedSettings, DEFAULT_SETTINGS);
         
         // 🔍 调试日志：检查合并后的数据
-        console.log('[SettingsService] Merged settings:', this.currentSettings.quickCard);
+        logger.info('[SettingsService] Merged settings:', this.currentSettings.quickCard);
         
         // 🔧 修复：从 settings.json 中读取 riffIntegration 配置
         // 不再使用单独的 riff-integration.json 文件
@@ -113,9 +116,9 @@ export class SettingsService implements ISettingsService {
         await this.saveSettings();
       }
 
-      console.log('[SettingsService] Settings initialized successfully');
+      logger.info('[SettingsService] Settings initialized successfully');
     } catch (error) {
-      console.error('[SettingsService] Failed to initialize settings:', error);
+      logger.error('[SettingsService] Failed to initialize settings:', error);
       // 初始化失败时使用默认设置
       this.currentSettings = { ...DEFAULT_SETTINGS };
       this.currentRiffConfig = { ...DEFAULT_RIFF_CONFIG };
@@ -146,7 +149,7 @@ export class SettingsService implements ISettingsService {
       // 防抖保存
       this.debouncedSaveSettings();
     } catch (error) {
-      console.error('[SettingsService] Failed to update settings:', error);
+      logger.error('[SettingsService] Failed to update settings:', error);
       throw error;
     }
   }
@@ -177,7 +180,7 @@ export class SettingsService implements ISettingsService {
       // 🔧 修复：保存到 settings.json 而不是单独的文件
       this.debouncedSaveSettings();
     } catch (error) {
-      console.error('[SettingsService] Failed to update Riff integration config:', error);
+      logger.error('[SettingsService] Failed to update Riff integration config:', error);
       throw error;
     }
   }
@@ -324,9 +327,9 @@ export class SettingsService implements ISettingsService {
   private async saveSettings(): Promise<void> {
     try {
       await this.fileService.writeJSON(this.SETTINGS_FILE, this.currentSettings);
-      console.log('[SettingsService] Settings saved successfully');
+      logger.info('[SettingsService] Settings saved successfully');
     } catch (error) {
-      console.error('[SettingsService] Failed to save settings:', error);
+      logger.error('[SettingsService] Failed to save settings:', error);
       throw error;
     }
   }
@@ -400,9 +403,9 @@ export class SettingsService implements ISettingsService {
     // 立即保存配置
     try {
       await this.saveSettings();
-      console.log('[SettingsService] Settings saved on dispose');
+      logger.info('[SettingsService] Settings saved on dispose');
     } catch (error) {
-      console.error('[SettingsService] Failed to save settings on dispose:', error);
+      logger.error('[SettingsService] Failed to save settings on dispose:', error);
     }
   }
 }

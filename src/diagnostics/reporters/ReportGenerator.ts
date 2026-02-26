@@ -11,6 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { DiagnosticReport, ArchitectureScanResult, ValidationResult, MigrationPlan, UsagePoint, MigrationStep } from '../types';
+import { diagnosticsOutput } from '../utils/output';
 
 export class ReportGenerator {
     generateDiagnosticReport(
@@ -159,13 +160,13 @@ export class ReportGenerator {
 
     saveReport(report: string, outputPath: string): void {
         fs.writeFileSync(outputPath, report, 'utf-8');
-        console.log(`[ReportGenerator] Report saved to: ${outputPath}`);
+        diagnosticsOutput.info(`[ReportGenerator] Report saved to: ${outputPath}`);
     }
 
     saveArchitectureDoc(doc: string, rootDir: string): string {
         const outputPath = path.join(rootDir, 'QUEUE_ARCHITECTURE.md');
         fs.writeFileSync(outputPath, doc, 'utf-8');
-        console.log(`[ReportGenerator] Architecture doc saved to: ${outputPath}`);
+        diagnosticsOutput.info(`[ReportGenerator] Architecture doc saved to: ${outputPath}`);
         return outputPath;
     }
 

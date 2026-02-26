@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="plugin-app-main">
 
     <div class="demo">
@@ -94,6 +94,9 @@ import SyTextarea from '@/components/SiyuanTheme/SyTextarea.vue'
 import { usePlugin } from '@/main'
 import { onMounted, ref, watchEffect } from 'vue'
 import type { Plugin } from 'siyuan'
+import { createLogger } from '@/utils/logger'
+
+const logger = createLogger('App')
 
 
 type PluginWithI18n = Plugin & { i18n?: Record<string, string> };
@@ -127,7 +130,7 @@ const openSetting = () => {
   alert('Need open plugin setting.')
 }
 
-console.log('plugin is ', plugin)
+logger.info('plugin is ', plugin)
 
 
 // add top bar button
@@ -141,7 +144,7 @@ plugin.addTopBar({
 
 const statusRef = ref<HTMLDivElement>()
 watchEffect(() => {
-  console.log('statusRef is ', statusRef.value)
+  logger.info('statusRef is ', statusRef.value)
 })
 // two ways to add status bar
 onMounted(() => {

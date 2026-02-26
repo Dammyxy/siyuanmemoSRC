@@ -1,4 +1,4 @@
-﻿/**
+/**
  * UnifiedStorageManager - 缁熶竴瀛樺偍绠＄悊鍣?
  * 
  * @module UnifiedStorageManager
@@ -26,6 +26,9 @@ import type { Result } from '../../types/result';
 import { ok, err } from '../../types/result';
 import type { CardPersistenceDTO } from '../../infrastructure/persistence/dto/CardPersistenceDTO';
 import { CardMapper } from '../../infrastructure/persistence/mappers/CardMapper';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('UnifiedStorageManager');
 
 /**
  * 缁熶竴瀛樺偍鏁版嵁缁撴瀯
@@ -82,11 +85,11 @@ export class UnifiedStorageManager {
   constructor() {
     // 闃插尽鎬ф鏌ワ細纭繚鎵€鏈?Map 閮藉凡鍒濆鍖?
     if (!this.cardDTOs) {
-      console.warn('[UnifiedStorageManager] cardDTOs not initialized in constructor, re-initializing...');
+      logger.warn('[UnifiedStorageManager] cardDTOs not initialized in constructor, re-initializing...');
       this.cardDTOs = new Map();
     }
     if (!this.xiuyuans) {
-      console.warn('[UnifiedStorageManager] xiuyuans not initialized in constructor, re-initializing...');
+      logger.warn('[UnifiedStorageManager] xiuyuans not initialized in constructor, re-initializing...');
       this.xiuyuans = new Map();
     }
     if (!this.indexByBlockID) {
@@ -152,7 +155,7 @@ export class UnifiedStorageManager {
           const dto = CardMapper.toPersistence(card);
           this.cardDTOs.set(id, dto);
         }
-        console.log('[UnifiedStorageManager] 鈿狅笍 Migrated old cards data to cardDTOs format');
+        logger.info('[UnifiedStorageManager] 鈿狅笍 Migrated old cards data to cardDTOs format');
       }
 
       // 閲嶅缓绱㈠紩
@@ -208,7 +211,7 @@ export class UnifiedStorageManager {
 
     this.saveTimer = setTimeout(() => {
       this.save().catch(error => {
-        console.error('Failed to auto-save:', error);
+        logger.error('Failed to auto-save:', error);
       });
     }, this.SAVE_DELAY);
   }
@@ -530,7 +533,7 @@ export class UnifiedStorageManager {
       try {
         // 鉁?闃插尽鎬ф鏌ワ細纭繚 cardDTOs Map 宸插垵濮嬪寲
         if (!this.cardDTOs) {
-          console.error('[UnifiedStorageManager] 鉂?CRITICAL: cardDTOs Map is undefined!');
+          logger.error('[UnifiedStorageManager] 鉂?CRITICAL: cardDTOs Map is undefined!');
           return err(new Error('Storage not initialized: cardDTOs Map is undefined'));
         }
 
@@ -539,7 +542,7 @@ export class UnifiedStorageManager {
           return err(new Error(`Card not found: ${dto.id}`));
         }
 
-        console.log('[UnifiedStorageManager] updateCardDTO - Before update:', {
+        logger.info('[UnifiedStorageManager] updateCardDTO - Before update:', {
           cardId: dto.id,
           oldPriority: oldDTO.priority,
           newPriority: dto.priority,
@@ -555,7 +558,7 @@ export class UnifiedStorageManager {
         // 鏇存柊 DTO
         this.cardDTOs.set(dto.id, dto);
 
-        console.log('[UnifiedStorageManager] updateCardDTO - After update:', {
+        logger.info('[UnifiedStorageManager] updateCardDTO - After update:', {
           cardId: dto.id,
           newPriority: dto.priority,
           cardDTOsSize: this.cardDTOs.size,

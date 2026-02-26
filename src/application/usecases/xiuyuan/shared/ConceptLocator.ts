@@ -180,7 +180,7 @@ export async function findConceptByUpwardSearch(
     if (conceptFromRef) {
       return conceptFromRef;
     }
-    logger.debug('No block reference found, fallback to heading/document');
+    logger.debug('No block reference found, using heading/document as concept source');
   }
 
   const concept = await findConceptWithoutListParent(blockId, siyuanApi);

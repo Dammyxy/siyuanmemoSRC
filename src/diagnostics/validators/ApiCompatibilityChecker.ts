@@ -17,6 +17,7 @@ import {
     ApiCompatibilityResult,
     ApiMethodSignature,
 } from '../types';
+import { diagnosticsOutput } from '../utils/output';
 
 type ClassSignatureMap = Map<string, ApiClassSignature>;
 
@@ -160,7 +161,7 @@ export class ApiCompatibilityChecker {
 
     saveCompatibilityReport(report: string, outputPath: string): void {
         fs.writeFileSync(outputPath, report, 'utf-8');
-        console.log(`[ApiCompatibilityChecker] Report saved to: ${outputPath}`);
+        diagnosticsOutput.info(`[ApiCompatibilityChecker] Report saved to: ${outputPath}`);
     }
 
     private collectClassApis(
@@ -266,7 +267,7 @@ export class ApiCompatibilityChecker {
                 }
 
                 const parameters = member.parameters.map(param => {
-                    const typeText = param.type ? param.type.getText(sourceFile) : 'any';
+                    const typeText = param.type ? param.type.getText(sourceFile) : 'unknown';
                     return param.questionToken ? `${typeText}?` : typeText;
                 });
                 const returnType = member.type ? member.type.getText(sourceFile) : 'void';

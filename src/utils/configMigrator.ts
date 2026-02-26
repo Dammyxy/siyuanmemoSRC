@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Configuration Migrator
  * 
  * 负责将旧版 Riff 集成配置迁移到新版混合同步方案配置
@@ -6,6 +6,9 @@
 
 import type { RiffIntegrationConfig } from '@/types/settings';
 import { DEFAULT_RIFF_CONFIG } from '@/types/settings';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('ConfigMigrator');
 
 /**
  * 旧版 Riff 集成配置（已废弃）
@@ -52,7 +55,7 @@ export class ConfigMigrator {
      * @returns 新版配置
      */
     static migrate(oldConfig: LegacyRiffIntegrationConfig): RiffIntegrationConfig {
-        console.log('[SiYuanMemo][ConfigMigrator] Migrating old config:', oldConfig);
+        logger.info('[SiYuanMemo][ConfigMigrator] Migrating old config:', oldConfig);
         
         let newConfig: RiffIntegrationConfig;
         
@@ -125,11 +128,11 @@ export class ConfigMigrator {
                 
             default:
                 // 未知模式，使用默认配置
-                console.warn('[SiYuanMemo][ConfigMigrator] Unknown mode, using default config');
+                logger.warn('[SiYuanMemo][ConfigMigrator] Unknown mode, using default config');
                 newConfig = { ...DEFAULT_RIFF_CONFIG };
         }
         
-        console.log('[SiYuanMemo][ConfigMigrator] Migrated to new config:', newConfig);
+        logger.info('[SiYuanMemo][ConfigMigrator] Migrated to new config:', newConfig);
         return newConfig;
     }
     

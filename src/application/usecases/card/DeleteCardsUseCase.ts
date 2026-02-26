@@ -46,6 +46,9 @@ import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionT
 import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
 import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
 import { buildClearedBlockAttrs } from './shared/CardBlockAttrCleaner';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('DeleteCardsUseCase');
 
 export class DeleteCardsUseCase {
   private readonly siyuanApi: CardDeletionSiyuanPort;
@@ -67,7 +70,7 @@ export class DeleteCardsUseCase {
    * @returns Result<DeleteCardsResult> - 成功返回删除结果，失败返回错误
    */
   async execute(command: DeleteCardsCommand): Promise<Result<DeleteCardsResult>> {
-    console.log(`[DeleteCardsUseCase] 🚀 开始批量删除 ${command.cardIds.length} 张卡片`);
+    logger.info(`[DeleteCardsUseCase] 🚀 开始批量删除 ${command.cardIds.length} 张卡片`);
     
     // 1. 验证输入命令
     const validationError = validateDeleteCardsCommand(command);
@@ -84,16 +87,16 @@ export class DeleteCardsUseCase {
     const { groups: xiuyuanGroups, unresolvedCardIds } = this.groupCardsByXiuyuan(cardIds);
     if (unresolvedCardIds.length > 0) {
       failedCardIds.push(...unresolvedCardIds);
-      console.warn(`[DeleteCardsUseCase] ⚠️ ${unresolvedCardIds.length} 张卡片缺少 Xiuyuan 索引，已标记失败`);
+      logger.warn(`[DeleteCardsUseCase] ⚠️ ${unresolvedCardIds.length} 张卡片缺少 Xiuyuan 索引，已标记失败`);
     }
-    console.log(`[DeleteCardsUseCase] 📊 分组结果: ${xiuyuanGroups.size} 个 Xiuyuan`);
+    logger.info(`[DeleteCardsUseCase] 📊 分组结果: ${xiuyuanGroups.size} 个 Xiuyuan`);
 
     // 3. 处理每个 Xiuyuan 下的卡片（批量删除）
     for (const [xiuyuanIdStr, cardIdsInGroup] of xiuyuanGroups) {
       // 3.1 处理有 Xiuyuan 的卡片
       const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
       if (!xiuyuanIdResult.ok) {
-        console.error(`[DeleteCardsUseCase] ❌ 无效的 xiuyuanId: ${xiuyuanIdStr}`);
+        logger.error(`[DeleteCardsUseCase] ❌ 无效的 xiuyuanId: ${xiuyuanIdStr}`);
         failedCardIds.push(...cardIdsInGroup);
         continue;
       }
@@ -101,13 +104,13 @@ export class DeleteCardsUseCase {
       // 3.2 加载 Xiuyuan（每个 Xiuyuan 只加载一次）
       const xiuyuanResult = await this.xiuyuanRepo.findById(xiuyuanIdResult.value);
       if (!xiuyuanResult.ok || !xiuyuanResult.value) {
-        console.error(`[DeleteCardsUseCase] ❌ 无法加载 Xiuyuan: ${xiuyuanIdStr}`);
+        logger.error(`[DeleteCardsUseCase] ❌ 无法加载 Xiuyuan: ${xiuyuanIdStr}`);
         failedCardIds.push(...cardIdsInGroup);
         continue;
       }
 
       const xiuyuan = xiuyuanResult.value;
-      console.log(`[DeleteCardsUseCase] ✅ 加载 Xiuyuan ${xiuyuanIdStr}, 准备删除 ${cardIdsInGroup.length} 张卡片`);
+      logger.info(`[DeleteCardsUseCase] ✅ 加载 Xiuyuan ${xiuyuanIdStr}, 准备删除 ${cardIdsInGroup.length} 张卡片`);
 
       // 3.3 批量删除该 Xiuyuan 下的所有卡片
       const deleteResult = await this.deleteCardsFromXiuyuan(xiuyuan, cardIdsInGroup);
@@ -118,7 +121,7 @@ export class DeleteCardsUseCase {
       // 3.4 持久化更新后的 Xiuyuan（每个 Xiuyuan 只保存一次）
       const saveResult = await this.xiuyuanRepo.save(xiuyuan);
       if (!saveResult.ok) {
-        console.error(`[DeleteCardsUseCase] ❌ 保存 Xiuyuan 失败: ${xiuyuanIdStr}`, saveResult.error);
+        logger.error(`[DeleteCardsUseCase] ❌ 保存 Xiuyuan 失败: ${xiuyuanIdStr}`, saveResult.error);
         // 已删除的卡片标记为失败
         failedCardIds.push(...deleteResult.deleted);
         deletedCardIds.splice(deletedCardIds.length - deleteResult.deleted.length, deleteResult.deleted.length);
@@ -127,30 +130,30 @@ export class DeleteCardsUseCase {
 
       // 3.5 发布该 Xiuyuan 的领域事件
       const events = xiuyuan.getDomainEvents();
-      console.log(`[DeleteCardsUseCase] 📢 发布 ${events.length} 个领域事件 (Xiuyuan ${xiuyuanIdStr})`);
+      logger.info(`[DeleteCardsUseCase] 📢 发布 ${events.length} 个领域事件 (Xiuyuan ${xiuyuanIdStr})`);
       await this.eventBus.publishAll(events);
       xiuyuan.clearDomainEvents();
     }
 
     // 4. 批量清理块属性
     if (blockIdsToClean.length > 0) {
-      console.log(`[DeleteCardsUseCase] 🧹 清理 ${blockIdsToClean.length} 个块的属性`);
+      logger.info(`[DeleteCardsUseCase] 🧹 清理 ${blockIdsToClean.length} 个块的属性`);
       await this.cleanBlockAttrs(blockIdsToClean);
       
       // ✅ 标记这些块为已删除（防止孤儿卡片）
       this.deletionTracker.markManyAsDeleted(blockIdsToClean);
-      console.log(`[DeleteCardsUseCase] 🔖 标记 ${blockIdsToClean.length} 个块为已删除`);
+      logger.info(`[DeleteCardsUseCase] 🔖 标记 ${blockIdsToClean.length} 个块为已删除`);
     }
 
     // 5. 批量从 Riff 删除
     if (blockIdsToClean.length > 0) {
-      console.log(`[DeleteCardsUseCase] 🔄 从 Riff 批量删除 ${blockIdsToClean.length} 张卡片`);
+      logger.info(`[DeleteCardsUseCase] 🔄 从 Riff 批量删除 ${blockIdsToClean.length} 张卡片`);
       await this.deleteFromRiffBatch(blockIdsToClean);
     }
 
     // 6. 发布批量删除事件（一次性，用于 RiffSync）
     if (deletedCardIds.length > 0) {
-      console.log(`[DeleteCardsUseCase] 📢 发布批量删除事件: ${deletedCardIds.length} 张卡片`);
+      logger.info(`[DeleteCardsUseCase] 📢 发布批量删除事件: ${deletedCardIds.length} 张卡片`);
       await this.eventBus.publish(new CardsDeletedEvent('batch-delete', deletedCardIds));
     }
 
@@ -161,7 +164,7 @@ export class DeleteCardsUseCase {
       failedCardIds,
     };
 
-    console.log(`[DeleteCardsUseCase] ✅ 批量删除完成: 成功 ${result.deletedCount}, 失败 ${failedCardIds.length}`);
+    logger.info(`[DeleteCardsUseCase] ✅ 批量删除完成: 成功 ${result.deletedCount}, 失败 ${failedCardIds.length}`);
     return ok(result);
   }
 
@@ -217,7 +220,7 @@ export class DeleteCardsUseCase {
         const cards = xiuyuan.getCards();
         const actualCard = cards.find(c => c.getId().getValue() === cardIdStr);
         if (!actualCard) {
-          console.warn(`[DeleteCardsUseCase] ⚠️ 卡片不在 Xiuyuan 中: ${cardIdStr}`);
+          logger.warn(`[DeleteCardsUseCase] ⚠️ 卡片不在 Xiuyuan 中: ${cardIdStr}`);
           failed.push(cardIdStr);
           continue;
         }
@@ -232,14 +235,14 @@ export class DeleteCardsUseCase {
         // 删除卡片
         const deleteResult = this.cardDeletionService.deleteCard(xiuyuan, actualCardId);
         if (!deleteResult.ok) {
-          console.error(`[DeleteCardsUseCase] ❌ 删除卡片失败: ${cardIdStr}`, deleteResult.error);
+          logger.error(`[DeleteCardsUseCase] ❌ 删除卡片失败: ${cardIdStr}`, deleteResult.error);
           failed.push(cardIdStr);
           continue;
         }
 
         deleted.push(cardIdStr);
       } catch (error) {
-        console.error(`[DeleteCardsUseCase] ❌ 删除卡片异常: ${cardIdStr}`, error);
+        logger.error(`[DeleteCardsUseCase] ❌ 删除卡片异常: ${cardIdStr}`, error);
         failed.push(cardIdStr);
       }
     }
@@ -278,7 +281,7 @@ export class DeleteCardsUseCase {
           await this.siyuanApi.setBlockAttrs(blockId, newAttrs);
         }
       } catch (error) {
-        console.warn(`[DeleteCardsUseCase] ⚠️ 清理块属性失败: ${blockId}`, error);
+        logger.warn(`[DeleteCardsUseCase] ⚠️ 清理块属性失败: ${blockId}`, error);
       }
     }
   }
@@ -292,9 +295,9 @@ export class DeleteCardsUseCase {
   private async deleteFromRiffBatch(blockIds: string[]): Promise<void> {
     try {
       await this.siyuanApi.removeRiffCards(this.siyuanApi.BUILTIN_DECK_ID, blockIds);
-      console.log(`[DeleteCardsUseCase] ✅ 从 Riff 批量删除成功: ${blockIds.length} 张卡片`);
+      logger.info(`[DeleteCardsUseCase] ✅ 从 Riff 批量删除成功: ${blockIds.length} 张卡片`);
     } catch (error) {
-      console.error(`[DeleteCardsUseCase] ❌ 从 Riff 批量删除失败:`, error);
+      logger.error(`[DeleteCardsUseCase] ❌ 从 Riff 批量删除失败:`, error);
     }
   }
 }

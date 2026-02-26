@@ -1,5 +1,9 @@
-﻿import { Menu, showMessage } from 'siyuan';
+import { Menu, showMessage } from 'siyuan';
 import type FSRSPlugin from '@/index';
+
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('TopBarManager');
 
 export class TopBarManager {
     private plugin: FSRSPlugin;
@@ -64,7 +68,7 @@ export class TopBarManager {
                 return;
             } catch (err) {
                 if (!this.didWarnMount) {
-                    console.warn('[SiYuanMemo] Failed to remount topbar element:', err);
+                    logger.warn('[SiYuanMemo] Failed to remount topbar element:', err);
                     this.didWarnMount = true;
                 }
                 return;
@@ -72,7 +76,7 @@ export class TopBarManager {
         }
 
         if (!this.didWarnMount) {
-            console.warn('[SiYuanMemo] Topbar container not found; topbar button may be hidden by layout');
+            logger.warn('[SiYuanMemo] Topbar container not found; topbar button may be hidden by layout');
             this.didWarnMount = true;
         }
     }

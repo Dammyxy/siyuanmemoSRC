@@ -1,6 +1,10 @@
-﻿/**
+/**
  * 性能监控工具
  */
+
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('PerformanceMonitor');
 
 export class PerformanceMonitor {
     private static readonly TIMINGS: Map<string, number[]> = new Map();
@@ -58,7 +62,7 @@ export class PerformanceMonitor {
             performance.measure(name, startMark, endMark);
             const measure = performance.getEntriesByName(name)[0];
             if (measure) {
-                console.log(`[PERF] ${name}: ${measure.duration.toFixed(2)}ms`);
+                logger.info(`[PERF] ${name}: ${measure.duration.toFixed(2)}ms`);
                 this.recordTiming(name, measure.duration);
             }
         } catch (e) {
@@ -84,7 +88,7 @@ export class PerformanceMonitor {
             this.recordTiming(name, duration);
             
             if (duration > threshold) {
-                console.warn(
+                logger.warn(
                     `[PERF] ${name} took ${duration.toFixed(2)}ms (threshold: ${threshold}ms)`
                 );
             }
@@ -154,7 +158,7 @@ export class PerformanceMonitor {
             .sort((a, b) => b[1].avg - a[1].avg); // 按平均时间降序
         
         for (const [name, stat] of stats) {
-            console.log(
+            logger.info(
                 `${name}:`,
                 `avg=${stat.avg.toFixed(2)}ms`,
                 `min=${stat.min.toFixed(2)}ms`,
@@ -180,7 +184,7 @@ export class PerformanceMonitor {
 
         if (perf.memory) {
             const memory = perf.memory;
-            console.log('[MEMORY]', {
+            logger.info('[MEMORY]', {
                 used: `${(memory.usedJSHeapSize / 1048576).toFixed(2)} MB`,
                 total: `${(memory.totalJSHeapSize / 1048576).toFixed(2)} MB`,
                 limit: `${(memory.jsHeapSizeLimit / 1048576).toFixed(2)} MB`,

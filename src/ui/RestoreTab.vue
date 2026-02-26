@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="sy-plugin-siyuanmemo-restore-tab">
     <div v-if="loading" class="loading">正在恢复复习界面...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
@@ -8,6 +8,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import type { App } from 'siyuan';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('RestoreTab');
 
 type DialogManagerLike = {
   openReviewDialog: () => void;
@@ -68,7 +71,7 @@ function isRestoreTab(tab: RestoreTabLike): boolean {
 }
 
 onMounted(async () => {
-  console.log('[FSRS RestoreTab] Component mounted with data:', props.data);
+  logger.info('[FSRS RestoreTab] Component mounted with data:', props.data);
 
   try {
     // 触发 FSRS 插件打开对应的复习界面
@@ -120,7 +123,7 @@ onMounted(async () => {
     }, 100);
 
   } catch (err) {
-    console.error('[FSRS RestoreTab] Error:', err);
+    logger.error('[FSRS RestoreTab] Error:', err);
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
     loading.value = false;

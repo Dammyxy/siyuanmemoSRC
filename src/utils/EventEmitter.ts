@@ -1,7 +1,11 @@
-﻿/**
+/**
  * 简单的事件发射器实现
  * 用于 HybridSyncService 的事件通知
  */
+
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('EventEmitter');
 
 export type EventListener<T = unknown> = (data: T) => void;
 
@@ -52,7 +56,7 @@ export class EventEmitter<TEvents extends Record<string, unknown> = Record<strin
                 try {
                     (listener as EventListener<TEvents[K]>)(data);
                 } catch (error) {
-                    console.error(`[SiYuanMemo][EventEmitter] Error in listener for event "${String(event)}":`, error);
+                    logger.error(`[SiYuanMemo][EventEmitter] Error in listener for event "${String(event)}":`, error);
                 }
             });
         }

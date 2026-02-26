@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 配置工具函数
  * 
  * 提供插件配置的读取和保存功能
@@ -6,6 +6,9 @@
 
 import type { PluginSettings } from '@/types/settings';
 import type { Plugin } from 'siyuan';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('configUtils');
 
 type SettingsServiceLike = {
   getSettings: () => PluginSettings;
@@ -48,7 +51,7 @@ export function getDayStartHour(plugin: Plugin): number {
     
     return validateDayStartHour(dayStartHour);
   } catch (error) {
-    console.error('[SiYuanMemo][Config] Failed to load dayStartHour:', error);
+    logger.error('[SiYuanMemo][Config] Failed to load dayStartHour:', error);
     return 4;  // 使用默认值
   }
 }
@@ -82,9 +85,9 @@ export async function saveDayStartHour(plugin: Plugin, dayStartHour: number): Pr
     };
     
     await settingsService.updateSettings(newSettings);
-    console.log('[SiYuanMemo][Config] Saved dayStartHour:', validated);
+    logger.info('[SiYuanMemo][Config] Saved dayStartHour:', validated);
   } catch (error) {
-    console.error('[SiYuanMemo][Config] Failed to save dayStartHour:', error);
+    logger.error('[SiYuanMemo][Config] Failed to save dayStartHour:', error);
     throw error;
   }
 }
@@ -103,7 +106,7 @@ function validateDayStartHour(value: unknown): number {
     value < 0 ||
     value > 23
   ) {
-    console.warn('[SiYuanMemo][Config] Invalid dayStartHour:', value, 'using default 4');
+    logger.warn('[SiYuanMemo][Config] Invalid dayStartHour:', value, 'using default 4');
     return 4;  // 使用默认值
   }
   

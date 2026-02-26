@@ -29,6 +29,9 @@ import type { QuickCardRenderService, QuickCardViewModel } from '@/core/card/qui
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('QuickCardRenderer');
 
 /**
  * Props
@@ -88,7 +91,7 @@ async function loadViewModel() {
 
     const side = props.showAnswer ? 'back' : 'front';
 
-    console.log('[QuickCardRenderer] loadViewModel called:', { 
+    logger.info('[QuickCardRenderer] loadViewModel called:', { 
       blockId: props.blockId, 
       cardId: props.cardId, 
       side 
@@ -96,7 +99,7 @@ async function loadViewModel() {
 
     const result = await props.renderService.prepareViewModel(props.blockId, side, props.cardId);
 
-    console.log('[SiYuanMemo][QuickCardRenderer] View model:', result);
+    logger.info('[SiYuanMemo][QuickCardRenderer] View model:', result);
 
     if (!result) {
       throw new Error('Failed to load card: not a quick card');
@@ -110,7 +113,7 @@ async function loadViewModel() {
     emit('error', err instanceof Error ? err : new Error(errorMessage));
     // 只在非预期错误时显示错误日志
     if (!errorMessage.includes('not a quick card')) {
-      console.error('[SiYuanMemo][QuickCardRenderer] Failed to load view model:', err);
+      logger.error('[SiYuanMemo][QuickCardRenderer] Failed to load view model:', err);
     }
   } finally {
     loading.value = false;

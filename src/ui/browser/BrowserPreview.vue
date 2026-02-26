@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="card-browser__preview" :style="previewStyle">
     <div v-if="card" class="preview__content">
       <div class="preview__header">
@@ -50,6 +50,9 @@ import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { Protyle, type App } from 'siyuan';
 import type { BrowserCard } from './types';
 import { applyProtyleReadonly } from './utils/protyleControl';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('BrowserPreview');
 
 // Props
 const props = defineProps<{
@@ -153,7 +156,7 @@ async function fetchBreadcrumbs(blockId: string) {
       breadcrumbs.value = Array.from(dedupMap.values());
     }
   } catch (err) {
-    console.error('[BrowserPreview] Fetch breadcrumbs error:', err);
+    logger.error('[BrowserPreview] Fetch breadcrumbs error:', err);
   }
 }
 
@@ -186,7 +189,7 @@ async function loadContent(blockId: string) {
       },
     });
   } catch (err) {
-    console.error('[BrowserPreview] Protyle load error:', err);
+    logger.error('[BrowserPreview] Protyle load error:', err);
     bodyRef.value.innerHTML = `<div class="preview-error">加载失败</div>`;
   }
 }

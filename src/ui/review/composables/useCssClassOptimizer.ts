@@ -16,6 +16,9 @@
  */
 
 import { ref } from 'vue';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('useCssClassOptimizer');
 
 /**
  * CSS 类应用状态
@@ -68,7 +71,7 @@ export function useCssClassOptimizer(options?: {
   ): void {
     if (!element) {
       if (debugMode) {
-        console.warn('[useCssClassOptimizer] Element is null, skipping');
+        logger.warn('[useCssClassOptimizer] Element is null, skipping');
       }
       return;
     }
@@ -81,7 +84,7 @@ export function useCssClassOptimizer(options?: {
       skipCount.value++;
       
       if (debugMode) {
-        console.log('[useCssClassOptimizer] State unchanged, skipping:', {
+        logger.info('[useCssClassOptimizer] State unchanged, skipping:', {
           state,
           skipCount: skipCount.value,
         });
@@ -94,7 +97,7 @@ export function useCssClassOptimizer(options?: {
     applyCount.value++;
     
     if (debugMode) {
-      console.log('[useCssClassOptimizer] Applying CSS classes:', {
+      logger.info('[useCssClassOptimizer] Applying CSS classes:', {
         state,
         applyCount: applyCount.value,
       });
@@ -131,7 +134,7 @@ export function useCssClassOptimizer(options?: {
     lastAppliedState.value = null;
     
     if (debugMode) {
-      console.log('[useCssClassOptimizer] State reset');
+      logger.info('[useCssClassOptimizer] State reset');
     }
   }
   

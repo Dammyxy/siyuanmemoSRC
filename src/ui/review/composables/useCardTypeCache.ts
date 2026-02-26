@@ -19,6 +19,9 @@
 
 import { ref, onUnmounted } from 'vue';
 import { LRUCache } from '@/utils/performance-helpers';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('useCardTypeCache');
 
 /**
  * 卡片类型检测结果
@@ -42,7 +45,7 @@ export interface CardTypeDetectionResult {
  * // 检查缓存
  * const cached = getCardType('block-123');
  * if (cached) {
- *   console.log('From cache:', cached);
+ *   logger.info('From cache:', cached);
  * } else {
  *   // 执行检测
  *   const result = await detectCardType('block-123');
@@ -70,7 +73,7 @@ export function useCardTypeCache(options?: {
     const result = cache.value.get(blockId);
     
     if (debugMode && result) {
-      console.log('[useCardTypeCache] Cache hit:', blockId, result);
+      logger.info('[useCardTypeCache] Cache hit:', blockId, result);
     }
     
     return result;
@@ -86,7 +89,7 @@ export function useCardTypeCache(options?: {
     cache.value.set(blockId, result);
     
     if (debugMode) {
-      console.log('[useCardTypeCache] Cache set:', blockId, result);
+      logger.info('[useCardTypeCache] Cache set:', blockId, result);
     }
   }
   
@@ -109,7 +112,7 @@ export function useCardTypeCache(options?: {
     cache.value.delete(blockId);
     
     if (debugMode) {
-      console.log('[useCardTypeCache] Cache deleted:', blockId);
+      logger.info('[useCardTypeCache] Cache deleted:', blockId);
     }
   }
   
@@ -120,7 +123,7 @@ export function useCardTypeCache(options?: {
     cache.value.clear();
     
     if (debugMode) {
-      console.log('[useCardTypeCache] Cache cleared');
+      logger.info('[useCardTypeCache] Cache cleared');
     }
   }
   

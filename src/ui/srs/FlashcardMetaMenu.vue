@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="meta fn__flex-column">
     <div class="meta__header fn__flex">
       <svg class="meta__icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -28,6 +28,9 @@ import { ref, onMounted } from 'vue';
 import { createScheduler } from '@/core/scheduler';
 import { DEFAULT_SETTINGS } from '@/types';
 import type FSRSPlugin from '@/index';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('FlashcardMetaMenu');
 
 interface FieldItem {
   key: string;
@@ -142,7 +145,7 @@ onMounted(async () => {
 
     fields.value = items;
   } catch (e: unknown) {
-    console.error('[SiYuanMemo] Meta load error:', e);
+    logger.error('[SiYuanMemo] Meta load error:', e);
     error.value = e instanceof Error ? e.message : t('loadError', '加载失败');
   } finally {
     loading.value = false;

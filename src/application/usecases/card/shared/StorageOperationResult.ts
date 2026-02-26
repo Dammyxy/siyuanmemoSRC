@@ -7,7 +7,7 @@ function isStorageOperationResult(value: unknown): value is StorageOperationResu
   return typeof value === 'object' && value !== null && 'ok' in value;
 }
 
-export function throwOnFailedStorageOperation(result: unknown, fallbackMessage: string): void {
+export function throwOnFailedStorageOperation(result: unknown, defaultMessage: string): void {
   if (!isStorageOperationResult(result) || result.ok !== false) {
     return;
   }
@@ -17,5 +17,5 @@ export function throwOnFailedStorageOperation(result: unknown, fallbackMessage: 
     throw operationError;
   }
 
-  throw new Error(fallbackMessage);
+  throw new Error(defaultMessage);
 }

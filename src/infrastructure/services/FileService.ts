@@ -16,6 +16,9 @@
  */
 
 import type SiyuanMemoPlugin from '../../index';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('FileService');
 
 /**
  * 文件服务接口
@@ -115,7 +118,7 @@ export class FileService implements IFileService {
       }
       
       // 其他错误抛出
-      console.error(`[FileService] Failed to read file "${fileName}":`, error);
+      logger.error(`[FileService] Failed to read file "${fileName}":`, error);
       throw new FileOperationError(
         'read',
         fileName,
@@ -131,7 +134,7 @@ export class FileService implements IFileService {
     try {
       await this.plugin.saveData(fileName, content);
     } catch (error) {
-      console.error(`[FileService] Failed to write file "${fileName}":`, error);
+      logger.error(`[FileService] Failed to write file "${fileName}":`, error);
       throw new FileOperationError(
         'write',
         fileName,
@@ -144,38 +147,38 @@ export class FileService implements IFileService {
    * 读取 JSON 文件
    */
   async readJSON<T>(fileName: string): Promise<T | null> {
-    console.log(`[FileService] readJSON called for "${fileName}"`);
+    logger.info(`[FileService] readJSON called for "${fileName}"`);
     try {
-      console.log(`[FileService] Calling plugin.loadData("${fileName}")...`);
+      logger.info(`[FileService] Calling plugin.loadData("${fileName}")...`);
       const data = await this.plugin.loadData(fileName);
       
       // 🔍 调试日志
-      console.log(`[FileService] loadData("${fileName}") returned:`, typeof data, data);
+      logger.info(`[FileService] loadData("${fileName}") returned:`, typeof data, data);
       
       // loadData 返回 null 或 undefined 表示文件不存在
       if (data === null || data === undefined) {
-        console.log(`[FileService] File "${fileName}" not found, returning null`);
+        logger.info(`[FileService] File "${fileName}" not found, returning null`);
         return null;
       }
       
       // 🔧 修复：如果是空字符串，也视为文件不存在
       if (typeof data === 'string' && data.trim() === '') {
-        console.log(`[FileService] File "${fileName}" is empty, returning null`);
+        logger.info(`[FileService] File "${fileName}" is empty, returning null`);
         return null;
       }
       
       // 如果是字符串，需要解析
       if (typeof data === 'string') {
         const parsed = JSON.parse(data) as T;
-        console.log(`[FileService] Parsed JSON from string for "${fileName}"`);
+        logger.info(`[FileService] Parsed JSON from string for "${fileName}"`);
         return parsed;
       }
       
       // 如果已经是对象，直接返回
-      console.log(`[FileService] Returning object directly for "${fileName}"`);
+      logger.info(`[FileService] Returning object directly for "${fileName}"`);
       return data as T;
     } catch (error) {
-      console.error(`[FileService] Error in readJSON("${fileName}"):`, error);
+      logger.error(`[FileService] Error in readJSON("${fileName}"):`, error);
       
       // 文件不存在是预期行为，返回 null
       if (this.isFileNotFoundError(error)) {
@@ -184,15 +187,15 @@ export class FileService implements IFileService {
       
       // JSON 解析错误
       if (error instanceof SyntaxError) {
-        console.error(`[FileService] Invalid JSON in file "${fileName}":`, error);
+        logger.error(`[FileService] Invalid JSON in file "${fileName}":`, error);
         // 🔧 修复：JSON 解析错误时返回 null，而不是抛出异常
         // 这样可以让 SettingsService 使用默认配置
-        console.warn(`[FileService] Treating invalid JSON as missing file, returning null`);
+        logger.warn(`[FileService] Treating invalid JSON as missing file, returning null`);
         return null;
       }
       
       // 其他错误抛出
-      console.error(`[FileService] Failed to read JSON file "${fileName}":`, error);
+      logger.error(`[FileService] Failed to read JSON file "${fileName}":`, error);
       throw new FileOperationError(
         'read',
         fileName,
@@ -212,7 +215,7 @@ export class FileService implements IFileService {
     } catch (error) {
       // JSON 序列化错误
       if (error instanceof TypeError) {
-        console.error(`[FileService] Cannot serialize data to JSON for file "${fileName}":`, error);
+        logger.error(`[FileService] Cannot serialize data to JSON for file "${fileName}":`, error);
         throw new FileOperationError(
           'write',
           fileName,
@@ -221,7 +224,7 @@ export class FileService implements IFileService {
       }
       
       // 其他错误抛出
-      console.error(`[FileService] Failed to write JSON file "${fileName}":`, error);
+      logger.error(`[FileService] Failed to write JSON file "${fileName}":`, error);
       throw new FileOperationError(
         'write',
         fileName,
@@ -251,7 +254,7 @@ export class FileService implements IFileService {
       }
       
       // 其他错误抛出
-      console.error(`[FileService] Failed to read MessagePack file "${fileName}":`, error);
+      logger.error(`[FileService] Failed to read MessagePack file "${fileName}":`, error);
       throw new FileOperationError(
         'read',
         fileName,
@@ -268,7 +271,7 @@ export class FileService implements IFileService {
       // SiYuan Plugin API 的 saveData 会自动处理 MessagePack 格式
       await this.plugin.saveData(fileName, data);
     } catch (error) {
-      console.error(`[FileService] Failed to write MessagePack file "${fileName}":`, error);
+      logger.error(`[FileService] Failed to write MessagePack file "${fileName}":`, error);
       throw new FileOperationError(
         'write',
         fileName,

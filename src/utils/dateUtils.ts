@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 日期工具模块
  * 
  * 提供基于用户配置的dayStartHour的日期计算功能
@@ -7,6 +7,10 @@
 /**
  * 今天的时间范围
  */
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('dateUtils');
+
 export interface TodayRange {
   /** 今天的开始时间（时间戳，毫秒） */
   start: number;
@@ -40,14 +44,14 @@ export interface TodayRange {
  * ```typescript
  * // 用户配置凌晨4点为新的一天
  * const range = getTodayRange(4);
- * console.log(new Date(range.start)); // 今天04:00:00
- * console.log(new Date(range.end));   // 明天04:00:00
+ * logger.info(new Date(range.start)); // 今天04:00:00
+ * logger.info(new Date(range.end));   // 明天04:00:00
  * ```
  */
 export function getTodayRange(dayStartHour: number = 4): TodayRange {
   // 1. 验证输入
   if (dayStartHour < 0 || dayStartHour > 23 || !Number.isInteger(dayStartHour)) {
-    console.warn('[SiYuanMemo][dateUtils] Invalid dayStartHour:', dayStartHour, 'using default 4');
+    logger.warn('[SiYuanMemo][dateUtils] Invalid dayStartHour:', dayStartHour, 'using default 4');
     dayStartHour = 4;
   }
 

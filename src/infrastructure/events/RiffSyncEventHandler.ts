@@ -20,6 +20,9 @@ import { EventBus } from '@/core/shared/domain/events/EventBus';
 import { CardDeletedEvent } from '@/core/xiuyuan/domain/events/CardDeletedEvent';
 import { CardsDeletedEvent } from '@/core/xiuyuan/domain/events/CardsDeletedEvent';
 import type { XiuyuanSyncService } from '@/application/services/XiuyuanSyncService';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('RiffSyncEventHandler');
 
 export class RiffSyncEventHandler {
   constructor(
@@ -35,7 +38,7 @@ export class RiffSyncEventHandler {
    * @private
    */
   private setupEventHandlers(): void {
-    console.log('[RiffSyncEventHandler] Setting up event handlers...');
+    logger.info('[RiffSyncEventHandler] Setting up event handlers...');
     
     // 监听 CardDeletedEvent（单个卡片删除）
     this.eventBus.subscribe('CardDeleted', async (event: CardDeletedEvent) => {
@@ -47,10 +50,10 @@ export class RiffSyncEventHandler {
       await this.handleCardsDeleted(event);
     });
     
-    console.log('[RiffSyncEventHandler] Event handlers set up successfully');
-    console.log('[RiffSyncEventHandler] Subscribed to: CardDeleted, CardsDeleted');
-    console.log('[RiffSyncEventHandler] EventBus subscriber count (CardDeleted):', this.eventBus.getSubscriberCount('CardDeleted'));
-    console.log('[RiffSyncEventHandler] EventBus subscriber count (CardsDeleted):', this.eventBus.getSubscriberCount('CardsDeleted'));
+    logger.info('[RiffSyncEventHandler] Event handlers set up successfully');
+    logger.info('[RiffSyncEventHandler] Subscribed to: CardDeleted, CardsDeleted');
+    logger.info('[RiffSyncEventHandler] EventBus subscriber count (CardDeleted):', this.eventBus.getSubscriberCount('CardDeleted'));
+    logger.info('[RiffSyncEventHandler] EventBus subscriber count (CardsDeleted):', this.eventBus.getSubscriberCount('CardsDeleted'));
   }
 
   /**
@@ -61,16 +64,16 @@ export class RiffSyncEventHandler {
    */
   private async handleCardDeleted(event: CardDeletedEvent): Promise<void> {
     try {
-      console.log(`[RiffSyncEventHandler] Handling CardDeleted event for card: ${event.cardId}`);
+      logger.info(`[RiffSyncEventHandler] Handling CardDeleted event for card: ${event.cardId}`);
       
       // 调用同步服务删除 Riff 卡片
       await this.syncService.deleteSync(event.cardId);
       
-      console.log(`[RiffSyncEventHandler] Successfully synced card deletion to Riff: ${event.cardId}`);
+      logger.info(`[RiffSyncEventHandler] Successfully synced card deletion to Riff: ${event.cardId}`);
     } catch (error) {
       // 错误已经在 syncService.deleteSync() 中处理（重试、黑名单等）
       // 这里只记录日志
-      console.error(`[RiffSyncEventHandler] Failed to sync card deletion to Riff:`, error);
+      logger.error(`[RiffSyncEventHandler] Failed to sync card deletion to Riff:`, error);
     }
   }
 
@@ -82,15 +85,15 @@ export class RiffSyncEventHandler {
    */
   private async handleCardsDeleted(event: CardsDeletedEvent): Promise<void> {
     try {
-      console.log(`[RiffSyncEventHandler] Handling CardsDeleted event for ${event.cardIds.length} cards`);
+      logger.info(`[RiffSyncEventHandler] Handling CardsDeleted event for ${event.cardIds.length} cards`);
       
       // ✅ 使用批量删除 API，并发处理提升性能
       const successCount = await this.syncService.deleteSyncBatch(event.cardIds);
       const failCount = event.cardIds.length - successCount;
       
-      console.log(`[RiffSyncEventHandler] Batch sync completed: ${successCount} success, ${failCount} failed`);
+      logger.info(`[RiffSyncEventHandler] Batch sync completed: ${successCount} success, ${failCount} failed`);
     } catch (error) {
-      console.error(`[RiffSyncEventHandler] Failed to handle batch deletion:`, error);
+      logger.error(`[RiffSyncEventHandler] Failed to handle batch deletion:`, error);
     }
   }
 
@@ -100,6 +103,6 @@ export class RiffSyncEventHandler {
   dispose(): void {
     // EventBus 目前没有 unsubscribe 方法
     // 如果需要，可以在 EventBus 中添加
-    console.log('[RiffSyncEventHandler] Disposed');
+    logger.info('[RiffSyncEventHandler] Disposed');
   }
 }

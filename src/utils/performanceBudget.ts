@@ -5,6 +5,10 @@
 /**
  * 性能预算定义（单位：毫秒）
  */
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('performanceBudget');
+
 export const PERFORMANCE_BUDGETS = {
   // 数据库查询
   'db:query:single': 50,      // 单次查询 < 50ms
@@ -45,7 +49,7 @@ export function checkBudget(
 
   if (exceeded && process.env.NODE_ENV === 'development') {
     const contextStr = context ? ` (${context})` : '';
-    console.warn(
+    logger.warn(
       `⚠️ Performance budget exceeded: ${name}${contextStr} took ${duration.toFixed(2)}ms (budget: ${budget}ms)`
     );
   }

@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div v-if="showIndicator" class="sync-status-indicator">
     <!-- 同步状态显示 -->
     <div class="sync-status-indicator__status">
@@ -71,6 +71,9 @@ import type {
   SyncProgress,
   HybridSyncEvents,
 } from '@/application/services/XiuyuanSyncService.types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('BrowserSyncStatusIndicator');
 
 type SyncStatusSnapshot = {
   status: SyncStatus;
@@ -166,7 +169,7 @@ let unsubscribe: (() => void) | null = null;
 async function handleManualSync() {
   if (!props.syncService || syncStatus.value === 'syncing') return;
   
-  console.log('[SiYuanMemo][SyncStatusIndicator] Manual sync triggered');
+  logger.info('[SiYuanMemo][SyncStatusIndicator] Manual sync triggered');
   
   try {
     // 使用进度回调
@@ -176,7 +179,7 @@ async function handleManualSync() {
     
     emit('sync');
   } catch (error) {
-    console.error('[SiYuanMemo][SyncStatusIndicator] Manual sync failed:', error);
+    logger.error('[SiYuanMemo][SyncStatusIndicator] Manual sync failed:', error);
   }
 }
 
@@ -184,7 +187,7 @@ async function handleManualSync() {
 async function handleFullSync() {
   if (!props.syncService || syncStatus.value === 'syncing') return;
   
-  console.log('[SiYuanMemo][SyncStatusIndicator] Full sync triggered');
+  logger.info('[SiYuanMemo][SyncStatusIndicator] Full sync triggered');
   
   try {
     // 使用进度回调
@@ -194,13 +197,13 @@ async function handleFullSync() {
     
     emit('fullSync');
   } catch (error) {
-    console.error('[SiYuanMemo][SyncStatusIndicator] Full sync failed:', error);
+    logger.error('[SiYuanMemo][SyncStatusIndicator] Full sync failed:', error);
   }
 }
 
 // 重试
 function handleRetry() {
-  console.log('[SiYuanMemo][SyncStatusIndicator] Retry triggered');
+  logger.info('[SiYuanMemo][SyncStatusIndicator] Retry triggered');
   emit('retry');
   handleManualSync();
 }
@@ -216,14 +219,14 @@ onMounted(() => {
   
   // 🆕 监听同步事件
   const onSyncStart = (data: HybridSyncEvents['syncStart']) => {
-    console.log('[SiYuanMemo][SyncStatusIndicator] Sync started:', data.type);
+    logger.info('[SiYuanMemo][SyncStatusIndicator] Sync started:', data.type);
     syncStatus.value = 'syncing';
     progress.value = '';
     errorMessage.value = '';
   };
   
   const onSyncSuccess = (data: HybridSyncEvents['syncSuccess']) => {
-    console.log('[SiYuanMemo][SyncStatusIndicator] Sync success:', data);
+    logger.info('[SiYuanMemo][SyncStatusIndicator] Sync success:', data);
     syncStatus.value = 'success';
     lastResult.value = data.result;
     progress.value = '';
@@ -237,7 +240,7 @@ onMounted(() => {
   };
   
   const onSyncError = (data: HybridSyncEvents['syncError']) => {
-    console.error('[SiYuanMemo][SyncStatusIndicator] Sync error:', data);
+    logger.error('[SiYuanMemo][SyncStatusIndicator] Sync error:', data);
     if (!data.willRetry) {
       syncStatus.value = 'error';
       errorMessage.value = data.error.message;

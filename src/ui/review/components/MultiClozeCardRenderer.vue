@@ -34,6 +34,9 @@ import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import type { MultiClozeCardViewModel } from '@/core/card/multi-cloze/application/MultiClozeCardRenderService';
 import type { FSRSCard } from '@/types/card';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('MultiClozeCardRenderer');
 
 const props = defineProps<{
   card: FSRSCard;
@@ -53,7 +56,7 @@ async function loadViewModel() {
     viewModel.value = await renderService.prepareViewModel(props.card);
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
-    console.error('[MultiClozeCardRenderer] Failed to load view model:', err);
+    logger.error('[MultiClozeCardRenderer] Failed to load view model:', err);
   } finally {
     loading.value = false;
   }

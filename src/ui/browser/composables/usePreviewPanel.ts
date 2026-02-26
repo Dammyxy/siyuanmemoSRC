@@ -2,6 +2,9 @@ import { ref, computed, nextTick } from 'vue';
 import { Protyle, openTab, type App } from 'siyuan';
 import { BrowserCard, IBreadcrumbItem } from '../types';
 import { applyProtyleReadonly } from '../utils/protyleControl';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('usePreviewPanel');
 
 export interface PreviewPanelOptions {
   plugin?: unknown;
@@ -66,7 +69,7 @@ export function usePreviewPanel(props: PreviewPanelOptions) {
         breadcrumbs.value = data.data;
       }
     } catch (err) {
-      console.error('[SiYuanMemo][CardBrowser] Fetch breadcrumbs error:', err);
+      logger.error('[SiYuanMemo][CardBrowser] Fetch breadcrumbs error:', err);
     }
   }
 
@@ -102,7 +105,7 @@ export function usePreviewPanel(props: PreviewPanelOptions) {
         },
       });
     } catch (err) {
-      console.error('[SiYuanMemo][CardBrowser] Protyle load error:', err);
+      logger.error('[SiYuanMemo][CardBrowser] Protyle load error:', err);
       previewBodyRef.value.innerHTML = `<div class="preview-error">加载失败</div>`;
     }
   }

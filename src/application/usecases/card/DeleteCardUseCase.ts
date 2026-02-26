@@ -37,6 +37,9 @@ import { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
 import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
 import { buildClearedBlockAttrs } from './shared/CardBlockAttrCleaner';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('DeleteCardUseCase');
 
 export class DeleteCardUseCase {
   private readonly siyuanApi: CardDeletionSiyuanPort;
@@ -96,9 +99,9 @@ export class DeleteCardUseCase {
     if (blockId) {
       try {
         await this.removeCardBlockAttrs(blockId);
-        console.log(`[DeleteCardUseCase] Removed block attrs for: ${blockId}`);
+        logger.info(`[DeleteCardUseCase] Removed block attrs for: ${blockId}`);
       } catch (error) {
-        console.error(`[DeleteCardUseCase] Failed to remove block attrs:`, error);
+        logger.error(`[DeleteCardUseCase] Failed to remove block attrs:`, error);
         // 不阻断流程
       }
     }
@@ -107,9 +110,9 @@ export class DeleteCardUseCase {
     if (blockId) {
       try {
         await this.siyuanApi.removeRiffCards(this.siyuanApi.BUILTIN_DECK_ID, [blockId]);
-        console.log(`[DeleteCardUseCase] Deleted card from Riff: ${blockId}`);
+        logger.info(`[DeleteCardUseCase] Deleted card from Riff: ${blockId}`);
       } catch (error) {
-        console.error(`[DeleteCardUseCase] Failed to delete card from Riff:`, error);
+        logger.error(`[DeleteCardUseCase] Failed to delete card from Riff:`, error);
         // Riff 删除失败不应该阻止整个删除操作
       }
     }
@@ -117,12 +120,12 @@ export class DeleteCardUseCase {
     // 8. 发布领域事件（包括 CardDeletedEvent）
     // RiffSyncEventHandler 会监听这个事件并同步到 Riff
     const events = xiuyuan.getDomainEvents();
-    console.log(`[DeleteCardUseCase] Publishing ${events.length} domain events...`);
+    logger.info(`[DeleteCardUseCase] Publishing ${events.length} domain events...`);
     for (const event of events) {
-      console.log(`[DeleteCardUseCase] Event: ${event.getEventName()}`);
+      logger.info(`[DeleteCardUseCase] Event: ${event.getEventName()}`);
     }
     await this.eventBus.publishAll(events);
-    console.log(`[DeleteCardUseCase] Events published successfully`);
+    logger.info(`[DeleteCardUseCase] Events published successfully`);
     xiuyuan.clearDomainEvents();
 
     // 9. 返回成功结果
@@ -144,10 +147,10 @@ export class DeleteCardUseCase {
       // 如果有属性需要删除，调用 API
       if (Object.keys(newAttrs).length > 0) {
         await this.siyuanApi.setBlockAttrs(blockId, newAttrs);
-        console.log('[DeleteCardUseCase] Removed block attrs:', Object.keys(newAttrs));
+        logger.info('[DeleteCardUseCase] Removed block attrs:', Object.keys(newAttrs));
       }
     } catch (error) {
-      console.warn('[DeleteCardUseCase] Failed to remove block attrs:', error);
+      logger.warn('[DeleteCardUseCase] Failed to remove block attrs:', error);
       // 不抛出异常，不影响卡片删除流程
     }
   }

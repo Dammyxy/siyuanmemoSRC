@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="srs-editor fn__flex-column">
     <div class="srs-editor__header fn__flex">
       <svg class="srs-editor__icon"><use xlink:href="#iconInfo"></use></svg>
@@ -198,6 +198,9 @@ import ScheduleDateDialog from '@/ui/review/v2/dialogs/ScheduleDateDialog.vue';
 import type { ScheduleOptions } from '@/ui/review/v2/dialogs/ScheduleDateDialog.vue';
 import type FSRSPlugin from '@/index';
 import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('SrsEditorDialog');
 
 const props = defineProps<{
   card: { 
@@ -275,11 +278,11 @@ async function loadMeta() {
     const card = storage?.getCardByBlockId(blockId);
     
     if (!card) {
-      console.warn('[SiYuanMemo][SrsEditor] Card not found in storage, blockId:', blockId);
+      logger.warn('[SiYuanMemo][SrsEditor] Card not found in storage, blockId:', blockId);
       return;
     }
     
-    console.log('[SiYuanMemo][SrsEditor] Loaded card data:', card);
+    logger.info('[SiYuanMemo][SrsEditor] Loaded card data:', card);
     
     // 卡片 ID 和块 ID
     cardIdText.value = card.id;
@@ -365,7 +368,7 @@ async function loadMeta() {
       aFactorText.value = '-';
     }
   } catch (err) {
-    console.error('[SiYuanMemo][SrsEditor] Failed to load card meta:', err);
+    logger.error('[SiYuanMemo][SrsEditor] Failed to load card meta:', err);
     createdAtText.value = t('unknown', 'Unknown');
     updatedAtText.value = t('unknown', 'Unknown');
     lastReviewText.value = t('unknown', 'Unknown');
@@ -521,7 +524,7 @@ async function handleReset() {
       });
     }
   } catch (err) {
-    console.error('[SiYuanMemo] reset error', err);
+    logger.error('[SiYuanMemo] reset error', err);
     showResultDialog({
       title: t('resetProgress', 'Reset Progress'),
       content: t('resetFailed', 'Reset failed'),
@@ -600,14 +603,14 @@ async function handleScheduleDate(options: ScheduleOptions) {
         rating: options.rating,
         dueTimestamp: dueTimestamp,
       });
-      console.log('[SiYuanMemo][SrsEditor] Schedule with rating via reviewService:', options.rating, 'to:', dueTimestamp);
+      logger.info('[SiYuanMemo][SrsEditor] Schedule with rating via reviewService:', options.rating, 'to:', dueTimestamp);
     } else {
       // 仅修改日期模式
       await reviewService.rescheduleCard(card.id, {
         mode: 'direct',
         dueTimestamp: dueTimestamp,
       });
-      console.log('[SiYuanMemo][SrsEditor] Schedule direct via reviewService to:', dueTimestamp);
+      logger.info('[SiYuanMemo][SrsEditor] Schedule direct via reviewService to:', dueTimestamp);
     }
     await loadMeta();
     
@@ -619,7 +622,7 @@ async function handleScheduleDate(options: ScheduleOptions) {
       type: 'success',
     });
   } catch (err) {
-    console.error('[SiYuanMemo] schedule error', err);
+    logger.error('[SiYuanMemo] schedule error', err);
     showResultDialog({
       title: t('scheduleDate', 'Schedule Review Date'),
       content: t('scheduleFailed', 'Failed to schedule date'),

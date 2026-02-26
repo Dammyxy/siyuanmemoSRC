@@ -279,14 +279,14 @@ export class CreateListTemplateCardsUseCase {
     }
   }
 
-  private toError(error: unknown, fallbackMessage: string): Error {
+  private toError(error: unknown, defaultMessage: string): Error {
     if (error instanceof Error) {
       return error;
     }
     if (typeof error === 'string' && error.length > 0) {
       return new Error(error);
     }
-    return new Error(fallbackMessage);
+    return new Error(defaultMessage);
   }
 }
 

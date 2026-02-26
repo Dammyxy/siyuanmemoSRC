@@ -94,6 +94,9 @@ import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import type { DescriptorCardViewModel } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 import type { DescriptorCardRenderService } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 import type { FSRSCard } from '@/types/card';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('DescriptorCardRenderer');
 
 type WindowWithSiyuanApp = Window & {
   siyuan?: {
@@ -145,7 +148,7 @@ async function loadViewModel() {
     const errorMessage = err instanceof Error ? err.message : String(err);
     error.value = errorMessage;
     emit('error', err instanceof Error ? err : new Error(errorMessage));
-    console.error('[DescriptorCardRenderer] Failed to load view model:', err);
+    logger.error('[DescriptorCardRenderer] Failed to load view model:', err);
   } finally {
     loading.value = false;
   }
@@ -170,7 +173,7 @@ function jumpToConcept() {
 
   const app = getSiyuanApp();
   if (!app) {
-    console.error('[DescriptorCardRenderer] App instance not found');
+    logger.error('[DescriptorCardRenderer] App instance not found');
     return;
   }
 
