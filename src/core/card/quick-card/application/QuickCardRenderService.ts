@@ -94,9 +94,9 @@ export class QuickCardRenderService extends BaseCardRenderService {
    * @param blockId - 块 ID
    * @returns 是否为快速卡片
    */
-  async isQuickCard(blockId: string): Promise<boolean> {
+  async isQuickCard(blockId: string, cardId?: string): Promise<boolean> {
     try {
-      const card = await this.repository.loadCard(blockId);
+      const card = await this.repository.loadCard(blockId, cardId);
       return card !== null;
     } catch (error) {
       logger.error('[QuickCardRenderService] Failed to detect quick card:', error);

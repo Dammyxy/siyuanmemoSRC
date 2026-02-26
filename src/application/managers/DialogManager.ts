@@ -224,6 +224,10 @@ export class DialogManager implements IDialogManager {
           });
           logger.info('[DialogManager] ✅ SchedulerRouter config updated');
 
+          const conflictStrategy = updatedSettings.riffIntegration?.storageConflictResolution || 'merge';
+          this.context.getUnifiedStorage().setConflictResolutionStrategy(conflictStrategy);
+          logger.info('[DialogManager] ✅ UnifiedStorage conflict strategy updated:', conflictStrategy);
+
           // 更新 HybridSyncService 配置 (符合 DDD 架构)
           if (settings.riffIntegration && hybridSyncService) {
             // 通过 ApplicationContext 更新配置 (符合 DDD 封装原则)

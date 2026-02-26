@@ -241,11 +241,22 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       `;
     } else {
       // 反向卡：给定义问概念
-      const reverseQuestion = this.t('conceptDefinitionReverseQuestion', '以下是哪个概念的定义？');
+      const normalizedDefinition = definitionText.replace(/\s+/g, ' ').trim();
+      const canInlineDefinition = normalizedDefinition.length > 0
+        && normalizedDefinition.length <= 36
+        && !/[\r\n]/.test(definitionText)
+        && !/[`#*>{}\[\]\(\)]/.test(definitionText);
+      const reverseQuestion = canInlineDefinition
+        ? this.t('conceptDefinitionReverseQuestionInline', '{definition}是哪个概念的定义？')
+            .replace('{definition}', normalizedDefinition)
+        : this.t('conceptDefinitionReverseQuestion', '定义内容是哪个概念的定义？');
+      const reverseDefinitionSection = canInlineDefinition
+        ? ''
+        : `<div class="definition-content">${definitionHtml}</div>`;
       frontHtml = `
         <div class="concept-definition-question reverse">
           <div class="reverse-label">${reverseQuestion}</div>
-          <div class="definition-content">${definitionHtml}</div>
+          ${reverseDefinitionSection}
         </div>
       `;
 
@@ -253,7 +264,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
         <div class="concept-definition-answer reverse">
           <div class="question-repeat">
             <div class="reverse-label">${reverseQuestion}</div>
-            <div class="definition-content">${definitionHtml}</div>
+            ${reverseDefinitionSection}
           </div>
           <div class="answer-divider"><span>${this.t('answerLabel', '答案')}</span></div>
           <div class="concept-answer">

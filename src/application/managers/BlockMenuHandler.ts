@@ -643,21 +643,45 @@ export class BlockMenuHandler {
         const cardService = this.getCardService();
         let deletedCount = 0;
         let failedCount = 0;
+        let unresolvedBlockCount = 0;
+        const visitedCardIds = new Set<string>();
 
         for (const blockId of blockIds) {
-          const card = this.getStorage().getCardByBlockId(blockId);
-          if (!card) {
+          const cards = this.getStorage()
+            .getCardsByBlockId(blockId)
+            .filter((card) => {
+              if (!card?.id || visitedCardIds.has(card.id)) {
+                return false;
+              }
+              visitedCardIds.add(card.id);
+              return true;
+            });
+
+          if (cards.length === 0) {
+            unresolvedBlockCount++;
             continue;
           }
 
-          const result = await cardService.deleteCard({ cardId: card.id });
-          if (result.ok) {
-            deletedCount++;
+          const cardIds = cards.map((card) => card.id);
+          const batchResult = await cardService.deleteCards({ cardIds });
+          if (batchResult.ok) {
+            deletedCount += batchResult.value.deletedCount;
+            failedCount += batchResult.value.failedCardIds.length;
             continue;
           }
 
-          failedCount++;
-          logger.error(`[BlockMenuHandler] Failed to delete card ${card.id}:`, result.error);
+          logger.error(`[BlockMenuHandler] Failed to batch delete cards for block ${blockId}:`, batchResult.error);
+
+          for (const cardId of cardIds) {
+            const result = await cardService.deleteCard({ cardId });
+            if (result.ok) {
+              deletedCount++;
+              continue;
+            }
+
+            failedCount++;
+            logger.error(`[BlockMenuHandler] Failed to delete card ${cardId}:`, result.error);
+          }
         }
 
         if (deletedCount > 0) {
@@ -667,6 +691,15 @@ export class BlockMenuHandler {
               : `已取消 ${deletedCount} 张闪卡`,
           );
           return;
+        }
+
+        if (failedCount > 0) {
+          await this.siyuanApi.pushErrMsg(`取消闪卡失败：${failedCount} 张`);
+          return;
+        }
+
+        if (unresolvedBlockCount > 0) {
+          logger.warn(`[BlockMenuHandler] No cards found for ${unresolvedBlockCount} selected block(s)`);
         }
 
         await this.siyuanApi.pushMsg('未找到可取消的闪卡');

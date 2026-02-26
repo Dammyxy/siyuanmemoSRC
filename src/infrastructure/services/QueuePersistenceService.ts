@@ -267,4 +267,20 @@ export class QueuePersistenceService implements IQueuePersistenceService {
       );
     }
   }
+
+  /**
+   * 生命周期结束时确保防抖数据落盘
+   */
+  async dispose(): Promise<void> {
+    if (!this.initialized) {
+      return;
+    }
+
+    try {
+      await this.flush();
+      logger.info('QueuePersistenceService disposed and flushed');
+    } catch (error) {
+      logger.error('Failed to flush queue persistence during dispose:', error);
+    }
+  }
 }

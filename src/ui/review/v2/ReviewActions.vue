@@ -3,9 +3,9 @@
   <div v-if="actions.showAnswer && !isTopicCard" class="card__action fn__flex">
     <button
       class="b3-button b3-button--cancel"
-      disabled="disabled"
+      :disabled="!canBack"
       style="width: 25%; min-width: 86px; display: flex"
-      @click="emit('reveal')"
+      @click="emit('back')"
     >
       <svg><use xlink:href="#iconLeft"></use></svg>
       (p / q)
@@ -38,7 +38,7 @@
     <div>
       <button
         class="b3-button b3-button--cancel"
-        disabled="disabled"
+        :disabled="!canBack"
         style="display: flex; margin-bottom: 8px; height: 28px; padding: 0;"
         @click="emit('back')"
       >
@@ -176,6 +176,9 @@ const cardType = computed<'item' | 'topic'>(() => {
 const remainingSize = computed(() => {
   return props.meta?.remainingSize || 0;
 });
+
+// 是否可后退
+const canBack = computed(() => props.meta?.canBack === true);
 
 // 对话框状态
 const showInsertDialog = ref(false);

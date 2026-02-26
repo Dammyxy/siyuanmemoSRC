@@ -59,8 +59,13 @@ export function createPersistenceCallbacks(plugin: SiyuanMemoPlugin) {
       if (data) {
         // 验证数据结构
         if (!data.version || !data.xiuyuans || !data.cards) {
-          logger.warn('Invalid data structure, using defaults');
-          return createEmptyStore();
+          const error = new Error('Invalid unified storage structure');
+          logger.error('Invalid data structure, aborting load to prevent overwrite', {
+            hasVersion: Boolean((data as { version?: unknown }).version),
+            hasXiuyuans: Boolean((data as { xiuyuans?: unknown }).xiuyuans),
+            hasCards: Boolean((data as { cards?: unknown }).cards),
+          });
+          throw error;
         }
 
         logger.info('Loaded from msgpack', {
@@ -77,8 +82,7 @@ export function createPersistenceCallbacks(plugin: SiyuanMemoPlugin) {
       return createEmptyStore();
     } catch (error) {
       logger.error('Failed to load', error);
-      // 返回空数据而不是抛出错误，允许系统继续运行
-      return createEmptyStore();
+      throw (error instanceof Error ? error : new Error(String(error)));
     }
   };
 

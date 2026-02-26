@@ -296,6 +296,16 @@ export class SettingsService implements ISettingsService {
         }
       }
     }
+
+    if (config.storageConflictResolution !== undefined) {
+      const validStrategies = ['merge', 'prefer-local', 'prefer-remote'];
+      if (!validStrategies.includes(config.storageConflictResolution)) {
+        throw new SettingsValidationError(
+          `Invalid storageConflictResolution: ${config.storageConflictResolution}. Must be one of: ${validStrategies.join(', ')}`,
+          'storageConflictResolution'
+        );
+      }
+    }
   }
 
   /**

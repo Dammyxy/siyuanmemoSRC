@@ -101,6 +101,7 @@ export interface ReviewUIState {
     };
     hasHiddenContent?: boolean;
     canSkip?: boolean;
+    canBack?: boolean;
     queueSize?: number; // 🆕 队列总大小
     remainingSize?: number; // 🆕 剩余卡片数量
   };
@@ -115,6 +116,7 @@ export interface ReviewSessionHook {
   reveal: () => void;
   grade: (rating: number) => Promise<void>;
   skip: () => Promise<void>;
+  back: () => Promise<void>;
   executeCommand: (cmdId: string) => Promise<void>;
   getQueueStrategy: () => unknown; // 🆕 获取底层队列策略（用于神经漫游等特殊功能）
   loadCardByBlockId: (blockId: string) => Promise<void>; // 🆕 直接加载指定卡片（Phase 3: UI 控件）

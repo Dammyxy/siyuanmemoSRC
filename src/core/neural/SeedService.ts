@@ -11,7 +11,6 @@
 
 import { addRiffCards, BUILTIN_DECK_ID, getRiffCardsByBlockIDs } from '@/core/siyuan/riff';
 import type { NeuralRoamQueue } from '@/core/queue/domain/NeuralRoamQueue';
-import type { WeightedNeighbor } from '@/core/queue/neural/types';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SeedService');
@@ -28,14 +27,11 @@ export class SeedService {
      * 
      * 流程：
      * 1. 创建 Riff 闪卡（如果尚未是闪卡）
-     * 2. 记录当前候选块为遗落块
-     * 3. 加入种子块集合
-     * 4. 设为当前种子并重新初始化队列
+     * 2. 加入种子块集合
      * 
      * @param blockId 块 ID
-     * @param currentCandidates 当前候选节点（用于记录遗落块）
      */
-    async lockAsSeed(blockId: string, currentCandidates?: WeightedNeighbor[]): Promise<void> {
+    async lockAsSeed(blockId: string): Promise<void> {
         try {
             logger.debug(`Locking block as seed: ${blockId}`);
 
@@ -49,13 +45,7 @@ export class SeedService {
                 logger.debug(`Block ${blockId} is already a flashcard`);
             }
 
-            // 2. 记录遗落块（如果有候选节点）
-            if (currentCandidates && currentCandidates.length > 0) {
-                this.queue.setSeed(blockId, currentCandidates);
-                logger.debug(`Recorded ${currentCandidates.length} missed blocks`);
-            }
-
-            // 3. 调用队列的 lockCurrentAsSeed（会处理持久化和重新初始化）
+            // 2. 调用队列的 lockCurrentAsSeed（会处理持久化）
             await this.queue.lockCurrentAsSeed(blockId);
 
             logger.info(`Block ${blockId} locked as seed successfully`);
@@ -83,8 +73,8 @@ export class SeedService {
                 await addRiffCards(BUILTIN_DECK_ID, [blockId]);
             }
 
-            // 2. 直接开始漫游
-            await this.queue.startRoamingFromSeed(blockId);
+            // 2. 设为当前会话种子
+            await this.queue.lockCurrentAsSeed(blockId, 'high');
 
             logger.info(`Started roaming from seed: ${blockId}`);
         } catch (error) {

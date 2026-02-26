@@ -75,6 +75,36 @@ interface HandleReviewWithAutoFailedOptions {
   logEscalation?: boolean;
 }
 
+type ManualCardCollectionRollbackSnapshot = {
+  temporaryBlacklist: string[];
+  customOrder: string[] | null;
+  manualCards: string[];
+};
+
+function isManualCardCollectionRollbackSnapshot(value: unknown): value is ManualCardCollectionRollbackSnapshot {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as {
+    temporaryBlacklist?: unknown;
+    customOrder?: unknown;
+    manualCards?: unknown;
+  };
+
+  if (!Array.isArray(candidate.temporaryBlacklist)) {
+    return false;
+  }
+  if (!Array.isArray(candidate.manualCards)) {
+    return false;
+  }
+  if (!(candidate.customOrder === null || Array.isArray(candidate.customOrder))) {
+    return false;
+  }
+
+  return true;
+}
+
 export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
   protected readonly manualCards = new ManualCardSetStrategy();
   protected readonly queuePersistence: QueuePersistencePort;
@@ -134,6 +164,29 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
   protected async logManualCardStateSave(logger: ManualCardQueueLogger): Promise<void> {
     const count = await this.saveManualCardState(logger);
     logger.info(`Saved ${count} manually added cards`);
+  }
+
+  public override async createRollbackSnapshot(): Promise<ManualCardCollectionRollbackSnapshot> {
+    const base = await super.createRollbackSnapshot();
+    return {
+      temporaryBlacklist: [...base.temporaryBlacklist],
+      customOrder: base.customOrder ? [...base.customOrder] : null,
+      manualCards: this.manualCards.toArray(),
+    };
+  }
+
+  public override async restoreRollbackSnapshot(snapshot: unknown): Promise<void> {
+    if (!isManualCardCollectionRollbackSnapshot(snapshot)) {
+      throw new Error(`[${this.type}] Invalid rollback snapshot for ManualCardCollectionQueue`);
+    }
+
+    await super.restoreRollbackSnapshot(snapshot);
+    this.manualCards.replace(snapshot.manualCards.map((item) => String(item)));
+
+    const save = (this as unknown as { save?: () => Promise<void> }).save;
+    if (typeof save === 'function') {
+      await save.call(this);
+    }
   }
 
   protected async addManualCard(

@@ -25,6 +25,29 @@ type SchedulerPreviewRouter = ISchedulerRouter & {
     preview: (card: FSRSCard) => Map<number, FSRSCard>;
 };
 
+type QueueRollbackCapable = IReviewQueue & {
+    createRollbackSnapshot?: () => Promise<unknown>;
+    restoreRollbackSnapshot?: (snapshot: unknown) => Promise<void>;
+};
+
+type QueueSnapshotRecord = {
+    queueType: QueueType;
+    queue: QueueRollbackCapable;
+    snapshot: unknown;
+};
+
+type ReviewTransaction = {
+    action: QueueFeedback['action'];
+    cardId: string;
+    cardBefore: FSRSCard | null;
+    queueSnapshots: QueueSnapshotRecord[];
+};
+
+type ReviewHistoryEntry = {
+    item: FSRSCard;
+    transaction: ReviewTransaction | null;
+};
+
 function supportsInsertAt(queue: IReviewQueue): queue is QueueWithInsertAt {
     const candidate = queue as Partial<QueueWithInsertAt>;
     return typeof candidate.insertAt === 'function';
@@ -64,6 +87,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
     private currentIndex = 0;
     private cacheValid = false;
     private cacheManager: CacheManagerObserver;
+    private currentItem: FSRSCard | null = null;
+    private historyStack: ReviewHistoryEntry[] = [];
+    private forwardBuffer: FSRSCard[] = [];
+    private readonly maxHistorySize = 100;
 
     constructor(
         queueTypeOrQueue: QueueType | IReviewQueue,
@@ -98,6 +125,16 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
 
     async next(): Promise<FSRSCard | null> {
         try {
+            if (this.forwardBuffer.length > 0) {
+                const replayCard = this.forwardBuffer.shift() || null;
+                if (!replayCard) {
+                    return null;
+                }
+                const replayCardWithNextDues = await this.addNextDues(replayCard);
+                this.currentItem = replayCardWithNextDues;
+                return replayCardWithNextDues;
+            }
+
             if (this.queueType === QueueType.FinalDrill) {
                 await this.reloadCards();
                 if (this.cachedCards.length === 0) {
@@ -111,6 +148,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
                     cardId: card.id,
                     total: this.cachedCards.length,
                 });
+                this.currentItem = card;
                 return card;
             }
 
@@ -126,6 +164,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
                     queueType: this.queueType,
                     cardId: nextCard.id,
                 });
+                this.currentItem = cardWithNextDues;
                 return cardWithNextDues;
             }
 
@@ -150,6 +189,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
                 now: new Date(Date.now()).toISOString(),
             });
 
+            this.currentItem = cardWithNextDues;
             return cardWithNextDues;
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
@@ -162,7 +202,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
     }
 
     async onFeedback(currentItem: FSRSCard | null, feedback: QueueFeedback): Promise<void> {
-        if (!currentItem) {
+        const activeItem = currentItem || this.currentItem;
+        if (!activeItem) {
             logger.warn(`[SiYuanMemo][UnifiedQueueStrategy] No current item for feedback`);
             return;
         }
@@ -170,13 +211,17 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
         try {
             logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Processing feedback:`, {
                 queueType: this.queueType,
-                cardId: currentItem.id,
+                cardId: activeItem.id,
                 action: feedback.action,
                 rating: feedback.rating,
             });
 
             if (feedback.action === 'rate' && feedback.rating) {
-                await this.queue.handleReview(currentItem.id, feedback.rating);
+                const transaction = await this.createReviewTransaction(activeItem, feedback);
+                this.forwardBuffer = [];
+                await this.queue.handleReview(activeItem.id, feedback.rating);
+                this.pushHistory(activeItem, transaction);
+                this.currentItem = null;
 
                 if (this.queueType !== QueueType.FinalDrill) {
                     this.invalidateCache();
@@ -184,24 +229,35 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
 
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card rated:`, {
                     queueType: this.queueType,
-                    cardId: currentItem.id,
+                    cardId: activeItem.id,
                     rating: feedback.rating,
                 });
                 return;
             }
 
             if (feedback.action === 'skip') {
+                const transaction = await this.createReviewTransaction(activeItem, feedback, {
+                    includeCardSnapshot: false,
+                });
+                await this.queue.skip(activeItem.id);
+                this.pushHistory(activeItem, transaction);
+                this.forwardBuffer = [];
+                this.currentItem = null;
+                this.invalidateCache();
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card skipped:`, {
                     queueType: this.queueType,
-                    cardId: currentItem.id,
+                    cardId: activeItem.id,
                 });
                 return;
             }
 
             if (feedback.action === 'custom' && feedback.customActionId) {
+                this.pushHistory(activeItem, null);
+                this.forwardBuffer = [];
+                this.currentItem = null;
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Custom action:`, {
                     queueType: this.queueType,
-                    cardId: currentItem.id,
+                    cardId: activeItem.id,
                     actionId: feedback.customActionId,
                 });
             }
@@ -211,7 +267,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
 
             logger.error(`[SiYuanMemo][UnifiedQueueStrategy] Failed to process feedback:`, {
                 queueType: this.queueType,
-                cardId: currentItem.id,
+                cardId: activeItem.id,
                 action: feedback.action,
                 error: errorMessage,
                 stack: errorStack,
@@ -219,6 +275,36 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
 
             throw new Error(`Failed to process feedback: ${errorMessage}`);
         }
+    }
+
+    canGoBack(): boolean {
+        return this.historyStack.length > 0;
+    }
+
+    async goBack(currentItem: FSRSCard | null): Promise<FSRSCard | null> {
+        const activeItem = currentItem || this.currentItem;
+        if (this.historyStack.length === 0) {
+            return activeItem;
+        }
+
+        const historyEntry = this.historyStack.pop();
+        if (!historyEntry) {
+            return activeItem;
+        }
+
+        if (historyEntry.transaction) {
+            await this.rollbackTransaction(historyEntry.transaction);
+        }
+
+        const previous = historyEntry.item;
+
+        if (activeItem) {
+            this.pushForwardItem(activeItem);
+        }
+
+        const previousWithNextDues = await this.addNextDues(previous);
+        this.currentItem = previousWithNextDues;
+        return previousWithNextDues;
     }
 
     getUIConfig(currentItem: FSRSCard | null): QueueUIConfig {
@@ -425,6 +511,116 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
     private invalidateCache(): void {
         this.cacheValid = false;
         logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Cache invalidated: ${this.queueType}`);
+    }
+
+    private pushHistory(item: FSRSCard, transaction: ReviewTransaction | null): void {
+        this.historyStack.push({
+            item: this.cloneCard(item),
+            transaction,
+        });
+        if (this.historyStack.length > this.maxHistorySize) {
+            this.historyStack.shift();
+        }
+    }
+
+    private pushForwardItem(card: FSRSCard): void {
+        this.forwardBuffer.unshift(this.cloneCard(card));
+    }
+
+    private async createReviewTransaction(
+        currentItem: FSRSCard,
+        feedback: QueueFeedback,
+        options: { includeCardSnapshot?: boolean } = {}
+    ): Promise<ReviewTransaction> {
+        const includeCardSnapshot = options.includeCardSnapshot !== false;
+        let cardBefore: FSRSCard | null = null;
+        if (includeCardSnapshot) {
+            try {
+                cardBefore = this.cloneCard(await this.manager.getCard(currentItem.id, { silent: true }));
+            } catch (error) {
+                logger.warn('[SiYuanMemo][UnifiedQueueStrategy] Failed to capture pre-review card snapshot:', {
+                    queueType: this.queueType,
+                    cardId: currentItem.id,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            }
+        }
+
+        const queueSnapshots = await this.captureQueueSnapshots(feedback);
+
+        return {
+            action: feedback.action,
+            cardId: currentItem.id,
+            cardBefore,
+            queueSnapshots,
+        };
+    }
+
+    private async captureQueueSnapshots(feedback: QueueFeedback): Promise<QueueSnapshotRecord[]> {
+        const targets = new Map<QueueType, QueueRollbackCapable>();
+        this.addSnapshotTarget(targets, this.queueType, this.queue as QueueRollbackCapable);
+
+        if (this.shouldSnapshotFinalDrill(feedback)) {
+            this.addSnapshotTarget(
+                targets,
+                QueueType.FinalDrill,
+                this.manager.getQueue(QueueType.FinalDrill) as QueueRollbackCapable
+            );
+        }
+
+        const records: QueueSnapshotRecord[] = [];
+        for (const [queueType, queue] of targets.entries()) {
+            if (typeof queue.createRollbackSnapshot !== 'function') {
+                continue;
+            }
+            const snapshot = await queue.createRollbackSnapshot();
+            records.push({ queueType, queue, snapshot });
+        }
+        return records;
+    }
+
+    private addSnapshotTarget(
+        targets: Map<QueueType, QueueRollbackCapable>,
+        queueType: QueueType,
+        queue: QueueRollbackCapable
+    ): void {
+        if (!targets.has(queueType)) {
+            targets.set(queueType, queue);
+        }
+    }
+
+    private shouldSnapshotFinalDrill(feedback: QueueFeedback): boolean {
+        if (feedback.action !== 'rate') {
+            return false;
+        }
+
+        const rating = feedback.rating ?? 0;
+        if (rating >= 3) {
+            return false;
+        }
+
+        return this.queueType === QueueType.RetrievalPractice
+            || this.queueType === QueueType.IncrementalLearning
+            || this.queueType === QueueType.FilterGroup;
+    }
+
+    private async rollbackTransaction(transaction: ReviewTransaction): Promise<void> {
+        for (const record of transaction.queueSnapshots) {
+            if (typeof record.queue.restoreRollbackSnapshot !== 'function') {
+                continue;
+            }
+            await record.queue.restoreRollbackSnapshot(record.snapshot);
+        }
+
+        if (transaction.cardBefore) {
+            await this.manager.updateCard(this.cloneCard(transaction.cardBefore));
+        }
+
+        this.invalidateCache();
+    }
+
+    private cloneCard(card: FSRSCard): FSRSCard {
+        return JSON.parse(JSON.stringify(card)) as FSRSCard;
     }
 
     getType(): QueueType {

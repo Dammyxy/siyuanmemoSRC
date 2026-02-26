@@ -470,6 +470,21 @@ export interface IReviewQueue {
      * - 静态队列：按添加顺序
      */
     clearCustomOrder(): void;
+
+    /**
+     * 创建回滚快照（可选）
+     *
+     * 复习会话可在评分前调用此方法记录队列状态，
+     * 用于实现“撤回上次评分”的事务回滚。
+     */
+    createRollbackSnapshot?(): Promise<unknown>;
+
+    /**
+     * 恢复回滚快照（可选）
+     *
+     * 与 createRollbackSnapshot 配套，恢复队列状态到先前快照。
+     */
+    restoreRollbackSnapshot?(snapshot: unknown): Promise<void>;
 }
 
 /**

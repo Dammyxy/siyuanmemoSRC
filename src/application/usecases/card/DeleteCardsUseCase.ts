@@ -46,6 +46,7 @@ import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionT
 import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
 import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
 import { buildClearedBlockAttrs } from './shared/CardBlockAttrCleaner';
+import { warmupXiuyuanCardIndex } from './shared/WarmupXiuyuanCardIndex';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DeleteCardsUseCase');
@@ -76,6 +77,11 @@ export class DeleteCardsUseCase {
     const validationError = validateDeleteCardsCommand(command);
     if (validationError) {
       return err(new Error(`Invalid command: ${validationError}`));
+    }
+
+    const warmupResult = await warmupXiuyuanCardIndex(this.xiuyuanRepo);
+    if (!warmupResult.ok) {
+      return warmupResult as Result<DeleteCardsResult>;
     }
 
     const { cardIds } = command;

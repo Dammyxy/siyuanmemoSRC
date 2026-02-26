@@ -153,6 +153,24 @@ export interface IQueueStrategy<TItem extends import('../types').QueueItem = imp
    * ```
    */
   onFeedback(currentItem: TItem | null, feedback: QueueFeedback): Promise<void>;
+
+  /**
+   * Go back to the previous reviewed item (optional)
+   *
+   * Queues that support back-navigation can return the previous item from
+   * session history. This is intended for review UI "previous card" behavior.
+   *
+   * @param currentItem - The currently displayed item
+   * @returns The previous item if available, otherwise null/current item
+   */
+  goBack?(currentItem: TItem | null): Promise<TItem | null>;
+
+  /**
+   * Whether the queue has a previous item to go back to (optional)
+   *
+   * @returns true when `goBack()` can navigate to a previous item
+   */
+  canGoBack?(): boolean;
   
   /**
    * Get queue statistics (optional)

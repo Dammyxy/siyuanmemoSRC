@@ -688,6 +688,43 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         this.customOrder = null;
         logger.info(`[${this.type}] Custom order cleared`);
     }
+
+    /**
+     * 创建回滚快照（基础实现）
+     *
+     * 子类可覆盖以补充队列特有状态（例如 manualCards、entries）。
+     */
+    public async createRollbackSnapshot(): Promise<{
+        temporaryBlacklist: string[];
+        customOrder: string[] | null;
+    }> {
+        await this.ensureInitialLoad();
+        return {
+            temporaryBlacklist: Array.from(this.temporaryBlacklist),
+            customOrder: this.customOrder ? [...this.customOrder] : null,
+        };
+    }
+
+    /**
+     * 恢复回滚快照（基础实现）
+     */
+    public async restoreRollbackSnapshot(snapshot: unknown): Promise<void> {
+        const candidate = (snapshot ?? {}) as {
+            temporaryBlacklist?: unknown;
+            customOrder?: unknown;
+        };
+
+        const temporaryBlacklist = Array.isArray(candidate.temporaryBlacklist)
+            ? candidate.temporaryBlacklist.map(item => String(item))
+            : [];
+        const customOrder = Array.isArray(candidate.customOrder)
+            ? candidate.customOrder.map(item => String(item))
+            : null;
+
+        this.temporaryBlacklist = new Set(temporaryBlacklist);
+        this.customOrder = customOrder;
+        this.clearSizeCache();
+    }
     
     /**
      * 应用自定义排序到卡片数组

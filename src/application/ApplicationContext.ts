@@ -594,7 +594,8 @@ export class ApplicationContext {
     // 尝试加载数据，如果文件不存在则初始化为空
     const loadResult = await unifiedStorageManager.load();
     if (!loadResult.ok) {
-      logger.info('[ApplicationContext] UnifiedStorageManager: No existing data, starting fresh');
+      logger.error('[ApplicationContext] Failed to load UnifiedStorageManager, aborting startup to protect data:', loadResult.error);
+      throw new Error(`[ApplicationContext] Failed to load unified storage: ${loadResult.error.message}`);
     } else {
       const stats = unifiedStorageManager.getStats();
       logger.info('[ApplicationContext] ✅ UnifiedStorageManager loaded:', {
@@ -850,7 +851,7 @@ export class ApplicationContext {
     let fullSyncTimer: NodeJS.Timeout | undefined;
     let transactionWebSocketService: TransactionWebSocketService | undefined;
     
-    const riffConfig = settings.riffIntegration;
+    let riffConfig = settings.riffIntegration;
     // HybridSyncService 将在 context 创建后初始化（需要 CardApplicationService 和 EventBus）
     
     // 12. 创建应用上下文（不需要队列实例，队列通过 UnifiedDataSourceManager 延迟获取）
@@ -884,6 +885,12 @@ export class ApplicationContext {
     // 🔧 修复：初始化 SettingsService（加载配置文件）
     await settingsService.init();
     logger.info('[ApplicationContext] ✅ SettingsService initialized');
+
+    const initializedRiffConfig = settingsService.getSettings().riffIntegration;
+    riffConfig = initializedRiffConfig;
+    const startupConflictStrategy = initializedRiffConfig?.storageConflictResolution || 'merge';
+    unifiedStorageManager.setConflictResolutionStrategy(startupConflictStrategy);
+    logger.info('[ApplicationContext] UnifiedStorage conflict strategy set:', startupConflictStrategy);
     
     const advancedRouter = new AdvancedDataRouter(
       cardApplicationService, 
@@ -1120,11 +1127,14 @@ export class ApplicationContext {
       
       // ✅ 从代码导入模板（硬编码，不需要持久化）
       const { ALL_TEMPLATES } = await import('@/core/xiuyuan');
+      const { BUILTIN_CONCEPT_TEMPLATE } = await import('@/core/xiuyuan/templates/builtin-concept');
       const templateRegistry = new Map<string, ICardTemplate>();
       // 使用 ALL_TEMPLATES 来包含内部使用的变体模板
       for (const template of ALL_TEMPLATES) {
         templateRegistry.set(template.id, template);
       }
+      // 概念描述符流程会依赖内部概念模板（不在 ALL_TEMPLATES 内）
+      templateRegistry.set(BUILTIN_CONCEPT_TEMPLATE.id, BUILTIN_CONCEPT_TEMPLATE);
       
       this.xiuyuanApplicationService = new XiuyuanApplicationService(
         xiuyuanRepository,

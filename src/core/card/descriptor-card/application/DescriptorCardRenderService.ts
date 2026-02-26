@@ -20,6 +20,7 @@ export interface DescriptorCardInput {
   meta?: {
     frontBlockIDs?: string[];
     typeMarker?: string;
+    fieldMapping?: Record<string, unknown>;
   };
   [key: string]: unknown;
 }

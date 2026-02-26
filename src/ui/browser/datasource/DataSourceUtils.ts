@@ -98,7 +98,7 @@ export function resolveBrowserCardId(card: BrowserCard): string {
 export async function removeCardsFromQueue(
   queue: QueueRemoveLike | undefined,
   selectedRows: BrowserCard[],
-  options?: { scope?: string }
+  options?: { scope?: string; resolveId?: (row: BrowserCard) => string }
 ): Promise<QueueRemovalResult> {
   const scope = options?.scope || 'DataSource';
   if (!queue || typeof queue.removeCard !== 'function') {
@@ -108,7 +108,7 @@ export async function removeCardsFromQueue(
   let removedCount = 0;
   const failedIds: string[] = [];
   for (const row of selectedRows || []) {
-    const cardId = resolveBrowserCardId(row);
+    const cardId = options?.resolveId?.(row) || resolveBrowserCardId(row);
     if (!cardId) {
       failedIds.push(String(row?.blockId || row?.id || ''));
       continue;

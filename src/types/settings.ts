@@ -153,6 +153,9 @@ export interface QueueSettings {
     };
 }
 
+/** 存储冲突解决策略 */
+export type StorageConflictResolutionStrategy = 'merge' | 'prefer-local' | 'prefer-remote';
+
 /** 🆕 Riff 集成配置 */
 export interface RiffIntegrationConfig {
     /** 模式选择 */
@@ -188,6 +191,9 @@ export interface RiffIntegrationConfig {
         /** 删除失败时是否使用黑名单作为后备 */
         useBlacklistFallback: boolean;
     };
+
+    /** 多实例/多设备写冲突时的解决策略 */
+    storageConflictResolution?: StorageConflictResolutionStrategy;
 }
 
 /** 插件完整设置 */
@@ -233,6 +239,7 @@ export interface PluginSettings {
 export const DEFAULT_RIFF_CONFIG: RiffIntegrationConfig = {
     mode: 'advanced',
     useLocalScheduler: true,
+    storageConflictResolution: 'merge',
     
     incrementalSync: {
         enabled: true,

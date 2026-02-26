@@ -27,8 +27,6 @@ const STORAGE_FILES = {
     PRACTICE_QUEUE_BACKUP: 'practice-queue-backup.msgpack',
     INCREMENTAL_LEARNING_QUEUE: 'incremental-learning-queue.msgpack',
     INCREMENTAL_LEARNING_QUEUE_JSON: 'incremental-learning-queue.json',
-    RIFF_BLACKLIST: 'riff-blacklist.msgpack',
-    RIFF_BLACKLIST_JSON: 'riff-blacklist.json',
 };
 
 interface QueueData {
@@ -144,7 +142,6 @@ export class StorageManager {
     private isDirty: boolean = false;
     private practiceQueue: StoredQueueItem[] = [];
     private practiceQueueLastAutoSortDay = '';
-    private riffBlacklist: Set<string> = new Set();
 
     constructor(pluginName: string) {
         this.basePath = siyuanApi.getPluginDataPath(pluginName);
@@ -154,14 +151,14 @@ export class StorageManager {
      * 初始化存储，加载数据到内存
      */
     async init(): Promise<void> {
-        // 🆕 首次运行时迁移 JSON 数据到 msgpack
-        await this.migrateToMsgpack();
-        
+        // 仅保留 settings 初始化。
+        // 说明：cards/practice/incremental/riff-blacklist 已迁移到 UnifiedStorageManager
+        // 与 QueuePersistenceService，不再走旧 StorageManager 启动链路。
         await this.loadSettings();
-        await this.loadCards();
-        await this.loadPracticeQueue();
-        await this.loadIncrementalLearningQueue();
-        await this.loadRiffBlacklist();
+        this.cardsCache.clear();
+        this.practiceQueue = [];
+        this.incrementalLearningQueue = [];
+        this.practiceQueueLastAutoSortDay = '';
     }
 
     // ==================== 设置 ====================
@@ -991,9 +988,12 @@ export class StorageManager {
         } catch (error) {
             // 特别处理 Base64 解码错误（文件损坏）
             if (error instanceof DOMException && error.name === 'InvalidCharacterError') {
-                logger.warn(`Corrupted msgpack file (invalid Base64): ${filename}, ignoring it`);
-                // 不尝试删除文件，因为可能会导致其他错误
-                // 下次保存时会自动覆盖损坏的文件
+                logger.warn(`Corrupted msgpack file (invalid Base64): ${filename}, removing corrupted file`);
+                try {
+                    await siyuanApi.removeFile(`${this.basePath}/${filename}`);
+                } catch (removeError) {
+                    logger.warn(`Failed to remove corrupted msgpack file: ${filename}`, removeError);
+                }
             } else {
                 logger.error(`Failed to load msgpack ${filename}:`, error);
             }
@@ -1034,7 +1034,6 @@ export class StorageManager {
             { from: STORAGE_FILES.CARDS_JSON, to: STORAGE_FILES.CARDS, name: 'cards' },
             { from: STORAGE_FILES.PRACTICE_QUEUE_JSON, to: STORAGE_FILES.PRACTICE_QUEUE, name: 'practice-queue' },
             { from: STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE_JSON, to: STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE, name: 'incremental-learning-queue' },
-            { from: STORAGE_FILES.RIFF_BLACKLIST_JSON, to: STORAGE_FILES.RIFF_BLACKLIST, name: 'riff-blacklist' },
         ];
 
         let migratedCount = 0;
@@ -1097,84 +1096,6 @@ export class StorageManager {
         }
     }
 
-    // ==================== Riff Blacklist ====================
-
-    /**
-     * Add block ID to Riff blacklist
-     */
-    addToRiffBlacklist(blockID: string): void {
-        this.riffBlacklist.add(blockID);
-        void this.saveRiffBlacklist();
-    }
-
-    /**
-     * Remove block ID from Riff blacklist
-     */
-    removeFromRiffBlacklist(blockID: string): void {
-        this.riffBlacklist.delete(blockID);
-        void this.saveRiffBlacklist();
-    }
-
-    /**
-     * Check if block ID is in blacklist
-     */
-    isInRiffBlacklist(blockID: string): boolean {
-        return this.riffBlacklist.has(blockID);
-    }
-
-    /**
-     * Get blacklist (returns a copy)
-     */
-    getRiffBlacklist(): Set<string> {
-        return new Set(this.riffBlacklist);
-    }
-
-    /**
-     * Clear blacklist
-     */
-    async clearRiffBlacklist(): Promise<void> {
-        this.riffBlacklist.clear();
-        await this.saveRiffBlacklist();
-    }
-
-    /**
-     * Load blacklist from file
-     */
-    private async loadRiffBlacklist(): Promise<void> {
-        try {
-            const { data, source } = await this.loadWithLegacyFallback(
-                STORAGE_FILES.RIFF_BLACKLIST,
-                STORAGE_FILES.RIFF_BLACKLIST_JSON
-            );
-
-            if (source === 'none') {
-                this.riffBlacklist = new Set();
-            } else {
-                this.riffBlacklist = new Set(Array.isArray(data) ? data : []);
-                logger.info(
-                    `Loaded Riff blacklist (${source === 'msgpack' ? 'msgpack' : 'JSON, will migrate'}): ${this.riffBlacklist.size}`
-                );
-            }
-        } catch (err) {
-            logger.warn('Failed to load Riff blacklist:', err);
-            this.riffBlacklist = new Set();
-        }
-    }
-
-    /**
-     * Save blacklist to file
-     */
-    private async saveRiffBlacklist(): Promise<void> {
-        try {
-            const data = Array.from(this.riffBlacklist);
-            // 🆕 使用 msgpack 格式保存
-            await this.saveMsgpackData(STORAGE_FILES.RIFF_BLACKLIST, data);
-            logger.info('Saved Riff blacklist (msgpack):', data.length);
-        } catch (err) {
-            logger.error('Failed to save Riff blacklist:', err);
-        }
-    }
-    
     // ==================== 数据修复 ====================
     
     /**

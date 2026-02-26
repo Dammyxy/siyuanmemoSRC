@@ -10,6 +10,7 @@
 
 import * as api from '../../siyuan/api';
 import { createLogger } from '@/utils/logger';
+import { QueryCache } from '@/utils/queryCache';
 
 const logger = createLogger('ConceptQueryEngine');
 
@@ -29,50 +30,11 @@ export interface BlockData {
 
 type UnknownRecord = Record<string, unknown>;
 
-function isRecord(value: unknown): value is UnknownRecord {
-  return typeof value === 'object' && value !== null;
-}
-
-function pickBacklinkNodeId(node: UnknownRecord): string | null {
-  if (typeof node.blockID === 'string' && node.blockID.length > 0) {
-    return node.blockID;
-  }
-  if (typeof node.id === 'string' && node.id.length > 0) {
-    return node.id;
-  }
-  return null;
-}
-
-function extractBacklinkIds(backlinks: unknown[], conceptId: string): string[] {
-  const collectedIds: string[] = [];
-  const seenIds = new Set<string>();
-
-  const walk = (node: unknown): void => {
-    if (!isRecord(node)) {
-      return;
-    }
-
-    const nodeId = pickBacklinkNodeId(node);
-    if (nodeId && nodeId !== conceptId && !seenIds.has(nodeId)) {
-      seenIds.add(nodeId);
-      collectedIds.push(nodeId);
-    }
-
-    if (Array.isArray(node.children)) {
-      for (const child of node.children) {
-        walk(child);
-      }
-    }
-  };
-
-  for (const backlink of backlinks) {
-    walk(backlink);
-  }
-
-  return collectedIds;
-}
-
 export class ConceptQueryEngine {
+  private readonly neighborsCache = new QueryCache<Neighbor[]>(5000, 80);
+  private readonly backlinksCache = new QueryCache<string[]>(10000, 120);
+  private readonly blockDataCache = new QueryCache<BlockData>(30000, 300);
+
   /**
    * 获取概念卡的所有邻居
    * 
@@ -80,12 +42,20 @@ export class ConceptQueryEngine {
    * @returns 邻居列表（已去重）
    */
   async fetchNeighbors(conceptId: string): Promise<Neighbor[]> {
+    const cached = this.neighborsCache.get(conceptId);
+    if (cached !== null) {
+      logger.debug(`Cache hit for neighbors: ${conceptId}`);
+      return cached;
+    }
+
     try {
+      const backlinksPromise = this.fetchBacklinks(conceptId);
+
       // 并行查询所有类型（性能提升 3 倍）
       const [backlinks, directOutgoing, indirectOutgoing, descriptors] = await Promise.all([
-        this.fetchBacklinks(conceptId),
+        backlinksPromise,
         this.fetchDirectOutgoingLinks(conceptId),
-        this.fetchIndirectOutgoingLinks(conceptId),
+        backlinksPromise.then((ids) => this.fetchIndirectOutgoingLinks(conceptId, ids)),
         this.fetchDescriptors(conceptId),
       ]);
 
@@ -98,6 +68,8 @@ export class ConceptQueryEngine {
 
       // 去重（同一个块可能同时是反链和正链）
       const uniqueNeighbors = this.deduplicateNeighbors(neighbors);
+
+      this.neighborsCache.set(conceptId, uniqueNeighbors);
       
       logger.log(`Found ${uniqueNeighbors.length} unique neighbors for ${conceptId} (backlinks: ${backlinks.length}, direct: ${directOutgoing.length}, indirect: ${indirectOutgoing.length}, descriptors: ${descriptors.length})`);
       return uniqueNeighbors;
@@ -110,49 +82,56 @@ export class ConceptQueryEngine {
   /**
    * 查询反链
    * 
-   * 使用思源 API 获取反链，返回具体的引用块 ID
+   * 规则对齐嵌入块 SQL：
+   * - 引用位于列表项内部时，展示该列表项块（type = 'i'）
+   * - 非列表项上下文下，展示原引用块（h/p/t/i）
+   * - 过滤列表容器等无意义块，避免展示整个列表块
    * 
    * @param conceptId 概念卡 ID
    * @returns 反链块 ID 列表
    */
   async fetchBacklinks(conceptId: string): Promise<string[]> {
+    const cached = this.backlinksCache.get(conceptId);
+    if (cached !== null) {
+      logger.debug(`Cache hit for backlinks: ${conceptId}`);
+      return cached;
+    }
+
     try {
       logger.debug(`Fetching backlinks for: ${conceptId}`);
-      
-      // 使用 /api/ref/getBacklink API
-      const response = await fetch('/api/ref/getBacklink', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          id: conceptId,
-          k: '',  // 关键词过滤（空表示不过滤）
-          mk: ''  // 更多关键词（空表示不过滤）
-        }),
-      });
 
-      if (!response.ok) {
-        logger.error(`API request failed: ${response.status}`);
-        return [];
-      }
+      const escapedConceptId = this.escapeSQL(conceptId);
+      const stmt = `
+        SELECT DISTINCT
+          CASE
+            WHEN b.type = 'i' THEN b.id
+            WHEN b.parent_id IN (
+              SELECT li.id
+              FROM blocks li
+              WHERE li.type = 'i'
+            ) THEN b.parent_id
+            WHEN b.type IN ('h', 'p', 't') THEN b.id
+            ELSE NULL
+          END AS id
+        FROM refs r
+        INNER JOIN blocks b ON b.id = r.block_id
+        WHERE r.def_block_id = '${escapedConceptId}'
+          AND (
+            b.type IN ('h', 'p', 't', 'i')
+            OR b.parent_id IN (
+              SELECT li.id
+              FROM blocks li
+              WHERE li.type = 'i'
+            )
+          )
+      `;
 
-      const data: unknown = await response.json();
-      if (!isRecord(data) || data.code !== 0) {
-        const errorMessage = isRecord(data) && typeof data.msg === 'string' ? data.msg : 'unknown error';
-        logger.error(`API error: ${errorMessage}`);
-        return [];
-      }
+      const rows = await api.sql(stmt);
+      const backlinkIds = this.extractIds(rows, conceptId);
 
-      // 解析反链数据
-      const backlinks = isRecord(data.data) && Array.isArray(data.data.backlinks) ? data.data.backlinks : [];
-      logger.debug(`Raw backlinks count: ${backlinks.length}`);
-      
-      if (backlinks.length > 0) {
-        logger.debug('First backlink sample:', backlinks[0]);
-      }
+      logger.debug(`Found ${backlinkIds.length} normalized backlink blocks`, backlinkIds.slice(0, 10));
 
-      const backlinkIds = extractBacklinkIds(backlinks, conceptId);
-
-      logger.debug(`Found ${backlinkIds.length} backlink blocks`, backlinkIds.slice(0, 10));
+      this.backlinksCache.set(conceptId, backlinkIds);
       
       return backlinkIds;
     } catch (error) {
@@ -188,13 +167,7 @@ export class ConceptQueryEngine {
       `;
 
       const rows = await api.sql(stmt);
-      
-      if (!rows || !Array.isArray(rows)) {
-        logger.debug('No direct outgoing links found');
-        return [];
-      }
-
-      const linkIds = rows.map(row => row.id);
+      const linkIds = this.extractIds(rows, conceptId);
       logger.debug(`Found ${linkIds.length} direct outgoing links`);
       return linkIds;
     } catch (error) {
@@ -209,37 +182,41 @@ export class ConceptQueryEngine {
    * 查询概念卡反链里出现的正链（引用）
    * 
    * @param conceptId 概念卡 ID
+   * @param backlinkIds 已查询到的反链 ID（可选，避免重复请求）
    * @returns 间接出链块 ID 列表
    */
-  async fetchIndirectOutgoingLinks(conceptId: string): Promise<string[]> {
+  async fetchIndirectOutgoingLinks(conceptId: string, backlinkIds?: string[]): Promise<string[]> {
     try {
       // 1. 先获取反链块 ID
-      const backlinkIds = await this.fetchBacklinks(conceptId);
+      const resolvedBacklinkIds = backlinkIds ?? await this.fetchBacklinks(conceptId);
       
-      if (backlinkIds.length === 0) {
+      if (resolvedBacklinkIds.length === 0) {
         logger.debug('No backlinks, so no indirect outgoing links');
         return [];
       }
 
-      // 2. 查询这些反链块中的所有出链
-      const backlinkIdsStr = backlinkIds.map(id => `'${this.escapeSQL(id)}'`).join(',');
+      // 2. 查询这些反链块及其子块中的所有出链（避免列表项归一化后丢失子块引用）
+      const backlinkIdsStr = resolvedBacklinkIds.map(id => `'${this.escapeSQL(id)}'`).join(',');
       
       const stmt = `
+        WITH RECURSIVE backlink_scope AS (
+          SELECT b.id
+          FROM blocks b
+          WHERE b.id IN (${backlinkIdsStr})
+          UNION ALL
+          SELECT child.id
+          FROM blocks child
+          INNER JOIN backlink_scope s ON child.parent_id = s.id
+        )
         SELECT DISTINCT r.def_block_id as id
         FROM refs r
-        WHERE r.block_id IN (${backlinkIdsStr})
+        WHERE r.block_id IN (SELECT id FROM backlink_scope)
           AND r.def_block_id != '${this.escapeSQL(conceptId)}'
       `;
 
       const rows = await api.sql(stmt);
-      
-      if (!rows || !Array.isArray(rows)) {
-        logger.debug('No indirect outgoing links found');
-        return [];
-      }
-
-      const linkIds = rows.map(row => row.id);
-      logger.debug(`Found ${linkIds.length} indirect outgoing links from ${backlinkIds.length} backlinks`);
+      const linkIds = this.extractIds(rows, conceptId);
+      logger.debug(`Found ${linkIds.length} indirect outgoing links from ${resolvedBacklinkIds.length} backlinks`);
       return linkIds;
     } catch (error) {
       logger.error('Failed to fetch indirect outgoing links:', error);
@@ -274,12 +251,7 @@ export class ConceptQueryEngine {
       `;
 
       const rows = await api.sql(stmt);
-      
-      if (!rows || !Array.isArray(rows)) {
-        return [];
-      }
-
-      const descriptorIds = rows.map(row => row.id);
+      const descriptorIds = this.extractIds(rows, conceptId);
       logger.debug(`Found ${descriptorIds.length} descriptors`);
       return descriptorIds;
     } catch (error) {
@@ -353,6 +325,12 @@ export class ConceptQueryEngine {
    * @returns 块数据，如果不存在则返回 null
    */
   async fetchBlockData(blockId: string): Promise<BlockData | null> {
+    const cached = this.blockDataCache.get(blockId);
+    if (cached !== null) {
+      logger.debug(`Cache hit for block data: ${blockId}`);
+      return cached;
+    }
+
     try {
       const stmt = `
         SELECT 
@@ -371,13 +349,16 @@ export class ConceptQueryEngine {
       }
 
       const row = rows[0] as UnknownRecord;
-      return {
+      const blockData: BlockData = {
         id: typeof row.id === 'string' ? row.id : blockId,
         content: typeof row.content === 'string' ? row.content : '',
         type: typeof row.type === 'string' ? row.type : '',
         parent_id: typeof row.parent_id === 'string' ? row.parent_id : undefined,
         root_id: typeof row.root_id === 'string' ? row.root_id : undefined,
       };
+
+      this.blockDataCache.set(blockId, blockData);
+      return blockData;
     } catch (error) {
       logger.error('Failed to fetch block data:', error);
       return null;
@@ -403,6 +384,27 @@ export class ConceptQueryEngine {
     }
 
     return Array.from(map.values());
+  }
+
+  private extractIds(rows: unknown, excludeId?: string): string[] {
+    if (!Array.isArray(rows)) {
+      return [];
+    }
+
+    const ids: string[] = [];
+    const seen = new Set<string>();
+
+    for (const row of rows) {
+      const rowRecord = row as UnknownRecord;
+      const id = typeof rowRecord.id === 'string' ? rowRecord.id : '';
+      if (!id || id === excludeId || seen.has(id)) {
+        continue;
+      }
+      seen.add(id);
+      ids.push(id);
+    }
+
+    return ids;
   }
 
   /**

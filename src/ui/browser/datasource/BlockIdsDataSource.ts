@@ -19,6 +19,7 @@ import {
 import {
   insertCardsIntoQueue,
   removeCardsFromQueue,
+  resolveBrowserCardId,
   setBrowserCardsPriority,
   sortBrowserCards,
 } from './DataSourceUtils';
@@ -101,6 +102,15 @@ export class BlockIdsDataSource implements ICardDataSource {
   }
 
   getSupportedActions(): CardBrowserAction[] {
+    if (this.queueId === 'neural-roam') {
+      return buildQueueActions({
+        withInsert: false,
+        withSort: false,
+        withPriority: false,
+        withTimeAdjust: false,
+      });
+    }
+
     return buildQueueActions({
       withInsert: true,
       withSort: false,
@@ -128,6 +138,10 @@ export class BlockIdsDataSource implements ICardDataSource {
 
       const result = await removeCardsFromQueue(queue, selectedRows, {
         scope: 'BlockIdsDataSource',
+        resolveId:
+          this.queueId === 'neural-roam'
+            ? (row) => String(row.blockId || resolveBrowserCardId(row))
+            : undefined,
       });
       return { updated: result.removedCount, skipped: result.failedCount };
     }

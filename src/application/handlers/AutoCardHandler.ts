@@ -800,7 +800,7 @@ export class AutoCardHandler implements ITransactionHandler {
             
 
                         const card = result.value;
-            await this.siyuanApi.markBlockAsCard(blockId, card.id, card.priority, 'item');
+            await this.siyuanApi.markBlockAsCard(blockId, card.getId().getValue(), 50, 'item');
             logger.debug('[SiYuanMemo][AutoCard] Marked block as card:', blockId);
             
             logger.debug('[SiYuanMemo][AutoCard] Basic card created successfully:', blockId, direction);
@@ -1168,6 +1168,7 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             
 
+            const xiuyuanAppService = await this.requireXiuyuanApplicationService();
             const result = await xiuyuanAppService.createFromBlocks({
                 blockIds: [foundConceptId, blockId],
                 templateId: templateId,
@@ -1284,7 +1285,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 await this.riffApi.addRiffCards(this.riffApi.BUILTIN_DECK_ID, [blockId]);
         
 
-                await this.siyuanApi.markBlockAsCard(blockId, card.id, card.priority, 'item');
+                await this.siyuanApi.markBlockAsCard(blockId, card.getId().getValue(), 50, 'item');
         
         logger.debug('[SiYuanMemo][AutoCard] Single cloze card created:', blockId);
         
@@ -1499,6 +1500,7 @@ export class AutoCardHandler implements ITransactionHandler {
                         
             logger.debug('[SiYuanMemo][AutoCard] Creating Xiuyuan concept card for:', conceptName);
             
+            const xiuyuanAppService = await this.requireXiuyuanApplicationService();
             const result = await xiuyuanAppService.createFromBlocks({
                 blockIds: [conceptBlockId],
                 templateId: 'builtin-concept-simple',
@@ -1693,7 +1695,7 @@ export class AutoCardHandler implements ITransactionHandler {
                                         await this.riffApi.addRiffCards(this.riffApi.BUILTIN_DECK_ID, [refId]);
                     
 
-                                        await this.siyuanApi.markBlockAsCard(refId, card.id, card.priority, 'topic');
+                                        await this.siyuanApi.markBlockAsCard(refId, card.getId().getValue(), 50, 'topic');
                     
                     logger.debug('[SiYuanMemo][AutoCard] Empty concept card created:', refId);
                 } catch (error) {
@@ -1870,7 +1872,7 @@ export class AutoCardHandler implements ITransactionHandler {
                         await this.riffApi.addRiffCards(this.riffApi.BUILTIN_DECK_ID, [conceptId]);
             
 
-                        await this.siyuanApi.markBlockAsCard(conceptId, card.id, card.priority, 'topic');
+                        await this.siyuanApi.markBlockAsCard(conceptId, card.getId().getValue(), 50, 'topic');
             
             logger.debug('[SiYuanMemo][AutoCard] Empty concept card created:', conceptId);
         } catch (error) {

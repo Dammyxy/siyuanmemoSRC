@@ -506,7 +506,7 @@ async function renderProtyle(blockId: string): Promise<void> {
 
   // 🆕 检测是否为快速卡片
   try {
-    const isQuick = await quickCardRenderService.value.isQuickCard(blockId);
+    const isQuick = await quickCardRenderService.value.isQuickCard(blockId, props.content.card?.id);
     if (isQuick) {
       logger.debug('[SiYuanMemo][ReviewContent] Detected quick card');
       const result = { isConcept: false, isDescriptor: false, isQuick: true };

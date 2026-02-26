@@ -247,4 +247,24 @@ describe('QuickCardRenderService', () => {
       expect(result?.html).toContain('关于：');
     });
   });
+
+  describe('isQuickCard', () => {
+    it('should pass cardId to repository when detecting quick card', async () => {
+      const mockCard = new QuickCard({
+        id: 'quick-card-123',
+        blockId: '123',
+        type: 'basic',
+        frontContent: new CardFace({ html: 'Question', hiddenTypes: [] }),
+        backContent: new CardFace({ html: 'Answer', hiddenTypes: [] }),
+        metadata: { symbol: '>>' },
+      });
+
+      vi.mocked(mockRepository.loadCard).mockResolvedValue(mockCard);
+
+      const isQuick = await service.isQuickCard('123', 'card-123');
+
+      expect(isQuick).toBe(true);
+      expect(mockRepository.loadCard).toHaveBeenCalledWith('123', 'card-123');
+    });
+  });
 });

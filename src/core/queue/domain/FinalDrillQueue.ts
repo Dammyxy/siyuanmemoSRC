@@ -38,6 +38,36 @@ export interface FinalDrillEntry {
     timestamp: number;
 }
 
+interface FinalDrillRollbackSnapshot {
+    temporaryBlacklist: string[];
+    customOrder: string[] | null;
+    entries: FinalDrillEntry[];
+}
+
+function isFinalDrillRollbackSnapshot(value: unknown): value is FinalDrillRollbackSnapshot {
+    if (typeof value !== 'object' || value === null) {
+        return false;
+    }
+
+    const candidate = value as {
+        temporaryBlacklist?: unknown;
+        customOrder?: unknown;
+        entries?: unknown;
+    };
+
+    if (!Array.isArray(candidate.temporaryBlacklist)) {
+        return false;
+    }
+    if (!(candidate.customOrder === null || Array.isArray(candidate.customOrder))) {
+        return false;
+    }
+    if (!Array.isArray(candidate.entries)) {
+        return false;
+    }
+
+    return true;
+}
+
 /**
  * 最终训练队列类
  * 
@@ -328,6 +358,24 @@ export class FinalDrillQueue extends BaseReviewQueue {
             throw error;
         }
     }
+
+    public override async skip(cardId: string): Promise<void> {
+        try {
+            await this.ensureInitialLoad();
+
+            if (!this.entries.has(cardId)) {
+                logger.warn(`Card ${cardId} not found in queue`);
+                return;
+            }
+
+            await this.moveCardToBack(cardId);
+            this.emitQueueChangedEvent();
+            logger.info(`Card ${cardId} skipped, moved to back`);
+        } catch (error) {
+            logger.error('Failed to skip card:', error);
+            throw error;
+        }
+    }
     
     /**
      * 获取条目信息
@@ -350,6 +398,27 @@ export class FinalDrillQueue extends BaseReviewQueue {
      */
     public getAllEntries(): FinalDrillEntry[] {
         return Array.from(this.entries.values());
+    }
+
+    public override async createRollbackSnapshot(): Promise<FinalDrillRollbackSnapshot> {
+        const base = await super.createRollbackSnapshot();
+        return {
+            temporaryBlacklist: [...base.temporaryBlacklist],
+            customOrder: base.customOrder ? [...base.customOrder] : null,
+            entries: this.getAllEntries().map(entry => ({ ...entry })),
+        };
+    }
+
+    public override async restoreRollbackSnapshot(snapshot: unknown): Promise<void> {
+        if (!isFinalDrillRollbackSnapshot(snapshot)) {
+            throw new Error('[FinalDrillQueue] Invalid rollback snapshot');
+        }
+
+        await super.restoreRollbackSnapshot(snapshot);
+        this.entries = new Map(snapshot.entries.map(entry => [entry.cardId, { ...entry }]));
+        this.cards = [];
+        this.clearSizeCache();
+        await this.save();
     }
     
     /**

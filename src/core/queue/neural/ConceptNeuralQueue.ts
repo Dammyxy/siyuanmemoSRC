@@ -35,19 +35,17 @@ export class ConceptNeuralQueue {
   // 状态
   private currentSeed: string | null = null;
   private visitedBlocks: Set<string> = new Set();
+  private exhaustedSeeds: Set<string> = new Set();
   private displayPath: string[] = [];
   private seeds: Map<string, SeedState> = new Map(); // 改用 Map 存储种子状态
   
   // 配置
   private neighborsPerRound = 5; // 每轮漫游 5 个邻居
-  private preloadQueueSize = 10; // 🆕 预加载队列大小
+  private prefetchNeighborCount = 2; // 返回当前卡后，预热最多 2 个候选邻居
+  private prefetchingBlockIds = new Set<string>();
   
   // 依赖
   private queryEngine: ConceptQueryEngine;
-  
-  // 🆕 预加载队列（改为数组）
-  private preloadedCards: QueueItem[] = [];
-  private isPreloading = false;
   
   constructor() {
     this.queryEngine = new ConceptQueryEngine();
@@ -62,36 +60,10 @@ export class ConceptNeuralQueue {
     try {
       logger.debug('getNextCard called');
       
-      // 🆕 如果预加载队列有卡片，直接返回第一张
-      if (this.preloadedCards.length > 0) {
-        logger.debug('Returning preloaded card', { queueSize: this.preloadedCards.length });
-        const card = this.preloadedCards.shift()!; // 取出第一张
-        
-        // 🔧 修复：将预加载的卡片标记为已访问
-        this.visitedBlocks.add(card.blockId);
-        this.displayPath.push(card.blockId);
-        
-        // 🔧 修复：更新种子状态（如果这是邻居卡片）
-        if (this.currentSeed && card.associationType !== 'seed') {
-          const seedState = this.seeds.get(this.currentSeed);
-          if (seedState) {
-            seedState.neighborsViewed++;
-          }
-        }
-        
-        logger.debug('Marked preloaded card as visited', { blockId: card.blockId });
-        
-        // 🆕 如果预加载队列少于一半，触发预加载
-        if (this.preloadedCards.length < this.preloadQueueSize / 2) {
-          this.preloadNextCards();
-        }
-        
-        return card;
-      }
-      
       logger.debug('Current state', {
         currentSeed: this.currentSeed,
         seedsCount: this.seeds.size,
+        exhaustedCount: this.exhaustedSeeds.size,
         visitedCount: this.visitedBlocks.size,
       });
       
@@ -144,11 +116,9 @@ export class ConceptNeuralQueue {
           logger.debug('Returning neighbor card', { blockId: selected.id });
           
           const card = this.buildQueueItem(blockData, selected.type, this.getReasonText(selected.type));
-          
-          // 🆕 立即开始预加载（如果队列不足）
-          if (this.preloadedCards.length < this.preloadQueueSize / 2) {
-            this.preloadNextCards();
-          }
+
+          // 在不改变队列语义的前提下，预热下一张最可能命中的候选块
+          this.prefetchLikelyNextNeighborBlocks(unvisitedNeighbors, selected.id);
           
           return card;
         }
@@ -170,166 +140,20 @@ export class ConceptNeuralQueue {
           
           const card = this.buildQueueItem(blockData, 'seed', '种子节点');
           
-          // 🆕 立即开始预加载（如果队列不足）
-          if (this.preloadedCards.length < this.preloadQueueSize / 2) {
-            this.preloadNextCards();
-          }
-          
           return card;
         }
 
         // 6. 种子和所有邻居都已访问，轮换到下一个种子
         logger.debug('Seed exhausted, rotating to next seed', { seed: this.currentSeed });
+        if (this.currentSeed) {
+          this.exhaustedSeeds.add(this.currentSeed);
+        }
         this.rotateSeed();
         
         // 🆕 继续循环，不使用递归
       }
     } catch (error) {
       logger.error('Error in getNextCard', error);
-      return null;
-    }
-  }
-
-  /**
-   * 🆕 预加载多张卡片（后台执行）
-   * 
-   * 在返回当前卡片后调用，后台预加载多张卡片到队列中，
-   * 这样用户点击"下一张"时可以立即显示，无需等待。
-   * 
-   * 预加载逻辑：
-   * - 尝试预加载到 preloadQueueSize 张卡片
-   * - 如果队列中已有卡片，只补充到目标数量
-   * - 如果没有更多卡片可加载，停止预加载
-   */
-  private preloadNextCards(): void {
-    // 如果已经在预加载，跳过
-    if (this.isPreloading) {
-      return;
-    }
-    
-    this.isPreloading = true;
-    
-    // 异步预加载，不阻塞当前操作
-    (async () => {
-      try {
-        const targetSize = this.preloadQueueSize;
-        const currentSize = this.preloadedCards.length;
-        const needToLoad = targetSize - currentSize;
-        
-        logger.debug('Preloading cards', { currentSize, targetSize, needToLoad });
-        
-        if (needToLoad <= 0) {
-          logger.debug('Preload queue is full, skipping');
-          return;
-        }
-        
-        // 🔧 保存当前完整状态（包括种子状态）
-        const savedSeed = this.currentSeed;
-        const savedVisited = new Set(this.visitedBlocks);
-        const savedPath = [...this.displayPath];
-        const savedSeedsState = new Map(
-          Array.from(this.seeds.entries()).map(([id, state]) => [
-            id,
-            { ...state } // 深拷贝种子状态
-          ])
-        );
-        
-        // 尝试预加载多张卡片
-        let loadedCount = 0;
-        for (let i = 0; i < needToLoad; i++) {
-          const nextCard = await this.getNextCardInternal();
-          
-          if (!nextCard) {
-            // 没有更多卡片可加载
-            logger.debug('No more cards to preload', { loadedCount, needToLoad });
-            break;
-          }
-          
-          // 添加到预加载队列
-          this.preloadedCards.push(nextCard);
-          loadedCount++;
-        }
-        
-        // 🔧 恢复状态（预加载不应该影响实际状态）
-        this.currentSeed = savedSeed;
-        this.visitedBlocks = savedVisited;
-        this.displayPath = savedPath;
-        this.seeds = savedSeedsState;
-        
-        logger.debug('Preloaded cards', { loadedCount, queueSize: this.preloadedCards.length });
-      } catch (error) {
-        logger.error('Preload error', error);
-      } finally {
-        this.isPreloading = false;
-      }
-    })();
-  }
-
-  /**
-   * 🆕 内部方法：获取下一张卡片（不触发预加载）
-   * 
-   * 用于预加载逻辑，避免无限递归预加载
-   */
-  private async getNextCardInternal(): Promise<QueueItem | null> {
-    try {
-      while (true) {
-        // 1. 如果没有当前种子或需要轮换，选择一个新种子
-        if (!this.currentSeed || this.shouldRotateSeed()) {
-          this.currentSeed = this.selectNextSeed();
-          if (!this.currentSeed) {
-            return null;
-          }
-        }
-
-        // 2. 获取当前种子的邻居
-        const neighbors = await this.queryEngine.fetchNeighbors(this.currentSeed);
-        
-        // 3. 过滤掉已访问的邻居
-        const unvisitedNeighbors = neighbors.filter(n => !this.visitedBlocks.has(n.id));
-
-        // 4. 如果有未访问的邻居，加权随机选择一个
-        if (unvisitedNeighbors.length > 0) {
-          const selected = this.weightedRandomSelect(unvisitedNeighbors);
-          
-          const blockData = await this.queryEngine.fetchBlockData(selected.id);
-          
-          if (!blockData) {
-            this.visitedBlocks.add(selected.id);
-            continue;
-          }
-
-          // 标记为已访问并添加到路径
-          this.visitedBlocks.add(selected.id);
-          this.displayPath.push(selected.id);
-          
-          // 更新种子状态
-          const seedState = this.seeds.get(this.currentSeed);
-          if (seedState) {
-            seedState.neighborsViewed++;
-          }
-          
-          return this.buildQueueItem(blockData, selected.type, this.getReasonText(selected.type));
-        }
-
-        // 5. 没有未访问的邻居，检查种子本身是否已展示
-        if (!this.visitedBlocks.has(this.currentSeed)) {
-          const blockData = await this.queryEngine.fetchBlockData(this.currentSeed);
-          if (!blockData) {
-            this.currentSeed = null;
-            continue;
-          }
-
-          this.visitedBlocks.add(this.currentSeed);
-          this.displayPath.push(this.currentSeed);
-          
-          return this.buildQueueItem(blockData, 'seed', '种子节点');
-        }
-
-        // 6. 种子和所有邻居都已访问，轮换到下一个种子
-        this.rotateSeed();
-      }
-    } catch (error) {
-      logger.error('Error in getNextCardInternal', error);
       return null;
     }
   }
@@ -355,6 +179,7 @@ export class ConceptNeuralQueue {
       neighborsViewed: 0,
       addedAt: Date.now(),
     });
+    this.exhaustedSeeds.delete(blockId);
     
     logger.debug('Added seed', { blockId, priorityValue, total: this.seeds.size });
   }
@@ -366,6 +191,10 @@ export class ConceptNeuralQueue {
    */
   removeSeed(blockId: string): void {
     this.seeds.delete(blockId);
+    this.exhaustedSeeds.delete(blockId);
+    if (this.currentSeed === blockId) {
+      this.currentSeed = null;
+    }
   }
 
   /**
@@ -384,6 +213,7 @@ export class ConceptNeuralQueue {
    */
   restoreSeeds(seedIds: string[]): void {
     this.seeds.clear();
+    this.exhaustedSeeds.clear();
     for (const seedId of seedIds) {
       this.seeds.set(seedId, {
         blockId: seedId,
@@ -400,12 +230,10 @@ export class ConceptNeuralQueue {
    */
   clearHistory(): void {
     this.visitedBlocks.clear();
+    this.exhaustedSeeds.clear();
     this.displayPath = [];
     this.currentSeed = null;
-    // 🆕 清空预加载队列
-    this.preloadedCards = [];
-    this.isPreloading = false;
-    // 🆕 重置所有种子的 neighborsViewed 计数
+    // 重置所有种子的 neighborsViewed 计数
     for (const seed of this.seeds.values()) {
       seed.neighborsViewed = 0;
     }
@@ -457,16 +285,16 @@ export class ConceptNeuralQueue {
    * @returns 种子 ID，如果没有则返回 null
    */
   private selectNextSeed(): string | null {
-    const unvisitedSeeds = Array.from(this.seeds.entries())
-      .filter(([id, _]) => !this.visitedBlocks.has(id))
+    const candidateSeeds = Array.from(this.seeds.entries())
+      .filter(([id, _]) => !this.exhaustedSeeds.has(id))
       .map(([id, state]) => ({ id, ...state }));
 
-    if (unvisitedSeeds.length === 0) {
+    if (candidateSeeds.length === 0) {
       return null;
     }
 
     // 按优先级加权随机选择
-    return this.weightedRandomSelectSeed(unvisitedSeeds);
+    return this.weightedRandomSelectSeed(candidateSeeds);
   }
 
   /**
@@ -550,9 +378,37 @@ export class ConceptNeuralQueue {
     const reasonMap: Record<string, string> = {
       backlink: '反向链接',
       outgoing: '概念关联',
+      'outgoing-direct': '直接引用',
+      'outgoing-indirect': '间接引用',
       descriptor: '描述符卡',
       seed: '种子节点',
     };
     return reasonMap[type] || '未知关联';
+  }
+
+  /**
+   * 预热可能被下一次命中的邻居块数据
+   */
+  private prefetchLikelyNextNeighborBlocks(neighbors: Neighbor[], selectedId: string): void {
+    const candidateIds = neighbors
+      .filter((neighbor) => neighbor.id !== selectedId && !this.visitedBlocks.has(neighbor.id))
+      .sort((a, b) => b.weight - a.weight)
+      .slice(0, this.prefetchNeighborCount)
+      .map((neighbor) => neighbor.id);
+
+    for (const blockId of candidateIds) {
+      if (this.prefetchingBlockIds.has(blockId)) {
+        continue;
+      }
+
+      this.prefetchingBlockIds.add(blockId);
+      void this.queryEngine.fetchBlockData(blockId)
+        .catch((error) => {
+          logger.debug('Prefetch block data failed', { blockId, error });
+        })
+        .finally(() => {
+          this.prefetchingBlockIds.delete(blockId);
+        });
+    }
   }
 }

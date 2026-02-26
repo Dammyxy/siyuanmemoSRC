@@ -184,17 +184,36 @@ export function useReviewSession<TItem>(
   const context = ref<AdapterContext>({ showAnswer: false, session: { startTime: now, resumed: false } });
 
   let updateSeq = 0;
+  const getCanBack = (): boolean => {
+    if (typeof queue.canGoBack === 'function') {
+      try {
+        return queue.canGoBack();
+      } catch (error) {
+        logger.warn('Failed to read queue.canGoBack:', error);
+      }
+    }
+    return false;
+  };
+
+  const withSessionMeta = (uiState: ReviewUIState): ReviewUIState => ({
+    ...uiState,
+    meta: {
+      ...uiState.meta,
+      canBack: getCanBack(),
+    },
+  });
+
   const updateState = async (): Promise<void> => {
     const seq = ++updateSeq;
     const mainState = await adapter.toUIState(queue, currentItem.value, context.value);
     if (seq !== updateSeq) return;
-    state.value = mainState;
+    state.value = withSessionMeta(mainState);
 
     if (adapter.fetchAuxiliaryData) {
       adapter.fetchAuxiliaryData(currentItem.value)
         .then((aux) => {
           if (seq !== updateSeq) return;
-          state.value = mergeAux(state.value, aux);
+          state.value = withSessionMeta(mergeAux(state.value, aux));
         })
         .catch((error) => {
           logger.warn('Failed to fetch auxiliary data:', error);
@@ -220,10 +239,8 @@ export function useReviewSession<TItem>(
         }
       }
 
-      const [, nextItem] = await Promise.all([
-        queue.onFeedback(currentItem.value, feedback),
-        queue.next(),
-      ]);
+      await queue.onFeedback(currentItem.value, feedback);
+      const nextItem = await queue.next();
 
       currentItem.value = nextItem;
       context.value.showAnswer = false;
@@ -259,6 +276,32 @@ export function useReviewSession<TItem>(
     } catch (error) {
       logger.error('Failed to execute command:', error);
       currentItem.value = null;
+      await updateState();
+    }
+  };
+
+  const back = async (): Promise<void> => {
+    if (!getCanBack()) {
+      return;
+    }
+
+    try {
+      if (typeof queue.goBack !== 'function') {
+        return;
+      }
+
+      const previous = await queue.goBack(currentItem.value);
+
+      if (!previous) {
+        await updateState();
+        return;
+      }
+
+      currentItem.value = previous;
+      context.value.showAnswer = false;
+      await updateState();
+    } catch (error) {
+      logger.error('Failed to go back:', error);
       await updateState();
     }
   };
@@ -322,6 +365,7 @@ export function useReviewSession<TItem>(
     reveal,
     grade,
     skip,
+    back,
     executeCommand,
     getQueueStrategy,
     loadCardByBlockId,

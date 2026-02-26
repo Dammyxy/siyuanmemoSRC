@@ -39,6 +39,60 @@ export interface UnifiedCardStore {
   cards: Record<string, FSRSCard>;
   cardDTOs?: Record<string, CardPersistenceDTO>;
   riffBlacklist?: string[];
+  syncMetadata?: StorageSyncMetadata;
+}
+
+export type StorageConflictResolutionStrategy = 'merge' | 'prefer-local' | 'prefer-remote';
+
+export interface StorageSyncMetadata {
+  revision: number;
+  contentHash: string;
+  lastModifiedAt: number;
+  lastModifiedBy: string;
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null) {
+    return 'null';
+  }
+
+  const valueType = typeof value;
+  if (valueType === 'number') {
+    return Number.isFinite(value as number) ? JSON.stringify(value) : 'null';
+  }
+  if (valueType === 'boolean' || valueType === 'string') {
+    return JSON.stringify(value);
+  }
+  if (valueType === 'undefined') {
+    return 'null';
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(item => stableStringify(item)).join(',')}]`;
+  }
+
+  if (valueType === 'object') {
+    const record = value as Record<string, unknown>;
+    const entries = Object.entries(record)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+
+    const body = entries
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue)}`)
+      .join(',');
+    return `{${body}}`;
+  }
+
+  return 'null';
+}
+
+function fnv1aHash(input: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
 /**
@@ -78,6 +132,10 @@ export class UnifiedStorageManager {
   // === 鎸佷箙鍖栧洖璋?===
   private saveCallback: ((data: UnifiedCardStore) => Promise<void>) | null = null;
   private loadCallback: (() => Promise<UnifiedCardStore>) | null = null;
+  private conflictResolutionStrategy: StorageConflictResolutionStrategy = 'merge';
+  private readonly instanceId = `storage-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  private lastKnownContentHash: string | null = null;
+  private lastKnownRevision: number = 0;
 
   /**
    * 鉁?鏋勯€犲嚱鏁帮細纭繚鎵€鏈?Map 閮藉凡鍒濆鍖?
@@ -122,6 +180,15 @@ export class UnifiedStorageManager {
     this.loadCallback = load;
   }
 
+  setConflictResolutionStrategy(strategy: StorageConflictResolutionStrategy): void {
+    this.conflictResolutionStrategy = strategy;
+    logger.info('[UnifiedStorageManager] conflict resolution strategy updated:', strategy);
+  }
+
+  getConflictResolutionStrategy(): StorageConflictResolutionStrategy {
+    return this.conflictResolutionStrategy;
+  }
+
   /**
    * 鍔犺浇鏁版嵁
    */
@@ -132,6 +199,8 @@ export class UnifiedStorageManager {
       }
 
       const store = await this.loadCallback();
+      this.applyStoreSnapshot(store);
+      return ok(undefined);
 
       // 娓呯┖鐜版湁鏁版嵁
       this.xiuyuans.clear();
@@ -182,6 +251,20 @@ export class UnifiedStorageManager {
         return err(new Error('Save callback not set'));
       }
 
+      const localStore = this.getStoreData();
+      const remoteStore = await this.loadRemoteSnapshotForSave();
+      const { storeToPersist, skipPersist } = this.resolveConflictBeforeSave(localStore, remoteStore);
+
+      if (!skipPersist) {
+        const storeData = this.prepareStoreForPersist(storeToPersist, remoteStore);
+        await this.saveCallback(storeData);
+        this.captureSnapshotFromStore(storeData);
+      }
+
+      this.dirty = false;
+      this.clearSaveTimer();
+      return ok(undefined);
+
       // 鑾峰彇褰撳墠鏁版嵁骞朵紶閫掔粰淇濆瓨鍥炶皟
       const storeData = this.getStoreData();
       await this.saveCallback(storeData);
@@ -202,6 +285,306 @@ export class UnifiedStorageManager {
   /**
    * 璋冨害淇濆瓨锛堥槻鎶栵級
    */
+  private applyStoreSnapshot(store: UnifiedCardStore): void {
+    const canonicalStore = this.prepareCanonicalStore(store);
+
+    this.xiuyuans.clear();
+    this.cardDTOs.clear();
+    this.riffBlacklist.clear();
+
+    for (const [id, xiuyuan] of Object.entries(canonicalStore.xiuyuans)) {
+      this.xiuyuans.set(id, xiuyuan);
+    }
+
+    for (const [id, dto] of Object.entries(canonicalStore.cardDTOs || {})) {
+      this.cardDTOs.set(id, dto);
+    }
+
+    for (const blockId of this.sanitizeRiffBlacklist(canonicalStore.riffBlacklist)) {
+      this.riffBlacklist.add(blockId);
+    }
+
+    this.rebuildIndexes();
+    this.dirty = false;
+    this.captureSnapshotFromStore(canonicalStore);
+  }
+
+  private async loadRemoteSnapshotForSave(): Promise<UnifiedCardStore | null> {
+    if (!this.loadCallback) {
+      return null;
+    }
+
+    try {
+      return await this.loadCallback();
+    } catch (error) {
+      logger.error('[UnifiedStorageManager] Failed to load remote snapshot before save:', error);
+      throw (error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  private resolveConflictBeforeSave(
+    localStore: UnifiedCardStore,
+    remoteStore: UnifiedCardStore | null
+  ): { storeToPersist: UnifiedCardStore; skipPersist: boolean } {
+    if (!remoteStore) {
+      return { storeToPersist: localStore, skipPersist: false };
+    }
+
+    const canonicalRemote = this.prepareCanonicalStore(remoteStore);
+    const localHash = this.calculateContentHash(localStore);
+    const remoteHash = this.calculateContentHash(canonicalRemote);
+
+    if (localHash === remoteHash) {
+      this.captureSnapshotFromStore(canonicalRemote);
+      return { storeToPersist: canonicalRemote, skipPersist: true };
+    }
+
+    const hasConflict = this.lastKnownContentHash !== null && remoteHash !== this.lastKnownContentHash;
+    if (!hasConflict) {
+      return { storeToPersist: localStore, skipPersist: false };
+    }
+
+    logger.warn('[UnifiedStorageManager] Storage conflict detected', {
+      strategy: this.conflictResolutionStrategy,
+      lastKnownHash: this.lastKnownContentHash,
+      remoteHash,
+      localHash,
+    });
+
+    if (this.conflictResolutionStrategy === 'prefer-remote') {
+      this.applyStoreSnapshot(canonicalRemote);
+      logger.warn('[UnifiedStorageManager] Conflict resolved with remote snapshot');
+      return { storeToPersist: canonicalRemote, skipPersist: true };
+    }
+
+    if (this.conflictResolutionStrategy === 'prefer-local') {
+      logger.warn('[UnifiedStorageManager] Conflict resolved by forcing local snapshot');
+      return { storeToPersist: localStore, skipPersist: false };
+    }
+
+    const mergedStore = this.mergeStores(localStore, canonicalRemote);
+    this.applyStoreSnapshot(mergedStore);
+    logger.warn('[UnifiedStorageManager] Conflict resolved by merge');
+    return { storeToPersist: mergedStore, skipPersist: false };
+  }
+
+  private prepareStoreForPersist(
+    store: UnifiedCardStore,
+    remoteStore: UnifiedCardStore | null
+  ): UnifiedCardStore {
+    const canonicalStore = this.prepareCanonicalStore(store);
+    const remoteRevision = this.toNumber(remoteStore?.syncMetadata?.revision);
+    const localRevision = this.toNumber(canonicalStore.syncMetadata?.revision);
+    const baseRevision = Math.max(this.lastKnownRevision, remoteRevision, localRevision);
+    const nextRevision = baseRevision + 1;
+    const nextContentHash = this.calculateContentHash(canonicalStore);
+
+    return {
+      ...canonicalStore,
+      syncMetadata: {
+        revision: nextRevision,
+        contentHash: nextContentHash,
+        lastModifiedAt: Date.now(),
+        lastModifiedBy: this.instanceId,
+      },
+    };
+  }
+
+  private mergeStores(localStore: UnifiedCardStore, remoteStore: UnifiedCardStore): UnifiedCardStore {
+    const canonicalLocal = this.prepareCanonicalStore(localStore);
+    const canonicalRemote = this.prepareCanonicalStore(remoteStore);
+
+    const mergedXiuyuans: Record<string, IXiuyuan> = {
+      ...canonicalRemote.xiuyuans,
+    };
+    for (const [id, localXiuyuan] of Object.entries(canonicalLocal.xiuyuans)) {
+      const remoteXiuyuan = canonicalRemote.xiuyuans[id];
+      mergedXiuyuans[id] = remoteXiuyuan
+        ? this.chooseMostRecentXiuyuan(localXiuyuan, remoteXiuyuan)
+        : JSON.parse(JSON.stringify(localXiuyuan)) as IXiuyuan;
+    }
+
+    const mergedCardDTOs: Record<string, CardPersistenceDTO> = {
+      ...(canonicalRemote.cardDTOs || {}),
+    };
+    const localCardDTOs = canonicalLocal.cardDTOs || {};
+    for (const [id, localDto] of Object.entries(localCardDTOs)) {
+      const remoteDto = mergedCardDTOs[id];
+      mergedCardDTOs[id] = remoteDto
+        ? this.chooseMostRecentCard(localDto, remoteDto)
+        : JSON.parse(JSON.stringify(localDto)) as CardPersistenceDTO;
+    }
+
+    const mergedBlacklist = Array.from(
+      new Set([
+        ...this.sanitizeRiffBlacklist(canonicalRemote.riffBlacklist),
+        ...this.sanitizeRiffBlacklist(canonicalLocal.riffBlacklist),
+      ])
+    ).sort();
+
+    const mergedCards: Record<string, FSRSCard> = {};
+    for (const [id, dto] of Object.entries(mergedCardDTOs)) {
+      mergedCards[id] = CardMapper.toDomain(dto);
+    }
+
+    return {
+      version: Math.max(this.toNumber(canonicalLocal.version), this.toNumber(canonicalRemote.version), 1),
+      xiuyuans: mergedXiuyuans,
+      cards: mergedCards,
+      cardDTOs: mergedCardDTOs,
+      riffBlacklist: mergedBlacklist,
+    };
+  }
+
+  private chooseMostRecentCard(
+    localCard: CardPersistenceDTO,
+    remoteCard: CardPersistenceDTO
+  ): CardPersistenceDTO {
+    const localUpdatedAt = this.toNumber(localCard.updatedAt);
+    const remoteUpdatedAt = this.toNumber(remoteCard.updatedAt);
+
+    if (localUpdatedAt > remoteUpdatedAt) {
+      return JSON.parse(JSON.stringify(localCard)) as CardPersistenceDTO;
+    }
+    if (remoteUpdatedAt > localUpdatedAt) {
+      return JSON.parse(JSON.stringify(remoteCard)) as CardPersistenceDTO;
+    }
+
+    const localCreatedAt = this.toNumber(localCard.createdAt);
+    const remoteCreatedAt = this.toNumber(remoteCard.createdAt);
+    return localCreatedAt >= remoteCreatedAt
+      ? JSON.parse(JSON.stringify(localCard)) as CardPersistenceDTO
+      : JSON.parse(JSON.stringify(remoteCard)) as CardPersistenceDTO;
+  }
+
+  private chooseMostRecentXiuyuan(localXiuyuan: IXiuyuan, remoteXiuyuan: IXiuyuan): IXiuyuan {
+    const localUpdatedAt = this.toNumber(localXiuyuan.updatedAt);
+    const remoteUpdatedAt = this.toNumber(remoteXiuyuan.updatedAt);
+
+    if (localUpdatedAt > remoteUpdatedAt) {
+      return JSON.parse(JSON.stringify(localXiuyuan)) as IXiuyuan;
+    }
+    if (remoteUpdatedAt > localUpdatedAt) {
+      return JSON.parse(JSON.stringify(remoteXiuyuan)) as IXiuyuan;
+    }
+
+    const localCreatedAt = this.toNumber(localXiuyuan.createdAt);
+    const remoteCreatedAt = this.toNumber(remoteXiuyuan.createdAt);
+    return localCreatedAt >= remoteCreatedAt
+      ? JSON.parse(JSON.stringify(localXiuyuan)) as IXiuyuan
+      : JSON.parse(JSON.stringify(remoteXiuyuan)) as IXiuyuan;
+  }
+
+  private prepareCanonicalStore(store: UnifiedCardStore): UnifiedCardStore {
+    const sourceXiuyuans = store.xiuyuans ?? {};
+    const sourceCardDTOs = this.extractCardDTOs(store);
+    const xiuyuans: Record<string, IXiuyuan> = {};
+    const cardDTOs: Record<string, CardPersistenceDTO> = {};
+
+    for (const [id, xiuyuan] of Object.entries(sourceXiuyuans)) {
+      xiuyuans[id] = JSON.parse(JSON.stringify(xiuyuan)) as IXiuyuan;
+    }
+
+    for (const [id, dto] of Object.entries(sourceCardDTOs)) {
+      cardDTOs[id] = JSON.parse(JSON.stringify(dto)) as CardPersistenceDTO;
+    }
+
+    const cards: Record<string, FSRSCard> = {};
+    for (const [id, dto] of Object.entries(cardDTOs)) {
+      cards[id] = CardMapper.toDomain(dto);
+    }
+
+    const syncMetadata = store.syncMetadata
+      ? {
+          revision: Math.max(this.toNumber(store.syncMetadata.revision), 0),
+          contentHash: typeof store.syncMetadata.contentHash === 'string' ? store.syncMetadata.contentHash : '',
+          lastModifiedAt: this.toNumber(store.syncMetadata.lastModifiedAt),
+          lastModifiedBy: typeof store.syncMetadata.lastModifiedBy === 'string'
+            ? store.syncMetadata.lastModifiedBy
+            : '',
+        }
+      : undefined;
+
+    return {
+      version: Math.max(this.toNumber(store.version), 1),
+      xiuyuans,
+      cards,
+      cardDTOs,
+      riffBlacklist: this.sanitizeRiffBlacklist(store.riffBlacklist),
+      syncMetadata,
+    };
+  }
+
+  private extractCardDTOs(store: UnifiedCardStore): Record<string, CardPersistenceDTO> {
+    if (store.cardDTOs && Object.keys(store.cardDTOs).length > 0) {
+      return store.cardDTOs;
+    }
+
+    const migrated: Record<string, CardPersistenceDTO> = {};
+    for (const [id, card] of Object.entries(store.cards ?? {})) {
+      migrated[id] = CardMapper.toPersistence(card);
+    }
+
+    if (Object.keys(migrated).length > 0) {
+      logger.info('[UnifiedStorageManager] Migrated legacy cards payload to cardDTOs');
+    }
+    return migrated;
+  }
+
+  private sanitizeRiffBlacklist(rawBlacklist: unknown): string[] {
+    if (!Array.isArray(rawBlacklist)) {
+      return [];
+    }
+
+    return Array.from(
+      new Set(
+        rawBlacklist.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      )
+    ).sort();
+  }
+
+  private calculateContentHash(store: UnifiedCardStore): string {
+    const canonicalStore = this.prepareCanonicalStore(store);
+    const hashInput = stableStringify({
+      version: canonicalStore.version,
+      xiuyuans: canonicalStore.xiuyuans,
+      cardDTOs: canonicalStore.cardDTOs || {},
+      riffBlacklist: canonicalStore.riffBlacklist || [],
+    });
+    return fnv1aHash(hashInput);
+  }
+
+  private captureSnapshotFromStore(store: UnifiedCardStore): void {
+    const canonicalStore = this.prepareCanonicalStore(store);
+    const snapshotHash = canonicalStore.syncMetadata?.contentHash || this.calculateContentHash(canonicalStore);
+    const snapshotRevision = canonicalStore.syncMetadata
+      ? this.toNumber(canonicalStore.syncMetadata.revision)
+      : this.lastKnownRevision;
+
+    this.lastKnownContentHash = snapshotHash;
+    this.lastKnownRevision = Math.max(snapshotRevision, 0);
+  }
+
+  private clearSaveTimer(): void {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+  }
+
+  private toNumber(value: unknown): number {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    return 0;
+  }
+
   private scheduleSave(): void {
     this.dirty = true;
 
@@ -363,6 +746,14 @@ export class UnifiedStorageManager {
       cards,  // 鍚戝悗鍏煎
       cardDTOs,  // 涓绘暟鎹簮
       riffBlacklist: Array.from(this.riffBlacklist),
+      syncMetadata: this.lastKnownContentHash
+        ? {
+            revision: this.lastKnownRevision,
+            contentHash: this.lastKnownContentHash,
+            lastModifiedAt: Date.now(),
+            lastModifiedBy: this.instanceId,
+          }
+        : undefined,
     };
   }
 

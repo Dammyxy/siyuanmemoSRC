@@ -71,6 +71,32 @@ function resolveContentBlockId(card: UnifiedReviewItem, fallbackBlockId: string)
             logger.debug('Descriptor card uses descriptor field for content block', { descriptorId });
             return descriptorId;
         }
+
+        if (fallbackBlockId) {
+            logger.debug('Descriptor card uses representative block for content block', { fallbackBlockId });
+            return fallbackBlockId;
+        }
+
+        if (card.meta.frontBlockIDs.length > 1) {
+            const descriptorFromFrontBlocks = card.meta.frontBlockIDs[1];
+            logger.debug('Descriptor card falls back to second front block for content block', {
+                descriptorFromFrontBlocks,
+            });
+            return descriptorFromFrontBlocks;
+        }
+
+        if (card.meta.frontBlockIDs.length > 0) {
+            const fallbackFrontBlockId = card.meta.frontBlockIDs[0];
+            logger.warn('Descriptor card falls back to first front block for content block', {
+                fallbackFrontBlockId,
+            });
+            return fallbackFrontBlockId;
+        }
+
+        logger.warn('Descriptor card has no resolvable content block ID', {
+            cardId: card.id,
+        });
+        return '';
     }
 
     if (isXiuyuanCard(card) && card.meta.frontBlockIDs.length > 0) {

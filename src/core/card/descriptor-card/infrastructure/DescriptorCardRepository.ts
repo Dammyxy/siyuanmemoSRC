@@ -46,6 +46,7 @@ export interface SiblingDescriptor {
 interface DescriptorCardInput {
   meta?: {
     frontBlockIDs?: string[];
+    fieldMapping?: Record<string, unknown>;
   };
   [key: string]: unknown;
 }
@@ -80,21 +81,20 @@ export class DescriptorCardRepository {
         return null;
       }
 
-      // 4. 查询父概念
-      // 🆕 优先使用 FSRSCard 的 frontBlockIDs[0]（概念块 ID）
+      // 4. 查询父概念（优先使用元数据中的 concept 映射）
       let parentConcept: ParentConceptBlock | null = null;
-      
-      if (fsrsCard?.meta?.frontBlockIDs?.[0]) {
-        const conceptBlockId = fsrsCard.meta.frontBlockIDs[0];
-        logger.debug('[SiYuanMemo][DescriptorCardRepository] Using concept from frontBlockIDs:', conceptBlockId);
-        logger.debug('[SiYuanMemo][DescriptorCardRepository] Descriptor blockId:', blockId);
-        logger.debug('[SiYuanMemo][DescriptorCardRepository] Are they same?', conceptBlockId === blockId);
+      const conceptBlockId = this.resolveConceptBlockId(fsrsCard, blockId);
+
+      if (conceptBlockId) {
+        logger.debug('[SiYuanMemo][DescriptorCardRepository] Using concept block from card metadata:', {
+          conceptBlockId,
+          descriptorBlockId: blockId,
+        });
         parentConcept = await this.getConceptBlock(conceptBlockId);
-        if (parentConcept) {
-          logger.debug('[SiYuanMemo][DescriptorCardRepository] Parent concept content:', parentConcept.content);
-        }
-      } else {
-        logger.debug('[SiYuanMemo][DescriptorCardRepository] No frontBlockIDs, searching parent chain');
+      }
+
+      if (!parentConcept) {
+        logger.debug('[SiYuanMemo][DescriptorCardRepository] Falling back to parent chain for concept lookup');
         parentConcept = await this.getParentConcept(blockId);
       }
 
@@ -226,6 +226,35 @@ export class DescriptorCardRepository {
       logger.error('[SiYuanMemo][DescriptorCardRepository] Failed to get parent concept:', error);
       return null;
     }
+  }
+
+  private resolveConceptBlockId(fsrsCard: DescriptorCardInput | undefined, descriptorBlockId: string): string | null {
+    const meta = fsrsCard?.meta;
+    if (!meta) {
+      return null;
+    }
+
+    const conceptFromFieldMapping = this.getFieldMappingValue(meta.fieldMapping, 'concept');
+    if (conceptFromFieldMapping && conceptFromFieldMapping !== descriptorBlockId) {
+      return conceptFromFieldMapping;
+    }
+
+    const frontBlockIDs = Array.isArray(meta.frontBlockIDs) ? meta.frontBlockIDs : [];
+    const conceptFromFrontBlocks = frontBlockIDs.find((id) => id && id !== descriptorBlockId);
+    if (conceptFromFrontBlocks) {
+      return conceptFromFrontBlocks;
+    }
+
+    return null;
+  }
+
+  private getFieldMappingValue(fieldMapping: unknown, key: string): string | null {
+    if (!fieldMapping || typeof fieldMapping !== 'object') {
+      return null;
+    }
+
+    const value = (fieldMapping as Record<string, unknown>)[key];
+    return typeof value === 'string' && value.length > 0 ? value : null;
   }
 
   /**

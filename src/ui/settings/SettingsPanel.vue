@@ -99,6 +99,23 @@
 
         <div class="fn__hr"></div>
 
+        <h3>{{ t('storageConflictTitle', '多端冲突处理') }}</h3>
+        <div class="form-item">
+          <label>{{ t('storageConflictStrategy', '冲突策略') }}</label>
+          <div class="form-control">
+            <select v-model="riffIntegrationConfig.storageConflictResolution" class="scheduler-select">
+              <option value="merge">{{ t('storageConflictMerge', '自动合并（推荐）') }}</option>
+              <option value="prefer-remote">{{ t('storageConflictPreferRemote', '云端覆盖本地') }}</option>
+              <option value="prefer-local">{{ t('storageConflictPreferLocal', '本地覆盖云端') }}</option>
+            </select>
+          </div>
+          <p class="form-hint">
+            {{ t('storageConflictHint', '检测到多实例写入冲突时，选择自动合并或单向覆盖策略。') }}
+          </p>
+        </div>
+
+        <div class="fn__hr"></div>
+
         <!-- Quick Card Symbols -->
         <h3>{{ t('quickCardTitle', '监听符号制卡') }}</h3>
         
@@ -207,6 +224,7 @@ import { getTodayRange, formatTodayRange } from '../../utils/dateUtils';  // �
 import { createLogger } from '@/utils/logger';
 
 type OptimizationConfig = Record<string, unknown>;
+type ConflictResolutionStrategy = 'merge' | 'prefer-local' | 'prefer-remote';
 
 const logger = createLogger('SettingsPanel');
 
@@ -339,24 +357,25 @@ const schedulerDescriptions: Record<string, string> = {
   'a-factor-v2': '改进的 A-Factor，动态调整难度',
 };
 
-// 🆕 Riff 集成配置（固定启用，不可配置）
+// 🆕 Riff 集成配置
 const riffIntegrationConfig = ref({
+  mode: 'advanced' as 'advanced' | 'simple',
   useLocalScheduler: true,
   incrementalSync: {
     enabled: true,
-    triggers: ['plugin-start', 'browser-open', 'review-open'] as Array<'plugin-start' | 'browser-open' | 'review-open'>,
+    triggers: ['plugin-start'] as Array<'plugin-start' | 'browser-open' | 'review-open'>,
     useBlacklist: true,
-    autoDetectCardType: true,
   },
   fullSync: {
     enabled: true,
-    interval: 86400000,  // 24小时
+    interval: 604800000,  // 7天
     cleanupBlacklist: true,
   },
   deleteSync: {
     enabled: true,
     useBlacklistFallback: true,
   },
+  storageConflictResolution: 'merge' as ConflictResolutionStrategy,
 });
 
 // 🆕 触发器复选框状态（用于 UI 绑定）
@@ -376,6 +395,13 @@ const todayRangeText = computed(() => {
   const range = getTodayRange(settings.value.dayStartHour);
   return formatTodayRange(range);
 });
+
+function normalizeConflictResolutionStrategy(value: unknown): ConflictResolutionStrategy {
+  if (value === 'prefer-local' || value === 'prefer-remote' || value === 'merge') {
+    return value;
+  }
+  return 'merge';
+}
 
 // 加载设置
 function loadSettings() {
@@ -458,32 +484,55 @@ function loadSettings() {
     };
   }
 
-  // 🆕 加载 Riff 集成配置（始终使用固定配置，不从 props 加载）
-  // Riff 数据同步是插件必要功能，始终启用
+  const riffSettings = props.riffIntegrationSettings || {};
+  const incomingIncremental = (
+    typeof riffSettings.incrementalSync === 'object' &&
+    riffSettings.incrementalSync !== null
+  ) ? riffSettings.incrementalSync as Record<string, unknown> : {};
+  const incomingFullSync = (
+    typeof riffSettings.fullSync === 'object' &&
+    riffSettings.fullSync !== null
+  ) ? riffSettings.fullSync as Record<string, unknown> : {};
+  const incomingDeleteSync = (
+    typeof riffSettings.deleteSync === 'object' &&
+    riffSettings.deleteSync !== null
+  ) ? riffSettings.deleteSync as Record<string, unknown> : {};
+
+  const incomingTriggers = Array.isArray(incomingIncremental.triggers)
+    ? incomingIncremental.triggers.filter(
+      (trigger): trigger is 'plugin-start' | 'browser-open' | 'review-open' =>
+        trigger === 'plugin-start' || trigger === 'browser-open' || trigger === 'review-open'
+    )
+    : riffIntegrationConfig.value.incrementalSync.triggers;
+
   riffIntegrationConfig.value = {
-    useLocalScheduler: true,
+    mode: riffSettings.mode === 'simple' ? 'simple' : 'advanced',
+    useLocalScheduler: typeof riffSettings.useLocalScheduler === 'boolean'
+      ? riffSettings.useLocalScheduler
+      : true,
     incrementalSync: {
-      enabled: true,
-      triggers: ['plugin-start', 'browser-open', 'review-open'],
-      useBlacklist: true,
-      autoDetectCardType: true,
+      enabled: typeof incomingIncremental.enabled === 'boolean' ? incomingIncremental.enabled : true,
+      triggers: incomingTriggers.length > 0 ? incomingTriggers : ['plugin-start'],
+      useBlacklist: typeof incomingIncremental.useBlacklist === 'boolean' ? incomingIncremental.useBlacklist : true,
     },
     fullSync: {
-      enabled: true,
-      interval: 86400000,
-      cleanupBlacklist: true,
+      enabled: typeof incomingFullSync.enabled === 'boolean' ? incomingFullSync.enabled : true,
+      interval: typeof incomingFullSync.interval === 'number' ? incomingFullSync.interval : 604800000,
+      cleanupBlacklist: typeof incomingFullSync.cleanupBlacklist === 'boolean' ? incomingFullSync.cleanupBlacklist : true,
     },
     deleteSync: {
-      enabled: true,
-      useBlacklistFallback: true,
+      enabled: typeof incomingDeleteSync.enabled === 'boolean' ? incomingDeleteSync.enabled : true,
+      useBlacklistFallback: typeof incomingDeleteSync.useBlacklistFallback === 'boolean'
+        ? incomingDeleteSync.useBlacklistFallback
+        : true,
     },
+    storageConflictResolution: normalizeConflictResolutionStrategy(riffSettings.storageConflictResolution),
   };
 
-  // 更新触发器复选框状态（虽然不显示，但保持数据一致性）
   triggers.value = {
-    pluginStart: true,
-    browserOpen: true,
-    reviewOpen: true,
+    pluginStart: riffIntegrationConfig.value.incrementalSync.triggers.includes('plugin-start'),
+    browserOpen: riffIntegrationConfig.value.incrementalSync.triggers.includes('browser-open'),
+    reviewOpen: riffIntegrationConfig.value.incrementalSync.triggers.includes('review-open'),
   };
 }
 
@@ -511,6 +560,7 @@ function saveSettings() {
     },
     // 🆕 保存 Riff 集成配置
     riffIntegration: {
+      mode: riffIntegrationConfig.value.mode,
       useLocalScheduler: riffIntegrationConfig.value.useLocalScheduler,
       incrementalSync: {
         ...riffIntegrationConfig.value.incrementalSync,
@@ -518,6 +568,7 @@ function saveSettings() {
       },
       fullSync: riffIntegrationConfig.value.fullSync,
       deleteSync: riffIntegrationConfig.value.deleteSync,
+      storageConflictResolution: riffIntegrationConfig.value.storageConflictResolution,
     },
   };
   

@@ -30,6 +30,7 @@
         @reveal="hook.reveal"
         @grade="hook.grade"
         @skip="hook.skip"
+        @back="hook.back"
         @command="hook.executeCommand"
         @openMenu="handleOpenMenu"
       />
@@ -103,6 +104,16 @@ type ReviewUIConfigLike = {
 };
 
 type ReviewPluginContextLike = {
+  getTabManager?: () =>
+    | {
+        openReviewTab: (options: {
+          provider?: unknown;
+          queue?: unknown;
+          adapter?: unknown;
+          title: string;
+        }) => void;
+      }
+    | undefined;
   getHybridSyncService?: () => { incrementalSync: () => Promise<void> } | undefined;
   getStorage?: () => {
     getSettings?: () => {
@@ -124,6 +135,7 @@ type ReviewPluginContextLike = {
 };
 
 type ReviewPluginLike = {
+  name?: unknown;
   getContext?: () => ReviewPluginContextLike | undefined;
   openReviewTab?: (options: {
     provider?: unknown;
@@ -176,6 +188,13 @@ type ProtyleHostElement = HTMLElement & {
 
 type WindowWithReviewPlugin = Window & {
   siyuanMemoPlugin?: ReviewPluginLike;
+  siyuan?: {
+    ws?: {
+      app?: {
+        plugins?: unknown[];
+      };
+    };
+  };
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -187,7 +206,24 @@ function getPluginContext(plugin: unknown): ReviewPluginContextLike | undefined 
 }
 
 function getWindowPlugin(): ReviewPluginLike | null {
-  return (window as WindowWithReviewPlugin).siyuanMemoPlugin || null;
+  const runtimeWindow = window as WindowWithReviewPlugin;
+  if (runtimeWindow.siyuanMemoPlugin) {
+    return runtimeWindow.siyuanMemoPlugin;
+  }
+
+  const plugins = runtimeWindow.siyuan?.ws?.app?.plugins;
+  if (!Array.isArray(plugins)) {
+    return null;
+  }
+
+  const matched = plugins.find((plugin) => {
+    if (!isRecord(plugin)) {
+      return false;
+    }
+    return String(plugin.name ?? '') === 'siyuan-plugin-siyuanmemo';
+  });
+
+  return isRecord(matched) ? (matched as ReviewPluginLike) : null;
 }
 
 function getProtyleFromHost(host: Element): ProtyleLike | null {
@@ -271,8 +307,14 @@ function getUnderlyingQueueFromStrategy(strategy: unknown): UnderlyingQueueLike 
     return null;
   }
 
-  const underlying = getUnderlyingQueue();
-  return isRecord(underlying) ? (underlying as UnderlyingQueueLike) : null;
+  try {
+    // 必须绑定 strategy 作为 this，避免方法解构后 this 丢失。
+    const underlying = getUnderlyingQueue.call(strategy);
+    return isRecord(underlying) ? (underlying as UnderlyingQueueLike) : null;
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to resolve underlying queue:', error);
+    return null;
+  }
 }
 
 function getUnderlyingQueue(): UnderlyingQueueLike | null {
@@ -377,6 +419,7 @@ function t(key: string, fallback: string): string {
 
 const RATING_KEYS = new Set(['1', '2', '3', '4']);
 const SKIP_KEYS = new Set(['0', 'x', 's']);
+const BACK_KEYS = new Set(['p', 'q']);
 
 function isTypingTarget(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null;
@@ -442,6 +485,14 @@ function handleReviewKeyAction(
     event.stopPropagation();
     logger.debug('[SiYuanMemo][ReviewView] Skipping card...');
     void hook.skip();
+    return;
+  }
+
+  if (BACK_KEYS.has(key)) {
+    event.preventDefault();
+    event.stopPropagation();
+    logger.debug('[SiYuanMemo][ReviewView] Going back...');
+    void hook.back();
   }
 }
 
@@ -696,9 +747,8 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
       if (underlyingQueue) {
         import('@/core/neural/SeedService').then(({ SeedService }) => {
           const seedService = new SeedService(underlyingQueue);
-          const currentCandidates = underlyingQueue.getCurrentCandidatesForSeed?.() || [];
 
-          seedService.lockAsSeed(blockId, currentCandidates)
+          seedService.lockAsSeed(blockId)
             .then(() => {
               logger.debug('[SiYuanMemo][ReviewView] Block locked as seed:', blockId);
               showMessage(t('lockedAsSeed', 'Locked as seed'), 3000, 'info');
@@ -778,11 +828,13 @@ function handleOpenAsMenu(ev: MouseEvent) {
 
   const menu = new Menu();
 
-  // 获取插件实例
-  const fsrsPlugin = getWindowPlugin();
+  const pluginCandidate = isRecord(props.plugin) ? (props.plugin as ReviewPluginLike) : null;
+  const pluginFromWindow = getWindowPlugin();
+  const context = pluginCandidate?.getContext?.() ?? pluginFromWindow?.getContext?.();
+  const tabManager = context?.getTabManager?.();
 
-  if (!fsrsPlugin) {
-    logger.error('[SiYuanMemo][ReviewView] FSRS plugin instance not found');
+  if (!tabManager || typeof tabManager.openReviewTab !== 'function') {
+    logger.error('[SiYuanMemo][ReviewView] TabManager not available for open-as');
     showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
     return;
   }
@@ -794,16 +846,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
     label: t('openInTab', 'Open in Tab'),
     click() {
       logger.debug('[SiYuanMemo][ReviewView] Opening in tab and closing dialog');
-
-      // 获取插件实例
-      const fsrsPlugin = getWindowPlugin();
-      if (!fsrsPlugin) {
-        logger.error('[SiYuanMemo][ReviewView] Plugin instance not found');
-        return;
-      }
-
-      // 打开 Tab
-      fsrsPlugin.openReviewTab({
+      tabManager.openReviewTab({
         provider: props.provider,
         queue: props.queue,
         adapter: props.adapter,

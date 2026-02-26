@@ -57,6 +57,8 @@ export class ProviderBackedQueueStrategy<TItem = unknown> implements IQueueStrat
   private buffer: TItem[] = [];
   private current: TItem | null = null;
   private keepCurrentOnNext = false;
+  private backHistory: TItem[] = [];
+  private readonly maxBackHistorySize = 100;
 
   constructor(provider: QueueProvider<TItem>, options?: Options<TItem>) {
     this.provider = provider;
@@ -123,17 +125,48 @@ export class ProviderBackedQueueStrategy<TItem = unknown> implements IQueueStrat
     return next;
   }
 
+  canGoBack(): boolean {
+    return this.backHistory.length > 0;
+  }
+
+  async goBack(currentItem: TItem | null): Promise<TItem | null> {
+    await this.ensureLoaded();
+    if (this.backHistory.length === 0) {
+      return currentItem || this.current;
+    }
+
+    const active = currentItem || this.current;
+    const previous = this.backHistory.pop() || null;
+    if (!previous) {
+      return active;
+    }
+
+    if (active) {
+      this.prependToBuffer(active);
+    }
+
+    this.keepCurrentOnNext = false;
+    this.current = previous;
+    return previous;
+  }
+
   async onFeedback(currentItem: TItem | null, feedback: QueueFeedback): Promise<void> {
     const item = currentItem || this.current;
     if (feedback.action === 'custom') {
       const actionId = String(feedback.customActionId || '');
       if (!actionId) return;
+      let keepCurrent = false;
       const fn = this.provider.onCustomAction;
       if (typeof fn === 'function') {
         const res = await fn.call(this.provider, actionId, item, this.buffer, this.providerOptions);
         if (res === false) {
           this.keepCurrentOnNext = true;
+          keepCurrent = true;
         }
+      }
+      if (!keepCurrent && item) {
+        this.pushBackHistory(item);
+        this.current = null;
       }
       return;
     }
@@ -143,6 +176,7 @@ export class ProviderBackedQueueStrategy<TItem = unknown> implements IQueueStrat
     if (!cardId) return;
 
     if (feedback.action === 'skip') {
+      this.pushBackHistory(item);
       await this.provider.skipReviewCard(cardId);
       if (this.skipBehavior === 'rotate') {
         this.buffer.push(item);
@@ -154,6 +188,7 @@ export class ProviderBackedQueueStrategy<TItem = unknown> implements IQueueStrat
     if (feedback.action === 'rate') {
       const rating = feedback.rating;
       if (!rating) return;
+      this.pushBackHistory(item);
       const reviewed = this.includeReviewedCards ? [item, ...this.buffer] : undefined;
       await this.provider.reviewCard(cardId, rating, reviewed);
       this.current = null;
@@ -210,5 +245,28 @@ export class ProviderBackedQueueStrategy<TItem = unknown> implements IQueueStrat
       items: Array.isArray(items) ? items.slice(0, 5) : items,
     });
     this.buffer = Array.isArray(items) ? [...items] : [];
+  }
+
+  private pushBackHistory(item: TItem): void {
+    this.backHistory.push(item);
+    if (this.backHistory.length > this.maxBackHistorySize) {
+      this.backHistory.shift();
+    }
+  }
+
+  private prependToBuffer(item: TItem): void {
+    const itemId = this.getCardId(item);
+    if (!itemId) {
+      this.buffer.unshift(item);
+      return;
+    }
+
+    const head = this.buffer[0];
+    const headId = head ? this.getCardId(head) : '';
+    if (headId === itemId) {
+      return;
+    }
+
+    this.buffer.unshift(item);
   }
 }

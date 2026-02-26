@@ -37,6 +37,7 @@ import { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
 import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
 import { buildClearedBlockAttrs } from './shared/CardBlockAttrCleaner';
+import { warmupXiuyuanCardIndex } from './shared/WarmupXiuyuanCardIndex';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DeleteCardUseCase');
@@ -73,6 +74,11 @@ export class DeleteCardUseCase {
     }
 
     const cardId = cardIdResult.value;
+
+    const warmupResult = await warmupXiuyuanCardIndex(this.xiuyuanRepo);
+    if (!warmupResult.ok) {
+      return warmupResult as Result<void>;
+    }
 
     // 3. 查找包含该卡片的 Xiuyuan 聚合根和实际的 CardId 实例
     const searchResult = await this.findXiuyuanAndCardId(cardId);

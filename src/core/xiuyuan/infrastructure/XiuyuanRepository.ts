@@ -69,6 +69,7 @@ type XiuyuanMeta = Record<string, unknown> & {
   cardType?: XiuyuanCardType;
   schedulerType?: SchedulerType;
   aFactor?: number;
+  fieldMapping?: Record<string, unknown>;
   listTemplate?: {
     childrenData?: ListTemplateChild[];
   };
@@ -93,6 +94,22 @@ function isFaceSnapshot(value: unknown): value is FaceSnapshot {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<FaceSnapshot>;
   return typeof candidate.question === 'string' && typeof candidate.answer === 'string';
+}
+
+function normalizeFieldMapping(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const entries = Object.entries(value)
+    .filter(([, fieldValue]) => typeof fieldValue === 'string')
+    .map(([key, fieldValue]) => [key, fieldValue as string] as const);
+
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  return Object.fromEntries(entries);
 }
 
 /**
@@ -371,6 +388,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     try {
       const dataList = this.storage.getAllXiuYuans();
       const xiuyuans: Xiuyuan[] = [];
+      this.cardToXiuyuanIndex.clear();
 
       for (const data of dataList) {
         const result = this.toDomain(data);
@@ -589,6 +607,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         }));
       }
     }
+
+    const normalizedFieldMapping = normalizeFieldMapping(meta.fieldMapping);
     
     // 🆕 提取 typeMarker（用于双向卡片识别正反面）
     let typeMarker: string | undefined;
@@ -639,6 +659,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         // ✅ 使用 Xiuyuan 实体方法获取 blockIDs（Domain 层逻辑）
         frontBlockIDs: xiuyuan.getFrontBlockIDs(faceIndex),
         backBlockIDs: xiuyuan.getBackBlockIDs(faceIndex),
+        ...(normalizedFieldMapping ? { fieldMapping: normalizedFieldMapping } : {}),
         // 🆕 添加 faces 信息，用于多挖空卡渲染
         faces: xiuyuan.getFaces().map(face => ({
           question: face.question,
