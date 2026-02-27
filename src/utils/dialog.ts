@@ -30,6 +30,7 @@ export function createVueDialog<T extends Component>(options: {
     dataKey?: string; // 添加 dataKey 选项，用于思源热键系统识别
     transparent?: boolean;  // 添加透明遮罩层选项
     isReview?: boolean;  // 添加标识：是否为复习对话框（用于控制 maxWidth）
+    isMobile?: boolean;  // 是否为移动端（用于全屏策略）
     responsive?: boolean;  // 🆕 添加响应式选项
 }): { dialog: Dialog; destroy: () => void } {
     const containerId = `fsrs-dialog-${Date.now()}`;
@@ -106,11 +107,27 @@ export function createVueDialog<T extends Component>(options: {
     // 只为复习对话框设置最大宽度和圆角
     const dialogContainer = dialog.element.querySelector('.b3-dialog__container') as HTMLElement;
     if (dialogContainer) {
+        const isFullScreenDialog = dialogWidth === '100vw' && dialogHeight === '100vh';
+        if (isFullScreenDialog) {
+            dialogContainer.style.maxWidth = '100vw';
+            dialogContainer.style.width = '100vw';
+            dialogContainer.style.height = '100vh';
+            dialogContainer.style.setProperty('border-radius', '0', 'important');
+        }
+
         if (options.isReview) {
-            // 复习界面：设置 maxWidth 以确保圆角样式生效
-            dialogContainer.style.maxWidth = '1024px';
-            // 强制设置圆角（使用具体像素值，不使用 CSS 变量）
-            dialogContainer.style.setProperty('border-radius', '12px', 'important');
+            if (options.isMobile) {
+                dialogContainer.classList.add('fsrs-mobile-review-dialog');
+                dialogContainer.style.maxWidth = '100vw';
+                dialogContainer.style.width = '100vw';
+                dialogContainer.style.height = '100vh';
+                dialogContainer.style.setProperty('border-radius', '0', 'important');
+            } else {
+                // 复习界面：设置 maxWidth 以确保圆角样式生效
+                dialogContainer.style.maxWidth = '1024px';
+                // 强制设置圆角（使用具体像素值，不使用 CSS 变量）
+                dialogContainer.style.setProperty('border-radius', '12px', 'important');
+            }
         }
 
         // 同时设置 data-key 到容器上，让圆角样式选择器能匹配

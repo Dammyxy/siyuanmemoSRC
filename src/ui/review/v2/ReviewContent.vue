@@ -128,6 +128,11 @@ import {
 // 🆕 性能优化：导入 Composables
 import { useCssClassOptimizer } from './composables/useCssClassOptimizer';
 import { useCardTypeCache } from './composables/useCardTypeCache';
+import {
+  buildReviewRenderCacheKey,
+  buildReviewRenderWatchKey,
+  isNeuralRoamNonFlashcard,
+} from './reviewRenderPolicy';
 import { createLogger } from '@/utils/logger';
 import type { ICardStorage } from '@/application/interfaces/ICardStorage';
 
@@ -222,11 +227,62 @@ const isConceptDefinitionCard = ref(false);
 // 概念卡状态
 const isConceptCard = ref(false);
 
+function resolveTypeMarker(card: ReviewUIState['content']['card']): string {
+  const marker = card?.meta?.typeMarker;
+  return typeof marker === 'string' ? marker : '';
+}
+
+function resolveNeuralIsFlashcard(card: ReviewUIState['content']['card']): boolean | null {
+  const neuralContext = card?.meta?.neuralContext;
+  if (!neuralContext || typeof neuralContext !== 'object') {
+    return null;
+  }
+
+  const isFlashcard = (neuralContext as Record<string, unknown>).isFlashcard;
+  if (isFlashcard === true) return true;
+  if (isFlashcard === false) return false;
+  return null;
+}
+
 const forceProtyleRender = computed(() => props.content.card?.meta?.forceProtyleRender === true);
-const forceQuickRender = computed(() => props.content.card?.meta?.forceQuickRender === true);
+const forceQuickRenderRaw = computed(() => props.content.card?.meta?.forceQuickRender === true);
+const neuralIsFlashcard = computed(() => resolveNeuralIsFlashcard(props.content.card));
+const isNeuralRoamNonFlashcardCard = computed(() => isNeuralRoamNonFlashcard(props.content.card));
+const forceQuickRender = computed(() => {
+  if (forceProtyleRender.value) return false;
+  if (isNeuralRoamNonFlashcardCard.value) return false;
+  return forceQuickRenderRaw.value;
+});
+
+const renderCacheKey = computed(() =>
+  buildReviewRenderCacheKey({
+    blockId: String(props.content.id || ''),
+    cardId: String(props.content.card?.id || ''),
+    cardType: String(props.content.card?.type || ''),
+    typeMarker: resolveTypeMarker(props.content.card),
+    neuralIsFlashcard: neuralIsFlashcard.value,
+    forceProtyleRender: forceProtyleRender.value,
+    forceQuickRender: forceQuickRenderRaw.value,
+  }),
+);
+
+const renderWatchKey = computed(() =>
+  buildReviewRenderWatchKey({
+    contentType: String(props.content.type || ''),
+    blockId: String(props.content.id || ''),
+    cardId: String(props.content.card?.id || ''),
+    cardType: String(props.content.card?.type || ''),
+    typeMarker: resolveTypeMarker(props.content.card),
+    neuralIsFlashcard: neuralIsFlashcard.value,
+    forceProtyleRender: forceProtyleRender.value,
+    forceQuickRender: forceQuickRenderRaw.value,
+  }),
+);
 
 // 🆕 判断是否应该使用多挖空卡渲染器
 const shouldUseMultiClozeRenderer = computed(() => {
+  if (isNeuralRoamNonFlashcardCard.value) return false;
+
   // 检查是否为 Xiuyuan 多挖空卡
   const card = props.content.card;
   if (!card || !card.meta) return false;
@@ -243,6 +299,7 @@ const shouldUseMultiClozeRenderer = computed(() => {
 const shouldUseConceptDefinitionRenderer = computed(() => {
   // 只有在 protyle 类型时才检测
   if (props.content.type !== 'protyle') return false;
+  if (isNeuralRoamNonFlashcardCard.value) return false;
   if (forceProtyleRender.value || forceQuickRender.value) return false;
   
   // 使用领域层的辅助函数检测
@@ -266,6 +323,7 @@ const shouldUseConceptDefinitionRenderer = computed(() => {
 const shouldUseConceptCardRenderer = computed(() => {
   // 只有在 protyle 类型时才检测
   if (props.content.type !== 'protyle') return false;
+  if (isNeuralRoamNonFlashcardCard.value) return false;
   
   // 使用领域层的辅助函数检测
   if (forceProtyleRender.value || forceQuickRender.value) return false;
@@ -286,6 +344,7 @@ const shouldUseDescriptorCardRenderer = computed(() => {
   return props.content.type === 'protyle'
     && !forceProtyleRender.value
     && !forceQuickRender.value
+    && !isNeuralRoamNonFlashcardCard.value
     && !isConceptDefinitionCard.value
     && !isConceptCard.value
     && isDescriptorCard.value;
@@ -297,6 +356,7 @@ const shouldUseQuickCardRenderer = computed(() => {
   // 概念定义卡、概念卡和描述符卡优先级更高
   return props.content.type === 'protyle'
     && !forceProtyleRender.value
+    && !isNeuralRoamNonFlashcardCard.value
     && !isConceptDefinitionCard.value
     && !isConceptCard.value
     && !isDescriptorCard.value
@@ -360,9 +420,7 @@ function handleQuickCardError(error: Error) {
       blockId,
       cardId: props.content.card?.id,
     });
-    if (blockId) {
-      setCardType(blockId, { isConcept: false, isDescriptor: false, isQuick: false });
-    }
+    setCardType(renderCacheKey.value, { isConcept: false, isDescriptor: false, isQuick: false });
     isQuickCard.value = false;
     renderError.value = null;
     if (props.content.type === 'protyle' && blockId) {
@@ -428,15 +486,17 @@ async function renderProtyle(blockId: string): Promise<void> {
   isConceptCard.value = false;
   isDescriptorCard.value = false;
   isQuickCard.value = false;
-  const forceProtyleRenderFromMeta = props.content.card?.meta?.forceProtyleRender === true;
-  const forceQuickRenderFromMeta =
-    !forceProtyleRenderFromMeta && props.content.card?.meta?.forceQuickRender === true;
+  const forceProtyleRenderFromMeta = forceProtyleRender.value;
+  const forceQuickRenderFromMeta = forceQuickRender.value;
+  const forceQuickRenderRawFromMeta = forceQuickRenderRaw.value;
+  const shouldForceProtyleOnly = isNeuralRoamNonFlashcardCard.value;
+  const cacheKey = renderCacheKey.value;
 
   logger.debug('[SiYuanMemo][ReviewContent] renderProtyle called with blockId:', blockId);
 
   // 🆕 性能优化：检查卡片类型缓存
-  const cachedType = getCardType(blockId);
-  if (cachedType && !forceProtyleRenderFromMeta && !forceQuickRenderFromMeta) {
+  const cachedType = getCardType(cacheKey);
+  if (!shouldForceProtyleOnly && cachedType && !forceProtyleRenderFromMeta && !forceQuickRenderFromMeta) {
     logger.debug('[SiYuanMemo][ReviewContent] Using cached card type:', cachedType);
     
     // ⚠️ 验证缓存：如果缓存说是概念定义卡，但卡片没有 xiuyuanID，则忽略缓存
@@ -466,7 +526,13 @@ async function renderProtyle(blockId: string): Promise<void> {
     }
   }
 
-  if (forceQuickRenderFromMeta) {
+  if (shouldForceProtyleOnly) {
+    logger.debug('[SiYuanMemo][ReviewContent] Neural roam non-flashcard detected, force Protyle renderer', {
+      blockId,
+      cardId: props.content.card?.id,
+      forceQuickRenderRaw: forceQuickRenderRawFromMeta,
+    });
+  } else if (forceQuickRenderFromMeta) {
     logger.debug('[SiYuanMemo][ReviewContent] Force quick render enabled by card meta', {
       blockId,
       cardId: props.content.card?.id,
@@ -480,7 +546,7 @@ async function renderProtyle(blockId: string): Promise<void> {
       if (isQuick) {
         logger.debug('[SiYuanMemo][ReviewContent] Detected quick card by forceQuickRender');
         const result = { isConcept: false, isDescriptor: false, isQuick: true };
-        setCardType(blockId, result);
+        setCardType(cacheKey, result);
         isConceptDefinitionCard.value = false;
         isConceptCard.value = false;
         isQuickCard.value = true;
@@ -518,7 +584,7 @@ async function renderProtyle(blockId: string): Promise<void> {
       )) {
         logger.debug('[SiYuanMemo][ReviewContent] Detected concept definition card (bidirectional)');
         const result = { isConcept: true, isDescriptor: false, isQuick: false };
-        setCardType(blockId, result);
+        setCardType(cacheKey, result);
         isConceptDefinitionCard.value = true;
         isConceptCard.value = false;
         isDescriptorCard.value = false;
@@ -550,7 +616,7 @@ async function renderProtyle(blockId: string): Promise<void> {
       if (xiuyuanID && typeMarker === 'C') {
         logger.debug('[SiYuanMemo][ReviewContent] Detected concept card');
         const result = { isConcept: false, isConceptCard: true, isDescriptor: false, isQuick: false };
-        setCardType(blockId, result);
+        setCardType(cacheKey, result);
         isConceptDefinitionCard.value = false;
         isConceptCard.value = true;
         isDescriptorCard.value = false;
@@ -569,7 +635,7 @@ async function renderProtyle(blockId: string): Promise<void> {
           typeMarker: descriptorTypeMarker,
         });
         const result = { isConcept: false, isDescriptor: true, isQuick: false };
-        setCardType(blockId, result);
+        setCardType(cacheKey, result);
         isConceptDefinitionCard.value = false;
         isConceptCard.value = false;
         isDescriptorCard.value = true;
@@ -585,7 +651,7 @@ async function renderProtyle(blockId: string): Promise<void> {
       if (isDescriptor) {
         logger.debug('[SiYuanMemo][ReviewContent] Detected descriptor card');
         const result = { isConcept: false, isDescriptor: true, isQuick: false };
-        setCardType(blockId, result);
+        setCardType(cacheKey, result);
         isConceptDefinitionCard.value = false;
         isConceptCard.value = false;
         isDescriptorCard.value = true;
@@ -606,7 +672,7 @@ async function renderProtyle(blockId: string): Promise<void> {
       if (isQuick) {
         logger.debug('[SiYuanMemo][ReviewContent] Detected quick card');
         const result = { isConcept: false, isDescriptor: false, isQuick: true };
-        setCardType(blockId, result);
+        setCardType(cacheKey, result);
         isConceptDefinitionCard.value = false;
         isConceptCard.value = false;
         isQuickCard.value = true;
@@ -625,7 +691,7 @@ async function renderProtyle(blockId: string): Promise<void> {
   
   // 🆕 缓存普通卡片类型
   const result = { isConcept: false, isDescriptor: false, isQuick: false };
-  setCardType(blockId, result);
+  setCardType(cacheKey, result);
   
   // Use standard Protyle rendering for non-special cards.
   isConceptDefinitionCard.value = false;
@@ -805,10 +871,10 @@ async function renderAnswerProtyle(blockId: string): Promise<void> {
 }
 
 watch(
-  () => props.content.id,  // 改为监听 content.id 而不是 content.data
-  (id) => {
+  () => renderWatchKey.value,
+  () => {
     if (props.content.type !== 'protyle') return;
-    const blockId = String(id || '');
+    const blockId = String(props.content.id || '');
     if (!blockId) return;
     logger.debug('[SiYuanMemo][ReviewContent] Watch triggered, blockId:', blockId);
     void renderProtyle(blockId);

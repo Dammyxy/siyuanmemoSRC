@@ -3,15 +3,18 @@
     <!-- 左侧: 跳过按钮 -->
     <button
       class="b3-button b3-button--cancel skip-menu-button__skip"
+      :class="{ 'skip-menu-button__skip--mobile': props.isMobile }"
       @click="handleSkip"
     >
       <div class="card__icon">💤</div>
-      {{ t('skip', '跳过') }} (S)
+      {{ t('skip', '跳过') }}
+      <template v-if="!props.isMobile"> (S) </template>
     </button>
     
     <!-- 右侧: 下拉箭头 -->
     <button
       class="b3-button b3-button--cancel skip-menu-button__dropdown"
+      :class="{ 'skip-menu-button__dropdown--mobile': props.isMobile }"
       @click="toggleMenu"
     >
       <svg><use xlink:href="#iconUp"></use></svg>
@@ -26,6 +29,7 @@ import { createLogger } from '@/utils/logger';
 interface Props {
   i18n?: Record<string, string>;
   queueSize?: number; // 剩余卡片数量
+  isMobile?: boolean;
 }
 
 interface Emits {
@@ -81,16 +85,20 @@ function toggleMenu(ev: MouseEvent) {
     },
   });
   
-  // 获取整个按钮组的位置，让菜单从按钮上方向上展开
-  const buttonGroup = (ev.currentTarget as HTMLElement).parentElement;
-  if (!buttonGroup) {
-    logger.error('[SkipMenuButton] Failed to open menu: button group container is missing');
+  // 统一使用右侧箭头按钮本身作为锚点，避免移动端与桌面端位置偏差
+  const target = ev.currentTarget as HTMLElement | null;
+  if (!target) {
+    logger.error('[SkipMenuButton] Failed to open menu: currentTarget is missing');
     return;
   }
-  const rect = buttonGroup.getBoundingClientRect();
-  // 使用按钮顶部位置，让菜单向上展开（思源会自动将菜单放在这个点上方）
-  logger.debug('[SkipMenuButton] Opening menu above button at:', { x: rect.left, y: rect.top });
-  menu.open({ x: rect.left, y: rect.top, isLeft: true });
+  const rect = target.getBoundingClientRect();
+  logger.debug('[SkipMenuButton] Opening anchored menu:', {
+    x: rect.right,
+    y: rect.bottom,
+    width: rect.width,
+    height: rect.height,
+  });
+  menu.open({ x: rect.right, y: rect.bottom, h: rect.height, w: rect.width, isLeft: true });
 }
 </script>
 
@@ -109,16 +117,26 @@ function toggleMenu(ev: MouseEvent) {
   min-width: 0; /* 允许按钮收缩 */
 }
 
+.skip-menu-button__skip--mobile {
+  min-height: 44px;
+}
+
 .skip-menu-button__dropdown {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
-  padding: 4px 6px; /* 减小内边距，让按钮更窄 */
-  min-width: 24px; /* 减小最小宽度 */
-  max-width: 28px; /* 限制最大宽度 */
+  padding: 4px 8px;
+  min-width: 32px;
+  max-width: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0; /* 防止按钮被压缩 */
+}
+
+.skip-menu-button__dropdown--mobile {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 10px;
 }
 
 .skip-menu-button__dropdown svg {

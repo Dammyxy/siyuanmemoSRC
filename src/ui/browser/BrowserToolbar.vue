@@ -1,5 +1,5 @@
 ﻿<template>
-  <div class="card-browser__toolbar">
+  <div class="card-browser__toolbar" :class="{ 'card-browser__toolbar--mobile': props.mobileMode }">
     <div class="toolbar__left">
       <!-- 搜索框 -->
       <div class="b3-form__icon toolbar__search">
@@ -40,7 +40,7 @@
       />
     </div>
     
-    <div class="toolbar__center">
+    <div v-if="!props.mobileMode" class="toolbar__center">
       <span class="toolbar__count">{{ cardCount }} {{ t('cards', '张卡片') }}</span>
     </div>
     
@@ -69,7 +69,7 @@
 
       <!-- 应用排序到队列按钮 -->
       <button
-        v-if="canApplySortToQueue"
+        v-if="canApplySortToQueue && !props.mobileMode"
         class="b3-button b3-button--outline"
         @click="$emit('applySortToQueue')"
         :disabled="!hasPlugin"
@@ -81,7 +81,7 @@
 
       <!-- 分摊复习压力按钮 -->
       <button 
-        v-if="showSpreadButton"
+        v-if="showSpreadButton && !props.mobileMode"
         class="b3-button b3-button--outline" 
         @click="$emit('openSpreadDialog')" 
         :disabled="loading"
@@ -92,7 +92,7 @@
       </button>
 
       <!-- 分隔线 -->
-      <div class="toolbar__divider"></div>
+      <div v-if="!props.mobileMode" class="toolbar__divider"></div>
 
       <!-- 视图切换按钮 -->
       <button
@@ -115,6 +115,7 @@
 
       <!-- 强制刷新按钮 -->
       <button 
+        v-if="!props.mobileMode"
         class="b3-button b3-button--outline" 
         @click="$emit('forceRefresh')" 
         :disabled="loading" 
@@ -190,6 +191,7 @@ const props = defineProps<{
   loading: boolean;
   showPreview: boolean;
   mode: 'dialog' | 'tab' | 'dock';
+  mobileMode?: boolean;
   queueType: string;
   appliedFilter: CardFilter | null;
   activeQueueId: string | null;  // 🆕 添加当前队列 ID

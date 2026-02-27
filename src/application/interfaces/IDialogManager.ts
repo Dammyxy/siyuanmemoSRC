@@ -65,6 +65,16 @@ export interface IDialogManager {
    * 打开浏览器对话框
    */
   openBrowserDialog(): void;
+
+  /**
+   * 打开移动端队列启动面板
+   */
+  openMobileQueueLauncherDialog(): Promise<void>;
+
+  /**
+   * 关闭移动端队列启动面板
+   */
+  closeMobileQueueLauncherDialog(): void;
   
   /**
    * 关闭浏览器对话框

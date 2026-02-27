@@ -433,3 +433,46 @@
   max-height: 90vh;
   overflow: auto;
 }
+
+.card-browser--mobile {
+  height: 100%;
+}
+
+.card-browser--mobile .card-browser__main {
+  flex-direction: column;
+}
+
+.card-browser--mobile .card-browser__hierarchy {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  height: min(42vh, 280px);
+  border-bottom: 1px solid var(--b3-border-color);
+}
+
+.card-browser--mobile .card-browser__content {
+  overflow: hidden;
+}
+
+.card-browser--mobile .card-browser__toolbar {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.card-browser--mobile .toolbar__left,
+.card-browser--mobile .toolbar__right {
+  flex-wrap: nowrap;
+}
+
+.card-browser--mobile .toolbar__search {
+  width: min(56vw, 260px);
+}
+
+.card-browser--mobile .toolbar__right .b3-button {
+  white-space: nowrap;
+}

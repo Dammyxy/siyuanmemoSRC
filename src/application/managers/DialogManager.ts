@@ -15,6 +15,7 @@ import type { IDialogManager } from '../interfaces/IDialogManager';
 import { createVueDialog } from '@/utils/dialog';
 import { SettingsPanel } from '@/ui/settings';
 import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
+import MobileReviewLauncher from '@/ui/mobile/MobileReviewLauncher.vue';
 import { TemplateSelectDialog } from '@/ui/xiuyuan';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
@@ -40,6 +41,13 @@ import type { XiuyuanApplicationService } from '@/application/services/XiuyuanAp
 const logger = createLogger('DialogManager');
 
 type VueDialogHandle = ReturnType<typeof createVueDialog>;
+type PluginWithMobileFlag = Plugin & { isMobile?: boolean };
+type MobileLauncherQueueId =
+  | 'retrieval'
+  | 'incremental-learning'
+  | 'final-drill'
+  | 'neural-roam'
+  | 'filter-group';
 
 type SettingsPanelSavePayload = {
   requestRetention?: number;
@@ -113,6 +121,7 @@ export class DialogManager implements IDialogManager {
   
   private settingsDialog: VueDialogHandle | null = null;
   private srsBrowserDialog: VueDialogHandle | null = null;
+  private mobileQueueLauncherDialog: VueDialogHandle | null = null;
   private templateSelectDialog: VueDialogHandle | null = null;
   private currentReviewDialog: VueDialogHandle | null = null;
   private readonly conceptCardEnsureInFlight = new Set<string>();
@@ -129,6 +138,51 @@ export class DialogManager implements IDialogManager {
     ports?: { siyuanApi?: ManagerSiyuanPort }
   ) {
     this.siyuanApi = ports?.siyuanApi ?? new ManagerSiyuanAdapter();
+  }
+
+  private isMobileFrontend(): boolean {
+    return (this.plugin as PluginWithMobileFlag).isMobile === true;
+  }
+
+  private resolveBrowserDialogSize(): { width: string; height: string } {
+    if (this.isMobileFrontend()) {
+      return { width: '100vw', height: '100vh' };
+    }
+
+    const screenWidth = window.innerWidth;
+    if (screenWidth < 1024) return { width: '94vw', height: '90vh' };
+    if (screenWidth < 1440) return { width: '92vw', height: '90vh' };
+    if (screenWidth < 1920) return { width: '90vw', height: '90vh' };
+    return { width: '88vw', height: '90vh' };
+  }
+
+  private resolveReviewDialogSize(): { width: string; height: string } {
+    if (this.isMobileFrontend()) {
+      return { width: '100vw', height: '100vh' };
+    }
+    return { width: 'min(860px, 96vw)', height: 'min(720px, 90vh)' };
+  }
+
+  private async openQueueFromMobileLauncher(queueId: MobileLauncherQueueId): Promise<void> {
+    switch (queueId) {
+      case 'retrieval':
+        await this.openReviewDialog();
+        return;
+      case 'incremental-learning':
+        await this.openIncrementalLearningDialog();
+        return;
+      case 'final-drill':
+        await this.openFinalDrillDialog();
+        return;
+      case 'neural-roam':
+        await this.openNeuralRoamDialog();
+        return;
+      case 'filter-group':
+        await this.openFilterGroupPracticeDialog();
+        return;
+      default:
+        return;
+    }
   }
   
   // ========================================================================
@@ -288,6 +342,54 @@ export class DialogManager implements IDialogManager {
       this.settingsDialog = null;
     }
   }
+
+  async openMobileQueueLauncherDialog(): Promise<void> {
+    if (this.mobileQueueLauncherDialog) {
+      this.mobileQueueLauncherDialog.destroy();
+    }
+
+    let counts: Record<string, number> = {};
+    try {
+      counts = await this.context.getBrowserService().getQueueCounts();
+    } catch (error) {
+      logger.warn('[DialogManager] Failed to load queue counts for mobile launcher:', error);
+    }
+
+    this.mobileQueueLauncherDialog = createVueDialog({
+      hideTitle: true,
+      component: MobileReviewLauncher,
+      transparent: true,
+      props: {
+        i18n: this.context.getI18n() || {},
+        counts,
+      },
+      events: {
+        openQueue: async (queueId: MobileLauncherQueueId) => {
+          this.closeMobileQueueLauncherDialog();
+          await this.openQueueFromMobileLauncher(queueId);
+        },
+        openBrowser: () => {
+          this.closeMobileQueueLauncherDialog();
+          this.openBrowserDialog();
+        },
+        close: () => {
+          this.closeMobileQueueLauncherDialog();
+        },
+      },
+      width: '100vw',
+      height: '100vh',
+      onClose: () => {
+        this.mobileQueueLauncherDialog = null;
+      },
+    });
+  }
+
+  closeMobileQueueLauncherDialog(): void {
+    if (this.mobileQueueLauncherDialog) {
+      this.mobileQueueLauncherDialog.destroy();
+      this.mobileQueueLauncherDialog = null;
+    }
+  }
   
   // ========================================================================
   // SRS 浏览器对话框
@@ -297,52 +399,35 @@ export class DialogManager implements IDialogManager {
    * 打开 SRS 浏览器对话框
    */
   openBrowserDialog(): void {
+    if (this.srsBrowserDialog) {
+      this.srsBrowserDialog.destroy();
+    }
+
     const storage = this.context.getStorage();
     const scheduler = this.context.getScheduler();
     const browserService = this.context.getBrowserService();
     const tabApplicationService = this.context.getTabApplicationService();
-    
-    // ✅ 响应式宽度计算 - 接近全屏，确保所有字段都能显示
-    const screenWidth = window.innerWidth;
-    let dialogWidth: string;
-    let dialogHeight: string;
-    
-    if (screenWidth < 1024) {
-      // 小屏幕（平板）：使用 94% 宽度
-      dialogWidth = '94vw';
-      dialogHeight = '90vh';
-    } else if (screenWidth < 1440) {
-      // 中等屏幕（笔记本）：使用 92% 宽度
-      dialogWidth = '92vw';
-      dialogHeight = '90vh';
-    } else if (screenWidth < 1920) {
-      // 大屏幕（桌面）：使用 90% 宽度
-      dialogWidth = '90vw';
-      dialogHeight = '90vh';
-    } else {
-      // 超大屏幕（4K）：使用 88% 宽度
-      dialogWidth = '88vw';
-      dialogHeight = '90vh';
-    }
+    const { width, height } = this.resolveBrowserDialogSize();
     
     this.srsBrowserDialog = createVueDialog({
       dataKey: 'srs-browser-dialog',
       title: this.context.getI18n()?.srsBrowser || 'SRS 浏览器',
       component: SRSBrowser,
       props: {
-        app: this.plugin.app,  // ✅ 添加 app prop（预览区需要）
+        app: this.plugin.app,
         plugin: this.plugin,
         storage,
         scheduler,
-        browserService,  // ✅ DDD 架构
+        browserService,
         tabApplicationService,
         i18n: this.context.getI18n(),
+        mobileMode: this.isMobileFrontend(),
       },
       events: {
         close: () => this.closeBrowserDialog(),
       },
-      width: dialogWidth,
-      height: dialogHeight,
+      width,
+      height,
       onClose: () => {
         this.srsBrowserDialog = null;
       },
@@ -677,6 +762,8 @@ export class DialogManager implements IDialogManager {
       const schedulerRouter = this.context.getSchedulerRouter();
       const queue = new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus, schedulerRouter);
       const adapter = new UnifiedReviewAdapter({ i18n: this.context.getI18n() || {} });
+      const { width, height } = this.resolveReviewDialogSize();
+      const isMobile = this.isMobileFrontend();
       
       this.currentReviewDialog = createVueDialog({
         hideTitle: true,
@@ -684,6 +771,7 @@ export class DialogManager implements IDialogManager {
         dataKey: 'dialog-opencard',
         transparent: true,
         isReview: true,
+        isMobile,
         props: {
           app: this.plugin.app,
           i18n: this.context.getI18n() || {},
@@ -691,6 +779,7 @@ export class DialogManager implements IDialogManager {
           queue,
           adapter,
           plugin: this.plugin,
+          isMobile,
         },
         events: {
           close: () => {
@@ -701,8 +790,8 @@ export class DialogManager implements IDialogManager {
             this.destroyCurrentReviewDialog();
           },
         },
-        width: 'min(860px, 96vw)',
-        height: 'min(720px, 90vh)',
+        width,
+        height,
         onClose: () => {
           this.currentReviewDialog = null;
         },
@@ -767,6 +856,8 @@ export class DialogManager implements IDialogManager {
       const schedulerRouter = this.context.getSchedulerRouter();
       const queue = new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus, schedulerRouter);
       const adapter = new UnifiedReviewAdapter({ i18n: this.context.getI18n() || {} });
+      const { width, height } = this.resolveReviewDialogSize();
+      const isMobile = this.isMobileFrontend();
       
       this.currentReviewDialog = createVueDialog({
         hideTitle: true,
@@ -774,6 +865,7 @@ export class DialogManager implements IDialogManager {
         dataKey: 'dialog-opencard',
         transparent: true,
         isReview: true,
+        isMobile,
         props: {
           app: this.plugin.app,
           i18n: this.context.getI18n() || {},
@@ -781,6 +873,7 @@ export class DialogManager implements IDialogManager {
           queue,
           adapter,
           plugin: this.plugin,
+          isMobile,
         },
         events: {
           close: () => {
@@ -791,8 +884,8 @@ export class DialogManager implements IDialogManager {
             this.destroyCurrentReviewDialog();
           },
         },
-        width: 'min(860px, 96vw)',
-        height: 'min(720px, 90vh)',
+        width,
+        height,
         onClose: () => {
           this.currentReviewDialog = null;
         },
@@ -1834,6 +1927,7 @@ export class DialogManager implements IDialogManager {
    */
   dispose(): void {
     this.closeSettingsDialog();
+    this.closeMobileQueueLauncherDialog();
     this.closeBrowserDialog();
     this.destroyCurrentReviewDialog();
     if (this.templateSelectDialog) {

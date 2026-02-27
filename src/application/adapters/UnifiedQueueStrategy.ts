@@ -663,6 +663,17 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
         return this.queue;
     }
 
+    resetSessionState(): void {
+        this.forwardBuffer = [];
+        this.historyStack = [];
+        this.currentItem = null;
+        this.currentIndex = 0;
+        this.cachedCards = [];
+        this.cacheManager.clear();
+        this.invalidateCache();
+        logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Session state reset: ${this.queueType}`);
+    }
+
     getCacheStats() {
         return this.cacheManager.getStats();
     }

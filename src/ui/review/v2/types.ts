@@ -27,6 +27,7 @@ export interface ReviewUIState {
     toolbar?: Array<{
       icon: string;
       type: string; // 按钮类型（fullscreen, edit-srs, sticktab, filter, more 等）
+      label?: string;
       ariaLabel?: string;
       disabled?: boolean;
     }>;
@@ -119,6 +120,7 @@ export interface ReviewSessionHook {
   skip: () => Promise<void>;
   back: () => Promise<void>;
   executeCommand: (cmdId: string) => Promise<void>;
+  reload: () => Promise<void>;
   getQueueStrategy: () => unknown; // 🆕 获取底层队列策略（用于神经漫游等特殊功能）
   loadCardByBlockId: (blockId: string) => Promise<void>; // 🆕 直接加载指定卡片（Phase 3: UI 控件）
   onMounted: () => void;

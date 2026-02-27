@@ -485,3 +485,27 @@ sequenceDiagram
 剩余重点：
 
 - 历史文档/注释中的编码乱码（mojibake）属于文档债务，非运行时架构债务
+
+---
+
+## 13. Mobile Entry & Review Flow (2026-02-27)
+
+新增移动端复习入口链路：
+
+1. `src/index.ts`
+- 移动端顶栏单击：`DialogManager.openMobileQueueLauncherDialog()`
+- 桌面端顶栏单击：保持 `DialogManager.openBrowserDialog()`
+
+2. `src/application/managers/DialogManager.ts`
+- `openMobileQueueLauncherDialog()` 打开底部队列面板（Bottom Sheet）。
+- 面板内点击任意队列会直接进入对应 Review 对话框。
+- 面板内可直接跳转 Browser。
+
+3. `src/ui/mobile/MobileReviewLauncher.vue`
+- 展示 5 个队列（提取/渐进/刻意/神经漫游/筛选）及数量。
+- 入口动作：`openQueue` / `openBrowser` / `close`。
+
+4. Review / Browser 移动端尺寸策略
+- 移动端统一使用 `100vw x 100vh` 对话框。
+- Review 通过 `isMobile` 关闭桌面 `maxWidth=1024` 限制并使用移动布局。
+- Browser 通过 `mobileMode` 默认 `flat + preview=false`，保留核心筛选与开始练习能力。

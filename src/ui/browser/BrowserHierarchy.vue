@@ -1,5 +1,5 @@
 <template>
-  <div class="fsrs-browser-hierarchy">
+  <div class="fsrs-browser-hierarchy" :class="{ 'fsrs-browser-hierarchy--mobile': props.mobileMode }">
     <div class="fsrs-browser-hierarchy__section">
       <div class="fsrs-browser-hierarchy__title">{{ t('queues', '队列') }}</div>
       <div class="b3-list b3-list--background">
@@ -66,6 +66,7 @@ const logger = createLogger('BrowserHierarchy');
 const props = defineProps<{
   cards: BrowserCard[];
   queues: { active: string; counts: Record<string, number> };
+  mobileMode?: boolean;
   focusedDocIds?: string[] | null;  // ✅ 四重筛选：聚焦的文档 ID 列表
   globalStats: { total: number; lost: number };  // ✅ 全局统计（【全部】区使用）
   i18n?: Record<string, string>;
@@ -217,5 +218,19 @@ watchEffect(() => {
 .fsrs-browser-hierarchy__hint {
   padding: 4px 6px;
   font-size: 12px;
+}
+
+.fsrs-browser-hierarchy--mobile {
+  gap: 8px;
+  padding: 6px;
+}
+
+.fsrs-browser-hierarchy--mobile .fsrs-browser-hierarchy__section {
+  gap: 4px;
+}
+
+.fsrs-browser-hierarchy--mobile .fsrs-browser-hierarchy__title {
+  font-size: 11px;
+  padding: 2px 4px;
 }
 </style>

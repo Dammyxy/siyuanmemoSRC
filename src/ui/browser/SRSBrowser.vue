@@ -1,6 +1,7 @@
 <template>
   <div class="card-browser" :class="[
     `card-browser--${mode}`,
+    isMobileMode ? 'card-browser--mobile' : '',
     showPreview ? 'card-browser--preview-open' : ''
   ]">
     <!-- 主区域：工具栏 + 表格 -->
@@ -11,6 +12,7 @@
           :queues="{ active: activeQueueId || '', counts: queueCounts }"
           :focusedDocIds="focusedDocIds"
           :globalStats="globalStats"
+          :mobile-mode="isMobileMode"
           :i18n="props.i18n"
           @selectQueue="handleSelectQueue"
           @selectDoc="handleSelectDoc"
@@ -34,6 +36,7 @@
         :viewMode="viewMode"
         :loading="loading"
         :mode="mode"
+        :mobile-mode="isMobileMode"
         :queue-type="currentQueueType"
         :applied-filter="appliedFilter"
         :active-queue-id="activeQueueId"
@@ -105,7 +108,7 @@
     
     <!-- 拖拽分隔条 -->
     <div 
-      v-if="showPreview" 
+      v-if="showPreview && !isMobileMode" 
       class="card-browser__resizer"
       :class="{ 'card-browser__resizer--dragging': isResizing }"
       @mousedown="startResize"
@@ -254,6 +257,7 @@ type BrowserPluginContext = {
 
 type BrowserPluginPort = IPluginFacade & {
   getContext?: () => BrowserPluginContext | null;
+  isMobile?: boolean;
 };
 
 type BrowserTabApplicationServicePort = {
@@ -265,12 +269,19 @@ const props = defineProps<{
   i18n?: Record<string, string>;
   currentDocId?: string;
   mode?: 'dialog' | 'tab' | 'dock';
+  mobileMode?: boolean;
   plugin?: BrowserPluginPort;
   browserService?: IBrowserApplicationService;  // ✅ DDD 架构：浏览器应用服务
   tabApplicationService?: BrowserTabApplicationServicePort;  // ✅ Phase 9: Tab 应用服务
 }>();
 
 const mode = computed(() => props.mode || 'dialog');
+const isMobileMode = computed(() => {
+  if (typeof props.mobileMode === 'boolean') {
+    return props.mobileMode;
+  }
+  return props.plugin?.isMobile === true;
+});
 
 const pluginContext = computed(() => props.plugin?.getContext?.() || null);
 const tabApplicationServiceRef = computed(
@@ -324,7 +335,7 @@ const currentSortModel = ref<SortModel[]>([]);
 const currentSortField = ref<SortField>('due');
 const currentSortOrder = ref<SortOrder>('asc');
 const searchQuery = ref('');
-const viewMode = ref<'flat' | 'hierarchy'>('hierarchy');  // ✅ 默认使用层级视图
+const viewMode = ref<'flat' | 'hierarchy'>(isMobileMode.value ? 'flat' : 'hierarchy');
 const activeQueueId = ref<string | null>(null);
 const activeDocId = ref<string | null>(null);
 const queueCounts = ref<Record<string, number>>({ ...EMPTY_QUEUE_COUNTS });
@@ -337,7 +348,7 @@ const showFilterDialog = ref(false);
 let detectionTriggered = false;
 
 // 预览状态
-const showPreview = ref(true);
+const showPreview = ref(!isMobileMode.value);
 const previewCard = ref<BrowserCard | null>(null);
 
 // 拖拽调整状态
@@ -345,6 +356,10 @@ const isResizing = ref(false);
 
 // ✅ 智能计算预览区初始大小
 const calculateInitialPreviewSize = (): number => {
+  if (isMobileMode.value) {
+    return DEFAULT_PREVIEW_SIZE.tab;
+  }
+
   if (mode.value !== 'dialog') {
     return DEFAULT_PREVIEW_SIZE.tab;
   }
@@ -1031,6 +1046,10 @@ async function onRowDoubleClicked(event: RowDoubleClickedEvent<BrowserCard>) {
 
 // 拖拽分隔条逻辑
 function startResize(e: MouseEvent) {
+  if (isMobileMode.value) {
+    return;
+  }
+
   e.preventDefault();
   isResizing.value = true;
   
@@ -1765,12 +1784,27 @@ onBeforeUnmount(() => {
 
 // 初始化
 onMounted(() => {
-  try {
-    const stored = localStorage.getItem('fsrs-card-browser:viewMode');
-    if (stored === 'flat' || stored === 'hierarchy') {
-      viewMode.value = stored;
-    }
-  } catch {}
+  if (isMobileMode.value) {
+    viewMode.value = 'flat';
+    showPreview.value = false;
+  } else {
+    try {
+      const stored = localStorage.getItem('fsrs-card-browser:viewMode');
+      if (stored === 'flat' || stored === 'hierarchy') {
+        viewMode.value = stored;
+      }
+    } catch {}
+  }
+
+  if (isMobileMode.value) {
+    try {
+      localStorage.removeItem('fsrs-card-browser:viewMode');
+    } catch {}
+  } else {
+    try {
+      localStorage.setItem('fsrs-card-browser:viewMode', viewMode.value);
+    } catch {}
+  }
 
   // 🆕 初始化全局浏览器上下文（DDD 化）
   const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
@@ -1874,6 +1908,9 @@ onMounted(() => {
 
 function toggleViewMode() {
   viewMode.value = viewMode.value === 'flat' ? 'hierarchy' : 'flat';
+  if (isMobileMode.value) {
+    return;
+  }
   try {
     localStorage.setItem('fsrs-card-browser:viewMode', viewMode.value);
   } catch {}
@@ -1965,9 +2002,21 @@ function openPracticeMenu(ev: MouseEvent) {
     logger.info('[SiYuanMemo][CardBrowser] openPracticeMenu', { pos, hasDialogManager: Boolean(dialogManager) });
   }
 
+  const safePos = (() => {
+    const padding = 8;
+    if (!isMobileMode.value) {
+      return pos;
+    }
+    const estimatedMenuWidth = 220;
+    return {
+      x: Math.max(padding, Math.min(pos.x, window.innerWidth - estimatedMenuWidth - padding)),
+      y: Math.max(padding, Math.min(pos.y, window.innerHeight - padding)),
+    };
+  })();
+
   setTimeout(() => {
     try {
-      menu.open({ x: pos.x, y: pos.y, isLeft: true });
+      menu.open({ x: safePos.x, y: safePos.y, isLeft: !isMobileMode.value });
     } catch (err) {
       logger.error('[SiYuanMemo][CardBrowser] openPracticeMenu failed:', err);
       void pushErrMsg('打开练习菜单失败');

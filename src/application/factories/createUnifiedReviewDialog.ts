@@ -21,6 +21,7 @@ const logger = createLogger('createUnifiedReviewDialog');
 
 type ReviewDialogPluginLike = {
     app: unknown;
+    isMobile?: boolean;
     i18n?: Record<string, string>;
     reviewSyncManager?: { reviewCount?: number };
     getContext?: () => {
@@ -75,6 +76,7 @@ export interface CreateUnifiedReviewDialogOptions {
  */
 export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOptions) {
     const { plugin, queueType, queueInstance, title, eventBus, onClose } = options;
+    const isMobile = plugin.isMobile === true;
     
     try {
         logger.info(`Creating dialog for queue: ${queueType}`);
@@ -102,6 +104,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
             dataKey: 'dialog-opencard',
             transparent: true,
             isReview: true,
+            isMobile,
             props: {
                 app: plugin.app,
                 i18n: plugin.i18n || {},
@@ -109,6 +112,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
                 queue,
                 adapter,
                 plugin: plugin,  // 传递插件实例，用于访问 hybridSyncService
+                isMobile,
             },
             events: {
                 close: () => {
@@ -116,8 +120,8 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
                     onClose?.();
                 },
             },
-            width: 'min(860px, 96vw)',
-            height: 'min(720px, 90vh)',
+            width: isMobile ? '100vw' : 'min(860px, 96vw)',
+            height: isMobile ? '100vh' : 'min(720px, 90vh)',
             onClose: async () => {
                 // 🆕 对话框关闭时只同步数据，不刷新 UI
                 // 因为增量更新已经实时更新了浏览器，这里只需要确保数据持久化

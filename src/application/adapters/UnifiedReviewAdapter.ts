@@ -142,16 +142,36 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         item: UnifiedReviewItem | null,
         context: AdapterContext
     ): Promise<ReviewUIState> {
+        const queueType = hasQueueType(queue) ? queue.getType() : '';
+        const isFilterGroup = queueType === 'filter-group';
+
+        const toolbarWithFilterScope = (
+            base: NonNullable<ReviewUIState['header']['toolbar']>
+        ): NonNullable<ReviewUIState['header']['toolbar']> => {
+            if (!isFilterGroup) {
+                return base;
+            }
+            return [
+                ...base,
+                {
+                    icon: '#iconFilter',
+                    type: 'plan-review-scope',
+                    label: t(this.i18n, 'planReviewScope', '规划复习范围'),
+                    ariaLabel: t(this.i18n, 'planReviewScope', '规划复习范围'),
+                },
+            ];
+        };
+
         if (!item) {
             return {
                 header: {
                     title: t(this.i18n, 'reviewTitle', 'Review'),
                     stats: { current: 0, total: 0, label: '', queueName: '', newCards: 0, reviewCards: 0 },
                     breadcrumbs: [],
-                    toolbar: [
+                    toolbar: toolbarWithFilterScope([
                         { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', 'Fullscreen') },
                         { icon: '#iconEdit', type: 'edit-srs', ariaLabel: t(this.i18n, 'editSrsData', 'Edit SRS Data') },
-                    ],
+                    ]),
                 },
                 content: {
                     type: 'empty',
@@ -177,9 +197,9 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         const cardId = resolveCardId(item);
         const cardType = normalizeCardType(item.type);
 
-        const isNeuralRoam = hasQueueType(queue) && queue.getType() === 'neural-roam';
+        const isNeuralRoam = queueType === 'neural-roam';
 
-        const toolbar: NonNullable<ReviewUIState['header']['toolbar']> = [
+        let toolbar: NonNullable<ReviewUIState['header']['toolbar']> = [
             { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', 'Fullscreen') },
             { icon: '#iconEdit', type: 'edit-srs', ariaLabel: t(this.i18n, 'editSrsData', 'Edit SRS Data') },
             { icon: '#iconOpen', type: 'sticktab', ariaLabel: t(this.i18n, 'openBy', 'Open By') },
@@ -191,6 +211,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
                 { icon: '#iconHistory', type: 'neural-history', ariaLabel: t(this.i18n, 'neuralHistoryMenu', 'Roam History') }
             );
         }
+        toolbar = toolbarWithFilterScope(toolbar);
 
         const contentBlockId = resolveContentBlockId(item, blockId);
         const answerBlockID = resolveAnswerBlockId(item);

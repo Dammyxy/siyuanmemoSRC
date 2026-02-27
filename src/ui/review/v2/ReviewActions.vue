@@ -1,20 +1,25 @@
 ﻿<template>
   <!-- 阶段1: 答案隐藏 - showAnswer 为 true 时显示"显示答案"按钮 (Topic 卡片跳过此阶段) -->
-  <div v-if="actions.showAnswer && !isTopicCard" class="card__action fn__flex">
+  <div
+    v-if="actions.showAnswer && !isTopicCard"
+    class="card__action fn__flex"
+    :class="{ 'card__action--mobile': props.isMobile }"
+  >
     <button
-      class="b3-button b3-button--cancel"
+      class="b3-button b3-button--cancel card__action-back"
       :disabled="!canBack"
-      style="width: 25%; min-width: 86px; display: flex"
       @click="emit('back')"
     >
       <svg><use xlink:href="#iconLeft"></use></svg>
-      (p / q)
+      <span v-if="props.isMobile">{{ t('backToPractice', '返回') }}</span>
+      <span v-else>(p / q)</span>
     </button>
     <span class="fn__space"></span>
-    <div style="width: 25%; min-width: 120px;">
+    <div class="card__action-skip">
       <SkipMenuButton
         :i18n="i18n"
         :queue-size="remainingSize"
+        :is-mobile="props.isMobile"
         @skip="emit('skip')"
         @insert="handleInsert"
         @schedule="handleSchedule"
@@ -24,7 +29,7 @@
     <button
       data-type="-1"
       aria-label="Space/Enter"
-      class="b3-button b3-tooltips__n b3-tooltips"
+      class="b3-button b3-tooltips__n b3-tooltips card__action-main"
       @click="emit('reveal')"
     >
       <div class="card__icon">👀</div>
@@ -33,21 +38,22 @@
   </div>
 
   <!-- 阶段2: 答案显示 - showAnswer 为 false 时显示评分按钮 -->
-  <div v-else class="card__action fn__flex">
+  <div v-else class="card__action fn__flex" :class="{ 'card__action--mobile': props.isMobile }">
     <!-- 左列: 后退 + 跳过菜单 (Split Button) -->
-    <div>
+    <div class="card__action-column card__action-column--side">
       <button
-        class="b3-button b3-button--cancel"
+        class="b3-button b3-button--cancel card__action-back card__action-back--stack"
         :disabled="!canBack"
-        style="display: flex; margin-bottom: 8px; height: 28px; padding: 0;"
         @click="emit('back')"
       >
         <svg><use xlink:href="#iconLeft"></use></svg>
-        (p / q)
+        <span v-if="props.isMobile">{{ t('backToPractice', '返回') }}</span>
+        <span v-else>(p / q)</span>
       </button>
       <SkipMenuButton
         :i18n="i18n"
         :queue-size="remainingSize"
+        :is-mobile="props.isMobile"
         @skip="emit('skip')"
         @insert="handleInsert"
         @schedule="handleSchedule"
@@ -57,32 +63,34 @@
     <!-- 评分按钮列 (根据卡片类型动态显示) -->
     <template v-if="isTopicCard">
       <!-- Topic/Concept 模式: 只显示【下一张】按钮 -->
-      <div>
-        <span></span>
+      <div class="card__action-column">
+        <span v-if="!props.isMobile"></span>
         <button
           data-type="3"
           aria-label="Space"
-          class="b3-button b3-button--info"
+          class="b3-button b3-button--info card__action-main"
           @click="emit('grade', 3)"
         >
           <div class="card__icon">📖</div>
-          {{ t('nextCard', '下一张') }} ({{ t('space', '空格') }})
+          {{ t('nextCard', '下一张') }}
+          <template v-if="!props.isMobile"> ({{ t('space', '空格') }}) </template>
         </button>
       </div>
     </template>
     <template v-else>
       <!-- Item 模式: 显示完整评分按钮 -->
-      <div v-for="g in actions.grades" :key="g.value">
-        <span>{{ g.nextDue || '' }}</span>
+      <div v-for="g in actions.grades" :key="g.value" class="card__action-column">
+        <span v-if="!props.isMobile">{{ g.nextDue || '' }}</span>
         <button
           :data-type="g.value"
-          :aria-label="`${g.value} / ${g.kb}`"
-          class="b3-button"
+          :aria-label="props.isMobile ? `${g.value}` : `${g.value} / ${g.kb}`"
+          class="b3-button card__action-main"
           :class="getButtonVariant(g.value)"
           @click="emit('grade', g.value)"
         >
           <div class="card__icon">{{ g.emoji }}</div>
-          {{ g.label }} ({{ g.kb }})
+          {{ g.label }}
+          <template v-if="!props.isMobile"> ({{ g.kb }}) </template>
         </button>
       </div>
     </template>
@@ -92,7 +100,7 @@
   <teleport to="body">
     <div v-if="showInsertDialog" class="b3-dialog b3-dialog--open siyuanmemo-dialog" @mousedown.self="handleDialogMouseDown">
       <div class="b3-dialog__scrim" @click="closeInsertDialog"></div>
-      <div class="b3-dialog__container" style="max-width: 400px;">
+      <div class="b3-dialog__container" :style="insertDialogContainerStyle">
         <InsertPositionDialog
           :queue-size="remainingSize"
           :i18n="i18n"
@@ -107,7 +115,7 @@
   <teleport to="body">
     <div v-if="showScheduleDialog" class="b3-dialog b3-dialog--open siyuanmemo-dialog" @mousedown.self="handleDialogMouseDown">
       <div class="b3-dialog__scrim" @click="closeScheduleDialog"></div>
-      <div class="b3-dialog__container" style="max-width: 540px;">
+      <div class="b3-dialog__container" :style="scheduleDialogContainerStyle">
         <ScheduleDateDialog
           :card-type="cardType"
           :i18n="i18n"
@@ -142,6 +150,7 @@ const props = defineProps<{
   meta?: ReviewUIState['meta'];
   queue?: ReviewQueueLike;
   plugin?: FSRSPlugin;
+  isMobile?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -183,6 +192,12 @@ const canBack = computed(() => props.meta?.canBack === true);
 // 对话框状态
 const showInsertDialog = ref(false);
 const showScheduleDialog = ref(false);
+const insertDialogContainerStyle = computed(() => ({
+  maxWidth: props.isMobile ? '92vw' : '400px',
+}));
+const scheduleDialogContainerStyle = computed(() => ({
+  maxWidth: props.isMobile ? '92vw' : '540px',
+}));
 
 // 防止鼠标拖动关闭对话框
 function handleDialogMouseDown(ev: MouseEvent) {
@@ -415,11 +430,62 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   }
 }
 
+.card__action-back {
+  min-width: 92px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.card__action-back--stack {
+  margin-bottom: 8px;
+}
+
+.card__action-main {
+  min-height: 44px;
+}
+
+.card__action-skip {
+  min-width: 120px;
+}
+
+.card__action-column {
+  flex: 1;
+  margin-right: 8px;
+}
+
+.card__action-column:last-child {
+  margin-right: 0;
+}
+
+.card__action-column--side {
+  min-width: 126px;
+}
+
 .card__icon {
   font-size: 32px;
   display: block;
   line-height: 46px;
   margin-bottom: 4px;
+}
+
+.card__action--mobile {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+}
+
+.card__action--mobile .card__action-main,
+.card__action--mobile .card__action-back {
+  min-height: 44px;
+}
+
+.card__action--mobile .card__icon {
+  font-size: 22px;
+  line-height: 26px;
+  margin-bottom: 2px;
 }
 
 /* 对话框样式 - 只影响插件自己的对话框 */

@@ -82,7 +82,7 @@ const filterCount = computed(() => {
  * 按钮文本
  */
 const buttonText = computed(() => {
-  return t('filter', '设置复习范围');
+  return t('planReviewScope', 'Plan review scope');
 });
 
 /**

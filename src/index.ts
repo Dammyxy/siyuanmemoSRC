@@ -19,6 +19,16 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   public isBrowser: boolean = false;
   private context!: ApplicationContext;
   private readonly logger = createLogger('Plugin');
+  private readonly mobileSidebarEntryId = 'siyuanmemo-mobile-review-entry';
+  private readonly mobileSidebarToolbarEntryType = 'sidebar-siyuanmemo-tab';
+  private readonly mobileSidebarToolbarPanelType = 'sidebar-siyuanmemo';
+  private readonly legacyMobileSidebarToolbarEntryType = 'sidebar-siyuanmemo-review-tab';
+  private mobileSidebarEntryClickHandler: ((ev: MouseEvent) => void) | null = null;
+  private mobileMenuObserver: MutationObserver | null = null;
+  private mobileMenuEnsureQueued = false;
+  private mobileSidebarToolbarObserver: MutationObserver | null = null;
+  private mobileSidebarToolbarEnsureQueued = false;
+  private mobileSidebarToolbarEntryClickHandler: ((ev: MouseEvent) => void) | null = null;
 
   // ========================================================================
   // IPluginFacade 实现
@@ -72,11 +82,13 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     installConsoleBridge();
     this.logger.info('Plugin loading...');
     this.isInitialized = false;
-    this.setupTopBar();
 
     const frontEnd = getFrontend();
     this.isMobile = frontEnd === 'mobile' || frontEnd === 'browser-mobile';
     this.isBrowser = frontEnd.includes('browser');
+    this.setupTopBar();
+    this.startMobileMenuObserver();
+    this.startMobileSidebarToolbarObserver();
 
     try {
       this.context = await ApplicationContext.create({ plugin: this, i18n: this.i18n || {} });
@@ -103,12 +115,18 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
 
   onLayoutReady(): void {
     this.ensureTopbarMounted();
+    this.scheduleMobileMenuEnsure();
+    this.scheduleMobileSidebarToolbarEnsure();
   }
 
   onunload() {
     if (this.topBarElement && this.topBarContextMenuHandler) {
       this.topBarElement.removeEventListener('contextmenu', this.topBarContextMenuHandler);
     }
+    this.stopMobileMenuObserver();
+    this.removeMobileSidebarEntry();
+    this.stopMobileSidebarToolbarObserver();
+    this.removeMobileSidebarToolbarEntry();
     if (this.context) {
       this.context.dispose().catch(err => this.logger.error('Error disposing context:', err));
     }
@@ -138,7 +156,12 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       position: 'right',
       callback: () => {
         if (!this.isInitialized) { pushMsg(this.i18n?.loading || '插件初始化中...'); return; }
-        this.context.getDialogManager()?.openBrowserDialog();
+        const dialogManager = this.context.getDialogManager();
+        if (this.isMobile) {
+          void dialogManager?.openMobileQueueLauncherDialog();
+          return;
+        }
+        dialogManager?.openBrowserDialog();
       },
     });
     this.topBarElement?.classList.add('fsrs-topbar');
@@ -192,6 +215,287 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
           this.didWarnTopbarMount = true;
         }
       }
+    }
+  }
+
+  private startMobileMenuObserver(): void {
+    if (!this.isMobile || this.mobileMenuObserver) {
+      return;
+    }
+
+    const menuRoot = document.getElementById('menu');
+    if (!menuRoot) {
+      window.setTimeout(() => this.startMobileMenuObserver(), 300);
+      return;
+    }
+
+    this.mobileMenuObserver = new MutationObserver(() => {
+      this.scheduleMobileMenuEnsure();
+    });
+    this.mobileMenuObserver.observe(menuRoot, { childList: true, subtree: true });
+    this.scheduleMobileMenuEnsure();
+  }
+
+  private stopMobileMenuObserver(): void {
+    if (!this.mobileMenuObserver) {
+      return;
+    }
+    this.mobileMenuObserver.disconnect();
+    this.mobileMenuObserver = null;
+  }
+
+  private startMobileSidebarToolbarObserver(): void {
+    if (!this.isMobile || this.mobileSidebarToolbarObserver) {
+      return;
+    }
+
+    const sidebarRoot = document.getElementById('sidebar');
+    if (!sidebarRoot) {
+      window.setTimeout(() => this.startMobileSidebarToolbarObserver(), 300);
+      return;
+    }
+
+    this.mobileSidebarToolbarObserver = new MutationObserver(() => {
+      this.scheduleMobileSidebarToolbarEnsure();
+    });
+    this.mobileSidebarToolbarObserver.observe(sidebarRoot, { childList: true, subtree: true });
+    this.scheduleMobileSidebarToolbarEnsure();
+  }
+
+  private stopMobileSidebarToolbarObserver(): void {
+    if (!this.mobileSidebarToolbarObserver) {
+      return;
+    }
+    this.mobileSidebarToolbarObserver.disconnect();
+    this.mobileSidebarToolbarObserver = null;
+  }
+
+  private scheduleMobileMenuEnsure(): void {
+    if (!this.isMobile || this.mobileMenuEnsureQueued) {
+      return;
+    }
+    this.mobileMenuEnsureQueued = true;
+    window.requestAnimationFrame(() => {
+      this.mobileMenuEnsureQueued = false;
+      this.ensureMobileSidebarEntry();
+    });
+  }
+
+  private scheduleMobileSidebarToolbarEnsure(): void {
+    if (!this.isMobile || this.mobileSidebarToolbarEnsureQueued) {
+      return;
+    }
+    this.mobileSidebarToolbarEnsureQueued = true;
+    window.requestAnimationFrame(() => {
+      this.mobileSidebarToolbarEnsureQueued = false;
+      this.ensureMobileSidebarToolbarEntry();
+    });
+  }
+
+  private ensureMobileSidebarEntry(): void {
+    if (!this.isMobile) {
+      return;
+    }
+
+    const hasVisibleTopbarEntry = Boolean(
+      this.topBarElement &&
+      this.topBarElement.isConnected &&
+      this.topBarElement.closest('#menu') &&
+      !this.topBarElement.classList.contains('fn__none')
+    );
+    if (hasVisibleTopbarEntry) {
+      this.removeMobileSidebarEntry();
+      return;
+    }
+
+    const menuItems = document.querySelector('#menu .b3-menu__items') as HTMLElement | null;
+    if (!menuItems) {
+      return;
+    }
+
+    // On some clients plugin topbar can be unpinned/hidden; keep a dedicated mobile entry.
+    let entry = document.getElementById(this.mobileSidebarEntryId) as HTMLElement | null;
+    if (entry) {
+      const label = entry.querySelector('.b3-menu__label');
+      if (label) {
+        label.textContent = this.i18n?.mobileReviewLauncherTitle || this.i18n?.reviewCards || '复习队列';
+      }
+      return;
+    }
+
+    entry = document.createElement('div');
+    entry.id = this.mobileSidebarEntryId;
+    entry.className = 'b3-menu__item';
+    entry.setAttribute('data-menu', 'true');
+    entry.innerHTML = `
+      <svg class="b3-menu__icon"><use xlink:href="#iconSiyuanMemo"></use></svg>
+      <span class="b3-menu__label">${this.i18n?.mobileReviewLauncherTitle || this.i18n?.reviewCards || '复习队列'}</span>
+    `;
+
+    this.mobileSidebarEntryClickHandler = (ev: MouseEvent) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (!this.isInitialized) {
+        pushMsg(this.i18n?.loading || '插件初始化中...');
+        return;
+      }
+      this.closeMobilePanel();
+      void this.context.getDialogManager()?.openMobileQueueLauncherDialog();
+    };
+    entry.addEventListener('click', this.mobileSidebarEntryClickHandler);
+
+    const riffCardEntry = document.getElementById('menuRiffCard');
+    if (riffCardEntry?.parentElement === menuItems) {
+      riffCardEntry.insertAdjacentElement('afterend', entry);
+      return;
+    }
+
+    const pluginEntry = document.getElementById('menuPlugin');
+    if (pluginEntry?.parentElement === menuItems) {
+      pluginEntry.insertAdjacentElement('beforebegin', entry);
+      return;
+    }
+
+    menuItems.appendChild(entry);
+  }
+
+  private removeMobileSidebarEntry(): void {
+    const entry = document.getElementById(this.mobileSidebarEntryId);
+    if (entry && this.mobileSidebarEntryClickHandler) {
+      entry.removeEventListener('click', this.mobileSidebarEntryClickHandler);
+    }
+    this.mobileSidebarEntryClickHandler = null;
+    entry?.remove();
+  }
+
+  private ensureMobileSidebarToolbarEntry(): void {
+    if (!this.isMobile) {
+      return;
+    }
+
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar) {
+      return;
+    }
+
+    const toolbar = sidebar.querySelector('.toolbar.toolbar--border') as HTMLElement | null;
+    const panelContainer = sidebar.querySelector('.b3-list--mobile') as HTMLElement | null;
+    if (!toolbar || !panelContainer) {
+      return;
+    }
+
+    const legacyEntry = toolbar.querySelector(`[data-type="${this.legacyMobileSidebarToolbarEntryType}"]`) as HTMLElement | null;
+    if (legacyEntry) {
+      if (this.mobileSidebarToolbarEntryClickHandler) {
+        legacyEntry.removeEventListener('click', this.mobileSidebarToolbarEntryClickHandler);
+      }
+      legacyEntry.remove();
+    }
+
+    const existed = toolbar.querySelector(`[data-type="${this.mobileSidebarToolbarEntryType}"]`) as HTMLElement | null;
+    if (existed) {
+      this.ensureMobileSidebarToolbarPanel(panelContainer);
+      return;
+    }
+
+    const template = toolbar.querySelector('[data-type="sidebar-file-tab"], .toolbar__icon') as HTMLElement | null;
+    let entry: HTMLElement;
+    if (template) {
+      entry = template.cloneNode(true) as HTMLElement;
+      entry.querySelectorAll('.toolbar__icon--active').forEach((node) => {
+        node.classList.remove('toolbar__icon--active');
+      });
+      entry.classList.remove('toolbar__icon--active');
+    } else {
+      entry = document.createElement('svg');
+      entry.className = 'toolbar__icon';
+      entry.innerHTML = '<use xlink:href="#iconSiyuanMemo"></use>';
+    }
+
+    entry.setAttribute('data-type', this.mobileSidebarToolbarEntryType);
+    entry.setAttribute('aria-label', this.i18n?.mobileReviewLauncherTitle || this.i18n?.reviewCards || '复习队列');
+    entry.setAttribute('data-menu', 'true');
+    const useElement = entry.querySelector('use');
+    if (useElement) {
+      useElement.setAttribute('href', '#iconSiyuanMemo');
+      useElement.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', '#iconSiyuanMemo');
+    } else {
+      entry.innerHTML = '<use xlink:href="#iconSiyuanMemo"></use>';
+    }
+
+    this.mobileSidebarToolbarEntryClickHandler = (ev: MouseEvent) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (!this.isInitialized) {
+        pushMsg(this.i18n?.loading || '插件初始化中...');
+        return;
+      }
+      this.closeMobilePanel();
+      void this.context.getDialogManager()?.openMobileQueueLauncherDialog();
+    };
+    entry.addEventListener('click', this.mobileSidebarToolbarEntryClickHandler);
+
+    this.ensureMobileSidebarToolbarPanel(panelContainer);
+
+    const pluginTab = toolbar.querySelector('[data-type="sidebar-plugin-tab"]');
+    if (pluginTab?.parentElement === toolbar) {
+      pluginTab.before(entry);
+      return;
+    }
+    toolbar.appendChild(entry);
+  }
+
+  private removeMobileSidebarToolbarEntry(): void {
+    const sidebar = document.getElementById('sidebar');
+    const toolbar = sidebar?.querySelector('.toolbar.toolbar--border') as HTMLElement | null;
+    const panelContainer = sidebar?.querySelector('.b3-list--mobile') as HTMLElement | null;
+    const entries = [
+      toolbar?.querySelector(`[data-type="${this.mobileSidebarToolbarEntryType}"]`) as HTMLElement | null,
+      toolbar?.querySelector(`[data-type="${this.legacyMobileSidebarToolbarEntryType}"]`) as HTMLElement | null,
+    ].filter((item): item is HTMLElement => Boolean(item));
+    for (const entry of entries) {
+      if (this.mobileSidebarToolbarEntryClickHandler) {
+        entry.removeEventListener('click', this.mobileSidebarToolbarEntryClickHandler);
+      }
+      entry.remove();
+    }
+    this.mobileSidebarToolbarEntryClickHandler = null;
+    panelContainer?.querySelector(`[data-type="${this.mobileSidebarToolbarPanelType}"]`)?.remove();
+  }
+
+  private ensureMobileSidebarToolbarPanel(panelContainer: HTMLElement): void {
+    const existed = panelContainer.querySelector(`[data-type="${this.mobileSidebarToolbarPanelType}"]`) as HTMLElement | null;
+    if (existed) {
+      return;
+    }
+
+    const panel = document.createElement('div');
+    panel.className = 'fn__flex-column fn__none';
+    panel.setAttribute('data-type', this.mobileSidebarToolbarPanelType);
+    panel.style.cssText = 'height:100%;overflow:hidden';
+    panel.innerHTML = `<div class="b3-list--empty">${this.i18n?.mobileReviewLauncherHint || this.i18n?.mobileReviewLauncherTitle || 'Tap to open review queue'}</div>`;
+    panelContainer.appendChild(panel);
+  }
+
+  private closeMobilePanel(): void {
+    const menuElement = document.getElementById('menu');
+    const sidebarElement = document.getElementById('sidebar');
+    const modelElement = document.getElementById('model');
+    menuElement?.style && (menuElement.style.transform = '');
+    sidebarElement?.style && (sidebarElement.style.transform = '');
+    modelElement?.style && (modelElement.style.transform = '');
+
+    const maskElement = document.querySelector('.side-mask') as HTMLElement | null;
+    if (maskElement) {
+      maskElement.classList.add('fn__none');
+      maskElement.style.opacity = '';
+    }
+
+    try {
+      (window as Window & { siyuan?: { menus?: { menu?: { remove?: () => void } } } })
+        .siyuan?.menus?.menu?.remove?.();
+    } catch {
+      // noop: close panel fallback best effort
     }
   }
 

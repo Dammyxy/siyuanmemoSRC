@@ -2,6 +2,7 @@
   <div
     ref="rootRef"
     class="fsrs-review-v2"
+    :class="{ 'fsrs-review-v2--mobile': props.isMobile }"
     data-key="dialog-opencard"
     @click="handleRootClick"
   >
@@ -12,6 +13,7 @@
         :is-tab-mode="!!props.reviewUI"
         :title="props.title"
         :mode="props.mode"
+        :is-mobile="props.isMobile"
         :navigation-state="state.header.navigationState"
         @toolbar-action="handleToolbarAction"
         @action="hook.executeCommand"
@@ -27,6 +29,7 @@
         :i18n="i18n"
         :queue="providerQueue || props.queue"
         :plugin="props.plugin"
+        :is-mobile="props.isMobile"
         @reveal="hook.reveal"
         @grade="hook.grade"
         @skip="hook.skip"
@@ -51,6 +54,20 @@
           </div>
         </div>
       </div>
+
+      <div v-if="showReviewFilterDialog" class="review-filter-dialog-overlay" @click.self="showReviewFilterDialog = false">
+        <div class="review-filter-dialog-container">
+          <FilterDialog
+            :is-open="showReviewFilterDialog"
+            :initial-filter="appliedReviewFilter"
+            :i18n="i18n"
+            @apply="handleApplyReviewFilter"
+            @cancel="showReviewFilterDialog = false"
+            @clear="handleClearReviewFilter"
+            @rebuild="handleRebuildReviewFilterQueue"
+          />
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -61,6 +78,7 @@ import { onMounted, onUnmounted, ref } from 'vue';
 import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
 import ReviewHeader from './ReviewHeader.vue';
+import FilterDialog from '@/ui/browser/dialogs/FilterDialog.vue';
 import { useReviewSession } from './useReviewSession';
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import { ProviderBackedQueueStrategy, type QueueProvider } from '@/core/extensions';
@@ -68,6 +86,7 @@ import { createVueDialog } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import {
+  type CardFilter,
   isNeuralRoamSessionQueue,
   type NeuralRoamHistoryEntry,
   type NeuralRoamSessionQueue,
@@ -166,6 +185,12 @@ type UnderlyingQueueLike = {
   removeCard?: (seedId: string) => Promise<void>;
 } & Partial<NeuralRoamSessionQueue>;
 
+type FilterGroupQueueLike = {
+  setFilter?: (filter: CardFilter) => Promise<void> | void;
+  getFilter?: () => CardFilter;
+  rebuild?: () => Promise<void> | void;
+};
+
 type QueueStrategyWithUnderlying = {
   getUnderlyingQueue?: () => unknown;
 };
@@ -251,6 +276,7 @@ const props = defineProps<{
   title?: string; // 队列标题（如"提取练习"）
   mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
   plugin?: unknown; // 🆕 插件实例，用于访问 hybridSyncService
+  isMobile?: boolean;
   onReview?: (cardId: string, rating: number) => void; // 🆕 复习回调（用于刻意练习黑名单）
 }>();
 
@@ -320,6 +346,18 @@ function getUnderlyingQueue(): UnderlyingQueueLike | null {
   return getUnderlyingQueueFromStrategy(hook.getQueueStrategy());
 }
 
+function getFilterGroupQueue(): FilterGroupQueueLike | null {
+  const queue = getUnderlyingQueue();
+  if (!queue) {
+    return null;
+  }
+  const candidate = queue as FilterGroupQueueLike;
+  if (typeof candidate.setFilter !== 'function' || typeof candidate.rebuild !== 'function') {
+    return null;
+  }
+  return candidate;
+}
+
 function getNeuralRoamQueue(): NeuralRoamSessionQueue | null {
   const underlyingQueue = getUnderlyingQueue();
   if (!isNeuralRoamSessionQueue(underlyingQueue)) {
@@ -364,6 +402,7 @@ onMounted(() => {
 
   // 🆕 初始化导航状态（Phase 3: UI 控件）
   refreshNavigationState();
+  syncReviewFilterFromQueue();
 });
 
 // 🆕 组件卸载时移除键盘事件监听器
@@ -405,6 +444,8 @@ const hook = useReviewSession(
 const state = hook.state;
 const app = props.app;
 const i18n = props.i18n;
+const showReviewFilterDialog = ref(false);
+const appliedReviewFilter = ref<CardFilter | null>(null);
 
 function t(key: string, fallback: string): string {
   return i18n?.[key] || fallback;
@@ -658,10 +699,85 @@ function handleContext(payload: { id: string; openNewTab: boolean }) {
   });
 }
 
+function syncReviewFilterFromQueue(): void {
+  const filterQueue = getFilterGroupQueue();
+  if (!filterQueue || typeof filterQueue.getFilter !== 'function') {
+    appliedReviewFilter.value = null;
+    return;
+  }
+
+  try {
+    const nextFilter = filterQueue.getFilter();
+    appliedReviewFilter.value = nextFilter ? { ...nextFilter } : null;
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to read filter-group filter:', error);
+    appliedReviewFilter.value = null;
+  }
+}
+
+async function applyFilterAndReload(filter: CardFilter): Promise<void> {
+  const filterQueue = getFilterGroupQueue();
+  if (!filterQueue) {
+    showMessage(t('filterQueueUnavailable', '筛选复习队列不可用'), 3000, 'error');
+    return;
+  }
+
+  try {
+    await filterQueue.setFilter?.(filter);
+    await filterQueue.rebuild?.();
+    appliedReviewFilter.value = Object.keys(filter).length > 0 ? { ...filter } : null;
+    showReviewFilterDialog.value = false;
+    await hook.reload();
+  } catch (error) {
+    logger.error('[SiYuanMemo][ReviewView] Failed to apply review filter:', error);
+    showMessage(t('applyFilterFailed', '应用筛选失败'), 3000, 'error');
+  }
+}
+
+async function handleApplyReviewFilter(filter: CardFilter): Promise<void> {
+  await applyFilterAndReload(filter);
+}
+
+async function handleClearReviewFilter(): Promise<void> {
+  await applyFilterAndReload({});
+}
+
+async function handleRebuildReviewFilterQueue(): Promise<void> {
+  const filterQueue = getFilterGroupQueue();
+  if (!filterQueue) {
+    showMessage(t('filterQueueUnavailable', '筛选复习队列不可用'), 3000, 'error');
+    return;
+  }
+
+  try {
+    await filterQueue.rebuild?.();
+    syncReviewFilterFromQueue();
+    await hook.reload();
+  } catch (error) {
+    logger.error('[SiYuanMemo][ReviewView] Failed to rebuild filter-group queue:', error);
+    showMessage(t('rebuildFailed', '重建失败'), 3000, 'error');
+  }
+}
+
 function handleToolbarAction(actionType: string, ev: MouseEvent) {
   logger.debug('[SiYuanMemo][ReviewView] handleToolbarAction called:', actionType);
 
+  if (actionType === 'close-review') {
+    emit('close');
+    return;
+  }
+
+  if (actionType === 'plan-review-scope') {
+    syncReviewFilterFromQueue();
+    showReviewFilterDialog.value = true;
+    return;
+  }
+
   if (actionType === 'fullscreen') {
+    if (props.isMobile) {
+      return;
+    }
+
     // 实现全屏功能（参考思源原生实现）
     logger.debug('[SiYuanMemo][ReviewView] Fullscreen button clicked');
 
@@ -1170,6 +1286,11 @@ function refreshNavigationState() {
   background: var(--b3-theme-background);
 }
 
+.fsrs-review-v2--mobile {
+  height: 100vh;
+  width: 100vw;
+}
+
 /* 🌌 内容包装器（占据剩余空间） */
 .fsrs-review-v2__content-wrapper {
   flex: 1;
@@ -1206,6 +1327,32 @@ function refreshNavigationState() {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.review-filter-dialog-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.review-filter-dialog-container {
+  width: min(980px, 96vw);
+  max-height: min(90vh, 820px);
+  overflow: auto;
+  border-radius: var(--b3-border-radius-b);
+  background: var(--b3-theme-background);
+}
+
+.fsrs-review-v2--mobile {
+  .review-filter-dialog-container {
+    width: 92vw;
+    max-height: 88vh;
+  }
 }
 
 /* 全屏样式 - 只影响插件的复习对话框 */
@@ -1252,8 +1399,13 @@ function refreshNavigationState() {
 
 <style>
 /* 确保对话框有圆角 */
-.b3-dialog__container[data-key="dialog-opencard"] {
+.b3-dialog__container[data-key="dialog-opencard"]:not(.fsrs-mobile-review-dialog) {
   border-radius: var(--b3-border-radius-b) !important;
+}
+
+.b3-dialog__container.fsrs-mobile-review-dialog {
+  border-radius: 0 !important;
+  max-width: 100vw !important;
 }
 </style>
 

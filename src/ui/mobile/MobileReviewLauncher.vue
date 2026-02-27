@@ -1,0 +1,194 @@
+<template>
+  <div class="mobile-review-launcher" @click.self="emit('close')">
+    <div class="mobile-review-launcher__sheet">
+      <header class="mobile-review-launcher__header">
+        <h3 class="mobile-review-launcher__title">
+          {{ t('mobileReviewLauncherTitle', '选择复习队列') }}
+        </h3>
+        <p class="mobile-review-launcher__hint">
+          {{ t('mobileReviewLauncherHint', '点击任意队列立即开始复习') }}
+        </p>
+      </header>
+
+      <div class="mobile-review-launcher__queues">
+        <button
+          v-for="item in queueItems"
+          :key="item.id"
+          class="mobile-review-launcher__queue-card b3-button b3-button--cancel"
+          type="button"
+          @click="emit('openQueue', item.id)"
+        >
+          <span class="mobile-review-launcher__queue-name">{{ item.label }}</span>
+          <span class="mobile-review-launcher__queue-count">{{ item.count }} {{ t('cards', '张') }}</span>
+          <span class="mobile-review-launcher__queue-hint">{{ t('mobileDirectStart', '直接开始') }}</span>
+        </button>
+      </div>
+
+      <footer class="mobile-review-launcher__actions">
+        <button
+          class="b3-button b3-button--outline mobile-review-launcher__action"
+          type="button"
+          @click="emit('openBrowser')"
+        >
+          {{ t('mobileOpenBrowser', '打开 Browser') }}
+        </button>
+        <button
+          class="b3-button b3-button--cancel mobile-review-launcher__action"
+          type="button"
+          @click="emit('close')"
+        >
+          {{ t('mobileClose', '关闭') }}
+        </button>
+      </footer>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue';
+
+type MobileQueueId =
+  | 'retrieval'
+  | 'incremental-learning'
+  | 'final-drill'
+  | 'neural-roam'
+  | 'filter-group';
+
+const props = defineProps<{
+  i18n?: Record<string, string>;
+  counts?: Record<string, number>;
+}>();
+
+const emit = defineEmits<{
+  (e: 'openQueue', queueId: MobileQueueId): void;
+  (e: 'openBrowser'): void;
+  (e: 'close'): void;
+}>();
+
+function t(key: string, fallback: string): string {
+  return props.i18n?.[key] || fallback;
+}
+
+function readCount(key: string): number {
+  const value = props.counts?.[key];
+  return Number.isFinite(value) ? Math.max(0, Number(value)) : 0;
+}
+
+const queueItems = computed(() => [
+  {
+    id: 'retrieval' as const,
+    label: t('mobileQueueRetrieval', '提取练习'),
+    count: readCount('retrieval'),
+  },
+  {
+    id: 'incremental-learning' as const,
+    label: t('mobileQueueIncremental', '渐进学习'),
+    count: readCount('incremental-learning'),
+  },
+  {
+    id: 'final-drill' as const,
+    label: t('mobileQueueFinalDrill', '刻意练习'),
+    count: readCount('final-drill'),
+  },
+  {
+    id: 'neural-roam' as const,
+    label: t('mobileQueueNeural', '神经漫游'),
+    count: readCount('neural-roam'),
+  },
+  {
+    id: 'filter-group' as const,
+    label: t('mobileQueueFilterGroup', '筛选复习'),
+    count: readCount('filter-group'),
+  },
+]);
+</script>
+
+<style scoped>
+.mobile-review-launcher {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 1;
+}
+
+.mobile-review-launcher__sheet {
+  width: 100%;
+  max-height: min(84vh, 740px);
+  background: var(--b3-theme-background);
+  border-radius: 16px 16px 0 0;
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mobile-review-launcher__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mobile-review-launcher__title {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.mobile-review-launcher__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.mobile-review-launcher__queues {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  overflow: auto;
+}
+
+.mobile-review-launcher__queue-card {
+  width: 100%;
+  min-height: 56px;
+  justify-content: space-between;
+  text-align: left;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'name count'
+    'hint hint';
+  gap: 4px 12px;
+}
+
+.mobile-review-launcher__queue-name {
+  grid-area: name;
+  font-weight: 500;
+}
+
+.mobile-review-launcher__queue-count {
+  grid-area: count;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.mobile-review-launcher__queue-hint {
+  grid-area: hint;
+  font-size: 12px;
+  color: var(--b3-theme-primary);
+}
+
+.mobile-review-launcher__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.mobile-review-launcher__action {
+  min-height: 44px;
+}
+</style>

@@ -1,5 +1,5 @@
 ﻿<template>
-  <div class="block__icons siyuanmemo-review-header">
+  <div class="block__icons siyuanmemo-review-header" :class="{ 'siyuanmemo-review-header--mobile': props.isMobile }">
     <!-- Logo + 队列名称 -->
     <div class="block__logo">
       <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>
@@ -7,7 +7,7 @@
     </div>
 
     <!-- 拖拽区域 -->
-    <span class="fn__flex-1 resize__move" style="min-height: 100%"></span>
+    <span v-if="!props.isMobile" class="fn__flex-1 resize__move" style="min-height: 100%"></span>
 
     <!-- Counter: New Cards/Total New + Review Cards/Total Review (native format) -->
     <div
@@ -31,25 +31,34 @@
       </span>
     </div>
 
-    <div class="fn__space"></div>
+    <span class="fn__flex-1"></span>
 
     <!-- 头部工具栏 -->
-    <!-- 调试信息 -->
-    <!-- <div style="color: red; font-size: 12px;">
-      Toolbar: {{ filteredToolbar.length }} buttons
-    </div> -->
-    <template v-if="filteredToolbar.length > 0">
-      <template v-for="(btn, index) in filteredToolbar" :key="btn.type">
-        <div v-if="index > 0" class="fn__space"></div>
-        <button v-if="!btn.disabled"
-                :data-type="btn.type"
-                class="b3-tooltips b3-tooltips__sw block__icon block__icon--show"
-                :aria-label="btn.ariaLabel"
-                @click="handleToolbarClick(btn, $event)">
+    <div v-if="filteredToolbar.length > 0" class="siyuanmemo-review-header__toolbar">
+      <template v-for="btn in filteredToolbar" :key="btn.type">
+        <button
+          v-if="!btn.disabled"
+          :data-type="btn.type"
+          class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__toolbar-button"
+          :class="{ 'siyuanmemo-review-header__toolbar-button--with-label': !!btn.label }"
+          :aria-label="btn.ariaLabel"
+          @click="handleToolbarClick(btn, $event)"
+        >
           <svg v-if="btn.icon"><use :xlink:href="btn.icon"></use></svg>
+          <span v-if="btn.label" class="siyuanmemo-review-header__toolbar-label">{{ btn.label }}</span>
         </button>
       </template>
-    </template>
+    </div>
+
+    <button
+      v-if="showMobileClose"
+      data-type="close-review"
+      class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__mobile-close"
+      :aria-label="t('exitFocus', '退出')"
+      @click="handleCloseClick"
+    >
+      <svg><use xlink:href="#iconCloseRound"></use></svg>
+    </button>
   </div>
 </template>
 
@@ -65,6 +74,7 @@ const props = defineProps<{
   mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
   showSidebarToggle?: boolean; // 🌌 是否显示侧边栏切换按钮
   sidebarCollapsed?: boolean;  // 🌌 侧边栏是否折叠
+  isMobile?: boolean;
   navigationState?: { // 🆕 神经漫游导航状态
     currentPathIndex: number;
     navigationMode: 'explore' | 'follow';
@@ -137,20 +147,31 @@ const filteredToolbar = computed(() => {
 
   if (props.mode === 'tab') {
     // Tab 模式：移除 sticktab 按钮（已经在 Tab 中了，不需要"在 Tab 中打开"按钮）
-    return toolbar.filter(btn => btn.type !== 'sticktab');
+    toolbar = toolbar.filter(btn => btn.type !== 'sticktab');
+  }
+
+  if (props.isMobile) {
+    toolbar = toolbar.filter(btn => btn.type !== 'fullscreen' && btn.type !== 'close-review');
   }
   return toolbar;
 });
+
+const showMobileClose = computed(() => Boolean(props.isMobile && props.mode !== 'tab'));
 
 function t(key: string, fallback: string): string {
   const i18n = (window as WindowWithSiyuanLanguages).siyuan?.languages?.flashcard;
   return i18n?.[key] || fallback;
 }
 
-function handleToolbarClick(btn: { type: string; icon?: string; ariaLabel?: string; disabled?: boolean }, event: MouseEvent) {
+function handleToolbarClick(btn: { type: string; icon?: string; label?: string; ariaLabel?: string; disabled?: boolean }, event: MouseEvent) {
   if (btn.disabled) return;
   event.stopPropagation(); // 阻止事件冒泡，防止被其他处理器拦截
   emit('toolbar-action', btn.type, event);
+}
+
+function handleCloseClick(event: MouseEvent): void {
+  event.stopPropagation();
+  emit('toolbar-action', 'close-review', event);
 }
 </script>
 
@@ -167,6 +188,33 @@ function handleToolbarClick(btn: { type: string; icon?: string; ariaLabel?: stri
   align-items: center;
   gap: 4px;
   font-weight: 500;
+}
+
+.siyuanmemo-review-header__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.siyuanmemo-review-header__toolbar-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.siyuanmemo-review-header__toolbar-button--with-label {
+  width: auto;
+  padding: 0 10px;
+}
+
+.siyuanmemo-review-header__toolbar-label {
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.siyuanmemo-review-header__mobile-close {
+  margin-left: 6px;
 }
 
 /* 移除 .ariaLabel 的 flex 样式，让计数器横排显示 */
@@ -253,5 +301,38 @@ function handleToolbarClick(btn: { type: string; icon?: string; ariaLabel?: stri
 
 .fn__grab {
   cursor: grab;
+}
+
+.siyuanmemo-review-header--mobile {
+  padding: 0 6px;
+
+  .block__logo {
+    min-width: 0;
+
+    span {
+      max-width: 116px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  [data-type="count"] {
+    min-width: 0;
+  }
+
+  .siyuanmemo-review-header__toolbar {
+    gap: 4px;
+  }
+
+  .siyuanmemo-review-header__toolbar-button--with-label {
+    padding: 0 8px;
+    max-width: 160px;
+  }
+
+  .siyuanmemo-review-header__toolbar-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 </style>

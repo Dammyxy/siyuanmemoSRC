@@ -28,6 +28,10 @@ type UnderlyingQueueBridge<TItem> = {
   getUnderlyingQueue: () => unknown;
 };
 
+type SessionResettableQueue = {
+  resetSessionState?: () => void;
+};
+
 type NeuralPathLoader<TItem> = {
   getPathItemByNodeId: (blockId: string) => Promise<TItem | null>;
 };
@@ -315,6 +319,20 @@ export function useReviewSession<TItem>(
 
   const getQueueStrategy = (): IQueueStrategy<TItem> => queue;
 
+  const reload = async (): Promise<void> => {
+    try {
+      (queue as unknown as SessionResettableQueue).resetSessionState?.();
+      currentItem.value = await queue.next();
+      context.value.showAnswer = false;
+      await updateState();
+    } catch (error) {
+      logger.error('Failed to reload review session:', error);
+      currentItem.value = null;
+      context.value.showAnswer = false;
+      await updateState();
+    }
+  };
+
   const loadCardByBlockId = async (blockId: string): Promise<void> => {
     try {
       const loader = resolveNeuralPathLoader(queue);
@@ -349,6 +367,7 @@ export function useReviewSession<TItem>(
     skip,
     back,
     executeCommand,
+    reload,
     getQueueStrategy,
     loadCardByBlockId,
     onMounted: mounted,
