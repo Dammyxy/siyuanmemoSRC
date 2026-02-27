@@ -113,6 +113,59 @@ export interface IUnifiedDataSourceManagerFacade {
 }
 
 // ============================================================================
+// Neural Roam Session Contract
+// ============================================================================
+
+export type NeuralNavigationMode = 'explore' | 'follow';
+
+export interface NeuralNavigationState {
+    currentPathIndex: number;
+    currentNodeId: string | null;
+    navigationMode: NeuralNavigationMode;
+    hasBookmark: boolean;
+    pathLength: number;
+}
+
+export interface NeuralRoamHistoryEntry {
+    nodeId: string;
+    seedId: string | null;
+    associationType: string;
+    reason: string;
+    visitedAt: number;
+}
+
+export interface NeuralRoamSessionQueue {
+    getSeedBlocks(): string[];
+    startRoamingFromSeed(
+        seedId: string,
+        options?: {
+            includeSeedAsFirst?: boolean;
+            resetHistory?: boolean;
+        }
+    ): Promise<void>;
+    getHistorySnapshot(): NeuralRoamHistoryEntry[];
+    getPathItemByNodeId(blockId: string): Promise<FSRSCard | null>;
+    getNavigationState(): NeuralNavigationState;
+    setNavigationMode(mode: NeuralNavigationMode): void;
+    returnToBookmark(): boolean;
+    clearHistory(): void;
+}
+
+export function isNeuralRoamSessionQueue(
+    queue: unknown
+): queue is IReviewQueue & NeuralRoamSessionQueue {
+    const candidate = queue as Partial<NeuralRoamSessionQueue>;
+    return typeof candidate?.getSeedBlocks === 'function'
+        && typeof candidate?.startRoamingFromSeed === 'function'
+        && typeof candidate?.getHistorySnapshot === 'function'
+        && typeof candidate?.getPathItemByNodeId === 'function'
+        && typeof candidate?.getNavigationState === 'function'
+        && typeof candidate?.setNavigationMode === 'function'
+        && typeof candidate?.returnToBookmark === 'function'
+        && typeof candidate?.clearHistory === 'function';
+}
+
+// ============================================================================
 // 卡片过滤器
 // ============================================================================
 

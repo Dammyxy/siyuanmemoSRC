@@ -59,10 +59,17 @@ export interface ReviewTabOptions {
   title: string;
 }
 
+interface ReviewTabOpenOptions {
+  position?: 'right' | 'bottom';
+  keepCursor?: boolean;
+  removeCurrentTab?: boolean;
+}
+
 export class TabManager {
   private readonly TAB_TYPE: string;
   private readonly REVIEW_TAB_TYPE: string;
   private readonly siyuanApi: ManagerSiyuanPort;
+  private tabsRegistered = false;
 
   constructor(
     private context: ApplicationContext,
@@ -75,6 +82,10 @@ export class TabManager {
   }
 
   registerAll(): void {
+    if (this.tabsRegistered) {
+      return;
+    }
+    this.tabsRegistered = true;
     this.registerBrowserTab();
     this.registerReviewTab();
   }
@@ -151,54 +162,27 @@ export class TabManager {
   }
 
   openReviewTab(options: ReviewTabOptions): void {
-    try {
-      const tabData = this.resolveReviewTabData(options);
+    void this.openReviewTabInternal(options, {
+      position: 'right',
+      keepCursor: false,
+      removeCurrentTab: false,
+    });
+  }
 
-      openTab({
-        app: this.plugin.app,
-        custom: {
-          icon: 'iconSiyuanMemo',
-          title: tabData.title,
-          id: this.plugin.name + this.REVIEW_TAB_TYPE,
-          data: tabData,
-        },
-        position: 'right',
-      });
-    } catch (error) {
-      logger.error('Failed to open review tab', error);
-    }
+  openReviewTabInNewTab(options: ReviewTabOptions): void {
+    void this.openReviewTabInternal(options, {
+      keepCursor: false,
+      removeCurrentTab: false,
+    });
   }
 
   openReviewInNewWindow(options: ReviewTabOptions): void {
-    /// #if !BROWSER
-    try {
-      const tabData = this.resolveReviewTabData(options);
-      const json = [
-        {
-          title: tabData.title,
-          icon: 'iconSiyuanMemo',
-          instance: 'Tab',
-          children: {
-            instance: 'Custom',
-            customModelType: this.REVIEW_TAB_TYPE,
-            customModelData: tabData,
-          },
-        },
-      ];
-
-      ipcRenderer.send(Constants.SIYUAN_OPEN_WINDOW, {
-        url: `${window.location.protocol}//${window.location.host}/stage/build/app/window.html?v=${Constants.SIYUAN_VERSION}&json=${encodeURIComponent(JSON.stringify(json))}`,
-      });
-
-      logger.info('Opened review in new window', { queueType: tabData.queueType, providerId: tabData.providerId });
-    } catch (error) {
-      logger.error('Failed to open review in new window', error);
-      void this.siyuanApi.pushErrMsg(this.context.getI18n()?.openFailed || 'Failed to open new window');
+    if (!this.canOpenInNewWindow()) {
+      logger.warn('New window is not supported in current runtime, opening tab instead');
+      this.openReviewTab(options);
+      return;
     }
-    /// #else
-    logger.warn('New window is not supported in browser, opening tab instead');
-    this.openReviewTab(options);
-    /// #endif
+    void this.openReviewInNewWindowInternal(options);
   }
 
   openDocumentTab(blockId: string): void {
@@ -297,5 +281,93 @@ export class TabManager {
       this.context.getEventBus(),
       this.context.getSchedulerRouter()
     );
+  }
+
+  private prepareQueueBeforeOpen(queueType: QueueType): Promise<void> | null {
+    if (queueType !== QueueType.RetrievalPractice && queueType !== QueueType.IncrementalLearning) {
+      return null;
+    }
+
+    const preparationService = this.context.getReviewQueuePreparationService?.();
+    if (!preparationService || typeof preparationService.prepareBeforeReview !== 'function') {
+      return null;
+    }
+
+    return preparationService.prepareBeforeReview(queueType).catch((error) => {
+      logger.warn('Review queue preparation failed, continue opening review tab', {
+        queueType,
+        error,
+      });
+    });
+  }
+
+  private canOpenInNewWindow(): boolean {
+    return typeof ipcRenderer !== 'undefined' && typeof ipcRenderer.send === 'function';
+  }
+
+  private async openReviewTabInternal(
+    options: ReviewTabOptions,
+    tabOpenOptions: ReviewTabOpenOptions
+  ): Promise<void> {
+    try {
+      const tabData = this.resolveReviewTabData(options);
+      const prepare = this.prepareQueueBeforeOpen(tabData.queueType);
+      if (prepare) {
+        await prepare;
+      }
+
+      openTab({
+        app: this.plugin.app,
+        custom: {
+          icon: 'iconSiyuanMemo',
+          title: tabData.title,
+          id: this.plugin.name + this.REVIEW_TAB_TYPE,
+          data: tabData,
+        },
+        position: tabOpenOptions.position,
+        keepCursor: tabOpenOptions.keepCursor,
+        removeCurrentTab: tabOpenOptions.removeCurrentTab,
+      });
+    } catch (error) {
+      logger.error('Failed to open review tab', error);
+    }
+  }
+
+  private async openReviewInNewWindowInternal(options: ReviewTabOptions): Promise<void> {
+    try {
+      if (!this.canOpenInNewWindow()) {
+        throw new Error('ipcRenderer is unavailable');
+      }
+      const tabData = this.resolveReviewTabData(options);
+      const prepare = this.prepareQueueBeforeOpen(tabData.queueType);
+      if (prepare) {
+        await prepare;
+      }
+
+      const json = [
+        {
+          title: tabData.title,
+          icon: 'iconSiyuanMemo',
+          instance: 'Tab',
+          children: {
+            instance: 'Custom',
+            customModelType: this.REVIEW_TAB_TYPE,
+            customModelData: tabData,
+          },
+        },
+      ];
+
+      ipcRenderer.send(Constants.SIYUAN_OPEN_WINDOW, {
+        url: `${window.location.protocol}//${window.location.host}/stage/build/app/window.html?v=${Constants.SIYUAN_VERSION}&json=${encodeURIComponent(JSON.stringify(json))}`,
+      });
+
+      logger.info('Opened review in new window', {
+        queueType: tabData.queueType,
+        providerId: tabData.providerId,
+      });
+    } catch (error) {
+      logger.error('Failed to open review in new window', error);
+      void this.siyuanApi.pushErrMsg(this.context.getI18n()?.openFailed || 'Failed to open new window');
+    }
   }
 }

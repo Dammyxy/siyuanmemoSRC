@@ -37,6 +37,10 @@ interface BuildDynamicQueueCardsOptions {
   warnInvalidBlockId?: boolean;
 }
 
+interface BuildOutstandingQueueCardsOptions extends BuildDynamicQueueCardsOptions {
+  everyNthElement: number;
+}
+
 interface BuildDynamicCardsFromBaseOptions {
   logger: ManualCardQueueLogger;
   baseCardsLabel?: string;
@@ -304,6 +308,87 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
 
     const sortedCards = this.sortByDuePriority(filteredCards);
     return this.applyCustomOrder(sortedCards);
+  }
+
+  private insertCardsSparsely(
+    baseCards: FSRSCard[],
+    cardsToInsert: FSRSCard[],
+    everyNthElement: number
+  ): FSRSCard[] {
+    const normalizedEveryNth = Math.max(1, Math.min(100, Math.floor(everyNthElement)));
+    if (cardsToInsert.length === 0) {
+      return [...baseCards];
+    }
+
+    if (normalizedEveryNth <= 1) {
+      return [...cardsToInsert, ...baseCards];
+    }
+
+    const result = [...baseCards];
+
+    for (let index = 0; index < cardsToInsert.length; index += 1) {
+      const card = cardsToInsert[index];
+      const targetIndex = (normalizedEveryNth - 1) + index * normalizedEveryNth;
+      if (targetIndex >= result.length) {
+        result.push(card);
+      } else {
+        result.splice(targetIndex, 0, card);
+      }
+    }
+
+    return result;
+  }
+
+  protected buildOutstandingQueueCards(
+    baseCards: FSRSCard[],
+    manualCards: FSRSCard[],
+    options: BuildOutstandingQueueCardsOptions
+  ): FSRSCard[] {
+    const {
+      logger,
+      baseCardsLabel = 'cards from manager',
+      warnInvalidBlockId = false,
+      everyNthElement,
+    } = options;
+
+    logger.debug(`Got ${baseCards.length} ${baseCardsLabel}`);
+    logger.debug(`Got ${manualCards.length} manually added cards`);
+
+    const filteredBaseCards = baseCards.filter((card) => !this.temporaryBlacklist.has(card.id));
+    const existingIds = new Set(filteredBaseCards.map((card) => card.id));
+    const manualOutstandingCards = manualCards.filter((card) => {
+      if (this.temporaryBlacklist.has(card.id)) {
+        return false;
+      }
+      return !existingIds.has(card.id);
+    });
+
+    if (warnInvalidBlockId) {
+      const invalidCards = [...filteredBaseCards, ...manualOutstandingCards]
+        .filter((card) => !card.blockId || card.blockId === 'undefined');
+      if (invalidCards.length > 0) {
+        logger.warn(
+          `Found ${invalidCards.length} cards with invalid blockId:`,
+          invalidCards.map((card) => ({ id: card.id, blockId: card.blockId }))
+        );
+      }
+    }
+
+    const autoSortEnabled = this.isAutoSortEnabled();
+    const sortedBase = autoSortEnabled
+      ? this.sortByPriorityThenDue(filteredBaseCards)
+      : [...filteredBaseCards];
+    const sparseQueue = this.insertCardsSparsely(sortedBase, manualOutstandingCards, everyNthElement);
+
+    logger.debug('Built outstanding queue with sparse insertion', {
+      baseCount: sortedBase.length,
+      insertedManualCount: manualOutstandingCards.length,
+      everyNthElement: Math.max(1, Math.min(100, Math.floor(everyNthElement))),
+      autoSortEnabled,
+      total: sparseQueue.length,
+    });
+
+    return this.applyCustomOrder(sparseQueue);
   }
 
   protected async buildDynamicCardsFromBase(

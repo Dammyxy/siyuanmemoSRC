@@ -2,6 +2,7 @@ import { onMounted, onUnmounted, ref } from 'vue';
 import type { IQueueStrategy, QueueFeedback } from '@/core/queue/abstraction/Strategy';
 import type { AdapterContext, IAdapter, ReviewSessionHook, ReviewUIState } from './types';
 import { createEmptyReviewUIState } from './types';
+import { isNeuralRoamSessionQueue } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('useReviewSession');
@@ -29,11 +30,6 @@ type UnderlyingQueueBridge<TItem> = {
 
 type NeuralPathLoader<TItem> = {
   getPathItemByNodeId: (blockId: string) => Promise<TItem | null>;
-};
-
-type UnderlyingWithNeuralQueue<TItem> = {
-  neuralQueue?: unknown;
-  getPathItemByNodeId?: (blockId: string) => Promise<TItem | null>;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -95,27 +91,13 @@ function resolveNeuralPathLoader<TItem>(queue: IQueueStrategy<TItem>): NeuralPat
   }
 
   const underlying = bridge.getUnderlyingQueue();
-  if (!isRecord(underlying)) {
+  if (!isNeuralRoamSessionQueue(underlying)) {
     return null;
   }
 
-  const queueLike = underlying as UnderlyingWithNeuralQueue<TItem>;
-  if (typeof queueLike.getPathItemByNodeId === 'function') {
-    return { getPathItemByNodeId: queueLike.getPathItemByNodeId.bind(underlying) };
-  }
-
-  if (!isRecord(queueLike.neuralQueue)) {
-    return null;
-  }
-
-  const nested = queueLike.neuralQueue as Partial<NeuralPathLoader<TItem>>;
-  if (typeof nested.getPathItemByNodeId === 'function') {
-    return {
-      getPathItemByNodeId: nested.getPathItemByNodeId.bind(queueLike.neuralQueue),
-    };
-  }
-
-  return null;
+  return {
+    getPathItemByNodeId: underlying.getPathItemByNodeId.bind(underlying),
+  };
 }
 
 function mergeAux(base: ReviewUIState, aux: Partial<ReviewUIState>): ReviewUIState {

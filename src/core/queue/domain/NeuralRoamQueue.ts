@@ -1,392 +1,314 @@
-﻿/**
+/**
  * Neural Roam Queue
- * 神经漫游队列（重构版）
- * 
- * 使用新的 ConceptNeuralQueue 实现，专门为概念卡优化。
- * 
- * 核心功能：
- * - 只支持概念卡作为种子
- * - 邻居包括：反链、正链、描述符卡
- * - 简化的状态管理
- * - 清晰的漫游逻辑
- * 
- * @see concept-neural-roam-redesign.md
+ * 神经漫游队列
  */
 
 import { BaseReviewQueue } from './BaseReviewQueue';
-import { QueueType } from '../../../types/unified-data-source';
+import {
+  QueueType,
+  type NeuralNavigationMode,
+  type NeuralNavigationState,
+  type NeuralRoamHistoryEntry,
+} from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem as ReviewQueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import type { NeuralRoamCardTypeResolverPort, QueuePersistencePort } from './ports';
 import { loadQueueState, saveQueueState } from './queuePersistence';
-import { ConceptNeuralQueue, type QueueItem as ConceptQueueItem } from '../neural/ConceptNeuralQueue';
+import {
+  ConceptNeuralQueue,
+  type ConceptNeuralSessionState,
+  type QueueItem as ConceptQueueItem,
+} from '../neural/ConceptNeuralQueue';
 import { resolveCardId } from '../../../diagnostics/type-guards';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('NeuralRoamQueue');
 
-/**
- * 种子块数据接口
- */
-interface SeedBlockData {
-    seeds: string[];
-    currentSeed: string | null;
+interface LegacySeedOnlyState {
+  seeds: string[];
+  currentSeed: string | null;
+}
+
+interface NeuralRoamPersistedState {
+  version: 2;
+  seeds: string[];
+  session: ConceptNeuralSessionState;
 }
 
 interface NeuralRoamQueueOptions {
-    cardTypeResolver?: NeuralRoamCardTypeResolverPort;
+  cardTypeResolver?: NeuralRoamCardTypeResolverPort;
 }
 
 const DEFAULT_CARD_TYPE_RESOLVER: NeuralRoamCardTypeResolverPort = {
-    async resolveCardType(): Promise<'item' | 'topic'> {
-        return 'topic';
-    }
+  async resolveCardType(): Promise<'item' | 'topic'> {
+    return 'topic';
+  },
 };
 
-/**
- * 神经漫游队列类
- * 
- * 使用新的 ConceptNeuralQueue 实现，专注于概念卡神经漫游。
- */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isLegacySeedOnlyState(value: unknown): value is LegacySeedOnlyState {
+  return isRecord(value) && Array.isArray(value.seeds);
+}
+
+function isNeuralRoamPersistedState(value: unknown): value is NeuralRoamPersistedState {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return Number(value.version) === 2 && Array.isArray(value.seeds) && isRecord(value.session);
+}
+
 export class NeuralRoamQueue extends BaseReviewQueue {
-    public name = 'NeuralRoamQueue';
-    
-    /**
-     * 概念神经队列实例
-     */
-    private conceptQueue: ConceptNeuralQueue;
+  public name = 'NeuralRoamQueue';
 
-    /**
-     * 持久化存储键
-     */
-    private readonly STORAGE_KEY = 'neuralRoamQueue';
-    
-    /**
-     * 队列持久化服务
-     */
-    private readonly queuePersistence: QueuePersistencePort;
-    private readonly cardTypeResolver: NeuralRoamCardTypeResolverPort;
+  private readonly conceptQueue: ConceptNeuralQueue;
+  private readonly STORAGE_KEY = 'neuralRoamQueue';
+  private readonly queuePersistence: QueuePersistencePort;
+  private readonly cardTypeResolver: NeuralRoamCardTypeResolverPort;
 
-    /**
-     * 构造函数
-     *
-     * @param manager 统一数据源管理器实例
-     * @param queuePersistence 队列持久化服务（依赖注入）
-     */
-    constructor(
-        manager: UnifiedDataSourceManager,
-        queuePersistence: QueuePersistencePort,
-        options: NeuralRoamQueueOptions = {}
-    ) {
-        super(manager, QueueType.NeuralRoam);
+  constructor(
+    manager: UnifiedDataSourceManager,
+    queuePersistence: QueuePersistencePort,
+    options: NeuralRoamQueueOptions = {}
+  ) {
+    super(manager, QueueType.NeuralRoam);
+    this.queuePersistence = queuePersistence;
+    this.cardTypeResolver = options.cardTypeResolver ?? DEFAULT_CARD_TYPE_RESOLVER;
+    this.conceptQueue = new ConceptNeuralQueue();
+  }
 
-        this.queuePersistence = queuePersistence;
-        this.cardTypeResolver = options.cardTypeResolver ?? DEFAULT_CARD_TYPE_RESOLVER;
-        
-        // 创建概念神经队列实例
-        this.conceptQueue = new ConceptNeuralQueue();
+  async load(): Promise<void> {
+    const { value: rawState, fromStorage } = loadQueueState<unknown>({
+      persistence: this.queuePersistence,
+      key: this.STORAGE_KEY,
+      initialValue: null,
+      validate: () => true,
+      logger,
+      context: 'NeuralRoamQueue',
+    });
 
-        // 注意：不在构造函数中调用 load()，由外部调用
-        // this.loadPersistedSeeds();
-
-        logger.info('Initialized with ConceptNeuralQueue');
+    if (!rawState) {
+      logger.info('No saved data found, starting with empty seeds');
+      return;
     }
 
-    /**
-     * 从持久化服务加载状态
-     * 
-     * 加载种子块列表。
-     * 如果没有保存的数据，初始化为空列表。
-     * 
-     * @see 需求 4.2, 4.5
-     */
-    async load(): Promise<void> {
-        const { value: data, fromStorage } = loadQueueState<SeedBlockData | null>({
-            persistence: this.queuePersistence,
-            key: this.STORAGE_KEY,
-            initialValue: null,
-            validate: (candidate): candidate is SeedBlockData =>
-                Boolean(candidate) &&
-                typeof candidate === 'object' &&
-                Array.isArray((candidate as SeedBlockData).seeds),
-            logger,
-            context: 'NeuralRoamQueue',
-        });
+    if (isNeuralRoamPersistedState(rawState)) {
+      this.conceptQueue.restoreSeeds(rawState.seeds);
+      this.conceptQueue.restoreSessionState(rawState.session);
+      if (fromStorage) {
+        logger.info(`Loaded neural roam state (v2), seeds=${rawState.seeds.length}`);
+      }
+      return;
+    }
 
-        if (data?.seeds && Array.isArray(data.seeds)) {
-            this.conceptQueue.restoreSeeds(data.seeds);
-            if (fromStorage) {
-                logger.info(`Loaded ${data.seeds.length} persisted seeds`);
-            }
-            return;
+    if (isLegacySeedOnlyState(rawState)) {
+      this.conceptQueue.restoreSeeds(rawState.seeds);
+      logger.info(`Loaded legacy neural roam seeds, count=${rawState.seeds.length}`);
+      return;
+    }
+
+    logger.warn('Invalid neural roam persisted state, ignore and start fresh');
+  }
+
+  async save(): Promise<void> {
+    const data: NeuralRoamPersistedState = {
+      version: 2,
+      seeds: this.conceptQueue.getSeeds(),
+      session: this.conceptQueue.exportSessionState(),
+    };
+
+    await saveQueueState({
+      persistence: this.queuePersistence,
+      key: this.STORAGE_KEY,
+      value: data,
+      logger,
+      context: 'NeuralRoamQueue',
+    });
+  }
+
+  public isDynamic(): boolean {
+    return false;
+  }
+
+  public async getCards(): Promise<FSRSCard[]> {
+    await this.ensureInitialLoad();
+    const nodeIds = this.conceptQueue.getSessionVisibleNodeIds(80);
+    if (nodeIds.length === 0) {
+      return [];
+    }
+
+    const cards = await Promise.all(
+      nodeIds.map(async (nodeId) => {
+        const queueItem = await this.conceptQueue.getPathItemByNodeId(nodeId, { focusPath: false });
+        if (!queueItem) {
+          return null;
         }
+        return this.convertToFSRSCard(queueItem);
+      })
+    );
 
-        logger.info('No saved data found, starting with empty seeds');
-    }
-    
-    /**
-     * 保存状态到持久化服务
-     * 
-     * 保存种子块列表。
-     * 使用键名 "neuralRoamQueue"。
-     * 
-     * @see 需求 4.2, 4.5, 4.6
-     */
-    async save(): Promise<void> {
-        const data: SeedBlockData = {
-            seeds: this.conceptQueue.getSeeds(),
-            currentSeed: null
-        };
+    return cards.filter((card): card is FSRSCard => Boolean(card));
+  }
 
-        await saveQueueState({
-            persistence: this.queuePersistence,
-            key: this.STORAGE_KEY,
-            value: data,
-            logger,
-            context: 'NeuralRoamQueue',
-        });
-
-        logger.info(`Saved ${data.seeds.length} seeds`);
-    }
-    
-    /**
-     * 判断是否为动态队列
-     * 
-     * @returns false（静态队列，手动管理种子）
-     */
-    public isDynamic(): boolean {
-        return false;
+  public async addCard(card: FSRSCard | ReviewQueueItem | string, priority: 'normal' | 'high' = 'normal'): Promise<void> {
+    await this.ensureInitialLoad();
+    const blockId = typeof card === 'string' ? card : resolveCardId(card);
+    if (!blockId) {
+      throw new Error('Invalid card or block ID');
     }
 
-    /**
-     * 获取队列中的所有卡片
-     * 
-     * 神经漫游队列不支持预加载所有卡片，返回空数组
-     * 
-     * @returns 空数组
-     */
-    public async getCards(): Promise<FSRSCard[]> {
-        await this.ensureInitialLoad();
-        return [];
+    await this.conceptQueue.addSeed(blockId, priority);
+    await this.save();
+  }
+
+  public async removeCard(cardIdOrBlockId: string): Promise<void> {
+    await this.ensureInitialLoad();
+    this.conceptQueue.removeSeed(cardIdOrBlockId);
+    await this.save();
+  }
+
+  public async handleReview(cardId: string, rating: number): Promise<void> {
+    logger.debug(`Review handled by FSRS system: ${cardId}, rating: ${rating}`);
+  }
+
+  public async getNextCard(): Promise<FSRSCard | null> {
+    await this.ensureInitialLoad();
+    const queueItem = await this.conceptQueue.getNextCard();
+    if (!queueItem) {
+      return null;
+    }
+    void this.save().catch((error) => {
+      logger.warn('Failed to persist neural roam session after getNextCard:', error);
+    });
+    return this.convertToFSRSCard(queueItem);
+  }
+
+  public async lockCurrentAsSeed(cardId: string, priority: 'normal' | 'high' = 'normal'): Promise<void> {
+    await this.ensureInitialLoad();
+    await this.conceptQueue.addSeed(cardId, priority);
+    await this.save();
+  }
+
+  public clearHistory(): void {
+    this.conceptQueue.clearHistory();
+    void this.save().catch((error) => {
+      logger.warn('Failed to persist neural roam state after clearHistory:', error);
+    });
+  }
+
+  public getSeedBlocks(): string[] {
+    return this.conceptQueue.getSeeds();
+  }
+
+  public async startRoamingFromSeed(
+    seedId: string,
+    options: {
+      includeSeedAsFirst?: boolean;
+      resetHistory?: boolean;
+    } = {}
+  ): Promise<void> {
+    await this.ensureInitialLoad();
+    await this.conceptQueue.startRoamingFromSeed(seedId, options);
+    await this.save();
+  }
+
+  public getHistorySnapshot(): NeuralRoamHistoryEntry[] {
+    return this.conceptQueue.getHistorySnapshot();
+  }
+
+  public async getPathItemByNodeId(blockId: string): Promise<FSRSCard | null> {
+    await this.ensureInitialLoad();
+    const queueItem = await this.conceptQueue.getPathItemByNodeId(blockId);
+    if (!queueItem) {
+      return null;
+    }
+    void this.save().catch((error) => {
+      logger.warn('Failed to persist neural roam state after getPathItemByNodeId:', error);
+    });
+    return this.convertToFSRSCard(queueItem);
+  }
+
+  public getNavigationState(): NeuralNavigationState {
+    return this.conceptQueue.getNavigationState();
+  }
+
+  public setNavigationMode(mode: NeuralNavigationMode): void {
+    this.conceptQueue.setNavigationMode(mode);
+    void this.save().catch((error) => {
+      logger.warn('Failed to persist neural roam state after setNavigationMode:', error);
+    });
+  }
+
+  public returnToBookmark(): boolean {
+    const moved = this.conceptQueue.returnToBookmark();
+    if (moved) {
+      void this.save().catch((error) => {
+        logger.warn('Failed to persist neural roam state after returnToBookmark:', error);
+      });
+    }
+    return moved;
+  }
+
+  public getFilterStats(): { listBlocks: number; deletedBlocks: number; total: number } {
+    return {
+      listBlocks: 0,
+      deletedBlocks: 0,
+      total: 0,
+    };
+  }
+
+  public async reorder(_orderedCards: FSRSCard[] = []): Promise<boolean> {
+    logger.warn('Reorder not supported');
+    return false;
+  }
+
+  public async getSize(): Promise<number> {
+    await this.ensureInitialLoad();
+    return this.conceptQueue.getSeeds().length;
+  }
+
+  private async convertToFSRSCard(queueItem: ConceptQueueItem): Promise<FSRSCard> {
+    const now = Date.now();
+
+    let cardType: 'item' | 'topic' = 'topic';
+    try {
+      cardType = await this.cardTypeResolver.resolveCardType(queueItem.blockId);
+    } catch (error) {
+      logger.warn('Failed to resolve neural roam card type, fallback to topic:', error);
     }
 
-    /**
-     * 添加卡片到队列
-     * 
-     * 对于神经漫游队列，添加卡片意味着添加种子块
-     * 
-     * @param card 卡片、队列项或块 ID
-     * @param priority 优先级（'normal' | 'high'），默认 'normal'
-     */
-    public async addCard(card: FSRSCard | ReviewQueueItem | string, priority: 'normal' | 'high' = 'normal'): Promise<void> {
-        try {
-            await this.ensureInitialLoad();
-            const blockId = typeof card === 'string' ? card : resolveCardId(card);
-            
-            if (!blockId) {
-                logger.error('Invalid card or block ID');
-                return;
-            }
-
-            await this.conceptQueue.addSeed(blockId, priority);
-            await this.save();
-            
-            logger.info(`Added seed: ${blockId} (priority: ${priority})`);
-        } catch (error) {
-            logger.error('Failed to add seed:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * 从队列中移除卡片
-     * 
-     * 对于神经漫游队列，移除卡片意味着移除种子块
-     * 
-     * @param cardIdOrBlockId 卡片 ID 或块 ID
-     */
-    public async removeCard(cardIdOrBlockId: string): Promise<void> {
-        try {
-            await this.ensureInitialLoad();
-            this.conceptQueue.removeSeed(cardIdOrBlockId);
-            await this.save();
-            
-            logger.info(`Removed seed: ${cardIdOrBlockId}`);
-        } catch (error) {
-            logger.error('Failed to remove seed:', error);
-        }
-    }
-
-    /**
-     * 处理卡片评分
-     * 
-     * 神经漫游队列不处理评分，由 FSRS 系统处理
-     * 
-     * @param cardId 卡片 ID
-     * @param rating 评分
-     */
-    public async handleReview(cardId: string, rating: number): Promise<void> {
-        // 神经漫游队列不处理评分
-        logger.debug(`Review handled by FSRS system: ${cardId}, rating: ${rating}`);
-    }
-
-    /**
-     * 获取下一张卡片
-     * 
-     * 使用概念神经队列获取下一张卡片
-     * 
-     * @returns 下一张卡片，如果队列耗尽则返回 null
-     */
-    public async getNextCard(): Promise<FSRSCard | null> {
-        try {
-            await this.ensureInitialLoad();
-            logger.debug('getNextCard called');
-            logger.debug('Current seeds:', this.conceptQueue.getSeeds());
-            logger.debug('Queue size:', this.conceptQueue.size());
-            
-            const queueItem = await this.conceptQueue.getNextCard();
-            
-            if (!queueItem) {
-                logger.debug('Queue exhausted');
-                return null;
-            }
-
-            logger.debug('Got queue item:', queueItem.blockId);
-            
-            // 转换为 FSRSCard
-            const fsrsCard = await this.convertToFSRSCard(queueItem);
-            return fsrsCard;
-        } catch (error) {
-            logger.error('Failed to get next card:', error);
-            return null;
-        }
-    }
-
-    /**
-     * 锁定当前卡片为种子
-     * 
-     * @param cardId 卡片 ID
-     * @param priority 优先级（'normal' | 'high'），默认 'normal'
-     */
-    public async lockCurrentAsSeed(cardId: string, priority: 'normal' | 'high' = 'normal'): Promise<void> {
-        try {
-            await this.ensureInitialLoad();
-            await this.conceptQueue.addSeed(cardId, priority);
-            await this.save();
-            
-            logger.info(`Locked as seed: ${cardId} (priority: ${priority})`);
-        } catch (error) {
-            logger.error('Failed to lock seed:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * 清空历史记录
-     */
-    public clearHistory(): void {
-        this.conceptQueue.clearHistory();
-        logger.info('History cleared');
-    }
-
-    /**
-     * 获取种子块列表
-     * 
-     * @returns 种子块 ID 列表
-     */
-    public getSeedBlocks(): string[] {
-        return this.conceptQueue.getSeeds();
-    }
-
-    /**
-     * 获取队列统计信息
-     * 
-     * @returns 统计信息
-     */
-    public getFilterStats(): { listBlocks: number; deletedBlocks: number; total: number } {
-        return {
-            listBlocks: 0,
-            deletedBlocks: 0,
-            total: 0,
-        };
-    }
-
-    /**
-     * 重新排序卡片
-     * 
-     * 神经漫游队列不支持重新排序
-     * 
-     * @returns false
-     */
-    public async reorder(): Promise<boolean> {
-        logger.warn('Reorder not supported');
-        return false;
-    }
-
-    /**
-     * 获取队列大小（种子数量）
-     * 
-     * @returns 种子数量
-     */
-    public async getSize(): Promise<number> {
-        await this.ensureInitialLoad();
-        const seedCount = this.conceptQueue.getSeeds().length;
-        logger.debug(`getSize: returning ${seedCount} seeds`);
-        return seedCount;
-    }
-
-    /**
-     * 转换队列项为 FSRSCard
-     * 
-     * 根据块是否有答案来决定卡片类型：
-     * - 有 custom-card-id 属性：item 卡片（普通复习界面）
-     * - 没有 custom-card-id 属性：topic 卡片（虚拟卡，topic 界面）
-     * 
-     * @param queueItem 队列项
-     * @returns FSRSCard
-     */
-    private async convertToFSRSCard(queueItem: ConceptQueueItem): Promise<FSRSCard> {
-        const now = Date.now();
-
-        // 通过端口解析卡片类型，避免领域层直接依赖思源 API。
-        let cardType: 'item' | 'topic' = 'topic';
-        try {
-            cardType = await this.cardTypeResolver.resolveCardType(queueItem.blockId);
-            if (cardType === 'item') {
-                logger.debug(`Block ${queueItem.blockId} is an item card`);
-            } else {
-                logger.debug(`Block ${queueItem.blockId} is a topic card (virtual)`);
-            }
-        } catch (error) {
-            logger.error('Failed to check card type:', error);
-        }
-        
-        return {
-            id: queueItem.blockId,
-            blockId: queueItem.blockId,
-            due: now,
-            stability: 0,
-            difficulty: 0,
-            elapsedDays: 0,
-            scheduledDays: 0,
-            reps: 0,
-            lapses: 0,
-            state: 0,
-            lastReview: now,
-            priority: 50,
-            type: cardType, // 根据是否有答案设置类型
-            tags: [],
-            leechCount: 0,
-            isLeech: false,
-            skipped: false,
-            createdAt: now,
-            updatedAt: now,
-            // 神经上下文
-            neuralContext: {
-                associationType: queueItem.associationType,
-                reason: queueItem.reason,
-            },
-        } as FSRSCard;
-    }
+    return {
+      id: queueItem.blockId,
+      xiuyuanID: queueItem.blockId,
+      blockId: queueItem.blockId,
+      due: now,
+      stability: 0,
+      difficulty: 0,
+      elapsedDays: 0,
+      scheduledDays: 0,
+      reps: 0,
+      lapses: 0,
+      state: 0,
+      lastReview: now,
+      priority: 50,
+      type: cardType as FSRSCard['type'],
+      tags: [],
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: now,
+      updatedAt: now,
+      meta: {
+        neuralContext: {
+          associationType: queueItem.associationType,
+          reason: queueItem.reason,
+          blockType: queueItem.blockData.type,
+          isFlashcard: cardType === 'item',
+        },
+      },
+    };
+  }
 }

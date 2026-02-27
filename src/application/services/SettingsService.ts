@@ -258,6 +258,42 @@ export class SettingsService implements ISettingsService {
         );
       }
     }
+
+    const addToOutstandingEveryNth = settings.queues?.addToOutstandingEveryNth;
+    if (addToOutstandingEveryNth !== undefined) {
+      if (!Number.isFinite(addToOutstandingEveryNth) || addToOutstandingEveryNth < 1 || addToOutstandingEveryNth > 100) {
+        throw new SettingsValidationError(
+          'queues.addToOutstandingEveryNth must be between 1 and 100',
+          'queues.addToOutstandingEveryNth'
+        );
+      }
+    }
+
+    const autoSortEnabled = settings.queues?.autoSort?.enabled;
+    if (autoSortEnabled !== undefined && typeof autoSortEnabled !== 'boolean') {
+      throw new SettingsValidationError(
+        'queues.autoSort.enabled must be a boolean',
+        'queues.autoSort.enabled'
+      );
+    }
+
+    const autoPostponeEnabled = settings.queues?.autoPostpone?.enabled;
+    if (autoPostponeEnabled !== undefined && typeof autoPostponeEnabled !== 'boolean') {
+      throw new SettingsValidationError(
+        'queues.autoPostpone.enabled must be a boolean',
+        'queues.autoPostpone.enabled'
+      );
+    }
+
+    const autoPostponeSkipTopN = settings.queues?.autoPostpone?.skipTopNElements;
+    if (autoPostponeSkipTopN !== undefined) {
+      if (!Number.isFinite(autoPostponeSkipTopN) || autoPostponeSkipTopN < 0 || autoPostponeSkipTopN > 2000) {
+        throw new SettingsValidationError(
+          'queues.autoPostpone.skipTopNElements must be between 0 and 2000',
+          'queues.autoPostpone.skipTopNElements'
+        );
+      }
+    }
   }
 
   /**

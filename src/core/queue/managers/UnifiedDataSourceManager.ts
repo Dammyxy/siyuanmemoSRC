@@ -13,6 +13,9 @@ export interface QueueSchedulerPort {
 export interface QueueRuntimePort {
   getSchedulerRouter?(): QueueSchedulerPort;
   getDayStartHour?(): number;
+  getPriorityRandomness?(): number;
+  getAutoSortEnabled?(): boolean;
+  getAddToOutstandingEveryNth?(): number;
 }
 
 export interface QueueInitialLoadAware {
@@ -28,4 +31,7 @@ export interface UnifiedDataSourceManager {
   getQueue(type: QueueType): IReviewQueue;
   getSchedulerRouter?(): QueueSchedulerPort;
   getDayStartHour?(): number;
+  getPriorityRandomness?(): number;
+  getAutoSortEnabled?(): boolean;
+  getAddToOutstandingEveryNth?(): number;
 }

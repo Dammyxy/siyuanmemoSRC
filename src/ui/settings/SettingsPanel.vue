@@ -187,6 +187,80 @@
           </div>
         </div>
 
+        <div class="form-item">
+          <label>{{ t('autoPostponeEnabled', '自动延期（AutoPostpone）') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.autoPostponeEnabled">
+          </div>
+          <p class="form-hint">
+            {{ t('autoPostponeEnabledHint', '每天首次打开提取练习/渐进学习时，自动跳过前 N 张后对其余卡片做延期，减少当日负载。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('autoPostponeSkipTopN', '自动延期保护前 N 张') }}</label>
+          <div class="form-control">
+            <input
+              type="number"
+              min="0"
+              max="2000"
+              step="1"
+              v-model.number="settings.autoPostponeSkipTopN"
+              @change="handleAutoPostponeSkipTopNChange"
+            >
+            <span class="form-unit">{{ t('autoPostponeSkipTopNUnit', '张') }}</span>
+          </div>
+          <p class="form-hint">
+            {{ t('autoPostponeSkipTopNHint', '执行 autoPostpone 时保护队列前 N 张不延期，默认 20。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('autoSortEnabled', '自动排序（AutoSort）') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.autoSortEnabled">
+          </div>
+          <p class="form-hint">
+            {{ t('autoSortEnabledHint', '开启后 Outstanding 基础卡片按优先级+到期排序；关闭后保持数据源原顺序，仅执行间隔插入。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('addToOutstandingEveryNth', 'Outstanding 间隔插入') }}</label>
+          <div class="form-control">
+            <input
+              type="number"
+              min="1"
+              max="100"
+              step="1"
+              v-model.number="settings.addToOutstandingEveryNth"
+              @change="handleAddToOutstandingEveryNthChange"
+            >
+            <span class="form-unit">{{ t('everyNthUnit', '每 N 张插入 1 张') }}</span>
+          </div>
+          <p class="form-hint">
+            {{ t('addToOutstandingEveryNthHint', '手动加入 Outstanding 的卡片按该间隔稀疏插入队列，默认 2。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('priorityRandomness', '优先级随机因子') }}</label>
+          <div class="form-control">
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              v-model.number="settings.priorityRandomness"
+              @change="handlePriorityRandomnessChange"
+            >
+            <span class="form-value">{{ settings.priorityRandomness.toFixed(2) }}</span>
+          </div>
+          <p class="form-hint">
+            {{ t('priorityRandomnessHint', '0 为严格按优先级排序，越大越随机（仍保留优先级倾向）。') }}
+          </p>
+        </div>
+
         <!-- 当前参数展示 -->
         <div class="form-item">
           <label>{{ t('modelParams', '模型参数 (19)') }}</label>
@@ -248,6 +322,7 @@ const emit = defineEmits<{
 const props = defineProps<{
   fsrsSettings?: FSRSParameters;
   queueSettings?: QueueSettings;
+  priorityRandomness?: number;
   schedulerSettings?: SchedulerConfig;  // 🆕 新增
   riffIntegrationSettings?: Record<string, unknown>;  // 🆕 Riff 集成配置
   incrementalSettings?: { autoCardEnabled: boolean };
@@ -279,6 +354,7 @@ const activeTab = ref(props.defaultTab || 'params');
 
 const queueSettings = ref<QueueSettings>({
   defaultQueue: 'retrieval',
+  addToOutstandingEveryNth: 2,
   neuralWandering: {
     enabled: false,
     maxPool: 200,
@@ -300,6 +376,11 @@ interface Settings {
   enableShortTerm: boolean;
   params: number[];
   dayStartHour: number;  // 🆕 每日刷新时间
+  autoPostponeEnabled: boolean;
+  autoPostponeSkipTopN: number;
+  autoSortEnabled: boolean;
+  addToOutstandingEveryNth: number;
+  priorityRandomness: number;
   quickCard: QuickCardSettings;  // 🆕 快速制卡设置
 }
 
@@ -309,6 +390,11 @@ const settings = ref<Settings>({
   enableShortTerm: true,
   params: [...DEFAULT_PARAMS],
   dayStartHour: 4,  // 🆕 默认值：凌晨4点
+  autoPostponeEnabled: false,
+  autoPostponeSkipTopN: 20,
+  autoSortEnabled: true,
+  addToOutstandingEveryNth: 2,
+  priorityRandomness: 0.1,
   quickCard: {  // 🆕 默认值
     enabled: false,
     enabledSymbols: {
@@ -403,6 +489,37 @@ function normalizeConflictResolutionStrategy(value: unknown): ConflictResolution
   return 'merge';
 }
 
+function normalizeOutstandingEveryNth(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 2;
+  }
+  return Math.max(1, Math.min(100, Math.floor(numeric)));
+}
+
+function normalizePriorityRandomness(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0.1;
+  }
+  return Math.max(0, Math.min(1, numeric));
+}
+
+function normalizeBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  return fallback;
+}
+
+function normalizeAutoPostponeSkipTopN(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 20;
+  }
+  return Math.max(0, Math.min(2000, Math.floor(numeric)));
+}
+
 // 加载设置
 function loadSettings() {
   // 🔍 调试日志：检查接收到的 quickCardSettings
@@ -415,6 +532,11 @@ function loadSettings() {
       enableShortTerm: props.fsrsSettings.enableShortTerm,
       params: [...props.fsrsSettings.weights],
       dayStartHour: props.fsrsSettings.dayStartHour ?? 4,  // 🆕 加载 dayStartHour 配置
+      autoPostponeEnabled: false,
+      autoPostponeSkipTopN: 20,
+      autoSortEnabled: true,
+      addToOutstandingEveryNth: 2,
+      priorityRandomness: normalizePriorityRandomness(props.priorityRandomness),
       quickCard: {  // 🆕 初始化完整的 quickCard 字段
         enabled: props.quickCardSettings?.enabled ?? false,
         enabledSymbols: props.quickCardSettings?.enabledSymbols || {
@@ -473,7 +595,30 @@ function loadSettings() {
         ...(incoming.filterGroup || {}),
       },
     };
+
+    settings.value.addToOutstandingEveryNth = normalizeOutstandingEveryNth(
+      (incoming as QueueSettings & { outstandingEveryNth?: unknown; outstandingSpacing?: unknown })
+        .addToOutstandingEveryNth
+      ?? (incoming as { outstandingEveryNth?: unknown }).outstandingEveryNth
+      ?? (incoming as { outstandingSpacing?: unknown }).outstandingSpacing
+      ?? settings.value.addToOutstandingEveryNth
+    );
+    settings.value.autoSortEnabled = normalizeBoolean(
+      (incoming as { autoSort?: { enabled?: unknown } }).autoSort?.enabled,
+      true
+    );
+    settings.value.autoPostponeEnabled = normalizeBoolean(
+      (incoming as { autoPostpone?: { enabled?: unknown } }).autoPostpone?.enabled,
+      false
+    );
+    settings.value.autoPostponeSkipTopN = normalizeAutoPostponeSkipTopN(
+      (incoming as { autoPostpone?: { skipTopNElements?: unknown } }).autoPostpone?.skipTopNElements
+    );
   }
+
+  settings.value.priorityRandomness = normalizePriorityRandomness(
+    props.priorityRandomness ?? settings.value.priorityRandomness
+  );
 
   // 🆕 加载调度器配置
   if (props.schedulerSettings) {
@@ -538,8 +683,27 @@ function loadSettings() {
 
 // 保存设置
 function saveSettings() {
+  const queueInput = queueSettings.value as QueueSettings & {
+    outstandingEveryNth?: number;
+    outstandingSpacing?: number;
+  };
+  const {
+    outstandingEveryNth: _legacyOutstandingEveryNth,
+    outstandingSpacing: _legacyOutstandingSpacing,
+    ...queueBase
+  } = queueInput;
   const queues: QueueSettings = {
-    ...queueSettings.value,
+    ...queueBase,
+    addToOutstandingEveryNth: normalizeOutstandingEveryNth(settings.value.addToOutstandingEveryNth),
+    autoSort: {
+      ...(queueBase.autoSort || {}),
+      enabled: settings.value.autoSortEnabled,
+    },
+    autoPostpone: {
+      ...(queueBase.autoPostpone || {}),
+      enabled: settings.value.autoPostponeEnabled,
+      skipTopNElements: normalizeAutoPostponeSkipTopN(settings.value.autoPostponeSkipTopN),
+    },
   };
 
   // 🆕 从复选框状态构建 triggers 数组
@@ -548,9 +712,18 @@ function saveSettings() {
   if (triggers.value.browserOpen) triggersArray.push('browser-open');
   if (triggers.value.reviewOpen) triggersArray.push('review-open');
 
+  const {
+    addToOutstandingEveryNth: _spacingFromForm,
+    autoSortEnabled: _autoSortEnabled,
+    autoPostponeEnabled: _autoPostponeEnabled,
+    autoPostponeSkipTopN: _autoPostponeSkipTopN,
+    ...settingsBase
+  } = settings.value;
+
   const settingsToSave = {
-    ...settings.value,
+    ...settingsBase,
     queues,
+    priorityRandomness: normalizePriorityRandomness(settings.value.priorityRandomness),
     // quickCard 已经在 settings.value 中,不需要单独处理
     // 🆕 保存调度器配置
     scheduler: {
@@ -586,6 +759,11 @@ function resetSettings() {
     enableShortTerm: true,
     params: [...DEFAULT_PARAMS],
     dayStartHour: 4,  // 🆕 重置为默认值4
+    autoPostponeEnabled: false,
+    autoPostponeSkipTopN: 20,
+    autoSortEnabled: true,
+    addToOutstandingEveryNth: 2,
+    priorityRandomness: 0.1,
     quickCard: {  // 🆕 重置快速制卡设置
       enabled: false,
       enabledSymbols: {
@@ -623,6 +801,24 @@ function handleDayStartHourChange() {
   }
   
   logger.debug('dayStartHour changed', { dayStartHour: settings.value.dayStartHour });
+}
+
+function handleAddToOutstandingEveryNthChange() {
+  settings.value.addToOutstandingEveryNth = normalizeOutstandingEveryNth(
+    settings.value.addToOutstandingEveryNth
+  );
+}
+
+function handleAutoPostponeSkipTopNChange() {
+  settings.value.autoPostponeSkipTopN = normalizeAutoPostponeSkipTopN(
+    settings.value.autoPostponeSkipTopN
+  );
+}
+
+function handlePriorityRandomnessChange() {
+  settings.value.priorityRandomness = normalizePriorityRandomness(
+    settings.value.priorityRandomness
+  );
 }
 
 // 🆕 快速设置 dayStartHour

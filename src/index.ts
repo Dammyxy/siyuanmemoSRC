@@ -81,6 +81,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     try {
       this.context = await ApplicationContext.create({ plugin: this, i18n: this.i18n || {} });
       await this.performConfigMigrations();
+      this.context.getTabManager().registerAll();
       this.isInitialized = true;
       
       // ✅ 只有在初始化成功后才注册事件处理器

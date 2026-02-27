@@ -56,6 +56,7 @@ import { QueuePersistenceService } from '@/infrastructure/services/QueuePersiste
 import { SettingsService } from '@/application/services/SettingsService';
 import { ReviewLogService } from '@/application/services/ReviewLogService';
 import { RiffBlacklistService } from '@/application/services/RiffBlacklistService';
+import { ReviewQueuePreparationService } from '@/application/services/ReviewQueuePreparationService';
 import { CardContentQueryService } from '@/application/queries/CardContentQueryService';
 import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter';
 import { createLogger } from '@/utils/logger';
@@ -77,6 +78,7 @@ interface ApplicationServiceRegistry {
   fileService: FileService;
   queuePersistenceService: QueuePersistenceService;
   settingsService: SettingsService;
+  reviewQueuePreparationService: ReviewQueuePreparationService;
   reviewLogService: ReviewLogService;
   riffBlacklistService: RiffBlacklistService;
   cardContentQueryService: CardContentQueryService;
@@ -296,6 +298,15 @@ export class ApplicationContext {
       return service;
     });
     
+    this.registerServiceFactory('reviewQueuePreparationService', (context) => {
+      return new ReviewQueuePreparationService(
+        context.getUnifiedDataSourceManager(),
+        context.getRescheduleService(),
+        context.getQueuePersistenceService(),
+        context.getSettingsService()
+      );
+    });
+
     this.registerServiceFactory('reviewLogService', (context) => {
       const fileService = context.getFileService();
       return new ReviewLogService(fileService);
@@ -1413,6 +1424,10 @@ export class ApplicationContext {
    * 
    * @returns ReviewLogService - 复习日志服务实例
    */
+  getReviewQueuePreparationService(): ReviewQueuePreparationService {
+    return this.getService('reviewQueuePreparationService');
+  }
+  
   getReviewLogService(): ReviewLogService {
     return this.getService('reviewLogService');
   }

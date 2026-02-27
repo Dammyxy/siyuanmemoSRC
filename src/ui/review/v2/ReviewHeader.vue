@@ -105,30 +105,26 @@ const filteredToolbar = computed(() => {
 
   // 🌌 如果需要显示侧边栏切换按钮（已删除）
 
-  // 🆕 神经漫游导航按钮（Phase 3: UI 控件）
+  // 神经漫游导航按钮（基于会话导航状态）
   const navState = props.navigationState;
   if (navState) {
     const navButtons: typeof toolbar = [];
 
-    // 1. 模式切换按钮（仅在 follow 模式时显示）
-    if (navState.navigationMode === 'follow') {
-      navButtons.push({
-        type: 'nav-toggle-mode',
-        icon: '#iconMove',  // 沿路径图标
-        ariaLabel: `当前: 沿路径前进 (${navState.currentPathIndex + 1}/${navState.pathLength}) | 点击切换为探索新分支`,
-        disabled: false,
-      });
-    }
+    navButtons.push({
+      type: 'neural-nav-mode',
+      icon: '#iconMove',
+      ariaLabel: navState.navigationMode === 'follow'
+        ? `当前: 沿路径前进 (${navState.currentPathIndex + 1}/${navState.pathLength})`
+        : '当前: 探索新分支',
+      disabled: false,
+    });
 
-    // 2. 返回书签按钮（仅在有书签时显示）
-    if (navState.hasBookmark) {
-      navButtons.push({
-        type: 'nav-return-bookmark',
-        icon: '#iconBookmark',
-        ariaLabel: '返回最新位置',
-        disabled: false,
-      });
-    }
+    navButtons.push({
+      type: 'neural-return-bookmark',
+      icon: '#iconBookmark',
+      ariaLabel: '返回书签',
+      disabled: !navState.hasBookmark,
+    });
 
     // 插入到工具栏开头
     if (navButtons.length > 0) {

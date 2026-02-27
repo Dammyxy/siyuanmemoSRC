@@ -21,7 +21,12 @@ import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapt
 import { createUnifiedReviewDialog } from '@/application/factories/createUnifiedReviewDialog';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
-import { QueueType, type CardFilter, type IReviewQueue } from '@/types/unified-data-source';
+import {
+  QueueType,
+  isNeuralRoamSessionQueue,
+  type CardFilter,
+  type IReviewQueue,
+} from '@/types/unified-data-source';
 import { ReviewView } from '@/ui/review/v2';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
 import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
@@ -42,6 +47,7 @@ type SettingsPanelSavePayload = {
   enableShortTerm?: boolean;
   params?: number[];
   dayStartHour?: number;
+  priorityRandomness?: number;
   queues?: PluginSettings['queues'];
   scheduler?: PluginSettings['scheduler'];
   riffIntegration?: RiffIntegrationConfig;
@@ -61,20 +67,12 @@ interface FilterGroupQueueLike extends IReviewQueue {
   clearTemporaryBlacklist?: () => void | Promise<void>;
 }
 
-interface NeuralQueueLike extends IReviewQueue {
-  clearHistory?: () => void;
-}
-
 function hasFilterSetter(queue: IReviewQueue | null): queue is FilterGroupQueueLike {
   return Boolean(queue && typeof (queue as FilterGroupQueueLike).setFilter === 'function');
 }
 
 function hasTemporaryBlacklistCleaner(queue: IReviewQueue | null): queue is FilterGroupQueueLike {
   return Boolean(queue && typeof (queue as FilterGroupQueueLike).clearTemporaryBlacklist === 'function');
-}
-
-function hasNeuralHistoryCleaner(queue: IReviewQueue | null): queue is NeuralQueueLike {
-  return Boolean(queue && typeof (queue as NeuralQueueLike).clearHistory === 'function');
 }
 
 interface BlockSqlRow {
@@ -179,6 +177,7 @@ export class DialogManager implements IDialogManager {
       props: {
         fsrsSettings: currentSettings.fsrs,
         queueSettings: currentSettings.queues,
+        priorityRandomness: currentSettings.priorityRandomness,
         schedulerSettings: currentSettings.scheduler,
         riffIntegrationSettings: currentSettings.riffIntegration,
         incrementalSettings: currentSettings.incremental,
@@ -212,6 +211,7 @@ export class DialogManager implements IDialogManager {
               dayStartHour: settings.dayStartHour ?? 4,
             },
             queues: settings.queues || currentSettings.queues,
+            priorityRandomness: settings.priorityRandomness ?? currentSettings.priorityRandomness,
             scheduler: settings.scheduler || currentSettings.scheduler,
             riffIntegration: settings.riffIntegration || currentSettings.riffIntegration,
             incremental: settings.incremental || currentSettings.incremental,
@@ -383,6 +383,26 @@ export class DialogManager implements IDialogManager {
     }
     return true;
   }
+
+  private async prepareQueueBeforeReview(queueType: QueueType): Promise<void> {
+    if (queueType !== QueueType.RetrievalPractice && queueType !== QueueType.IncrementalLearning) {
+      return;
+    }
+
+    const preparationService = this.context.getReviewQueuePreparationService?.();
+    if (!preparationService || typeof preparationService.prepareBeforeReview !== 'function') {
+      return;
+    }
+
+    try {
+      await preparationService.prepareBeforeReview(queueType);
+    } catch (error) {
+      logger.warn('[DialogManager] Review queue preparation failed, continue opening dialog:', {
+        queueType,
+        error,
+      });
+    }
+  }
   
   /**
    * 打开提取练习对话框
@@ -390,6 +410,7 @@ export class DialogManager implements IDialogManager {
   async openReviewDialog(): Promise<void> {
     if (!(await this.checkInitialized())) return;
     this.destroyCurrentReviewDialog();
+    await this.prepareQueueBeforeReview(QueueType.RetrievalPractice);
 
     try {
       this.currentReviewDialog = createUnifiedReviewDialog({
@@ -415,6 +436,7 @@ export class DialogManager implements IDialogManager {
   async openIncrementalLearningDialog(): Promise<void> {
     if (!(await this.checkInitialized())) return;
     this.destroyCurrentReviewDialog();
+    await this.prepareQueueBeforeReview(QueueType.IncrementalLearning);
 
     try {
       this.currentReviewDialog = createUnifiedReviewDialog({
@@ -501,11 +523,21 @@ export class DialogManager implements IDialogManager {
     this.destroyCurrentReviewDialog();
 
     try {
-      // 清理神经漫游队列的历史记录
       const neuralQueue = this.context.getUnifiedDataSourceManager().getQueue(QueueType.NeuralRoam);
-      if (hasNeuralHistoryCleaner(neuralQueue)) {
-        neuralQueue.clearHistory();
-        logger.info('[DialogManager] ✅ Neural roam history cleared');
+
+      if (isNeuralRoamSessionQueue(neuralQueue)) {
+        const seedBlockId = options?.seedBlockId;
+        const includeSeedAsFirst = options?.includeSeedAsFirst ?? true;
+        const resetHistory = options?.resetHistory === true;
+
+        if (seedBlockId) {
+          await neuralQueue.startRoamingFromSeed(seedBlockId, {
+            includeSeedAsFirst,
+            resetHistory,
+          });
+        } else if (resetHistory) {
+          neuralQueue.clearHistory();
+        }
       }
 
       this.currentReviewDialog = createUnifiedReviewDialog({

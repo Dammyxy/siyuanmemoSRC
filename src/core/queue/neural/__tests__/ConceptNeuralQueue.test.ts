@@ -147,4 +147,84 @@ describe('ConceptNeuralQueue', () => {
       expect(queue.size()).toBe(1);
     });
   });
+
+  describe('session capabilities', () => {
+    it('should start roaming from a seed and expose history/navigation state', async () => {
+      mockQueryEngine.isConceptCard = vi.fn().mockResolvedValue(true);
+      mockQueryEngine.fetchBlockData = vi.fn().mockResolvedValue({
+        id: 'seed-1',
+        content: 'Seed content',
+        type: 'p',
+      });
+
+      await queue.startRoamingFromSeed('seed-1', {
+        includeSeedAsFirst: true,
+        resetHistory: true,
+      });
+
+      const history = queue.getHistorySnapshot();
+      const navigation = queue.getNavigationState();
+
+      expect(history).toHaveLength(1);
+      expect(history[0].nodeId).toBe('seed-1');
+      expect(history[0].associationType).toBe('seed');
+      expect(navigation.currentNodeId).toBe('seed-1');
+      expect(navigation.pathLength).toBe(1);
+    });
+
+    it('should support bookmark return after jumping to another path node', async () => {
+      mockQueryEngine.fetchBlockData = vi.fn(async (id: string) => ({
+        id,
+        content: `${id}-content`,
+        type: 'p',
+      }));
+
+      queue.restoreSessionState({
+        displayPath: ['seed-1', 'node-2'],
+        currentPathIndex: 1,
+        navigationMode: 'explore',
+        bookmarkPathIndex: null,
+        history: [
+          { nodeId: 'seed-1', seedId: 'seed-1', associationType: 'seed', reason: '种子节点', visitedAt: Date.now() - 2 },
+          { nodeId: 'node-2', seedId: 'seed-1', associationType: 'backlink', reason: '反向链接', visitedAt: Date.now() - 1 },
+        ],
+      });
+
+      await queue.getPathItemByNodeId('seed-1');
+      const jumpedState = queue.getNavigationState();
+      expect(jumpedState.currentNodeId).toBe('seed-1');
+      expect(jumpedState.navigationMode).toBe('follow');
+      expect(jumpedState.hasBookmark).toBe(true);
+
+      expect(queue.returnToBookmark()).toBe(true);
+      const restoredState = queue.getNavigationState();
+      expect(restoredState.currentNodeId).toBe('node-2');
+      expect(restoredState.hasBookmark).toBe(false);
+    });
+
+    it('should export and restore session state', () => {
+      const now = Date.now();
+      queue.restoreSessionState({
+        displayPath: ['a', 'b', 'c'],
+        currentPathIndex: 2,
+        navigationMode: 'follow',
+        bookmarkPathIndex: 1,
+        currentSeed: 'a',
+        visitedBlocks: ['a', 'b', 'c'],
+        exhaustedSeeds: ['z'],
+        history: [
+          { nodeId: 'a', seedId: 'a', associationType: 'seed', reason: '种子节点', visitedAt: now - 2 },
+          { nodeId: 'b', seedId: 'a', associationType: 'descriptor', reason: '描述符卡', visitedAt: now - 1 },
+        ],
+      });
+
+      const snapshot = queue.exportSessionState();
+      expect(snapshot.displayPath).toEqual(['a', 'b', 'c']);
+      expect(snapshot.currentPathIndex).toBe(2);
+      expect(snapshot.navigationMode).toBe('follow');
+      expect(snapshot.bookmarkPathIndex).toBe(1);
+      expect(snapshot.history).toHaveLength(2);
+      expect(snapshot.visitedBlocks).toEqual(expect.arrayContaining(['a', 'b', 'c']));
+    });
+  });
 });

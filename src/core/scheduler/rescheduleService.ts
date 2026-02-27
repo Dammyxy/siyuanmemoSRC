@@ -182,16 +182,21 @@ export class RescheduleService {
 
   async autoPostpone(
     config: PostponeConfig,
-    onProgress?: ProgressCallback
+    onProgress?: ProgressCallback,
+    options?: {
+      cards?: FSRSCard[];
+    }
   ): Promise<PostponeResult> {
     return this.executeValidatedOperation({
       operationName: 'autoPostpone',
       config,
       validator: ConfigValidator.validatePostponeConfig,
       execute: async () => {
-        const allCards = await this.getAllCardsSafe();
+        const sourceCards = Array.isArray(options?.cards)
+          ? options.cards
+          : await this.getAllCardsSafe();
         const now = Date.now();
-        const outstandingCards = allCards.filter(card => card.due < now);
+        const outstandingCards = sourceCards.filter(card => card.due < now);
         const sortedCards = outstandingCards.sort(
           (a, b) => (a.priority ?? 50) - (b.priority ?? 50)
         );

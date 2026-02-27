@@ -33,6 +33,7 @@ export interface ReviewUIState {
     // 🆕 神经漫游导航状态（Phase 3: UI 控件）
     navigationState?: {
       currentPathIndex: number;
+      currentNodeId?: string | null;
       navigationMode: 'explore' | 'follow';
       hasBookmark: boolean;
       pathLength: number;

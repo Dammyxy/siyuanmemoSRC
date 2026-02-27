@@ -22,7 +22,8 @@ import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import type { AutoFailedCardSinkPort, QueuePersistencePort } from './ports';
 import { NOOP_AUTO_FAILED_CARD_SINK, NOOP_QUEUE_PERSISTENCE } from './ports';
-import { getCurrentDayEnd } from '../../../utils/dateUtils';
+import { resolveCardId } from '../../../diagnostics/type-guards';
+import { getCurrentDayEnd, getTodayRange } from '../../../utils/dateUtils';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('RetrievalPracticeQueue');
@@ -115,17 +116,23 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
             const now = Date.now();
             
             logger.debug(`Using dayStartHour=${dayStartHour}, dayEnd=${new Date(dayEnd).toISOString()}, now=${new Date(now).toISOString()}`);
+            await this.ensureInitialLoad();
 
-            return this.buildDynamicCardsFromFilter({
-                logger,
-                baseFilter: {
-                    cardType: ['item', 'descriptor'],
-                    dueDate: { lte: new Date(dayEnd) }
-                },
-                cardPoolFilter: { cardType: ['item', 'descriptor'] },
+            const baseCards = await this.manager.getCards({
+                cardType: ['item', 'descriptor'],
+                dueDate: { lte: new Date(dayEnd) }
+            });
+            const cardPool = await this.manager.getCards({ cardType: ['item', 'descriptor'] });
+            const manualCards = await this.resolveManuallyAddedCards(logger, {
                 persist: async () => this.save(),
+                cardPool,
+            });
+
+            return this.buildOutstandingQueueCards(baseCards, manualCards, {
+                logger,
                 baseCardsLabel: 'due cards from manager',
                 warnInvalidBlockId: true,
+                everyNthElement: this.getAddToOutstandingEveryNth(2),
             });
         } catch (error) {
             logger.error('Failed to get cards:', error);
@@ -146,7 +153,15 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
      * @see .kiro/specs/retrieval-practice-browser-display-fix/requirements.md
      */
     public async addCard(card: FSRSCard | QueueItem | string): Promise<void> {
-        await this.addCardToCollection(card, { logger });
+        const { cardId, existingCard } = await this.resolveTargetCardForAdd(card);
+
+        if (existingCard && this.hasReviewedToday(existingCard)) {
+            logger.info(`[Add to outstanding] Skip card ${cardId}: already reviewed today`);
+            return;
+        }
+
+        await this.addCardToCollection(cardId, { logger });
+        await this.boostPrioritySlightly(existingCard);
     }
     
     /**
@@ -217,6 +232,52 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
         
         // 普通卡片：使用基类逻辑
         return super.shouldRemoveFromQueue(card);
+    }
+
+    private async resolveTargetCardForAdd(
+        card: FSRSCard | QueueItem | string
+    ): Promise<{ cardId: string; existingCard: FSRSCard | null }> {
+        const candidateId = resolveCardId(card);
+        const byCardId = await this.manager.getCard(candidateId, { silent: true }).catch(() => null);
+        if (byCardId) {
+            return { cardId: byCardId.id, existingCard: byCardId };
+        }
+
+        const byBlockId = await this.manager.getCards({ blockIds: [candidateId] }).catch(() => []);
+        const existingCard = byBlockId[0] ?? null;
+        if (existingCard) {
+            return { cardId: existingCard.id, existingCard };
+        }
+
+        return { cardId: candidateId, existingCard: null };
+    }
+
+    private hasReviewedToday(card: FSRSCard): boolean {
+        const dayStartHour = this.getDayStartHour();
+        const today = getTodayRange(dayStartHour);
+        const lastReview = Number(card.lastReview ?? 0);
+        return Number.isFinite(lastReview) && lastReview >= today.start && lastReview < today.end;
+    }
+
+    private async boostPrioritySlightly(card: FSRSCard | null): Promise<void> {
+        if (!card) {
+            return;
+        }
+
+        const currentPriority = Number.isFinite(card.priority) ? Number(card.priority) : 50;
+        const boostedPriority = Math.max(0, Math.floor(currentPriority) - 1);
+        if (boostedPriority === currentPriority) {
+            return;
+        }
+
+        try {
+            await this.manager.updateCard({
+                ...card,
+                priority: boostedPriority,
+            });
+        } catch (error) {
+            logger.warn(`[Add to outstanding] Failed to slightly boost priority for card ${card.id}:`, error);
+        }
     }
 
 }

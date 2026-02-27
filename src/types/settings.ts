@@ -131,6 +131,42 @@ export interface FilterGroupDefinition {
 
 export interface QueueSettings {
     defaultQueue: 'retrieval' | 'final-drill' | 'neural-roam' | 'filter-group';
+    /**
+     * Add-to-outstanding 稀疏插入间隔（每 N 张插入 1 张手动加入卡）
+     * @default 2
+     */
+    addToOutstandingEveryNth?: number;
+    /**
+     * @deprecated 旧键名，仅用于读取兼容，不再写入
+     */
+    outstandingEveryNth?: number;
+    /**
+     * @deprecated 旧键名，仅用于读取兼容，不再写入
+     */
+    outstandingSpacing?: number;
+    /**
+     * @deprecated 旧位置的 dayStartHour，仅用于读取兼容，实际应使用 fsrs.dayStartHour
+     */
+    dayStartHour?: number;
+    /**
+     * 自动排序开关（Outstanding 按优先级排序）
+     * @default { enabled: true }
+     */
+    autoSort?: {
+        enabled?: boolean;
+    };
+    /**
+     * 自动延期开关与参数（复习会话开始前执行）
+     */
+    autoPostpone?: {
+        enabled?: boolean;
+        skipTopNElements?: number;
+        delayFactor?: number;
+        minInterval?: number;
+        maxInterval?: number;
+        modifyDelayByRetrievability?: boolean;
+        modifyDelayByPriority?: boolean;
+    };
     neuralWandering: {
         enabled: boolean;
         maxPool: number;
@@ -333,6 +369,19 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     },
     queues: {
         defaultQueue: 'retrieval',
+        addToOutstandingEveryNth: 2,
+        autoSort: {
+            enabled: true,
+        },
+        autoPostpone: {
+            enabled: false,
+            skipTopNElements: 20,
+            delayFactor: 1.1,
+            minInterval: 1,
+            maxInterval: 365,
+            modifyDelayByRetrievability: false,
+            modifyDelayByPriority: false,
+        },
         neuralWandering: {
             enabled: false,
             maxPool: 200,

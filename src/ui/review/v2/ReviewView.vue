@@ -57,7 +57,7 @@
 
 <script setup lang="ts">
 import { Menu, openTab, showMessage, type App } from 'siyuan';
-import { onMounted, onUnmounted, ref, computed, watch } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
 import ReviewHeader from './ReviewHeader.vue';
@@ -67,7 +67,11 @@ import { ProviderBackedQueueStrategy, type QueueProvider } from '@/core/extensio
 import { createVueDialog } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
-import type { NeuralRoamQueue } from '@/queues/NeuralRoamQueue';
+import {
+  isNeuralRoamSessionQueue,
+  type NeuralRoamHistoryEntry,
+  type NeuralRoamSessionQueue,
+} from '@/types/unified-data-source';
 
 const logger = createLogger('ReviewView');
 
@@ -112,6 +116,18 @@ type ReviewPluginContextLike = {
           adapter?: unknown;
           title: string;
         }) => void;
+        openReviewTabInNewTab?: (options: {
+          provider?: unknown;
+          queue?: unknown;
+          adapter?: unknown;
+          title: string;
+        }) => void;
+        openReviewInNewWindow?: (options: {
+          provider?: unknown;
+          queue?: unknown;
+          adapter?: unknown;
+          title: string;
+        }) => void;
       }
     | undefined;
   getHybridSyncService?: () => { incrementalSync: () => Promise<void> } | undefined;
@@ -147,25 +163,8 @@ type ReviewPluginLike = {
 
 type UnderlyingQueueLike = {
   name?: string;
-  neuralQueue?: {
-    getNavigationState?: () => {
-      currentPathIndex: number;
-      navigationMode: 'explore' | 'follow';
-      hasBookmark: boolean;
-      pathLength: number;
-      displayPath?: string[];
-    };
-    setNavigationMode?: (mode: 'explore' | 'follow') => void;
-    returnToBookmark?: () => boolean;
-    displayPath?: string[];
-  };
-  getCurrentCandidatesForSeed?: () => unknown[];
-  getSeedBlocks?: () => string[];
-  startRoamingFromSeed?: (seedId: string) => Promise<void>;
   removeCard?: (seedId: string) => Promise<void>;
-  getHistorySnapshot?: () => string[];
-  clearHistory?: () => void;
-};
+} & Partial<NeuralRoamSessionQueue>;
 
 type QueueStrategyWithUnderlying = {
   getUnderlyingQueue?: () => unknown;
@@ -321,19 +320,13 @@ function getUnderlyingQueue(): UnderlyingQueueLike | null {
   return getUnderlyingQueueFromStrategy(hook.getQueueStrategy());
 }
 
-// 判断是否为神经漫游模式
-const isNeuralRoamMode = computed(() => {
-  // 检查底层队列是否为神经漫游
+function getNeuralRoamQueue(): NeuralRoamSessionQueue | null {
   const underlyingQueue = getUnderlyingQueue();
-  return underlyingQueue?.name === 'NeuralRoamQueue';
-});
-
-// 获取神经漫游队列实例
-const neuralQueueInstance = computed<NeuralRoamQueue | null>(() => {
-  if (!isNeuralRoamMode.value) return null;
-  const underlyingQueue = getUnderlyingQueue();
-  return underlyingQueue as NeuralRoamQueue;
-});
+  if (!isNeuralRoamSessionQueue(underlyingQueue)) {
+    return null;
+  }
+  return underlyingQueue;
+}
 
 // 组件挂载
 onMounted(() => {
@@ -736,28 +729,25 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
     // 打开为菜单
     handleOpenAsMenu(ev);
   } else if (actionType === 'lock-seed') {
-    // Lock current block as seed (Neural Roam) - uses SeedService
     logger.debug('[SiYuanMemo][ReviewView] Lock seed button clicked');
     const cardMeta = state.value.actions.cardMeta;
     const blockId = cardMeta?.blockID || state.value.content.data;
 
     if (blockId) {
-      const underlyingQueue = getUnderlyingQueue();
+      const underlyingQueue = getUnderlyingQueue() as
+        | (UnderlyingQueueLike & { addCard?: (card: string, source?: unknown) => Promise<void> })
+        | null;
 
-      if (underlyingQueue) {
-        import('@/core/neural/SeedService').then(({ SeedService }) => {
-          const seedService = new SeedService(underlyingQueue);
-
-          seedService.lockAsSeed(blockId)
-            .then(() => {
-              logger.debug('[SiYuanMemo][ReviewView] Block locked as seed:', blockId);
-              showMessage(t('lockedAsSeed', 'Locked as seed'), 3000, 'info');
-            })
-            .catch((error: Error) => {
-              logger.error('[SiYuanMemo][ReviewView] Failed to lock seed:', error);
-              showMessage(t('lockSeedFailed', 'Failed to lock seed'), 3000, 'error');
-            });
-        });
+      if (underlyingQueue && typeof underlyingQueue.addCard === 'function') {
+        void underlyingQueue.addCard(blockId)
+          .then(() => {
+            logger.debug('[SiYuanMemo][ReviewView] Block locked as seed:', blockId);
+            showMessage(t('lockedAsSeed', 'Locked as seed'), 3000, 'info');
+          })
+          .catch((error: Error) => {
+            logger.error('[SiYuanMemo][ReviewView] Failed to lock seed:', error);
+            showMessage(t('lockSeedFailed', 'Failed to lock seed'), 3000, 'error');
+          });
       } else {
         logger.error('[SiYuanMemo][ReviewView] Queue does not support seed locking');
         showMessage(t('queueNoSeedSupport', 'Queue does not support seed locking'), 3000, 'error');
@@ -765,61 +755,48 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
     } else {
       logger.error('[SiYuanMemo][ReviewView] ERROR: blockId is undefined!');
     }
-  } else if (actionType === 'neural-menu') {
-    // 🧠 神经漫游菜单
-    logger.debug('[SiYuanMemo][ReviewView] Neural menu button clicked');
-    // 阻止事件冒泡，防止菜单打开后又立即关闭菜单
+  } else if (actionType === 'neural-seeds') {
     ev.stopPropagation();
     ev.preventDefault();
-    handleNeuralMenu(ev);
-  } else if (actionType === 'nav-toggle-mode') {
-    // 🆕 导航模式切换（Phase 3: UI 控件）
+    handleNeuralSeedMenu(ev);
+  } else if (actionType === 'neural-history') {
+    ev.stopPropagation();
+    ev.preventDefault();
+    handleNeuralHistoryMenu(ev);
+  } else if (actionType === 'neural-nav-mode') {
     logger.debug('[SiYuanMemo][ReviewView] Navigation mode toggle button clicked');
-    const underlyingQueue = getUnderlyingQueue();
-
-    if (underlyingQueue?.name === 'NeuralRoamQueue') {
-      const neuralQueue = underlyingQueue.neuralQueue;
-      // 添加空值检查
-      if (neuralQueue && typeof neuralQueue.getNavigationState === 'function') {
-        const currentMode = neuralQueue.getNavigationState().navigationMode;
-
-        // 切换模式：follow <-> explore
-        const newMode = currentMode === 'follow' ? 'explore' : 'follow';
-        neuralQueue.setNavigationMode(newMode);
-
-        // 刷新 UI
-        refreshNavigationState();
-
-        // 显示提示
-        const modeText = newMode === 'follow' ? t('navModeFollow', '🛤️ 沿路径前进') : t('navModeExplore', '🧭 探索新分支');
-        showMessage(t('navModeSwitched', '已切换为: {mode}').replace('{mode}', modeText), 2000, 'info');
-      }
+    const neuralQueue = getNeuralRoamQueue();
+    if (!neuralQueue) {
+      return;
     }
-  } else if (actionType === 'nav-return-bookmark') {
-    // 🆕 返回书签（Phase 3: UI 控件）
+
+    const currentMode = neuralQueue.getNavigationState().navigationMode;
+    const newMode = currentMode === 'follow' ? 'explore' : 'follow';
+    neuralQueue.setNavigationMode(newMode);
+    refreshNavigationState();
+
+    const modeText = newMode === 'follow'
+      ? t('navModeFollow', '沿路径前进')
+      : t('navModeExplore', '探索新分支');
+    showMessage(t('navModeSwitched', '已切换为: {mode}').replace('{mode}', modeText), 2000, 'info');
+  } else if (actionType === 'neural-return-bookmark') {
     logger.debug('[SiYuanMemo][ReviewView] Return to bookmark button clicked');
-    const underlyingQueue = getUnderlyingQueue();
-
-    if (underlyingQueue?.name === 'NeuralRoamQueue') {
-      const neuralQueue = underlyingQueue.neuralQueue;
-      // 添加空值检查
-      if (neuralQueue && typeof neuralQueue.getNavigationState === 'function') {
-        const success = neuralQueue.returnToBookmark();
-
-        if (success) {
-          const navState = neuralQueue.getNavigationState();
-          const targetBlockId = neuralQueue.displayPath[navState.currentPathIndex];
-
-          // 加载书签位置的卡片
-          void hook.loadCardByBlockId(targetBlockId);
-
-          // 刷新导航状态
-          refreshNavigationState();
-
-          showMessage(t('navReturnedToBookmark', '已返回最新位置'), 2000, 'info');
-        }
-      }
+    const neuralQueue = getNeuralRoamQueue();
+    if (!neuralQueue) {
+      return;
     }
+
+    const success = neuralQueue.returnToBookmark();
+    if (!success) {
+      return;
+    }
+
+    const navState = neuralQueue.getNavigationState();
+    if (navState.currentNodeId) {
+      void hook.loadCardByBlockId(navState.currentNodeId);
+    }
+    refreshNavigationState();
+    showMessage(t('navReturnedToBookmark', '已返回书签位置'), 2000, 'info');
   }
 }
 
@@ -839,57 +816,53 @@ function handleOpenAsMenu(ev: MouseEvent) {
     return;
   }
 
-  // 🆕 在 Tab 中打开
+  const reviewTabOptions = {
+    provider: props.provider,
+    queue: props.queue,
+    adapter: props.adapter,
+    title: props.title || t('reviewTitle', 'Review'),
+  };
+
+  // 在新标签中打开
   menu.addItem({
     id: 'openByTab',
-    icon: 'iconLayoutRight',
-    label: t('openInTab', 'Open in Tab'),
+    icon: 'iconOpen',
+    label: t('openInNewTab', 'New Tab'),
     click() {
-      logger.debug('[SiYuanMemo][ReviewView] Opening in tab and closing dialog');
-      tabManager.openReviewTab({
-        provider: props.provider,
-        queue: props.queue,
-        adapter: props.adapter,
-        title: props.title || t('reviewTitle', 'Review'),
-      });
-
-      // 关闭当前对话框
+      logger.debug('[SiYuanMemo][ReviewView] Opening review in new tab and closing dialog');
+      if (typeof tabManager.openReviewTabInNewTab === 'function') {
+        tabManager.openReviewTabInNewTab(reviewTabOptions);
+      } else {
+        tabManager.openReviewTab(reviewTabOptions);
+      }
       emit('close');
     },
   });
 
-  // 注释掉"使用新窗口打开"选项
-  // /// #if !BROWSER
-  // menu.addItem({
-  //   id: 'openByNewWindow',
-  //   icon: 'iconOpenWindow',
-  //   label: t('openInNewWindow', 'Open in New Window'),
-  //   click() {
-  //     logger.debug('[SiYuanMemo][ReviewView] Opening review in new window');
-  //     try {
-  //       // 获取插件实例
-  //       const fsrsPlugin = getWindowPlugin();
-  //       if (!fsrsPlugin) {
-  //         logger.error('[SiYuanMemo][ReviewView] Plugin instance not found');
-  //         return;
-  //       }
-  //
-  //       // 调用优雅的新窗口打开方法
-  //       fsrsPlugin.openReviewInNewWindow({
-  //         provider: props.provider,
-  //         queue: props.queue,
-  //         adapter: props.adapter,
-  //         title: props.title || t('reviewTitle', 'Review'),
-  //       });
-  //
-  //       // 关闭当前对话框
-  //       emit('close');
-  //     } catch (err) {
-  //       logger.error('[SiYuanMemo][ReviewView] Error opening review in new window:', err);
-  //     }
-  //   },
-  // });
-  // /// #endif
+  // 在右侧打开
+  menu.addItem({
+    id: 'insertRight',
+    icon: 'iconLayoutRight',
+    label: t('openInRight', 'Right Side'),
+    click() {
+      logger.debug('[SiYuanMemo][ReviewView] Opening review on right side and closing dialog');
+      tabManager.openReviewTab(reviewTabOptions);
+      emit('close');
+    },
+  });
+
+  if (typeof tabManager.openReviewInNewWindow === 'function') {
+    menu.addItem({
+      id: 'openByNewWindow',
+      icon: 'iconOpenWindow',
+      label: t('openInNewWindow', 'New Window'),
+      click() {
+        logger.debug('[SiYuanMemo][ReviewView] Opening review in new window and closing dialog');
+        tabManager.openReviewInNewWindow?.(reviewTabOptions);
+        emit('close');
+      },
+    });
+  }
 
   // 打开菜单
   const target = ev.currentTarget as HTMLElement;
@@ -969,179 +942,161 @@ function openCardInNewWindow(blockId: string) {
   });
 }
 
-// Part 5: 神经漫游菜单
-function handleNeuralMenu(ev: MouseEvent) {
-  logger.debug('[SiYuanMemo][ReviewView] handleNeuralMenu - start', { ev, target: ev.target });
-
-  logger.debug('[SiYuanMemo][ReviewView] queueStrategy:', hook.getQueueStrategy());
-  const underlyingQueue = getUnderlyingQueue();
-  logger.debug('[SiYuanMemo][ReviewView] underlyingQueue:', underlyingQueue);
-
-  if (!underlyingQueue) {
-    logger.error('[SiYuanMemo][ReviewView] Underlying queue not found');
+function openMenuAtEvent(menu: Menu, ev: MouseEvent): void {
+  const target = ev.currentTarget as HTMLElement | null;
+  if (!target) {
+    logger.error('[SiYuanMemo][ReviewView] Cannot open menu: target element is null');
     return;
   }
 
-  logger.debug('[SiYuanMemo][ReviewView] Creating menu...');
-  const menu = new Menu('neural-roam-menu');
-  logger.debug('[SiYuanMemo][ReviewView] Menu created:', menu);
+  const rect = target.getBoundingClientRect();
+  menu.open({
+    x: rect.left,
+    y: rect.bottom,
+  });
+}
 
-  // 1. 查看种子块列表
-  logger.debug('[SiYuanMemo][ReviewView] Adding menu item 1: 查看种子块列表');
-  const viewSeedsItem = menu.addItem({
+function shortenBlockId(blockId: string): string {
+  return blockId.length > 20 ? `${blockId.slice(0, 20)}...` : blockId;
+}
+
+function handleNeuralSeedMenu(ev: MouseEvent): void {
+  const underlyingQueue = getUnderlyingQueue();
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue || !underlyingQueue) {
+    showMessage(t('queueNoSeedSupport', '当前队列不支持种子管理'), 3000, 'error');
+    return;
+  }
+
+  const seeds = neuralQueue.getSeedBlocks();
+  const menu = new Menu('neural-seeds-menu');
+
+  menu.addItem({
     icon: 'iconList',
     label: t('viewSeedList', '查看种子块列表'),
     click: () => {
-      logger.debug('[SiYuanMemo][ReviewView] 查看种子块列表 clicked');
-      try {
-        const seeds = underlyingQueue.getSeedBlocks?.();
-        logger.debug('[SiYuanMemo][ReviewView] Got seeds:', seeds);
-        if (seeds && seeds.length > 0) {
-          const seedList = seeds.map((id: string, index: number) => `${index + 1}. ${id}`).join('\n');
-          logger.debug('[SiYuanMemo][ReviewView] Showing message with seed list');
-          showMessage(t('seedListTitle', '种子块列表 ({n}个)').replace('{n}', String(seeds.length)) + ':\n' + seedList, 5000, 'info');
-        } else {
-          logger.debug('[SiYuanMemo][ReviewView] No seeds, showing empty message');
-          showMessage(t('noSeeds', '暂无种子块'), 3000, 'info');
-        }
-      } catch (error) {
-        logger.error('[SiYuanMemo][ReviewView] Failed to get seed blocks:', error);
+      if (seeds.length === 0) {
+        showMessage(t('noSeeds', '暂无种子块'), 3000, 'info');
+        return;
       }
-    }
+      const seedList = seeds.map((seedId, index) => `${index + 1}. ${seedId}`).join('\n');
+      showMessage(
+        t('seedListTitle', '种子块列表 ({n}个)').replace('{n}', String(seeds.length)) + ':\n' + seedList,
+        5000,
+        'info'
+      );
+    },
   });
-  logger.debug('[SiYuanMemo][ReviewView] Menu item 1 added:', viewSeedsItem);
 
-  // 2. 从种子块开始漫游（子菜单）
-  logger.debug('[SiYuanMemo][ReviewView] Getting seeds for submenu...');
-  const seeds = underlyingQueue.getSeedBlocks?.() || [];
-  logger.debug('[SiYuanMemo][ReviewView] Seeds:', seeds);
-
-  if (seeds.length > 0) {
-    const seedSubmenuItems = seeds.map((seedId: string) => ({
-      label: seedId.substring(0, 20) + '...',
+  menu.addItem({
+    icon: 'iconPlay',
+    label: t('roamFromSeed', '从种子块开始漫游'),
+    disabled: seeds.length === 0,
+    submenu: seeds.map((seedId) => ({
+      label: shortenBlockId(seedId),
       click: async () => {
         try {
-          await underlyingQueue.startRoamingFromSeed?.(seedId);
-          showMessage(t('roamStartedFromSeed', '已从种子 {id} 开始漫游').replace('{id}', seedId), 3000, 'info');
-          // 刷新当前卡片
-          await hook.executeCommand('next');
+          await neuralQueue.startRoamingFromSeed(seedId, {
+            includeSeedAsFirst: true,
+            resetHistory: false,
+          });
+          await hook.loadCardByBlockId(seedId);
+          refreshNavigationState();
+          showMessage(
+            t('roamStartedFromSeed', '已从种子 {id} 开始漫游').replace('{id}', seedId),
+            3000,
+            'info'
+          );
         } catch (error) {
           logger.error('[SiYuanMemo][ReviewView] Failed to start roaming from seed:', error);
           showMessage(t('roamStartFailed', '开始漫游失败'), 3000, 'error');
         }
-      }
-    }));
+      },
+    })),
+  });
 
-    logger.debug('[SiYuanMemo][ReviewView] Adding menu item 2: 从种子块开始漫游 (with submenu)');
-    menu.addItem({
-      icon: 'iconPlay',
-      label: t('roamFromSeed', '从种子块开始漫游'),
-      submenu: seedSubmenuItems
-    });
-  } else {
-    logger.debug('[SiYuanMemo][ReviewView] Adding menu item 2: 从种子块开始漫游 (disabled)');
-    menu.addItem({
-      icon: 'iconPlay',
-      label: t('roamFromSeed', '从种子块开始漫游'),
-      disabled: true
-    });
-  }
-
-  menu.addSeparator();
-
-  // 3. 移除种子块（子菜单）
-  if (seeds.length > 0) {
-    const removeSubmenuItems = seeds.map((seedId: string) => ({
-      label: seedId.substring(0, 20) + '...',
+  menu.addItem({
+    icon: 'iconTrashcan',
+    label: t('removeSeed', '移除种子块'),
+    disabled: seeds.length === 0,
+    submenu: seeds.map((seedId) => ({
+      label: shortenBlockId(seedId),
       click: async () => {
         try {
           await underlyingQueue.removeCard?.(seedId);
+          refreshNavigationState();
           showMessage(t('seedRemoved', '已移除种子块 {id}').replace('{id}', seedId), 3000, 'info');
         } catch (error) {
           logger.error('[SiYuanMemo][ReviewView] Failed to remove seed:', error);
           showMessage(t('removeSeedFailed', '移除种子块失败'), 3000, 'error');
         }
-      }
-    }));
+      },
+    })),
+  });
 
-    logger.debug('[SiYuanMemo][ReviewView] Adding menu item 3: 移除种子块 (with submenu)');
-    menu.addItem({
-      icon: 'iconTrashcan',
-      label: t('removeSeed', '移除种子块'),
-      submenu: removeSubmenuItems
-    });
-  } else {
-    logger.debug('[SiYuanMemo][ReviewView] Adding menu item 3: 移除种子块 (disabled)');
-    menu.addItem({
-      icon: 'iconTrashcan',
-      label: t('removeSeed', '移除种子块'),
-      disabled: true
-    });
+  openMenuAtEvent(menu, ev);
+}
+
+function buildHistoryLabel(entry: NeuralRoamHistoryEntry, absoluteIndex: number): string {
+  return `${absoluteIndex}. ${entry.reason} · ${shortenBlockId(entry.nodeId)}`;
+}
+
+function handleNeuralHistoryMenu(ev: MouseEvent): void {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue) {
+    showMessage(t('noHistory', '当前队列没有历史能力'), 3000, 'info');
+    return;
   }
 
-  menu.addSeparator();
+  const history = neuralQueue.getHistorySnapshot();
+  const menu = new Menu('neural-history-menu');
 
-  // 4. 查看历史记录
-  logger.debug('[SiYuanMemo][ReviewView] Adding menu item 4: 查看历史记录');
   menu.addItem({
     icon: 'iconHistory',
     label: t('viewHistory', '查看历史记录'),
     click: () => {
-      logger.debug('[SiYuanMemo][ReviewView] 查看历史记录 clicked');
-      try {
-        const history = underlyingQueue.getHistorySnapshot?.();
-        if (history && history.length > 0) {
-          const historyList = history.slice(-10).map((id: string, index: number) =>
-            `${history.length - 10 + index + 1}. ${id}`
-          ).join('\n');
-          showMessage(t('historyListTitle', '历史记录 (最近10条，共{n}条)').replace('{n}', String(history.length)) + ':\n' + historyList, 5000, 'info');
-        } else {
-          showMessage(t('noHistory', '暂无历史记录'), 3000, 'info');
-        }
-      } catch (error) {
-        logger.error('[SiYuanMemo][ReviewView] Failed to get history:', error);
+      if (history.length === 0) {
+        showMessage(t('noHistory', '暂无历史记录'), 3000, 'info');
+        return;
       }
-    }
+      const recent = history.slice(-10);
+      const offset = history.length - recent.length;
+      const historyList = recent.map((entry, index) => {
+        return `${offset + index + 1}. ${entry.reason} · ${entry.nodeId}`;
+      }).join('\n');
+      showMessage(
+        t('historyListTitle', '历史记录 (最近10条，共{n}条)').replace('{n}', String(history.length)) + ':\n' + historyList,
+        5000,
+        'info'
+      );
+    },
   });
 
-  // 5. 清空历史记录
-  logger.debug('[SiYuanMemo][ReviewView] Adding menu item 5: 清空历史记录');
+  const jumpCandidates = history.slice(-20);
+  menu.addItem({
+    icon: 'iconOpen',
+    label: t('jumpHistoryNode', '跳转历史节点'),
+    disabled: jumpCandidates.length === 0,
+    submenu: jumpCandidates.map((entry, index) => ({
+      label: buildHistoryLabel(entry, history.length - jumpCandidates.length + index + 1),
+      click: async () => {
+        await hook.loadCardByBlockId(entry.nodeId);
+        refreshNavigationState();
+      },
+    })),
+  });
+
   menu.addItem({
     icon: 'iconClear',
     label: t('clearHistory', '清空历史记录'),
     click: () => {
-      logger.debug('[SiYuanMemo][ReviewView] 清空历史记录 clicked');
-      try {
-        underlyingQueue.clearHistory?.();
-        showMessage(t('historyClearedSuccess', '历史记录已清空'), 3000, 'info');
-      } catch (error) {
-        logger.error('[SiYuanMemo][ReviewView] Failed to clear history:', error);
-        showMessage(t('clearHistoryFailed', '清空历史记录失败'), 3000, 'error');
-      }
-    }
+      neuralQueue.clearHistory();
+      refreshNavigationState();
+      showMessage(t('historyClearedSuccess', '历史记录已清空'), 3000, 'info');
+    },
   });
 
-  // 显示菜单
-  logger.debug('[SiYuanMemo][ReviewView] Opening menu...');
-  const target = ev.currentTarget as HTMLElement;
-  logger.debug('[SiYuanMemo][ReviewView] Target element:', target);
-
-  if (target) {
-    const rect = target.getBoundingClientRect();
-    logger.debug('[SiYuanMemo][ReviewView] Target rect:', rect);
-    logger.debug('[SiYuanMemo][ReviewView] Menu open position:', {
-      x: rect.left,
-      y: rect.bottom
-    });
-
-    menu.open({
-      x: rect.left,
-      y: rect.bottom
-    });
-    logger.debug('[SiYuanMemo][ReviewView] Menu.open() called');
-  } else {
-    logger.error('[SiYuanMemo][ReviewView] Target element is null!');
-  }
+  openMenuAtEvent(menu, ev);
 }
 
 // Part 6: 处理面包屑点击
@@ -1159,16 +1114,8 @@ function handleBreadcrumbClick(crumb: { icon?: string; text: string; id?: string
  * Phase 3: UI 控件
  */
 function getNavigationState() {
-  const underlyingQueue = getUnderlyingQueue();
-
-  if (underlyingQueue?.name === 'NeuralRoamQueue') {
-    const neuralQueue = underlyingQueue.neuralQueue;
-    // 添加空值检查
-    if (neuralQueue && typeof neuralQueue.getNavigationState === 'function') {
-      return neuralQueue.getNavigationState();
-    }
-  }
-  return null;
+  const neuralQueue = getNeuralRoamQueue();
+  return neuralQueue ? neuralQueue.getNavigationState() : null;
 }
 
 /**
@@ -1176,8 +1123,7 @@ function getNavigationState() {
  * Phase 3: UI 控件
  */
 function isNeuralRoamQueue(): boolean {
-  const underlyingQueue = getUnderlyingQueue();
-  return underlyingQueue?.name === 'NeuralRoamQueue';
+  return getNeuralRoamQueue() !== null;
 }
 
 /**
@@ -1185,7 +1131,18 @@ function isNeuralRoamQueue(): boolean {
  * Phase 3: UI 控件
  */
 function refreshNavigationState() {
-  if (!isNeuralRoamQueue()) return;
+  if (!isNeuralRoamQueue()) {
+    if (state.value.header.navigationState) {
+      state.value = {
+        ...state.value,
+        header: {
+          ...state.value.header,
+          navigationState: undefined,
+        },
+      };
+    }
+    return;
+  }
 
   const navState = getNavigationState();
   if (navState) {

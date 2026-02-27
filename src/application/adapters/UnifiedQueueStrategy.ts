@@ -536,7 +536,14 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
         let cardBefore: FSRSCard | null = null;
         if (includeCardSnapshot) {
             try {
-                cardBefore = this.cloneCard(await this.manager.getCard(currentItem.id, { silent: true }));
+                cardBefore = await this.resolvePreReviewCardSnapshot(currentItem);
+                if (!cardBefore && this.queueType !== QueueType.NeuralRoam) {
+                    logger.warn('[SiYuanMemo][UnifiedQueueStrategy] Unable to resolve pre-review card snapshot:', {
+                        queueType: this.queueType,
+                        cardId: currentItem.id,
+                        blockId: currentItem.blockId,
+                    });
+                }
             } catch (error) {
                 logger.warn('[SiYuanMemo][UnifiedQueueStrategy] Failed to capture pre-review card snapshot:', {
                     queueType: this.queueType,
@@ -554,6 +561,31 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
             cardBefore,
             queueSnapshots,
         };
+    }
+
+    private async resolvePreReviewCardSnapshot(currentItem: FSRSCard): Promise<FSRSCard | null> {
+        // NeuralRoam may surface non-card nodes as synthetic review items (id=blockId).
+        // These blocks do not necessarily exist in card storage, so snapshot lookup is intentionally skipped.
+        if (this.queueType === QueueType.NeuralRoam) {
+            return null;
+        }
+
+        const byCardId = await this.manager.getCard(currentItem.id, { silent: true }).catch(() => null);
+        if (byCardId) {
+            return this.cloneCard(byCardId);
+        }
+
+        const blockId = String(currentItem.blockId || currentItem.id || '').trim();
+        if (!blockId) {
+            return null;
+        }
+
+        const byBlockId = await this.manager.getCards({ blockIds: [blockId] }).catch(() => []);
+        if (byBlockId.length > 0) {
+            return this.cloneCard(byBlockId[0]);
+        }
+
+        return null;
     }
 
     private async captureQueueSnapshots(feedback: QueueFeedback): Promise<QueueSnapshotRecord[]> {

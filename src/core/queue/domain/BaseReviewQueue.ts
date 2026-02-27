@@ -13,6 +13,7 @@ import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { QueueSchedulerPort, UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import { normalizeToFSRSCard, validateQueueReturnType } from '../../../diagnostics/type-guards';
+import { PriorityQueueService } from './PriorityQueueService';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('BaseReviewQueue');
@@ -105,6 +106,41 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     public getType(): QueueType {
         return this.type;
+    }
+
+    protected getPriorityRandomness(): number {
+        const runtime = this.manager as UnifiedDataSourceManager & {
+            getPriorityRandomness?: () => number;
+        };
+
+        const configured = runtime.getPriorityRandomness?.();
+        if (!Number.isFinite(configured)) {
+            return 0;
+        }
+
+        return Math.max(0, Math.min(1, Number(configured)));
+    }
+
+    protected isAutoSortEnabled(): boolean {
+        const runtime = this.manager as UnifiedDataSourceManager & {
+            getAutoSortEnabled?: () => boolean;
+        };
+
+        const configured = runtime.getAutoSortEnabled?.();
+        return typeof configured === 'boolean' ? configured : true;
+    }
+
+    protected getAddToOutstandingEveryNth(fallback = 2): number {
+        const runtime = this.manager as UnifiedDataSourceManager & {
+            getAddToOutstandingEveryNth?: () => number;
+        };
+
+        const configured = runtime.getAddToOutstandingEveryNth?.();
+        if (!Number.isFinite(configured)) {
+            return Math.max(1, Math.min(100, Math.floor(fallback)));
+        }
+
+        return Math.max(1, Math.min(100, Math.floor(Number(configured))));
     }
     
     /**
@@ -633,18 +669,15 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * 按 due -> priority -> id 稳定排序
      */
     protected sortByDuePriority(cards: FSRSCard[]): FSRSCard[] {
-        return cards.sort((a, b) => {
-            const dueDiff = a.due - b.due;
-            if (dueDiff !== 0) {
-                return dueDiff;
-            }
+        return PriorityQueueService.sortByDueThenPriority(cards);
+    }
 
-            const priorityDiff = (a.priority ?? 50) - (b.priority ?? 50);
-            if (priorityDiff !== 0) {
-                return priorityDiff;
-            }
-
-            return a.id.localeCompare(b.id);
+    /**
+     * 按 priority -> due -> id 排序，并支持稳定的轻量随机扰动
+     */
+    protected sortByPriorityThenDue(cards: FSRSCard[]): FSRSCard[] {
+        return PriorityQueueService.sortByPriorityThenDue(cards, {
+            randomization: this.getPriorityRandomness(),
         });
     }
     

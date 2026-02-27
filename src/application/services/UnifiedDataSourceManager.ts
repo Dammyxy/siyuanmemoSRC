@@ -37,7 +37,19 @@ const logger = createLogger('UnifiedDataSourceManager');
 interface UnifiedManagerPluginContextLike {
     getScheduler?: () => unknown;
     getSettingsService?: () => {
-        getSettings?: () => { queues?: { dayStartHour?: unknown } };
+        getSettings?: () => {
+            fsrs?: { dayStartHour?: unknown };
+            queues?: {
+                dayStartHour?: unknown;
+                addToOutstandingEveryNth?: unknown;
+                outstandingEveryNth?: unknown;
+                outstandingSpacing?: unknown;
+                autoSort?: {
+                    enabled?: unknown;
+                };
+            };
+            priorityRandomness?: unknown;
+        };
     } | null | undefined;
 }
 
@@ -244,7 +256,11 @@ export class UnifiedDataSourceManager {
         try {
             const plugin = this.resolvePlugin();
             const settingsService = plugin?.getContext?.()?.getSettingsService?.();
-            const hour = settingsService?.getSettings?.()?.queues?.dayStartHour;
+            const settings = settingsService?.getSettings?.() as {
+                fsrs?: { dayStartHour?: unknown };
+                queues?: { dayStartHour?: unknown };
+            } | undefined;
+            const hour = settings?.fsrs?.dayStartHour ?? settings?.queues?.dayStartHour;
             if (Number.isFinite(hour)) {
                 return hour;
             }
@@ -253,6 +269,62 @@ export class UnifiedDataSourceManager {
         }
 
         return 4;
+    }
+
+    public getPriorityRandomness(): number {
+        try {
+            const plugin = this.resolvePlugin();
+            const settingsService = plugin?.getContext?.()?.getSettingsService?.();
+            const value = Number(settingsService?.getSettings?.()?.priorityRandomness);
+            if (Number.isFinite(value)) {
+                return Math.max(0, Math.min(1, value));
+            }
+        } catch (error) {
+            logger.warn('Failed to resolve priorityRandomness from settings service:', error);
+        }
+
+        return 0.1;
+    }
+
+    public getAutoSortEnabled(): boolean {
+        try {
+            const plugin = this.resolvePlugin();
+            const settingsService = plugin?.getContext?.()?.getSettingsService?.();
+            const settings = settingsService?.getSettings?.() as {
+                queues?: {
+                    autoSort?: { enabled?: unknown };
+                };
+            } | undefined;
+            const enabled = settings?.queues?.autoSort?.enabled;
+            if (typeof enabled === 'boolean') {
+                return enabled;
+            }
+        } catch (error) {
+            logger.warn('Failed to resolve autoSort.enabled from settings service:', error);
+        }
+
+        return true;
+    }
+
+    public getAddToOutstandingEveryNth(): number {
+        try {
+            const plugin = this.resolvePlugin();
+            const settingsService = plugin?.getContext?.()?.getSettingsService?.();
+            const settings = settingsService?.getSettings?.() as { queues?: Record<string, unknown> } | undefined;
+            const queues = settings?.queues;
+            const value = Number(
+                queues?.addToOutstandingEveryNth
+                ?? queues?.outstandingEveryNth
+                ?? queues?.outstandingSpacing
+            );
+            if (Number.isFinite(value)) {
+                return Math.max(1, Math.min(100, Math.floor(value)));
+            }
+        } catch (error) {
+            logger.warn('Failed to resolve add-to-outstanding spacing from settings service:', error);
+        }
+
+        return 2;
     }
 
     private isLoadableQueue(queue: IReviewQueue): queue is IReviewQueue & { load: () => Promise<void> } {
