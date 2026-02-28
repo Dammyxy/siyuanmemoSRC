@@ -6,8 +6,14 @@ import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceMana
 export class SubsetReviewQueue extends OrderedStaticSubsetQueueBase {
   public name = 'SubsetReviewQueue';
 
-  constructor(manager: UnifiedDataSourceManager, blockIds: string[]) {
-    super(manager, QueueType.FilterGroup, blockIds);
+  constructor(
+    manager: UnifiedDataSourceManager,
+    blockIds: string[],
+    options?: {
+      preferredCardId?: string;
+    }
+  ) {
+    super(manager, QueueType.FilterGroup, blockIds, options);
   }
 
   public async handleReview(cardId: string, rating: number): Promise<void> {

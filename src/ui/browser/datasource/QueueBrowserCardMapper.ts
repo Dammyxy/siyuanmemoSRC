@@ -82,7 +82,9 @@ export function mapQueueFsrsCardToBrowserCard(
   const dueDate = new Date(card.due);
   const lastReviewDate = card.lastReview ? new Date(card.lastReview) : null;
   const firstReviewDate = resolveFirstReview(card, lastReviewDate, firstReviewMode);
-  const fullContent = (card.meta?.content as string) || '';
+  const imagePrompt = (card.meta?.imageOcclusionPrompt as string) || '';
+  const title = (card.meta?.title as string) || '';
+  const fullContent = (card.meta?.content as string) || imagePrompt || title || '';
   const deckId = (card.meta?.deckId as string) || '';
   const cardType = card.type as
     | 'topic'

@@ -117,5 +117,10 @@ export interface IPluginFacade {
   /**
    * 打开子集复习（临时队列）
    */
-  openSubsetReviewDialog(blockIds: string[]): Promise<void>;
+  openSubsetReviewDialog(
+    blockIds: string[],
+    options?: {
+      preferredCardId?: string;
+    }
+  ): Promise<void>;
 }

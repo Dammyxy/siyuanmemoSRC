@@ -127,6 +127,14 @@ type ReviewUIConfigLike = {
 };
 
 type ReviewPluginContextLike = {
+  getDialogManager?: () =>
+    | {
+        openBrowserDialog?: (options?: {
+          initialQueueId?: string;
+          initialNeuralSubview?: 'concept-cards' | 'focus-blocks' | 'roam-history';
+        }) => void;
+      }
+    | undefined;
   getTabManager?: () =>
     | {
         openReviewTab: (options: {
@@ -182,7 +190,8 @@ type ReviewPluginLike = {
 
 type UnderlyingQueueLike = {
   name?: string;
-  removeCard?: (seedId: string) => Promise<void>;
+  removeCard?: (blockId: string) => Promise<void>;
+  lockCurrentAsFocus?: (blockId: string, priority?: 'normal' | 'high') => Promise<void>;
 } & Partial<NeuralRoamSessionQueue>;
 
 type FilterGroupQueueLike = {
@@ -364,6 +373,24 @@ function getNeuralRoamQueue(): NeuralRoamSessionQueue | null {
     return null;
   }
   return underlyingQueue;
+}
+
+function getDialogManager() {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  return contextFromProps?.getDialogManager?.() || contextFromWindow?.getDialogManager?.() || null;
+}
+
+function openNeuralBrowserSubview(subview: 'focus-blocks' | 'roam-history'): void {
+  const dialogManager = getDialogManager();
+  if (!dialogManager || typeof dialogManager.openBrowserDialog !== 'function') {
+    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+    return;
+  }
+  dialogManager.openBrowserDialog({
+    initialQueueId: 'neural-roam',
+    initialNeuralSubview: subview,
+  });
 }
 
 // 组件挂载
@@ -844,8 +871,8 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   } else if (actionType === 'sticktab') {
     // 打开为菜单
     handleOpenAsMenu(ev);
-  } else if (actionType === 'lock-seed') {
-    logger.debug('[SiYuanMemo][ReviewView] Lock seed button clicked');
+  } else if (actionType === 'lock-focus') {
+    logger.debug('[SiYuanMemo][ReviewView] Lock focus button clicked');
     const cardMeta = state.value.actions.cardMeta;
     const blockId = cardMeta?.blockID || state.value.content.data;
 
@@ -854,27 +881,38 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
         | (UnderlyingQueueLike & { addCard?: (card: string, source?: unknown) => Promise<void> })
         | null;
 
-      if (underlyingQueue && typeof underlyingQueue.addCard === 'function') {
-        void underlyingQueue.addCard(blockId)
+      if (underlyingQueue?.lockCurrentAsFocus) {
+        void underlyingQueue.lockCurrentAsFocus(blockId, 'high')
           .then(() => {
-            logger.debug('[SiYuanMemo][ReviewView] Block locked as seed:', blockId);
-            showMessage(t('lockedAsSeed', 'Locked as seed'), 3000, 'info');
+            logger.debug('[SiYuanMemo][ReviewView] Block locked as focus:', blockId);
+            showMessage(t('lockedAsFocus', 'Locked as focus'), 3000, 'info');
           })
           .catch((error: Error) => {
-            logger.error('[SiYuanMemo][ReviewView] Failed to lock seed:', error);
-            showMessage(t('lockSeedFailed', 'Failed to lock seed'), 3000, 'error');
+            logger.error('[SiYuanMemo][ReviewView] Failed to lock focus:', error);
+            showMessage(t('lockFocusFailed', 'Failed to lock focus'), 3000, 'error');
+          });
+      } else if (underlyingQueue && typeof underlyingQueue.addCard === 'function') {
+        void underlyingQueue.addCard(blockId)
+          .then(async () => {
+            await underlyingQueue.setPinnedFocusBlock?.(blockId, true);
+            logger.debug('[SiYuanMemo][ReviewView] Block locked as focus:', blockId);
+            showMessage(t('lockedAsFocus', 'Locked as focus'), 3000, 'info');
+          })
+          .catch((error: Error) => {
+            logger.error('[SiYuanMemo][ReviewView] Failed to lock focus:', error);
+            showMessage(t('lockFocusFailed', 'Failed to lock focus'), 3000, 'error');
           });
       } else {
-        logger.error('[SiYuanMemo][ReviewView] Queue does not support seed locking');
-        showMessage(t('queueNoSeedSupport', 'Queue does not support seed locking'), 3000, 'error');
+        logger.error('[SiYuanMemo][ReviewView] Queue does not support focus locking');
+        showMessage(t('queueNoFocusSupport', 'Queue does not support focus locking'), 3000, 'error');
       }
     } else {
       logger.error('[SiYuanMemo][ReviewView] ERROR: blockId is undefined!');
     }
-  } else if (actionType === 'neural-seeds') {
+  } else if (actionType === 'neural-focuses') {
     ev.stopPropagation();
     ev.preventDefault();
-    handleNeuralSeedMenu(ev);
+    handleNeuralFocusMenu(ev);
   } else if (actionType === 'neural-history') {
     ev.stopPropagation();
     ev.preventDefault();
@@ -1076,55 +1114,124 @@ function shortenBlockId(blockId: string): string {
   return blockId.length > 20 ? `${blockId.slice(0, 20)}...` : blockId;
 }
 
-function handleNeuralSeedMenu(ev: MouseEvent): void {
-  const underlyingQueue = getUnderlyingQueue();
+type FocusMenuEntry = {
+  nodeId: string;
+  nodePreview: string;
+  associationType: string;
+  reason: string;
+  isVirtual: boolean;
+  visitedAt: number;
+};
+
+function buildFocusMenuEntries(neuralQueue: NeuralRoamSessionQueue): FocusMenuEntry[] {
+  const byNodeId = new Map<string, FocusMenuEntry>();
+  const sourceEntries = [
+    ...neuralQueue.getSessionFocusStack(),
+    ...neuralQueue.getPinnedFocusBlocks(),
+  ].sort((a, b) => b.visitedAt - a.visitedAt);
+
+  for (const entry of sourceEntries) {
+    if (!byNodeId.has(entry.nodeId)) {
+      byNodeId.set(entry.nodeId, {
+        nodeId: entry.nodeId,
+        nodePreview: entry.nodePreview || '',
+        associationType: entry.associationType || '',
+        reason: entry.reason || '',
+        isVirtual: entry.isVirtual === true,
+        visitedAt: Number.isFinite(entry.visitedAt) ? entry.visitedAt : 0,
+      });
+    }
+  }
+
+  for (const focusId of neuralQueue.getConceptBlocks()) {
+    if (!byNodeId.has(focusId)) {
+      byNodeId.set(focusId, {
+        nodeId: focusId,
+        nodePreview: '',
+        associationType: 'focus',
+        reason: '',
+        isVirtual: false,
+        visitedAt: 0,
+      });
+    }
+  }
+
+  return Array.from(byNodeId.values()).sort((a, b) => b.visitedAt - a.visitedAt);
+}
+
+function resolveFocusTypeLabel(entry: { associationType: string; isVirtual: boolean }): string {
+  if (entry.isVirtual) {
+    return t('virtualNode', '虚拟闪卡');
+  }
+  if (entry.associationType === 'descriptor') {
+    return t('descriptorCard', '描述符卡');
+  }
+  return t('conceptCard', '概念卡');
+}
+
+function buildFocusMenuLabel(entry: FocusMenuEntry): string {
+  const preview = entry.nodePreview || shortenBlockId(entry.nodeId);
+  const typeLabel = resolveFocusTypeLabel(entry);
+  return `${preview} — ${typeLabel}`;
+}
+
+function resolveAssociationTypeLabel(entry: NeuralRoamHistoryEntry): string {
+  const reason = String(entry.reason || '').trim();
+  if (reason) {
+    return reason;
+  }
+
+  const associationTypeMap: Record<string, string> = {
+    backlink: t('associationBacklink', '反向链接'),
+    'outgoing-direct': t('associationOutgoingDirect', '直接引用'),
+    'outgoing-indirect': t('associationOutgoingIndirect', '间接引用'),
+    descriptor: t('descriptorCard', '描述符卡'),
+    focus: t('associationFocusNode', '焦点节点'),
+    path: t('associationPathNode', '路径节点'),
+  };
+  return associationTypeMap[entry.associationType] || entry.associationType || t('unknown', '未知');
+}
+
+function handleNeuralFocusMenu(ev: MouseEvent): void {
   const neuralQueue = getNeuralRoamQueue();
-  if (!neuralQueue || !underlyingQueue) {
-    showMessage(t('queueNoSeedSupport', '当前队列不支持种子管理'), 3000, 'error');
+  const underlyingQueue = getUnderlyingQueue();
+  if (!neuralQueue) {
+    showMessage(t('queueNoFocusSupport', '当前队列不支持焦点管理'), 3000, 'error');
     return;
   }
 
-  const seeds = neuralQueue.getSeedBlocks();
-  const menu = new Menu('neural-seeds-menu');
+  const focusEntries = buildFocusMenuEntries(neuralQueue);
+  const menu = new Menu('neural-focuses-menu');
 
   menu.addItem({
     icon: 'iconList',
-    label: t('viewSeedList', '查看种子块列表'),
+    label: t('viewFocusList', '查看焦点块列表'),
     click: () => {
-      if (seeds.length === 0) {
-        showMessage(t('noSeeds', '暂无种子块'), 3000, 'info');
-        return;
-      }
-      const seedList = seeds.map((seedId, index) => `${index + 1}. ${seedId}`).join('\n');
-      showMessage(
-        t('seedListTitle', '种子块列表 ({n}个)').replace('{n}', String(seeds.length)) + ':\n' + seedList,
-        5000,
-        'info'
-      );
+      openNeuralBrowserSubview('focus-blocks');
     },
   });
 
   menu.addItem({
     icon: 'iconPlay',
-    label: t('roamFromSeed', '从种子块开始漫游'),
-    disabled: seeds.length === 0,
-    submenu: seeds.map((seedId) => ({
-      label: shortenBlockId(seedId),
+    label: t('roamFromFocus', '从焦点块开始漫游'),
+    disabled: focusEntries.length === 0,
+    submenu: focusEntries.map((entry) => ({
+      label: buildFocusMenuLabel(entry),
       click: async () => {
         try {
-          await neuralQueue.startRoamingFromSeed(seedId, {
-            includeSeedAsFirst: true,
+          await neuralQueue.startRoamingFromFocus(entry.nodeId, {
+            includeFocusAsFirst: true,
             resetHistory: false,
           });
-          await hook.loadCardByBlockId(seedId);
+          await hook.loadCardByBlockId(entry.nodeId);
           refreshNavigationState();
           showMessage(
-            t('roamStartedFromSeed', '已从种子 {id} 开始漫游').replace('{id}', seedId),
+            t('roamStartedFromFocus', '已从焦点 {id} 开始漫游').replace('{id}', entry.nodeId),
             3000,
             'info'
           );
         } catch (error) {
-          logger.error('[SiYuanMemo][ReviewView] Failed to start roaming from seed:', error);
+          logger.error('[SiYuanMemo][ReviewView] Failed to start roaming from focus:', error);
           showMessage(t('roamStartFailed', '开始漫游失败'), 3000, 'error');
         }
       },
@@ -1133,18 +1240,22 @@ function handleNeuralSeedMenu(ev: MouseEvent): void {
 
   menu.addItem({
     icon: 'iconTrashcan',
-    label: t('removeSeed', '移除种子块'),
-    disabled: seeds.length === 0,
-    submenu: seeds.map((seedId) => ({
-      label: shortenBlockId(seedId),
+    label: t('removeFocus', '移除焦点块'),
+    disabled: focusEntries.length === 0 || typeof underlyingQueue?.removeCard !== 'function',
+    submenu: focusEntries.map((entry) => ({
+      label: buildFocusMenuLabel(entry),
       click: async () => {
+        if (entry.isVirtual) {
+          showMessage(t('virtualFocusSessionOnly', '虚拟闪卡是会话焦点，请在浏览器视图中管理'), 3000, 'info');
+          return;
+        }
         try {
-          await underlyingQueue.removeCard?.(seedId);
+          await underlyingQueue?.removeCard?.(entry.nodeId);
           refreshNavigationState();
-          showMessage(t('seedRemoved', '已移除种子块 {id}').replace('{id}', seedId), 3000, 'info');
+          showMessage(t('focusRemoved', '已移除焦点块 {id}').replace('{id}', entry.nodeId), 3000, 'info');
         } catch (error) {
-          logger.error('[SiYuanMemo][ReviewView] Failed to remove seed:', error);
-          showMessage(t('removeSeedFailed', '移除种子块失败'), 3000, 'error');
+          logger.error('[SiYuanMemo][ReviewView] Failed to remove focus:', error);
+          showMessage(t('removeFocusFailed', '移除焦点块失败'), 3000, 'error');
         }
       },
     })),
@@ -1154,7 +1265,9 @@ function handleNeuralSeedMenu(ev: MouseEvent): void {
 }
 
 function buildHistoryLabel(entry: NeuralRoamHistoryEntry, absoluteIndex: number): string {
-  return `${absoluteIndex}. ${entry.reason} · ${shortenBlockId(entry.nodeId)}`;
+  const preview = entry.nodePreview || shortenBlockId(entry.nodeId);
+  const association = resolveAssociationTypeLabel(entry);
+  return `${absoluteIndex}. ${preview} · ${association}`;
 }
 
 function handleNeuralHistoryMenu(ev: MouseEvent): void {
@@ -1171,20 +1284,7 @@ function handleNeuralHistoryMenu(ev: MouseEvent): void {
     icon: 'iconHistory',
     label: t('viewHistory', '查看历史记录'),
     click: () => {
-      if (history.length === 0) {
-        showMessage(t('noHistory', '暂无历史记录'), 3000, 'info');
-        return;
-      }
-      const recent = history.slice(-10);
-      const offset = history.length - recent.length;
-      const historyList = recent.map((entry, index) => {
-        return `${offset + index + 1}. ${entry.reason} · ${entry.nodeId}`;
-      }).join('\n');
-      showMessage(
-        t('historyListTitle', '历史记录 (最近10条，共{n}条)').replace('{n}', String(history.length)) + ':\n' + historyList,
-        5000,
-        'info'
-      );
+      openNeuralBrowserSubview('roam-history');
     },
   });
 
@@ -1196,6 +1296,7 @@ function handleNeuralHistoryMenu(ev: MouseEvent): void {
     submenu: jumpCandidates.map((entry, index) => ({
       label: buildHistoryLabel(entry, history.length - jumpCandidates.length + index + 1),
       click: async () => {
+        await neuralQueue.jumpToHistoryNode(entry.nodeId);
         await hook.loadCardByBlockId(entry.nodeId);
         refreshNavigationState();
       },
@@ -1206,7 +1307,7 @@ function handleNeuralHistoryMenu(ev: MouseEvent): void {
     icon: 'iconClear',
     label: t('clearHistory', '清空历史记录'),
     click: () => {
-      neuralQueue.clearHistory();
+      neuralQueue.clearHistory('all');
       refreshNavigationState();
       showMessage(t('historyClearedSuccess', '历史记录已清空'), 3000, 'info');
     },

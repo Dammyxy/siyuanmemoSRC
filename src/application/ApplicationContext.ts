@@ -28,6 +28,7 @@ import { XiuyuanApplicationService } from '@/application/services/XiuyuanApplica
 import { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
 import { XiuyuanSyncService } from '@/application/services/XiuyuanSyncService';
 import { TransactionWebSocketService } from '@/core/infrastructure/websocket/TransactionWebSocketService';
+import type { AutoCardHandler } from '@/application/handlers/AutoCardHandler';
 import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
 import { AdvancedDataRouter } from '@/application/queries/DataAccessFacade';
 
@@ -150,6 +151,7 @@ export class ApplicationContext {
   private hybridSyncService?: XiuyuanSyncService;
   private riffSyncEventHandler?: RiffSyncEventHandler;
   private transactionWebSocketService?: TransactionWebSocketService;
+  private autoCardHandler?: AutoCardHandler;
   private fullSyncTimer?: NodeJS.Timeout;
   
   // ========================================================================
@@ -1006,10 +1008,12 @@ export class ApplicationContext {
         
         transactionWebSocketService = new TransactionWebSocketService(config.plugin as unknown as SiyuanMemoPlugin);
         transactionWebSocketService.registerHandler(new RiffSyncHandler(hybridSyncService));
-        transactionWebSocketService.registerHandler(new AutoCardHandler(config.plugin as unknown as SiyuanMemoPlugin));
+        const autoCardHandler = new AutoCardHandler(config.plugin as unknown as SiyuanMemoPlugin);
+        transactionWebSocketService.registerHandler(autoCardHandler);
         transactionWebSocketService.start();
         
         context.transactionWebSocketService = transactionWebSocketService;
+        context.autoCardHandler = autoCardHandler;
         logger.info('[ApplicationContext] ✅ TransactionWebSocketService initialized');
       }
     }
@@ -1241,6 +1245,7 @@ export class ApplicationContext {
         // 创建并注册 AutoCardHandler
         const autoCardHandler = new AutoCardHandler(this.config.plugin as unknown as SiyuanMemoPlugin);
         this.transactionWebSocketService.registerHandler(autoCardHandler);
+        this.autoCardHandler = autoCardHandler;
         logger.info('[ApplicationContext] ✅ AutoCardHandler registered');
         
         // 启动服务
@@ -1253,6 +1258,7 @@ export class ApplicationContext {
         logger.info('[ApplicationContext] Stopping TransactionWebSocketService...');
         this.transactionWebSocketService.stop();
         this.transactionWebSocketService = undefined;
+        this.autoCardHandler = undefined;
         logger.info('[ApplicationContext] ✅ TransactionWebSocketService stopped');
       }
     }
@@ -1265,6 +1271,10 @@ export class ApplicationContext {
    */
   getTransactionWebSocketService(): TransactionWebSocketService | undefined {
     return this.transactionWebSocketService;
+  }
+
+  getAutoCardHandler(): AutoCardHandler | undefined {
+    return this.autoCardHandler;
   }
   
   /**
@@ -1521,6 +1531,7 @@ export class ApplicationContext {
       if (this.transactionWebSocketService) {
         try {
           this.transactionWebSocketService.stop();
+          this.autoCardHandler = undefined;
           logger.info('[ApplicationContext] ✅ TransactionWebSocketService stopped');
         } catch (error) {
           logger.error('[ApplicationContext] Error stopping TransactionWebSocketService:', error);

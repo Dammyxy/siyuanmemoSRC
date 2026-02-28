@@ -12,7 +12,11 @@ import { DeckDataSource } from '../datasource/DeckDataSource';
 import { QueryDataSource } from '../datasource/QueryDataSource';
 import { BlockIdsDataSource } from '../datasource/BlockIdsDataSource';
 import { IncrementalLearningDataSource } from '../datasource/IncrementalLearningDataSource';
-import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
+import {
+  QueueType,
+  type BrowserCardTypeFilter,
+  type IUnifiedDataSourceManagerFacade,
+} from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DataSourceFactory');
@@ -73,7 +77,7 @@ function resolveI18nLabel(plugin: unknown, key: string, fallback: string): strin
 export interface DataSourceOptions {
   preset?: string;
   queryText?: string;
-  cardType?: 'all' | 'topic-only' | 'item-only';
+  cardType?: BrowserCardTypeFilter;
 }
 
 /**
@@ -136,7 +140,7 @@ export function createQueueDataSource(
 
     case 'neural-roam':
       // 神经漫游队列：使用 BlockIds 数据源
-      // 🆕 使用动态获取函数，确保每次都获取最新的种子列表
+      // 使用动态获取函数，确保每次都获取最新的概念池列表
       const neuralQueue = manager.getQueue(QueueType.NeuralRoam);
       return new BlockIdsDataSource({
         id: 'neural-roam',
@@ -145,10 +149,10 @@ export function createQueueDataSource(
         plugin: { neuralQueue },  // 🔧 直接传递 neuralQueue 对象
         queueId: 'neural-roam',
         getBlockIdsFn: () => {
-          // 每次 fetchRows 时都获取最新的种子列表
-          const seeds = neuralQueue?.getSeedBlocks?.() || [];
-          logger.info(`Neural roam seeds: ${seeds.length}`, seeds);
-          return seeds;
+          // 每次 fetchRows 时都获取最新的概念列表
+          const conceptBlocks = neuralQueue?.getConceptBlocks?.() || [];
+          logger.info(`Neural roam concept blocks: ${conceptBlocks.length}`, conceptBlocks);
+          return conceptBlocks;
         },
       });
 
@@ -282,9 +286,9 @@ export function createFocusDataSource(
       plugin: { neuralQueue },  // 🔧 直接传递 neuralQueue 对象
       queueId: 'neural-roam',
       getBlockIdsFn: () => {
-        const seeds = neuralQueue?.getSeedBlocks?.() || [];
-        logger.info(`Neural roam seeds (focus): ${seeds.length}`, seeds);
-        return seeds;
+        const conceptBlocks = neuralQueue?.getConceptBlocks?.() || [];
+        logger.info(`Neural roam concept blocks (focus): ${conceptBlocks.length}`, conceptBlocks);
+        return conceptBlocks;
       },
     });
   }

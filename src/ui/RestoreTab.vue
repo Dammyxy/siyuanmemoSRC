@@ -15,7 +15,7 @@ const logger = createLogger('RestoreTab');
 type DialogManagerLike = {
   openReviewDialog: () => void;
   openFinalDrillDialog: () => void;
-  openNeuralRoamDialog: (options: { seedBlockId?: string }) => void;
+  openNeuralRoamDialog: (options: { focusBlockId?: string }) => void;
   openLeechReviewDialog: () => void;
   openFilterGroupPracticeDialog: () => void;
   openSubsetReviewDialog: (blockIds: string[]) => void;
@@ -54,7 +54,7 @@ const props = defineProps<{
   app: App;
   data: {
     reviewType: string; // 'retrieval' | 'final-drill' | 'neural-roam' | 'leech' | 'subset' | 'filter-group'
-    seedBlockId?: string; // for neural-roam
+    focusBlockId?: string; // for neural-roam
     blockIds?: string[]; // for subset practice
   };
 }>();
@@ -86,7 +86,7 @@ onMounted(async () => {
     const dialogManager = fsrsPlugin.getContext().getDialogManager();
 
     // 根据复习类型调用对应的方法
-    const { reviewType, seedBlockId, blockIds } = props.data;
+    const { reviewType, focusBlockId, blockIds } = props.data;
 
     switch (reviewType) {
       case 'retrieval':
@@ -96,7 +96,7 @@ onMounted(async () => {
         dialogManager.openFinalDrillDialog();
         break;
       case 'neural-roam':
-        dialogManager.openNeuralRoamDialog({ seedBlockId });
+        dialogManager.openNeuralRoamDialog({ focusBlockId });
         break;
       case 'leech':
         dialogManager.openLeechReviewDialog();

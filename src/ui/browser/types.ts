@@ -125,11 +125,10 @@ export function getAvailableCardTypeFilters(queueId: string | null): Array<{ val
         ];
     }
 
-    // 神经漫游队列：只显示 concept-only 和 descriptor-only
-    if (queueId === 'neural') {
+    // 神经漫游队列：仅保留 concept-only
+    if (queueId === 'neural' || queueId === 'neural-roam') {
         return [
             { value: 'concept-only',    i18nKey: 'cardTypeConceptOnly',     label: '仅概念卡' },
-            { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅描述符卡' },
         ];
     }
 

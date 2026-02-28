@@ -398,7 +398,10 @@ export class DialogManager implements IDialogManager {
   /**
    * 打开 SRS 浏览器对话框
    */
-  openBrowserDialog(): void {
+  openBrowserDialog(options?: {
+    initialQueueId?: string;
+    initialNeuralSubview?: 'concept-cards' | 'focus-blocks' | 'roam-history';
+  }): void {
     if (this.srsBrowserDialog) {
       this.srsBrowserDialog.destroy();
     }
@@ -422,6 +425,8 @@ export class DialogManager implements IDialogManager {
         tabApplicationService,
         i18n: this.context.getI18n(),
         mobileMode: this.isMobileFrontend(),
+        initialQueueId: options?.initialQueueId,
+        initialNeuralSubview: options?.initialNeuralSubview,
       },
       events: {
         close: () => this.closeBrowserDialog(),
@@ -595,13 +600,13 @@ export class DialogManager implements IDialogManager {
    * 打开神经漫游对话框
    * 
    * @param options 可选配置
-   * @param options.seedBlockId 种子块 ID
-   * @param options.includeSeedAsFirst 是否将种子块作为第一张卡片
+   * @param options.focusBlockId 焦点块 ID
+   * @param options.includeFocusAsFirst 是否将焦点块作为第一张卡片
    * @param options.resetHistory 是否重置历史记录
    */
   async openNeuralRoamDialog(options?: { 
-    seedBlockId?: string; 
-    includeSeedAsFirst?: boolean; 
+    focusBlockId?: string;
+    includeFocusAsFirst?: boolean;
     resetHistory?: boolean 
   }): Promise<void> {
     if (!(await this.checkInitialized())) return;
@@ -611,17 +616,17 @@ export class DialogManager implements IDialogManager {
       const neuralQueue = this.context.getUnifiedDataSourceManager().getQueue(QueueType.NeuralRoam);
 
       if (isNeuralRoamSessionQueue(neuralQueue)) {
-        const seedBlockId = options?.seedBlockId;
-        const includeSeedAsFirst = options?.includeSeedAsFirst ?? true;
+        const focusBlockId = options?.focusBlockId;
+        const includeFocusAsFirst = options?.includeFocusAsFirst ?? true;
         const resetHistory = options?.resetHistory === true;
 
-        if (seedBlockId) {
-          await neuralQueue.startRoamingFromSeed(seedBlockId, {
-            includeSeedAsFirst,
+        if (focusBlockId) {
+          await neuralQueue.startRoamingFromFocus(focusBlockId, {
+            includeFocusAsFirst,
             resetHistory,
           });
         } else if (resetHistory) {
-          neuralQueue.clearHistory();
+          neuralQueue.clearHistory('all');
         }
       }
 
@@ -680,7 +685,12 @@ export class DialogManager implements IDialogManager {
   /**
    * 打开子集复习对话框
    */
-  async openSubsetReviewDialog(blockIds: string[]): Promise<void> {
+  async openSubsetReviewDialog(
+    blockIds: string[],
+    options?: {
+      preferredCardId?: string;
+    }
+  ): Promise<void> {
     this.destroyCurrentReviewDialog();
 
     const ids = Array.from(new Set((blockIds || []).map((x) => String(x || '')).filter(Boolean)));
@@ -691,7 +701,10 @@ export class DialogManager implements IDialogManager {
 
     try {
       const manager = this.context.getUnifiedDataSourceManager();
-      const queue = new SubsetReviewQueue(manager, ids);
+      const preferredCardId = String(options?.preferredCardId || '').trim();
+      const queue = new SubsetReviewQueue(manager, ids, {
+        preferredCardId: preferredCardId.length > 0 ? preferredCardId : undefined,
+      });
       const title = (this.context.getI18n()?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(ids.length));
 
       this.currentReviewDialog = createUnifiedReviewDialog({

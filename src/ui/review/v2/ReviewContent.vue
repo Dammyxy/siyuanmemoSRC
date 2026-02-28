@@ -27,6 +27,17 @@
           />
         </div>
 
+        <div v-else-if="shouldUseImageOcclusionRenderer" class="fsrs-review-v2-content__image-occlusion-card">
+          <ImageOcclusionCardRenderer
+            :block-id="content.id"
+            :card="content.card"
+            :show-answer="!showAnswer"
+            :i18n="i18n"
+            @loaded="handleImageOcclusionLoaded"
+            @error="handleImageOcclusionError"
+          />
+        </div>
+
         <!-- 概念定义卡渲染 -->
         <div v-else-if="shouldUseConceptDefinitionRenderer" class="fsrs-review-v2-content__concept-definition-card">
           <ConceptDefinitionCardRenderer
@@ -111,6 +122,7 @@ import type { ReviewUIState } from './types';
 import { OVERLAY_REGISTRY } from './overlays/index';
 import XiuyuanListTemplateCard from './components/XiuyuanListTemplateCard.vue';
 import MultiClozeCardRenderer from '../components/MultiClozeCardRenderer.vue';
+import ImageOcclusionCardRenderer from '../components/ImageOcclusionCardRenderer.vue';
 import QuickCardRenderer from '../components/QuickCardRenderer.vue';
 import DescriptorCardRenderer from '../components/DescriptorCardRenderer.vue';
 import ConceptDefinitionCardRenderer from '../components/ConceptDefinitionCardRenderer.vue';
@@ -296,10 +308,25 @@ const shouldUseMultiClozeRenderer = computed(() => {
 });
 
 // 判断是否应该使用概念定义卡渲染器
+const isImageOcclusionCard = computed(() => {
+  const cardMeta = props.content.card?.meta;
+  if (!cardMeta || typeof cardMeta !== 'object') return false;
+  const source = (cardMeta as Record<string, unknown>).source;
+  const imageOcclusion = (cardMeta as Record<string, unknown>).imageOcclusion;
+  return imageOcclusion === true || source === 'image-occlusion';
+});
+
+const shouldUseImageOcclusionRenderer = computed(() => {
+  return props.content.type === 'protyle'
+    && !isNeuralRoamNonFlashcardCard.value
+    && isImageOcclusionCard.value;
+});
+
 const shouldUseConceptDefinitionRenderer = computed(() => {
   // 只有在 protyle 类型时才检测
   if (props.content.type !== 'protyle') return false;
   if (isNeuralRoamNonFlashcardCard.value) return false;
+  if (isImageOcclusionCard.value) return false;
   if (forceProtyleRender.value || forceQuickRender.value) return false;
   
   // 使用领域层的辅助函数检测
@@ -324,6 +351,7 @@ const shouldUseConceptCardRenderer = computed(() => {
   // 只有在 protyle 类型时才检测
   if (props.content.type !== 'protyle') return false;
   if (isNeuralRoamNonFlashcardCard.value) return false;
+  if (isImageOcclusionCard.value) return false;
   
   // 使用领域层的辅助函数检测
   if (forceProtyleRender.value || forceQuickRender.value) return false;
@@ -345,6 +373,7 @@ const shouldUseDescriptorCardRenderer = computed(() => {
     && !forceProtyleRender.value
     && !forceQuickRender.value
     && !isNeuralRoamNonFlashcardCard.value
+    && !isImageOcclusionCard.value
     && !isConceptDefinitionCard.value
     && !isConceptCard.value
     && isDescriptorCard.value;
@@ -357,6 +386,7 @@ const shouldUseQuickCardRenderer = computed(() => {
   return props.content.type === 'protyle'
     && !forceProtyleRender.value
     && !isNeuralRoamNonFlashcardCard.value
+    && !isImageOcclusionCard.value
     && !isConceptDefinitionCard.value
     && !isConceptCard.value
     && !isDescriptorCard.value
@@ -381,6 +411,15 @@ function handleConceptDefinitionCardLoaded(result: unknown) {
 // 概念定义卡加载失败，显示错误提示
 function handleConceptDefinitionCardError(error: Error) {
   handleRendererError('Concept definition', error);
+}
+
+function handleImageOcclusionLoaded(result: unknown) {
+  clearRendererError();
+  logger.debug('[SiYuanMemo][ReviewContent] Image occlusion card loaded:', result);
+}
+
+function handleImageOcclusionError(error: Error) {
+  handleRendererError('Image occlusion', error);
 }
 
 // 概念卡加载成功
@@ -1018,6 +1057,11 @@ const content = computed(() => props.content);
 }
 
 .fsrs-review-v2-content__descriptor-card {
+  flex: 1;
+  overflow: auto;
+}
+
+.fsrs-review-v2-content__image-occlusion-card {
   flex: 1;
   overflow: auto;
 }

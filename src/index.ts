@@ -12,6 +12,8 @@ import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import { ConfigMigrator } from '@/utils/configMigrator';
 import { createLogger, installConsoleBridge } from '@/utils/logger';
 import type { RiffIntegrationConfig } from '@/types/settings';
+import { FormulaClozeAssistant } from '@/application/handlers/FormulaClozeAssistant';
+import { ImageOcclusionHandler } from '@/application/handlers/ImageOcclusionHandler';
 import '@/index.scss';
 
 export default class FSRSPlugin extends Plugin implements IPluginFacade {
@@ -29,6 +31,9 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   private mobileSidebarToolbarObserver: MutationObserver | null = null;
   private mobileSidebarToolbarEnsureQueued = false;
   private mobileSidebarToolbarEntryClickHandler: ((ev: MouseEvent) => void) | null = null;
+  private formulaClozeAssistant: FormulaClozeAssistant | null = null;
+  private imageOcclusionHandler: ImageOcclusionHandler | null = null;
+  private readonly oneClickSymbolSlashId = 'siyuanmemo-one-click-symbol-cards';
 
   // ========================================================================
   // IPluginFacade 实现
@@ -59,8 +64,13 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
    *
    * 供浏览器右键菜单「选中复习」使用。
    */
-  async openSubsetReviewDialog(blockIds: string[]): Promise<void> {
-    await this.context.getDialogManager()?.openSubsetReviewDialog(blockIds);
+  async openSubsetReviewDialog(
+    blockIds: string[],
+    options?: {
+      preferredCardId?: string;
+    }
+  ): Promise<void> {
+    await this.context.getDialogManager()?.openSubsetReviewDialog(blockIds, options);
   }
   
   /**
@@ -97,8 +107,14 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       this.isInitialized = true;
       
       // ✅ 只有在初始化成功后才注册事件处理器
+      this.imageOcclusionHandler = new ImageOcclusionHandler(this);
       this.registerDock();
       this.registerEventHandlers();
+      this.registerOneClickSymbolCardCommands();
+      this.registerImageOcclusionCommands();
+      this.registerOneClickSymbolCardSlash();
+      this.formulaClozeAssistant = new FormulaClozeAssistant(this);
+      this.formulaClozeAssistant.start();
     } catch (err) {
       this.logger.error('Plugin initialization failed:', err);
       try { await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败'); } catch {}
@@ -127,6 +143,11 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     this.removeMobileSidebarEntry();
     this.stopMobileSidebarToolbarObserver();
     this.removeMobileSidebarToolbarEntry();
+    this.unregisterOneClickSymbolCardSlash();
+    this.formulaClozeAssistant?.stop();
+    this.formulaClozeAssistant = null;
+    this.imageOcclusionHandler?.dispose();
+    this.imageOcclusionHandler = null;
     if (this.context) {
       this.context.dispose().catch(err => this.logger.error('Error disposing context:', err));
     }
@@ -199,6 +220,89 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     this.eventBus.on('open-menu-breadcrumbmore', (e) => blockMenuHandler.handleBreadcrumbMore(e));
     this.eventBus.on('open-menu-doctree', (e) => blockMenuHandler.handleDocTreeMenu(e));
     this.eventBus.on('open-menu-blockref', (e) => blockMenuHandler.handleBlockRefMenu(e));
+    this.eventBus.on('open-menu-image', (e) => this.imageOcclusionHandler?.handleImageMenu(e));
+  }
+
+  private registerOneClickSymbolCardCommands(): void {
+    this.addCommand({
+      langKey: 'oneClickSymbolCardsCurrentDoc',
+      callback: () => {
+        void this.context.getMenuManager().runOneClickSymbolCardCreationForCurrentDoc();
+      },
+      editorCallback: (protyle: unknown) => {
+        const docId = this.extractDocIdFromProtyle(protyle);
+        if (docId) {
+          void this.context.getMenuManager().runOneClickSymbolCardCreationByDocId(docId);
+          return;
+        }
+        void this.context.getMenuManager().runOneClickSymbolCardCreationForCurrentDoc();
+      },
+    });
+  }
+
+  private registerImageOcclusionCommands(): void {
+    this.addCommand({
+      langKey: 'imageOcclusionCardCurrentBlock',
+      callback: () => {
+        void this.imageOcclusionHandler?.openFromActiveEditor();
+      },
+      editorCallback: (protyle: unknown) => {
+        void this.imageOcclusionHandler?.openFromEditor(protyle);
+      },
+    });
+  }
+
+  private registerOneClickSymbolCardSlash(): void {
+    if (this.protyleSlash.some((item) => item.id === this.oneClickSymbolSlashId)) {
+      return;
+    }
+
+    const label = this.i18n?.oneClickSymbolCardsCurrentDoc || 'One-click Symbol Cards (Current Doc)';
+    this.protyleSlash.push({
+      id: this.oneClickSymbolSlashId,
+      filter: [
+        'symbol card',
+        'one click card',
+        'symbol',
+        'symbol cards',
+        'fuhao card',
+        '\u7b26\u53f7\u5236\u5361',
+        '\u4e00\u952e\u7b26\u53f7\u5236\u5361',
+      ],
+      html: `
+        <div class="b3-list-item__first">
+          <svg class="b3-list-item__graphic"><use xlink:href="#iconRiffCard"></use></svg>
+          <span class="b3-list-item__text">${label}</span>
+        </div>
+      `,
+      callback: (protyle) => {
+        const docId = this.extractDocIdFromProtyle(protyle);
+        if (docId) {
+          void this.context.getMenuManager().runOneClickSymbolCardCreationByDocId(docId);
+          return;
+        }
+        void this.context.getMenuManager().runOneClickSymbolCardCreationForCurrentDoc();
+      },
+    });
+  }
+
+  private unregisterOneClickSymbolCardSlash(): void {
+    this.protyleSlash = this.protyleSlash.filter((item) => item.id !== this.oneClickSymbolSlashId);
+  }
+
+  private extractDocIdFromProtyle(protyle: unknown): string | null {
+    if (!protyle || typeof protyle !== 'object') {
+      return null;
+    }
+
+    const block = (protyle as { block?: { rootID?: string; id?: string } }).block;
+    const rootId = typeof block?.rootID === 'string' ? block.rootID.trim() : '';
+    if (rootId) {
+      return rootId;
+    }
+
+    const blockId = typeof block?.id === 'string' ? block.id.trim() : '';
+    return blockId || null;
   }
 
   private ensureTopbarMounted(): void {

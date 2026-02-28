@@ -16,15 +16,21 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
   protected cardBlockMap = new Map<string, string>();
 
   private readonly blockIds: string[];
+  private readonly preferredCardId: string | null;
   private initialized = false;
 
   protected constructor(
     manager: UnifiedDataSourceManager,
     type: QueueType,
-    blockIds: string[]
+    blockIds: string[],
+    options?: {
+      preferredCardId?: string;
+    }
   ) {
     super(manager, type);
     this.blockIds = Array.from(new Set((blockIds || []).map((id) => String(id || '')).filter(Boolean)));
+    const preferred = String(options?.preferredCardId || '').trim();
+    this.preferredCardId = preferred.length > 0 ? preferred : null;
   }
 
   public isDynamic(): boolean {
@@ -33,6 +39,7 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
 
   public async getCards(): Promise<FSRSCard[]> {
     await this.ensureInitialized();
+    this.cardOrder = Array.from(new Set(this.cardOrder));
 
     const cards: FSRSCard[] = [];
     const nextOrder: string[] = [];
@@ -42,7 +49,9 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
         const card = await this.manager.getCard(cardId, { silent: true });
         this.cardBlockMap.set(card.id, card.blockId);
 
-        const isBlacklisted = this.temporaryBlacklist.has(card.id) || this.temporaryBlacklist.has(card.blockId);
+        const blockBlacklisted = this.temporaryBlacklist.has(card.blockId);
+        const isBlacklisted = this.temporaryBlacklist.has(card.id)
+          || (blockBlacklisted && !this.isImageOcclusionCard(card));
         if (isBlacklisted) {
           continue;
         }
@@ -81,9 +90,20 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
     }
 
     const targetBlockId = this.cardBlockMap.get(targetCardId);
+    let shouldBlacklistBlockId = Boolean(targetBlockId);
+    if (targetBlockId) {
+      try {
+        const targetCard = await this.manager.getCard(targetCardId, { silent: true });
+        this.cardBlockMap.set(targetCard.id, targetCard.blockId);
+        shouldBlacklistBlockId = !this.isImageOcclusionCard(targetCard);
+      } catch {
+        shouldBlacklistBlockId = true;
+      }
+    }
+
     this.cardOrder = this.cardOrder.filter((cardId) => cardId !== targetCardId);
     this.temporaryBlacklist.add(targetCardId);
-    if (targetBlockId) {
+    if (targetBlockId && shouldBlacklistBlockId) {
       this.temporaryBlacklist.add(targetBlockId);
     }
 
@@ -110,6 +130,17 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
 
   protected postProcessCards(cards: FSRSCard[]): FSRSCard[] {
     return cards;
+  }
+
+  private isImageOcclusionCard(card: FSRSCard): boolean {
+    const meta = card.meta;
+    if (!meta || typeof meta !== 'object') {
+      return false;
+    }
+
+    const source = (meta as Record<string, unknown>).source;
+    const imageOcclusion = (meta as Record<string, unknown>).imageOcclusion;
+    return source === 'image-occlusion' || imageOcclusion === true;
   }
 
   protected async resolveCardIdOrBlockId(cardIdOrBlockId: string): Promise<string | null> {
@@ -172,6 +203,13 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
       this.cardBlockMap.set(card.id, card.blockId);
     }
 
-    this.cardOrder = orderedIds;
+    this.cardOrder = Array.from(new Set(orderedIds));
+    if (this.preferredCardId) {
+      const preferredIndex = this.cardOrder.indexOf(this.preferredCardId);
+      if (preferredIndex > 0) {
+        this.cardOrder.splice(preferredIndex, 1);
+        this.cardOrder.unshift(this.preferredCardId);
+      }
+    }
   }
 }

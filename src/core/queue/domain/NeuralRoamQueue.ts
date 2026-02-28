@@ -1,6 +1,5 @@
 /**
  * Neural Roam Queue
- * 神经漫游队列
  */
 
 import { BaseReviewQueue } from './BaseReviewQueue';
@@ -25,14 +24,9 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('NeuralRoamQueue');
 
-interface LegacySeedOnlyState {
-  seeds: string[];
-  currentSeed: string | null;
-}
-
-interface NeuralRoamPersistedState {
-  version: 2;
-  seeds: string[];
+interface NeuralRoamPersistedStateV3 {
+  version: 3;
+  conceptBlocks: string[];
   session: ConceptNeuralSessionState;
 }
 
@@ -50,15 +44,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function isLegacySeedOnlyState(value: unknown): value is LegacySeedOnlyState {
-  return isRecord(value) && Array.isArray(value.seeds);
-}
-
-function isNeuralRoamPersistedState(value: unknown): value is NeuralRoamPersistedState {
+function isNeuralRoamPersistedStateV3(value: unknown): value is NeuralRoamPersistedStateV3 {
   if (!isRecord(value)) {
     return false;
   }
-  return Number(value.version) === 2 && Array.isArray(value.seeds) && isRecord(value.session);
+  return Number(value.version) === 3
+    && Array.isArray(value.conceptBlocks)
+    && isRecord(value.session);
 }
 
 export class NeuralRoamQueue extends BaseReviewQueue {
@@ -91,32 +83,30 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     });
 
     if (!rawState) {
-      logger.info('No saved data found, starting with empty seeds');
+      logger.info('No saved neural roam state found');
       return;
     }
 
-    if (isNeuralRoamPersistedState(rawState)) {
-      this.conceptQueue.restoreSeeds(rawState.seeds);
+    if (isNeuralRoamPersistedStateV3(rawState)) {
+      this.conceptQueue.restoreConceptBlocks(rawState.conceptBlocks);
       this.conceptQueue.restoreSessionState(rawState.session);
       if (fromStorage) {
-        logger.info(`Loaded neural roam state (v2), seeds=${rawState.seeds.length}`);
+        logger.info(`Loaded neural roam state (v3), conceptBlocks=${rawState.conceptBlocks.length}`);
       }
       return;
     }
 
-    if (isLegacySeedOnlyState(rawState)) {
-      this.conceptQueue.restoreSeeds(rawState.seeds);
-      logger.info(`Loaded legacy neural roam seeds, count=${rawState.seeds.length}`);
-      return;
-    }
-
-    logger.warn('Invalid neural roam persisted state, ignore and start fresh');
+    // Hard-cut migration strategy: reset legacy/v2 state silently.
+    logger.info('Legacy neural roam state detected, reset to v3 schema');
+    this.conceptQueue.restoreConceptBlocks([]);
+    this.conceptQueue.clearHistory('all');
+    await this.save();
   }
 
   async save(): Promise<void> {
-    const data: NeuralRoamPersistedState = {
-      version: 2,
-      seeds: this.conceptQueue.getSeeds(),
+    const data: NeuralRoamPersistedStateV3 = {
+      version: 3,
+      conceptBlocks: this.conceptQueue.getConceptBlocks(),
       session: this.conceptQueue.exportSessionState(),
     };
 
@@ -160,13 +150,13 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       throw new Error('Invalid card or block ID');
     }
 
-    await this.conceptQueue.addSeed(blockId, priority);
+    await this.conceptQueue.addConceptBlock(blockId, priority);
     await this.save();
   }
 
   public async removeCard(cardIdOrBlockId: string): Promise<void> {
     await this.ensureInitialLoad();
-    this.conceptQueue.removeSeed(cardIdOrBlockId);
+    this.conceptQueue.removeConceptBlock(cardIdOrBlockId);
     await this.save();
   }
 
@@ -186,37 +176,73 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     return this.convertToFSRSCard(queueItem);
   }
 
-  public async lockCurrentAsSeed(cardId: string, priority: 'normal' | 'high' = 'normal'): Promise<void> {
+  public async lockCurrentAsFocus(cardId: string, priority: 'normal' | 'high' = 'high'): Promise<void> {
     await this.ensureInitialLoad();
-    await this.conceptQueue.addSeed(cardId, priority);
+
+    await this.conceptQueue.startRoamingFromFocus(cardId, {
+      includeFocusAsFirst: false,
+      resetHistory: false,
+    });
+
+    try {
+      await this.conceptQueue.addConceptBlock(cardId, priority);
+      await this.conceptQueue.setPinnedFocusBlock(cardId, true);
+    } catch (error) {
+      // Virtual focus (non-concept) should not be persisted.
+      logger.debug('Skip persistent focus lock for virtual block', { cardId, error });
+    }
+
     await this.save();
   }
 
-  public clearHistory(): void {
-    this.conceptQueue.clearHistory();
+  public clearHistory(scope: 'current' | 'all' = 'current'): void {
+    this.conceptQueue.clearHistory(scope);
     void this.save().catch((error) => {
       logger.warn('Failed to persist neural roam state after clearHistory:', error);
     });
   }
 
-  public getSeedBlocks(): string[] {
-    return this.conceptQueue.getSeeds();
+  public getConceptBlocks(): string[] {
+    return this.conceptQueue.getConceptBlocks();
   }
 
-  public async startRoamingFromSeed(
-    seedId: string,
+  public async startRoamingFromFocus(
+    focusId: string,
     options: {
-      includeSeedAsFirst?: boolean;
+      includeFocusAsFirst?: boolean;
       resetHistory?: boolean;
     } = {}
   ): Promise<void> {
     await this.ensureInitialLoad();
-    await this.conceptQueue.startRoamingFromSeed(seedId, options);
+    await this.conceptQueue.startRoamingFromFocus(focusId, options);
     await this.save();
   }
 
   public getHistorySnapshot(): NeuralRoamHistoryEntry[] {
     return this.conceptQueue.getHistorySnapshot();
+  }
+
+  public getSessionFocusStack(): NeuralRoamHistoryEntry[] {
+    return this.conceptQueue.getSessionFocusStack();
+  }
+
+  public getPinnedFocusBlocks(): NeuralRoamHistoryEntry[] {
+    return this.conceptQueue.getPinnedFocusBlocks();
+  }
+
+  public async setPinnedFocusBlock(blockId: string, pinned = true): Promise<void> {
+    await this.ensureInitialLoad();
+    await this.conceptQueue.setPinnedFocusBlock(blockId, pinned);
+    await this.save();
+  }
+
+  public async jumpToHistoryNode(nodeId: string): Promise<boolean> {
+    await this.ensureInitialLoad();
+    const jumped = await this.conceptQueue.jumpToHistoryNode(nodeId);
+    if (jumped) {
+      await this.save();
+    }
+    return jumped;
   }
 
   public async getPathItemByNodeId(blockId: string): Promise<FSRSCard | null> {
@@ -267,7 +293,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async getSize(): Promise<number> {
     await this.ensureInitialLoad();
-    return this.conceptQueue.getSeeds().length;
+    return this.conceptQueue.getConceptBlocks().length;
   }
 
   private async convertToFSRSCard(queueItem: ConceptQueueItem): Promise<FSRSCard> {

@@ -206,8 +206,8 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         ];
         if (isNeuralRoam) {
             toolbar.push(
-                { icon: '#iconLock', type: 'lock-seed', ariaLabel: t(this.i18n, 'lockAsSeed', 'Lock as Seed') },
-                { icon: '#iconList', type: 'neural-seeds', ariaLabel: t(this.i18n, 'neuralSeedMenu', 'Seed Blocks') },
+                { icon: '#iconLock', type: 'lock-focus', ariaLabel: t(this.i18n, 'lockAsFocus', 'Lock as Focus') },
+                { icon: '#iconList', type: 'neural-focuses', ariaLabel: t(this.i18n, 'neuralFocusMenu', 'Focus Blocks') },
                 { icon: '#iconHistory', type: 'neural-history', ariaLabel: t(this.i18n, 'neuralHistoryMenu', 'Roam History') }
             );
         }

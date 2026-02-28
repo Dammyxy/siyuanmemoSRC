@@ -509,3 +509,31 @@ sequenceDiagram
 - 移动端统一使用 `100vw x 100vh` 对话框。
 - Review 通过 `isMobile` 关闭桌面 `maxWidth=1024` 限制并使用移动布局。
 - Browser 通过 `mobileMode` 默认 `flat + preview=false`，保留核心筛选与开始练习能力。
+
+---
+
+## 14. Neural Roam Focus Model (2026-02-27)
+
+Neural Roam keeps queue type literal `neural-roam`, but the active contract is fully focus-first.
+
+1. Public contract updates
+- `NeuralRoamHistoryEntry.seedId` -> `focusId`
+- Added `sessionId`, `isVirtual`, `nodePreview`
+- `NeuralRoamSessionQueue` now exposes `getConceptBlocks`, `startRoamingFromFocus`, `getSessionFocusStack`, `getPinnedFocusBlocks`, `setPinnedFocusBlock`, `jumpToHistoryNode`, `clearHistory(scope)`
+
+2. Persistence strategy
+- Neural roam state schema is v3 only.
+- Legacy/v2 payloads are silently reset to v3 (no migration aliases in active path).
+- History keeps cross-session boundaries via `sessionId`.
+
+3. Browser integration (`SRSBrowser.vue`)
+- Neural roam has in-browser subviews (no separate page):
+- `Concept Cards` (AG Grid, concept-only)
+- `Focus Blocks` (session stack + pinned pool)
+- `Roam History` (current/all scope, collapsible session groups)
+- Neural queue card-type filter is constrained to `concept-only`.
+
+4. Review actions and naming
+- Action IDs: `lock-focus`, `neural-focuses`
+- Terminology moved from seed to focus in active flow.
+- Main product name stays `Neural Roam`.

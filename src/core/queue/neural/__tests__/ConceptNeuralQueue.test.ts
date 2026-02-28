@@ -1,13 +1,5 @@
-/**
- * ConceptNeuralQueue 单元测试
- */
-
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+﻿import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConceptNeuralQueue } from '../ConceptNeuralQueue';
-import { ConceptQueryEngine } from '../ConceptQueryEngine';
-
-// Mock ConceptQueryEngine
-vi.mock('../ConceptQueryEngine');
 
 describe('ConceptNeuralQueue', () => {
   let queue: ConceptNeuralQueue;
@@ -18,213 +10,159 @@ describe('ConceptNeuralQueue', () => {
     mockQueryEngine = (queue as any).queryEngine;
   });
 
-  describe('addSeed', () => {
-    it('should add a concept card as seed', async () => {
-      mockQueryEngine.isConceptCard = vi.fn().mockResolvedValue(true);
-
-      await queue.addSeed('concept-1');
-
-      expect(queue.getSeeds()).toContain('concept-1');
+  it('adds concept blocks via focus-first API', async () => {
+    mockQueryEngine.isConceptCard = vi.fn().mockResolvedValue(true);
+    mockQueryEngine.fetchBlockData = vi.fn().mockResolvedValue({
+      id: 'concept-1',
+      content: 'Concept 1 content',
+      type: 'p',
     });
 
-    it('should reject non-concept cards', async () => {
-      mockQueryEngine.isConceptCard = vi.fn().mockResolvedValue(false);
+    await queue.addConceptBlock('concept-1');
 
-      await expect(queue.addSeed('normal-block-1')).rejects.toThrow();
+    expect(queue.getConceptBlocks()).toEqual(['concept-1']);
+  });
+
+  it('rejects non-concept blocks from persistent concept pool', async () => {
+    mockQueryEngine.isConceptCard = vi.fn().mockResolvedValue(false);
+
+    await expect(queue.addConceptBlock('virtual-1')).rejects.toThrow();
+    expect(queue.getConceptBlocks()).toEqual([]);
+  });
+
+  it('supports roaming from virtual focus and continues spreading activation', async () => {
+    mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+    mockQueryEngine.fetchNeighbors = vi.fn().mockResolvedValue([
+      { id: 'virtual-neighbor-1', type: 'backlink', weight: 10 },
+    ]);
+
+    await queue.startRoamingFromFocus('virtual-focus-1', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    const firstHistory = queue.getHistorySnapshot();
+    expect(firstHistory).toHaveLength(1);
+    expect(firstHistory[0]).toMatchObject({
+      nodeId: 'virtual-focus-1',
+      focusId: 'virtual-focus-1',
+      associationType: 'focus',
+      isVirtual: true,
+    });
+    expect(queue.getConceptBlocks()).not.toContain('virtual-focus-1');
+
+    const nextCard = await queue.getNextCard();
+    expect(nextCard?.blockId).toBe('virtual-neighbor-1');
+    expect(nextCard?.associationType).toBe('backlink');
+
+    const history = queue.getHistorySnapshot();
+    expect(history).toHaveLength(2);
+    expect(history[1].nodeId).toBe('virtual-neighbor-1');
+  });
+
+  it('enforces sessionId boundary after clearing current session history', async () => {
+    mockQueryEngine.isConceptCard = vi.fn().mockResolvedValue(true);
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+
+    await queue.startRoamingFromFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    const firstSessionId = queue.getNavigationState().sessionId;
+    expect(firstSessionId).toBeTruthy();
+    expect(queue.getHistorySnapshot()).toHaveLength(1);
+
+    queue.clearHistory('current');
+    expect(queue.getHistorySnapshot()).toHaveLength(0);
+
+    await queue.startRoamingFromFocus('concept-b', {
+      includeFocusAsFirst: true,
+    });
+
+    const secondSessionId = queue.getNavigationState().sessionId;
+    expect(secondSessionId).toBeTruthy();
+    expect(secondSessionId).not.toBe(firstSessionId);
+
+    const history = queue.getHistorySnapshot();
+    expect(history).toHaveLength(1);
+    expect(history[0].sessionId).toBe(secondSessionId);
+    expect(history[0].nodeId).toBe('concept-b');
+  });
+
+  it('builds session focus stack from focus nodes instead of full roam nodes', async () => {
+    mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+    mockQueryEngine.fetchNeighbors = vi.fn(async (focusId: string) => {
+      if (focusId === 'concept-1') {
+        return [{ id: 'neighbor-1', type: 'backlink', weight: 10 }];
+      }
+      return [];
+    });
+
+    await queue.addConceptBlock('concept-1');
+    await queue.startRoamingFromFocus('concept-1', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    await queue.getNextCard();
+
+    const focusStack = queue.getSessionFocusStack();
+    expect(focusStack.map((entry) => entry.nodeId)).toEqual(['concept-1']);
+    expect(focusStack[0]).toMatchObject({
+      associationType: 'focus',
+      focusId: 'concept-1',
     });
   });
 
-  describe('getNextCard', () => {
-    it('should return null when no seeds', async () => {
-      const card = await queue.getNextCard();
-      expect(card).toBeNull();
+  it('serves jumped history node as the first follow card once', async () => {
+    mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+
+    let neighborCall = 0;
+    mockQueryEngine.fetchNeighbors = vi.fn(async () => {
+      neighborCall += 1;
+      if (neighborCall === 1) {
+        return [{ id: 'neighbor-1', type: 'backlink', weight: 10 }];
+      }
+      return [{ id: 'neighbor-2', type: 'outgoing-direct', weight: 10 }];
     });
 
-    it('should return neighbor when seed has unvisited neighbors', async () => {
-      // Setup
-      mockQueryEngine.isConceptCard = vi.fn().mockResolvedValue(true);
-      mockQueryEngine.fetchNeighbors = vi.fn().mockResolvedValue([
-        { id: 'neighbor-1', type: 'backlink', weight: 15 },
-      ]);
-      mockQueryEngine.fetchBlockData = vi.fn().mockResolvedValue({
-        id: 'neighbor-1',
-        content: 'Neighbor content',
-        type: 'p',
-      });
-
-      await queue.addSeed('concept-1');
-
-      // Execute
-      const card = await queue.getNextCard();
-
-      // Verify
-      expect(card).not.toBeNull();
-      expect(card?.blockId).toBe('neighbor-1');
-      expect(card?.associationType).toBe('backlink');
+    await queue.addConceptBlock('concept-1');
+    await queue.startRoamingFromFocus('concept-1', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
     });
 
-    it('should return seed itself when no neighbors', async () => {
-      // Setup
-      mockQueryEngine.isConceptCard = vi.fn().mockResolvedValue(true);
-      mockQueryEngine.fetchNeighbors = vi.fn().mockResolvedValue([]);
-      mockQueryEngine.fetchBlockData = vi.fn().mockResolvedValue({
-        id: 'concept-1',
-        content: 'Concept content',
-        type: 'p',
-      });
+    await queue.getNextCard(); // neighbor-1
+    await queue.getNextCard(); // neighbor-2
 
-      await queue.addSeed('concept-1');
+    const jumped = await queue.jumpToHistoryNode('neighbor-1');
+    expect(jumped).toBe(true);
+    expect(queue.getNavigationState().navigationMode).toBe('follow');
 
-      // Execute
-      const card = await queue.getNextCard();
+    const firstFollow = await queue.getNextCard();
+    expect(firstFollow?.blockId).toBe('neighbor-1');
 
-      // Verify
-      expect(card).not.toBeNull();
-      expect(card?.blockId).toBe('concept-1');
-      expect(card?.associationType).toBe('seed');
-    });
-
-    it('should select new seed when current seed exhausted', async () => {
-      // Setup
-      mockQueryEngine.isConceptCard = vi.fn().mockResolvedValue(true);
-      mockQueryEngine.fetchNeighbors = vi.fn().mockResolvedValue([]);
-      mockQueryEngine.fetchBlockData = vi.fn()
-        .mockResolvedValueOnce({ id: 'concept-1', content: 'C1', type: 'p' })
-        .mockResolvedValueOnce({ id: 'concept-2', content: 'C2', type: 'p' });
-
-      await queue.addSeed('concept-1');
-      await queue.addSeed('concept-2');
-
-      // Execute
-      const card1 = await queue.getNextCard();
-      const card2 = await queue.getNextCard();
-
-      // Verify
-      expect(card1?.blockId).toBe('concept-1');
-      expect(card2?.blockId).toBe('concept-2');
-    });
-  });
-
-  describe('clearHistory', () => {
-    it('should clear visited blocks and display path', async () => {
-      // Setup
-      mockQueryEngine.isConceptCard = vi.fn().mockResolvedValue(true);
-      mockQueryEngine.fetchNeighbors = vi.fn().mockResolvedValue([]);
-      mockQueryEngine.fetchBlockData = vi.fn().mockResolvedValue({
-        id: 'concept-1',
-        content: 'Concept content',
-        type: 'p',
-      });
-
-      await queue.addSeed('concept-1');
-      await queue.getNextCard();
-
-      // Execute
-      queue.clearHistory();
-
-      // Verify - should be able to get the same card again
-      const card = await queue.getNextCard();
-      expect(card?.blockId).toBe('concept-1');
-    });
-  });
-
-  describe('size', () => {
-    it('should return number of unvisited seeds', async () => {
-      mockQueryEngine.isConceptCard = vi.fn().mockResolvedValue(true);
-      mockQueryEngine.fetchNeighbors = vi.fn().mockResolvedValue([]);
-      mockQueryEngine.fetchBlockData = vi.fn().mockResolvedValue({
-        id: 'concept-1',
-        content: 'Concept content',
-        type: 'p',
-      });
-
-      await queue.addSeed('concept-1');
-      await queue.addSeed('concept-2');
-
-      expect(queue.size()).toBe(2);
-
-      await queue.getNextCard();
-      expect(queue.size()).toBe(1);
-    });
-  });
-
-  describe('session capabilities', () => {
-    it('should start roaming from a seed and expose history/navigation state', async () => {
-      mockQueryEngine.isConceptCard = vi.fn().mockResolvedValue(true);
-      mockQueryEngine.fetchBlockData = vi.fn().mockResolvedValue({
-        id: 'seed-1',
-        content: 'Seed content',
-        type: 'p',
-      });
-
-      await queue.startRoamingFromSeed('seed-1', {
-        includeSeedAsFirst: true,
-        resetHistory: true,
-      });
-
-      const history = queue.getHistorySnapshot();
-      const navigation = queue.getNavigationState();
-
-      expect(history).toHaveLength(1);
-      expect(history[0].nodeId).toBe('seed-1');
-      expect(history[0].associationType).toBe('seed');
-      expect(navigation.currentNodeId).toBe('seed-1');
-      expect(navigation.pathLength).toBe(1);
-    });
-
-    it('should support bookmark return after jumping to another path node', async () => {
-      mockQueryEngine.fetchBlockData = vi.fn(async (id: string) => ({
-        id,
-        content: `${id}-content`,
-        type: 'p',
-      }));
-
-      queue.restoreSessionState({
-        displayPath: ['seed-1', 'node-2'],
-        currentPathIndex: 1,
-        navigationMode: 'explore',
-        bookmarkPathIndex: null,
-        history: [
-          { nodeId: 'seed-1', seedId: 'seed-1', associationType: 'seed', reason: '种子节点', visitedAt: Date.now() - 2 },
-          { nodeId: 'node-2', seedId: 'seed-1', associationType: 'backlink', reason: '反向链接', visitedAt: Date.now() - 1 },
-        ],
-      });
-
-      await queue.getPathItemByNodeId('seed-1');
-      const jumpedState = queue.getNavigationState();
-      expect(jumpedState.currentNodeId).toBe('seed-1');
-      expect(jumpedState.navigationMode).toBe('follow');
-      expect(jumpedState.hasBookmark).toBe(true);
-
-      expect(queue.returnToBookmark()).toBe(true);
-      const restoredState = queue.getNavigationState();
-      expect(restoredState.currentNodeId).toBe('node-2');
-      expect(restoredState.hasBookmark).toBe(false);
-    });
-
-    it('should export and restore session state', () => {
-      const now = Date.now();
-      queue.restoreSessionState({
-        displayPath: ['a', 'b', 'c'],
-        currentPathIndex: 2,
-        navigationMode: 'follow',
-        bookmarkPathIndex: 1,
-        currentSeed: 'a',
-        visitedBlocks: ['a', 'b', 'c'],
-        exhaustedSeeds: ['z'],
-        history: [
-          { nodeId: 'a', seedId: 'a', associationType: 'seed', reason: '种子节点', visitedAt: now - 2 },
-          { nodeId: 'b', seedId: 'a', associationType: 'descriptor', reason: '描述符卡', visitedAt: now - 1 },
-        ],
-      });
-
-      const snapshot = queue.exportSessionState();
-      expect(snapshot.displayPath).toEqual(['a', 'b', 'c']);
-      expect(snapshot.currentPathIndex).toBe(2);
-      expect(snapshot.navigationMode).toBe('follow');
-      expect(snapshot.bookmarkPathIndex).toBe(1);
-      expect(snapshot.history).toHaveLength(2);
-      expect(snapshot.visitedBlocks).toEqual(expect.arrayContaining(['a', 'b', 'c']));
-    });
+    const secondFollow = await queue.getNextCard();
+    expect(secondFollow?.blockId).toBe('neighbor-2');
   });
 });

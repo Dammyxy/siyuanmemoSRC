@@ -179,9 +179,9 @@ export class CardTypeMarkerService {
       attrs['custom-fsrs-card-type'] = card.cardTypeMarker;
     }
 
-    // 如果是概念卡且是神经漫游种子，添加种子标记
+    // 如果是概念卡且是神经漫游焦点，添加焦点标记
     if (card.cardTypeMarker === 'concept' && card.neuralRoamSeed) {
-      attrs['custom-fsrs-neural-seed'] = 'true';
+      attrs['custom-fsrs-neural-focus'] = 'true';
     }
 
     // 更新块属性

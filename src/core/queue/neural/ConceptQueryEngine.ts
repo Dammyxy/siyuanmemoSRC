@@ -292,22 +292,26 @@ export class ConceptQueryEngine {
         }
       }
       
-      // 方法2：如果块属性没有，查询 FSRSCard（Riff 数据源）
-      const stmt2 = `
-        SELECT 1
-        FROM fsrs_cards
-        WHERE block_id = '${this.escapeSQL(blockId)}'
-          AND type = 'concept'
-        LIMIT 1
-      `;
-      
-      const rows2 = await api.sql(stmt2);
-      
-      logger.debug(`isConceptCard(${blockId}): FSRSCard 查询结果 =`, rows2);
-      
-      if (rows2 && rows2.length > 0) {
-        logger.debug(`isConceptCard(${blockId}): 从 FSRSCard 判断为 concept 卡`);
-        return true;
+      // 方法2（兼容）：块属性缺失时，尝试从 FSRSCard 数据源判定。
+      // 注意：不同环境下可能不存在 fsrs_cards 或 SQL 方言差异，失败时静默降级为 false。
+      try {
+        const stmt2 = `
+          SELECT block_id
+          FROM fsrs_cards
+          WHERE block_id = '${this.escapeSQL(blockId)}'
+            AND type = 'concept'
+        `;
+
+        const rows2 = await api.sql(stmt2);
+
+        logger.debug(`isConceptCard(${blockId}): FSRSCard 查询结果 =`, rows2);
+
+        if (rows2 && rows2.length > 0) {
+          logger.debug(`isConceptCard(${blockId}): 从 FSRSCard 判断为 concept 卡`);
+          return true;
+        }
+      } catch {
+        logger.debug(`isConceptCard(${blockId}): FSRSCard 兼容查询不可用，按非概念卡处理`);
       }
       
       logger.debug(`isConceptCard(${blockId}): 不是 concept 卡`);

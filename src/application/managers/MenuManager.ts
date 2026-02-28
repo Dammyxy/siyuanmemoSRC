@@ -18,7 +18,9 @@
 import type { Plugin } from 'siyuan';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { DialogManager } from './DialogManager';
-import { Menu } from 'siyuan';
+import { Menu, showMessage } from 'siyuan';
+import type FSRSPlugin from '@/index';
+import type { AutoCardHandler } from '@/application/handlers/AutoCardHandler';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('MenuManager');
@@ -183,6 +185,14 @@ export class MenuManager {
         this.openSRSBrowser();
       },
     });
+
+    menu.addItem({
+      icon: 'iconRiffCard',
+      label: this.i18n?.oneClickSymbolCardsCurrentDoc || '一键符号制卡（当前文档）',
+      click: () => {
+        void this.runOneClickSymbolCardCreationForCurrentDoc();
+      },
+    });
     
     menu.addSeparator();
     
@@ -216,6 +226,26 @@ export class MenuManager {
     } else {
       menu.open({ x: ev.clientX, y: ev.clientY, isLeft: true });
     }
+  }
+
+  public async runOneClickSymbolCardCreationForCurrentDoc(): Promise<void> {
+    const docId = this.getCurrentDocId();
+    if (!docId) {
+      showMessage(this.i18n?.oneClickSymbolCardsNoDoc || '未检测到当前文档，无法执行一键符号制卡');
+      return;
+    }
+
+    await this.runOneClickSymbolCardCreation(docId);
+  }
+
+  public async runOneClickSymbolCardCreationByDocId(docId: string | null | undefined): Promise<void> {
+    const normalizedDocId = typeof docId === 'string' ? docId.trim() : '';
+    if (!normalizedDocId) {
+      showMessage(this.i18n?.oneClickSymbolCardsNoDoc || '未检测到当前文档，无法执行一键符号制卡');
+      return;
+    }
+
+    await this.runOneClickSymbolCardCreation(normalizedDocId);
   }
   
   // ========================================================================
@@ -298,6 +328,66 @@ export class MenuManager {
    */
   private openSettings(): void {
     this.dialogManager.openSettingsDialog();
+  }
+
+  private getCurrentDocId(): string | null {
+    const mobileDocId = document
+      .querySelector('#editor .protyle-content .protyle-background[data-node-id]')
+      ?.getAttribute('data-node-id');
+    if (mobileDocId) {
+      return mobileDocId;
+    }
+
+    let currentScreen = document.querySelector('.b3-dialog--open') as HTMLElement | null;
+    if (currentScreen?.querySelector('#commands')) {
+      currentScreen = null;
+    }
+    if (!currentScreen) {
+      currentScreen = document.querySelector('.layout__wnd--active') as HTMLElement | null;
+    }
+    if (!currentScreen) {
+      return null;
+    }
+
+    const breadcrumbDocId = currentScreen
+      .querySelector('span.protyle-breadcrumb__item--active[data-node-id]')
+      ?.getAttribute('data-node-id');
+    if (breadcrumbDocId) {
+      return breadcrumbDocId;
+    }
+
+    return currentScreen
+      .querySelector('.protyle-content .protyle-background[data-node-id]')
+      ?.getAttribute('data-node-id') || null;
+  }
+
+  private async runOneClickSymbolCardCreation(docId: string): Promise<void> {
+    let tempHandler: AutoCardHandler | undefined;
+    try {
+      showMessage(this.i18n?.oneClickSymbolCardsRunning || '正在扫描当前文档并按符号制卡...');
+
+      let handler = this.context.getAutoCardHandler();
+      if (!handler) {
+        const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
+        tempHandler = new AutoCardHandler(this.plugin as unknown as FSRSPlugin);
+        handler = tempHandler;
+      }
+
+      const summary = await handler.scanDocumentByRootId(docId);
+      const doneMessage = (this.i18n?.oneClickSymbolCardsDone
+        || '符号制卡完成：扫描 {scanned} 个块，新增 {created}，跳过 {skipped}，失败 {failed}。')
+        .replace('{scanned}', String(summary.scanned))
+        .replace('{created}', String(summary.created))
+        .replace('{skipped}', String(summary.skipped))
+        .replace('{failed}', String(summary.failed));
+      showMessage(doneMessage);
+    } catch (error) {
+      logger.error('[MenuManager] One-click symbol card creation failed:', error);
+      const errorMessage = this.i18n?.oneClickSymbolCardsFailed || '一键符号制卡失败';
+      showMessage(errorMessage);
+    } finally {
+      tempHandler?.dispose();
+    }
   }
   
   // ========================================================================

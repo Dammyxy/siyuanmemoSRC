@@ -6,7 +6,7 @@
  * - 加载下一张卡片
  * - 根据卡片类型和队列类型返回按钮配置
  * - 处理按钮点击事件
- * - 处理评分和操作（插入、跳过、锁定种子）
+ * - 处理评分和操作（插入、跳过、锁定焦点）
  * 
  * @see .kiro/specs/unified-data-source-architecture/requirements.md
  * @see .kiro/specs/unified-data-source-architecture/design.md
@@ -26,7 +26,7 @@ const logger = createLogger('ReviewViewController');
  * 复习界面控制器，负责：
  * - 从队列加载卡片
  * - 根据卡片类型和队列类型生成按钮配置
- * - 处理用户交互（评分、插入、跳过、锁定种子）
+ * - 处理用户交互（评分、插入、跳过、锁定焦点）
  * - 管理复习会话状态
  * 
  * @see 需求 10.1, 10.2, 10.3, 10.4, 21.1, 21.2, 21.3
@@ -124,14 +124,14 @@ export class ReviewViewController {
      * 
      * 1. 项目卡片（item）：
      *    - 普通队列：4 个评分按钮（1, 2, 3, 4）
-     *    - 神经漫游队列：4 个评分按钮 + "锁定为种子"按钮
+     *    - 神经漫游队列：4 个评分按钮 + "锁定为焦点"按钮
      * 
      * 2. 主题卡片（topic）：
      *    - 普通队列："插入"和"下一个"按钮
-     *    - 神经漫游队列："插入"、"下一个"和"锁定为种子"按钮
+     *    - 神经漫游队列："插入"、"下一个"和"锁定为焦点"按钮
      * 
      * 3. 普通块（仅神经漫游）：
-     *    - "下一个"和"锁定为种子"按钮
+     *    - "下一个"和"锁定为焦点"按钮
      * 
      * @param card 要获取按钮配置的卡片
      * @returns 按钮配置数组
@@ -150,12 +150,12 @@ export class ReviewViewController {
                 { type: 'rating', label: '4', value: 4 },
             ];
             
-            // 神经漫游模式：添加"锁定为种子"按钮
+            // 神经漫游模式：添加"锁定为焦点"按钮
             if (isNeuralRoam) {
                 buttons.push({
                     type: 'action',
-                    label: this.manager.getI18n?.('lockAsSeed') || '锁定为种子',
-                    action: 'lock-seed'
+                    label: this.manager.getI18n?.('lockAsFocus') || '锁定为焦点',
+                    action: 'lock-focus'
                 });
             }
 
@@ -167,12 +167,12 @@ export class ReviewViewController {
                 { type: 'action', label: this.manager.getI18n?.('actionNext') || '下一个', action: 'next' },
             ];
 
-            // 神经漫游模式：添加"锁定为种子"按钮
+            // 神经漫游模式：添加"锁定为焦点"按钮
             if (isNeuralRoam) {
                 buttons.push({
                     type: 'action',
-                    label: this.manager.getI18n?.('lockAsSeed') || '锁定为种子',
-                    action: 'lock-seed'
+                    label: this.manager.getI18n?.('lockAsFocus') || '锁定为焦点',
+                    action: 'lock-focus'
                 });
             }
             
@@ -328,17 +328,17 @@ export class ReviewViewController {
      * 处理非评分操作，包括：
      * - insert: 插入卡片到指定位置
      * - next: 跳过当前卡片
-     * - lock-seed: 锁定当前块为种子（仅神经漫游）
+     * - lock-focus: 锁定当前块为焦点（仅神经漫游）
      * 
      * 操作逻辑：
      * - insert: 提示用户输入位置，然后在该位置插入卡片
      * - next: 跳过卡片，不评分，不更新调度数据
-     * - lock-seed: 将当前块添加到神经漫游的种子块集合
+     * - lock-focus: 将当前块添加到神经漫游焦点集合
      * 
      * @param action 操作类型
      * @see 需求 10.1, 10.3, 10.4, 19.1, 19.2, 21.3
      */
-    private async handleAction(action: 'insert' | 'next' | 'lock-seed'): Promise<void> {
+    private async handleAction(action: 'insert' | 'next' | 'lock-focus'): Promise<void> {
         if (!this.currentCard || !this.currentQueue) {
             throw new Error('No current card or queue');
         }
@@ -353,18 +353,18 @@ export class ReviewViewController {
             } else if (action === 'next') {
                 // 跳过操作：不做任何操作，直接加载下一张卡片
                 logger.info(`[SiYuanMemo] ReviewViewController: Card ${this.currentCard.id} skipped`);
-            } else if (action === 'lock-seed') {
-                // 锁定种子操作：仅神经漫游队列支持
+            } else if (action === 'lock-focus') {
+                // 锁定焦点操作：仅神经漫游队列支持
                 if (this.currentQueue.getType() === QueueTypeEnum.NeuralRoam) {
                     const neuralQueue = this.currentQueue as NeuralRoamQueue;
-                    await neuralQueue.lockCurrentAsSeed(this.currentCard.id);
+                    await neuralQueue.lockCurrentAsFocus(this.currentCard.id);
                     
                     // 显示通知
-                    this.showNotification('已锁定为种子块');
+                    this.showNotification('已锁定为焦点块');
                     
-                    logger.info(`[SiYuanMemo] ReviewViewController: Card ${this.currentCard.id} locked as seed`);
+                    logger.info(`[SiYuanMemo] ReviewViewController: Card ${this.currentCard.id} locked as focus`);
                 } else {
-                    logger.warn('[SiYuanMemo] ReviewViewController: Lock seed action is only available in Neural Roam queue');
+                    logger.warn('[SiYuanMemo] ReviewViewController: Lock focus action is only available in Neural Roam queue');
                 }
             }
         } catch (error) {

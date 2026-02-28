@@ -41,13 +41,13 @@ export interface IDialogManager {
    * 打开神经漫游对话框
    * 
    * @param options - 可选配置
-   * @param options.seedBlockId - 种子块 ID
-   * @param options.includeSeedAsFirst - 是否将种子块作为第一张卡片
+   * @param options.focusBlockId - 焦点块 ID
+   * @param options.includeFocusAsFirst - 是否将焦点块作为第一张卡片
    * @param options.resetHistory - 是否重置历史记录
    */
   openNeuralRoamDialog(options?: {
-    seedBlockId?: string;
-    includeSeedAsFirst?: boolean;
+    focusBlockId?: string;
+    includeFocusAsFirst?: boolean;
     resetHistory?: boolean;
   }): Promise<void>;
   
@@ -64,7 +64,10 @@ export interface IDialogManager {
   /**
    * 打开浏览器对话框
    */
-  openBrowserDialog(): void;
+  openBrowserDialog(options?: {
+    initialQueueId?: string;
+    initialNeuralSubview?: 'concept-cards' | 'focus-blocks' | 'roam-history';
+  }): void;
 
   /**
    * 打开移动端队列启动面板
@@ -98,7 +101,12 @@ export interface IDialogManager {
    * 
    * @param blockIds - 块 ID 列表
    */
-  openSubsetReviewDialog(blockIds: string[]): Promise<void>;
+  openSubsetReviewDialog(
+    blockIds: string[],
+    options?: {
+      preferredCardId?: string;
+    }
+  ): Promise<void>;
   
   /**
    * 打开临时演练对话框

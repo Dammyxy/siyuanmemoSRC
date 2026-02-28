@@ -21,7 +21,12 @@ import type {
   GetBrowserCardsQuery,
   GetBrowserCardsQueryResult,
 } from '../queries/browser/GetBrowserCardsQuery';
-import type { CardFilter, IReviewQueue, IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
+import type {
+  BrowserCardTypeFilter,
+  CardFilter,
+  IReviewQueue,
+  IUnifiedDataSourceManagerFacade,
+} from '@/types/unified-data-source';
 import type { BrowserSiyuanPort } from '../ports/BrowserSiyuanPort';
 
 export type BrowserQueueId =
@@ -43,7 +48,7 @@ export interface DataSourceOptions {
   /** 查询文本 */
   queryText?: string;
   /** 卡片类型 */
-  cardType?: 'all' | 'topic-only' | 'item-only';
+  cardType?: BrowserCardTypeFilter;
   /** 队列 ID */
   queueId?: string;
   /** 插件实例 */

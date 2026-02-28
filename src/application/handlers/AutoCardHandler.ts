@@ -17,9 +17,22 @@ type QuickCardSettings = {
         concept?: boolean;
         descriptor?: boolean;
         cloze?: boolean;
+        multiLine?: boolean;
+    };
+    debounceDelay?: {
+        quick?: number;
+        list?: number;
     };
     enableDebounce?: boolean;
 };
+
+export interface AutoCardDocumentScanResult {
+    rootId: string;
+    scanned: number;
+    created: number;
+    skipped: number;
+    failed: number;
+}
 
 type SettingsServiceLike = {
     getSettings: () => {
@@ -270,6 +283,71 @@ export class AutoCardHandler implements ITransactionHandler {
             }
         }
     }
+
+    public async scanDocumentByRootId(rootId: string): Promise<AutoCardDocumentScanResult> {
+        const normalizedRootId = rootId.trim();
+        const result: AutoCardDocumentScanResult = {
+            rootId: normalizedRootId,
+            scanned: 0,
+            created: 0,
+            skipped: 0,
+            failed: 0,
+        };
+
+        if (!normalizedRootId) {
+            return result;
+        }
+
+        const stmt = `
+            SELECT id
+            FROM blocks
+            WHERE root_id = '${this.escapeSql(normalizedRootId)}'
+              AND type = 'p'
+            ORDER BY id ASC
+        `;
+
+        const rows = await this.siyuanApi.sql(stmt) as Array<{ id?: string }>;
+        const blockIds = rows
+            .map((row) => (typeof row.id === 'string' ? row.id : ''))
+            .filter((id): id is string => id.length > 0);
+
+        if (blockIds.length === 0) {
+            return result;
+        }
+
+        const cardService = this.getCardService();
+        for (const blockId of blockIds) {
+            result.scanned += 1;
+
+            if (this.processing.has(blockId)) {
+                result.skipped += 1;
+                continue;
+            }
+
+            const existedBefore = Boolean(cardService.getCardByBlockId(blockId));
+            this.processing.add(blockId);
+
+            try {
+                await this.checkQuickSymbols(blockId, { force: true });
+                await this.checkListTemplate(blockId, { force: true });
+
+                const existedAfter = Boolean(cardService.getCardByBlockId(blockId));
+                if (!existedBefore && existedAfter) {
+                    result.created += 1;
+                } else {
+                    result.skipped += 1;
+                }
+            } catch (error) {
+                result.failed += 1;
+                logger.error('[SiYuanMemo][AutoCard] Failed to scan block during document scan:', blockId, error);
+            } finally {
+                this.processing.delete(blockId);
+                this.lastEditTime.delete(blockId);
+            }
+        }
+
+        return result;
+    }
     
     private queueQuickCheck(blockId: string): void {
         this.quickQueue.add(blockId);
@@ -361,11 +439,15 @@ export class AutoCardHandler implements ITransactionHandler {
     }
     
     // Check a block for quick symbols and create all matched cards in one pass.
-    private async checkQuickSymbols(blockId: string): Promise<void> {
+    private async checkQuickSymbols(blockId: string, options?: { force?: boolean }): Promise<void> {
         try {
 
             const quickCardSettings = this.settingsService.getSettings().quickCard;
-            if (!quickCardSettings?.enabled) {
+            if (!quickCardSettings) {
+                return;
+            }
+
+            if (!quickCardSettings.enabled && !options?.force) {
                 return;
             }
             
@@ -410,8 +492,19 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             
 
-            logger.debug('[SiYuanMemo][AutoCard] Enabled symbols:', JSON.stringify(quickCardSettings.enabledSymbols));
-            const detectedSymbols = this.detectAllSymbols(kramdown, quickCardSettings);
+            const normalizedSettings: QuickCardSettings = {
+                ...quickCardSettings,
+                enabledSymbols: {
+                    basic: quickCardSettings.enabledSymbols?.basic ?? true,
+                    concept: quickCardSettings.enabledSymbols?.concept ?? true,
+                    descriptor: quickCardSettings.enabledSymbols?.descriptor ?? true,
+                    cloze: quickCardSettings.enabledSymbols?.cloze ?? true,
+                    multiLine: quickCardSettings.enabledSymbols?.multiLine ?? true,
+                },
+            };
+
+            logger.debug('[SiYuanMemo][AutoCard] Enabled symbols:', JSON.stringify(normalizedSettings.enabledSymbols));
+            const detectedSymbols = this.detectAllSymbols(kramdown, normalizedSettings);
             
             if (detectedSymbols.length === 0) {
                 logger.debug('[SiYuanMemo][AutoCard] No quick symbol detected:', blockId);
@@ -660,11 +753,19 @@ export class AutoCardHandler implements ITransactionHandler {
     }
     
     // Handle list template marker (>>> + child list items).
-    private async checkListTemplate(blockId: string): Promise<void> {
+    private async checkListTemplate(blockId: string, options?: { force?: boolean }): Promise<void> {
         try {
 
             const quickCardSettings = this.settingsService.getSettings().quickCard;
-            if (!quickCardSettings?.enabled || !quickCardSettings.enabledSymbols.multiLine) {
+            if (!quickCardSettings) {
+                return;
+            }
+
+            if (!quickCardSettings.enabled && !options?.force) {
+                return;
+            }
+
+            if (!(quickCardSettings.enabledSymbols?.multiLine ?? true)) {
                 return;
             }
             
@@ -1967,5 +2068,9 @@ export class AutoCardHandler implements ITransactionHandler {
             return error;
         }
         return 'unknown error';
+    }
+
+    private escapeSql(value: string): string {
+        return value.replace(/'/g, "''");
     }
 }

@@ -124,46 +124,65 @@ export interface NeuralNavigationState {
     navigationMode: NeuralNavigationMode;
     hasBookmark: boolean;
     pathLength: number;
+    sessionId: string | null;
 }
 
 export interface NeuralRoamHistoryEntry {
     nodeId: string;
-    seedId: string | null;
+    focusId: string | null;
+    sessionId: string;
     associationType: string;
     reason: string;
     visitedAt: number;
+    isVirtual: boolean;
+    nodePreview: string;
 }
 
 export interface NeuralRoamSessionQueue {
-    getSeedBlocks(): string[];
-    startRoamingFromSeed(
-        seedId: string,
+    getConceptBlocks(): string[];
+    startRoamingFromFocus(
+        focusId: string,
         options?: {
-            includeSeedAsFirst?: boolean;
+            includeFocusAsFirst?: boolean;
             resetHistory?: boolean;
         }
     ): Promise<void>;
     getHistorySnapshot(): NeuralRoamHistoryEntry[];
+    getSessionFocusStack(): NeuralRoamHistoryEntry[];
+    getPinnedFocusBlocks(): NeuralRoamHistoryEntry[];
+    setPinnedFocusBlock(blockId: string, pinned?: boolean): Promise<void>;
+    jumpToHistoryNode(nodeId: string): Promise<boolean>;
     getPathItemByNodeId(blockId: string): Promise<FSRSCard | null>;
     getNavigationState(): NeuralNavigationState;
     setNavigationMode(mode: NeuralNavigationMode): void;
     returnToBookmark(): boolean;
-    clearHistory(): void;
+    clearHistory(scope?: 'current' | 'all'): void;
 }
 
 export function isNeuralRoamSessionQueue(
     queue: unknown
 ): queue is IReviewQueue & NeuralRoamSessionQueue {
     const candidate = queue as Partial<NeuralRoamSessionQueue>;
-    return typeof candidate?.getSeedBlocks === 'function'
-        && typeof candidate?.startRoamingFromSeed === 'function'
+    return typeof candidate?.getConceptBlocks === 'function'
+        && typeof candidate?.startRoamingFromFocus === 'function'
         && typeof candidate?.getHistorySnapshot === 'function'
+        && typeof candidate?.getSessionFocusStack === 'function'
+        && typeof candidate?.getPinnedFocusBlocks === 'function'
+        && typeof candidate?.setPinnedFocusBlock === 'function'
+        && typeof candidate?.jumpToHistoryNode === 'function'
         && typeof candidate?.getPathItemByNodeId === 'function'
         && typeof candidate?.getNavigationState === 'function'
         && typeof candidate?.setNavigationMode === 'function'
         && typeof candidate?.returnToBookmark === 'function'
         && typeof candidate?.clearHistory === 'function';
 }
+
+export type BrowserCardTypeFilter =
+    | 'all'
+    | 'topic-only'
+    | 'item-only'
+    | 'concept-only'
+    | 'descriptor-only';
 
 // ============================================================================
 // 卡片过滤器
@@ -642,7 +661,7 @@ export interface ReviewButtonConfig {
     value?: number;
     
     /** 操作类型（仅用于 action 类型） */
-    action?: 'insert' | 'next' | 'lock-seed';
+    action?: 'insert' | 'next' | 'lock-focus';
 }
 
 // ============================================================================

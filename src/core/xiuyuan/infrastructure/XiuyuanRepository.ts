@@ -112,6 +112,31 @@ function normalizeFieldMapping(value: unknown): Record<string, string> | undefin
   return Object.fromEntries(entries);
 }
 
+const IMAGE_OCCLUSION_META_KEYS = [
+  'source',
+  'imageOcclusion',
+  'imageOcclusionMaskId',
+  'imageOcclusionMaskIndex',
+  'imageOcclusionMaskGroupId',
+  'imageOcclusionMaskCount',
+  'imageOcclusionPayloadVersion',
+  'imageOcclusionImageSrc',
+  'imageOcclusionPrompt',
+  'content',
+  'title',
+] as const;
+
+function pickImageOcclusionMeta(meta: XiuyuanMeta): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const key of IMAGE_OCCLUSION_META_KEYS) {
+    const value = meta[key];
+    if (value !== undefined) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 /**
  * XiuyuanRepository 实现
  * 
@@ -609,6 +634,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     }
 
     const normalizedFieldMapping = normalizeFieldMapping(meta.fieldMapping);
+    const imageOcclusionMeta = pickImageOcclusionMeta(meta);
     
     // 🆕 提取 typeMarker（用于双向卡片识别正反面）
     let typeMarker: string | undefined;
@@ -653,6 +679,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       
       // 元数据
       meta: {
+        ...imageOcclusionMeta,
         xiuyuanID: card.getXiuyuanId().getValue(),
         templateID: xiuyuan.getTemplateID().getValue(),
         faceIndex: faceIndex,
