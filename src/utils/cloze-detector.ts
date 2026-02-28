@@ -17,7 +17,7 @@ export interface ClozeInfo {
   /** 结束位置 */
   end: number;
   /** 挖空类型 */
-  type: 'brace' | 'equal' | 'mark';
+  type: 'brace' | 'equal' | 'mark' | 'latex';
 }
 
 /**
@@ -81,11 +81,92 @@ export class ClozeDetector {
         type: 'mark'
       });
     }
+
+    // 提取 LaTeX 填空：\cloze{c1}{text} / \cloze{text}
+    this.extractLatexClozes(content, clozes);
     
     // 按位置排序
     clozes.sort((a, b) => a.start - b.start);
     
     return clozes;
+  }
+
+  private static extractLatexClozes(content: string, output: ClozeInfo[]): void {
+    const command = '\\cloze';
+    let cursor = 0;
+
+    while (cursor < content.length) {
+      const start = content.indexOf(command, cursor);
+      if (start < 0) {
+        break;
+      }
+
+      const firstArg = this.parseBracedArgument(content, start + command.length);
+      if (!firstArg) {
+        cursor = start + command.length;
+        continue;
+      }
+
+      const secondArg = this.parseBracedArgument(content, firstArg.nextIndex);
+      const targetArg = secondArg || firstArg;
+      const end = secondArg ? secondArg.nextIndex : firstArg.nextIndex;
+      const text = targetArg.content.trim();
+
+      if (text.length > 0) {
+        output.push({
+          text,
+          start,
+          end,
+          type: 'latex',
+        });
+      }
+
+      cursor = end;
+    }
+  }
+
+  private static parseBracedArgument(
+    source: string,
+    fromIndex: number
+  ): { content: string; nextIndex: number } | null {
+    let index = fromIndex;
+
+    while (index < source.length && /\s/.test(source[index])) {
+      index += 1;
+    }
+
+    if (source[index] !== '{') {
+      return null;
+    }
+
+    const contentStart = index + 1;
+    let depth = 1;
+
+    for (let i = contentStart; i < source.length; i += 1) {
+      const char = source[i];
+
+      if (char === '\\') {
+        i += 1;
+        continue;
+      }
+
+      if (char === '{') {
+        depth += 1;
+        continue;
+      }
+
+      if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          return {
+            content: source.slice(contentStart, i),
+            nextIndex: i + 1,
+          };
+        }
+      }
+    }
+
+    return null;
   }
   
   /**

@@ -27,7 +27,7 @@
           :key="option.value" 
           :value="option.value"
         >
-          {{ t(option.value === 'all' ? 'allTypes' : option.value === 'topic-only' ? 'topicOnly' : option.value === 'item-only' ? 'itemOnly' : option.value === 'concept-only' ? 'conceptOnly' : 'descriptorOnly', option.label) }}
+          {{ getCardTypeLabel(option.value, option.label) }}
         </option>
       </select>
 
@@ -175,7 +175,8 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import FilterButton from './components/FilterButton.vue';
 import type { CardFilter } from '@/types/unified-data-source';
-import { getAvailableCardTypeFilters } from './types';
+import { getAvailableCardTypeFilters, getCardTypeFilterDisplayLabel } from './types';
+import type { CardTypeFilter } from './types';
 
 // Props
 const props = defineProps<{
@@ -273,5 +274,13 @@ onBeforeUnmount(() => {
 // 国际化
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
+}
+
+function getCardTypeLabel(value: string, fallback: string): string {
+  const fixed = getCardTypeFilterDisplayLabel(value as CardTypeFilter);
+  if (fixed) {
+    return fixed;
+  }
+  return t(value === 'all' ? 'allTypes' : 'missingBlockOnly', fallback);
 }
 </script>

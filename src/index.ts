@@ -99,6 +99,8 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     this.setupTopBar();
     this.startMobileMenuObserver();
     this.startMobileSidebarToolbarObserver();
+    this.formulaClozeAssistant = new FormulaClozeAssistant(this);
+    this.formulaClozeAssistant.start();
 
     try {
       this.context = await ApplicationContext.create({ plugin: this, i18n: this.i18n || {} });
@@ -113,12 +115,12 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       this.registerOneClickSymbolCardCommands();
       this.registerImageOcclusionCommands();
       this.registerOneClickSymbolCardSlash();
-      this.formulaClozeAssistant = new FormulaClozeAssistant(this);
-      this.formulaClozeAssistant.start();
     } catch (err) {
       this.logger.error('Plugin initialization failed:', err);
       try { await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败'); } catch {}
       // ❌ 初始化失败时不注册事件处理器
+      this.formulaClozeAssistant?.stop();
+      this.formulaClozeAssistant = null;
       return;
     }
 
@@ -295,14 +297,26 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       return null;
     }
 
-    const block = (protyle as { block?: { rootID?: string; id?: string } }).block;
-    const rootId = typeof block?.rootID === 'string' ? block.rootID.trim() : '';
+    const rootId = this.normalizeNodeId(
+      (protyle as { block?: { rootID?: string; rootId?: string } }).block?.rootID
+      ?? (protyle as { block?: { rootID?: string; rootId?: string } }).block?.rootId
+      ?? (protyle as { rootID?: string }).rootID
+    );
     if (rootId) {
       return rootId;
     }
 
-    const blockId = typeof block?.id === 'string' ? block.id.trim() : '';
-    return blockId || null;
+    // Do not fallback to block id here.
+    // One-click symbol cards requires document root id; block id would make doc scan return 0.
+    return null;
+  }
+
+  private normalizeNodeId(value: unknown): string | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : null;
   }
 
   private ensureTopbarMounted(): void {

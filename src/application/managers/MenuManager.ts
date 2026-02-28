@@ -349,16 +349,17 @@ export class MenuManager {
       return null;
     }
 
+    const contentDocId = currentScreen
+      .querySelector('.protyle-content .protyle-background[data-node-id]')
+      ?.getAttribute('data-node-id');
+    if (contentDocId) {
+      return contentDocId;
+    }
+
     const breadcrumbDocId = currentScreen
       .querySelector('span.protyle-breadcrumb__item--active[data-node-id]')
       ?.getAttribute('data-node-id');
-    if (breadcrumbDocId) {
-      return breadcrumbDocId;
-    }
-
-    return currentScreen
-      .querySelector('.protyle-content .protyle-background[data-node-id]')
-      ?.getAttribute('data-node-id') || null;
+    return breadcrumbDocId || null;
   }
 
   private async runOneClickSymbolCardCreation(docId: string): Promise<void> {

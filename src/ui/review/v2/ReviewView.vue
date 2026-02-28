@@ -55,19 +55,26 @@
         </div>
       </div>
 
-      <div v-if="showReviewFilterDialog" class="review-filter-dialog-overlay" @click.self="showReviewFilterDialog = false">
-        <div class="review-filter-dialog-container">
-          <FilterDialog
-            :is-open="showReviewFilterDialog"
-            :initial-filter="appliedReviewFilter"
-            :i18n="i18n"
-            @apply="handleApplyReviewFilter"
-            @cancel="showReviewFilterDialog = false"
-            @clear="handleClearReviewFilter"
-            @rebuild="handleRebuildReviewFilterQueue"
-          />
+      <teleport to="body">
+        <div
+          v-if="showReviewFilterDialog"
+          class="review-filter-dialog-overlay"
+          :class="{ 'review-filter-dialog-overlay--mobile': props.isMobile }"
+          @click.self="showReviewFilterDialog = false"
+        >
+          <div class="review-filter-dialog-container">
+            <FilterDialog
+              :is-open="showReviewFilterDialog"
+              :initial-filter="appliedReviewFilter"
+              :i18n="i18n"
+              @apply="handleApplyReviewFilter"
+              @cancel="showReviewFilterDialog = false"
+              @clear="handleClearReviewFilter"
+              @rebuild="handleRebuildReviewFilterQueue"
+            />
+          </div>
         </div>
-      </div>
+      </teleport>
     </div>
   </div>
 </template>
@@ -1431,29 +1438,33 @@ function refreshNavigationState() {
 }
 
 .review-filter-dialog-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: 10000;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 16px;
+  padding: 20px 16px;
   background: rgba(0, 0, 0, 0.28);
+  overflow-y: auto;
 }
 
 .review-filter-dialog-container {
-  width: min(980px, 96vw);
-  max-height: min(90vh, 820px);
+  width: min(1060px, calc(100vw - 32px));
+  max-height: calc(100vh - 40px);
   overflow: auto;
   border-radius: var(--b3-border-radius-b);
   background: var(--b3-theme-background);
+  margin: 0 auto;
 }
 
-.fsrs-review-v2--mobile {
-  .review-filter-dialog-container {
-    width: 92vw;
-    max-height: 88vh;
-  }
+.review-filter-dialog-overlay--mobile {
+  padding: 8px;
+}
+
+.review-filter-dialog-overlay--mobile .review-filter-dialog-container {
+  width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
 }
 
 /* 全屏样式 - 只影响插件的复习对话框 */

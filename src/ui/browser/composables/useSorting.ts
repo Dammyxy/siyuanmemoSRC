@@ -1,8 +1,4 @@
-/**
- * 排序逻辑 composable
- * 处理 AG-Grid 列排序和随机排序
- */
-import { ref, computed, nextTick, type Ref } from 'vue';
+import { ref, computed, type Ref } from 'vue';
 import type { ColumnState, GridApi } from 'ag-grid-community';
 import type { SortModel } from '@/application/interfaces/ICardDataSource';
 import type { BrowserCard } from '../types';
@@ -29,6 +25,8 @@ export interface UseSortingOptions {
   getQueueById: (id: string) => QueueLike | null;
   activeQueueId: Ref<string | null>;
   loadData: () => Promise<void>;
+  loadAllRowsForCurrentView: (sortModel: SortModel[]) => Promise<BrowserCard[]>;
+  applyRandomSortRows: (rows: BrowserCard[] | null) => void | Promise<void>;
   t: (key: string, fallback: string) => string;
   pushMsg: (msg: string, duration?: number) => Promise<void>;
   pushErrMsg: (msg: string, duration?: number) => Promise<void>;
@@ -44,6 +42,74 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function shuffleRows(rows: BrowserCard[]): BrowserCard[] {
+  const copy = [...rows];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function normalizeSortModel(sortModel: SortModel[] | undefined): SortModel[] {
+  if (!Array.isArray(sortModel)) {
+    return [];
+  }
+  return sortModel.filter((item) =>
+    item
+    && typeof item.colId === 'string'
+    && (item.sort === 'asc' || item.sort === 'desc')
+  );
+}
+
+function toSortModelFromColumnState(columnState: ColumnState[] | undefined): SortModel[] {
+  if (!Array.isArray(columnState)) {
+    return [];
+  }
+
+  return columnState
+    .filter((col) => typeof col.colId === 'string' && (col.sort === 'asc' || col.sort === 'desc'))
+    .sort((a, b) => {
+      const aIndex = Number.isFinite(a.sortIndex) ? Number(a.sortIndex) : Number.MAX_SAFE_INTEGER;
+      const bIndex = Number.isFinite(b.sortIndex) ? Number(b.sortIndex) : Number.MAX_SAFE_INTEGER;
+      return aIndex - bIndex;
+    })
+    .map((col) => ({
+      colId: String(col.colId),
+      sort: col.sort as 'asc' | 'desc',
+    }));
+}
+
+function resolveEffectiveSortModel(
+  currentSortModel: SortModel[],
+  api: GridApi | null
+): SortModel[] {
+  const normalizedCurrent = normalizeSortModel(currentSortModel);
+  if (normalizedCurrent.length > 0) {
+    return normalizedCurrent;
+  }
+
+  if (!api) {
+    return [];
+  }
+
+  try {
+    if (typeof api.isDestroyed === 'function' && api.isDestroyed()) {
+      return [];
+    }
+
+    const fromColumnState = toSortModelFromColumnState(api.getColumnState?.() || []);
+    if (fromColumnState.length > 0) {
+      return fromColumnState;
+    }
+
+    type LegacySortApi = GridApi & { getSortModel?: () => SortModel[] };
+    return normalizeSortModel((api as LegacySortApi).getSortModel?.());
+  } catch {
+    return [];
+  }
+}
+
 export function useSorting(options: UseSortingOptions) {
   const {
     gridApi,
@@ -51,15 +117,22 @@ export function useSorting(options: UseSortingOptions) {
     getQueueById,
     activeQueueId,
     loadData,
+    loadAllRowsForCurrentView,
+    applyRandomSortRows,
     t,
     pushMsg,
     pushErrMsg,
   } = options;
 
-  // 随机排序标志
   const hasRandomSort = ref(false);
+  const randomSortedRows = ref<BrowserCard[] | null>(null);
 
-  // 应用列排序
+  function clearRandomSortState(): void {
+    hasRandomSort.value = false;
+    randomSortedRows.value = null;
+    void Promise.resolve(applyRandomSortRows(null));
+  }
+
   function applySort(colId: string, sortDirection: 'asc' | 'desc') {
     if (!gridApi.value) {
       logger.error('[useSorting] Grid API not ready');
@@ -73,83 +146,49 @@ export function useSorting(options: UseSortingOptions) {
         state: [{ colId, sort: sortDirection }],
         defaultState: { sort: null },
       });
-      hasRandomSort.value = false;
-      logger.info('[useSorting] Sort applied successfully');
+      clearRandomSortState();
     } catch (err) {
       logger.error('[useSorting] Apply sort failed:', err);
     }
   }
 
-  // 随机排序 (Fisher-Yates)
-  function applyRandomSort() {
+  async function applyRandomSort(): Promise<void> {
     if (!gridApi.value) {
       logger.error('[useSorting] Grid API not ready for random sort');
       return;
     }
 
     try {
-      const rowCount = gridApi.value.getDisplayedRowCount?.() ?? 0;
-      if (rowCount === 0) {
+      const allRows = await loadAllRowsForCurrentView([]);
+      if (!allRows.length) {
         logger.warn('[useSorting] No rows to shuffle');
+        await pushErrMsg(t('noCards', 'No cards'));
         return;
       }
 
-      logger.info('[useSorting] Shuffling', rowCount, 'rows');
+      const shuffled = shuffleRows(allRows);
+      randomSortedRows.value = shuffled;
+      hasRandomSort.value = true;
 
-      // 收集所有行数据
-      const rows: BrowserCard[] = [];
-      for (let i = 0; i < rowCount; i++) {
-        const node = gridApi.value.getDisplayedRowAtIndex?.(i);
-        const row = node?.data as BrowserCard | undefined;
-        if (row) rows.push(row);
-      }
-
-      // Fisher-Yates 洗牌算法
-      for (let i = rows.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [rows[i], rows[j]] = [rows[j], rows[i]];
-      }
-
-      // 清除所有排序状态
+      // Random mode should not keep column sort state.
       gridApi.value.applyColumnState({
         state: [],
         defaultState: { sort: null },
       });
 
-      hasRandomSort.value = true;
-
-      // 使用 AG-Grid setGridOption API
-      gridApi.value.setGridOption?.('rowData', []);
-
-      nextTick(() => {
-        if (gridApi.value) {
-          gridApi.value.setGridOption?.('rowData', rows);
-          logger.info('[useSorting] Shuffle completed via setGridOption');
-        }
-      });
+      await Promise.resolve(applyRandomSortRows(shuffled));
+      logger.info('[useSorting] Random sort applied with full dataset', { count: shuffled.length });
     } catch (err) {
       logger.error('[useSorting] Random sort failed:', err);
+      await pushErrMsg(getErrorMessage(err, t('sortApplyFailed', 'Apply sort failed')));
     }
   }
 
-  // 是否可以应用排序到队列
   const canApplySortToQueue = computed(() => {
     const qid = String(activeQueueId.value || '');
-    const sortArray = [...(currentSortModel.value || [])];
+    const effectiveSortModel = resolveEffectiveSortModel(currentSortModel.value || [], gridApi.value);
 
-    let hasSort = sortArray.length > 0;
-    if (!hasSort && gridApi.value) {
-      try {
-        if (typeof gridApi.value.isDestroyed === 'function' && gridApi.value.isDestroyed()) {
-          hasSort = false;
-        } else {
-          const columnState = gridApi.value.getColumnState?.() || [];
-          hasSort = columnState.some((col: ColumnState) => col.sort && col.sort !== 'undefined');
-        }
-      } catch {
-        hasSort = false;
-      }
-    }
+    let hasSort = effectiveSortModel.length > 0;
 
     if (hasRandomSort.value) hasSort = true;
 
@@ -158,63 +197,61 @@ export function useSorting(options: UseSortingOptions) {
     return true;
   });
 
-  // 应用排序到队列
   async function handleApplySortToQueue() {
     const qid = String(activeQueueId.value || '');
     if (!qid) return;
 
     const queue = getQueueById(qid);
     if (!queue) {
-      await pushErrMsg(t('queueNotFound', '队列未找到'));
+      await pushErrMsg(t('queueNotFound', 'Queue not found'));
       return;
     }
 
-    // 检查队列是否支持 reorder 方法
     if (typeof queue.reorder !== 'function') {
-      await pushErrMsg(t('queueNotSupportReorder', '当前队列不支持重排'));
+      await pushErrMsg(t('queueNotSupportReorder', 'Current queue does not support reorder'));
       return;
     }
 
-    if (!gridApi.value) {
-      await pushErrMsg(t('initFailed', 'FSRS 插件初始化失败，请打开控制台查看错误'));
-      return;
-    }
+    const effectiveSortModel = resolveEffectiveSortModel(currentSortModel.value || [], gridApi.value);
 
-    // 获取浏览器中显示的卡片顺序
-    const orderedCards: BrowserCard[] = [];
-    const count = Number(gridApi.value.getDisplayedRowCount?.() ?? 0);
-    for (let i = 0; i < count; i++) {
-      const node = gridApi.value.getDisplayedRowAtIndex?.(i);
-      const card = node?.data as BrowserCard | undefined;
-      if (card) orderedCards.push(card);
+    let orderedCards: BrowserCard[] = [];
+    if (hasRandomSort.value && randomSortedRows.value?.length) {
+      orderedCards = randomSortedRows.value;
+    } else {
+      if (effectiveSortModel.length === 0) {
+        await pushErrMsg(t('sortRequired', 'Please apply a sort first'));
+        return;
+      }
+      orderedCards = await loadAllRowsForCurrentView(effectiveSortModel);
     }
 
     if (!orderedCards.length) {
-      await pushErrMsg(t('noCards', '没有卡片'));
+      await pushErrMsg(t('noCards', 'No cards'));
       return;
     }
 
     try {
-      logger.info('[useSorting] Applying sort to queue:', { queueId: qid, cardsCount: orderedCards.length });
+      logger.info('[useSorting] Applying full-order sort to queue:', {
+        queueId: qid,
+        cardsCount: orderedCards.length,
+        randomMode: hasRandomSort.value,
+      });
 
       const ok = await Promise.resolve(queue.reorder(orderedCards));
-      logger.info('[useSorting] Queue reorder result:', { ok });
-
       if (!ok) {
-        await pushErrMsg(t('sortApplyFailed', '应用排序失败'));
+        await pushErrMsg(t('sortApplyFailed', 'Apply sort failed'));
         return;
       }
 
-      await pushMsg(t('sortApplied', '队列已按当前排序重新排列'));
-      hasRandomSort.value = false;
+      await pushMsg(t('sortApplied', 'Queue reordered by current sort'));
+      clearRandomSortState();
       await loadData();
     } catch (err: unknown) {
       logger.error('[useSorting] apply sort to queue failed:', err);
-      await pushErrMsg(getErrorMessage(err, t('sortApplyFailed', '应用排序失败')));
+      await pushErrMsg(getErrorMessage(err, t('sortApplyFailed', 'Apply sort failed')));
     }
   }
 
-  // 构建排序子菜单
   function buildSortSubmenu(onSort: (colId: string, dir: 'asc' | 'desc') => void): BrowserMenuItem[] {
     const sortMenu: BrowserMenuItem[] = [];
 
@@ -225,12 +262,12 @@ export function useSorting(options: UseSortingOptions) {
         submenu: [
           {
             icon: 'iconUp',
-            label: '升序',
+            label: 'Ascending',
             click: () => onSort(field.colId, 'asc'),
           },
           {
             icon: 'iconDown',
-            label: '降序',
+            label: 'Descending',
             click: () => onSort(field.colId, 'desc'),
           },
         ],
@@ -240,8 +277,10 @@ export function useSorting(options: UseSortingOptions) {
     sortMenu.push({ type: 'separator' });
     sortMenu.push({
       icon: 'iconRefresh',
-      label: t('sortRandom', '随机排序'),
-      click: () => applyRandomSort(),
+      label: t('sortRandom', 'Random Sort'),
+      click: () => {
+        void applyRandomSort();
+      },
     });
 
     return sortMenu;

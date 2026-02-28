@@ -18,6 +18,7 @@ import {
 } from '@/types/unified-data-source';
 import {
   insertCardsIntoQueue,
+  paginateBrowserCards,
   removeCardsFromQueue,
   resolveBrowserCardId,
   setBrowserCardsPriority,
@@ -98,7 +99,8 @@ export class BlockIdsDataSource implements ICardDataSource {
     const blockIds = this.getBlockIdsFn ? this.getBlockIdsFn() : this.blockIds;
     const cards = await loadQueueCardsSimple(blockIds);
     const sorted = sortBrowserCards(cards, params?.sortModel || []);
-    return { rows: sorted, totalCount: sorted.length };
+    const paged = paginateBrowserCards(sorted, params?.startRow, params?.endRow);
+    return { rows: paged.rows, totalCount: paged.totalCount };
   }
 
   getSupportedActions(): CardBrowserAction[] {

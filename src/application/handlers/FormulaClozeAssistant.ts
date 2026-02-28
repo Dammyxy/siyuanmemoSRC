@@ -4,9 +4,32 @@ import { createLogger } from '@/utils/logger';
 
 type SupportedEditable = HTMLTextAreaElement | HTMLInputElement | HTMLElement;
 type ClozeInsertMode = 'new' | 'reuse';
+type KatexMacroMap = Record<string, string>;
+type KatexRenderOptions = {
+  macros?: Record<string, unknown> | string;
+  [key: string]: unknown;
+};
+type KatexRenderFn = (expression: string, baseNode: HTMLElement, options?: KatexRenderOptions) => void;
+type KatexRenderToStringFn = (expression: string, options?: KatexRenderOptions) => string;
+type KatexLike = {
+  render?: KatexRenderFn;
+  renderToString?: KatexRenderToStringFn;
+  __siyuanmemoClozeMacroPatched?: boolean;
+};
+type SiyuanConfigLike = {
+  config?: {
+    editor?: {
+      katexMacros?: KatexMacroMap | string;
+    };
+  };
+};
 
 const logger = createLogger('FormulaClozeAssistant');
 const FORMULA_MARKER_REGEX = /(latex|katex|math|\u516c\u5f0f)/i;
+const KATEX_CLOZE_MACRO_KEY = '\\cloze';
+const KATEX_CLOZE_MACRO_EXPANSION = '#2';
+const KATEX_READY_RETRY_MS = 400;
+const CLOZE_COMMAND = '\\cloze';
 
 function isTextInputLike(element: Element): element is HTMLTextAreaElement | HTMLInputElement {
   if (element instanceof HTMLTextAreaElement) return true;
@@ -14,46 +37,27 @@ function isTextInputLike(element: Element): element is HTMLTextAreaElement | HTM
 }
 
 export class FormulaClozeAssistant {
-  private readonly toolbars = new Map<SupportedEditable, HTMLElement>();
-  private observer: MutationObserver | null = null;
   private started = false;
   private lastUsedClozeId = 0;
+  private katexPatchTimer: number | null = null;
 
   constructor(private readonly plugin: FSRSPlugin) {}
 
   start(): void {
     if (this.started) return;
     this.started = true;
-
+    this.ensureKatexClozeMacro();
     document.addEventListener('keydown', this.handleKeyDown, true);
-
-    this.observer = new MutationObserver(() => {
-      this.syncToolbars();
-    });
-    if (!document.body) {
-      document.removeEventListener('keydown', this.handleKeyDown, true);
-      this.observer.disconnect();
-      this.observer = null;
-      this.started = false;
-      window.setTimeout(() => this.start(), 60);
-      return;
-    }
-    this.observer.observe(document.body, { childList: true, subtree: true });
-    this.syncToolbars();
   }
 
   stop(): void {
     if (!this.started) return;
     this.started = false;
-
-    document.removeEventListener('keydown', this.handleKeyDown, true);
-    this.observer?.disconnect();
-    this.observer = null;
-
-    for (const toolbar of this.toolbars.values()) {
-      toolbar.remove();
+    if (this.katexPatchTimer !== null) {
+      window.clearInterval(this.katexPatchTimer);
+      this.katexPatchTimer = null;
     }
-    this.toolbars.clear();
+    document.removeEventListener('keydown', this.handleKeyDown, true);
   }
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
@@ -76,76 +80,6 @@ export class FormulaClozeAssistant {
     event.stopPropagation();
     this.insertCloze(editable, mode);
   };
-
-  private syncToolbars(): void {
-    // Remove stale toolbar nodes first.
-    for (const [editable, toolbar] of this.toolbars.entries()) {
-      if (!document.contains(editable) || !this.isLikelyFormulaEditor(editable)) {
-        toolbar.remove();
-        this.toolbars.delete(editable);
-      }
-    }
-
-    const candidates = document.querySelectorAll('textarea, input[type="text"], [contenteditable="true"]');
-    candidates.forEach((candidate) => {
-      const editable = candidate as SupportedEditable;
-      if (!this.isLikelyFormulaEditor(editable)) {
-        return;
-      }
-      if (this.toolbars.has(editable)) {
-        return;
-      }
-
-      const toolbar = this.createToolbar(editable);
-      this.mountToolbar(editable, toolbar);
-      this.toolbars.set(editable, toolbar);
-    });
-  }
-
-  private createToolbar(editable: SupportedEditable): HTMLElement {
-    const toolbar = document.createElement('div');
-    toolbar.className = 'siyuanmemo-formula-cloze-toolbar fn__flex';
-
-    const createButton = document.createElement('button');
-    createButton.className = 'b3-button b3-button--outline fn__flex-center';
-    createButton.type = 'button';
-    createButton.textContent = this.t('formulaClozeCreate', 'Create Cloze');
-    createButton.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      this.insertCloze(editable, 'new');
-    });
-
-    const reuseButton = document.createElement('button');
-    reuseButton.className = 'b3-button b3-button--outline fn__flex-center';
-    reuseButton.type = 'button';
-    reuseButton.textContent = this.t('formulaClozeReuse', 'Reuse Cloze');
-    reuseButton.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      this.insertCloze(editable, 'reuse');
-    });
-
-    toolbar.appendChild(createButton);
-    toolbar.appendChild(reuseButton);
-    return toolbar;
-  }
-
-  private mountToolbar(editable: SupportedEditable, toolbar: HTMLElement): void {
-    const host = editable.closest('.protyle-util, .b3-dialog__content, .protyle-wysiwyg') as HTMLElement | null;
-    if (!host) {
-      editable.parentElement?.appendChild(toolbar);
-      return;
-    }
-
-    const rowLike = editable.closest('.fn__flex, .b3-label, .protyle-util__row') as HTMLElement | null;
-    if (rowLike?.parentElement) {
-      rowLike.insertAdjacentElement('afterend', toolbar);
-      return;
-    }
-
-    host.appendChild(toolbar);
-  }
 
   private getActiveFormulaEditable(): SupportedEditable | null {
     const activeElement = document.activeElement;
@@ -198,6 +132,203 @@ export class FormulaClozeAssistant {
       logger.error('Failed to insert formula cloze:', error);
       showMessage(this.t('formulaClozeInsertFailed', 'Failed to insert formula cloze'));
     }
+  }
+
+  private ensureKatexClozeMacro(): void {
+    const macroReady = this.ensureSiyuanKatexMacroConfig();
+    const patchReady = this.patchKatexGlobal();
+    if (macroReady && patchReady) {
+      return;
+    }
+
+    if (this.katexPatchTimer !== null) {
+      return;
+    }
+
+    this.katexPatchTimer = window.setInterval(() => {
+      const macroReadyTick = this.ensureSiyuanKatexMacroConfig();
+      const patchReadyTick = this.patchKatexGlobal();
+      if (macroReadyTick && patchReadyTick) {
+        if (this.katexPatchTimer !== null) {
+          window.clearInterval(this.katexPatchTimer);
+          this.katexPatchTimer = null;
+        }
+      }
+    }, KATEX_READY_RETRY_MS);
+  }
+
+  private ensureSiyuanKatexMacroConfig(): boolean {
+    const siyuan = (window as Window & { siyuan?: SiyuanConfigLike }).siyuan;
+    const editorConfig = siyuan?.config?.editor;
+    if (!editorConfig) {
+      return false;
+    }
+
+    const rawMacros = editorConfig.katexMacros;
+    const macros = this.normalizeKatexMacros(editorConfig.katexMacros);
+    const currentMacro = macros[KATEX_CLOZE_MACRO_KEY];
+    if (typeof currentMacro !== 'string' || currentMacro.trim() !== KATEX_CLOZE_MACRO_EXPANSION) {
+      macros[KATEX_CLOZE_MACRO_KEY] = KATEX_CLOZE_MACRO_EXPANSION;
+    }
+
+    // Keep a deterministic JSON string to avoid Siyuan parsing `[object Object]` on reload.
+    const serializedMacros = JSON.stringify(macros);
+    if (typeof rawMacros !== 'string' || rawMacros.trim() !== serializedMacros) {
+      editorConfig.katexMacros = serializedMacros;
+    }
+    return true;
+  }
+
+  private patchKatexGlobal(): boolean {
+    const katex = (window as Window & { katex?: KatexLike }).katex;
+    if (!katex) {
+      return false;
+    }
+    if (katex.__siyuanmemoClozeMacroPatched) {
+      return true;
+    }
+
+    const originalRender = katex.render;
+    if (typeof originalRender === 'function') {
+      const boundRender = originalRender.bind(katex);
+      katex.render = ((expression: string, baseNode: HTMLElement, options?: KatexRenderOptions): void => {
+        const normalizedExpression = this.normalizeFormulaClozeExpression(expression);
+        boundRender(normalizedExpression, baseNode, options);
+      }) as KatexRenderFn;
+    }
+
+    const originalRenderToString = katex.renderToString;
+    if (typeof originalRenderToString === 'function') {
+      const boundRenderToString = originalRenderToString.bind(katex);
+      katex.renderToString = ((expression: string, options?: KatexRenderOptions): string => {
+        const normalizedExpression = this.normalizeFormulaClozeExpression(expression);
+        return boundRenderToString(normalizedExpression, options);
+      }) as KatexRenderToStringFn;
+    }
+
+    katex.__siyuanmemoClozeMacroPatched = true;
+    logger.info('KaTeX cloze render patch installed');
+    return true;
+  }
+
+  private normalizeKatexMacros(rawMacros: unknown): KatexMacroMap {
+    if (!rawMacros) {
+      return {};
+    }
+
+    if (typeof rawMacros === 'string') {
+      const trimmed = rawMacros.trim();
+      if (!trimmed) {
+        return {};
+      }
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        if (parsed && typeof parsed === 'object') {
+          return this.sanitizeKatexMacroMap(parsed as Record<string, unknown>);
+        }
+      } catch (error) {
+        logger.warn('Invalid katex macro config, expected JSON string', error);
+      }
+      return {};
+    }
+
+    if (typeof rawMacros === 'object') {
+      return this.sanitizeKatexMacroMap(rawMacros as Record<string, unknown>);
+    }
+
+    return {};
+  }
+
+  private normalizeFormulaClozeExpression(expression: string): string {
+    if (!expression || !expression.includes(CLOZE_COMMAND)) {
+      return expression;
+    }
+
+    let cursor = 0;
+    let output = '';
+
+    while (cursor < expression.length) {
+      const commandStart = expression.indexOf(CLOZE_COMMAND, cursor);
+      if (commandStart < 0) {
+        output += expression.slice(cursor);
+        break;
+      }
+
+      output += expression.slice(cursor, commandStart);
+      const afterCommand = commandStart + CLOZE_COMMAND.length;
+
+      const firstArg = this.parseBracedArgument(expression, afterCommand);
+      if (!firstArg) {
+        output += CLOZE_COMMAND;
+        cursor = afterCommand;
+        continue;
+      }
+
+      const secondArg = this.parseBracedArgument(expression, firstArg.nextIndex);
+      if (secondArg) {
+        output += `{${secondArg.content}}`;
+        cursor = secondArg.nextIndex;
+        continue;
+      }
+
+      // Fallback: support one-argument form \cloze{...}
+      output += `{${firstArg.content}}`;
+      cursor = firstArg.nextIndex;
+    }
+
+    return output;
+  }
+
+  private parseBracedArgument(source: string, fromIndex: number): { content: string; nextIndex: number } | null {
+    let index = fromIndex;
+    while (index < source.length && /\s/.test(source[index])) {
+      index += 1;
+    }
+
+    if (source[index] !== '{') {
+      return null;
+    }
+
+    const contentStart = index + 1;
+    let depth = 1;
+
+    for (let i = contentStart; i < source.length; i += 1) {
+      const char = source[i];
+      if (char === '\\') {
+        i += 1;
+        continue;
+      }
+      if (char === '{') {
+        depth += 1;
+        continue;
+      }
+      if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          return {
+            content: source.slice(contentStart, i),
+            nextIndex: i + 1,
+          };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private sanitizeKatexMacroMap(input: Record<string, unknown>): KatexMacroMap {
+    const output: KatexMacroMap = {};
+    for (const [key, value] of Object.entries(input)) {
+      if (typeof value !== 'string') {
+        continue;
+      }
+      const normalizedKey = key.trim();
+      if (!normalizedKey) {
+        continue;
+      }
+      output[normalizedKey] = value;
+    }
+    return output;
   }
 
   private insertToTextInput(editable: HTMLTextAreaElement | HTMLInputElement, mode: ClozeInsertMode): void {

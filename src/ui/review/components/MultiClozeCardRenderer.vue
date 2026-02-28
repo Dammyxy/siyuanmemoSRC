@@ -13,21 +13,21 @@
 
       <!-- 正面：显示问题 -->
       <div v-if="!showAnswer" class="multi-cloze-card-renderer__front">
-        <div class="multi-cloze-card-renderer__question" v-html="viewModel.currentFace.question"></div>
+        <div class="multi-cloze-card-renderer__question" v-html="renderedQuestionHtml"></div>
       </div>
 
       <!-- 背面：显示答案 -->
       <div v-else class="multi-cloze-card-renderer__back">
-        <div class="multi-cloze-card-renderer__front-preview" v-html="viewModel.currentFace.question"></div>
+        <div class="multi-cloze-card-renderer__front-preview" v-html="renderedQuestionHtml"></div>
         <div class="multi-cloze-card-renderer__answer-divider"><span>答案</span></div>
-        <div class="multi-cloze-card-renderer__answer" v-html="viewModel.currentFace.answer"></div>
+        <div class="multi-cloze-card-renderer__answer" v-html="renderedAnswerHtml"></div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { computed, ref, onMounted, watch } from 'vue';
 import { MultiClozeCardRenderService } from '@/core/card/multi-cloze/application/MultiClozeCardRenderService';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
@@ -35,6 +35,7 @@ import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import type { MultiClozeCardViewModel } from '@/core/card/multi-cloze/application/MultiClozeCardRenderService';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
+import { renderMathWithKatex } from './mathRender';
 
 const logger = createLogger('MultiClozeCardRenderer');
 
@@ -48,6 +49,20 @@ const error = ref<string | null>(null);
 const viewModel = ref<MultiClozeCardViewModel | null>(null);
 
 const renderService = new MultiClozeCardRenderService();
+
+const renderedQuestionHtml = computed(() => {
+  const question = viewModel.value?.currentFace.question || '';
+  return renderMathWithKatex(question, (error) => {
+    logger.warn('[MultiClozeCardRenderer] Failed to render KaTeX question:', error);
+  });
+});
+
+const renderedAnswerHtml = computed(() => {
+  const answer = viewModel.value?.currentFace.answer || '';
+  return renderMathWithKatex(answer, (error) => {
+    logger.warn('[MultiClozeCardRenderer] Failed to render KaTeX answer:', error);
+  });
+});
 
 async function loadViewModel() {
   try {

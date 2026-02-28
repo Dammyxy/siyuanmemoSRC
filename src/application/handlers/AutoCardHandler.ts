@@ -6,6 +6,7 @@ import type { AutoCardRiffPort } from '../ports/AutoCardRiffPort';
 import { AutoCardSiyuanAdapter } from '@/infrastructure/siyuan/AutoCardSiyuanAdapter';
 import { AutoCardRiffAdapter } from '@/infrastructure/siyuan/AutoCardRiffAdapter';
 import { createLogger } from '@/utils/logger';
+import { ClozeDetector } from '@/utils/cloze-detector';
 import type { Result } from '@/types/result';
 
 const logger = createLogger('AutoCardHandler');
@@ -285,7 +286,9 @@ export class AutoCardHandler implements ITransactionHandler {
     }
 
     public async scanDocumentByRootId(rootId: string): Promise<AutoCardDocumentScanResult> {
-        const normalizedRootId = rootId.trim();
+        const requestedRootId = rootId.trim();
+        const resolvedRootId = await this.resolveDocumentRootId(requestedRootId);
+        const normalizedRootId = resolvedRootId || requestedRootId;
         const result: AutoCardDocumentScanResult = {
             rootId: normalizedRootId,
             scanned: 0,
@@ -469,8 +472,12 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             
             const blockType = typeResult[0].type;
-            if (blockType !== 'p') {
-                logger.debug('[SiYuanMemo][AutoCard] Block is not a paragraph (type:', blockType, '), skipping symbol detection');
+            if (!this.isQuickSymbolSupportedBlockType(blockType)) {
+                logger.debug(
+                    '[SiYuanMemo][AutoCard] Block type not supported for symbol detection (type:',
+                    blockType,
+                    '), skipping'
+                );
                 return;
             }
             
@@ -663,18 +670,20 @@ export class AutoCardHandler implements ITransactionHandler {
         }
         
 
-        if (!matched && enabledSymbols.cloze && (this.patterns.cloze.test(cleanContent) || this.patterns.clozeEqual.test(cleanContent) || this.patterns.clozeMark.test(cleanContent))) {
+        if (!matched && enabledSymbols.cloze && ClozeDetector.hasClozes(cleanContent)) {
             logger.debug('[SiYuanMemo][AutoCard] Matched: cloze');
-            const match = cleanContent.match(this.patterns.cloze) || cleanContent.match(this.patterns.clozeEqual) || cleanContent.match(this.patterns.clozeMark);
-            if (match) {
-                symbols.push({ type: 'cloze', match });
-                matched = true;
-            }
+            symbols.push({ type: 'cloze', match: [cleanContent] as unknown as RegExpMatchArray });
+            matched = true;
         }
         
         logger.debug('[SiYuanMemo][AutoCard] Symbol detection complete, matched:', matched, 'symbols:', symbols.length);
         
         return symbols;
+    }
+
+    private isQuickSymbolSupportedBlockType(blockType: string): boolean {
+        // `p`: paragraph, `m`: formula block.
+        return blockType === 'p' || blockType === 'm';
     }
     
     // Route one detected symbol to its concrete card creation flow.
@@ -1314,35 +1323,7 @@ export class AutoCardHandler implements ITransactionHandler {
             logger.debug('[SiYuanMemo][AutoCard] Creating cloze card:', blockId);
             
 
-            const clozes: Array<{ text: string; type: 'brace' | 'equal' | 'mark' }> = [];
-            
-
-            let match;
-            this.patterns.cloze.lastIndex = 0;
-            while ((match = this.patterns.cloze.exec(content)) !== null) {
-                clozes.push({
-                    text: match[1].trim(),
-                    type: 'brace'
-                });
-            }
-            
-
-            this.patterns.clozeEqual.lastIndex = 0;
-            while ((match = this.patterns.clozeEqual.exec(content)) !== null) {
-                clozes.push({
-                    text: match[1].trim(),
-                    type: 'equal'
-                });
-            }
-            
-
-            this.patterns.clozeMark.lastIndex = 0;
-            while ((match = this.patterns.clozeMark.exec(content)) !== null) {
-                clozes.push({
-                    text: match[1].trim(),
-                    type: 'mark'
-                });
-            }
+            const clozes = ClozeDetector.extractClozes(content);
             
             if (clozes.length === 0) {
                 logger.error('[SiYuanMemo][AutoCard] No cloze found in content:', content);
@@ -1352,7 +1333,7 @@ export class AutoCardHandler implements ITransactionHandler {
             logger.debug('[SiYuanMemo][AutoCard] Found clozes:', clozes.length, clozes);
             
 
-            if (clozes.length === 1) {
+            if (clozes.length === 1 && clozes[0].type !== 'latex') {
                 await this.createSingleClozeCard(blockId, content, clozes);
                 return;
             }
@@ -1369,7 +1350,7 @@ export class AutoCardHandler implements ITransactionHandler {
     private async createSingleClozeCard(
         blockId: string,
         content: string,
-        clozes: Array<{ text: string; type: 'brace' | 'equal' | 'mark' }>
+        clozes: Array<{ text: string; type: 'brace' | 'equal' | 'mark' | 'latex' }>
     ): Promise<void> {
 
         const helper = this.getCardHelper();
@@ -1379,7 +1360,14 @@ export class AutoCardHandler implements ITransactionHandler {
                 clozes: clozes.map(c => c.text),
                 clozeCount: 1,
                 cardSource: 'quick-symbol',
-                symbolType: clozes[0].type === 'brace' ? '{{}}' : (clozes[0].type === 'equal' ? '==' : 'mark')
+                symbolType:
+                    clozes[0].type === 'brace'
+                        ? '{{}}'
+                        : clozes[0].type === 'equal'
+                            ? '=='
+                            : clozes[0].type === 'mark'
+                                ? 'mark'
+                                : '\\cloze'
             }
         });
         
@@ -1400,7 +1388,14 @@ export class AutoCardHandler implements ITransactionHandler {
         logger.debug('[SiYuanMemo][AutoCard] Single cloze card created:', blockId);
         
 
-        const symbolText = clozes[0].type === 'brace' ? '{{}}' : (clozes[0].type === 'equal' ? '==' : 'mark');
+        const symbolText =
+            clozes[0].type === 'brace'
+                ? '{{}}'
+                : clozes[0].type === 'equal'
+                    ? '=='
+                    : clozes[0].type === 'mark'
+                        ? 'mark'
+                        : '\\cloze{}';
         await this.siyuanApi.pushMsg(`Created cloze card (${symbolText})`);
     }
     
@@ -1408,40 +1403,12 @@ export class AutoCardHandler implements ITransactionHandler {
     private async createMultipleClozeCards(
         blockId: string,
         content: string,
-        clozes: Array<{ text: string; type: 'brace' | 'equal' }>
+        clozes: Array<{ text: string; type: 'brace' | 'equal' | 'mark' | 'latex' }>
     ): Promise<void> {
         const xiuyuanAppService = await this.requireXiuyuanApplicationService();
         
         try {
-
-                        
-
-            const clozesWithPosition: Array<{ text: string; start: number; end: number; type: string }> = [];
-            
-
-            let match;
-            const braceRegex = /\{\{([^}]*)\}\}/g;
-            while ((match = braceRegex.exec(content)) !== null) {
-                clozesWithPosition.push({
-                    text: match[1].trim(),
-                    start: match.index,
-                    end: match.index + match[0].length,
-                    type: 'brace'
-                });
-            }
-            
-
-            const equalRegex = /==([^=]*)==/g;
-            while ((match = equalRegex.exec(content)) !== null) {
-                clozesWithPosition.push({
-                    text: match[1].trim(),
-                    start: match.index,
-                    end: match.index + match[0].length,
-                    type: 'equal'
-                });
-            }
-            
-
+            const clozesWithPosition = ClozeDetector.extractClozes(content);
             clozesWithPosition.sort((a, b) => a.start - b.start);
             
             logger.debug('[SiYuanMemo][AutoCard] Extracted clozes with positions:', clozesWithPosition);
@@ -1454,6 +1421,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     content: blockId
                 },
                 deckId: this.riffApi.BUILTIN_DECK_ID,
+                cardType: 'item',
                 clozeInfo: {
                     originalContent: content,
                     clozes: clozesWithPosition
@@ -1470,10 +1438,16 @@ export class AutoCardHandler implements ITransactionHandler {
             logger.debug('[SiYuanMemo][AutoCard] Multiple cloze cards created:', blockId, 'count:', result.value.cards.length);
             
 
-                        const hasEqual = clozes.some(c => c.type === 'equal');
+            const hasEqual = clozes.some(c => c.type === 'equal');
             const hasBrace = clozes.some(c => c.type === 'brace');
+            const hasMark = clozes.some(c => c.type === 'mark');
+            const hasLatex = clozes.some(c => c.type === 'latex');
             let symbolText = '';
-            if (hasEqual && hasBrace) {
+            if (hasLatex) {
+                symbolText = '\\cloze{}';
+            } else if (hasMark) {
+                symbolText = 'mark';
+            } else if (hasEqual && hasBrace) {
                 symbolText = '{{}} / ==';
             } else if (hasEqual) {
                 symbolText = '==';
@@ -2057,6 +2031,32 @@ export class AutoCardHandler implements ITransactionHandler {
         }
         
         return null;
+    }
+
+    private async resolveDocumentRootId(nodeId: string): Promise<string> {
+        const normalizedNodeId = nodeId.trim();
+        if (!normalizedNodeId) {
+            return '';
+        }
+
+        type BlockRootRow = {
+            root_id?: string;
+        };
+
+        try {
+            const rows = await this.siyuanApi.sql(`
+                SELECT root_id
+                FROM blocks
+                WHERE id = '${this.escapeSql(normalizedNodeId)}'
+                LIMIT 1
+            `) as BlockRootRow[];
+
+            const rootId = typeof rows?.[0]?.root_id === 'string' ? rows[0].root_id.trim() : '';
+            return rootId || normalizedNodeId;
+        } catch (error) {
+            logger.warn('[SiYuanMemo][AutoCard] Failed to resolve document root id, fallback to input id:', normalizedNodeId, error);
+            return normalizedNodeId;
+        }
     }
 
     // Normalize unknown error input to a readable message.

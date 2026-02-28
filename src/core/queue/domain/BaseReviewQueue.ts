@@ -8,7 +8,15 @@
  * @see .kiro/specs/unified-data-source-architecture/design.md
  */
 
-import { IReviewQueue, QueueObserver, QueueType, QueueStats, QueueUIConfig, ReviewButtonConfig } from '../../../types/unified-data-source';
+import {
+    IReviewQueue,
+    QueueObserver,
+    QueueType,
+    QueueStats,
+    QueueUIConfig,
+    ReviewButtonConfig,
+    QueueAddSource,
+} from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { QueueSchedulerPort, UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -194,7 +202,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @param source 来源类型（可选，仅用于最终训练队列）
      * @see 需求 5.4, 6.1, 6.2, 9.1, 9.5, 18.1
      */
-    public abstract addCard(card: FSRSCard | QueueItem | string, source?: 'manual' | 'auto-failed'): Promise<void>;
+    public abstract addCard(card: FSRSCard | QueueItem | string, source?: QueueAddSource): Promise<void>;
     
     /**
      * 从队列中移除卡片

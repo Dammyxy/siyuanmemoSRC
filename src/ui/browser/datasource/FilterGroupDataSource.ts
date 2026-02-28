@@ -17,14 +17,14 @@ import {
   deleteBrowserCards,
   removeCardsFromQueue,
   setBrowserCardsPriority,
-  sortBrowserCards,
+  sortAndPaginateBrowserCards,
 } from './DataSourceUtils';
 import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('FilterGroupDataSource');
 
-type QueueCardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only';
+type QueueCardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only' | 'missing-block-only';
 
 type FilterGroupActionContext = {
   priority?: number;
@@ -74,8 +74,13 @@ export class FilterGroupDataSource implements ICardDataSource {
       });
 
       const filtered = applyQueueFilters(browserCards, this.options, 'headline');
-      const sorted = sortBrowserCards(filtered, params?.sortModel || []);
-      return { rows: sorted, totalCount: sorted.length };
+      const paged = sortAndPaginateBrowserCards(
+        filtered,
+        params?.sortModel || [],
+        params?.startRow,
+        params?.endRow
+      );
+      return { rows: paged.rows, totalCount: paged.totalCount };
     } catch (error) {
       logger.error('Failed to fetch rows', error);
       throw error;

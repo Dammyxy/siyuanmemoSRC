@@ -2,10 +2,12 @@ import type { BrowserCard } from '../types';
 import type { SortModel } from './types';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
+import { parseQuery } from '../browserService';
+import { matchesParsedQuery } from '../utils/cardFilters';
 
 const logger = createLogger('DataSourceUtils');
 
-type CardTypeFilterValue = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only';
+type CardTypeFilterValue = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only' | 'missing-block-only';
 type QuerySecondaryField = 'headline' | 'fullContent';
 
 type BrowserCardWithHeadline = BrowserCard & { headline?: string };
@@ -321,9 +323,57 @@ export function sortBrowserCards(rows: BrowserCard[], sortModel: SortModel[]): B
   return copy;
 }
 
+export type PaginationSliceResult = {
+  rows: BrowserCard[];
+  totalCount: number;
+  startRow: number;
+  endRow: number;
+};
+
+function normalizeRowBoundary(value: number | undefined, fallback: number): number {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(0, Math.floor(Number(value)));
+}
+
+export function paginateBrowserCards(
+  rows: BrowserCard[],
+  startRow?: number,
+  endRow?: number
+): PaginationSliceResult {
+  const totalCount = rows.length;
+  const normalizedStart = normalizeRowBoundary(startRow, 0);
+  const defaultEnd = totalCount;
+  const normalizedEndCandidate = normalizeRowBoundary(endRow, defaultEnd);
+  const normalizedEnd = endRow == null ? defaultEnd : normalizedEndCandidate;
+  const safeStart = Math.min(normalizedStart, totalCount);
+  const safeEnd = Math.max(safeStart, Math.min(normalizedEnd, totalCount));
+
+  return {
+    rows: rows.slice(safeStart, safeEnd),
+    totalCount,
+    startRow: safeStart,
+    endRow: safeEnd,
+  };
+}
+
+export function sortAndPaginateBrowserCards(
+  rows: BrowserCard[],
+  sortModel: SortModel[],
+  startRow?: number,
+  endRow?: number
+): PaginationSliceResult {
+  const sortedRows = sortBrowserCards(rows, sortModel);
+  return paginateBrowserCards(sortedRows, startRow, endRow);
+}
+
 export function applyDocFilter(cards: BrowserCard[], docId?: string): BrowserCard[] {
   if (!docId) {
     return cards;
+  }
+  if (docId === '__lost__') {
+    return cards.filter((card) => !String(card.rootId || ''));
   }
   return cards.filter((card) => card.rootId === docId);
 }
@@ -358,6 +408,9 @@ export function applyCardTypeFilter(cards: BrowserCard[], cardType?: string): Br
   }
 
   const normalized = cardType as CardTypeFilterValue;
+  const isMissingBlockCard = (card: BrowserCard): boolean =>
+    (card.meta as { blockType?: unknown } | undefined)?.blockType === 'missing';
+
   return cards.filter((card) => {
     switch (normalized) {
       case 'topic-only':
@@ -368,6 +421,8 @@ export function applyCardTypeFilter(cards: BrowserCard[], cardType?: string): Br
         return card.cardType === 'concept';
       case 'descriptor-only':
         return card.cardType === 'descriptor';
+      case 'missing-block-only':
+        return isMissingBlockCard(card);
       default:
         return true;
     }
@@ -401,22 +456,30 @@ export function applySimpleQueryFilter(
   queryText?: string,
   options?: { secondaryField?: QuerySecondaryField }
 ): BrowserCard[] {
-  const query = normalizeSimpleQuery(queryText);
-  if (!query) {
+  const normalizedQuery = String(queryText || '').trim();
+  if (!normalizedQuery) {
     return cards;
   }
 
-  const secondaryField = options?.secondaryField ?? 'headline';
+  const parsed = parseQuery(normalizedQuery);
+  const filtered = cards.filter((card) => matchesParsedQuery(card, parsed));
+  if (filtered.length > 0 || !options?.secondaryField) {
+    return filtered;
+  }
+
+  // Fallback keeps legacy behavior when free-text query only matches headline.
+  const query = normalizeSimpleQuery(queryText);
+  if (!query) {
+    return filtered;
+  }
   return cards.filter((card) => {
     const content = card.content?.toLowerCase() || '';
     if (content.includes(query)) {
       return true;
     }
-
-    if (secondaryField === 'fullContent') {
+    if (options.secondaryField === 'fullContent') {
       return card.fullContent?.toLowerCase().includes(query) || false;
     }
-
     return (card as BrowserCardWithHeadline).headline?.toLowerCase().includes(query) || false;
   });
 }

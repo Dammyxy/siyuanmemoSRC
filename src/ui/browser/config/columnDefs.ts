@@ -9,6 +9,10 @@ import type { BrowserCard } from '../types';
 
 /** 状态颜色映射 */
 export const STATE_COLORS: Record<string, string> = {
+  '0': 'var(--b3-card-info-color)',
+  '1': 'var(--b3-card-warning-color)',
+  '2': 'var(--b3-card-success-color)',
+  '3': 'var(--b3-card-warning-color)',
   'New': 'var(--b3-card-info-color)',
   'Learning': 'var(--b3-card-warning-color)',
   'Review': 'var(--b3-card-success-color)',
@@ -111,7 +115,7 @@ export function createColumnDefs(t?: (key: string, fallback: string) => string):
         return translate('stateUnknown', '未知');
       },
       cellStyle: (params) => ({
-        color: STATE_COLORS[params.data.state] || '',
+        color: params.data ? (STATE_COLORS[String(params.data.state)] || '') : '',
         fontWeight: 500,
       }),
     },

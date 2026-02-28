@@ -10,7 +10,7 @@ import {
 import { loadQueueCardsSimple, runBrowserSql } from '../browserService';
 import type { ICardDataSource } from '@/application/interfaces/ICardDataSource';
 import type { CardBrowserAction, FetchRowsOptions, FetchRowsResult } from './types';
-import { sortBrowserCards } from './DataSourceUtils';
+import { sortAndPaginateBrowserCards } from './DataSourceUtils';
 
 type SqlRowLike = {
   id?: unknown;
@@ -121,8 +121,13 @@ export class QueryDataSource implements ICardDataSource {
       }
     }
 
-    const sorted = sortBrowserCards(rows, params?.sortModel || []);
-    return { rows: sorted, totalCount: sorted.length };
+    const paged = sortAndPaginateBrowserCards(
+      rows,
+      params?.sortModel || [],
+      params?.startRow,
+      params?.endRow
+    );
+    return { rows: paged.rows, totalCount: paged.totalCount };
   }
 
   getSupportedActions(): CardBrowserAction[] {

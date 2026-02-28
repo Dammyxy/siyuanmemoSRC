@@ -37,6 +37,7 @@ import { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
 import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
 import { buildClearedBlockAttrs } from './shared/CardBlockAttrCleaner';
+import { isIgnorableMissingBlockError } from './shared/SiyuanBlockErrorClassifier';
 import { warmupXiuyuanCardIndex } from './shared/WarmupXiuyuanCardIndex';
 import { createLogger } from '@/utils/logger';
 
@@ -107,7 +108,11 @@ export class DeleteCardUseCase {
         await this.removeCardBlockAttrs(blockId);
         logger.info(`[DeleteCardUseCase] Removed block attrs for: ${blockId}`);
       } catch (error) {
-        logger.error(`[DeleteCardUseCase] Failed to remove block attrs:`, error);
+        if (isIgnorableMissingBlockError(error)) {
+          logger.info(`[DeleteCardUseCase] Skip removing attrs for missing block: ${blockId}`);
+        } else {
+          logger.error(`[DeleteCardUseCase] Failed to remove block attrs:`, error);
+        }
         // 不阻断流程
       }
     }
@@ -156,6 +161,10 @@ export class DeleteCardUseCase {
         logger.info('[DeleteCardUseCase] Removed block attrs:', Object.keys(newAttrs));
       }
     } catch (error) {
+      if (isIgnorableMissingBlockError(error)) {
+        logger.info(`[DeleteCardUseCase] Skip remove attrs for missing block: ${blockId}`);
+        return;
+      }
       logger.warn('[DeleteCardUseCase] Failed to remove block attrs:', error);
       // 不抛出异常，不影响卡片删除流程
     }
@@ -204,14 +213,24 @@ export class DeleteCardUseCase {
     }
 
     const faceIndex = card.getFaceIndex();
-    const frontBlockId = xiuyuan.getFrontBlockIDs(faceIndex)[0];
-    if (frontBlockId) {
-      return frontBlockId;
-    }
-
     const backBlockId = xiuyuan.getBackBlockIDs(faceIndex)[0];
-    if (backBlockId) {
-      return backBlockId;
+    const frontBlockId = xiuyuan.getFrontBlockIDs(faceIndex)[0];
+    const isListTemplateCard = xiuyuan.getTemplateID().getValue() === 'builtin-list-item';
+
+    if (isListTemplateCard) {
+      if (backBlockId) {
+        return backBlockId;
+      }
+      if (frontBlockId) {
+        return frontBlockId;
+      }
+    } else {
+      if (frontBlockId) {
+        return frontBlockId;
+      }
+      if (backBlockId) {
+        return backBlockId;
+      }
     }
 
     const representativeBlockId = xiuyuan.getRepresentativeBlockId();

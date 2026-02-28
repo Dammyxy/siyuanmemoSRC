@@ -76,6 +76,8 @@ export interface BrowserCardMeta extends Record<string, unknown> {
     content?: string;
     deckId?: string;
     rootId?: string;
+    blockType?: string;
+    isDocument?: boolean;
     suspended?: boolean;
     note?: string;
     isIncomplete?: boolean;
@@ -120,25 +122,28 @@ export function getAvailableCardTypeFilters(queueId: string | null): Array<{ val
     if (queueId === 'retrieval' || queueId === 'final-drill') {
         return [
             { value: 'all',             i18nKey: 'cardTypeAll',             label: '所有类型' },
-            { value: 'item-only',       i18nKey: 'cardTypeItemOnly',        label: '仅卡片' },
-            { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅描述符卡' },
+            { value: 'item-only',       i18nKey: 'cardTypeItemOnly',        label: '仅 item' },
+            { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅 descriptor' },
+            { value: 'missing-block-only', i18nKey: 'cardTypeMissingBlockOnly', label: '仅缺失块' },
         ];
     }
 
-    // 神经漫游队列：仅保留 concept-only
+    // 神经漫游队列：优先概念卡，同时允许排查缺失块
     if (queueId === 'neural' || queueId === 'neural-roam') {
         return [
-            { value: 'concept-only',    i18nKey: 'cardTypeConceptOnly',     label: '仅概念卡' },
+            { value: 'concept-only',    i18nKey: 'cardTypeConceptOnly',     label: '仅 concept' },
+            { value: 'missing-block-only', i18nKey: 'cardTypeMissingBlockOnly', label: '仅缺失块' },
         ];
     }
 
     // 其他队列（渐进学习、筛选组、全部卡片等）：显示所有选项
     return [
         { value: 'all',             i18nKey: 'cardTypeAll',             label: '所有类型' },
-        { value: 'topic-only',      i18nKey: 'cardTypeTopicOnly',       label: '仅主题' },
-        { value: 'item-only',       i18nKey: 'cardTypeItemOnly',        label: '仅卡片' },
-        { value: 'concept-only',    i18nKey: 'cardTypeConceptOnly',     label: '仅概念卡' },
-        { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅描述符卡' },
+        { value: 'topic-only',      i18nKey: 'cardTypeTopicOnly',       label: '仅 topic' },
+        { value: 'item-only',       i18nKey: 'cardTypeItemOnly',        label: '仅 item' },
+        { value: 'concept-only',    i18nKey: 'cardTypeConceptOnly',     label: '仅 concept' },
+        { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅 descriptor' },
+        { value: 'missing-block-only', i18nKey: 'cardTypeMissingBlockOnly', label: '仅缺失块' },
     ];
 }
 
@@ -275,7 +280,18 @@ export interface IBreadcrumbItem {
 export type BrowserViewMode = 'flat' | 'hierarchy';
 
 /** 卡片类型筛选 */
-export type CardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only';
+export type CardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only' | 'missing-block-only';
+
+const NON_TRANSLATED_CARD_TYPE_FILTER_LABELS: Partial<Record<CardTypeFilter, string>> = {
+    'topic-only': '仅 topic',
+    'item-only': '仅 item',
+    'concept-only': '仅 concept',
+    'descriptor-only': '仅 descriptor',
+};
+
+export function getCardTypeFilterDisplayLabel(value: CardTypeFilter): string | undefined {
+    return NON_TRANSLATED_CARD_TYPE_FILTER_LABELS[value];
+}
 
 /** 浏览器模式 */
 export type BrowserMode = 'dialog' | 'tab' | 'dock';

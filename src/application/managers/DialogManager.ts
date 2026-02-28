@@ -1055,13 +1055,19 @@ export class DialogManager implements IDialogManager {
         return;
       }
 
-      const { xiuyuan, cards } = result.value;
-      logger.info('[DialogManager] List template cards created:', { xiuyuan, cards });
+      const { created, skippedChildBlockIds } = result.value;
+      logger.info('[DialogManager] List template cards created:', {
+        createdCount: created.length,
+        skippedCount: skippedChildBlockIds.length,
+        created,
+        skippedChildBlockIds,
+      });
 
       this.siyuanApi.pushMsg(
         `✅ 有序列表模版卡创建成功！\n` +
         `子列表项：${childBlockIds.length} 个\n` +
-        `生成卡片：${cards.length} 张`
+        `创建：${created.length} 张\n` +
+        `跳过：${skippedChildBlockIds.length} 张`
       );
     } catch (err) {
       logger.error('[DialogManager] Failed to handle list template card:', err);

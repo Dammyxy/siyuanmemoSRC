@@ -16,7 +16,7 @@
  */
 
 import { BaseReviewQueue } from './BaseReviewQueue';
-import { QueueType } from '../../../types/unified-data-source';
+import { QueueAddSource, QueueType } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -282,19 +282,20 @@ export class FinalDrillQueue extends BaseReviewQueue {
      * @param source 来源类型（'manual' 或 'auto-failed'）
      * @see 需求 6.1, 9.1, 9.5, 6.4
      */
-    public async addCard(card: FSRSCard | QueueItem | string, source: 'manual' | 'auto-failed' = 'manual'): Promise<void> {
+    public async addCard(card: FSRSCard | QueueItem | string, source: QueueAddSource = 'manual'): Promise<void> {
         try {
             await this.ensureInitialLoad();
             const cardId = resolveCardId(card);
 
-            const changed = this.addOrUpdateEntry(cardId, source);
+            const normalizedSource: FinalDrillEntry['source'] = source === 'auto-failed' ? 'auto-failed' : 'manual';
+            const changed = this.addOrUpdateEntry(cardId, normalizedSource);
             if (!changed) {
                 return;
             }
 
             await this.persistEntries({ emitQueueChanged: true });
             
-            logger.info(`Card ${cardId} added with source ${source}`);
+            logger.info(`Card ${cardId} added with source ${normalizedSource}`);
         } catch (error) {
             logger.error('Failed to add card:', error);
             throw error;

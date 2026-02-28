@@ -14,7 +14,11 @@ import {
   buildAddToQueueAction,
   type PluginLike as MenuActionPluginLike,
 } from './MenuActions';
-import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
+import {
+  QueueType,
+  type IUnifiedDataSourceManagerFacade,
+  type QueueAddSource,
+} from '@/types/unified-data-source';
 import type { RescheduleService } from '@/core/scheduler/rescheduleService';
 import type { FSRSCard } from '@/types/card';
 import {
@@ -25,13 +29,13 @@ import {
   type CardServicePluginLike,
   deleteBrowserCards,
   setBrowserCardsPriority,
-  sortBrowserCards,
+  sortAndPaginateBrowserCards,
 } from './DataSourceUtils';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DeckDataSource');
 
-type DeckCardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only';
+type DeckCardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only' | 'missing-block-only';
 
 type DeckDataSourceOptions = {
   preset: string;
@@ -67,6 +71,7 @@ type QueueAddActionType = 'retrieval' | 'incremental' | 'final-drill' | 'filter-
 type QueueAddRoute = {
   queueType: QueueType;
   actionType: QueueAddActionType;
+  source?: QueueAddSource;
 };
 
 type BrowserBatchManagerLike = {
@@ -84,9 +89,19 @@ const QUEUE_ADD_ROUTES: Record<string, QueueAddRoute> = {
     queueType: QueueType.RetrievalPractice,
     actionType: 'retrieval',
   },
+  'add-to-retrieval-queue-all': {
+    queueType: QueueType.RetrievalPractice,
+    actionType: 'retrieval',
+    source: 'manual-add-all',
+  },
   'add-to-incremental-queue': {
     queueType: QueueType.IncrementalLearning,
     actionType: 'incremental',
+  },
+  'add-to-incremental-queue-all': {
+    queueType: QueueType.IncrementalLearning,
+    actionType: 'incremental',
+    source: 'manual-add-all',
   },
   'add-to-deliberate-queue': {
     queueType: QueueType.FinalDrill,
@@ -139,8 +154,13 @@ export class DeckDataSource implements ICardDataSource {
         rows = applyDocFilter(rows, this.options.currentDocId);
       }
 
-      const sorted = sortBrowserCards(rows, params?.sortModel || []);
-      return { rows: sorted, totalCount: sorted.length };
+      const paged = sortAndPaginateBrowserCards(
+        rows,
+        params?.sortModel || [],
+        params?.startRow,
+        params?.endRow
+      );
+      return { rows: paged.rows, totalCount: paged.totalCount };
     } catch (error) {
       logger.error('Failed to fetch deck rows', error);
       throw error;
@@ -242,7 +262,7 @@ export class DeckDataSource implements ICardDataSource {
 
   private async handleQueueAddAction(route: QueueAddRoute, selectedRows: BrowserCard[]): Promise<unknown> {
     const queue = this.manager.getQueue(route.queueType);
-    return addToQueue(queue, selectedRows, route.actionType);
+    return addToQueue(queue, selectedRows, route.actionType, route.source ?? 'manual');
   }
 
   private async handleReviewSubset(selectedRows: BrowserCard[]): Promise<void> {

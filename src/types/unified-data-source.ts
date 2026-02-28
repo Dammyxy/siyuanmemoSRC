@@ -182,7 +182,8 @@ export type BrowserCardTypeFilter =
     | 'topic-only'
     | 'item-only'
     | 'concept-only'
-    | 'descriptor-only';
+    | 'descriptor-only'
+    | 'missing-block-only';
 
 // ============================================================================
 // 卡片过滤器
@@ -420,7 +421,7 @@ export interface IReviewQueue {
      * 
      * @param card 卡片
      */
-    addCard(card: FSRSCard | QueueItem | string, source?: 'manual' | 'auto-failed'): Promise<void>;
+    addCard(card: FSRSCard | QueueItem | string, source?: QueueAddSource): Promise<void>;
     
     /**
      * 从队列中移除卡片
@@ -558,6 +559,8 @@ export interface IReviewQueue {
      */
     restoreRollbackSnapshot?(snapshot: unknown): Promise<void>;
 }
+
+export type QueueAddSource = 'manual' | 'auto-failed' | 'manual-add-all';
 
 /**
  * 队列观察者接口

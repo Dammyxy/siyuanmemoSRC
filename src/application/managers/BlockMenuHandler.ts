@@ -1098,8 +1098,15 @@ export class BlockMenuHandler {
       });
 
       if (result.ok) {
-        await this.siyuanApi.pushMsg(`✅ 成功创建 ${childBlockIds.length} 张有序列表模版卡！`);
-        logger.info(`[SiYuanMemo] 🎉 Ordered list template cards creation complete:`, result.value);
+        const createdCount = result.value.created.length;
+        const skippedCount = result.value.skippedChildBlockIds.length;
+        await this.siyuanApi.pushMsg(`✅ 有序列表模版卡创建完成：创建 ${createdCount} 张，跳过 ${skippedCount} 张`);
+        logger.info(`[SiYuanMemo] 🎉 Ordered list template cards creation complete:`, {
+          createdCount,
+          skippedCount,
+          created: result.value.created,
+          skippedChildBlockIds: result.value.skippedChildBlockIds,
+        });
       } else {
         const errorMsg = result.ok === false ? result.error.message : 'Unknown error';
         await this.siyuanApi.pushErrMsg(`创建失败：${errorMsg}`);

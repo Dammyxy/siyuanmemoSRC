@@ -17,7 +17,7 @@
         class="quick-card-renderer__card"
         :class="contentClasses"
       >
-        <div v-html="viewModel.html"></div>
+        <div v-html="renderedHtml"></div>
       </div>
     </div>
   </div>
@@ -30,6 +30,7 @@ import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import { createLogger } from '@/utils/logger';
+import { renderMathWithKatex } from './mathRender';
 
 const logger = createLogger('QuickCardRenderer');
 
@@ -71,7 +72,18 @@ const emit = defineEmits<Emits>();
 const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<QuickCardViewModel | null>(null);
+const renderedHtml = ref('');
 const cardContentRef = ref<HTMLElement | null>(null);
+
+function renderDisplayHtml(result: QuickCardViewModel): string {
+  // Only apply KaTeX re-render for formula cloze quick cards.
+  if (result.metadata.symbol !== '\\cloze') {
+    return result.html;
+  }
+  return renderMathWithKatex(result.html, (error) => {
+    logger.warn('[QuickCardRenderer] Failed to render KaTeX expression:', error);
+  });
+}
 
 /**
  * 计算属性：内容 CSS 类
@@ -106,6 +118,7 @@ async function loadViewModel() {
     }
 
     viewModel.value = result;
+    renderedHtml.value = renderDisplayHtml(result);
     emit('loaded', result);
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error';

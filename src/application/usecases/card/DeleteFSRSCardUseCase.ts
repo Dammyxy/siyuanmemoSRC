@@ -43,6 +43,7 @@ import type { DeleteFSRSCardCommand, DeleteFSRSCardCommandResult } from '@/appli
 import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
 import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
 import { buildClearedBlockAttrs } from './shared/CardBlockAttrCleaner';
+import { isIgnorableMissingBlockError } from './shared/SiyuanBlockErrorClassifier';
 import { throwOnFailedStorageOperation } from './shared/StorageOperationResult';
 import { createLogger } from '@/utils/logger';
 
@@ -149,6 +150,10 @@ export class DeleteFSRSCardUseCase {
         logger.info('Removed block attrs:', Object.keys(newAttrs));
       }
     } catch (error) {
+      if (isIgnorableMissingBlockError(error)) {
+        logger.info(`Skip remove attrs for missing block: ${blockId}`);
+        return;
+      }
       logger.warn('Failed to remove block attrs:', error);
       // 不抛出异常，不影响卡片删除流程
     }

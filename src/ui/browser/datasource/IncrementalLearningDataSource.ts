@@ -23,14 +23,14 @@ import {
   deleteBrowserCards,
   removeCardsFromQueue,
   setBrowserCardsPriority,
-  sortBrowserCards,
+  sortAndPaginateBrowserCards,
 } from './DataSourceUtils';
 import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('IncrementalLearningDataSource');
 
-type QueueCardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only';
+type QueueCardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only' | 'missing-block-only';
 type I18nDictionary = Record<string, string>;
 
 type IncrementalLearningActionContext = {
@@ -91,7 +91,12 @@ export class IncrementalLearningDataSource implements ICardDataSource {
 
       const browserCards = cards.map((card) => mapQueueFsrsCardToBrowserCard(card));
       const filtered = applyQueueFilters(browserCards, this.options, 'fullContent');
-      const sorted = sortBrowserCards(filtered, params?.sortModel || []);
+      const paged = sortAndPaginateBrowserCards(
+        filtered,
+        params?.sortModel || [],
+        params?.startRow,
+        params?.endRow
+      );
 
       logger.debug('Fetched rows', {
         totalCards: cards.length,
@@ -99,7 +104,7 @@ export class IncrementalLearningDataSource implements ICardDataSource {
         durationMs: Date.now() - startTime,
       });
 
-      return { rows: sorted, totalCount: sorted.length };
+      return { rows: paged.rows, totalCount: paged.totalCount };
     } catch (error) {
       logger.error('Failed to fetch rows', {
         error,

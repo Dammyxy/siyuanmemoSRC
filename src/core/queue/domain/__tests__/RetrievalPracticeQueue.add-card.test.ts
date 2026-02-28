@@ -103,4 +103,66 @@ describe('RetrievalPracticeQueue addCard', () => {
     const unsortedCards = await unsortedQueue.getCards();
     expect(unsortedCards.map((card) => card.id)).toEqual(['card-low-priority', 'card-high-priority']);
   });
+
+  it('rejects adding cards that were already reviewed today', async () => {
+    const reviewedToday = createCard({
+      id: 'card-reviewed-today',
+      blockId: 'block-reviewed-today',
+      lastReview: Date.now(),
+    });
+
+    const manager = {
+      getCard: vi.fn(async (id: string) => {
+        if (id === reviewedToday.id) {
+          return reviewedToday;
+        }
+        throw new Error('card not found by id');
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async (_card: FSRSCard) => {}),
+      notifyObservers: vi.fn(),
+      getDayStartHour: vi.fn(() => 4),
+      getPriorityRandomness: vi.fn(() => 0),
+      getAddToOutstandingEveryNth: vi.fn(() => 2),
+    };
+
+    const queue = new RetrievalPracticeQueue(manager as never);
+
+    await expect(queue.addCard(reviewedToday.id, 'manual')).rejects.toThrow('今日已复习');
+    expect(manager.updateCard).not.toHaveBeenCalled();
+  });
+
+  it('allows adding cards reviewed today with manual-add-all source', async () => {
+    const reviewedToday = createCard({
+      id: 'card-reviewed-today',
+      blockId: 'block-reviewed-today',
+      lastReview: Date.now(),
+    });
+
+    const manager = {
+      getCard: vi.fn(async (id: string) => {
+        if (id === reviewedToday.id) {
+          return reviewedToday;
+        }
+        throw new Error('card not found by id');
+      }),
+      getCards: vi.fn(async (filter?: Record<string, unknown>) => {
+        if (Array.isArray(filter?.blockIds) && filter.blockIds.includes(reviewedToday.blockId)) {
+          return [reviewedToday];
+        }
+        return [];
+      }),
+      updateCard: vi.fn(async (_card: FSRSCard) => {}),
+      notifyObservers: vi.fn(),
+      getDayStartHour: vi.fn(() => 4),
+      getPriorityRandomness: vi.fn(() => 0),
+      getAddToOutstandingEveryNth: vi.fn(() => 2),
+    };
+
+    const queue = new RetrievalPracticeQueue(manager as never);
+    await expect(queue.addCard(reviewedToday.id, 'manual-add-all')).resolves.toBeUndefined();
+
+    const cards = await queue.getCards();
+    expect(cards.map((card) => card.id)).toContain(reviewedToday.id);
+  });
 });

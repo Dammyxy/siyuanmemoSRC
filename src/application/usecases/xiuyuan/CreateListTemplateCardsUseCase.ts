@@ -31,7 +31,7 @@
  * 6. 杩斿洖鍒涘缓鐨?Xiuyuan 鍜屽崱鐗?
  */
 
-import { Result, err } from '@/types/result';
+import { Result, err, ok } from '@/types/result';
 import { CreateListTemplateCardsCommand } from '../../commands/xiuyuan/CreateListTemplateCardsCommand';
 import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
@@ -46,7 +46,6 @@ import type { ICardTemplate } from '@/core/xiuyuan/types';
 import { createLogger } from '@/utils/logger';
 import {
   finalizeXiuyuanCreation,
-  type XiuyuanCreationPayload,
 } from './shared/FinalizeXiuyuanCreation';
 
 const logger = createLogger('CreateListTemplateCardsUseCase');
@@ -78,6 +77,27 @@ type ChildContentRow = {
   content: string;
 };
 
+type ListTemplateChildData = {
+  id: string;
+  cue: string;
+  answer: string;
+  content: string;
+  index: number;
+};
+
+export interface ListTemplateCardsCreationPayload {
+  mode: 'split-v2';
+  parentBlockId: string;
+  parentParagraphId: string;
+  totalChildren: number;
+  created: Array<{
+    childBlockId: string;
+    xiuyuanId: string;
+    cardIds: string[];
+  }>;
+  skippedChildBlockIds: string[];
+}
+
 /**
  * 鍒涘缓鍒楄〃妯℃澘鍗＄墖鐢ㄤ緥
  * 
@@ -104,7 +124,7 @@ export class CreateListTemplateCardsUseCase {
    * 鎵ц鐢ㄤ緥
    * 
    * @param command - 鍒涘缓鍛戒护
-   * @returns Result<XiuyuanCreationPayload> - 成功返回创建的 Xiuyuan 与卡片摘要，失败返回错误
+   * @returns Result<ListTemplateCardsCreationPayload> - 成功返回批量创建结果，失败返回错误
    * 
    * @example
    * ```typescript
@@ -125,15 +145,14 @@ export class CreateListTemplateCardsUseCase {
    * }
    * ```
    */
-  async execute(command: CreateListTemplateCardsCommand): Promise<Result<XiuyuanCreationPayload>> {
+  async execute(command: CreateListTemplateCardsCommand): Promise<Result<ListTemplateCardsCreationPayload>> {
     try {
-      // 1. 妫€鏌ユ槸鍚﹀凡缁忓垱寤鸿繃鍒楄〃妯＄増鍗?
-      const attrs = await this.siyuanApi.getBlockAttrs(command.parentBlockId);
-      
-      if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
-        const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
-        logger.info(`Block ${command.parentBlockId} already has Xiuyuan: ${existingXiuyuanId}`);
-        return err(new Error('List template card already exists for this parent block'));
+      // 1. Protect old model (single Xiuyuan on parent) from mixed mode creation.
+      const parentAttrs = await this.siyuanApi.getBlockAttrs(command.parentBlockId);
+      if (parentAttrs && (parentAttrs['custom-xiuyuan-id'] || parentAttrs['custom-fsrs-xiuyuan-id'])) {
+        const existingXiuyuanId = parentAttrs['custom-xiuyuan-id'] || parentAttrs['custom-fsrs-xiuyuan-id'];
+        logger.info(`Parent block ${command.parentBlockId} already has legacy Xiuyuan: ${existingXiuyuanId}`);
+        return err(new Error('Legacy list-template card already exists on parent block; split-v2 creation aborted'));
       }
       
       // 2. 楠岃瘉妯℃澘
@@ -179,29 +198,24 @@ export class CreateListTemplateCardsUseCase {
         return err(new Error('Failed to fetch children content'));
       }
       
-      // 瑙ｆ瀽姣忎釜瀛愬垪琛ㄩ」鐨勬彁绀哄拰绛旀
-      const childrenData = (childrenContentResult as ChildContentRow[]).map((row) => ({
-        id: row.id,
-        cue: parseCueAndAnswer(row.content).cue,
-        answer: parseCueAndAnswer(row.content).answer,
-        content: row.content
-      }));
-
-      // 6. 鍒涘缓鍊煎璞?
-      // 馃敡 缁熶竴 ID 鏍煎紡锛氫娇鐢ㄤ唬琛ㄥ潡 ID锛堢埗鍒楄〃椤癸級
-      const representativeBlockId = command.parentBlockId;
-      const xiuyuanIdResult = XiuyuanId.create(`xy_${representativeBlockId}`);
-      if (!xiuyuanIdResult.ok) {
-        return err(this.toError(xiuyuanIdResult.error, 'Invalid Xiuyuan ID'));
+      const childrenRows = childrenContentResult as ChildContentRow[];
+      const childRowMap = new Map(childrenRows.map((row) => [row.id, row]));
+      const childrenData: ListTemplateChildData[] = [];
+      for (let index = 0; index < command.childBlockIds.length; index++) {
+        const childBlockId = command.childBlockIds[index];
+        const row = childRowMap.get(childBlockId);
+        if (!row) {
+          return err(new Error(`Failed to fetch child content for block: ${childBlockId}`));
+        }
+        const parsed = parseCueAndAnswer(row.content);
+        childrenData.push({
+          id: row.id,
+          cue: parsed.cue,
+          answer: parsed.answer,
+          content: row.content,
+          index,
+        });
       }
-
-      const allBlockIds = [parentParagraphId, ...command.childBlockIds];
-      const blockIdResults = allBlockIds.map(id => BlockId.create(id));
-      const failedBlockId = blockIdResults.find(r => !r.ok);
-      if (failedBlockId && !failedBlockId.ok) {
-        return err(this.toError(failedBlockId.error, 'Invalid block ID'));
-      }
-      const blockIds = blockIdResults.map((r) => r.value);
 
       const templateIdResult = TemplateId.create(command.templateId);
       if (!templateIdResult.ok) {
@@ -210,68 +224,106 @@ export class CreateListTemplateCardsUseCase {
 
       const priorityResult = Priority.create(command.priority || 50);
       const priority = priorityResult.ok ? priorityResult.value : Priority.createDefault();
+      const groupId = `lt_${command.parentBlockId}`;
+      const created: ListTemplateCardsCreationPayload['created'] = [];
+      const skippedChildBlockIds: string[] = [];
 
-      // 7. 涓烘瘡涓瓙鍒楄〃椤瑰垱寤?CardFace
-      const faces: CardFace[] = [];
-      
+      // 6. Create one independent Xiuyuan for each child block.
       for (const childData of childrenData) {
-        const faceResult = CardFace.create({
-          question: parentParagraphId, // 闂鏄埗娈佃惤
-          answer: childData.content,   // 绛旀鏄瓙鍒楄〃椤瑰唴瀹?
-          questionBlockId: parentParagraphId,
-          answerBlockId: childData.id
-        });
+        const childAttrs = await this.siyuanApi.getBlockAttrs(childData.id);
+        const existingChildXiuyuanId = childAttrs['custom-xiuyuan-id'] || childAttrs['custom-fsrs-xiuyuan-id'];
+        if (existingChildXiuyuanId) {
+          skippedChildBlockIds.push(childData.id);
+          continue;
+        }
 
+        const xiuyuanIdResult = XiuyuanId.create(`xy_${childData.id}`);
+        if (!xiuyuanIdResult.ok) {
+          return err(this.toError(xiuyuanIdResult.error, 'Invalid Xiuyuan ID'));
+        }
+
+        const blockIdResults = [childData.id, parentParagraphId].map((id) => BlockId.create(id));
+        const failedBlockId = blockIdResults.find((result) => !result.ok);
+        if (failedBlockId && !failedBlockId.ok) {
+          return err(this.toError(failedBlockId.error, 'Invalid block ID'));
+        }
+        const blockIds = blockIdResults.map((result) => result.value);
+
+        const faceResult = CardFace.create({
+          question: parentParagraphId,
+          answer: childData.content,
+          questionBlockId: parentParagraphId,
+          answerBlockId: childData.id,
+        });
         if (!faceResult.ok) {
           return err(this.toError(faceResult.error, 'Failed to create list-template face'));
         }
 
-        faces.push(faceResult.value);
-      }
-
-      // 8. 鍒涘缓 Xiuyuan 鑱氬悎鏍癸紙鍖呭惈鍒楄〃妯℃澘鐨勫厓鏁版嵁锛?
-      const xiuyuanResult = Xiuyuan.create({
-        id: xiuyuanIdResult.value,
-        blockIDs: blockIds,
-        templateID: templateIdResult.value,
-        faces,
-        priority,
-        meta: {
-          schedulerType: 'fsrs-v6',
-          // 鍒楄〃妯℃澘鐗规湁鐨勫厓鏁版嵁
-          listTemplate: {
-            parentBlockId: command.parentBlockId,
-            parentParagraphId,
-            childrenData: childrenData.map((c, idx) => ({
-              id: c.id,
-              cue: c.cue,
-              answer: c.answer,
-              index: idx
-            }))
-          }
-        }
-      });
-
-      if (!xiuyuanResult.ok) {
-        return err(this.toError(xiuyuanResult.error, 'Failed to create Xiuyuan aggregate'));
-      }
-
-      const xiuyuan = xiuyuanResult.value;
-
-      return finalizeXiuyuanCreation({
-        xiuyuan,
-        xiuyuanRepository: this.xiuyuanRepository,
-        logger,
-        siyuanApi: this.siyuanApi,
-        riff: {
-          deckId: command.deckId,
-          blockIds: [parentParagraphId],
-          source: 'list-template-creation',
-          context: {
-            blockId: parentParagraphId,
-            representativeBlockId,
+        const xiuyuanResult = Xiuyuan.create({
+          id: xiuyuanIdResult.value,
+          blockIDs: blockIds,
+          templateID: templateIdResult.value,
+          faces: [faceResult.value],
+          priority,
+          meta: {
+            schedulerType: 'fsrs-v6',
+            listTemplate: {
+              mode: 'split-v2',
+              groupId,
+              parentBlockId: command.parentBlockId,
+              parentParagraphId,
+              currentIndex: childData.index,
+              childrenData: childrenData.map((child) => ({
+                id: child.id,
+                cue: child.cue,
+                answer: child.answer,
+                index: child.index,
+              })),
+            },
           },
-        },
+        });
+        if (!xiuyuanResult.ok) {
+          return err(this.toError(xiuyuanResult.error, 'Failed to create Xiuyuan aggregate'));
+        }
+
+        const xiuyuan = xiuyuanResult.value;
+        const creationResult = await finalizeXiuyuanCreation({
+          xiuyuan,
+          xiuyuanRepository: this.xiuyuanRepository,
+          logger,
+          siyuanApi: this.siyuanApi,
+          riff: {
+            deckId: command.deckId,
+            blockIds: [childData.id],
+            source: 'list-template-creation',
+            context: {
+              blockId: childData.id,
+              representativeBlockId: childData.id,
+              parentBlockId: command.parentBlockId,
+              parentParagraphId,
+              currentIndex: childData.index,
+            },
+          },
+        });
+
+        if (!creationResult.ok) {
+          return err(this.toError(creationResult.error, 'Failed to finalize split list-template Xiuyuan'));
+        }
+
+        created.push({
+          childBlockId: childData.id,
+          xiuyuanId: creationResult.value.xiuyuan.id,
+          cardIds: creationResult.value.cards.map((card) => card.id),
+        });
+      }
+
+      return ok({
+        mode: 'split-v2',
+        parentBlockId: command.parentBlockId,
+        parentParagraphId,
+        totalChildren: childrenData.length,
+        created,
+        skippedChildBlockIds,
       });
     } catch (error) {
       logger.error('Failed:', error);

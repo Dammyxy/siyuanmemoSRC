@@ -48,8 +48,16 @@ type XiuyuanCreateListTemplateResult =
     | {
         ok: true;
         value: {
-            xiuyuan: { id: string };
-            cards: Array<{ id: string }>;
+            mode: 'split-v2';
+            parentBlockId: string;
+            parentParagraphId: string;
+            totalChildren: number;
+            created: Array<{
+                childBlockId: string;
+                xiuyuanId: string;
+                cardIds: string[];
+            }>;
+            skippedChildBlockIds: string[];
         };
     }
     | {
@@ -572,8 +580,10 @@ export class TransactionObserver {
             });
             
             if (result.ok) {
-                logger.info(`[SiYuanMemo] ✅ Created list template: ${result.value.xiuyuan.id}`);
-                logger.info(`[SiYuanMemo] Created ${result.value.cards.length} cards:`, result.value.cards);
+                logger.info(
+                    `[SiYuanMemo] ✅ Created list template split-v2: created=${result.value.created.length}, skipped=${result.value.skippedChildBlockIds.length}`
+                );
+                logger.info(`[SiYuanMemo] Created children:`, result.value.created);
             } else {
                 logger.error(`[SiYuanMemo] ❌ Failed to create list template:`, result.error);
             }

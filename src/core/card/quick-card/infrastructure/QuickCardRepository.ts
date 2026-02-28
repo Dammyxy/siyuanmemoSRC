@@ -278,6 +278,9 @@ export class QuickCardRepository {
     if (content.match(/==[^=]+==/)) {
       return { type: 'cloze', symbol: '==' };
     }
+    if (content.match(/\\cloze\{c\d+\}\{/)) {
+      return { type: 'cloze', symbol: '\\cloze' };
+    }
 
     return null;
   }

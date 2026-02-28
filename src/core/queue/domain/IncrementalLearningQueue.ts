@@ -16,7 +16,7 @@
  */
 
 import { ManualCardCollectionQueue } from './ManualCardCollectionQueue';
-import { QueueType, QueueUIConfig, ReviewButtonConfig } from '../../../types/unified-data-source';
+import { QueueAddSource, QueueType, QueueUIConfig, ReviewButtonConfig } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -166,12 +166,16 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
      * @see 需求 5.4, 18.1, 18.4, 6.4
      * @see .kiro/specs/retrieval-practice-browser-display-fix/requirements.md
      */
-    public async addCard(card: FSRSCard | QueueItem | string): Promise<void> {
+    public async addCard(
+        card: FSRSCard | QueueItem | string,
+        source: QueueAddSource = 'manual'
+    ): Promise<void> {
         const { cardId, existingCard } = await this.resolveTargetCardForAdd(card);
 
-        if (existingCard && this.hasReviewedToday(existingCard)) {
-            logger.info(`[Add to outstanding] Skip card ${cardId}: already reviewed today`);
-            return;
+        if (source !== 'manual-add-all' && existingCard && this.hasReviewedToday(existingCard)) {
+            const message = `卡片 ${cardId} 今日已复习，不能重复加入渐进学习队列`;
+            logger.info(`[Add to outstanding] Reject card ${cardId}: already reviewed today (source=${source})`);
+            throw new Error(message);
         }
 
         await this.addCardToCollection(cardId, { logger });

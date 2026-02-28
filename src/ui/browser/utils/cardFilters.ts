@@ -184,7 +184,7 @@ export function applyPresetFilter(cards: BrowserCard[], preset: PresetType): Bro
 /**
  * 卡片类型筛选
  */
-export type CardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only';
+export type CardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only' | 'missing-block-only';
 
 /**
  * 应用卡片类型筛选
@@ -213,6 +213,10 @@ export function applyCardTypeFilter(cards: BrowserCard[], cardType: CardTypeFilt
     case 'descriptor-only':
       // 只显示描述符卡
       return cards.filter(card => card.cardType === 'descriptor');
+
+    case 'missing-block-only':
+      // 只显示块已不存在的卡片（由 DataAccessFacade 标记）
+      return cards.filter(card => (card.meta as { blockType?: unknown } | undefined)?.blockType === 'missing');
     
     default:
       return cards;

@@ -1,7 +1,7 @@
 <template>
   <div class="fsrs-browser-hierarchy" :class="{ 'fsrs-browser-hierarchy--mobile': props.mobileMode }">
     <div class="fsrs-browser-hierarchy__section">
-      <div class="fsrs-browser-hierarchy__title">{{ t('queues', '队列') }}</div>
+      <div class="fsrs-browser-hierarchy__title">{{ t('queues', 'Queues') }}</div>
       <div class="b3-list b3-list--background">
         <div
           v-for="q in queueItems"
@@ -16,29 +16,22 @@
       </div>
     </div>
 
-    <!-- ✅ 新增：【全部】区 -->
     <div class="fsrs-browser-hierarchy__section">
-      <div class="fsrs-browser-hierarchy__title">{{ t('all', '全部') }}</div>
+      <div class="fsrs-browser-hierarchy__title">{{ t('all', 'All') }}</div>
       <div class="b3-list b3-list--background">
-        <div
-          class="b3-list-item"
-          @click="emit('selectGlobal', '__all__')"
-        >
-          <span class="b3-list-item__text">{{ t('allFlashcards', '全部闪卡') }}</span>
+        <div class="b3-list-item" @click="emit('selectGlobal', '__all__')">
+          <span class="b3-list-item__text">{{ t('allFlashcards', 'All flashcards') }}</span>
           <span class="b3-list-item__meta">{{ globalStats.total }}</span>
         </div>
-        <div
-          class="b3-list-item"
-          @click="emit('selectGlobal', '__lost__')"
-        >
-          <span class="b3-list-item__text">{{ t('lostFlashcards', '丢失/关闭闪卡') }}</span>
+        <div class="b3-list-item" @click="emit('selectGlobal', '__lost__')">
+          <span class="b3-list-item__text">{{ t('lostFlashcards', 'Lost/closed flashcards') }}</span>
           <span class="b3-list-item__meta">{{ globalStats.lost }}</span>
         </div>
       </div>
     </div>
 
     <div class="fsrs-browser-hierarchy__section fsrs-browser-hierarchy__section--grow">
-      <div class="fsrs-browser-hierarchy__title">{{ t('documents', '文档') }}</div>
+      <div class="fsrs-browser-hierarchy__title">{{ t('documents', 'Documents') }}</div>
       <div class="b3-list b3-list--background fsrs-browser-hierarchy__docs-list">
         <div
           v-for="doc in docs"
@@ -56,19 +49,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watchEffect } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import type { BrowserCard } from './types';
 import { getDocTree } from './browserService';
-import { createLogger } from '@/utils/logger';
-
-const logger = createLogger('BrowserHierarchy');
 
 const props = defineProps<{
   cards: BrowserCard[];
   queues: { active: string; counts: Record<string, number> };
   mobileMode?: boolean;
-  focusedDocIds?: string[] | null;  // ✅ 四重筛选：聚焦的文档 ID 列表
-  globalStats: { total: number; lost: number };  // ✅ 全局统计（【全部】区使用）
+  focusedDocIds?: string[] | null;
+  globalStats: { total: number; lost: number };
   i18n?: Record<string, string>;
 }>();
 
@@ -76,7 +66,7 @@ const emit = defineEmits<{
   (e: 'selectQueue', queueId: string): void;
   (e: 'selectDoc', docId: string): void;
   (e: 'filterDoc', docId: string): void;
-  (e: 'selectGlobal', type: '__all__' | '__lost__'): void;  // ✅ 新增：【全部】区事件
+  (e: 'selectGlobal', type: '__all__' | '__lost__'): void;
 }>();
 
 function t(key: string, fallback: string): string {
@@ -86,75 +76,120 @@ function t(key: string, fallback: string): string {
 const queueItems = computed(() => [
   { id: 'retrieval', label: t('queueExtract', 'Retrieval Practice') },
   { id: 'incremental-learning', label: t('queueIncremental', 'Incremental Learning') },
-  { id: 'final-drill', label: t('queueDeliberate', '刻意练习') },
-  { id: 'neural-roam', label: t('queueNeural', '神经漫游') },
-  { id: 'filter-group', label: t('queueFilterGroup', '筛选复习') },
+  { id: 'final-drill', label: t('queueDeliberate', 'Final Drill') },
+  { id: 'neural-roam', label: t('queueNeural', 'Neural Roam') },
+  { id: 'filter-group', label: t('queueFilterGroup', 'Filter Group') },
 ]);
 
-const docs = ref<Array<{ id: string; title: string; count: number; filterable: boolean }>>([]);
+type HierarchyDocItem = {
+  id: string;
+  title: string;
+  count: number;
+  filterable: boolean;
+};
+
+const docs = ref<HierarchyDocItem[]>([]);
+const docTitleCache = new Map<string, string>();
+let docsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let loadSeq = 0;
+let lastDocIdsSignature = '';
+let lastDocCountsSignature = '';
 
-watchEffect(() => {
-  const cards = props.cards || [];
+function buildDocCounts(cards: BrowserCard[], focusedDocIds?: string[] | null): Map<string, number> {
+  const focusSet =
+    Array.isArray(focusedDocIds) && focusedDocIds.length > 0
+      ? new Set(focusedDocIds)
+      : null;
 
-  // ✅ 四重筛选：队列聚焦文档
-  // 如果有聚焦的文档列表，只统计和加载这些文档
-  const focusedIds = props.focusedDocIds;
-  
-  // ✅ 调试日志：记录接收到的数据
-  logger.info('[SiYuanMemo][BrowserHierarchy] 🔍 watchEffect triggered:', {
-    cardsCount: cards.length,
-    focusedIds,
-    sampleCards: cards.slice(0, 3).map(c => ({ blockId: c.blockId, rootId: c.rootId })),
-  });
-  
-  const filteredCards = focusedIds
-    ? cards.filter(c => focusedIds.includes(c.rootId || ''))
-    : cards;
-  
-  logger.info('[SiYuanMemo][BrowserHierarchy] 🔍 After filtering:', {
-    filteredCardsCount: filteredCards.length,
-    sampleFiltered: filteredCards.slice(0, 3).map(c => ({ blockId: c.blockId, rootId: c.rootId })),
-  });
-
-  // 计算文档统计
   const counts = new Map<string, number>();
-  for (const c of filteredCards) {
-    const rid = String(c.rootId || '');
-    if (!rid) continue;
-    counts.set(rid, (counts.get(rid) || 0) + 1);
+  for (const card of cards || []) {
+    const rootId = String(card.rootId || '');
+    if (!rootId) continue;
+    if (focusSet && !focusSet.has(rootId)) continue;
+    counts.set(rootId, (counts.get(rootId) || 0) + 1);
   }
-  const ids = Array.from(counts.keys());
-  const current = ++loadSeq;
-  
-  logger.info('[SiYuanMemo][BrowserHierarchy] 🔍 Document IDs to load:', {
-    idsCount: ids.length,
-    ids,
-    counts: Object.fromEntries(counts),
-  });
+  return counts;
+}
 
-  void (async () => {
-    const nodes = await getDocTree(ids);
+function buildSignatures(counts: Map<string, number>): {
+  ids: string[];
+  idsSignature: string;
+  countsSignature: string;
+} {
+  const ids = Array.from(counts.keys()).sort();
+  return {
+    ids,
+    idsSignature: ids.join(','),
+    countsSignature: ids.map((id) => `${id}:${counts.get(id) || 0}`).join('|'),
+  };
+}
+
+function scheduleDocsRefresh(delayMs = 80): void {
+  if (docsRefreshTimer) {
+    clearTimeout(docsRefreshTimer);
+    docsRefreshTimer = null;
+  }
+
+  docsRefreshTimer = setTimeout(() => {
+    docsRefreshTimer = null;
+    void refreshDocs();
+  }, delayMs);
+}
+
+async function refreshDocs(): Promise<void> {
+  const counts = buildDocCounts(props.cards || [], props.focusedDocIds);
+  if (counts.size === 0) {
+    docs.value = [];
+    lastDocIdsSignature = '';
+    lastDocCountsSignature = '';
+    return;
+  }
+
+  const { ids, idsSignature, countsSignature } = buildSignatures(counts);
+  if (idsSignature === lastDocIdsSignature && countsSignature === lastDocCountsSignature) {
+    return;
+  }
+
+  const current = ++loadSeq;
+  const missingIds = ids.filter((id) => !docTitleCache.has(id));
+  if (missingIds.length > 0) {
+    const nodes = await getDocTree(missingIds);
     if (current !== loadSeq) return;
-    
-    logger.info('[SiYuanMemo][BrowserHierarchy] 🔍 getDocTree returned:', {
-      nodesCount: nodes.length,
-      nodes: nodes.map(n => ({ id: n.id, title: n.title })),
-    });
-    
-    // ✅ 只包含普通文档，"全部闪卡"和"丢失/关闭闪卡"已移至【全部】区
-    docs.value = nodes.map((n) => ({
-      id: n.id,
-      title: n.title,
-      count: counts.get(n.id) || 0,
-      filterable: true
-    }));
-    
-    logger.info('[SiYuanMemo][BrowserHierarchy] ✅ docs.value updated:', {
-      docsCount: docs.value.length,
-      docs: docs.value,
-    });
-  })();
+    for (const node of nodes) {
+      if (node?.id) {
+        docTitleCache.set(node.id, node.title || node.id);
+      }
+    }
+  }
+
+  if (current !== loadSeq) {
+    return;
+  }
+
+  docs.value = ids.map((id) => ({
+    id,
+    title: docTitleCache.get(id) || id,
+    count: counts.get(id) || 0,
+    filterable: true,
+  }));
+  lastDocIdsSignature = idsSignature;
+  lastDocCountsSignature = countsSignature;
+}
+
+watch(
+  [() => props.cards, () => props.focusedDocIds],
+  () => {
+    scheduleDocsRefresh();
+  },
+  { immediate: true }
+);
+
+onBeforeUnmount(() => {
+  loadSeq += 1;
+  if (docsRefreshTimer) {
+    clearTimeout(docsRefreshTimer);
+    docsRefreshTimer = null;
+  }
 });
 </script>
 
@@ -177,7 +212,7 @@ watchEffect(() => {
 
 .fsrs-browser-hierarchy__section--grow {
   flex: 1;
-  min-height: 0;  /* ✅ 允许 flex 子元素缩小 */
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -187,17 +222,16 @@ watchEffect(() => {
   font-weight: 600;
   color: var(--b3-theme-on-surface);
   padding: 4px 6px;
-  flex-shrink: 0;  /* ✅ 防止标题被压缩 */
+  flex-shrink: 0;
 }
 
 .fsrs-browser-hierarchy__docs-list {
-  overflow-y: auto;  /* ✅ 添加垂直滚动条 */
+  overflow-y: auto;
   overflow-x: hidden;
-  flex: 1;  /* ✅ 填充剩余空间 */
-  min-height: 0;  /* ✅ 允许缩小 */
+  flex: 1;
+  min-height: 0;
 }
 
-/* ✅ 自定义滚动条样式（Webkit 浏览器） */
 .fsrs-browser-hierarchy__docs-list::-webkit-scrollbar {
   width: 6px;
 }

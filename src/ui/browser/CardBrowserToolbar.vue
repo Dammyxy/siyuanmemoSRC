@@ -27,7 +27,7 @@
           :key="option.value" 
           :value="option.value"
         >
-          {{ t(option.value === 'all' ? 'allTypes' : option.value === 'topic-only' ? 'topicOnly' : option.value === 'item-only' ? 'itemOnly' : option.value === 'concept-only' ? 'conceptOnly' : 'descriptorOnly', option.label) }}
+          {{ getCardTypeLabel(option.value, option.label) }}
         </option>
       </select>
     </div>
@@ -128,7 +128,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { getAvailableCardTypeFilters } from './types';
+import { getAvailableCardTypeFilters, getCardTypeFilterDisplayLabel } from './types';
+import type { CardTypeFilter } from './types';
 
 // 定义 props
 interface Props {
@@ -138,7 +139,7 @@ interface Props {
   activeDocId?: string | null;
   shouldFocusDocList: boolean;
   currentPreset: string;
-  currentCardType: 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only';
+  currentCardType: 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only' | 'missing-block-only';
   viewMode: 'flat' | 'hierarchy';
   mode: 'dialog' | 'tab' | 'dock';
   plugin?: unknown;
@@ -157,7 +158,7 @@ const availableCardTypeFilters = computed(() => {
 // 定义 emits
 const emit = defineEmits<{
   (e: 'update:currentPreset', value: string): void;
-  (e: 'update:currentCardType', value: 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only'): void;
+  (e: 'update:currentCardType', value: 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only' | 'missing-block-only'): void;
   (e: 'update:searchQuery', value: string): void;
   (e: 'update:viewMode', value: 'flat' | 'hierarchy'): void;
   (e: 'update:showPreview', value: boolean): void;
@@ -179,7 +180,7 @@ const emit = defineEmits<{
 // 使用 ref 来管理局部状态
 const searchQuery = ref('');
 const localCurrentPreset = ref(props.currentPreset);
-const localCurrentCardType = ref(props.currentCardType as 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only');
+const localCurrentCardType = ref(props.currentCardType as 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only' | 'missing-block-only');
 
 // 同步 props 到本地状态
 watch(() => props.currentPreset, (newVal) => {
@@ -202,6 +203,14 @@ watch(localCurrentCardType, (newVal) => {
 // 国际化函数
 const t = (key: string, fallback: string): string => {
   return props.i18n?.[key] || fallback;
+};
+
+const getCardTypeLabel = (value: string, fallback: string): string => {
+  const fixed = getCardTypeFilterDisplayLabel(value as CardTypeFilter);
+  if (fixed) {
+    return fixed;
+  }
+  return t(value === 'all' ? 'allTypes' : 'missingBlockOnly', fallback);
 };
 
 // 事件处理函数

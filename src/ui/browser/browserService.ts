@@ -271,6 +271,7 @@ interface CacheEntry {
     cards: BrowserCard[];
     timestamp: number;
     blockIdSet: Set<string>;
+    blockIdMap: Map<string, BrowserCard>;
     isComplete: boolean;
 }
 
@@ -282,19 +283,46 @@ class CardCacheManager {
     private readonly TTL = 0;  // 禁用缓存，数据始终最新
     private loading: Promise<BrowserCard[]> | null = null;
 
+    private isCacheValid(): boolean {
+        if (!this.cache) return false;
+        const ttlMs = Math.max(this.TTL, 10_000);
+        return Date.now() - this.cache.timestamp <= ttlMs;
+    }
+
     get(): BrowserCard[] | null {
         if (!this.cache) return null;
-        if (Date.now() - this.cache.timestamp > this.TTL) {
+        if (!this.isCacheValid()) {
             return null;
         }
         return this.cache.cards;
     }
 
+    getByBlockIds(blockIds: string[]): Map<string, BrowserCard> {
+        const result = new Map<string, BrowserCard>();
+        if (!this.cache || !this.isCacheValid()) {
+            return result;
+        }
+        for (const blockId of blockIds) {
+            const card = this.cache.blockIdMap.get(blockId);
+            if (card) {
+                result.set(blockId, card);
+            }
+        }
+        return result;
+    }
+
     set(cards: BrowserCard[], isComplete = true): void {
+        const blockIdMap = new Map<string, BrowserCard>();
+        for (const card of cards) {
+            if (card?.blockId) {
+                blockIdMap.set(card.blockId, card);
+            }
+        }
         this.cache = {
             cards,
             timestamp: Date.now(),
-            blockIdSet: new Set(cards.map(c => c.blockId)),
+            blockIdSet: new Set(blockIdMap.keys()),
+            blockIdMap,
             isComplete
         };
     }
@@ -309,9 +337,10 @@ class CardCacheManager {
     updateCard(blockId: string, updates: Partial<BrowserCard>): void {
         if (!this.cache) return;
         
-        const card = this.cache.cards.find(c => c.blockId === blockId);
+        const card = this.cache.blockIdMap.get(blockId);
         if (card) {
             Object.assign(card, updates);
+            this.cache.timestamp = Date.now();
         }
     }
 
@@ -324,6 +353,8 @@ class CardCacheManager {
         const blockIdSet = new Set(blockIds);
         this.cache.cards = this.cache.cards.filter(c => !blockIdSet.has(c.blockId));
         this.cache.blockIdSet = new Set(this.cache.cards.map(c => c.blockId));
+        this.cache.blockIdMap = new Map(this.cache.cards.map(c => [c.blockId, c]));
+        this.cache.timestamp = Date.now();
     }
 
     getStats(): { count: number; age: number; valid: boolean } {
@@ -331,10 +362,11 @@ class CardCacheManager {
             return { count: 0, age: 0, valid: false };
         }
         const age = Date.now() - this.cache.timestamp;
+        const ttlMs = Math.max(this.TTL, 10_000);
         return {
             count: this.cache.cards.length,
             age,
-            valid: age <= this.TTL
+            valid: age <= ttlMs
         };
     }
 
@@ -1094,16 +1126,20 @@ export async function loadQueueCards(
         // 从缓存或统一数据源获取卡片
         const cachedCards = cardCache.get();
         if (cachedCards) {
-            const cardMap = new Map(cachedCards.map(c => [c.blockId, c]));
-            let cards = ids.map(id => cardMap.get(id)).filter(Boolean) as BrowserCard[];
-            
-            if (queryText) {
-                const parsed = parseQuery(queryText);
-                cards = applyParsedQuery(cards, parsed);
+            const cachedByBlockId = cardCache.getByBlockIds(ids);
+            if (cachedByBlockId.size === ids.length) {
+                let cards = ids
+                    .map(id => cachedByBlockId.get(id))
+                    .filter(Boolean) as BrowserCard[];
+                
+                if (queryText) {
+                    const parsed = parseQuery(queryText);
+                    cards = applyParsedQuery(cards, parsed);
+                }
+                
+                const byBlockId = new Map(cards.map((c) => [c.blockId, c]));
+                return ids.map((id) => byBlockId.get(id)).filter(Boolean) as BrowserCard[];
             }
-            
-            const byBlockId = new Map(cards.map((c) => [c.blockId, c]));
-            return ids.map((id) => byBlockId.get(id)).filter(Boolean) as BrowserCard[];
         }
 
         // 默认：从统一数据源加载

@@ -10,6 +10,7 @@ import type { BrowserCard } from '../../browser/types';
 import type { RescheduleService } from '@/core/scheduler/rescheduleService';
 import { ConfigManager } from '@/core/scheduler/ConfigManager';
 import type { CardReadPort } from '@/core/storage/ports';
+import type { QueueAddSource } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('MenuActions');
@@ -81,6 +82,11 @@ export function buildAddToQueueAction(
       label: translate('addToRetrievalQueue', '提取练习'),
       icon: 'iconList',
     });
+    queueActions.push({
+      id: 'add-to-retrieval-queue-all',
+      label: translate('addToRetrievalQueueAll', '提取练习（含今日已复习）'),
+      icon: 'iconAdd',
+    });
   }
   if (hasQueues.incremental) {
     logger.debug('[MenuActions] ✅ 添加渐进学习');
@@ -88,6 +94,11 @@ export function buildAddToQueueAction(
       id: 'add-to-incremental-queue',
       label: translate('addToIncrementalQueue', '渐进学习'),
       icon: 'iconBook',
+    });
+    queueActions.push({
+      id: 'add-to-incremental-queue-all',
+      label: translate('addToIncrementalQueueAll', '渐进学习（含今日已复习）'),
+      icon: 'iconAdd',
     });
   }
   if (hasQueues.finalDrill) {
@@ -191,7 +202,7 @@ type QueueCandidate = {
 };
 
 type QueueAddLike = {
-  addCard?: (cardIdOrBlockId: string, source?: 'manual' | 'auto-failed') => Promise<void> | void;
+  addCard?: (cardIdOrBlockId: string, source?: QueueAddSource) => Promise<void> | void;
 };
 
 type UnifiedStorageLike = CardReadPort & {
@@ -497,7 +508,8 @@ export async function adjustTime(
 async function addCardsDeterministically(
   queue: QueueAddLike | undefined,
   items: QueueCandidate[],
-  getAddTargetId: (item: QueueCandidate) => string
+  getAddTargetId: (item: QueueCandidate) => string,
+  source: QueueAddSource
 ) : Promise<{ added: number; failed: number; firstError?: string }> {
   if (!queue || typeof queue.addCard !== 'function') {
     throw new Error('Queue unavailable');
@@ -514,7 +526,7 @@ async function addCardsDeterministically(
       continue;
     }
     try {
-      await Promise.resolve(queue.addCard(targetId, 'manual'));
+      await Promise.resolve(queue.addCard(targetId, source));
       added++;
     } catch (error) {
       failed++;
@@ -555,7 +567,8 @@ function filterQueueItems(
 export async function addToQueue(
   queue: QueueAddLike | undefined,
   selectedRows: BrowserCard[],
-  queueType: QueueActionType
+  queueType: QueueActionType,
+  source: QueueAddSource = 'manual'
 ): Promise<{ added: number; message: string }> {
   logger.debug('[MenuActions] addToQueue called', {
     queueType,
@@ -577,21 +590,22 @@ export async function addToQueue(
     addResult = await addCardsDeterministically(
       queue,
       filtered.items,
-      queueType === 'neural-roam' ? (item) => item.blockId : (item) => item.cardId
+      queueType === 'neural-roam' ? (item) => item.blockId : (item) => item.cardId,
+      source
     );
   } catch (error) {
     logger.warn(`[MenuActions] queue unavailable for ${queueType}`);
     return { added: 0, message: queueUnavailableMessage[queueType] };
   }
 
-  if (queueType === 'neural-roam') {
-    if (addResult.added <= 0) {
-      if (addResult.firstError) {
-        return { added: 0, message: `添加失败：${addResult.firstError}` };
-      }
-      return { added: 0, message: '没有有效的卡片可添加' };
+  if (addResult.added <= 0) {
+    if (addResult.firstError) {
+      return { added: 0, message: `添加失败：${addResult.firstError}` };
     }
+    return { added: 0, message: '没有有效的卡片可添加' };
+  }
 
+  if (queueType === 'neural-roam') {
     let message = `已将 ${addResult.added} 张卡片设置为神经漫游种子块`;
     if (filtered.skippedConceptCount > 0) {
       message += `（过滤了 ${filtered.skippedConceptCount} 张非 Concept 卡片）`;
@@ -608,12 +622,19 @@ export async function addToQueue(
     if (filtered.skippedConceptCount > 0) {
       message += `（过滤了 ${filtered.skippedConceptCount} 张 Concept 卡片）`;
     }
+    if (addResult.failed > 0) {
+      message += `，${addResult.failed} 张添加失败`;
+    }
     return { added: addResult.added, message };
   }
 
   const queueName = queueDisplayName[queueType];
+  let message = `已加入 ${addResult.added} 张卡片到${queueName}队列`;
+  if (addResult.failed > 0) {
+    message += `，${addResult.failed} 张添加失败`;
+  }
   return {
     added: addResult.added,
-    message: `已加入 ${addResult.added} 张卡片到${queueName}队列`,
+    message,
   };
 }

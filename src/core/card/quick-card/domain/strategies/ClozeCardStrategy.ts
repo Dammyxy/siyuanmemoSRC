@@ -10,6 +10,7 @@ import type { ICardFaceStrategy } from './ICardFaceStrategy';
 import type { CardFaceData, HiddenContentType, QuickCardMetadata } from '../types';
 import { removeIAL } from './utils';
 import { createLogger } from '@/utils/logger';
+import { ClozeDetector } from '@/utils/cloze-detector';
 
 const logger = createLogger('ClozeCardStrategy');
 
@@ -58,47 +59,8 @@ export class ClozeCardStrategy implements ICardFaceStrategy {
    * @param content - 块内容
    * @returns 填空列表，包含文本和位置信息
    */
-  private extractClozes(content: string): Array<{ text: string; start: number; end: number; type: 'brace' | 'equal' | 'mark' }> {
-    const clozes: Array<{ text: string; start: number; end: number; type: 'brace' | 'equal' | 'mark' }> = [];
-    
-    // 提取 {{}} 填空
-    const braceRegex = /\{\{([^}]*)\}\}/g;
-    let match;
-    while ((match = braceRegex.exec(content)) !== null) {
-      clozes.push({
-        text: match[1],
-        start: match.index,
-        end: match.index + match[0].length,
-        type: 'brace',
-      });
-    }
-    
-    // 提取 == 填空
-    const equalRegex = /==([^=]*)==/g;
-    while ((match = equalRegex.exec(content)) !== null) {
-      clozes.push({
-        text: match[1],
-        start: match.index,
-        end: match.index + match[0].length,
-        type: 'equal',
-      });
-    }
-    
-    // 提取思源标记填空
-    const markRegex = /<span data-type="mark">([^<]*)<\/span>/g;
-    while ((match = markRegex.exec(content)) !== null) {
-      clozes.push({
-        text: match[1],
-        start: match.index,
-        end: match.index + match[0].length,
-        type: 'mark',
-      });
-    }
-    
-    // 按位置排序
-    clozes.sort((a, b) => a.start - b.start);
-    
-    return clozes;
+  private extractClozes(content: string): Array<{ text: string; start: number; end: number; type: 'brace' | 'equal' | 'mark' | 'latex' }> {
+    return ClozeDetector.extractClozes(content);
   }
   
   /**
@@ -145,15 +107,17 @@ export class ClozeCardStrategy implements ICardFaceStrategy {
     // 从后往前替换，避免位置偏移
     for (let i = clozes.length - 1; i >= 0; i--) {
       const cloze = clozes[i];
-      const before = cleanContent.substring(0, cloze.start);
-      const after = cleanContent.substring(cloze.end);
+      const isLatexCloze = cloze.type === 'latex';
+      const latexFrontPlaceholder = '\\boxed{\\text{[...]}}';
+      const frontPlaceholder = isLatexCloze ? latexFrontPlaceholder : '<mark>[...]</mark>';
+      const backAnswer = isLatexCloze ? cloze.text : `<mark>${cloze.text}</mark>`;
       
       if (isMultiCloze) {
         // 多填空模式：只隐藏目标索引的填空
         if (i === targetIndex) {
           // 目标填空：正面显示淡绿色背景的 [...]，反面高亮显示答案
-          frontHtml = frontHtml.substring(0, cloze.start) + '<mark>[...]</mark>' + frontHtml.substring(cloze.end);
-          backHtml = backHtml.substring(0, cloze.start) + `<mark>${cloze.text}</mark>` + backHtml.substring(cloze.end);
+          frontHtml = frontHtml.substring(0, cloze.start) + frontPlaceholder + frontHtml.substring(cloze.end);
+          backHtml = backHtml.substring(0, cloze.start) + backAnswer + backHtml.substring(cloze.end);
         } else {
           // 其他填空：正反面都显示普通文本（不高亮）
           frontHtml = frontHtml.substring(0, cloze.start) + cloze.text + frontHtml.substring(cloze.end);
@@ -161,8 +125,8 @@ export class ClozeCardStrategy implements ICardFaceStrategy {
         }
       } else {
         // 单填空模式：隐藏所有填空
-        frontHtml = frontHtml.substring(0, cloze.start) + '[...]' + frontHtml.substring(cloze.end);
-        backHtml = backHtml.substring(0, cloze.start) + `<mark>${cloze.text}</mark>` + backHtml.substring(cloze.end);
+        frontHtml = frontHtml.substring(0, cloze.start) + (isLatexCloze ? latexFrontPlaceholder : '[...]') + frontHtml.substring(cloze.end);
+        backHtml = backHtml.substring(0, cloze.start) + backAnswer + backHtml.substring(cloze.end);
       }
     }
     

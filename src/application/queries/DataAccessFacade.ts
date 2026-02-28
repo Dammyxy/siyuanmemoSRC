@@ -151,6 +151,7 @@ export class DataAccessFacade implements IDataRouter {
     private cardsCacheTimestamp: number = 0;
     private readonly CACHE_TTL = 1000; // 缓存有效期 1 秒
 
+    private readonly knownMissingBlockIds = new Set<string>();
     private readonly siyuanApi: QuerySiyuanPort;
     
     // ========================================================================
@@ -584,6 +585,24 @@ export class DataAccessFacade implements IDataRouter {
             || this.plugin?.getContext?.()?.getI18n?.()
             || this.plugin?.i18n;
     }
+
+    private fillMissingBlockFallback(card: FSRSCard): void {
+        if (!card.meta) {
+            card.meta = {};
+        }
+
+        if (!card.meta.content || String(card.meta.content).trim() === '') {
+            card.meta.content = this.getI18nDictionary()?.blockNotFound || 'Block not found';
+        }
+
+        if (!card.meta.rootId || String(card.meta.rootId).trim() === '') {
+            // Keep a stable fallback rootId to avoid repeated fill attempts.
+            card.meta.rootId = card.blockId;
+        }
+
+        card.meta.blockType = 'missing';
+        card.meta.isDocument = false;
+    }
     
     // ========================================================================
     // rootId 填充方法
@@ -606,10 +625,20 @@ export class DataAccessFacade implements IDataRouter {
         if (cards.length === 0) {
             return;
         }
+
+        // Known missing blocks: avoid querying DB repeatedly and keep a stable placeholder.
+        for (const card of cards) {
+            if (this.knownMissingBlockIds.has(card.blockId)) {
+                this.fillMissingBlockFallback(card);
+            }
+        }
         
         // ✅ 只查询那些真正缺失 rootId 或 content 的卡片
         const cardsNeedingRootId = cards.filter(c => !c.meta?.rootId);
-        const cardsNeedingContent = cards.filter(c => !c.meta?.content || String(c.meta.content).trim() === '');
+        const cardsNeedingContent = cards.filter(c =>
+            (!c.meta?.content || String(c.meta.content).trim() === '')
+            && !this.knownMissingBlockIds.has(c.blockId)
+        );
         
         logger.info(`[SiYuanMemo][DataAccessFacade] Cards needing data: ${cardsNeedingRootId.length} need rootId, ${cardsNeedingContent.length} need content`);
         
@@ -645,7 +674,9 @@ export class DataAccessFacade implements IDataRouter {
                 
                 if (!contentResult) {
                     notFoundCount++;
-                    logger.warn(`[SiYuanMemo][DataAccessFacade] ⚠️ Block not found in database: ${card.blockId}`);
+                    this.knownMissingBlockIds.add(card.blockId);
+                    logger.warn(`Block not found in database: ${card.blockId}`);
+                    this.fillMissingBlockFallback(card);
                     continue;
                 }
                 
@@ -674,11 +705,11 @@ export class DataAccessFacade implements IDataRouter {
         
         // 更新需要 rootId 的卡片
         for (const card of cardsNeedingRootId) {
-            const rootId = rootIdMap.get(card.blockId) || '';
+            const rootId = rootIdMap.get(card.blockId);
             if (!card.meta) {
                 card.meta = {};
             }
-            card.meta.rootId = rootId;
+            card.meta.rootId = rootId || card.meta.rootId || (this.knownMissingBlockIds.has(card.blockId) ? card.blockId : '');
         }
         
         logger.info(`[SiYuanMemo][DataAccessFacade] ✅ Filled rootId for ${cardsNeedingRootId.length} cards, content for ${cardsNeedingContent.length} cards`);

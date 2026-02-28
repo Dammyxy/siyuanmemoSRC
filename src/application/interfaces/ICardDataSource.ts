@@ -46,8 +46,10 @@ export interface FetchRowsOptions {
   /** 过滤模型 */
   filterModel: FilterModel;
   /** 起始行（可选，用于分页） */
+  /** Required semantic in production infinite-row browser path. */
   startRow?: number;
   /** 结束行（可选，用于分页） */
+  /** Required semantic in production infinite-row browser path. */
   endRow?: number;
 }
 
@@ -113,6 +115,7 @@ export interface ICardDataSource {
    * @param options - 获取选项（排序、过滤、分页等）
    * @returns 数据行结果（包含数据和总数）
    */
+  // NOTE: production browser flow requires paging semantics via options.startRow/endRow.
   fetchRows(options: FetchRowsOptions): Promise<FetchRowsResult>;
   
   /**

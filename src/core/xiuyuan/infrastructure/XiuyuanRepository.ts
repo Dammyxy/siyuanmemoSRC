@@ -71,6 +71,11 @@ type XiuyuanMeta = Record<string, unknown> & {
   aFactor?: number;
   fieldMapping?: Record<string, unknown>;
   listTemplate?: {
+    mode?: 'split-v2';
+    groupId?: string;
+    parentBlockId?: string;
+    parentParagraphId?: string;
+    currentIndex?: number;
     childrenData?: ListTemplateChild[];
   };
 };
@@ -249,6 +254,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       const meta = this.toXiuyuanMeta(xiuyuan.getMeta());
       const listTemplateChildren = this.extractListTemplateChildren(meta);
       const hasListTemplateChildren = listTemplateChildren.length > 0;
+      const isSplitListTemplate = this.isSplitListTemplate(meta);
       
       // 5.1 确定卡片类型
       let cardType: XiuyuanCardType = 'item';
@@ -261,10 +267,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         const templateID = xiuyuan.getTemplateID().getValue();
         const template = this.templateRegistry.get(templateID);
         
-        if (template && template.category === 'basic') {
+        if (template && (template.category === 'basic' || template.category === 'cloze')) {
           // ✅ 基础类模板：默认为 item
           cardType = 'item';
-          logger.debug(`Template ${templateID} is basic category, using cardType: item`);
+          logger.debug(`Template ${templateID} is basic/cloze category, using cardType: item`);
         } else if (hasListTemplateChildren) {
           // 列表模版卡：强制为 item
           cardType = 'item';
@@ -333,7 +339,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       }
       
       // 5.3 列表模版卡：为所有子块设置 item 类型
-      if (hasListTemplateChildren) {
+      if (hasListTemplateChildren && !isSplitListTemplate) {
         for (const child of listTemplateChildren) {
           try {
             await setBlockAttrs(child.id, {
@@ -546,6 +552,20 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     return children.filter(isListTemplateChild);
   }
 
+  private isSplitListTemplate(meta: Record<string, unknown>): boolean {
+    const typedMeta = this.toXiuyuanMeta(meta);
+    return typedMeta.listTemplate?.mode === 'split-v2';
+  }
+
+  private resolveListTemplateCurrentIndex(meta: Record<string, unknown>): number | null {
+    const typedMeta = this.toXiuyuanMeta(meta);
+    const currentIndex = typedMeta.listTemplate?.currentIndex;
+    if (typeof currentIndex !== 'number' || !Number.isInteger(currentIndex) || currentIndex < 0) {
+      return null;
+    }
+    return currentIndex;
+  }
+
   private toFsrsCardType(cardType: XiuyuanCardType): CardType {
     switch (cardType) {
       case 'topic':
@@ -595,10 +615,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       cardType = meta.cardType;
       logger.debug(`Using explicit cardType from meta: ${cardType}`);
     } else {
-      if (template && template.category === 'basic') {
+      if (template && (template.category === 'basic' || template.category === 'cloze')) {
         // ✅ 基础类模板：默认为 item
         cardType = 'item';
-        logger.debug(`Template ${templateID} is basic category, card type: item`);
+        logger.debug(`Template ${templateID} is basic/cloze category, card type: item`);
       } else if (this.extractListTemplateChildren(meta).length > 0) {
         // 列表模版卡：所有子卡片都是 item 类型
         cardType = 'item';
@@ -617,13 +637,14 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     // 🆕 列表模版卡：提取当前卡片的 cue、answer 和 allChildren
     const listTemplateMeta: Record<string, unknown> = {};
     const listTemplateChildren = this.extractListTemplateChildren(meta);
+    const listTemplateIndex = this.resolveListTemplateCurrentIndex(meta) ?? faceIndex;
     if (listTemplateChildren.length > 0) {
-      const currentChild = listTemplateChildren[faceIndex];
+      const currentChild = listTemplateChildren[listTemplateIndex] || listTemplateChildren[faceIndex];
       
       if (currentChild) {
         listTemplateMeta.cue = currentChild.cue;
         listTemplateMeta.answer = currentChild.answer;
-        listTemplateMeta.currentIndex = faceIndex;
+        listTemplateMeta.currentIndex = listTemplateIndex;
         listTemplateMeta.allChildren = listTemplateChildren.map((child) => ({
           id: child.id,
           cue: child.cue,

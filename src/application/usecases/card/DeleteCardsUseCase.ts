@@ -257,14 +257,24 @@ export class DeleteCardsUseCase {
   }
 
   private resolveBlockIdByFaceIndex(xiuyuan: Xiuyuan, faceIndex: number): string | null {
-    const frontBlockId = xiuyuan.getFrontBlockIDs(faceIndex)[0];
-    if (frontBlockId) {
-      return frontBlockId;
-    }
-
     const backBlockId = xiuyuan.getBackBlockIDs(faceIndex)[0];
-    if (backBlockId) {
-      return backBlockId;
+    const frontBlockId = xiuyuan.getFrontBlockIDs(faceIndex)[0];
+    const isListTemplateCard = xiuyuan.getTemplateID().getValue() === 'builtin-list-item';
+
+    if (isListTemplateCard) {
+      if (backBlockId) {
+        return backBlockId;
+      }
+      if (frontBlockId) {
+        return frontBlockId;
+      }
+    } else {
+      if (frontBlockId) {
+        return frontBlockId;
+      }
+      if (backBlockId) {
+        return backBlockId;
+      }
     }
 
     const representativeBlockId = xiuyuan.getRepresentativeBlockId();

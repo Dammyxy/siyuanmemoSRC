@@ -45,6 +45,7 @@ import {
   GetAllTemplatesQueryHandler
 } from '../usecases/xiuyuan';
 import { RebindDescriptorConceptUseCase } from '../usecases/xiuyuan/RebindDescriptorConceptUseCase';
+import type { ListTemplateCardsCreationPayload } from '../usecases/xiuyuan/CreateListTemplateCardsUseCase';
 import type { XiuyuanCreationPayload } from '../usecases/xiuyuan/shared/FinalizeXiuyuanCreation';
 
 /**
@@ -290,7 +291,7 @@ export class XiuyuanApplicationService {
    * }
    * ```
    */
-  async createListTemplateCards(command: CreateListTemplateCardsCommand): Promise<Result<XiuyuanCreationPayload>> {
+  async createListTemplateCards(command: CreateListTemplateCardsCommand): Promise<Result<ListTemplateCardsCreationPayload>> {
     return this.createListTemplateCardsUseCase.execute(command);
   }
 
