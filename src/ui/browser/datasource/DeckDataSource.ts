@@ -6,7 +6,13 @@ import {
   setBrowserCardPriority,
 } from '../browserService';
 import type { ICardDataSource } from '@/application/interfaces/ICardDataSource';
-import type { CardBrowserAction, FetchRowsOptions, FetchRowsResult } from './types';
+import type {
+  CardBrowserAction,
+  FetchRowsOptions,
+  FetchRowsResult,
+  IBrowserQueryableDataSource,
+  SortModel,
+} from './types';
 import {
   BASE_ACTIONS,
   addToQueue,
@@ -29,9 +35,10 @@ import {
   type CardServicePluginLike,
   deleteBrowserCards,
   setBrowserCardsPriority,
-  sortAndPaginateBrowserCards,
+  sortBrowserCards,
 } from './DataSourceUtils';
 import { createLogger } from '@/utils/logger';
+import { BrowserQuerySession, toLiteRowFromBrowserCard } from './session/BrowserQuerySession';
 
 const logger = createLogger('DeckDataSource');
 
@@ -121,13 +128,16 @@ const QUEUE_ADD_ROUTES: Record<string, QueueAddRoute> = {
   },
 };
 
-export class DeckDataSource implements ICardDataSource {
+export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSource {
   id = 'deck';
   label = 'Deck';
 
   private readonly manager: IUnifiedDataSourceManagerFacade;
   private readonly plugin?: DeckPluginLike;
   private readonly options: DeckDataSourceOptions;
+  private readonly querySession = new BrowserQuerySession('DeckDataSource');
+  private lastSortModel: SortModel[] = [];
+  private dataGeneration = 0;
 
   constructor(
     manager: IUnifiedDataSourceManagerFacade,
@@ -141,30 +151,29 @@ export class DeckDataSource implements ICardDataSource {
 
   async fetchRows(params: FetchRowsOptions): Promise<FetchRowsResult> {
     try {
-      const allCards = await this.manager.getCards();
-      let rows = allCards.map((card) => this.convertToBrowserCard(card as DeckCardRecord));
-
-      rows = applyLegacyPresetFilter(rows, this.options.preset);
-      rows = applyCardTypeFilter(rows, this.options.cardType);
-      rows = applySimpleQueryFilter(rows, this.options.queryText, { secondaryField: 'fullContent' });
-
-      if (this.options.currentDocId === '__lost__') {
-        rows = rows.filter((card) => !String(card.rootId || ''));
-      } else {
-        rows = applyDocFilter(rows, this.options.currentDocId);
-      }
-
-      const paged = sortAndPaginateBrowserCards(
-        rows,
-        params?.sortModel || [],
-        params?.startRow,
-        params?.endRow
-      );
-      return { rows: paged.rows, totalCount: paged.totalCount };
+      const sortModel = (params?.sortModel || []) as SortModel[];
+      this.lastSortModel = [...sortModel];
+      return this.querySession.fetchRows({
+        ...this.buildSessionOptions(sortModel),
+        startRow: params?.startRow,
+        endRow: params?.endRow,
+      });
     } catch (error) {
       logger.error('Failed to fetch deck rows', error);
       throw error;
     }
+  }
+
+  getQueryFingerprint(): string {
+    return this.buildQueryFingerprint(this.lastSortModel);
+  }
+
+  async getAllMatchedIds(): Promise<string[]> {
+    return this.querySession.getAllMatchedIds(this.buildSessionOptions(this.lastSortModel));
+  }
+
+  async getRowsByIds(ids: string[]): Promise<BrowserCard[]> {
+    return this.querySession.getRowsByIds(ids, this.buildSessionOptions(this.lastSortModel));
   }
 
   getSupportedActions(): CardBrowserAction[] {
@@ -225,17 +234,21 @@ export class DeckDataSource implements ICardDataSource {
     if (actionId === 'reset') {
       const blockIds = selectedRows.map((row) => row.blockId).filter(Boolean);
       await batchReset(blockIds, this.createBatchManager());
+      this.invalidateQuerySession();
       return;
     }
 
     if (actionId === 'suspend') {
       const blockIds = selectedRows.map((row) => row.blockId).filter(Boolean);
       await batchSuspend(blockIds, true, this.createBatchManager());
+      this.invalidateQuerySession();
       return;
     }
 
     if (actionId === 'postpone' || actionId === 'advance' || actionId === 'spread') {
-      return adjustTime(this.plugin, selectedRows, actionId, context);
+      const result = await adjustTime(this.plugin, selectedRows, actionId, context);
+      this.invalidateQuerySession();
+      return result;
     }
 
     logger.warn('Unknown action for DeckDataSource', { actionId });
@@ -257,12 +270,15 @@ export class DeckDataSource implements ICardDataSource {
     if (deletion.failedCardIds.length > 0) {
       logger.error('Failed to delete partial cards', { failedCardIds: deletion.failedCardIds });
     }
+    this.invalidateQuerySession();
     return deletion.deletedCount;
   }
 
   private async handleQueueAddAction(route: QueueAddRoute, selectedRows: BrowserCard[]): Promise<unknown> {
     const queue = this.manager.getQueue(route.queueType);
-    return addToQueue(queue, selectedRows, route.actionType, route.source ?? 'manual');
+    const result = await addToQueue(queue, selectedRows, route.actionType, route.source ?? 'manual');
+    this.invalidateQuerySession();
+    return result;
   }
 
   private async handleReviewSubset(selectedRows: BrowserCard[]): Promise<void> {
@@ -289,6 +305,7 @@ export class DeckDataSource implements ICardDataSource {
     );
 
     invalidateCardCache();
+    this.invalidateQuerySession();
     return result;
   }
 
@@ -298,6 +315,47 @@ export class DeckDataSource implements ICardDataSource {
       return 50;
     }
     return Math.max(0, Math.min(100, Math.floor(value)));
+  }
+
+  private buildQueryFingerprint(sortModel: SortModel[]): string {
+    return JSON.stringify({
+      dataSource: 'deck',
+      options: this.options,
+      sortModel,
+      generation: this.dataGeneration,
+    });
+  }
+
+  private async buildOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]> {
+    const allCards = await this.manager.getCards();
+    let rows = allCards.map((card) => this.convertToBrowserCard(card as DeckCardRecord));
+
+    rows = applyLegacyPresetFilter(rows, this.options.preset);
+    rows = applyCardTypeFilter(rows, this.options.cardType);
+    rows = applySimpleQueryFilter(rows, this.options.queryText, { secondaryField: 'fullContent' });
+
+    if (this.options.currentDocId === '__lost__') {
+      rows = rows.filter((card) => !String(card.rootId || ''));
+    } else {
+      rows = applyDocFilter(rows, this.options.currentDocId);
+    }
+
+    return sortBrowserCards(rows, sortModel);
+  }
+
+  private buildSessionOptions(sortModel: SortModel[]) {
+    return {
+      queryFingerprint: this.buildQueryFingerprint(sortModel),
+      buildLiteRows: async () => {
+        const rows = await this.buildOrderedRows(sortModel);
+        return rows.map(toLiteRowFromBrowserCard);
+      },
+    };
+  }
+
+  private invalidateQuerySession(): void {
+    this.dataGeneration += 1;
+    this.querySession.invalidate();
   }
 
   private convertToBrowserCard(card: DeckCardRecord): BrowserCard {

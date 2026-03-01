@@ -8,9 +8,16 @@ import {
   truncateContent,
 } from '../types';
 import { loadQueueCardsSimple, runBrowserSql } from '../browserService';
-import type { ICardDataSource } from '@/application/interfaces/ICardDataSource';
-import type { CardBrowserAction, FetchRowsOptions, FetchRowsResult } from './types';
-import { sortAndPaginateBrowserCards } from './DataSourceUtils';
+import type {
+  ICardDataSource,
+  IBrowserQueryableDataSource,
+  CardBrowserAction,
+  FetchRowsOptions,
+  FetchRowsResult,
+  SortModel,
+} from './types';
+import { sortBrowserCards } from './DataSourceUtils';
+import { BrowserQuerySession, toLiteRowFromBrowserCard } from './session/BrowserQuerySession';
 
 type SqlRowLike = {
   id?: unknown;
@@ -89,17 +96,65 @@ function toBrowserCardFromRow(row: SqlRowLike): BrowserCard | null {
 /**
  * QueryDataSource - SQL 查询数据源实现
  */
-export class QueryDataSource implements ICardDataSource {
+export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSource {
   id = 'query';
   label = 'Query';
 
   private readonly stmt: string;
+  private readonly querySession = new BrowserQuerySession('QueryDataSource');
+  private lastSortModel: SortModel[] = [];
+  private dataGeneration = 0;
 
   constructor(stmt: string) {
     this.stmt = stmt;
   }
 
   async fetchRows(params: FetchRowsOptions): Promise<FetchRowsResult> {
+    const sortModel = (params?.sortModel || []) as SortModel[];
+    this.lastSortModel = [...sortModel];
+    return this.querySession.fetchRows({
+      ...this.buildSessionOptions(sortModel),
+      startRow: params?.startRow,
+      endRow: params?.endRow,
+    });
+  }
+
+  getQueryFingerprint(): string {
+    return this.buildQueryFingerprint(this.lastSortModel);
+  }
+
+  async getAllMatchedIds(): Promise<string[]> {
+    return this.querySession.getAllMatchedIds(this.buildSessionOptions(this.lastSortModel));
+  }
+
+  async getRowsByIds(ids: string[]): Promise<BrowserCard[]> {
+    return this.querySession.getRowsByIds(ids, this.buildSessionOptions(this.lastSortModel));
+  }
+
+  getSupportedActions(): CardBrowserAction[] {
+    return [{ id: 'open', label: 'Open', icon: 'iconOpen' }];
+  }
+
+  async performAction(actionId: string, selectedRows: BrowserCard[], context?: unknown): Promise<void> {
+    void selectedRows;
+    void context;
+    if (actionId === 'open') return;
+  }
+
+  getId(): string {
+    return this.id;
+  }
+
+  private buildQueryFingerprint(sortModel: SortModel[]): string {
+    return JSON.stringify({
+      dataSource: 'query',
+      stmt: this.stmt,
+      sortModel,
+      generation: this.dataGeneration,
+    });
+  }
+
+  private async buildOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]> {
     const rawRows = toSqlRows(await runBrowserSql(this.stmt));
     const blockIds = rawRows.map(readBlockId).filter(Boolean);
 
@@ -121,26 +176,16 @@ export class QueryDataSource implements ICardDataSource {
       }
     }
 
-    const paged = sortAndPaginateBrowserCards(
-      rows,
-      params?.sortModel || [],
-      params?.startRow,
-      params?.endRow
-    );
-    return { rows: paged.rows, totalCount: paged.totalCount };
+    return sortBrowserCards(rows, sortModel);
   }
 
-  getSupportedActions(): CardBrowserAction[] {
-    return [{ id: 'open', label: 'Open', icon: 'iconOpen' }];
-  }
-
-  async performAction(actionId: string, selectedRows: BrowserCard[], context?: unknown): Promise<void> {
-    void selectedRows;
-    void context;
-    if (actionId === 'open') return;
-  }
-
-  getId(): string {
-    return this.id;
+  private buildSessionOptions(sortModel: SortModel[]) {
+    return {
+      queryFingerprint: this.buildQueryFingerprint(sortModel),
+      buildLiteRows: async () => {
+        const rows = await this.buildOrderedRows(sortModel);
+        return rows.map(toLiteRowFromBrowserCard);
+      },
+    };
   }
 }

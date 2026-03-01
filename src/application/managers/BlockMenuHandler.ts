@@ -1079,7 +1079,7 @@ export class BlockMenuHandler {
         await this.siyuanApi.pushErrMsg('仅支持列表项块或其直属段落块');
         return;
       }
-      logger.info(`[SiYuanMemo] 🎯 Creating ordered list template cards for: ${parentBlockId}`);
+      logger.info(`[SiYuanMemo] 🎯 Creating list template cards for: ${parentBlockId}`);
 
       // 1. 检查块类型
       const typeResult = await this.siyuanApi.sql(`

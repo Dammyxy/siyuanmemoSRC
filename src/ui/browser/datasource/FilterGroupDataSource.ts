@@ -1,9 +1,11 @@
 import type { BrowserCard } from '../types';
 import type {
   ICardDataSource,
+  IBrowserQueryableDataSource,
   CardBrowserAction,
   FetchRowsOptions,
   FetchRowsResult,
+  SortModel,
 } from './types';
 import {
   buildQueueActions,
@@ -17,14 +19,21 @@ import {
   deleteBrowserCards,
   removeCardsFromQueue,
   setBrowserCardsPriority,
-  sortAndPaginateBrowserCards,
+  sortBrowserCards,
 } from './DataSourceUtils';
 import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
 import { createLogger } from '@/utils/logger';
+import { BrowserQuerySession, toLiteRowFromBrowserCard } from './session/BrowserQuerySession';
 
 const logger = createLogger('FilterGroupDataSource');
 
-type QueueCardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only' | 'missing-block-only';
+type QueueCardTypeFilter =
+  | 'all'
+  | 'topic-only'
+  | 'item-only'
+  | 'concept-only'
+  | 'descriptor-only'
+  | 'missing-block-only';
 
 type FilterGroupActionContext = {
   priority?: number;
@@ -35,7 +44,6 @@ type FilterGroupActionContext = {
 
 type FilterGroupPluginLike = CardServicePluginLike & MenuActionPluginLike;
 
-// 五重筛选：支持的筛选参数
 export type FilterGroupDataSourceOptions = {
   docId?: string;
   preset?: string;
@@ -47,13 +55,16 @@ function isQueueDueAdjustAction(actionId: string): actionId is 'postpone' | 'adv
   return actionId === 'postpone' || actionId === 'advance';
 }
 
-export class FilterGroupDataSource implements ICardDataSource {
+export class FilterGroupDataSource implements ICardDataSource, IBrowserQueryableDataSource {
   id = 'filter-group';
   label = 'Filter Group';
 
   private readonly manager: IUnifiedDataSourceManagerFacade;
   private readonly options: FilterGroupDataSourceOptions;
   private readonly plugin?: FilterGroupPluginLike;
+  private readonly querySession = new BrowserQuerySession('FilterGroupDataSource');
+  private lastSortModel: SortModel[] = [];
+  private dataGeneration = 0;
 
   constructor(
     manager: IUnifiedDataSourceManagerFacade,
@@ -67,24 +78,29 @@ export class FilterGroupDataSource implements ICardDataSource {
 
   async fetchRows(params: FetchRowsOptions): Promise<FetchRowsResult> {
     try {
-      const queue = this.manager.getQueue(QueueType.FilterGroup);
-      const cards = await queue.getCards();
-      const browserCards = cards.map((card, index) => {
-        return mapQueueFsrsCardToBrowserCard(card, { queueIndex: index + 1 });
+      const sortModel = (params?.sortModel || []) as SortModel[];
+      this.lastSortModel = [...sortModel];
+      return this.querySession.fetchRows({
+        ...this.buildSessionOptions(sortModel),
+        startRow: params?.startRow,
+        endRow: params?.endRow,
       });
-
-      const filtered = applyQueueFilters(browserCards, this.options, 'headline');
-      const paged = sortAndPaginateBrowserCards(
-        filtered,
-        params?.sortModel || [],
-        params?.startRow,
-        params?.endRow
-      );
-      return { rows: paged.rows, totalCount: paged.totalCount };
     } catch (error) {
       logger.error('Failed to fetch rows', error);
       throw error;
     }
+  }
+
+  getQueryFingerprint(): string {
+    return this.buildQueryFingerprint(this.lastSortModel);
+  }
+
+  async getAllMatchedIds(): Promise<string[]> {
+    return this.querySession.getAllMatchedIds(this.buildSessionOptions(this.lastSortModel));
+  }
+
+  async getRowsByIds(ids: string[]): Promise<BrowserCard[]> {
+    return this.querySession.getRowsByIds(ids, this.buildSessionOptions(this.lastSortModel));
   }
 
   getSupportedActions(): CardBrowserAction[] {
@@ -113,6 +129,7 @@ export class FilterGroupDataSource implements ICardDataSource {
         const result = await removeCardsFromQueue(queue, selectedRows, {
           scope: 'FilterGroupDataSource',
         });
+        this.invalidateQuerySession();
         return { updated: result.removedCount, skipped: result.failedCount };
       }
 
@@ -124,6 +141,7 @@ export class FilterGroupDataSource implements ICardDataSource {
         if (!deletion) {
           return 0;
         }
+        this.invalidateQuerySession();
 
         if (deletion.failedCardIds.length > 0) {
           logger.error('Failed card IDs', { failedCardIds: deletion.failedCardIds });
@@ -132,9 +150,11 @@ export class FilterGroupDataSource implements ICardDataSource {
       }
 
       if (actionId === 'set-priority') {
-        return setBrowserCardsPriority(this.manager, selectedRows, context?.priority ?? 50, {
+        const result = await setBrowserCardsPriority(this.manager, selectedRows, context?.priority ?? 50, {
           scope: 'FilterGroupDataSource',
         });
+        this.invalidateQuerySession();
+        return result;
       }
 
       if (isQueueDueAdjustAction(actionId)) {
@@ -142,6 +162,7 @@ export class FilterGroupDataSource implements ICardDataSource {
         if (!result) {
           throw new Error('RescheduleService unavailable');
         }
+        this.invalidateQuerySession();
         return result;
       }
     } catch (error) {
@@ -152,5 +173,38 @@ export class FilterGroupDataSource implements ICardDataSource {
 
   getId(): string {
     return this.id;
+  }
+
+  private buildQueryFingerprint(sortModel: SortModel[]): string {
+    return JSON.stringify({
+      dataSource: 'filter-group',
+      queueId: QueueType.FilterGroup,
+      options: this.options,
+      sortModel,
+      generation: this.dataGeneration,
+    });
+  }
+
+  private async buildOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]> {
+    const queue = this.manager.getQueue(QueueType.FilterGroup);
+    const cards = await queue.getCards();
+    const browserCards = cards.map((card, index) => mapQueueFsrsCardToBrowserCard(card, { queueIndex: index + 1 }));
+    const filtered = applyQueueFilters(browserCards, this.options, 'headline');
+    return sortBrowserCards(filtered, sortModel);
+  }
+
+  private buildSessionOptions(sortModel: SortModel[]) {
+    return {
+      queryFingerprint: this.buildQueryFingerprint(sortModel),
+      buildLiteRows: async () => {
+        const rows = await this.buildOrderedRows(sortModel);
+        return rows.map(toLiteRowFromBrowserCard);
+      },
+    };
+  }
+
+  private invalidateQuerySession(): void {
+    this.dataGeneration += 1;
+    this.querySession.invalidate();
   }
 }

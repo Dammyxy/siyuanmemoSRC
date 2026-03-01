@@ -41,7 +41,7 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
 
   const flushPendingToGrid = () => {
     const api = options.gridApi.value;
-    if (!api) {
+    if (!api || (typeof api.isDestroyed === 'function' && api.isDestroyed())) {
       pendingUpdateMap.clear();
       pendingDeletedBlockIds.clear();
       return;
@@ -77,6 +77,38 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
     });
   };
 
+  const collectVisibleRowsFromGrid = (): BrowserCard[] => {
+    const api = options.gridApi.value;
+    if (!api || (typeof api.isDestroyed === 'function' && api.isDestroyed())) {
+      return [...options.rows.value];
+    }
+
+    const visibleRows: BrowserCard[] = [];
+    api.forEachNode((node) => {
+      const row = node.data as BrowserCard | undefined;
+      if (row) {
+        visibleRows.push(row);
+      }
+    });
+    return visibleRows;
+  };
+
+  const patchRowsInPlace = (
+    targetRows: BrowserCard[],
+    updatedMap: Map<string, BrowserCard>,
+    maxScan: number = Number.POSITIVE_INFINITY
+  ): void => {
+    const scanLimit = Number.isFinite(maxScan) ? Math.max(0, Math.floor(maxScan)) : targetRows.length;
+    const end = Math.min(targetRows.length, scanLimit);
+    for (let i = 0; i < end; i++) {
+      const row = targetRows[i];
+      const updated = updatedMap.get(row.blockId);
+      if (updated) {
+        targetRows[i] = updated;
+      }
+    }
+  };
+
   const handleCardUpdatedIncremental = async (cardIds: string[]) => {
     if (cardIds.length === 0) {
       await refreshQueueCountsSafely();
@@ -85,11 +117,12 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
 
     try {
       const eventIdSet = new Set(cardIds);
-      const impactedRows = options.rows.value.filter((row) => isRowMatchedByEventIds(row, eventIdSet));
+      const visibleRows = collectVisibleRowsFromGrid();
+      const impactedRows = visibleRows.filter((row) => isRowMatchedByEventIds(row, eventIdSet));
 
       if (impactedRows.length === 0) {
         await refreshQueueCountsSafely();
-        logger.debug('No loaded rows matched update event IDs');
+        logger.debug('No visible rows matched update event IDs');
         return;
       }
 
@@ -105,21 +138,9 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
       }
 
       const updatedMap = new Map(updatedCards.map((card) => [card.blockId, card]));
-      const updatedBlockIds = new Set(updatedCards.map((card) => card.blockId));
-
-      const patchRows = (targetRows: BrowserCard[]) => {
-        for (let i = 0; i < targetRows.length; i++) {
-          const row = targetRows[i];
-          if (!updatedBlockIds.has(row.blockId)) continue;
-          const updated = updatedMap.get(row.blockId);
-          if (!updated) continue;
-          targetRows[i] = updated;
-        }
-      };
-
-      patchRows(options.rows.value);
-      patchRows(options.rowsForFocus.value);
-      patchRows(options.allRows.value);
+      options.rows.value = options.rows.value.map((row) => updatedMap.get(row.blockId) || row);
+      patchRowsInPlace(options.rowsForFocus.value, updatedMap);
+      patchRowsInPlace(options.allRows.value, updatedMap, 2000);
 
       for (const card of updatedCards) {
         pendingUpdateMap.set(card.blockId, card);
@@ -145,11 +166,12 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
 
     try {
       const eventIdSet = new Set(cardIds);
-      const rowsToRemove = options.rows.value.filter((row) => isRowMatchedByEventIds(row, eventIdSet));
+      const visibleRows = collectVisibleRowsFromGrid();
+      const rowsToRemove = visibleRows.filter((row) => isRowMatchedByEventIds(row, eventIdSet));
 
       if (rowsToRemove.length === 0) {
         await refreshQueueCountsSafely();
-        logger.debug('No loaded rows matched delete event IDs');
+        logger.debug('No visible rows matched delete event IDs');
         return;
       }
 
@@ -160,7 +182,9 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
 
       options.rows.value = options.rows.value.filter((row) => !shouldRemoveRow(row));
       options.rowsForFocus.value = options.rowsForFocus.value.filter((row) => !shouldRemoveRow(row));
-      options.allRows.value = options.allRows.value.filter((row) => !shouldRemoveRow(row));
+      if (options.allRows.value.length <= 2000) {
+        options.allRows.value = options.allRows.value.filter((row) => !shouldRemoveRow(row));
+      }
 
       for (const row of rowsToRemove) {
         pendingUpdateMap.delete(row.blockId);

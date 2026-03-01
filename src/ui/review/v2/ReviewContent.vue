@@ -147,6 +147,7 @@ import {
 } from './reviewRenderPolicy';
 import { createLogger } from '@/utils/logger';
 import type { ICardStorage } from '@/application/interfaces/ICardStorage';
+import { resolveRenderProfile } from '@/core/card/render-profile/RenderProfileResolver';
 
 const props = defineProps<{
   app: siyuan.App;
@@ -271,6 +272,7 @@ const quickDetectReason = computed(() => {
   const reason = props.content.card?.meta?.quickDetectReason;
   return typeof reason === 'string' ? reason : '';
 });
+const resolvedRenderProfile = computed(() => resolveRenderProfile(props.content.card));
 const isLatexNumberedQuickHint = computed(() => quickDetectReason.value === 'cloze-latex-numbered');
 const forceQuickRender = computed(() => {
   if (forceProtyleRender.value) return false;
@@ -305,7 +307,10 @@ const renderWatchKey = computed(() =>
 
 // 🆕 判断是否应该使用多挖空卡渲染器
 const shouldUseMultiClozeRenderer = computed(() => {
+  if (props.content.type !== 'protyle') return false;
   if (isNeuralRoamNonFlashcardCard.value) return false;
+  if (forceProtyleRender.value) return false;
+  if (resolvedRenderProfile.value === 'quick-inline-formula') return true;
 
   // 检查是否为 Xiuyuan 多挖空卡
   const card = props.content.card;
@@ -340,6 +345,7 @@ const shouldUseConceptDefinitionRenderer = computed(() => {
   if (isNeuralRoamNonFlashcardCard.value) return false;
   if (isImageOcclusionCard.value) return false;
   if (forceProtyleRender.value || forceQuickRender.value) return false;
+  if (resolvedRenderProfile.value === 'concept-definition') return true;
   
   // 使用领域层的辅助函数检测
   const card = props.content.card;
@@ -367,6 +373,7 @@ const shouldUseConceptCardRenderer = computed(() => {
   
   // 使用领域层的辅助函数检测
   if (forceProtyleRender.value || forceQuickRender.value) return false;
+  if (resolvedRenderProfile.value === 'concept') return true;
   const result = checkIsConceptCard(props.content.card);
   
   logger.debug('[SiYuanMemo][ReviewContent] shouldUseConceptCardRenderer:', {
@@ -379,6 +386,14 @@ const shouldUseConceptCardRenderer = computed(() => {
 
 // 判断是否应该使用描述符卡渲染器
 const shouldUseDescriptorCardRenderer = computed(() => {
+  if (resolvedRenderProfile.value === 'descriptor') {
+    return props.content.type === 'protyle'
+      && !forceProtyleRender.value
+      && !forceQuickRender.value
+      && !isNeuralRoamNonFlashcardCard.value
+      && !isImageOcclusionCard.value;
+  }
+
   // 只有在 protyle 类型且检测到描述符卡时才使用
   // 概念定义卡和概念卡优先级更高
   return props.content.type === 'protyle'
@@ -393,6 +408,13 @@ const shouldUseDescriptorCardRenderer = computed(() => {
 
 // 判断是否应该使用快速卡片渲染器
 const shouldUseQuickCardRenderer = computed(() => {
+  if (resolvedRenderProfile.value === 'quick-default') {
+    return props.content.type === 'protyle'
+      && !forceProtyleRender.value
+      && !isNeuralRoamNonFlashcardCard.value
+      && !isImageOcclusionCard.value;
+  }
+
   // 只有在 protyle 类型且检测到快速卡片时才使用
   // 概念定义卡、概念卡和描述符卡优先级更高
   return props.content.type === 'protyle'
@@ -571,6 +593,55 @@ async function renderProtyle(blockId: string): Promise<void> {
       if (cachedType.isDescriptor || cachedType.isQuick) {
         return;
       }
+    }
+  }
+
+  const renderProfile = resolvedRenderProfile.value;
+  if (!shouldForceProtyleOnly && !forceProtyleRenderFromMeta && renderProfile) {
+    if (renderProfile === 'concept-definition') {
+      const result = { isConcept: true, isDescriptor: false, isQuick: false };
+      setCardType(cacheKey, result);
+      isConceptDefinitionCard.value = true;
+      isConceptCard.value = false;
+      isDescriptorCard.value = false;
+      isQuickCard.value = false;
+      return;
+    }
+
+    if (renderProfile === 'concept') {
+      const result = { isConcept: false, isConceptCard: true, isDescriptor: false, isQuick: false };
+      setCardType(cacheKey, result);
+      isConceptDefinitionCard.value = false;
+      isConceptCard.value = true;
+      isDescriptorCard.value = false;
+      isQuickCard.value = false;
+      return;
+    }
+
+    if (renderProfile === 'descriptor') {
+      const result = { isConcept: false, isDescriptor: true, isQuick: false };
+      setCardType(cacheKey, result);
+      isConceptDefinitionCard.value = false;
+      isConceptCard.value = false;
+      isDescriptorCard.value = true;
+      isQuickCard.value = false;
+      return;
+    }
+
+    if (renderProfile === 'quick-default') {
+      const result = { isConcept: false, isDescriptor: false, isQuick: true };
+      setCardType(cacheKey, result);
+      isConceptDefinitionCard.value = false;
+      isConceptCard.value = false;
+      isDescriptorCard.value = false;
+      isQuickCard.value = true;
+      return;
+    }
+
+    if (renderProfile === 'quick-inline-formula') {
+      const result = { isConcept: false, isDescriptor: false, isQuick: false };
+      setCardType(cacheKey, result);
+      return;
     }
   }
 

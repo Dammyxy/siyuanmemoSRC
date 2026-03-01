@@ -55,13 +55,13 @@ export const BIDIRECTIONAL_TEMPLATE: ICardTemplate = {
   ],
 };
 
-/** 有序列表卡 */
+/** 列表卡（有序/无序） */
 export const LIST_ITEM_TEMPLATE: ICardTemplate = {
   id: 'builtin-list-item',
-  name: '有序列表卡',
+  name: '列表卡（有序/无序）',
   nameKey: 'templateNameListItem',
   descriptionKey: 'templateDescListItem',
-  description: `根据有序列表子级，生成多张对应的卡片。需要右键列表项块使用，子级得是有序列表。支持为每张子级卡片写单独的提示，用【→】分割提示和答案。
+  description: `根据列表子级生成卡片：有序子级使用逐条创建（split-v2），无序子级使用汇总创建（summary-v1）。需要右键列表项块使用，支持为每张子级卡片写单独提示，用【→】分割提示和答案。
 <div style="margin-top: 8px; padding: 8px; background: var(--b3-theme-surface); border-radius: 4px;">
   <div style="font-weight: 500; margin-bottom: 4px;">【示例】：</div>
   <ul style="margin: 0; padding-left: 20px; line-height: 1.6;">

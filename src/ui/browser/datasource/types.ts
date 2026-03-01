@@ -18,3 +18,26 @@ export type {
   FetchRowsResult,
   CardBrowserAction,
 } from '@/application/interfaces/ICardDataSource';
+
+/**
+ * 可查询的数据源能力（用于全结果集选择与批量动作）
+ */
+export interface IBrowserQueryableDataSource {
+  getQueryFingerprint(): string;
+  getAllMatchedIds(): Promise<string[]>;
+  getRowsByIds(ids: string[]): Promise<BrowserCard[]>;
+}
+
+export function isBrowserQueryableDataSource(
+  value: unknown
+): value is IBrowserQueryableDataSource {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const target = value as Partial<IBrowserQueryableDataSource>;
+  return (
+    typeof target.getQueryFingerprint === 'function' &&
+    typeof target.getAllMatchedIds === 'function' &&
+    typeof target.getRowsByIds === 'function'
+  );
+}

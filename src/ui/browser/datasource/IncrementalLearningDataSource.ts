@@ -1,14 +1,15 @@
 /**
  * Incremental Learning Data Source
- * 渐进学习队列的浏览器数据源
  */
 
 import type { BrowserCard } from '../types';
 import type {
   ICardDataSource,
+  IBrowserQueryableDataSource,
   CardBrowserAction,
   FetchRowsOptions,
   FetchRowsResult,
+  SortModel,
 } from './types';
 import {
   buildQueueActions,
@@ -23,14 +24,21 @@ import {
   deleteBrowserCards,
   removeCardsFromQueue,
   setBrowserCardsPriority,
-  sortAndPaginateBrowserCards,
+  sortBrowserCards,
 } from './DataSourceUtils';
 import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
 import { createLogger } from '@/utils/logger';
+import { BrowserQuerySession, toLiteRowFromBrowserCard } from './session/BrowserQuerySession';
 
 const logger = createLogger('IncrementalLearningDataSource');
 
-type QueueCardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only' | 'missing-block-only';
+type QueueCardTypeFilter =
+  | 'all'
+  | 'topic-only'
+  | 'item-only'
+  | 'concept-only'
+  | 'descriptor-only'
+  | 'missing-block-only';
 type I18nDictionary = Record<string, string>;
 
 type IncrementalLearningActionContext = {
@@ -61,14 +69,17 @@ function isIncrementalTimeAction(actionId: string): actionId is 'postpone' | 'ad
   return actionId === 'postpone' || actionId === 'advance';
 }
 
-export class IncrementalLearningDataSource implements ICardDataSource {
+export class IncrementalLearningDataSource implements ICardDataSource, IBrowserQueryableDataSource {
   id = 'incremental-learning';
-  label = '渐进学习';
+  label = 'Incremental Learning';
 
   private readonly manager: IUnifiedDataSourceManagerFacade;
   private readonly options: IncrementalLearningDataSourceOptions;
   private readonly plugin?: IncrementalPluginLike;
   private readonly i18n?: I18nDictionary;
+  private readonly querySession = new BrowserQuerySession('IncrementalLearningDataSource');
+  private lastSortModel: SortModel[] = [];
+  private dataGeneration = 0;
 
   constructor(
     manager: IUnifiedDataSourceManagerFacade,
@@ -85,26 +96,20 @@ export class IncrementalLearningDataSource implements ICardDataSource {
     const startTime = Date.now();
 
     try {
-      const queue = this.manager.getQueue(QueueType.IncrementalLearning);
-      const cards = await queue.getCards();
-      validateConsumerCardType('IncrementalLearningDataSource', cards);
-
-      const browserCards = cards.map((card) => mapQueueFsrsCardToBrowserCard(card));
-      const filtered = applyQueueFilters(browserCards, this.options, 'fullContent');
-      const paged = sortAndPaginateBrowserCards(
-        filtered,
-        params?.sortModel || [],
-        params?.startRow,
-        params?.endRow
-      );
+      const sortModel = (params?.sortModel || []) as SortModel[];
+      this.lastSortModel = [...sortModel];
+      const paged = await this.querySession.fetchRows({
+        ...this.buildSessionOptions(sortModel),
+        startRow: params?.startRow,
+        endRow: params?.endRow,
+      });
 
       logger.debug('Fetched rows', {
-        totalCards: cards.length,
-        filteredCards: filtered.length,
+        totalCards: paged.totalCount,
         durationMs: Date.now() - startTime,
       });
 
-      return { rows: paged.rows, totalCount: paged.totalCount };
+      return paged;
     } catch (error) {
       logger.error('Failed to fetch rows', {
         error,
@@ -112,6 +117,18 @@ export class IncrementalLearningDataSource implements ICardDataSource {
       });
       throw error;
     }
+  }
+
+  getQueryFingerprint(): string {
+    return this.buildQueryFingerprint(this.lastSortModel);
+  }
+
+  async getAllMatchedIds(): Promise<string[]> {
+    return this.querySession.getAllMatchedIds(this.buildSessionOptions(this.lastSortModel));
+  }
+
+  async getRowsByIds(ids: string[]): Promise<BrowserCard[]> {
+    return this.querySession.getRowsByIds(ids, this.buildSessionOptions(this.lastSortModel));
   }
 
   getSupportedActions(): CardBrowserAction[] {
@@ -143,6 +160,7 @@ export class IncrementalLearningDataSource implements ICardDataSource {
         const result = await removeCardsFromQueue(queue, selectedRows, {
           scope: 'IncrementalLearningDataSource',
         });
+        this.invalidateQuerySession();
         return { updated: result.removedCount, skipped: result.failedCount };
       }
 
@@ -154,6 +172,7 @@ export class IncrementalLearningDataSource implements ICardDataSource {
         if (!deletion) {
           return { updated: 0, skipped: selectedRows.length };
         }
+        this.invalidateQuerySession();
         return {
           updated: deletion.deletedCount,
           skipped: deletion.failedCardIds.length,
@@ -161,9 +180,11 @@ export class IncrementalLearningDataSource implements ICardDataSource {
       }
 
       if (actionId === 'set-priority') {
-        return setBrowserCardsPriority(this.manager, selectedRows, context?.priority ?? 50, {
+        const result = await setBrowserCardsPriority(this.manager, selectedRows, context?.priority ?? 50, {
           scope: 'IncrementalLearningDataSource',
         });
+        this.invalidateQuerySession();
+        return result;
       }
 
       if (isIncrementalTimeAction(actionId)) {
@@ -171,6 +192,7 @@ export class IncrementalLearningDataSource implements ICardDataSource {
         if (!result) {
           throw new Error('RescheduleService unavailable');
         }
+        this.invalidateQuerySession();
         return result;
       }
 
@@ -187,5 +209,39 @@ export class IncrementalLearningDataSource implements ICardDataSource {
 
   private t(key: string, fallback: string): string {
     return this.i18n?.[key] || fallback;
+  }
+
+  private buildQueryFingerprint(sortModel: SortModel[]): string {
+    return JSON.stringify({
+      dataSource: 'incremental-learning',
+      queueId: QueueType.IncrementalLearning,
+      options: this.options,
+      sortModel,
+      generation: this.dataGeneration,
+    });
+  }
+
+  private async buildOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]> {
+    const queue = this.manager.getQueue(QueueType.IncrementalLearning);
+    const cards = await queue.getCards();
+    validateConsumerCardType('IncrementalLearningDataSource', cards);
+    const browserCards = cards.map((card) => mapQueueFsrsCardToBrowserCard(card));
+    const filtered = applyQueueFilters(browserCards, this.options, 'fullContent');
+    return sortBrowserCards(filtered, sortModel);
+  }
+
+  private buildSessionOptions(sortModel: SortModel[]) {
+    return {
+      queryFingerprint: this.buildQueryFingerprint(sortModel),
+      buildLiteRows: async () => {
+        const rows = await this.buildOrderedRows(sortModel);
+        return rows.map(toLiteRowFromBrowserCard);
+      },
+    };
+  }
+
+  private invalidateQuerySession(): void {
+    this.dataGeneration += 1;
+    this.querySession.invalidate();
   }
 }

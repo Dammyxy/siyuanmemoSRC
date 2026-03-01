@@ -60,7 +60,7 @@ const logger = createLogger('GetBrowserCardsQueryHandler');
  *   sortBy: 'due',
  *   sortOrder: 'asc',
  *   page: 1,
- *   pageSize: 100,
+ *   pageSize: 50,
  * });
  * ```
  */
@@ -159,7 +159,7 @@ export class GetBrowserCardsQueryHandler {
     
     // 7. 分页
     const page = query.page || 1;
-    const pageSize = query.pageSize || 100;
+    const pageSize = query.pageSize || 50;
     const startIndex = (page - 1) * pageSize;
     const paginatedCards = sortedCards.slice(startIndex, startIndex + pageSize);
     

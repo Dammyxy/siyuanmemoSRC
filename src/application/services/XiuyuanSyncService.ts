@@ -67,6 +67,15 @@ type QuickRenderHintMeta = {
 
 type RiffSyncMetaSource = 'riff-sync';
 type RiffClozeRenderMode = 'inline-formula-cloze' | 'default';
+type RiffRenderProfile =
+    | 'quick-default'
+    | 'quick-inline-formula'
+    | 'concept-definition'
+    | 'descriptor'
+    | 'concept'
+    | 'list-progressive'
+    | 'list-summary'
+    | 'cdf-multiline';
 
 class XiuyuanSyncBridgeEvent<TPayload extends object> extends DomainEvent {
     constructor(
@@ -339,13 +348,65 @@ export class XiuyuanSyncService {
             : 'default';
     }
 
-    private syncPostCreationMeta(xiuyuan: Xiuyuan, plan: PostCreationPlan): boolean {
+    private resolveRiffRenderProfile(plan: PostCreationPlan): RiffRenderProfile {
+        if (plan.renderMode === 'inline-formula-cloze') {
+            return 'quick-inline-formula';
+        }
+
+        if (plan.templateId.startsWith('builtin-concept-definition')) {
+            return 'concept-definition';
+        }
+
+        if (plan.templateId.startsWith('builtin-concept-descriptor')) {
+            return 'descriptor';
+        }
+
+        if (plan.templateId === 'builtin-concept-simple') {
+            return 'concept';
+        }
+
+        if (plan.templateId === 'builtin-list-concept-multiline' || plan.templateId === 'builtin-list-descriptor-multiline') {
+            return 'cdf-multiline';
+        }
+
+        if (plan.templateId === 'builtin-list-item') {
+            return 'list-progressive';
+        }
+
+        return 'quick-default';
+    }
+
+    private resolveRiffCreationMode(plan: PostCreationPlan): 'single' | 'multi-face' {
+        return plan.mode === 'multi-cloze' ? 'multi-face' : 'single';
+    }
+
+    private syncPostCreationMeta(
+        xiuyuan: Xiuyuan,
+        riffBlockId: string,
+        plan: PostCreationPlan
+    ): boolean {
         const currentMeta = xiuyuan.getMeta();
         const expectedSource: RiffSyncMetaSource = 'riff-sync';
         const expectedRenderMode = this.resolveRiffClozeRenderMode(plan);
+        const expectedRenderProfile = this.resolveRiffRenderProfile(plan);
+        const expectedCreationRuleId = plan.hints?.ruleId;
+        const expectedCreationMode = this.resolveRiffCreationMode(plan);
+        const expectedRiffPrimaryCardId = riffBlockId;
         const currentSource = typeof currentMeta.source === 'string' ? currentMeta.source : undefined;
         const currentRenderMode = typeof currentMeta.clozeRenderMode === 'string'
             ? currentMeta.clozeRenderMode
+            : undefined;
+        const currentRenderProfile = typeof currentMeta.renderProfile === 'string'
+            ? currentMeta.renderProfile
+            : undefined;
+        const currentCreationRuleId = typeof currentMeta.creationRuleId === 'string'
+            ? currentMeta.creationRuleId
+            : undefined;
+        const currentCreationMode = typeof currentMeta.creationMode === 'string'
+            ? currentMeta.creationMode
+            : undefined;
+        const currentRiffPrimaryCardId = typeof currentMeta.riffPrimaryCardId === 'string'
+            ? currentMeta.riffPrimaryCardId
             : undefined;
 
         const metaPatch: Record<string, unknown> = {};
@@ -358,6 +419,26 @@ export class XiuyuanSyncService {
 
         if (currentRenderMode !== expectedRenderMode) {
             metaPatch.clozeRenderMode = expectedRenderMode;
+            changed = true;
+        }
+
+        if (currentRenderProfile !== expectedRenderProfile) {
+            metaPatch.renderProfile = expectedRenderProfile;
+            changed = true;
+        }
+
+        if (currentCreationRuleId !== expectedCreationRuleId) {
+            metaPatch.creationRuleId = expectedCreationRuleId;
+            changed = true;
+        }
+
+        if (currentCreationMode !== expectedCreationMode) {
+            metaPatch.creationMode = expectedCreationMode;
+            changed = true;
+        }
+
+        if (currentRiffPrimaryCardId !== expectedRiffPrimaryCardId) {
+            metaPatch.riffPrimaryCardId = expectedRiffPrimaryCardId;
             changed = true;
         }
 
@@ -723,7 +804,7 @@ export class XiuyuanSyncService {
                             needsUpdate = true;
                         }
 
-                        if (this.syncPostCreationMeta(existingXiuyuan, postCreationPlan)) {
+                        if (this.syncPostCreationMeta(existingXiuyuan, riffCard.id, postCreationPlan)) {
                             needsUpdate = true;
                         }
 
@@ -1308,6 +1389,10 @@ export class XiuyuanSyncService {
                 cardTypeMarker,
                 source: 'riff-sync' as RiffSyncMetaSource,
                 clozeRenderMode: this.resolveRiffClozeRenderMode(postCreationPlan),
+                renderProfile: this.resolveRiffRenderProfile(postCreationPlan),
+                creationRuleId: postCreationPlan.hints?.ruleId,
+                creationMode: this.resolveRiffCreationMode(postCreationPlan),
+                riffPrimaryCardId: riffBlock.id,
                 ...quickRenderHintMeta,
             },
         });
@@ -1384,6 +1469,10 @@ export class XiuyuanSyncService {
                 cardTypeMarker,
                 source: 'riff-sync' as RiffSyncMetaSource,
                 clozeRenderMode: this.resolveRiffClozeRenderMode(postCreationPlan),
+                renderProfile: this.resolveRiffRenderProfile(postCreationPlan),
+                creationRuleId: postCreationPlan.hints?.ruleId,
+                creationMode: this.resolveRiffCreationMode(postCreationPlan),
+                riffPrimaryCardId: riffBlock.id,
                 ...quickRenderHintMeta,
                 ...(cardType === 'topic' ? { aFactor: initializeAFactor(priorityValue) } : {}),
             },

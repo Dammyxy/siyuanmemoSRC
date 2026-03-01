@@ -40,6 +40,7 @@ import type { XiuyuanApplicationService } from '@/application/services/XiuyuanAp
 import { findConceptByUpwardSearch } from '@/application/usecases/xiuyuan/shared/ConceptLocator';
 import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/shared/ListChildrenResolver';
 import { resolveCdfMultilineScan } from '@/application/usecases/xiuyuan/shared/CdfMultilineScanner';
+import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase';
 import {
   hasExpectedCdfTailMarkerFromSources,
   type CdfMultilineTemplateId,
@@ -1328,9 +1329,6 @@ export class DialogManager implements IDialogManager {
       }
 
       const parentBlockId = anchorBlockId;
-      const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
-      const fallbackForNone = templateId === 'builtin-list-concept-multiline' ? 'definition' : 'descriptor';
-
       const scanResult = await resolveCdfMultilineScan(parentBlockId, this.siyuanApi);
       if (scanResult.nodes.length === 0) {
         await this.siyuanApi.pushErrMsg('未找到可制卡的子级块');
@@ -1352,152 +1350,46 @@ export class DialogManager implements IDialogManager {
           return;
         }
       }
+      const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
+      const useCase = new CreateCdfMultilineCardsUseCase(
+        xiuyuanAppService,
+        {
+          BUILTIN_DECK_ID: this.siyuanApi.BUILTIN_DECK_ID,
+          sql: async (stmt: string) => this.siyuanApi.sql(stmt),
+          getBlockAttrs: (blockId: string) => this.siyuanApi.getBlockAttrs(blockId),
+          getBlockKramdown: (blockId: string) => this.siyuanApi.getBlockKramdown(blockId),
+        }
+      );
+      const result = await useCase.execute({
+        parentBlockId,
+        templateId,
+        deckId: this.siyuanApi.BUILTIN_DECK_ID,
+      });
 
-      let conceptBlockId: string | null = null;
-      if (templateId === 'builtin-list-concept-multiline') {
-        conceptBlockId = await this.resolveConceptDocumentIdFromReference(scanResult.parentParagraphKramdown);
-        if (!conceptBlockId && scanResult.parentKramdown !== scanResult.parentParagraphKramdown) {
-          conceptBlockId = await this.resolveConceptDocumentIdFromReference(scanResult.parentKramdown);
-        }
-        if (!conceptBlockId) {
-          await this.siyuanApi.pushErrMsg('::: 模板要求父块中包含文档块引用概念');
-          return;
-        }
-      } else {
-        const located = await findConceptByUpwardSearch(
-          parentBlockId,
-          this.siyuanApi as unknown as XiuyuanSiyuanPort
-        );
-        if (!located) {
-          await this.siyuanApi.pushErrMsg(';;; 模板未找到可用概念块（向上探路失败）');
-          return;
-        }
-        conceptBlockId = located.conceptId;
-      }
-
-      await this.ensureConceptCardById(conceptBlockId, xiuyuanAppService);
-      if (!conceptBlockId) {
-        await this.siyuanApi.pushErrMsg('未找到可用概念块');
+      if (!result.ok) {
+        await this.siyuanApi.pushErrMsg(`创建失败：${result.error.message}`);
         return;
       }
-      const resolvedConceptBlockId = conceptBlockId;
 
-      const stats = {
-        definitionCreated: 0,
-        descriptorCreated: 0,
-        skipped: 0,
-        failed: 0,
-        firstError: '' as string,
-      };
-
-      const setFirstError = (message: string): void => {
-        if (!stats.firstError) {
-          stats.firstError = message;
-        }
-      };
-
-      for (const node of scanResult.nodes) {
-        if (node.markerKind === 'descriptor-multiline') {
-          const descriptorGroupHint = this.extractDescriptorGroupHint(
-            node.firstParagraphKramdown || node.firstParagraphText
-          );
-          if (node.orderedChildListItemIds.length > 0) {
-            const orderedResult = await this.createDescriptorCardsFromListItems({
-              listItemIds: node.orderedChildListItemIds,
-              conceptBlockId: resolvedConceptBlockId,
-              descriptorGroupHint,
-              xiuyuanAppService,
-            });
-            stats.descriptorCreated += orderedResult.created;
-            stats.skipped += orderedResult.skipped;
-            stats.failed += orderedResult.failed;
-            if (orderedResult.firstError) {
-              setFirstError(orderedResult.firstError);
-            }
-          }
-
-          if (node.unorderedChildListItemIds.length > 0) {
-            const unorderedResult = await this.createDescriptorCardsFromListItems({
-              listItemIds: node.unorderedChildListItemIds,
-              conceptBlockId: resolvedConceptBlockId,
-              descriptorGroupHint,
-              xiuyuanAppService,
-            });
-            stats.descriptorCreated += unorderedResult.created;
-            stats.skipped += unorderedResult.skipped;
-            stats.failed += unorderedResult.failed;
-            if (unorderedResult.firstError) {
-              setFirstError(unorderedResult.firstError);
-            }
-          }
-
-          continue;
-        }
-
-        const resolvedTemplateId = templateIdFromDescriptorOrDefinitionKind(node.markerKind, fallbackForNone);
-        if (!resolvedTemplateId) {
-          continue;
-        }
-
-        const hasBinding = await this.hasXiuyuanBindingOnParagraphOrListItem(
-          node.firstParagraphId,
-          node.id
-        );
-        if (hasBinding) {
-          stats.skipped += 1;
-          continue;
-        }
-
-        const isDefinition = isDefinitionTemplate(resolvedTemplateId);
-        const createResult = await xiuyuanAppService.createFromBlocks({
-          blockIds: isDefinition
-            ? [node.firstParagraphId, resolvedConceptBlockId]
-            : [resolvedConceptBlockId, node.firstParagraphId],
-          templateId: resolvedTemplateId,
-          fieldMapping: isDefinition
-            ? {
-                concept: resolvedConceptBlockId,
-                definition: node.firstParagraphId,
-              }
-            : {
-                concept: resolvedConceptBlockId,
-                descriptor: node.firstParagraphId,
-              },
-          deckId: this.siyuanApi.BUILTIN_DECK_ID,
-          cardType: 'descriptor',
-        });
-
-        if (!createResult.ok) {
-          stats.failed += 1;
-          setFirstError(createResult.error.message);
-          continue;
-        }
-
-        if (isDefinition) {
-          stats.definitionCreated += 1;
-        } else {
-          stats.descriptorCreated += 1;
-        }
-      }
-
-      const createdTotal = stats.definitionCreated + stats.descriptorCreated;
-      if (createdTotal === 0 && stats.skipped === 0) {
-        await this.siyuanApi.pushErrMsg(stats.firstError ? `创建失败：${stats.firstError}` : '未创建任何卡片');
+      const payload = result.value;
+      const createdTotal = payload.createdDefinition + payload.createdDescriptor;
+      if (createdTotal === 0 && payload.skipped === 0) {
+        await this.siyuanApi.pushErrMsg(payload.firstError ? `创建失败：${payload.firstError}` : '未创建任何卡片');
         return;
       }
 
       const messageLines = [
         '✅ CDF 多行制卡完成',
-        `定义卡：${stats.definitionCreated}`,
-        `描述符卡：${stats.descriptorCreated}`,
-        `跳过：${stats.skipped}`,
-        `失败：${stats.failed}`,
+        `定义卡：${payload.createdDefinition}`,
+        `描述符卡：${payload.createdDescriptor}`,
+        `跳过：${payload.skipped}`,
+        `失败：${payload.failed}`,
       ];
-      if (scanResult.stoppedByDocumentReference) {
+      if (payload.stoppedByDocumentReference) {
         messageLines.push('探路范围已在下一条文档块引用处停止');
       }
-      if (stats.failed > 0 && stats.firstError) {
-        messageLines.push(`首个错误：${stats.firstError}`);
+      if (payload.failed > 0 && payload.firstError) {
+        messageLines.push(`首个错误：${payload.firstError}`);
       }
 
       await this.siyuanApi.pushMsg(messageLines.join('\n'));

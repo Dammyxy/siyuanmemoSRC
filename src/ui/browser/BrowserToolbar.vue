@@ -42,10 +42,40 @@
     
     <div v-if="!props.mobileMode" class="toolbar__center">
       <span class="toolbar__count">{{ cardCount }} {{ t('cards', '张卡片') }}</span>
+      <span v-if="selectedCount > 0" class="toolbar__count">
+        · {{ t('selectedCount', '已选 {count}').replace('{count}', String(selectedCount)) }}
+      </span>
+      <span v-if="selectionMode === 'all-matching'" class="toolbar__count">
+        · {{ t('allMatchingMode', '全匹配模式') }}
+      </span>
     </div>
     
     <div class="toolbar__right">
       <!-- 退出队列按钮 -->
+      <button
+        class="b3-button b3-button--outline"
+        @click="handleSelectAllToggle"
+        :disabled="!canSelectAllMatching || loading"
+        :title="isAllMatchingActive ? t('cancelSelectAll', '取消全选') : t('selectAllMatching', '全选匹配结果')"
+      >
+        <svg><use :xlink:href="isAllMatchingActive ? '#iconClose' : '#iconCheck'"></use></svg>
+        {{
+          isAllMatchingActive
+            ? t('cancelSelectAll', '取消全选')
+            : (props.mobileMode ? t('selectAllShort', '全选') : t('selectAllMatching', '全选匹配结果'))
+        }}
+      </button>
+
+      <button
+        v-if="selectedCount > 0 && !isAllMatchingActive"
+        class="b3-button b3-button--outline"
+        @click="$emit('clearSelection')"
+        :title="t('clearSelection', '清空选择')"
+      >
+        <svg><use xlink:href="#iconClose"></use></svg>
+        {{ props.mobileMode ? t('clearShort', '清空') : t('clearSelection', '清空选择') }}
+      </button>
+
       <button
         v-if="showExitFocus"
         class="b3-button b3-button--outline"
@@ -196,6 +226,9 @@ const props = defineProps<{
   queueType: string;
   appliedFilter: CardFilter | null;
   activeQueueId: string | null;  // 🆕 添加当前队列 ID
+  selectedCount: number;
+  selectionMode: 'explicit' | 'all-matching';
+  canSelectAllMatching: boolean;
 }>();
 
 // 🆕 根据队列类型计算可用的卡片类型筛选选项
@@ -232,12 +265,15 @@ const emit = defineEmits<{
   (e: 'convertToTab'): void;
   (e: 'openFilterDialog'): void;
   (e: 'openSpreadDialog'): void;
+  (e: 'selectAllMatching'): void;
+  (e: 'clearSelection'): void;
 }>();
 
 // 更多菜单状态
 const showMoreMenu = ref(false);
 const moreButtonRef = ref<HTMLElement | null>(null);
 const moreMenuRef = ref<HTMLElement | null>(null);
+const isAllMatchingActive = computed(() => props.selectionMode === 'all-matching');
 
 // 切换更多菜单
 function toggleMoreMenu() {
@@ -250,6 +286,14 @@ type ToolbarMenuAction = 'migrateTopicItem' | 'showPerformanceReport' | 'convert
 function handleMenuAction(action: ToolbarMenuAction) {
   showMoreMenu.value = false;
   emit(action);
+}
+
+function handleSelectAllToggle() {
+  if (isAllMatchingActive.value) {
+    emit('clearSelection');
+    return;
+  }
+  emit('selectAllMatching');
 }
 
 // 点击外部关闭菜单

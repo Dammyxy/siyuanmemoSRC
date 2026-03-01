@@ -40,6 +40,9 @@
         :queue-type="currentQueueType"
         :applied-filter="appliedFilter"
         :active-queue-id="activeQueueId"
+        :selected-count="globalSelection.selectedCount.value"
+        :selection-mode="globalSelection.mode.value"
+        :can-select-all-matching="canSelectAllMatching"
         @exitFocus="handleExitFocus"
         @openPracticeMenu="openPracticeMenu"
         @applySortToQueue="handleApplySortToQueue"
@@ -51,6 +54,8 @@
         @openFilterDialog="showFilterDialog = true"
         @openSpreadDialog="handleOpenSpreadDialog"
         @rebuildQueue="handleRebuildQueue"
+        @selectAllMatching="handleSelectAllMatching"
+        @clearSelection="handleClearSelection"
       />
 
       <!-- Sync status indicator (advanced mode only) -->
@@ -212,7 +217,12 @@ import {
 import { PerformanceMonitor } from '@/utils/performance';
 import { type BrowserCard, type CardTypeFilter } from './types';
 import { migrateExistingCards, checkMigrationNeeded } from '@/scripts/migrateToTopicItem';
-import type { ICardDataSource, SortModel } from './datasource/types';
+import type {
+  ICardDataSource,
+  IBrowserQueryableDataSource,
+  SortModel,
+} from './datasource/types';
+import { isBrowserQueryableDataSource } from './datasource/types';
 import { adjustTime } from './datasource/MenuActions';  // Import adjustTime
 import ActionParamsDialog from './ActionParamsDialog.vue';
 import BrowserHierarchy from './BrowserHierarchy.vue';
@@ -265,6 +275,7 @@ import { useCardActions } from './composables/useCardActions';
 import { useQueueBridge, EMPTY_QUEUE_COUNTS } from './composables/useQueueBridge';
 import { useIncrementalGridUpdates } from './composables/useIncrementalGridUpdates';
 import { useBrowserAdapterSync } from './composables/useBrowserAdapterSync';
+import { useGlobalSelection } from './composables/useGlobalSelection';
 import { createLogger } from '@/utils/logger';
 import type { IBrowserApplicationService } from '@/application/interfaces/IBrowserApplicationService';
 import type { PresetFilter } from '@/application/queries/browser/GetBrowserCardsQuery';
@@ -373,6 +384,7 @@ const currentDataSource = ref<ICardDataSource | null>(null);
 const currentPreset = ref<PresetFilter>('all');
 const currentCardType = ref<CardTypeFilter>('all');
 const selectedRows = ref<BrowserCard[]>([]);
+const globalSelection = useGlobalSelection();
 const gridApi = ref<GridApi | null>(null);
 const currentSortModel = ref<SortModel[]>([]);
 const currentSortField = ref<SortField>('due');
@@ -393,6 +405,7 @@ let neuralPreviewRequestSeq = 0;
 
 const appliedFilter = ref<CardFilter | null>(null);
 const showFilterDialog = ref(false);
+const canSelectAllMatching = computed(() => isBrowserQueryableDataSource(currentDataSource.value));
 
 let detectionTriggered = false;
 
@@ -414,6 +427,7 @@ let focusRowsTaskId = 0;
 let backgroundSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
 let loadedRowsFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let loadedRowsDirty = false;
+let longTaskObserver: PerformanceObserver | null = null;
 let globalStatsTaskId = 0;
 
 const calculateInitialPreviewSize = (): number => {
@@ -618,6 +632,10 @@ function clearLoadedRowsCache(): void {
     loadedRowsFlushTimer = null;
   }
   loadedRowsDirty = false;
+  if (longTaskObserver) {
+    longTaskObserver.disconnect();
+    longTaskObserver = null;
+  }
   loadedRowsByBlockId.clear();
   rows.value = [];
 }
@@ -698,6 +716,97 @@ async function fetchAllRowsFromDataSource(
     endRow: probe.totalCount,
   });
   return full.rows;
+}
+
+function resolveQueryableDataSource(
+  dataSource: ICardDataSource | null
+): IBrowserQueryableDataSource | null {
+  if (!dataSource || !isBrowserQueryableDataSource(dataSource)) {
+    return null;
+  }
+  return dataSource;
+}
+
+function resolveBrowserCardSelectionId(card: BrowserCard | null | undefined): string {
+  if (!card) return '';
+  return String(card.blockId || card.fsrsCardId || card.id || '').trim();
+}
+
+function buildSelectionContextFingerprint(): string {
+  const dataSource = currentDataSource.value;
+  const queryable = resolveQueryableDataSource(dataSource);
+  if (queryable) {
+    return queryable.getQueryFingerprint();
+  }
+
+  return JSON.stringify({
+    queueId: activeQueueId.value || '',
+    docId: activeDocId.value || '',
+    preset: currentPreset.value,
+    queryText: searchQuery.value,
+    cardType: currentCardType.value,
+    sortModel: currentSortModel.value,
+  });
+}
+
+function describeCurrentFilterSummary(): string {
+  const parts: string[] = [];
+  parts.push(`${t('scope', 'Scope')}: ${activeQueueId.value || t('allCards', 'All')}`);
+
+  if (activeDocId.value) {
+    parts.push(`${t('document', 'Document')}: ${activeDocId.value}`);
+  }
+  if (currentPreset.value && currentPreset.value !== 'all') {
+    parts.push(`${t('preset', 'Preset')}: ${currentPreset.value}`);
+  }
+  if (currentCardType.value && currentCardType.value !== 'all') {
+    parts.push(`${t('cardType', 'Card Type')}: ${currentCardType.value}`);
+  }
+  if (searchQuery.value.trim()) {
+    parts.push(`${t('search', 'Search')}: ${searchQuery.value.trim()}`);
+  }
+  return parts.join(' · ');
+}
+
+function clearSelectionState(shouldNotify = false): void {
+  const hadSelection =
+    selectedRows.value.length > 0 || globalSelection.selectedCount.value > 0 || globalSelection.mode.value === 'all-matching';
+  selectedRows.value = [];
+  globalSelection.clear();
+
+  const api = gridApi.value;
+  if (isGridApiAlive(api)) {
+    api.deselectAll?.();
+  }
+
+  if (shouldNotify && hadSelection) {
+    void pushMsg(t('selectionClearedOnQueryChange', 'Selection was cleared because query conditions changed'));
+  }
+}
+
+function syncSelectionForQueryChange(): void {
+  clearSelectionState(true);
+}
+
+function applyAllMatchingSelectionToLoadedRows(): void {
+  const api = gridApi.value;
+  if (!isGridApiAlive(api)) {
+    return;
+  }
+  if (globalSelection.mode.value !== 'all-matching') {
+    return;
+  }
+
+  api.forEachNode((node) => {
+    const row = node.data as BrowserCard | undefined;
+    if (!row) return;
+    const id = resolveBrowserCardSelectionId(row);
+    if (!id) return;
+    const shouldSelect = !globalSelection.excludedIds.value.has(id);
+    if (node.isSelected() !== shouldSelect) {
+      node.setSelected(shouldSelect);
+    }
+  });
 }
 
 async function refreshGlobalStats(force = false): Promise<void> {
@@ -788,6 +897,7 @@ function createInfiniteDatasource(version: number): IDatasource {
             totalRowCount.value = totalCount;
             hasFirstDataBlockLoaded.value = true;
             mergeLoadedRows(rowsForBlock);
+            applyAllMatchingSelectionToLoadedRows();
             loading.value = false;
           });
         } catch (error) {
@@ -977,6 +1087,7 @@ async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
     }
     
     selectedRows.value = [];
+    globalSelection.clear();
     previewCard.value = null;
 
     const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
@@ -1103,6 +1214,7 @@ function handleSearchInput() {
       lastSqlStmt = current;
       lastSearchQuery = searchQuery.value;
       shouldFocusDocList.value = true;
+      syncSelectionForQueryChange();
       void loadData(false, { refreshQueueCounts: false, snapshotDelayMs: 120 });
     }
   }, 150);
@@ -1119,10 +1231,12 @@ watch(searchQuery, () => {
 });
 
 watch(currentPreset, () => {
+  syncSelectionForQueryChange();
   void refreshData(false, false, { refreshQueueCounts: false });
 });
 
 watch(currentCardType, () => {
+  syncSelectionForQueryChange();
   void refreshData(true, false, { refreshQueueCounts: false });
 });
 
@@ -1188,6 +1302,7 @@ function onGridReady(params: GridReadyEvent<BrowserCard>) {
   if (!pendingGridDatasource && currentDataSource.value) {
     rebuildInfiniteDatasource(false);
   }
+  applyAllMatchingSelectionToLoadedRows();
   // 使用 gridApi.value 获取列信息（使用 nextTick 确保初始化完成）
   nextTick(() => {
     if (gridApi.value) {
@@ -1273,14 +1388,37 @@ function onSortChanged(params: SortChangedEvent<BrowserCard>) {
       currentApi.refreshInfiniteCache?.();
     }, 0);
   }
+  syncSelectionForQueryChange();
   startAllRowsSnapshot();
   startFocusRowsSnapshot();
 }
 
 function onSelectionChanged() {
-  if (gridApi.value) {
-    selectedRows.value = gridApi.value.getSelectedRows() as BrowserCard[];
+  const api = gridApi.value;
+  if (!isGridApiAlive(api)) {
+    return;
   }
+
+  const selected = api.getSelectedRows() as BrowserCard[];
+  selectedRows.value = selected;
+  const selectedIds = selected
+    .map((row) => resolveBrowserCardSelectionId(row))
+    .filter(Boolean);
+
+  if (globalSelection.mode.value === 'all-matching') {
+    const visibleIds: string[] = [];
+    api.forEachNode((node) => {
+      const row = node.data as BrowserCard | undefined;
+      const id = resolveBrowserCardSelectionId(row);
+      if (id) {
+        visibleIds.push(id);
+      }
+    });
+    globalSelection.syncAllMatchingVisibleSelection(visibleIds, selectedIds);
+    return;
+  }
+
+  globalSelection.setExplicitByIds(selectedIds);
 }
 
 
@@ -1638,20 +1776,47 @@ async function openSubsetReviewFromSelection(cards: BrowserCard[], anchorRow?: B
   );
 }
 
+async function resolveActionTargetCards(
+  actionId: string,
+  targetCards: BrowserCard[]
+): Promise<BrowserCard[]> {
+  if (actionId === 'open' || globalSelection.mode.value !== 'all-matching') {
+    return targetCards;
+  }
+
+  const queryable = resolveQueryableDataSource(currentDataSource.value);
+  if (!queryable) {
+    await pushErrMsg(t('selectAllMatchingUnsupported', 'Current view does not support select-all-matching'));
+    return [];
+  }
+
+  const allMatchedIds = await queryable.getAllMatchedIds();
+  const selectedIds = globalSelection.resolveSelectedIds(allMatchedIds);
+  if (selectedIds.length === 0) {
+    return [];
+  }
+
+  return PerformanceMonitor.measure('browser.action.materialize.ms', async () => {
+    return queryable.getRowsByIds(selectedIds);
+  });
+}
+
 async function handleAction(actionId: string, targetCards: BrowserCard[], anchorRow?: BrowserCard) {
+  const materializedTargets = await resolveActionTargetCards(actionId, targetCards);
+
   logger.debug('handleAction called:', {
     actionId,
-    count: targetCards?.length || 0,
-    blockIds: targetCards?.map(c => c.blockId),
+    count: materializedTargets?.length || 0,
+    blockIds: materializedTargets?.map(c => c.blockId),
   });
   
-  if (!targetCards?.length) {
+  if (!materializedTargets?.length) {
     logger.debug('handleAction skipped: no selected cards');
     return;
   }
 
   if (actionId === 'open') {
-    const blockId = String(anchorRow?.blockId || targetCards[0]?.blockId || '');
+    const blockId = String(anchorRow?.blockId || materializedTargets[0]?.blockId || '');
     if (blockId) {
       await openDocumentTabById(blockId);
       return;
@@ -1661,7 +1826,7 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   }
 
   if (actionId === 'review-subset') {
-    await openSubsetReviewFromSelection(targetCards, anchorRow);
+    await openSubsetReviewFromSelection(materializedTargets, anchorRow);
     return;
   }
 
@@ -1678,7 +1843,7 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
       title: t('resetCard', 'Reset'),
       content: interpolateI18n(
         t('confirmReset', 'Are you sure you want to reset {count} cards?'),
-        { count: targetCards.length },
+        { count: materializedTargets.length },
       ),
       confirmText: t('confirm', 'Confirm'),
       cancelText: t('cancel', 'Cancel'),
@@ -1688,12 +1853,16 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
 
   // 🆕 删除卡片确认
   if (actionId === 'delete-card') {
+    const confirmContent = interpolateI18n(
+      t('confirmDelete', 'Are you sure you want to remove {count} flashcards? This action cannot be undone.'),
+      { count: materializedTargets.length },
+    );
+    const contentWithScope = globalSelection.mode.value === 'all-matching'
+      ? `${confirmContent}\n${describeCurrentFilterSummary()}`
+      : confirmContent;
     const ok = await confirmDialog({
       title: t('deleteCard', 'Remove Flashcard'),
-      content: interpolateI18n(
-        t('confirmDelete', 'Are you sure you want to remove {count} flashcards? This action cannot be undone.'),
-        { count: targetCards.length },
-      ),
+      content: contentWithScope,
       confirmText: t('confirm', 'Confirm'),
       cancelText: t('cancel', 'Cancel'),
     });
@@ -1703,14 +1872,14 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   const builder = ACTION_PARAM_BUILDERS[actionId];
   logger.debug('action param builder exists:', Boolean(builder));
   
-  const ctx = builder ? await builder(targetCards) : { refresh: () => void loadData() };
+  const ctx = builder ? await builder(materializedTargets) : { refresh: () => void loadData() };
   if (builder && ctx == null) {
     logger.debug('action canceled by builder');
     return;
   }
 
   try {
-    const res = await ds.performAction(actionId, targetCards, ctx);
+    const res = await ds.performAction(actionId, materializedTargets, ctx);
     logger.debug('performAction result:', { actionId, res });
     const isAddToQueueAction = actionId.startsWith('add-to-');
     let handledActionMessage = false;
@@ -1957,6 +2126,34 @@ async function autoSortFinalDrillQueue() {
   }
 }
 
+async function handleSelectAllMatching(): Promise<void> {
+  const dataSource = currentDataSource.value;
+  const queryable = resolveQueryableDataSource(dataSource);
+  if (!queryable) {
+    await pushErrMsg(t('selectAllMatchingUnsupported', 'Current view does not support select-all-matching'));
+    return;
+  }
+
+  if (totalRowCount.value <= 0) {
+    await pushMsg(t('noCards', 'No cards'));
+    return;
+  }
+
+  const fingerprint = buildSelectionContextFingerprint();
+  globalSelection.selectAllMatching(fingerprint, totalRowCount.value);
+  selectedRows.value = [];
+  applyAllMatchingSelectionToLoadedRows();
+
+  await pushMsg(
+    t('allMatchingSelected', 'Selected all matching results ({count})')
+      .replace('{count}', String(globalSelection.selectedCount.value))
+  );
+}
+
+function handleClearSelection(): void {
+  clearSelectionState(false);
+}
+
 // Batch menu
 function showBatchMenu(event?: MouseEvent) {
   const menu = new Menu('card-browser-batch');
@@ -1998,7 +2195,7 @@ async function refreshData(
     ...options,
   };
 
-  selectedRows.value = [];
+  clearSelectionState(false);
   previewCard.value = null;
 
 
@@ -2100,6 +2297,37 @@ function showPerformanceReport() {
   void pushMsg('Performance report printed to console', 2000);
 }
 
+function setupLongTaskMonitor(): void {
+  if (typeof PerformanceObserver === 'undefined') {
+    return;
+  }
+  if (longTaskObserver) {
+    longTaskObserver.disconnect();
+    longTaskObserver = null;
+  }
+
+  const observerCtor = PerformanceObserver as typeof PerformanceObserver & {
+    supportedEntryTypes?: string[];
+  };
+  const supported = observerCtor.supportedEntryTypes;
+  if (Array.isArray(supported) && !supported.includes('longtask')) {
+    return;
+  }
+
+  try {
+    longTaskObserver = new PerformanceObserver((list) => {
+      const entries = list.getEntries();
+      const longTaskCount = entries.filter((entry) => entry.duration > 50).length;
+      if (longTaskCount > 0) {
+        PerformanceMonitor.incrementCounter('browser.scroll.longtask.count', longTaskCount);
+      }
+    });
+    longTaskObserver.observe({ entryTypes: ['longtask'] });
+  } catch (error) {
+    logger.debug('[SiYuanMemo][SRSBrowser] Longtask observer unavailable', error);
+  }
+}
+
 // Cleanup
 let unsubscribe: (() => void) | null = null;
 
@@ -2174,6 +2402,7 @@ onMounted(() => {
   }
 
   initBrowserAdapter();
+  setupLongTaskMonitor();
   void refreshGlobalStats(false);
 
   // Subscribe to incremental updates
@@ -2574,6 +2803,7 @@ async function handleSelectQueue(queueId: string) {
   activeQueueId.value = queueId;
   activeDocId.value = null;
   shouldFocusDocList.value = true;
+  syncSelectionForQueryChange();
   
 
   if (queueId === 'neural' || queueId === 'neural-roam') {
@@ -2628,6 +2858,7 @@ async function applyInitialBrowserView(forceRefresh = false): Promise<void> {
 }
 
 function handleSelectGlobal(type: '__all__' | '__lost__') {
+  syncSelectionForQueryChange();
   activeQueueId.value = null;
   clearNeuralSubviewData();
 
@@ -2649,6 +2880,7 @@ function handleExitFocus() {
 }
 
 function handleSelectDoc(docId: string) {
+  syncSelectionForQueryChange();
   const id = String(docId || '');
 
   activeDocId.value = id;
@@ -2656,6 +2888,7 @@ function handleSelectDoc(docId: string) {
 }
 
 function handleFilterDoc(docId: string) {
+  syncSelectionForQueryChange();
   activeDocId.value = docId;
   searchQuery.value = `doc:${docId}`;
 }

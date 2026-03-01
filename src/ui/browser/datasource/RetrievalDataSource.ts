@@ -1,9 +1,11 @@
 import type { BrowserCard } from '../types';
 import type {
   ICardDataSource,
+  IBrowserQueryableDataSource,
   CardBrowserAction,
   FetchRowsOptions,
   FetchRowsResult,
+  SortModel,
 } from './types';
 import {
   buildQueueActions,
@@ -17,10 +19,11 @@ import {
   deleteBrowserCards,
   removeCardsFromQueue,
   setBrowserCardsPriority,
-  sortAndPaginateBrowserCards,
+  sortBrowserCards,
 } from './DataSourceUtils';
 import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
 import { createLogger } from '@/utils/logger';
+import { BrowserQuerySession, toLiteRowFromBrowserCard } from './session/BrowserQuerySession';
 
 const logger = createLogger('RetrievalDataSource');
 
@@ -46,13 +49,16 @@ function isQueueDueAdjustAction(actionId: string): actionId is 'postpone' | 'adv
   return actionId === 'postpone' || actionId === 'advance';
 }
 
-export class RetrievalDataSource implements ICardDataSource {
+export class RetrievalDataSource implements ICardDataSource, IBrowserQueryableDataSource {
   id = 'retrieval';
   label = 'Retrieval';
 
   private readonly manager: IUnifiedDataSourceManagerFacade;
   private readonly options: RetrievalDataSourceOptions;
   private readonly plugin?: RetrievalPluginLike;
+  private readonly querySession = new BrowserQuerySession('RetrievalDataSource');
+  private lastSortModel: SortModel[] = [];
+  private dataGeneration = 0;
 
   constructor(
     manager: IUnifiedDataSourceManagerFacade,
@@ -66,25 +72,29 @@ export class RetrievalDataSource implements ICardDataSource {
 
   async fetchRows(params: FetchRowsOptions): Promise<FetchRowsResult> {
     try {
-      const queue = this.manager.getQueue(QueueType.RetrievalPractice);
-      const cards = await queue.getCards();
-      const browserCards = cards.map((card) =>
-        mapQueueFsrsCardToBrowserCard(card, {
-          firstReviewMode: 'created-or-last',
-        })
-      );
-      const filtered = applyQueueFilters(browserCards, this.options, 'headline');
-      const paged = sortAndPaginateBrowserCards(
-        filtered,
-        params?.sortModel || [],
-        params?.startRow,
-        params?.endRow
-      );
-      return { rows: paged.rows, totalCount: paged.totalCount };
+      const sortModel = (params?.sortModel || []) as SortModel[];
+      this.lastSortModel = [...sortModel];
+      return this.querySession.fetchRows({
+        ...this.buildSessionOptions(sortModel),
+        startRow: params?.startRow,
+        endRow: params?.endRow,
+      });
     } catch (error) {
       logger.error('Failed to fetch rows', error);
       throw error;
     }
+  }
+
+  getQueryFingerprint(): string {
+    return this.buildQueryFingerprint(this.lastSortModel);
+  }
+
+  async getAllMatchedIds(): Promise<string[]> {
+    return this.querySession.getAllMatchedIds(this.buildSessionOptions(this.lastSortModel));
+  }
+
+  async getRowsByIds(ids: string[]): Promise<BrowserCard[]> {
+    return this.querySession.getRowsByIds(ids, this.buildSessionOptions(this.lastSortModel));
   }
 
   getSupportedActions(): CardBrowserAction[] {
@@ -116,6 +126,7 @@ export class RetrievalDataSource implements ICardDataSource {
         const result = await removeCardsFromQueue(queue, selectedRows, {
           scope: 'RetrievalDataSource',
         });
+        this.invalidateQuerySession();
         return { updated: result.removedCount, skipped: result.failedCount };
       }
 
@@ -127,6 +138,7 @@ export class RetrievalDataSource implements ICardDataSource {
         if (!deletion) {
           return { updated: 0, skipped: selectedRows.length };
         }
+        this.invalidateQuerySession();
         return {
           updated: deletion.deletedCount,
           skipped: deletion.failedCardIds.length,
@@ -134,9 +146,11 @@ export class RetrievalDataSource implements ICardDataSource {
       }
 
       if (actionId === 'set-priority') {
-        return setBrowserCardsPriority(this.manager, selectedRows, context?.priority ?? 50, {
+        const result = await setBrowserCardsPriority(this.manager, selectedRows, context?.priority ?? 50, {
           scope: 'RetrievalDataSource',
         });
+        this.invalidateQuerySession();
+        return result;
       }
 
       if (isQueueDueAdjustAction(actionId)) {
@@ -144,6 +158,7 @@ export class RetrievalDataSource implements ICardDataSource {
         if (!result) {
           throw new Error('RescheduleService unavailable');
         }
+        this.invalidateQuerySession();
         return result;
       }
     } catch (error) {
@@ -154,5 +169,42 @@ export class RetrievalDataSource implements ICardDataSource {
 
   getId(): string {
     return this.id;
+  }
+
+  private buildQueryFingerprint(sortModel: SortModel[]): string {
+    return JSON.stringify({
+      dataSource: 'retrieval',
+      queueId: QueueType.RetrievalPractice,
+      options: this.options,
+      sortModel,
+      generation: this.dataGeneration,
+    });
+  }
+
+  private async buildOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]> {
+    const queue = this.manager.getQueue(QueueType.RetrievalPractice);
+    const cards = await queue.getCards();
+    const browserCards = cards.map((card) =>
+      mapQueueFsrsCardToBrowserCard(card, {
+        firstReviewMode: 'created-or-last',
+      })
+    );
+    const filtered = applyQueueFilters(browserCards, this.options, 'headline');
+    return sortBrowserCards(filtered, sortModel);
+  }
+
+  private buildSessionOptions(sortModel: SortModel[]) {
+    return {
+      queryFingerprint: this.buildQueryFingerprint(sortModel),
+      buildLiteRows: async () => {
+        const rows = await this.buildOrderedRows(sortModel);
+        return rows.map(toLiteRowFromBrowserCard);
+      },
+    };
+  }
+
+  private invalidateQuerySession(): void {
+    this.dataGeneration += 1;
+    this.querySession.invalidate();
   }
 }

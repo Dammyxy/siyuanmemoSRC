@@ -103,4 +103,24 @@ export interface CreateXiuyuanFromBlocksCommand {
    * 例如：'descriptor', 'concept', 'cloze' 等
    */
   cardType?: 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
+
+  /**
+   * 创建来源（内部字段，可选）
+   */
+  source?: 'riff-sync' | 'auto-listener' | 'doc-scan' | 'block-menu';
+
+  /**
+   * 渲染档案（内部字段，可选）
+   */
+  renderProfile?: string;
+
+  /**
+   * 命中规则 ID（内部字段，可选）
+   */
+  creationRuleId?: string;
+
+  /**
+   * 创建模式（内部字段，可选）
+   */
+  creationMode?: string;
 }

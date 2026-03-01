@@ -317,6 +317,10 @@ export class CreateXiuyuanFromBlocksUseCase {
           fieldMapping,
           cardType: command.cardType,  // 馃啎 浼犻€掑崱鐗囩被鍨?
           ...(command.clozeRenderMode ? { clozeRenderMode: command.clozeRenderMode } : {}),
+          ...(command.source ? { source: command.source } : {}),
+          ...(command.renderProfile ? { renderProfile: command.renderProfile } : {}),
+          ...(command.creationRuleId ? { creationRuleId: command.creationRuleId } : {}),
+          ...(command.creationMode ? { creationMode: command.creationMode } : {}),
         }
       });
 

@@ -22,8 +22,12 @@ import { Menu, showMessage } from 'siyuan';
 import type FSRSPlugin from '@/index';
 import type { AutoCardHandler } from '@/application/handlers/AutoCardHandler';
 import { createLogger } from '@/utils/logger';
+import type { FSRSCard } from '@/types/card';
+import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
+import { buildClearedBlockAttrs } from '@/application/usecases/card/shared/CardBlockAttrCleaner';
 
 const logger = createLogger('MenuManager');
+type BlockIdSqlRow = { id?: unknown; root_id?: unknown };
 
 /**
  * MenuManager 类
@@ -43,6 +47,8 @@ const logger = createLogger('MenuManager');
  * ```
  */
 export class MenuManager {
+  private readonly siyuanApi = new ManagerSiyuanAdapter();
+
   // ========================================================================
   // 构造函数
   // ========================================================================
@@ -193,6 +199,14 @@ export class MenuManager {
         void this.runOneClickSymbolCardCreationForCurrentDoc();
       },
     });
+
+    menu.addItem({
+      icon: 'iconTrashcan',
+      label: this.i18n?.oneClickCancelCardsCurrentDoc || '一键取消闪卡（当前文档）',
+      click: () => {
+        void this.runOneClickCancelCardsForCurrentDoc();
+      },
+    });
     
     menu.addSeparator();
     
@@ -246,6 +260,28 @@ export class MenuManager {
     }
 
     await this.runOneClickSymbolCardCreation(normalizedDocId);
+  }
+
+  public async runOneClickCancelCardsForCurrentDoc(): Promise<void> {
+    const currentNodeId = this.getCurrentDocId();
+    if (!currentNodeId) {
+      showMessage(this.i18n?.oneClickCancelCardsNoDoc || '未检测到当前文档，无法执行一键取消闪卡');
+      return;
+    }
+
+    const docId = await this.resolveDocumentRootId(currentNodeId);
+    await this.runOneClickCancelCards(docId);
+  }
+
+  public async runOneClickCancelCardsByDocId(docId: string | null | undefined): Promise<void> {
+    const normalizedDocId = typeof docId === 'string' ? docId.trim() : '';
+    if (!normalizedDocId) {
+      showMessage(this.i18n?.oneClickCancelCardsNoDoc || '未检测到当前文档，无法执行一键取消闪卡');
+      return;
+    }
+
+    const rootDocId = await this.resolveDocumentRootId(normalizedDocId);
+    await this.runOneClickCancelCards(rootDocId);
   }
   
   // ========================================================================
@@ -375,12 +411,22 @@ export class MenuManager {
       }
 
       const summary = await handler.scanDocumentByRootId(docId);
-      const doneMessage = (this.i18n?.oneClickSymbolCardsDone
+      const baseMessage = (this.i18n?.oneClickSymbolCardsDone
         || '符号制卡完成：扫描 {scanned} 个块，新增 {created}，跳过 {skipped}，失败 {failed}。')
         .replace('{scanned}', String(summary.scanned))
         .replace('{created}', String(summary.created))
         .replace('{skipped}', String(summary.skipped))
         .replace('{failed}', String(summary.failed));
+      const detailParts: string[] = [];
+      if (typeof summary.conflicted === 'number') {
+        detailParts.push(`冲突 ${summary.conflicted}`);
+      }
+      if (typeof summary.consumed === 'number') {
+        detailParts.push(`消费 ${summary.consumed}`);
+      }
+      const doneMessage = detailParts.length > 0
+        ? `${baseMessage}（${detailParts.join('，')}）`
+        : baseMessage;
       showMessage(doneMessage);
     } catch (error) {
       logger.error('[MenuManager] One-click symbol card creation failed:', error);
@@ -388,6 +434,255 @@ export class MenuManager {
       showMessage(errorMessage);
     } finally {
       tempHandler?.dispose();
+    }
+  }
+
+  private extractMetaRootId(card: FSRSCard): string | undefined {
+    const meta = card.meta as unknown;
+    if (typeof meta !== 'object' || meta === null || !('rootId' in meta)) {
+      return undefined;
+    }
+    const rootId = (meta as { rootId?: unknown }).rootId;
+    return typeof rootId === 'string' ? rootId : undefined;
+  }
+
+  private isImageOcclusionCard(card: FSRSCard): boolean {
+    const meta = card.meta as unknown;
+    if (!meta || typeof meta !== 'object') {
+      return false;
+    }
+
+    const source = (meta as Record<string, unknown>).source;
+    const imageOcclusion = (meta as Record<string, unknown>).imageOcclusion;
+    return source === 'image-occlusion' || imageOcclusion === true;
+  }
+
+  private escapeSql(value: string): string {
+    return value.replace(/'/g, "''");
+  }
+
+  private async resolveDocumentRootId(nodeId: string): Promise<string> {
+    const normalizedNodeId = nodeId.trim();
+    if (!normalizedNodeId) {
+      return '';
+    }
+
+    try {
+      const rows = await this.siyuanApi.sql<BlockIdSqlRow>(`
+        SELECT root_id
+        FROM blocks
+        WHERE id = '${this.escapeSql(normalizedNodeId)}'
+        LIMIT 1
+      `);
+      const rootId = typeof rows?.[0]?.root_id === 'string' ? rows[0].root_id.trim() : '';
+      return rootId || normalizedNodeId;
+    } catch (error) {
+      logger.warn('[MenuManager] Failed to resolve document root id, fallback to input id:', {
+        nodeId: normalizedNodeId,
+        error,
+      });
+      return normalizedNodeId;
+    }
+  }
+
+  private async resolveDocBlockIds(docId: string): Promise<string[]> {
+    const safeDocId = this.escapeSql(docId);
+    const rows = await this.siyuanApi.sql<BlockIdSqlRow>(`
+      SELECT id
+      FROM blocks
+      WHERE root_id = '${safeDocId}'
+        AND type != 'd'
+    `);
+    return rows
+      .map((row) => (typeof row.id === 'string' ? row.id : ''))
+      .filter((id) => id.length > 0);
+  }
+
+  private async collectCardsByDocId(docId: string, docBlockIds: string[]): Promise<FSRSCard[]> {
+    const storage = this.context.getStorage();
+    const cardsById = new Map<string, FSRSCard>();
+    const allCards = storage.getAllCards();
+    const cardsByBlockId = new Map<string, FSRSCard[]>();
+
+    for (const card of allCards) {
+      if (!card?.id || !card.blockId) {
+        continue;
+      }
+      const existing = cardsByBlockId.get(card.blockId) || [];
+      existing.push(card);
+      cardsByBlockId.set(card.blockId, existing);
+    }
+
+    for (const blockId of docBlockIds) {
+      const cards = cardsByBlockId.get(blockId) || [];
+      for (const card of cards) {
+        if (!card?.id || cardsById.has(card.id)) {
+          continue;
+        }
+        cardsById.set(card.id, card);
+      }
+    }
+
+    // Keep compatibility for legacy data where blockId mapping is incomplete.
+    for (const card of allCards) {
+      if (!card || typeof card.id !== 'string' || card.id.trim().length === 0) {
+        continue;
+      }
+      const rootId = this.extractMetaRootId(card);
+      if (rootId === docId || card.blockId === docId) {
+        cardsById.set(card.id, card);
+      }
+    }
+
+    return Array.from(cardsById.values());
+  }
+
+  private async forceCleanupFailedCards(cardIds: string[]): Promise<{ cleanedCardCount: number }> {
+    if (!Array.isArray(cardIds) || cardIds.length === 0) {
+      return { cleanedCardCount: 0 };
+    }
+
+    const storage = this.context.getStorage() as {
+      getCard?: (cardId: string) => FSRSCard | undefined;
+      removeCard?: (cardId: string) => boolean;
+      saveCards?: () => Promise<void>;
+    };
+
+    const deletedCardIdsByBlock = new Map<string, string[]>();
+    let removedCount = 0;
+
+    for (const cardId of cardIds) {
+      const card = storage.getCard?.(cardId);
+      if (!card) {
+        continue;
+      }
+
+      if (typeof card.blockId === 'string' && card.blockId.length > 0) {
+        if (!deletedCardIdsByBlock.has(card.blockId)) {
+          deletedCardIdsByBlock.set(card.blockId, []);
+        }
+        deletedCardIdsByBlock.get(card.blockId)!.push(cardId);
+      }
+
+      const removed = storage.removeCard?.(cardId);
+      if (removed) {
+        removedCount += 1;
+      }
+    }
+
+    if (removedCount > 0) {
+      await storage.saveCards?.();
+    }
+
+    for (const [blockId, deletedCardIds] of deletedCardIdsByBlock.entries()) {
+      try {
+        const attrs = await this.siyuanApi.getBlockAttrs(blockId);
+        const nextAttrs = buildClearedBlockAttrs(attrs, { deletedCardIds });
+        if (Object.keys(nextAttrs).length > 0) {
+          await this.siyuanApi.setBlockAttrs(blockId, nextAttrs);
+        }
+      } catch (error) {
+        logger.warn('[MenuManager] Failed to cleanup stale card attrs for block:', {
+          blockId,
+          deletedCardIds,
+          error,
+        });
+      }
+    }
+
+    return { cleanedCardCount: removedCount };
+  }
+
+  private async runOneClickCancelCards(docId: string): Promise<void> {
+    try {
+      showMessage(this.i18n?.oneClickCancelCardsRunning || '正在取消当前文档闪卡...');
+
+      const docBlockIds = await this.resolveDocBlockIds(docId);
+      logger.info('[MenuManager] Resolved document blocks for one-click cancel:', {
+        docId,
+        blockCount: docBlockIds.length,
+      });
+
+      const cardsInDoc = await this.collectCardsByDocId(docId, docBlockIds);
+      const excludedImageOcclusionCards = cardsInDoc.filter((card) => this.isImageOcclusionCard(card));
+      const cancelableCards = cardsInDoc.filter((card) => !this.isImageOcclusionCard(card));
+      logger.info('[MenuManager] Resolved cards for one-click cancel:', {
+        docId,
+        cardCount: cardsInDoc.length,
+        cancelableCardCount: cancelableCards.length,
+        excludedImageOcclusionCount: excludedImageOcclusionCards.length,
+      });
+      const cardIds = Array.from(
+        new Set(
+          cancelableCards
+            .map((card) => (typeof card.id === 'string' ? card.id.trim() : ''))
+            .filter((id) => id.length > 0),
+        ),
+      );
+
+      if (cardIds.length === 0) {
+        if (excludedImageOcclusionCards.length > 0) {
+          showMessage(
+            this.i18n?.oneClickCancelCardsNoCancelableCards
+            || '当前文档仅包含图片遮挡卡，未执行取消',
+          );
+          return;
+        }
+        showMessage(this.i18n?.oneClickCancelCardsNoCards || '当前文档未找到可取消的闪卡');
+        return;
+      }
+
+      const cardService = this.context.getCardService();
+      const batchResult = await cardService.deleteCards({ cardIds });
+      if (batchResult.ok) {
+        let deletedCount = batchResult.value.deletedCount;
+        let failedCount = batchResult.value.failedCardIds.length;
+
+        if (failedCount > 0) {
+          const cleanup = await this.forceCleanupFailedCards(batchResult.value.failedCardIds);
+          if (cleanup.cleanedCardCount > 0) {
+            deletedCount += cleanup.cleanedCardCount;
+            failedCount = Math.max(0, failedCount - cleanup.cleanedCardCount);
+            logger.warn('[MenuManager] Applied stale-card fallback cleanup for one-click cancel:', {
+              docId,
+              cleanedCardCount: cleanup.cleanedCardCount,
+              remainingFailedCount: failedCount,
+            });
+          }
+        }
+
+        if (deletedCount > 0) {
+          const keepImageOcclusionHint = excludedImageOcclusionCards.length > 0
+            ? `（${(this.i18n?.oneClickCancelCardsKeepImageOcclusionHint || '已保留 {count} 张图片遮挡卡')
+              .replace('{count}', String(excludedImageOcclusionCards.length))}）`
+            : '';
+          const successMessage = failedCount > 0
+            ? (this.i18n?.oneClickCancelCardsPartialDone || '已取消 {deleted} 张闪卡，{failed} 张失败')
+              .replace('{deleted}', String(deletedCount))
+              .replace('{failed}', String(failedCount))
+            : (this.i18n?.oneClickCancelCardsDone || '已取消 {deleted} 张闪卡')
+              .replace('{deleted}', String(deletedCount));
+          showMessage(`${successMessage}${keepImageOcclusionHint}`);
+          return;
+        }
+
+        if (failedCount > 0) {
+          showMessage(
+            (this.i18n?.oneClickCancelCardsFailedWithCount || '取消闪卡失败：{failed} 张')
+              .replace('{failed}', String(failedCount)),
+          );
+          return;
+        }
+
+        showMessage(this.i18n?.oneClickCancelCardsNoCards || '当前文档未找到可取消的闪卡');
+        return;
+      }
+
+      logger.error('[MenuManager] One-click cancel cards failed:', batchResult.error);
+      showMessage(this.i18n?.oneClickCancelCardsFailed || '一键取消闪卡失败');
+    } catch (error) {
+      logger.error('[MenuManager] One-click cancel cards threw error:', error);
+      showMessage(this.i18n?.oneClickCancelCardsFailed || '一键取消闪卡失败');
     }
   }
   

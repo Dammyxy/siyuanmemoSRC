@@ -2,9 +2,11 @@ import type { BrowserCard } from '../types';
 import { loadQueueCardsSimple } from '../browserService';
 import type {
   ICardDataSource,
+  IBrowserQueryableDataSource,
   CardBrowserAction,
   FetchRowsOptions,
   FetchRowsResult,
+  SortModel,
 } from './types';
 import {
   buildQueueActions,
@@ -18,13 +20,13 @@ import {
 } from '@/types/unified-data-source';
 import {
   insertCardsIntoQueue,
-  paginateBrowserCards,
   removeCardsFromQueue,
   resolveBrowserCardId,
   setBrowserCardsPriority,
   sortBrowserCards,
 } from './DataSourceUtils';
 import { createLogger } from '@/utils/logger';
+import { BrowserQuerySession, toLiteRowFromBrowserCard } from './session/BrowserQuerySession';
 
 const logger = createLogger('BlockIdsDataSource');
 
@@ -70,7 +72,7 @@ function isRescheduleAction(actionId: string): actionId is RescheduleActionId {
   return actionId === 'postpone' || actionId === 'advance' || actionId === 'spread';
 }
 
-export class BlockIdsDataSource implements ICardDataSource {
+export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDataSource {
   id: string;
   label: string;
 
@@ -78,6 +80,9 @@ export class BlockIdsDataSource implements ICardDataSource {
   private readonly plugin?: BlockIdsPluginLike;
   private readonly queueId?: string;
   private readonly getBlockIdsFn?: () => string[];
+  private readonly querySession = new BrowserQuerySession('BlockIdsDataSource');
+  private lastSortModel: SortModel[] = [];
+  private dataGeneration = 0;
 
   constructor(options: {
     id: string;
@@ -96,11 +101,25 @@ export class BlockIdsDataSource implements ICardDataSource {
   }
 
   async fetchRows(params: FetchRowsOptions): Promise<FetchRowsResult> {
-    const blockIds = this.getBlockIdsFn ? this.getBlockIdsFn() : this.blockIds;
-    const cards = await loadQueueCardsSimple(blockIds);
-    const sorted = sortBrowserCards(cards, params?.sortModel || []);
-    const paged = paginateBrowserCards(sorted, params?.startRow, params?.endRow);
-    return { rows: paged.rows, totalCount: paged.totalCount };
+    const sortModel = (params?.sortModel || []) as SortModel[];
+    this.lastSortModel = [...sortModel];
+    return this.querySession.fetchRows({
+      ...this.buildSessionOptions(sortModel),
+      startRow: params?.startRow,
+      endRow: params?.endRow,
+    });
+  }
+
+  getQueryFingerprint(): string {
+    return this.buildQueryFingerprint(this.lastSortModel);
+  }
+
+  async getAllMatchedIds(): Promise<string[]> {
+    return this.querySession.getAllMatchedIds(this.buildSessionOptions(this.lastSortModel));
+  }
+
+  async getRowsByIds(ids: string[]): Promise<BrowserCard[]> {
+    return this.querySession.getRowsByIds(ids, this.buildSessionOptions(this.lastSortModel));
   }
 
   getSupportedActions(): CardBrowserAction[] {
@@ -145,6 +164,7 @@ export class BlockIdsDataSource implements ICardDataSource {
             ? (row) => String(row.blockId || resolveBrowserCardId(row))
             : undefined,
       });
+      this.invalidateQuerySession();
       return { updated: result.removedCount, skipped: result.failedCount };
     }
 
@@ -158,6 +178,7 @@ export class BlockIdsDataSource implements ICardDataSource {
       const result = await insertCardsIntoQueue(queue, selectedRows, index, {
         scope: 'BlockIdsDataSource',
       });
+      this.invalidateQuerySession();
       return { updated: result.insertedCount, skipped: result.failedCount };
     }
 
@@ -167,13 +188,17 @@ export class BlockIdsDataSource implements ICardDataSource {
       if (!manager) {
         throw new Error('set-priority requires UnifiedDataSourceManager');
       }
-      return setBrowserCardsPriority(manager, selectedRows, priority, {
+      const result = await setBrowserCardsPriority(manager, selectedRows, priority, {
         scope: 'BlockIdsDataSource',
       });
+      this.invalidateQuerySession();
+      return result;
     }
 
     if (isRescheduleAction(actionId)) {
-      return adjustTime(this.plugin, selectedRows, actionId, context);
+      const result = await adjustTime(this.plugin, selectedRows, actionId, context);
+      this.invalidateQuerySession();
+      return result;
     }
 
     logger.warn('Unknown action', { actionId, queueId: this.queueId });
@@ -181,6 +206,39 @@ export class BlockIdsDataSource implements ICardDataSource {
 
   getId(): string {
     return this.id;
+  }
+
+  private buildQueryFingerprint(sortModel: SortModel[]): string {
+    const liveBlockIds = this.getBlockIdsFn ? this.getBlockIdsFn() : this.blockIds;
+    return JSON.stringify({
+      dataSource: 'block-ids',
+      id: this.id,
+      queueId: this.queueId || '',
+      blockCount: liveBlockIds.length,
+      sortModel,
+      generation: this.dataGeneration,
+    });
+  }
+
+  private async buildOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]> {
+    const blockIds = this.getBlockIdsFn ? this.getBlockIdsFn() : this.blockIds;
+    const cards = await loadQueueCardsSimple(blockIds);
+    return sortBrowserCards(cards, sortModel);
+  }
+
+  private buildSessionOptions(sortModel: SortModel[]) {
+    return {
+      queryFingerprint: this.buildQueryFingerprint(sortModel),
+      buildLiteRows: async () => {
+        const rows = await this.buildOrderedRows(sortModel);
+        return rows.map(toLiteRowFromBrowserCard);
+      },
+    };
+  }
+
+  private invalidateQuerySession(): void {
+    this.dataGeneration += 1;
+    this.querySession.invalidate();
   }
 
   private resolveManager(): IUnifiedDataSourceManagerFacade | undefined {

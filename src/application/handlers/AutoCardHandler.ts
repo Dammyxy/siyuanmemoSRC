@@ -8,7 +8,12 @@ import { AutoCardRiffAdapter } from '@/infrastructure/siyuan/AutoCardRiffAdapter
 import { createLogger } from '@/utils/logger';
 import { ClozeDetector } from '@/utils/cloze-detector';
 import type { Result } from '@/types/result';
-import { QuickCardPostCreationPlanner } from '@/core/card/post-creation/QuickCardPostCreationPlanner';
+import { UnifiedPostCreationPlanner } from '@/core/card/post-creation/UnifiedPostCreationPlanner';
+import type { CreationDecision } from '@/core/card/post-creation/contracts';
+import { PostCreationConflictMediator } from '@/application/services/PostCreationConflictMediator';
+import { DocumentPostCreationScanService } from '@/application/services/DocumentPostCreationScanService';
+import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/shared/ListChildrenResolver';
+import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase';
 
 const logger = createLogger('AutoCardHandler');
 
@@ -34,6 +39,8 @@ export interface AutoCardDocumentScanResult {
     created: number;
     skipped: number;
     failed: number;
+    conflicted: number;
+    consumed: number;
 }
 
 type SettingsServiceLike = {
@@ -95,7 +102,8 @@ export class AutoCardHandler implements ITransactionHandler {
     private plugin: FSRSPlugin;
     private readonly siyuanApi: AutoCardSiyuanPort;
     private readonly riffApi: AutoCardRiffPort;
-    private readonly postCreationPlanner = new QuickCardPostCreationPlanner();
+    private readonly postCreationPlanner = new UnifiedPostCreationPlanner();
+    private readonly conflictMediator = new PostCreationConflictMediator();
     
 
     private cardHelper: CardCreationHelper | null = null;
@@ -291,67 +299,58 @@ export class AutoCardHandler implements ITransactionHandler {
         const requestedRootId = rootId.trim();
         const resolvedRootId = await this.resolveDocumentRootId(requestedRootId);
         const normalizedRootId = resolvedRootId || requestedRootId;
-        const result: AutoCardDocumentScanResult = {
+        const emptyResult: AutoCardDocumentScanResult = {
             rootId: normalizedRootId,
             scanned: 0,
             created: 0,
             skipped: 0,
             failed: 0,
+            conflicted: 0,
+            consumed: 0,
         };
 
         if (!normalizedRootId) {
-            return result;
+            return emptyResult;
         }
 
-        const stmt = `
-            SELECT id
-            FROM blocks
-            WHERE root_id = '${this.escapeSql(normalizedRootId)}'
-              AND type = 'p'
-            ORDER BY id ASC
-        `;
-
-        const rows = await this.siyuanApi.sql(stmt) as Array<{ id?: string }>;
-        const blockIds = rows
-            .map((row) => (typeof row.id === 'string' ? row.id : ''))
-            .filter((id): id is string => id.length > 0);
-
-        if (blockIds.length === 0) {
-            return result;
-        }
-
-        const cardService = this.getCardService();
-        for (const blockId of blockIds) {
-            result.scanned += 1;
-
-            if (this.processing.has(blockId)) {
-                result.skipped += 1;
-                continue;
+        const scanner = new DocumentPostCreationScanService(
+            this.siyuanApi,
+            {
+                executeSingleBlockDecision: async ({ blockId, content, decision }) => {
+                    return this.executePlannerDecision({
+                        blockId,
+                        content,
+                        decision,
+                        source: 'doc-oneclick-scan',
+                        docRootId: normalizedRootId,
+                    });
+                },
+                executeStructuralDecision: async ({ blockId, content, decision }) => {
+                    return this.executePlannerDecision({
+                        blockId,
+                        content,
+                        decision,
+                        source: 'doc-oneclick-scan',
+                        docRootId: normalizedRootId,
+                    });
+                },
+            },
+            {
+                planner: this.postCreationPlanner,
+                conflictMediator: this.conflictMediator,
             }
+        );
 
-            const existedBefore = Boolean(cardService.getCardByBlockId(blockId));
-            this.processing.add(blockId);
-
-            try {
-                await this.checkQuickSymbols(blockId, { force: true });
-                await this.checkListTemplate(blockId, { force: true });
-
-                const existedAfter = Boolean(cardService.getCardByBlockId(blockId));
-                if (!existedBefore && existedAfter) {
-                    result.created += 1;
-                } else {
-                    result.skipped += 1;
-                }
-            } catch (error) {
-                result.failed += 1;
-                logger.error('[SiYuanMemo][AutoCard] Failed to scan block during document scan:', blockId, error);
-            } finally {
-                this.processing.delete(blockId);
-                this.lastEditTime.delete(blockId);
-            }
-        }
-
-        return result;
+        const summary = await scanner.scanByRootId(normalizedRootId);
+        return {
+            rootId: summary.rootId,
+            scanned: summary.scanned,
+            created: summary.created,
+            skipped: summary.skipped,
+            failed: summary.failed,
+            conflicted: summary.conflicted,
+            consumed: summary.consumed,
+        };
     }
     
     private queueQuickCheck(blockId: string): void {
@@ -512,30 +511,287 @@ export class AutoCardHandler implements ITransactionHandler {
                 },
             };
 
-            logger.debug('[SiYuanMemo][AutoCard] Enabled symbols:', JSON.stringify(normalizedSettings.enabledSymbols));
-            const detectedSymbols = this.detectAllSymbols(kramdown, normalizedSettings);
-            
-            if (detectedSymbols.length === 0) {
-                logger.debug('[SiYuanMemo][AutoCard] No quick symbol detected:', blockId);
+            const plan = this.postCreationPlanner.plan({
+                blockId,
+                content: kramdown,
+                source: 'symbol-listener',
+                blockType,
+                resolvedCardType: 'item',
+            });
+            const enabledDecisions = plan.decisions.filter((decision) =>
+                this.isDecisionEnabledBySettings(decision, normalizedSettings)
+            );
+
+            if (enabledDecisions.length === 0) {
+                logger.debug('[SiYuanMemo][AutoCard] No enabled planner decision detected:', {
+                    blockId,
+                    matchedRules: plan.diagnostics.matchedRuleIds,
+                });
                 return;
             }
-            
-            logger.debug('[SiYuanMemo][AutoCard] Detected symbols:', detectedSymbols);
-            
 
-            const cleanContent = kramdown.replace(/\{:[^}]*\}/g, '').trim();
-            
+            const enabledDecisionIds = new Set(enabledDecisions.map((decision) => decision.id));
+            const filteredPlan = {
+                ...plan,
+                decisions: enabledDecisions,
+                conflicts: plan.conflicts.filter((conflict) =>
+                    conflict.decisionIds.filter((decisionId) => enabledDecisionIds.has(decisionId)).length > 1
+                ),
+            };
 
-            for (const symbol of detectedSymbols) {
-                try {
-                    await this.createCardBySymbol(blockId, symbol, cleanContent);
-                } catch (error) {
-                    logger.error('[SiYuanMemo][AutoCard] Failed to create card for symbol:', symbol.type, error);
+            const runContext = this.conflictMediator.createRunContext();
+            const resolved = await this.conflictMediator.resolveSingleDecision(
+                filteredPlan,
+                runContext,
+                {
+                    sourceLabel: 'symbol-listener',
+                    defaultStrategy: 'semantic-first',
                 }
+            );
+
+            if (!resolved.decision) {
+                logger.info('[SiYuanMemo][AutoCard] Planner decision skipped by conflict strategy', {
+                    blockId,
+                    strategy: resolved.strategyUsed,
+                    decisions: enabledDecisions.map((decision) => decision.id),
+                });
+                return;
             }
+
+            await this.executePlannerDecision({
+                blockId,
+                content: kramdown,
+                decision: resolved.decision,
+                source: 'symbol-listener',
+            });
         } catch (error) {
             logger.error('[SiYuanMemo][AutoCard] Error checking quick symbols:', blockId, error);
         }
+    }
+
+    private isDecisionEnabledBySettings(
+        decision: CreationDecision,
+        settings: QuickCardSettings
+    ): boolean {
+        const enabledSymbols = settings.enabledSymbols ?? {};
+
+        switch (decision.family) {
+            case 'basic':
+                return enabledSymbols.basic !== false;
+            case 'cloze':
+                return enabledSymbols.cloze !== false;
+            case 'concept-definition':
+                return enabledSymbols.concept !== false;
+            case 'descriptor':
+                return enabledSymbols.descriptor !== false;
+            case 'list-template':
+            case 'cdf-multiline':
+                return enabledSymbols.multiLine !== false;
+            case 'default-riff':
+            default:
+                return true;
+        }
+    }
+
+    private async executePlannerDecision(params: {
+        blockId: string;
+        content: string;
+        decision: CreationDecision;
+        source: 'symbol-listener' | 'doc-oneclick-scan';
+        docRootId?: string;
+    }): Promise<boolean> {
+        const { blockId, content, decision, source, docRootId } = params;
+        const inlineContent = this.normalizeInlineSymbolContent(content);
+        const clozeContent = this.normalizeClozeSymbolContent(content);
+        const cardService = this.getCardService();
+        const attrs = await this.siyuanApi.getBlockAttrs(blockId);
+
+        if (this.hasXiuyuanBinding(attrs)) {
+            logger.debug('[SiYuanMemo][AutoCard] Skip planner decision: block already has Xiuyuan binding', {
+                blockId,
+                source,
+                ruleId: decision.id,
+                executorKind: decision.executorKind,
+            });
+            return false;
+        }
+
+        const legacyCardId = typeof attrs?.['custom-fsrs-card-id'] === 'string'
+            ? attrs['custom-fsrs-card-id'].trim()
+            : '';
+        if (legacyCardId.length > 0) {
+            logger.debug('[SiYuanMemo][AutoCard] Skip planner decision: block already has legacy card id', {
+                blockId,
+                source,
+                ruleId: decision.id,
+            });
+            return false;
+        }
+
+        const existedBefore = Boolean(cardService.getCardByBlockId(blockId));
+        if (existedBefore) {
+            logger.debug('[SiYuanMemo][AutoCard] Skip planner decision: card already exists in local storage', {
+                blockId,
+                source,
+                ruleId: decision.id,
+            });
+            return false;
+        }
+
+        switch (decision.executorKind) {
+            case 'quick-basic': {
+                const direction = decision.direction || 'forward';
+                await this.createBasicCard(blockId, direction, inlineContent);
+                break;
+            }
+            case 'quick-cloze': {
+                logger.debug('[SiYuanMemo][AutoCard] Executing quick-cloze decision with normalized content', {
+                    blockId,
+                    executorKind: decision.executorKind,
+                    rawLength: String(content || '').length,
+                    clozeContentLength: clozeContent.length,
+                    firstLinePreview: clozeContent.split('\n')[0]?.slice(0, 80) || '',
+                });
+                await this.createClozeCard(blockId, clozeContent);
+                break;
+            }
+            case 'concept-definition-inline': {
+                const direction = decision.direction === 'backward'
+                    ? 'reverse'
+                    : decision.direction === 'forward'
+                        ? 'forward'
+                        : 'both';
+                await this.createConceptCard(blockId, inlineContent, undefined, direction, {
+                    skipEnsureConceptDocumentBlockId: source === 'doc-oneclick-scan' ? docRootId : undefined,
+                });
+                break;
+            }
+            case 'descriptor-inline': {
+                const direction = decision.direction === 'backward'
+                    ? 'reverse'
+                    : decision.direction === 'both'
+                        ? 'both'
+                        : 'forward';
+                await this.createDescriptorCard(blockId, inlineContent, undefined, direction, {
+                    skipDocumentConceptAutoCreateBlockId: source === 'doc-oneclick-scan' ? docRootId : undefined,
+                });
+                break;
+            }
+            case 'list-template-structural': {
+                if (source === 'symbol-listener') {
+                    logger.debug('[SiYuanMemo][AutoCard] Structural list-template rule is disabled for symbol-listener source', {
+                        blockId,
+                        ruleId: decision.id,
+                    });
+                    return false;
+                }
+                return this.createListTemplateCardsByPlanner(blockId);
+            }
+            case 'cdf-multiline-structural': {
+                if (source === 'symbol-listener') {
+                    logger.debug('[SiYuanMemo][AutoCard] Structural CDF rule is disabled for symbol-listener source', {
+                        blockId,
+                        ruleId: decision.id,
+                    });
+                    return false;
+                }
+                return this.createCdfMultilineCardsByPlanner(blockId, decision.templateId);
+            }
+            default: {
+                logger.debug('[SiYuanMemo][AutoCard] Unsupported planner decision for auto-card execution', {
+                    blockId,
+                    source,
+                    ruleId: decision.id,
+                    executorKind: decision.executorKind,
+                });
+                return false;
+            }
+        }
+
+        const existedAfter = Boolean(cardService.getCardByBlockId(blockId));
+        return !existedBefore && existedAfter;
+    }
+
+    private async createListTemplateCardsByPlanner(parentBlockId: string): Promise<boolean> {
+        const resolvedChildren = await resolveListChildrenBySubtype(parentBlockId, this.siyuanApi as never);
+        const childBlocks = [...resolvedChildren.orderedChildren, ...resolvedChildren.unorderedChildren]
+            .map((child) => ({ id: child.id }));
+
+        if (childBlocks.length < 2) {
+            logger.debug('[SiYuanMemo][AutoCard] Structural list-template skipped: not enough child list items', {
+                parentBlockId,
+                childCount: childBlocks.length,
+            });
+            return false;
+        }
+
+        const cardService = this.getCardService();
+        const existingBefore = childBlocks.reduce((count, child) => (
+            cardService.getCardByBlockId(child.id) ? count + 1 : count
+        ), 0);
+
+        await this.createListTemplateCards(parentBlockId, childBlocks);
+
+        const existingAfter = childBlocks.reduce((count, child) => (
+            cardService.getCardByBlockId(child.id) ? count + 1 : count
+        ), 0);
+
+        return existingAfter > existingBefore;
+    }
+
+    private async createCdfMultilineCardsByPlanner(
+        parentBlockId: string,
+        templateId: string
+    ): Promise<boolean> {
+        if (templateId !== 'builtin-list-concept-multiline' && templateId !== 'builtin-list-descriptor-multiline') {
+            logger.warn('[SiYuanMemo][AutoCard] Unexpected CDF template id from planner decision', {
+                parentBlockId,
+                templateId,
+            });
+            return false;
+        }
+
+        const xiuyuanAppService = await this.requireXiuyuanApplicationService();
+        const useCase = new CreateCdfMultilineCardsUseCase(
+            xiuyuanAppService,
+            {
+                BUILTIN_DECK_ID: this.riffApi.BUILTIN_DECK_ID,
+                sql: async (stmt: string) => this.siyuanApi.sql(stmt) as Array<Record<string, unknown>>,
+                getBlockAttrs: (blockId: string) => this.siyuanApi.getBlockAttrs(blockId),
+                getBlockKramdown: (blockId: string) => this.siyuanApi.getBlockKramdown(blockId),
+            }
+        );
+
+        const result = await useCase.execute({
+            parentBlockId,
+            templateId,
+            deckId: this.riffApi.BUILTIN_DECK_ID,
+        });
+
+        if (!result.ok) {
+            logger.warn('[SiYuanMemo][AutoCard] Failed to create CDF multiline cards by planner:', {
+                parentBlockId,
+                templateId,
+                error: result.error,
+            });
+            return false;
+        }
+
+        const payload = result.value;
+        const created = payload.createdDefinition + payload.createdDescriptor;
+        if (created === 0) {
+            return false;
+        }
+
+        logger.info('[SiYuanMemo][AutoCard] Created CDF multiline cards by planner', {
+            parentBlockId,
+            templateId,
+            createdDefinition: payload.createdDefinition,
+            createdDescriptor: payload.createdDescriptor,
+            skipped: payload.skipped,
+            failed: payload.failed,
+        });
+        return true;
     }
     
     // Detect all supported symbols with deterministic priority.
@@ -761,9 +1017,6 @@ export class AutoCardHandler implements ITransactionHandler {
         try {
 
             await this.checkQuickSymbols(blockId);
-            
-
-            await this.checkListTemplate(blockId);
         } catch (error) {
             logger.error('[SiYuanMemo][AutoCard] Failed to process block immediately:', blockId, error);
         } finally {
@@ -775,6 +1028,9 @@ export class AutoCardHandler implements ITransactionHandler {
     // Handle list template marker (>>> + child list items).
     private async checkListTemplate(blockId: string, options?: { force?: boolean }): Promise<void> {
         try {
+            if (!options?.force) {
+                return;
+            }
 
             const quickCardSettings = this.settingsService.getSettings().quickCard;
             if (!quickCardSettings) {
@@ -1018,7 +1274,10 @@ export class AutoCardHandler implements ITransactionHandler {
         blockId: string, 
         content: string, 
         actualSymbol?: string,
-        direction: 'both' | 'forward' | 'reverse' = 'both'
+        direction: 'both' | 'forward' | 'reverse' = 'both',
+        options?: {
+            skipEnsureConceptDocumentBlockId?: string;
+        }
     ): Promise<void> {
         try {
             logger.debug('[SiYuanMemo][AutoCard] Creating concept card:', blockId, 'symbol:', actualSymbol, 'direction:', direction);
@@ -1187,9 +1446,20 @@ export class AutoCardHandler implements ITransactionHandler {
                 logger.debug('[SiYuanMemo][AutoCard] Concept definition card created successfully:', blockId);
                 
 
-                logger.debug('[SiYuanMemo][AutoCard] About to ensure concept document card for:', refId, conceptName);
-                await this.ensureConceptDocumentCard(refId, conceptName);
-                logger.debug('[SiYuanMemo][AutoCard] Finished ensuring concept document card');
+                const skipEnsureConceptDocumentBlockId = typeof options?.skipEnsureConceptDocumentBlockId === 'string'
+                    ? options.skipEnsureConceptDocumentBlockId.trim()
+                    : '';
+                if (skipEnsureConceptDocumentBlockId && refId === skipEnsureConceptDocumentBlockId) {
+                    logger.info('[SiYuanMemo][AutoCard] Skip ensuring concept document card for current doc root in doc scan', {
+                        blockId,
+                        refId,
+                        skipEnsureConceptDocumentBlockId,
+                    });
+                } else {
+                    logger.debug('[SiYuanMemo][AutoCard] About to ensure concept document card for:', refId, conceptName);
+                    await this.ensureConceptDocumentCard(refId, conceptName);
+                    logger.debug('[SiYuanMemo][AutoCard] Finished ensuring concept document card');
+                }
                 
                 const directionText = direction === 'both' ? 'bidirectional' : direction === 'forward' ? 'forward' : 'reverse';
                 let message: string;
@@ -1218,7 +1488,10 @@ export class AutoCardHandler implements ITransactionHandler {
         blockId: string, 
         content: string, 
         actualSymbol?: string,
-        direction: 'forward' | 'reverse' | 'both' = 'forward'
+        direction: 'forward' | 'reverse' | 'both' = 'forward',
+        options?: {
+            skipDocumentConceptAutoCreateBlockId?: string;
+        }
     ): Promise<void> {
         try {
             logger.debug('[SiYuanMemo][AutoCard] Creating descriptor card:', blockId, 'symbol:', actualSymbol, 'direction:', direction);
@@ -1259,7 +1532,10 @@ export class AutoCardHandler implements ITransactionHandler {
             } else {
 
                 logger.debug('[SiYuanMemo][AutoCard] Case B: No list parent, searching heading/document...');
-                foundConceptId = await this.findConceptWithoutListParent(blockId);
+                foundConceptId = await this.findConceptWithoutListParent(
+                    blockId,
+                    options?.skipDocumentConceptAutoCreateBlockId
+                );
             }
             
             if (!foundConceptId) {
@@ -1346,20 +1622,24 @@ export class AutoCardHandler implements ITransactionHandler {
             const postCreationPlan = this.postCreationPlanner.plan({
                 blockId,
                 content,
-                source: 'auto-card-listener',
+                source: 'symbol-listener',
                 resolvedCardType: 'item',
             });
+            const clozeDecision = postCreationPlan.decisions.find((decision) => decision.executorKind === 'quick-cloze');
+            const useMultiFaceMode = clozeDecision?.mode === 'multi-face';
+            const clozeRenderMode = clozeDecision?.renderProfile === 'quick-inline-formula'
+                ? 'inline-formula-cloze'
+                : 'default';
 
             logger.debug('[SiYuanMemo][AutoCard] Post-creation plan for cloze card:', {
                 blockId,
-                mode: postCreationPlan.mode,
-                templateId: postCreationPlan.templateId,
-                renderMode: postCreationPlan.renderMode,
-                facesPlan: postCreationPlan.facesPlan,
-                ruleId: postCreationPlan.hints.ruleId,
+                mode: clozeDecision?.mode || 'single',
+                templateId: clozeDecision?.templateId || 'builtin-quick-card',
+                renderMode: clozeRenderMode,
+                ruleId: clozeDecision?.id,
             });
 
-            if (postCreationPlan.mode !== 'multi-cloze' && clozes.length === 1 && clozes[0].type !== 'latex') {
+            if (!useMultiFaceMode && clozes.length === 1 && clozes[0].type !== 'latex') {
                 await this.createSingleClozeCard(blockId, content, clozes);
                 return;
             }
@@ -1369,7 +1649,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 blockId,
                 content,
                 clozes,
-                postCreationPlan.renderMode
+                clozeRenderMode
             );
         } catch (error) {
             logger.error('[SiYuanMemo][AutoCard] Failed to create cloze card:', blockId, error);
@@ -1888,7 +2168,10 @@ export class AutoCardHandler implements ITransactionHandler {
     }
     
     // Resolve concept card from heading/document ancestors when no list parent exists.
-    private async findConceptWithoutListParent(blockId: string): Promise<string | null> {
+    private async findConceptWithoutListParent(
+        blockId: string,
+        skipDocumentConceptAutoCreateBlockId?: string
+    ): Promise<string | null> {
                 
         let currentId = blockId;
         let firstHeadingId: string | null = null;
@@ -1957,6 +2240,26 @@ export class AutoCardHandler implements ITransactionHandler {
         if (!conceptId) {
             logger.warn('[SiYuanMemo][AutoCard] No concept block found (no heading or document)');
             return null;
+        }
+
+        const normalizedSkipDocId = typeof skipDocumentConceptAutoCreateBlockId === 'string'
+            ? skipDocumentConceptAutoCreateBlockId.trim()
+            : '';
+        if (normalizedSkipDocId && conceptType === 'document' && conceptId === normalizedSkipDocId) {
+            const attrs = await this.siyuanApi.getBlockAttrs(conceptId);
+            const hasXiuyuanId = this.hasXiuyuanBinding(attrs);
+            const hasLegacyCardId = typeof attrs?.['custom-fsrs-card-id'] === 'string'
+                && attrs['custom-fsrs-card-id'].trim().length > 0;
+            const isConceptType = attrs?.['custom-fsrs-card-type'] === 'concept';
+            const existingCard = this.getCardService().getCardByBlockId(conceptId);
+            if (!hasXiuyuanId && !hasLegacyCardId && !isConceptType && !existingCard) {
+                logger.info('[SiYuanMemo][AutoCard] Skip auto-creating concept card on current document block during doc scan', {
+                    blockId,
+                    conceptId,
+                    skipDocumentConceptAutoCreateBlockId: normalizedSkipDocId,
+                });
+                return null;
+            }
         }
         
 
@@ -2090,6 +2393,43 @@ export class AutoCardHandler implements ITransactionHandler {
             logger.warn('[SiYuanMemo][AutoCard] Failed to resolve document root id, fallback to input id:', normalizedNodeId, error);
             return normalizedNodeId;
         }
+    }
+
+    private normalizeInlineSymbolContent(content: string): string {
+        const normalized = String(content || '')
+            .replace(/\{:[^{}\n]*\}/g, '')
+            .replace(/\r/g, '')
+            .trim();
+
+        if (!normalized) {
+            return '';
+        }
+
+        const normalizedLines = normalized
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0)
+            .map((line) => line
+                .replace(/^[-*+]\s+/, '')
+                .replace(/^\d+\.\s+/, '')
+                .trim())
+            .filter((line) => line.length > 0);
+
+        if (normalizedLines.length === 0) {
+            return '';
+        }
+
+        // Prefer the first line that actually carries an inline card symbol.
+        const symbolLinePattern = />>|》》|<<|《《|<>|《》|::|：：|:>|：》|:<|：《|;;|；；|;<|；<|；《|;<>|；<>|；《》/;
+        const symbolLine = normalizedLines.find((line) => symbolLinePattern.test(line));
+        return symbolLine || normalizedLines[0];
+    }
+
+    private normalizeClozeSymbolContent(content: string): string {
+        return String(content || '')
+            .replace(/\{:[^{}\n]*\}/g, '')
+            .replace(/\r/g, '')
+            .trim();
     }
 
     // Normalize unknown error input to a readable message.

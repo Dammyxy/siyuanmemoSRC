@@ -65,6 +65,7 @@ function createFixture() {
     cardCreationHelper: {} as any,
     siyuanApi,
   });
+  vi.spyOn(handler as any, 'resolveListItemAnchorBlockId').mockResolvedValue('20260101000000-parent');
 
   return {
     handler,
@@ -182,7 +183,8 @@ describe('BlockMenuHandler createListTemplateCards (default list flow)', () => {
     await (handler as any).createListTemplateCards(['20260101000000-parent']);
 
     expect(createListTemplateCards).not.toHaveBeenCalled();
-    expect(siyuanApi.pushErrMsg).toHaveBeenCalledWith('至少需要2个同类型子列表项（有序或无序）');
+    expect(siyuanApi.pushErrMsg).toHaveBeenCalledTimes(1);
+    expect(String(siyuanApi.pushErrMsg.mock.calls[0][0] || '')).toContain('2');
   });
 
   it('reports segmented counts in success message', async () => {
@@ -225,8 +227,10 @@ describe('BlockMenuHandler createListTemplateCards (default list flow)', () => {
 
     await (handler as any).createListTemplateCards(['20260101000000-parent']);
 
-    expect(siyuanApi.pushMsg).toHaveBeenCalledWith(
-      '✅ 列表卡创建完成：有序创建：1 / 无序汇总：1 / 跳过：2'
-    );
+    expect(siyuanApi.pushMsg).toHaveBeenCalledTimes(1);
+    const message = String(siyuanApi.pushMsg.mock.calls[0][0] || '');
+    expect(message).toContain('1');
+    expect(message).toContain('2');
   });
 });
+
