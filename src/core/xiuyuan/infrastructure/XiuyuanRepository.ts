@@ -704,6 +704,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         xiuyuanID: card.getXiuyuanId().getValue(),
         templateID: xiuyuan.getTemplateID().getValue(),
         faceIndex: faceIndex,
+        ...(typeof meta.source === 'string' ? { source: meta.source } : {}),
+        ...(typeof meta.clozeRenderMode === 'string' ? { clozeRenderMode: meta.clozeRenderMode } : {}),
+        ...(typeof meta.forceQuickRender === 'boolean' ? { forceQuickRender: meta.forceQuickRender } : {}),
+        ...(typeof meta.quickDetectReason === 'string' ? { quickDetectReason: meta.quickDetectReason } : {}),
         // ✅ 使用 Xiuyuan 实体方法获取 blockIDs（Domain 层逻辑）
         frontBlockIDs: xiuyuan.getFrontBlockIDs(faceIndex),
         backBlockIDs: xiuyuan.getBackBlockIDs(faceIndex),

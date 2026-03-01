@@ -5,6 +5,7 @@ export type DetectionMode = 'basic' | 'extended';
 export type AnswerSyntaxReason =
   | 'mark-equals'
   | 'separator-colon'
+  | 'cloze-latex-numbered'
   | 'cloze-double-brace'
   | 'siyuan-mark-span'
   | 'separator-semicolon'
@@ -24,6 +25,10 @@ export function detectAnswerSyntax(
 
   if (/::/.test(contentText)) {
     return 'separator-colon';
+  }
+
+  if (/\\cloze\{c\d+\}\{/.test(markdownText) || /\\cloze\{c\d+\}\{/.test(contentText)) {
+    return 'cloze-latex-numbered';
   }
 
   if (mode === 'basic') {
@@ -70,4 +75,3 @@ export function detectTypeByStructure(params: {
 
   return 'topic';
 }
-

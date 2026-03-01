@@ -60,6 +60,12 @@ export interface CreateXiuyuanFromBlocksCommand {
       type: string;
     }>;
   };
+
+  /**
+   * 多挖空渲染模式（可选）
+   * 用于统一公式同式填空的正反面渲染
+   */
+  clozeRenderMode?: 'inline-formula-cloze' | 'default';
   
   /**
    * 是否为双向卡片（可选）

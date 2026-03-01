@@ -515,6 +515,9 @@ function handleReviewKeyAction(
     source,
     key,
     answerShown: hook.context.value.showAnswer,
+    blockId: state.value.actions.cardMeta?.blockID,
+    cardId: state.value.actions.cardMeta?.cardID,
+    cardType: state.value.actions.cardMeta?.cardType || state.value.actions.cardMeta?.type,
   });
 
   if (key === ' ' || key === 'enter') {
@@ -523,10 +526,18 @@ function handleReviewKeyAction(
 
     if (!hook.context.value.showAnswer) {
       if (isTopicCard()) {
-        logger.debug('[SiYuanMemo][ReviewView] Topic card - grading with 3 (Good)');
+        logger.debug('[SiYuanMemo][ReviewView] Topic card - grading with 3 (Good)', {
+          blockId: state.value.actions.cardMeta?.blockID,
+          cardId: state.value.actions.cardMeta?.cardID,
+          cardType: state.value.actions.cardMeta?.cardType || state.value.actions.cardMeta?.type,
+        });
         void hook.grade(3);
       } else {
-        logger.debug('[SiYuanMemo][ReviewView] Revealing answer...');
+        logger.debug('[SiYuanMemo][ReviewView] Revealing answer...', {
+          blockId: state.value.actions.cardMeta?.blockID,
+          cardId: state.value.actions.cardMeta?.cardID,
+          cardType: state.value.actions.cardMeta?.cardType || state.value.actions.cardMeta?.type,
+        });
         hook.reveal();
       }
     } else {

@@ -76,10 +76,16 @@ const renderedHtml = ref('');
 const cardContentRef = ref<HTMLElement | null>(null);
 
 function renderDisplayHtml(result: QuickCardViewModel): string {
-  // Only apply KaTeX re-render for formula cloze quick cards.
-  if (result.metadata.symbol !== '\\cloze') {
+  const isLatexCloze = result.metadata.symbol === '\\cloze';
+  if (!isLatexCloze) {
     return result.html;
   }
+  logger.debug('[SiYuanMemo][QuickCardRenderer] Applying KaTeX re-render for latex cloze quick card', {
+    blockId: result.blockId,
+    cardId: result.metadata.cardId,
+    side: result.side,
+    symbol: result.metadata.symbol,
+  });
   return renderMathWithKatex(result.html, (error) => {
     logger.warn('[QuickCardRenderer] Failed to render KaTeX expression:', error);
   });
@@ -116,6 +122,15 @@ async function loadViewModel() {
     if (!result) {
       throw new Error('Failed to load card: not a quick card');
     }
+
+    logger.debug('[SiYuanMemo][QuickCardRenderer] Quick render payload', {
+      blockId: props.blockId,
+      cardId: props.cardId,
+      side,
+      symbol: result.metadata.symbol,
+      quickType: result.cardType,
+      isLatexCloze: result.metadata.symbol === '\\cloze',
+    });
 
     viewModel.value = result;
     renderedHtml.value = renderDisplayHtml(result);

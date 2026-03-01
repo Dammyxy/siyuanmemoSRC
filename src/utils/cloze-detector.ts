@@ -92,24 +92,30 @@ export class ClozeDetector {
   }
 
   private static extractLatexClozes(content: string, output: ClozeInfo[]): void {
-    const command = '\\cloze';
+    const commandRegex = /\\+cloze/g;
     let cursor = 0;
 
     while (cursor < content.length) {
-      const start = content.indexOf(command, cursor);
-      if (start < 0) {
+      commandRegex.lastIndex = cursor;
+      const match = commandRegex.exec(content);
+      if (!match) {
         break;
       }
 
-      const firstArg = this.parseBracedArgument(content, start + command.length);
+      const start = match.index;
+      const commandEnd = start + match[0].length;
+      const firstArg = this.parseBracedArgument(content, commandEnd);
       if (!firstArg) {
-        cursor = start + command.length;
+        cursor = commandEnd;
         continue;
       }
 
+      const firstArgText = firstArg.content.trim();
+      const isNumberedLatexCloze = /^c\d+$/i.test(firstArgText);
       const secondArg = this.parseBracedArgument(content, firstArg.nextIndex);
-      const targetArg = secondArg || firstArg;
-      const end = secondArg ? secondArg.nextIndex : firstArg.nextIndex;
+      const hasSecondArgForNumberedCloze = isNumberedLatexCloze && !!secondArg;
+      const targetArg = hasSecondArgForNumberedCloze && secondArg ? secondArg : firstArg;
+      const end = hasSecondArgForNumberedCloze && secondArg ? secondArg.nextIndex : firstArg.nextIndex;
       const text = targetArg.content.trim();
 
       if (text.length > 0) {

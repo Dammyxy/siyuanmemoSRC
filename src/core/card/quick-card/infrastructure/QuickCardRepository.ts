@@ -73,14 +73,12 @@ export class QuickCardRepository {
    */
   async loadCard(blockId: string, cardId?: string): Promise<QuickCard | null> {
     try {
-      logger.debug('[SiYuanMemo][QuickCardRepository] loadCard called:', { blockId, cardId });
-      
-      // 🆕 如果没有 cardId，说明是虚拟闪卡（topic card），不使用快速卡渲染
-      // 让它降级到 Protyle 渲染，这样块引用才能正确显示
-      if (!cardId) {
-        logger.debug('[SiYuanMemo][QuickCardRepository] No cardId provided, skipping quick card detection for virtual card');
-        return null;
-      }
+      const isCardIdMissing = !cardId;
+      logger.debug('[SiYuanMemo][QuickCardRepository] loadCard called:', {
+        blockId,
+        cardId,
+        isCardIdMissing,
+      });
       
       // 1. 获取块数据
       const block = await this.adapter.getBlock(blockId);
@@ -104,14 +102,22 @@ export class QuickCardRepository {
         return null;
       }
 
-      logger.debug('[SiYuanMemo][QuickCardRepository] Detected card type:', cardInfo);
+      logger.debug('[SiYuanMemo][QuickCardRepository] Detected card type:', {
+        blockId,
+        cardId,
+        isCardIdMissing,
+        detectedQuickType: cardInfo.type,
+        symbol: cardInfo.symbol,
+      });
 
       // 4. 构建元数据
       const metadata: QuickCardMetadata = {
         symbol: cardInfo.symbol,
         parentBlockId: block.parentID,
-        cardId,
       };
+      if (cardId) {
+        metadata.cardId = cardId;
+      }
 
       // 5. 如果提供了 cardId，尝试从 FSRSCard 的 meta 中获取 typeMarker 和挖空信息
       if (cardId) {
@@ -146,7 +152,12 @@ export class QuickCardRepository {
           logger.debug(`[SiYuanMemo][QuickCardRepository] ⚠️ No meta found for cardId: ${cardId}`);
         }
       } else {
-        logger.debug('[SiYuanMemo][QuickCardRepository] ⚠️ No cardId provided, cannot fetch metadata');
+        logger.debug('[SiYuanMemo][QuickCardRepository] No cardId provided, skip FSRS metadata enrichment', {
+          blockId,
+          cardId,
+          isCardIdMissing,
+          detectedQuickType: cardInfo.type,
+        });
       }
 
       // 6. 对于描述符卡片，判断是否使用 Xiuyuan 模版
@@ -174,11 +185,19 @@ export class QuickCardRepository {
         backHtml: back.html.substring(0, 100),
       });
 
-      // 8. 使用 Lute 渲染 kramdown 为 HTML
-      const frontHtmlRendered = this.adapter.kramdownToHtml(front.html);
-      const backHtmlRendered = this.adapter.kramdownToHtml(back.html);
+      // 8. 渲染内容：
+      //    LaTeX cloze 直接保留 kramdown，由 QuickCardRenderer + KaTeX 统一渲染。
+      //    避免 SpinBlockDOM 在公式场景输出空壳节点导致内容不可见。
+      const shouldKeepRawLatexKramdown = metadata.symbol === '\\cloze';
+      const frontHtmlRendered = shouldKeepRawLatexKramdown
+        ? front.html
+        : this.adapter.kramdownToHtml(front.html);
+      const backHtmlRendered = shouldKeepRawLatexKramdown
+        ? back.html
+        : this.adapter.kramdownToHtml(back.html);
 
       logger.debug('[SiYuanMemo][QuickCardRepository] Rendered HTML:', {
+        shouldKeepRawLatexKramdown,
         frontHtml: frontHtmlRendered.substring(0, 100),
         backHtml: backHtmlRendered.substring(0, 100),
       });

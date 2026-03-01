@@ -17,10 +17,19 @@
       </div>
 
       <!-- 背面：显示答案 -->
-      <div v-else class="multi-cloze-card-renderer__back">
-        <div class="multi-cloze-card-renderer__front-preview" v-html="renderedQuestionHtml"></div>
-        <div class="multi-cloze-card-renderer__answer-divider"><span>答案</span></div>
-        <div class="multi-cloze-card-renderer__answer" v-html="renderedAnswerHtml"></div>
+      <div
+        v-else
+        class="multi-cloze-card-renderer__back"
+        :class="{ 'multi-cloze-card-renderer__back--inline': isInlineFormulaMode }"
+      >
+        <template v-if="isInlineFormulaMode">
+          <div class="multi-cloze-card-renderer__answer" v-html="renderedAnswerHtml"></div>
+        </template>
+        <template v-else>
+          <div class="multi-cloze-card-renderer__front-preview" v-html="renderedQuestionHtml"></div>
+          <div class="multi-cloze-card-renderer__answer-divider"><span>答案</span></div>
+          <div class="multi-cloze-card-renderer__answer" v-html="renderedAnswerHtml"></div>
+        </template>
       </div>
     </div>
   </div>
@@ -49,6 +58,7 @@ const error = ref<string | null>(null);
 const viewModel = ref<MultiClozeCardViewModel | null>(null);
 
 const renderService = new MultiClozeCardRenderService();
+const isInlineFormulaMode = computed(() => viewModel.value?.renderMode === 'inline-formula-cloze');
 
 const renderedQuestionHtml = computed(() => {
   const question = viewModel.value?.currentFace.question || '';
@@ -132,6 +142,11 @@ watch(
   flex-direction: column;
 }
 
+.multi-cloze-card-renderer__back--inline {
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
 /* 正面预览 - 保持原始大小，仅灰显在顶部 */
 .multi-cloze-card-renderer__front-preview {
   opacity: 0.4;
@@ -179,8 +194,8 @@ watch(
 
 /* 挖空占位符样式 - 只在问题中显示淡绿色 */
 .multi-cloze-card-renderer__question :deep(mark) {
-  background-color: #C8E6C9; /* 柔和的淡绿色 (Material Green 100) */
-  color: #00695C; /* 深青色文字 (Material Teal 800) */
+  background-color: var(--siyuanmemo-cloze-success-bg, var(--b3-button-background-success, #b8d7ba));
+  color: var(--siyuanmemo-cloze-success-fg, var(--b3-theme-success, #166534));
   padding: 1px 6px;
   border-radius: 3px;
   font-weight: 500;

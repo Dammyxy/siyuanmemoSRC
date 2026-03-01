@@ -1,4 +1,4 @@
-.fsrs-meta-menu-label {
+﻿.fsrs-meta-menu-label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -19,24 +19,24 @@
   min-height: 28px;
 }
 
-// ==================== 卡片正反面隐藏样式 ====================
-// 参考思源原生实现：siyuan/app/src/card/openCard.ts
+// ==================== 鍗＄墖姝ｅ弽闈㈤殣钘忔牱寮?====================
+// 鍙傝€冩€濇簮鍘熺敓瀹炵幇锛歴iyuan/app/src/card/openCard.ts
 
-// 隐藏超级块
+// 闅愯棌瓒呯骇鍧?
 .card__block--hidesb {
   .sb {
     display: none;
   }
 }
 
-// 隐藏标题
+// 闅愯棌鏍囬
 .card__block--hideh {
   [data-type="NodeHeading"] {
     display: none;
   }
 }
 
-// 隐藏列表
+// 闅愯棌鍒楄〃
 .card__block--hideli {
   .list,
   .li {
@@ -44,7 +44,7 @@
   }
 }
 
-// 隐藏标记（悬停时显示）
+// 闅愯棌鏍囪锛堟偓鍋滄椂鏄剧ず锛?
 .card__block--hidemark {
   span[data-type~="mark"] {
     color: transparent !important;
@@ -57,16 +57,16 @@
   }
 }
 
-// ==================== 卡片挖空样式 ====================
-// 只在插件复习界面内生效，不影响思源原生复习
-// 使用更细腻的样式
+// ==================== 鍗＄墖鎸栫┖鏍峰紡 ====================
+// 鍙湪鎻掍欢澶嶄範鐣岄潰鍐呯敓鏁堬紝涓嶅奖鍝嶆€濇簮鍘熺敓澶嶄範
+// 浣跨敤鏇寸粏鑵荤殑鏍峰紡
 .fsrs-review-v2-content mark,
 .multi-cloze-card-renderer mark,
 .quick-card-renderer mark,
 .descriptor-card-renderer mark,
 .concept-definition-card-renderer mark {
-  background-color: #C8E6C9 !important; /* 柔和的淡绿色 (Material Green 100) */
-  color: #00695C !important; /* 深青色文字 (Material Teal 800) */
+  background-color: var(--siyuanmemo-cloze-success-bg, var(--b3-button-background-success, #b8d7ba)) !important;
+  color: var(--siyuanmemo-cloze-success-fg, var(--b3-theme-success, #166534)) !important;
   padding: 1px 6px;
   border-radius: 3px;
   font-weight: 500;
@@ -222,3 +222,4 @@
   align-items: center;
   gap: 8px;
 }
+

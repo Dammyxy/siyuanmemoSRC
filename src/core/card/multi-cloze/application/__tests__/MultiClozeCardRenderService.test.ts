@@ -20,19 +20,20 @@ describe('MultiClozeCardRenderService', () => {
   it('keeps display math answer for block-level math questions', async () => {
     const service = new TestableMultiClozeCardRenderService();
     const vm = await service.prepareViewModel(
-      createCard('$$E=\\color{#2e7d32}{\\boxed{\\text{[...]}}}$$', '$$MC^2$$')
+      createCard('$$E={\\color{#166534}\\boxed{\\text{[...]}}}$$', '$$MC^2$$')
     );
 
+    expect(vm.renderMode).toBe('default');
     expect(vm.currentFace.answer).toBe('$$MC^2$$');
   });
 
   it('normalizes display math answer to inline for inline math questions', async () => {
     const service = new TestableMultiClozeCardRenderService();
     const vm = await service.prepareViewModel(
-      createCard('$E=\\color{#2e7d32}{\\boxed{\\text{[...]}}}$', '$$MC^2$$')
+      createCard('$E={\\color{#166534}\\boxed{\\text{[...]}}}$', '$$MC^2$$')
     );
 
+    expect(vm.renderMode).toBe('default');
     expect(vm.currentFace.answer).toBe('$MC^2$');
   });
 });
-

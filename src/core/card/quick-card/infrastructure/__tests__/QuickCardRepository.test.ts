@@ -1,287 +1,141 @@
-/**
- * QuickCardRepository 单元测试
- */
-
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QuickCardRepository } from '../QuickCardRepository';
-import { SiyuanBlockAdapter } from '../SiyuanBlockAdapter';
+import type { SiyuanBlockAdapter } from '../SiyuanBlockAdapter';
 import type { SiyuanBlock } from '../../domain/types';
+import type { ICardStorage } from '@/application/interfaces/ICardStorage';
+
+type MockAdapter = {
+  getBlock: ReturnType<typeof vi.fn>;
+  kramdownToHtml: ReturnType<typeof vi.fn>;
+};
+
+function createBlock(content: string, blockId = '20260301120000-quick01'): SiyuanBlock {
+  return {
+    id: blockId,
+    content,
+    parentID: undefined,
+  };
+}
 
 describe('QuickCardRepository', () => {
+  let mockAdapter: MockAdapter;
+  let mockCardStorage: ICardStorage;
   let repository: QuickCardRepository;
-  let mockAdapter: SiyuanBlockAdapter;
 
   beforeEach(() => {
     mockAdapter = {
       getBlock: vi.fn(),
-    } as any;
-    repository = new QuickCardRepository(mockAdapter);
+      kramdownToHtml: vi.fn((input: string) => input),
+    };
+
+    mockCardStorage = {
+      getCard: vi.fn(async () => null),
+      setCard: vi.fn(async () => undefined),
+      deleteCard: vi.fn(async () => undefined),
+      getAllCards: vi.fn(async () => []),
+    };
+
+    repository = new QuickCardRepository(
+      mockAdapter as unknown as SiyuanBlockAdapter,
+      mockCardStorage
+    );
   });
 
-  describe('loadCard', () => {
-    it('should load basic card with >> symbol', async () => {
-      const mockBlock: SiyuanBlock = {
-        id: '20230101120000-abcdefg',
-        content: '什么是 DDD？ >> 领域驱动设计',
-        parentID: undefined,
-      };
+  it('detects basic quick cards without cardId', async () => {
+    mockAdapter.getBlock.mockResolvedValue(
+      createBlock('What is DDD? >> Domain-Driven Design')
+    );
 
-      vi.mocked(mockAdapter.getBlock).mockResolvedValue(mockBlock);
+    const card = await repository.loadCard('20260301120000-quick01');
 
-      const card = await repository.loadCard('20230101120000-abcdefg');
-
-      expect(card).not.toBeNull();
-      expect(card?.type).toBe('basic');
-      expect(card?.blockId).toBe('20230101120000-abcdefg');
-      expect(card?.metadata.symbol).toBe('>>');
-    });
-
-    it('should load basic card with << symbol', async () => {
-      const mockBlock: SiyuanBlock = {
-        id: '20230101120000-abcdefg',
-        content: '领域驱动设计 << 什么是 DDD？',
-        parentID: undefined,
-      };
-
-      vi.mocked(mockAdapter.getBlock).mockResolvedValue(mockBlock);
-
-      const card = await repository.loadCard('20230101120000-abcdefg');
-
-      expect(card).not.toBeNull();
-      expect(card?.type).toBe('basic');
-      expect(card?.metadata.symbol).toBe('<<');
-    });
-
-    it('should load basic card with <> symbol', async () => {
-      const mockBlock: SiyuanBlock = {
-        id: '20230101120000-abcdefg',
-        content: 'DDD <> Domain-Driven Design',
-        parentID: undefined,
-      };
-
-      vi.mocked(mockAdapter.getBlock).mockResolvedValue(mockBlock);
-
-      const card = await repository.loadCard('20230101120000-abcdefg');
-
-      expect(card).not.toBeNull();
-      expect(card?.type).toBe('basic');
-      expect(card?.metadata.symbol).toBe('<>');
-    });
-
-    it('should load concept card with :: symbol', async () => {
-      const mockBlock: SiyuanBlock = {
-        id: '20230101120000-abcdefg',
-        content: 'DDD::领域驱动设计，一种软件开发方法论',
-        parentID: undefined,
-      };
-
-      vi.mocked(mockAdapter.getBlock).mockResolvedValue(mockBlock);
-
-      const card = await repository.loadCard('20230101120000-abcdefg');
-
-      expect(card).not.toBeNull();
-      expect(card?.type).toBe('concept');
-      expect(card?.metadata.symbol).toBe('::');
-    });
-
-    it('should load descriptor card with ;; symbol', async () => {
-      const mockBlock: SiyuanBlock = {
-        id: '20230101120000-abcdefg',
-        content: '优点;;易于维护和扩展',
-        parentID: undefined,
-      };
-
-      vi.mocked(mockAdapter.getBlock).mockResolvedValue(mockBlock);
-
-      const card = await repository.loadCard('20230101120000-abcdefg');
-
-      expect(card).not.toBeNull();
-      expect(card?.type).toBe('descriptor');
-      expect(card?.metadata.symbol).toBe(';;');
-    });
-
-    it('should load cloze card with {{}} symbol', async () => {
-      const mockBlock: SiyuanBlock = {
-        id: '20230101120000-abcdefg',
-        content: 'DDD 的核心是{{领域模型}}和{{通用语言}}',
-        parentID: undefined,
-      };
-
-      vi.mocked(mockAdapter.getBlock).mockResolvedValue(mockBlock);
-
-      const card = await repository.loadCard('20230101120000-abcdefg');
-
-      expect(card).not.toBeNull();
-      expect(card?.type).toBe('cloze');
-      expect(card?.metadata.symbol).toBe('{{}}');
-    });
-
-    it('should load multiLine card with >>> symbol', async () => {
-      const mockBlock: SiyuanBlock = {
-        id: '20230101120000-abcdefg',
-        content: '>>> DDD 的四层架构\n- 表现层\n- 应用层\n- 领域层\n- 基础设施层',
-        parentID: undefined,
-      };
-
-      vi.mocked(mockAdapter.getBlock).mockResolvedValue(mockBlock);
-
-      const card = await repository.loadCard('20230101120000-abcdefg');
-
-      expect(card).not.toBeNull();
-      expect(card?.type).toBe('multiLine');
-      expect(card?.metadata.symbol).toBe('>>>');
-    });
-
-    it('should return null for non-quick-card block', async () => {
-      const mockBlock: SiyuanBlock = {
-        id: '20230101120000-abcdefg',
-        content: '这是一个普通的块内容',
-        parentID: undefined,
-      };
-
-      vi.mocked(mockAdapter.getBlock).mockResolvedValue(mockBlock);
-
-      const card = await repository.loadCard('20230101120000-abcdefg');
-
-      expect(card).toBeNull();
-    });
-
-    it('should return null when block not found', async () => {
-      vi.mocked(mockAdapter.getBlock).mockResolvedValue(null);
-
-      const card = await repository.loadCard('nonexistent-block-id');
-
-      expect(card).toBeNull();
-    });
-
-    it('should handle errors gracefully', async () => {
-      vi.mocked(mockAdapter.getBlock).mockRejectedValue(new Error('Network error'));
-
-      const card = await repository.loadCard('20230101120000-abcdefg');
-
-      expect(card).toBeNull();
-    });
-
-    it('should detect card type with correct priority', async () => {
-      // >>> has higher priority than >>
-      const mockBlock: SiyuanBlock = {
-        id: '20230101120000-abcdefg',
-        content: '>>> 问题 >> 答案',
-        parentID: undefined,
-      };
-
-      vi.mocked(mockAdapter.getBlock).mockResolvedValue(mockBlock);
-
-      const card = await repository.loadCard('20230101120000-abcdefg');
-
-      expect(card?.type).toBe('multiLine');
-      expect(card?.metadata.symbol).toBe('>>>');
-    });
-
-    it('should include parentBlockId in metadata', async () => {
-      const mockBlock: SiyuanBlock = {
-        id: '20230101120000-abcdefg',
-        content: '什么是 DDD？ >> 领域驱动设计',
-        parentID: '20230101110000-parent',
-      };
-
-      vi.mocked(mockAdapter.getBlock).mockResolvedValue(mockBlock);
-
-      const card = await repository.loadCard('20230101120000-abcdefg');
-
-      expect(card?.metadata.parentBlockId).toBe('20230101110000-parent');
-    });
+    expect(card).not.toBeNull();
+    expect(card?.type).toBe('basic');
+    expect(card?.metadata.symbol).toBe('>>');
+    expect(card?.metadata.cardId).toBeUndefined();
   });
 
-  describe('Xiuyuan template detection', () => {
-    it('should not use Xiuyuan template when config is disabled', async () => {
-      const mockBlock: SiyuanBlock = {
-        id: '20230101120000-abcdefg',
-        content: '优点;;易于维护和扩展',
-        parentID: '20230101110000-parent',
-      };
+  it('detects brace cloze quick cards without cardId', async () => {
+    mockAdapter.getBlock.mockResolvedValue(
+      createBlock('The core is {{ubiquitous language}}')
+    );
 
-      const mockParentBlock: SiyuanBlock = {
-        id: '20230101110000-parent',
-        content: 'DDD::领域驱动设计',
-        parentID: undefined,
-      };
+    const card = await repository.loadCard('20260301120000-quick01');
 
-      vi.mocked(mockAdapter.getBlock)
-        .mockResolvedValueOnce(mockBlock)
-        .mockResolvedValueOnce(mockParentBlock);
+    expect(card).not.toBeNull();
+    expect(card?.type).toBe('cloze');
+    expect(card?.metadata.symbol).toBe('{{}}');
+    expect(card?.metadata.cardId).toBeUndefined();
+  });
 
-      const card = await repository.loadCard('20230101120000-abcdefg');
+  it('detects numbered latex cloze quick cards without cardId', async () => {
+    mockAdapter.getBlock.mockResolvedValue(
+      createBlock('$$ E = \\\\cloze{c1}{mc^2} $$')
+    );
 
-      // Config is disabled by default, so isXiuyuanTemplate should be false
-      expect(card?.metadata.isXiuyuanTemplate).toBe(false);
-    });
+    const card = await repository.loadCard('20260301120000-quick01');
 
-    it('should not use Xiuyuan template when parent block does not exist', async () => {
-      const mockBlock: SiyuanBlock = {
-        id: '20230101120000-abcdefg',
-        content: '优点;;易于维护和扩展',
-        parentID: undefined, // No parent
-      };
+    expect(card).not.toBeNull();
+    expect(card?.type).toBe('cloze');
+    expect(card?.metadata.symbol).toBe('\\cloze');
+    expect(card?.metadata.cardId).toBeUndefined();
+    expect(card?.getFace('front').html).toContain('\\boxed{\\text{[...]}}');
+    expect(card?.getFace('front').html).not.toContain('\\\\boxed');
+    expect(card?.getFace('back').html).toContain('mc^2');
+    expect(card?.getFace('back').html).not.toContain('\\mc^2');
+  });
 
-      vi.mocked(mockAdapter.getBlock).mockResolvedValue(mockBlock);
+  it('keeps latex cloze renderable when source has no math delimiters', async () => {
+    mockAdapter.getBlock.mockResolvedValue(
+      createBlock('P(A|B)=\\\\cloze{c1}{P(B|A)}*P(A)/P(B)')
+    );
 
-      const card = await repository.loadCard('20230101120000-abcdefg');
+    const card = await repository.loadCard('20260301120000-quick01');
 
-      expect(card?.metadata.isXiuyuanTemplate).toBe(false);
-    });
+    expect(card).not.toBeNull();
+    expect(card?.metadata.symbol).toBe('\\cloze');
+    expect(card?.getFace('front').html.startsWith('$$')).toBe(true);
+    expect(card?.getFace('front').html.endsWith('$$')).toBe(true);
+    expect(card?.getFace('back').html.startsWith('$$')).toBe(true);
+    expect(card?.getFace('back').html.endsWith('$$')).toBe(true);
+  });
 
-    it('should not use Xiuyuan template for non-descriptor cards', async () => {
-      const mockBlock: SiyuanBlock = {
-        id: '20230101120000-abcdefg',
-        content: '什么是 DDD？ >> 领域驱动设计',
-        parentID: '20230101110000-parent',
-      };
+  it('keeps FSRS meta enrichment when cardId exists', async () => {
+    mockAdapter.getBlock.mockResolvedValue(
+      createBlock('$$ E = \\\\cloze{c1}{mc^2} $$')
+    );
+    const fsrsCard = {
+      meta: {
+        typeMarker: 'concept',
+        clozeIndex: 1,
+        totalClozes: 3,
+        direction: 'forward',
+      },
+    } as Awaited<ReturnType<ICardStorage['getCard']>>;
+    vi.mocked(mockCardStorage.getCard).mockResolvedValue(fsrsCard);
 
-      vi.mocked(mockAdapter.getBlock).mockResolvedValue(mockBlock);
+    const card = await repository.loadCard('20260301120000-quick01', 'card-001');
 
-      const card = await repository.loadCard('20230101120000-abcdefg');
+    expect(card).not.toBeNull();
+    expect(card?.metadata.cardId).toBe('card-001');
+    expect(card?.metadata.typeMarker).toBe('concept');
+    expect(card?.metadata.clozeIndex).toBe(1);
+    expect(card?.metadata.totalClozes).toBe(3);
+    expect(card?.metadata.direction).toBe('forward');
+  });
 
-      // isXiuyuanTemplate should not be set for basic cards
-      expect(card?.metadata.isXiuyuanTemplate).toBeUndefined();
-    });
+  it('keeps raw latex cloze kramdown when converter output is empty', async () => {
+    mockAdapter.getBlock.mockResolvedValue(
+      createBlock('$$ E = \\\\cloze{c1}{mc^2} $$')
+    );
+    mockAdapter.kramdownToHtml.mockReturnValue('');
 
-    it('should not use Xiuyuan template when parent is not a concept card', async () => {
-      const mockBlock: SiyuanBlock = {
-        id: '20230101120000-abcdefg',
-        content: '优点;;易于维护和扩展',
-        parentID: '20230101110000-parent',
-      };
+    const card = await repository.loadCard('20260301120000-quick01');
 
-      const mockParentBlock: SiyuanBlock = {
-        id: '20230101110000-parent',
-        content: '这是一个普通块', // Not a concept card
-        parentID: undefined,
-      };
-
-      vi.mocked(mockAdapter.getBlock)
-        .mockResolvedValueOnce(mockBlock)
-        .mockResolvedValueOnce(mockParentBlock);
-
-      const card = await repository.loadCard('20230101120000-abcdefg');
-
-      expect(card?.metadata.isXiuyuanTemplate).toBe(false);
-    });
-
-    it('should not use Xiuyuan template when parent block cannot be loaded', async () => {
-      const mockBlock: SiyuanBlock = {
-        id: '20230101120000-abcdefg',
-        content: '优点;;易于维护和扩展',
-        parentID: '20230101110000-parent',
-      };
-
-      vi.mocked(mockAdapter.getBlock)
-        .mockResolvedValueOnce(mockBlock)
-        .mockResolvedValueOnce(null); // Parent block not found
-
-      const card = await repository.loadCard('20230101120000-abcdefg');
-
-      expect(card?.metadata.isXiuyuanTemplate).toBe(false);
-    });
+    expect(card).not.toBeNull();
+    expect(card?.metadata.symbol).toBe('\\cloze');
+    expect(card?.getFace('front').html).toContain('$$');
+    expect(card?.getFace('front').html).toContain('\\boxed{\\text{[...]}}');
+    expect(card?.getFace('back').html).toContain('{\\color{#166534}mc^2}');
+    expect(mockAdapter.kramdownToHtml).not.toHaveBeenCalled();
   });
 });

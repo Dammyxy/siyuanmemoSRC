@@ -82,7 +82,7 @@
         <div v-else-if="shouldUseQuickCardRenderer" class="fsrs-review-v2-content__quick-card">
           <QuickCardRenderer
             :block-id="content.id"
-            :card-id="content.card?.id"
+            :card-id="quickRenderCardId"
             :render-service="quickCardRenderService"
             :show-answer="!showAnswer"
             :i18n="i18n"
@@ -260,6 +260,18 @@ const forceProtyleRender = computed(() => props.content.card?.meta?.forceProtyle
 const forceQuickRenderRaw = computed(() => props.content.card?.meta?.forceQuickRender === true);
 const neuralIsFlashcard = computed(() => resolveNeuralIsFlashcard(props.content.card));
 const isNeuralRoamNonFlashcardCard = computed(() => isNeuralRoamNonFlashcard(props.content.card));
+const quickRenderCardId = computed(() => String(props.content.card?.id || props.content.id || ''));
+const quickRenderCardIdArg = computed(() => quickRenderCardId.value || undefined);
+const quickRenderFallbackReason = computed(() => {
+  if (props.content.card?.id) return 'fsrs-card-id';
+  if (props.content.id) return 'content-id-fallback';
+  return 'missing-card-id';
+});
+const quickDetectReason = computed(() => {
+  const reason = props.content.card?.meta?.quickDetectReason;
+  return typeof reason === 'string' ? reason : '';
+});
+const isLatexNumberedQuickHint = computed(() => quickDetectReason.value === 'cloze-latex-numbered');
 const forceQuickRender = computed(() => {
   if (forceProtyleRender.value) return false;
   if (isNeuralRoamNonFlashcardCard.value) return false;
@@ -453,20 +465,17 @@ function handleQuickCardLoaded(result: unknown) {
 // 快速卡片加载失败，显示错误提示
 function handleQuickCardError(error: Error) {
   const message = String(error?.message || '');
-  if (message.includes('not a quick card')) {
-    const blockId = String(props.content.id || '');
-    logger.debug('[SiYuanMemo][ReviewContent] Quick renderer miss, fallback to Protyle', {
-      blockId,
-      cardId: props.content.card?.id,
-    });
-    setCardType(renderCacheKey.value, { isConcept: false, isDescriptor: false, isQuick: false });
-    isQuickCard.value = false;
-    renderError.value = null;
-    if (props.content.type === 'protyle' && blockId) {
-      void renderProtyle(blockId);
-    }
-    return;
-  }
+  logger.warn('[SiYuanMemo][ReviewContent] Quick renderer failed', {
+    blockId: props.content.id,
+    cardId: quickRenderCardId.value,
+    cardType: props.content.card?.type,
+    forceQuickRender: forceQuickRender.value,
+    quickDetectReason: quickDetectReason.value,
+    isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
+    quickDetectionResult: isQuickCard.value,
+    fallbackReason: quickRenderFallbackReason.value,
+    isQuickMiss: message.includes('not a quick card'),
+  });
   handleRendererError('Quick card', error);
 }
 
@@ -574,16 +583,40 @@ async function renderProtyle(blockId: string): Promise<void> {
   } else if (forceQuickRenderFromMeta) {
     logger.debug('[SiYuanMemo][ReviewContent] Force quick render enabled by card meta', {
       blockId,
-      cardId: props.content.card?.id,
+      cardId: quickRenderCardId.value,
+      cardType: props.content.card?.type,
+      forceQuickRender: forceQuickRenderFromMeta,
+      quickDetectReason: quickDetectReason.value,
+      isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
+      fallbackReason: quickRenderFallbackReason.value,
     });
     try {
-      const isQuick = await quickCardRenderService.value.isQuickCard(blockId, props.content.card?.id);
+      const isQuick = await quickCardRenderService.value.isQuickCard(blockId, quickRenderCardIdArg.value);
       if (seq !== renderSeq) {
         logger.debug('[SiYuanMemo][ReviewContent] Quick detection cancelled, newer render pending');
         return;
       }
+      logger.debug('[SiYuanMemo][ReviewContent] Force quick detection result', {
+        blockId,
+        cardId: quickRenderCardId.value,
+        cardType: props.content.card?.type,
+        forceQuickRender: forceQuickRenderFromMeta,
+        quickDetectReason: quickDetectReason.value,
+        isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
+        quickDetectionResult: isQuick,
+        fallbackReason: quickRenderFallbackReason.value,
+      });
       if (isQuick) {
-        logger.debug('[SiYuanMemo][ReviewContent] Detected quick card by forceQuickRender');
+        logger.debug('[SiYuanMemo][ReviewContent] Detected quick card by forceQuickRender', {
+          blockId,
+          cardId: quickRenderCardId.value,
+          cardType: props.content.card?.type,
+          forceQuickRender: forceQuickRenderFromMeta,
+          quickDetectReason: quickDetectReason.value,
+          isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
+          quickDetectionResult: isQuick,
+          fallbackReason: quickRenderFallbackReason.value,
+        });
         const result = { isConcept: false, isDescriptor: false, isQuick: true };
         setCardType(cacheKey, result);
         isConceptDefinitionCard.value = false;
@@ -592,12 +625,27 @@ async function renderProtyle(blockId: string): Promise<void> {
         isDescriptorCard.value = false;
         return;
       }
-      logger.warn('[SiYuanMemo][ReviewContent] forceQuickRender set but block is not quick card, fallback to Protyle', {
+      logger.warn('[SiYuanMemo][ReviewContent] forceQuickRender set but block is not quick card, use standard renderer path', {
         blockId,
-        cardId: props.content.card?.id,
+        cardId: quickRenderCardId.value,
+        cardType: props.content.card?.type,
+        forceQuickRender: forceQuickRenderFromMeta,
+        quickDetectReason: quickDetectReason.value,
+        isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
+        quickDetectionResult: isQuick,
+        fallbackReason: quickRenderFallbackReason.value,
       });
     } catch (error) {
-      logger.warn('[SiYuanMemo][ReviewContent] Forced quick detection failed, fallback to Protyle:', error);
+      logger.warn('[SiYuanMemo][ReviewContent] Forced quick detection failed, use standard renderer path:', {
+        blockId,
+        cardId: quickRenderCardId.value,
+        cardType: props.content.card?.type,
+        forceQuickRender: forceQuickRenderFromMeta,
+        quickDetectReason: quickDetectReason.value,
+        isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
+        fallbackReason: quickRenderFallbackReason.value,
+        error,
+      });
     }
   } else if (!forceProtyleRenderFromMeta) {
     // 🆕 检测是否为概念定义卡（优先级最高）
@@ -703,13 +751,32 @@ async function renderProtyle(blockId: string): Promise<void> {
 
     // 🆕 检测是否为快速卡片
     try {
-      const isQuick = await quickCardRenderService.value.isQuickCard(blockId, props.content.card?.id);
+      const isQuick = await quickCardRenderService.value.isQuickCard(blockId, quickRenderCardIdArg.value);
       if (seq !== renderSeq) {
         logger.debug('[SiYuanMemo][ReviewContent] Quick detection cancelled, newer render pending');
         return;
       }
+      logger.debug('[SiYuanMemo][ReviewContent] Quick detection result', {
+        blockId,
+        cardId: quickRenderCardId.value,
+        cardType: props.content.card?.type,
+        forceQuickRender: forceQuickRenderFromMeta,
+        quickDetectReason: quickDetectReason.value,
+        isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
+        quickDetectionResult: isQuick,
+        fallbackReason: quickRenderFallbackReason.value,
+      });
       if (isQuick) {
-        logger.debug('[SiYuanMemo][ReviewContent] Detected quick card');
+        logger.debug('[SiYuanMemo][ReviewContent] Detected quick card', {
+          blockId,
+          cardId: quickRenderCardId.value,
+          cardType: props.content.card?.type,
+          forceQuickRender: forceQuickRenderFromMeta,
+          quickDetectReason: quickDetectReason.value,
+          isLatexNumberedQuickHint: isLatexNumberedQuickHint.value,
+          quickDetectionResult: isQuick,
+          fallbackReason: quickRenderFallbackReason.value,
+        });
         const result = { isConcept: false, isDescriptor: false, isQuick: true };
         setCardType(cacheKey, result);
         isConceptDefinitionCard.value = false;
@@ -725,6 +792,7 @@ async function renderProtyle(blockId: string): Promise<void> {
     logger.debug('[SiYuanMemo][ReviewContent] Force Protyle render enabled by card meta', {
       blockId,
       cardId: props.content.card?.id,
+      cardType: props.content.card?.type,
     });
   }
   

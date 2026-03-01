@@ -42,9 +42,31 @@ import { CardTypeDetectionService } from '@/core/xiuyuan/domain/services/CardTyp
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
 import { createLogger } from '@/utils/logger';
 import { CardState } from '@/types/card';
+import { ClozeDetector } from '@/utils/cloze-detector';
+import { ClozeCardGenerator } from '@/core/xiuyuan/domain/services/ClozeCardGenerator';
+import {
+    QuickCardPostCreationPlanner,
+    type PostCreationPlan,
+} from '@/core/card/post-creation/QuickCardPostCreationPlanner';
 
 // ==================== Xiuyuan 同步服务 ====================
 const logger = createLogger('XiuyuanSyncService');
+type SyncCardType = 'topic' | 'item' | 'concept' | 'descriptor';
+type SyncCardTypeMarker = 'concept' | 'descriptor';
+
+type ResolvedSyncCardType = {
+    cardType: SyncCardType | undefined;
+    cardTypeMarker: SyncCardTypeMarker | undefined;
+};
+
+type QuickDetectReason = 'cloze-latex-numbered';
+type QuickRenderHintMeta = {
+    forceQuickRender?: boolean;
+    quickDetectReason?: QuickDetectReason;
+};
+
+type RiffSyncMetaSource = 'riff-sync';
+type RiffClozeRenderMode = 'inline-formula-cloze' | 'default';
 
 class XiuyuanSyncBridgeEvent<TPayload extends object> extends DomainEvent {
     constructor(
@@ -90,6 +112,8 @@ export class XiuyuanSyncService {
     private syncMutex: Promise<void> = Promise.resolve();
     private readonly inFlightSyncs: Map<SyncType, Promise<SyncResult>> = new Map();
     private readonly syncEventHandlers: Map<string, Map<(data: unknown) => void, EventHandler<DomainEvent>>> = new Map();
+    private hasRunLegacyCardTypeMigration = false;
+    private readonly postCreationPlanner = new QuickCardPostCreationPlanner();
     
     // 默认重试配置
     private readonly DEFAULT_RETRY_CONFIG = {
@@ -206,7 +230,11 @@ export class XiuyuanSyncService {
         }
 
         // 仅同步治理由 Riff 同步路径创建的 Xiuyuan，避免误删用户手动创建卡片。
-        return xiuyuan.getTemplateID().getValue() === 'builtin-riff-sync';
+        if (xiuyuan.getTemplateID().getValue() === 'builtin-riff-sync') {
+            return true;
+        }
+
+        return xiuyuan.getMeta().source === 'riff-sync';
     }
     
     /**
@@ -216,6 +244,8 @@ export class XiuyuanSyncService {
      */
     async start(): Promise<void> {
         logger.info('Starting sync service...');
+
+        await this.migrateLegacyCardTypeAttrOnce();
         
         // 执行初始增量同步
         if (this.config.incrementalSync.enabled) {
@@ -250,6 +280,231 @@ export class XiuyuanSyncService {
             retry: config.retry || this.config.retry
         };
         logger.info('Config updated:', this.config);
+    }
+
+    private isSupportedCardType(value: unknown): value is SyncCardType {
+        return value === 'topic'
+            || value === 'item'
+            || value === 'concept'
+            || value === 'descriptor';
+    }
+
+    private resolveCardTypeFromIAL(ial?: Record<string, string>): ResolvedSyncCardType {
+        const fsrsCardType = ial?.['custom-fsrs-card-type'];
+
+        if (!this.isSupportedCardType(fsrsCardType)) {
+            return {
+                cardType: undefined,
+                cardTypeMarker: undefined,
+            };
+        }
+
+        return {
+            cardType: fsrsCardType,
+            cardTypeMarker: fsrsCardType === 'concept' || fsrsCardType === 'descriptor'
+                ? fsrsCardType
+                : undefined,
+        };
+    }
+
+    private async resolveCardTypeForRiffBlock(riffBlock: RiffBlock): Promise<ResolvedSyncCardType> {
+        const resolvedType = this.resolveCardTypeFromIAL(riffBlock.ial);
+        if (resolvedType.cardType) {
+            return resolvedType;
+        }
+
+        // custom-fsrs-card-type 缺失时回退自动检测（只会返回 topic/item）
+        const detectedCardType = await this.cardTypeDetectionService.detectCardType(riffBlock.id);
+        return {
+            cardType: detectedCardType,
+            cardTypeMarker: undefined,
+        };
+    }
+
+    private planPostCreation(
+        riffBlock: RiffBlock,
+        resolvedCardType: SyncCardType | undefined
+    ): PostCreationPlan {
+        return this.postCreationPlanner.plan({
+            blockId: riffBlock.id,
+            content: riffBlock.content,
+            source: 'native-riff-sync',
+            resolvedCardType,
+        });
+    }
+
+    private resolveRiffClozeRenderMode(plan: PostCreationPlan): RiffClozeRenderMode {
+        return plan.renderMode === 'inline-formula-cloze'
+            ? 'inline-formula-cloze'
+            : 'default';
+    }
+
+    private syncPostCreationMeta(xiuyuan: Xiuyuan, plan: PostCreationPlan): boolean {
+        const currentMeta = xiuyuan.getMeta();
+        const expectedSource: RiffSyncMetaSource = 'riff-sync';
+        const expectedRenderMode = this.resolveRiffClozeRenderMode(plan);
+        const currentSource = typeof currentMeta.source === 'string' ? currentMeta.source : undefined;
+        const currentRenderMode = typeof currentMeta.clozeRenderMode === 'string'
+            ? currentMeta.clozeRenderMode
+            : undefined;
+
+        const metaPatch: Record<string, unknown> = {};
+        let changed = false;
+
+        if (currentSource !== expectedSource) {
+            metaPatch.source = expectedSource;
+            changed = true;
+        }
+
+        if (currentRenderMode !== expectedRenderMode) {
+            metaPatch.clozeRenderMode = expectedRenderMode;
+            changed = true;
+        }
+
+        if (!changed) {
+            return false;
+        }
+
+        const updateResult = xiuyuan.updateMeta(metaPatch);
+        if (!updateResult.ok) {
+            logger.warn('Failed to sync post-creation meta for Xiuyuan:', {
+                xiuyuanId: xiuyuan.getId().getValue(),
+                plan,
+                metaPatch,
+            });
+            return false;
+        }
+
+        return true;
+    }
+
+    private hasNumberedLatexCloze(content: string): boolean {
+        return /\\cloze\{c\d+\}\{/.test(String(content || ''));
+    }
+
+    private buildQuickRenderHintMeta(content: string, cardType: SyncCardType | undefined): QuickRenderHintMeta {
+        if (cardType === 'item' && this.hasNumberedLatexCloze(content)) {
+            return {
+                forceQuickRender: true,
+                quickDetectReason: 'cloze-latex-numbered',
+            };
+        }
+
+        return {};
+    }
+
+    private syncQuickRenderHintMeta(
+        xiuyuan: Xiuyuan,
+        riffBlock: RiffBlock,
+        cardType: SyncCardType | undefined
+    ): boolean {
+        const currentMeta = xiuyuan.getMeta();
+        const hintMeta = this.buildQuickRenderHintMeta(riffBlock.content, cardType);
+        const shouldForceQuickRender = hintMeta.forceQuickRender === true;
+        const expectedReason = hintMeta.quickDetectReason;
+        const currentForceQuickRender = currentMeta.forceQuickRender === true;
+        const currentQuickDetectReason = typeof currentMeta.quickDetectReason === 'string'
+            ? currentMeta.quickDetectReason
+            : undefined;
+
+        const metaPatch: Record<string, unknown> = {};
+        let changed = false;
+
+        if (shouldForceQuickRender) {
+            if (!currentForceQuickRender) {
+                metaPatch.forceQuickRender = true;
+                changed = true;
+            }
+            if (currentQuickDetectReason !== expectedReason) {
+                metaPatch.quickDetectReason = expectedReason;
+                changed = true;
+            }
+        } else {
+            const hadForceQuickRender = Object.prototype.hasOwnProperty.call(currentMeta, 'forceQuickRender');
+            const hadQuickDetectReason = Object.prototype.hasOwnProperty.call(currentMeta, 'quickDetectReason');
+            if (hadForceQuickRender || currentForceQuickRender) {
+                metaPatch.forceQuickRender = undefined;
+                changed = true;
+            }
+            if (hadQuickDetectReason || currentQuickDetectReason !== undefined) {
+                metaPatch.quickDetectReason = undefined;
+                changed = true;
+            }
+        }
+
+        if (!changed) {
+            return false;
+        }
+
+        const updateResult = xiuyuan.updateMeta(metaPatch);
+        if (!updateResult.ok) {
+            logger.warn('Failed to update quick render hint meta for Xiuyuan:', {
+                xiuyuanId: xiuyuan.getId().getValue(),
+                blockId: riffBlock.id,
+                cardType,
+                hintMeta,
+            });
+            return false;
+        }
+
+        logger.info('Updated quick render hint meta for Xiuyuan', {
+            xiuyuanId: xiuyuan.getId().getValue(),
+            blockId: riffBlock.id,
+            cardType,
+            forceQuickRender: shouldForceQuickRender,
+            quickDetectReason: expectedReason,
+        });
+        return true;
+    }
+
+    private async migrateLegacyCardTypeAttrOnce(): Promise<void> {
+        if (this.hasRunLegacyCardTypeMigration) {
+            return;
+        }
+        this.hasRunLegacyCardTypeMigration = true;
+
+        let scanned = 0;
+        let migrated = 0;
+        let skipped = 0;
+        let failed = 0;
+
+        try {
+            const riffCards = await this.siyuanApi.getRiffCards(this.config.deckId, { includeNew: true });
+            scanned = riffCards.length;
+
+            for (const riffCard of riffCards) {
+                const legacyCardType = riffCard.ial?.['custom-card-type'];
+                const fsrsCardType = riffCard.ial?.['custom-fsrs-card-type'];
+
+                if (!legacyCardType || fsrsCardType) {
+                    skipped++;
+                    continue;
+                }
+
+                if (!this.isSupportedCardType(legacyCardType)) {
+                    skipped++;
+                    continue;
+                }
+
+                try {
+                    await this.siyuanApi.setBlockAttrs(riffCard.id, {
+                        'custom-fsrs-card-type': legacyCardType,
+                        'custom-card-type': '',
+                    });
+                    migrated++;
+                } catch (error) {
+                    failed++;
+                    logger.warn(`Failed to migrate legacy card type attr for block ${riffCard.id}:`, error);
+                }
+            }
+        } catch (error) {
+            failed++;
+            logger.warn('Failed to scan legacy custom-card-type attrs, skip migration for this run:', error);
+        } finally {
+            logger.info(
+                `Legacy card type migration completed: scanned ${scanned}, migrated ${migrated}, skipped ${skipped}, failed ${failed}`
+            );
+        }
     }
 
     private beginSync(type: SyncType): number {
@@ -434,20 +689,11 @@ export class XiuyuanSyncService {
                         let needsUpdate = false;
 
                         // 从块 IAL 属性读取卡片类型元数据（非调度数据，合法同步）
-                        const cardTypeMarkerAttr = riffCard.ial?.['custom-fsrs-card-type'];
-                        const newCardTypeMarker = (cardTypeMarkerAttr === 'concept' || cardTypeMarkerAttr === 'descriptor')
-                            ? cardTypeMarkerAttr as 'concept' | 'descriptor'
-                            : undefined;
-
-                        let newCardType: 'topic' | 'item' | 'concept' | 'descriptor' | undefined;
-                        if (newCardTypeMarker) {
-                            newCardType = newCardTypeMarker;
-                        } else {
-                            const cardTypeAttr = riffCard.ial?.['custom-card-type'];
-                            if (cardTypeAttr === 'topic' || cardTypeAttr === 'item' || cardTypeAttr === 'concept' || cardTypeAttr === 'descriptor') {
-                                newCardType = cardTypeAttr;
-                            }
-                        }
+                        // 只认 custom-fsrs-card-type；缺失时回退自动检测。
+                        const resolvedType = await this.resolveCardTypeForRiffBlock(riffCard);
+                        const newCardTypeMarker = resolvedType.cardTypeMarker;
+                        const newCardType = resolvedType.cardType;
+                        const postCreationPlan = this.planPostCreation(riffCard, newCardType);
 
                         // 更新卡片类型标记（concept/descriptor）
                         if (newCardTypeMarker) {
@@ -471,6 +717,14 @@ export class XiuyuanSyncService {
                                     needsUpdate = true;
                                 }
                             }
+                        }
+
+                        if (this.syncQuickRenderHintMeta(existingXiuyuan, riffCard, newCardType)) {
+                            needsUpdate = true;
+                        }
+
+                        if (this.syncPostCreationMeta(existingXiuyuan, postCreationPlan)) {
+                            needsUpdate = true;
                         }
 
                         // 3. 保存更新
@@ -842,28 +1096,28 @@ export class XiuyuanSyncService {
 
         // 0. 过滤掉已经有 cardTypeMarker 的卡片（用户手动标记的）
         const cardsToDetect: RiffBlock[] = [];
-        let skippedWithMarker = 0;
+        let skippedWithType = 0;
         
         for (const card of cards) {
             const attrs = await this.siyuanApi.getBlockAttrs(card.id);
-            const cardTypeMarker = attrs?.['custom-fsrs-card-type'];
+            const resolvedType = this.resolveCardTypeFromIAL(attrs);
             
-            if (cardTypeMarker === 'concept' || cardTypeMarker === 'descriptor') {
-                // 跳过已有用户标记的卡片
-                skippedWithMarker++;
-                logger.info(`Skipping card with cardTypeMarker: ${card.id} (${cardTypeMarker})`);
+            if (resolvedType.cardType) {
+                // 跳过已有明确类型的卡片（包括 topic/item/concept/descriptor）
+                skippedWithType++;
+                logger.info(`Skipping card with existing cardType: ${card.id} (${resolvedType.cardType})`);
                 continue;
             }
 
             cardsToDetect.push(card);
         }
         
-        if (skippedWithMarker > 0) {
-            logger.info(`Skipped ${skippedWithMarker} cards with user-defined cardTypeMarker`);
+        if (skippedWithType > 0) {
+            logger.info(`Skipped ${skippedWithType} cards with existing cardType`);
         }
         
         if (cardsToDetect.length === 0) {
-            logger.info('No cards to detect (all have cardTypeMarker)');
+            logger.info('No cards to detect (all have existing cardType)');
             return 0;
         }
         
@@ -903,7 +1157,7 @@ export class XiuyuanSyncService {
             }));
         }
         
-        logger.info(`Auto-detection completed: ${updated} updated, ${failed} failed, ${skippedWithMarker} skipped (total: ${cards.length})`);
+        logger.info(`Auto-detection completed: ${updated} updated, ${failed} failed, ${skippedWithType} skipped (total: ${cards.length})`);
         return updated;
     }
     
@@ -926,8 +1180,9 @@ export class XiuyuanSyncService {
      *   2. 可追溯性：通过前缀 "riff" 可以识别来源（区别于用户手动创建的 `xy_{timestamp}_{random}`）
      *   3. 防止冲突：与手动创建的 ID 格式不同，不会产生冲突
      * 
-     * 卡片类型优先从 cardTypeMarker 推导，其次从 custom-card-type 读取。
-     * 卡片类型标记（concept/descriptor）从块属性 `custom-fsrs-card-type` 中读取。
+     * 卡片类型统一从 `custom-fsrs-card-type` 读取。
+     * 如果缺失则自动检测 Topic/Item。
+     * cardTypeMarker（concept/descriptor）同样从 `custom-fsrs-card-type` 推导。
      * 
      * 🆕 智能识别 Topic/Item（快速制卡）：
      * - 如果没有块属性标记，自动检测：
@@ -941,183 +1196,264 @@ export class XiuyuanSyncService {
      * @returns { xiuyuanEntity } - Xiuyuan 领域实体（包含 Card）
      */
     private async convertRiffCardToFSRSCard(riffBlock: RiffBlock): Promise<{
-        xiuyuanEntity: Xiuyuan;  // ✅ 返回完整的领域实体（包含 Card）
+        xiuyuanEntity: Xiuyuan;
     }> {
-        const riffCard = riffBlock.riffCard;
         const now = Date.now();
-        
-        // 1. 创建 Xiuyuan ID（统一格式）
+        const riffCard = riffBlock.riffCard;
         const xiuyuanIdStr = `xy_${riffBlock.id}`;
-        
-        // 目的：
-        // - 幂等性：同一个块多次同步生成相同 ID，避免重复创建
-        // - 可追溯性：通过块 ID 可以直接定位到思源块
-        // - 统一性：与模板创建的 ID 格式一致，避免重复创建
-        
-        // 2. 从块属性中读取卡片类型标记（concept/descriptor）
-        const cardTypeMarkerAttr = riffBlock.ial?.['custom-fsrs-card-type'];
-        const cardTypeMarker = (cardTypeMarkerAttr === 'concept' || cardTypeMarkerAttr === 'descriptor')
-            ? cardTypeMarkerAttr as 'concept' | 'descriptor'
-            : undefined;
-        
-        // 3. 根据 cardTypeMarker 推导 CardType，或从块属性读取，或智能识别
-        let cardType: string;
-        if (cardTypeMarker) {
-            // 如果有 cardTypeMarker，使用对应的 CardType 枚举值
-            // concept -> CardType.Concept, descriptor -> CardType.Descriptor
-            cardType = cardTypeMarker === 'concept' ? 'concept' : 'descriptor';
-        } else {
-            // 否则从块属性中读取技术类型
-            const cardTypeAttr = riffBlock.ial?.['custom-card-type'];
-            if (cardTypeAttr === 'topic' || cardTypeAttr === 'item' || cardTypeAttr === 'concept' || cardTypeAttr === 'descriptor') {
-                cardType = cardTypeAttr;
-            } else {
-                // 🆕 智能识别：快速制卡没有块属性，需要自动检测
-                cardType = await this.cardTypeDetectionService.detectCardType(riffBlock.id);
-            }
-        }
-        
-        // 🔧 修复：验证 lastReview 日期的有效性
-        // Riff API 可能返回无效日期（如 "0001-01-01T00:00:00Z"），需要过滤
-        const parseValidDate = (dateStr: string | undefined): number => {
-            if (!dateStr) return 0;
-            const timestamp = new Date(dateStr).getTime();
-            // 检查是否为有效时间戳（大于 2000-01-01 且不是 NaN）
-            // 2000-01-01 ≈ 946684800000 ms
-            // 这样可以过滤掉 "0001-01-01" 这种无效日期（会被解析为负数或很小的正数）
-            const MIN_VALID_TIMESTAMP = 946684800000; // 2000-01-01
-            const isValid = timestamp >= MIN_VALID_TIMESTAMP && !isNaN(timestamp);
-            
-            // 🔍 调试：记录无效日期（仅在开发模式）
-            if (!isValid && dateStr && dateStr !== "0001-01-01T00:00:00Z") {
-                // 只警告非零值的无效日期，"0001-01-01" 是新卡片的正常零值
-                logger.warn(`Invalid date detected: "${dateStr}" (timestamp: ${timestamp}) for card ${riffBlock.id}`);
-            }
-            
-            return isValid ? timestamp : 0;
-        };
-        
-        // 4. 获取优先级
-        // ✅ 通过 Repository 查询现有 Xiuyuan（如果存在）
+
+        const resolvedType = await this.resolveCardTypeForRiffBlock(riffBlock);
+        const postCreationPlan = this.planPostCreation(riffBlock, resolvedType.cardType);
+        const cardType = postCreationPlan.cardType;
+        const cardTypeMarker = resolvedType.cardTypeMarker;
+        const quickRenderHintMeta = this.buildQuickRenderHintMeta(riffBlock.content, cardType);
+
         const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
         if (!xiuyuanIdResult.ok) {
             const errorMsg = xiuyuanIdResult.ok === false ? xiuyuanIdResult.error.message : 'Invalid XiuyuanId';
             throw new Error(`Failed to create XiuyuanId: ${errorMsg}`);
         }
-        
+
         const existingXiuyuanResult = await this.xiuyuanRepository.findById(xiuyuanIdResult.value);
-        const priorityValue = (() => {
-            // 如果本地已有 Xiuyuan，保持原有优先级
-            if (existingXiuyuanResult.ok && existingXiuyuanResult.value) {
-                return existingXiuyuanResult.value.getPriority().getValue();
-            }
-            
-            // 默认值
-            return 50;
-        })();
-        
-        // ✅ 创建其他值对象
+        const priorityValue = existingXiuyuanResult.ok && existingXiuyuanResult.value
+            ? existingXiuyuanResult.value.getPriority().getValue()
+            : 50;
+        const priorityResult = Priority.create(priorityValue);
+        const priority = priorityResult.ok ? priorityResult.value : Priority.createDefault();
+
         const blockIdResult = BlockId.create(riffBlock.id);
         if (!blockIdResult.ok) {
             const errorMsg = blockIdResult.ok === false ? blockIdResult.error.message : 'Invalid BlockId';
             throw new Error(`Failed to create BlockId: ${errorMsg}`);
         }
-        
-        const templateIdResult = TemplateId.create('builtin-riff-sync');
+
+        if (postCreationPlan.mode === 'multi-cloze' && postCreationPlan.renderMode === 'inline-formula-cloze') {
+            return this.createFormulaMultiClozeXiuyuanFromRiffBlock({
+                riffBlock,
+                xiuyuanId: xiuyuanIdResult.value,
+                blockId: blockIdResult.value,
+                priority,
+                cardType,
+                cardTypeMarker,
+                quickRenderHintMeta,
+                postCreationPlan,
+            });
+        }
+
+        return this.createSingleRiffSyncXiuyuanFromRiffBlock({
+            riffBlock,
+            riffCard,
+            now,
+            priorityValue,
+            priority,
+            xiuyuanId: xiuyuanIdResult.value,
+            blockId: blockIdResult.value,
+            cardType,
+            cardTypeMarker,
+            quickRenderHintMeta,
+            postCreationPlan,
+        });
+    }
+
+    private async createFormulaMultiClozeXiuyuanFromRiffBlock(params: {
+        riffBlock: RiffBlock;
+        xiuyuanId: XiuyuanId;
+        blockId: BlockId;
+        priority: Priority;
+        cardType: SyncCardType;
+        cardTypeMarker: SyncCardTypeMarker | undefined;
+        quickRenderHintMeta: QuickRenderHintMeta;
+        postCreationPlan: PostCreationPlan;
+    }): Promise<{ xiuyuanEntity: Xiuyuan }> {
+        const {
+            riffBlock,
+            xiuyuanId,
+            blockId,
+            priority,
+            cardType,
+            cardTypeMarker,
+            quickRenderHintMeta,
+            postCreationPlan,
+        } = params;
+
+        const clozes = ClozeDetector.extractClozes(riffBlock.content);
+        const facesResult = ClozeCardGenerator.generateFaces(
+            riffBlock.content,
+            clozes,
+            riffBlock.id
+        );
+        if (!facesResult.ok || facesResult.value.length === 0) {
+            const message = facesResult.ok === false
+                ? facesResult.error.message
+                : `No cloze faces generated for block ${riffBlock.id}`;
+            throw new Error(`Failed to generate multi-cloze faces: ${message}`);
+        }
+
+        const templateIdResult = TemplateId.create(postCreationPlan.templateId);
         if (!templateIdResult.ok) {
             const errorMsg = templateIdResult.ok === false ? templateIdResult.error.message : 'Invalid TemplateId';
             throw new Error(`Failed to create TemplateId: ${errorMsg}`);
         }
-        
-        const priorityResult = Priority.create(priorityValue);
-        const priority = priorityResult.ok ? priorityResult.value : Priority.createDefault();
-        
+
+        const xiuyuanResult = Xiuyuan.create({
+            id: xiuyuanId,
+            blockIDs: [blockId],
+            templateID: templateIdResult.value,
+            faces: facesResult.value,
+            priority,
+            meta: {
+                schedulerType: 'fsrs-v6',
+                fieldMapping: { content: riffBlock.id },
+                cardType,
+                cardTypeMarker,
+                source: 'riff-sync' as RiffSyncMetaSource,
+                clozeRenderMode: this.resolveRiffClozeRenderMode(postCreationPlan),
+                ...quickRenderHintMeta,
+            },
+        });
+        if (!xiuyuanResult.ok) {
+            const errorMsg = xiuyuanResult.ok === false ? xiuyuanResult.error.message : 'Invalid Xiuyuan';
+            throw new Error(`Failed to create Xiuyuan: ${errorMsg}`);
+        }
+
+        const xiuyuanEntity = xiuyuanResult.value;
+        for (let faceIndex = 0; faceIndex < facesResult.value.length; faceIndex += 1) {
+            const createCardResult = xiuyuanEntity.createCard(faceIndex);
+            if (!createCardResult.ok) {
+                const errorMsg = createCardResult.ok === false ? createCardResult.error.message : 'Unknown card creation failure';
+                throw new Error(`Failed to create multi-cloze card at face ${faceIndex}: ${errorMsg}`);
+            }
+        }
+
+        return { xiuyuanEntity };
+    }
+
+    private async createSingleRiffSyncXiuyuanFromRiffBlock(params: {
+        riffBlock: RiffBlock;
+        riffCard: RiffBlock['riffCard'] | undefined;
+        now: number;
+        priorityValue: number;
+        priority: Priority;
+        xiuyuanId: XiuyuanId;
+        blockId: BlockId;
+        cardType: SyncCardType;
+        cardTypeMarker: SyncCardTypeMarker | undefined;
+        quickRenderHintMeta: QuickRenderHintMeta;
+        postCreationPlan: PostCreationPlan;
+    }): Promise<{ xiuyuanEntity: Xiuyuan }> {
+        const {
+            riffBlock,
+            riffCard,
+            now,
+            priorityValue,
+            priority,
+            xiuyuanId,
+            blockId,
+            cardType,
+            cardTypeMarker,
+            quickRenderHintMeta,
+            postCreationPlan,
+        } = params;
+
         const cardFaceResult = CardFace.create({
-            question: riffBlock.content || `Block ${riffBlock.id}`,  // ✅ 使用块内容作为 question
-            answer: '',  // Riff 卡片没有独立的 answer
+            question: riffBlock.content || `Block ${riffBlock.id}`,
+            answer: '',
             questionBlockId: riffBlock.id,
-            answerBlockId: riffBlock.id
+            answerBlockId: riffBlock.id,
         });
         if (!cardFaceResult.ok) {
             const errorMsg = cardFaceResult.ok === false ? cardFaceResult.error.message : 'Invalid CardFace';
             throw new Error(`Failed to create CardFace: ${errorMsg}`);
         }
-        
-        // ✅ 创建 Xiuyuan 领域实体
+
+        const templateIdResult = TemplateId.create(postCreationPlan.templateId);
+        if (!templateIdResult.ok) {
+            const errorMsg = templateIdResult.ok === false ? templateIdResult.error.message : 'Invalid TemplateId';
+            throw new Error(`Failed to create TemplateId: ${errorMsg}`);
+        }
+
         const xiuyuanResult = Xiuyuan.create({
-            id: xiuyuanIdResult.value,
-            blockIDs: [blockIdResult.value],
+            id: xiuyuanId,
+            blockIDs: [blockId],
             templateID: templateIdResult.value,
             faces: [cardFaceResult.value],
             priority,
             meta: {
                 schedulerType: 'fsrs-v6',
-                cardType,  // 保存卡片类型
-                cardTypeMarker,  // 保存卡片类型标记
-                // 🔧 修复：为 Topic 卡片初始化 A-Factor
-                ...(cardType === 'topic' ? { aFactor: initializeAFactor(priorityValue) } : {})
-            }
+                cardType,
+                cardTypeMarker,
+                source: 'riff-sync' as RiffSyncMetaSource,
+                clozeRenderMode: this.resolveRiffClozeRenderMode(postCreationPlan),
+                ...quickRenderHintMeta,
+                ...(cardType === 'topic' ? { aFactor: initializeAFactor(priorityValue) } : {}),
+            },
         });
-        
         if (!xiuyuanResult.ok) {
             const errorMsg = xiuyuanResult.ok === false ? xiuyuanResult.error.message : 'Invalid Xiuyuan';
             throw new Error(`Failed to create Xiuyuan: ${errorMsg}`);
         }
-        
+
         const xiuyuanEntity = xiuyuanResult.value;
-        
-        // ✅ 创建 Card 实体（通过 Card.create，包含完整的 FSRS 数据）
         const { CardId } = await import('@/core/xiuyuan/domain/CardId');
         const { ScheduleInfo } = await import('@/core/xiuyuan/domain/ScheduleInfo');
         const { Card } = await import('@/core/xiuyuan/domain/Card');
-        
+
         const cardIdResult = CardId.create(riffBlock.id);
         if (!cardIdResult.ok) {
             const errorMsg = cardIdResult.ok === false ? cardIdResult.error.message : 'Invalid CardId';
             throw new Error(`Failed to create CardId: ${errorMsg}`);
         }
-        
+
         const scheduleInfoResult = ScheduleInfo.create({
-            due: new Date(parseValidDate(riffCard?.due) || now),
+            due: new Date(this.parseValidRiffDate(riffCard?.due, riffBlock.id) || now),
             stability: riffCard?.stability || 0,
             difficulty: riffCard?.difficulty || 0,
             reps: riffCard?.reps || 0,
             lapses: riffCard?.lapses || 0,
             state: this.resolveCardState(riffCard?.state),
-            lastReview: new Date(parseValidDate(riffCard?.lastReview) || now),
+            lastReview: new Date(this.parseValidRiffDate(riffCard?.lastReview, riffBlock.id) || now),
             elapsedDays: riffCard?.elapsedDays || 0,
             scheduledDays: riffCard?.scheduledDays || 0,
-            learning_step: 0
+            learning_step: 0,
         });
-        
         if (!scheduleInfoResult.ok) {
             const errorMsg = scheduleInfoResult.ok === false ? scheduleInfoResult.error.message : 'Invalid ScheduleInfo';
             throw new Error(`Failed to create ScheduleInfo: ${errorMsg}`);
         }
-        
+
         const cardResult = Card.create({
             id: cardIdResult.value,
-            xiuyuanId: xiuyuanIdResult.value,
+            xiuyuanId,
             faceIndex: 0,
             scheduleInfo: scheduleInfoResult.value,
             createdAt: new Date(now),
-            updatedAt: new Date(now)
+            updatedAt: new Date(now),
         });
-        
         if (!cardResult.ok) {
             const errorMsg = cardResult.ok === false ? cardResult.error.message : 'Invalid Card';
             throw new Error(`Failed to create Card: ${errorMsg}`);
         }
-        
-        // ✅ 将 Card 添加到 Xiuyuan（使用新的 addCard 方法）
+
         const addResult = xiuyuanEntity.addCard(cardResult.value);
         if (!addResult.ok) {
             const errorMsg = addResult.ok === false ? addResult.error.message : 'Failed to add card';
             throw new Error(`Failed to add Card to Xiuyuan: ${errorMsg}`);
         }
-        
-        // ✅ 返回完整的 Xiuyuan 实体（包含 Card）
+
         return { xiuyuanEntity };
+    }
+
+    private parseValidRiffDate(dateStr: string | undefined, blockId: string): number {
+        if (!dateStr) return 0;
+        const timestamp = new Date(dateStr).getTime();
+        const MIN_VALID_TIMESTAMP = 946684800000; // 2000-01-01
+        const isValid = timestamp >= MIN_VALID_TIMESTAMP && !isNaN(timestamp);
+
+        if (!isValid && dateStr !== '0001-01-01T00:00:00Z') {
+            logger.warn(`Invalid date detected: "${dateStr}" (timestamp: ${timestamp}) for card ${blockId}`);
+        }
+
+        return isValid ? timestamp : 0;
     }
 
     private resolveCardState(rawState: unknown): CardState {

@@ -11,6 +11,12 @@ import type { CardFaceData, HiddenContentType, QuickCardMetadata } from '../type
 import { removeIAL } from './utils';
 import { createLogger } from '@/utils/logger';
 import { ClozeDetector } from '@/utils/cloze-detector';
+import {
+  createFormulaClozeAnswerExpression,
+  createFormulaClozePlaceholderExpression,
+  ensureDisplayMathDelimiters,
+  hasMathDelimiters,
+} from '@/core/card/post-creation/formula-cloze-style';
 
 const logger = createLogger('ClozeCardStrategy');
 
@@ -108,9 +114,11 @@ export class ClozeCardStrategy implements ICardFaceStrategy {
     for (let i = clozes.length - 1; i >= 0; i--) {
       const cloze = clozes[i];
       const isLatexCloze = cloze.type === 'latex';
-      const latexFrontPlaceholder = '\\boxed{\\text{[...]}}';
+      const latexFrontPlaceholder = createFormulaClozePlaceholderExpression();
       const frontPlaceholder = isLatexCloze ? latexFrontPlaceholder : '<mark>[...]</mark>';
-      const backAnswer = isLatexCloze ? cloze.text : `<mark>${cloze.text}</mark>`;
+      const backAnswer = isLatexCloze
+        ? createFormulaClozeAnswerExpression(cloze.text)
+        : `<mark>${cloze.text}</mark>`;
       
       if (isMultiCloze) {
         // 多填空模式：只隐藏目标索引的填空
@@ -128,6 +136,12 @@ export class ClozeCardStrategy implements ICardFaceStrategy {
         frontHtml = frontHtml.substring(0, cloze.start) + (isLatexCloze ? latexFrontPlaceholder : '[...]') + frontHtml.substring(cloze.end);
         backHtml = backHtml.substring(0, cloze.start) + backAnswer + backHtml.substring(cloze.end);
       }
+    }
+
+    const hasLatexCloze = clozes.some(cloze => cloze.type === 'latex');
+    if (hasLatexCloze && !hasMathDelimiters(cleanContent)) {
+      frontHtml = ensureDisplayMathDelimiters(frontHtml);
+      backHtml = ensureDisplayMathDelimiters(backHtml);
     }
     
     return {

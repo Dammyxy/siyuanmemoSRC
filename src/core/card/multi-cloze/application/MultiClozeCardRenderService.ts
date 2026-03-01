@@ -1,5 +1,12 @@
 import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
+import {
+  FORMULA_CLOZE_RENDER_MODE_INLINE,
+  ensureDisplayMathDelimiters,
+  hasMathDelimiters,
+} from '@/core/card/post-creation/formula-cloze-style';
+
+export type MultiClozeRenderMode = typeof FORMULA_CLOZE_RENDER_MODE_INLINE | 'default';
 
 export interface MultiClozeCardViewModel extends BaseCardViewModel {
   currentFace: {
@@ -8,6 +15,7 @@ export interface MultiClozeCardViewModel extends BaseCardViewModel {
   };
   faceIndex: number;
   totalFaces: number;
+  renderMode: MultiClozeRenderMode;
 }
 
 interface MultiClozeCardFace {
@@ -20,6 +28,7 @@ interface MultiClozeCardInput {
   meta?: {
     faces?: MultiClozeCardFace[];
     faceIndex?: number;
+    clozeRenderMode?: unknown;
   };
 }
 
@@ -28,13 +37,21 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
     const faces = card.meta?.faces || [];
     const faceIndex = card.meta?.faceIndex ?? 0;
     const currentFaceRaw = faces[faceIndex] || { question: '', answer: '' };
+    const renderMode = this.resolveRenderMode(card.meta?.clozeRenderMode);
+    const normalizedQuestion = this.normalizeQuestionForMath(
+      currentFaceRaw.question,
+      renderMode
+    );
     const normalizedAnswer = this.normalizeAnswerForMath(
       this.stripMarkTags(currentFaceRaw.answer),
-      currentFaceRaw.question
+      normalizedQuestion,
+      renderMode
     );
 
     const currentFace = {
-      question: this.wrapClozeWithMark(currentFaceRaw.question),
+      question: renderMode === FORMULA_CLOZE_RENDER_MODE_INLINE
+        ? normalizedQuestion
+        : this.wrapClozeWithMark(normalizedQuestion),
       answer: normalizedAnswer,
     };
 
@@ -46,7 +63,15 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
       currentFace,
       faceIndex,
       totalFaces: faces.length,
+      renderMode,
     };
+  }
+
+  private resolveRenderMode(value: unknown): MultiClozeRenderMode {
+    if (value === FORMULA_CLOZE_RENDER_MODE_INLINE) {
+      return FORMULA_CLOZE_RENDER_MODE_INLINE;
+    }
+    return 'default';
   }
 
   private wrapClozeWithMark(text: string): string {
@@ -60,7 +85,21 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
     return text.replace(/<\/?mark>/g, '');
   }
 
-  private normalizeAnswerForMath(answer: string, question: string): string {
+  private normalizeQuestionForMath(question: string, renderMode: MultiClozeRenderMode): string {
+    const trimmed = question.trim();
+    if (!trimmed) return question;
+    if (hasMathDelimiters(trimmed)) return question;
+    const shouldForceMathByMode = renderMode === FORMULA_CLOZE_RENDER_MODE_INLINE && this.looksLikeLatex(trimmed);
+    const shouldForceMathByToken = this.containsFormulaMathToken(trimmed);
+    if (!shouldForceMathByMode && !shouldForceMathByToken) return question;
+    return ensureDisplayMathDelimiters(trimmed);
+  }
+
+  private normalizeAnswerForMath(
+    answer: string,
+    question: string,
+    renderMode: MultiClozeRenderMode
+  ): string {
     const trimmed = answer.trim();
     if (!trimmed) return answer;
     const prefersDisplayMode = this.prefersDisplayMathAnswer(question);
@@ -75,7 +114,14 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
     }
 
     if (trimmed.includes('$')) return answer;
-    if (!this.containsMathExpression(question)) return answer;
+    if (!this.containsMathExpression(question)) {
+      const shouldForceMathByMode = renderMode === FORMULA_CLOZE_RENDER_MODE_INLINE && this.looksLikeLatex(trimmed);
+      const shouldForceMathByToken = this.containsFormulaMathToken(trimmed);
+      if (shouldForceMathByMode || shouldForceMathByToken) {
+        return ensureDisplayMathDelimiters(trimmed);
+      }
+      return answer;
+    }
     if (!this.looksLikeLatex(trimmed)) return answer;
     return prefersDisplayMode ? `$$${trimmed}$$` : `$${trimmed}$`;
   }
@@ -101,6 +147,10 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
 
   private looksLikeLatex(text: string): boolean {
     return /\\[a-zA-Z]+|[\^_{}]/.test(text);
+  }
+
+  private containsFormulaMathToken(text: string): boolean {
+    return /\\(?:color|textcolor|boxed|cloze|frac|sqrt|left|right|begin|end)\b/.test(text);
   }
 
   private replacePlaceholderOutsideMath(text: string, replacement: string): string {

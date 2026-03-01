@@ -315,7 +315,8 @@ export class CreateXiuyuanFromBlocksUseCase {
         meta: {
           schedulerType: 'fsrs-v6',
           fieldMapping,
-          cardType: command.cardType  // 馃啎 浼犻€掑崱鐗囩被鍨?
+          cardType: command.cardType,  // 馃啎 浼犻€掑崱鐗囩被鍨?
+          ...(command.clozeRenderMode ? { clozeRenderMode: command.clozeRenderMode } : {}),
         }
       });
 

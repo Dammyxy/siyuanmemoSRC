@@ -8,6 +8,7 @@ import { AutoCardRiffAdapter } from '@/infrastructure/siyuan/AutoCardRiffAdapter
 import { createLogger } from '@/utils/logger';
 import { ClozeDetector } from '@/utils/cloze-detector';
 import type { Result } from '@/types/result';
+import { QuickCardPostCreationPlanner } from '@/core/card/post-creation/QuickCardPostCreationPlanner';
 
 const logger = createLogger('AutoCardHandler');
 
@@ -94,6 +95,7 @@ export class AutoCardHandler implements ITransactionHandler {
     private plugin: FSRSPlugin;
     private readonly siyuanApi: AutoCardSiyuanPort;
     private readonly riffApi: AutoCardRiffPort;
+    private readonly postCreationPlanner = new QuickCardPostCreationPlanner();
     
 
     private cardHelper: CardCreationHelper | null = null;
@@ -1340,15 +1342,35 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             
             logger.debug('[SiYuanMemo][AutoCard] Found clozes:', clozes.length, clozes);
-            
 
-            if (clozes.length === 1 && clozes[0].type !== 'latex') {
+            const postCreationPlan = this.postCreationPlanner.plan({
+                blockId,
+                content,
+                source: 'auto-card-listener',
+                resolvedCardType: 'item',
+            });
+
+            logger.debug('[SiYuanMemo][AutoCard] Post-creation plan for cloze card:', {
+                blockId,
+                mode: postCreationPlan.mode,
+                templateId: postCreationPlan.templateId,
+                renderMode: postCreationPlan.renderMode,
+                facesPlan: postCreationPlan.facesPlan,
+                ruleId: postCreationPlan.hints.ruleId,
+            });
+
+            if (postCreationPlan.mode !== 'multi-cloze' && clozes.length === 1 && clozes[0].type !== 'latex') {
                 await this.createSingleClozeCard(blockId, content, clozes);
                 return;
             }
             
 
-            await this.createMultipleClozeCards(blockId, content, clozes);
+            await this.createMultipleClozeCards(
+                blockId,
+                content,
+                clozes,
+                postCreationPlan.renderMode
+            );
         } catch (error) {
             logger.error('[SiYuanMemo][AutoCard] Failed to create cloze card:', blockId, error);
                         await this.siyuanApi.pushErrMsg(`创建填空卡片失败：${this.getErrorMessage(error)}`);
@@ -1412,7 +1434,8 @@ export class AutoCardHandler implements ITransactionHandler {
     private async createMultipleClozeCards(
         blockId: string,
         content: string,
-        clozes: Array<{ text: string; type: 'brace' | 'equal' | 'mark' | 'latex' }>
+        clozes: Array<{ text: string; type: 'brace' | 'equal' | 'mark' | 'latex' }>,
+        clozeRenderMode: 'inline-formula-cloze' | 'default' = 'default'
     ): Promise<void> {
         const xiuyuanAppService = await this.requireXiuyuanApplicationService();
         
@@ -1431,6 +1454,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 },
                 deckId: this.riffApi.BUILTIN_DECK_ID,
                 cardType: 'item',
+                clozeRenderMode,
                 clozeInfo: {
                     originalContent: content,
                     clozes: clozesWithPosition

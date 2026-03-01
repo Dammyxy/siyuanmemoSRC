@@ -1,10 +1,14 @@
 import { createLogger } from '@/utils/logger';
 import { Result, ok } from '@/types/result';
 import { CardFace } from '../CardFace';
+import {
+  createFormulaClozeAnswerExpression,
+  createFormulaClozePlaceholderExpression,
+  ensureDisplayMathDelimiters,
+  hasMathDelimiters,
+} from '@/core/card/post-creation/formula-cloze-style';
 
 const logger = createLogger('ClozeCardGenerator');
-
-const LATEX_FRONT_PLACEHOLDER = '\\color{#2e7d32}{\\boxed{\\text{[...]}}}';
 
 export interface ClozeInfo {
   text: string;
@@ -47,8 +51,7 @@ export class ClozeCardGenerator {
     currentIndex: number
   ): { question: string; answer: string } {
     const currentCloze = clozes[currentIndex];
-    const isLatexAnswer = currentCloze.type === 'latex';
-    const answer = isLatexAnswer ? `$$${currentCloze.text}$$` : currentCloze.text;
+    const isFormulaCloze = currentCloze.type === 'latex';
 
     logger.debug(`Generating card ${currentIndex + 1}/${clozes.length}`);
     logger.debug(`Current cloze (index ${currentIndex}):`, currentCloze);
@@ -57,28 +60,48 @@ export class ClozeCardGenerator {
     const sortedClozes = [...clozesWithIndex].sort((a, b) => b.start - a.start);
 
     let question = content;
+    let answer = isFormulaCloze ? content : currentCloze.text;
 
     for (const cloze of sortedClozes) {
       if (cloze.originalIndex === currentIndex) {
         const placeholder = cloze.type === 'latex'
-          ? LATEX_FRONT_PLACEHOLDER
+          ? createFormulaClozePlaceholderExpression()
           : '<mark>[...]</mark>';
         question =
           question.substring(0, cloze.start) +
           placeholder +
           question.substring(cloze.end);
         logger.debug(`Replaced cloze ${cloze.originalIndex} (${cloze.text}) with placeholder`);
+
+        if (isFormulaCloze) {
+          answer =
+            answer.substring(0, cloze.start) +
+            createFormulaClozeAnswerExpression(cloze.text) +
+            answer.substring(cloze.end);
+        }
       } else {
         question =
           question.substring(0, cloze.start) +
           cloze.text +
           question.substring(cloze.end);
         logger.debug(`Kept cloze ${cloze.originalIndex} (${cloze.text}) as text`);
+
+        if (isFormulaCloze) {
+          answer =
+            answer.substring(0, cloze.start) +
+            cloze.text +
+            answer.substring(cloze.end);
+        }
       }
     }
 
     logger.debug(`Generated question: "${question}"`);
     logger.debug(`Generated answer: "${answer}"`);
+
+    if (isFormulaCloze && !hasMathDelimiters(content)) {
+      question = ensureDisplayMathDelimiters(question);
+      answer = ensureDisplayMathDelimiters(answer);
+    }
 
     return { question, answer };
   }
