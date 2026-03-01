@@ -71,11 +71,19 @@
   border-radius: 3px;
   font-weight: 500;
 }
+.siyuanmemo-image-occlusion-root {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+}
+
 .siyuanmemo-image-occlusion {
   display: flex;
   flex-direction: column;
+  flex: 1;
   height: 100%;
   min-height: 0;
+  overflow: hidden;
   gap: 8px;
 }
 
@@ -108,20 +116,27 @@
   min-height: 0;
   overflow: auto;
   border: 1px solid var(--b3-border-color);
-  border-radius: 6px;
-  padding: 8px;
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--b3-theme-surface);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
 }
 
 .siyuanmemo-image-occlusion__canvas {
   position: relative;
-  display: inline-block;
-  max-width: 100%;
+  width: calc(var(--siyuanmemo-image-occlusion-base-width, 980px) * var(--siyuanmemo-image-occlusion-zoom, 1));
+  max-width: none;
+  flex: 0 0 auto;
 }
 
 .siyuanmemo-image-occlusion__image {
   display: block;
-  max-width: 100%;
-  max-height: 64vh;
+  width: 100%;
+  height: auto;
+  max-width: none;
+  max-height: none;
   object-fit: contain;
 }
 
@@ -133,18 +148,21 @@
 
 .siyuanmemo-image-occlusion-mask {
   position: absolute;
-  border: 2px solid #f59e0b;
-  background: rgba(245, 158, 11, 0.2);
+  border: 2px solid #000;
+  background: #1d4ed8;
   box-sizing: border-box;
 }
 
 .siyuanmemo-image-occlusion-mask.is-selected {
-  border-color: #ef4444;
-  background: rgba(239, 68, 68, 0.22);
+  border-color: #000;
+  background: #1e40af;
+  box-shadow: 0 0 0 2px rgba(29, 78, 216, 0.45);
 }
 
 .siyuanmemo-image-occlusion-mask--draft {
   border-style: dashed;
+  border-color: #0f172a;
+  background: rgba(37, 99, 235, 0.8);
 }
 
 .siyuanmemo-image-occlusion-mask__label {
@@ -155,8 +173,8 @@
   justify-content: center;
   font-size: 11px;
   line-height: 1.25;
-  color: var(--b3-theme-on-background);
-  background: rgba(255, 255, 255, 0.5);
+  color: #fff;
+  background: rgba(0, 0, 0, 0.15);
   border-radius: 3px;
   padding: 2px 4px;
   text-align: center;
@@ -166,6 +184,41 @@
 .siyuanmemo-image-occlusion__footer {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-top: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-background);
+  padding-top: 8px;
+}
+
+.siyuanmemo-image-occlusion__footer-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.siyuanmemo-image-occlusion__zoom-button {
+  width: 34px;
+  min-width: 34px;
+  height: 30px;
+  padding: 0;
+}
+
+.siyuanmemo-image-occlusion__zoom-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.siyuanmemo-image-occlusion__zoom-value {
+  min-width: 56px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--b3-theme-on-surface);
+}
+
+.siyuanmemo-image-occlusion__footer-actions {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
 }

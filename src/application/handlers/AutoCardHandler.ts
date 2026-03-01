@@ -560,6 +560,15 @@ export class AutoCardHandler implements ITransactionHandler {
         cleanContent = cleanContent.replace(/`[^`]*`/g, '');
         cleanContent = cleanContent.replace(/```[\s\S]*?```/g, '');
         
+        const hasConceptTripleMarker = /:::|：：：/.test(cleanContent);
+        const hasDescriptorTripleMarker = /;;;|；；；/.test(cleanContent);
+
+        if (hasConceptTripleMarker) {
+            logger.debug('[SiYuanMemo][AutoCard] Detected ::: marker, skip :: concept detection');
+        }
+        if (hasDescriptorTripleMarker) {
+            logger.debug('[SiYuanMemo][AutoCard] Detected ;;; marker, skip ;; descriptor detection');
+        }
 
 
 
@@ -609,7 +618,7 @@ export class AutoCardHandler implements ITransactionHandler {
         }
         
 
-        if (!matched && enabledSymbols.concept) {
+        if (!matched && enabledSymbols.concept && !hasConceptTripleMarker) {
             logger.debug('[SiYuanMemo][AutoCard] Checking concept patterns...');
 
             if (this.patterns.conceptForward.test(cleanContent)) {
@@ -643,7 +652,7 @@ export class AutoCardHandler implements ITransactionHandler {
         }
         
 
-        if (!matched && enabledSymbols.descriptor) {
+        if (!matched && enabledSymbols.descriptor && !hasDescriptorTripleMarker) {
             logger.debug('[SiYuanMemo][AutoCard] Checking descriptor patterns...');
 
             if (this.patterns.descriptorReverse.test(cleanContent)) {

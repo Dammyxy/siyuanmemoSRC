@@ -34,10 +34,10 @@
     <!-- 当前提示（正面）或答案（背面） -->
     <div class="xiuyuan-current-item">
       <!-- 正面：显示提示 -->
-      <div v-if="!showAnswer" class="xiuyuan-current-cue">
+      <div v-if="!showAnswer && hasCue" class="xiuyuan-current-cue">
         <span class="xiuyuan-cue-marker">?</span>
         <span class="xiuyuan-cue-index">{{ (meta.currentIndex || 0) + 1 }}.</span>
-        <span class="xiuyuan-cue-text">{{ meta.cue || '...' }}</span>
+        <span class="xiuyuan-cue-text">{{ meta.cue }}</span>
       </div>
       
       <!-- 背面：显示答案 -->
@@ -136,6 +136,8 @@ const remainingCount = computed(() => {
   }
   return props.meta.allChildren.length - props.meta.currentIndex - 1;
 });
+
+const hasCue = computed(() => (props.meta.cue || '').trim().length > 0);
 
 // 加载问题块的 HTML 和面包屑
 onMounted(async () => {
@@ -276,6 +278,7 @@ onMounted(async () => {
 
 .xiuyuan-answer-text {
   flex: 1;
+  white-space: pre-line;
 }
 
 .xiuyuan-current-item {

@@ -87,7 +87,7 @@ export class DeleteFSRSCardUseCase {
       
       // 3. 删除块属性（插件自定义属性）
       if (card.blockId) {
-        await this.removeCardBlockAttrs(card.blockId);
+        await this.removeCardBlockAttrs(card.blockId, [command.cardId]);
       }
       
       // 4. 可选：从 Riff 删除（会删除 custom-riff-* 属性）
@@ -138,11 +138,11 @@ export class DeleteFSRSCardUseCase {
    * @private
    * @param blockId - 块 ID
    */
-  private async removeCardBlockAttrs(blockId: string): Promise<void> {
+  private async removeCardBlockAttrs(blockId: string, deletedCardIds: readonly string[]): Promise<void> {
     try {
       // 获取当前块属性
       const attrs = await this.siyuanApi.getBlockAttrs(blockId);
-      const newAttrs = buildClearedBlockAttrs(attrs);
+      const newAttrs = buildClearedBlockAttrs(attrs, { deletedCardIds });
       
       // 如果有属性需要删除，调用 API
       if (Object.keys(newAttrs).length > 0) {

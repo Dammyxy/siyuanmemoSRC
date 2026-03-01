@@ -51,6 +51,8 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DeleteCardsUseCase');
 
+type CleanupTargetMap = Map<string, Set<string>>;
+
 export class DeleteCardsUseCase {
   private readonly siyuanApi: CardDeletionSiyuanPort;
 
@@ -87,7 +89,7 @@ export class DeleteCardsUseCase {
     const { cardIds } = command;
     const deletedCardIds: string[] = [];
     const failedCardIds: string[] = [];
-    const blockIdsToClean: string[] = [];
+    const cleanupTargets: CleanupTargetMap = new Map();
 
     // 2. 按 xiuyuanId 分组卡片（单一路径：依赖索引）
     const { groups: xiuyuanGroups, unresolvedCardIds } = this.groupCardsByXiuyuan(cardIds);
@@ -122,7 +124,6 @@ export class DeleteCardsUseCase {
       const deleteResult = await this.deleteCardsFromXiuyuan(xiuyuan, cardIdsInGroup);
       deletedCardIds.push(...deleteResult.deleted);
       failedCardIds.push(...deleteResult.failed);
-      blockIdsToClean.push(...deleteResult.blockIds);
 
       // 3.4 持久化更新后的 Xiuyuan（每个 Xiuyuan 只保存一次）
       const saveResult = await this.xiuyuanRepo.save(xiuyuan);
@@ -134,6 +135,8 @@ export class DeleteCardsUseCase {
         continue;
       }
 
+      this.mergeCleanupTargets(cleanupTargets, deleteResult.cleanupTargets);
+
       // 3.5 发布该 Xiuyuan 的领域事件
       const events = xiuyuan.getDomainEvents();
       logger.info(`[DeleteCardsUseCase] 📢 发布 ${events.length} 个领域事件 (Xiuyuan ${xiuyuanIdStr})`);
@@ -142,9 +145,10 @@ export class DeleteCardsUseCase {
     }
 
     // 4. 批量清理块属性
+    const blockIdsToClean = Array.from(cleanupTargets.keys());
     if (blockIdsToClean.length > 0) {
       logger.info(`[DeleteCardsUseCase] 🧹 清理 ${blockIdsToClean.length} 个块的属性`);
-      await this.cleanBlockAttrs(blockIdsToClean);
+      await this.cleanBlockAttrs(cleanupTargets);
       
       // ✅ 标记这些块为已删除（防止孤儿卡片）
       this.deletionTracker.markManyAsDeleted(blockIdsToClean);
@@ -215,10 +219,10 @@ export class DeleteCardsUseCase {
   private async deleteCardsFromXiuyuan(
     xiuyuan: Xiuyuan,
     cardIds: string[]
-  ): Promise<{ deleted: string[]; failed: string[]; blockIds: string[] }> {
+  ): Promise<{ deleted: string[]; failed: string[]; cleanupTargets: CleanupTargetMap }> {
     const deleted: string[] = [];
     const failed: string[] = [];
-    const blockIds: string[] = [];
+    const cleanupTargets: CleanupTargetMap = new Map();
 
     for (const cardIdStr of cardIds) {
       try {
@@ -231,10 +235,7 @@ export class DeleteCardsUseCase {
           continue;
         }
 
-        const blockId = this.resolveBlockIdByFaceIndex(xiuyuan, actualCard.getFaceIndex());
-        if (blockId) {
-          blockIds.push(blockId);
-        }
+        const blockId = this.resolveCleanupBlockIdByFaceIndex(xiuyuan, actualCard.getFaceIndex());
 
         const actualCardId = actualCard.getId();
 
@@ -246,6 +247,10 @@ export class DeleteCardsUseCase {
           continue;
         }
 
+        if (blockId) {
+          this.addCleanupTarget(cleanupTargets, blockId, actualCardId.getValue());
+        }
+
         deleted.push(cardIdStr);
       } catch (error) {
         logger.error(`[DeleteCardsUseCase] ❌ 删除卡片异常: ${cardIdStr}`, error);
@@ -253,10 +258,15 @@ export class DeleteCardsUseCase {
       }
     }
 
-    return { deleted, failed, blockIds };
+    return { deleted, failed, cleanupTargets };
   }
 
-  private resolveBlockIdByFaceIndex(xiuyuan: Xiuyuan, faceIndex: number): string | null {
+  private resolveCleanupBlockIdByFaceIndex(xiuyuan: Xiuyuan, faceIndex: number): string | null {
+    const representativeBlockId = xiuyuan.getRepresentativeBlockId();
+    if (typeof representativeBlockId === 'string' && representativeBlockId.trim().length > 0) {
+      return representativeBlockId;
+    }
+
     const backBlockId = xiuyuan.getBackBlockIDs(faceIndex)[0];
     const frontBlockId = xiuyuan.getFrontBlockIDs(faceIndex)[0];
     const isListTemplateCard = xiuyuan.getTemplateID().getValue() === 'builtin-list-item';
@@ -277,8 +287,7 @@ export class DeleteCardsUseCase {
       }
     }
 
-    const representativeBlockId = xiuyuan.getRepresentativeBlockId();
-    return representativeBlockId || null;
+    return null;
   }
 
   /**
@@ -287,11 +296,13 @@ export class DeleteCardsUseCase {
    * @private
    * @param blockIds - 块 ID 列表
    */
-  private async cleanBlockAttrs(blockIds: string[]): Promise<void> {
-    for (const blockId of blockIds) {
+  private async cleanBlockAttrs(cleanupTargets: CleanupTargetMap): Promise<void> {
+    for (const [blockId, cardIdSet] of cleanupTargets.entries()) {
       try {
         const attrs = await this.siyuanApi.getBlockAttrs(blockId);
-        const newAttrs = buildClearedBlockAttrs(attrs);
+        const newAttrs = buildClearedBlockAttrs(attrs, {
+          deletedCardIds: Array.from(cardIdSet),
+        });
 
         if (Object.keys(newAttrs).length > 0) {
           await this.siyuanApi.setBlockAttrs(blockId, newAttrs);
@@ -308,6 +319,26 @@ export class DeleteCardsUseCase {
    * @private
    * @param blockIds - 块 ID 列表
    */
+  private addCleanupTarget(targets: CleanupTargetMap, blockId: string, cardId: string): void {
+    if (!targets.has(blockId)) {
+      targets.set(blockId, new Set());
+    }
+    targets.get(blockId)!.add(cardId);
+  }
+
+  private mergeCleanupTargets(target: CleanupTargetMap, source: CleanupTargetMap): void {
+    for (const [blockId, cardIdSet] of source.entries()) {
+      if (!target.has(blockId)) {
+        target.set(blockId, new Set());
+      }
+
+      const merged = target.get(blockId)!;
+      for (const cardId of cardIdSet) {
+        merged.add(cardId);
+      }
+    }
+  }
+
   private async deleteFromRiffBatch(blockIds: string[]): Promise<void> {
     try {
       await this.siyuanApi.removeRiffCards(this.siyuanApi.BUILTIN_DECK_ID, blockIds);

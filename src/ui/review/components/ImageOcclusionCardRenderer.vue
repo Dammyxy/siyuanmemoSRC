@@ -24,14 +24,14 @@
               :class="{ 'is-revealed': showAnswer }"
               :style="maskStyle(mask)"
             >
-              <span class="image-occlusion-card-renderer__mask-label">{{ mask.label }}</span>
+              <span v-if="!showAnswer" class="image-occlusion-card-renderer__mask-label">{{ mask.label }}</span>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="image-occlusion-card-renderer__hint">
-        {{ showAnswer ? t('imageOcclusionReviewBackHint', 'Answer revealed') : t('imageOcclusionReviewFrontHint', 'Recall the hidden area, then reveal answer') }}
+      <div v-if="!showAnswer" class="image-occlusion-card-renderer__hint">
+        {{ t('imageOcclusionReviewFrontHint', 'Recall the hidden area, then reveal answer') }}
       </div>
     </div>
   </div>
@@ -471,8 +471,8 @@ onMounted(() => {
 
 .image-occlusion-card-renderer__mask {
   position: absolute;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  background: rgba(0, 0, 0, 1);
+  border: 2px solid #000;
+  background: #1d4ed8;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -480,8 +480,8 @@ onMounted(() => {
 }
 
 .image-occlusion-card-renderer__mask.is-revealed {
-  background: rgba(0, 0, 0, 0.12);
-  border-color: rgba(255, 255, 255, 0.8);
+  background: transparent;
+  border-color: #000;
 }
 
 .image-occlusion-card-renderer__mask-label {
@@ -494,11 +494,6 @@ onMounted(() => {
   text-align: center;
   word-break: break-word;
   max-width: 100%;
-}
-
-.image-occlusion-card-renderer__mask.is-revealed .image-occlusion-card-renderer__mask-label {
-  color: var(--b3-theme-on-surface);
-  opacity: 0.7;
 }
 
 .image-occlusion-card-renderer__hint {

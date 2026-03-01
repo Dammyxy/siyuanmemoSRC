@@ -88,7 +88,7 @@ export class DeleteCardUseCase {
     }
 
     const { xiuyuan, actualCardId } = searchResult.value;
-    const blockId = this.resolveBlockIdForCard(xiuyuan, actualCardId);
+    const blockId = this.resolveCleanupBlockIdForCard(xiuyuan, actualCardId);
     
     // 4. 使用 CardDeletionService 删除卡片（使用实际的 CardId 实例）
     const deleteResult = this.cardDeletionService.deleteCard(xiuyuan, actualCardId);
@@ -105,7 +105,7 @@ export class DeleteCardUseCase {
     // 6. 删除块属性（插件自定义属性）
     if (blockId) {
       try {
-        await this.removeCardBlockAttrs(blockId);
+        await this.removeCardBlockAttrs(blockId, [actualCardId.getValue()]);
         logger.info(`[DeleteCardUseCase] Removed block attrs for: ${blockId}`);
       } catch (error) {
         if (isIgnorableMissingBlockError(error)) {
@@ -149,11 +149,11 @@ export class DeleteCardUseCase {
    * @private
    * @param blockId - 块 ID
    */
-  private async removeCardBlockAttrs(blockId: string): Promise<void> {
+  private async removeCardBlockAttrs(blockId: string, deletedCardIds: readonly string[]): Promise<void> {
     try {
       // 获取当前块属性
       const attrs = await this.siyuanApi.getBlockAttrs(blockId);
-      const newAttrs = buildClearedBlockAttrs(attrs);
+      const newAttrs = buildClearedBlockAttrs(attrs, { deletedCardIds });
       
       // 如果有属性需要删除，调用 API
       if (Object.keys(newAttrs).length > 0) {
@@ -206,7 +206,12 @@ export class DeleteCardUseCase {
     return ok({ xiuyuan, actualCardId: matched.getId() });
   }
 
-  private resolveBlockIdForCard(xiuyuan: Xiuyuan, cardId: CardId): string | null {
+  private resolveCleanupBlockIdForCard(xiuyuan: Xiuyuan, cardId: CardId): string | null {
+    const representativeBlockId = xiuyuan.getRepresentativeBlockId();
+    if (typeof representativeBlockId === 'string' && representativeBlockId.trim().length > 0) {
+      return representativeBlockId;
+    }
+
     const card = xiuyuan.getCard(cardId);
     if (!card) {
       return null;
@@ -233,7 +238,6 @@ export class DeleteCardUseCase {
       }
     }
 
-    const representativeBlockId = xiuyuan.getRepresentativeBlockId();
-    return representativeBlockId || null;
+    return null;
   }
 }

@@ -54,6 +54,13 @@ export interface DescriptorCardViewModel extends BaseCardViewModel {
   warning: string | null;
 }
 
+interface CdfDescriptorFusionMeta {
+  groupHint: string;
+  childCue: string;
+  childAnswer: string;
+  fusedAttributeName: string;
+}
+
 export class DescriptorCardRenderService extends BaseCardRenderService {
   constructor(
     private repository: DescriptorCardRepository,
@@ -101,8 +108,10 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
         fsrsCardMeta: fsrsCard?.meta 
       });
 
+      const cdfFusionMeta = this.resolveCdfFusionMeta(fsrsCard);
+
       // 6. 分离正面和背面内容，传入概念上下文和方向
-      const { frontHtml, backHtml } = this.splitDescriptorContent(card, conceptContext, isReverse);
+      const { frontHtml, backHtml } = this.splitDescriptorContent(card, conceptContext, isReverse, cdfFusionMeta);
 
       // 7. 构建视图模型
       const viewModel: DescriptorCardViewModel = {
@@ -142,14 +151,16 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
   private splitDescriptorContent(
     card: DescriptorCard,
     conceptContext: Array<{ id: string; name: string; type: string; isConcept?: boolean }>,
-    isReverse: boolean = false
+    isReverse: boolean = false,
+    cdfFusionMeta?: CdfDescriptorFusionMeta
   ): { frontHtml: string; backHtml: string } {
     // 🔧 修复：直接使用 card.attribute 和 card.description，不再解析 card.html
     // 如果 attribute 是 sentinel key（解析失败时的降级值），则翻译为本地化字符串
-    const attributeName = card.attribute === 'defaultAttribute'
+    const attributeNameFromCard = card.attribute === 'defaultAttribute'
       ? this.t('defaultAttribute', '属性')
       : card.attribute;
-    const attributeValue = card.description;
+    const attributeName = cdfFusionMeta?.fusedAttributeName || attributeNameFromCard;
+    const attributeValue = cdfFusionMeta?.childAnswer || card.description;
     
     if (!attributeName || !attributeValue) {
       // 如果解析失败，返回空内容
@@ -211,6 +222,34 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
 
       return { frontHtml, backHtml };
     }
+  }
+
+  private resolveCdfFusionMeta(fsrsCard?: DescriptorCardInput): CdfDescriptorFusionMeta | undefined {
+    const fieldMapping = fsrsCard?.meta?.fieldMapping;
+    if (!fieldMapping || typeof fieldMapping !== 'object') {
+      return undefined;
+    }
+
+    const groupHintRaw = fieldMapping['cdf_group_hint'];
+    if (typeof groupHintRaw !== 'string' || groupHintRaw.trim().length === 0) {
+      return undefined;
+    }
+    const groupHint = groupHintRaw.trim();
+
+    const childCue = typeof fieldMapping['cdf_child_cue'] === 'string'
+      ? fieldMapping['cdf_child_cue'].trim()
+      : '';
+    const childAnswer = typeof fieldMapping['cdf_child_answer'] === 'string'
+      ? fieldMapping['cdf_child_answer'].trim()
+      : '';
+    const fusedAttributeName = childCue ? `${groupHint}，${childCue}` : groupHint;
+
+    return {
+      groupHint,
+      childCue,
+      childAnswer,
+      fusedAttributeName,
+    };
   }
 
   /**

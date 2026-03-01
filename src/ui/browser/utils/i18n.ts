@@ -18,3 +18,19 @@ export function tFlashcard(key: string, fallback: string): string {
   const i18n = getFlashcardI18n();
   return i18n[key] ?? fallback;
 }
+
+export function interpolateI18n(
+  template: string,
+  vars: Record<string, string | number>,
+): string {
+  if (!template || !vars || Object.keys(vars).length === 0) {
+    return template;
+  }
+
+  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (token, key) => {
+    if (!(key in vars)) {
+      return token;
+    }
+    return String(vars[key]);
+  });
+}

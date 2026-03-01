@@ -19,6 +19,7 @@ export async function generateListTemplateFront(
   questionBlockId: string
 ): Promise<string> {
   const { allChildren, currentIndex, cue } = meta;
+  const normalizedCue = typeof cue === 'string' ? cue.trim() : '';
   
   // 获取问题块的 HTML
   const questionBlock = await getBlockByID(questionBlockId);
@@ -45,11 +46,11 @@ export async function generateListTemplateFront(
   }
   
   // 当前提示（高亮显示）
-  if (cue) {
+  if (normalizedCue.length > 0) {
     html += `<div class="xiuyuan-current-cue">`;
     html += `<span class="xiuyuan-cue-marker">?</span>`;
     html += `<span class="xiuyuan-cue-index">${currentIndex + 1}.</span>`;
-    html += `<span class="xiuyuan-cue-text">${cue}</span>`;
+    html += `<span class="xiuyuan-cue-text">${normalizedCue}</span>`;
     html += `</div>`;
   }
   
@@ -99,6 +100,7 @@ export async function generateListTemplateFront(
 
 .xiuyuan-answer-text {
   flex: 1;
+  white-space: pre-line;
 }
 
 .xiuyuan-current-cue {
@@ -233,6 +235,7 @@ export async function generateListTemplateBack(
 
 .xiuyuan-answer-text {
   flex: 1;
+  white-space: pre-line;
 }
 
 .xiuyuan-remaining-hint {

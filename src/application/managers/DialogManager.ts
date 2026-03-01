@@ -37,6 +37,19 @@ import { createLogger } from '@/utils/logger';
 import type { PluginSettings, RiffIntegrationConfig } from '@/types/settings';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
+import { findConceptByUpwardSearch } from '@/application/usecases/xiuyuan/shared/ConceptLocator';
+import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/shared/ListChildrenResolver';
+import { resolveCdfMultilineScan } from '@/application/usecases/xiuyuan/shared/CdfMultilineScanner';
+import {
+  hasExpectedCdfTailMarkerFromSources,
+  type CdfMultilineTemplateId,
+} from '@/application/usecases/xiuyuan/shared/CdfTailMarker';
+import {
+  detectDescriptorOrDefinitionKind,
+  isDefinitionTemplate,
+  templateIdFromDescriptorOrDefinitionKind,
+} from '@/application/usecases/xiuyuan/shared/DescriptorTemplateStrategy';
+import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 
 const logger = createLogger('DialogManager');
 
@@ -87,6 +100,7 @@ interface BlockSqlRow {
   id: string;
   type?: string;
   subtype?: string;
+  parent_id?: string;
   content?: string;
   markdown?: string;
 }
@@ -94,6 +108,17 @@ interface BlockSqlRow {
 interface AttributeSqlRow {
   name?: string;
   value?: string;
+}
+
+const FW_SEMICOLON = '\uFF1B';
+const ZERO_WIDTH_RE = /[\u200B-\u200D\uFEFF\u2060]/g;
+const DESCRIPTOR_MULTILINE_TAIL_RE = new RegExp(`\\s*(;;;|${FW_SEMICOLON}{3})\\s*$`);
+
+function normalizeForTextParsing(text: string): string {
+  return (text || '')
+    .replace(/\{:[^}]*\}/g, '')
+    .replace(ZERO_WIDTH_RE, '')
+    .trim();
 }
 
 /**
@@ -952,18 +977,538 @@ export class DialogManager implements IDialogManager {
   // 模板卡片对话框
   // ========================================================================
   
+  async createCdfMultilineTemplateCards(
+    blockIds: string[],
+    templateId: CdfMultilineTemplateId,
+    options?: { skipSymbolConfirmation?: boolean }
+  ): Promise<void> {
+    await this.handleCdfMultilineTemplateCard(blockIds, templateId, options);
+  }
+
+  private async resolveListItemAnchorBlockId(selectedBlockId: string): Promise<string | null> {
+    const safeSelectedBlockId = selectedBlockId.replace(/'/g, "''");
+    const selectedRows = await this.siyuanApi.sql<BlockSqlRow>(`
+      SELECT id, type, parent_id
+      FROM blocks
+      WHERE id = '${safeSelectedBlockId}'
+      LIMIT 1
+    `);
+    if (!selectedRows || selectedRows.length === 0) {
+      return null;
+    }
+
+    const selected = selectedRows[0];
+    if (selected.type === 'i') {
+      return selected.id;
+    }
+    if (selected.type !== 'p' || typeof selected.parent_id !== 'string' || selected.parent_id.length === 0) {
+      return null;
+    }
+
+    const safeParentId = selected.parent_id.replace(/'/g, "''");
+    const parentRows = await this.siyuanApi.sql<BlockSqlRow>(`
+      SELECT id, type
+      FROM blocks
+      WHERE id = '${safeParentId}'
+      LIMIT 1
+    `);
+    if (!parentRows || parentRows.length === 0 || parentRows[0].type !== 'i') {
+      return null;
+    }
+
+    return parentRows[0].id;
+  }
+
+  private extractDescriptorGroupHint(source: string): string {
+    const normalized = normalizeForTextParsing(source);
+    if (!normalized) {
+      return '';
+    }
+    const stripped = normalized.replace(DESCRIPTOR_MULTILINE_TAIL_RE, '').trim();
+    return stripped || normalized;
+  }
+
+  private parseCueAndAnswerFromText(source: string): { cue: string; answer: string } {
+    const text = normalizeForTextParsing(source);
+    const unicodeArrow = '\u2192';
+    const delimiter = text.includes(unicodeArrow) ? unicodeArrow : '->';
+    const parts = text.split(delimiter);
+    if (parts.length >= 2) {
+      return {
+        cue: parts[0].trim(),
+        answer: parts.slice(1).join(delimiter).trim(),
+      };
+    }
+    return {
+      cue: '',
+      answer: text,
+    };
+  }
+
+  private hasExpectedTailMarker(
+    parentParagraphKramdown: string,
+    parentParagraphText: string,
+    templateId: CdfMultilineTemplateId,
+    fallbackParentKramdown?: string
+  ): boolean {
+    return hasExpectedCdfTailMarkerFromSources(
+      [parentParagraphKramdown, parentParagraphText, fallbackParentKramdown],
+      templateId
+    );
+  }
+
+  private async confirmProceedWhenSymbolMissing(templateId: CdfMultilineTemplateId): Promise<boolean> {
+    const expected = templateId === 'builtin-list-concept-multiline' ? ':::' : ';;;';
+    const i18n = this.context.getI18n() || {};
+    const title = i18n.cdfMultilineMarkerConfirmTitle || 'Symbol mismatch';
+    const descriptionTemplate = i18n.cdfMultilineMarkerConfirmDesc
+      || 'No tail marker {marker} found on parent block. Continue anyway?';
+    const description = descriptionTemplate.replace('{marker}', expected);
+    const continueLabel = i18n.cdfMultilineMarkerContinue || 'Continue';
+    const cancelLabel = i18n.cancel || 'Cancel';
+
+    return new Promise((resolve) => {
+      const { Dialog } = require('siyuan');
+      const dialog = new Dialog({
+        title,
+        content: `
+          <div class="b3-dialog__content" style="padding: 16px;">
+            <div style="margin-bottom: 12px;">${description}</div>
+          </div>
+          <div class="b3-dialog__action">
+            <button class="b3-button b3-button--cancel" data-action="cancel">${cancelLabel}</button>
+            <div class="fn__space"></div>
+            <button class="b3-button b3-button--text" data-action="continue">${continueLabel}</button>
+          </div>
+        `,
+        width: '460px',
+      });
+
+      const element = dialog.element;
+      element.querySelector('[data-action=\"cancel\"]')?.addEventListener('click', () => {
+        dialog.destroy();
+        resolve(false);
+      });
+      element.querySelector('[data-action=\"continue\"]')?.addEventListener('click', () => {
+        dialog.destroy();
+        resolve(true);
+      });
+    });
+  }
+
+  private async resolveConceptDocumentIdFromReference(parentKramdown: string): Promise<string | null> {
+    const refMatches = [...parentKramdown.matchAll(/\(\((\d{14}-[a-z0-9]{7})/g)];
+    if (refMatches.length === 0) {
+      return null;
+    }
+
+    for (const match of refMatches) {
+      const conceptBlockId = match[1];
+      const safeConceptBlockId = conceptBlockId.replace(/'/g, "''");
+      const typeResult = await this.siyuanApi.sql<BlockSqlRow>(`
+        SELECT type
+        FROM blocks
+        WHERE id = '${safeConceptBlockId}'
+        LIMIT 1
+      `);
+      if (typeResult && typeResult.length > 0 && typeResult[0].type === 'd') {
+        return conceptBlockId;
+      }
+    }
+
+    return null;
+  }
+
+  private async ensureConceptCardById(
+    conceptBlockId: string,
+    xiuyuanAppService: XiuyuanApplicationService
+  ): Promise<void> {
+    if (!conceptBlockId) {
+      return;
+    }
+
+    if (this.conceptCardEnsureInFlight.has(conceptBlockId)) {
+      logger.debug('[DialogManager] Concept card ensure already in flight, skipping:', conceptBlockId);
+      return;
+    }
+
+    this.conceptCardEnsureInFlight.add(conceptBlockId);
+    try {
+      const safeConceptBlockId = conceptBlockId.replace(/'/g, "''");
+      const conceptRows = await this.siyuanApi.sql<BlockSqlRow>(`
+        SELECT id, content
+        FROM blocks
+        WHERE id = '${safeConceptBlockId}'
+        LIMIT 1
+      `);
+      if (!conceptRows || conceptRows.length === 0) {
+        logger.warn('[DialogManager] Concept block not found:', conceptBlockId);
+        return;
+      }
+
+      const conceptName = conceptRows[0].content || '未命名概念';
+      const attrRows = await this.siyuanApi.sql<AttributeSqlRow>(`
+        SELECT name, value
+        FROM attributes
+        WHERE block_id = '${safeConceptBlockId}'
+          AND name IN (
+            'custom-fsrs-card-id',
+            'custom-xiuyuan-id',
+            'custom-fsrs-xiuyuan-id',
+            'custom-fsrs-card-type'
+          )
+      `);
+
+      const hasXiuyuanId = (attrRows || []).some((row) => {
+        if (row.name !== 'custom-xiuyuan-id' && row.name !== 'custom-fsrs-xiuyuan-id') {
+          return false;
+        }
+        return typeof row.value === 'string' && row.value.trim().length > 0;
+      });
+      const hasLegacyCardId = (attrRows || []).some(
+        (row) => row.name === 'custom-fsrs-card-id' && typeof row.value === 'string' && row.value.trim().length > 0
+      );
+      const isConceptType = (attrRows || []).some(
+        (row) => row.name === 'custom-fsrs-card-type' && row.value === 'concept'
+      );
+      if (hasXiuyuanId || hasLegacyCardId || isConceptType) {
+        return;
+      }
+
+      const result = await xiuyuanAppService.createFromBlocks({
+        blockIds: [conceptBlockId],
+        templateId: 'builtin-concept-simple',
+        fieldMapping: {
+          concept: conceptBlockId,
+        },
+        deckId: this.siyuanApi.BUILTIN_DECK_ID,
+      });
+      if (!result.ok) {
+        logger.error('[DialogManager] Failed to auto-create concept card:', result.error);
+        return;
+      }
+
+      await this.siyuanApi.setBlockAttrs(conceptBlockId, {
+        'custom-fsrs-card-type': 'concept',
+      });
+      this.siyuanApi.pushMsg(`✅ 已为概念「${conceptName}」创建概念卡`);
+    } catch (error) {
+      logger.error('[DialogManager] Failed to ensure concept card:', error);
+    } finally {
+      this.conceptCardEnsureInFlight.delete(conceptBlockId);
+    }
+  }
+
+  private async hasXiuyuanBindingOnBlock(blockId: string): Promise<boolean> {
+    const safeBlockId = blockId.replace(/'/g, "''");
+    const attrRows = await this.siyuanApi.sql<AttributeSqlRow>(`
+      SELECT name, value
+      FROM attributes
+      WHERE block_id = '${safeBlockId}'
+        AND name IN ('custom-xiuyuan-id', 'custom-fsrs-xiuyuan-id')
+      LIMIT 2
+    `);
+
+    return (attrRows || []).some((row) => typeof row.value === 'string' && row.value.trim().length > 0);
+  }
+
+  private async getFirstParagraphForListItem(listItemId: string): Promise<BlockSqlRow | null> {
+    const safeListItemId = listItemId.replace(/'/g, "''");
+    const rows = await this.siyuanApi.sql<BlockSqlRow>(`
+      SELECT id, content, markdown
+      FROM blocks
+      WHERE parent_id = '${safeListItemId}'
+        AND type = 'p'
+      ORDER BY sort ASC, id ASC
+      LIMIT 1
+    `);
+
+    return rows && rows.length > 0 ? rows[0] : null;
+  }
+
+  private async hasXiuyuanBindingOnParagraphOrListItem(paragraphId: string, listItemId?: string): Promise<boolean> {
+    const targets = [paragraphId];
+    if (typeof listItemId === 'string' && listItemId.length > 0) {
+      targets.push(listItemId);
+    }
+
+    const bindingFlags = await Promise.all(targets.map((targetId) => this.hasXiuyuanBindingOnBlock(targetId)));
+    return bindingFlags.some(Boolean);
+  }
+
+  private async createDescriptorCardsFromListItems(params: {
+    listItemIds: string[];
+    conceptBlockId: string;
+    descriptorGroupHint: string;
+    xiuyuanAppService: XiuyuanApplicationService;
+  }): Promise<{ created: number; skipped: number; failed: number; firstError: string }> {
+    const { listItemIds, conceptBlockId, descriptorGroupHint, xiuyuanAppService } = params;
+
+    let created = 0;
+    let skipped = 0;
+    let failed = 0;
+    let firstError = '';
+    const setFirstError = (message: string): void => {
+      if (!firstError) {
+        firstError = message;
+      }
+    };
+
+    for (const listItemId of listItemIds) {
+      const paragraph = await this.getFirstParagraphForListItem(listItemId);
+      if (!paragraph?.id) {
+        failed += 1;
+        setFirstError(`子级缺少段落块：${listItemId}`);
+        continue;
+      }
+
+      const hasBinding = await this.hasXiuyuanBindingOnParagraphOrListItem(paragraph.id, listItemId);
+      if (hasBinding) {
+        skipped += 1;
+        continue;
+      }
+
+      const paragraphContent = paragraph.markdown || paragraph.content || '';
+      const parsedCueAnswer = this.parseCueAndAnswerFromText(paragraph.content || paragraphContent);
+      const kind = detectDescriptorOrDefinitionKind(paragraphContent);
+      const descriptorKind = kind === 'descriptor-forward' || kind === 'descriptor-reverse' || kind === 'descriptor-both'
+        ? kind
+        : 'none';
+      const descriptorTemplateId = templateIdFromDescriptorOrDefinitionKind(
+        descriptorKind,
+        'descriptor'
+      );
+      if (!descriptorTemplateId) {
+        failed += 1;
+        setFirstError(`无法解析描述符模板：${paragraph.id}`);
+        continue;
+      }
+
+      const createResult = await xiuyuanAppService.createFromBlocks({
+        blockIds: [conceptBlockId, paragraph.id],
+        templateId: descriptorTemplateId,
+        fieldMapping: {
+          concept: conceptBlockId,
+          descriptor: paragraph.id,
+          cdf_group_hint: descriptorGroupHint,
+          cdf_child_cue: parsedCueAnswer.cue,
+          cdf_child_answer: parsedCueAnswer.answer,
+        },
+        deckId: this.siyuanApi.BUILTIN_DECK_ID,
+        cardType: 'descriptor',
+      });
+
+      if (!createResult.ok) {
+        failed += 1;
+        setFirstError(createResult.error.message);
+        continue;
+      }
+
+      created += 1;
+    }
+
+    return { created, skipped, failed, firstError };
+  }
+
+  private async handleCdfMultilineTemplateCard(
+    blockIds: string[],
+    templateId: CdfMultilineTemplateId,
+    options?: { skipSymbolConfirmation?: boolean }
+  ): Promise<void> {
+    try {
+      if (!blockIds || blockIds.length !== 1) {
+        await this.siyuanApi.pushErrMsg('该模板仅支持单块创建');
+        return;
+      }
+
+      const anchorBlockId = await this.resolveListItemAnchorBlockId(blockIds[0]);
+      if (!anchorBlockId) {
+        await this.siyuanApi.pushErrMsg('仅支持列表项块或其直属段落块');
+        return;
+      }
+
+      const parentBlockId = anchorBlockId;
+      const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
+      const fallbackForNone = templateId === 'builtin-list-concept-multiline' ? 'definition' : 'descriptor';
+
+      const scanResult = await resolveCdfMultilineScan(parentBlockId, this.siyuanApi);
+      if (scanResult.nodes.length === 0) {
+        await this.siyuanApi.pushErrMsg('未找到可制卡的子级块');
+        return;
+      }
+
+      if (
+        !options?.skipSymbolConfirmation
+        && !this.hasExpectedTailMarker(
+          scanResult.parentParagraphKramdown,
+          scanResult.parentParagraphText,
+          templateId,
+          scanResult.parentKramdown
+        )
+      ) {
+        const shouldContinue = await this.confirmProceedWhenSymbolMissing(templateId);
+        if (!shouldContinue) {
+          await this.siyuanApi.pushMsg('已取消创建');
+          return;
+        }
+      }
+
+      let conceptBlockId: string | null = null;
+      if (templateId === 'builtin-list-concept-multiline') {
+        conceptBlockId = await this.resolveConceptDocumentIdFromReference(scanResult.parentParagraphKramdown);
+        if (!conceptBlockId && scanResult.parentKramdown !== scanResult.parentParagraphKramdown) {
+          conceptBlockId = await this.resolveConceptDocumentIdFromReference(scanResult.parentKramdown);
+        }
+        if (!conceptBlockId) {
+          await this.siyuanApi.pushErrMsg('::: 模板要求父块中包含文档块引用概念');
+          return;
+        }
+      } else {
+        const located = await findConceptByUpwardSearch(
+          parentBlockId,
+          this.siyuanApi as unknown as XiuyuanSiyuanPort
+        );
+        if (!located) {
+          await this.siyuanApi.pushErrMsg(';;; 模板未找到可用概念块（向上探路失败）');
+          return;
+        }
+        conceptBlockId = located.conceptId;
+      }
+
+      await this.ensureConceptCardById(conceptBlockId, xiuyuanAppService);
+      if (!conceptBlockId) {
+        await this.siyuanApi.pushErrMsg('未找到可用概念块');
+        return;
+      }
+      const resolvedConceptBlockId = conceptBlockId;
+
+      const stats = {
+        definitionCreated: 0,
+        descriptorCreated: 0,
+        skipped: 0,
+        failed: 0,
+        firstError: '' as string,
+      };
+
+      const setFirstError = (message: string): void => {
+        if (!stats.firstError) {
+          stats.firstError = message;
+        }
+      };
+
+      for (const node of scanResult.nodes) {
+        if (node.markerKind === 'descriptor-multiline') {
+          const descriptorGroupHint = this.extractDescriptorGroupHint(
+            node.firstParagraphKramdown || node.firstParagraphText
+          );
+          if (node.orderedChildListItemIds.length > 0) {
+            const orderedResult = await this.createDescriptorCardsFromListItems({
+              listItemIds: node.orderedChildListItemIds,
+              conceptBlockId: resolvedConceptBlockId,
+              descriptorGroupHint,
+              xiuyuanAppService,
+            });
+            stats.descriptorCreated += orderedResult.created;
+            stats.skipped += orderedResult.skipped;
+            stats.failed += orderedResult.failed;
+            if (orderedResult.firstError) {
+              setFirstError(orderedResult.firstError);
+            }
+          }
+
+          if (node.unorderedChildListItemIds.length > 0) {
+            const unorderedResult = await this.createDescriptorCardsFromListItems({
+              listItemIds: node.unorderedChildListItemIds,
+              conceptBlockId: resolvedConceptBlockId,
+              descriptorGroupHint,
+              xiuyuanAppService,
+            });
+            stats.descriptorCreated += unorderedResult.created;
+            stats.skipped += unorderedResult.skipped;
+            stats.failed += unorderedResult.failed;
+            if (unorderedResult.firstError) {
+              setFirstError(unorderedResult.firstError);
+            }
+          }
+
+          continue;
+        }
+
+        const resolvedTemplateId = templateIdFromDescriptorOrDefinitionKind(node.markerKind, fallbackForNone);
+        if (!resolvedTemplateId) {
+          continue;
+        }
+
+        const hasBinding = await this.hasXiuyuanBindingOnParagraphOrListItem(
+          node.firstParagraphId,
+          node.id
+        );
+        if (hasBinding) {
+          stats.skipped += 1;
+          continue;
+        }
+
+        const isDefinition = isDefinitionTemplate(resolvedTemplateId);
+        const createResult = await xiuyuanAppService.createFromBlocks({
+          blockIds: isDefinition
+            ? [node.firstParagraphId, resolvedConceptBlockId]
+            : [resolvedConceptBlockId, node.firstParagraphId],
+          templateId: resolvedTemplateId,
+          fieldMapping: isDefinition
+            ? {
+                concept: resolvedConceptBlockId,
+                definition: node.firstParagraphId,
+              }
+            : {
+                concept: resolvedConceptBlockId,
+                descriptor: node.firstParagraphId,
+              },
+          deckId: this.siyuanApi.BUILTIN_DECK_ID,
+          cardType: 'descriptor',
+        });
+
+        if (!createResult.ok) {
+          stats.failed += 1;
+          setFirstError(createResult.error.message);
+          continue;
+        }
+
+        if (isDefinition) {
+          stats.definitionCreated += 1;
+        } else {
+          stats.descriptorCreated += 1;
+        }
+      }
+
+      const createdTotal = stats.definitionCreated + stats.descriptorCreated;
+      if (createdTotal === 0 && stats.skipped === 0) {
+        await this.siyuanApi.pushErrMsg(stats.firstError ? `创建失败：${stats.firstError}` : '未创建任何卡片');
+        return;
+      }
+
+      const messageLines = [
+        '✅ CDF 多行制卡完成',
+        `定义卡：${stats.definitionCreated}`,
+        `描述符卡：${stats.descriptorCreated}`,
+        `跳过：${stats.skipped}`,
+        `失败：${stats.failed}`,
+      ];
+      if (scanResult.stoppedByDocumentReference) {
+        messageLines.push('探路范围已在下一条文档块引用处停止');
+      }
+      if (stats.failed > 0 && stats.firstError) {
+        messageLines.push(`首个错误：${stats.firstError}`);
+      }
+
+      await this.siyuanApi.pushMsg(messageLines.join('\n'));
+    } catch (err) {
+      logger.error('[DialogManager] Failed to create CDF multiline list cards:', err);
+      await this.siyuanApi.pushErrMsg(`创建失败：${(err as Error).message}`);
+    }
+  }
+
   /**
-   * 处理多填空卡片的创建
-   * 
-   * @description
-   * 多填空卡片需要特殊处理：
-   * 1. 读取块内容
-   * 2. 解析所有填空
-   * 3. 动态生成 cardRules（每个填空一个 rule）
-   * 4. 创建卡片
-   * 
-   * @param blockIds - 块 ID 列表（多填空卡只使用第一个块）
-   * @param template - 多填空模版
+   * 处理列表模版卡的创建（默认列表模式：有序逐条 + 无序汇总）
    */
   private async handleListTemplateCard(blockIds: string[], template: ICardTemplate): Promise<void> {
     try {
@@ -993,81 +1538,69 @@ export class DialogManager implements IDialogManager {
         return;
       }
 
-      // 2. 获取子级列表项（必须是有序列表）
-      // 思源的列表结构：列表项(i) → 段落(p) + 列表容器(l) → 子列表项(i)
-      const allChildrenResult = await this.siyuanApi.sql(`
-        SELECT id, type, content FROM blocks
-        WHERE parent_id = '${parentBlockId}'
-        ORDER BY id ASC
-      `);
-      
-      // 找到列表容器
-      const listContainer = (allChildrenResult as BlockSqlRow[])?.find((r) => r.type === 'l');
-      
-      if (!listContainer) {
-        this.siyuanApi.pushErrMsg('未找到列表容器，请确保列表结构正确');
-        return;
-      }
-      
-      // 查询列表容器的子级列表项（必须是有序列表）
-      const childrenResult = await this.siyuanApi.sql(`
-        SELECT id, content FROM blocks
-        WHERE parent_id = '${listContainer.id}'
-        AND type = 'i'
-        AND subtype = 'o'
-        ORDER BY id ASC
-      `);
+      const resolved = await resolveListChildrenBySubtype(parentBlockId, this.siyuanApi);
+      const orderedChildren = resolved.orderedChildren;
+      const unorderedChildren = resolved.unorderedChildren;
 
-      // 如果没有找到直接子级，尝试查询所有后代列表项（必须是有序列表）
-      let finalChildren = childrenResult;
-      if (!finalChildren || finalChildren.length === 0) {
-        const descendantsResult = await this.siyuanApi.sql(`
-          WITH RECURSIVE descendants AS (
-            SELECT id, type, subtype, content, parent_id FROM blocks WHERE parent_id = '${listContainer.id}'
-            UNION ALL
-            SELECT b.id, b.type, b.subtype, b.content, b.parent_id FROM blocks b
-            INNER JOIN descendants d ON b.parent_id = d.id
-          )
-          SELECT id, content FROM descendants WHERE type = 'i' AND subtype = 'o' ORDER BY id ASC
-        `);
-        
-        finalChildren = descendantsResult;
-      }
-
-      if (!finalChildren || finalChildren.length < 2) {
-        this.siyuanApi.pushErrMsg(`需要至少2个有序子列表项（当前：${finalChildren?.length || 0}个）`);
+      if (orderedChildren.length < 2 && unorderedChildren.length < 2) {
+        this.siyuanApi.pushErrMsg('至少需要2个同类型子列表项（有序或无序）');
         return;
       }
 
-      const childBlockIds = (finalChildren as BlockSqlRow[]).map((row) => row.id);
-
-      // 3. 创建列表模版卡
       const xiuyuanAppService = await this.context.getXiuyuanApplicationService();
-      const result = await xiuyuanAppService.createListTemplateCards({
-        parentBlockId,
-        childBlockIds,
-        templateId: template.id
-      });
+      let orderedCreated = 0;
+      let unorderedCreated = 0;
+      let skippedCount = 0;
 
-      if (!result.ok) {
-        logger.error('[DialogManager] Failed to create list template cards:', result.error);
-        this.siyuanApi.pushErrMsg(`创建失败：${result.error.message}`);
-        return;
+      if (orderedChildren.length >= 2) {
+        const orderedResult = await xiuyuanAppService.createListTemplateCards({
+          parentBlockId,
+          childBlockIds: orderedChildren.map((row) => row.id),
+          templateId: template.id,
+          creationMode: 'split-v2',
+          listKind: 'default',
+        });
+
+        if (!orderedResult.ok) {
+          logger.error('[DialogManager] Failed to create split list template cards:', orderedResult.error);
+          this.siyuanApi.pushErrMsg(`创建失败：${orderedResult.error.message}`);
+          return;
+        }
+
+        orderedCreated = orderedResult.value.created.length;
+        skippedCount += orderedResult.value.skippedChildBlockIds.length;
       }
 
-      const { created, skippedChildBlockIds } = result.value;
-      logger.info('[DialogManager] List template cards created:', {
-        createdCount: created.length,
-        skippedCount: skippedChildBlockIds.length,
-        created,
-        skippedChildBlockIds,
+      if (unorderedChildren.length >= 2) {
+        const unorderedResult = await xiuyuanAppService.createListTemplateCards({
+          parentBlockId,
+          childBlockIds: unorderedChildren.map((row) => row.id),
+          templateId: template.id,
+          creationMode: 'summary-v1',
+          listKind: 'default',
+        });
+
+        if (!unorderedResult.ok) {
+          logger.error('[DialogManager] Failed to create summary list template cards:', unorderedResult.error);
+          this.siyuanApi.pushErrMsg(`创建失败：${unorderedResult.error.message}`);
+          return;
+        }
+
+        unorderedCreated = unorderedResult.value.created.length;
+        skippedCount += unorderedResult.value.skippedChildBlockIds.length;
+      }
+
+      logger.info('[DialogManager] List template cards created (default flow):', {
+        parentBlockId,
+        orderedChildren: orderedChildren.length,
+        unorderedChildren: unorderedChildren.length,
+        orderedCreated,
+        unorderedCreated,
+        skippedCount,
       });
 
       this.siyuanApi.pushMsg(
-        `✅ 有序列表模版卡创建成功！\n` +
-        `子列表项：${childBlockIds.length} 个\n` +
-        `创建：${created.length} 张\n` +
-        `跳过：${skippedChildBlockIds.length} 张`
+        `✅ 列表卡创建成功：有序创建：${orderedCreated} / 无序汇总：${unorderedCreated} / 跳过：${skippedCount}`
       );
     } catch (err) {
       logger.error('[DialogManager] Failed to handle list template card:', err);
@@ -1663,6 +2196,16 @@ export class DialogManager implements IDialogManager {
               // 🆕 有序列表模版特殊处理
               if (templateId === 'builtin-list-item') {
                 await this.handleListTemplateCard(blockIds, template);
+                this.templateSelectDialog?.destroy();
+                this.templateSelectDialog = null;
+                return;
+              }
+
+              if (
+                templateId === 'builtin-list-concept-multiline' ||
+                templateId === 'builtin-list-descriptor-multiline'
+              ) {
+                await this.handleCdfMultilineTemplateCard(blockIds, templateId);
                 this.templateSelectDialog?.destroy();
                 this.templateSelectDialog = null;
                 return;

@@ -71,7 +71,7 @@ type XiuyuanMeta = Record<string, unknown> & {
   aFactor?: number;
   fieldMapping?: Record<string, unknown>;
   listTemplate?: {
-    mode?: 'split-v2';
+    mode?: 'split-v2' | 'summary-v1';
     groupId?: string;
     parentBlockId?: string;
     parentParagraphId?: string;
@@ -254,7 +254,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       const meta = this.toXiuyuanMeta(xiuyuan.getMeta());
       const listTemplateChildren = this.extractListTemplateChildren(meta);
       const hasListTemplateChildren = listTemplateChildren.length > 0;
-      const isSplitListTemplate = this.isSplitListTemplate(meta);
+      const isLegacyListTemplate = this.isLegacyListTemplate(meta);
       
       // 5.1 确定卡片类型
       let cardType: XiuyuanCardType = 'item';
@@ -339,7 +339,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       }
       
       // 5.3 列表模版卡：为所有子块设置 item 类型
-      if (hasListTemplateChildren && !isSplitListTemplate) {
+      if (hasListTemplateChildren && isLegacyListTemplate) {
         for (const child of listTemplateChildren) {
           try {
             await setBlockAttrs(child.id, {
@@ -552,9 +552,9 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     return children.filter(isListTemplateChild);
   }
 
-  private isSplitListTemplate(meta: Record<string, unknown>): boolean {
+  private isLegacyListTemplate(meta: Record<string, unknown>): boolean {
     const typedMeta = this.toXiuyuanMeta(meta);
-    return typedMeta.listTemplate?.mode === 'split-v2';
+    return typedMeta.listTemplate?.mode === undefined;
   }
 
   private resolveListTemplateCurrentIndex(meta: Record<string, unknown>): number | null {

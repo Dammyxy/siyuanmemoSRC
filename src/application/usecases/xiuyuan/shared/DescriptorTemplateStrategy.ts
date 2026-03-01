@@ -10,6 +10,16 @@ export interface DescriptorTemplateSelection {
   isDefinition: boolean;
 }
 
+export type DescriptorOrDefinitionKind =
+  | 'none'
+  | 'definition-both'
+  | 'definition-forward'
+  | 'definition-reverse'
+  | 'descriptor-forward'
+  | 'descriptor-reverse'
+  | 'descriptor-both'
+  | 'descriptor-multiline';
+
 const DESCRIPTOR_TEMPLATE_IDS = new Set([
   'builtin-concept-descriptor',
   'builtin-concept-descriptor-reverse',
@@ -40,6 +50,36 @@ export function detectDescriptorDirection(content: string): DescriptorDirection 
   return 'forward';
 }
 
+export function detectDescriptorOrDefinitionKind(content: string): DescriptorOrDefinitionKind {
+  const cleanContent = content.replace(/\{:[^}]*\}/g, '').trim();
+
+  if (/;;;|；；；/.test(cleanContent)) {
+    return 'descriptor-multiline';
+  }
+  if (/:::|：：：/.test(cleanContent)) {
+    return 'none';
+  }
+  if (DESCRIPTOR_BOTH_RE.test(cleanContent)) {
+    return 'descriptor-both';
+  }
+  if (DESCRIPTOR_REVERSE_RE.test(cleanContent)) {
+    return 'descriptor-reverse';
+  }
+  if (/;;|；；/.test(cleanContent)) {
+    return 'descriptor-forward';
+  }
+  if (DEFINITION_FORWARD_RE.test(cleanContent)) {
+    return 'definition-forward';
+  }
+  if (DEFINITION_REVERSE_RE.test(cleanContent)) {
+    return 'definition-reverse';
+  }
+  if (DEFINITION_BOTH_RE.test(cleanContent)) {
+    return 'definition-both';
+  }
+  return 'none';
+}
+
 export function templateIdFromDescriptorDirection(direction: DescriptorDirection): string {
   if (direction === 'both') {
     return 'builtin-concept-descriptor-both';
@@ -48,6 +88,37 @@ export function templateIdFromDescriptorDirection(direction: DescriptorDirection
     return 'builtin-concept-descriptor-reverse';
   }
   return 'builtin-concept-descriptor';
+}
+
+export function templateIdFromDescriptorOrDefinitionKind(
+  kind: DescriptorOrDefinitionKind,
+  fallbackForNone?: 'definition' | 'descriptor'
+): string | null {
+  switch (kind) {
+    case 'definition-both':
+      return 'builtin-concept-definition';
+    case 'definition-forward':
+      return 'builtin-concept-definition-forward';
+    case 'definition-reverse':
+      return 'builtin-concept-definition-reverse';
+    case 'descriptor-forward':
+      return 'builtin-concept-descriptor';
+    case 'descriptor-reverse':
+      return 'builtin-concept-descriptor-reverse';
+    case 'descriptor-both':
+      return 'builtin-concept-descriptor-both';
+    case 'descriptor-multiline':
+      return null;
+    case 'none':
+    default:
+      if (fallbackForNone === 'definition') {
+        return 'builtin-concept-definition';
+      }
+      if (fallbackForNone === 'descriptor') {
+        return 'builtin-concept-descriptor';
+      }
+      return null;
+  }
 }
 
 export function containsDescriptorOrDefinitionSymbol(content: string): boolean {

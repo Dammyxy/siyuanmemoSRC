@@ -86,6 +86,8 @@ function getCardTypeLabel(template: ICardTemplate): string {
     'forward': 'item',
     'reverse': 'item',
     'list-qa': 'item',
+    'list-concept-multiline': 'descriptor',
+    'list-descriptor-multiline': 'descriptor',
     'multi-cloze': 'item',  // 填空类生成的卡片类型是 item
     'concept-descriptor': 'concept-descriptor',
     'concept-definition-forward': 'descriptor',  // 概念定义卡生成的类型是 descriptor

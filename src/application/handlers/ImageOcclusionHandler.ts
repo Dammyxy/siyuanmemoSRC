@@ -203,6 +203,22 @@ export class ImageOcclusionHandler {
 
   constructor(private readonly plugin: FSRSPlugin) {}
 
+  private isMobileFrontend(): boolean {
+    return this.plugin.isMobile === true;
+  }
+
+  private resolveEditorDialogSize(): { width: string; height: string } {
+    if (this.isMobileFrontend()) {
+      return { width: '100vw', height: '100vh' };
+    }
+
+    const screenWidth = window.innerWidth;
+    if (screenWidth < 1024) return { width: '96vw', height: '94vh' };
+    if (screenWidth < 1440) return { width: '94vw', height: '92vh' };
+    if (screenWidth < 1920) return { width: '92vw', height: '92vh' };
+    return { width: '90vw', height: '92vh' };
+  }
+
   dispose(): void {
     for (const dialog of this.openDialogs.values()) {
       dialog.destroy();
@@ -275,10 +291,11 @@ export class ImageOcclusionHandler {
 
     const initialState = await this.loadInitialState(blockId);
     const containerId = `siyuanmemo-image-occlusion-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const dialogSize = this.resolveEditorDialogSize();
     const dialog = new Dialog({
       title: this.t('imageOcclusionTitle', 'Image Occlusion Card'),
-      width: '920px',
-      height: '82vh',
+      width: dialogSize.width,
+      height: dialogSize.height,
       content: `<div id="${containerId}" class="siyuanmemo-image-occlusion-root"></div>`,
       destroyCallback: () => {
         this.openDialogs.delete(blockId);
@@ -330,6 +347,8 @@ export class ImageOcclusionHandler {
           <span class="siyuanmemo-image-occlusion__hint">${this.t('imageOcclusionHint', 'Drag to add masks. Click to select.')}</span>
           <button class="b3-button b3-button--outline" data-action="delete">${this.t('imageOcclusionDeleteSelected', 'Delete Selected')}</button>
           <button class="b3-button b3-button--outline" data-action="clear">${this.t('imageOcclusionClearAll', 'Clear All')}</button>
+          <button class="b3-button b3-button--outline" data-action="review-all">${this.t('imageOcclusionReviewAll', '提取练习 - 全部')}</button>
+          <button class="b3-button b3-button--outline" data-action="temporary-drill">${this.t('imageOcclusionTemporaryDrill', '临时练习')}</button>
         </div>
         <div class="siyuanmemo-image-occlusion__prompt">
           <span class="siyuanmemo-image-occlusion__prompt-label">${this.t('imageOcclusionPromptLabel', 'Mask prompt')}</span>
@@ -347,26 +366,71 @@ export class ImageOcclusionHandler {
           </div>
         </div>
         <div class="siyuanmemo-image-occlusion__footer">
-          <button class="b3-button b3-button--cancel" data-action="cancel">${this.t('imageOcclusionCancel', 'Cancel')}</button>
-          <button class="b3-button b3-button--text" data-action="save">${this.t('imageOcclusionSave', 'Save')}</button>
+          <div class="siyuanmemo-image-occlusion__footer-actions">
+            <div class="siyuanmemo-image-occlusion__footer-tools">
+              <button
+                class="b3-button b3-button--outline siyuanmemo-image-occlusion__zoom-button"
+                data-action="zoom-out"
+                title="${this.t('imageOcclusionZoomOut', 'Zoom Out')}"
+                aria-label="${this.t('imageOcclusionZoomOut', 'Zoom Out')}"
+              >
+                <svg><use xlink:href="#iconZoomOut"></use></svg>
+              </button>
+              <span class="siyuanmemo-image-occlusion__zoom-value" data-role="zoom-value">100%</span>
+              <button
+                class="b3-button b3-button--outline siyuanmemo-image-occlusion__zoom-button"
+                data-action="zoom-in"
+                title="${this.t('imageOcclusionZoomIn', 'Zoom In')}"
+                aria-label="${this.t('imageOcclusionZoomIn', 'Zoom In')}"
+              >
+                <svg><use xlink:href="#iconZoomIn"></use></svg>
+              </button>
+            </div>
+            <button class="b3-button b3-button--cancel" data-action="cancel">${this.t('imageOcclusionCancel', 'Cancel')}</button>
+            <button class="b3-button b3-button--text" data-action="save">${this.t('imageOcclusionSave', 'Save')}</button>
+          </div>
         </div>
       </div>
     `;
 
     const imageElement = root.querySelector('.siyuanmemo-image-occlusion__image') as HTMLImageElement | null;
     const overlayElement = root.querySelector('.siyuanmemo-image-occlusion__overlay') as HTMLElement | null;
+    const canvasWrapElement = root.querySelector('.siyuanmemo-image-occlusion__canvas-wrap') as HTMLElement | null;
     const canvasElement = root.querySelector('.siyuanmemo-image-occlusion__canvas') as HTMLElement | null;
+    const zoomOutButton = root.querySelector('button[data-action="zoom-out"]') as HTMLButtonElement | null;
+    const zoomInButton = root.querySelector('button[data-action="zoom-in"]') as HTMLButtonElement | null;
+    const zoomValueElement = root.querySelector('[data-role="zoom-value"]') as HTMLElement | null;
     const deleteButton = root.querySelector('button[data-action="delete"]') as HTMLButtonElement | null;
     const clearButton = root.querySelector('button[data-action="clear"]') as HTMLButtonElement | null;
+    const reviewAllButton = root.querySelector('button[data-action="review-all"]') as HTMLButtonElement | null;
+    const temporaryDrillButton = root.querySelector('button[data-action="temporary-drill"]') as HTMLButtonElement | null;
     const cancelButton = root.querySelector('button[data-action="cancel"]') as HTMLButtonElement | null;
     const saveButton = root.querySelector('button[data-action="save"]') as HTMLButtonElement | null;
     const promptInput = root.querySelector('input[data-role="prompt-input"]') as HTMLInputElement | null;
-    if (!imageElement || !overlayElement || !canvasElement || !deleteButton || !clearButton || !cancelButton || !saveButton || !promptInput) {
+    if (
+      !imageElement
+      || !overlayElement
+      || !canvasWrapElement
+      || !canvasElement
+      || !zoomOutButton
+      || !zoomInButton
+      || !zoomValueElement
+      || !deleteButton
+      || !clearButton
+      || !reviewAllButton
+      || !temporaryDrillButton
+      || !cancelButton
+      || !saveButton
+      || !promptInput
+    ) {
       return () => undefined;
     }
-    imageElement.src = imageSrc;
-
     let drawing = false;
+    let actionsBusy = false;
+    const MIN_ZOOM_PERCENT = 50;
+    const MAX_ZOOM_PERCENT = 300;
+    const ZOOM_STEP_PERCENT = 10;
+    let zoomPercent = 100;
     let startX = 0;
     let startY = 0;
     let draftMask = document.createElement('div');
@@ -381,6 +445,29 @@ export class ImageOcclusionHandler {
     ) => {
       target.addEventListener(type, listener, options);
       cleanupFns.push(() => target.removeEventListener(type, listener, options));
+    };
+
+    const clampZoomPercent = (value: number): number => Math.max(MIN_ZOOM_PERCENT, Math.min(MAX_ZOOM_PERCENT, value));
+
+    const updateZoomControlState = () => {
+      zoomOutButton.disabled = actionsBusy || zoomPercent <= MIN_ZOOM_PERCENT;
+      zoomInButton.disabled = actionsBusy || zoomPercent >= MAX_ZOOM_PERCENT;
+    };
+
+    const applyZoomPercent = (nextZoomPercent: number) => {
+      zoomPercent = clampZoomPercent(nextZoomPercent);
+      canvasElement.style.setProperty('--siyuanmemo-image-occlusion-zoom', String(zoomPercent / 100));
+      zoomValueElement.textContent = `${zoomPercent}%`;
+      updateZoomControlState();
+    };
+
+    const applyCanvasBaseWidthByNaturalSize = (): boolean => {
+      const naturalWidth = imageElement.naturalWidth;
+      if (!Number.isFinite(naturalWidth) || naturalWidth <= 0) {
+        return false;
+      }
+      canvasElement.style.setProperty('--siyuanmemo-image-occlusion-base-width', `${naturalWidth}px`);
+      return true;
     };
 
     const createMaskElement = (mask: OcclusionMask, index: number): HTMLElement => {
@@ -415,16 +502,40 @@ export class ImageOcclusionHandler {
       if (drawing) {
         overlayElement.appendChild(draftMask);
       }
-      deleteButton.disabled = !state.selectedMaskId;
-      clearButton.disabled = state.masks.length === 0;
+      deleteButton.disabled = actionsBusy || !state.selectedMaskId;
+      clearButton.disabled = actionsBusy || state.masks.length === 0;
+      reviewAllButton.disabled = actionsBusy;
+      temporaryDrillButton.disabled = actionsBusy;
+      saveButton.disabled = actionsBusy;
+      cancelButton.disabled = actionsBusy;
+      updateZoomControlState();
       const selectedMask = state.selectedMaskId
         ? state.masks.find((mask) => mask.id === state.selectedMaskId) || null
         : null;
-      promptInput.disabled = !selectedMask;
+      promptInput.disabled = actionsBusy || !selectedMask;
       promptInput.value = selectedMask?.prompt || '';
     };
 
+    const runWithBusyState = async (task: () => Promise<void>): Promise<void> => {
+      if (actionsBusy) {
+        return;
+      }
+      actionsBusy = true;
+      renderMasks();
+      try {
+        await task();
+      } finally {
+        actionsBusy = false;
+        renderMasks();
+      }
+    };
+
+    const saveCurrentMasks = async (): Promise<void> => {
+      await this.saveOcclusion(blockId, imageSrc, state.masks);
+    };
+
     const beginDrawing = (event: MouseEvent) => {
+      if (actionsBusy) return;
       if (event.button !== 0) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest('.siyuanmemo-image-occlusion-mask')) {
@@ -444,6 +555,7 @@ export class ImageOcclusionHandler {
     };
 
     const updateDrawing = (event: MouseEvent) => {
+      if (actionsBusy) return;
       if (!drawing) return;
       const bounds = overlayElement.getBoundingClientRect();
       const currentX = clamp01((event.clientX - bounds.left) / Math.max(bounds.width, 1)) * bounds.width;
@@ -459,6 +571,7 @@ export class ImageOcclusionHandler {
     };
 
     const finishDrawing = (event: MouseEvent) => {
+      if (actionsBusy) return;
       if (!drawing) return;
       drawing = false;
       const bounds = overlayElement.getBoundingClientRect();
@@ -506,6 +619,34 @@ export class ImageOcclusionHandler {
       dialog?.destroy();
     });
 
+    bind(zoomOutButton, 'click', () => {
+      if (actionsBusy) return;
+      applyZoomPercent(zoomPercent - ZOOM_STEP_PERCENT);
+    });
+
+    bind(zoomInButton, 'click', () => {
+      if (actionsBusy) return;
+      applyZoomPercent(zoomPercent + ZOOM_STEP_PERCENT);
+    });
+
+    bind(canvasWrapElement, 'wheel', (event: WheelEvent) => {
+      if (actionsBusy || !event.ctrlKey) {
+        return;
+      }
+      event.preventDefault();
+      const previousZoomPercent = zoomPercent;
+      const centerX = canvasWrapElement.scrollLeft + canvasWrapElement.clientWidth / 2;
+      const centerY = canvasWrapElement.scrollTop + canvasWrapElement.clientHeight / 2;
+      const zoomDelta = event.deltaY < 0 ? ZOOM_STEP_PERCENT : -ZOOM_STEP_PERCENT;
+      applyZoomPercent(zoomPercent + zoomDelta);
+      if (zoomPercent === previousZoomPercent || previousZoomPercent <= 0) {
+        return;
+      }
+      const ratio = zoomPercent / previousZoomPercent;
+      canvasWrapElement.scrollLeft = centerX * ratio - canvasWrapElement.clientWidth / 2;
+      canvasWrapElement.scrollTop = centerY * ratio - canvasWrapElement.clientHeight / 2;
+    }, { passive: false });
+
     bind(promptInput, 'input', () => {
       if (!state.selectedMaskId) {
         return;
@@ -521,20 +662,60 @@ export class ImageOcclusionHandler {
     });
 
     bind(saveButton, 'click', async () => {
-      saveButton.disabled = true;
-      try {
-        await this.saveOcclusion(blockId, imageSrc, state.masks);
-        showMessage(this.t('imageOcclusionSaved', 'Image occlusion saved'));
-        onSaved();
-      } catch (error) {
-        logger.error('Failed to save image occlusion:', error);
-        showMessage(this.t('imageOcclusionSaveFailed', 'Failed to save image occlusion'));
-      } finally {
-        saveButton.disabled = false;
-      }
+      await runWithBusyState(async () => {
+        try {
+          await saveCurrentMasks();
+          showMessage(this.t('imageOcclusionSaved', 'Image occlusion saved'));
+          onSaved();
+        } catch (error) {
+          logger.error('Failed to save image occlusion:', error);
+          showMessage(this.t('imageOcclusionSaveFailed', 'Failed to save image occlusion'));
+        }
+      });
+    });
+
+    bind(reviewAllButton, 'click', async () => {
+      await runWithBusyState(async () => {
+        try {
+          await saveCurrentMasks();
+          showMessage(this.t('imageOcclusionSaved', 'Image occlusion saved'));
+        } catch (error) {
+          logger.error('Failed to save image occlusion before opening retrieval practice:', error);
+          showMessage(this.t('imageOcclusionSaveFailed', 'Failed to save image occlusion'));
+          return;
+        }
+
+        try {
+          await this.openImageOcclusionReviewAll(blockId);
+        } catch (error) {
+          logger.error('Failed to open retrieval practice from image occlusion editor:', error);
+          showMessage(this.t('actionFailed', 'Action failed'));
+        }
+      });
+    });
+
+    bind(temporaryDrillButton, 'click', async () => {
+      await runWithBusyState(async () => {
+        try {
+          await saveCurrentMasks();
+          showMessage(this.t('imageOcclusionSaved', 'Image occlusion saved'));
+        } catch (error) {
+          logger.error('Failed to save image occlusion before opening temporary drill:', error);
+          showMessage(this.t('imageOcclusionSaveFailed', 'Failed to save image occlusion'));
+          return;
+        }
+
+        try {
+          await this.openImageOcclusionTemporaryDrill(blockId);
+        } catch (error) {
+          logger.error('Failed to open temporary drill from image occlusion editor:', error);
+          showMessage(this.t('actionFailed', 'Action failed'));
+        }
+      });
     });
 
     bind(window, 'keydown', (event) => {
+      if (actionsBusy) return;
       if (event.key === 'Delete' && state.selectedMaskId) {
         state.masks = state.masks.filter((mask) => mask.id !== state.selectedMaskId);
         state.selectedMaskId = null;
@@ -543,6 +724,7 @@ export class ImageOcclusionHandler {
     });
 
     bind(canvasElement, 'click', (event) => {
+      if (actionsBusy) return;
       const target = event.target as HTMLElement | null;
       if (!target?.closest('.siyuanmemo-image-occlusion-mask')) {
         state.selectedMaskId = null;
@@ -550,6 +732,13 @@ export class ImageOcclusionHandler {
       }
     });
 
+    imageElement.src = imageSrc;
+    if (!applyCanvasBaseWidthByNaturalSize()) {
+      bind(imageElement, 'load', () => {
+        applyCanvasBaseWidthByNaturalSize();
+      }, { once: true });
+    }
+    applyZoomPercent(100);
     renderMasks();
     return () => {
       cleanupFns.forEach((fn) => fn());
@@ -608,6 +797,19 @@ export class ImageOcclusionHandler {
       orderedCardIds: syncResult.orderedCardIds,
       maskToCardId: syncResult.maskToCardId,
     });
+  }
+
+  private async openImageOcclusionReviewAll(blockId: string): Promise<void> {
+    const dialogManager = this.plugin.getContext().getDialogManager();
+    await dialogManager.openRetrievalPracticeWithFilter({
+      blockIds: [blockId],
+      dueOnly: false,
+    });
+  }
+
+  private async openImageOcclusionTemporaryDrill(blockId: string): Promise<void> {
+    const dialogManager = this.plugin.getContext().getDialogManager();
+    await dialogManager.openTemporaryDrill([blockId]);
   }
 
   private isImageOcclusionCardMeta(meta: unknown): meta is ImageOcclusionCardMeta {

@@ -20,6 +20,8 @@ import { CardCreationHelper } from '@/application/helpers/CardCreationHelper';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import type { IReviewQueue } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
+import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/shared/ListChildrenResolver';
+import { resolveCdfTailMarkerFromSources } from '@/application/usecases/xiuyuan/shared/CdfTailMarker';
 
 const logger = createLogger('BlockMenuHandler');
 
@@ -74,8 +76,10 @@ interface DrillCardPayload {
 interface BlockSqlRow {
   id: string;
   type?: string;
+  parent_id?: string;
   subtype?: string;
   content?: string;
+  markdown?: string;
 }
 
 interface BlockTypeRow {
@@ -83,8 +87,8 @@ interface BlockTypeRow {
   content?: string;
 }
 
-interface BlockSubtypeRow {
-  subtype?: string;
+interface BlockIdRow {
+  id?: string;
 }
 
 interface CardAttributeWithTypeRow extends CardAttributeRow {
@@ -605,14 +609,9 @@ export class BlockMenuHandler {
       },
       {
         icon: 'iconList',
-        label: this.deps.i18n?.createListTemplateCard || '创建有序列表卡',
+        label: this.deps.i18n?.createListTemplateCard || '创建列表卡',
         click: async () => {
-          const hasOrderedChildren = await this.hasOrderedListChildren(blockIds[0]);
-          if (!hasOrderedChildren) {
-            await this.siyuanApi.pushErrMsg('只能对包含有序子列表项的块使用此功能');
-            return;
-          }
-          await this.createListTemplateCards(blockIds);
+          await this.createListCardsByMarker(blockIds);
         },
       },
       this.separator(),
@@ -936,51 +935,135 @@ export class BlockMenuHandler {
     return result;
   }
 
-  /**
-   * 检查块的子列表项是否为有序列表
-   */
-  private async hasOrderedListChildren(parentBlockId: string): Promise<boolean> {
-    try {
-      // 1. 获取列表容器
-      const listContainerResult = await this.siyuanApi.sql(`
-        SELECT id FROM blocks
-        WHERE parent_id = '${parentBlockId}'
-        AND type = 'l'
-        LIMIT 1
-      `) as BlockSqlRow[];
-      
-      if (!listContainerResult || listContainerResult.length === 0) {
-        return false;
-      }
-      
-      const listContainerId = listContainerResult[0].id;
-      
-      // 2. 检查子列表项是否为有序列表
-      const childrenResult = await this.siyuanApi.sql(`
-        SELECT subtype FROM blocks
-        WHERE parent_id = '${listContainerId}'
-        AND type = 'i'
-        LIMIT 1
-      `) as BlockSubtypeRow[];
-      
-      if (!childrenResult || childrenResult.length === 0) {
-        return false;
-      }
-      
-      return childrenResult[0].subtype === 'o';
-    } catch (err) {
-      logger.error('[SiYuanMemo] Failed to check list type:', err);
-      return false;
+  private resolveListMarkerFromTail(
+    parentParagraphKramdown: string,
+    parentParagraphText: string,
+    fallbackParentKramdown: string
+  ): 'concept' | 'descriptor' | null {
+    return resolveCdfTailMarkerFromSources([
+      parentParagraphKramdown,
+      parentParagraphText,
+      fallbackParentKramdown,
+    ]);
+  }
+
+  private async resolveListItemAnchorBlockId(selectedBlockId: string): Promise<string | null> {
+    const safeSelectedBlockId = this.escapeSQL(selectedBlockId);
+    const selectedRows = await this.siyuanApi.sql(`
+      SELECT id, type, parent_id
+      FROM blocks
+      WHERE id = '${safeSelectedBlockId}'
+      LIMIT 1
+    `) as BlockSqlRow[];
+    if (!selectedRows || selectedRows.length === 0) {
+      return null;
     }
+
+    const selected = selectedRows[0];
+    if (selected.type === 'i') {
+      return selected.id;
+    }
+    if (selected.type !== 'p' || typeof selected.parent_id !== 'string' || selected.parent_id.length === 0) {
+      return null;
+    }
+
+    const safeParentId = this.escapeSQL(selected.parent_id);
+    const parentRows = await this.siyuanApi.sql(`
+      SELECT id, type
+      FROM blocks
+      WHERE id = '${safeParentId}'
+      LIMIT 1
+    `) as BlockSqlRow[];
+    if (!parentRows || parentRows.length === 0 || parentRows[0].type !== 'i') {
+      return null;
+    }
+
+    return parentRows[0].id;
+  }
+
+  private async getParentParagraphSources(parentBlockId: string): Promise<{
+    paragraphKramdown: string;
+    paragraphText: string;
+    parentKramdown: string;
+  }> {
+    const rows = await this.siyuanApi.sql(`
+      SELECT id, content
+      FROM blocks
+      WHERE parent_id = '${this.escapeSQL(parentBlockId)}'
+        AND type = 'p'
+      ORDER BY sort ASC, id ASC
+      LIMIT 1
+    `) as Array<BlockIdRow & { content?: string }>;
+
+    const paragraphId = rows?.[0]?.id;
+    if (!paragraphId) {
+      const parent = await this.siyuanApi.getBlockKramdown(parentBlockId);
+      return {
+        paragraphKramdown: '',
+        paragraphText: '',
+        parentKramdown: parent.kramdown || '',
+      };
+    }
+    const paragraphText = typeof rows?.[0]?.content === 'string' ? rows[0].content : '';
+    const [paragraph, parent] = await Promise.all([
+      this.siyuanApi.getBlockKramdown(paragraphId),
+      this.siyuanApi.getBlockKramdown(parentBlockId),
+    ]);
+    return {
+      paragraphKramdown: paragraph.kramdown || '',
+      paragraphText,
+      parentKramdown: parent.kramdown || '',
+    };
+  }
+
+  private async createListCardsByMarker(blockIds: string[]): Promise<void> {
+    if (!blockIds || blockIds.length === 0) {
+      await this.siyuanApi.pushErrMsg('未选中任何块');
+      return;
+    }
+
+    const parentBlockId = await this.resolveListItemAnchorBlockId(blockIds[0]);
+    if (!parentBlockId) {
+      await this.siyuanApi.pushErrMsg('仅支持列表项块或其直属段落块');
+      return;
+    }
+
+    const parentSources = await this.getParentParagraphSources(parentBlockId);
+    const marker = this.resolveListMarkerFromTail(
+      parentSources.paragraphKramdown,
+      parentSources.paragraphText,
+      parentSources.parentKramdown
+    );
+
+    if (marker === 'concept') {
+      await this.deps.dialogManager.createCdfMultilineTemplateCards(
+        [parentBlockId],
+        'builtin-list-concept-multiline',
+        { skipSymbolConfirmation: true }
+      );
+      return;
+    }
+
+    if (marker === 'descriptor') {
+      await this.deps.dialogManager.createCdfMultilineTemplateCards(
+        [parentBlockId],
+        'builtin-list-descriptor-multiline',
+        { skipSymbolConfirmation: true }
+      );
+      return;
+    }
+
+    await this.createListTemplateCards([parentBlockId]);
   }
 
   /**
-   * 创建有序列表模版卡
-   * 
+   * 创建列表模版卡（默认流）
+   *
    * @description
-   * 自动检测列表项块，如果子级为有序列表项，则为每个子级创建一张卡片。
-   * 支持提示功能：子列表项使用 `→` 分隔提示和答案。
-   * 
+   * - 有序子级（>=2）：逐条创建（split-v2）
+   * - 无序子级（>=2）：汇总创建（summary-v1）
+   * - 混合：双轨并存
+   *
    * @param blockIds 选中的块 ID 列表
    */
   private async createListTemplateCards(blockIds: string[]): Promise<void> {
@@ -990,8 +1073,12 @@ export class BlockMenuHandler {
         return;
       }
 
-      // 只处理第一个块
-      const parentBlockId = blockIds[0];
+      // 只处理第一个块（支持从直属段落块自动归一到父列表项）
+      const parentBlockId = await this.resolveListItemAnchorBlockId(blockIds[0]);
+      if (!parentBlockId) {
+        await this.siyuanApi.pushErrMsg('仅支持列表项块或其直属段落块');
+        return;
+      }
       logger.info(`[SiYuanMemo] 🎯 Creating ordered list template cards for: ${parentBlockId}`);
 
       // 1. 检查块类型
@@ -1007,113 +1094,76 @@ export class BlockMenuHandler {
       }
 
       const blockType = typeResult[0].type;
-      const blockContent = typeResult[0].content;
 
       if (blockType !== 'i') {
         await this.siyuanApi.pushErrMsg(`只能对列表项块使用此功能（当前类型：${blockType}）`);
         return;
       }
 
-      // 2. 获取子级列表项（必须是有序列表）
-      // 思源的列表结构：列表项(i) → 段落(p) + 列表容器(l) → 子列表项(i)
-      // 所以需要先找到列表容器(l)，再查询其子级
-      const allChildrenResult = await this.siyuanApi.sql(`
-        SELECT id, type, content FROM blocks
-        WHERE parent_id = '${parentBlockId}'
-        ORDER BY id ASC
-      `) as BlockSqlRow[];
-      
-      logger.info(`[SiYuanMemo] All children of ${parentBlockId}:`, allChildrenResult);
-      
-      // 找到列表容器
-      const listContainer = allChildrenResult.find((r) => r.type === 'l');
-      
-      if (!listContainer) {
-        await this.siyuanApi.pushErrMsg('未找到列表容器，请确保列表结构正确');
-        return;
-      }
-      
-      logger.info(`[SiYuanMemo] Found list container:`, listContainer.id);
-      
-      // 查询列表容器的所有子级（不限制类型，看看实际结构）
-      const allListChildren = await this.siyuanApi.sql(`
-        SELECT id, type, subtype, content FROM blocks
-        WHERE parent_id = '${listContainer.id}'
-        ORDER BY id ASC
-      `) as BlockSqlRow[];
-      
-      logger.info(`[SiYuanMemo] All list container children:`, allListChildren);
-      
-      // 查询列表容器的子级列表项（必须是有序列表）
-      const childrenResult = await this.siyuanApi.sql(`
-        SELECT id, content FROM blocks
-        WHERE parent_id = '${listContainer.id}'
-        AND type = 'i'
-        AND subtype = 'o'
-        ORDER BY id ASC
-      `) as BlockSqlRow[];
+      const resolved = await resolveListChildrenBySubtype(parentBlockId, this.siyuanApi);
+      const orderedChildren = resolved.orderedChildren;
+      const unorderedChildren = resolved.unorderedChildren;
 
-      logger.info(`[SiYuanMemo] Ordered list item children (type='i', subtype='o'):`, childrenResult);
-
-      // 如果没有找到直接子级，尝试查询所有后代列表项（必须是有序列表）
-      let finalChildren: BlockSqlRow[] = childrenResult;
-      if (!finalChildren || finalChildren.length === 0) {
-        logger.info(`[SiYuanMemo] No direct ordered children found, trying descendants...`);
-        
-        // 使用递归查询找到所有后代列表项（有序列表）
-        const descendantsResult = await this.siyuanApi.sql(`
-          WITH RECURSIVE descendants AS (
-            SELECT id, type, subtype, content, parent_id FROM blocks WHERE parent_id = '${listContainer.id}'
-            UNION ALL
-            SELECT b.id, b.type, b.subtype, b.content, b.parent_id FROM blocks b
-            INNER JOIN descendants d ON b.parent_id = d.id
-          )
-          SELECT id, content FROM descendants WHERE type = 'i' AND subtype = 'o' ORDER BY id ASC
-        `) as BlockSqlRow[];
-        
-        logger.info(`[SiYuanMemo] Descendant ordered list items:`, descendantsResult);
-        finalChildren = descendantsResult;
-      }
-
-      if (!finalChildren || finalChildren.length < 2) {
-        await this.siyuanApi.pushErrMsg(`需要至少2个有序子列表项（当前：${finalChildren?.length || 0}个）`);
+      if (orderedChildren.length < 2 && unorderedChildren.length < 2) {
+        await this.siyuanApi.pushErrMsg('至少需要2个同类型子列表项（有序或无序）');
         return;
       }
 
-      const childBlockIds = finalChildren.map((row) => row.id);
-      logger.info(`[SiYuanMemo] Found ${childBlockIds.length} children:`, childBlockIds);
-
-      // 3. 确认创建
-      await this.siyuanApi.pushMsg(`检测到 ${childBlockIds.length} 个子级列表项，开始创建卡片...`);
-
-      // 4. 为所有子级创建有序列表模版卡（一次性创建）
-      logger.info(`[SiYuanMemo] Creating ordered list template cards: ${blockContent} → ${childBlockIds.length} children`);
-
-      // ✅ 使用 XiuyuanApplicationService（符合 DDD 架构）
       const xiuyuanAppService = await this.deps.applicationContext.getXiuyuanApplicationService();
-      const result = await xiuyuanAppService.createListTemplateCards({
-        parentBlockId,
-        childBlockIds,
-        templateId: 'builtin-list-item'
-      });
 
-      if (result.ok) {
-        const createdCount = result.value.created.length;
-        const skippedCount = result.value.skippedChildBlockIds.length;
-        await this.siyuanApi.pushMsg(`✅ 有序列表模版卡创建完成：创建 ${createdCount} 张，跳过 ${skippedCount} 张`);
-        logger.info(`[SiYuanMemo] 🎉 Ordered list template cards creation complete:`, {
-          createdCount,
-          skippedCount,
-          created: result.value.created,
-          skippedChildBlockIds: result.value.skippedChildBlockIds,
+      let orderedCreated = 0;
+      let unorderedCreated = 0;
+      let skippedCount = 0;
+
+      if (orderedChildren.length >= 2) {
+        const orderedResult = await xiuyuanAppService.createListTemplateCards({
+          parentBlockId,
+          childBlockIds: orderedChildren.map((row) => row.id),
+          templateId: 'builtin-list-item',
+          creationMode: 'split-v2',
+          listKind: 'default',
         });
-      } else {
-        const errorMsg = result.ok === false ? result.error.message : 'Unknown error';
-        await this.siyuanApi.pushErrMsg(`创建失败：${errorMsg}`);
-        logger.error(`[SiYuanMemo] ❌ Ordered list template cards creation failed:`, result.ok === false ? result.error : 'Unknown error');
+
+        if (!orderedResult.ok) {
+          await this.siyuanApi.pushErrMsg(`创建失败：${orderedResult.error.message}`);
+          return;
+        }
+
+        orderedCreated = orderedResult.value.created.length;
+        skippedCount += orderedResult.value.skippedChildBlockIds.length;
       }
+
+      if (unorderedChildren.length >= 2) {
+        const unorderedResult = await xiuyuanAppService.createListTemplateCards({
+          parentBlockId,
+          childBlockIds: unorderedChildren.map((row) => row.id),
+          templateId: 'builtin-list-item',
+          creationMode: 'summary-v1',
+          listKind: 'default',
+        });
+
+        if (!unorderedResult.ok) {
+          await this.siyuanApi.pushErrMsg(`创建失败：${unorderedResult.error.message}`);
+          return;
+        }
+
+        unorderedCreated = unorderedResult.value.created.length;
+        skippedCount += unorderedResult.value.skippedChildBlockIds.length;
+      }
+
+      await this.siyuanApi.pushMsg(
+        `✅ 列表卡创建完成：有序创建：${orderedCreated} / 无序汇总：${unorderedCreated} / 跳过：${skippedCount}`
+      );
+      logger.info('[SiYuanMemo] List template cards creation complete:', {
+        parentBlockId,
+        orderedChildren: orderedChildren.length,
+        unorderedChildren: unorderedChildren.length,
+        orderedCreated,
+        unorderedCreated,
+        skippedCount,
+      });
     } catch (err) {
-      logger.error('[SiYuanMemo] Failed to create ordered list template cards:', err);
+      logger.error('[SiYuanMemo] Failed to create list template cards:', err);
       await this.siyuanApi.pushErrMsg(`创建失败：${(err as Error).message}`);
     }
   }

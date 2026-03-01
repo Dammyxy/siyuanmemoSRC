@@ -252,6 +252,7 @@ import {
 } from './constants';
 import { extractSqlStatement } from './utils/cardFilters';
 import { extractBlockIds } from './utils/helpers';
+import { interpolateI18n } from './utils/i18n';
 import {
   createQueueDataSource,
   createDeckDataSource,
@@ -1675,7 +1676,10 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   if (actionId === 'reset') {
     const ok = await confirmDialog({
       title: t('resetCard', 'Reset'),
-      content: t('confirmReset', `Are you sure you want to reset ${targetCards.length} cards?`),
+      content: interpolateI18n(
+        t('confirmReset', 'Are you sure you want to reset {count} cards?'),
+        { count: targetCards.length },
+      ),
       confirmText: t('confirm', 'Confirm'),
       cancelText: t('cancel', 'Cancel'),
     });
@@ -1686,7 +1690,10 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   if (actionId === 'delete-card') {
     const ok = await confirmDialog({
       title: t('deleteCard', 'Remove Flashcard'),
-      content: t('confirmDelete', `Are you sure you want to remove ${targetCards.length} flashcards? This action cannot be undone.`),
+      content: interpolateI18n(
+        t('confirmDelete', 'Are you sure you want to remove {count} flashcards? This action cannot be undone.'),
+        { count: targetCards.length },
+      ),
       confirmText: t('confirm', 'Confirm'),
       cancelText: t('cancel', 'Cancel'),
     });

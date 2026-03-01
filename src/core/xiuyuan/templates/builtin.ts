@@ -87,6 +87,48 @@ export const LIST_ITEM_TEMPLATE: ICardTemplate = {
   ],
 };
 
+/** 概念多行列表卡（入口模板，实际落库沿用 builtin-list-item） */
+export const LIST_CONCEPT_MULTILINE_TEMPLATE: ICardTemplate = {
+  id: 'builtin-list-concept-multiline',
+  name: '概念多行列表卡',
+  nameKey: 'templateNameListConceptMultiline',
+  descriptionKey: 'templateDescListConceptMultiline',
+  description: '用于 CDF `:::` 多行制卡。支持有序子级渐进式 + 无序子级汇总式，自动关联概念并补建概念卡。',
+  category: 'list',
+  fields: [
+    { name: 'question', description: '问题（父列表项）' },
+    { name: 'answer', description: '答案（子列表项）' },
+  ],
+  cardRules: [
+    {
+      typeMarker: 'list-concept-multiline',
+      frontFields: ['question'],
+      backFields: ['answer'],
+    },
+  ],
+};
+
+/** 描述符多行列表卡（入口模板，实际落库沿用 builtin-list-item） */
+export const LIST_DESCRIPTOR_MULTILINE_TEMPLATE: ICardTemplate = {
+  id: 'builtin-list-descriptor-multiline',
+  name: '描述符多行列表卡',
+  nameKey: 'templateNameListDescriptorMultiline',
+  descriptionKey: 'templateDescListDescriptorMultiline',
+  description: '用于 CDF `;;;` 多行制卡。支持有序子级渐进式 + 无序子级汇总式，自动向上探路关联概念并补建概念卡。',
+  category: 'list',
+  fields: [
+    { name: 'question', description: '问题（父列表项）' },
+    { name: 'answer', description: '答案（子列表项）' },
+  ],
+  cardRules: [
+    {
+      typeMarker: 'list-descriptor-multiline',
+      frontFields: ['question'],
+      backFields: ['answer'],
+    },
+  ],
+};
+
 /** 概念描述符卡 */
 export const CONCEPT_DESCRIPTOR_TEMPLATE: ICardTemplate = {
   id: 'builtin-concept-descriptor',
@@ -288,6 +330,8 @@ export const BUILTIN_TEMPLATES: ICardTemplate[] = [
   BIDIRECTIONAL_TEMPLATE,
   MULTI_CLOZE_TEMPLATE,
   LIST_ITEM_TEMPLATE,
+  LIST_CONCEPT_MULTILINE_TEMPLATE,
+  LIST_DESCRIPTOR_MULTILINE_TEMPLATE,
   CONCEPT_DESCRIPTOR_TEMPLATE,
   CONCEPT_DESCRIPTOR_AUTO_TEMPLATE,  // 只显示这一个，自动识别方向
   // CONCEPT_DESCRIPTOR_REVERSE_TEMPLATE,  // 内部使用，不显示
