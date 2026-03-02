@@ -25,6 +25,10 @@ import { createLogger } from '@/utils/logger';
 import type { FSRSCard } from '@/types/card';
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { buildClearedBlockAttrs } from '@/application/usecases/card/shared/CardBlockAttrCleaner';
+import {
+  TOPBAR_QUICK_ENTRY_DEFINITIONS,
+  type TopBarQuickEntryActionId,
+} from '@/application/entries/TopBarQuickEntryRegistry';
 
 const logger = createLogger('MenuManager');
 type BlockIdSqlRow = { id?: unknown; root_id?: unknown };
@@ -132,81 +136,15 @@ export class MenuManager {
     const cardService = this.context.getCardService();
     const dueResult = await cardService.getDueCards();
     
-    // 提取练习
-    menu.addItem({
-      icon: 'iconCards',
-      label: this.i18n?.startReview || 'Start Retrieval Practice',
-      accelerator: 'Alt+R',
-      click: () => {
-        this.openReviewDialog();
-      },
-    });
-    
-    // 渐进学习
-    menu.addItem({
-      icon: 'iconBook',
-      label: this.i18n?.startIncrementalLearning || 'Start Incremental Learning',
-      accelerator: 'Alt+I',
-      click: () => {
-        this.openIncrementalLearningDialog();
-      },
-    });
-    
-    // 刻意练习
-    menu.addItem({
-      icon: 'iconCards',
-      label: this.i18n?.startDeliberatePractice || 'Start Deliberate Practice',
-      accelerator: 'Alt+D',
-      click: () => {
-        this.openFinalDrillDialog();
-      },
-    });
-    
-    // 神经漫游
-    menu.addItem({
-      icon: 'iconRefresh',
-      label: this.i18n?.startNeuralReview || 'Start Neural Roam',
-      accelerator: 'Alt+N',
-      click: () => {
-        this.openNeuralRoamDialog();
-      },
-    });
-    
-    // 筛选复习
-    menu.addItem({
-      icon: 'iconCards',
-      label: this.i18n?.startFilterGroupPractice || 'Start Filtered Review',
-      accelerator: 'Alt+G',
-      click: () => {
-        this.openFilterGroupPracticeDialog();
-      },
-    });
-    
-    // SRS 浏览器
-    menu.addItem({
-      icon: 'iconLayoutRight',
-      label: this.i18n?.srsBrowser || 'SRS Browser',
-      accelerator: 'Alt+B',
-      click: () => {
-        this.openSRSBrowser();
-      },
-    });
-
-    menu.addItem({
-      icon: 'iconRiffCard',
-      label: this.i18n?.oneClickSymbolCardsCurrentDoc || '一键符号制卡（当前文档）',
-      click: () => {
-        void this.runOneClickSymbolCardCreationForCurrentDoc();
-      },
-    });
-
-    menu.addItem({
-      icon: 'iconTrashcan',
-      label: this.i18n?.oneClickCancelCardsCurrentDoc || '一键取消闪卡（当前文档）',
-      click: () => {
-        void this.runOneClickCancelCardsForCurrentDoc();
-      },
-    });
+    for (const definition of TOPBAR_QUICK_ENTRY_DEFINITIONS) {
+      menu.addItem({
+        icon: definition.icon,
+        label: this.i18n?.[definition.commandLangKey] || definition.fallbackLabel,
+        click: () => {
+          void this.runTopBarQuickEntryAction(definition.id);
+        },
+      });
+    }
     
     menu.addSeparator();
     
@@ -239,6 +177,52 @@ export class MenuManager {
       });
     } else {
       menu.open({ x: ev.clientX, y: ev.clientY, isLeft: true });
+    }
+  }
+
+  public async runTopBarQuickEntryAction(
+    actionId: TopBarQuickEntryActionId,
+    input?: { docId?: string | null },
+  ): Promise<void> {
+    const normalizedDocId = typeof input?.docId === 'string' ? input.docId.trim() : '';
+
+    switch (actionId) {
+      case 'start-review':
+        this.openReviewDialog();
+        return;
+      case 'start-incremental-learning':
+        this.openIncrementalLearningDialog();
+        return;
+      case 'start-deliberate-practice':
+        this.openFinalDrillDialog();
+        return;
+      case 'start-neural-roam':
+        this.openNeuralRoamDialog();
+        return;
+      case 'start-filter-group-practice':
+        this.openFilterGroupPracticeDialog();
+        return;
+      case 'open-srs-browser':
+        this.openSRSBrowser();
+        return;
+      case 'one-click-symbol-current-doc':
+        if (normalizedDocId) {
+          await this.runOneClickSymbolCardCreationByDocId(normalizedDocId);
+          return;
+        }
+        await this.runOneClickSymbolCardCreationForCurrentDoc();
+        return;
+      case 'one-click-cancel-current-doc':
+        if (normalizedDocId) {
+          await this.runOneClickCancelCardsByDocId(normalizedDocId);
+          return;
+        }
+        await this.runOneClickCancelCardsForCurrentDoc();
+        return;
+      default: {
+        const unreachable: never = actionId;
+        throw new Error(`Unsupported top bar quick action: ${unreachable}`);
+      }
     }
   }
 

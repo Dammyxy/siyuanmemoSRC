@@ -5,15 +5,25 @@
  * @implements {IPluginFacade}
  */
 
-import { Plugin, getFrontend } from 'siyuan';
+import { Plugin, getFrontend, showMessage } from 'siyuan';
 import { pushErrMsg, pushMsg } from '@/infrastructure/siyuan/api';
 import { ApplicationContext } from '@/application/ApplicationContext';
 import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import { ConfigMigrator } from '@/utils/configMigrator';
-import { createLogger, installConsoleBridge } from '@/utils/logger';
+import { createLogger } from '@/utils/logger';
 import type { RiffIntegrationConfig } from '@/types/settings';
 import { FormulaClozeAssistant } from '@/application/handlers/FormulaClozeAssistant';
 import { ImageOcclusionHandler } from '@/application/handlers/ImageOcclusionHandler';
+import { BlockContextResolver } from '@/application/entries/BlockContextResolver';
+import {
+  CORE_REVIEW_ENTRY_DEFINITIONS,
+  type CoreReviewEntryActionId,
+} from '@/application/entries/CoreReviewEntryRegistry';
+import {
+  TOPBAR_QUICK_ENTRY_DEFINITIONS,
+  getTopBarQuickEntryDefinition,
+  type TopBarQuickEntryActionId,
+} from '@/application/entries/TopBarQuickEntryRegistry';
 import '@/index.scss';
 
 export default class FSRSPlugin extends Plugin implements IPluginFacade {
@@ -33,7 +43,12 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   private mobileSidebarToolbarEntryClickHandler: ((ev: MouseEvent) => void) | null = null;
   private formulaClozeAssistant: FormulaClozeAssistant | null = null;
   private imageOcclusionHandler: ImageOcclusionHandler | null = null;
-  private readonly oneClickSymbolSlashId = 'siyuanmemo-one-click-symbol-cards';
+  private readonly topBarQuickSlashIds = TOPBAR_QUICK_ENTRY_DEFINITIONS.map((definition) => definition.slashId);
+  private readonly coreReviewSlashIds = CORE_REVIEW_ENTRY_DEFINITIONS.map((definition) => definition.slashId);
+  private readonly blockToolSlashIds = [
+    'siyuanmemo-block-tool-edit-srs-data',
+    'siyuanmemo-block-tool-rebind-descriptor-concept',
+  ];
 
   // ========================================================================
   // IPluginFacade 实现
@@ -89,7 +104,6 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   private didWarnTopbarMount = false;
 
   async onload() {
-    installConsoleBridge();
     this.logger.info('Plugin loading...');
     this.isInitialized = false;
 
@@ -112,9 +126,17 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       this.imageOcclusionHandler = new ImageOcclusionHandler(this);
       this.registerDock();
       this.registerEventHandlers();
-      this.registerOneClickSymbolCardCommands();
       this.registerImageOcclusionCommands();
-      this.registerOneClickSymbolCardSlash();
+      this.registerTopBarQuickCommands();
+      if (this.shouldExposeCoreReviewContextEntries()) {
+        this.registerCoreReviewCommands();
+      }
+      this.registerBlockToolCommands();
+      this.registerTopBarQuickSlash();
+      if (this.shouldExposeCoreReviewContextEntries()) {
+        this.registerCoreReviewSlash();
+      }
+      this.registerBlockToolSlash();
     } catch (err) {
       this.logger.error('Plugin initialization failed:', err);
       try { await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败'); } catch {}
@@ -145,13 +167,17 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     this.removeMobileSidebarEntry();
     this.stopMobileSidebarToolbarObserver();
     this.removeMobileSidebarToolbarEntry();
-    this.unregisterOneClickSymbolCardSlash();
+    this.unregisterTopBarQuickSlash();
+    if (this.shouldExposeCoreReviewContextEntries()) {
+      this.unregisterCoreReviewSlash();
+    }
+    this.unregisterBlockToolSlash();
     this.formulaClozeAssistant?.stop();
     this.formulaClozeAssistant = null;
     this.imageOcclusionHandler?.dispose();
     this.imageOcclusionHandler = null;
     if (this.context) {
-      this.context.dispose().catch(err => this.logger.error('Error disposing context:', err));
+      this.context.dispose({ persistStorage: false }).catch(err => this.logger.error('Error disposing context:', err));
     }
   }
 
@@ -225,23 +251,6 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     this.eventBus.on('open-menu-image', (e) => this.imageOcclusionHandler?.handleImageMenu(e));
   }
 
-  private registerOneClickSymbolCardCommands(): void {
-    this.addCommand({
-      langKey: 'oneClickSymbolCardsCurrentDoc',
-      callback: () => {
-        void this.context.getMenuManager().runOneClickSymbolCardCreationForCurrentDoc();
-      },
-      editorCallback: (protyle: unknown) => {
-        const docId = this.extractDocIdFromProtyle(protyle);
-        if (docId) {
-          void this.context.getMenuManager().runOneClickSymbolCardCreationByDocId(docId);
-          return;
-        }
-        void this.context.getMenuManager().runOneClickSymbolCardCreationForCurrentDoc();
-      },
-    });
-  }
-
   private registerImageOcclusionCommands(): void {
     this.addCommand({
       langKey: 'imageOcclusionCardCurrentBlock',
@@ -254,42 +263,238 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     });
   }
 
-  private registerOneClickSymbolCardSlash(): void {
-    if (this.protyleSlash.some((item) => item.id === this.oneClickSymbolSlashId)) {
-      return;
-    }
+  private shouldExposeCoreReviewContextEntries(): boolean {
+    return false;
+  }
 
-    const label = this.i18n?.oneClickSymbolCardsCurrentDoc || 'One-click Symbol Cards (Current Doc)';
-    this.protyleSlash.push({
-      id: this.oneClickSymbolSlashId,
-      filter: [
-        'symbol card',
-        'one click card',
-        'symbol',
-        'symbol cards',
-        'fuhao card',
-        '\u7b26\u53f7\u5236\u5361',
-        '\u4e00\u952e\u7b26\u53f7\u5236\u5361',
-      ],
-      html: `
-        <div class="b3-list-item__first">
-          <svg class="b3-list-item__graphic"><use xlink:href="#iconRiffCard"></use></svg>
-          <span class="b3-list-item__text">${label}</span>
-        </div>
-      `,
-      callback: (protyle) => {
-        const docId = this.extractDocIdFromProtyle(protyle);
-        if (docId) {
-          void this.context.getMenuManager().runOneClickSymbolCardCreationByDocId(docId);
-          return;
-        }
-        void this.context.getMenuManager().runOneClickSymbolCardCreationForCurrentDoc();
+  private registerTopBarQuickCommands(): void {
+    for (const definition of TOPBAR_QUICK_ENTRY_DEFINITIONS) {
+      this.addCommand({
+        langKey: definition.commandLangKey,
+        callback: () => {
+          void this.runTopBarQuickEntryAction(definition.id);
+        },
+        editorCallback: (protyle: unknown) => {
+          void this.runTopBarQuickEntryAction(definition.id, { protyle });
+        },
+      });
+    }
+  }
+
+  private registerCoreReviewCommands(): void {
+    for (const definition of CORE_REVIEW_ENTRY_DEFINITIONS) {
+      this.addCommand({
+        langKey: definition.commandLangKey,
+        callback: () => {
+          void this.runCoreReviewEntryAction(definition.id);
+        },
+        editorCallback: (protyle: unknown) => {
+          void this.runCoreReviewEntryAction(definition.id, { protyle });
+        },
+      });
+    }
+  }
+
+  private registerBlockToolCommands(): void {
+    this.addCommand({
+      langKey: 'editSrsData',
+      callback: () => {
+        void this.runEditSrsDataAction();
+      },
+      editorCallback: (protyle: unknown) => {
+        void this.runEditSrsDataAction({ protyle });
+      },
+    });
+
+    this.addCommand({
+      langKey: 'rebindDescriptorConcept',
+      callback: () => {
+        void this.runRebindDescriptorConceptAction();
+      },
+      editorCallback: (protyle: unknown) => {
+        void this.runRebindDescriptorConceptAction({ protyle });
       },
     });
   }
 
-  private unregisterOneClickSymbolCardSlash(): void {
-    this.protyleSlash = this.protyleSlash.filter((item) => item.id !== this.oneClickSymbolSlashId);
+  private registerTopBarQuickSlash(): void {
+    for (const definition of TOPBAR_QUICK_ENTRY_DEFINITIONS) {
+      if (this.protyleSlash.some((item) => item.id === definition.slashId)) {
+        continue;
+      }
+
+      const label = this.i18n?.[definition.commandLangKey] || definition.fallbackLabel;
+      this.protyleSlash.push({
+        id: definition.slashId,
+        filter: definition.slashFilters,
+        html: `
+          <div class="b3-list-item__first">
+            <svg class="b3-list-item__graphic"><use xlink:href="#${definition.icon}"></use></svg>
+            <span class="b3-list-item__text">${label}</span>
+          </div>
+        `,
+        callback: (protyle, nodeElement) => {
+          void this.runTopBarQuickEntryAction(definition.id, {
+            protyle,
+            nodeElement,
+          });
+        },
+      });
+    }
+  }
+
+  private registerCoreReviewSlash(): void {
+    for (const definition of CORE_REVIEW_ENTRY_DEFINITIONS) {
+      if (this.protyleSlash.some((item) => item.id === definition.slashId)) {
+        continue;
+      }
+
+      const label = this.i18n?.[definition.commandLangKey] || definition.fallbackLabel;
+      this.protyleSlash.push({
+        id: definition.slashId,
+        filter: definition.slashFilters,
+        html: `
+          <div class="b3-list-item__first">
+            <svg class="b3-list-item__graphic"><use xlink:href="#${definition.icon}"></use></svg>
+            <span class="b3-list-item__text">${label}</span>
+          </div>
+        `,
+        callback: (protyle, nodeElement) => {
+          void this.runCoreReviewEntryAction(definition.id, {
+            protyle,
+            nodeElement,
+          });
+        },
+      });
+    }
+  }
+
+  private registerBlockToolSlash(): void {
+    const editSrsSlashId = this.blockToolSlashIds[0];
+    if (!this.protyleSlash.some((item) => item.id === editSrsSlashId)) {
+      const editSrsLabel = this.i18n?.editSrsData || '编辑SRS数据';
+      this.protyleSlash.push({
+        id: editSrsSlashId,
+        filter: ['siyuanmemo', 'edit srs', 'srs', '编辑srs', '编辑srs数据'],
+        html: `
+          <div class="b3-list-item__first">
+            <svg class="b3-list-item__graphic"><use xlink:href="#iconEdit"></use></svg>
+            <span class="b3-list-item__text">${editSrsLabel}</span>
+          </div>
+        `,
+        callback: (protyle, nodeElement) => {
+          void this.runEditSrsDataAction({
+            protyle,
+            nodeElement,
+          });
+        },
+      });
+    }
+
+    const rebindSlashId = this.blockToolSlashIds[1];
+    if (!this.protyleSlash.some((item) => item.id === rebindSlashId)) {
+      const rebindLabel = this.i18n?.rebindDescriptorConcept || '🔄 重新绑定概念';
+      this.protyleSlash.push({
+        id: rebindSlashId,
+        filter: ['siyuanmemo', 'rebind concept', 'descriptor concept', '重新绑定概念'],
+        html: `
+          <div class="b3-list-item__first">
+            <svg class="b3-list-item__graphic"><use xlink:href="#iconRefresh"></use></svg>
+            <span class="b3-list-item__text">${rebindLabel}</span>
+          </div>
+        `,
+        callback: (protyle, nodeElement) => {
+          void this.runRebindDescriptorConceptAction({
+            protyle,
+            nodeElement,
+          });
+        },
+      });
+    }
+  }
+
+  private unregisterTopBarQuickSlash(): void {
+    const slashIds = new Set(this.topBarQuickSlashIds);
+    this.protyleSlash = this.protyleSlash.filter((item) => !slashIds.has(item.id));
+  }
+
+  private unregisterCoreReviewSlash(): void {
+    const slashIds = new Set(this.coreReviewSlashIds);
+    this.protyleSlash = this.protyleSlash.filter((item) => !slashIds.has(item.id));
+  }
+
+  private unregisterBlockToolSlash(): void {
+    const slashIds = new Set(this.blockToolSlashIds);
+    this.protyleSlash = this.protyleSlash.filter((item) => !slashIds.has(item.id));
+  }
+
+  private async runEditSrsDataAction(
+    input?: { protyle?: unknown; nodeElement?: HTMLElement | null },
+  ): Promise<void> {
+    const context = this.resolveCoreReviewBlockContext(input);
+    if (!context) {
+      return;
+    }
+
+    const blockMenuHandler = this.context.getBlockMenuHandler();
+    await blockMenuHandler.runEditSrsDataAction(context.blockElements);
+  }
+
+  private async runRebindDescriptorConceptAction(
+    input?: { protyle?: unknown; nodeElement?: HTMLElement | null },
+  ): Promise<void> {
+    const context = this.resolveCoreReviewBlockContext(input);
+    if (!context) {
+      return;
+    }
+
+    const blockMenuHandler = this.context.getBlockMenuHandler();
+    await blockMenuHandler.runRebindDescriptorConceptAction(context.blockElements);
+  }
+
+  private async runCoreReviewEntryAction(
+    actionId: CoreReviewEntryActionId,
+    input?: { protyle?: unknown; nodeElement?: HTMLElement | null },
+  ): Promise<void> {
+    const context = this.resolveCoreReviewBlockContext(input);
+    if (!context) {
+      return;
+    }
+
+    const blockMenuHandler = this.context.getBlockMenuHandler();
+    await blockMenuHandler.runCoreEntryAction(actionId, context.blockElements);
+  }
+
+  private async runTopBarQuickEntryAction(
+    actionId: TopBarQuickEntryActionId,
+    input?: { protyle?: unknown; nodeElement?: HTMLElement | null },
+  ): Promise<void> {
+    const definition = getTopBarQuickEntryDefinition(actionId);
+    const docId = definition?.requiresDocContext
+      ? this.extractDocIdFromProtyle(input?.protyle)
+      : null;
+    await this.context.getMenuManager().runTopBarQuickEntryAction(actionId, { docId });
+  }
+
+  private resolveCoreReviewBlockContext(
+    input?: { protyle?: unknown; nodeElement?: HTMLElement | null },
+  ): { blockElements: HTMLElement[] } | null {
+    const resolver = new BlockContextResolver({
+      i18n: this.i18n || {},
+      notify: (message) => {
+        showMessage(message, 5000, 'info');
+      },
+    });
+
+    const result = resolver.resolve({
+      protyle: input?.protyle,
+      nodeElement: input?.nodeElement || null,
+    });
+    if (!result) {
+      return null;
+    }
+
+    return { blockElements: result.blockElements };
   }
 
   private extractDocIdFromProtyle(protyle: unknown): string | null {

@@ -1504,7 +1504,8 @@ export class ApplicationContext {
    * @returns Promise<void>
    * @throws Error - 如果关键资源释放失败（如存储保存失败）
    */
-  async dispose(): Promise<void> {
+  async dispose(options?: { persistStorage?: boolean }): Promise<void> {
+    const shouldPersistStorage = options?.persistStorage !== false;
     // 幂等性：如果已经销毁，直接返回
     if (this.disposed) {
       return;
@@ -1565,21 +1566,24 @@ export class ApplicationContext {
       // 4. 销毁所有已创建的服务（按创建顺序的逆序）
       await this.disposeServices(errors);
       
-      // 5. 保存存储管理器数据（关键操作）
-      try {
-        logger.info('[ApplicationContext] Saving storage data...');
-        const saveResult = await this.unifiedStorageManager.save();  // ✅ 使用新架构 UnifiedStorageManager
-        if (!saveResult.ok) {
-          throw new Error(saveResult.error?.message || 'Unknown error');
+      // 5. Save storage data only when explicitly allowed
+      if (shouldPersistStorage) {
+        try {
+          logger.info('[ApplicationContext] Saving storage data...');
+          const saveResult = await this.unifiedStorageManager.save();  // ✅ 使用新架构 UnifiedStorageManager
+          if (!saveResult.ok) {
+            throw new Error(saveResult.error?.message || 'Unknown error');
+          }
+          logger.info('[ApplicationContext] Storage data saved successfully');
+        } catch (error) {
+          logger.error('[ApplicationContext] Critical error: Failed to save storage data:', error);
+          errors.push({ service: 'unifiedStorageManager.save', error });
+          throw new Error(`Failed to save storage data during disposal: ${error}`);
         }
-        logger.info('[ApplicationContext] Storage data saved successfully');
-      } catch (error) {
-        logger.error('[ApplicationContext] Critical error: Failed to save storage data:', error);
-        errors.push({ service: 'unifiedStorageManager.save', error });
-        // 存储保存失败是关键错误，需要抛出
-        throw new Error(`Failed to save storage data during disposal: ${error}`);
+      } else {
+        logger.info('[ApplicationContext] Skipping storage save during disposal (persistStorage=false)');
       }
-      
+
       // 6. 清空服务容器和工厂
       this.serviceContainer.clear();
       this.serviceFactories.clear();

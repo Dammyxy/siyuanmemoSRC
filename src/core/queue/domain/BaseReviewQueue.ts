@@ -215,6 +215,16 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     public abstract removeCard(cardIdOrBlockId: string): Promise<void>;
 
     /**
+     * 评分后移除卡片（受保护钩子）
+     *
+     * 默认行为与 removeCard 一致。动态队列可覆写该方法，
+     * 实现“评分移除”与“用户手动移除”的语义分离。
+     */
+    protected async removeCardAfterReview(cardIdOrBlockId: string): Promise<void> {
+        await this.removeCard(cardIdOrBlockId);
+    }
+
+    /**
      * 更新卡片
      */
     public async updateCard(card: FSRSCard): Promise<void> {
@@ -443,7 +453,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             
             // 5. 移除或保留卡片
             if (shouldRemove) {
-                await this.removeCard(cardId);
+                await this.removeCardAfterReview(cardId);
                 logger.info(`[${this.type}] Card ${cardId} reviewed with rating ${rating}, removed from queue`);
             } else {
                 logger.info(`[${this.type}] Card ${cardId} reviewed with rating ${rating}, kept in queue`);

@@ -47,6 +47,19 @@ describe('SkipMenuButton', () => {
     expect(wrapper.emitted('skip')).toBeTruthy();
   });
 
+  it('renders skip hotkey hint as 0 / x and exposes tooltip label', () => {
+    const wrapper = mount(SkipMenuButton, {
+      props: {
+        isMobile: false,
+      },
+    });
+
+    const primary = wrapper.get('.skip-menu-button__skip');
+    expect(primary.text()).toContain('(0 / x)');
+    expect(primary.attributes('aria-label')).toBe('0 / x');
+    expect(primary.classes()).toContain('b3-tooltips');
+  });
+
   it('opens menu anchored to dropdown button rect on desktop', async () => {
     const wrapper = mount(SkipMenuButton, {
       props: {

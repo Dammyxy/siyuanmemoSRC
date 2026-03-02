@@ -22,6 +22,8 @@ import type { IReviewQueue } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/shared/ListChildrenResolver';
 import { resolveCdfTailMarkerFromSources } from '@/application/usecases/xiuyuan/shared/CdfTailMarker';
+import { CoreReviewEntryService } from '@/application/entries/CoreReviewEntryService';
+import type { CoreReviewEntryActionId } from '@/application/entries/CoreReviewEntryRegistry';
 
 const logger = createLogger('BlockMenuHandler');
 
@@ -122,6 +124,14 @@ export class BlockMenuHandler {
     // ReviewEntry 类已删除，功能直接在 BlockMenuHandler 中实现
   }
 
+  private createCoreReviewEntryService(): CoreReviewEntryService {
+    return new CoreReviewEntryService({
+      i18n: this.deps.i18n,
+      dialogManager: this.deps.dialogManager,
+      notify: async (message) => this.siyuanApi.pushMsg(message),
+    });
+  }
+
   /**
    * 设置 ApplicationContext（用于解决循环依赖）
    * 
@@ -157,11 +167,79 @@ export class BlockMenuHandler {
 
   private extractMetaRootId(card: FSRSCard): string | undefined {
     const meta = card.meta as unknown;
-    if (typeof meta !== 'object' || meta === null || !('rootId' in meta)) {
+    if (typeof meta !== 'object' || meta === null) {
       return undefined;
     }
-    const rootId = (meta as { rootId?: unknown }).rootId;
-    return typeof rootId === 'string' ? rootId : undefined;
+    const metaRecord = meta as Record<string, unknown>;
+    const rootId = metaRecord.rootId ?? metaRecord.rootID ?? metaRecord.root_id;
+    if (typeof rootId !== 'string') {
+      return undefined;
+    }
+    const normalized = rootId.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private escapeAttr(value: string): string {
+    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+      return CSS.escape(value);
+    }
+    return value.replace(/"/g, '\\"');
+  }
+
+  private collectCardsFromDocumentDom(docId: string): FSRSCard[] {
+    const escapedDocId = this.escapeAttr(docId);
+    const backgrounds = Array.from(document.querySelectorAll<HTMLElement>(
+      `.protyle-content .protyle-background[data-node-id="${escapedDocId}"]`,
+    ));
+    if (backgrounds.length === 0) {
+      return [];
+    }
+
+    const blockIds = new Set<string>();
+    for (const background of backgrounds) {
+      const content = background.closest('.protyle-content') as HTMLElement | null;
+      const wysiwyg = content?.querySelector<HTMLElement>('.protyle-wysiwyg');
+      if (!wysiwyg) {
+        continue;
+      }
+      const nodes = Array.from(wysiwyg.querySelectorAll<HTMLElement>('[data-node-id]'));
+      for (const node of nodes) {
+        const blockId = node.getAttribute('data-node-id');
+        if (blockId) {
+          blockIds.add(blockId);
+        }
+      }
+    }
+
+    if (blockIds.size === 0) {
+      return [];
+    }
+
+    const cardsById = new Map<string, FSRSCard>();
+    for (const blockId of blockIds) {
+      const cards = this.getStorage().getCardsByBlockId(blockId);
+      for (const card of cards) {
+        if (card?.id) {
+          cardsById.set(card.id, card);
+        }
+      }
+    }
+
+    return Array.from(cardsById.values());
+  }
+
+  private collectCardsFromDocScope(docId: string): FSRSCard[] {
+    const cardsInDom = this.collectCardsFromDocumentDom(docId);
+    if (cardsInDom.length > 0) {
+      return cardsInDom;
+    }
+
+    return this.getStorage()
+      .getAllCards()
+      .filter((card) => {
+        const rootId = this.extractMetaRootId(card);
+        return rootId === docId || card.blockId === docId;
+      });
   }
 
   /**
@@ -200,63 +278,113 @@ export class BlockMenuHandler {
     return result;
   }
 
-  /**
-   * 过滤到期卡片
-   * 
-   * @param cards 卡片列表
-   * @returns 到期卡片列表
-   */
-  private filterDueCards(cards: FSRSCard[]): FSRSCard[] {
-    const now = Date.now();
-    return cards.filter(card => 
-      card.due <= now &&
-      !card.skipped &&
-      (!card.skipUntil || card.skipUntil <= now)
-    );
-  }
-
-  /**
-   * 打开提取练习对话框
-   * 
-   * @param cards 卡片列表
-   * @param dueOnly 是否只复习到期卡片
-   */
-  private async openRetrievalPractice(cards: FSRSCard[], dueOnly: boolean): Promise<void> {
-    const blockIds = cards.map(c => c.blockId);
-    await this.deps.dialogManager.openRetrievalPracticeWithFilter({
-      blockIds,
-      dueOnly,
-    });
-  }
-
-  /**
-   * 打开渐进学习对话框
-   * 
-   * @param cards 卡片列表
-   * @param dueOnly 是否只复习到期卡片
-   */
-  private async openIncrementalLearning(cards: FSRSCard[], dueOnly: boolean): Promise<void> {
-    const blockIds = cards.map(c => c.blockId);
-    await this.deps.dialogManager.openIncrementalLearningWithFilter({
-      blockIds,
-      dueOnly,
-    });
-  }
-
-  /**
-   * 打开临时练习对话框
-   * 
-   * @param cards 卡片列表
-   */
-  private async openTemporaryDrill(cards: FSRSCard[]): Promise<void> {
-    const blockIds = [...new Set(cards.map(card => card.blockId).filter(Boolean))];
-    
-    if (blockIds.length === 0) {
-      await this.siyuanApi.pushMsg('无法打开临时练习');
+  async runCoreEntryAction(actionId: CoreReviewEntryActionId, blockElements: HTMLElement[]): Promise<void> {
+    const elements = Array.isArray(blockElements) ? blockElements : [];
+    if (elements.length === 0) {
+      await this.siyuanApi.pushMsg(
+        this.deps.i18n?.coreReviewNoBlockContext || '未找到块上下文，请先选中块或将光标放在块内',
+      );
       return;
     }
-    
-    await this.deps.dialogManager.openTemporaryDrill(blockIds);
+
+    const cards = this.collectCardsFromElements(elements);
+    const coreReviewEntryService = this.createCoreReviewEntryService();
+    await coreReviewEntryService.execute(actionId, cards);
+  }
+
+  async runEditSrsDataAction(blockElements: HTMLElement[]): Promise<void> {
+    const elements = Array.isArray(blockElements) ? blockElements : [];
+    if (elements.length === 0) {
+      await this.siyuanApi.pushMsg(
+        this.deps.i18n?.coreReviewNoBlockContext || '未找到块上下文，请先选中块或将光标放在块内',
+      );
+      return;
+    }
+
+    const blockIds = elements
+      .map((el) => el.getAttribute('data-node-id'))
+      .filter((id): id is string => Boolean(id));
+
+    const targetCard = this.resolveEditableCardFromBlocks(elements, blockIds);
+    if (!targetCard) {
+      await this.siyuanApi.pushErrMsg(this.deps.i18n?.msg_no_flashcard || '未找到闪卡，请先将块制为闪卡');
+      return;
+    }
+
+    createVueDialog({
+      title: this.deps.i18n?.editSrsData || '编辑SRS数据',
+      component: SrsEditorDialog,
+      props: {
+        card: {
+          id: targetCard.cardID,
+          blockId: targetCard.blockID,
+          deckId: this.siyuanApi.BUILTIN_DECK_ID,
+        },
+        deckId: this.siyuanApi.BUILTIN_DECK_ID,
+        i18n: this.deps.i18n || {},
+        plugin: this.deps.applicationContext.getPlugin(),
+        reviewService: this.deps.applicationContext.getReviewService(),
+      },
+      width: '860px',
+      height: '80vh',
+    });
+  }
+
+  async runRebindDescriptorConceptAction(blockElements: HTMLElement[]): Promise<void> {
+    const elements = Array.isArray(blockElements) ? blockElements : [];
+    if (elements.length === 0) {
+      await this.siyuanApi.pushMsg(
+        this.deps.i18n?.coreReviewNoBlockContext || '未找到块上下文，请先选中块或将光标放在块内',
+      );
+      return;
+    }
+
+    const blockId = elements
+      .map((el) => el.getAttribute('data-node-id'))
+      .find((id): id is string => Boolean(id));
+    if (!blockId) {
+      await this.siyuanApi.pushMsg(
+        this.deps.i18n?.coreReviewNoBlockContext || '未找到块上下文，请先选中块或将光标放在块内',
+      );
+      return;
+    }
+
+    const isDescriptor = await this.isDescriptorCard(blockId);
+    if (!isDescriptor) {
+      await this.siyuanApi.pushErrMsg('只能对描述符卡使用此功能');
+      return;
+    }
+
+    await this.rebindDescriptorConcept(blockId);
+  }
+
+  private resolveEditableCardFromBlocks(
+    blockElements: HTMLElement[],
+    blockIds: string[],
+  ): { blockID: string; cardID: string } | null {
+    let target = blockElements.find((el) => el.hasAttribute(this.siyuanApi.CARD_ID_ATTR));
+    let blockID = target?.getAttribute('data-node-id');
+    let cardID = target?.getAttribute(this.siyuanApi.CARD_ID_ATTR);
+
+    if (!cardID) {
+      try {
+        for (const bid of blockIds) {
+          const card = this.getStorage().getCardByBlockId(bid);
+          if (card) {
+            blockID = card.blockId;
+            cardID = card.id;
+            break;
+          }
+        }
+      } catch (err) {
+        logger.warn('[SiYuanMemo] Failed to query local storage:', err);
+      }
+    }
+
+    if (!blockID || !cardID) {
+      return null;
+    }
+    return { blockID, cardID };
   }
 
   /**
@@ -411,67 +539,36 @@ export class BlockMenuHandler {
   }
 
   private buildReviewActions(cards: FSRSCard[]): SiyuanMenuItem[] {
-    const itemCards = cards.filter((card) => card.type !== CardType.Topic);
-    const dueItemCards = this.filterDueCards(itemCards);
-    const dueAllCards = this.filterDueCards(cards);
+    const coreReviewEntryService = this.createCoreReviewEntryService();
+    const coreReviewActions = coreReviewEntryService.createMenuActions(cards);
 
     return [
       {
-        icon: 'iconRiffCard',
-        label: `${this.deps.i18n?.retrievalPractice || '提取练习'} - ${this.deps.i18n?.dueMode || '到期'} <span class="ft__secondary">(${dueItemCards.length}/${itemCards.length})</span>`,
-        click: async () => {
-          if (dueItemCards.length === 0) {
-            await this.siyuanApi.pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
-            return;
-          }
-          await this.openRetrievalPractice(dueItemCards, true);
-        },
+        icon: coreReviewActions[0].icon,
+        label: coreReviewActions[0].label,
+        click: coreReviewActions[0].execute,
       },
       {
-        icon: 'iconRiffCard',
-        label: `${this.deps.i18n?.retrievalPractice || '提取练习'} - ${this.deps.i18n?.allMode || '全部'} <span class="ft__secondary">(${itemCards.length})</span>`,
-        click: async () => {
-          if (itemCards.length === 0) {
-            await this.siyuanApi.pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
-            return;
-          }
-          await this.openRetrievalPractice(itemCards, false);
-        },
+        icon: coreReviewActions[1].icon,
+        label: coreReviewActions[1].label,
+        click: coreReviewActions[1].execute,
       },
       this.separator(),
       {
-        icon: 'iconBook',
-        label: `${this.deps.i18n?.incrementalLearning || '渐进学习'} - ${this.deps.i18n?.dueMode || '到期'} <span class="ft__secondary">(${dueAllCards.length}/${cards.length})</span>`,
-        click: async () => {
-          if (dueAllCards.length === 0) {
-            await this.siyuanApi.pushMsg(this.deps.i18n?.noDueCards || '当前范围内没有到期的闪卡');
-            return;
-          }
-          await this.openIncrementalLearning(dueAllCards, true);
-        },
+        icon: coreReviewActions[2].icon,
+        label: coreReviewActions[2].label,
+        click: coreReviewActions[2].execute,
       },
       {
-        icon: 'iconBook',
-        label: `${this.deps.i18n?.incrementalLearning || '渐进学习'} - ${this.deps.i18n?.allMode || '全部'} <span class="ft__secondary">(${cards.length})</span>`,
-        click: async () => {
-          if (cards.length === 0) {
-            await this.siyuanApi.pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
-            return;
-          }
-          await this.openIncrementalLearning(cards, false);
-        },
+        icon: coreReviewActions[3].icon,
+        label: coreReviewActions[3].label,
+        click: coreReviewActions[3].execute,
       },
       this.separator(),
       {
-        icon: 'iconEye',
-        label: `${this.deps.i18n?.temporaryDrill || '临时练习'} <span class="ft__secondary">(${cards.length})</span>`,
-        click: async () => {
-          if (cards.length === 0) {
-            await this.siyuanApi.pushMsg(this.deps.i18n?.drillNoCards || '当前范围内没有可练习的闪卡');
-            return;
-          }
-          await this.openTemporaryDrill(cards);
-        },
+        icon: coreReviewActions[4].icon,
+        label: coreReviewActions[4].label,
+        click: coreReviewActions[4].execute,
       },
       this.separator(),
       {
@@ -550,53 +647,11 @@ export class BlockMenuHandler {
     const submenu: SiyuanMenuItem[] = [
       ...this.buildReviewActions(cards),
       this.separator(),
-      ...this.buildConceptActions(blockIds[0]),
-      this.separator(),
       {
         icon: 'iconEdit',
         label: this.deps.i18n?.editSrsData || '编辑SRS数据',
         click: async () => {
-          let target = blockElements.find((el) => el.hasAttribute(this.siyuanApi.CARD_ID_ATTR));
-          let blockID = target?.getAttribute('data-node-id');
-          let cardID = target?.getAttribute(this.siyuanApi.CARD_ID_ATTR);
-
-          if (!cardID) {
-            try {
-              for (const bid of blockIds) {
-                const card = this.getStorage().getCardByBlockId(bid);
-                if (card) {
-                  blockID = card.blockId;
-                  cardID = card.id;
-                  break;
-                }
-              }
-            } catch (err) {
-              logger.warn('[SiYuanMemo] Failed to query local storage:', err);
-            }
-          }
-
-          if (!blockID || !cardID) {
-            await this.siyuanApi.pushErrMsg(this.deps.i18n?.msg_no_flashcard || '未找到闪卡，请先将块制为闪卡');
-            return;
-          }
-
-          createVueDialog({
-            title: this.deps.i18n?.editSrsData || '编辑SRS数据',
-            component: SrsEditorDialog,
-            props: {
-              card: {
-                id: cardID,
-                blockId: blockID,
-                deckId: this.siyuanApi.BUILTIN_DECK_ID,
-              },
-              deckId: this.siyuanApi.BUILTIN_DECK_ID,
-              i18n: this.deps.i18n || {},
-              plugin: this.deps.applicationContext.getPlugin(),
-              reviewService: this.deps.applicationContext.getReviewService(),
-            },
-            width: '860px',
-            height: '80vh',
-          });
+          await this.runEditSrsDataAction(blockElements);
         },
       },
       this.separator(),
@@ -623,12 +678,7 @@ export class BlockMenuHandler {
           icon: 'iconRefresh',
           label: this.deps.i18n?.rebindDescriptorConcept || '🔄 重新绑定概念',
           click: async () => {
-            const isDescriptor = await this.isDescriptorCard(blockIds[0]);
-            if (!isDescriptor) {
-              await this.siyuanApi.pushErrMsg('只能对描述符卡使用此功能');
-              return;
-            }
-            await this.rebindDescriptorConcept(blockIds[0]);
+            await this.runRebindDescriptorConceptAction(blockElements);
           },
         },
         this.separator(),
@@ -712,12 +762,7 @@ export class BlockMenuHandler {
    * 为文档树生成复习菜单项（同步版本，用于事件处理）
    */
   private generateReviewMenuForDocSync(docId: string): SiyuanMenuItem[] {
-    const cardsInDoc = this.getStorage()
-      .getAllCards()
-      .filter((card) => {
-        const rootId = this.extractMetaRootId(card);
-        return rootId === docId || card.blockId === docId;
-      });
+    const cardsInDoc = this.collectCardsFromDocScope(docId);
 
     return [
       ...this.buildReviewActions(cardsInDoc),

@@ -344,16 +344,24 @@ export class ImageOcclusionHandler {
     root.innerHTML = `
       <div class="siyuanmemo-image-occlusion">
         <div class="siyuanmemo-image-occlusion__toolbar">
-          <span class="siyuanmemo-image-occlusion__hint">${this.t('imageOcclusionHint', 'Drag to add masks. Click to select.')}</span>
-          <button class="b3-button b3-button--outline" data-action="delete">${this.t('imageOcclusionDeleteSelected', 'Delete Selected')}</button>
-          <button class="b3-button b3-button--outline" data-action="clear">${this.t('imageOcclusionClearAll', 'Clear All')}</button>
-          <button class="b3-button b3-button--outline" data-action="review-all">${this.t('imageOcclusionReviewAll', '提取练习 - 全部')}</button>
-          <button class="b3-button b3-button--outline" data-action="temporary-drill">${this.t('imageOcclusionTemporaryDrill', '临时练习')}</button>
+          <div class="siyuanmemo-image-occlusion__toolbar-main">
+            <span class="siyuanmemo-image-occlusion__hint">${this.t('imageOcclusionHint', 'Drag to add masks. Click to select.')}</span>
+          </div>
+          <div class="siyuanmemo-image-occlusion__toolbar-groups">
+            <div class="siyuanmemo-image-occlusion__toolbar-group siyuanmemo-image-occlusion__toolbar-group--danger">
+              <button class="b3-button b3-button--outline" data-action="delete">${this.t('imageOcclusionDeleteSelected', 'Delete Selected')}</button>
+              <button class="b3-button b3-button--outline" data-action="clear">${this.t('imageOcclusionClearAll', 'Clear All')}</button>
+            </div>
+            <div class="siyuanmemo-image-occlusion__toolbar-group siyuanmemo-image-occlusion__toolbar-group--practice">
+              <button class="b3-button b3-button--outline" data-action="review-all">${this.t('imageOcclusionReviewAll', '提取练习 - 全部')}</button>
+              <button class="b3-button b3-button--outline" data-action="temporary-drill">${this.t('imageOcclusionTemporaryDrill', '临时练习')}</button>
+            </div>
+          </div>
         </div>
-        <div class="siyuanmemo-image-occlusion__prompt">
+        <div class="siyuanmemo-image-occlusion__prompt-card">
           <span class="siyuanmemo-image-occlusion__prompt-label">${this.t('imageOcclusionPromptLabel', 'Mask prompt')}</span>
           <input
-            class="b3-text-field fn__flex-1"
+            class="b3-text-field fn__flex-1 siyuanmemo-image-occlusion__prompt-input"
             data-role="prompt-input"
             type="text"
             placeholder="${this.t('imageOcclusionPromptPlaceholder', 'Type a prompt for selected mask')}"

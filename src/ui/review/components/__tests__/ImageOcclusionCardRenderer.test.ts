@@ -113,4 +113,184 @@ describe('ImageOcclusionCardRenderer.vue', () => {
     expect(wrapper.find('.image-occlusion-card-renderer__mask-label').exists()).toBe(false);
     expect(wrapper.find('.image-occlusion-card-renderer__hint').exists()).toBe(false);
   });
+
+  it('toggles image fullscreen by floating button', async () => {
+    const cardId = 'card-3';
+    getBlockAttrsMock.mockResolvedValue({
+      'custom-fsrs-image-occlusion': createPayload(cardId),
+      'custom-fsrs-image-occlusion-card-ids': JSON.stringify([cardId]),
+    });
+    getBlockKramdownMock.mockResolvedValue({ kramdown: '' });
+
+    const wrapper = mount(ImageOcclusionCardRenderer, {
+      props: {
+        blockId: 'block-3',
+        showAnswer: false,
+        card: createImageOcclusionCard(cardId),
+      },
+    });
+
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    const stage = wrapper.find('.image-occlusion-card-renderer__stage');
+    const toggle = wrapper.get('[data-role="image-fullscreen-toggle"]');
+    expect(stage.classes()).not.toContain('is-image-fullscreen');
+
+    await toggle.trigger('click');
+    expect(stage.classes()).toContain('is-image-fullscreen');
+
+    await toggle.trigger('click');
+    expect(stage.classes()).not.toContain('is-image-fullscreen');
+  });
+
+  it('toggles image fullscreen by + key', async () => {
+    const cardId = 'card-4';
+    getBlockAttrsMock.mockResolvedValue({
+      'custom-fsrs-image-occlusion': createPayload(cardId),
+      'custom-fsrs-image-occlusion-card-ids': JSON.stringify([cardId]),
+    });
+    getBlockKramdownMock.mockResolvedValue({ kramdown: '' });
+
+    const wrapper = mount(ImageOcclusionCardRenderer, {
+      props: {
+        blockId: 'block-4',
+        showAnswer: false,
+        card: createImageOcclusionCard(cardId),
+      },
+    });
+
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    const stage = wrapper.find('.image-occlusion-card-renderer__stage');
+    expect(stage.classes()).not.toContain('is-image-fullscreen');
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: '+' }));
+    await wrapper.vm.$nextTick();
+    expect(stage.classes()).toContain('is-image-fullscreen');
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: '+' }));
+    await wrapper.vm.$nextTick();
+    expect(stage.classes()).not.toContain('is-image-fullscreen');
+  });
+
+  it('exits image fullscreen when left-clicking the stage', async () => {
+    const cardId = 'card-5';
+    getBlockAttrsMock.mockResolvedValue({
+      'custom-fsrs-image-occlusion': createPayload(cardId),
+      'custom-fsrs-image-occlusion-card-ids': JSON.stringify([cardId]),
+    });
+    getBlockKramdownMock.mockResolvedValue({ kramdown: '' });
+
+    const wrapper = mount(ImageOcclusionCardRenderer, {
+      props: {
+        blockId: 'block-5',
+        showAnswer: false,
+        card: createImageOcclusionCard(cardId),
+      },
+    });
+
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    const stage = wrapper.get('[data-role="image-fullscreen-stage"]');
+    const toggle = wrapper.get('[data-role="image-fullscreen-toggle"]');
+    await toggle.trigger('click');
+    expect(stage.classes()).toContain('is-image-fullscreen');
+
+    await stage.trigger('mousedown', { button: 0 });
+    expect(stage.classes()).not.toContain('is-image-fullscreen');
+  });
+
+  it('changes zoom value by ctrl+wheel while fullscreen', async () => {
+    const cardId = 'card-6';
+    getBlockAttrsMock.mockResolvedValue({
+      'custom-fsrs-image-occlusion': createPayload(cardId),
+      'custom-fsrs-image-occlusion-card-ids': JSON.stringify([cardId]),
+    });
+    getBlockKramdownMock.mockResolvedValue({ kramdown: '' });
+
+    const wrapper = mount(ImageOcclusionCardRenderer, {
+      props: {
+        blockId: 'block-6',
+        showAnswer: false,
+        card: createImageOcclusionCard(cardId),
+      },
+    });
+
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    await wrapper.get('[data-role="image-fullscreen-toggle"]').trigger('click');
+    const viewport = wrapper.get('.image-occlusion-card-renderer__viewport');
+    const zoomValue = wrapper.get('[data-role="image-zoom-value"]');
+    expect(zoomValue.text()).toBe('100%');
+
+    viewport.element.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: -120,
+    }));
+    await wrapper.vm.$nextTick();
+    expect(zoomValue.text()).toBe('110%');
+
+    viewport.element.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: 120,
+    }));
+    await wrapper.vm.$nextTick();
+    expect(zoomValue.text()).toBe('100%');
+  });
+
+  it('shows loading state only after deferred threshold on slow fetch', async () => {
+    vi.useFakeTimers();
+    try {
+      const cardId = 'card-7';
+      getBlockAttrsMock.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(() => {
+              resolve({
+                'custom-fsrs-image-occlusion': createPayload(cardId),
+                'custom-fsrs-image-occlusion-card-ids': JSON.stringify([cardId]),
+              });
+            }, 200);
+          })
+      );
+      getBlockKramdownMock.mockResolvedValue({ kramdown: '' });
+
+      const wrapper = mount(ImageOcclusionCardRenderer, {
+        props: {
+          blockId: 'block-7',
+          showAnswer: false,
+          card: createImageOcclusionCard(cardId),
+        },
+      });
+
+      await wrapper.vm.$nextTick();
+      expect(wrapper.find('.card-loading-state').exists()).toBe(false);
+
+      vi.advanceTimersByTime(119);
+      await wrapper.vm.$nextTick();
+      expect(wrapper.find('.card-loading-state').exists()).toBe(false);
+
+      vi.advanceTimersByTime(1);
+      await wrapper.vm.$nextTick();
+      expect(wrapper.find('.card-loading-state').exists()).toBe(true);
+
+      vi.advanceTimersByTime(80);
+      await Promise.resolve();
+      await Promise.resolve();
+      await wrapper.vm.$nextTick();
+
+      expect(wrapper.find('.card-loading-state').exists()).toBe(false);
+      expect(wrapper.find('.image-occlusion-card-renderer__content').exists()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

@@ -67,13 +67,13 @@
         <span v-if="!props.isMobile"></span>
         <button
           data-type="3"
-          aria-label="Space"
-          class="b3-button b3-button--info card__action-main"
+          aria-label="Space/Enter"
+          class="b3-button b3-button--info b3-tooltips__n b3-tooltips card__action-main"
           @click="emit('grade', 3)"
         >
           <div class="card__icon">📖</div>
           {{ t('nextCard', '下一张') }}
-          <template v-if="!props.isMobile"> ({{ t('space', '空格') }}) </template>
+          <template v-if="!props.isMobile"> ({{ t('space', '空格') }} / {{ t('enterKey', '回车') }}) </template>
         </button>
       </div>
     </template>
@@ -83,8 +83,8 @@
         <span v-if="!props.isMobile">{{ g.nextDue || '' }}</span>
         <button
           :data-type="g.value"
-          :aria-label="props.isMobile ? `${g.value}` : `${g.value} / ${g.kb}`"
-          class="b3-button card__action-main"
+          :aria-label="getRatingButtonAriaLabel(g.value, g.kb)"
+          class="b3-button b3-tooltips__n b3-tooltips card__action-main"
           :class="getButtonVariant(g.value)"
           @click="emit('grade', g.value)"
         >
@@ -136,6 +136,8 @@ import ScheduleDateDialog, { type ScheduleOptions } from './dialogs/ScheduleDate
 import { createLogger } from '@/utils/logger';
 import type FSRSPlugin from '@/index';
 import type { IReviewQueue } from '@/types/unified-data-source';
+import { isTopicLikeCard } from './reviewCardSemantics';
+import { buildRatingAriaLabel, type ReviewRatingValue } from './reviewHotkeys';
 
 const logger = createLogger('ReviewActions');
 
@@ -165,8 +167,7 @@ const emit = defineEmits<{
 // 卡片类型检测 - Topic 和 Concept 卡片都使用"下一张"模式
 const isTopicCard = computed(() => {
   const card = props.actions.cardMeta;
-  const result = card?.type === 'topic' || card?.cardType === 'topic' 
-    || card?.type === 'concept' || card?.cardType === 'concept';
+  const result = isTopicLikeCard(card);
   logger.debug('isTopicCard computed', {
     cardMeta: card,
     type: card?.type,
@@ -222,6 +223,15 @@ function getButtonVariant(value: number): string {
     4: 'b3-button--success',
   };
   return variants[value as keyof typeof variants] || 'b3-button--info';
+}
+
+function getRatingButtonAriaLabel(rating: number, kb: string): string {
+  if (rating !== 1 && rating !== 2 && rating !== 3 && rating !== 4) {
+    return kb ? `${rating} / ${kb}` : String(rating);
+  }
+  return buildRatingAriaLabel(rating as ReviewRatingValue, kb, {
+    includeSpaceEnterForGood: true,
+  });
 }
 
 // 插入位置逻辑

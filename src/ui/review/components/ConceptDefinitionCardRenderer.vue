@@ -1,34 +1,25 @@
 <template>
   <div class="concept-definition-card-renderer">
-    <!-- 加载状态 -->
-    <CardLoadingState v-if="loading" :text="t('loading', '加载中...')" />
-
-    <!-- 错误状态 -->
+    <CardLoadingState v-if="showLoading" :text="t('loading', '加载中...')" />
     <CardErrorState v-else-if="error" :message="error" />
 
-    <!-- 概念定义卡内容 -->
     <div v-else-if="viewModel" class="concept-definition-card-renderer__content">
-      <!-- 面包屑 -->
       <CardBreadcrumb :items="viewModel.breadcrumbs" />
 
-      <!-- 卡片类型徽章 -->
       <div class="concept-definition-card-renderer__badge">
-        <span class="concept-definition-card-renderer__badge-icon">📚</span>
+        <span class="concept-definition-card-renderer__badge-icon">📎</span>
         <span class="concept-definition-card-renderer__badge-label">
           {{ viewModel.isReverse ? t('conceptDefinitionCardReverse', '概念定义卡（反向）') : t('conceptDefinitionCard', '概念定义卡') }}
         </span>
       </div>
 
-      <!-- 概念定义卡主体 -->
       <div class="concept-definition-card-renderer__main">
-        <!-- 正面 -->
         <div
           v-if="!showAnswer"
           class="concept-definition-card-renderer__html-content concept-definition-card-renderer__front"
           v-html="viewModel.frontHtml"
         ></div>
 
-        <!-- 背面 -->
         <div
           v-else
           class="concept-definition-card-renderer__html-content concept-definition-card-renderer__back"
@@ -36,7 +27,6 @@
         ></div>
       </div>
 
-      <!-- 跳转到概念按钮 -->
       <div class="concept-definition-card-renderer__actions">
         <button
           class="concept-definition-card-renderer__btn concept-definition-card-renderer__btn--secondary"
@@ -52,21 +42,22 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { openTab } from 'siyuan';
-import { ConceptDefinitionCardRenderService } from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
-import { createLogger } from '@/utils/logger';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
-import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
-import { resolveSiyuanApp } from '@/core/card/concept-definition/application/runtime';
+import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
+import { ConceptDefinitionCardRenderService } from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
 import type {
   ConceptDefinitionCardInput,
   ConceptDefinitionCardViewModel,
 } from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
+import { resolveSiyuanApp } from '@/core/card/concept-definition/application/runtime';
+import { createLogger } from '@/utils/logger';
+import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 
 const props = defineProps<{
   blockId: string;
   cardId?: string;
-  card?: ConceptDefinitionCardInput; // FSRSCard，包含 xiuyuanID 和 faceIndex
+  card?: ConceptDefinitionCardInput;
   showAnswer?: boolean;
   i18n?: Record<string, string>;
 }>();
@@ -76,37 +67,46 @@ const emit = defineEmits<{
   (e: 'error', error: Error): void;
 }>();
 
-// 状态
 const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<ConceptDefinitionCardViewModel | null>(null);
+const { showLoading } = useDeferredLoadingIndicator(loading);
+let loadSeq = 0;
 
 const logger = createLogger('ConceptDefinitionCardRenderer');
-
 const renderService = new ConceptDefinitionCardRenderService(props.i18n || {});
 
-// 方法
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
-/**
- * 加载视图模型
- */
 async function loadViewModel() {
+  const seq = ++loadSeq;
+
   try {
     loading.value = true;
     error.value = null;
 
-    viewModel.value = await renderService.prepareViewModel(props.blockId, props.card);
+    const nextViewModel = await renderService.prepareViewModel(props.blockId, props.card);
+    if (seq !== loadSeq) {
+      return;
+    }
+
+    viewModel.value = nextViewModel;
     emit('loaded', viewModel.value);
   } catch (err) {
+    if (seq !== loadSeq) {
+      return;
+    }
+
     const errorMessage = err instanceof Error ? err.message : String(err);
     error.value = errorMessage;
     emit('error', err instanceof Error ? err : new Error(errorMessage));
     logger.error('Failed to load view model:', err);
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) {
+      loading.value = false;
+    }
   }
 }
 
@@ -127,9 +127,6 @@ const renderIdentity = computed(() => {
   ].join('|');
 });
 
-/**
- * 跳转到概念文档
- */
 function jumpToConcept() {
   if (!viewModel.value?.conceptBlockId) {
     return;
@@ -147,18 +144,16 @@ function jumpToConcept() {
   });
 }
 
-// 生命周期
 watch(
   renderIdentity,
-  async () => {
-    await loadViewModel();
+  () => {
+    void loadViewModel();
   },
   { immediate: true }
 );
 </script>
 
 <style scoped>
-/* 容器 */
 .concept-definition-card-renderer {
   display: flex;
   flex-direction: column;
@@ -166,7 +161,6 @@ watch(
   background: var(--b3-theme-background);
 }
 
-/* 内容区域 */
 .concept-definition-card-renderer__content {
   display: flex;
   flex-direction: column;
@@ -175,7 +169,6 @@ watch(
   padding: 16px;
 }
 
-/* 卡片类型徽章 */
 .concept-definition-card-renderer__badge {
   display: flex;
   align-items: center;
@@ -194,7 +187,6 @@ watch(
   font-size: 16px;
 }
 
-/* 概念定义卡主体 */
 .concept-definition-card-renderer__main {
   flex: 1;
   display: flex;
@@ -209,19 +201,16 @@ watch(
   color: var(--b3-theme-on-surface);
 }
 
-/* 正面样式 */
 .concept-definition-card-renderer__front {
   padding: 24px 32px;
   min-height: 200px;
 }
 
-/* 背面样式 */
 .concept-definition-card-renderer__back {
   padding: 24px 32px;
   min-height: 200px;
 }
 
-/* 问题样式 */
 .concept-definition-card-renderer__html-content :deep(.concept-definition-question) {
   font-size: 24px;
   line-height: 1.6;
@@ -236,7 +225,6 @@ watch(
   color: var(--b3-theme-on-surface);
 }
 
-/* 答案样式 */
 .concept-definition-card-renderer__html-content :deep(.concept-definition-answer) {
   display: flex;
   flex-direction: column;
@@ -279,7 +267,6 @@ watch(
   color: var(--b3-theme-on-surface);
 }
 
-/* 反向卡片样式 */
 .concept-definition-card-renderer__html-content :deep(.concept-definition-question.reverse) {
   display: flex;
   flex-direction: column;
@@ -301,7 +288,6 @@ watch(
   color: var(--b3-theme-primary);
 }
 
-/* 操作按钮 */
 .concept-definition-card-renderer__actions {
   display: flex;
   gap: 8px;

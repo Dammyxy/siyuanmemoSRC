@@ -87,6 +87,15 @@ export class LeechReviewQueue extends ManualCardCollectionQueue {
     });
   }
 
+  protected override async removeCardAfterReview(cardIdOrBlockId: string): Promise<void> {
+    await this.removeCardFromCollection(cardIdOrBlockId, {
+      logger,
+      persist: NOOP_MANUAL_PERSIST,
+      addToTemporaryBlacklist: false,
+      notifyObservers: true,
+    });
+  }
+
   public async handleReview(cardId: string, rating: number): Promise<void> {
     await this.handleReviewWithScheduler(cardId, rating);
 

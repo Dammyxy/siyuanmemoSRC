@@ -48,6 +48,7 @@ interface IncrementalLearningQueueOptions {
  */
 export class IncrementalLearningQueue extends ManualCardCollectionQueue {
     public name = 'IncrementalLearningQueue';
+    private static readonly MANUAL_PREFETCH_THRESHOLD = 32;
     private readonly autoFailedSink: AutoFailedCardSinkPort;
     
     /**
@@ -135,13 +136,23 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
                 cardType: [...cardTypeFilter],
                 dueDate: { lte: new Date(now) }
             });
-            const cardPool = await this.manager.getCards({
-                cardType: [...cardTypeFilter],
-            });
-            const manualCards = await this.resolveManuallyAddedCards(logger, {
-                persist: async () => this.save(),
-                cardPool,
-            });
+            const manualCount = this.manualCards.size();
+            let manualCards: FSRSCard[] = [];
+            if (manualCount > 0) {
+                if (manualCount > IncrementalLearningQueue.MANUAL_PREFETCH_THRESHOLD) {
+                    const cardPool = await this.manager.getCards({
+                        cardType: [...cardTypeFilter],
+                    });
+                    manualCards = await this.resolveManuallyAddedCards(logger, {
+                        persist: async () => this.save(),
+                        cardPool,
+                    });
+                } else {
+                    manualCards = await this.resolveManuallyAddedCards(logger, {
+                        persist: async () => this.save(),
+                    });
+                }
+            }
 
             return this.buildOutstandingQueueCards(baseCards, manualCards, {
                 logger,
@@ -198,6 +209,13 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
      */
     public async removeCard(cardIdOrBlockId: string): Promise<void> {
         await this.removeCardFromCollection(cardIdOrBlockId, { logger });
+    }
+
+    protected override async removeCardAfterReview(cardIdOrBlockId: string): Promise<void> {
+        await this.removeCardFromCollection(cardIdOrBlockId, {
+            logger,
+            addToTemporaryBlacklist: false,
+        });
     }
     
     /**

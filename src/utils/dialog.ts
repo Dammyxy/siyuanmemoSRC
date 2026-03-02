@@ -116,6 +116,7 @@ export function createVueDialog<T extends Component>(options: {
         }
 
         if (options.isReview) {
+            dialogContainer.classList.add('siyuanmemo-review-dialog-container');
             if (options.isMobile) {
                 dialogContainer.classList.add('fsrs-mobile-review-dialog');
                 dialogContainer.style.maxWidth = '100vw';

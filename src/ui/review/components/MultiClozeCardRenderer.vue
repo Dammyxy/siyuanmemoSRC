@@ -1,22 +1,15 @@
 <template>
   <div class="multi-cloze-card-renderer">
-    <!-- 加载状态 -->
-    <CardLoadingState v-if="loading" text="加载多挖孔卡片..." />
-
-    <!-- 错误状态 -->
+    <CardLoadingState v-if="showLoading" text="加载中..." />
     <CardErrorState v-else-if="error" :message="error" />
 
-    <!-- 卡片内容 -->
     <div v-else-if="viewModel" class="multi-cloze-card-renderer__content">
-      <!-- 面包屑 -->
       <CardBreadcrumb :items="viewModel.breadcrumbs" />
 
-      <!-- 正面：显示问题 -->
       <div v-if="!showAnswer" class="multi-cloze-card-renderer__front">
         <div class="multi-cloze-card-renderer__question" v-html="renderedQuestionHtml"></div>
       </div>
 
-      <!-- 背面：显示答案 -->
       <div
         v-else
         class="multi-cloze-card-renderer__back"
@@ -36,14 +29,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, watch } from 'vue';
-import { MultiClozeCardRenderService } from '@/core/card/multi-cloze/application/MultiClozeCardRenderService';
+import { computed, onMounted, ref, watch } from 'vue';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
-import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
+import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
+import { MultiClozeCardRenderService } from '@/core/card/multi-cloze/application/MultiClozeCardRenderService';
 import type { MultiClozeCardViewModel } from '@/core/card/multi-cloze/application/MultiClozeCardRenderService';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
+import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 import { renderMathWithKatex } from './mathRender';
 
 const logger = createLogger('MultiClozeCardRenderer');
@@ -56,46 +50,58 @@ const props = defineProps<{
 const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<MultiClozeCardViewModel | null>(null);
-
 const renderService = new MultiClozeCardRenderService();
+const { showLoading } = useDeferredLoadingIndicator(loading);
+let loadSeq = 0;
+
 const isInlineFormulaMode = computed(() => viewModel.value?.renderMode === 'inline-formula-cloze');
 
 const renderedQuestionHtml = computed(() => {
   const question = viewModel.value?.currentFace.question || '';
-  return renderMathWithKatex(question, (error) => {
-    logger.warn('[MultiClozeCardRenderer] Failed to render KaTeX question:', error);
+  return renderMathWithKatex(question, (renderError) => {
+    logger.warn('[MultiClozeCardRenderer] Failed to render KaTeX question:', renderError);
   });
 });
 
 const renderedAnswerHtml = computed(() => {
   const answer = viewModel.value?.currentFace.answer || '';
-  return renderMathWithKatex(answer, (error) => {
-    logger.warn('[MultiClozeCardRenderer] Failed to render KaTeX answer:', error);
+  return renderMathWithKatex(answer, (renderError) => {
+    logger.warn('[MultiClozeCardRenderer] Failed to render KaTeX answer:', renderError);
   });
 });
 
 async function loadViewModel() {
+  const seq = ++loadSeq;
+
   try {
     loading.value = true;
     error.value = null;
-    viewModel.value = await renderService.prepareViewModel(props.card);
+    const nextViewModel = await renderService.prepareViewModel(props.card);
+    if (seq !== loadSeq) {
+      return;
+    }
+    viewModel.value = nextViewModel;
   } catch (err) {
+    if (seq !== loadSeq) {
+      return;
+    }
     error.value = err instanceof Error ? err.message : String(err);
     logger.error('[MultiClozeCardRenderer] Failed to load view model:', err);
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) {
+      loading.value = false;
+    }
   }
 }
 
 onMounted(() => {
-  loadViewModel();
+  void loadViewModel();
 });
 
-// 监听 card 变化，重新加载 viewModel
 watch(
   () => props.card,
   () => {
-    loadViewModel();
+    void loadViewModel();
   },
   { deep: true }
 );
@@ -116,7 +122,6 @@ watch(
   overflow: auto;
 }
 
-/* 正面样式 - 与背面保持相同位置 */
 .multi-cloze-card-renderer__front {
   flex: 1;
   display: flex;
@@ -134,7 +139,6 @@ watch(
   width: 100%;
 }
 
-/* 背面样式 - 视线自然向下流动 */
 .multi-cloze-card-renderer__back {
   flex: 1;
   padding: 48px 32px 32px;
@@ -147,7 +151,6 @@ watch(
   justify-content: flex-start;
 }
 
-/* 正面预览 - 保持原始大小，仅灰显在顶部 */
 .multi-cloze-card-renderer__front-preview {
   opacity: 0.4;
   font-size: 24px;
@@ -156,7 +159,6 @@ watch(
   text-align: left;
 }
 
-/* 答案分隔线 - 视觉引导 */
 .multi-cloze-card-renderer__answer-divider {
   display: flex;
   align-items: center;
@@ -183,7 +185,6 @@ watch(
   margin-left: 12px;
 }
 
-/* 答案 - 左对齐,与正面保持相同位置 */
 .multi-cloze-card-renderer__answer {
   font-size: 24px;
   line-height: 1.6;
@@ -192,7 +193,6 @@ watch(
   width: 100%;
 }
 
-/* 挖空占位符样式 - 只在问题中显示淡绿色 */
 .multi-cloze-card-renderer__question :deep(mark) {
   background-color: var(--siyuanmemo-cloze-success-bg, var(--b3-button-background-success, #b8d7ba));
   color: var(--siyuanmemo-cloze-success-fg, var(--b3-theme-success, #166534));
@@ -201,7 +201,6 @@ watch(
   font-weight: 500;
 }
 
-/* 答案中的 mark 标签不显示样式（如果有的话） */
 .multi-cloze-card-renderer__answer :deep(mark) {
   background-color: transparent;
   color: inherit;
@@ -210,18 +209,17 @@ watch(
   font-weight: inherit;
 }
 
-/* 响应式设计 */
 @media screen and (max-width: 768px) {
   .multi-cloze-card-renderer__front,
   .multi-cloze-card-renderer__back {
     padding: 32px 24px;
   }
-  
+
   .multi-cloze-card-renderer__question,
   .multi-cloze-card-renderer__answer {
     font-size: 20px;
   }
-  
+
   .multi-cloze-card-renderer__front-preview {
     font-size: 20px;
   }

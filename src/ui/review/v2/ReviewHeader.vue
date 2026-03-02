@@ -175,7 +175,7 @@ function handleCloseClick(event: MouseEvent): void {
 }
 </script>
 
-<style>
+<style scoped>
 /* 只影响插件复习界面的标题栏样式 */
 .block__icons.siyuanmemo-review-header {
   /* 添加标题栏背景色，与原生复习界面一致 */

@@ -1202,7 +1202,9 @@ const content = computed(() => props.content);
 
 .fsrs-review-v2-content__image-occlusion-card {
   flex: 1;
-  overflow: auto;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
 }
 
 .fsrs-review-v2-content__protyle-host {

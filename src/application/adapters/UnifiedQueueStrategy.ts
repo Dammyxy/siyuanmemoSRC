@@ -2,7 +2,7 @@ import type { IQueueStrategy, QueueFeedback } from '@/core/queue/abstraction/Str
 import type { QueueStats, QueueUIConfig } from '@/core/queue/types';
 import type { FSRSCard } from '@/types/card';
 import type { IReviewQueue } from '@/types/unified-data-source';
-import { QueueType } from '@/types/unified-data-source';
+import { QueueType, isDynamicQueueType } from '@/types/unified-data-source';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
@@ -90,6 +90,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
     private currentItem: FSRSCard | null = null;
     private historyStack: ReviewHistoryEntry[] = [];
     private forwardBuffer: FSRSCard[] = [];
+    private pendingRotateCardId: string | null = null;
     private readonly maxHistorySize = 100;
 
     constructor(
@@ -173,10 +174,12 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
             }
 
             if (this.cachedCards.length === 0) {
+                this.pendingRotateCardId = null;
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Queue is empty: ${this.queueType}`);
                 return null;
             }
 
+            this.applyPendingRotationIfNeeded();
             const card = this.cachedCards[this.currentIndex++];
             const cardWithNextDues = await this.addNextDues(card);
 
@@ -204,6 +207,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
     async onFeedback(currentItem: FSRSCard | null, feedback: QueueFeedback): Promise<void> {
         const activeItem = currentItem || this.currentItem;
         if (!activeItem) {
+            this.pendingRotateCardId = null;
             logger.warn(`[SiYuanMemo][UnifiedQueueStrategy] No current item for feedback`);
             return;
         }
@@ -222,6 +226,11 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
                 await this.queue.handleReview(activeItem.id, feedback.rating);
                 this.pushHistory(activeItem, transaction);
                 this.currentItem = null;
+                if (this.shouldRotateAfterLowRating(feedback)) {
+                    this.pendingRotateCardId = activeItem.id;
+                } else {
+                    this.pendingRotateCardId = null;
+                }
 
                 if (this.queueType !== QueueType.FinalDrill) {
                     this.invalidateCache();
@@ -243,6 +252,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
                 this.pushHistory(activeItem, transaction);
                 this.forwardBuffer = [];
                 this.currentItem = null;
+                this.pendingRotateCardId = null;
                 this.invalidateCache();
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card skipped:`, {
                     queueType: this.queueType,
@@ -255,6 +265,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
                 this.pushHistory(activeItem, null);
                 this.forwardBuffer = [];
                 this.currentItem = null;
+                this.pendingRotateCardId = null;
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Custom action:`, {
                     queueType: this.queueType,
                     cardId: activeItem.id,
@@ -273,6 +284,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
                 stack: errorStack,
             });
 
+            this.pendingRotateCardId = null;
             throw new Error(`Failed to process feedback: ${errorMessage}`);
         }
     }
@@ -282,6 +294,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
     }
 
     async goBack(currentItem: FSRSCard | null): Promise<FSRSCard | null> {
+        this.pendingRotateCardId = null;
         const activeItem = currentItem || this.currentItem;
         if (this.historyStack.length === 0) {
             return activeItem;
@@ -340,14 +353,16 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
 
     async getStats(): Promise<QueueStats> {
         try {
-            const cards = await this.queue.getCards();
-            const now = Date.now();
-            const dueToday = cards.filter(c => c.due <= now).length;
+            if (!this.cacheValid) {
+                await this.reloadCards();
+            }
+
+            const { size, dueToday } = this.calculateStatsFromCards(this.cachedCards, Date.now());
 
             const stats: QueueStats = {
-                size: cards.length,
+                size,
                 label: `${dueToday} due`,
-                extra: `${cards.length} total`,
+                extra: `${size} total`,
             };
 
             logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
@@ -369,6 +384,69 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
                 extra: '',
             };
         }
+    }
+
+    private calculateStatsFromCards(cards: FSRSCard[], now: number): { size: number; dueToday: number } {
+        let dueToday = 0;
+        for (const card of cards) {
+            if (card.due <= now) {
+                dueToday += 1;
+            }
+        }
+
+        return {
+            size: cards.length,
+            dueToday,
+        };
+    }
+
+    private shouldRotateAfterLowRating(feedback: QueueFeedback): boolean {
+        if (feedback.action !== 'rate') {
+            return false;
+        }
+
+        const rating = feedback.rating ?? 0;
+        return rating > 0 && rating < 3 && isDynamicQueueType(this.queueType);
+    }
+
+    private applyPendingRotationIfNeeded(): void {
+        const pendingCardId = this.pendingRotateCardId;
+        if (!pendingCardId) {
+            return;
+        }
+        this.pendingRotateCardId = null;
+
+        if (this.currentIndex >= this.cachedCards.length) {
+            return;
+        }
+
+        const currentCard = this.cachedCards[this.currentIndex];
+        if (!currentCard || currentCard.id !== pendingCardId) {
+            return;
+        }
+
+        if (this.currentIndex >= this.cachedCards.length - 1) {
+            logger.info('[SiYuanMemo][UnifiedQueueStrategy] Pending rotation skipped (no alternative card):', {
+                queueType: this.queueType,
+                cardId: pendingCardId,
+                currentIndex: this.currentIndex,
+                total: this.cachedCards.length,
+            });
+            return;
+        }
+
+        const [rotatedCard] = this.cachedCards.splice(this.currentIndex, 1);
+        if (!rotatedCard) {
+            return;
+        }
+        this.cachedCards.push(rotatedCard);
+
+        logger.info('[SiYuanMemo][UnifiedQueueStrategy] Pending rotation applied:', {
+            queueType: this.queueType,
+            cardId: pendingCardId,
+            currentIndex: this.currentIndex,
+            total: this.cachedCards.length,
+        });
     }
 
     async insertAt(cardId: string, position: number): Promise<void> {
@@ -666,6 +744,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
     resetSessionState(): void {
         this.forwardBuffer = [];
         this.historyStack = [];
+        this.pendingRotateCardId = null;
         this.currentItem = null;
         this.currentIndex = 0;
         this.cachedCards = [];

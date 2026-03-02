@@ -44,6 +44,7 @@ const logger = createLogger('RetrievalPracticeQueue');
  */
 export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
     public name = 'RetrievalPracticeQueue';
+    private static readonly MANUAL_PREFETCH_THRESHOLD = 32;
     private readonly autoFailedSink: AutoFailedCardSinkPort;
     
     /**
@@ -122,11 +123,21 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
                 cardType: ['item', 'descriptor'],
                 dueDate: { lte: new Date(dayEnd) }
             });
-            const cardPool = await this.manager.getCards({ cardType: ['item', 'descriptor'] });
-            const manualCards = await this.resolveManuallyAddedCards(logger, {
-                persist: async () => this.save(),
-                cardPool,
-            });
+            const manualCount = this.manualCards.size();
+            let manualCards: FSRSCard[] = [];
+            if (manualCount > 0) {
+                if (manualCount > RetrievalPracticeQueue.MANUAL_PREFETCH_THRESHOLD) {
+                    const cardPool = await this.manager.getCards({ cardType: ['item', 'descriptor'] });
+                    manualCards = await this.resolveManuallyAddedCards(logger, {
+                        persist: async () => this.save(),
+                        cardPool,
+                    });
+                } else {
+                    manualCards = await this.resolveManuallyAddedCards(logger, {
+                        persist: async () => this.save(),
+                    });
+                }
+            }
 
             return this.buildOutstandingQueueCards(baseCards, manualCards, {
                 logger,
@@ -184,6 +195,13 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
      */
     public async removeCard(cardIdOrBlockId: string): Promise<void> {
         await this.removeCardFromCollection(cardIdOrBlockId, { logger });
+    }
+
+    protected override async removeCardAfterReview(cardIdOrBlockId: string): Promise<void> {
+        await this.removeCardFromCollection(cardIdOrBlockId, {
+            logger,
+            addToTemporaryBlacklist: false,
+        });
     }
     
     /**

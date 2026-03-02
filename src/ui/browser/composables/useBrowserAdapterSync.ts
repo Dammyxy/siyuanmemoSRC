@@ -1,13 +1,13 @@
 import { ref, type ComputedRef } from 'vue';
 import { SRSBrowserAdapter } from '../SRSBrowserAdapter';
-import type { DataChangeEvent, IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
+import type { DataChangeEvent, IUnifiedDataSourceManagerFacade, QueueType } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 
 interface UseBrowserAdapterSyncOptions {
   manager: ComputedRef<IUnifiedDataSourceManagerFacade | null | undefined>;
   onCardUpdated: (cardIds: string[]) => Promise<void>;
   onCardDeleted: (cardIds: string[]) => Promise<void>;
-  onQueueChanged: () => void;
+  onQueueChanged: (affectedQueueTypes: QueueType[] | null) => void;
   onModeSwitched: () => void;
 }
 
@@ -18,7 +18,8 @@ export function useBrowserAdapterSync(options: UseBrowserAdapterSyncOptions) {
   let dataChangeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingUpdatedCardIds = new Set<string>();
   let pendingDeletedCardIds = new Set<string>();
-  let pendingQueueChanged = false;
+  let pendingQueueChangedAll = false;
+  let pendingQueueChangedTypes = new Set<QueueType>();
   let pendingModeSwitched = false;
   let flushInProgress = false;
   let flushQueued = false;
@@ -27,14 +28,16 @@ export function useBrowserAdapterSync(options: UseBrowserAdapterSyncOptions) {
   const hasPendingEvents = (): boolean => (
     pendingUpdatedCardIds.size > 0
       || pendingDeletedCardIds.size > 0
-      || pendingQueueChanged
+      || pendingQueueChangedAll
+      || pendingQueueChangedTypes.size > 0
       || pendingModeSwitched
   );
 
   const resetPendingState = () => {
     pendingUpdatedCardIds.clear();
     pendingDeletedCardIds.clear();
-    pendingQueueChanged = false;
+    pendingQueueChangedAll = false;
+    pendingQueueChangedTypes.clear();
     pendingModeSwitched = false;
   };
 
@@ -54,7 +57,10 @@ export function useBrowserAdapterSync(options: UseBrowserAdapterSyncOptions) {
         const deletedIds = Array.from(pendingDeletedCardIds);
         deletedIds.forEach((id) => pendingUpdatedCardIds.delete(id));
         const updatedIds = Array.from(pendingUpdatedCardIds);
-        const queueChanged = pendingQueueChanged;
+        const queueChanged = pendingQueueChangedAll || pendingQueueChangedTypes.size > 0;
+        const affectedQueueTypes = pendingQueueChangedAll
+          ? null
+          : Array.from(pendingQueueChangedTypes);
         const modeSwitched = pendingModeSwitched;
 
         resetPendingState();
@@ -68,7 +74,7 @@ export function useBrowserAdapterSync(options: UseBrowserAdapterSyncOptions) {
         }
 
         if (queueChanged) {
-          options.onQueueChanged();
+          options.onQueueChanged(affectedQueueTypes);
         }
 
         if (modeSwitched) {
@@ -107,7 +113,11 @@ export function useBrowserAdapterSync(options: UseBrowserAdapterSyncOptions) {
             event.cardIds?.forEach((id) => pendingDeletedCardIds.add(id));
             break;
           case 'queue-changed':
-            pendingQueueChanged = true;
+            if (event.queueType) {
+              pendingQueueChangedTypes.add(event.queueType);
+            } else {
+              pendingQueueChangedAll = true;
+            }
             break;
           case 'mode-switched':
             pendingModeSwitched = true;

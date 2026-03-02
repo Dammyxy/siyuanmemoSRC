@@ -1,0 +1,100 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Menu } from 'siyuan';
+import { MenuManager } from '@/application/managers/MenuManager';
+import { TOPBAR_QUICK_ENTRY_DEFINITIONS } from '@/application/entries/TopBarQuickEntryRegistry';
+
+const menuInstances: Array<{
+  addItem: ReturnType<typeof vi.fn>;
+  addSeparator: ReturnType<typeof vi.fn>;
+  open: ReturnType<typeof vi.fn>;
+}> = [];
+
+vi.mock('siyuan', () => ({
+  Menu: vi.fn().mockImplementation(() => {
+    const instance = {
+      addItem: vi.fn(),
+      addSeparator: vi.fn(),
+      open: vi.fn(),
+    };
+    menuInstances.push(instance);
+    return instance;
+  }),
+  showMessage: vi.fn(),
+}));
+
+vi.mock('@/infrastructure/siyuan/ManagerSiyuanAdapter', () => ({
+  ManagerSiyuanAdapter: vi.fn().mockImplementation(() => ({
+    sql: vi.fn().mockResolvedValue([]),
+    getBlockAttrs: vi.fn().mockResolvedValue({}),
+    setBlockAttrs: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
+
+describe('MenuManager top bar menu rendering', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    menuInstances.length = 0;
+  });
+
+  it('renders first 8 top bar quick entries without accelerators and preserves order', async () => {
+    const dialogManager = {
+      openReviewDialog: vi.fn().mockResolvedValue(undefined),
+      openIncrementalLearningDialog: vi.fn().mockResolvedValue(undefined),
+      openFinalDrillDialog: vi.fn().mockResolvedValue(undefined),
+      openNeuralRoamDialog: vi.fn().mockResolvedValue(undefined),
+      openFilterGroupPracticeDialog: vi.fn().mockResolvedValue(undefined),
+      openBrowserDialog: vi.fn(),
+      openSettingsDialog: vi.fn(),
+    };
+
+    const context = {
+      getCardService: vi.fn().mockReturnValue({
+        getDueCards: vi.fn().mockResolvedValue({ count: 3, total: 10 }),
+      }),
+      getStorage: vi.fn().mockReturnValue({
+        getAllCards: vi.fn().mockReturnValue([]),
+      }),
+      getAutoCardHandler: vi.fn().mockReturnValue(null),
+    } as any;
+
+    const i18n = {
+      startReview: 'L1',
+      startIncrementalLearning: 'L2',
+      startDeliberatePractice: 'L3',
+      startNeuralReview: 'L4',
+      startFilterGroupPractice: 'L5',
+      srsBrowser: 'L6',
+      oneClickSymbolCardsCurrentDoc: 'L7',
+      oneClickCancelCardsCurrentDoc: 'L8',
+      settings: 'Settings',
+      dueCountLabel: 'Due',
+      totalCountLabel: 'Total',
+    } as Record<string, string>;
+
+    const menuManager = new MenuManager(context, {} as any, i18n, dialogManager as any);
+    const runSpy = vi.spyOn(menuManager, 'runTopBarQuickEntryAction').mockResolvedValue(undefined);
+
+    await menuManager.openTopBarMenu({
+      clientX: 0,
+      clientY: 0,
+      currentTarget: {
+        getBoundingClientRect: () => ({ right: 12, bottom: 34 }),
+      },
+    } as unknown as MouseEvent);
+
+    expect(vi.mocked(Menu)).toHaveBeenCalledTimes(1);
+    const menu = menuInstances[0];
+    const allItemArgs = menu.addItem.mock.calls.map((call) => call[0]);
+    const firstEight = allItemArgs.slice(0, 8);
+
+    expect(firstEight.map((item) => item.label)).toEqual(['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8']);
+    for (const item of firstEight) {
+      expect(item.accelerator).toBeUndefined();
+    }
+
+    firstEight.forEach((item) => item.click?.());
+    TOPBAR_QUICK_ENTRY_DEFINITIONS.forEach((definition, index) => {
+      expect(runSpy).toHaveBeenNthCalledWith(index + 1, definition.id);
+    });
+  });
+});

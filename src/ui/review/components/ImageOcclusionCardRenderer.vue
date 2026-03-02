@@ -1,36 +1,95 @@
 <template>
   <div class="image-occlusion-card-renderer">
-    <CardLoadingState v-if="loading" :text="t('loading', 'Loading...')" />
+    <CardLoadingState v-if="showLoading" :text="t('loading', '加载中...')" />
     <CardErrorState v-else-if="error" :message="error" />
 
-    <div v-else-if="viewModel" class="image-occlusion-card-renderer__content">
+    <div
+      v-else-if="viewModel"
+      class="image-occlusion-card-renderer__content"
+      :class="{ 'is-image-fullscreen': isImageFullscreen }"
+    >
       <div v-if="viewModel.prompt" class="image-occlusion-card-renderer__question">
         {{ viewModel.prompt }}
       </div>
 
-      <div class="image-occlusion-card-renderer__stage">
-        <div class="image-occlusion-card-renderer__frame">
-          <img
-            class="image-occlusion-card-renderer__image"
-            :src="viewModel.imageSrc"
-            alt="image-occlusion-source"
-            draggable="false"
-          />
-          <div class="image-occlusion-card-renderer__overlay">
-            <div
-              v-for="mask in viewModel.masks"
-              :key="mask.id"
-              class="image-occlusion-card-renderer__mask"
-              :class="{ 'is-revealed': showAnswer }"
-              :style="maskStyle(mask)"
-            >
-              <span v-if="!showAnswer" class="image-occlusion-card-renderer__mask-label">{{ mask.label }}</span>
+      <div
+        class="image-occlusion-card-renderer__stage"
+        :class="{ 'is-image-fullscreen': isImageFullscreen }"
+        data-role="image-fullscreen-stage"
+        @mousedown="handleStageMouseDown"
+      >
+        <button
+          class="image-occlusion-card-renderer__fullscreen-toggle"
+          data-role="image-fullscreen-toggle"
+          type="button"
+          :aria-label="isImageFullscreen
+            ? t('imageOcclusionReviewExitImageFullscreen', 'Exit image fullscreen')
+            : t('imageOcclusionReviewEnterImageFullscreen', 'Enter image fullscreen')"
+          :title="isImageFullscreen
+            ? t('imageOcclusionReviewExitImageFullscreen', 'Exit image fullscreen')
+            : t('imageOcclusionReviewEnterImageFullscreen', 'Enter image fullscreen')"
+          @click.stop="toggleImageFullscreen"
+        >
+          <svg v-if="!isImageFullscreen"><use xlink:href="#iconFullscreen"></use></svg>
+          <svg v-else><use xlink:href="#iconCloseRound"></use></svg>
+        </button>
+
+        <div
+          v-if="isImageFullscreen"
+          class="image-occlusion-card-renderer__zoom-controls"
+          @click.stop
+          @mousedown.stop
+        >
+          <button
+            class="image-occlusion-card-renderer__zoom-button"
+            data-role="image-fullscreen-zoom-out"
+            type="button"
+            :aria-label="t('imageOcclusionZoomOut', 'Zoom Out')"
+            :title="t('imageOcclusionZoomOut', 'Zoom Out')"
+            @click.stop="handleZoomOutClick"
+          >
+            <svg><use xlink:href="#iconZoomOut"></use></svg>
+          </button>
+          <span class="image-occlusion-card-renderer__zoom-value" data-role="image-zoom-value">{{ zoomValueLabel }}</span>
+          <button
+            class="image-occlusion-card-renderer__zoom-button"
+            data-role="image-fullscreen-zoom-in"
+            type="button"
+            :aria-label="t('imageOcclusionZoomIn', 'Zoom In')"
+            :title="t('imageOcclusionZoomIn', 'Zoom In')"
+            @click.stop="handleZoomInClick"
+          >
+            <svg><use xlink:href="#iconZoomIn"></use></svg>
+          </button>
+          <span class="image-occlusion-card-renderer__zoom-wheel-tip">
+            {{ t('imageOcclusionReviewZoomWheelHint', 'Ctrl + wheel to zoom') }}
+          </span>
+        </div>
+
+        <div class="image-occlusion-card-renderer__viewport" @wheel="handleStageWheel">
+          <div class="image-occlusion-card-renderer__frame" :style="frameStyle">
+            <img
+              class="image-occlusion-card-renderer__image"
+              :src="viewModel.imageSrc"
+              alt="image-occlusion-source"
+              draggable="false"
+            />
+            <div class="image-occlusion-card-renderer__overlay">
+              <div
+                v-for="mask in viewModel.masks"
+                :key="mask.id"
+                class="image-occlusion-card-renderer__mask"
+                :class="{ 'is-revealed': showAnswer }"
+                :style="maskStyle(mask)"
+              >
+                <span v-if="!showAnswer" class="image-occlusion-card-renderer__mask-label">{{ mask.label }}</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div v-if="!showAnswer" class="image-occlusion-card-renderer__hint">
+      <div v-if="!showAnswer && !isImageFullscreen" class="image-occlusion-card-renderer__hint">
         {{ t('imageOcclusionReviewFrontHint', 'Recall the hidden area, then reveal answer') }}
       </div>
     </div>
@@ -38,12 +97,13 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import { getBlockAttrs, getBlockKramdown } from '@/infrastructure/siyuan/api';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
+import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 
 const logger = createLogger('ImageOcclusionCardRenderer');
 const TRACE_IMAGE_OCCLUSION = false;
@@ -99,6 +159,19 @@ const emit = defineEmits<Emits>();
 const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<ViewModel | null>(null);
+const isImageFullscreen = ref(false);
+const zoomPercent = ref(100);
+const { showLoading } = useDeferredLoadingIndicator(loading);
+let loadSeq = 0;
+
+const MIN_ZOOM_PERCENT = 50;
+const MAX_ZOOM_PERCENT = 300;
+const ZOOM_STEP_PERCENT = 10;
+
+const zoomValueLabel = computed(() => `${zoomPercent.value}%`);
+const frameStyle = computed<Record<string, string>>(() => ({
+  '--image-occlusion-review-zoom': String(zoomPercent.value / 100),
+}));
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
@@ -298,12 +371,128 @@ function maskStyle(mask: ViewMask): Record<string, string> {
   };
 }
 
+function clampZoomPercent(value: number): number {
+  return Math.max(MIN_ZOOM_PERCENT, Math.min(MAX_ZOOM_PERCENT, value));
+}
+
+function applyZoomPercent(value: number): void {
+  zoomPercent.value = clampZoomPercent(value);
+}
+
+function resetImageFullscreenState(): void {
+  isImageFullscreen.value = false;
+  zoomPercent.value = 100;
+}
+
+function enterImageFullscreen(): void {
+  isImageFullscreen.value = true;
+  zoomPercent.value = 100;
+}
+
+function exitImageFullscreen(): void {
+  resetImageFullscreenState();
+}
+
+function toggleImageFullscreen(): void {
+  if (!viewModel.value || loading.value || error.value) {
+    return;
+  }
+
+  if (isImageFullscreen.value) {
+    exitImageFullscreen();
+    return;
+  }
+
+  enterImageFullscreen();
+}
+
+function adjustZoom(delta: number): void {
+  applyZoomPercent(zoomPercent.value + delta);
+}
+
+function handleZoomOutClick(): void {
+  adjustZoom(-ZOOM_STEP_PERCENT);
+}
+
+function handleZoomInClick(): void {
+  adjustZoom(ZOOM_STEP_PERCENT);
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null;
+  if (!element) {
+    return false;
+  }
+  return element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable;
+}
+
+function isPlusToggleKey(event: KeyboardEvent): boolean {
+  const key = event.key;
+  if (key === '+') {
+    return true;
+  }
+  if (key === '=' && event.shiftKey) {
+    return true;
+  }
+  const normalized = key.toLowerCase();
+  return normalized === 'add' || normalized === 'numpadadd';
+}
+
+function handleGlobalKeyDown(event: KeyboardEvent): void {
+  if (isTypingTarget(event.target)) {
+    return;
+  }
+
+  if (isPlusToggleKey(event)) {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleImageFullscreen();
+    return;
+  }
+
+  if (event.key === 'Escape' && isImageFullscreen.value) {
+    event.preventDefault();
+    event.stopPropagation();
+    exitImageFullscreen();
+  }
+}
+
+function handleStageWheel(event: WheelEvent): void {
+  if (!isImageFullscreen.value || !event.ctrlKey) {
+    return;
+  }
+  event.preventDefault();
+  adjustZoom(event.deltaY < 0 ? ZOOM_STEP_PERCENT : -ZOOM_STEP_PERCENT);
+}
+
+function handleStageMouseDown(event: MouseEvent): void {
+  if (!isImageFullscreen.value || event.button !== 0) {
+    return;
+  }
+
+  const target = event.target as HTMLElement | null;
+  if (
+    target?.closest('.image-occlusion-card-renderer__zoom-controls')
+    || target?.closest('.image-occlusion-card-renderer__fullscreen-toggle')
+  ) {
+    return;
+  }
+
+  event.preventDefault();
+  exitImageFullscreen();
+}
+
 async function loadViewModel(): Promise<void> {
+  const seq = ++loadSeq;
+
   try {
     loading.value = true;
     error.value = null;
 
     const attrs = await getBlockAttrs(props.blockId);
+    if (seq !== loadSeq) {
+      return;
+    }
     const rawPayload = attrs[ATTR_IMAGE_OCCLUSION];
     const trackedCardIds = parseTrackedCardIds(attrs[ATTR_IMAGE_OCCLUSION_CARD_IDS]);
     let payload: OcclusionPayload = {};
@@ -319,6 +508,9 @@ async function loadViewModel(): Promise<void> {
     let imageSrc = typeof payload.imageSrc === 'string' ? payload.imageSrc.trim() : '';
     if (!imageSrc) {
       const { kramdown } = await getBlockKramdown(props.blockId);
+      if (seq !== loadSeq) {
+        return;
+      }
       imageSrc = parseImageSourceFromKramdown(kramdown);
     }
 
@@ -379,21 +571,30 @@ async function loadViewModel(): Promise<void> {
       masks: viewMasks,
       prompt: viewMasks[0]?.prompt?.trim() || '',
     };
+    if (seq !== loadSeq) {
+      return;
+    }
     viewModel.value = nextViewModel;
     emit('loaded', nextViewModel);
   } catch (err) {
+    if (seq !== loadSeq) {
+      return;
+    }
     const nextError = err instanceof Error ? err : new Error(String(err));
     error.value = nextError.message;
     emit('error', nextError);
     logger.error('[ImageOcclusionCardRenderer] Failed to load view model:', err);
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) {
+      loading.value = false;
+    }
   }
 }
 
 watch(
   () => `${props.blockId}:${props.card?.id || ''}:${resolveMaskIdFromCard(props.card) || ''}:${resolveMaskIndexFromCard(props.card, []) ?? ''}`,
   () => {
+    resetImageFullscreenState();
     traceImageOcclusion('watch.triggered', {
       blockId: props.blockId,
       cardId: props.card?.id || '',
@@ -403,7 +604,13 @@ watch(
 );
 
 onMounted(() => {
+  document.addEventListener('keydown', handleGlobalKeyDown);
   void loadViewModel();
+});
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleGlobalKeyDown);
+  resetImageFullscreenState();
 });
 </script>
 
@@ -412,9 +619,11 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
 }
 
 .image-occlusion-card-renderer__content {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -435,14 +644,121 @@ onMounted(() => {
 .image-occlusion-card-renderer__stage {
   position: relative;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
   flex: 1;
   min-height: 180px;
   border: 1px solid var(--b3-border-color);
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
   background: var(--b3-theme-surface);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.image-occlusion-card-renderer__stage.is-image-fullscreen {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 34%, var(--b3-border-color));
+  box-shadow: 0 14px 36px rgba(7, 19, 53, 0.3);
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--b3-theme-surface) 88%, #0f2a73 12%),
+    color-mix(in srgb, var(--b3-theme-background) 86%, #172554 14%)
+  );
+}
+
+.image-occlusion-card-renderer__viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  overflow: auto;
+}
+
+.image-occlusion-card-renderer__stage.is-image-fullscreen .image-occlusion-card-renderer__viewport {
+  padding: 70px 16px 16px;
+}
+
+.image-occlusion-card-renderer__fullscreen-toggle {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 4;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 42%, var(--b3-border-color));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--b3-theme-surface) 74%, #dbeafe 26%);
+  color: color-mix(in srgb, var(--b3-theme-primary) 88%, #1e3a8a 12%);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.image-occlusion-card-renderer__fullscreen-toggle:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 62%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-surface) 62%, #bfdbfe 38%);
+}
+
+.image-occlusion-card-renderer__fullscreen-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.image-occlusion-card-renderer__zoom-controls {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 38%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-surface) 70%, #dbeafe 30%);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18);
+}
+
+.image-occlusion-card-renderer__zoom-button {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 40%, var(--b3-border-color));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--b3-theme-surface) 84%, #eff6ff 16%);
+  color: color-mix(in srgb, var(--b3-theme-primary) 86%, #1e3a8a 14%);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-occlusion-card-renderer__zoom-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.image-occlusion-card-renderer__zoom-value {
+  min-width: 54px;
+  text-align: center;
+  color: var(--b3-theme-on-surface);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.image-occlusion-card-renderer__zoom-wheel-tip {
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .image-occlusion-card-renderer__frame {
@@ -450,6 +766,12 @@ onMounted(() => {
   display: inline-block;
   max-width: 100%;
   max-height: 100%;
+  transition: transform 0.15s ease;
+}
+
+.image-occlusion-card-renderer__stage.is-image-fullscreen .image-occlusion-card-renderer__frame {
+  transform: scale(var(--image-occlusion-review-zoom, 1));
+  transform-origin: center center;
 }
 
 .image-occlusion-card-renderer__image {
@@ -472,7 +794,7 @@ onMounted(() => {
 .image-occlusion-card-renderer__mask {
   position: absolute;
   border: 2px solid #000;
-  background: #1d4ed8;
+  background: #1e3a8a;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -500,5 +822,28 @@ onMounted(() => {
   font-size: 13px;
   color: var(--b3-theme-on-surface-light);
   text-align: center;
+}
+
+@media (pointer: coarse) {
+  .image-occlusion-card-renderer__fullscreen-toggle {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .image-occlusion-card-renderer__zoom-controls {
+    gap: 10px;
+    padding: 8px 12px;
+  }
+
+  .image-occlusion-card-renderer__zoom-button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .image-occlusion-card-renderer__zoom-wheel-tip {
+    display: none;
+  }
 }
 </style>

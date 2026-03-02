@@ -27,7 +27,7 @@
           :key="option.value" 
           :value="option.value"
         >
-          {{ getCardTypeLabel(option.value, option.label) }}
+          {{ getCardTypeLabel(option.i18nKey, option.label) }}
         </option>
       </select>
 
@@ -205,8 +205,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import FilterButton from './components/FilterButton.vue';
 import type { CardFilter } from '@/types/unified-data-source';
-import { getAvailableCardTypeFilters, getCardTypeFilterDisplayLabel } from './types';
-import type { CardTypeFilter } from './types';
+import { getAvailableCardTypeFilters } from './types';
 
 // Props
 const props = defineProps<{
@@ -320,11 +319,7 @@ function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
-function getCardTypeLabel(value: string, fallback: string): string {
-  const fixed = getCardTypeFilterDisplayLabel(value as CardTypeFilter);
-  if (fixed) {
-    return fixed;
-  }
-  return t(value === 'all' ? 'allTypes' : 'missingBlockOnly', fallback);
+function getCardTypeLabel(i18nKey: string, fallback: string): string {
+  return t(i18nKey, fallback);
 }
 </script>

@@ -98,6 +98,8 @@ import {
   type NeuralRoamHistoryEntry,
   type NeuralRoamSessionQueue,
 } from '@/types/unified-data-source';
+import { isTopicLikeCard } from './reviewCardSemantics';
+import { resolveReviewKeyAction } from './reviewKeyActionResolver';
 
 const logger = createLogger('ReviewView');
 
@@ -409,7 +411,7 @@ onMounted(() => {
     rootDataKey: rootRef.value?.getAttribute('data-key'),
     inDialog: !!document.querySelector('.b3-dialog__container'),
     dialogElements: document.querySelectorAll('.b3-dialog__container').length,
-    ourDialog: document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]'),
+    ourDialog: rootRef.value?.closest('.b3-dialog__container.siyuanmemo-review-dialog-container'),
   });
 
   // 🆕 添加键盘事件监听器
@@ -485,21 +487,12 @@ function t(key: string, fallback: string): string {
   return i18n?.[key] || fallback;
 }
 
-const RATING_KEYS = new Set(['1', '2', '3', '4']);
-const SKIP_KEYS = new Set(['0', 'x', 's']);
-const BACK_KEYS = new Set(['p', 'q']);
-
 function isTypingTarget(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null;
   if (!element) {
     return false;
   }
   return element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable;
-}
-
-function isTopicCard(): boolean {
-  const cardMeta = state.value.actions.cardMeta;
-  return cardMeta?.type === 'topic' || cardMeta?.cardType === 'topic';
 }
 
 function handleReviewKeyAction(
@@ -520,56 +513,43 @@ function handleReviewKeyAction(
     cardType: state.value.actions.cardMeta?.cardType || state.value.actions.cardMeta?.type,
   });
 
-  if (key === ' ' || key === 'enter') {
-    event.preventDefault();
-    event.stopPropagation();
+  const action = resolveReviewKeyAction({
+    key,
+    answerShown: hook.context.value.showAnswer,
+    isTopicLike: isTopicLikeCard(state.value.actions.cardMeta),
+  });
 
-    if (!hook.context.value.showAnswer) {
-      if (isTopicCard()) {
-        logger.debug('[SiYuanMemo][ReviewView] Topic card - grading with 3 (Good)', {
-          blockId: state.value.actions.cardMeta?.blockID,
-          cardId: state.value.actions.cardMeta?.cardID,
-          cardType: state.value.actions.cardMeta?.cardType || state.value.actions.cardMeta?.type,
-        });
-        void hook.grade(3);
-      } else {
-        logger.debug('[SiYuanMemo][ReviewView] Revealing answer...', {
-          blockId: state.value.actions.cardMeta?.blockID,
-          cardId: state.value.actions.cardMeta?.cardID,
-          cardType: state.value.actions.cardMeta?.cardType || state.value.actions.cardMeta?.type,
-        });
-        hook.reveal();
-      }
-    } else {
-      logger.debug('[SiYuanMemo][ReviewView] Answer shown - grading with 3 (Good)');
-      void hook.grade(3);
-    }
+  if (action.type === 'none') {
     return;
   }
 
-  if (RATING_KEYS.has(key)) {
-    if (hook.context.value.showAnswer) {
-      event.preventDefault();
-      event.stopPropagation();
-      logger.debug('[SiYuanMemo][ReviewView] Grading with rating:', key);
-      void hook.grade(Number(key));
-    } else {
-      logger.debug('[SiYuanMemo][ReviewView] Rating key pressed but answer not shown, ignoring');
-    }
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (action.type === 'reveal') {
+    logger.debug('[SiYuanMemo][ReviewView] Revealing answer...');
+    hook.reveal();
     return;
   }
 
-  if (SKIP_KEYS.has(key)) {
-    event.preventDefault();
-    event.stopPropagation();
+  if (action.type === 'grade') {
+    logger.debug('[SiYuanMemo][ReviewView] Grading card', {
+      rating: action.rating,
+      blockId: state.value.actions.cardMeta?.blockID,
+      cardId: state.value.actions.cardMeta?.cardID,
+      cardType: state.value.actions.cardMeta?.cardType || state.value.actions.cardMeta?.type,
+    });
+    void hook.grade(action.rating);
+    return;
+  }
+
+  if (action.type === 'skip') {
     logger.debug('[SiYuanMemo][ReviewView] Skipping card...');
     void hook.skip();
     return;
   }
 
-  if (BACK_KEYS.has(key)) {
-    event.preventDefault();
-    event.stopPropagation();
+  if (action.type === 'back') {
     logger.debug('[SiYuanMemo][ReviewView] Going back...');
     void hook.back();
   }
@@ -827,7 +807,8 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
     logger.debug('[SiYuanMemo][ReviewView] Fullscreen button clicked');
 
     // 查找对话框容器
-    const dialogContainer = document.querySelector('.b3-dialog__container[data-key="dialog-opencard"]');
+    const dialogContainer = rootRef.value?.closest('.b3-dialog__container.siyuanmemo-review-dialog-container')
+      || document.querySelector('.b3-dialog__container.siyuanmemo-review-dialog-container');
     // 使用自定义类名查找内容区域
     const contentMain = rootRef.value?.querySelector('.fsrs-review-v2-content') || document.querySelector('.fsrs-review-v2-content');
     logger.debug('[SiYuanMemo][ReviewView] dialogContainer found:', !!dialogContainer);
@@ -1482,7 +1463,7 @@ function refreshNavigationState() {
 /* 参考思源原生实现：siyuan/app/src/assets/scss/main/_main.scss:28-56 */
 
 /* 1. 对话框容器全屏 */
-.b3-dialog__container[data-key="dialog-opencard"].fullscreen {
+.b3-dialog__container.siyuanmemo-review-dialog-container.fullscreen {
   position: fixed !important;
   top: 0 !important;
   left: 0 !important;
@@ -1522,7 +1503,7 @@ function refreshNavigationState() {
 
 <style>
 /* 确保对话框有圆角 */
-.b3-dialog__container[data-key="dialog-opencard"]:not(.fsrs-mobile-review-dialog) {
+.b3-dialog__container.siyuanmemo-review-dialog-container:not(.fsrs-mobile-review-dialog) {
   border-radius: var(--b3-border-radius-b) !important;
 }
 

@@ -1,64 +1,39 @@
 <template>
   <div class="concept-card-renderer">
-    <!-- 加载状态 -->
-    <CardLoadingState v-if="loading" :text="t('loading', '加载中...')" />
-
-    <!-- 错误状态 -->
+    <CardLoadingState v-if="showLoading" :text="t('loading', '加载中...')" />
     <CardErrorState v-else-if="error" :message="error" />
 
-    <!-- 概念卡内容 -->
     <div v-else-if="viewModel" class="concept-card-renderer__content">
-      <!-- 面包屑 -->
       <CardBreadcrumb :items="viewModel.breadcrumbs" />
 
-      <!-- 概念卡主体 -->
       <div class="concept-card-renderer__main">
-        <!-- 卡片类型徽章 -->
         <div class="concept-card-renderer__badge">
-          <span class="concept-card-renderer__badge-icon">🧠</span>
+          <span class="concept-card-renderer__badge-icon">📥</span>
           <span class="concept-card-renderer__badge-label">概念卡</span>
         </div>
 
-        <!-- 正面：概念名称 -->
-        <div
-          v-if="!showAnswer"
-          class="concept-card-renderer__front"
-        >
+        <div v-if="!showAnswer" class="concept-card-renderer__front">
           <div class="concept-card-renderer__concept-name">
             {{ viewModel.conceptName }}
           </div>
         </div>
 
-        <!-- 背面：概念内容 -->
-        <div
-          v-else
-          class="concept-card-renderer__back"
-        >
-          <!-- 显示正面内容（灰色） -->
+        <div v-else class="concept-card-renderer__back">
           <div class="concept-card-renderer__front-preview">
             {{ viewModel.conceptName }}
           </div>
-          
-          <!-- 答案分隔线 -->
+
           <div class="concept-card-renderer__answer-divider">
             <span>内容</span>
           </div>
-          
-          <!-- 显示概念内容 -->
-          <div
-            class="concept-card-renderer__html-content"
-            v-html="viewModel.contentHtml"
-          ></div>
+
+          <div class="concept-card-renderer__html-content" v-html="viewModel.contentHtml"></div>
         </div>
       </div>
 
-      <!-- 操作按钮 -->
       <div class="concept-card-renderer__actions">
-        <button
-          class="concept-card-renderer__btn concept-card-renderer__btn--secondary"
-          @click="jumpToConcept"
-        >
-          📄 跳转到概念
+        <button class="concept-card-renderer__btn concept-card-renderer__btn--secondary" @click="jumpToConcept">
+          📫 跳转到概念
         </button>
       </div>
     </div>
@@ -66,14 +41,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { openTab } from 'siyuan';
 import { ConceptCardRenderService } from '@/core/card/concept/application/ConceptCardRenderService';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
-import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
+import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import type { ConceptCardViewModel } from '@/core/card/concept/application/ConceptCardRenderService';
 import { createLogger } from '@/utils/logger';
+import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 
 const logger = createLogger('ConceptCardRenderer');
 
@@ -111,36 +87,54 @@ function t(key: string, fallback: string): string {
 const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<ConceptCardViewModel | null>(null);
+const { showLoading } = useDeferredLoadingIndicator(loading);
+let loadSeq = 0;
 
 const renderService = new ConceptCardRenderService();
 
-// 方法
+const renderIdentity = computed(() => {
+  return [props.blockId || '', props.cardId || '', props.card?.xiuyuanID || ''].join('|');
+});
+
 async function loadViewModel() {
+  const seq = ++loadSeq;
+
   try {
     loading.value = true;
     error.value = null;
-    
-    viewModel.value = await renderService.prepareViewModel(props.blockId, props.card);
+
+    const nextViewModel = await renderService.prepareViewModel(props.blockId, props.card);
+    if (seq !== loadSeq) {
+      return;
+    }
+
+    viewModel.value = nextViewModel;
     emit('loaded', { viewModel: viewModel.value });
   } catch (err) {
+    if (seq !== loadSeq) {
+      return;
+    }
+
     const errorMessage = err instanceof Error ? err.message : String(err);
     error.value = errorMessage;
     emit('error', err instanceof Error ? err : new Error(errorMessage));
     logger.error('[ConceptCardRenderer] Failed to load view model:', err);
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) {
+      loading.value = false;
+    }
   }
 }
 
 function jumpToConcept() {
   if (!viewModel.value) return;
-  
+
   const app = (window as SiyuanWindow).siyuan?.ws?.app;
   if (!app) {
     logger.error('[ConceptCardRenderer] App instance not found');
     return;
   }
-  
+
   openTab({
     app,
     doc: {
@@ -150,13 +144,16 @@ function jumpToConcept() {
   });
 }
 
-onMounted(() => {
-  loadViewModel();
-});
+watch(
+  renderIdentity,
+  () => {
+    void loadViewModel();
+  },
+  { immediate: true }
+);
 </script>
 
 <style scoped>
-/* 容器 */
 .concept-card-renderer {
   display: flex;
   flex-direction: column;
@@ -164,7 +161,6 @@ onMounted(() => {
   background: var(--b3-theme-background);
 }
 
-/* 内容区域 */
 .concept-card-renderer__content {
   display: flex;
   flex-direction: column;
@@ -172,7 +168,6 @@ onMounted(() => {
   overflow: auto;
 }
 
-/* 概念卡主体 */
 .concept-card-renderer__main {
   flex: 1;
   display: flex;
@@ -180,7 +175,6 @@ onMounted(() => {
   padding: 16px;
 }
 
-/* 卡片类型徽章 */
 .concept-card-renderer__badge {
   display: flex;
   align-items: center;
@@ -199,7 +193,6 @@ onMounted(() => {
   font-size: 16px;
 }
 
-/* 正面样式 */
 .concept-card-renderer__front {
   flex: 1;
   display: flex;
@@ -217,7 +210,6 @@ onMounted(() => {
   line-height: 1.4;
 }
 
-/* 背面样式 */
 .concept-card-renderer__back {
   flex: 1;
   padding: 48px 32px 32px;
@@ -266,12 +258,10 @@ onMounted(() => {
   color: var(--b3-theme-on-surface);
 }
 
-/* 深色主题适配 */
 .concept-card-renderer__html-content :deep(.protyle-wysiwyg) {
   background: transparent;
 }
 
-/* 操作按钮 */
 .concept-card-renderer__actions {
   display: flex;
   gap: 12px;

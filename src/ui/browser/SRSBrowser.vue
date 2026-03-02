@@ -247,6 +247,7 @@ import type {
   IReviewQueue,
   IUnifiedDataSourceManagerFacade,
   NeuralRoamHistoryEntry,
+  QueueType,
 } from '@/types/unified-data-source';
 import { isNeuralRoamSessionQueue } from '@/types/unified-data-source';
 import { filterService } from './services/FilterService';
@@ -275,6 +276,7 @@ import { useCardActions } from './composables/useCardActions';
 import { useQueueBridge, EMPTY_QUEUE_COUNTS } from './composables/useQueueBridge';
 import { useIncrementalGridUpdates } from './composables/useIncrementalGridUpdates';
 import { useBrowserAdapterSync } from './composables/useBrowserAdapterSync';
+import { shouldRefreshQueueData } from './composables/queueChangeScope';
 import { useGlobalSelection } from './composables/useGlobalSelection';
 import { createLogger } from '@/utils/logger';
 import type { IBrowserApplicationService } from '@/application/interfaces/IBrowserApplicationService';
@@ -535,6 +537,20 @@ const currentQueueType = computed(() => {
 });
 
 const isNeuralRoamQueueActive = computed(() => currentQueueType.value === 'neural-roam');
+const activeQueueTypeForRefresh = computed<QueueType | null>(() => {
+  const queueType = currentQueueType.value;
+  if (
+    queueType === 'retrieval-practice'
+    || queueType === 'final-drill'
+    || queueType === 'incremental-learning'
+    || queueType === 'filter-group'
+    || queueType === 'neural-roam'
+    || queueType === 'leech'
+  ) {
+    return queueType;
+  }
+  return null;
+});
 const showNeuralCustomSubview = computed(() =>
   isNeuralRoamQueueActive.value && neuralSubview.value !== 'concept-cards'
 );
@@ -2247,13 +2263,26 @@ const {
   manager: pluginUnifiedDataSourceManager,
   onCardUpdated: handleCardUpdatedIncremental,
   onCardDeleted: handleCardDeletedIncremental,
-  onQueueChanged: () => {
-    logger.info('[SiYuanMemo][SRSBrowser] Refreshing queue counts and data due to queue changes');
+  onQueueChanged: (affectedQueueTypes) => {
+    logger.info('[SiYuanMemo][SRSBrowser] Refreshing queue counts due to queue changes', {
+      affectedQueueTypes: affectedQueueTypes ?? 'all',
+      activeQueueId: activeQueueId.value,
+      activeQueueType: activeQueueTypeForRefresh.value,
+    });
     void refreshQueueCounts();
-    if (activeQueueId.value) {
+
+    const activeQueueType = activeQueueTypeForRefresh.value;
+    const shouldRefreshActiveQueue = shouldRefreshQueueData(
+      activeQueueId.value,
+      activeQueueType,
+      affectedQueueTypes ?? null,
+    );
+
+    if (shouldRefreshActiveQueue) {
       void refreshData(true);
     }
-    if (isNeuralRoamQueueActive.value) {
+
+    if (shouldRefreshActiveQueue && isNeuralRoamQueueActive.value) {
       void refreshNeuralSubviewData();
     }
   },

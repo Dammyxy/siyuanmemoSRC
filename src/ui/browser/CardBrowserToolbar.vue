@@ -27,7 +27,7 @@
           :key="option.value" 
           :value="option.value"
         >
-          {{ getCardTypeLabel(option.value, option.label) }}
+          {{ getCardTypeLabel(option.i18nKey, option.label) }}
         </option>
       </select>
     </div>
@@ -128,8 +128,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { getAvailableCardTypeFilters, getCardTypeFilterDisplayLabel } from './types';
-import type { CardTypeFilter } from './types';
+import { getAvailableCardTypeFilters } from './types';
 
 // 定义 props
 interface Props {
@@ -205,12 +204,8 @@ const t = (key: string, fallback: string): string => {
   return props.i18n?.[key] || fallback;
 };
 
-const getCardTypeLabel = (value: string, fallback: string): string => {
-  const fixed = getCardTypeFilterDisplayLabel(value as CardTypeFilter);
-  if (fixed) {
-    return fixed;
-  }
-  return t(value === 'all' ? 'allTypes' : 'missingBlockOnly', fallback);
+const getCardTypeLabel = (i18nKey: string, fallback: string): string => {
+  return t(i18nKey, fallback);
 };
 
 // 事件处理函数

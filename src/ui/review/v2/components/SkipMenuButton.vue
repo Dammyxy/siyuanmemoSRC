@@ -2,13 +2,14 @@
   <div class="skip-menu-button">
     <!-- 左侧: 跳过按钮 -->
     <button
-      class="b3-button b3-button--cancel skip-menu-button__skip"
+      class="b3-button b3-button--cancel b3-tooltips__n b3-tooltips skip-menu-button__skip"
       :class="{ 'skip-menu-button__skip--mobile': props.isMobile }"
+      :aria-label="skipHotkeyHint"
       @click="handleSkip"
     >
       <div class="card__icon">💤</div>
       {{ t('skip', '跳过') }}
-      <template v-if="!props.isMobile"> (S) </template>
+      <template v-if="!props.isMobile"> ({{ skipHotkeyHint }}) </template>
     </button>
     
     <!-- 右侧: 下拉箭头 -->
@@ -41,6 +42,7 @@ interface Emits {
 const props = defineProps<Props>();
 const emit = defineEmits<Emits>();
 const logger = createLogger('SkipMenuButton');
+const skipHotkeyHint = '0 / x';
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;

@@ -23,6 +23,7 @@ interface ManualCardCollectionConfig {
 
 interface RemoveManualCardOptions {
   persistWhenNotManual?: boolean;
+  addToTemporaryBlacklist?: boolean;
   persist?: () => Promise<void>;
 }
 
@@ -68,6 +69,7 @@ interface AddCardToCollectionOptions {
 interface RemoveCardFromCollectionOptions {
   logger: ManualCardQueueLogger;
   persistWhenNotManual?: boolean;
+  addToTemporaryBlacklist?: boolean;
   persist?: () => Promise<void>;
   persistAfterError?: () => Promise<void>;
   notifyObservers?: boolean;
@@ -217,7 +219,10 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
     options: RemoveManualCardOptions = {}
   ): Promise<{ wasManuallyAdded: boolean }> {
     const wasManuallyAdded = this.manualCards.delete(cardIdOrBlockId);
-    this.temporaryBlacklist.add(cardIdOrBlockId);
+    const addToTemporaryBlacklist = options.addToTemporaryBlacklist !== false;
+    if (addToTemporaryBlacklist) {
+      this.temporaryBlacklist.add(cardIdOrBlockId);
+    }
 
     if (wasManuallyAdded || options.persistWhenNotManual) {
       if (options.persist) {
@@ -249,23 +254,53 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
     const options = typeof persistOrOptions === 'function'
       ? { persist: persistOrOptions }
       : (persistOrOptions ?? {});
-    const cardPoolMap = options.cardPool
+    const cardPoolByIdMap = options.cardPool
       ? new Map(Array.from(options.cardPool, (card) => [card.id, card] as const))
+      : null;
+    const cardPoolByBlockIdMap = options.cardPool
+      ? new Map(Array.from(options.cardPool, (card) => [card.blockId, card] as const))
       : null;
 
     return this.manualCards.resolveExistingCards(
       async (cardId) => {
-        const pooledCard = cardPoolMap?.get(cardId);
-        if (pooledCard) {
-          return pooledCard;
-        }
+        if (cardPoolByIdMap || cardPoolByBlockIdMap) {
+          const pooledById = cardPoolByIdMap?.get(cardId);
+          if (pooledById) {
+            return pooledById;
+          }
 
-        try {
-          return await this.manager.getCard(cardId, { silent: true });
-        } catch {
-          logger.debug(`Card ${cardId} not found, removing from manual additions`);
+          const pooledByBlockId = cardPoolByBlockIdMap?.get(cardId);
+          if (pooledByBlockId) {
+            return pooledByBlockId;
+          }
+
+          logger.debug(`Card ${cardId} not found in prefetched card pool, removing from manual additions`);
           return null;
         }
+
+        const cardById = await this.manager.getCard(cardId, { silent: true }).catch(() => null);
+        if (cardById) {
+          return cardById;
+        }
+
+        const cardByBlockId = await this.manager.getCards({ blockIds: [cardId] })
+          .then((cards) => cards[0] ?? null)
+          .catch(() => null);
+        if (cardByBlockId) {
+          return cardByBlockId;
+        }
+
+        // Last-resort fallback for data-source adapters that cannot resolve by cardId
+        // consistently in certain runtime states. This path should be rare.
+        const cardFromFallbackPool = await this.manager.getCards()
+          .then((cards) => cards.find((candidate) => candidate.id === cardId) ?? null)
+          .catch(() => null);
+        if (cardFromFallbackPool) {
+          return cardFromFallbackPool;
+        }
+
+        logger.debug(`Card ${cardId} not found, removing from manual additions`);
+        return null;
       },
       {
         onCleanup: async () => this.persistManualCardState(logger, options.persist),
@@ -466,11 +501,19 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
     cardIdOrBlockId: string,
     options: RemoveCardFromCollectionOptions
   ): Promise<void> {
-    const { logger, persistWhenNotManual = false, persist, persistAfterError, notifyObservers = false } = options;
+    const {
+      logger,
+      persistWhenNotManual = false,
+      addToTemporaryBlacklist = true,
+      persist,
+      persistAfterError,
+      notifyObservers = false,
+    } = options;
     try {
       await this.ensureInitialLoad();
       const { wasManuallyAdded } = await this.removeManualCard(cardIdOrBlockId, logger, {
         persistWhenNotManual,
+        addToTemporaryBlacklist,
         persist,
       });
       if (notifyObservers) {
@@ -483,7 +526,9 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
       });
     } catch (error) {
       logger.error('Failed to remove card:', error);
-      this.temporaryBlacklist.add(cardIdOrBlockId);
+      if (addToTemporaryBlacklist) {
+        this.temporaryBlacklist.add(cardIdOrBlockId);
+      }
 
       if (persistAfterError) {
         void persistAfterError().catch((persistError) => {
