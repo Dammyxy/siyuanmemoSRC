@@ -4,6 +4,7 @@ import type {
   ManagerSiyuanPort,
 } from '@/application/ports/ManagerSiyuanPort';
 import {
+  getBlockAttrs,
   getBlockKramdown,
   pushErrMsg,
   pushMsg,
@@ -34,6 +35,10 @@ export class ManagerSiyuanAdapter implements ManagerSiyuanPort {
 
   async sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
     return sql<TRow>(stmt);
+  }
+
+  async getBlockAttrs(blockId: string): Promise<Record<string, string>> {
+    return getBlockAttrs(blockId);
   }
 
   async getBlockKramdown(blockId: string): Promise<{ kramdown: string }> {

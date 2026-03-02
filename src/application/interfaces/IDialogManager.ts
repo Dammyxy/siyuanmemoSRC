@@ -66,7 +66,7 @@ export interface IDialogManager {
    */
   openBrowserDialog(options?: {
     initialQueueId?: string;
-    initialNeuralSubview?: 'concept-cards' | 'focus-blocks' | 'roam-history';
+    initialNeuralSubview?: 'concept-cards' | 'roam-history' | 'worldline-anchors';
   }): void;
 
   /**

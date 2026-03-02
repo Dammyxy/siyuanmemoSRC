@@ -8,28 +8,50 @@
       <!-- 基础参数 -->
       <div class="form-section">
         <h4 class="section-title">{{ t('spreadBasicParams', '基础参数') }}</h4>
-        
-        <!-- 🆕 队列模式下隐藏收集期 -->
+
+        <!-- 🆕 队列模式下隐藏"考虑未来复习"选项 -->
         <div v-if="!queueMode" class="form-field">
+          <label class="checkbox-label">
+            <input
+              type="checkbox"
+              v-model="config.considerFutureRepetitions"
+            />
+            <span>{{ t('spreadConsiderFuture', '考虑未来复习') }}</span>
+          </label>
+          <p class="field-hint">
+            {{ config.considerFutureRepetitions
+              ? t('spreadConsiderFutureHintYes', '包括未到期的卡片（用于假期前提前复习）')
+              : t('spreadConsiderFutureHintNo', '仅包括已到期的卡片（用于减轻积压）')
+            }}
+          </p>
+        </div>
+
+        <!-- 🆕 队列模式下隐藏收集期 -->
+        <div v-if="!queueMode" class="form-field collecting-period-field" :class="{ 'is-disabled': !isCollectingPeriodEnabled }">
           <label>{{ t('spreadCollectingPeriod', '收集期（天）') }}</label>
           <div class="input-with-buttons">
             <div class="quick-buttons">
-              <button class="btn-quick" :class="{ 'btn-quick--active': config.collectingPeriod === 7 }" @click="config.collectingPeriod = 7">{{ t('days7', '7天') }}</button>
-              <button class="btn-quick" :class="{ 'btn-quick--active': config.collectingPeriod === 14 }" @click="config.collectingPeriod = 14">{{ t('days14', '14天') }}</button>
-              <button class="btn-quick" :class="{ 'btn-quick--active': config.collectingPeriod === 30 }" @click="config.collectingPeriod = 30">{{ t('days30', '30天') }}</button>
-              <button class="btn-quick" :class="{ 'btn-quick--active': config.collectingPeriod === 60 }" @click="config.collectingPeriod = 60">{{ t('days60', '60天') }}</button>
+              <button class="btn-quick" :class="{ 'btn-quick--active': config.collectingPeriod === 7 }" :disabled="!isCollectingPeriodEnabled" @click="config.collectingPeriod = 7">{{ t('days7', '7天') }}</button>
+              <button class="btn-quick" :class="{ 'btn-quick--active': config.collectingPeriod === 14 }" :disabled="!isCollectingPeriodEnabled" @click="config.collectingPeriod = 14">{{ t('days14', '14天') }}</button>
+              <button class="btn-quick" :class="{ 'btn-quick--active': config.collectingPeriod === 30 }" :disabled="!isCollectingPeriodEnabled" @click="config.collectingPeriod = 30">{{ t('days30', '30天') }}</button>
+              <button class="btn-quick" :class="{ 'btn-quick--active': config.collectingPeriod === 60 }" :disabled="!isCollectingPeriodEnabled" @click="config.collectingPeriod = 60">{{ t('days60', '60天') }}</button>
             </div>
-            <input 
-              type="number" 
-              v-model.number="config.collectingPeriod" 
-              min="1" 
+            <input
+              type="number"
+              v-model.number="config.collectingPeriod"
+              min="1"
               max="365"
               class="form-input"
               :placeholder="t('daysPlaceholder', '输入天数')"
+              :disabled="!isCollectingPeriodEnabled"
             />
           </div>
           <p class="field-hint">
-            {{ t('spreadCollectingPeriodHint', '收集从现在到未来 {n} 天内的卡片').replace('{n}', String(config.collectingPeriod)) }}
+            {{
+              isCollectingPeriodEnabled
+                ? t('spreadCollectingPeriodHint', '收集从现在到未来 {n} 天内的卡片').replace('{n}', String(config.collectingPeriod))
+                : t('spreadCollectingRangeDueOnly', '仅到期卡片（<=现在）')
+            }}
           </p>
         </div>
         
@@ -61,23 +83,6 @@
           </div>
           <p class="field-hint">
             {{ t('spreadReschedulingPeriodHint', '将收集的卡片均匀分散到未来 {n} 天内').replace('{n}', String(config.reschedulingPeriod)) }}
-          </p>
-        </div>
-        
-        <!-- 🆕 队列模式下隐藏"考虑未来复习"选项 -->
-        <div v-if="!queueMode" class="form-field">
-          <label class="checkbox-label">
-            <input 
-              type="checkbox" 
-              v-model="config.considerFutureRepetitions"
-            />
-            <span>{{ t('spreadConsiderFuture', '考虑未来复习') }}</span>
-          </label>
-          <p class="field-hint">
-            {{ config.considerFutureRepetitions 
-              ? t('spreadConsiderFutureHintYes', '包括未到期的卡片（用于假期前提前复习）') 
-              : t('spreadConsiderFutureHintNo', '仅包括已到期的卡片（用于减轻积压）') 
-            }}
           </p>
         </div>
       </div>
@@ -239,13 +244,41 @@ function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
-function normalizeSpreadConfig(config: Partial<SpreadConfig> | null | undefined): SpreadConfig {
-  const defaults = props.configManager.getDefaultSpreadConfig();
-  const input = config ?? {};
+const spreadDefaults = props.configManager.getDefaultSpreadConfig();
+
+function normalizePeriodDays(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  const parsed = Math.floor(value);
+  if (parsed < 1 || parsed > 365) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+function normalizeConfigForSubmit(config: SpreadConfig): SpreadConfig {
   return {
-    ...defaults,
+    ...config,
+    collectingPeriod: normalizePeriodDays(config.collectingPeriod, spreadDefaults.collectingPeriod),
+    reschedulingPeriod: normalizePeriodDays(config.reschedulingPeriod, spreadDefaults.reschedulingPeriod),
+    maxCardsPerDay: normalizeMaxCardsPerDay(config.maxCardsPerDay),
+  };
+}
+
+function normalizeSpreadConfig(config: Partial<SpreadConfig> | null | undefined): SpreadConfig {
+  const input = config ?? {};
+
+  return {
+    ...spreadDefaults,
     ...input,
+    collectingPeriod: normalizePeriodDays(input.collectingPeriod, spreadDefaults.collectingPeriod),
+    reschedulingPeriod: normalizePeriodDays(input.reschedulingPeriod, spreadDefaults.reschedulingPeriod),
     collectAllCards: input.collectAllCards ?? false,
+    considerFutureRepetitions: input.considerFutureRepetitions ?? spreadDefaults.considerFutureRepetitions,
+    sortingCriterion: input.sortingCriterion ?? spreadDefaults.sortingCriterion,
     maxCardsPerDay: normalizeMaxCardsPerDay(input.maxCardsPerDay),
   };
 }
@@ -271,6 +304,7 @@ const configNames = ref<string[]>([]);
 
 // 验证错误
 const operationError = ref('');
+const isCollectingPeriodEnabled = computed(() => !props.queueMode && config.value.considerFutureRepetitions);
 
 const dueTimestamps = computed(() => {
   if (!props.allCards || props.allCards.length === 0) {
@@ -358,6 +392,10 @@ const operationType = computed(() => {
     return t('spreadOperationEven', '均匀分散');
   }
 
+  if (!config.value.considerFutureRepetitions) {
+    return t('spreadOperationEvenDueOnly', '均匀分散（仅到期）');
+  }
+
   if (config.value.collectingPeriod > config.value.reschedulingPeriod) {
     return t('spreadOperationAdvance', '提前复习（考试前）');
   } else if (config.value.collectingPeriod < config.value.reschedulingPeriod) {
@@ -372,6 +410,10 @@ const collectingRange = computed(() => {
   if (props.queueMode) {
     return t('spreadQueueModeHint', '队列模式：将分散当前队列中的所有卡片（{n} 张）')
       .replace('{n}', String(collectedCount.value));
+  }
+
+  if (!config.value.considerFutureRepetitions) {
+    return t('spreadCollectingRangeDueOnly', '仅到期卡片（<=现在）');
   }
 
   const endDate = new Date();
@@ -401,7 +443,7 @@ function formatDate(date: Date): string {
 
 // 验证配置
 const formError = computed(() => {
-  if (config.value.collectingPeriod < 1 || config.value.collectingPeriod > 365) {
+  if (!props.queueMode && config.value.considerFutureRepetitions && (config.value.collectingPeriod < 1 || config.value.collectingPeriod > 365)) {
     return t('spreadValidationCollectingPeriod', '收集期必须在 1 到 365 天之间');
   }
   
@@ -459,10 +501,11 @@ async function saveCurrentConfig() {
   if (!newConfigName.value.trim()) return;
   
   try {
+    const normalizedConfig = normalizeConfigForSubmit(config.value);
+
     await props.configManager.saveConfig(newConfigName.value.trim(), {
-      ...config.value,
+      ...normalizedConfig,
       collectAllCards: false,
-      maxCardsPerDay: normalizeMaxCardsPerDay(config.value.maxCardsPerDay),
     }, 'spread');
     configNames.value = Array.from(new Set([...configNames.value, newConfigName.value.trim()]));
     newConfigName.value = '';
@@ -475,10 +518,7 @@ async function saveCurrentConfig() {
 
 function handleConfirm() {
   if (!isValid.value) return;
-  emit('confirm', {
-    ...config.value,
-    maxCardsPerDay: normalizeMaxCardsPerDay(config.value.maxCardsPerDay),
-  });
+  emit('confirm', normalizeConfigForSubmit(config.value));
 }
 
 function handleCancel() {
@@ -574,6 +614,11 @@ function handleCancel() {
   color: var(--b3-theme-on-primary);
 }
 
+.btn-quick:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .form-input {
   width: 100%;
   padding: 8px 12px;
@@ -598,6 +643,15 @@ function handleCancel() {
   margin-top: 6px;
   font-size: 12px;
   color: var(--b3-theme-on-surface-light);
+}
+
+.collecting-period-field.is-disabled {
+  opacity: 0.75;
+}
+
+.collecting-period-field.is-disabled .btn-quick:hover {
+  background: var(--b3-theme-surface);
+  border-color: var(--b3-border-color);
 }
 
 .checkbox-label {

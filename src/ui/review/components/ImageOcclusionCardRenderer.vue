@@ -16,7 +16,6 @@
         class="image-occlusion-card-renderer__stage"
         :class="{ 'is-image-fullscreen': isImageFullscreen }"
         data-role="image-fullscreen-stage"
-        @mousedown="handleStageMouseDown"
       >
         <button
           class="image-occlusion-card-renderer__fullscreen-toggle"
@@ -62,17 +61,19 @@
             <svg><use xlink:href="#iconZoomIn"></use></svg>
           </button>
           <span class="image-occlusion-card-renderer__zoom-wheel-tip">
-            {{ t('imageOcclusionReviewZoomWheelHint', 'Ctrl + wheel to zoom') }}
+            {{ t('imageOcclusionReviewZoomWheelHint', 'Ctrl + wheel to zoom, wheel to scroll, Shift + wheel for horizontal scroll') }}
           </span>
         </div>
 
-        <div class="image-occlusion-card-renderer__viewport" @wheel="handleStageWheel">
+        <div ref="viewportRef" class="image-occlusion-card-renderer__viewport" @wheel="handleStageWheel">
           <div class="image-occlusion-card-renderer__frame" :style="frameStyle">
             <img
+              ref="imageRef"
               class="image-occlusion-card-renderer__image"
               :src="viewModel.imageSrc"
               alt="image-occlusion-source"
               draggable="false"
+              @load="handleImageLoad"
             />
             <div class="image-occlusion-card-renderer__overlay">
               <div
@@ -97,7 +98,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import { getBlockAttrs, getBlockKramdown } from '@/infrastructure/siyuan/api';
@@ -161,6 +162,10 @@ const error = ref<string | null>(null);
 const viewModel = ref<ViewModel | null>(null);
 const isImageFullscreen = ref(false);
 const zoomPercent = ref(100);
+const viewportRef = ref<HTMLElement | null>(null);
+const imageRef = ref<HTMLImageElement | null>(null);
+const imageNaturalWidth = ref(0);
+const imageNaturalHeight = ref(0);
 const { showLoading } = useDeferredLoadingIndicator(loading);
 let loadSeq = 0;
 
@@ -169,9 +174,29 @@ const MAX_ZOOM_PERCENT = 300;
 const ZOOM_STEP_PERCENT = 10;
 
 const zoomValueLabel = computed(() => `${zoomPercent.value}%`);
-const frameStyle = computed<Record<string, string>>(() => ({
-  '--image-occlusion-review-zoom': String(zoomPercent.value / 100),
-}));
+const fullscreenFrameDimensions = computed(() => {
+  if (!isImageFullscreen.value || imageNaturalWidth.value <= 0 || imageNaturalHeight.value <= 0) {
+    return null;
+  }
+
+  const scale = zoomPercent.value / 100;
+  return {
+    width: Math.max(1, Math.round(imageNaturalWidth.value * scale)),
+    height: Math.max(1, Math.round(imageNaturalHeight.value * scale)),
+  };
+});
+
+const frameStyle = computed<Record<string, string>>(() => {
+  const dimensions = fullscreenFrameDimensions.value;
+  if (!dimensions) {
+    return {};
+  }
+
+  return {
+    width: `${dimensions.width}px`,
+    height: `${dimensions.height}px`,
+  };
+});
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
@@ -375,8 +400,61 @@ function clampZoomPercent(value: number): number {
   return Math.max(MIN_ZOOM_PERCENT, Math.min(MAX_ZOOM_PERCENT, value));
 }
 
-function applyZoomPercent(value: number): void {
-  zoomPercent.value = clampZoomPercent(value);
+function handleImageLoad(event: Event): void {
+  const image = event.target as HTMLImageElement | null;
+  if (!image) {
+    return;
+  }
+  imageNaturalWidth.value = image.naturalWidth || image.width || 0;
+  imageNaturalHeight.value = image.naturalHeight || image.height || 0;
+}
+
+function resetViewportScrollToOrigin(): void {
+  const viewport = viewportRef.value;
+  if (!viewport) {
+    return;
+  }
+  viewport.scrollLeft = 0;
+  viewport.scrollTop = 0;
+}
+
+function applyZoomPercent(value: number, anchorEvent?: WheelEvent): void {
+  const next = clampZoomPercent(value);
+  const previous = zoomPercent.value;
+  if (next === previous) {
+    return;
+  }
+
+  const viewport = viewportRef.value;
+  if (!viewport || !isImageFullscreen.value) {
+    zoomPercent.value = next;
+    return;
+  }
+
+  const prevScale = previous / 100;
+  const nextScale = next / 100;
+  if (prevScale <= 0 || nextScale <= 0) {
+    zoomPercent.value = next;
+    return;
+  }
+
+  const rect = viewport.getBoundingClientRect();
+  const viewportOffsetX = anchorEvent ? anchorEvent.clientX - rect.left : rect.width / 2;
+  const viewportOffsetY = anchorEvent ? anchorEvent.clientY - rect.top : rect.height / 2;
+  const anchorContentX = viewport.scrollLeft + viewportOffsetX;
+  const anchorContentY = viewport.scrollTop + viewportOffsetY;
+  const ratio = nextScale / prevScale;
+
+  zoomPercent.value = next;
+
+  void nextTick(() => {
+    const latestViewport = viewportRef.value;
+    if (!latestViewport) {
+      return;
+    }
+    latestViewport.scrollLeft = Math.max(0, anchorContentX * ratio - viewportOffsetX);
+    latestViewport.scrollTop = Math.max(0, anchorContentY * ratio - viewportOffsetY);
+  });
 }
 
 function resetImageFullscreenState(): void {
@@ -385,8 +463,17 @@ function resetImageFullscreenState(): void {
 }
 
 function enterImageFullscreen(): void {
+  const image = imageRef.value;
+  if (image && imageNaturalWidth.value <= 0 && imageNaturalHeight.value <= 0) {
+    imageNaturalWidth.value = image.naturalWidth || image.width || 0;
+    imageNaturalHeight.value = image.naturalHeight || image.height || 0;
+  }
+
   isImageFullscreen.value = true;
   zoomPercent.value = 100;
+  void nextTick(() => {
+    resetViewportScrollToOrigin();
+  });
 }
 
 function exitImageFullscreen(): void {
@@ -406,8 +493,8 @@ function toggleImageFullscreen(): void {
   enterImageFullscreen();
 }
 
-function adjustZoom(delta: number): void {
-  applyZoomPercent(zoomPercent.value + delta);
+function adjustZoom(delta: number, anchorEvent?: WheelEvent): void {
+  applyZoomPercent(zoomPercent.value + delta, anchorEvent);
 }
 
 function handleZoomOutClick(): void {
@@ -458,28 +545,28 @@ function handleGlobalKeyDown(event: KeyboardEvent): void {
 }
 
 function handleStageWheel(event: WheelEvent): void {
-  if (!isImageFullscreen.value || !event.ctrlKey) {
+  if (!isImageFullscreen.value) {
     return;
   }
+
+  if (event.ctrlKey) {
+    event.preventDefault();
+    adjustZoom(event.deltaY < 0 ? ZOOM_STEP_PERCENT : -ZOOM_STEP_PERCENT, event);
+    return;
+  }
+
+  if (!event.shiftKey) {
+    return;
+  }
+
+  const viewport = viewportRef.value;
+  if (!viewport) {
+    return;
+  }
+
+  const horizontalDelta = Math.abs(event.deltaX) > 0 ? event.deltaX : event.deltaY;
   event.preventDefault();
-  adjustZoom(event.deltaY < 0 ? ZOOM_STEP_PERCENT : -ZOOM_STEP_PERCENT);
-}
-
-function handleStageMouseDown(event: MouseEvent): void {
-  if (!isImageFullscreen.value || event.button !== 0) {
-    return;
-  }
-
-  const target = event.target as HTMLElement | null;
-  if (
-    target?.closest('.image-occlusion-card-renderer__zoom-controls')
-    || target?.closest('.image-occlusion-card-renderer__fullscreen-toggle')
-  ) {
-    return;
-  }
-
-  event.preventDefault();
-  exitImageFullscreen();
+  viewport.scrollLeft += horizontalDelta;
 }
 
 async function loadViewModel(): Promise<void> {
@@ -488,6 +575,8 @@ async function loadViewModel(): Promise<void> {
   try {
     loading.value = true;
     error.value = null;
+    imageNaturalWidth.value = 0;
+    imageNaturalHeight.value = 0;
 
     const attrs = await getBlockAttrs(props.blockId);
     if (seq !== loadSeq) {
@@ -681,6 +770,8 @@ onUnmounted(() => {
 
 .image-occlusion-card-renderer__stage.is-image-fullscreen .image-occlusion-card-renderer__viewport {
   padding: 70px 16px 16px;
+  align-items: flex-start;
+  justify-content: flex-start;
 }
 
 .image-occlusion-card-renderer__fullscreen-toggle {
@@ -766,12 +857,13 @@ onUnmounted(() => {
   display: inline-block;
   max-width: 100%;
   max-height: 100%;
-  transition: transform 0.15s ease;
+  flex: 0 0 auto;
+  transition: width 0.15s ease, height 0.15s ease;
 }
 
 .image-occlusion-card-renderer__stage.is-image-fullscreen .image-occlusion-card-renderer__frame {
-  transform: scale(var(--image-occlusion-review-zoom, 1));
-  transform-origin: center center;
+  max-width: none;
+  max-height: none;
 }
 
 .image-occlusion-card-renderer__image {
@@ -783,6 +875,13 @@ onUnmounted(() => {
   pointer-events: none;
   user-select: none;
   background: var(--b3-theme-background);
+}
+
+.image-occlusion-card-renderer__stage.is-image-fullscreen .image-occlusion-card-renderer__image {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
 }
 
 .image-occlusion-card-renderer__overlay {

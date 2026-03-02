@@ -1,84 +1,44 @@
 ﻿<template>
   <div class="neural-list neural-history-list">
     <div class="neural-list__toolbar neural-history-list__toolbar">
-      <div class="neural-history-list__scope">
-        <button
-          type="button"
-          class="b3-button b3-button--outline"
-          :class="{ 'neural-history-list__scope-btn--active': scope === 'current' }"
-          @click="$emit('update:scope', 'current')"
-        >
-          {{ t('currentSession', 'Current Session') }}
-        </button>
-        <button
-          type="button"
-          class="b3-button b3-button--outline"
-          :class="{ 'neural-history-list__scope-btn--active': scope === 'all' }"
-          @click="$emit('update:scope', 'all')"
-        >
-          {{ t('allHistory', 'All History') }}
-        </button>
-      </div>
       <input
         v-model="search"
         class="b3-text-field"
         :placeholder="t('searchPlaceholderAdvanced', 'Search...')"
       >
-    </div>
-
-    <div v-if="scope === 'current'" class="neural-history-list__flat">
-      <div v-if="currentEntries.length === 0" class="neural-list__empty">
-        {{ t('noHistory', 'No history') }}
-      </div>
-      <ul v-else class="neural-list__items">
-        <li
-          v-for="entry in currentEntries"
-          :key="`current-${entry.nodeId}-${entry.visitedAt}`"
-          class="neural-list__item"
-        >
-          <button
-            type="button"
-            class="neural-list__item-main"
-            @click="$emit('preview', entry.nodeId)"
-            @dblclick="$emit('jump', entry.nodeId)"
-            @keydown.enter.prevent="$emit('jump', entry.nodeId)"
-          >
-            <span class="neural-list__title">{{ entry.nodePreview || entry.nodeId }}</span>
-            <span class="neural-list__meta">
-              {{ entry.associationType }} · {{ formatTime(entry.visitedAt) }}
-              <span v-if="entry.isVirtual" class="neural-list__tag">{{ t('virtualNode', 'Virtual') }}</span>
-            </span>
-          </button>
-        </li>
-      </ul>
-    </div>
-
-    <div v-else class="neural-history-list__groups">
-      <div v-if="groupedEntries.length === 0" class="neural-list__empty">
-        {{ t('noHistory', 'No history') }}
-      </div>
-      <section
-        v-for="group in groupedEntries"
-        :key="group.sessionId"
-        class="neural-list__section"
+      <button
+        type="button"
+        class="b3-button b3-button--outline neural-list__toolbar-action"
+        :disabled="!canClearHistory"
+        @click="$emit('clear-history')"
       >
-        <header class="neural-list__section-header neural-history-list__session-header">
-          <button
-            type="button"
-            class="neural-history-list__collapse b3-button b3-button--outline"
-            @click="toggleSession(group.sessionId)"
-          >
-            {{ isCollapsed(group.sessionId) ? '+' : '-' }}
-          </button>
-          <span>{{ t('sessionId', 'Session') }} {{ shortenSessionId(group.sessionId) }}</span>
-          <span class="ft__secondary">{{ group.entries.length }}</span>
-        </header>
-        <ul v-if="!isCollapsed(group.sessionId)" class="neural-list__items">
-          <li
-            v-for="entry in group.entries"
-            :key="`${group.sessionId}-${entry.nodeId}-${entry.visitedAt}`"
-            class="neural-list__item"
-          >
+        {{ t('clearHistory', 'Clear History') }}
+      </button>
+    </div>
+    <div class="neural-history-list__hint">
+      {{ t('historyTimelineHint', 'Timeline from latest to earliest. Click to preview, double-click to jump.') }}
+    </div>
+
+    <div v-if="filteredEntries.length === 0" class="neural-list__empty">
+      {{ t('noHistory', 'No history') }}
+    </div>
+    <div v-else class="neural-history-list__timeline-wrap">
+      <div class="neural-history-list__direction" aria-hidden="true">
+        <span class="neural-history-list__direction-arrow"></span>
+      </div>
+      <ol class="neural-history-list__timeline">
+        <li
+          v-for="entry in filteredEntries"
+          :key="`${entry.sessionId}-${entry.nodeId}-${entry.visitedAt}`"
+          class="neural-history-list__timeline-item"
+          :class="{
+            'neural-history-list__timeline-item--current': entry.isCurrent,
+            'neural-history-list__timeline-item--anchored': entry.isAnchored,
+          }"
+        >
+          <span class="neural-history-list__timeline-line" aria-hidden="true"></span>
+          <span class="neural-history-list__timeline-dot" aria-hidden="true"></span>
+          <div class="neural-list__item">
             <button
               type="button"
               class="neural-list__item-main"
@@ -86,38 +46,64 @@
               @dblclick="$emit('jump', entry.nodeId)"
               @keydown.enter.prevent="$emit('jump', entry.nodeId)"
             >
-              <span class="neural-list__title">{{ entry.nodePreview || entry.nodeId }}</span>
-              <span class="neural-list__meta">
-                {{ entry.associationType }} · {{ formatTime(entry.visitedAt) }}
+              <span class="neural-list__title">
+                {{ entry.nodePreview || entry.nodeId }}
+                <span v-if="entry.isCurrent" class="neural-list__tag neural-list__tag--current">
+                  {{ t('currentNodeTag', 'Current') }}
+                </span>
+                <span v-if="entry.isAnchored" class="neural-list__tag neural-list__tag--anchored">
+                  {{ t('anchoredTag', 'Anchored') }}
+                </span>
                 <span v-if="entry.isVirtual" class="neural-list__tag">{{ t('virtualNode', 'Virtual') }}</span>
               </span>
+              <span class="neural-list__meta">{{ formatMeta(entry) }}</span>
             </button>
-          </li>
-        </ul>
-      </section>
+            <div class="neural-list__actions neural-list__actions--compact">
+              <button
+                type="button"
+                class="b3-button b3-button--outline neural-list__action neural-list__action--icon neural-list__action--primary"
+                :title="t('startNewWorldline', 'Start New Worldline')"
+                :aria-label="t('startNewWorldline', 'Start New Worldline')"
+                @click.stop="$emit('set-current-focus', entry.nodeId)"
+              >
+                ⎇
+              </button>
+              <button
+                type="button"
+                class="b3-button b3-button--outline neural-list__action neural-list__action--icon"
+                :title="entry.isAnchored ? t('unanchorNode', 'Unstar') : t('anchorNode', 'Star')"
+                :aria-label="entry.isAnchored ? t('unanchorNode', 'Unstar') : t('anchorNode', 'Star')"
+                @click.stop="$emit('toggle-anchor', entry.nodeId, !entry.isAnchored)"
+              >
+                {{ entry.isAnchored ? '★' : '☆' }}
+              </button>
+            </div>
+          </div>
+        </li>
+      </ol>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import type { HistoryScope, NeuralListEntry } from './types';
+import type { NeuralListEntry } from './types';
 
 const props = defineProps<{
   i18n?: Record<string, string>;
   entries: NeuralListEntry[];
-  currentSessionId?: string | null;
-  scope: HistoryScope;
+  currentNodeId?: string | null;
 }>();
 
 defineEmits<{
-  (e: 'update:scope', value: HistoryScope): void;
   (e: 'preview', nodeId: string): void;
   (e: 'jump', nodeId: string): void;
+  (e: 'clear-history'): void;
+  (e: 'set-current-focus', nodeId: string): void;
+  (e: 'toggle-anchor', nodeId: string, enabled: boolean): void;
 }>();
 
 const search = ref('');
-const collapsedSessionIds = ref<Set<string>>(new Set());
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
@@ -139,45 +125,20 @@ const filteredEntries = computed(() =>
   [...props.entries]
     .sort((a, b) => b.visitedAt - a.visitedAt)
     .filter(matchesQuery)
+    .map((entry) => ({
+      ...entry,
+      isCurrent: entry.isCurrent ?? (props.currentNodeId ? entry.nodeId === props.currentNodeId : false),
+    }))
 );
 
-const currentEntries = computed(() => {
-  if (!props.currentSessionId) {
-    return [];
-  }
-  return filteredEntries.value.filter((entry) => entry.sessionId === props.currentSessionId);
-});
+const canClearHistory = computed(() => filteredEntries.value.length > 0);
 
-const groupedEntries = computed(() => {
-  const map = new Map<string, NeuralListEntry[]>();
-  for (const entry of filteredEntries.value) {
-    if (!map.has(entry.sessionId)) {
-      map.set(entry.sessionId, []);
-    }
-    map.get(entry.sessionId)!.push(entry);
-  }
-
-  return Array.from(map.entries())
-    .map(([sessionId, entries]) => ({
-      sessionId,
-      entries,
-      latestVisitedAt: entries[0]?.visitedAt || 0,
-    }))
-    .sort((a, b) => b.latestVisitedAt - a.latestVisitedAt);
-});
-
-function toggleSession(sessionId: string): void {
-  const next = new Set(collapsedSessionIds.value);
-  if (next.has(sessionId)) {
-    next.delete(sessionId);
-  } else {
-    next.add(sessionId);
-  }
-  collapsedSessionIds.value = next;
-}
-
-function isCollapsed(sessionId: string): boolean {
-  return collapsedSessionIds.value.has(sessionId);
+function formatMeta(entry: NeuralListEntry): string {
+  const base = entry.associationType === 'path' || entry.associationType === 'focus'
+    ? t('routeMetaMainline', 'Mainline pass')
+    : t('routeMetaWorldline', 'Node updated');
+  const timestamp = formatTime(entry.visitedAt);
+  return timestamp === '-' ? base : `${base} · ${timestamp}`;
 }
 
 function formatTime(timestamp: number): string {
@@ -187,11 +148,5 @@ function formatTime(timestamp: number): string {
   }
   return new Date(value).toLocaleString();
 }
-
-function shortenSessionId(sessionId: string): string {
-  if (sessionId.length <= 12) {
-    return sessionId;
-  }
-  return `${sessionId.slice(0, 12)}...`;
-}
 </script>
+

@@ -328,12 +328,12 @@ export class ReviewViewController {
      * 处理非评分操作，包括：
      * - insert: 插入卡片到指定位置
      * - next: 跳过当前卡片
-     * - lock-focus: 锁定当前块为焦点（仅神经漫游）
+     * - lock-focus: 开新世界线（仅神经漫游）
      * 
      * 操作逻辑：
      * - insert: 提示用户输入位置，然后在该位置插入卡片
      * - next: 跳过卡片，不评分，不更新调度数据
-     * - lock-focus: 将当前块添加到神经漫游焦点集合
+     * - lock-focus: 将当前块作为世界线分支起点
      * 
      * @param action 操作类型
      * @see 需求 10.1, 10.3, 10.4, 19.1, 19.2, 21.3
@@ -354,13 +354,13 @@ export class ReviewViewController {
                 // 跳过操作：不做任何操作，直接加载下一张卡片
                 logger.info(`[SiYuanMemo] ReviewViewController: Card ${this.currentCard.id} skipped`);
             } else if (action === 'lock-focus') {
-                // 锁定焦点操作：仅神经漫游队列支持
+                // 开新世界线：仅神经漫游队列支持
                 if (this.currentQueue.getType() === QueueTypeEnum.NeuralRoam) {
                     const neuralQueue = this.currentQueue as NeuralRoamQueue;
                     await neuralQueue.lockCurrentAsFocus(this.currentCard.id);
                     
                     // 显示通知
-                    this.showNotification('已锁定为焦点块');
+                    this.showNotification('已开启新世界线');
                     
                     logger.info(`[SiYuanMemo] ReviewViewController: Card ${this.currentCard.id} locked as focus`);
                 } else {

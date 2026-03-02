@@ -69,6 +69,7 @@ import { createLogger } from '@/utils/logger';
 
 const props = defineProps<{
   header: ReviewUIState['header'];
+  i18n?: Record<string, string>;
   isTabMode?: boolean;
   title?: string; // 队列标题（如"提取练习"）
   mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
@@ -119,20 +120,34 @@ const filteredToolbar = computed(() => {
   const navState = props.navigationState;
   if (navState) {
     const navButtons: typeof toolbar = [];
+    const modeText = navState.navigationMode === 'follow'
+      ? t('navModeFollow', 'Follow Mainline')
+      : t('navModeExplore', 'Explore Worldline Branches');
+    const navStatusLabel = navState.navigationMode === 'follow'
+      ? interpolate(
+          t('navStatusFollow', 'Current: {mode} ({current}/{total})'),
+          {
+            mode: modeText,
+            current: navState.currentPathIndex + 1,
+            total: navState.pathLength,
+          }
+        )
+      : interpolate(
+          t('navStatusExplore', 'Current: {mode}'),
+          { mode: modeText }
+        );
 
     navButtons.push({
       type: 'neural-nav-mode',
       icon: '#iconMove',
-      ariaLabel: navState.navigationMode === 'follow'
-        ? `当前: 沿路径前进 (${navState.currentPathIndex + 1}/${navState.pathLength})`
-        : '当前: 探索新分支',
+      ariaLabel: navStatusLabel,
       disabled: false,
     });
 
     navButtons.push({
       type: 'neural-return-bookmark',
       icon: '#iconBookmark',
-      ariaLabel: '返回书签',
+      ariaLabel: t('returnToBookmark', 'Return to Mainline Anchor'),
       disabled: !navState.hasBookmark,
     });
 
@@ -159,8 +174,19 @@ const filteredToolbar = computed(() => {
 const showMobileClose = computed(() => Boolean(props.isMobile && props.mode !== 'tab'));
 
 function t(key: string, fallback: string): string {
-  const i18n = (window as WindowWithSiyuanLanguages).siyuan?.languages?.flashcard;
-  return i18n?.[key] || fallback;
+  if (props.i18n?.[key]) {
+    return props.i18n[key];
+  }
+  const i18nFromWindow = (window as WindowWithSiyuanLanguages).siyuan?.languages?.flashcard;
+  return i18nFromWindow?.[key] || fallback;
+}
+
+function interpolate(template: string, values: Record<string, string | number>): string {
+  let output = template;
+  for (const [key, value] of Object.entries(values)) {
+    output = output.replace(new RegExp(`\\{${key}\\}`, 'g'), String(value));
+  }
+  return output;
 }
 
 function handleToolbarClick(btn: { type: string; icon?: string; label?: string; ariaLabel?: string; disabled?: boolean }, event: MouseEvent) {

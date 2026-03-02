@@ -78,8 +78,8 @@ describe('ReviewHeader', () => {
     header.toolbar?.push({
       type: 'plan-review-scope',
       icon: '#iconFilter',
-      label: '规划复习范围',
-      ariaLabel: '规划复习范围',
+      label: 'Plan Scope',
+      ariaLabel: 'Plan Scope',
     });
 
     const wrapper = mount(ReviewHeader, {
@@ -91,6 +91,31 @@ describe('ReviewHeader', () => {
     });
 
     const button = wrapper.get('button[data-type="plan-review-scope"]');
-    expect(button.text()).toContain('规划复习范围');
+    expect(button.text()).toContain('Plan Scope');
+  });
+
+  it('uses i18n labels for neural navigation buttons', () => {
+    const wrapper = mount(ReviewHeader, {
+      props: {
+        header: createHeaderState(),
+        i18n: {
+          navModeFollow: 'Follow Mainline',
+          navStatusFollow: 'Current: {mode} ({current}/{total})',
+          returnToBookmark: 'Return to Mainline Anchor',
+        },
+        navigationState: {
+          currentPathIndex: 2,
+          navigationMode: 'follow',
+          hasBookmark: true,
+          pathLength: 10,
+        },
+      },
+    });
+
+    const navModeButton = wrapper.get('button[data-type="neural-nav-mode"]');
+    const returnButton = wrapper.get('button[data-type="neural-return-bookmark"]');
+
+    expect(navModeButton.attributes('aria-label')).toBe('Current: Follow Mainline (3/10)');
+    expect(returnButton.attributes('aria-label')).toBe('Return to Mainline Anchor');
   });
 });

@@ -5,9 +5,12 @@
 import { BaseReviewQueue } from './BaseReviewQueue';
 import {
   QueueType,
+  type NeuralRoamAnchorEntry,
   type NeuralNavigationMode,
   type NeuralNavigationState,
+  type NeuralRoamFocusEntry,
   type NeuralRoamHistoryEntry,
+  type NeuralRoamSeedEntry,
 } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem as ReviewQueueItem } from '../types';
@@ -17,6 +20,7 @@ import { loadQueueState, saveQueueState } from './queuePersistence';
 import {
   ConceptNeuralQueue,
   type ConceptNeuralSessionState,
+  type FocusPoolPersistedEntry,
   type QueueItem as ConceptQueueItem,
 } from '../neural/ConceptNeuralQueue';
 import { resolveCardId } from '../../../diagnostics/type-guards';
@@ -27,6 +31,19 @@ const logger = createLogger('NeuralRoamQueue');
 interface NeuralRoamPersistedStateV3 {
   version: 3;
   conceptBlocks: string[];
+  session: ConceptNeuralSessionState;
+}
+
+interface NeuralRoamPersistedStateV4 {
+  version: 4;
+  focusPool: FocusPoolPersistedEntry[];
+  session: ConceptNeuralSessionState;
+}
+
+interface NeuralRoamPersistedStateV5 {
+  version: 5;
+  seedPool: FocusPoolPersistedEntry[];
+  anchorPool: FocusPoolPersistedEntry[];
   session: ConceptNeuralSessionState;
 }
 
@@ -51,6 +68,88 @@ function isNeuralRoamPersistedStateV3(value: unknown): value is NeuralRoamPersis
   return Number(value.version) === 3
     && Array.isArray(value.conceptBlocks)
     && isRecord(value.session);
+}
+
+function isNeuralRoamPersistedStateV4(value: unknown): value is NeuralRoamPersistedStateV4 {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return Number(value.version) === 4
+    && Array.isArray(value.focusPool)
+    && isRecord(value.session);
+}
+
+function isNeuralRoamPersistedStateV5(value: unknown): value is NeuralRoamPersistedStateV5 {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return Number(value.version) === 5
+    && Array.isArray(value.seedPool)
+    && Array.isArray(value.anchorPool)
+    && isRecord(value.session);
+}
+
+function mergeLegacyFocusPool(
+  conceptBlocks: string[],
+  session: ConceptNeuralSessionState
+): FocusPoolPersistedEntry[] {
+  const map = new Map<string, FocusPoolPersistedEntry>();
+  const now = Date.now();
+
+  for (const blockId of conceptBlocks) {
+    const id = String(blockId || '').trim();
+    if (!id) continue;
+    map.set(id, {
+      nodeId: id,
+      nodeKind: 'concept',
+      priority: 0.65,
+      neighborsViewed: 0,
+      addedAt: now,
+      nodePreview: id,
+    });
+  }
+
+  const sessionFocusPool = Array.isArray(session.focusPool) ? session.focusPool : [];
+  for (const entry of sessionFocusPool) {
+    if (!entry || typeof entry.nodeId !== 'string') {
+      continue;
+    }
+    const id = entry.nodeId.trim();
+    if (!id) continue;
+    map.set(id, {
+      nodeId: id,
+      nodeKind: entry.nodeKind === 'virtual' ? 'virtual' : 'concept',
+      priority: Number.isFinite(entry.priority) ? entry.priority : 0.65,
+      neighborsViewed: Number.isFinite(entry.neighborsViewed) ? entry.neighborsViewed : 0,
+      addedAt: Number.isFinite(entry.addedAt) ? entry.addedAt : now,
+      nodePreview: typeof entry.nodePreview === 'string' ? entry.nodePreview : id,
+    });
+  }
+
+  const legacyPinned = Array.isArray(session.pinnedFocusBlocks) ? session.pinnedFocusBlocks : [];
+  for (const blockId of legacyPinned) {
+    const id = String(blockId || '').trim();
+    if (!id) continue;
+    const existing = map.get(id);
+    map.set(id, {
+      nodeId: id,
+      nodeKind: existing?.nodeKind ?? 'concept',
+      priority: existing?.priority ?? 0.9,
+      neighborsViewed: existing?.neighborsViewed ?? 0,
+      addedAt: existing?.addedAt ?? now,
+      nodePreview: existing?.nodePreview ?? id,
+    });
+  }
+
+  return Array.from(map.values());
+}
+
+function splitFocusPoolToSeedAndAnchor(
+  entries: FocusPoolPersistedEntry[]
+): { seedPool: FocusPoolPersistedEntry[]; anchorPool: FocusPoolPersistedEntry[] } {
+  const seedPool = entries.filter((entry) => entry.nodeKind === 'concept');
+  const anchorPool = entries.filter((entry) => entry.nodeKind !== 'concept');
+  return { seedPool, anchorPool };
 }
 
 export class NeuralRoamQueue extends BaseReviewQueue {
@@ -87,26 +186,63 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       return;
     }
 
-    if (isNeuralRoamPersistedStateV3(rawState)) {
-      this.conceptQueue.restoreConceptBlocks(rawState.conceptBlocks);
+    if (isNeuralRoamPersistedStateV5(rawState)) {
+      this.conceptQueue.restoreSeedPoolState(rawState.seedPool);
+      this.conceptQueue.restoreAnchorPoolState(rawState.anchorPool);
       this.conceptQueue.restoreSessionState(rawState.session);
       if (fromStorage) {
-        logger.info(`Loaded neural roam state (v3), conceptBlocks=${rawState.conceptBlocks.length}`);
+        logger.info(`Loaded neural roam state (v5), seedPool=${rawState.seedPool.length}, anchorPool=${rawState.anchorPool.length}`);
       }
       return;
     }
 
-    // Hard-cut migration strategy: reset legacy/v2 state silently.
-    logger.info('Legacy neural roam state detected, reset to v3 schema');
-    this.conceptQueue.restoreConceptBlocks([]);
+    if (isNeuralRoamPersistedStateV4(rawState)) {
+      const { seedPool, anchorPool } = splitFocusPoolToSeedAndAnchor(rawState.focusPool);
+      this.conceptQueue.restoreSeedPoolState(seedPool);
+      this.conceptQueue.restoreAnchorPoolState(anchorPool);
+      this.conceptQueue.restoreSessionState({
+        ...rawState.session,
+        seedPool,
+        anchorPool,
+      });
+      if (fromStorage) {
+        logger.info(`Migrated neural roam state v4->v5, seedPool=${seedPool.length}, anchorPool=${anchorPool.length}`);
+      }
+      await this.save();
+      return;
+    }
+
+    if (isNeuralRoamPersistedStateV3(rawState)) {
+      const mergedFocusPool = mergeLegacyFocusPool(rawState.conceptBlocks, rawState.session);
+      const { seedPool, anchorPool } = splitFocusPoolToSeedAndAnchor(mergedFocusPool);
+      this.conceptQueue.restoreSeedPoolState(seedPool);
+      this.conceptQueue.restoreAnchorPoolState(anchorPool);
+      this.conceptQueue.restoreSessionState({
+        ...rawState.session,
+        seedPool,
+        anchorPool,
+      });
+      if (fromStorage) {
+        logger.info(`Migrated neural roam state v3->v5, seedPool=${seedPool.length}, anchorPool=${anchorPool.length}`);
+      }
+      await this.save();
+      return;
+    }
+
+    // Hard-cut migration strategy: reset legacy/v2 state silently to v5 schema.
+    logger.info('Legacy neural roam state detected, reset to v5 schema');
+    this.conceptQueue.restoreSeedPoolState([]);
+    this.conceptQueue.restoreAnchorPoolState([]);
+    this.conceptQueue.restoreSessionState(null);
     this.conceptQueue.clearHistory('all');
     await this.save();
   }
 
   async save(): Promise<void> {
-    const data: NeuralRoamPersistedStateV3 = {
-      version: 3,
-      conceptBlocks: this.conceptQueue.getConceptBlocks(),
+    const data: NeuralRoamPersistedStateV5 = {
+      version: 5,
+      seedPool: this.conceptQueue.exportSeedPoolState(),
+      anchorPool: this.conceptQueue.exportAnchorPoolState(),
       session: this.conceptQueue.exportSessionState(),
     };
 
@@ -178,20 +314,20 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async lockCurrentAsFocus(cardId: string, priority: 'normal' | 'high' = 'high'): Promise<void> {
     await this.ensureInitialLoad();
-
-    await this.conceptQueue.startRoamingFromFocus(cardId, {
+    if (priority === 'high') {
+      // High-priority lock keeps concept seed semantic when possible.
+      try {
+        await this.conceptQueue.addConceptBlock(cardId, 'high');
+      } catch {
+        // No-op for non-concept cards.
+      }
+    }
+    await this.conceptQueue.setAnchorEntry(cardId, true);
+    await this.conceptQueue.setCurrentFocus(cardId, {
       includeFocusAsFirst: false,
       resetHistory: false,
+      bookmarkCurrentPath: true,
     });
-
-    try {
-      await this.conceptQueue.addConceptBlock(cardId, priority);
-      await this.conceptQueue.setPinnedFocusBlock(cardId, true);
-    } catch (error) {
-      // Virtual focus (non-concept) should not be persisted.
-      logger.debug('Skip persistent focus lock for virtual block', { cardId, error });
-    }
-
     await this.save();
   }
 
@@ -204,6 +340,32 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public getConceptBlocks(): string[] {
     return this.conceptQueue.getConceptBlocks();
+  }
+
+  public getSeedSnapshot(): NeuralRoamSeedEntry[] {
+    return this.conceptQueue.getSeedSnapshot();
+  }
+
+  public async setSeedEntry(nodeId: string, enabled = true): Promise<void> {
+    await this.ensureInitialLoad();
+    await this.conceptQueue.setSeedEntry(nodeId, enabled);
+    await this.save();
+  }
+
+  public getAnchorSnapshot(): NeuralRoamAnchorEntry[] {
+    return this.conceptQueue.getAnchorSnapshot();
+  }
+
+  public async setAnchorEntry(nodeId: string, enabled = true): Promise<void> {
+    await this.ensureInitialLoad();
+    await this.conceptQueue.setAnchorEntry(nodeId, enabled);
+    await this.save();
+  }
+
+  public async clearAnchors(): Promise<void> {
+    await this.ensureInitialLoad();
+    await this.conceptQueue.clearAnchors();
+    await this.save();
   }
 
   public async startRoamingFromFocus(
@@ -226,14 +388,51 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     return this.conceptQueue.getSessionFocusStack();
   }
 
+  public getFocusPoolSnapshot(): NeuralRoamFocusEntry[] {
+    return this.getAnchorSnapshot().map((entry) => ({
+      nodeId: entry.nodeId,
+      nodePreview: entry.nodePreview,
+      isVirtual: entry.isVirtual,
+      nodeKind: entry.nodeKind,
+      priority: entry.priority,
+      addedAt: entry.addedAt,
+      visitedAt: entry.visitedAt,
+    }));
+  }
+
+  public async setFocusPoolEntry(nodeId: string, enabled = true): Promise<void> {
+    await this.setAnchorEntry(nodeId, enabled);
+  }
+
+  public async clearFocusPool(): Promise<void> {
+    await this.clearAnchors();
+  }
+
+  public async setCurrentFocus(
+    focusId: string,
+    options: {
+      includeFocusAsFirst?: boolean;
+      resetHistory?: boolean;
+      bookmarkCurrentPath?: boolean;
+    } = {}
+  ): Promise<void> {
+    await this.ensureInitialLoad();
+    await this.conceptQueue.setCurrentFocus(focusId, options);
+    await this.save();
+  }
+
+  /**
+   * @deprecated Use getFocusPoolSnapshot instead.
+   */
   public getPinnedFocusBlocks(): NeuralRoamHistoryEntry[] {
     return this.conceptQueue.getPinnedFocusBlocks();
   }
 
+  /**
+   * @deprecated Use setFocusPoolEntry instead.
+   */
   public async setPinnedFocusBlock(blockId: string, pinned = true): Promise<void> {
-    await this.ensureInitialLoad();
-    await this.conceptQueue.setPinnedFocusBlock(blockId, pinned);
-    await this.save();
+    await this.setFocusPoolEntry(blockId, pinned);
   }
 
   public async jumpToHistoryNode(nodeId: string): Promise<boolean> {
@@ -293,7 +492,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async getSize(): Promise<number> {
     await this.ensureInitialLoad();
-    return this.conceptQueue.getConceptBlocks().length;
+    return this.conceptQueue.getSeedSnapshot().length;
   }
 
   private async convertToFSRSCard(queueItem: ConceptQueueItem): Promise<FSRSCard> {

@@ -3,6 +3,9 @@
     <div class="dialog__content">
       <div class="dialog__info">
         <span>{{ t('postponeDialogInfo', '将为 {n} 张卡片执行推迟操作').replace('{n}', String(count)) }}</span>
+        <p v-if="!config.includeNonOutstanding" class="dialog__info-hint">
+          {{ t('postponeDialogDefaultOutstandingOnlyHint', '(Default: only outstanding selected cards are postponed)') }}
+        </p>
       </div>
       
       <!-- 基础参数 -->
@@ -400,6 +403,13 @@ function handleCancel() {
   border-radius: 10px;
   text-align: center;
   font-weight: 500;
+}
+
+.dialog__info-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface-light);
+  font-weight: 400;
 }
 
 .form-section {

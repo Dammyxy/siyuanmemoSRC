@@ -1,8 +1,9 @@
-/**
- * Concept neural roam queue (focus-first model).
+﻿/**
+ * Concept neural roam queue (seed + anchor model).
  *
  * Responsibilities:
- * - Concept pool management (persistent)
+ * - Seed pool management (persistent, concept-only, for auto roaming)
+ * - Anchor pool management (persistent, any node, for branch restarts)
  * - Session focus stack and roam history
  * - Navigation state (explore/follow + bookmark return)
  * - Session boundary tracking with sessionId
@@ -10,8 +11,12 @@
 
 import { ConceptQueryEngine, type Neighbor, type BlockData } from './ConceptQueryEngine';
 import type {
+  NeuralFocusNodeKind,
+  NeuralRoamAnchorEntry,
+  NeuralRoamSeedEntry,
   NeuralNavigationMode,
   NeuralNavigationState,
+  NeuralRoamFocusEntry,
   NeuralRoamHistoryEntry,
 } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
@@ -29,10 +34,20 @@ export interface QueueItem {
 
 interface FocusState {
   blockId: string;
+  nodeKind: NeuralFocusNodeKind;
   priority: number;
   neighborsViewed: number;
   addedAt: number;
   preview: string;
+}
+
+export interface FocusPoolPersistedEntry {
+  nodeId: string;
+  nodeKind: NeuralFocusNodeKind;
+  priority: number;
+  neighborsViewed: number;
+  addedAt: number;
+  nodePreview: string;
 }
 
 export interface ConceptNeuralSessionState {
@@ -45,7 +60,11 @@ export interface ConceptNeuralSessionState {
   currentSessionId: string | null;
   visitedBlocks: string[];
   exhaustedFocuses: string[];
-  pinnedFocusBlocks: string[];
+  seedPool?: FocusPoolPersistedEntry[];
+  anchorPool?: FocusPoolPersistedEntry[];
+  focusPool?: FocusPoolPersistedEntry[];
+  // Backward compatibility for old session payloads.
+  pinnedFocusBlocks?: string[];
 }
 
 interface ActivateNodeMeta {
@@ -71,14 +90,26 @@ function createSessionId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function normalizeNodeKind(value: unknown): NeuralFocusNodeKind {
+  return value === 'virtual' ? 'virtual' : 'concept';
+}
+
+function normalizePriority(value: unknown, fallback = 0.6): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return clamp(parsed, 0.1, 1);
+}
+
 export class ConceptNeuralQueue {
   private currentFocus: string | null = null;
   private currentSessionId: string | null = null;
   private visitedBlocks: Set<string> = new Set();
   private exhaustedFocuses: Set<string> = new Set();
   private displayPath: string[] = [];
-  private conceptPool: Map<string, FocusState> = new Map();
-  private pinnedFocusBlocks: Set<string> = new Set();
+  private seedPool: Map<string, FocusState> = new Map();
+  private anchorPool: Map<string, FocusState> = new Map();
   private history: NeuralRoamHistoryEntry[] = [];
   private navigationMode: NeuralNavigationMode = 'explore';
   private currentPathIndex = -1;
@@ -132,7 +163,7 @@ export class ConceptNeuralQueue {
             associationType: selected.type,
             reason: this.getReasonText(selected.type),
             focusId: this.currentFocus,
-            isVirtual: !this.conceptPool.has(selected.id),
+            isVirtual: this.getNodeKind(selected.id) === 'virtual',
           });
 
           if (!card) {
@@ -140,7 +171,7 @@ export class ConceptNeuralQueue {
             continue;
           }
 
-          const focusState = this.conceptPool.get(this.currentFocus);
+          const focusState = this.seedPool.get(this.currentFocus);
           if (focusState) {
             focusState.neighborsViewed += 1;
           }
@@ -150,11 +181,12 @@ export class ConceptNeuralQueue {
         }
 
         if (!this.visitedBlocks.has(this.currentFocus)) {
+          const currentFocusKind = this.getNodeKind(this.currentFocus);
           const focusCard = await this.activateNode(this.currentFocus, {
             associationType: 'focus',
             reason: this.getReasonText('focus'),
             focusId: this.currentFocus,
-            isVirtual: false,
+            isVirtual: currentFocusKind === 'virtual',
           });
           if (focusCard) {
             return focusCard;
@@ -177,24 +209,15 @@ export class ConceptNeuralQueue {
     if (!isConcept) {
       throw new Error(`Block ${blockId} is not a concept card`);
     }
-
-    const blockData = await this.queryEngine.fetchBlockData(blockId);
-    const preview = this.compressText(blockData?.content || blockId);
-    const priorityValue = priority === 'high' ? 0.9 : 0.5;
-
-    this.conceptPool.set(blockId, {
-      blockId,
+    const priorityValue = priority === 'high' ? 0.9 : 0.65;
+    await this.setSeedEntryInternal(blockId, true, {
+      preferredKind: 'concept',
       priority: priorityValue,
-      neighborsViewed: 0,
-      addedAt: Date.now(),
-      preview,
     });
-    this.exhaustedFocuses.delete(blockId);
   }
 
   removeConceptBlock(blockId: string): void {
-    this.conceptPool.delete(blockId);
-    this.pinnedFocusBlocks.delete(blockId);
+    this.seedPool.delete(blockId);
     this.exhaustedFocuses.delete(blockId);
     if (this.currentFocus === blockId) {
       this.currentFocus = null;
@@ -202,22 +225,69 @@ export class ConceptNeuralQueue {
   }
 
   getConceptBlocks(): string[] {
-    return Array.from(this.conceptPool.keys());
+    return Array.from(this.seedPool.values()).map((entry) => entry.blockId);
   }
 
   restoreConceptBlocks(blockIds: string[]): void {
-    this.conceptPool.clear();
-    this.pinnedFocusBlocks.clear();
+    this.seedPool.clear();
     this.exhaustedFocuses.clear();
 
     for (const blockId of blockIds) {
-      this.conceptPool.set(blockId, {
+      this.seedPool.set(blockId, {
         blockId,
-        priority: 0.5,
+        nodeKind: 'concept',
+        priority: 0.65,
         neighborsViewed: 0,
         addedAt: Date.now(),
         preview: this.compressText(blockId),
       });
+    }
+  }
+
+  getSeedSnapshot(): NeuralRoamSeedEntry[] {
+    return Array.from(this.seedPool.values())
+      .map((entry) => {
+        const latest = this.findLatestHistoryEntry(entry.blockId);
+        return {
+          nodeId: entry.blockId,
+          nodePreview: entry.preview,
+          priority: entry.priority,
+          addedAt: entry.addedAt,
+          visitedAt: latest?.visitedAt ?? entry.addedAt,
+        } satisfies NeuralRoamSeedEntry;
+      })
+      .sort((a, b) => b.visitedAt - a.visitedAt);
+  }
+
+  async setSeedEntry(nodeId: string, enabled = true): Promise<void> {
+    await this.setSeedEntryInternal(nodeId, enabled);
+  }
+
+  getAnchorSnapshot(): NeuralRoamAnchorEntry[] {
+    return Array.from(this.anchorPool.values())
+      .map((entry) => {
+        const latest = this.findLatestHistoryEntry(entry.blockId);
+        return {
+          nodeId: entry.blockId,
+          nodePreview: entry.preview,
+          isVirtual: entry.nodeKind === 'virtual',
+          nodeKind: entry.nodeKind,
+          priority: entry.priority,
+          addedAt: entry.addedAt,
+          visitedAt: latest?.visitedAt ?? entry.addedAt,
+        } satisfies NeuralRoamAnchorEntry;
+      })
+      .sort((a, b) => b.visitedAt - a.visitedAt);
+  }
+
+  async setAnchorEntry(nodeId: string, enabled = true): Promise<void> {
+    await this.setAnchorEntryInternal(nodeId, enabled);
+  }
+
+  async clearAnchors(): Promise<void> {
+    this.anchorPool.clear();
+    if (this.currentFocus && !this.seedPool.has(this.currentFocus)) {
+      this.currentFocus = null;
     }
   }
 
@@ -267,44 +337,72 @@ export class ConceptNeuralQueue {
     return focusEntries.map((entry) => ({ ...entry }));
   }
 
-  getPinnedFocusBlocks(): NeuralRoamHistoryEntry[] {
-    const entries = Array.from(this.pinnedFocusBlocks)
-      .map((blockId) => {
-        const latest = this.findLatestHistoryEntry(blockId);
-        const focusState = this.conceptPool.get(blockId);
-        const visitedAt = latest?.visitedAt ?? focusState?.addedAt ?? Date.now();
+  getFocusPoolSnapshot(): NeuralRoamFocusEntry[] {
+    return this.getAnchorSnapshot()
+      .map((entry) => {
         return {
-          nodeId: blockId,
-          focusId: blockId,
-          sessionId: latest?.sessionId ?? this.currentSessionId ?? 'pinned',
-          associationType: latest?.associationType ?? 'focus',
-          reason: latest?.reason ?? this.getReasonText('focus'),
-          visitedAt,
-          isVirtual: false,
-          nodePreview: latest?.nodePreview ?? focusState?.preview ?? this.compressText(blockId),
+          nodeId: entry.nodeId,
+          nodePreview: entry.nodePreview,
+          isVirtual: entry.isVirtual,
+          nodeKind: entry.nodeKind,
+          priority: entry.priority,
+          addedAt: entry.addedAt,
+          visitedAt: entry.visitedAt,
+        } satisfies NeuralRoamFocusEntry;
+      })
+      .sort((a, b) => b.visitedAt - a.visitedAt);
+  }
+
+  /**
+   * @deprecated Compatibility alias for old pin model.
+   */
+  getPinnedFocusBlocks(): NeuralRoamHistoryEntry[] {
+    return this.getAnchorSnapshot()
+      .map((entry) => {
+        const latest = this.findLatestHistoryEntry(entry.nodeId);
+        return {
+          nodeId: entry.nodeId,
+          focusId: entry.nodeId,
+          sessionId: latest?.sessionId ?? this.currentSessionId ?? 'focus-pool',
+          associationType: 'focus',
+          reason: this.getReasonText('focus'),
+          visitedAt: entry.visitedAt,
+          isVirtual: entry.isVirtual,
+          nodePreview: entry.nodePreview,
         } satisfies NeuralRoamHistoryEntry;
       })
       .sort((a, b) => b.visitedAt - a.visitedAt);
-
-    return entries;
   }
 
+  async setFocusPoolEntry(nodeId: string, enabled = true): Promise<void> {
+    await this.setAnchorEntry(nodeId, enabled);
+  }
+
+  /**
+   * @deprecated Compatibility alias for old pin model.
+   */
   async setPinnedFocusBlock(blockId: string, pinned = true): Promise<void> {
-    if (!pinned) {
-      this.pinnedFocusBlocks.delete(blockId);
-      return;
-    }
+    await this.setFocusPoolEntry(blockId, pinned);
+  }
 
-    const isConcept = await this.queryEngine.isConceptCard(blockId);
-    if (!isConcept) {
-      // Virtual focus cannot be persisted.
-      return;
-    }
+  async clearFocusPool(): Promise<void> {
+    await this.clearAnchors();
+  }
 
-    if (!this.conceptPool.has(blockId)) {
-      await this.addConceptBlock(blockId, 'high');
+  async setCurrentFocus(
+    focusId: string,
+    options: {
+      includeFocusAsFirst?: boolean;
+      resetHistory?: boolean;
+      bookmarkCurrentPath?: boolean;
+    } = {}
+  ): Promise<void> {
+    const previousPathIndex = this.currentPathIndex;
+    await this.setAnchorEntryInternal(focusId, true);
+    await this.startRoamingFromFocus(focusId, options);
+    if (options.bookmarkCurrentPath && previousPathIndex >= 0) {
+      this.bookmarkPathIndex = previousPathIndex;
     }
-    this.pinnedFocusBlocks.add(blockId);
   }
 
   async startRoamingFromFocus(
@@ -315,7 +413,7 @@ export class ConceptNeuralQueue {
     } = {}
   ): Promise<void> {
     const isConcept = await this.queryEngine.isConceptCard(focusId);
-    if (isConcept && !this.conceptPool.has(focusId)) {
+    if (isConcept && !this.seedPool.has(focusId)) {
       await this.addConceptBlock(focusId, 'normal');
     }
 
@@ -329,6 +427,7 @@ export class ConceptNeuralQueue {
     this.currentFocus = focusId;
     this.navigationMode = 'explore';
     this.followCurrentNodeOnce = false;
+    this.exhaustedFocuses.delete(focusId);
 
     if (options.includeFocusAsFirst) {
       const card = await this.activateNode(focusId, {
@@ -389,7 +488,7 @@ export class ConceptNeuralQueue {
       associationType: 'path',
       reason: this.getReasonText('path'),
       focusId: this.currentFocus,
-      isVirtual: !this.conceptPool.has(nodeId),
+      isVirtual: this.getNodeKind(nodeId) === 'virtual',
     });
     if (!card) {
       return false;
@@ -415,7 +514,7 @@ export class ConceptNeuralQueue {
   }
 
   size(): number {
-    return this.conceptPool.size;
+    return this.seedPool.size;
   }
 
   getHistorySnapshot(): NeuralRoamHistoryEntry[] {
@@ -472,7 +571,7 @@ export class ConceptNeuralQueue {
 
     const latestHistory = this.findLatestHistoryEntry(blockId);
     const associationType = latestHistory?.associationType
-      ?? (this.conceptPool.has(blockId) ? 'focus' : 'path');
+      ?? (this.getNodeState(blockId) ? 'focus' : 'path');
     const reason = latestHistory?.reason
       ?? this.getReasonText(associationType);
 
@@ -491,6 +590,96 @@ export class ConceptNeuralQueue {
     return this.buildQueueItem(blockData, associationType, reason);
   }
 
+  exportSeedPoolState(): FocusPoolPersistedEntry[] {
+    return Array.from(this.seedPool.values())
+      .map((entry) => ({
+        nodeId: entry.blockId,
+        nodeKind: entry.nodeKind,
+        priority: entry.priority,
+        neighborsViewed: entry.neighborsViewed,
+        addedAt: entry.addedAt,
+        nodePreview: entry.preview,
+      }))
+      .sort((a, b) => b.addedAt - a.addedAt);
+  }
+
+  exportAnchorPoolState(): FocusPoolPersistedEntry[] {
+    return Array.from(this.anchorPool.values())
+      .map((entry) => ({
+        nodeId: entry.blockId,
+        nodeKind: entry.nodeKind,
+        priority: entry.priority,
+        neighborsViewed: entry.neighborsViewed,
+        addedAt: entry.addedAt,
+        nodePreview: entry.preview,
+      }))
+      .sort((a, b) => b.addedAt - a.addedAt);
+  }
+
+  exportFocusPoolState(): FocusPoolPersistedEntry[] {
+    return this.exportAnchorPoolState();
+  }
+
+  restoreSeedPoolState(entries: unknown): void {
+    if (!Array.isArray(entries)) {
+      this.seedPool.clear();
+      return;
+    }
+
+    this.seedPool.clear();
+    for (const raw of entries) {
+      if (!isRecord(raw)) {
+        continue;
+      }
+      const nodeId = typeof raw.nodeId === 'string' ? raw.nodeId : '';
+      if (!nodeId) {
+        continue;
+      }
+
+      const nodeKind = normalizeNodeKind(raw.nodeKind);
+      this.seedPool.set(nodeId, {
+        blockId: nodeId,
+        nodeKind: 'concept',
+        priority: normalizePriority(raw.priority, nodeKind === 'concept' ? 0.65 : 0.55),
+        neighborsViewed: clamp(Number(raw.neighborsViewed) || 0, 0, 999),
+        addedAt: Number.isFinite(Number(raw.addedAt)) ? Number(raw.addedAt) : Date.now(),
+        preview: this.compressText(typeof raw.nodePreview === 'string' ? raw.nodePreview : nodeId),
+      });
+    }
+  }
+
+  restoreAnchorPoolState(entries: unknown): void {
+    if (!Array.isArray(entries)) {
+      this.anchorPool.clear();
+      return;
+    }
+
+    this.anchorPool.clear();
+    for (const raw of entries) {
+      if (!isRecord(raw)) {
+        continue;
+      }
+      const nodeId = typeof raw.nodeId === 'string' ? raw.nodeId : '';
+      if (!nodeId) {
+        continue;
+      }
+
+      const nodeKind = normalizeNodeKind(raw.nodeKind);
+      this.anchorPool.set(nodeId, {
+        blockId: nodeId,
+        nodeKind,
+        priority: normalizePriority(raw.priority, nodeKind === 'concept' ? 0.65 : 0.55),
+        neighborsViewed: clamp(Number(raw.neighborsViewed) || 0, 0, 999),
+        addedAt: Number.isFinite(Number(raw.addedAt)) ? Number(raw.addedAt) : Date.now(),
+        preview: this.compressText(typeof raw.nodePreview === 'string' ? raw.nodePreview : nodeId),
+      });
+    }
+  }
+
+  restoreFocusPoolState(entries: unknown): void {
+    this.restoreAnchorPoolState(entries);
+  }
+
   exportSessionState(): ConceptNeuralSessionState {
     return {
       displayPath: [...this.displayPath],
@@ -502,7 +691,6 @@ export class ConceptNeuralQueue {
       currentSessionId: this.currentSessionId,
       visitedBlocks: Array.from(this.visitedBlocks),
       exhaustedFocuses: Array.from(this.exhaustedFocuses),
-      pinnedFocusBlocks: Array.from(this.pinnedFocusBlocks),
     };
   }
 
@@ -541,9 +729,31 @@ export class ConceptNeuralQueue {
     const exhaustedFocuses = Array.isArray(state.exhaustedFocuses)
       ? new Set(state.exhaustedFocuses.map((id) => String(id)).filter(Boolean))
       : new Set<string>();
-    const pinnedFocusBlocks = Array.isArray(state.pinnedFocusBlocks)
-      ? new Set(state.pinnedFocusBlocks.map((id) => String(id)).filter(Boolean))
-      : new Set<string>();
+
+    if (Array.isArray(state.seedPool)) {
+      this.restoreSeedPoolState(state.seedPool);
+    } else if (Array.isArray(state.focusPool)) {
+      const legacyEntries = state.focusPool.map((entry) => ({
+        ...(entry as Record<string, unknown>),
+        nodeKind: normalizeNodeKind((entry as Record<string, unknown>).nodeKind) === 'concept'
+          ? 'concept'
+          : 'virtual',
+      }));
+      this.restoreSeedPoolState(
+        legacyEntries.filter((entry) => normalizeNodeKind(entry.nodeKind) === 'concept')
+      );
+      this.restoreAnchorPoolState(legacyEntries);
+    }
+
+    if (Array.isArray(state.anchorPool)) {
+      this.restoreAnchorPoolState(state.anchorPool);
+    } else if (Array.isArray(state.pinnedFocusBlocks)) {
+      // Legacy v3 compatibility: map old pinned blocks into concept focus entries.
+      this.restoreAnchorPoolState(state.pinnedFocusBlocks.map((nodeId) => ({
+        nodeId,
+        nodeKind: 'concept',
+      })));
+    }
 
     this.displayPath = displayPath;
     this.currentPathIndex = currentPathIndex;
@@ -556,8 +766,94 @@ export class ConceptNeuralQueue {
       : this.resolveLatestSessionId(this.history);
     this.visitedBlocks = visitedBlocks;
     this.exhaustedFocuses = exhaustedFocuses;
-    this.pinnedFocusBlocks = pinnedFocusBlocks;
     this.followCurrentNodeOnce = false;
+  }
+
+  private async setSeedEntryInternal(
+    nodeId: string,
+    enabled: boolean,
+    options: {
+      preferredKind?: NeuralFocusNodeKind;
+      priority?: number;
+    } = {}
+  ): Promise<void> {
+    if (!enabled) {
+      this.seedPool.delete(nodeId);
+      this.exhaustedFocuses.delete(nodeId);
+      if (this.currentFocus === nodeId && !this.anchorPool.has(nodeId)) {
+        this.currentFocus = null;
+      }
+      return;
+    }
+
+    const existing = this.seedPool.get(nodeId);
+    const isConcept = options.preferredKind
+      ? options.preferredKind === 'concept'
+      : await this.queryEngine.isConceptCard(nodeId);
+    if (!isConcept) {
+      throw new Error(`Block ${nodeId} is not a concept card`);
+    }
+    const blockData = await this.queryEngine.fetchBlockData(nodeId);
+
+    this.seedPool.set(nodeId, {
+      blockId: nodeId,
+      nodeKind: 'concept',
+      priority: normalizePriority(
+        options.priority ?? existing?.priority,
+        0.65
+      ),
+      neighborsViewed: existing?.neighborsViewed ?? 0,
+      addedAt: existing?.addedAt ?? Date.now(),
+      preview: this.compressText(blockData?.content || existing?.preview || nodeId),
+    });
+    this.exhaustedFocuses.delete(nodeId);
+  }
+
+  private async setAnchorEntryInternal(
+    nodeId: string,
+    enabled: boolean,
+    options: {
+      preferredKind?: NeuralFocusNodeKind;
+      priority?: number;
+    } = {}
+  ): Promise<void> {
+    if (!enabled) {
+      this.anchorPool.delete(nodeId);
+      if (this.currentFocus === nodeId && !this.seedPool.has(nodeId)) {
+        this.currentFocus = null;
+      }
+      return;
+    }
+
+    const existing = this.anchorPool.get(nodeId);
+    const isConcept = options.preferredKind
+      ? options.preferredKind === 'concept'
+      : await this.queryEngine.isConceptCard(nodeId);
+    const nodeKind: NeuralFocusNodeKind = isConcept ? 'concept' : 'virtual';
+    const blockData = await this.queryEngine.fetchBlockData(nodeId);
+
+    this.anchorPool.set(nodeId, {
+      blockId: nodeId,
+      nodeKind,
+      priority: normalizePriority(
+        options.priority ?? existing?.priority,
+        nodeKind === 'concept' ? 0.65 : 0.55
+      ),
+      neighborsViewed: existing?.neighborsViewed ?? 0,
+      addedAt: existing?.addedAt ?? Date.now(),
+      preview: this.compressText(blockData?.content || existing?.preview || nodeId),
+    });
+  }
+
+  private getNodeState(nodeId: string): FocusState | null {
+    return this.seedPool.get(nodeId) ?? this.anchorPool.get(nodeId) ?? null;
+  }
+
+  private getNodeKind(nodeId: string): NeuralFocusNodeKind {
+    if (this.seedPool.has(nodeId)) {
+      return 'concept';
+    }
+    return this.anchorPool.get(nodeId)?.nodeKind ?? 'virtual';
   }
 
   private async getNextCardFromPath(): Promise<QueueItem | null> {
@@ -629,8 +925,8 @@ export class ConceptNeuralQueue {
   private shouldRotateFocus(): boolean {
     if (!this.currentFocus) return true;
 
-    const focusState = this.conceptPool.get(this.currentFocus);
-    // Virtual focus nodes are session-only and should still support spreading activation.
+    const focusState = this.seedPool.get(this.currentFocus);
+    // Manually selected non-seed current focus can still do one-hop spreading activation.
     if (!focusState) return false;
 
     return focusState.neighborsViewed >= this.neighborsPerRound;
@@ -638,7 +934,7 @@ export class ConceptNeuralQueue {
 
   private rotateFocus(): void {
     if (this.currentFocus) {
-      const focusState = this.conceptPool.get(this.currentFocus);
+      const focusState = this.seedPool.get(this.currentFocus);
       if (focusState) {
         focusState.neighborsViewed = 0;
       }
@@ -647,7 +943,7 @@ export class ConceptNeuralQueue {
   }
 
   private selectNextFocus(): string | null {
-    const candidateFocuses = Array.from(this.conceptPool.entries())
+    const candidateFocuses = Array.from(this.seedPool.entries())
       .filter(([id]) => !this.exhaustedFocuses.has(id))
       .map(([id, state]) => ({ id, ...state }));
 
@@ -659,11 +955,15 @@ export class ConceptNeuralQueue {
   }
 
   private weightedRandomSelectFocus(focuses: Array<FocusState & { id: string }>): string {
-    const totalWeight = focuses.reduce((sum, focus) => sum + focus.priority, 0);
+    const totalWeight = focuses.reduce((sum, focus) => {
+      const kindBoost = focus.nodeKind === 'concept' ? 1.6 : 1;
+      return sum + (focus.priority * kindBoost);
+    }, 0);
     let random = Math.random() * totalWeight;
 
     for (const focus of focuses) {
-      random -= focus.priority;
+      const weight = focus.priority * (focus.nodeKind === 'concept' ? 1.6 : 1);
+      random -= weight;
       if (random <= 0) {
         return focus.id;
       }
@@ -800,7 +1100,7 @@ export class ConceptNeuralQueue {
     sessionReference: NeuralRoamHistoryEntry | null,
     latestNodeEntry: NeuralRoamHistoryEntry | null
   ): NeuralRoamHistoryEntry {
-    const focusState = this.conceptPool.get(focusNodeId);
+    const focusState = this.getNodeState(focusNodeId);
     const visitedAt = latestNodeEntry?.visitedAt
       ?? sessionReference?.visitedAt
       ?? focusState?.addedAt
@@ -820,7 +1120,9 @@ export class ConceptNeuralQueue {
       associationType: 'focus',
       reason: this.getReasonText('focus'),
       visitedAt,
-      isVirtual: !this.conceptPool.has(focusNodeId),
+      isVirtual: focusState
+        ? focusState.nodeKind === 'virtual'
+        : Boolean(latestNodeEntry?.isVirtual ?? sessionReference?.isVirtual),
       nodePreview,
     };
   }
@@ -867,7 +1169,10 @@ export class ConceptNeuralQueue {
     this.navigationMode = 'explore';
     this.followCurrentNodeOnce = false;
 
-    for (const focus of this.conceptPool.values()) {
+    for (const focus of this.seedPool.values()) {
+      focus.neighborsViewed = 0;
+    }
+    for (const focus of this.anchorPool.values()) {
       focus.neighborsViewed = 0;
     }
   }

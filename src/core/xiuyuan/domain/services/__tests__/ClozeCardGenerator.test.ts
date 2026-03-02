@@ -77,4 +77,24 @@ describe('ClozeCardGenerator', () => {
     expect(face.answer.startsWith('$$')).toBe(true);
     expect(face.answer.endsWith('$$')).toBe(true);
   });
+
+  it('generates one intact face when latex cloze body uses double braces', () => {
+    const content = 'P(A|B)=\\frac{P(B|A)\\cdot P(A)}{\\cloze{c1}{{P(B)}}}';
+    const clozes = ClozeDetector.extractClozes(content);
+
+    expect(clozes).toHaveLength(1);
+    const result = ClozeCardGenerator.generateFaces(content, clozes, blockId);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value).toHaveLength(1);
+    const face = result.value[0];
+    expect(face.question).toContain('\\boxed{\\text{[...]}}');
+    expect(face.question).not.toContain('<mark>');
+    expect(face.question.startsWith('$$')).toBe(true);
+    expect(face.question.endsWith('$$')).toBe(true);
+    expect(face.answer).toContain('{\\color{#166534}{P(B)}}');
+    expect(face.answer.startsWith('$$')).toBe(true);
+    expect(face.answer.endsWith('$$')).toBe(true);
+  });
 });

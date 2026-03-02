@@ -20,6 +20,8 @@ const baseProps = {
     new: 'New',
     cards: 'cards',
     togglePreview: 'Toggle Preview',
+    repairCardTypeConsistency: 'Repair Card Type Consistency',
+    repairCardTypeConsistencyShort: 'Repair Types',
   },
   searchQuery: '',
   currentPreset: 'all',
@@ -173,5 +175,17 @@ describe('BrowserToolbar selection actions', () => {
     const toolbarRoot = wrapper.find('.card-browser__toolbar');
     expect(toolbarRoot.classes()).toContain('card-browser__toolbar--tight');
     expect(toolbarRoot.classes()).not.toContain('card-browser__toolbar--compact');
+  });
+
+  it('emits repairCardTypeConsistency when repair button clicked in all cards view', async () => {
+    const wrapper = mountToolbar({
+      activeQueueId: null,
+      mobileMode: false,
+    });
+    const repairButton = findButtonByTitle(wrapper, 'Repair Card Type Consistency');
+    expect(repairButton).toBeTruthy();
+
+    await repairButton!.trigger('click');
+    expect(wrapper.emitted('repairCardTypeConsistency')).toBeTruthy();
   });
 });

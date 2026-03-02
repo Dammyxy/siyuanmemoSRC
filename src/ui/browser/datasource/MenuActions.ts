@@ -510,7 +510,7 @@ async function addCardsDeterministically(
   items: QueueCandidate[],
   getAddTargetId: (item: QueueCandidate) => string,
   source: QueueAddSource
-) : Promise<{ added: number; failed: number; firstError?: string }> {
+) : Promise<{ added: number; failed: number; firstError?: string; conceptTypeConflict: number }> {
   if (!queue || typeof queue.addCard !== 'function') {
     throw new Error('Queue unavailable');
   }
@@ -518,6 +518,7 @@ async function addCardsDeterministically(
   let added = 0;
   let failed = 0;
   let firstError: string | undefined;
+  let conceptTypeConflict = 0;
 
   for (const item of items) {
     const targetId = getAddTargetId(item);
@@ -531,12 +532,18 @@ async function addCardsDeterministically(
     } catch (error) {
       failed++;
       const message = error instanceof Error ? error.message : String(error);
-      firstError = firstError ?? message;
-      logger.error(`[MenuActions] Failed to add card ${targetId}`, error);
+      const conceptMismatch = message.includes('is not a concept card');
+      if (conceptMismatch) {
+        conceptTypeConflict++;
+        logger.warn(`[MenuActions] Skip non-concept card ${targetId} for neural roam queue`);
+      } else {
+        firstError = firstError ?? message;
+        logger.error(`[MenuActions] Failed to add card ${targetId}`, error);
+      }
     }
   }
 
-  return { added, failed, firstError };
+  return { added, failed, firstError, conceptTypeConflict };
 }
 
 function prepareQueueItems(selectedRows: BrowserCard[]): QueueCandidate[] {
@@ -585,7 +592,7 @@ export async function addToQueue(
     return { added: 0, message: '没有有效的卡片可添加' };
   }
 
-  let addResult: { added: number; failed: number; firstError?: string };
+  let addResult: { added: number; failed: number; firstError?: string; conceptTypeConflict: number };
   try {
     addResult = await addCardsDeterministically(
       queue,
@@ -599,6 +606,12 @@ export async function addToQueue(
   }
 
   if (addResult.added <= 0) {
+    if (queueType === 'neural-roam' && addResult.conceptTypeConflict > 0 && !addResult.firstError) {
+      return {
+        added: 0,
+        message: `没有可加入的 Concept 卡片（${addResult.conceptTypeConflict} 张类型冲突已跳过）`,
+      };
+    }
     if (addResult.firstError) {
       return { added: 0, message: `添加失败：${addResult.firstError}` };
     }
@@ -612,6 +625,9 @@ export async function addToQueue(
     }
     if (addResult.failed > 0) {
       message += `，${addResult.failed} 张添加失败`;
+    }
+    if (addResult.conceptTypeConflict > 0) {
+      message += `，${addResult.conceptTypeConflict} 张类型冲突已跳过`;
     }
     return { added: addResult.added, message };
   }

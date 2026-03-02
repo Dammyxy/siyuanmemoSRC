@@ -114,6 +114,7 @@ interface AttributeSqlRow {
 const FW_SEMICOLON = '\uFF1B';
 const ZERO_WIDTH_RE = /[\u200B-\u200D\uFEFF\u2060]/g;
 const DESCRIPTOR_MULTILINE_TAIL_RE = new RegExp(`\\s*(;;;|${FW_SEMICOLON}{3})\\s*$`);
+const HIDDEN_TEMPLATE_IDS_IN_QUICK_CARD_DIALOG = new Set<string>(['builtin-concept-simple']);
 
 function normalizeForTextParsing(text: string): string {
   return (text || '')
@@ -426,7 +427,7 @@ export class DialogManager implements IDialogManager {
    */
   openBrowserDialog(options?: {
     initialQueueId?: string;
-    initialNeuralSubview?: 'concept-cards' | 'focus-blocks' | 'roam-history';
+    initialNeuralSubview?: 'concept-cards' | 'roam-history' | 'worldline-anchors';
   }): void {
     if (this.srsBrowserDialog) {
       this.srsBrowserDialog.destroy();
@@ -2047,8 +2048,11 @@ export class DialogManager implements IDialogManager {
 
       // 获取所有可用模板
       const templates = await xiuyuanAppService.getAllTemplates();
+      const templatesForDialog = templates.filter(
+        (template) => !HIDDEN_TEMPLATE_IDS_IN_QUICK_CARD_DIALOG.has(template.id),
+      );
       
-      if (templates.length === 0) {
+      if (templatesForDialog.length === 0) {
         this.siyuanApi.pushMsg('暂无可用模板，请先创建模板');
         return;
       }
@@ -2063,7 +2067,7 @@ export class DialogManager implements IDialogManager {
         title: this.context.getI18n()?.selectCardTypeTitle || '选择卡片类型',
         component: TemplateSelectDialog,
         props: {
-          templates,
+          templates: templatesForDialog,
           blockCount: blockIds.length,
           i18n: this.context.getI18n(),
         },

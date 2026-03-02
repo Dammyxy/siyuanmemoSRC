@@ -52,4 +52,26 @@ describe('ClozeDetector latex escape handling', () => {
       end: content.indexOf('\\cloze') + '\\cloze{x+y}'.length,
     });
   });
+
+  it('prefers latex cloze when numbered latex argument contains double braces', () => {
+    const content = 'P(A|B)=\\frac{P(B|A)\\cdot P(A)}{\\cloze{c1}{{P(B)}}}';
+    const clozes = ClozeDetector.extractClozes(content);
+
+    expect(clozes).toHaveLength(1);
+    expect(clozes[0]).toMatchObject({
+      text: '{P(B)}',
+      type: 'latex',
+      start: content.indexOf('\\cloze'),
+      end: content.indexOf('\\cloze') + '\\cloze{c1}{{P(B)}}'.length,
+    });
+  });
+
+  it('keeps mixed non-overlapping clozes', () => {
+    const content = 'alpha {{A}} + \\cloze{c1}{x}';
+    const clozes = ClozeDetector.extractClozes(content);
+
+    expect(clozes).toHaveLength(2);
+    expect(clozes.map((item) => item.type)).toEqual(['brace', 'latex']);
+    expect(clozes.map((item) => item.text)).toEqual(['A', 'x']);
+  });
 });

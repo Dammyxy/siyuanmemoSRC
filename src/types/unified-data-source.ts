@@ -138,8 +138,66 @@ export interface NeuralRoamHistoryEntry {
     nodePreview: string;
 }
 
+export type NeuralFocusNodeKind = 'concept' | 'virtual';
+
+export interface NeuralRoamFocusEntry {
+    nodeId: string;
+    nodePreview: string;
+    isVirtual: boolean;
+    nodeKind: NeuralFocusNodeKind;
+    priority: number;
+    addedAt: number;
+    visitedAt: number;
+}
+
+export interface NeuralRoamSeedEntry {
+    nodeId: string;
+    nodePreview: string;
+    priority: number;
+    addedAt: number;
+    visitedAt: number;
+}
+
+export interface NeuralRoamAnchorEntry {
+    nodeId: string;
+    nodePreview: string;
+    isVirtual: boolean;
+    nodeKind: NeuralFocusNodeKind;
+    priority: number;
+    addedAt: number;
+    visitedAt: number;
+}
+
 export interface NeuralRoamSessionQueue {
+    getSeedSnapshot(): NeuralRoamSeedEntry[];
+    setSeedEntry(nodeId: string, enabled?: boolean): Promise<void>;
+    getAnchorSnapshot(): NeuralRoamAnchorEntry[];
+    setAnchorEntry(nodeId: string, enabled?: boolean): Promise<void>;
+    clearAnchors(): Promise<void>;
+    /**
+     * @deprecated Use getSeedSnapshot instead.
+     */
     getConceptBlocks(): string[];
+    /**
+     * @deprecated Use getAnchorSnapshot instead.
+     */
+    getFocusPoolSnapshot(): NeuralRoamFocusEntry[];
+    /**
+     * @deprecated Use setAnchorEntry instead.
+     */
+    setFocusPoolEntry(nodeId: string, enabled?: boolean): Promise<void>;
+    /**
+     * @deprecated Use clearAnchors instead.
+     */
+    clearFocusPool(): Promise<void>;
+    setCurrentFocus(
+        focusId: string,
+        options?: {
+            includeFocusAsFirst?: boolean;
+            resetHistory?: boolean;
+            bookmarkCurrentPath?: boolean;
+        }
+    ): Promise<void>;
     startRoamingFromFocus(
         focusId: string,
         options?: {
@@ -149,7 +207,13 @@ export interface NeuralRoamSessionQueue {
     ): Promise<void>;
     getHistorySnapshot(): NeuralRoamHistoryEntry[];
     getSessionFocusStack(): NeuralRoamHistoryEntry[];
+    /**
+     * @deprecated Use getFocusPoolSnapshot instead.
+     */
     getPinnedFocusBlocks(): NeuralRoamHistoryEntry[];
+    /**
+     * @deprecated Use setFocusPoolEntry instead.
+     */
     setPinnedFocusBlock(blockId: string, pinned?: boolean): Promise<void>;
     jumpToHistoryNode(nodeId: string): Promise<boolean>;
     getPathItemByNodeId(blockId: string): Promise<FSRSCard | null>;
@@ -163,7 +227,16 @@ export function isNeuralRoamSessionQueue(
     queue: unknown
 ): queue is IReviewQueue & NeuralRoamSessionQueue {
     const candidate = queue as Partial<NeuralRoamSessionQueue>;
-    return typeof candidate?.getConceptBlocks === 'function'
+    return typeof candidate?.getSeedSnapshot === 'function'
+        && typeof candidate?.setSeedEntry === 'function'
+        && typeof candidate?.getAnchorSnapshot === 'function'
+        && typeof candidate?.setAnchorEntry === 'function'
+        && typeof candidate?.clearAnchors === 'function'
+        && typeof candidate?.getConceptBlocks === 'function'
+        && typeof candidate?.getFocusPoolSnapshot === 'function'
+        && typeof candidate?.setFocusPoolEntry === 'function'
+        && typeof candidate?.clearFocusPool === 'function'
+        && typeof candidate?.setCurrentFocus === 'function'
         && typeof candidate?.startRoamingFromFocus === 'function'
         && typeof candidate?.getHistorySnapshot === 'function'
         && typeof candidate?.getSessionFocusStack === 'function'

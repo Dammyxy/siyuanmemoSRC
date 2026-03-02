@@ -38,4 +38,16 @@ describe('mathRender', () => {
     );
     expect(rendered).toContain('{\\color{#166534}MC^2}');
   });
+
+  it('does not reprocess dollar signs inside rendered KaTeX html', () => {
+    const katexErrorHtml =
+      '<span class="katex-error" title="Can&#x27;t use function &#x27;$&#x27; in math mode">$${bad}$$</span>';
+    const renderToString = vi.fn(() => katexErrorHtml);
+    (window as WindowWithKatex).katex = { renderToString };
+
+    const rendered = renderMathWithKatex('$$bad$$');
+
+    expect(renderToString).toHaveBeenCalledTimes(1);
+    expect(rendered).toBe(katexErrorHtml);
+  });
 });

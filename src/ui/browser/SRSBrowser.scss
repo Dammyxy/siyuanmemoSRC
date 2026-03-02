@@ -588,6 +588,40 @@
   padding: 8px 10px;
 }
 
+.card-browser__neural-subview--roam-path {
+  position: relative;
+  isolation: isolate;
+}
+
+.neural-nav-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  background: var(--b3-theme-surface);
+}
+
+.neural-nav-bar__status {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+  min-width: 0;
+}
+
+.neural-nav-bar__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.neural-nav-bar__button {
+  white-space: nowrap;
+}
+
 .neural-list {
   display: flex;
   flex-direction: column;
@@ -605,6 +639,47 @@
 .neural-list__toolbar .b3-text-field {
   flex: 1;
   min-width: 180px;
+}
+
+.neural-list__toolbar-action {
+  flex-shrink: 0;
+}
+
+.neural-focus-list__toolbar {
+  align-items: center;
+}
+
+.neural-focus-list__view-switch {
+  display: inline-flex;
+  gap: 6px;
+  padding: 2px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 999px;
+  background: var(--b3-theme-background);
+  flex-shrink: 0;
+}
+
+.neural-focus-list__view-btn {
+  border-radius: 999px;
+}
+
+.neural-focus-list__view-btn--active {
+  border-color: var(--b3-theme-primary);
+  background: rgba(var(--b3-theme-primary-rgb), 0.12);
+  color: var(--b3-theme-primary);
+}
+
+.neural-focus-list__hint {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface-light);
+  padding: 0 2px;
+}
+
+.neural-focus-list__section-note {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-background);
+  font-size: 12px;
 }
 
 .neural-list__section {
@@ -691,9 +766,49 @@
   font-size: 11px;
 }
 
-.neural-list__pin {
+.neural-list__actions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
   margin-right: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.neural-list__action {
   flex-shrink: 0;
+}
+
+.neural-list__action--icon {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.neural-list__actions--compact {
+  gap: 4px;
+}
+
+.neural-list__action--primary {
+  background: var(--b3-theme-primary);
+  color: var(--b3-theme-on-primary);
+  border: 1px solid var(--b3-theme-primary);
+}
+
+.neural-list__action--primary:hover {
+  filter: brightness(0.95);
+}
+
+.neural-list__tag--current {
+  background: rgba(var(--b3-theme-primary-rgb), 0.12);
+  border-color: rgba(var(--b3-theme-primary-rgb), 0.4);
+  color: var(--b3-theme-primary);
 }
 
 .neural-list__empty {
@@ -706,25 +821,163 @@
   justify-content: space-between;
 }
 
-.neural-history-list__scope {
-  display: inline-flex;
-  gap: 6px;
+.neural-history-list__hint {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface-light);
+  padding: 0 2px;
 }
 
-.neural-history-list__scope-btn--active {
-  border-color: var(--b3-theme-primary);
-  color: var(--b3-theme-primary);
+.neural-history-list__timeline-wrap {
+  --neural-timeline-axis-x: 8px;
+  position: relative;
+  padding-top: 10px;
 }
 
-.neural-history-list__session-header {
-  align-items: center;
+.card-browser__neural-subview--roam-path .neural-history-list__timeline-wrap::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  bottom: 8px;
+  left: 18%;
+  width: clamp(260px, 38vw, 560px);
+  background: linear-gradient(
+    to top,
+    rgba(140, 176, 232, 0.07) 0%,
+    rgba(140, 176, 232, 0.14) 62%,
+    rgba(140, 176, 232, 0.22) 100%
+  );
+  clip-path: polygon(45% 100%, 55% 100%, 55% 30%, 74% 30%, 50% 0, 26% 30%, 45% 30%);
+  pointer-events: none;
+  z-index: 2;
 }
 
-.neural-history-list__collapse {
-  width: 28px;
-  min-width: 28px;
-  padding: 0;
-  text-align: center;
+.neural-history-list__direction {
+  display: none;
+}
+
+.neural-history-list__direction-arrow {
+  display: none;
+}
+
+.neural-history-list__timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.neural-history-list__timeline-item {
+  position: relative;
+  padding-left: 22px;
+}
+
+.neural-history-list__timeline-line {
+  position: absolute;
+  top: 0;
+  bottom: -8px;
+  left: var(--neural-timeline-axis-x);
+  width: 2px;
+  background: var(--b3-border-color);
+  z-index: 3;
+}
+
+.neural-history-list__timeline-item:last-child .neural-history-list__timeline-line {
+  display: none;
+}
+
+.neural-history-list__timeline-dot {
+  position: absolute;
+  left: calc(var(--neural-timeline-axis-x) - 5px);
+  top: 14px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid var(--b3-theme-primary);
+  background: var(--b3-theme-background);
+  z-index: 3;
+}
+
+.neural-history-list__timeline-item--current .neural-history-list__timeline-dot {
+  background: var(--b3-theme-primary);
+}
+
+.neural-history-list__timeline-item--anchored .neural-history-list__timeline-dot {
+  border-color: var(--b3-theme-warning);
+}
+
+.neural-history-list__timeline-item .neural-list__item {
+  position: relative;
+  z-index: 1;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  background: var(--b3-theme-background);
+}
+
+.neural-history-list__timeline-item .neural-list__item-main {
+  position: relative;
+  z-index: 3;
+  padding: 10px 12px;
+}
+
+.neural-history-list__timeline-item .neural-list__actions {
+  position: relative;
+  z-index: 3;
+  padding: 0 8px;
+  margin-right: 0;
+  opacity: 0.65;
+  transition: opacity 120ms ease;
+}
+
+.neural-list__tag--anchored {
+  background: rgba(var(--b3-theme-primary-rgb), 0.08);
+  border-color: var(--b3-theme-warning);
+  color: var(--b3-theme-warning);
+}
+
+.neural-history-list__timeline-item:hover .neural-list__actions,
+.neural-history-list__timeline-item:focus-within .neural-list__actions,
+.neural-anchor-list__item:hover .neural-list__actions,
+.neural-anchor-list__item:focus-within .neural-list__actions {
+  opacity: 1;
+}
+
+.neural-anchor-list__toolbar {
+  justify-content: space-between;
+}
+
+.neural-anchor-list__hint {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface-light);
+  padding: 0 2px;
+}
+
+.neural-anchor-list__items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.neural-anchor-list__item {
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  background: var(--b3-theme-background);
+}
+
+.neural-anchor-list__item .neural-list__item-main {
+  padding: 10px 12px;
+}
+
+.neural-anchor-list__item .neural-list__actions {
+  padding: 0 8px;
+  margin-right: 0;
+  opacity: 0.65;
+  transition: opacity 120ms ease;
+}
+
+.neural-anchor-list__item--current {
+  border-color: rgba(var(--b3-theme-primary-rgb), 0.45);
 }
 
 .card-browser--mobile .neural-subview-tabs {
@@ -735,15 +988,74 @@
   padding: 8px;
 }
 
+.card-browser--mobile .card-browser__neural-subview--roam-path .neural-history-list__timeline-wrap::before {
+  top: 8px;
+  bottom: 8px;
+  left: 10%;
+  width: clamp(210px, 54vw, 340px);
+  background: linear-gradient(
+    to top,
+    rgba(140, 176, 232, 0.06) 0%,
+    rgba(140, 176, 232, 0.12) 62%,
+    rgba(140, 176, 232, 0.19) 100%
+  );
+}
+
+.card-browser--mobile .neural-nav-bar {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.card-browser--mobile .neural-nav-bar__actions {
+  width: 100%;
+}
+
+.card-browser--mobile .neural-nav-bar__button {
+  flex: 1;
+}
+
 .card-browser--mobile .neural-list__toolbar {
   flex-direction: column;
   align-items: stretch;
 }
 
-.card-browser--mobile .neural-history-list__scope {
+.card-browser--mobile .neural-focus-list__view-switch {
   width: 100%;
+  justify-content: stretch;
 }
 
-.card-browser--mobile .neural-history-list__scope .b3-button {
+.card-browser--mobile .neural-focus-list__view-btn {
   flex: 1;
+}
+
+.card-browser--mobile .neural-list__item {
+  flex-wrap: wrap;
+}
+
+.card-browser--mobile .neural-list__actions {
+  width: 100%;
+  margin: 0 8px 8px;
+  justify-content: flex-start;
+  opacity: 1;
+}
+
+.card-browser--mobile .neural-list__action {
+  flex: 0 0 auto;
+  min-width: 28px;
+}
+
+.card-browser--mobile .neural-history-list__timeline-item {
+  padding-left: 18px;
+}
+
+.card-browser--mobile .neural-history-list__timeline-wrap {
+  --neural-timeline-axis-x: 6px;
+}
+
+.card-browser--mobile .neural-history-list__timeline-dot {
+  left: calc(var(--neural-timeline-axis-x) - 5px);
+}
+
+.card-browser--mobile .neural-history-list__timeline-item .neural-list__actions {
+  padding: 0 8px 8px;
 }

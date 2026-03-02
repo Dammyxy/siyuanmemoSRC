@@ -48,6 +48,7 @@
         @applySortToQueue="handleApplySortToQueue"
         @toggleViewMode="toggleViewMode"
         @forceRefresh="forceRefreshData"
+        @repairCardTypeConsistency="handleRepairCardTypeConsistency"
         @migrateTopicItem="migrateTopicItem"
         @showPerformanceReport="showPerformanceReport"
         @convertToTab="convertToTab"
@@ -124,26 +125,36 @@
         />
       </div>
 
-      <div v-else class="card-browser__neural-subview">
-        <NeuralFocusList
-          v-if="neuralSubview === 'focus-blocks'"
+      <div
+        v-else
+        class="card-browser__neural-subview"
+        :class="{ 'card-browser__neural-subview--roam-path': neuralSubview === 'roam-history' }"
+      >
+        <NeuralNavigationBar
           :i18n="props.i18n"
-          :session-entries="neuralSessionFocusEntries"
-          :pinned-entries="neuralPinnedFocusEntries"
+          :navigation-state="neuralNavigationState"
+          @toggle-nav-mode="handleNeuralToggleNavigationMode"
+          @return-bookmark="handleNeuralReturnToBookmark"
+        />
+        <NeuralHistoryList
+          v-if="neuralSubview === 'roam-history'"
+          :i18n="props.i18n"
+          :entries="neuralHistoryEntries"
           :current-node-id="neuralCurrentNodeId"
           @preview="handleNeuralPreview"
           @jump="handleNeuralJump"
-          @toggle-pin="handleNeuralTogglePin"
+          @set-current-focus="handleNeuralSetCurrentFocus"
+          @toggle-anchor="handleNeuralToggleAnchor"
+          @clear-history="handleNeuralClearHistory"
         />
-        <NeuralHistoryList
-          v-else
+        <NeuralAnchorList
+          v-else-if="neuralSubview === 'worldline-anchors'"
           :i18n="props.i18n"
-          :entries="neuralHistoryEntries"
-          :current-session-id="neuralCurrentSessionId"
-          :scope="neuralHistoryScope"
-          @update:scope="handleNeuralHistoryScopeChange"
+          :entries="neuralAnchorEntries"
+          :current-node-id="neuralCurrentNodeId"
           @preview="handleNeuralPreview"
-          @jump="handleNeuralJump"
+          @set-current-focus="handleNeuralSetCurrentFocus"
+          @jump-anchor="handleNeuralJumpAnchor"
         />
       </div>
       </div>
@@ -228,12 +239,14 @@ import type {
 } from './datasource/types';
 import { isBrowserQueryableDataSource } from './datasource/types';
 import { adjustTime } from './datasource/MenuActions';  // Import adjustTime
+import { reconcileBrowserCardTypes } from './datasource/cardTypeConsistency';
 import ActionParamsDialog from './ActionParamsDialog.vue';
 import BrowserHierarchy from './BrowserHierarchy.vue';
 import BrowserPreview from './BrowserPreview.vue';
 import BrowserToolbar from './BrowserToolbar.vue';
-import NeuralFocusList from './neural/NeuralFocusList.vue';
+import NeuralAnchorList from './neural/NeuralAnchorList.vue';
 import NeuralHistoryList from './neural/NeuralHistoryList.vue';
+import NeuralNavigationBar from './neural/NeuralNavigationBar.vue';
 import NeuralSubviewTabs from './neural/NeuralSubviewTabs.vue';
 import FilterDialog from './dialogs/FilterDialog.vue';
 import PostponeDialog from './dialogs/PostponeDialog.vue';
@@ -250,12 +263,14 @@ import type {
   CardFilter,
   IReviewQueue,
   IUnifiedDataSourceManagerFacade,
+  NeuralNavigationState,
+  NeuralRoamAnchorEntry,
   NeuralRoamHistoryEntry,
   QueueType,
 } from '@/types/unified-data-source';
 import { isNeuralRoamSessionQueue } from '@/types/unified-data-source';
 import { filterService } from './services/FilterService';
-import type { HistoryScope, NeuralListEntry, NeuralSubview } from './neural/types';
+import type { NeuralAnchorListEntry, NeuralListEntry, NeuralSubview } from './neural/types';
 import { 
   CARD_STATE_COLORS, 
   DEFAULT_PRIORITY, 
@@ -403,12 +418,10 @@ const activeQueueId = ref<string | null>(null);
 const activeDocId = ref<string | null>(null);
 const queueCounts = ref<Record<string, number>>({ ...EMPTY_QUEUE_COUNTS });
 const neuralSubview = ref<NeuralSubview>('concept-cards');
-const neuralHistoryScope = ref<HistoryScope>('all');
-const neuralSessionFocusEntries = ref<NeuralListEntry[]>([]);
-const neuralPinnedFocusEntries = ref<NeuralListEntry[]>([]);
 const neuralHistoryEntries = ref<NeuralListEntry[]>([]);
+const neuralAnchorEntries = ref<NeuralAnchorListEntry[]>([]);
 const neuralCurrentNodeId = ref<string | null>(null);
-const neuralCurrentSessionId = ref<string | null>(null);
+const neuralNavigationState = ref<NeuralNavigationState | null>(null);
 let neuralPreviewRequestSeq = 0;
 
 const appliedFilter = ref<CardFilter | null>(null);
@@ -564,9 +577,9 @@ const showNeuralCustomSubview = computed(() =>
   isNeuralRoamQueueActive.value && neuralSubview.value !== 'concept-cards'
 );
 const neuralSubviewTabs = computed(() => ([
-  { id: 'concept-cards' as const, label: t('conceptCards', 'Concept Cards') },
-  { id: 'focus-blocks' as const, label: t('focusBlocks', 'Focus Blocks') },
-  { id: 'roam-history' as const, label: t('roamHistory', 'Roam History') },
+  { id: 'concept-cards' as const, label: t('roamSeeds', 'Roam Seeds') },
+  { id: 'roam-history' as const, label: t('roamHistory', 'Roam Path') },
+  { id: 'worldline-anchors' as const, label: t('worldlineAnchors', 'Worldline Anchors') },
 ]));
 
 // 始终启用 sortable，过 canApplySortToQueue 控制按钮显示
@@ -1340,7 +1353,7 @@ watch(currentCardType, () => {
   void refreshData(true, false, { refreshQueueCounts: false });
 });
 
-watch([neuralSubview, neuralHistoryScope], () => {
+watch(neuralSubview, () => {
   if (isNeuralRoamQueueActive.value) {
     void refreshNeuralSubviewData();
   }
@@ -2114,19 +2127,22 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   if (isNeuralRoamQueueActive.value && neuralSubview.value === 'concept-cards') {
     const neuralQueue = getNeuralRoamQueue();
     if (neuralQueue) {
-      const pinnedIds = new Set(neuralPinnedFocusEntries.value.map((entry) => entry.nodeId));
+      const seedIds = new Set(neuralQueue.getSeedSnapshot().map((entry) => entry.nodeId));
       const selectedIds = selected.map((row) => String(row.blockId || '')).filter(Boolean);
-      const allPinned = selectedIds.length > 0 && selectedIds.every((id) => pinnedIds.has(id));
+      const allInSeedPool = selectedIds.length > 0 && selectedIds.every((id) => seedIds.has(id));
 
       menu.addItem({
-        icon: 'iconPin',
-        label: allPinned ? t('unpinFocus', '取消置顶焦点') : t('pinFocus', '置顶焦点'),
+        icon: 'iconList',
+        label: allInSeedPool
+          ? t('removeSeedEntry', '移出漫游种子')
+          : t('addSeedEntry', '加入漫游种子'),
         click: () => {
           void (async () => {
             for (const blockId of selectedIds) {
-              await neuralQueue.setPinnedFocusBlock(blockId, !allPinned);
+              await neuralQueue.setSeedEntry(blockId, !allInSeedPool);
             }
             await refreshNeuralSubviewData();
+            await refreshQueueCounts();
           })();
         },
       });
@@ -2418,6 +2434,71 @@ function forceRefreshData() {
   invalidateCardCache();
   void refreshGlobalStats(true);
   void refreshData(true);
+}
+
+async function handleRepairCardTypeConsistency(): Promise<void> {
+  if (loading.value) {
+    return;
+  }
+  const manager = pluginUnifiedDataSourceManager.value;
+  if (!manager) {
+    await pushErrMsg(t('envNotInit', 'Environment not initialized'));
+    return;
+  }
+
+  const ok = await confirmDialog({
+    title: t('repairCardTypeConsistencyConfirmTitle', '扫描并修复卡片类型一致性'),
+    content: t(
+      'repairCardTypeConsistencyConfirmMessage',
+      '将全量扫描所有闪卡，统一 custom-fsrs-card-type 与本地卡片类型。是否继续？'
+    ),
+    confirmText: t('confirm', '确认'),
+    cancelText: t('cancel', '取消'),
+  });
+  if (!ok) {
+    return;
+  }
+
+  loading.value = true;
+  try {
+    await pushMsg(t('repairCardTypeConsistencyRunning', '正在扫描并修复卡片类型一致性...'), 2500);
+    const cards = await manager.getCards();
+    const candidates = cards
+      .map((card) => ({
+        blockId: String(card.blockId || '').trim(),
+        cardType: typeof card.type === 'string' ? card.type : undefined,
+      }))
+      .filter((item) => item.blockId.length > 0);
+
+    const result = await reconcileBrowserCardTypes(candidates, {
+      repair: true,
+      manager,
+    });
+
+    const summary = interpolateI18n(
+      t(
+        'repairCardTypeConsistencyDone',
+        '修复完成：扫描 {total} 张；冲突 {conflicts}；属性补写 {attrs}；本地修复 {local}；结构检测 {detected}'
+      ),
+      {
+        total: String(candidates.length),
+        conflicts: String(result.conflictBlockIds.length),
+        attrs: String(result.repairedBlockAttrs.length),
+        local: String(result.repairedLocalCardIds.length),
+        detected: String(result.detectedBlockIds.length),
+      }
+    );
+    await pushMsg(summary, 5000);
+
+    invalidateCardCache();
+    await refreshData(true, true);
+  } catch (error) {
+    logger.error('[SiYuanMemo][SRSBrowser] Failed to repair card type consistency:', error);
+    const reason = getErrorMessage(error, t('repairCardTypeConsistencyFailed', '修复卡片类型一致性失败'));
+    await pushErrMsg(reason, 5000);
+  } finally {
+    loading.value = false;
+  }
 }
 
 // 🆕 处理同步完成事件
@@ -2762,21 +2843,47 @@ function getNeuralRoamQueue() {
   return queue;
 }
 
-function toNeuralListEntries(entries: NeuralRoamHistoryEntry[], pinnedIds = new Set<string>()): NeuralListEntry[] {
+function toNeuralHistoryListEntries(
+  entries: NeuralRoamHistoryEntry[],
+  options?: {
+    anchorIds?: Set<string>;
+    currentNodeId?: string | null;
+  }
+): NeuralListEntry[] {
+  const anchorIds = options?.anchorIds ?? new Set<string>();
+  const currentNodeId = options?.currentNodeId ?? null;
   return [...entries]
     .sort((a, b) => b.visitedAt - a.visitedAt)
     .map((entry) => ({
       ...entry,
-      pinned: pinnedIds.has(entry.nodeId),
+      isCurrent: currentNodeId ? entry.nodeId === currentNodeId : false,
+      isAnchored: anchorIds.has(entry.nodeId),
+    }));
+}
+
+function toNeuralAnchorListEntries(
+  entries: NeuralRoamAnchorEntry[],
+  options?: {
+    historyNodeIds?: Set<string>;
+    currentNodeId?: string | null;
+  }
+): NeuralAnchorListEntry[] {
+  const historyNodeIds = options?.historyNodeIds ?? new Set<string>();
+  const currentNodeId = options?.currentNodeId ?? null;
+  return [...entries]
+    .sort((a, b) => b.visitedAt - a.visitedAt)
+    .map((entry) => ({
+      ...entry,
+      isCurrent: currentNodeId ? entry.nodeId === currentNodeId : false,
+      inHistory: historyNodeIds.has(entry.nodeId),
     }));
 }
 
 function clearNeuralSubviewData(): void {
-  neuralSessionFocusEntries.value = [];
-  neuralPinnedFocusEntries.value = [];
   neuralHistoryEntries.value = [];
+  neuralAnchorEntries.value = [];
   neuralCurrentNodeId.value = null;
-  neuralCurrentSessionId.value = null;
+  neuralNavigationState.value = null;
 }
 
 async function refreshNeuralSubviewData(): Promise<void> {
@@ -2786,15 +2893,25 @@ async function refreshNeuralSubviewData(): Promise<void> {
     return;
   }
 
-  const pinned = neuralQueue.getPinnedFocusBlocks();
-  const pinnedIds = new Set(pinned.map((entry) => entry.nodeId));
-  neuralPinnedFocusEntries.value = toNeuralListEntries(pinned, pinnedIds);
-  neuralSessionFocusEntries.value = toNeuralListEntries(neuralQueue.getSessionFocusStack(), pinnedIds);
-  neuralHistoryEntries.value = toNeuralListEntries(neuralQueue.getHistorySnapshot(), pinnedIds);
-
   const navState = neuralQueue.getNavigationState();
+  const historySnapshot = neuralQueue.getHistorySnapshot();
+  const anchorSnapshot = neuralQueue.getAnchorSnapshot();
+  const anchorIds = new Set(anchorSnapshot.map((entry) => entry.nodeId));
+  neuralHistoryEntries.value = toNeuralHistoryListEntries(historySnapshot, {
+    anchorIds,
+    currentNodeId: navState.currentNodeId,
+  });
+  const currentSessionNodeIds = new Set(
+    historySnapshot
+      .filter((entry) => entry.sessionId === navState.sessionId)
+      .map((entry) => entry.nodeId)
+  );
+  neuralAnchorEntries.value = toNeuralAnchorListEntries(anchorSnapshot, {
+    historyNodeIds: currentSessionNodeIds,
+    currentNodeId: navState.currentNodeId,
+  });
   neuralCurrentNodeId.value = navState.currentNodeId;
-  neuralCurrentSessionId.value = navState.sessionId;
+  neuralNavigationState.value = navState;
 }
 
 async function handleNeuralPreview(nodeId: string): Promise<void> {
@@ -2810,37 +2927,136 @@ async function handleNeuralJump(nodeId: string): Promise<void> {
   await handleNeuralPreview(nodeId);
 
   const neuralQueue = getNeuralRoamQueue();
-  const jumped = neuralQueue ? await neuralQueue.jumpToHistoryNode(nodeId) : false;
+  if (!neuralQueue) {
+    await pushErrMsg(t('jumpHistoryNodeFailed', 'Failed to jump history node'));
+    return;
+  }
+
+  const jumped = await neuralQueue.jumpToHistoryNode(nodeId);
   await refreshNeuralSubviewData();
+  await refreshQueueCounts();
+
+  const navState = neuralQueue.getNavigationState();
+  if (navState.currentNodeId) {
+    await handleNeuralPreview(navState.currentNodeId);
+  }
 
   const dialogManager = pluginContext.value?.getDialogManager?.();
+  if (!jumped) {
+    await pushErrMsg(t('jumpHistoryNodeFailed', 'Failed to jump history node'));
+    return;
+  }
+
   if (!dialogManager?.openNeuralRoamDialog) {
     return;
   }
 
-  if (jumped) {
-    await dialogManager.openNeuralRoamDialog();
-    return;
-  }
-
-  await dialogManager.openNeuralRoamDialog({
-    focusBlockId: nodeId,
-    includeFocusAsFirst: true,
-    resetHistory: false,
-  });
+  await dialogManager.openNeuralRoamDialog();
 }
 
-async function handleNeuralTogglePin(nodeId: string, pinned: boolean): Promise<void> {
+async function handleNeuralJumpAnchor(nodeId: string): Promise<void> {
+  await handleNeuralJump(nodeId);
+}
+
+async function handleNeuralSetCurrentFocus(nodeId: string): Promise<void> {
   const neuralQueue = getNeuralRoamQueue();
   if (!neuralQueue) {
     return;
   }
-  await neuralQueue.setPinnedFocusBlock(nodeId, pinned);
+
+  await neuralQueue.setCurrentFocus(nodeId, {
+    includeFocusAsFirst: true,
+    resetHistory: false,
+    bookmarkCurrentPath: true,
+  });
   await refreshNeuralSubviewData();
+  await refreshQueueCounts();
+  await handleNeuralPreview(nodeId);
+
+  const dialogManager = pluginContext.value?.getDialogManager?.();
+  if (dialogManager?.openNeuralRoamDialog) {
+    await dialogManager.openNeuralRoamDialog();
+  }
 }
 
-function handleNeuralHistoryScopeChange(scope: HistoryScope): void {
-  neuralHistoryScope.value = scope;
+async function handleNeuralToggleNavigationMode(): Promise<void> {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue) {
+    return;
+  }
+
+  const currentMode = neuralQueue.getNavigationState().navigationMode;
+  const nextMode = currentMode === 'follow' ? 'explore' : 'follow';
+  neuralQueue.setNavigationMode(nextMode);
+  await refreshNeuralSubviewData();
+
+  const modeText = nextMode === 'follow'
+    ? t('navModeFollow', '沿主线前进')
+    : t('navModeExplore', '探索世界线分支');
+  await pushMsg(t('navModeSwitched', '已切换为: {mode}').replace('{mode}', modeText));
+}
+
+async function handleNeuralReturnToBookmark(): Promise<void> {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue) {
+    return;
+  }
+
+  const moved = neuralQueue.returnToBookmark();
+  if (!moved) {
+    return;
+  }
+
+  await refreshNeuralSubviewData();
+  await refreshQueueCounts();
+
+  const navState = neuralQueue.getNavigationState();
+  if (navState.currentNodeId) {
+    await handleNeuralPreview(navState.currentNodeId);
+  }
+
+  const dialogManager = pluginContext.value?.getDialogManager?.();
+  if (dialogManager?.openNeuralRoamDialog) {
+    await dialogManager.openNeuralRoamDialog();
+  }
+}
+
+async function handleNeuralToggleAnchor(nodeId: string, enabled: boolean): Promise<void> {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue) {
+    return;
+  }
+
+  await neuralQueue.setAnchorEntry(nodeId, enabled);
+  await refreshNeuralSubviewData();
+  await refreshQueueCounts();
+}
+
+async function handleNeuralClearHistory(): Promise<void> {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue) {
+    return;
+  }
+
+  const ok = await confirmDialog({
+    title: t('clearHistory', '清空历史记录'),
+    content: t('confirmClearHistoryAll', '确认清空全部漫游历史？'),
+    confirmText: t('confirm', '确认'),
+    cancelText: t('cancel', '取消'),
+  });
+  if (!ok) {
+    return;
+  }
+
+  try {
+    neuralQueue.clearHistory('all');
+    await refreshNeuralSubviewData();
+    await refreshQueueCounts();
+    await pushMsg(t('historyClearedSuccess', '历史记录已清空'));
+  } catch (error) {
+    logger.error('Failed to clear neural history:', error);
+    await pushErrMsg(t('clearHistoryFailed', '清空历史记录失败'));
+  }
 }
 
 async function loadAllRowsForCurrentView(sortModel: SortModel[] = []): Promise<BrowserCard[]> {
@@ -2951,7 +3167,6 @@ async function handleSelectQueue(queueId: string) {
       currentCardType.value = 'concept-only';
     }
     neuralSubview.value = 'concept-cards';
-    neuralHistoryScope.value = 'all';
   } else if (queueId === 'retrieval' || queueId === 'final-drill') {
     const isAllowedInPracticeQueue =
       currentCardType.value === 'all'
@@ -2988,7 +3203,11 @@ async function applyInitialBrowserView(forceRefresh = false): Promise<void> {
 
   if (initialQueueId === 'neural-roam') {
     const initialSubview = props.initialNeuralSubview;
-    if (initialSubview === 'concept-cards' || initialSubview === 'focus-blocks' || initialSubview === 'roam-history') {
+    if (
+      initialSubview === 'concept-cards'
+      || initialSubview === 'roam-history'
+      || initialSubview === 'worldline-anchors'
+    ) {
       neuralSubview.value = initialSubview;
       if (initialSubview !== 'concept-cards') {
         await refreshNeuralSubviewData();

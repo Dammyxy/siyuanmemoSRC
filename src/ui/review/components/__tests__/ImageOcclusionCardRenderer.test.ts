@@ -175,7 +175,7 @@ describe('ImageOcclusionCardRenderer.vue', () => {
     expect(stage.classes()).not.toContain('is-image-fullscreen');
   });
 
-  it('exits image fullscreen when left-clicking the stage', async () => {
+  it('does not exit image fullscreen when left-clicking the stage', async () => {
     const cardId = 'card-5';
     getBlockAttrsMock.mockResolvedValue({
       'custom-fsrs-image-occlusion': createPayload(cardId),
@@ -200,7 +200,7 @@ describe('ImageOcclusionCardRenderer.vue', () => {
     expect(stage.classes()).toContain('is-image-fullscreen');
 
     await stage.trigger('mousedown', { button: 0 });
-    expect(stage.classes()).not.toContain('is-image-fullscreen');
+    expect(stage.classes()).toContain('is-image-fullscreen');
   });
 
   it('changes zoom value by ctrl+wheel while fullscreen', async () => {
@@ -244,6 +244,102 @@ describe('ImageOcclusionCardRenderer.vue', () => {
     }));
     await wrapper.vm.$nextTick();
     expect(zoomValue.text()).toBe('100%');
+  });
+
+  it('scrolls horizontally by shift+wheel while fullscreen', async () => {
+    const cardId = 'card-8';
+    getBlockAttrsMock.mockResolvedValue({
+      'custom-fsrs-image-occlusion': createPayload(cardId),
+      'custom-fsrs-image-occlusion-card-ids': JSON.stringify([cardId]),
+    });
+    getBlockKramdownMock.mockResolvedValue({ kramdown: '' });
+
+    const wrapper = mount(ImageOcclusionCardRenderer, {
+      props: {
+        blockId: 'block-8',
+        showAnswer: false,
+        card: createImageOcclusionCard(cardId),
+      },
+    });
+
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    await wrapper.get('[data-role="image-fullscreen-toggle"]').trigger('click');
+    const viewport = wrapper.get('.image-occlusion-card-renderer__viewport').element as HTMLElement;
+    viewport.scrollLeft = 0;
+
+    viewport.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      shiftKey: true,
+      deltaY: 120,
+    }));
+    await wrapper.vm.$nextTick();
+
+    expect(viewport.scrollLeft).toBe(120);
+  });
+
+  it('does not change zoom value by plain wheel while fullscreen', async () => {
+    const cardId = 'card-9';
+    getBlockAttrsMock.mockResolvedValue({
+      'custom-fsrs-image-occlusion': createPayload(cardId),
+      'custom-fsrs-image-occlusion-card-ids': JSON.stringify([cardId]),
+    });
+    getBlockKramdownMock.mockResolvedValue({ kramdown: '' });
+
+    const wrapper = mount(ImageOcclusionCardRenderer, {
+      props: {
+        blockId: 'block-9',
+        showAnswer: false,
+        card: createImageOcclusionCard(cardId),
+      },
+    });
+
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    await wrapper.get('[data-role="image-fullscreen-toggle"]').trigger('click');
+    const viewport = wrapper.get('.image-occlusion-card-renderer__viewport');
+    const zoomValue = wrapper.get('[data-role="image-zoom-value"]');
+    expect(zoomValue.text()).toBe('100%');
+
+    viewport.element.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaY: -120,
+    }));
+    await wrapper.vm.$nextTick();
+
+    expect(zoomValue.text()).toBe('100%');
+  });
+
+  it('exits image fullscreen by Escape key', async () => {
+    const cardId = 'card-10';
+    getBlockAttrsMock.mockResolvedValue({
+      'custom-fsrs-image-occlusion': createPayload(cardId),
+      'custom-fsrs-image-occlusion-card-ids': JSON.stringify([cardId]),
+    });
+    getBlockKramdownMock.mockResolvedValue({ kramdown: '' });
+
+    const wrapper = mount(ImageOcclusionCardRenderer, {
+      props: {
+        blockId: 'block-10',
+        showAnswer: false,
+        card: createImageOcclusionCard(cardId),
+      },
+    });
+
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    const stage = wrapper.get('[data-role="image-fullscreen-stage"]');
+    await wrapper.get('[data-role="image-fullscreen-toggle"]').trigger('click');
+    expect(stage.classes()).toContain('is-image-fullscreen');
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await wrapper.vm.$nextTick();
+    expect(stage.classes()).not.toContain('is-image-fullscreen');
   });
 
   it('shows loading state only after deferred threshold on slow fetch', async () => {

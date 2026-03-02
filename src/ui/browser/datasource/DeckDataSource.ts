@@ -37,6 +37,10 @@ import {
   setBrowserCardsPriority,
   sortBrowserCards,
 } from './DataSourceUtils';
+import {
+  reconcileBrowserCardTypes,
+  type CardTypeConsistencyDependencies,
+} from './cardTypeConsistency';
 import { createLogger } from '@/utils/logger';
 import { BrowserQuerySession, toLiteRowFromBrowserCard } from './session/BrowserQuerySession';
 
@@ -87,6 +91,11 @@ type BrowserBatchManagerLike = {
   deleteCard: (cardId: string) => Promise<void>;
 };
 
+type DeckDataSourceDependencies = {
+  reconcileBrowserCardTypes?: typeof reconcileBrowserCardTypes;
+  cardTypeConsistencyDeps?: CardTypeConsistencyDependencies;
+};
+
 type I18nContextLike = {
   getI18n?: () => Record<string, string> | undefined;
 };
@@ -135,6 +144,8 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
   private readonly manager: IUnifiedDataSourceManagerFacade;
   private readonly plugin?: DeckPluginLike;
   private readonly options: DeckDataSourceOptions;
+  private readonly reconcileCardTypes: typeof reconcileBrowserCardTypes;
+  private readonly cardTypeConsistencyDeps?: CardTypeConsistencyDependencies;
   private readonly querySession = new BrowserQuerySession('DeckDataSource');
   private lastSortModel: SortModel[] = [];
   private dataGeneration = 0;
@@ -142,11 +153,14 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
   constructor(
     manager: IUnifiedDataSourceManagerFacade,
     options: DeckDataSourceOptions,
-    plugin?: DeckPluginLike
+    plugin?: DeckPluginLike,
+    deps: DeckDataSourceDependencies = {}
   ) {
     this.manager = manager;
     this.options = options;
     this.plugin = plugin;
+    this.reconcileCardTypes = deps.reconcileBrowserCardTypes ?? reconcileBrowserCardTypes;
+    this.cardTypeConsistencyDeps = deps.cardTypeConsistencyDeps;
   }
 
   async fetchRows(params: FetchRowsOptions): Promise<FetchRowsResult> {
@@ -276,7 +290,14 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
 
   private async handleQueueAddAction(route: QueueAddRoute, selectedRows: BrowserCard[]): Promise<unknown> {
     const queue = this.manager.getQueue(route.queueType);
-    const result = await addToQueue(queue, selectedRows, route.actionType, route.source ?? 'manual');
+    const rowsForAdd = route.actionType === 'neural-roam'
+      ? (await this.reconcileCardTypes(selectedRows, {
+          repair: true,
+          manager: this.manager,
+          deps: this.cardTypeConsistencyDeps,
+        })).rows
+      : selectedRows;
+    const result = await addToQueue(queue, rowsForAdd, route.actionType, route.source ?? 'manual');
     this.invalidateQuerySession();
     return result;
   }
@@ -329,6 +350,11 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
   private async buildOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]> {
     const allCards = await this.manager.getCards();
     let rows = allCards.map((card) => this.convertToBrowserCard(card as DeckCardRecord));
+    rows = (await this.reconcileCardTypes(rows, {
+      repair: false,
+      manager: this.manager,
+      deps: this.cardTypeConsistencyDeps,
+    })).rows;
 
     rows = applyLegacyPresetFilter(rows, this.options.preset);
     rows = applyCardTypeFilter(rows, this.options.cardType);

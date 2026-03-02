@@ -140,10 +140,12 @@ export function renderMathWithKatex(html: string, onWarn?: RenderWarningHandler)
     }
   };
 
-  let rendered = html;
-  rendered = rendered.replace(/\$\$([\s\S]+?)\$\$/g, (_full, expression: string) =>
-    renderExpression(expression, true));
-  rendered = rendered.replace(/\$(?!\$)([^$\n]+?)\$/g, (_full, expression: string) =>
-    renderExpression(expression, false));
-  return rendered;
+  return html.replace(
+    /\$\$([\s\S]+?)\$\$|\$(?!\$)([^$\n]+?)\$/g,
+    (_full, displayExpression: string | undefined, inlineExpression: string | undefined) => {
+      const isDisplayMode = typeof displayExpression === 'string';
+      const expression = isDisplayMode ? displayExpression : (inlineExpression || '');
+      return renderExpression(expression, isDisplayMode);
+    }
+  );
 }

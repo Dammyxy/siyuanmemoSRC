@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
 import NeuralHistoryList from '../NeuralHistoryList.vue';
 import type { NeuralListEntry } from '../types';
@@ -19,32 +19,29 @@ function entry(partial: Partial<NeuralListEntry>): NeuralListEntry {
 
 describe('NeuralHistoryList', () => {
   const entries: NeuralListEntry[] = [
-    entry({ nodeId: 'node-a', nodePreview: 'Alpha history', sessionId: 'session-a', visitedAt: 300 }),
-    entry({ nodeId: 'node-b', nodePreview: 'Beta history', sessionId: 'session-b', visitedAt: 200, isVirtual: true }),
+    entry({ nodeId: 'node-a', nodePreview: 'Alpha history', visitedAt: 200 }),
+    entry({ nodeId: 'node-b', nodePreview: 'Beta history', visitedAt: 300, isAnchored: true, isVirtual: true }),
   ];
 
-  it('emits scope switch event', async () => {
+  it('renders timeline in descending time order (latest on top)', () => {
     const wrapper = mount(NeuralHistoryList, {
       props: {
         entries,
-        currentSessionId: 'session-a',
-        scope: 'all',
+        currentNodeId: 'node-b',
       },
     });
 
-    const buttons = wrapper.findAll('.neural-history-list__scope .b3-button');
-    await buttons[0].trigger('click');
-
-    expect(wrapper.emitted('update:scope')).toBeTruthy();
-    expect(wrapper.emitted('update:scope')?.[0]).toEqual(['current']);
+    const titles = wrapper.findAll('.neural-list__title').map((item) => item.text());
+    expect(titles[0]).toContain('Beta history');
+    expect(titles[1]).toContain('Alpha history');
+    expect(wrapper.find('.neural-history-list__direction').exists()).toBe(true);
   });
 
   it('emits preview on click and jump on double click/Enter', async () => {
     const wrapper = mount(NeuralHistoryList, {
       props: {
         entries,
-        currentSessionId: 'session-a',
-        scope: 'current',
+        currentNodeId: 'node-b',
       },
     });
 
@@ -53,42 +50,65 @@ describe('NeuralHistoryList', () => {
     await row.trigger('dblclick');
     await row.trigger('keydown.enter');
 
-    expect(wrapper.emitted('preview')?.[0]).toEqual(['node-a']);
-    expect(wrapper.emitted('jump')?.[0]).toEqual(['node-a']);
-    expect(wrapper.emitted('jump')?.[1]).toEqual(['node-a']);
+    expect(wrapper.emitted('preview')?.[0]).toEqual(['node-b']);
+    expect(wrapper.emitted('jump')?.[0]).toEqual(['node-b']);
+    expect(wrapper.emitted('jump')?.[1]).toEqual(['node-b']);
   });
 
-  it('filters history list by search input', async () => {
+  it('emits set-current-focus and toggle-anchor row actions', async () => {
     const wrapper = mount(NeuralHistoryList, {
       props: {
         entries,
-        currentSessionId: 'session-a',
-        scope: 'all',
       },
     });
 
-    await wrapper.find('.neural-history-list__toolbar input').setValue('beta');
+    const actions = wrapper.findAll('.neural-list__action');
+    await actions[0].trigger('click');
+    await actions[1].trigger('click');
+
+    expect(wrapper.emitted('set-current-focus')?.[0]).toEqual(['node-b']);
+    expect(wrapper.emitted('toggle-anchor')?.[0]).toEqual(['node-b', false]);
+  });
+
+  it('shows star icon and aria-label by anchor state', () => {
+    const wrapper = mount(NeuralHistoryList, {
+      props: {
+        entries,
+      },
+    });
+
+    const rows = wrapper.findAll('.neural-history-list__timeline-item');
+    const firstRowActions = rows[0].findAll('.neural-list__action');
+    const secondRowActions = rows[1].findAll('.neural-list__action');
+
+    expect(firstRowActions[1].text()).toBe('★');
+    expect(secondRowActions[1].text()).toBe('☆');
+    expect(firstRowActions[1].attributes('aria-label')).toBe('Unstar');
+    expect(secondRowActions[1].attributes('aria-label')).toBe('Star');
+  });
+
+  it('filters entries by search input', async () => {
+    const wrapper = mount(NeuralHistoryList, {
+      props: {
+        entries,
+      },
+    });
+
+    await wrapper.find('.neural-history-list__toolbar input').setValue('alpha');
 
     const titles = wrapper.findAll('.neural-list__title').map((item) => item.text());
-    expect(titles).toContain('Beta history');
-    expect(titles).not.toContain('Alpha history');
+    expect(titles).toHaveLength(1);
+    expect(titles[0]).toContain('Alpha history');
   });
 
-  it('supports collapsing session groups', async () => {
+  it('emits clear-history without scope payload', async () => {
     const wrapper = mount(NeuralHistoryList, {
       props: {
         entries,
-        currentSessionId: 'session-a',
-        scope: 'all',
       },
     });
 
-    const beforeCount = wrapper.findAll('.neural-list__items .neural-list__item').length;
-    expect(beforeCount).toBe(2);
-
-    await wrapper.find('.neural-history-list__collapse').trigger('click');
-
-    const afterCount = wrapper.findAll('.neural-list__items .neural-list__item').length;
-    expect(afterCount).toBe(1);
+    await wrapper.find('.neural-list__toolbar-action').trigger('click');
+    expect(wrapper.emitted('clear-history')?.[0]).toEqual([]);
   });
 });

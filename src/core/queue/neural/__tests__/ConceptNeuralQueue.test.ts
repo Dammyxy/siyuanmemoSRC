@@ -30,6 +30,128 @@ describe('ConceptNeuralQueue', () => {
     expect(queue.getConceptBlocks()).toEqual([]);
   });
 
+  it('persists virtual anchors and restores after reload', async () => {
+    mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+
+    await queue.setAnchorEntry('virtual-1', true);
+    await queue.setAnchorEntry('concept-1', true);
+
+    const snapshot = queue.getAnchorSnapshot();
+    expect(snapshot.map((entry) => entry.nodeId)).toEqual(expect.arrayContaining(['virtual-1', 'concept-1']));
+    expect(snapshot.find((entry) => entry.nodeId === 'virtual-1')?.nodeKind).toBe('virtual');
+
+    const restoredQueue = new ConceptNeuralQueue();
+    (restoredQueue as any).queryEngine.isConceptCard = vi.fn().mockResolvedValue(false);
+    (restoredQueue as any).queryEngine.fetchBlockData = vi.fn().mockResolvedValue(null);
+    restoredQueue.restoreAnchorPoolState(queue.exportAnchorPoolState());
+    restoredQueue.restoreSessionState(queue.exportSessionState());
+
+    const restored = restoredQueue.getAnchorSnapshot();
+    expect(restored.find((entry) => entry.nodeId === 'virtual-1')).toMatchObject({
+      nodeId: 'virtual-1',
+      nodeKind: 'virtual',
+      isVirtual: true,
+    });
+  });
+
+  it('applies concept-priority boost when selecting next focus', () => {
+    const selectFocus = (queue as any).weightedRandomSelectFocus.bind(queue) as
+      (focuses: Array<{
+        id: string;
+        blockId: string;
+        nodeKind: 'concept' | 'virtual';
+        priority: number;
+        neighborsViewed: number;
+        addedAt: number;
+        preview: string;
+      }>) => string;
+
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.55);
+    const selected = selectFocus([
+      {
+        id: 'concept-1',
+        blockId: 'concept-1',
+        nodeKind: 'concept',
+        priority: 0.5,
+        neighborsViewed: 0,
+        addedAt: Date.now(),
+        preview: 'concept-1',
+      },
+      {
+        id: 'virtual-1',
+        blockId: 'virtual-1',
+        nodeKind: 'virtual',
+        priority: 0.5,
+        neighborsViewed: 0,
+        addedAt: Date.now(),
+        preview: 'virtual-1',
+      },
+    ]);
+    randomSpy.mockRestore();
+
+    expect(selected).toBe('concept-1');
+  });
+
+  it('setCurrentFocus updates focus context and appends focus node to history path', async () => {
+    mockQueryEngine.isConceptCard = vi.fn().mockResolvedValue(false);
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+
+    await queue.setCurrentFocus('virtual-focus-1', {
+      includeFocusAsFirst: true,
+      resetHistory: false,
+    });
+
+    const history = queue.getHistorySnapshot();
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({
+      nodeId: 'virtual-focus-1',
+      focusId: 'virtual-focus-1',
+      associationType: 'focus',
+      isVirtual: true,
+    });
+
+    const navState = queue.getNavigationState();
+    expect(navState.currentNodeId).toBe('virtual-focus-1');
+
+    const anchors = queue.getAnchorSnapshot();
+    expect(anchors.map((entry) => entry.nodeId)).toContain('virtual-focus-1');
+  });
+
+  it('restores previous path position by bookmark after branching from setCurrentFocus', async () => {
+    mockQueryEngine.isConceptCard = vi.fn().mockResolvedValue(false);
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+
+    await queue.startRoamingFromFocus('root-focus', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    await queue.setCurrentFocus('branch-focus', {
+      includeFocusAsFirst: true,
+      resetHistory: false,
+      bookmarkCurrentPath: true,
+    });
+
+    expect(queue.getNavigationState().hasBookmark).toBe(true);
+
+    const moved = queue.returnToBookmark();
+    expect(moved).toBe(true);
+    expect(queue.getNavigationState().currentNodeId).toBe('root-focus');
+  });
+
   it('supports roaming from virtual focus and continues spreading activation', async () => {
     mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
     mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
@@ -63,6 +185,23 @@ describe('ConceptNeuralQueue', () => {
     const history = queue.getHistorySnapshot();
     expect(history).toHaveLength(2);
     expect(history[1].nodeId).toBe('virtual-neighbor-1');
+  });
+
+  it('selects next auto focus from seed pool only (anchors are ignored)', async () => {
+    mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+
+    await queue.setAnchorEntry('virtual-anchor-1', true);
+    const noSeedFocus = (queue as any).selectNextFocus();
+    expect(noSeedFocus).toBeNull();
+
+    await queue.setSeedEntry('concept-seed-1', true);
+    const seededFocus = (queue as any).selectNextFocus();
+    expect(seededFocus).toBe('concept-seed-1');
   });
 
   it('enforces sessionId boundary after clearing current session history', async () => {
@@ -164,5 +303,34 @@ describe('ConceptNeuralQueue', () => {
 
     const secondFollow = await queue.getNextCard();
     expect(secondFollow?.blockId).toBe('neighbor-2');
+  });
+
+  it('jumpToHistoryNode enables follow mode and bookmark-based return', async () => {
+    mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+    mockQueryEngine.fetchNeighbors = vi.fn()
+      .mockResolvedValueOnce([{ id: 'neighbor-1', type: 'backlink', weight: 10 }])
+      .mockResolvedValueOnce([{ id: 'neighbor-2', type: 'outgoing-direct', weight: 10 }]);
+
+    await queue.addConceptBlock('concept-1');
+    await queue.startRoamingFromFocus('concept-1', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    await queue.getNextCard();
+    await queue.getNextCard();
+
+    const jumped = await queue.jumpToHistoryNode('neighbor-1');
+    expect(jumped).toBe(true);
+    expect(queue.getNavigationState().navigationMode).toBe('follow');
+    expect(queue.getNavigationState().hasBookmark).toBe(true);
+
+    const returned = queue.returnToBookmark();
+    expect(returned).toBe(true);
+    expect(queue.getNavigationState().currentNodeId).toBe('neighbor-2');
   });
 });
