@@ -255,14 +255,6 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
         });
     }
 
-    protected override async removeCardAfterReview(cardIdOrBlockId: string): Promise<void> {
-        await this.removeCardFromCollection(cardIdOrBlockId, {
-            logger,
-            addToTemporaryBlacklist: false,
-            persist: async () => this.save(),
-        });
-    }
-    
     /**
      * 处理卡片复习
      * 

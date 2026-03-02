@@ -1,5 +1,14 @@
 ﻿<template>
-  <div class="card-browser__toolbar" :class="{ 'card-browser__toolbar--mobile': props.mobileMode }">
+  <div
+    ref="toolbarRootRef"
+    class="card-browser__toolbar"
+    :class="{
+      'card-browser__toolbar--mobile': props.mobileMode,
+      'card-browser__toolbar--normal': !props.mobileMode && toolbarDensity === 'normal',
+      'card-browser__toolbar--compact': !props.mobileMode && toolbarDensity === 'compact',
+      'card-browser__toolbar--tight': !props.mobileMode && toolbarDensity === 'tight',
+    }"
+  >
     <div class="toolbar__left">
       <!-- 搜索框 -->
       <div class="b3-form__icon toolbar__search">
@@ -59,11 +68,7 @@
         :title="isAllMatchingActive ? t('cancelSelectAll', '取消全选') : t('selectAllMatching', '全选匹配结果')"
       >
         <svg><use :xlink:href="isAllMatchingActive ? '#iconClose' : '#iconCheck'"></use></svg>
-        {{
-          isAllMatchingActive
-            ? t('cancelSelectAll', '取消全选')
-            : (props.mobileMode ? t('selectAllShort', '全选') : t('selectAllMatching', '全选匹配结果'))
-        }}
+        {{ selectAllButtonLabel }}
       </button>
 
       <button
@@ -73,7 +78,7 @@
         :title="t('clearSelection', '清空选择')"
       >
         <svg><use xlink:href="#iconClose"></use></svg>
-        {{ props.mobileMode ? t('clearShort', '清空') : t('clearSelection', '清空选择') }}
+        {{ clearSelectionButtonLabel }}
       </button>
 
       <button
@@ -94,7 +99,7 @@
         :title="t('startPractice', '开始练习')"
       >
         <svg><use xlink:href="#iconPlay"></use></svg>
-        {{ t('startPractice', '开始练习') }}
+        {{ startPracticeButtonLabel }}
       </button>
 
       <!-- 应用排序到队列按钮 -->
@@ -207,6 +212,8 @@ import FilterButton from './components/FilterButton.vue';
 import type { CardFilter } from '@/types/unified-data-source';
 import { getAvailableCardTypeFilters } from './types';
 
+type ToolbarDensity = 'normal' | 'compact' | 'tight';
+
 // Props
 const props = defineProps<{
   i18n?: Record<string, string>;
@@ -272,7 +279,45 @@ const emit = defineEmits<{
 const showMoreMenu = ref(false);
 const moreButtonRef = ref<HTMLElement | null>(null);
 const moreMenuRef = ref<HTMLElement | null>(null);
+const toolbarRootRef = ref<HTMLElement | null>(null);
 const isAllMatchingActive = computed(() => props.selectionMode === 'all-matching');
+const toolbarDensity = ref<ToolbarDensity>('normal');
+let toolbarResizeObserver: ResizeObserver | null = null;
+
+const isCompactDesktop = computed(() => {
+  if (props.mobileMode) {
+    return false;
+  }
+  return toolbarDensity.value === 'compact' || toolbarDensity.value === 'tight';
+});
+
+const selectAllButtonLabel = computed(() => {
+  if (isAllMatchingActive.value) {
+    if (isCompactDesktop.value) {
+      return t('cancelSelectAllShort', '取消');
+    }
+    return t('cancelSelectAll', '取消全选');
+  }
+
+  if (props.mobileMode || isCompactDesktop.value) {
+    return t('selectAllShort', '全选');
+  }
+  return t('selectAllMatching', '全选匹配结果');
+});
+
+const clearSelectionButtonLabel = computed(() => {
+  if (props.mobileMode || isCompactDesktop.value) {
+    return t('clearShort', '清空');
+  }
+  return t('clearSelection', '清空选择');
+});
+
+const startPracticeButtonLabel = computed(() => {
+  if (!props.mobileMode && isCompactDesktop.value) {
+    return t('startPracticeShort', '练习');
+  }
+  return t('startPractice', '开始练习');
+});
 
 // 切换更多菜单
 function toggleMoreMenu() {
@@ -295,6 +340,54 @@ function handleSelectAllToggle() {
   emit('selectAllMatching');
 }
 
+function resolveToolbarDensity(width: number): ToolbarDensity {
+  if (width >= 1680) {
+    return 'normal';
+  }
+  if (width >= 1366) {
+    return 'compact';
+  }
+  return 'tight';
+}
+
+function updateToolbarDensity(width: number): void {
+  toolbarDensity.value = resolveToolbarDensity(width);
+}
+
+function getToolbarWidth(el: HTMLElement): number {
+  const rectWidth = Number(el.getBoundingClientRect().width || 0);
+  const clientWidth = Number(el.clientWidth || 0);
+  const offsetWidth = Number(el.offsetWidth || 0);
+  return Math.max(rectWidth, clientWidth, offsetWidth, 0);
+}
+
+function setupToolbarDensityObserver(): void {
+  if (props.mobileMode) {
+    toolbarDensity.value = 'normal';
+    return;
+  }
+
+  const root = toolbarRootRef.value;
+  if (!root) {
+    return;
+  }
+
+  updateToolbarDensity(getToolbarWidth(root));
+
+  if (typeof ResizeObserver === 'undefined') {
+    return;
+  }
+
+  toolbarResizeObserver = new ResizeObserver((entries) => {
+    const entry = entries[0];
+    if (!entry) {
+      return;
+    }
+    updateToolbarDensity(entry.contentRect.width);
+  });
+  toolbarResizeObserver.observe(root);
+}
+
 // 点击外部关闭菜单
 function handleClickOutside(event: MouseEvent) {
   if (showMoreMenu.value && 
@@ -308,10 +401,13 @@ function handleClickOutside(event: MouseEvent) {
 
 onMounted(() => {
   document.addEventListener('click', handleClickOutside);
+  setupToolbarDensityObserver();
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside);
+  toolbarResizeObserver?.disconnect();
+  toolbarResizeObserver = null;
 });
 
 // 国际化

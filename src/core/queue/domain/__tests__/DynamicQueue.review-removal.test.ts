@@ -40,7 +40,12 @@ function createPersistenceStub(): QueuePersistencePort {
   };
 }
 
-function createManagerStub(card: FSRSCard) {
+function createManagerStub(
+  card: FSRSCard,
+  options?: {
+    cards?: FSRSCard[];
+  }
+) {
   const updatedCard: FSRSCard = {
     ...card,
     due: Date.now() + 86_400_000,
@@ -55,7 +60,7 @@ function createManagerStub(card: FSRSCard) {
     onCardUpdatedFromScheduler: vi.fn(async () => {}),
     updateCard: vi.fn(async () => {}),
     getDayStartHour: vi.fn(() => 4),
-    getCards: vi.fn(async () => []),
+    getCards: vi.fn(async () => (options?.cards ?? []).map((item) => ({ ...item }))),
     notifyObservers: vi.fn(),
     getPriorityRandomness: vi.fn(() => 0),
     getAutoSortEnabled: vi.fn(() => true),
@@ -91,7 +96,7 @@ describe('Dynamic queues - review removal semantics', () => {
     expect(queue.getTemporaryBlacklistSize()).toBe(1);
   });
 
-  it('filter group review removal does not write temporary blacklist', async () => {
+  it('filter group review removal writes temporary blacklist', async () => {
     const card = createCard();
     const manager = createManagerStub(card);
     const queue = new FilterGroupQueue(
@@ -100,10 +105,31 @@ describe('Dynamic queues - review removal semantics', () => {
     );
 
     await queue.handleReview(card.id, 4);
+    expect(queue.getTemporaryBlacklistSize()).toBe(1);
+  });
+
+  it('filter group keeps rated card hidden until rebuild clears temporary blacklist', async () => {
+    const card = createCard();
+    const manager = createManagerStub(card, { cards: [card] });
+    const queue = new FilterGroupQueue(
+      manager as never,
+      createPersistenceStub()
+    );
+
+    const beforeReview = await queue.getCards();
+    expect(beforeReview.map((item) => item.id)).toContain(card.id);
+
+    await queue.handleReview(card.id, 4);
+    expect(queue.getTemporaryBlacklistSize()).toBe(1);
+
+    const afterReview = await queue.getCards();
+    expect(afterReview).toHaveLength(0);
+
+    await queue.rebuild();
     expect(queue.getTemporaryBlacklistSize()).toBe(0);
 
-    await queue.removeCard(card.id);
-    expect(queue.getTemporaryBlacklistSize()).toBe(1);
+    const afterRebuild = await queue.getCards();
+    expect(afterRebuild.map((item) => item.id)).toContain(card.id);
   });
 
   it('leech queue review removal does not write temporary blacklist', async () => {

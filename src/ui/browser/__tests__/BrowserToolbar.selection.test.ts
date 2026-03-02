@@ -1,20 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import BrowserToolbar from '../BrowserToolbar.vue';
 
 const baseProps = {
   i18n: {
-    selectAllMatching: '全选匹配结果',
-    cancelSelectAll: '取消全选',
-    clearSelection: '清空选择',
-    allCards: '全部',
-    dueToday: '今日到期',
-    overdue: '已过期',
-    leech: '难点卡片',
-    new: '新卡片',
-    cards: '张卡片',
-    startPractice: '开始练习',
-    togglePreview: '切换预览',
+    selectAllMatching: 'Select All Matching',
+    cancelSelectAll: 'Cancel Select All',
+    cancelSelectAllShort: 'Cancel',
+    clearSelection: 'Clear Selection',
+    selectAllShort: 'Select All',
+    clearShort: 'Clear',
+    startPractice: 'Start Practice',
+    startPracticeShort: 'Practice',
+    allCards: 'All',
+    dueToday: 'Due Today',
+    overdue: 'Overdue',
+    leech: 'Leech',
+    new: 'New',
+    cards: 'cards',
+    togglePreview: 'Toggle Preview',
   },
   searchQuery: '',
   currentPreset: 'all',
@@ -36,30 +41,137 @@ const baseProps = {
   canSelectAllMatching: true,
 };
 
-describe('BrowserToolbar selection actions', () => {
-  it('emits selectAllMatching when toggle clicked in explicit mode', async () => {
-    const wrapper = mount(BrowserToolbar, {
-      props: { ...baseProps },
-    });
+let resizeObserverCallback: ResizeObserverCallback | null = null;
 
-    const button = wrapper.findAll('button').find((item) => item.text().includes('全选匹配结果'));
+class MockResizeObserver {
+  constructor(callback: ResizeObserverCallback) {
+    resizeObserverCallback = callback;
+  }
+
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+function mountToolbar(overrides: Partial<typeof baseProps> = {}) {
+  return mount(BrowserToolbar, {
+    props: { ...baseProps, ...overrides },
+  });
+}
+
+async function triggerToolbarWidth(width: number): Promise<void> {
+  if (!resizeObserverCallback) {
+    throw new Error('ResizeObserver callback was not registered.');
+  }
+
+  resizeObserverCallback(
+    [{ contentRect: { width } } as ResizeObserverEntry],
+    {} as ResizeObserver
+  );
+  await nextTick();
+}
+
+function findSelectionToggleButton(wrapper: ReturnType<typeof mountToolbar>) {
+  return wrapper.findAll('button').find((button) => {
+    const title = button.attributes('title') || '';
+    return title === 'Select All Matching' || title === 'Cancel Select All';
+  });
+}
+
+function findButtonByTitle(wrapper: ReturnType<typeof mountToolbar>, title: string) {
+  return wrapper.findAll('button').find((button) => button.attributes('title') === title);
+}
+
+describe('BrowserToolbar selection actions', () => {
+  beforeEach(() => {
+    resizeObserverCallback = null;
+    vi.stubGlobal('ResizeObserver', MockResizeObserver);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('emits selectAllMatching when toggle clicked in explicit mode', async () => {
+    const wrapper = mountToolbar();
+
+    const button = findSelectionToggleButton(wrapper);
     expect(button).toBeTruthy();
     await button!.trigger('click');
+
     expect(wrapper.emitted('selectAllMatching')).toBeTruthy();
   });
 
-  it('shows cancel label and emits clearSelection in all-matching mode', async () => {
-    const wrapper = mount(BrowserToolbar, {
-      props: {
-        ...baseProps,
-        selectedCount: 12,
-        selectionMode: 'all-matching',
-      },
+  it('emits clearSelection when toggle clicked in all-matching mode', async () => {
+    const wrapper = mountToolbar({
+      selectedCount: 12,
+      selectionMode: 'all-matching',
     });
 
-    const button = wrapper.findAll('button').find((item) => item.text().includes('取消全选'));
+    const button = findSelectionToggleButton(wrapper);
     expect(button).toBeTruthy();
     await button!.trigger('click');
+
     expect(wrapper.emitted('clearSelection')).toBeTruthy();
+  });
+
+  it('uses normal density class and long labels at >=1680', async () => {
+    const wrapper = mountToolbar();
+    await triggerToolbarWidth(1800);
+
+    const toolbarRoot = wrapper.find('.card-browser__toolbar');
+    expect(toolbarRoot.classes()).toContain('card-browser__toolbar--normal');
+    expect(toolbarRoot.classes()).not.toContain('card-browser__toolbar--compact');
+    expect(toolbarRoot.classes()).not.toContain('card-browser__toolbar--tight');
+    expect(wrapper.find('.toolbar__left').exists()).toBe(true);
+    expect(wrapper.find('.toolbar__center').exists()).toBe(true);
+    expect(wrapper.find('.toolbar__right').exists()).toBe(true);
+
+    const toggleButton = findSelectionToggleButton(wrapper);
+    expect(toggleButton?.text()).toContain('Select All Matching');
+
+    const startPracticeButton = findButtonByTitle(wrapper, 'Start Practice');
+    expect(startPracticeButton?.text()).toContain('Start Practice');
+  });
+
+  it('uses compact density class and short labels at 1366-1679', async () => {
+    const wrapper = mountToolbar({
+      selectedCount: 3,
+    });
+    await triggerToolbarWidth(1500);
+
+    const toolbarRoot = wrapper.find('.card-browser__toolbar');
+    expect(toolbarRoot.classes()).toContain('card-browser__toolbar--compact');
+    expect(toolbarRoot.classes()).not.toContain('card-browser__toolbar--tight');
+
+    const toggleButton = findSelectionToggleButton(wrapper);
+    expect(toggleButton?.text()).toContain('Select All');
+
+    const clearSelectionButton = findButtonByTitle(wrapper, 'Clear Selection');
+    expect(clearSelectionButton?.text()).toContain('Clear');
+
+    const startPracticeButton = findButtonByTitle(wrapper, 'Start Practice');
+    expect(startPracticeButton?.text()).toContain('Practice');
+  });
+
+  it('uses short cancel label in all-matching compact mode', async () => {
+    const wrapper = mountToolbar({
+      selectedCount: 8,
+      selectionMode: 'all-matching',
+    });
+    await triggerToolbarWidth(1500);
+
+    const toggleButton = findSelectionToggleButton(wrapper);
+    expect(toggleButton?.text()).toContain('Cancel');
+    expect(toggleButton?.text()).not.toContain('Cancel Select All');
+  });
+
+  it('uses tight density class below 1366', async () => {
+    const wrapper = mountToolbar();
+    await triggerToolbarWidth(1200);
+
+    const toolbarRoot = wrapper.find('.card-browser__toolbar');
+    expect(toolbarRoot.classes()).toContain('card-browser__toolbar--tight');
+    expect(toolbarRoot.classes()).not.toContain('card-browser__toolbar--compact');
   });
 });

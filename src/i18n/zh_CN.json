@@ -976,6 +976,8 @@
   "selectionClearedOnQueryChange": "查询条件变化，已清空选择",
   "selectAllShort": "全选",
   "clearShort": "清空",
+  "cancelSelectAllShort": "取消",
+  "startPracticeShort": "练习",
   "scope": "范围",
   "document": "文档",
   "preset": "预设",

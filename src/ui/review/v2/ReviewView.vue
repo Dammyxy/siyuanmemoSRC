@@ -1442,7 +1442,7 @@ function refreshNavigationState() {
 }
 
 .review-filter-dialog-container {
-  width: min(1060px, calc(100vw - 32px));
+  width: min(900px, calc(100vw - 32px));
   max-height: calc(100vh - 40px);
   overflow: auto;
   border-radius: var(--b3-border-radius-b);

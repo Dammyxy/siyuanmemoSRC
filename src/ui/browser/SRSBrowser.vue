@@ -101,6 +101,8 @@
           style="width: 100%; height: 100%;"
           :columnDefs="columnDefs"
           rowModelType="infinite"
+          :pagination="desktopPaginationEnabled"
+          :paginationPageSize="desktopPageSize"
           :cacheBlockSize="gridCacheBlockSize"
           :maxBlocksInCache="gridMaxBlocksInCache"
           :infiniteInitialRowCount="gridCacheBlockSize"
@@ -114,6 +116,7 @@
           @grid-ready="onGridReady"
           @sort-changed="onSortChanged"
           @displayed-columns-changed="onDisplayedColumnsChanged"
+          @pagination-changed="onPaginationChanged"
           @selection-changed="onSelectionChanged"
           @row-clicked="onRowClicked"
           @row-double-clicked="onRowDoubleClicked"
@@ -197,6 +200,7 @@ import type {
   GridReadyEvent,
   IDatasource,
   IGetRowsParams,
+  PaginationChangedEvent,
   RowClickedEvent,
   RowDoubleClickedEvent,
   RowSelectionOptions,
@@ -264,6 +268,7 @@ import {
 import { extractSqlStatement } from './utils/cardFilters';
 import { extractBlockIds } from './utils/helpers';
 import { interpolateI18n } from './utils/i18n';
+import { mergeExplicitSelectionByPage } from './utils/paginatedSelection';
 import {
   createQueueDataSource,
   createDeckDataSource,
@@ -290,6 +295,7 @@ import type { WsSyncEvent } from '@/application/services/XiuyuanSyncService.type
 // Register AG-Grid modules
 ModuleRegistry.registerModules([AllCommunityModule]);
 const logger = createLogger('SRSBrowser');
+const DESKTOP_PAGE_SIZE = 50;
 
 // Props
 type BrowserStoragePort = CardTypeMarkerStoragePort &
@@ -415,7 +421,9 @@ const showPreview = ref(!isMobileMode.value);
 const previewCard = ref<BrowserCard | null>(null);
 
 const isResizing = ref(false);
-const gridCacheBlockSize = computed(() => (isMobileMode.value ? 120 : 200));
+const desktopPaginationEnabled = computed(() => !isMobileMode.value);
+const desktopPageSize = computed(() => DESKTOP_PAGE_SIZE);
+const gridCacheBlockSize = computed(() => (isMobileMode.value ? 120 : DESKTOP_PAGE_SIZE));
 const gridMaxBlocksInCache = computed(() => (isMobileMode.value ? 4 : 8));
 const randomSortRows = ref<BrowserCard[] | null>(null);
 
@@ -431,6 +439,7 @@ let loadedRowsFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let loadedRowsDirty = false;
 let longTaskObserver: PerformanceObserver | null = null;
 let globalStatsTaskId = 0;
+let isApplyingSelectionToGrid = false;
 
 const calculateInitialPreviewSize = (): number => {
   if (isMobileMode.value) {
@@ -800,29 +809,104 @@ function clearSelectionState(shouldNotify = false): void {
   }
 }
 
-function syncSelectionForQueryChange(): void {
-  clearSelectionState(true);
-}
-
-function applyAllMatchingSelectionToLoadedRows(): void {
+function resetPaginationToFirstPage(): void {
+  if (!desktopPaginationEnabled.value) {
+    return;
+  }
   const api = gridApi.value;
   if (!isGridApiAlive(api)) {
     return;
   }
-  if (globalSelection.mode.value !== 'all-matching') {
+  const currentPage = Number(api.paginationGetCurrentPage?.() ?? 0);
+  if (Number.isFinite(currentPage) && currentPage > 0) {
+    api.paginationGoToFirstPage?.();
+  }
+}
+
+function syncSelectionForQueryChange(): void {
+  clearSelectionState(true);
+  resetPaginationToFirstPage();
+}
+
+function isNodeInSelectionScope(api: GridApi<BrowserCard>, rowIndex: number | null | undefined): boolean {
+  if (!desktopPaginationEnabled.value) {
+    return true;
+  }
+  if (!Number.isFinite(rowIndex)) {
+    return false;
+  }
+
+  const currentPage = Number(api.paginationGetCurrentPage?.() ?? 0);
+  const pageSizeCandidate = Number(api.paginationGetPageSize?.() ?? DESKTOP_PAGE_SIZE);
+  const pageSize = Number.isFinite(pageSizeCandidate) && pageSizeCandidate > 0
+    ? Math.floor(pageSizeCandidate)
+    : DESKTOP_PAGE_SIZE;
+  const startRow = Math.max(0, currentPage) * pageSize;
+  const endRow = startRow + pageSize;
+
+  return Number(rowIndex) >= startRow && Number(rowIndex) < endRow;
+}
+
+function collectScopedSelectionIds(api: GridApi<BrowserCard>): { visibleIds: string[]; selectedIds: string[] } {
+  const visibleIds: string[] = [];
+  const selectedIds: string[] = [];
+
+  api.forEachNode((node) => {
+    if (!isNodeInSelectionScope(api, node.rowIndex)) {
+      return;
+    }
+    const row = node.data as BrowserCard | undefined;
+    const id = resolveBrowserCardSelectionId(row);
+    if (!id) {
+      return;
+    }
+    visibleIds.push(id);
+    if (node.isSelected()) {
+      selectedIds.push(id);
+    }
+  });
+
+  return { visibleIds, selectedIds };
+}
+
+function applyGlobalSelectionToLoadedRows(): void {
+  const api = gridApi.value;
+  if (!isGridApiAlive(api)) {
     return;
   }
 
-  api.forEachNode((node) => {
-    const row = node.data as BrowserCard | undefined;
-    if (!row) return;
-    const id = resolveBrowserCardSelectionId(row);
-    if (!id) return;
-    const shouldSelect = !globalSelection.excludedIds.value.has(id);
-    if (node.isSelected() !== shouldSelect) {
-      node.setSelected(shouldSelect);
-    }
-  });
+  const selectionMode = globalSelection.mode.value;
+  if (selectionMode !== 'all-matching' && selectionMode !== 'explicit') {
+    return;
+  }
+
+  isApplyingSelectionToGrid = true;
+  try {
+    api.forEachNode((node) => {
+      if (!isNodeInSelectionScope(api, node.rowIndex)) {
+        return;
+      }
+      const row = node.data as BrowserCard | undefined;
+      if (!row) {
+        return;
+      }
+      const id = resolveBrowserCardSelectionId(row);
+      if (!id) {
+        return;
+      }
+
+      const shouldSelect = selectionMode === 'all-matching'
+        ? !globalSelection.excludedIds.value.has(id)
+        : globalSelection.explicitIds.value.has(id);
+      if (node.isSelected() !== shouldSelect) {
+        node.setSelected(shouldSelect);
+      }
+    });
+  } finally {
+    isApplyingSelectionToGrid = false;
+  }
+
+  selectedRows.value = api.getSelectedRows() as BrowserCard[];
 }
 
 async function refreshGlobalStats(force = false): Promise<void> {
@@ -913,7 +997,7 @@ function createInfiniteDatasource(version: number): IDatasource {
             totalRowCount.value = totalCount;
             hasFirstDataBlockLoaded.value = true;
             mergeLoadedRows(rowsForBlock);
-            applyAllMatchingSelectionToLoadedRows();
+            applyGlobalSelectionToLoadedRows();
             loading.value = false;
           });
         } catch (error) {
@@ -1318,7 +1402,7 @@ function onGridReady(params: GridReadyEvent<BrowserCard>) {
   if (!pendingGridDatasource && currentDataSource.value) {
     rebuildInfiniteDatasource(false);
   }
-  applyAllMatchingSelectionToLoadedRows();
+  applyGlobalSelectionToLoadedRows();
   // 使用 gridApi.value 获取列信息（使用 nextTick 确保初始化完成）
   nextTick(() => {
     if (gridApi.value) {
@@ -1333,6 +1417,10 @@ function onGridReady(params: GridReadyEvent<BrowserCard>) {
 
 function onDisplayedColumnsChanged(_params: DisplayedColumnsChangedEvent<BrowserCard>) {
   logger.info('[SiYuanMemo][CardBrowser] Displayed columns changed');
+}
+
+function onPaginationChanged(_params: PaginationChangedEvent<BrowserCard>) {
+  applyGlobalSelectionToLoadedRows();
 }
 
 function toSortModelFromColumnState(columnState: ColumnState[]): SortModel[] {
@@ -1417,24 +1505,24 @@ function onSelectionChanged() {
 
   const selected = api.getSelectedRows() as BrowserCard[];
   selectedRows.value = selected;
-  const selectedIds = selected
-    .map((row) => resolveBrowserCardSelectionId(row))
-    .filter(Boolean);
+
+  if (isApplyingSelectionToGrid) {
+    return;
+  }
+
+  const { visibleIds, selectedIds } = collectScopedSelectionIds(api);
 
   if (globalSelection.mode.value === 'all-matching') {
-    const visibleIds: string[] = [];
-    api.forEachNode((node) => {
-      const row = node.data as BrowserCard | undefined;
-      const id = resolveBrowserCardSelectionId(row);
-      if (id) {
-        visibleIds.push(id);
-      }
-    });
     globalSelection.syncAllMatchingVisibleSelection(visibleIds, selectedIds);
     return;
   }
 
-  globalSelection.setExplicitByIds(selectedIds);
+  const mergedExplicitIds = mergeExplicitSelectionByPage({
+    existingSelectedIds: globalSelection.explicitIds.value,
+    visibleIds,
+    pageSelectedIds: selectedIds,
+  });
+  globalSelection.setExplicitByIds(Array.from(mergedExplicitIds));
 }
 
 
@@ -1796,7 +1884,30 @@ async function resolveActionTargetCards(
   actionId: string,
   targetCards: BrowserCard[]
 ): Promise<BrowserCard[]> {
-  if (actionId === 'open' || globalSelection.mode.value !== 'all-matching') {
+  if (actionId === 'open') {
+    return targetCards;
+  }
+
+  if (globalSelection.mode.value === 'explicit') {
+    const explicitIds = Array.from(globalSelection.explicitIds.value);
+    if (explicitIds.length === 0) {
+      return targetCards;
+    }
+
+    const queryable = resolveQueryableDataSource(currentDataSource.value);
+    if (!queryable) {
+      if (explicitIds.length > targetCards.length) {
+        await pushMsg('Current view does not support cross-page selection. Using visible selections only.');
+      }
+      return targetCards;
+    }
+
+    return PerformanceMonitor.measure('browser.action.materialize.ms', async () => {
+      return queryable.getRowsByIds(explicitIds);
+    });
+  }
+
+  if (globalSelection.mode.value !== 'all-matching') {
     return targetCards;
   }
 
@@ -2158,7 +2269,7 @@ async function handleSelectAllMatching(): Promise<void> {
   const fingerprint = buildSelectionContextFingerprint();
   globalSelection.selectAllMatching(fingerprint, totalRowCount.value);
   selectedRows.value = [];
-  applyAllMatchingSelectionToLoadedRows();
+  applyGlobalSelectionToLoadedRows();
 
   await pushMsg(
     t('allMatchingSelected', 'Selected all matching results ({count})')

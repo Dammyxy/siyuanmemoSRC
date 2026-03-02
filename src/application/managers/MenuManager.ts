@@ -32,6 +32,10 @@ import {
 
 const logger = createLogger('MenuManager');
 type BlockIdSqlRow = { id?: unknown; root_id?: unknown };
+const TOPBAR_MENU_HIDDEN_ACTIONS = new Set<TopBarQuickEntryActionId>([
+  'one-click-symbol-current-doc',
+  'one-click-cancel-current-doc',
+]);
 
 /**
  * MenuManager 类
@@ -137,6 +141,9 @@ export class MenuManager {
     const dueResult = await cardService.getDueCards();
     
     for (const definition of TOPBAR_QUICK_ENTRY_DEFINITIONS) {
+      if (TOPBAR_MENU_HIDDEN_ACTIONS.has(definition.id)) {
+        continue;
+      }
       menu.addItem({
         icon: definition.icon,
         label: this.i18n?.[definition.commandLangKey] || definition.fallbackLabel,

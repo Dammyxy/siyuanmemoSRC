@@ -976,6 +976,8 @@
   "selectionClearedOnQueryChange": "Selection was cleared because query conditions changed",
   "selectAllShort": "Select All",
   "clearShort": "Clear",
+  "cancelSelectAllShort": "Cancel",
+  "startPracticeShort": "Practice",
   "scope": "Scope",
   "document": "Document",
   "preset": "Preset",

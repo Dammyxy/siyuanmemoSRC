@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Menu } from 'siyuan';
 import { MenuManager } from '@/application/managers/MenuManager';
-import { TOPBAR_QUICK_ENTRY_DEFINITIONS } from '@/application/entries/TopBarQuickEntryRegistry';
+import {
+  TOPBAR_QUICK_ENTRY_DEFINITIONS,
+  type TopBarQuickEntryActionId,
+} from '@/application/entries/TopBarQuickEntryRegistry';
 
 const menuInstances: Array<{
   addItem: ReturnType<typeof vi.fn>;
@@ -36,7 +39,7 @@ describe('MenuManager top bar menu rendering', () => {
     menuInstances.length = 0;
   });
 
-  it('renders first 8 top bar quick entries without accelerators and preserves order', async () => {
+  it('renders top bar quick entries without hidden one-click items and preserves order', async () => {
     const dialogManager = {
       openReviewDialog: vi.fn().mockResolvedValue(undefined),
       openIncrementalLearningDialog: vi.fn().mockResolvedValue(undefined),
@@ -85,15 +88,25 @@ describe('MenuManager top bar menu rendering', () => {
     expect(vi.mocked(Menu)).toHaveBeenCalledTimes(1);
     const menu = menuInstances[0];
     const allItemArgs = menu.addItem.mock.calls.map((call) => call[0]);
-    const firstEight = allItemArgs.slice(0, 8);
+    const visibleTopbarItems = allItemArgs.slice(0, 6);
+    const hiddenActionIds = new Set<TopBarQuickEntryActionId>([
+      'one-click-symbol-current-doc',
+      'one-click-cancel-current-doc',
+    ]);
+    const visibleDefinitions = TOPBAR_QUICK_ENTRY_DEFINITIONS.filter(
+      (definition) => !hiddenActionIds.has(definition.id),
+    );
 
-    expect(firstEight.map((item) => item.label)).toEqual(['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8']);
-    for (const item of firstEight) {
+    expect(visibleTopbarItems.map((item) => item.label)).toEqual(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']);
+    expect(visibleTopbarItems.map((item) => item.label)).not.toContain('L7');
+    expect(visibleTopbarItems.map((item) => item.label)).not.toContain('L8');
+
+    for (const item of visibleTopbarItems) {
       expect(item.accelerator).toBeUndefined();
     }
 
-    firstEight.forEach((item) => item.click?.());
-    TOPBAR_QUICK_ENTRY_DEFINITIONS.forEach((definition, index) => {
+    visibleTopbarItems.forEach((item) => item.click?.());
+    visibleDefinitions.forEach((definition, index) => {
       expect(runSpy).toHaveBeenNthCalledWith(index + 1, definition.id);
     });
   });
