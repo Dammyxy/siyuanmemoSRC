@@ -1,10 +1,5 @@
 ﻿<template>
-  <!-- 阶段1: 答案隐藏 - showAnswer 为 true 时显示"显示答案"按钮 (Topic 卡片跳过此阶段) -->
-  <div
-    v-if="actions.showAnswer && !isTopicCard"
-    class="card__action fn__flex"
-    :class="{ 'card__action--mobile': props.isMobile }"
-  >
+  <div class="card__action fn__flex" :class="{ 'card__action--mobile': props.isMobile }">
     <button
       class="b3-button b3-button--cancel card__action-back"
       :disabled="!canBack"
@@ -14,42 +9,54 @@
       <span v-if="props.isMobile">{{ t('backToPractice', '返回') }}</span>
       <span v-else>(p / q)</span>
     </button>
-    <span class="fn__space"></span>
-    <div class="card__action-skip">
-      <SkipMenuButton
-        :i18n="i18n"
-        :queue-size="remainingSize"
-        :is-mobile="props.isMobile"
-        @skip="emit('skip')"
-        @insert="handleInsert"
-        @schedule="handleSchedule"
-      />
-    </div>
-    <span class="fn__space"></span>
-    <button
-      data-type="-1"
-      aria-label="Space/Enter"
-      class="b3-button b3-tooltips__n b3-tooltips card__action-main"
-      @click="emit('reveal')"
-    >
-      <div class="card__icon">👀</div>
-      {{ t('showAnswer', '显示答案') }}
-    </button>
-  </div>
 
-  <!-- 阶段2: 答案显示 - showAnswer 为 false 时显示评分按钮 -->
-  <div v-else class="card__action fn__flex" :class="{ 'card__action--mobile': props.isMobile }">
-    <!-- 左列: 后退 + 跳过菜单 (Split Button) -->
-    <div class="card__action-column card__action-column--side">
+    <div class="card__action-center" :style="actionCenterStyle">
       <button
-        class="b3-button b3-button--cancel card__action-back card__action-back--stack"
-        :disabled="!canBack"
-        @click="emit('back')"
+        v-if="(actions.showAnswer || actions.grades.length === 0) && !isTopicCard"
+        data-type="-1"
+        aria-label="Space/Enter"
+        class="b3-button b3-tooltips__n b3-tooltips card__action-main card__action-main--reveal"
+        @click="emit('reveal')"
       >
-        <svg><use xlink:href="#iconLeft"></use></svg>
-        <span v-if="props.isMobile">{{ t('backToPractice', '返回') }}</span>
-        <span v-else>(p / q)</span>
+        <div class="card__icon">👀</div>
+        {{ t('showAnswer', '显示答案') }}
       </button>
+
+      <template v-else-if="isTopicCard">
+        <div class="card__action-column">
+          <span v-if="!props.isMobile"></span>
+          <button
+            data-type="3"
+            aria-label="Space/Enter"
+            class="b3-button b3-button--info b3-tooltips__n b3-tooltips card__action-main"
+            @click="emit('grade', 3)"
+          >
+            <div class="card__icon">📖</div>
+            {{ t('nextCard', '下一张') }}
+            <template v-if="!props.isMobile"> ({{ t('space', '空格') }} / {{ t('enterKey', '回车') }}) </template>
+          </button>
+        </div>
+      </template>
+
+      <template v-else>
+        <div v-for="g in actions.grades" :key="g.value" class="card__action-column">
+          <span v-if="!props.isMobile">{{ g.nextDue || '' }}</span>
+          <button
+            :data-type="g.value"
+            :aria-label="getRatingButtonAriaLabel(g.value, g.kb)"
+            class="b3-button b3-tooltips__n b3-tooltips card__action-main"
+            :class="getButtonVariant(g.value)"
+            @click="emit('grade', g.value)"
+          >
+            <div class="card__icon">{{ g.emoji }}</div>
+            {{ g.label }}
+            <template v-if="!props.isMobile"> ({{ g.kb }}) </template>
+          </button>
+        </div>
+      </template>
+    </div>
+
+    <div class="card__action-right">
       <SkipMenuButton
         :i18n="i18n"
         :queue-size="remainingSize"
@@ -59,41 +66,6 @@
         @schedule="handleSchedule"
       />
     </div>
-
-    <!-- 评分按钮列 (根据卡片类型动态显示) -->
-    <template v-if="isTopicCard">
-      <!-- Topic/Concept 模式: 只显示【下一张】按钮 -->
-      <div class="card__action-column">
-        <span v-if="!props.isMobile"></span>
-        <button
-          data-type="3"
-          aria-label="Space/Enter"
-          class="b3-button b3-button--info b3-tooltips__n b3-tooltips card__action-main"
-          @click="emit('grade', 3)"
-        >
-          <div class="card__icon">📖</div>
-          {{ t('nextCard', '下一张') }}
-          <template v-if="!props.isMobile"> ({{ t('space', '空格') }} / {{ t('enterKey', '回车') }}) </template>
-        </button>
-      </div>
-    </template>
-    <template v-else>
-      <!-- Item 模式: 显示完整评分按钮 -->
-      <div v-for="g in actions.grades" :key="g.value" class="card__action-column">
-        <span v-if="!props.isMobile">{{ g.nextDue || '' }}</span>
-        <button
-          :data-type="g.value"
-          :aria-label="getRatingButtonAriaLabel(g.value, g.kb)"
-          class="b3-button b3-tooltips__n b3-tooltips card__action-main"
-          :class="getButtonVariant(g.value)"
-          @click="emit('grade', g.value)"
-        >
-          <div class="card__icon">{{ g.emoji }}</div>
-          {{ g.label }}
-          <template v-if="!props.isMobile"> ({{ g.kb }}) </template>
-        </button>
-      </div>
-    </template>
   </div>
   
   <!-- 插入位置对话框 -->
@@ -189,6 +161,17 @@ const remainingSize = computed(() => {
 
 // 是否可后退
 const canBack = computed(() => props.meta?.canBack === true);
+
+const actionCenterColumns = computed(() => {
+  if (isTopicCard.value) {
+    return 1;
+  }
+  return Math.max(props.actions.grades.length, 1);
+});
+
+const actionCenterStyle = computed(() => ({
+  '--review-action-columns': String(actionCenterColumns.value),
+}));
 
 // 对话框状态
 const showInsertDialog = ref(false);
@@ -413,64 +396,72 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 
 <style scoped>
 .card__action {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: stretch;
+  column-gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
   padding: 8px;
   user-select: none;
-  flex-shrink: 0; /* 防止被压缩 */
-  background: var(--b3-theme-background); /* 确保背景不透明 */
-}
-
-.card__action > div {
-  flex: 1;
-  margin-right: 8px;
-
-  &:last-child {
-    margin-right: 0;
-  }
-
-  > span {
-    display: flex;
-    color: var(--b3-theme-on-surface);
-    text-align: center;
-    font-size: 12px;
-    margin-bottom: 8px;
-    height: 28px;
-    line-height: 14px;
-    justify-content: center;
-    align-items: center;
-  }
+  flex-shrink: 0;
+  background: var(--b3-theme-background);
 }
 
 .card__action-back {
-  min-width: 92px;
-  display: flex;
+  min-width: 96px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-}
-
-.card__action-back--stack {
-  margin-bottom: 8px;
-}
-
-.card__action-main {
   min-height: 44px;
 }
 
-.card__action-skip {
-  min-width: 120px;
+.card__action-center {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--review-action-columns, 1), minmax(0, 1fr));
+  gap: 8px;
+  align-items: stretch;
+}
+
+.card__action-right {
+  width: 132px;
+  display: flex;
+  height: 100%;
+}
+
+.card__action-right :deep(.skip-menu-button) {
+  width: 100%;
+  height: 100%;
 }
 
 .card__action-column {
-  flex: 1;
-  margin-right: 8px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.card__action-column:last-child {
-  margin-right: 0;
+.card__action-column > span {
+  display: flex;
+  color: var(--b3-theme-on-surface);
+  text-align: center;
+  font-size: 12px;
+  margin-bottom: 8px;
+  height: 28px;
+  line-height: 14px;
+  justify-content: center;
+  align-items: center;
 }
 
-.card__action-column--side {
-  min-width: 126px;
+.card__action-main {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+}
+
+.card__action-main--reveal {
+  grid-column: 1 / -1;
 }
 
 .card__icon {
@@ -484,7 +475,20 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   position: sticky;
   bottom: 0;
   z-index: 5;
-  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  gap: 6px;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+}
+
+.card__action--mobile .card__action-back {
+  min-width: 78px;
+}
+
+.card__action--mobile .card__action-right {
+  width: 118px;
+}
+
+.card__action--mobile .card__action-column > span {
+  display: none;
 }
 
 .card__action--mobile .card__action-main,

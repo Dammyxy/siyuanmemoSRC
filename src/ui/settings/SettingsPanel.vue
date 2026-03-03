@@ -263,7 +263,7 @@
 
         <!-- 当前参数展示 -->
         <div class="form-item">
-          <label>{{ t('modelParams', '模型参数 (19)') }}</label>
+          <label>{{ t('modelParams', `模型参数 (${FSRS_WEIGHT_COUNT})`) }}</label>
           <div class="params-preview">
             <code>{{ paramsPreview }}</code>
           </div>
@@ -293,7 +293,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import type { FilterGroupDefinition, FSRSParameters, QueueSettings, SchedulerConfig, QuickCardSettings } from '../../types';
+import { DEFAULT_FSRS_WEIGHTS, FSRS_WEIGHT_COUNT, type FilterGroupDefinition, type FSRSParameters, type QueueSettings, type SchedulerConfig, type QuickCardSettings } from '../../types';
 import { getTodayRange, formatTodayRange } from '../../utils/dateUtils';  // 🆕 导入日期工具
 import { createLogger } from '@/utils/logger';
 
@@ -302,14 +302,7 @@ type ConflictResolutionStrategy = 'merge' | 'prefer-local' | 'prefer-remote';
 
 const logger = createLogger('SettingsPanel');
 
-// FSRS-5 默认权重参数
-const DEFAULT_PARAMS = [
-  0.40255, 1.18385, 3.173, 15.69105,
-  7.1949, 0.5345, 1.4604, 0.0046,
-  1.54575, 0.1192, 1.01925, 1.9395,
-  0.11, 0.29605, 2.2698, 0.2315,
-  2.9898, 0.51655, 0.6621
-];
+const DEFAULT_PARAMS = [...DEFAULT_FSRS_WEIGHTS];
 
 // Emits
 const emit = defineEmits<{
@@ -431,14 +424,14 @@ const quickCardSettings = ref<QuickCardSettings>({
 
 // 🆕 调度器配置
 const schedulerConfig = ref<SchedulerConfig>({
-  defaultScheduler: 'fsrs-v5',
+  defaultScheduler: 'fsrs-v6',
   topicScheduler: 'a-factor-v2',
-  itemScheduler: 'fsrs-v5',
+  itemScheduler: 'fsrs-v6',
 });
 
 // 调度器说明
 const schedulerDescriptions: Record<string, string> = {
-  'fsrs-v5': '现代算法，准确预测遗忘曲线，推荐使用',
+  'fsrs-v6': '现代算法，准确预测遗忘曲线，推荐使用',
   'sm15': 'SuperMemo 15 算法，完整的遗忘曲线系统',
   'a-factor-v2': '改进的 A-Factor，动态调整难度',
 };

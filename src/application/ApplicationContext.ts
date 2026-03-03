@@ -615,6 +615,15 @@ export class ApplicationContext {
         xiuyuans: stats.totalXiuYuans,
         cards: stats.totalCards,
       });
+
+      const migratedLegacyFSRSCount = unifiedStorageManager.migrateLegacyFSRSV5SchedulerType();
+      if (migratedLegacyFSRSCount > 0) {
+        const migrationSaveResult = await unifiedStorageManager.save();
+        if (!migrationSaveResult.ok) {
+          logger.error('[ApplicationContext] Failed to persist fsrs-v5 -> fsrs-v6 card migration:', migrationSaveResult.error);
+          throw new Error(`[ApplicationContext] Failed to persist fsrs-v5 migration: ${migrationSaveResult.error.message}`);
+        }
+      }
       
       // 🔧 修复：检查并创建缺失的 Xiuyuan（历史遗留数据迁移）
       const allCards = unifiedStorageManager.getAllCards();
@@ -807,7 +816,6 @@ export class ApplicationContext {
     const schedulerRouter = new SchedulerRouter(
       {
         defaultScheduler: settings.scheduler?.defaultScheduler || 'fsrs-v6',
-        enableRiffSync: settings.scheduler?.enableRiffSync || false,
         fsrsParams: settings.fsrs,
       },
       schedulerCardUpdater

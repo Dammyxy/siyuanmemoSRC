@@ -2,7 +2,7 @@
  * Scheduler Router - 调度器路由器
  *
  * 根据卡片类型和配置选择合适的调度器
- * 支持多种调度算法：FSRS v5, SM-2, SM-15, A-Factor, A-Factor v2
+ * 支持多种调度算法：FSRS v6, SM-15, A-Factor v2
  */
 
 import type { FSRSCard, FSRSParameters, Rating } from '@/types';
@@ -17,7 +17,7 @@ import { createLogger } from '@/utils/logger';
 const logger = createLogger('SchedulerRouter');
 
 /** 调度器类型 */
-export type SchedulerType = 'fsrs-v6' | 'fsrs-v5' | 'sm15' | 'a-factor-v2';
+export type SchedulerType = 'fsrs-v6' | 'sm15' | 'a-factor-v2';
 
 const PREFERRED_SCHEDULER_BY_CARD_TYPE: Record<string, SchedulerType> = {
     topic: 'a-factor-v2',
@@ -65,9 +65,6 @@ export class SchedulerRouter {
 
         // FSRS v6 (使用官方 ts-fsrs 库)
         this.schedulers.set('fsrs-v6', new TSFSRSScheduler(params));
-        // ✅ 向后兼容：fsrs-v5 映射到 fsrs-v6
-        this.schedulers.set('fsrs-v5', new TSFSRSScheduler(params));
-
         // SM-15
         this.schedulers.set('sm15', new SM15Scheduler(params));
 
@@ -322,7 +319,7 @@ export class SchedulerRouter {
             return 'a-factor-v2';
         }
 
-        if (normalized === 'fsrs-v6' || normalized === 'fsrs-v5') {
+        if (normalized === 'fsrs-v6') {
             return normalized;
         }
 
@@ -342,7 +339,7 @@ export class SchedulerRouter {
         }
 
         if (cardType === 'descriptor') {
-            return scheduler === 'fsrs-v5' || scheduler === 'fsrs-v6';
+            return scheduler === 'fsrs-v6';
         }
 
         const preferredScheduler = this.getPreferredSchedulerForType(cardType);

@@ -54,7 +54,7 @@
       v-if="showMobileClose"
       data-type="close-review"
       class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__mobile-close"
-      :aria-label="t('exitFocus', '退出')"
+      :aria-label="t('mobileClose', 'Close')"
       @click="handleCloseClick"
     >
       <svg><use xlink:href="#iconCloseRound"></use></svg>

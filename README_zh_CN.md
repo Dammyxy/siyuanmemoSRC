@@ -1,6 +1,6 @@
 # SiYuanMemo——间隔重复系统插件
 
-[English](./README.md)
+[English](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/blob/main/README.md)
 
 这个插件能让你：
 

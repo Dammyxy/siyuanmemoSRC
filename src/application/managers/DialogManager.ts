@@ -291,7 +291,6 @@ export class DialogManager implements IDialogManager {
           await settingsService.updateSettings(updatedSettings);
           schedulerRouter.updateConfig({
             defaultScheduler: updatedSettings.scheduler.defaultScheduler,
-            enableRiffSync: updatedSettings.scheduler.enableRiffSync,
             fsrsParams: updatedSettings.fsrs,
           });
           logger.info('[DialogManager] ✅ SchedulerRouter config updated');

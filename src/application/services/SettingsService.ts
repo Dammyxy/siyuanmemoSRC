@@ -18,7 +18,7 @@
 
 import type { IFileService } from '../../infrastructure/services/FileService';
 import type { PluginSettings, RiffIntegrationConfig } from '../../types/settings';
-import { DEFAULT_SETTINGS, DEFAULT_RIFF_CONFIG } from '../../types/settings';
+import { DEFAULT_SETTINGS, DEFAULT_RIFF_CONFIG, FSRS_WEIGHT_COUNT, normalizePluginSettings } from '../../types/settings';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SettingsService');
@@ -97,7 +97,9 @@ export class SettingsService implements ISettingsService {
       
       if (loadedSettings) {
         // 合并加载的设置和默认设置（处理新增字段）
-        this.currentSettings = this.mergeWithDefaults(loadedSettings, DEFAULT_SETTINGS);
+        const mergedSettings = this.mergeWithDefaults(loadedSettings, DEFAULT_SETTINGS);
+        const normalized = normalizePluginSettings(mergedSettings);
+        this.currentSettings = normalized.settings;
         
         // 🔍 调试日志：检查合并后的数据
         logger.info('[SettingsService] Merged settings:', this.currentSettings.quickCard);
@@ -108,6 +110,10 @@ export class SettingsService implements ISettingsService {
           this.currentRiffConfig = this.currentSettings.riffIntegration;
         } else {
           this.currentRiffConfig = { ...DEFAULT_RIFF_CONFIG };
+        }
+        if (normalized.changed) {
+          await this.saveSettings();
+          logger.info('[SettingsService] Migrated legacy FSRS settings to v6 defaults');
         }
       } else {
         // 文件不存在，使用默认设置并保存
@@ -212,9 +218,9 @@ export class SettingsService implements ISettingsService {
       }
       
       if (weights !== undefined) {
-        if (!Array.isArray(weights) || weights.length !== 19) {
+        if (!Array.isArray(weights) || weights.length !== FSRS_WEIGHT_COUNT) {
           throw new SettingsValidationError(
-            'weights must be an array of 19 numbers',
+            `weights must be an array of ${FSRS_WEIGHT_COUNT} numbers`,
             'fsrs.weights'
           );
         }

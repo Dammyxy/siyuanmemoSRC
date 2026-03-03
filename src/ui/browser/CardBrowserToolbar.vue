@@ -42,10 +42,10 @@
         v-if="activeDocId === '__lost__' || shouldFocusDocList"
         class="b3-button b3-button--outline"
         @click="onExitFocus"
-        :title="t('exitFocus', '退出队列')"
+        :title="t('exitFocus', 'Exit Queue')"
       >
         <svg><use xlink:href="#iconClose"></use></svg>
-        {{ t('exitFocus', '退出队列') }}
+        {{ t('exitFocus', 'Exit Queue') }}
       </button>
 
       <button

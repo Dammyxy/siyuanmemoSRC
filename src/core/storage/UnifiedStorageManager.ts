@@ -245,6 +245,25 @@ export class UnifiedStorageManager {
   /**
    * 淇濆瓨鏁版嵁
    */
+  migrateLegacyFSRSV5SchedulerType(): number {
+    let migratedCount = 0;
+
+    for (const dto of this.cardDTOs.values()) {
+      const schedulerType = (dto as { schedulerType?: unknown }).schedulerType;
+      if (schedulerType === 'fsrs-v5') {
+        (dto as { schedulerType?: string }).schedulerType = 'fsrs-v6';
+        migratedCount++;
+      }
+    }
+
+    if (migratedCount > 0) {
+      this.dirty = true;
+      logger.info(`[UnifiedStorageManager] Migrated ${migratedCount} legacy fsrs-v5 schedulerType values to fsrs-v6`);
+    }
+
+    return migratedCount;
+  }
+
   async save(): Promise<Result<void>> {
     try {
       if (!this.saveCallback) {

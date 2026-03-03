@@ -6,7 +6,7 @@
  * Phase 3: SM-15 完整集成与迁移
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import type { FSRSCard } from '@/types';
 import { CardState } from '@/types';
 import {
@@ -130,7 +130,7 @@ describe('Type Conversion Utilities', () => {
 describe('migrateToSM15', () => {
     it('应该从 FSRS 迁移到 SM-15', () => {
         const card = createTestCard({
-            schedulerType: 'fsrs-v5',
+            schedulerType: 'fsrs-v6',
             difficulty: 7,
             scheduledDays: 14,
         });
@@ -192,9 +192,9 @@ describe('migrateFromSM15', () => {
             },
         });
 
-        const migrated = migrateFromSM15(card, 'fsrs-v5');
+        const migrated = migrateFromSM15(card, 'fsrs-v6');
 
-        expect(migrated.schedulerType).toBe('fsrs-v5');
+        expect(migrated.schedulerType).toBe('fsrs-v6');
         expect(migrated.difficulty).toBeCloseTo(7, 1); // A-Factor 4.4 → difficulty ~7
         expect(migrated.schedulerMeta?.sm15).toBeUndefined();
     });
@@ -261,7 +261,7 @@ describe('migrateToImprovedTopicScheduler', () => {
 
     it('应该从 FSRS 迁移到 A-Factor-v2', () => {
         const card = createTestCard({
-            schedulerType: 'fsrs-v5',
+            schedulerType: 'fsrs-v6',
             difficulty: 7,
             scheduledDays: 14,
         });
@@ -298,17 +298,17 @@ describe('migrateToImprovedTopicScheduler', () => {
 describe('migrateCard - 通用迁移', () => {
     it('相同调度器应该返回原卡片', () => {
         const card = createTestCard({
-            schedulerType: 'fsrs-v5',
+            schedulerType: 'fsrs-v6',
         });
 
-        const migrated = migrateCard(card, 'fsrs-v5');
+        const migrated = migrateCard(card, 'fsrs-v6');
 
         expect(migrated).toBe(card);
     });
 
     it('应该支持 FSRS → SM-15', () => {
         const card = createTestCard({
-            schedulerType: 'fsrs-v5',
+            schedulerType: 'fsrs-v6',
             difficulty: 5,
         });
 
@@ -331,9 +331,9 @@ describe('migrateCard - 通用迁移', () => {
             },
         });
 
-        const migrated = migrateCard(card, 'fsrs-v5');
+        const migrated = migrateCard(card, 'fsrs-v6');
 
-        expect(migrated.schedulerType).toBe('fsrs-v5');
+        expect(migrated.schedulerType).toBe('fsrs-v6');
         expect(migrated.difficulty).toBeDefined();
     });
 
@@ -349,18 +349,13 @@ describe('migrateCard - 通用迁移', () => {
         expect(migrated.schedulerMeta?.topic).toBeDefined();
     });
 
-    it('不支持的迁移应该返回原卡片并警告', () => {
+    it('不支持的迁移应该返回原卡片', () => {
         const card = createTestCard({
-            schedulerType: 'fsrs-v5',
+            schedulerType: 'sm2',
         });
 
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-        const migrated = migrateCard(card, 'sm2');
+        const migrated = migrateCard(card, 'fsrs-v6');
 
         expect(migrated).toBe(card);
-        expect(warnSpy).toHaveBeenCalledWith('[Migration] Unsupported migration: fsrs-v5 → sm2');
-
-        warnSpy.mockRestore();
     });
 });

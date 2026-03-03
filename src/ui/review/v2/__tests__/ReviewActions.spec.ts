@@ -23,12 +23,12 @@ function createActions(overrides: Partial<ReviewUIState['actions']> = {}): Revie
   };
 }
 
-function mountReviewActions(actions: ReviewUIState['actions']) {
+function mountReviewActions(actions: ReviewUIState['actions'], isMobile = false) {
   return mount(ReviewActions, {
     props: {
       actions,
       meta: { canBack: true, remainingSize: 3, transition: 'none' },
-      isMobile: false,
+      isMobile,
       i18n: {
         space: 'Space',
         enterKey: 'Enter',
@@ -68,5 +68,58 @@ describe('ReviewActions hotkey tooltips', () => {
 
     expect(wrapper.find('button[data-type="-1"]').exists()).toBe(false);
     expect(wrapper.get('button[data-type="3"]').attributes('aria-label')).toBe('Space/Enter');
+  });
+});
+
+describe('ReviewActions layout', () => {
+  it('keeps skip in the right container and show-answer in center with rating-width strategy', () => {
+    const wrapper = mountReviewActions(createActions({
+      showAnswer: true,
+    }));
+
+    const root = wrapper.get('.card__action');
+    const children = Array.from(root.element.children).map((node) => (node as HTMLElement).className);
+    expect(children[0]).toContain('card__action-back');
+    expect(children[1]).toContain('card__action-center');
+    expect(children[2]).toContain('card__action-right');
+
+    const center = wrapper.get('.card__action-center');
+    expect(center.attributes('style')).toContain('--review-action-columns: 4');
+    expect(center.get('button[data-type="-1"]').classes()).toContain('card__action-main--reveal');
+
+    const right = wrapper.get('.card__action-right');
+    expect(right.find('skip-menu-button-stub').exists()).toBe(true);
+  });
+
+  it('keeps skip in the right container during grading state', () => {
+    const wrapper = mountReviewActions(createActions({
+      showAnswer: false,
+    }));
+
+    const center = wrapper.get('.card__action-center');
+    expect(center.find('button[data-type="-1"]').exists()).toBe(false);
+    expect(center.findAll('.card__action-column')).toHaveLength(4);
+
+    const right = wrapper.get('.card__action-right');
+    expect(right.find('skip-menu-button-stub').exists()).toBe(true);
+  });
+
+  it('falls back to show-answer when grades are temporarily empty', () => {
+    const wrapper = mountReviewActions(createActions({
+      showAnswer: false,
+      grades: [],
+    }));
+
+    expect(wrapper.get('.card__action-center').find('button[data-type="-1"]').exists()).toBe(true);
+    expect(wrapper.get('.card__action-right').find('skip-menu-button-stub').exists()).toBe(true);
+  });
+
+  it('applies the same right-side skip layout on mobile', () => {
+    const wrapper = mountReviewActions(createActions({
+      showAnswer: true,
+    }), true);
+
+    expect(wrapper.get('.card__action').classes()).toContain('card__action--mobile');
+    expect(wrapper.get('.card__action-right').find('skip-menu-button-stub').exists()).toBe(true);
   });
 });

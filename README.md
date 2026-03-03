@@ -1,6 +1,6 @@
 ﻿# SiYuanMemo
 
-[简体中文](./README_zh_CN.md)
+[简体中文](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/blob/main/README_zh_CN.md)
 
 This plugin lets you:
 

@@ -7,7 +7,7 @@
  */
 
 import type { FSRSCard, ReviewLog, PluginSettings, RescheduleLog } from '@/types';
-import { DEFAULT_SETTINGS, DEFAULT_RIFF_CONFIG, type RiffIntegrationConfig } from '@/types';
+import { DEFAULT_SETTINGS, DEFAULT_RIFF_CONFIG, normalizePluginSettings, type RiffIntegrationConfig } from '@/types';
 import { CardType } from '@/types/card';
 import * as siyuanApi from '@/core/siyuan/api';
 import { ATTR_PRIORITY } from '@/core/siyuan/block';
@@ -193,6 +193,13 @@ export class StorageManager {
                 }
                 if (defaultQueue === 'neural-wandering') {
                     this.settings.queues.defaultQueue = 'neural-roam';
+                }
+
+                const normalized = normalizePluginSettings(this.settings);
+                this.settings = normalized.settings;
+                if (normalized.changed) {
+                    await this.saveSettings();
+                    logger.info('[StorageManager] Migrated legacy FSRS settings to v6 defaults');
                 }
             }
         } catch (err) {

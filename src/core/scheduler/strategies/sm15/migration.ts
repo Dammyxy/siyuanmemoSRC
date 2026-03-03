@@ -70,13 +70,13 @@ export function migrateToSM15(card: FSRSCard): FSRSCard {
     migrated.schedulerType = 'sm15';
 
     // 根据原始调度器类型进行转换
-    const oldScheduler = card.schedulerType || 'fsrs-v5';
+    const oldScheduler = card.schedulerType || 'fsrs-v6';
 
-    if (oldScheduler === 'fsrs-v5' || oldScheduler === 'sm2') {
+    if (oldScheduler === 'fsrs-v6' || oldScheduler === 'sm2') {
         // FSRS/SM-2 → SM-15
 
         // 转换难度参数
-        if (oldScheduler === 'fsrs-v5') {
+        if (oldScheduler === 'fsrs-v6') {
             // FSRS difficulty → SM-15 A-Factor
             const difficulty = card.difficulty || 5;
             const aFactor = difficultyToAFactor(difficulty);
@@ -136,7 +136,7 @@ export function migrateToSM15(card: FSRSCard): FSRSCard {
  * @param target 目标调度器类型
  * @returns 迁移后的卡片
  */
-export function migrateFromSM15(card: FSRSCard, target: 'fsrs-v5' | 'sm2' | 'a-factor' | 'a-factor-v2'): FSRSCard {
+export function migrateFromSM15(card: FSRSCard, target: 'fsrs-v6' | 'sm2' | 'a-factor' | 'a-factor-v2'): FSRSCard {
     const migrated = { ...card };
 
     // 设置调度器类型
@@ -145,7 +145,7 @@ export function migrateFromSM15(card: FSRSCard, target: 'fsrs-v5' | 'sm2' | 'a-f
     // 从 SM-15 元数据中获取 A-Factor
     const aFactor = card.schedulerMeta?.sm15?.of || card.aFactor || 2.5;
 
-    if (target === 'fsrs-v5') {
+    if (target === 'fsrs-v6') {
         // SM-15 → FSRS
         migrated.difficulty = aFactorToDifficulty(aFactor);
         migrated.stability = card.scheduledDays || 2;
@@ -211,7 +211,7 @@ export function migrateToImprovedTopicScheduler(card: FSRSCard): FSRSCard {
     // 设置调度器类型
     migrated.schedulerType = 'a-factor-v2';
 
-    const oldScheduler = card.schedulerType || 'fsrs-v5';
+    const oldScheduler = card.schedulerType || 'fsrs-v6';
 
     if (oldScheduler === 'a-factor') {
         // A-Factor → A-Factor-v2
@@ -226,11 +226,11 @@ export function migrateToImprovedTopicScheduler(card: FSRSCard): FSRSCard {
             },
         };
 
-    } else if (oldScheduler === 'fsrs-v5' || oldScheduler === 'sm2') {
+    } else if (oldScheduler === 'fsrs-v6' || oldScheduler === 'sm2') {
         // FSRS/SM-2 → A-Factor-v2
         let aFactor: number;
 
-        if (oldScheduler === 'fsrs-v5') {
+        if (oldScheduler === 'fsrs-v6') {
             aFactor = difficultyToAFactor(card.difficulty || 5);
         } else {
             aFactor = efToAFactor(card.difficulty || 2.5);
@@ -279,7 +279,7 @@ export function migrateCard(
     card: FSRSCard,
     targetScheduler: SchedulerType
 ): FSRSCard {
-    const currentScheduler = card.schedulerType || 'fsrs-v5';
+    const currentScheduler = card.schedulerType || 'fsrs-v6';
 
     // 相同调度器，无需迁移
     if (currentScheduler === targetScheduler) {
@@ -293,8 +293,8 @@ export function migrateCard(
 
     // 从 SM-15 迁移到其他调度器
     if (currentScheduler === 'sm15') {
-        if (targetScheduler === 'fsrs-v5') {
-            return migrateFromSM15(card, 'fsrs-v5');
+        if (targetScheduler === 'fsrs-v6') {
+            return migrateFromSM15(card, 'fsrs-v6');
         } else if (targetScheduler === 'sm2') {
             return migrateFromSM15(card, 'sm2');
         } else if (targetScheduler === 'a-factor') {

@@ -73,7 +73,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
      * @param params - FSRS 参数配置
      * @param params.requestRetention - 目标保留率 (0-1)，默认 0.9
      * @param params.maximumInterval - 最大复习间隔（天），默认 36500
-     * @param params.weights - FSRS 算法的 19 个权重参数
+     * @param params.weights - FSRS 算法的 21 个权重参数
      * @param params.enableFuzz - 是否启用模糊化，为复习时间添加随机偏移
      * @param params.enableShortTerm - 是否启用短期记忆模式，为新卡片提供更密集的复习计划
      */
@@ -90,7 +90,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
      * 参数映射：
      * - requestRetention → request_retention: 目标保留率
      * - maximumInterval → maximum_interval: 最大间隔（天）
-     * - weights → w: 19 个权重参数
+     * - weights → w: 21 个权重参数
      * - enableFuzz → enable_fuzz: 是否启用模糊化
      * - enableShortTerm → enable_short_term: 是否启用短期记忆模式
      * 

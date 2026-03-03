@@ -85,10 +85,10 @@
         v-if="showExitFocus"
         class="b3-button b3-button--outline"
         @click="$emit('exitFocus')"
-        :title="t('exitFocus', '退出队列')"
+        :title="t('exitFocus', 'Exit Queue')"
       >
         <svg><use xlink:href="#iconClose"></use></svg>
-        {{ t('exitFocus', '退出') }}
+        {{ t('exitFocus', 'Exit Queue') }}
       </button>
 
       <!-- 开始练习按钮 -->

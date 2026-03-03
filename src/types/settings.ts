@@ -4,13 +4,43 @@
  */
 
 /** 存储键名 */
+import { default_w } from 'ts-fsrs';
+
 export const STORAGE_NAME = 'fsrs-config';
+export const FSRS_WEIGHT_COUNT = default_w.length;
+export const LEGACY_FSRS_V5 = 'fsrs-v5';
+export const ACTIVE_FSRS_VERSION = 'fsrs-v6';
+export const DEFAULT_FSRS_WEIGHTS: number[] = [...default_w];
+
+function isFiniteNumberArray(value: unknown): value is number[] {
+    return Array.isArray(value) && value.every(item => typeof item === 'number' && Number.isFinite(item));
+}
+
+function mapLegacySchedulerLiteral(value: unknown): unknown {
+    if (typeof value !== 'string') {
+        return value;
+    }
+    return value === LEGACY_FSRS_V5 ? ACTIVE_FSRS_VERSION : value;
+}
+
+export function normalizeFSRSWeights(weights: unknown): number[] {
+    const source = isFiniteNumberArray(weights) ? weights : [];
+    if (source.length >= FSRS_WEIGHT_COUNT) {
+        return source.slice(0, FSRS_WEIGHT_COUNT);
+    }
+
+    const padded = source.slice();
+    for (let i = source.length; i < FSRS_WEIGHT_COUNT; i++) {
+        padded.push(DEFAULT_FSRS_WEIGHTS[i]);
+    }
+    return padded;
+}
 
 /** FSRS 算法参数 */
 export interface FSRSParameters {
     requestRetention: number;  // 期望保留率 0.7-0.99，默认 0.9
     maximumInterval: number;   // 最大间隔天数，默认 36500
-    weights: number[];         // 19 个权重参数
+    weights: number[];         // 21 个权重参数
     enableFuzz: boolean;       // 启用模糊化
     enableShortTerm: boolean;  // 启用短期调度器
     
@@ -271,6 +301,41 @@ export interface PluginSettings {
     collectStats: boolean;     // 收集统计数据
 }
 
+export function normalizePluginSettings(settings: PluginSettings): { settings: PluginSettings; changed: boolean } {
+    let changed = false;
+    const normalized: PluginSettings = {
+        ...settings,
+        fsrs: { ...settings.fsrs },
+        scheduler: settings.scheduler ? { ...settings.scheduler } : settings.scheduler,
+    };
+
+    const normalizedWeights = normalizeFSRSWeights(normalized.fsrs?.weights);
+    const currentWeights = isFiniteNumberArray(normalized.fsrs?.weights) ? normalized.fsrs.weights : [];
+    if (
+        currentWeights.length !== normalizedWeights.length
+        || currentWeights.some((value, index) => value !== normalizedWeights[index])
+    ) {
+        normalized.fsrs.weights = normalizedWeights;
+        changed = true;
+    }
+
+    if (normalized.scheduler) {
+        const nextDefault = mapLegacySchedulerLiteral(normalized.scheduler.defaultScheduler);
+        if (nextDefault !== normalized.scheduler.defaultScheduler) {
+            normalized.scheduler.defaultScheduler = nextDefault as typeof normalized.scheduler.defaultScheduler;
+            changed = true;
+        }
+
+        const nextItem = mapLegacySchedulerLiteral(normalized.scheduler.itemScheduler);
+        if (nextItem !== normalized.scheduler.itemScheduler) {
+            normalized.scheduler.itemScheduler = nextItem as typeof normalized.scheduler.itemScheduler;
+            changed = true;
+        }
+    }
+
+    return { settings: normalized, changed };
+}
+
 /** 默认 Riff 集成配置 */
 export const DEFAULT_RIFF_CONFIG: RiffIntegrationConfig = {
     mode: 'advanced',
@@ -300,13 +365,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     fsrs: {
         requestRetention: 0.9,
         maximumInterval: 36500,
-        weights: [
-            0.40255, 1.18385, 3.173, 15.69105,
-            7.1949, 0.5345, 1.4604, 0.0046,
-            1.54575, 0.1192, 1.01925, 1.9395,
-            0.11, 0.29605, 2.2698, 0.2315,
-            2.9898, 0.51655, 0.6621
-        ],
+        weights: [...DEFAULT_FSRS_WEIGHTS],
         enableFuzz: true,
         enableShortTerm: true,
         dayStartHour: 4,  // 🆕 默认凌晨4点
