@@ -278,6 +278,49 @@ export class BlockMenuHandler {
     return result;
   }
 
+  private async resolveSubtreeBlockIds(blockIds: string[]): Promise<string[]> {
+    const normalizedRoots = Array.from(new Set(
+      blockIds
+        .map((id) => (typeof id === 'string' ? id.trim() : ''))
+        .filter((id) => id.length > 0)
+    ));
+    if (normalizedRoots.length === 0) {
+      return [];
+    }
+
+    try {
+      const inClause = normalizedRoots
+        .map((id) => `'${this.escapeSQL(id)}'`)
+        .join(',');
+      const rows = await this.siyuanApi.sql<BlockIdRow>(`
+        WITH RECURSIVE descendants AS (
+          SELECT id
+          FROM blocks
+          WHERE id IN (${inClause})
+          UNION
+          SELECT b.id
+          FROM blocks b
+          INNER JOIN descendants d ON b.parent_id = d.id
+        )
+        SELECT DISTINCT id
+        FROM descendants
+      `);
+
+      const subtreeIds = rows
+        .map((row) => row.id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+      const merged = new Set<string>([...normalizedRoots, ...subtreeIds]);
+      return Array.from(merged);
+    } catch (error) {
+      logger.warn('[BlockMenuHandler] Failed to resolve subtree block ids, fallback to selected roots only:', {
+        blockIds: normalizedRoots,
+        error,
+      });
+      return normalizedRoots;
+    }
+  }
+
   async runCoreEntryAction(actionId: CoreReviewEntryActionId, blockElements: HTMLElement[]): Promise<void> {
     const elements = Array.isArray(blockElements) ? blockElements : [];
     if (elements.length === 0) {
@@ -692,34 +735,34 @@ export class BlockMenuHandler {
         const cardService = this.getCardService();
         let deletedCount = 0;
         let failedCount = 0;
-        let unresolvedBlockCount = 0;
         const visitedCardIds = new Set<string>();
+        const subtreeBlockIds = await this.resolveSubtreeBlockIds(blockIds);
+        const cards = subtreeBlockIds
+          .flatMap((blockId) => this.getStorage().getCardsByBlockId(blockId))
+          .filter((card) => {
+            if (!card?.id || visitedCardIds.has(card.id)) {
+              return false;
+            }
+            visitedCardIds.add(card.id);
+            return true;
+          });
 
-        for (const blockId of blockIds) {
-          const cards = this.getStorage()
-            .getCardsByBlockId(blockId)
-            .filter((card) => {
-              if (!card?.id || visitedCardIds.has(card.id)) {
-                return false;
-              }
-              visitedCardIds.add(card.id);
-              return true;
-            });
+        if (cards.length === 0) {
+          logger.warn('[BlockMenuHandler] No cards found in selected subtree blocks', {
+            selectedBlockIds: blockIds,
+            subtreeBlockCount: subtreeBlockIds.length,
+          });
+          await this.siyuanApi.pushMsg('未找到可取消的闪卡');
+          return;
+        }
 
-          if (cards.length === 0) {
-            unresolvedBlockCount++;
-            continue;
-          }
-
-          const cardIds = cards.map((card) => card.id);
-          const batchResult = await cardService.deleteCards({ cardIds });
-          if (batchResult.ok) {
-            deletedCount += batchResult.value.deletedCount;
-            failedCount += batchResult.value.failedCardIds.length;
-            continue;
-          }
-
-          logger.error(`[BlockMenuHandler] Failed to batch delete cards for block ${blockId}:`, batchResult.error);
+        const cardIds = cards.map((card) => card.id);
+        const batchResult = await cardService.deleteCards({ cardIds });
+        if (batchResult.ok) {
+          deletedCount += batchResult.value.deletedCount;
+          failedCount += batchResult.value.failedCardIds.length;
+        } else {
+          logger.error('[BlockMenuHandler] Failed to batch delete cards from selected subtree:', batchResult.error);
 
           for (const cardId of cardIds) {
             const result = await cardService.deleteCard({ cardId });
@@ -745,10 +788,6 @@ export class BlockMenuHandler {
         if (failedCount > 0) {
           await this.siyuanApi.pushErrMsg(`取消闪卡失败：${failedCount} 张`);
           return;
-        }
-
-        if (unresolvedBlockCount > 0) {
-          logger.warn(`[BlockMenuHandler] No cards found for ${unresolvedBlockCount} selected block(s)`);
         }
 
         await this.siyuanApi.pushMsg('未找到可取消的闪卡');

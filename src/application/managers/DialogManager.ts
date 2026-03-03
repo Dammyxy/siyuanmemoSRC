@@ -45,11 +45,6 @@ import {
   hasExpectedCdfTailMarkerFromSources,
   type CdfMultilineTemplateId,
 } from '@/application/usecases/xiuyuan/shared/CdfTailMarker';
-import {
-  detectDescriptorOrDefinitionKind,
-  isDefinitionTemplate,
-  templateIdFromDescriptorOrDefinitionKind,
-} from '@/application/usecases/xiuyuan/shared/DescriptorTemplateStrategy';
 import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 
 const logger = createLogger('DialogManager');
@@ -111,17 +106,7 @@ interface AttributeSqlRow {
   value?: string;
 }
 
-const FW_SEMICOLON = '\uFF1B';
-const ZERO_WIDTH_RE = /[\u200B-\u200D\uFEFF\u2060]/g;
-const DESCRIPTOR_MULTILINE_TAIL_RE = new RegExp(`\\s*(;;;|${FW_SEMICOLON}{3})\\s*$`);
 const HIDDEN_TEMPLATE_IDS_IN_QUICK_CARD_DIALOG = new Set<string>(['builtin-concept-simple']);
-
-function normalizeForTextParsing(text: string): string {
-  return (text || '')
-    .replace(/\{:[^}]*\}/g, '')
-    .replace(ZERO_WIDTH_RE, '')
-    .trim();
-}
 
 /**
  * DialogManager 类
@@ -1021,32 +1006,6 @@ export class DialogManager implements IDialogManager {
     return parentRows[0].id;
   }
 
-  private extractDescriptorGroupHint(source: string): string {
-    const normalized = normalizeForTextParsing(source);
-    if (!normalized) {
-      return '';
-    }
-    const stripped = normalized.replace(DESCRIPTOR_MULTILINE_TAIL_RE, '').trim();
-    return stripped || normalized;
-  }
-
-  private parseCueAndAnswerFromText(source: string): { cue: string; answer: string } {
-    const text = normalizeForTextParsing(source);
-    const unicodeArrow = '\u2192';
-    const delimiter = text.includes(unicodeArrow) ? unicodeArrow : '->';
-    const parts = text.split(delimiter);
-    if (parts.length >= 2) {
-      return {
-        cue: parts[0].trim(),
-        answer: parts.slice(1).join(delimiter).trim(),
-      };
-    }
-    return {
-      cue: '',
-      answer: text,
-    };
-  }
-
   private hasExpectedTailMarker(
     parentParagraphKramdown: string,
     parentParagraphText: string,
@@ -1201,117 +1160,6 @@ export class DialogManager implements IDialogManager {
     }
   }
 
-  private async hasXiuyuanBindingOnBlock(blockId: string): Promise<boolean> {
-    const safeBlockId = blockId.replace(/'/g, "''");
-    const attrRows = await this.siyuanApi.sql<AttributeSqlRow>(`
-      SELECT name, value
-      FROM attributes
-      WHERE block_id = '${safeBlockId}'
-        AND name IN ('custom-xiuyuan-id', 'custom-fsrs-xiuyuan-id')
-      LIMIT 2
-    `);
-
-    return (attrRows || []).some((row) => typeof row.value === 'string' && row.value.trim().length > 0);
-  }
-
-  private async getFirstParagraphForListItem(listItemId: string): Promise<BlockSqlRow | null> {
-    const safeListItemId = listItemId.replace(/'/g, "''");
-    const rows = await this.siyuanApi.sql<BlockSqlRow>(`
-      SELECT id, content, markdown
-      FROM blocks
-      WHERE parent_id = '${safeListItemId}'
-        AND type = 'p'
-      ORDER BY sort ASC, id ASC
-      LIMIT 1
-    `);
-
-    return rows && rows.length > 0 ? rows[0] : null;
-  }
-
-  private async hasXiuyuanBindingOnParagraphOrListItem(paragraphId: string, listItemId?: string): Promise<boolean> {
-    const targets = [paragraphId];
-    if (typeof listItemId === 'string' && listItemId.length > 0) {
-      targets.push(listItemId);
-    }
-
-    const bindingFlags = await Promise.all(targets.map((targetId) => this.hasXiuyuanBindingOnBlock(targetId)));
-    return bindingFlags.some(Boolean);
-  }
-
-  private async createDescriptorCardsFromListItems(params: {
-    listItemIds: string[];
-    conceptBlockId: string;
-    descriptorGroupHint: string;
-    xiuyuanAppService: XiuyuanApplicationService;
-  }): Promise<{ created: number; skipped: number; failed: number; firstError: string }> {
-    const { listItemIds, conceptBlockId, descriptorGroupHint, xiuyuanAppService } = params;
-
-    let created = 0;
-    let skipped = 0;
-    let failed = 0;
-    let firstError = '';
-    const setFirstError = (message: string): void => {
-      if (!firstError) {
-        firstError = message;
-      }
-    };
-
-    for (const listItemId of listItemIds) {
-      const paragraph = await this.getFirstParagraphForListItem(listItemId);
-      if (!paragraph?.id) {
-        failed += 1;
-        setFirstError(`子级缺少段落块：${listItemId}`);
-        continue;
-      }
-
-      const hasBinding = await this.hasXiuyuanBindingOnParagraphOrListItem(paragraph.id, listItemId);
-      if (hasBinding) {
-        skipped += 1;
-        continue;
-      }
-
-      const paragraphContent = paragraph.markdown || paragraph.content || '';
-      const parsedCueAnswer = this.parseCueAndAnswerFromText(paragraph.content || paragraphContent);
-      const kind = detectDescriptorOrDefinitionKind(paragraphContent);
-      const descriptorKind = kind === 'descriptor-forward' || kind === 'descriptor-reverse' || kind === 'descriptor-both'
-        ? kind
-        : 'none';
-      const descriptorTemplateId = templateIdFromDescriptorOrDefinitionKind(
-        descriptorKind,
-        'descriptor'
-      );
-      if (!descriptorTemplateId) {
-        failed += 1;
-        setFirstError(`无法解析描述符模板：${paragraph.id}`);
-        continue;
-      }
-
-      const createResult = await xiuyuanAppService.createFromBlocks({
-        blockIds: [conceptBlockId, paragraph.id],
-        templateId: descriptorTemplateId,
-        fieldMapping: {
-          concept: conceptBlockId,
-          descriptor: paragraph.id,
-          cdf_group_hint: descriptorGroupHint,
-          cdf_child_cue: parsedCueAnswer.cue,
-          cdf_child_answer: parsedCueAnswer.answer,
-        },
-        deckId: this.siyuanApi.BUILTIN_DECK_ID,
-        cardType: 'descriptor',
-      });
-
-      if (!createResult.ok) {
-        failed += 1;
-        setFirstError(createResult.error.message);
-        continue;
-      }
-
-      created += 1;
-    }
-
-    return { created, skipped, failed, firstError };
-  }
-
   private async handleCdfMultilineTemplateCard(
     blockIds: string[],
     templateId: CdfMultilineTemplateId,
@@ -1378,12 +1226,24 @@ export class DialogManager implements IDialogManager {
         await this.siyuanApi.pushErrMsg(payload.firstError ? `创建失败：${payload.firstError}` : '未创建任何卡片');
         return;
       }
+      if (createdTotal === 0 && payload.skippedExistingBinding > 0 && payload.failed === 0) {
+        const messageLines = [
+          '⚠️ 未新建卡片',
+          '所有候选块均因已有闪卡绑定被跳过。',
+          `已绑定跳过：${payload.skippedExistingBinding}`,
+          '请先对这些块执行“取消闪卡”，再重新制卡。',
+        ];
+        await this.siyuanApi.pushMsg(messageLines.join('\n'));
+        return;
+      }
 
       const messageLines = [
         '✅ CDF 多行制卡完成',
         `定义卡：${payload.createdDefinition}`,
         `描述符卡：${payload.createdDescriptor}`,
         `跳过：${payload.skipped}`,
+        `已绑定跳过：${payload.skippedExistingBinding}`,
+        `无模板跳过：${payload.skippedNoTemplate}`,
         `失败：${payload.failed}`,
       ];
       if (payload.stoppedByDocumentReference) {

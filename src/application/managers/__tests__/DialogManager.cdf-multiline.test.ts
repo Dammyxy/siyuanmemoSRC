@@ -57,7 +57,17 @@ function createSiyuanApiMock() {
     if (stmt.includes('SELECT id, type') && stmt.includes(`WHERE id = '${PARENT_I}'`) && !stmt.includes('parent_id')) {
       return [{ id: PARENT_I, type: 'i' }];
     }
+    if (stmt.includes('SELECT type') && stmt.includes(`WHERE id = '${CONCEPT_DOC}'`)) {
+      return [{ type: 'd' }];
+    }
     return [];
+  });
+
+  const getBlockAttrs = vi.fn(async (blockId: string) => {
+    if (blockId === CONCEPT_DOC) {
+      return { 'custom-xiuyuan-id': 'xy_concept' };
+    }
+    return {};
   });
 
   return {
@@ -66,6 +76,7 @@ function createSiyuanApiMock() {
     pushMsg: vi.fn().mockResolvedValue(undefined),
     pushErrMsg: vi.fn().mockResolvedValue(undefined),
     sql,
+    getBlockAttrs,
     getBlockKramdown: vi.fn().mockResolvedValue({ kramdown: '' }),
     getBlockText: vi.fn().mockResolvedValue(''),
     setBlockAttrs: vi.fn().mockResolvedValue(undefined),
@@ -153,22 +164,19 @@ describe('DialogManager CDF multiline routing', () => {
 
     expect((dialogManager as any).confirmProceedWhenSymbolMissing).toHaveBeenCalledTimes(1);
     expect(xiuyuanAppService.createFromBlocks).not.toHaveBeenCalled();
-    expect(xiuyuanAppService.createListTemplateCards).not.toHaveBeenCalled();
     expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已取消创建');
   });
 
-  it('uses parent paragraph text marker before fallback source', async () => {
+  it('uses parent paragraph text marker for confirmation bypass when kramdown source has no marker', async () => {
     const { dialogManager, xiuyuanAppService } = createDialogManager();
     mockedResolveCdfMultilineScan.mockResolvedValue(
       createScanResult({
         parentParagraphText: `Parent ((${CONCEPT_DOC})) :::`,
         parentParagraphKramdown: '',
-        parentKramdown: '',
+        parentKramdown: `Parent ((${CONCEPT_DOC})) :::`,
       })
     );
     vi.spyOn(dialogManager as any, 'confirmProceedWhenSymbolMissing').mockResolvedValue(false);
-    vi.spyOn(dialogManager as any, 'resolveConceptDocumentIdFromReference').mockResolvedValue(CONCEPT_DOC);
-    vi.spyOn(dialogManager as any, 'ensureConceptCardById').mockResolvedValue(undefined);
 
     await dialogManager.createCdfMultilineTemplateCards([PARENT_I], 'builtin-list-concept-multiline');
 
@@ -178,12 +186,17 @@ describe('DialogManager CDF multiline routing', () => {
 
   it('fails for ::: when concept document reference cannot be resolved', async () => {
     const { dialogManager, xiuyuanAppService, siyuanApi } = createDialogManager();
-    mockedResolveCdfMultilineScan.mockResolvedValue(createScanResult());
-    vi.spyOn(dialogManager as any, 'resolveConceptDocumentIdFromReference').mockResolvedValue(null);
+    mockedResolveCdfMultilineScan.mockResolvedValue(
+      createScanResult({
+        parentParagraphText: 'Parent :::',
+        parentParagraphKramdown: 'Parent :::',
+        parentKramdown: 'Parent :::',
+      })
+    );
 
     await dialogManager.createCdfMultilineTemplateCards([PARENT_I], 'builtin-list-concept-multiline');
 
-    expect(siyuanApi.pushErrMsg).toHaveBeenCalledWith('::: 模板要求父块中包含文档块引用概念');
+    expect(siyuanApi.pushErrMsg).toHaveBeenCalledWith('创建失败：未找到可用概念块');
     expect(xiuyuanAppService.createFromBlocks).not.toHaveBeenCalled();
   });
 
@@ -198,17 +211,19 @@ describe('DialogManager CDF multiline routing', () => {
     );
     mockedFindConceptByUpwardSearch.mockResolvedValue(null);
 
-    await dialogManager.createCdfMultilineTemplateCards([PARENT_I], 'builtin-list-descriptor-multiline');
+    await dialogManager.createCdfMultilineTemplateCards(
+      [PARENT_I],
+      'builtin-list-descriptor-multiline',
+      { skipSymbolConfirmation: true }
+    );
 
-    expect(siyuanApi.pushErrMsg).toHaveBeenCalledWith(';;; 模板未找到可用概念块（向上探路失败）');
+    expect(siyuanApi.pushErrMsg).toHaveBeenCalledWith('创建失败：未找到可用概念块');
     expect(xiuyuanAppService.createFromBlocks).not.toHaveBeenCalled();
   });
 
   it('maps ::: unmarked child to concept-definition template', async () => {
     const { dialogManager, xiuyuanAppService } = createDialogManager();
     mockedResolveCdfMultilineScan.mockResolvedValue(createScanResult());
-    vi.spyOn(dialogManager as any, 'resolveConceptDocumentIdFromReference').mockResolvedValue(CONCEPT_DOC);
-    vi.spyOn(dialogManager as any, 'ensureConceptCardById').mockResolvedValue(undefined);
 
     await dialogManager.createCdfMultilineTemplateCards([PARENT_I], 'builtin-list-concept-multiline');
 
@@ -228,9 +243,9 @@ describe('DialogManager CDF multiline routing', () => {
     const { dialogManager, xiuyuanAppService, siyuanApi } = createDialogManager();
     mockedResolveCdfMultilineScan.mockResolvedValue(
       createScanResult({
-        parentParagraphText: 'Parent ;;;',
-        parentParagraphKramdown: 'Parent ;;;',
-        parentKramdown: 'Parent ;;;',
+        parentParagraphText: 'Parent ;;',
+        parentParagraphKramdown: 'Parent ;;',
+        parentKramdown: 'Parent ;;',
         nodes: [
           {
             id: '20260101000003-abcdeff',
@@ -252,22 +267,31 @@ describe('DialogManager CDF multiline routing', () => {
       conceptId: CONCEPT_DOC,
       conceptType: 'document',
     });
-    vi.spyOn(dialogManager as any, 'ensureConceptCardById').mockResolvedValue(undefined);
 
     vi.mocked(siyuanApi.sql).mockImplementation(async (stmt: string) => {
       if (stmt.includes('SELECT id, type, parent_id') && stmt.includes(`WHERE id = '${PARENT_I}'`)) {
         return [{ id: PARENT_I, type: 'i' }];
       }
       if (stmt.includes("parent_id = '20260101000005-abcdeff'")) {
-        return [{ id: '20260101000007-abcdeff', content: '作者→woz', markdown: '作者→woz' }];
+        return [{ id: '20260101000007-abcdeff' }];
       }
       if (stmt.includes("parent_id = '20260101000006-abcdeff'")) {
-        return [{ id: '20260101000008-abcdeff', content: '学校学习', markdown: '学校学习' }];
+        return [{ id: '20260101000008-abcdeff' }];
+      }
+      if (stmt.includes("WHERE id = '20260101000007-abcdeff'")) {
+        return [{ content: '作者->woz', markdown: '作者->woz' }];
+      }
+      if (stmt.includes("WHERE id = '20260101000008-abcdeff'")) {
+        return [{ content: '学校学习', markdown: '学校学习' }];
       }
       return [];
     });
 
-    await dialogManager.createCdfMultilineTemplateCards([PARENT_I], 'builtin-list-descriptor-multiline');
+    await dialogManager.createCdfMultilineTemplateCards(
+      [PARENT_I],
+      'builtin-list-descriptor-multiline',
+      { skipSymbolConfirmation: true }
+    );
 
     expect(xiuyuanAppService.createFromBlocks).toHaveBeenCalledTimes(2);
     expect(xiuyuanAppService.createFromBlocks).toHaveBeenNthCalledWith(
@@ -300,9 +324,9 @@ describe('DialogManager CDF multiline routing', () => {
     const { dialogManager, xiuyuanAppService, siyuanApi } = createDialogManager();
     mockedResolveCdfMultilineScan.mockResolvedValue(
       createScanResult({
-        parentParagraphText: 'Parent ;;;',
-        parentParagraphKramdown: 'Parent ;;;',
-        parentKramdown: 'Parent ;;;',
+        parentParagraphText: 'Parent ;;',
+        parentParagraphKramdown: 'Parent ;;',
+        parentKramdown: 'Parent ;;',
         nodes: [
           {
             id: '20260101000003-abcdeff',
@@ -324,19 +348,25 @@ describe('DialogManager CDF multiline routing', () => {
       conceptId: CONCEPT_DOC,
       conceptType: 'document',
     });
-    vi.spyOn(dialogManager as any, 'ensureConceptCardById').mockResolvedValue(undefined);
 
     vi.mocked(siyuanApi.sql).mockImplementation(async (stmt: string) => {
       if (stmt.includes('SELECT id, type, parent_id') && stmt.includes(`WHERE id = '${PARENT_I}'`)) {
         return [{ id: PARENT_I, type: 'i' }];
       }
       if (stmt.includes("parent_id = '20260101000005-abcdeff'")) {
-        return [{ id: '20260101000007-abcdeff', content: '时间;<1987', markdown: '时间;<1987' }];
+        return [{ id: '20260101000007-abcdeff' }];
+      }
+      if (stmt.includes("WHERE id = '20260101000007-abcdeff'")) {
+        return [{ content: '时间;<1987', markdown: '时间;<1987' }];
       }
       return [];
     });
 
-    await dialogManager.createCdfMultilineTemplateCards([PARENT_I], 'builtin-list-descriptor-multiline');
+    await dialogManager.createCdfMultilineTemplateCards(
+      [PARENT_I],
+      'builtin-list-descriptor-multiline',
+      { skipSymbolConfirmation: true }
+    );
 
     expect(xiuyuanAppService.createFromBlocks).toHaveBeenCalledTimes(1);
     expect(xiuyuanAppService.createFromBlocks).toHaveBeenCalledWith(
@@ -347,16 +377,15 @@ describe('DialogManager CDF multiline routing', () => {
         }),
       })
     );
-    expect(xiuyuanAppService.createListTemplateCards).not.toHaveBeenCalled();
   });
 
   it('checks both paragraph and list-item binding to avoid duplicate descriptor cards', async () => {
     const { dialogManager, xiuyuanAppService, siyuanApi } = createDialogManager();
     mockedResolveCdfMultilineScan.mockResolvedValue(
       createScanResult({
-        parentParagraphText: 'Parent ;;;',
-        parentParagraphKramdown: 'Parent ;;;',
-        parentKramdown: 'Parent ;;;',
+        parentParagraphText: 'Parent ;;',
+        parentParagraphKramdown: 'Parent ;;',
+        parentKramdown: 'Parent ;;',
         nodes: [
           {
             id: '20260101000003-abcdeff',
@@ -378,25 +407,40 @@ describe('DialogManager CDF multiline routing', () => {
       conceptId: CONCEPT_DOC,
       conceptType: 'document',
     });
-    vi.spyOn(dialogManager as any, 'ensureConceptCardById').mockResolvedValue(undefined);
 
     vi.mocked(siyuanApi.sql).mockImplementation(async (stmt: string) => {
       if (stmt.includes('SELECT id, type, parent_id') && stmt.includes(`WHERE id = '${PARENT_I}'`)) {
         return [{ id: PARENT_I, type: 'i' }];
       }
       if (stmt.includes("parent_id = '20260101000005-abcdeff'")) {
-        return [{ id: '20260101000007-abcdeff', content: '作者→woz', markdown: '作者→woz' }];
+        return [{ id: '20260101000007-abcdeff' }];
       }
       if (stmt.includes("parent_id = '20260101000006-abcdeff'")) {
-        return [{ id: '20260101000008-abcdeff', content: '背景→学校学习', markdown: '背景→学校学习' }];
+        return [{ id: '20260101000008-abcdeff' }];
+      }
+      if (stmt.includes("WHERE id = '20260101000007-abcdeff'")) {
+        return [{ content: '作者->woz', markdown: '作者->woz' }];
+      }
+      if (stmt.includes("WHERE id = '20260101000008-abcdeff'")) {
+        return [{ content: '背景->学校学习', markdown: '背景->学校学习' }];
       }
       return [];
     });
-    vi.spyOn(dialogManager as any, 'hasXiuyuanBindingOnBlock').mockImplementation(async (blockId: string) => {
-      return blockId === '20260101000005-abcdeff';
+    vi.mocked(siyuanApi.getBlockAttrs).mockImplementation(async (blockId: string) => {
+      if (blockId === CONCEPT_DOC) {
+        return { 'custom-xiuyuan-id': 'xy_concept' };
+      }
+      if (blockId === '20260101000005-abcdeff') {
+        return { 'custom-xiuyuan-id': 'xy_existing' };
+      }
+      return {};
     });
 
-    await dialogManager.createCdfMultilineTemplateCards([PARENT_I], 'builtin-list-descriptor-multiline');
+    await dialogManager.createCdfMultilineTemplateCards(
+      [PARENT_I],
+      'builtin-list-descriptor-multiline',
+      { skipSymbolConfirmation: true }
+    );
 
     expect(xiuyuanAppService.createFromBlocks).toHaveBeenCalledTimes(1);
     expect(xiuyuanAppService.createFromBlocks).toHaveBeenCalledWith(
@@ -411,11 +455,144 @@ describe('DialogManager CDF multiline routing', () => {
   it('normalizes selected paragraph p to parent list item i before scanning', async () => {
     const { dialogManager } = createDialogManager();
     mockedResolveCdfMultilineScan.mockResolvedValue(createScanResult());
-    vi.spyOn(dialogManager as any, 'resolveConceptDocumentIdFromReference').mockResolvedValue(CONCEPT_DOC);
-    vi.spyOn(dialogManager as any, 'ensureConceptCardById').mockResolvedValue(undefined);
 
     await dialogManager.createCdfMultilineTemplateCards([CHILD_P], 'builtin-list-concept-multiline');
 
     expect(mockedResolveCdfMultilineScan).toHaveBeenCalledWith(PARENT_I, expect.anything());
+  });
+
+  it('shows explicit rebuild guidance when all candidates are skipped by existing bindings', async () => {
+    const { dialogManager, xiuyuanAppService, siyuanApi } = createDialogManager();
+    mockedResolveCdfMultilineScan.mockResolvedValue(
+      createScanResult({
+        parentParagraphText: 'Parent ;;',
+        parentParagraphKramdown: 'Parent ;;',
+        parentKramdown: 'Parent ;;',
+        nodes: [
+          {
+            id: '20260101000003-abcdeff',
+            subtype: 'u',
+            firstParagraphId: '20260101000004-abcdeff',
+            firstParagraphText: '起源;;;',
+            firstParagraphKramdown: '起源;;;',
+            markerKind: 'descriptor-multiline',
+            explicitMarkerKind: 'descriptor-multiline',
+            recursiveMarkerKind: 'descriptor-multiline',
+            hasDocumentReference: false,
+            orderedChildListItemIds: ['20260101000005-abcdeff'],
+            unorderedChildListItemIds: [],
+          },
+        ],
+      })
+    );
+    mockedFindConceptByUpwardSearch.mockResolvedValue({
+      conceptId: CONCEPT_DOC,
+      conceptType: 'document',
+    });
+
+    vi.mocked(siyuanApi.sql).mockImplementation(async (stmt: string) => {
+      if (stmt.includes('SELECT id, type, parent_id') && stmt.includes(`WHERE id = '${PARENT_I}'`)) {
+        return [{ id: PARENT_I, type: 'i' }];
+      }
+      if (stmt.includes("parent_id = '20260101000005-abcdeff'")) {
+        return [{ id: '20260101000007-abcdeff' }];
+      }
+      if (stmt.includes("WHERE id = '20260101000007-abcdeff'")) {
+        return [{ content: '作者->woz', markdown: '作者->woz' }];
+      }
+      return [];
+    });
+    vi.mocked(siyuanApi.getBlockAttrs).mockImplementation(async (blockId: string) => {
+      if (blockId === CONCEPT_DOC) {
+        return { 'custom-xiuyuan-id': 'xy_concept' };
+      }
+      if (blockId === '20260101000005-abcdeff') {
+        return { 'custom-xiuyuan-id': 'xy_existing' };
+      }
+      return {};
+    });
+
+    await dialogManager.createCdfMultilineTemplateCards(
+      [PARENT_I],
+      'builtin-list-descriptor-multiline',
+      { skipSymbolConfirmation: true }
+    );
+
+    expect(xiuyuanAppService.createFromBlocks).not.toHaveBeenCalled();
+    const pushMsgCalls = vi.mocked(siyuanApi.pushMsg).mock.calls;
+    const finalMessage = String(pushMsgCalls[pushMsgCalls.length - 1]?.[0] || '');
+    expect(finalMessage).toContain('未新建卡片');
+    expect(finalMessage).toContain('已绑定跳过：1');
+    expect(finalMessage).toContain('取消闪卡');
+  });
+
+  it('includes skipped-existing-binding details in success summary when partially created', async () => {
+    const { dialogManager, xiuyuanAppService, siyuanApi } = createDialogManager();
+    mockedResolveCdfMultilineScan.mockResolvedValue(
+      createScanResult({
+        parentParagraphText: 'Parent ;;',
+        parentParagraphKramdown: 'Parent ;;',
+        parentKramdown: 'Parent ;;',
+        nodes: [
+          {
+            id: '20260101000003-abcdeff',
+            subtype: 'u',
+            firstParagraphId: '20260101000004-abcdeff',
+            firstParagraphText: '起源;;;',
+            firstParagraphKramdown: '起源;;;',
+            markerKind: 'descriptor-multiline',
+            explicitMarkerKind: 'descriptor-multiline',
+            recursiveMarkerKind: 'descriptor-multiline',
+            hasDocumentReference: false,
+            orderedChildListItemIds: ['20260101000005-abcdeff', '20260101000006-abcdeff'],
+            unorderedChildListItemIds: [],
+          },
+        ],
+      })
+    );
+    mockedFindConceptByUpwardSearch.mockResolvedValue({
+      conceptId: CONCEPT_DOC,
+      conceptType: 'document',
+    });
+
+    vi.mocked(siyuanApi.sql).mockImplementation(async (stmt: string) => {
+      if (stmt.includes('SELECT id, type, parent_id') && stmt.includes(`WHERE id = '${PARENT_I}'`)) {
+        return [{ id: PARENT_I, type: 'i' }];
+      }
+      if (stmt.includes("parent_id = '20260101000005-abcdeff'")) {
+        return [{ id: '20260101000007-abcdeff' }];
+      }
+      if (stmt.includes("parent_id = '20260101000006-abcdeff'")) {
+        return [{ id: '20260101000008-abcdeff' }];
+      }
+      if (stmt.includes("WHERE id = '20260101000007-abcdeff'")) {
+        return [{ content: '作者->woz', markdown: '作者->woz' }];
+      }
+      if (stmt.includes("WHERE id = '20260101000008-abcdeff'")) {
+        return [{ content: '背景->学校学习', markdown: '背景->学校学习' }];
+      }
+      return [];
+    });
+    vi.mocked(siyuanApi.getBlockAttrs).mockImplementation(async (blockId: string) => {
+      if (blockId === CONCEPT_DOC) {
+        return { 'custom-xiuyuan-id': 'xy_concept' };
+      }
+      if (blockId === '20260101000005-abcdeff') {
+        return { 'custom-xiuyuan-id': 'xy_existing' };
+      }
+      return {};
+    });
+
+    await dialogManager.createCdfMultilineTemplateCards(
+      [PARENT_I],
+      'builtin-list-descriptor-multiline',
+      { skipSymbolConfirmation: true }
+    );
+
+    expect(xiuyuanAppService.createFromBlocks).toHaveBeenCalledTimes(1);
+    const pushMsgCalls = vi.mocked(siyuanApi.pushMsg).mock.calls;
+    const finalMessage = String(pushMsgCalls[pushMsgCalls.length - 1]?.[0] || '');
+    expect(finalMessage).toContain('✅ CDF 多行制卡完成');
+    expect(finalMessage).toContain('已绑定跳过：1');
   });
 });

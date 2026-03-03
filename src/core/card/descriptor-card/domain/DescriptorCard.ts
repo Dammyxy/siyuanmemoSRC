@@ -72,7 +72,7 @@ export class DescriptorCard {
     }
 
     // 最终降级：整个内容作为描述
-    logger.warn('[DescriptorCard] No symbol found, using content as description');
+    logger.debug('[DescriptorCard] No descriptor symbol found, fallback to description-only parsing');
     return {
       attribute: 'defaultAttribute', // i18n key, resolved by the service layer
       description: content.trim(),

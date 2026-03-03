@@ -35,7 +35,7 @@ describe('DescriptorCard', () => {
 
       const card = new DescriptorCard(data);
 
-      expect(card.attribute).toBe('属性');
+      expect(card.attribute).toBe('defaultAttribute');
       expect(card.description).toBe('这是一个没有符号的内容');
     });
 
@@ -269,7 +269,7 @@ describe('DescriptorCard', () => {
 
       const card = new DescriptorCard(data);
 
-      expect(card.getWarning()).toBe('无法找到父概念，这可能是一个孤立的描述符卡');
+      expect(card.getWarning()).toBe('warningNoParentConcept');
     });
 
     it('应该返回警告当父块不是概念卡时', () => {
@@ -290,7 +290,7 @@ describe('DescriptorCard', () => {
 
       const card = new DescriptorCard(data);
 
-      expect(card.getWarning()).toBe('父块不是概念卡');
+      expect(card.getWarning()).toBe('warningParentNotConceptCard');
     });
 
     it('应该返回 null 当一切正常时', () => {

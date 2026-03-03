@@ -22,7 +22,7 @@ type XiuyuanAppLike = {
 type CdfSiyuanPort = {
   BUILTIN_DECK_ID: string;
   sql: (stmt: string) => Promise<Array<Record<string, unknown>>>;
-  getBlockAttrs: (blockId: string) => Promise<Record<string, string>>;
+  getBlockAttrs?: (blockId: string) => Promise<Record<string, string>>;
   getBlockKramdown: (blockId: string) => Promise<{ kramdown: string }>;
 };
 
@@ -36,17 +36,111 @@ export interface CreateCdfMultilineCardsPayload {
   createdDefinition: number;
   createdDescriptor: number;
   skipped: number;
+  skippedExistingBinding: number;
+  skippedNoTemplate: number;
   failed: number;
   firstError?: string;
   stoppedByDocumentReference: boolean;
 }
 
+type CdfDescriptorMeta = {
+  groupHint: string;
+  cue: string;
+  answer: string;
+};
+
+const FW_SEMICOLON = '\uFF1B';
+const ZERO_WIDTH_RE = /[\u200B-\u200D\uFEFF\u2060]/g;
+const DESCRIPTOR_MULTILINE_TAIL_RE = new RegExp(`\\s*(;;;|${FW_SEMICOLON}{3})\\s*$`);
+
 function escapeSql(value: string): string {
   return value.replace(/'/g, "''");
 }
 
+function normalizeForTextParsing(text: string): string {
+  return (text || '')
+    .replace(/\{:[^}]*\}/g, '')
+    .replace(ZERO_WIDTH_RE, '')
+    .trim();
+}
+
+function extractDescriptorGroupHint(source: string): string {
+  const normalized = normalizeForTextParsing(source);
+  if (!normalized) {
+    return '';
+  }
+  const stripped = normalized.replace(DESCRIPTOR_MULTILINE_TAIL_RE, '').trim();
+  return stripped || normalized;
+}
+
+function extractDescriptorGroupHintFromCandidates(...sources: Array<string | undefined>): string {
+  for (const source of sources) {
+    if (!source) {
+      continue;
+    }
+    const hint = extractDescriptorGroupHint(source);
+    if (hint.length > 0) {
+      return hint;
+    }
+  }
+  return '';
+}
+
+function parseCueAndAnswer(source: string): { cue: string; answer: string } {
+  const text = normalizeForTextParsing(source);
+  const unicodeArrow = '\u2192';
+  const delimiter = text.includes(unicodeArrow) ? unicodeArrow : '->';
+  const parts = text.split(delimiter);
+
+  if (parts.length >= 2) {
+    return {
+      cue: parts[0].trim(),
+      answer: parts.slice(1).join(delimiter).trim(),
+    };
+  }
+
+  return {
+    cue: '',
+    answer: text,
+  };
+}
+
 function isDefinitionTemplate(templateId: string): boolean {
   return templateId.startsWith('builtin-concept-definition');
+}
+
+async function getBlockAttrsSafe(
+  blockId: string,
+  siyuanApi: CdfSiyuanPort
+): Promise<Record<string, string>> {
+  if (typeof siyuanApi.getBlockAttrs === 'function') {
+    try {
+      return await siyuanApi.getBlockAttrs(blockId);
+    } catch (error) {
+      logger.warn('[CreateCdfMultilineCardsUseCase] getBlockAttrs failed, fallback to SQL attributes query:', {
+        blockId,
+        error,
+      });
+    }
+  }
+
+  const attrRows = await siyuanApi.sql(`
+    SELECT name, value
+    FROM attributes
+    WHERE block_id = '${escapeSql(blockId)}'
+      AND name IN ('custom-xiuyuan-id', 'custom-fsrs-xiuyuan-id')
+  `);
+
+  const attrs: Record<string, string> = {};
+  for (const row of attrRows) {
+    const name = typeof row?.name === 'string' ? row.name : '';
+    const value = typeof row?.value === 'string' ? row.value : '';
+    if (name.length > 0) {
+      attrs[name] = value;
+    }
+  }
+
+  return attrs;
 }
 
 async function getFirstParagraphIdForListItem(
@@ -71,8 +165,8 @@ async function hasXiuyuanBindingOnParagraphOrListItem(
   siyuanApi: CdfSiyuanPort
 ): Promise<boolean> {
   const [paragraphAttrs, listItemAttrs] = await Promise.all([
-    siyuanApi.getBlockAttrs(paragraphId),
-    siyuanApi.getBlockAttrs(listItemId),
+    getBlockAttrsSafe(paragraphId, siyuanApi),
+    getBlockAttrsSafe(listItemId, siyuanApi),
   ]);
   const paraBinding = paragraphAttrs?.['custom-xiuyuan-id'] || paragraphAttrs?.['custom-fsrs-xiuyuan-id'];
   const itemBinding = listItemAttrs?.['custom-xiuyuan-id'] || listItemAttrs?.['custom-fsrs-xiuyuan-id'];
@@ -108,7 +202,7 @@ async function ensureConceptCard(
   siyuanApi: CdfSiyuanPort,
   deckId?: string
 ): Promise<Result<void>> {
-  const attrs = await siyuanApi.getBlockAttrs(conceptBlockId);
+  const attrs = await getBlockAttrsSafe(conceptBlockId, siyuanApi);
   const existing = attrs?.['custom-xiuyuan-id'] || attrs?.['custom-fsrs-xiuyuan-id'];
   if (existing && existing.trim().length > 0) {
     return ok(undefined);
@@ -169,6 +263,8 @@ export class CreateCdfMultilineCardsUseCase {
       let createdDefinition = 0;
       let createdDescriptor = 0;
       let skipped = 0;
+      let skippedExistingBinding = 0;
+      let skippedNoTemplate = 0;
       let failed = 0;
       let firstError = '';
       const setFirstError = (message: string): void => {
@@ -177,26 +273,55 @@ export class CreateCdfMultilineCardsUseCase {
         }
       };
 
-      const createForParagraph = async (paragraphId: string, listItemId: string, markerKind: DescriptorOrDefinitionKind): Promise<void> => {
+      const loadParagraphMarkdownAndContent = async (
+        paragraphId: string
+      ): Promise<{ markdown: string; content: string }> => {
+        const paragraphRows = await this.siyuanApi.sql(`
+          SELECT markdown, content
+          FROM blocks
+          WHERE id = '${escapeSql(paragraphId)}'
+          LIMIT 1
+        `);
+        return {
+          markdown: String(paragraphRows?.[0]?.markdown || paragraphRows?.[0]?.content || ''),
+          content: String(paragraphRows?.[0]?.content || paragraphRows?.[0]?.markdown || ''),
+        };
+      };
+
+      const createForParagraph = async (
+        paragraphId: string,
+        listItemId: string,
+        markerKind: DescriptorOrDefinitionKind,
+        descriptorMeta?: CdfDescriptorMeta
+      ): Promise<void> => {
         const hasBinding = await hasXiuyuanBindingOnParagraphOrListItem(paragraphId, listItemId, this.siyuanApi);
         if (hasBinding) {
           skipped += 1;
+          skippedExistingBinding += 1;
           return;
         }
 
         const templateId = templateIdFromDescriptorOrDefinitionKind(markerKind, fallbackForNone);
         if (!templateId) {
           skipped += 1;
+          skippedNoTemplate += 1;
           return;
         }
 
         const definition = isDefinitionTemplate(templateId);
+        const fieldMapping: Record<string, string> = definition
+          ? { concept: conceptBlockId, definition: paragraphId }
+          : { concept: conceptBlockId, descriptor: paragraphId };
+        if (!definition && descriptorMeta) {
+          fieldMapping.cdf_group_hint = descriptorMeta.groupHint;
+          fieldMapping.cdf_child_cue = descriptorMeta.cue;
+          fieldMapping.cdf_child_answer = descriptorMeta.answer;
+        }
+
         const createResult = await this.xiuyuanAppService.createFromBlocks({
           blockIds: definition ? [paragraphId, conceptBlockId] : [conceptBlockId, paragraphId],
           templateId,
-          fieldMapping: definition
-            ? { concept: conceptBlockId, definition: paragraphId }
-            : { concept: conceptBlockId, descriptor: paragraphId },
+          fieldMapping,
           deckId: command.deckId || this.siyuanApi.BUILTIN_DECK_ID,
           cardType: 'descriptor',
         });
@@ -214,8 +339,49 @@ export class CreateCdfMultilineCardsUseCase {
         }
       };
 
+      const parentMarkerKindFromParagraphKramdown = detectDescriptorOrDefinitionKind(scanResult.parentParagraphKramdown || '');
+      const parentMarkerKindFromBlockKramdown = detectDescriptorOrDefinitionKind(scanResult.parentKramdown || '');
+      const parentMarkerKindFromParagraphText = detectDescriptorOrDefinitionKind(scanResult.parentParagraphText || '');
+      const parentMarkerKind = parentMarkerKindFromParagraphKramdown !== 'none'
+        ? parentMarkerKindFromParagraphKramdown
+        : parentMarkerKindFromBlockKramdown !== 'none'
+          ? parentMarkerKindFromBlockKramdown
+          : parentMarkerKindFromParagraphText;
+      if (command.templateId === 'builtin-list-descriptor-multiline' && parentMarkerKind === 'descriptor-multiline') {
+        const descriptorGroupHint = extractDescriptorGroupHintFromCandidates(
+          scanResult.parentParagraphKramdown,
+          scanResult.parentParagraphText
+        );
+
+        for (const node of scanResult.nodes) {
+          const paragraph = await loadParagraphMarkdownAndContent(node.firstParagraphId);
+          const parsedCueAnswer = parseCueAndAnswer(paragraph.content || paragraph.markdown);
+          const kind = detectDescriptorOrDefinitionKind(paragraph.markdown);
+          await createForParagraph(node.firstParagraphId, node.id, kind, {
+            groupHint: descriptorGroupHint,
+            cue: parsedCueAnswer.cue,
+            answer: parsedCueAnswer.answer,
+          });
+        }
+
+        return ok({
+          createdDefinition,
+          createdDescriptor,
+          skipped,
+          skippedExistingBinding,
+          skippedNoTemplate,
+          failed,
+          firstError: firstError || undefined,
+          stoppedByDocumentReference: scanResult.stoppedByDocumentReference,
+        });
+      }
+
       for (const node of scanResult.nodes) {
         if (node.markerKind === 'descriptor-multiline') {
+          const descriptorGroupHint = extractDescriptorGroupHintFromCandidates(
+            node.firstParagraphKramdown,
+            node.firstParagraphText
+          );
           const nestedIds = [...node.orderedChildListItemIds, ...node.unorderedChildListItemIds];
           for (const nestedListItemId of nestedIds) {
             const paragraphId = await getFirstParagraphIdForListItem(nestedListItemId, this.siyuanApi);
@@ -224,15 +390,14 @@ export class CreateCdfMultilineCardsUseCase {
               setFirstError(`子级缺少段落块：${nestedListItemId}`);
               continue;
             }
-            const paragraphRows = await this.siyuanApi.sql(`
-              SELECT markdown, content
-              FROM blocks
-              WHERE id = '${escapeSql(paragraphId)}'
-              LIMIT 1
-            `);
-            const paragraphMarkdown = String(paragraphRows?.[0]?.markdown || paragraphRows?.[0]?.content || '');
-            const kind = detectDescriptorOrDefinitionKind(paragraphMarkdown);
-            await createForParagraph(paragraphId, nestedListItemId, kind);
+            const paragraph = await loadParagraphMarkdownAndContent(paragraphId);
+            const parsedCueAnswer = parseCueAndAnswer(paragraph.content || paragraph.markdown);
+            const kind = detectDescriptorOrDefinitionKind(paragraph.markdown);
+            await createForParagraph(paragraphId, nestedListItemId, kind, {
+              groupHint: descriptorGroupHint,
+              cue: parsedCueAnswer.cue,
+              answer: parsedCueAnswer.answer,
+            });
           }
           continue;
         }
@@ -244,6 +409,8 @@ export class CreateCdfMultilineCardsUseCase {
         createdDefinition,
         createdDescriptor,
         skipped,
+        skippedExistingBinding,
+        skippedNoTemplate,
         failed,
         firstError: firstError || undefined,
         stoppedByDocumentReference: scanResult.stoppedByDocumentReference,
