@@ -168,6 +168,7 @@ const imageNaturalWidth = ref(0);
 const imageNaturalHeight = ref(0);
 const { showLoading } = useDeferredLoadingIndicator(loading);
 let loadSeq = 0;
+let zoomCompensationVersion = 0;
 
 const MIN_ZOOM_PERCENT = 50;
 const MAX_ZOOM_PERCENT = 300;
@@ -181,8 +182,8 @@ const fullscreenFrameDimensions = computed(() => {
 
   const scale = zoomPercent.value / 100;
   return {
-    width: Math.max(1, Math.round(imageNaturalWidth.value * scale)),
-    height: Math.max(1, Math.round(imageNaturalHeight.value * scale)),
+    width: Math.max(1, imageNaturalWidth.value * scale),
+    height: Math.max(1, imageNaturalHeight.value * scale),
   };
 });
 
@@ -444,20 +445,27 @@ function applyZoomPercent(value: number, anchorEvent?: WheelEvent): void {
   const anchorContentX = viewport.scrollLeft + viewportOffsetX;
   const anchorContentY = viewport.scrollTop + viewportOffsetY;
   const ratio = nextScale / prevScale;
+  const compensationVersion = ++zoomCompensationVersion;
 
   zoomPercent.value = next;
 
   void nextTick(() => {
-    const latestViewport = viewportRef.value;
-    if (!latestViewport) {
+    if (compensationVersion !== zoomCompensationVersion) {
       return;
     }
+
+    const latestViewport = viewportRef.value;
+    if (!latestViewport || !isImageFullscreen.value) {
+      return;
+    }
+
     latestViewport.scrollLeft = Math.max(0, anchorContentX * ratio - viewportOffsetX);
     latestViewport.scrollTop = Math.max(0, anchorContentY * ratio - viewportOffsetY);
   });
 }
 
 function resetImageFullscreenState(): void {
+  zoomCompensationVersion += 1;
   isImageFullscreen.value = false;
   zoomPercent.value = 100;
 }
@@ -864,6 +872,7 @@ onUnmounted(() => {
 .image-occlusion-card-renderer__stage.is-image-fullscreen .image-occlusion-card-renderer__frame {
   max-width: none;
   max-height: none;
+  transition: none;
 }
 
 .image-occlusion-card-renderer__image {

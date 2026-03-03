@@ -246,6 +246,146 @@ describe('ImageOcclusionCardRenderer.vue', () => {
     expect(zoomValue.text()).toBe('100%');
   });
 
+  it('keeps mouse anchor stable by adjusting viewport scroll on ctrl+wheel', async () => {
+    const cardId = 'card-11';
+    getBlockAttrsMock.mockResolvedValue({
+      'custom-fsrs-image-occlusion': createPayload(cardId),
+      'custom-fsrs-image-occlusion-card-ids': JSON.stringify([cardId]),
+    });
+    getBlockKramdownMock.mockResolvedValue({ kramdown: '' });
+
+    const wrapper = mount(ImageOcclusionCardRenderer, {
+      props: {
+        blockId: 'block-11',
+        showAnswer: false,
+        card: createImageOcclusionCard(cardId),
+      },
+    });
+
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    await wrapper.get('[data-role="image-fullscreen-toggle"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const viewport = wrapper.get('.image-occlusion-card-renderer__viewport').element as HTMLElement;
+    viewport.scrollLeft = 120;
+    viewport.scrollTop = 80;
+
+    const rectSpy = vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({
+      x: 100,
+      y: 40,
+      left: 100,
+      top: 40,
+      right: 700,
+      bottom: 440,
+      width: 600,
+      height: 400,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    viewport.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: -120,
+      clientX: 250,
+      clientY: 160,
+    }));
+
+    await wrapper.vm.$nextTick();
+    await wrapper.vm.$nextTick();
+
+    expect(viewport.scrollLeft).toBeCloseTo(147, 3);
+    expect(viewport.scrollTop).toBeCloseTo(100, 3);
+    rectSpy.mockRestore();
+  });
+
+  it('applies only the latest pending scroll compensation during rapid ctrl+wheel zoom', async () => {
+    const cardId = 'card-12';
+    getBlockAttrsMock.mockResolvedValue({
+      'custom-fsrs-image-occlusion': createPayload(cardId),
+      'custom-fsrs-image-occlusion-card-ids': JSON.stringify([cardId]),
+    });
+    getBlockKramdownMock.mockResolvedValue({ kramdown: '' });
+
+    const wrapper = mount(ImageOcclusionCardRenderer, {
+      props: {
+        blockId: 'block-12',
+        showAnswer: false,
+        card: createImageOcclusionCard(cardId),
+      },
+    });
+
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    await wrapper.get('[data-role="image-fullscreen-toggle"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const viewport = wrapper.get('.image-occlusion-card-renderer__viewport').element as HTMLElement;
+    let scrollLeftValue = 100;
+    let scrollTopValue = 50;
+    let scrollLeftSetCount = 0;
+    let scrollTopSetCount = 0;
+
+    Object.defineProperty(viewport, 'scrollLeft', {
+      configurable: true,
+      get: () => scrollLeftValue,
+      set: (value: number) => {
+        scrollLeftSetCount += 1;
+        scrollLeftValue = Number(value);
+      },
+    });
+
+    Object.defineProperty(viewport, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTopValue,
+      set: (value: number) => {
+        scrollTopSetCount += 1;
+        scrollTopValue = Number(value);
+      },
+    });
+
+    const rectSpy = vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({
+      x: 100,
+      y: 40,
+      left: 100,
+      top: 40,
+      right: 700,
+      bottom: 440,
+      width: 600,
+      height: 400,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    viewport.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: -120,
+      clientX: 250,
+      clientY: 170,
+    }));
+    viewport.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: -120,
+      clientX: 300,
+      clientY: 200,
+    }));
+
+    await wrapper.vm.$nextTick();
+    await wrapper.vm.$nextTick();
+
+    expect(scrollLeftSetCount).toBe(1);
+    expect(scrollTopSetCount).toBe(1);
+    expect(scrollLeftValue).toBeCloseTo(127.2727, 3);
+    expect(scrollTopValue).toBeCloseTo(69.0909, 3);
+    rectSpy.mockRestore();
+  });
+
   it('scrolls horizontally by shift+wheel while fullscreen', async () => {
     const cardId = 'card-8';
     getBlockAttrsMock.mockResolvedValue({
