@@ -1,284 +1,358 @@
-# Siyuan Plugin Template - Vite & Vue3
+# SiYuanMemo——间隔重复系统插件
 
 [English](./README.md)
 
-> 本例同 [siyuan/plugin-sample](https://github.com/siyuan-note/plugin-sample).
+这个插件能让你：
 
-1. 使用 Vite 打包
-2. 使用 Vue3 进行开发
-3. 提供一个github action 模板，能自动生成package.zip并上传到新版本中
-4. 提供自动更新 `plugin.json` 中的 `version` 并发布新版本的脚本。[link](#release-script)
+1. 更好地利用**间隔重复系统，** 驱动**提取练习**和**机械练习**这两种策略 **，** 记忆任何东西。
+2. 通过思源的**双链**和**间隔重复系统**，将死记硬背的信息与大脑中的知识进行深度关联，促进迁移学习和精细编码，为大脑通个网，搭建属于自己的知识。
 
-> [!NOTE]
->
-> 在开始之前，你需要先安装 [NodeJS](https://nodejs.org/en/download) 和 [pnpm](https://pnpm.io/installation)。
+它目前有这些功能：
 
-## 开始
+1. **练习系统：** 拥有两种练习策略与算法
 
-1. 通过 `Use the template` 按钮，以该仓库为模板创建你自己的项目。
-> [!WARNING]
->
-> 请注意库名和插件名称一致，默认分支必须为 `main`.
+   - 间隔重复记忆算法（FSRS）驱动的提取练习
+   - SuperMemo Final Drill 动态算法驱动的机械练习
+2. **神经漫游系统：** 融合了思源的双链与 通过 SuperMemo 的神经复习
+3. **概念描述符框架（CDF）** ：RemNote 里的模版制卡系统，能让你快速拆解信息并制卡
+4. **完善的制卡功能**：
 
-> [!WARNING]
->
-> 初次尝试，请不要修改任何内容，直接通过下述方式，成功在思源里加载插件模板以后，再进行调整。
->
-> 例如删除 README_zh_CN.md 也会导致插件加载不成功。
+   - 公式制卡
+   - 图片制卡
+   - 有序列表模版卡（复习时支持渐进式提示）
+   - 无序列表模版卡（复习时支持汇总提示）
+   - 概念描述符框架模版卡
+   - 监听制卡
 
+     - 符号监听制卡
+     - 同时监听了思源原生的【快速制卡】，点击【快速制卡】后会自动识别卡片格式，并将其转化为符合插件支持的卡片类型，并同步到插件
+   - 解耦了思源的块与闪卡，现在一个块可以制作多张卡片
+   - 不污染思源原生复习界面，为新增的卡片类型单独做了多种复习界面
+5. **两种复习入口**
 
-2. 使用 `git clone` 克隆创建好的仓库。
-3. 使用 `pnpm i` 安装项目所需的依赖。
+   - 传统的队列复习入口
 
-4. 复制 `.env.example` 文件并取名为 `.env`，修改其中的 `VITE_SIYUAN_WORKSPACE_PATH` 为你的思源工作空间。
+     - 在插件顶栏按钮右键里进入复习
+     - 在浏览器【练习】按钮里进入复习
+     - 在【/菜单】里进入复习
+     - 在命令面板里进入复习
+   - RemNote 式的块级复习入口，精准控制复习粒度
 
+     - 在文档块块菜单里，可以复习当前文档块及其子块的所有闪卡
+     - 在其它块块菜单里，可以复习当前块及其子块的所有闪卡
+6. **SuperMemo 风格的 SRS 浏览器**
 
-> [!TIP]
->
-> 如果你不喜欢将项目打包至工作空间中，可以使用 `软链接` 的方式。
->
-> 直接写入思源空间下，可通过思源的同步功能直接同步至其他设备，而软链接的方式则不会参与同步。
-> 
-> 本模板不提供软链接的具体内容，相关内容可参考 [plugin-sample-vite-svelte](https://github.com/siyuan-note/plugin-sample-vite-svelte)。
-> 
+   - 用表格视图管理你的闪卡
+7. **五种队列**
 
+   - 传统的提取练习队列
+   - SuperMemo 带来的渐进学习队列
+   - 兜底的刻意练习队列
+   - 融合双链和神经复习的神经漫游队列
+   - 支持复习时精准调整复习范围的筛选复习队列
+8. **SuperMemo 风格的队列管理**
 
-5. 使用 `pnpm dev` 启动项目，看到类似下面的内容表示构建成功
+   - 可以对复习队列进行排序，以自己喜欢的顺序复习卡片
+   - 可以选择卡片插入到任意队列
+   - 可以在复习中将卡片插入到队列任意位置，或者排期到未来
+9. **优化复习体验卡片规划功能**
 
-  ```
+   - 推迟
+   - 提前
+   - 分摊
 
-  > plugin-siyuanmemo@0.0.1 dev /path/to/your/plugin-siyuanmemo
-  > vite build --watch
+在思源刚要做闪卡时，我心里有过这些想法，现在时机成熟先做了出来，这个插件刚到达闪卡的第二阶段，还有很多需要完善，下面是简单的功能介绍：
 
-  mode=> production
-  env=> {
-    VITE_SIYUAN_WORKSPACE_PATH: '/path/to/siyuan/workspace',
-  }
+# SRS 浏览器
 
-  Siyuan workspace path is set:
-  /path/to/siyuan/workspace
+![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260217135755-mcan1zg.png)
 
-  Plugin will build to:
-  # ✅ 插件将会构建至下面的位置
-  /path/to/siyuan/workspace/data/plugins/plugin-siyuanmemo
+- 右侧是预览区，会预览闪卡对应的块，默认锁定，双击解锁。
+- 左下角是文档区，会展示所有闪卡的所在的文档块，它会跟着搜索结果、条件筛选、当前队列进行聚焦，辅助管理闪卡。
+- 左上角是队列区，点进队列会展示对应队列里的闪卡，可以右键进行管理，包括移除、排序、推迟、提前。
 
-  isWatch=> true
-  distDir=> /path/to/siyuan/workspace/data/plugins/plugin-siyuanmemo
-  vite v6.3.5 building for production...
+# 四种闪卡
 
-  watching for file changes...
+## 练习（Item 卡）：
 
-  build started...
-  ✓ 26 modules transformed.
-  rendering chunks (1)...LiveReload enabled
-  ../../Siyuan-plugin/data/plugins/plugin-siyuanmemo/index.css    1.08 kB │ gzip:  0.41 kB
-  ../../Siyuan-plugin/data/plugins/plugin-siyuanmemo/index.js   198.60 kB │ gzip: 46.59 kB
-  [vite-plugin-static-copy] Copied 7 items.
-  built in 502ms.
-  ```
+- 解释：广义上的闪卡。正面提问，背面回答。这是最纯粹的提取练习。
+- 如何制作？
 
-   刷新思源，你将会在 `思源 - 设置 - 集市` 中看到名为 `plugin-siyuanmemo` 的插件。
-   
-6. 启用插件, 并检查 `App.vue` 文件进行开发。
+  - 在插件里，自动制卡后，有背面问题的会被自动识别为 item。
 
-   这个文件中包含了一些代码示例。
+    - 自动制卡包括：
 
+      - 思源原生的快速制卡
+      - 插件的模版制卡
+      - 插件的符号制卡
+  - 也可以在浏览器里手动标记卡片类型为 item。
 
-> [!TIP]
->
-> 更多的插件代码案例，请查看： [siyuan/plugin-sample/src/index.ts](https://github.com/siyuan-note/plugin-sample/blob/main/src/index.ts)
+## 材料（Topic 卡）：
 
+- 解释：阅读材料。
+- 如何制作？
 
+  - 自动制卡后，没有背面问题的卡会被识别为 topic，也可以在浏览器里手动标记。
 
-## 上架集市
+## 定义（Descriptor 卡、描述符卡 **）** ：
 
-### 使用 Github Action
+- 解释：
 
-1. 你可以在本地使用插件的版本创建一个名为 `v*` 的 tag。
-2. 将创建好的 tag 推送至 Github。模板项目提供了 Action 脚本自动构建新版本。
+  - 简单来说，它是【模版制卡】，我最早在叶哥写的[【随笔】间隔重复软件的两大进路](https://zhuanlan.zhihu.com/p/396445859)里见到过。
+  - 它源自 RemNote 的 **CDF** (Concept/Descriptor Framework，概念描述符框架)。这是一种高度形式化的知识拆解工具。
+- 本质：
 
+  - 不仅是为了填表方便（实现 SuperTag） **，** 它还是一种“注意力编程”，引入一种专家视角。就像 AI 的 Prompt 一样，专家通过 CDF 中的 Descriptor 指导你的注意力，让你识别信息中有用的部分。相当于戴上了一个人格面具，复用专家的经验。
+  - 对于在校学生，这种形式化（结构化）的工具很方便。
+- 如何制作？
 
-> [!TIP]
->
-> <div id="release-script"></div>这个项目提供了自动创建 `tag` 并发布新版本的脚本，你可以通过运行 `pnpm release` 创建一个修正版本。
->
-> 你可以通过使用参数 `--mode=manual|patch|minor|major` 设置版本号的调整模式，或者通过 `pnpm release:manual` 的方式直接以特定参数进行发布。
->
-> 完整的命令列表请查看 `package.json` 文件。
+  - 需要按照传递型双链的写法来做，在下文有演示。
 
+## 概念（Concept 卡）：
 
-样例中自带了 github action，可以自动打包发布，请遵循以下操作：
+- 解释：
 
-1. 设置项目 `https://github.com/OWNER/REPO/settings/actions` 页面向下划到 Workflow Permissions，打开配置
+  - 它不是 CDF 【概念/描述符框架】里的概念，而是 supermemo 里的用来【神经复习】的概念。在这个插件里，概念是【神经漫游】队列的核心节点。
+- 对应双链，概念卡就是思源里的文档块。
+- 如何制作？
 
-![img](./asset/action.png)
+  - 点击文档块块标，可以看到这两个按钮：
 
-2. 需要发布版本的时候，push 一个格式为 `v*` 的 tag，github 就会自动打包发布 release（包括 package.zip）
-3. 默认使用保守策略进行 pre-release 发布，如果觉得没有必要，可以更改 release.yml 中的设置：
+    - 制作为概念卡并加入队列
+    - 制作为概念卡并立即漫游
 
-```yaml
-- name: Release
-    uses: ncipollo/release-action@v1
-    with.
-        allowUpdates: true
-        artifactErrorsFailBuild: true
-        artifacts: 'package.zip'
-        token: ${{ secrets.GITHUB_TOKEN }}
-        prerelease: true # change this to false
-```
+# 五种队列
 
-### 手动发布
+## 三种动态队列
 
-1. 使用 `pnpm build` 构建 `package.zip`
-2. 在 GitHub 上创建一个新的发布，使用插件版本号作为 “Tag version”，示例: https://github.com/siyuan-note/plugin-sample/releases
-3. 上传 package.zip 作为二进制附件
-4. 提交发布
+### 提取练习
 
-> [!NOTE]
-> 
-> 如果是第一次发布版本，还需要创建一个 PR 到 [Community Bazaar](https://github.com/siyuan-note/bazaar)  社区集市仓库，修改该库的 plugins.json。该文件是所有社区插件库的索引，格式为：
+- 队列卡片来源：
 
-```json
-{
-  "repos": [
-    "username/reponame"
-  ]
-}
-```
+  - 获取当天到期和手动加入队列的 item 和 descriptor
+- 算法：
 
----
+  - 使用 FSRS 算法驱动。
 
-更多有关于插件的信息，请查看： [siyuan/plugin-sample](https://github.com/siyuan-note/plugin-sample).
+### 渐进学习
 
-## 练习界面
+- 队列卡片来源：
 
-- 机械练习模式下不显示新卡/复习卡数量状态栏
-- 其他练习模式保留新卡/复习卡数量状态栏展示
+  - 获取当天到期和手动加入队列的所有类型卡
+- 算法：
 
-## SRS 编辑器
+  - item 和 descriptor 使用 FSRS 算法驱动，topic 和 concept 使用另一种算法驱动。
 
-- 卡片元数据面板展示问题/答案与学习状态
-- 数据校验支持批量修正创建/修改时间
+### 筛选复习
 
-## 性能指标
+- 队列卡片来源：
 
-### 批量操作性能
+  - 根据筛选条件获取卡片到队列进行复习，正常评分会移除卡片，点【Rebuild】会重新获取卡片到队列。
+  - ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260217151638-cgm7my8.png)
+- 算法：
 
-- **批量查询优化**：600 个 ID 的批量查询性能提升 **98.8%**
-  - 顺序查询：~8900ms
-  - 批量查询（200/批，3 并发）：~107ms
-  - 配置：batchSize=200, maxConcurrency=3
+  - item 和 descriptor 使用 FSRS 算法驱动，topic 和 concept 使用另一种算法驱动。
 
-### 队列性能
+## 一种静态队列——【刻意练习】
 
-- **大队列处理**：1000 张卡片处理时间 < 1 秒
-- **插入性能**：1000 次插入操作 < 2 秒
-- **内存优化**：操作日志自动限制在 1000 条以内
+- 设计来源：其实应该叫【最终演练】，来自 supermemo 的 finaldrill。
+- 队列卡片来源：
 
-## 新功能
+  1. 提取练习、渐进学习、筛选复习队列里，评分小于 3 的卡片会自动掉入【刻意练习】队列。
+  2. 在浏览器里手动选择闪卡加入。
+- 算法：
 
-### 架构优化（2026-02）
+  - 评分不影响间隔重复排期，在这个队列里，只有评分等于 4 的闪卡才会移除队列，如果一直按评分 3 的话，会永远刷不完。
+  - 队列排序使用了局部洗牌算法，详情看[Final drill algorithm](https://supermemopedia.com/wiki/Final_drill_algorithm)。
 
-#### 1. 观察者模式 (Observer Pattern)
-- **自动缓存失效**：数据源变化时自动通知所有 Sequencer
-- **消除手动 reset()**：不再需要手动调用 reset() 方法
-- **降低耦合度**：数据源和缓存层解耦
+## 一种不知道如何分类的队列——神经漫游
 
-#### 2. Result 类型模式
-- **类型安全的错误处理**：强制调用者显式处理成功和失败情况
-- **消除静默失败**：所有错误都必须被处理
-- **更好的错误追踪**：统一的错误报告机制
+- 设计来源：思源的双链和 supermemo 的神经复习
+- 队列卡片来源：漫游的对象是思源的块，这个队列会自动获取概念卡的反链、描述符卡进行漫游。
+- 算法：扩散激活。
+- 小提示：在漫游的时候，遇到块引用锚文本可以右键——制作为概念卡并加入队列，这样概念卡的正链也能加入队列，进行漫游。逻辑是这样的：
 
-#### 3. Branded Types（品牌类型）
-- **编译时类型检查**：防止 BlockID 和 CardID 混淆
-- **零运行时开销**：纯编译时类型安全
-- **更好的 IDE 支持**：自动补全和类型提示
+  - 正链=正文中对其它概念（文档块）的引用
+  - 反链=正文
+  - 正链=反链中对其它概念的引用
+  - ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260217163333-r5n304c.png)
 
-#### 4. 操作日志系统
-- **调试支持**：记录所有队列操作历史
-- **性能分析**：记录操作耗时
-- **自动限制**：日志大小自动限制，防止内存泄漏
+# 快速制卡
 
-#### 5. 错误恢复机制
-- **三层降级策略**：
-  1. 正常数据库查询
-  2. 使用缓存数据（带用户通知）
-  3. 返回空结果并报告错误
-- **用户友好的错误消息**：技术错误转换为可理解的提示
+## 符号制卡
 
-### 测试覆盖
+- 监听了符号，能快速制卡，支持：
 
-- **单元测试**：631 个测试用例通过
-- **属性测试**：使用 fast-check 进行属性验证
-- **性能测试**：关键路径性能基准测试
-- **边界条件测试**：20+ 边界条件测试用例
+  - ​`>>`
 
-## 架构说明
+    - 正向卡片
+    - 问题`>>`答案
+  - ​`<<`
 
-### DDD 分层架构
+    - 反向卡片
+    - 答案`<<`问题
+  - ​`<>`
 
-本插件采用领域驱动设计（DDD）原则，将系统分为四个清晰的层次：
+    - 双向卡片
+    - 术语`<>`定义
+    - 会生成两张卡
+  - ​`;;`
 
-```
-表现层 (Presentation)
-    ↓
-应用层 (Application)
-    ↓
-领域层 (Domain)
-    ↓
-基础设施层 (Infrastructure)
-```
+    - 描述符卡片
+    - 属性`;;`描述
+  - ​`==挖空==`​ `{{挖空}}` 思源标记
 
-#### 核心服务
+    - 挖空卡片
+    - 文本`{{填空}} `​或 `==高亮==` 或思源标记（ALT+D）
+    - 有多个挖空标记，会生成多张卡
+  - 不会监听被``包裹的符号，输入完符号后，需要回车一下，失去块焦点才会触发自动制卡。
 
-**应用层服务**：
-- `SettingsService`：管理插件设置和 Riff 集成配置
-- `ReviewLogService`：管理复习和重新调度日志
-- `RiffBlacklistService`：管理 Riff 黑名单
+## 模版制卡
 
-**基础设施层服务**：
-- `FileService`：统一的文件读写接口
-- `QueuePersistenceService`：通用键值存储，支持所有队列类型
-- `UnifiedStorageManager`：卡片和 XiuYuan 统一存储
+有序列表模版，会批量制卡片，共用同一个块 ID，每个卡片可以写单独的问题补充、提示。
 
-**领域层对象**：
-- 队列对象：`RetrievalPracticeQueue`、`FinalDrillQueue`、`IncrementalLearningQueue` 等
-- 卡片领域对象
-- XiuYuan 领域对象
+- 制卡步骤：
 
-#### 设计原则
+  1. 强制要求→子列表块得是有序列表
+  2. 复习入口→右键父级列表项块
+  3. 制卡按钮→在块菜单里选择—【插件】—【siyuanmemo】—【创建列表模版卡】
+- 问题补充、提示的写法：
 
-1. **单一职责**：每个服务只负责一个明确的领域
-2. **依赖注入**：通过 `ApplicationContext` 管理服务生命周期
-3. **队列自治**：队列对象自己管理状态和逻辑
-4. **通用存储**：持久化服务不需要知道队列的具体结构
-5. **防抖保存**：所有写操作使用 300ms 防抖，避免频繁 I/O
+  - 提示→问题
+  - 举例，步骤1的`强制要求→子列表块得是有序列表`里：
 
-#### 使用示例
+    - 符号→前面的【强制要求】文本是提示
+    - 符号→后面的【子列表块得是有序列表】文本是问题
+- 制卡演示：
 
-```typescript
-// 获取服务
-const context = await ApplicationContext.create(plugin);
-const settingsService = context.getSettingsService();
-const queuePersistence = context.getQueuePersistenceService();
+  - ![PixPin_2026-02-17_17-02-23](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/PixPin_2026-02-17_17-02-23-20260217170230-5lnj8ae.gif)
+- 复习效果：
 
-// 使用设置服务
-const settings = settingsService.getSettings();
-await settingsService.updateSettings({ newCardsPerDay: 20 });
+  - ![PixPin_2026-02-17_17-20-40](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/PixPin_2026-02-17_17-20-40-20260217172050-aplrjnx.gif)
 
-// 使用队列
-const queue = new RetrievalPracticeQueue(queuePersistence);
-await queue.load();
-queue.add(item);
-await queue.save();
-```
+## 公式制卡
 
-#### 相关文档
+![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260303060036-bm0b9tb.png)
 
-- [架构文档](./.kiro/specs/storage-manager-ddd-refactoring/ARCHITECTURE.md)
-- [重构指南](./.kiro/specs/storage-manager-ddd-refactoring/REFACTORING-GUIDE.md)
-- [ADR-001: StorageManager DDD 重构](./.kiro/specs/storage-manager-ddd-refactoring/ADR-001-storage-manager-refactoring.md)
+- 如何使用？
 
-## API 说明
+  1. 点击公式块
+  2. 选中要挖空的部分按下 ALT+Z
+  3. 可以挖多个空，每个空会单独生成一张卡片
+  4. 如果开启了符号监听制卡，这时候光标随便点哪里敲个回车就会触发公式块制卡
+- 复习效果
 
-- /riff/getRiffCardsByBlockIDs 返回的 created/updated 现在对应块的 created_time/last_edited_time
+  - ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260303070341-cfaw1gq.png)
+
+PS：也可以使用原生的快速制卡，也能正确识别多挖空，并同步到插件
+
+## 图片制卡
+
+- 如何使用？
+
+  1. 点击图片右上角的菜单栏，找到插件里的【创建图片遮挡卡】
+  2. 在【图片遮挡卡】编辑器里制卡，拖拽创建遮挡
+
+     ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260303060441-6so7gwj.png)
+  3. 遮挡后可以通过点击选中，然后为其输入提示，作为卡片的问题
+  4. 可以在点击【临时复习】按钮进行复习（刻意练习模式，评分小于4不会移除，如果需要其它练习模式，可以通过块菜单进行）
+
+     ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260303060949-8ykx7lp.png)
+
+## CDF 制卡
+
+- 如何使用？
+
+  - 概念描述符卡
+
+    - 在列表大纲里使用关联型双链
+
+      1. 打出列表块
+      2. 父级块打上对概念文档块的引用
+
+      - 方式一：
+
+        1. 在插件设置里开启**启用监听符号制卡**
+        2. 子级块使用 `描述符;;文本`
+        3. 写完后敲个回车会自动识别为描述符卡片制卡
+        4. 会自动绑定引用的文档块为父级概念
+        5. 如果检测到父级引用的文档块不是概念卡，会自动将其制作为概念卡
+      - 方式二：
+
+        1. 子级块使用 `描述符;;文本`
+        2. 右键里面的段落块（光标在别处，这时候对着里面的段落块进行右键点击）—【插件】—【SiYuanMemo】—【快速制卡】—【描述符卡】
+        3. 会自动绑定引用的文档块为父级概念
+        4. 如果检测到父级引用的文档块不是概念卡，会自动将其制作为概念卡
+    - 举例：
+
+      - [[中子星]]
+
+        - 定义;;介于白矮星和黑洞之间的极端致密天体
+        - *前身*;; **8-30倍** 太阳质量的恒星残留核心
+        - *直观密度* ;; **一茶匙** 重达 **10亿吨**
+        - *特殊变种* ;; **脉冲星** (Pulsar)
+        - *临界点* ;; **奥本海默极限** (超过则坍缩为黑洞)
+    - 复习效果：
+
+      - ![PixPin_2026-02-17_18-09-48](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/PixPin_2026-02-17_18-09-48-20260217181023-945qx07.gif)
+  - 概念定义卡
+
+    1. 输入文档块块引用+`::`+定义内容
+    2. 示例：`[[制卡]]::通过 prompts 进行注意力编程`
+    3. 如果开启符号监听会自动制卡
+    4. 如果没开启符号监听，可以使用块菜单—【SiYuanMemo】—【快速制卡】—【概念定义卡】制卡
+    5. 会生成正反两张卡
+    6. 效果：
+
+       - ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260303065744-sjyeksw.png)
+       - ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260303065804-3q650qn.png)
+  - 其它类型的 CDF 卡片需要通过块菜单—【SiYuanMemo】—【快速制卡】入口触发，具体格式可以通过【快速制卡】的 UI 查看
+- 小技巧：
+
+  - 删除描述符卡：
+
+    - 考虑到稳定性的原因，描述符卡片用的是段落块制卡，如果你要在思源编辑器里删除卡片，需要光标点在对应块里，用 ctrl+/ 唤出段落块的块菜单，然后取消闪卡。
+    - 或者直接在 SRS 浏览器里删除。
+  - 为你常用的描述符组合建立一个模版吧！
+
+    1. 聚焦到你的描述符组合
+    2. 点击右上角文档块块标
+    3. 导出-模板
+    4. 在对应概念下用块菜单 **/模版**  唤出对应的描述符模版
+    5. ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260217175020-s0zufqu.png)
+  - 通用描述符分享：[通用描述符 - 知乎](https://zhuanlan.zhihu.com/p/274891979)
+
+# 分离思源的块和闪卡，实现一个块生成多张闪卡
+
+- 普通闪卡还是一个块对应一张卡，双向卡、列表模版卡、多挖空卡则用到了这个机制。
+
+# 闪卡规划
+
+## 排序
+
+- 可以在浏览器里对队列里的闪卡进行排序，排序后应用到队列，复习时的顺序也会变
+
+  - 点击浏览器字段排序
+  - 右键排序
+  - 演示：
+
+    - ![PixPin_2026-02-17_18-42-17](assets/PixPin_2026-02-17_18-42-17-20260217184242-9clerkh.gif)
+
+## 提前
+
+- 在浏览器中，右键卡片选择【提前】，与【推迟】对应
+- ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260217184325-hduqqmx.png)
+
+## 推迟
+
+- 在浏览器中，右键卡片选择推迟
+- ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260217184540-o1c2fwv.png)
+
+## 分摊压力
+
+- 在浏览器的工具栏上会有【分摊压力】按钮，点击会打开界面
+- ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260217185204-zpfvb1p.png)
+- 注意：在全部闪卡下的【分摊压力】功能有两种模式，一种是处理未复习的闪卡，也就是积压（默认不勾选考虑未来复习），另外一种就是会考虑未来一年复习的闪卡，可以通过调整收集期来选中。
+- 在队列视图下，点击【分摊压力】会默认收集到期的卡片，无法更改收集期。
+
+‍

@@ -1,217 +1,356 @@
-# Siyuan Plugin Template - Vite & Vue3
+﻿# SiYuanMemo
 
 [简体中文](./README_zh_CN.md)
 
-> Consistent with [siyuan/plugin-sample](https://github.com/siyuan-note/plugin-sample).
+This plugin lets you:
 
-1. Use Vite for packaging
-2. Use Vue3 for development
-3. Provides a github action template to automatically generate package.zip and upload to new release
-4. Provides a script to auto create tag and release. [link](#release-script)
+1. Better leverage the **Spaced Repetition System (SRS)** to drive two strategies, **Retrieval Practice** and **Drill Practice**, to memorize anything.
+2. Through SiYuan's **bidirectional links** and **Spaced Repetition System**, deeply connect rote-memorized information with the knowledge in your brain, promote transfer learning and fine-grained encoding, wire your brain to the internet, and build your own knowledge system.
 
-> [!NOTE]
->
-> Before your start, you need install [NodeJS](https://nodejs.org/en/download) and [pnpm](https://pnpm.io/installation) first.
+It currently has these features:
 
-> [!WARNING]
->
-> For your first attempt, please do not modify anything. Load the plugin template in Siyuan as described below before making any changes.
->
-> For example, deleting README_zh_CN.md will also cause the plugin to fail to load.
+1. **Practice System:** two practice strategies and algorithms
 
-## Get started
+   - Retrieval Practice driven by the spaced repetition algorithm (FSRS)
+   - Drill Practice driven by the SuperMemo Final Drill dynamic algorithm
+2. **Neural Roaming System:** combines SiYuan bidirectional links with SuperMemo neural review
+3. **Concept/Descriptor Framework (CDF):** a RemNote-style template card-making system that helps you quickly break down information and create cards
+4. **Comprehensive card-making features**:
 
-1. Use the `Use the template` button to make a copy of this repo as template.  
-> [!WARNING]
->
-> That the repository name should match the plugin name, and the default branch must be `main`.
+   - Formula card creation
+   - Image card creation
+   - Ordered-list template cards (supports progressive hints during review)
+   - Unordered-list template cards (supports summary hints during review)
+   - Concept/Descriptor Framework template cards
+   - Listener-based card creation
 
+     - Symbol-listener card creation
+     - It also listens to SiYuan native 【Quick make card】. After clicking 【Quick make card】, it automatically detects the card format, converts it into card types supported by this plugin, and syncs it to the plugin
+   - SiYuan blocks and flashcards are decoupled, so one block can generate multiple cards
+   - It does not pollute SiYuan's native review UI; multiple dedicated review UIs are built for newly added card types
+5. **Two review entry points**
 
-2. Use `git clone` to clone the copied repo to your computer.
-3. Use `pnpm i` to install the dependencies.
+   - Traditional queue-based review entry
 
-4. Copy the `.env.example` file as `.env`, set the `VITE_SIYUAN_WORKSPACE_PATH` to your SiYuan workspace.
+     - Enter review from the right-click menu on the plugin top-bar button
+     - Enter review from the browser 【Practice】 button
+     - Enter review from 【/Menu】
+     - Enter review from the command palette
+   - RemNote-style block-level review entry for precise control of review granularity
 
+     - In the document block menu, you can review all flashcards in the current document block and its child blocks
+     - In other block menus, you can review all flashcards in the current block and its child blocks
+6. **SuperMemo-style SRS Browser**
 
-> [!TIP]
->
-> If you prefer not to package the project directly into the workspace, you can use a `symbolic link` instead.
->
-> Writing directly into the Siyuan workspace allows you to sync via Siyuan's sync feature to other devices, while using a symbolic link will not be included in the sync.
->
-> This template does not provide specific details about symbolic links. For related information, please refer to [plugin-sample-vite-svelte](https://github.com/siyuan-note/plugin-sample-vite-svelte).
+   - Manage your flashcards in a table view
+7. **Five queues**
 
-5. Use `pnpm dev` to run the project, you will see info like below
+   - Traditional Retrieval Practice queue
+   - SuperMemo-inspired Incremental Learning queue
+   - Fallback Final Drill queue
+   - Neural Roaming queue that merges bidirectional links and neural review
+   - Filtered Review queue that supports precise review-scope adjustments during review
+8. **SuperMemo-style queue management**
 
-  ```
+   - You can sort review queues and review cards in your preferred order
+   - You can insert cards into any queue
+   - During review, you can insert cards into any position in a queue, or schedule them to the future
+9. **Card planning features for a better review experience**
 
-  > plugin-siyuanmemo@0.0.1 dev /path/to/your/plugin-siyuanmemo
-  > vite build --watch
+   - Postpone
+   - Advance
+   - Spread
 
-  mode=> production
-  env=> {
-    VITE_SIYUAN_WORKSPACE_PATH: '/path/to/siyuan/workspace',
-    VITE_DEV_DIST_DIR: ''
-  }
+When SiYuan was about to build flashcards, I had these ideas in mind. Now the timing is right, so I built them first. This plugin has only reached the second stage of flashcards, and there is still a lot to improve. Below is a brief feature introduction:
 
-  Siyuan workspace path is set:
-  /path/to/siyuan/workspace
+# SRS Browser
 
-  Plugin will build to:
-  # ✅ the plugin will build into here
-  /path/to/siyuan/workspace/data/plugins/plugin-siyuanmemo
+![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260217135755-mcan1zg.png)
 
-  isWatch=> true
-  distDir=> /path/to/siyuan/workspace/data/plugins/plugin-siyuanmemo
-  vite v6.3.5 building for production...
+- The right side is the preview panel, which previews the block linked to a flashcard. It is locked by default; double-click to unlock.
+- The lower-left side is the document panel, which shows the document blocks containing all flashcards. It focuses along with search results, condition filters, and the current queue to help manage flashcards.
+- The upper-left side is the queue panel. Entering a queue shows the flashcards in that queue. You can right-click for management actions including remove, sort, postpone, and advance.
 
-  watching for file changes...
+# Four Flashcard Types
 
-  build started...
-  ✓ 26 modules transformed.
-  rendering chunks (1)...LiveReload enabled
-  ../../Siyuan-plugin/data/plugins/plugin-siyuanmemo/index.css    1.08 kB │ gzip:  0.41 kB
-  ../../Siyuan-plugin/data/plugins/plugin-siyuanmemo/index.js   198.60 kB │ gzip: 46.59 kB
-  [vite-plugin-static-copy] Copied 7 items.
-  built in 502ms.
-  ```
+## Practice (Item Card):
 
+- Explanation: Flashcards in the broad sense. Front side asks, back side answers. This is the purest Retrieval Practice.
+- How to create?
 
-   If successed, restart your siyuan, and you will find the plugin in `Siyuan - Settings - Marketplace`, named as `plugin-siyuanmemo`.
-6. Enable the plugin, and check the `App.vue` file to start your development.
-   
-   This file contains some example codes.
+  - In the plugin, after auto card creation, cards that have a back-side prompt are automatically recognized as item cards.
 
+    - Auto card creation includes:
 
-> [!TIP]
->
-> More plugin code examples, please check [siyuan/plugin-sample/src/index.ts](https://github.com/siyuan-note/plugin-sample/blob/main/src/index.ts)
+      - SiYuan native quick card creation
+      - Plugin template card creation
+      - Plugin symbol card creation
+  - You can also manually mark a card type as item in the browser.
 
+## Material (Topic Card):
 
+- Explanation: Reading material.
+- How to create?
 
-## List on the Marketplace
+  - After auto card creation, cards without a back-side prompt are recognized as topic cards. You can also mark them manually in the browser.
 
-### Use Github Action
+## Definition (Descriptor Card, 描述符卡):
 
-1. You can create a new tag, use your new version number as the `Tag version` in your local.
-2. Then push the tag to Github. The Github Action will create a new Release for you.
+- Explanation:
 
-> [!TIP]
->
-> <div id="release-script"></div>This template provided a script to auto create tag and release. You can use `pnpm release` to create a patch version.
->
-> You can add `--mode=manual|patch|minor|major` arg to set release mode, or run with arg like `pnpm release:manual`. 
-> 
-> All the scripts please see the `package.json` file.
+  - Simply put, this is template-based card creation. I first saw it in Ye Ge's article [【随笔】间隔重复软件的两大进路](https://zhuanlan.zhihu.com/p/396445859).
+  - It comes from RemNote's **CDF** (Concept/Descriptor Framework), a highly formalized knowledge decomposition tool.
+- Essence:
 
-The github action is included in this sample, you can use it to publish your new realse to marketplace automatically:
+  - It is not only for easier form filling (implementing SuperTag), it is also a kind of "attention programming" that introduces an expert perspective. Like prompts for AI, experts use descriptors in CDF to guide your attention so you can identify useful parts of information. It is like wearing a persona mask to reuse expert experience.
+  - For students, this kind of formalized (structured) tool is very convenient.
+- How to create?
 
-1. In your repo setting page `https://github.com/OWNER/REPO/settings/actions`, down to Workflow Permissions and open the configuration like this:
+  - You need to write it using **传递型双链 (Transitive bidirectional links)**, demonstrated below.
 
-![img](./asset/action.png)
+## Concept (Concept Card):
 
-2. Push a tag in the format `v*` and github will automatically create a new release with new bulit package.zip
-3. By default, it will only publish a pre-release, if you don't think this is necessary, change the settings in release.yml
+- Explanation:
 
-```yaml
-- name: Release
-    uses: ncipollo/release-action@v1
-    with.
-        allowUpdates: true
-        artifactErrorsFailBuild: true
-        artifacts: 'package.zip'
-        token: ${{ secrets.GITHUB_TOKEN }}
-        prerelease: true # change this to false
-```
+  - This is not the "concept" in CDF (Concept/Descriptor Framework). It is the SuperMemo concept used for neural review. In this plugin, concepts are the core nodes of the **Neural Roaming** queue.
+- In terms of bidirectional links, a concept card is a document block in SiYuan.
+- How to create?
 
-### Manual
+  - Click the document block icon, and you will see these two buttons:
 
-1. Use `pnpm build` to generate `package.zip`
-2. Create a new Github release using your new version number as the "Tag version". See here for an example: https://github.com/siyuan-note/plugin-sample/releases
-3. Upload the file package.zip as binary attachments
-4. Publish the release
+    - Create as Concept Card and Add to Queue
+    - Create as Concept Card and Roam Immediately
 
-> [!NOTE]
-> If it is the first release, please create a pull request to the [Community Bazaar](https://github.com/siyuan-note/bazaar) repository and modify the plugins.json file in it. This file is the index of all community plugin repositories, the format is:
+# Five Queues
 
-```json
-{
-  "repos": [
-    "username/reponame"
-  ]
-}
-```
+## Three Dynamic Queues
 
----
+### Retrieval Practice
 
-More other plugin info, please check in [siyuan/plugin-sample](https://github.com/siyuan-note/plugin-sample).
+- Queue card sources:
 
-## Architecture
+  - Fetch item and descriptor cards that are due today and cards manually added to queue
+- Algorithm:
 
-### DDD Layered Architecture
+  - Driven by FSRS.
 
-This plugin follows Domain-Driven Design (DDD) principles, organizing the system into four clear layers:
+### Incremental Learning
 
-```
-Presentation Layer
-    ↓
-Application Layer
-    ↓
-Domain Layer
-    ↓
-Infrastructure Layer
-```
+- Queue card sources:
 
-#### Core Services
+  - Fetch all card types that are due today and manually added to queue
+- Algorithm:
 
-**Application Layer Services**:
-- `SettingsService`: Manages plugin settings and Riff integration config
-- `ReviewLogService`: Manages review and reschedule logs
-- `RiffBlacklistService`: Manages Riff blacklist
+  - Item and descriptor use FSRS; topic and concept use another algorithm.
 
-**Infrastructure Layer Services**:
-- `FileService`: Unified file read/write interface
-- `QueuePersistenceService`: Generic key-value storage for all queue types
-- `UnifiedStorageManager`: Unified storage for cards and XiuYuan
+### Filtered Review
 
-**Domain Layer Objects**:
-- Queue objects: `RetrievalPracticeQueue`, `FinalDrillQueue`, `IncrementalLearningQueue`, etc.
-- Card domain objects
-- XiuYuan domain objects
+- Queue card sources:
 
-#### Design Principles
+  - Fetch cards into the queue based on filter conditions for review. Normal rating will remove cards. Clicking 【Rebuild】 fetches cards into the queue again.
+  - ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260217151638-cgm7my8.png)
+- Algorithm:
 
-1. **Single Responsibility**: Each service handles one clear domain
-2. **Dependency Injection**: Services managed through `ApplicationContext`
-3. **Queue Autonomy**: Queue objects manage their own state and logic
-4. **Generic Storage**: Persistence service doesn't need to know queue structure
-5. **Debounced Saves**: All write operations use 300ms debounce to avoid frequent I/O
+  - Item and descriptor use FSRS; topic and concept use another algorithm.
 
-#### Usage Example
+## One Static Queue - 【Final Drill】
 
-```typescript
-// Get services
-const context = await ApplicationContext.create(plugin);
-const settingsService = context.getSettingsService();
-const queuePersistence = context.getQueuePersistenceService();
+- Design origin: It should actually be called "Final Drill", from SuperMemo finaldrill.
+- Queue card sources:
 
-// Use settings service
-const settings = settingsService.getSettings();
-await settingsService.updateSettings({ newCardsPerDay: 20 });
+  1. In Retrieval Practice, Incremental Learning, and Filtered Review queues, cards rated lower than 3 will automatically drop into the 【Final Drill】 queue.
+  2. Manually select flashcards in the browser and add them.
+- Algorithm:
 
-// Use queue
-const queue = new RetrievalPracticeQueue(queuePersistence);
-await queue.load();
-queue.add(item);
-await queue.save();
-```
+  - Ratings do not affect spaced-repetition scheduling. In this queue, only flashcards rated 4 are removed from the queue. If you keep giving rating 3, it can never be finished.
+  - Queue sorting uses a local shuffle algorithm. See [Final drill algorithm](https://supermemopedia.com/wiki/Final_drill_algorithm) for details.
 
-#### Documentation
+## One Queue That Is Hard to Classify - Neural Roaming
 
-- [Architecture Documentation](./.kiro/specs/storage-manager-ddd-refactoring/ARCHITECTURE.md)
-- [Refactoring Guide](./.kiro/specs/storage-manager-ddd-refactoring/REFACTORING-GUIDE.md)
-- [ADR-001: StorageManager DDD Refactoring](./.kiro/specs/storage-manager-ddd-refactoring/ADR-001-storage-manager-refactoring.md)
+- Design origin: SiYuan bidirectional links + SuperMemo neural review
+- Queue card sources: The roaming objects are SiYuan blocks. This queue automatically fetches backlinks of concept cards and descriptor cards for roaming.
+- Algorithm: Spreading activation.
+- Tip: During roaming, when you encounter block-reference anchor text, right-click and choose "Create as Concept Card and Add to Queue". Then the forward links of that concept card can also join the queue for roaming. The logic is:
 
-## API Notes
+  - Forward links = references to other concepts (document blocks) in the main text
+  - Backlinks = main text
+  - Forward links = references to other concepts in backlinks
+  - ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260217163333-r5n304c.png)
 
-- /riff/getRiffCardsByBlockIDs returns created/updated mapped to block created_time/last_edited_time
+# Quick Card Creation
+
+## Symbol Card Creation
+
+- It listens for symbols and supports fast card creation with:
+
+  - `>>`
+
+    - Forward card
+    - Question`>>`Answer
+  - `<<`
+
+    - Reverse card
+    - Answer`<<`Question
+  - `<>`
+
+    - Bidirectional card
+    - Term`<>`Definition
+    - Generates two cards
+  - `;;`
+
+    - Descriptor card
+    - Attribute`;;`Description
+  - `==挖空==` `{{挖空}}` SiYuan markers
+
+    - Cloze card
+    - Text`{{blank}}` or `==highlight==` or SiYuan marker (ALT+D)
+    - Multiple cloze markers generate multiple cards
+  - Symbols wrapped in `` are not listened to. After typing symbols, press Enter once and make the block lose focus to trigger auto card creation.
+
+## Template Card Creation
+
+Ordered-list templates create cards in batches and share one block ID. Each card can have its own question supplement and hint.
+
+- Card creation steps:
+
+  1. Mandatory requirement -> child list blocks must be an ordered list
+  2. Review entry -> right-click the parent list-item block
+  3. Create card button -> in block menu choose 【Plugin】—【siyuanmemo】—【Create ordered list card】
+- Writing question supplements and hints:
+
+  - Hint -> Question
+  - Example: in step 1's `Mandatory requirement -> child list blocks must be an ordered list`:
+
+    - Before the symbol -> the text 【Mandatory requirement】 is the hint
+    - After the symbol -> the text 【child list blocks must be an ordered list】 is the question
+- Card creation demo:
+
+  - ![PixPin_2026-02-17_17-02-23](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/PixPin_2026-02-17_17-02-23-20260217170230-5lnj8ae.gif)
+- Review effect:
+
+  - ![PixPin_2026-02-17_17-20-40](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/PixPin_2026-02-17_17-20-40-20260217172050-aplrjnx.gif)
+
+## Formula Card Creation
+
+![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260303060036-bm0b9tb.png)
+
+- How to use?
+
+  1. Click the formula block
+  2. Select the part to cloze and press ALT+Z
+  3. You can create multiple clozes; each cloze generates one card
+  4. If symbol-listener card creation is enabled, click anywhere and press Enter to trigger formula-block card creation
+- Review effect
+
+  - ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260303070341-cfaw1gq.png)
+
+PS: You can also use native quick card creation. It can correctly identify multiple clozes and sync to the plugin.
+
+## Image Card Creation
+
+- How to use?
+
+  1. Click the menu in the upper-right corner of an image, then find 【Create image occlusion card】 in plugin options
+  2. Create cards in the 【Image occlusion card】 editor and drag to create occlusions
+
+     ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260303060441-6so7gwj.png)
+  3. After adding an occlusion, click to select it, then enter a hint to use as the card question
+  4. Click 【Temporary Drill】 to review (Final Drill mode: ratings lower than 4 will not remove cards. If you need other practice modes, use the block menu)
+
+     ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260303060949-8ykx7lp.png)
+
+## CDF Card Creation
+
+- How to use?
+
+  - Concept Descriptor Cards
+
+    - Use **关联型双链 (Associative bidirectional links)** in list outlines
+
+      1. Create list blocks
+      2. Add a reference to a concept document block in the parent block
+
+      - Method 1:
+
+        1. Enable **Auto card creation** in plugin settings
+        2. Use `描述符;;文本` in a child block
+        3. Press Enter after writing, and it is automatically recognized and created as a descriptor card
+        4. The referenced document block is automatically bound as the parent concept
+        5. If the parent referenced document block is not a concept card, it is automatically created as a concept card
+      - Method 2:
+
+        1. Use `描述符;;文本` in a child block
+        2. Right-click the paragraph block inside it (place cursor elsewhere, then right-click the paragraph block inside) -> 【Plugin】—【SiYuanMemo】—【Quick make card】—【Descriptor card】
+        3. The referenced document block is automatically bound as the parent concept
+        4. If the parent referenced document block is not a concept card, it is automatically created as a concept card
+    - Example:
+
+      - [[中子星]]
+
+        - Definition;;An extremely dense celestial body between a white dwarf and a black hole
+        - *Predecessor*;; **Core remnant** of a star with **8-30 solar masses**
+        - *Intuitive density* ;; **One teaspoon** weighs **1 billion tons**
+        - *Special variant* ;; **Pulsar** (Pulsar)
+        - *Critical point* ;; **Oppenheimer limit** (beyond this, it collapses into a black hole)
+    - Review effect:
+
+      - ![PixPin_2026-02-17_18-09-48](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/PixPin_2026-02-17_18-09-48-20260217181023-945qx07.gif)
+  - Concept Definition Cards
+
+    1. Enter document-block reference + `::` + definition content
+    2. Example: `[[制卡]]::通过 prompts 进行注意力编程`
+    3. If symbol listening is enabled, cards are auto-created
+    4. If symbol listening is not enabled, use block menu -> 【SiYuanMemo】—【Quick make card】—【Concept definition card】 to create
+    5. It generates two cards (front and back)
+    6. Effect:
+
+       - ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260303065744-sjyeksw.png)
+       - ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260303065804-3q650qn.png)
+  - Other CDF card types need to be triggered from block menu -> 【SiYuanMemo】—【Quick card】 entry. You can check the specific formats in the 【Quick card】 UI.
+- Tips:
+
+  - Delete descriptor cards:
+
+    - For stability reasons, descriptor cards are created from paragraph blocks. If you want to delete cards in the SiYuan editor, place the cursor in the target block, press ctrl+/ to open the paragraph block menu, then unmark as flashcard.
+    - Or delete directly in the SRS Browser.
+  - Build a template for your frequently used descriptor combinations!
+
+    1. Focus on your descriptor combination
+    2. Click the document-block icon at the top right
+    3. Export - Template
+    4. Under the corresponding concept, use block menu **/Template** to invoke the corresponding descriptor template
+    5. ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260217175020-s0zufqu.png)
+  - General descriptor sharing: [通用描述符 - 知乎](https://zhuanlan.zhihu.com/p/274891979)
+
+# Decouple SiYuan Blocks and Flashcards: One Block Generates Multiple Flashcards
+
+- For normal flashcards, one block still maps to one card. Bidirectional cards, list template cards, and multi-cloze cards use this mechanism.
+
+# Flashcard Planning
+
+## Sorting
+
+- In the browser, you can sort flashcards in a queue. After sorting and applying to the queue, the review order will also change
+
+  - Click browser field sorting
+  - Right-click sorting
+  - Demo:
+
+    - ![PixPin_2026-02-17_18-42-17](assets/PixPin_2026-02-17_18-42-17-20260217184242-9clerkh.gif)
+
+## Advance
+
+- In the browser, right-click a card and choose 【Advance】, corresponding to 【Postpone】
+- ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260217184325-hduqqmx.png)
+
+## Postpone
+
+- In the browser, right-click a card and choose postpone
+- ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260217184540-o1c2fwv.png)
+
+## Spread
+
+- There is a 【Spread】 button on the browser toolbar. Clicking it opens the panel
+- ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260217185204-zpfvb1p.png)
+- Note: Under all flashcards, the 【Spread】 feature has two modes. One handles unreviewed flashcards (backlog; by default, "consider future reviews" is unchecked). The other considers flashcards scheduled for review in the coming year, selectable by adjusting the collection period.
+- In queue view, clicking 【Spread】 collects due cards by default, and the collection period cannot be changed.
