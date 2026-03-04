@@ -6,14 +6,14 @@ function valuesOf(options: Array<{ value: string }>): string[] {
 }
 
 describe('getAvailableCardTypeFilters', () => {
-  it('shows missing-block-only only in __lost__ view', () => {
+  it('never exposes missing-block-only', () => {
     const globalValues = valuesOf(getAvailableCardTypeFilters(null));
     const lostValues = valuesOf(getAvailableCardTypeFilters(null, { docId: '__lost__' }));
     const queueValues = valuesOf(getAvailableCardTypeFilters('retrieval', { docId: 'doc-a' }));
 
     expect(globalValues).not.toContain('missing-block-only');
     expect(queueValues).not.toContain('missing-block-only');
-    expect(lostValues).toContain('missing-block-only');
+    expect(lostValues).not.toContain('missing-block-only');
   });
 
   it('keeps neural queue as concept-only in non-lost view', () => {

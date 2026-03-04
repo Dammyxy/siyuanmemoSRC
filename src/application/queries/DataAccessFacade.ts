@@ -151,6 +151,7 @@ export class DataAccessFacade implements IDataRouter {
     private cardsCacheTimestamp: number = 0;
     private readonly CACHE_TTL = 1000; // 缓存有效期 1 秒
 
+    private readonly BLOCK_CHECK_BATCH_SIZE = 500;
     private readonly knownMissingBlockIds = new Set<string>();
     private readonly siyuanApi: QuerySiyuanPort;
     
@@ -218,6 +219,7 @@ export class DataAccessFacade implements IDataRouter {
      * @see 需求 3.5
      */
     async getCard(cardId: string, options?: { silent?: boolean }): Promise<FSRSCard> {
+        void options;
         const result = await this.cardService.getCard({ cardId });
         
         if (!result.card) {
@@ -225,6 +227,15 @@ export class DataAccessFacade implements IDataRouter {
         }
         
         const card = migrateCard(result.card);
+        const blockId = String(card.blockId || '').trim();
+        if (!blockId) {
+            throw new Error(`Card has invalid blockId: ${cardId}`);
+        }
+
+        const { missingBlockIds } = await this.collectMissingBlockIds([blockId]);
+        if (missingBlockIds.has(blockId)) {
+            throw new Error(`Block not found for card ${cardId}: ${blockId}`);
+        }
         
         // ✅ 填充缺失的 rootId 和 content
         const needsRootId = !card.meta?.rootId;
@@ -260,28 +271,42 @@ export class DataAccessFacade implements IDataRouter {
         
         if (cacheValid && !filter) {
             // 使用缓存（仅在无过滤器时）
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🚀 Using cached cards (${this.cardsCache!.length} cards)`);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] Using cached cards (${this.cardsCache!.length} cards)`);
             cards = this.cardsCache!;
         } else {
             // 通过 CardApplicationService 获取所有卡片
             const result = await this.cardService.getCards({});
             cards = result.cards;
             
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 getCards() returned ${cards.length} cards`);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] getCards() returned ${cards.length} cards`);
             
             // 应用迁移逻辑:确保所有卡片都有 learning_step 字段
             cards = cards.map(card => migrateCard(card));
             
-            // 🚀 更新缓存（仅在无过滤器时）
-            if (!filter) {
-                this.cardsCache = cards;
-                this.cardsCacheTimestamp = now;
-                logger.info(`[SiYuanMemo][DataAccessFacade] Cards cached (${cards.length} cards)`);
-            }
+            // 缓存写入统一在过滤和补全之后执行
         }
         
         // 🆕 无论是否使用缓存，都检查并填充缺失的 rootId 和 content
         // 这确保了数据源筛选（如文档筛选）能够正常工作
+        const beforeValidBlockId = cards.length;
+        cards = this.cardFilterService.filterValidBlockIds(cards);
+        const invalidBlockCount = beforeValidBlockId - cards.length;
+        if (invalidBlockCount > 0) {
+            logger.debug(`[SiYuanMemo][DataAccessFacade] Filtered out ${invalidBlockCount} cards with invalid blockId`);
+        }
+
+        const { missingBlockIds, uncheckedBlockIds } = await this.collectMissingBlockIds(cards.map((card) => card.blockId));
+        if (missingBlockIds.size > 0) {
+            const beforeMissingFilter = cards.length;
+            cards = cards.filter((card) => !missingBlockIds.has(card.blockId));
+            logger.debug(`[SiYuanMemo][DataAccessFacade] Filtered out ${beforeMissingFilter - cards.length} cards with missing blocks`);
+        }
+        if (uncheckedBlockIds.size > 0) {
+            logger.debug(
+                `[SiYuanMemo][DataAccessFacade] Kept ${uncheckedBlockIds.size} block IDs due to block-check fail-open`
+            );
+        }
+
         const cardsNeedingData = cards.filter(c => {
             const needsRootId = !c.meta?.rootId;
             const needsContent = !c.meta?.content || String(c.meta.content).trim() === '';
@@ -289,25 +314,26 @@ export class DataAccessFacade implements IDataRouter {
         });
         
         if (cardsNeedingData.length > 0) {
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🔧 Filling missing rootId/content for ${cardsNeedingData.length} cards`);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] Filling missing rootId/content for ${cardsNeedingData.length} cards`);
             await this.fillMissingRootIds(cardsNeedingData);
+        }
+
+        if (!filter) {
+            this.cardsCache = cards;
+            if (!cacheValid) {
+                this.cardsCacheTimestamp = now;
+            }
+            logger.debug(`[SiYuanMemo][DataAccessFacade] Cards cached (${cards.length} cards)`);
         }
         
         // 应用过滤器
         if (filter) {
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 Applying filter:`, filter);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] Applying filter:`, filter);
             cards = this.applyFilter(cards, filter);
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 After applyFilter: ${cards.length} cards`);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] After applyFilter: ${cards.length} cards`);
         }
         
-        // 过滤掉 blockId 无效的卡片
-        const invalidCards = cards.filter(card => !card.blockId || card.blockId === 'undefined' || card.blockId === '');
-        if (invalidCards.length > 0) {
-            logger.warn(`[SiYuanMemo][DataAccessFacade] ⚠️ Filtering out ${invalidCards.length} cards with invalid blockId`);
-            cards = this.cardFilterService.filterValidBlockIds(cards);
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 After blockId filtering: ${cards.length} cards`);
-        }
-        
+        // 根层已完成 blockId 与块存在性过滤
         return cards;
     }
     
@@ -318,7 +344,7 @@ export class DataAccessFacade implements IDataRouter {
     invalidateCardsCache(): void {
         this.cardsCache = null;
         this.cardsCacheTimestamp = 0;
-        logger.info(`[SiYuanMemo][DataAccessFacade] 🚀 Cards cache invalidated`);
+        logger.debug(`[SiYuanMemo][DataAccessFacade] Cards cache invalidated`);
     }
     
     /**
@@ -492,31 +518,31 @@ export class DataAccessFacade implements IDataRouter {
         
         // 过滤块 ID
         if (filter.blockIds && filter.blockIds.length > 0) {
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 Filtering by blockIds: ${filter.blockIds.length} blocks`);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] Filtering by blockIds: ${filter.blockIds.length} blocks`);
             filtered = this.cardFilterService.filterByBlockIds(filtered, filter.blockIds);
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 After blockIds filter: ${filtered.length} cards`);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] After blockIds filter: ${filtered.length} cards`);
         }
         
         // 过滤卡片类型
         if (filter.cardType) {
             const allowedTypes = Array.isArray(filter.cardType) ? filter.cardType : [filter.cardType];
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 Filtering by cardType:`, allowedTypes);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] Filtering by cardType:`, allowedTypes);
             filtered = this.cardFilterService.filterByCardTypes(filtered, allowedTypes);
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 After cardType filter: ${filtered.length} cards`);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] After cardType filter: ${filtered.length} cards`);
         }
         
         // 过滤到期日期
         if (filter.dueDate) {
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 Filtering by dueDate:`, filter.dueDate);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] Filtering by dueDate:`, filter.dueDate);
             
             // 获取自定义每日刷新时间
             const dayStartHour = this.plugin ? getDayStartHour(this.plugin) : 4;
             const dayEnd = getCurrentDayEnd(dayStartHour);
             
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 Using dayStartHour=${dayStartHour}, dayEnd=${new Date(dayEnd).toISOString()}`);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] Using dayStartHour=${dayStartHour}, dayEnd=${new Date(dayEnd).toISOString()}`);
             
             filtered = this.cardFilterService.filterByDueDate(filtered, filter.dueDate, dayEnd);
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 After dueDate filter: ${filtered.length} cards`);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] After dueDate filter: ${filtered.length} cards`);
         }
         
         // 过滤标签
@@ -572,9 +598,9 @@ export class DataAccessFacade implements IDataRouter {
         // 过滤关键词
         if (filter.keyword && filter.keyword.trim()) {
             const keyword = filter.keyword.trim();
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 Filtering by keyword: "${keyword}"`);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] Filtering by keyword: "${keyword}"`);
             filtered = this.cardFilterService.filterByKeyword(filtered, keyword);
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 After keyword filter: ${filtered.length} cards`);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] After keyword filter: ${filtered.length} cards`);
         }
         
         return filtered;
@@ -586,22 +612,92 @@ export class DataAccessFacade implements IDataRouter {
             || this.plugin?.i18n;
     }
 
-    private fillMissingBlockFallback(card: FSRSCard): void {
-        if (!card.meta) {
-            card.meta = {};
+    private normalizeBlockIds(blockIds: string[]): string[] {
+        const unique = new Set<string>();
+        for (const blockId of blockIds) {
+            const normalized = String(blockId || '').trim();
+            if (!normalized) {
+                continue;
+            }
+            unique.add(normalized);
+        }
+        return [...unique];
+    }
+
+    private toSqlInClauseValues(blockIds: string[]): string {
+        return blockIds
+            .map((id) => `'${id.replace(/'/g, "''")}'`)
+            .join(', ');
+    }
+
+    private readSqlRowId(row: unknown): string {
+        if (!row || typeof row !== 'object') {
+            return '';
         }
 
-        if (!card.meta.content || String(card.meta.content).trim() === '') {
-            card.meta.content = this.getI18nDictionary()?.blockNotFound || 'Block not found';
+        const value = (row as Record<string, unknown>).id;
+        if (typeof value === 'string') {
+            return value;
+        }
+        if (typeof value === 'number') {
+            return String(value);
+        }
+        return '';
+    }
+
+    private async collectMissingBlockIds(blockIds: string[]): Promise<{
+        missingBlockIds: Set<string>;
+        uncheckedBlockIds: Set<string>;
+    }> {
+        const normalizedBlockIds = this.normalizeBlockIds(blockIds);
+        const missingBlockIds = new Set<string>();
+        const uncheckedBlockIds = new Set<string>();
+
+        if (normalizedBlockIds.length === 0) {
+            return { missingBlockIds, uncheckedBlockIds };
         }
 
-        if (!card.meta.rootId || String(card.meta.rootId).trim() === '') {
-            // Keep a stable fallback rootId to avoid repeated fill attempts.
-            card.meta.rootId = card.blockId;
+        for (let i = 0; i < normalizedBlockIds.length; i += this.BLOCK_CHECK_BATCH_SIZE) {
+            const batchBlockIds = normalizedBlockIds.slice(i, i + this.BLOCK_CHECK_BATCH_SIZE);
+            const query = `
+                SELECT id
+                FROM blocks
+                WHERE id IN (${this.toSqlInClauseValues(batchBlockIds)})
+            `;
+
+            try {
+                const rows = await this.siyuanApi.sql(query);
+                const existingBlockIds = new Set<string>();
+                for (const row of rows) {
+                    const id = this.readSqlRowId(row);
+                    if (id) {
+                        existingBlockIds.add(id);
+                    }
+                }
+
+                for (const blockId of batchBlockIds) {
+                    if (existingBlockIds.has(blockId)) {
+                        this.knownMissingBlockIds.delete(blockId);
+                    } else {
+                        missingBlockIds.add(blockId);
+                        this.knownMissingBlockIds.add(blockId);
+                    }
+                }
+            } catch (error) {
+                for (const blockId of batchBlockIds) {
+                    uncheckedBlockIds.add(blockId);
+                }
+                logger.debug(
+                    `[SiYuanMemo][DataAccessFacade] Block existence check failed for batch, keeping cards (fail-open)`,
+                    {
+                        batchSize: batchBlockIds.length,
+                        error,
+                    }
+                );
+            }
         }
 
-        card.meta.blockType = 'missing';
-        card.meta.isDocument = false;
+        return { missingBlockIds, uncheckedBlockIds };
     }
     
     // ========================================================================
@@ -626,13 +722,6 @@ export class DataAccessFacade implements IDataRouter {
             return;
         }
 
-        // Known missing blocks: avoid querying DB repeatedly and keep a stable placeholder.
-        for (const card of cards) {
-            if (this.knownMissingBlockIds.has(card.blockId)) {
-                this.fillMissingBlockFallback(card);
-            }
-        }
-        
         // ✅ 只查询那些真正缺失 rootId 或 content 的卡片
         const cardsNeedingRootId = cards.filter(c => !c.meta?.rootId);
         const cardsNeedingContent = cards.filter(c =>
@@ -640,7 +729,7 @@ export class DataAccessFacade implements IDataRouter {
             && !this.knownMissingBlockIds.has(c.blockId)
         );
         
-        logger.info(`[SiYuanMemo][DataAccessFacade] Cards needing data: ${cardsNeedingRootId.length} need rootId, ${cardsNeedingContent.length} need content`);
+        logger.debug(`[SiYuanMemo][DataAccessFacade] Cards needing data: ${cardsNeedingRootId.length} need rootId, ${cardsNeedingContent.length} need content`);
         
         // 查询 rootId（如果需要）
         let rootIdMap = new Map<string, string>();
@@ -659,10 +748,10 @@ export class DataAccessFacade implements IDataRouter {
             }
             
             const blockIds = cardsNeedingContent.map(c => c.blockId);
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 Querying content for blockIds:`, blockIds);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] Querying content for blockIds:`, blockIds);
             
             const contentResults = await cardContentQueryService.getBlockContentsWithType(blockIds);
-            logger.info(`[SiYuanMemo][DataAccessFacade] 🔍 Got ${contentResults.size} results from CardContentQueryService`);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] Got ${contentResults.size} results from CardContentQueryService`);
             
             // 更新需要 content 的卡片
             let successCount = 0;
@@ -675,8 +764,7 @@ export class DataAccessFacade implements IDataRouter {
                 if (!contentResult) {
                     notFoundCount++;
                     this.knownMissingBlockIds.add(card.blockId);
-                    logger.warn(`Block not found in database: ${card.blockId}`);
-                    this.fillMissingBlockFallback(card);
+                    logger.debug(`[SiYuanMemo][DataAccessFacade] Block not found in content query: ${card.blockId}`);
                     continue;
                 }
                 
@@ -693,14 +781,14 @@ export class DataAccessFacade implements IDataRouter {
                 
                 if (content) {
                     successCount++;
-                    logger.info(`[SiYuanMemo][DataAccessFacade] ✅ Filled ${contentResult.isDocument ? 'document title' : 'block content'} for ${card.blockId}: "${content.substring(0, 50)}..."`);
+                    logger.debug(`[SiYuanMemo][DataAccessFacade] Filled ${contentResult.isDocument ? 'document title' : 'block content'} for ${card.blockId}`);
                 } else {
                     emptyCount++;
-                    logger.warn(`[SiYuanMemo][DataAccessFacade] ⚠️ Empty content for ${card.blockId} (type: ${contentResult.type})`);
+                    logger.debug(`[SiYuanMemo][DataAccessFacade] Empty content for ${card.blockId} (type: ${contentResult.type})`);
                 }
             }
             
-            logger.info(`[SiYuanMemo][DataAccessFacade] ✅ Content fill summary: ${successCount} success, ${emptyCount} empty, ${notFoundCount} not found`);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] Content fill summary: ${successCount} success, ${emptyCount} empty, ${notFoundCount} not found`);
         }
         
         // 更新需要 rootId 的卡片
@@ -709,10 +797,10 @@ export class DataAccessFacade implements IDataRouter {
             if (!card.meta) {
                 card.meta = {};
             }
-            card.meta.rootId = rootId || card.meta.rootId || (this.knownMissingBlockIds.has(card.blockId) ? card.blockId : '');
+            card.meta.rootId = rootId || card.meta.rootId || '';
         }
         
-        logger.info(`[SiYuanMemo][DataAccessFacade] ✅ Filled rootId for ${cardsNeedingRootId.length} cards, content for ${cardsNeedingContent.length} cards`);
+        logger.debug(`[SiYuanMemo][DataAccessFacade] Filled rootId for ${cardsNeedingRootId.length} cards, content for ${cardsNeedingContent.length} cards`);
     }
 }
 

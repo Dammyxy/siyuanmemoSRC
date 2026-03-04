@@ -30,7 +30,7 @@
         v-model:currentCardType="currentCardType"
         v-model:showPreview="showPreview"
         :cardCount="totalRowCount"
-        :showExitFocus="activeDocId === '__lost__' || shouldFocusDocList"
+        :showExitFocus="shouldFocusDocList"
         :hasPlugin="!!props.plugin"
         :canApplySortToQueue="canApplySortToQueue"
         :viewMode="viewMode"
@@ -949,28 +949,13 @@ async function refreshGlobalStats(force = false): Promise<void> {
       props.plugin
     );
 
-    const lostCardsDataSource = createDeckDataSource(
-      unifiedDataSourceManager,
-      {
-        docId: '__lost__',
-        preset: 'all',
-        queryText: '',
-        cardType: 'all',
-      },
-      props.currentDocId || null,
-      props.plugin
-    );
-
-    const [visibleCards, lostCards] = await Promise.all([
-      fetchAllRowsFromDataSource(allCardsDataSource, []),
-      fetchAllRowsFromDataSource(lostCardsDataSource, []),
-    ]);
+    const visibleCards = await fetchAllRowsFromDataSource(allCardsDataSource, []);
     if (taskId !== globalStatsTaskId) {
       return;
     }
 
     globalTotalCount.value = visibleCards.length;
-    globalLostCount.value = lostCards.length;
+    globalLostCount.value = 0;
   } catch (error) {
     if (taskId !== globalStatsTaskId) {
       return;
@@ -3250,19 +3235,14 @@ async function applyInitialBrowserView(forceRefresh = false): Promise<void> {
   }
 }
 
-function handleSelectGlobal(type: '__all__' | '__lost__') {
+function handleSelectGlobal(_type: '__all__') {
   syncSelectionForQueryChange();
   activeQueueId.value = null;
   clearNeuralSubviewData();
-
-  if (type === '__lost__') {
-    activeDocId.value = '__lost__';
-  } else {
-    activeDocId.value = null;
-  }
+  activeDocId.value = null;
 
   currentPreset.value = 'all';
-  currentCardType.value = type === '__lost__' ? 'missing-block-only' : 'all';
+  currentCardType.value = 'all';
   searchQuery.value = '';
   shouldFocusDocList.value = false;
   void loadData(false, { refreshQueueCounts: false });
@@ -3277,18 +3257,12 @@ function handleSelectDoc(docId: string) {
   const id = String(docId || '');
 
   activeDocId.value = id;
-  if (id !== '__lost__' && currentCardType.value === 'missing-block-only') {
-    currentCardType.value = 'all';
-  }
   void loadData(false, { refreshQueueCounts: false });
 }
 
 function handleFilterDoc(docId: string) {
   syncSelectionForQueryChange();
   activeDocId.value = docId;
-  if (docId !== '__lost__' && currentCardType.value === 'missing-block-only') {
-    currentCardType.value = 'all';
-  }
   searchQuery.value = `doc:${docId}`;
 }
 

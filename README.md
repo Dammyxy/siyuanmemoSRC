@@ -336,7 +336,7 @@ PS: You can also use native quick card creation. It can correctly identify multi
   - Right-click sorting
   - Demo:
 
-    - ![PixPin_2026-02-17_18-42-17](assets/PixPin_2026-02-17_18-42-17-20260217184242-9clerkh.gif)
+    - ![PixPin_2026-02-17_18-42-17](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/PixPin_2026-02-17_18-42-17-20260217184242-9clerkh.gif)
 
 ## Advance
 

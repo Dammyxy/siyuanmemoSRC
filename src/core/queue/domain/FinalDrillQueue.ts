@@ -241,7 +241,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
                     cards.push(card);
                 } catch (error) {
                     // 如果卡片不存在，标记为待移除
-                    logger.warn(`Card ${entry.cardId} not found, removing from queue`);
+                    logger.debug(`Card ${entry.cardId} not found, removing from queue`);
                     cardsToRemove.push(entry.cardId);
                 }
             }

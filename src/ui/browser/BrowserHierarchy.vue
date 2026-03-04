@@ -23,10 +23,6 @@
           <span class="b3-list-item__text">{{ t('allFlashcards', 'All flashcards') }}</span>
           <span class="b3-list-item__meta">{{ globalStats.total }}</span>
         </div>
-        <div class="b3-list-item" @click="emit('selectGlobal', '__lost__')">
-          <span class="b3-list-item__text">{{ t('lostFlashcards', 'Lost/closed flashcards') }}</span>
-          <span class="b3-list-item__meta">{{ globalStats.lost }}</span>
-        </div>
       </div>
     </div>
 
@@ -66,7 +62,7 @@ const emit = defineEmits<{
   (e: 'selectQueue', queueId: string): void;
   (e: 'selectDoc', docId: string): void;
   (e: 'filterDoc', docId: string): void;
-  (e: 'selectGlobal', type: '__all__' | '__lost__'): void;
+  (e: 'selectGlobal', type: '__all__'): void;
 }>();
 
 function t(key: string, fallback: string): string {

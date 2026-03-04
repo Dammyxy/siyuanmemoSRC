@@ -47,9 +47,20 @@ import { createLogger } from '@/utils/logger';
 import type { CardPersistenceDTO } from '../../../infrastructure/persistence/dto/CardPersistenceDTO';
 
 const logger = createLogger('XiuyuanRepository');
+const CARD_ID_DEBUG_SAMPLE_LIMIT = 5;
 
 type XiuyuanCardType = 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
 type SchedulerType = 'fsrs-v6' | 'a-factor' | 'sm2';
+type CardIdResolutionStats = {
+  sourceCardIds: string[];
+  resolvedCardIds: string[];
+  missingDtoCardIds: string[];
+};
+type XiuyuanReadCardRepairCandidate = {
+  xiuyuanId: string;
+  removedCount: number;
+  persisted: IXiuyuan;
+};
 
 type ListTemplateChild = {
   id: string;
@@ -376,7 +387,17 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         return ok(null);
       }
 
-      return this.toDomain(data);
+      const result = this.toDomain(data);
+      if (!result.ok) {
+        return result;
+      }
+
+      const candidate = this.buildCardIdRepairCandidate(data, result.value.cardIdStats);
+      if (candidate) {
+        await this.persistCardIdRepairs([candidate], 'findById');
+      }
+
+      return ok(result.value.xiuyuan);
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
     }
@@ -393,17 +414,23 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       // 通过 UnifiedStorageManager 查询所有 XiuYuans
       const allXiuyuans = this.storage.getAllXiuYuans();
       const xiuyuans: Xiuyuan[] = [];
+      const repairCandidates: XiuyuanReadCardRepairCandidate[] = [];
 
       // 过滤包含指定 blockID 的 XiuYuans
       for (const data of allXiuyuans) {
         if (data.blockIDs.includes(blockId.getValue())) {
           const result = this.toDomain(data);
-          if (result.ok && result.value) {
-            xiuyuans.push(result.value);
+          if (result.ok && result.value.xiuyuan) {
+            xiuyuans.push(result.value.xiuyuan);
+            const candidate = this.buildCardIdRepairCandidate(data, result.value.cardIdStats);
+            if (candidate) {
+              repairCandidates.push(candidate);
+            }
           }
         }
       }
 
+      await this.persistCardIdRepairs(repairCandidates, 'findByBlockId');
       return ok(xiuyuans);
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
@@ -419,15 +446,20 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     try {
       const dataList = this.storage.getAllXiuYuans();
       const xiuyuans: Xiuyuan[] = [];
+      const repairCandidates: XiuyuanReadCardRepairCandidate[] = [];
       this.cardToXiuyuanIndex.clear();
 
       for (const data of dataList) {
         const result = this.toDomain(data);
-        if (result.ok && result.value) {
-          xiuyuans.push(result.value);
+        if (result.ok && result.value.xiuyuan) {
+          xiuyuans.push(result.value.xiuyuan);
+          const candidate = this.buildCardIdRepairCandidate(data, result.value.cardIdStats);
+          if (candidate) {
+            repairCandidates.push(candidate);
+          }
           
           // 🚀 初始化索引：构建卡片ID -> XiuyuanID映射
-          const xiuyuan = result.value;
+          const xiuyuan = result.value.xiuyuan;
           const xiuyuanId = xiuyuan.getId().getValue();
           for (const card of xiuyuan.getCards()) {
             this.cardToXiuyuanIndex.set(card.getId().getValue(), xiuyuanId);
@@ -435,6 +467,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         }
       }
 
+      await this.persistCardIdRepairs(repairCandidates, 'findAll');
       return ok(xiuyuans);
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
@@ -833,7 +866,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    * @returns Result<Xiuyuan | null>
    * @private
    */
-  private toDomain(data: IXiuyuan): Result<Xiuyuan | null> {
+  private toDomain(data: IXiuyuan): Result<{ xiuyuan: Xiuyuan | null; cardIdStats: CardIdResolutionStats }> {
     try {
       // 1. 转换 ID
       const idResult = XiuyuanId.create(data.id);
@@ -873,14 +906,16 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
       // 6. 转换 Cards（从 cardIds 加载）
       const cardsMap = new Map<CardId, Card>();
-      const cardIds = (data.meta?.cardIds as string[]) || [];
+      const cardIds = this.extractCardIdsFromMeta(data.meta);
+      const missingDtoCardIds: string[] = [];
+      const resolvedCardIds: string[] = [];
       
       logger.debug(`toDomain: Xiuyuan ${data.id} has ${cardIds.length} cardIds in meta`);
       
       for (const cardId of cardIds) {
         const cardDTO = this.storage.getCardDTO(cardId);
         if (!cardDTO) {
-          logger.warn(`Card DTO not found: ${cardId}`);
+          missingDtoCardIds.push(cardId);
           continue;
         }
         
@@ -889,8 +924,17 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           const cardIdObj = CardId.create(cardId);
           if (cardIdObj.ok) {
             cardsMap.set(cardIdObj.value, cardResult.value);
+            resolvedCardIds.push(cardId);
           }
         }
+      }
+
+      if (missingDtoCardIds.length > 0) {
+        logger.debug('Missing card DTO references detected', {
+          xiuyuanId: data.id,
+          missingCount: missingDtoCardIds.length,
+          sampleMissingCardIds: missingDtoCardIds.slice(0, CARD_ID_DEBUG_SAMPLE_LIMIT),
+        });
       }
       
       logger.debug(`toDomain: Loaded ${cardsMap.size} cards for Xiuyuan ${data.id}`);
@@ -908,7 +952,19 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         updatedAt: new Date(data.updatedAt)
       };
 
-      return Xiuyuan.reconstitute(xiuyuanProps);
+      const xiuyuanResult = Xiuyuan.reconstitute(xiuyuanProps);
+      if (!xiuyuanResult.ok) {
+        return xiuyuanResult;
+      }
+
+      return ok({
+        xiuyuan: xiuyuanResult.value,
+        cardIdStats: {
+          sourceCardIds: cardIds,
+          resolvedCardIds,
+          missingDtoCardIds,
+        },
+      });
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
     }
@@ -920,6 +976,106 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    * @param xiuyuan - Xiuyuan 聚合根
    * @private
    */
+  private extractCardIdsFromMeta(meta: Record<string, unknown> | undefined): string[] {
+    if (!meta) {
+      return [];
+    }
+
+    const rawCardIds = meta.cardIds;
+    if (!Array.isArray(rawCardIds)) {
+      return [];
+    }
+
+    return rawCardIds.filter((cardId): cardId is string => {
+      return typeof cardId === 'string' && cardId.trim().length > 0;
+    });
+  }
+
+  private areCardIdArraysEqual(left: string[], right: string[]): boolean {
+    if (left.length !== right.length) {
+      return false;
+    }
+    for (let i = 0; i < left.length; i += 1) {
+      if (left[i] !== right[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private toResolvedCardIdList(sourceCardIds: string[], resolvedCardIds: string[]): string[] {
+    if (sourceCardIds.length === 0) {
+      return [];
+    }
+    const resolvedSet = new Set(resolvedCardIds);
+    return sourceCardIds.filter((cardId) => resolvedSet.has(cardId));
+  }
+
+  private buildCardIdRepairCandidate(
+    data: IXiuyuan,
+    cardIdStats: CardIdResolutionStats
+  ): XiuyuanReadCardRepairCandidate | null {
+    const repairedCardIds = this.toResolvedCardIdList(cardIdStats.sourceCardIds, cardIdStats.resolvedCardIds);
+    if (this.areCardIdArraysEqual(cardIdStats.sourceCardIds, repairedCardIds)) {
+      return null;
+    }
+
+    const repairedMeta: Record<string, unknown> = data.meta ? { ...data.meta } : {};
+    repairedMeta.cardIds = repairedCardIds;
+
+    return {
+      xiuyuanId: data.id,
+      removedCount: Math.max(0, cardIdStats.sourceCardIds.length - repairedCardIds.length),
+      persisted: {
+        ...data,
+        meta: repairedMeta,
+        updatedAt: Date.now(),
+      },
+    };
+  }
+
+  private async persistCardIdRepairs(
+    candidates: XiuyuanReadCardRepairCandidate[],
+    source: 'findById' | 'findByBlockId' | 'findAll'
+  ): Promise<void> {
+    if (candidates.length === 0) {
+      return;
+    }
+
+    try {
+      for (const candidate of candidates) {
+        this.storage.upsertXiuYuan(candidate.persisted);
+      }
+
+      const removedCount = candidates.reduce((sum, candidate) => sum + candidate.removedCount, 0);
+      logger.debug('Repairing stale Xiuyuan cardIds references', {
+        source,
+        repairedXiuyuanCount: candidates.length,
+        removedCardIdReferences: removedCount,
+        sampleXiuyuanIds: candidates.slice(0, CARD_ID_DEBUG_SAMPLE_LIMIT).map((candidate) => candidate.xiuyuanId),
+      });
+
+      const saveResult = await this.storage.save();
+      if (!saveResult.ok) {
+        logger.error('Failed to persist repaired Xiuyuan cardIds', {
+          source,
+          error: saveResult.error,
+        });
+        return;
+      }
+
+      logger.debug('Persisted repaired Xiuyuan cardIds', {
+        source,
+        repairedXiuyuanCount: candidates.length,
+      });
+    } catch (error) {
+      logger.error('Failed to apply Xiuyuan cardIds repair', {
+        source,
+        error,
+      });
+    }
+  }
+
   private async publishDomainEvents(xiuyuan: Xiuyuan): Promise<void> {
     const events = xiuyuan.getDomainEvents();
     

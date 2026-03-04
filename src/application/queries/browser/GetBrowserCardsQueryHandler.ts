@@ -293,7 +293,7 @@ export class GetBrowserCardsQueryHandler {
         }
       }
       
-      logger.info('Filled rootId for cards:', cards.length);
+      logger.debug('Filled rootId for cards:', cards.length);
     } catch (error) {
       logger.error('Failed to fill rootIds:', error);
     }
@@ -355,7 +355,7 @@ export class GetBrowserCardsQueryHandler {
         }
       }
       
-      logger.info('Filled content for cards:', cardsNeedingContent.length);
+      logger.debug('Filled content for cards:', cardsNeedingContent.length);
     } catch (error) {
       logger.error('Failed to fill content:', error);
     }

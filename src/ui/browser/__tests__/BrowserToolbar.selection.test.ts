@@ -209,12 +209,12 @@ describe('BrowserToolbar selection actions', () => {
     expect(getCardTypeSelectValues(wrapper)).not.toContain('missing-block-only');
   });
 
-  it('shows missing-block-only card type option in __lost__ view', () => {
+  it('hides missing-block-only card type option even in __lost__ view', () => {
     const wrapper = mountToolbar({
       activeQueueId: null,
       activeDocId: '__lost__',
     });
 
-    expect(getCardTypeSelectValues(wrapper)).toContain('missing-block-only');
+    expect(getCardTypeSelectValues(wrapper)).not.toContain('missing-block-only');
   });
 });
