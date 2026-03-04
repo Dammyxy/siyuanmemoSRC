@@ -144,6 +144,7 @@ import {
   buildReviewRenderCacheKey,
   buildReviewRenderWatchKey,
   isNeuralRoamNonFlashcard,
+  shouldVerifyQuickDefaultProfile,
 } from './reviewRenderPolicy';
 import { createLogger } from '@/utils/logger';
 import type { ICardStorage } from '@/application/interfaces/ICardStorage';
@@ -412,7 +413,8 @@ const shouldUseQuickCardRenderer = computed(() => {
     return props.content.type === 'protyle'
       && !forceProtyleRender.value
       && !isNeuralRoamNonFlashcardCard.value
-      && !isImageOcclusionCard.value;
+      && !isImageOcclusionCard.value
+      && isQuickCard.value;
   }
 
   // 只有在 protyle 类型且检测到快速卡片时才使用
@@ -628,14 +630,49 @@ async function renderProtyle(blockId: string): Promise<void> {
       return;
     }
 
-    if (renderProfile === 'quick-default') {
-      const result = { isConcept: false, isDescriptor: false, isQuick: true };
-      setCardType(cacheKey, result);
-      isConceptDefinitionCard.value = false;
-      isConceptCard.value = false;
-      isDescriptorCard.value = false;
-      isQuickCard.value = true;
-      return;
+    if (shouldVerifyQuickDefaultProfile(renderProfile)) {
+      try {
+        const isQuick = await quickCardRenderService.value.isQuickCard(blockId, quickRenderCardIdArg.value);
+        if (seq !== renderSeq) {
+          logger.debug('[SiYuanMemo][ReviewContent] Quick-default verification cancelled, newer render pending');
+          return;
+        }
+
+        const result = { isConcept: false, isDescriptor: false, isQuick };
+        setCardType(cacheKey, result);
+        isConceptDefinitionCard.value = false;
+        isConceptCard.value = false;
+        isDescriptorCard.value = false;
+        isQuickCard.value = isQuick;
+
+        if (!isQuick) {
+          logger.info('[SiYuanMemo][ReviewContent] quick-default renderProfile fallback to Protyle after verification', {
+            blockId,
+            cardId: quickRenderCardId.value,
+            renderProfile,
+            quickDetectReason: quickDetectReason.value,
+            fallbackReason: 'quick-default-not-quick-card',
+          });
+        }
+        return;
+      } catch (error) {
+        if (seq !== renderSeq) {
+          return;
+        }
+        logger.warn('[SiYuanMemo][ReviewContent] quick-default verification failed, fallback to Protyle', {
+          blockId,
+          cardId: quickRenderCardId.value,
+          renderProfile,
+          error,
+        });
+        const result = { isConcept: false, isDescriptor: false, isQuick: false };
+        setCardType(cacheKey, result);
+        isConceptDefinitionCard.value = false;
+        isConceptCard.value = false;
+        isDescriptorCard.value = false;
+        isQuickCard.value = false;
+        return;
+      }
     }
 
     if (renderProfile === 'quick-inline-formula') {

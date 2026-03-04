@@ -23,38 +23,31 @@
 // 鍙傝€冩€濇簮鍘熺敓瀹炵幇锛歴iyuan/app/src/card/openCard.ts
 
 // 闅愯棌瓒呯骇鍧?
-.card__block--hidesb {
-  .sb {
-    display: none;
+.card__block--hidemark span[data-type~="mark"] {
+  font-size: 0 !important;
+
+  &::before {
+    content: " [...] ";
+    color: var(--b3-theme-primary-light);
+    font-size: initial;
+    font-weight: bold;
   }
 }
 
-// 闅愯棌鏍囬
-.card__block--hideh {
-  [data-type="NodeHeading"] {
-    display: none;
-  }
+// 闅愯棌鍒楄〃椤圭殑瀛愬垪琛紙淇濈暀闂鍒楄〃椤规湰韬€侊級
+.card__block--hideli .list[custom-riff-decks] .li > .list,
+.card__block--hideli .li[custom-riff-decks] > .list {
+  display: none;
 }
 
-// 闅愯棌鍒楄〃
-.card__block--hideli {
-  .list,
-  .li {
-    display: none;
-  }
+// 闅愯棌瓒呯骇鍧椾腑绗?2 涓強涔嬪悗鐨勫瓙鍧楋紙淇濈暀绗?1 涓棶棰樺潡锛?
+.card__block--hidesb .protyle-wysiwyg > .sb[custom-riff-decks] > div:nth-of-type(n+2):not(.protyle-attr) {
+  display: none;
 }
 
-// 闅愯棌鏍囪锛堟偓鍋滄椂鏄剧ず锛?
-.card__block--hidemark {
-  span[data-type~="mark"] {
-    color: transparent !important;
-    background-color: transparent !important;
-    
-    &:hover {
-      color: var(--b3-theme-on-background) !important;
-      background-color: var(--b3-card-info-background) !important;
-    }
-  }
+// 闅愯棌鏍囬鍚庣画鍚岀骇鍧楋紙淇濈暀鏍囬鏈韩锛?
+.card__block--hideh .protyle-wysiwyg > div[data-type="NodeHeading"][custom-riff-decks] ~ div {
+  display: none;
 }
 
 // ==================== 鍗＄墖鎸栫┖鏍峰紡 ====================

@@ -219,22 +219,4 @@ onMounted(() => {
   font-weight: 500;
 }
 
-.quick-card-renderer__card:deep(.card__block--hidemark mark),
-.quick-card-renderer__card:deep(.card__block--hidemark [data-type~='mark']) {
-  background-color: var(--b3-theme-background);
-  color: var(--b3-theme-background);
-}
-
-.quick-card-renderer__card:deep(.card__block--hideli .li),
-.quick-card-renderer__card:deep(.card__block--hideli .list) {
-  display: none;
-}
-
-.quick-card-renderer__card:deep(.card__block--hideh [data-type='NodeHeading']) {
-  display: none;
-}
-
-.quick-card-renderer__card:deep(.card__block--hidesb .sb) {
-  display: none;
-}
 </style>

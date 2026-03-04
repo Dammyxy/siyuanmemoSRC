@@ -2,34 +2,38 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BrowserCard } from '../../../types';
 import { BrowserQuerySession, toLiteRowFromBrowserCard } from '../BrowserQuerySession';
 
-function makeCard(blockId: string): BrowserCard {
+function makeCard(blockId: string, overrides: Partial<BrowserCard> = {}): BrowserCard {
   return {
-    id: blockId,
-    fsrsCardId: blockId,
+    id: overrides.id ?? blockId,
+    fsrsCardId: overrides.fsrsCardId ?? blockId,
     blockId,
-    deckId: 'deck-a',
-    content: blockId,
-    fullContent: blockId,
-    rootId: 'doc-a',
-    state: 0,
-    stateLabel: 'New',
-    due: new Date(),
-    dueFormatted: '',
-    stability: 0,
-    difficulty: 0,
-    retrievability: 0,
-    reps: 0,
-    lapses: 0,
-    elapsedDays: 0,
-    scheduledDays: 0,
-    lastReview: null,
-    lastReviewFormatted: '',
-    interval: 0,
-    firstReview: null,
-    firstReviewFormatted: '',
-    priority: 50,
-    suspended: false,
-    tags: [],
+    deckId: overrides.deckId ?? 'deck-a',
+    content: overrides.content ?? blockId,
+    fullContent: overrides.fullContent ?? blockId,
+    rootId: overrides.rootId ?? 'doc-a',
+    state: overrides.state ?? 0,
+    stateLabel: overrides.stateLabel ?? 'New',
+    due: overrides.due ?? new Date(),
+    dueFormatted: overrides.dueFormatted ?? '',
+    stability: overrides.stability ?? 0,
+    difficulty: overrides.difficulty ?? 0,
+    retrievability: overrides.retrievability ?? 0,
+    reps: overrides.reps ?? 0,
+    lapses: overrides.lapses ?? 0,
+    elapsedDays: overrides.elapsedDays ?? 0,
+    scheduledDays: overrides.scheduledDays ?? 0,
+    lastReview: overrides.lastReview ?? null,
+    lastReviewFormatted: overrides.lastReviewFormatted ?? '',
+    interval: overrides.interval ?? 0,
+    firstReview: overrides.firstReview ?? null,
+    firstReviewFormatted: overrides.firstReviewFormatted ?? '',
+    priority: overrides.priority ?? 50,
+    suspended: overrides.suspended ?? false,
+    tags: overrides.tags ?? [],
+    note: overrides.note,
+    cardType: overrides.cardType,
+    aFactor: overrides.aFactor,
+    meta: overrides.meta,
   };
 }
 
@@ -107,5 +111,26 @@ describe('BrowserQuerySession', () => {
 
     expect(buildLiteRows).toHaveBeenCalledTimes(1);
     expect(session.getStats().totalRows).toBe(0);
+  });
+
+  it('keeps all rows when multiple cards share the same blockId', async () => {
+    const rows = [
+      makeCard('same-block', { id: 'riff-1', fsrsCardId: 'fsrs-1', priority: 98 }),
+      makeCard('same-block', { id: 'riff-2', fsrsCardId: 'fsrs-2', priority: 50 }),
+      makeCard('same-block', { id: 'riff-3', fsrsCardId: 'fsrs-3', priority: 48 }),
+    ];
+    const buildLiteRows = vi.fn().mockResolvedValue(rows.map(toLiteRowFromBrowserCard));
+    const session = new BrowserQuerySession('test');
+
+    const result = await session.fetchRows({
+      queryFingerprint: 'fp-same-block',
+      buildLiteRows,
+      startRow: 0,
+      endRow: 10,
+    });
+
+    expect(result.totalCount).toBe(3);
+    expect(result.rows).toHaveLength(3);
+    expect(result.rows.map((row) => row.fsrsCardId)).toEqual(['fsrs-1', 'fsrs-2', 'fsrs-3']);
   });
 });

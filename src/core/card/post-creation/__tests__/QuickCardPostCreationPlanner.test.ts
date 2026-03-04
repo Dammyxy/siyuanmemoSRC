@@ -26,7 +26,7 @@ describe('QuickCardPostCreationPlanner', () => {
     expect(listenerPlan).toEqual(nativePlan);
   });
 
-  it('keeps source-specific defaults for non-formula content', () => {
+  it('keeps source-specific behavior for generic cloze content', () => {
     const nativePlan = planner.plan({
       blockId: '20260301120000-default1',
       content: 'alpha ==beta== gamma',
@@ -42,8 +42,19 @@ describe('QuickCardPostCreationPlanner', () => {
 
     expect(nativePlan.mode).toBe('single');
     expect(nativePlan.templateId).toBe('builtin-riff-sync');
-    expect(listenerPlan.mode).toBe('single');
-    expect(listenerPlan.templateId).toBe('builtin-quick-card');
+    expect(listenerPlan.mode).toBe('multi-cloze');
+    expect(listenerPlan.templateId).toBe('builtin-multi-cloze');
+  });
+
+  it('does not route superblock triple braces to quick cloze for native riff sync', () => {
+    const nativePlan = planner.plan({
+      blockId: '20260301120000-default3',
+      content: '{{{row 超级块测试1\n3333}}}',
+      source: 'native-riff-sync',
+      resolvedCardType: 'item',
+    });
+
+    expect(nativePlan.mode).toBe('single');
+    expect(nativePlan.templateId).toBe('builtin-riff-sync');
   });
 });
-

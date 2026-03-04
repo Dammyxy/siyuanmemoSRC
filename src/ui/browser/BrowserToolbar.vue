@@ -243,6 +243,7 @@ const props = defineProps<{
   queueType: string;
   appliedFilter: CardFilter | null;
   activeQueueId: string | null;  // 🆕 添加当前队列 ID
+  activeDocId?: string | null;
   selectedCount: number;
   selectionMode: 'explicit' | 'all-matching';
   canSelectAllMatching: boolean;
@@ -250,7 +251,7 @@ const props = defineProps<{
 
 // 🆕 根据队列类型计算可用的卡片类型筛选选项
 const availableCardTypeFilters = computed(() => {
-  return getAvailableCardTypeFilters(props.activeQueueId);
+  return getAvailableCardTypeFilters(props.activeQueueId, { docId: props.activeDocId });
 });
 
 // 🆕 计算是否显示"分摊压力"按钮

@@ -27,6 +27,7 @@
       <ReviewActions
         :actions="state.actions"
         :meta="state.meta"
+        :current-card="state.content.card"
         :i18n="i18n"
         :queue="providerQueue || props.queue"
         :plugin="props.plugin"

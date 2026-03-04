@@ -20,6 +20,7 @@ import { DeckDataSource } from '@/ui/browser/datasource/DeckDataSource';
 import { createQueueDataSource, createQueryDataSource } from '@/ui/browser/utils/dataSourceFactory';
 import { createLogger } from '@/utils/logger';
 import { hasFilterSetter, hasRebuildAction } from './browser/filterGroupQueueContract';
+import type { FSRSCard } from '@/types/card';
 
 const EMPTY_QUEUE_COUNTS: Record<string, number> = {
   retrieval: 0,
@@ -115,6 +116,42 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
   }
 
+  private isMissingBlockCard(card: FSRSCard | null | undefined): boolean {
+    if (!card || typeof card !== 'object') {
+      return false;
+    }
+    const meta = card.meta as Record<string, unknown> | undefined;
+    return meta?.blockType === 'missing';
+  }
+
+  private async readQueueVisibleCount(
+    queue: IReviewQueue | null,
+    queueId: string,
+  ): Promise<number> {
+    if (!queue) {
+      return 0;
+    }
+
+    try {
+      const cards = await queue.getCards();
+      if (Array.isArray(cards)) {
+        return cards.filter((card) => !this.isMissingBlockCard(card)).length;
+      }
+    } catch (error) {
+      logger.warn('Failed to read queue cards for visible count, fallback to getSize:', {
+        queueId,
+        error,
+      });
+    }
+
+    try {
+      return await queue.getSize();
+    } catch (error) {
+      logger.error('Failed to read queue size:', { queueId, error });
+      return 0;
+    }
+  }
+
   private async readQueueCountsFromManager(manager: IUnifiedDataSourceManagerFacade): Promise<Record<string, number>> {
     const retrievalQueue = manager.getQueue(QueueType.RetrievalPractice);
     const finalDrillQueue = manager.getQueue(QueueType.FinalDrill);
@@ -123,11 +160,11 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     const incrementalQueue = manager.getQueue(QueueType.IncrementalLearning);
 
     const [retrieval, finalDrill, neuralRoam, filterGroup, incrementalLearning] = await Promise.all([
-      retrievalQueue ? retrievalQueue.getSize() : Promise.resolve(0),
-      finalDrillQueue ? finalDrillQueue.getSize() : Promise.resolve(0),
-      neuralRoamQueue ? neuralRoamQueue.getSize() : Promise.resolve(0),
-      filterGroupQueue ? filterGroupQueue.getSize() : Promise.resolve(0),
-      incrementalQueue ? incrementalQueue.getSize() : Promise.resolve(0),
+      this.readQueueVisibleCount(retrievalQueue, 'retrieval'),
+      this.readQueueVisibleCount(finalDrillQueue, 'final-drill'),
+      this.readQueueVisibleCount(neuralRoamQueue, 'neural-roam'),
+      this.readQueueVisibleCount(filterGroupQueue, 'filter-group'),
+      this.readQueueVisibleCount(incrementalQueue, 'incremental-learning'),
     ]);
 
     return {

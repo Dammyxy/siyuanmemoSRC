@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import ReviewActions from '../ReviewActions.vue';
 import type { ReviewUIState } from '../types';
+import type { FSRSCard } from '@/types/card';
 
 function createActions(overrides: Partial<ReviewUIState['actions']> = {}): ReviewUIState['actions'] {
   return {
@@ -23,12 +24,17 @@ function createActions(overrides: Partial<ReviewUIState['actions']> = {}): Revie
   };
 }
 
-function mountReviewActions(actions: ReviewUIState['actions'], isMobile = false) {
+function mountReviewActions(
+  actions: ReviewUIState['actions'],
+  isMobile = false,
+  currentCard: FSRSCard | null = null,
+) {
   return mount(ReviewActions, {
     props: {
       actions,
       meta: { canBack: true, remainingSize: 3, transition: 'none' },
       isMobile,
+      currentCard,
       i18n: {
         space: 'Space',
         enterKey: 'Enter',
@@ -121,5 +127,54 @@ describe('ReviewActions layout', () => {
 
     expect(wrapper.get('.card__action').classes()).toContain('card__action--mobile');
     expect(wrapper.get('.card__action-right').find('skip-menu-button-stub').exists()).toBe(true);
+  });
+
+  it('opens schedule dialog for regular cards when skip menu emits schedule', async () => {
+    const wrapper = mountReviewActions(createActions({
+      showAnswer: true,
+    }));
+
+    wrapper.getComponent({ name: 'SkipMenuButton' }).vm.$emit('schedule');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('schedule-date-dialog-stub').exists()).toBe(true);
+  });
+
+  it('blocks schedule dialog for neural roam virtual cards', async () => {
+    const wrapper = mountReviewActions(
+      createActions({ showAnswer: true }),
+      false,
+      {
+        id: 'virtual-1',
+        blockId: 'virtual-1',
+        due: Date.now(),
+        stability: 0,
+        difficulty: 0,
+        elapsedDays: 0,
+        scheduledDays: 0,
+        reps: 0,
+        lapses: 0,
+        state: 0,
+        lastReview: Date.now(),
+        priority: 50,
+        type: 'topic',
+        tags: [],
+        leechCount: 0,
+        isLeech: false,
+        skipped: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        meta: {
+          neuralContext: {
+            isFlashcard: false,
+          },
+        },
+      } as FSRSCard,
+    );
+
+    wrapper.getComponent({ name: 'SkipMenuButton' }).vm.$emit('schedule');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('schedule-date-dialog-stub').exists()).toBe(false);
   });
 });

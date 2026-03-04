@@ -1161,6 +1161,7 @@ export async function loadQueueCards(
                 logger.info(`[SiYuanMemo][loadQueueCards] Block ${id} has no FSRS card, creating virtual card`);
                 
                 const customAttrs = attrsMap.get(id) || {};
+                const parsedPriority = Number(customAttrs[attrKeys.priority]);
                 const dbContent = contentMap.get(id) || '';
                 const rootId = rootIdMap.get(id) || '';
                 const tags = tagsMap.get(id) || [];
@@ -1190,7 +1191,7 @@ export async function loadQueueCards(
                     interval: 0,
                     firstReview: null,
                     firstReviewFormatted: '-',
-                    priority: Number(customAttrs[attrKeys.priority]) || 50,
+                    priority: Number.isFinite(parsedPriority) ? parsedPriority : 50,
                     suspended: customAttrs[attrKeys.suspended] === 'true',
                     tags: tags,
                     note: '',

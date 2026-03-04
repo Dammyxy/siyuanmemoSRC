@@ -74,4 +74,11 @@ describe('ClozeDetector latex escape handling', () => {
     expect(clozes.map((item) => item.type)).toEqual(['brace', 'latex']);
     expect(clozes.map((item) => item.text)).toEqual(['A', 'x']);
   });
+
+  it('does not extract cloze from superblock triple braces', () => {
+    const content = '{{{row 超级块测试1\n3333}}}';
+    const clozes = ClozeDetector.extractClozes(content);
+
+    expect(clozes).toHaveLength(0);
+  });
 });

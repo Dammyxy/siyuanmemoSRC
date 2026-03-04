@@ -202,4 +202,20 @@ describe('XiuyuanSyncService quick render hint', () => {
     expect(meta.quickDetectReason).toBeUndefined();
     expect(xiuyuanRepository.save).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps native superblock riff cards on standard renderer metadata', async () => {
+    const { xiuyuanEntity } = await (service as any).convertRiffCardToFSRSCard(
+      createRiffBlock({
+        id: '20260301190000-super01',
+        content: '{{{row 超级块测试1\n3333}}}',
+        ial: { 'custom-fsrs-card-type': 'item' },
+      })
+    );
+
+    const meta = xiuyuanEntity.getMeta() as Record<string, unknown>;
+    expect(xiuyuanEntity.getTemplateID().getValue()).toBe('builtin-riff-sync');
+    expect(meta.renderProfile).toBeUndefined();
+    expect(meta.clozeRenderMode).toBeUndefined();
+    expect(meta.forceQuickRender).toBeUndefined();
+  });
 });

@@ -5,6 +5,11 @@ export class GenericClozeRule implements PostCreationRule {
   readonly id = 'GenericClozeRule';
 
   match(context: PostCreationContext): CreationDecision | null {
+    // Native riff sync cards should preserve Siyuan-native semantics by default.
+    if (context.source === 'native-riff-sync') {
+      return null;
+    }
+
     const content = String(context.content || '');
     if (!hasGenericCloze(content)) {
       return null;
@@ -28,4 +33,3 @@ export class GenericClozeRule implements PostCreationRule {
     };
   }
 }
-

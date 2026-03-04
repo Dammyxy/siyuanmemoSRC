@@ -61,6 +61,7 @@
         :i18n="i18n"
         :queue-size="remainingSize"
         :is-mobile="props.isMobile"
+        :can-schedule-date="canScheduleDate"
         @skip="emit('skip')"
         @insert="handleInsert"
         @schedule="handleSchedule"
@@ -108,7 +109,9 @@ import ScheduleDateDialog, { type ScheduleOptions } from './dialogs/ScheduleDate
 import { createLogger } from '@/utils/logger';
 import type FSRSPlugin from '@/index';
 import type { IReviewQueue } from '@/types/unified-data-source';
+import type { FSRSCard } from '@/types/card';
 import { isTopicLikeCard } from './reviewCardSemantics';
+import { isNeuralRoamNonFlashcard } from './reviewRenderPolicy';
 import { buildRatingAriaLabel, type ReviewRatingValue } from './reviewHotkeys';
 
 const logger = createLogger('ReviewActions');
@@ -122,6 +125,7 @@ const props = defineProps<{
   actions: ReviewUIState['actions'];
   i18n?: Record<string, string>;
   meta?: ReviewUIState['meta'];
+  currentCard?: FSRSCard | null;
   queue?: ReviewQueueLike;
   plugin?: FSRSPlugin;
   isMobile?: boolean;
@@ -153,6 +157,8 @@ const isTopicCard = computed(() => {
 const cardType = computed<'item' | 'topic'>(() => {
   return isTopicCard.value ? 'topic' : 'item';
 });
+
+const canScheduleDate = computed(() => !isNeuralRoamNonFlashcard(props.currentCard));
 
 // 剩余卡片数量
 const remainingSize = computed(() => {
@@ -299,6 +305,10 @@ async function onInsertConfirm(position: number) {
 
 // 安排日期逻辑
 function handleSchedule() {
+  if (!canScheduleDate.value) {
+    logger.info('Schedule date disabled for neural roam virtual card');
+    return;
+  }
   showScheduleDialog.value = true;
 }
 
@@ -308,6 +318,12 @@ function closeScheduleDialog() {
 
 async function onScheduleConfirm(options: ScheduleOptions) {
   try {
+    if (!canScheduleDate.value) {
+      logger.warn('Blocked schedule confirm for neural roam virtual card');
+      closeScheduleDialog();
+      return;
+    }
+
     // 🔧 修复：使用 Adapter 提供的字段名（大写）
     const cardId = props.actions.cardMeta?.cardID || props.actions.cardMeta?.blockID;
     if (!cardId) {

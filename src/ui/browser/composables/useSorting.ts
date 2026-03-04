@@ -1,8 +1,9 @@
 import { ref, computed, type Ref } from 'vue';
-import type { ColumnState, GridApi } from 'ag-grid-community';
+import type { GridApi } from 'ag-grid-community';
 import type { SortModel } from '@/application/interfaces/ICardDataSource';
 import type { BrowserCard } from '../types';
 import { SORT_FIELD_CONFIGS } from '../constants';
+import { resolveEffectiveSortModel } from '../utils/sortModel';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('useSorting');
@@ -49,65 +50,6 @@ function shuffleRows(rows: BrowserCard[]): BrowserCard[] {
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy;
-}
-
-function normalizeSortModel(sortModel: SortModel[] | undefined): SortModel[] {
-  if (!Array.isArray(sortModel)) {
-    return [];
-  }
-  return sortModel.filter((item) =>
-    item
-    && typeof item.colId === 'string'
-    && (item.sort === 'asc' || item.sort === 'desc')
-  );
-}
-
-function toSortModelFromColumnState(columnState: ColumnState[] | undefined): SortModel[] {
-  if (!Array.isArray(columnState)) {
-    return [];
-  }
-
-  return columnState
-    .filter((col) => typeof col.colId === 'string' && (col.sort === 'asc' || col.sort === 'desc'))
-    .sort((a, b) => {
-      const aIndex = Number.isFinite(a.sortIndex) ? Number(a.sortIndex) : Number.MAX_SAFE_INTEGER;
-      const bIndex = Number.isFinite(b.sortIndex) ? Number(b.sortIndex) : Number.MAX_SAFE_INTEGER;
-      return aIndex - bIndex;
-    })
-    .map((col) => ({
-      colId: String(col.colId),
-      sort: col.sort as 'asc' | 'desc',
-    }));
-}
-
-function resolveEffectiveSortModel(
-  currentSortModel: SortModel[],
-  api: GridApi | null
-): SortModel[] {
-  const normalizedCurrent = normalizeSortModel(currentSortModel);
-  if (normalizedCurrent.length > 0) {
-    return normalizedCurrent;
-  }
-
-  if (!api) {
-    return [];
-  }
-
-  try {
-    if (typeof api.isDestroyed === 'function' && api.isDestroyed()) {
-      return [];
-    }
-
-    const fromColumnState = toSortModelFromColumnState(api.getColumnState?.() || []);
-    if (fromColumnState.length > 0) {
-      return fromColumnState;
-    }
-
-    type LegacySortApi = GridApi & { getSortModel?: () => SortModel[] };
-    return normalizeSortModel((api as LegacySortApi).getSortModel?.());
-  } catch {
-    return [];
-  }
 }
 
 export function useSorting(options: UseSortingOptions) {
@@ -186,7 +128,10 @@ export function useSorting(options: UseSortingOptions) {
 
   const canApplySortToQueue = computed(() => {
     const qid = String(activeQueueId.value || '');
-    const effectiveSortModel = resolveEffectiveSortModel(currentSortModel.value || [], gridApi.value);
+    const effectiveSortModel = resolveEffectiveSortModel({
+      currentSortModel: currentSortModel.value || [],
+      api: gridApi.value,
+    });
 
     let hasSort = effectiveSortModel.length > 0;
 
@@ -212,7 +157,10 @@ export function useSorting(options: UseSortingOptions) {
       return;
     }
 
-    const effectiveSortModel = resolveEffectiveSortModel(currentSortModel.value || [], gridApi.value);
+    const effectiveSortModel = resolveEffectiveSortModel({
+      currentSortModel: currentSortModel.value || [],
+      api: gridApi.value,
+    });
 
     let orderedCards: BrowserCard[] = [];
     if (hasRandomSort.value && randomSortedRows.value?.length) {

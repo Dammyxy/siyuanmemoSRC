@@ -116,35 +116,46 @@ export const FILTER_PRESETS: FilterPreset[] = [
  * @param queueId 队列 ID（retrieval, final-drill, neural, incremental-learning 等）
  * @returns 可用的卡片类型筛选选项数组
  */
-export function getAvailableCardTypeFilters(queueId: string | null): Array<{ value: CardTypeFilter; i18nKey: string; label: string }> {
+export function getAvailableCardTypeFilters(
+    queueId: string | null,
+    context?: { docId?: string | null },
+): Array<{ value: CardTypeFilter; i18nKey: string; label: string }> {
+    const isLostView = String(context?.docId || '').trim() === '__lost__';
+    const withMissingOption = (base: Array<{ value: CardTypeFilter; i18nKey: string; label: string }>) => {
+        if (!isLostView) {
+            return base;
+        }
+        return [
+            ...base,
+            { value: 'missing-block-only', i18nKey: 'cardTypeMissingBlockOnly', label: '仅缺失块' },
+        ];
+    };
+
     // 提取练习队列和刻意练习队列：只显示 all、item-only、descriptor-only
     // 原因：concept 卡片使用 A-Factor 调度器，不应出现在 FSRS 练习队列中
     if (queueId === 'retrieval' || queueId === 'final-drill') {
-        return [
+        return withMissingOption([
             { value: 'all',             i18nKey: 'cardTypeAll',             label: '所有类型' },
             { value: 'item-only',       i18nKey: 'cardTypeItemOnly',        label: '仅 item' },
             { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅 descriptor' },
-            { value: 'missing-block-only', i18nKey: 'cardTypeMissingBlockOnly', label: '仅缺失块' },
-        ];
+        ]);
     }
 
-    // 神经漫游队列：优先概念卡，同时允许排查缺失块
+    // 神经漫游队列：固定概念卡
     if (queueId === 'neural' || queueId === 'neural-roam') {
-        return [
+        return withMissingOption([
             { value: 'concept-only',    i18nKey: 'cardTypeConceptOnly',     label: '仅 concept' },
-            { value: 'missing-block-only', i18nKey: 'cardTypeMissingBlockOnly', label: '仅缺失块' },
-        ];
+        ]);
     }
 
-    // 其他队列（渐进学习、筛选组、全部卡片等）：显示所有选项
-    return [
+    // 其他队列（渐进学习、筛选组、全部卡片等）：显示标准选项
+    return withMissingOption([
         { value: 'all',             i18nKey: 'cardTypeAll',             label: '所有类型' },
         { value: 'topic-only',      i18nKey: 'cardTypeTopicOnly',       label: '仅 topic' },
         { value: 'item-only',       i18nKey: 'cardTypeItemOnly',        label: '仅 item' },
         { value: 'concept-only',    i18nKey: 'cardTypeConceptOnly',     label: '仅 concept' },
         { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅 descriptor' },
-        { value: 'missing-block-only', i18nKey: 'cardTypeMissingBlockOnly', label: '仅缺失块' },
-    ];
+    ]);
 }
 
 /** 批量操作类型 */

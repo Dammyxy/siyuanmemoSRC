@@ -1,0 +1,745 @@
+
+[31m[1m[A] t() fallback 触发 — key 不在 i18n 文件中，运行时显示 fallback 英文 (79 处)[0m
+  src/ui/browser/BrowserHierarchy.vue:84
+    key: "queueIncremental"  fallback: "Incremental Learning"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "queueIncremental" 的翻译
+  src/ui/browser/BrowserPreview.vue:5
+    key: "preview"  fallback: "预览"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "preview" 的翻译
+  src/ui/browser/BrowserPreview.vue:12
+    key: "unlockPreview"  fallback: "双击内容区也可解锁"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "unlockPreview" 的翻译
+  src/ui/browser/BrowserPreview.vue:12
+    key: "lockPreview"  fallback: "锁定编辑"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "lockPreview" 的翻译
+  src/ui/browser/BrowserPreview.vue:16
+    key: "jumpToBlock"  fallback: "跳转"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "jumpToBlock" 的翻译
+  src/ui/browser/BrowserPreview.vue:43
+    key: "clickToPreview"  fallback: "点击卡片查看详情"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "clickToPreview" 的翻译
+  src/ui/browser/BrowserToolbar.vue:18
+    key: "allCards"  fallback: "All"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "allCards" 的翻译
+  src/ui/browser/BrowserToolbar.vue:19
+    key: "dueToday"  fallback: "Due Today"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "dueToday" 的翻译
+  src/ui/browser/BrowserToolbar.vue:20
+    key: "overdue"  fallback: "Overdue"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "overdue" 的翻译
+  src/ui/browser/BrowserToolbar.vue:21
+    key: "leech"  fallback: "Leech"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "leech" 的翻译
+  src/ui/browser/BrowserToolbar.vue:22
+    key: "new"  fallback: "New"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "new" 的翻译
+  src/ui/browser/BrowserToolbar.vue:88
+    key: "spreadReviews"  fallback: "分摊复习压力 - 将积压的复习任务均匀分散"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "spreadReviews" 的翻译
+  src/ui/browser/BrowserToolbar.vue:111
+    key: "togglePreview"  fallback: "切换预览"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "togglePreview" 的翻译
+  src/ui/browser/BrowserToolbar.vue:121
+    key: "forceRefresh"  fallback: "强制刷新数据（清除缓存）"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "forceRefresh" 的翻译
+  src/ui/browser/BrowserToolbar.vue:148
+    key: "migrateTopicItem"  fallback: "识别 Topic/Item 类型"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "migrateTopicItem" 的翻译
+  src/ui/browser/BrowserToolbar.vue:156
+    key: "perfReport"  fallback: "性能报告"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "perfReport" 的翻译
+  src/ui/browser/CardBrowserToolbar.vue:18
+    key: "allCards"  fallback: "All"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "allCards" 的翻译
+  src/ui/browser/CardBrowserToolbar.vue:19
+    key: "dueToday"  fallback: "Due Today"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "dueToday" 的翻译
+  src/ui/browser/CardBrowserToolbar.vue:20
+    key: "overdue"  fallback: "Overdue"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "overdue" 的翻译
+  src/ui/browser/CardBrowserToolbar.vue:21
+    key: "leech"  fallback: "Leech"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "leech" 的翻译
+  src/ui/browser/CardBrowserToolbar.vue:22
+    key: "new"  fallback: "New"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "new" 的翻译
+  src/ui/browser/CardBrowserToolbar.vue:92
+    key: "forceRefresh"  fallback: "强制刷新数据（清除缓存）"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "forceRefresh" 的翻译
+  src/ui/browser/CardBrowserToolbar.vue:97
+    key: "migrateTopicItem"  fallback: "识别 Topic/Item 类型"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "migrateTopicItem" 的翻译
+  src/ui/browser/CardBrowserToolbar.vue:102
+    key: "perfReport"  fallback: "性能报告"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "perfReport" 的翻译
+  src/ui/browser/CardBrowserToolbar.vue:111
+    key: "togglePreview"  fallback: "切换预览"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "togglePreview" 的翻译
+  src/ui/browser/CardPreviewPanel.vue:5
+    key: "preview"  fallback: "预览"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "preview" 的翻译
+  src/ui/browser/CardPreviewPanel.vue:12
+    key: "unlockPreview"  fallback: "双击内容区也可解锁"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "unlockPreview" 的翻译
+  src/ui/browser/CardPreviewPanel.vue:12
+    key: "lockPreview"  fallback: "锁定编辑"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "lockPreview" 的翻译
+  src/ui/browser/CardPreviewPanel.vue:16
+    key: "jumpToBlock"  fallback: "跳转"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "jumpToBlock" 的翻译
+  src/ui/browser/CardPreviewPanel.vue:43
+    key: "clickToPreview"  fallback: "点击卡片查看详情"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "clickToPreview" 的翻译
+  src/ui/browser/composables/useCardActions.ts:125
+    key: "migrateConfirmTitle"  fallback: "识别 Topic/Item 类型"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "migrateConfirmTitle" 的翻译
+  src/ui/browser/composables/useContextMenu.ts:400
+    key: "postponeHint"  fallback: "将到期时间推迟 N 天"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "postponeHint" 的翻译
+  src/ui/browser/composables/useContextMenu.ts:443
+    key: "priorityLabel"  fallback: "优先级"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "priorityLabel" 的翻译
+  src/ui/browser/composables/useContextMenu.ts:444
+    key: "priorityHint"  fallback: "0-100，越小越优先"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "priorityHint" 的翻译
+  src/ui/browser/SRSBrowser.vue:1117
+    key: "priorityLabel"  fallback: "Priority"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "priorityLabel" 的翻译
+  src/ui/browser/SRSBrowser.vue:1118
+    key: "priorityHint"  fallback: "0-100, smaller = higher priority"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "priorityHint" 的翻译
+  src/ui/browser/SRSBrowser.vue:1965
+    key: "practiceLeech"  fallback: "难点攻坚"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "practiceLeech" 的翻译
+  src/ui/browser/SRSBrowser.vue:2407
+    key: "spreadResult"  fallback: "分散结果"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "spreadResult" 的翻译
+  src/ui/browser/SRSBrowser.vue:2431
+    key: "spreadSuccess"  fallback: "分散操作完成"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "spreadSuccess" 的翻译
+  src/ui/browser/SRSBrowser.vue:2434
+    key: "spreadFailed"  fallback: "分散操作失败"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "spreadFailed" 的翻译
+  src/ui/browser/SRSBrowser.vue:2447
+    key: "openDialogFailed"  fallback: "打开对话框失败"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "openDialogFailed" 的翻译
+  src/ui/browser/utils/formatters.ts:75
+    key: "today"  fallback: "today"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "today" 的翻译
+  src/ui/browser/utils/formatters.ts:77
+    key: "yesterday"  fallback: "yesterday"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "yesterday" 的翻译
+  src/ui/components/SyncStatusIndicator.vue:18
+    key: "skipped"  fallback: "跳过"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "skipped" 的翻译
+  src/ui/components/SyncStatusIndicator.vue:43
+    key: "quickSyncTooltip"  fallback: "获取新卡片和更新（推荐日常使用）"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "quickSyncTooltip" 的翻译
+  src/ui/components/SyncStatusIndicator.vue:52
+    key: "fullSyncTooltip"  fallback: "完整检查并清理数据（耗时较长，建议每周一次）"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "fullSyncTooltip" 的翻译
+  src/ui/review/v2/overlays/NeuralRoamTopArea.vue:4
+    key: "neuralReasonLabel"  fallback: "关联"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "neuralReasonLabel" 的翻译
+  src/ui/review/v2/overlays/NeuralRoamTopArea.vue:7
+    key: "from"  fallback: "来自"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "from" 的翻译
+  src/ui/review/v2/ReviewContent.vue:89
+    key: "answerDivider"  fallback: "─── 答案 ───"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "answerDivider" 的翻译
+  src/ui/review/v2/ReviewView.vue:481
+    key: "lastReview"  fallback: "上次复习"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "lastReview" 的翻译
+  src/ui/settings/SettingsPanel.vue:75
+    key: "schedulerFsrsV6"  fallback: "FSRS v6"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "schedulerFsrsV6" 的翻译
+  src/ui/settings/SettingsPanel.vue:88
+    key: "schedulerAFactorV2"  fallback: "A-Factor v2"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "schedulerAFactorV2" 的翻译
+  src/ui/srs/FlashcardMetaMenu.vue:77
+    key: "blockNotFound"  fallback: "未找到块信息"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "blockNotFound" 的翻译
+  src/ui/srs/FlashcardMetaMenu.vue:118
+    key: "due"  fallback: "下次复习"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "due" 的翻译
+  src/ui/srs/FlashcardMetaMenu.vue:129
+    key: "loadError"  fallback: "加载失败"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "loadError" 的翻译
+  src/ui/srs/FsrsSettingsPanel.vue:5
+    key: "schedulePreview"  fallback: "计划预览"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "schedulePreview" 的翻译
+  src/ui/srs/FsrsSettingsPanel.vue:24
+    key: "fsrsSettings"  fallback: "免费间隔重复调度器 (FSRS v6) 设置"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "fsrsSettings" 的翻译
+  src/ui/srs/FsrsSettingsPanel.vue:28
+    key: "targetRetention"  fallback: "目标记忆率"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "targetRetention" 的翻译
+  src/ui/srs/FsrsSettingsPanel.vue:29
+    key: "retentionDesc"  fallback: "随着时间的推移，你回忆起某张卡片的概率会下降，其速度取决于该知识点的难度以及距离上次回忆的时间。当 RemNote 认为你记起这张卡片的概率已降至此百分比时，便会将其放入你的练习队列中。"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "retentionDesc" 的翻译
+  src/ui/srs/FsrsSettingsPanel.vue:39
+    key: "weights"  fallback: "权重"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "weights" 的翻译
+  src/ui/srs/FsrsSettingsPanel.vue:40
+    key: "weightsDesc"  fallback: "这些参数控制着 FSRS 再次向您展示记忆卡片的间隔时间。我们不建议您手动编辑这些参数；相反，您可以使用下方的按钮，根据您的学习记录自动选择合适的值（您需要至少完成 1000 次记忆卡片练习）。"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "weightsDesc" 的翻译
+  src/ui/srs/FsrsSettingsPanel.vue:41
+    key: "useDefaultWeights"  fallback: "使用默认权重"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "useDefaultWeights" 的翻译
+  src/ui/srs/FsrsSettingsPanel.vue:48
+    key: "maxInterval"  fallback: "最大间隔"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "maxInterval" 的翻译
+  src/ui/srs/FsrsSettingsPanel.vue:49
+    key: "maxIntervalDesc"  fallback: "如果卡片的复习间隔超过此天数，则该间隔将被限制在此值。例如，如果您输入 365，则每张卡片每年至少会复习一次。"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "maxIntervalDesc" 的翻译
+  src/ui/srs/FsrsSettingsPanel.vue:59
+    key: "schedulerReset"  fallback: "计划重置"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "schedulerReset" 的翻译
+  src/ui/srs/FsrsSettingsPanel.vue:60
+    key: "resetDesc"  fallback: "重置计划会恢复默认设置。"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "resetDesc" 的翻译
+  src/ui/srs/FsrsSettingsPanel.vue:64
+    key: "resetDefaults"  fallback: "重置默认值"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "resetDefaults" 的翻译
+  src/ui/srs/SrsEditorDialog.vue:19
+    key: "cardType"  fallback: "Card Type"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "cardType" 的翻译
+  src/ui/srs/SrsEditorDialog.vue:27
+    key: "nextReview"  fallback: "Next Review"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "nextReview" 的翻译
+  src/ui/srs/SrsEditorDialog.vue:47
+    key: "priority"  fallback: "Priority"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "priority" 的翻译
+  src/ui/srs/SrsEditorDialog.vue:51
+    key: "aFactor"  fallback: "A-Factor"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "aFactor" 的翻译
+  src/ui/srs/SrsEditorDialog.vue:81
+    key: "lastReview"  fallback: "Last Review"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "lastReview" 的翻译
+  src/ui/srs/SrsEditorDialog.vue:91
+    key: "nextReview"  fallback: "Next Review"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "nextReview" 的翻译
+  src/ui/srs/SrsEditorDialog.vue:137
+    key: "priority"  fallback: "Priority"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "priority" 的翻译
+  src/ui/srs/SrsEditorDialog.vue:143
+    key: "cardType"  fallback: "Card Type"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "cardType" 的翻译
+  src/ui/srs/SrsEditorDialog.vue:153
+    key: "aFactor"  fallback: "A-Factor"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "aFactor" 的翻译
+  src/ui/srs/SrsEditorDialog.vue:329
+    key: "learning"  fallback: "Learning"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "learning" 的翻译
+  src/ui/srs/SrsEditorDialog.vue:331
+    key: "relearning"  fallback: "Relearning"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "relearning" 的翻译
+  src/ui/srs/SrsEditorDialog.vue:469
+    key: "resetConfirmTitle"  fallback: "Confirm Reset Progress"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "resetConfirmTitle" 的翻译
+
+[31m[1m[B] i18n?.key || fallback — key 不存在，运行时显示硬编码文字 (1 处)[0m
+  src/application/managers/PracticeQueueManager.ts:103
+    key: "practiceQueueEmpty"  fallback: "练习队列为空"  缺失于: zh+en
+    建议: 在 zh+en 文件中添加 "practiceQueueEmpty" 的翻译
+
+[33m[1m[C] 硬编码 UI 字符串 — 完全绕过 i18n，语言切换无效 (81 处)[0m
+  src/App.vue:104
+    值: "Option 1"
+    代码: { value: '1', text: 'Option 1' },
+  src/App.vue:105
+    值: "Option 2"
+    代码: { value: '2', text: 'Option 2' },
+  src/App.vue:106
+    值: "Option 3"
+    代码: { value: '3', text: 'Option 3' },
+  src/App.vue:131
+    值: "Plugin Sample"
+    代码: title: 'Plugin Sample',
+  src/application/controllers/ReviewViewController.ts:154
+    值: "锁定为种子"
+    代码: label: '锁定为种子',
+  src/application/controllers/ReviewViewController.ts:164
+    值: "下一个"
+    代码: { type: 'action', label: '下一个', action: 'next' },
+  src/application/controllers/ReviewViewController.ts:171
+    值: "锁定为种子"
+    代码: label: '锁定为种子',
+  src/application/managers/BlockMenuHandler.ts:237
+    值: "刻意练习队列"
+    代码: title: '刻意练习队列',
+  src/application/managers/BlockMenuHandler.ts:288
+    值: "开始练习？"
+    代码: title: '开始练习？',
+  src/application/managers/DialogManager.ts:1482
+    值: "选择卡片类型"
+    代码: title: '选择卡片类型',
+  src/core/card/common/ui/CardLoadingState.vue:12
+    值: "加载中..."
+    代码: text: '加载中...'
+  src/types/unified-data-source.ts:745
+    值: "添加到最终训练"
+    代码: { id: 'add-to-final-drill', label: '添加到最终训练' },
+  src/types/unified-data-source.ts:746
+    值: "切换调度器"
+    代码: { id: 'switch-scheduler', label: '切换调度器' },
+  src/types/unified-data-source.ts:747
+    值: "修改卡片类型"
+    代码: { id: 'modify-card-type', label: '修改卡片类型' },
+  src/types/unified-data-source.ts:748
+    值: "设置优先级"
+    代码: { id: 'set-priority', label: '设置优先级' },
+  src/types/unified-data-source.ts:749
+    值: "同步到 Riff"
+    代码: { id: 'sync-to-riff', label: '同步到 Riff' },
+  src/ui/browser/composables/useCardActions.ts:277
+    值: "标记为 Topic"
+    代码: label: '标记为 Topic',
+  src/ui/browser/composables/useCardActions.ts:282
+    值: "标记为 Item"
+    代码: label: '标记为 Item',
+  src/ui/browser/composables/useCardActions.ts:288
+    值: "标记为概念卡"
+    代码: label: '标记为概念卡',
+  src/ui/browser/composables/useCardActions.ts:293
+    值: "标记为描述符卡"
+    代码: label: '标记为描述符卡',
+  src/ui/browser/composables/useContextMenu.ts:36
+    值: "到期时间"
+    代码: { colId: 'dueFormatted', label: '到期时间', icon: 'iconCalendar' },
+  src/ui/browser/composables/useContextMenu.ts:37
+    值: "稳定性"
+    代码: { colId: 'stability', label: '稳定性', icon: 'iconBarChart' },
+  src/ui/browser/composables/useContextMenu.ts:39
+    值: "可提取性"
+    代码: { colId: 'retrievability', label: '可提取性', icon: 'iconPointer' },
+  src/ui/browser/composables/useContextMenu.ts:40
+    值: "复习次数"
+    代码: { colId: 'reps', label: '复习次数', icon: 'iconNumbers' },
+  src/ui/browser/composables/useContextMenu.ts:41
+    值: "遗忘次数"
+    代码: { colId: 'lapses', label: '遗忘次数', icon: 'iconRefresh' },
+  src/ui/browser/composables/useContextMenu.ts:42
+    值: "优先级"
+    代码: { colId: 'priority', label: '优先级', icon: 'iconMark' },
+  src/ui/browser/composables/useContextMenu.ts:179
+    值: "随机排序"
+    代码: label: '随机排序',
+  src/ui/browser/composables/useContextMenu.ts:200
+    值: "标记为 Topic"
+    代码: label: '标记为 Topic',
+  src/ui/browser/composables/useContextMenu.ts:205
+    值: "标记为 Item"
+    代码: label: '标记为 Item',
+  src/ui/browser/composables/useContextMenu.ts:212
+    值: "卡片类型"
+    代码: label: '卡片类型',
+  src/ui/browser/composables/useSorting.ts:241
+    值: "随机排序"
+    代码: label: '随机排序',
+  src/ui/browser/constants.ts:262
+    值: "优先级"
+    代码: { colId: 'priority', label: '优先级', i18nKey: 'sortByPriority', icon: 'iconStar' }
+  src/ui/browser/constants.ts:264
+    值: "复习次数"
+    代码: { colId: 'reps', label: '复习次数', i18nKey: 'sortByReps', icon: 'iconRefresh' },
+  src/ui/browser/constants.ts:265
+    值: "遗忘次数"
+    代码: { colId: 'lapses', label: '遗忘次数', i18nKey: 'sortByLapses', icon: 'iconWarn' },
+  src/ui/browser/constants.ts:267
+    值: "可提取性"
+    代码: { colId: 'retrievability', label: '可提取性', i18nKey: 'sortByRetrievability', icon:
+  src/ui/browser/constants.ts:268
+    值: "稳定性"
+    代码: { colId: 'stability', label: '稳定性', i18nKey: 'sortByStability', icon: 'iconLock'
+  src/ui/browser/constants.ts:270
+    值: "上次复习"
+    代码: { colId: 'lastReviewFormatted', label: '上次复习', i18nKey: 'sortByLastReview', icon
+  src/ui/browser/constants.ts:271
+    值: "下次复习"
+    代码: { colId: 'dueFormatted', label: '下次复习', i18nKey: 'sortByDueDate', icon: 'iconCal
+  src/ui/browser/constants.ts:272
+    值: "首次复习"
+    代码: { colId: 'firstReviewFormatted', label: '首次复习', i18nKey: 'sortByFirstReview', ic
+  src/ui/browser/datasource/DeckDataSource.ts:374
+    值: "Review Subset"
+    代码: actions.unshift({ id: 'review-subset', label: 'Review Subset', icon: 'iconPlay' 
+  src/ui/browser/datasource/IncrementalLearningDataSource.ts:358
+    值: "从队列移除"
+    代码: label: '从队列移除',
+  src/ui/browser/datasource/IncrementalLearningDataSource.ts:363
+    值: "取消闪卡"
+    代码: label: '取消闪卡',
+  src/ui/browser/datasource/IncrementalLearningDataSource.ts:369
+    值: "设置优先级"
+    代码: label: '设置优先级',
+  src/ui/browser/types.ts:84
+    值: "全部卡片"
+    代码: { key: 'all', label: '全部卡片', icon: 'iconRiffCard' },
+  src/ui/browser/types.ts:85
+    值: "今日到期"
+    代码: { key: 'due', label: '今日到期', icon: 'iconToday' },
+  src/ui/browser/types.ts:86
+    值: "已过期"
+    代码: { key: 'overdue', label: '已过期', icon: 'iconClose' },
+  src/ui/browser/types.ts:87
+    值: "新卡片"
+    代码: { key: 'new', label: '新卡片', icon: 'iconAdd' },
+  src/ui/browser/types.ts:88
+    值: "学习中"
+    代码: { key: 'learning', label: '学习中', icon: 'iconPlay' },
+  src/ui/browser/types.ts:89
+    值: "难点卡片"
+    代码: { key: 'leech', label: '难点卡片', icon: 'iconBug' },
+  src/ui/browser/types.ts:90
+    值: "已暂停"
+    代码: { key: 'suspended', label: '已暂停', icon: 'iconPause' },
+  src/ui/browser/types.ts:91
+    值: "当前文档"
+    代码: { key: 'current-doc', label: '当前文档', icon: 'iconFile' },
+  src/ui/browser/types.ts:93
+    值: "仅主题"
+    代码: { key: 'topic-only', label: '仅主题', icon: 'iconFile' },
+  src/ui/browser/types.ts:94
+    值: "仅卡片"
+    代码: { key: 'item-only', label: '仅卡片', icon: 'iconCheck' },
+  src/ui/browser/types.ts:95
+    值: "仅概念卡"
+    代码: { key: 'concept-only', label: '仅概念卡', icon: 'iconBrain' },
+  src/ui/browser/types.ts:96
+    值: "仅描述符卡"
+    代码: { key: 'descriptor-only', label: '仅描述符卡', icon: 'iconTag' },
+  src/ui/browser/types.ts:110
+    值: "All Types"
+    代码: { value: 'all', label: 'All Types' },
+  src/ui/browser/types.ts:111
+    值: "Item Only"
+    代码: { value: 'item-only', label: 'Item Only' },
+  src/ui/browser/types.ts:112
+    值: "Descriptor Only"
+    代码: { value: 'descriptor-only', label: 'Descriptor Only' },
+  src/ui/browser/types.ts:119
+    值: "Concept Only"
+    代码: { value: 'concept-only', label: 'Concept Only' },
+  src/ui/browser/types.ts:120
+    值: "Descriptor Only"
+    代码: { value: 'descriptor-only', label: 'Descriptor Only' },
+  src/ui/browser/types.ts:126
+    值: "All Types"
+    代码: { value: 'all', label: 'All Types' },
+  src/ui/browser/types.ts:127
+    值: "Topic Only"
+    代码: { value: 'topic-only', label: 'Topic Only' },
+  src/ui/browser/types.ts:128
+    值: "Item Only"
+    代码: { value: 'item-only', label: 'Item Only' },
+  src/ui/browser/types.ts:129
+    值: "Concept Only"
+    代码: { value: 'concept-only', label: 'Concept Only' },
+  src/ui/browser/types.ts:130
+    值: "Descriptor Only"
+    代码: { value: 'descriptor-only', label: 'Descriptor Only' },
+  src/ui/browser/types.ts:154
+    值: "重新调度"
+    代码: { key: 'reschedule', label: '重新调度', icon: 'iconCalendar', shortcut: 'Ctrl+J' },
+  src/ui/browser/types.ts:155
+    值: "重置为新卡"
+    代码: { key: 'reset', label: '重置为新卡', icon: 'iconRefresh', shortcut: 'Ctrl+Shift+R' },
+  src/ui/browser/types.ts:156
+    值: "暂停卡片"
+    代码: { key: 'suspend', label: '暂停卡片', icon: 'iconPause', shortcut: 'Ctrl+K' },
+  src/ui/browser/types.ts:157
+    值: "取消暂停"
+    代码: { key: 'unsuspend', label: '取消暂停', icon: 'iconPlay', shortcut: 'Ctrl+Shift+K' },
+  src/ui/browser/types.ts:158
+    值: "设置优先级"
+    代码: { key: 'priority', label: '设置优先级', icon: 'iconMark', shortcut: 'Ctrl+P' },
+  src/ui/browser/types.ts:159
+    值: "取消闪卡"
+    代码: { key: 'delete', label: '取消闪卡', icon: 'iconTrashcan', shortcut: 'Del', danger: t
+  src/ui/browser/utils/dataSourceFactory.ts:89
+    值: "神经漫游"
+    代码: label: '神经漫游',
+  src/ui/browser/utils/dataSourceFactory.ts:232
+    值: "神经漫游"
+    代码: label: '神经漫游',
+  src/ui/review/ReviewViewAdapter.ts:252
+    值: "下一个"
+    代码: label: '下一个',
+  src/ui/review/v2/ReviewView.vue:855
+    值: "查看种子块列表"
+    代码: label: '查看种子块列表',
+  src/ui/review/v2/ReviewView.vue:900
+    值: "从种子块开始漫游"
+    代码: label: '从种子块开始漫游',
+  src/ui/review/v2/ReviewView.vue:907
+    值: "从种子块开始漫游"
+    代码: label: '从种子块开始漫游',
+  src/ui/review/v2/ReviewView.vue:932
+    值: "移除种子块"
+    代码: label: '移除种子块',
+  src/ui/review/v2/ReviewView.vue:939
+    值: "移除种子块"
+    代码: label: '移除种子块',
+  src/ui/review/v2/ReviewView.vue:950
+    值: "查看历史记录"
+    代码: label: '查看历史记录',
+  src/ui/review/v2/ReviewView.vue:973
+    值: "清空历史记录"
+    代码: label: '清空历史记录',
+
+[33m[1m[D] i18n 文件内容异常 — en 混入中文 / zh 未翻译 (0 处)[0m
+  [32m✓ 无问题[0m
+
+[36m[1m[E] i18n key 不对称 — 一个文件有另一个没有 (0 处)[0m
+  [32m✓ 无问题[0m
+
+────────────────────────────────────────────────────────────
+[1m汇总[0m
+  [A] t() key 缺失导致 fallback:     [31m79 处[0m
+  [B] i18n?.key 缺失导致 fallback:   [31m1 处[0m
+  [C] 硬编码 UI 字符串:              [33m81 处[0m
+  [D] i18n 文件内容异常:             [32m0 处[0m
+  [E] key 不对称:                    [32m0 处[0m
+  ──────────────────────────────
+  合计: [31m[1m161 处问题[0m
+
+[1m需要添加到 i18n 文件的 key（建议翻译）:[0m
+{
+  "queueIncremental": {
+    "fallback": "Incremental Learning",
+    "missingIn": "zh+en"
+  },
+  "preview": {
+    "fallback": "预览",
+    "missingIn": "zh+en"
+  },
+  "unlockPreview": {
+    "fallback": "双击内容区也可解锁",
+    "missingIn": "zh+en"
+  },
+  "lockPreview": {
+    "fallback": "锁定编辑",
+    "missingIn": "zh+en"
+  },
+  "jumpToBlock": {
+    "fallback": "跳转",
+    "missingIn": "zh+en"
+  },
+  "clickToPreview": {
+    "fallback": "点击卡片查看详情",
+    "missingIn": "zh+en"
+  },
+  "allCards": {
+    "fallback": "All",
+    "missingIn": "zh+en"
+  },
+  "dueToday": {
+    "fallback": "Due Today",
+    "missingIn": "zh+en"
+  },
+  "overdue": {
+    "fallback": "Overdue",
+    "missingIn": "zh+en"
+  },
+  "leech": {
+    "fallback": "Leech",
+    "missingIn": "zh+en"
+  },
+  "new": {
+    "fallback": "New",
+    "missingIn": "zh+en"
+  },
+  "spreadReviews": {
+    "fallback": "分摊复习压力 - 将积压的复习任务均匀分散",
+    "missingIn": "zh+en"
+  },
+  "togglePreview": {
+    "fallback": "切换预览",
+    "missingIn": "zh+en"
+  },
+  "forceRefresh": {
+    "fallback": "强制刷新数据（清除缓存）",
+    "missingIn": "zh+en"
+  },
+  "migrateTopicItem": {
+    "fallback": "识别 Topic/Item 类型",
+    "missingIn": "zh+en"
+  },
+  "perfReport": {
+    "fallback": "性能报告",
+    "missingIn": "zh+en"
+  },
+  "migrateConfirmTitle": {
+    "fallback": "识别 Topic/Item 类型",
+    "missingIn": "zh+en"
+  },
+  "postponeHint": {
+    "fallback": "将到期时间推迟 N 天",
+    "missingIn": "zh+en"
+  },
+  "priorityLabel": {
+    "fallback": "优先级",
+    "missingIn": "zh+en"
+  },
+  "priorityHint": {
+    "fallback": "0-100，越小越优先",
+    "missingIn": "zh+en"
+  },
+  "practiceLeech": {
+    "fallback": "难点攻坚",
+    "missingIn": "zh+en"
+  },
+  "spreadResult": {
+    "fallback": "分散结果",
+    "missingIn": "zh+en"
+  },
+  "spreadSuccess": {
+    "fallback": "分散操作完成",
+    "missingIn": "zh+en"
+  },
+  "spreadFailed": {
+    "fallback": "分散操作失败",
+    "missingIn": "zh+en"
+  },
+  "openDialogFailed": {
+    "fallback": "打开对话框失败",
+    "missingIn": "zh+en"
+  },
+  "today": {
+    "fallback": "today",
+    "missingIn": "zh+en"
+  },
+  "yesterday": {
+    "fallback": "yesterday",
+    "missingIn": "zh+en"
+  },
+  "skipped": {
+    "fallback": "跳过",
+    "missingIn": "zh+en"
+  },
+  "quickSyncTooltip": {
+    "fallback": "获取新卡片和更新（推荐日常使用）",
+    "missingIn": "zh+en"
+  },
+  "fullSyncTooltip": {
+    "fallback": "完整检查并清理数据（耗时较长，建议每周一次）",
+    "missingIn": "zh+en"
+  },
+  "neuralReasonLabel": {
+    "fallback": "关联",
+    "missingIn": "zh+en"
+  },
+  "from": {
+    "fallback": "来自",
+    "missingIn": "zh+en"
+  },
+  "answerDivider": {
+    "fallback": "─── 答案 ───",
+    "missingIn": "zh+en"
+  },
+  "lastReview": {
+    "fallback": "上次复习",
+    "missingIn": "zh+en"
+  },
+  "schedulerFsrsV6": {
+    "fallback": "FSRS v6",
+    "missingIn": "zh+en"
+  },
+  "schedulerAFactorV2": {
+    "fallback": "A-Factor v2",
+    "missingIn": "zh+en"
+  },
+  "blockNotFound": {
+    "fallback": "未找到块信息",
+    "missingIn": "zh+en"
+  },
+  "due": {
+    "fallback": "下次复习",
+    "missingIn": "zh+en"
+  },
+  "loadError": {
+    "fallback": "加载失败",
+    "missingIn": "zh+en"
+  },
+  "schedulePreview": {
+    "fallback": "计划预览",
+    "missingIn": "zh+en"
+  },
+  "fsrsSettings": {
+    "fallback": "免费间隔重复调度器 (FSRS v6) 设置",
+    "missingIn": "zh+en"
+  },
+  "targetRetention": {
+    "fallback": "目标记忆率",
+    "missingIn": "zh+en"
+  },
+  "retentionDesc": {
+    "fallback": "随着时间的推移，你回忆起某张卡片的概率会下降，其速度取决于该知识点的难度以及距离上次回忆的时间。当 RemNote 认为你记起这张卡片的概率已降至此百分比时，便会将其放入你的练习队列中。",
+    "missingIn": "zh+en"
+  },
+  "weights": {
+    "fallback": "权重",
+    "missingIn": "zh+en"
+  },
+  "weightsDesc": {
+    "fallback": "这些参数控制着 FSRS 再次向您展示记忆卡片的间隔时间。我们不建议您手动编辑这些参数；相反，您可以使用下方的按钮，根据您的学习记录自动选择合适的值（您需要至少完成 1000 次记忆卡片练习）。",
+    "missingIn": "zh+en"
+  },
+  "useDefaultWeights": {
+    "fallback": "使用默认权重",
+    "missingIn": "zh+en"
+  },
+  "maxInterval": {
+    "fallback": "最大间隔",
+    "missingIn": "zh+en"
+  },
+  "maxIntervalDesc": {
+    "fallback": "如果卡片的复习间隔超过此天数，则该间隔将被限制在此值。例如，如果您输入 365，则每张卡片每年至少会复习一次。",
+    "missingIn": "zh+en"
+  },
+  "schedulerReset": {
+    "fallback": "计划重置",
+    "missingIn": "zh+en"
+  },
+  "resetDesc": {
+    "fallback": "重置计划会恢复默认设置。",
+    "missingIn": "zh+en"
+  },
+  "resetDefaults": {
+    "fallback": "重置默认值",
+    "missingIn": "zh+en"
+  },
+  "cardType": {
+    "fallback": "Card Type",
+    "missingIn": "zh+en"
+  },
+  "nextReview": {
+    "fallback": "Next Review",
+    "missingIn": "zh+en"
+  },
+  "priority": {
+    "fallback": "Priority",
+    "missingIn": "zh+en"
+  },
+  "aFactor": {
+    "fallback": "A-Factor",
+    "missingIn": "zh+en"
+  },
+  "learning": {
+    "fallback": "Learning",
+    "missingIn": "zh+en"
+  },
+  "relearning": {
+    "fallback": "Relearning",
+    "missingIn": "zh+en"
+  },
+  "resetConfirmTitle": {
+    "fallback": "Confirm Reset Progress",
+    "missingIn": "zh+en"
+  },
+  "practiceQueueEmpty": {
+    "fallback": "练习队列为空",
+    "missingIn": "zh+en"
+  }
+}

@@ -31,6 +31,7 @@ interface Props {
   i18n?: Record<string, string>;
   queueSize?: number; // 剩余卡片数量
   isMobile?: boolean;
+  canScheduleDate?: boolean;
 }
 
 interface Emits {
@@ -39,7 +40,9 @@ interface Emits {
   (e: 'schedule'): void;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+  canScheduleDate: true,
+});
 const emit = defineEmits<Emits>();
 const logger = createLogger('SkipMenuButton');
 const skipHotkeyHint = '0 / x';
@@ -78,14 +81,16 @@ function toggleMenu(ev: MouseEvent) {
     },
   });
   
-  menu.addItem({
-    icon: 'iconCalendar',
-    label: t('scheduleDate', '安排复习日期'),
-    click: () => {
-      logger.debug('[SkipMenuButton] Schedule clicked');
-      emit('schedule');
-    },
-  });
+  if (props.canScheduleDate) {
+    menu.addItem({
+      icon: 'iconCalendar',
+      label: t('scheduleDate', '安排复习日期'),
+      click: () => {
+        logger.debug('[SkipMenuButton] Schedule clicked');
+        emit('schedule');
+      },
+    });
+  }
   
   // 统一使用右侧箭头按钮本身作为锚点，避免移动端与桌面端位置偏差
   const target = ev.currentTarget as HTMLElement | null;

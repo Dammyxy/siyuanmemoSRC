@@ -6,6 +6,15 @@
 
 import type { ColDef, ValueGetterParams } from 'ag-grid-community';
 import type { BrowserCard } from '../types';
+import { formatSortContractDisplayValue } from './sortDisplayContract';
+
+function formatWithContract(card: BrowserCard | undefined, colId: string): string {
+  if (!card) {
+    return '-';
+  }
+
+  return formatSortContractDisplayValue(card, colId) ?? '-';
+}
 
 /** 状态颜色映射 */
 export const STATE_COLORS: Record<string, string> = {
@@ -63,7 +72,7 @@ export function createColumnDefs(t?: (key: string, fallback: string) => string):
       headerName: 'Prior', 
       width: 55,
       sortable: true,
-      valueFormatter: (params) => `${params.value || 50}%`,
+      valueFormatter: (params) => formatWithContract(params.data, 'priority'),
     },
     // Intrv - 间隔
     { 
@@ -71,21 +80,23 @@ export function createColumnDefs(t?: (key: string, fallback: string) => string):
       headerName: 'Intrv', 
       width: 55,
       sortable: true,
-      valueFormatter: (params) => params.value > 0 ? `${params.value}d` : '-',
+      valueFormatter: (params) => formatWithContract(params.data, 'interval'),
     },
     // LastRep - 上次复习
     { 
-      field: 'lastReviewFormatted', 
+      field: 'lastReview', 
       headerName: 'LastRep', 
       width: 110,
       sortable: true,
+      valueFormatter: (params) => formatWithContract(params.data, 'lastReview'),
     },
     // NextRep - 下次复习
     { 
-      field: 'dueFormatted', 
+      field: 'due', 
       headerName: 'NextRep', 
       width: 110,
       sortable: true,
+      valueFormatter: (params) => formatWithContract(params.data, 'due'),
     },
     // Reps - 复习次数
     { 
@@ -151,10 +162,11 @@ export function createColumnDefs(t?: (key: string, fallback: string) => string):
     },
     // FirstRep - 首次复习
     {
-      field: 'firstReviewFormatted',
+      field: 'firstReview',
       headerName: 'FirstRep',
       width: 110,
       sortable: true,
+      valueFormatter: (params) => formatWithContract(params.data, 'firstReview'),
     },
     // Retr - 可提取性
     {
@@ -162,10 +174,7 @@ export function createColumnDefs(t?: (key: string, fallback: string) => string):
       headerName: 'Retr',
       width: 55,
       sortable: true,
-      valueFormatter: (params) => {
-        const r = Number(params.value);
-        return Number.isFinite(r) ? `${(r * 100).toFixed(0)}%` : '-';
-      },
+      valueFormatter: (params) => formatWithContract(params.data, 'retrievability'),
     },
     // Diff - 难度
     {
@@ -173,10 +182,7 @@ export function createColumnDefs(t?: (key: string, fallback: string) => string):
       headerName: 'Diff',
       width: 55,
       sortable: true,
-      valueFormatter: (params) => {
-        const d = Number(params.value);
-        return Number.isFinite(d) ? d.toFixed(1) : '-';
-      },
+      valueFormatter: (params) => formatWithContract(params.data, 'difficulty'),
     },
     // Stab - 稳定性
     {
@@ -184,10 +190,7 @@ export function createColumnDefs(t?: (key: string, fallback: string) => string):
       headerName: 'Stab',
       width: 55,
       sortable: true,
-      valueFormatter: (params) => {
-        const s = Number(params.value);
-        return Number.isFinite(s) ? `${s.toFixed(1)}d` : '-';
-      },
+      valueFormatter: (params) => formatWithContract(params.data, 'stability'),
     },
   ];
 }

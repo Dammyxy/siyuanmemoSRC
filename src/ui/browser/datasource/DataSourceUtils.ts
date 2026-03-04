@@ -3,7 +3,13 @@ import type { SortModel } from './types';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 import { parseQuery } from '../browserService';
+import {
+  getSortContractRawValue,
+  getSortContractValueType,
+  type SortValueType,
+} from '../config/sortDisplayContract';
 import { matchesParsedQuery } from '../utils/cardFilters';
+import { normalizeSortModel } from '../utils/sortModel';
 
 const logger = createLogger('DataSourceUtils');
 
@@ -299,25 +305,195 @@ export async function adjustBrowserCardsDue(
   return result;
 }
 
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (value instanceof Date) {
+    const timestamp = value.getTime();
+    return Number.isFinite(timestamp) ? timestamp : null;
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 1 : 0;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function toTimestamp(value: unknown): number | null {
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isFinite(time) ? time : null;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const parsed = Date.parse(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function toComparableSortValue(
+  row: BrowserCard,
+  sortKey: string
+): string | number | boolean | null {
+  const rawValue = getSortContractRawValue(row, sortKey);
+  const valueType = getSortContractValueType(sortKey);
+  return normalizeComparableSortValue(rawValue, valueType);
+}
+
+function normalizeComparableSortValue(
+  rawValue: unknown,
+  valueType: SortValueType | null
+): string | number | boolean | null {
+  if (valueType === 'number') {
+    return toFiniteNumber(rawValue);
+  }
+
+  if (valueType === 'date') {
+    return toTimestamp(rawValue);
+  }
+
+  if (valueType === 'boolean') {
+    if (typeof rawValue === 'boolean') {
+      return rawValue;
+    }
+    if (rawValue === 'true' || rawValue === 1) {
+      return true;
+    }
+    if (rawValue === 'false' || rawValue === 0) {
+      return false;
+    }
+    return null;
+  }
+
+  if (valueType === 'string') {
+    if (rawValue == null) {
+      return null;
+    }
+    const normalized = String(rawValue).trim();
+    return normalized || null;
+  }
+
+  if (rawValue == null) {
+    return null;
+  }
+
+  if (rawValue instanceof Date) {
+    return toTimestamp(rawValue);
+  }
+
+  if (typeof rawValue === 'number') {
+    return Number.isFinite(rawValue) ? rawValue : null;
+  }
+
+  if (typeof rawValue === 'boolean') {
+    return rawValue;
+  }
+
+  if (typeof rawValue === 'string') {
+    const normalized = rawValue.trim();
+    if (!normalized) {
+      return null;
+    }
+
+    const numeric = toFiniteNumber(normalized);
+    if (numeric != null) {
+      return numeric;
+    }
+
+    const timestamp = toTimestamp(normalized);
+    if (timestamp != null) {
+      return timestamp;
+    }
+
+    return normalized;
+  }
+
+  return String(rawValue);
+}
+
+function compareSortValues(left: unknown, right: unknown): number {
+  if (left == null && right == null) return 0;
+  if (left == null) return 1;
+  if (right == null) return -1;
+
+  if (typeof left === 'number' && typeof right === 'number') {
+    if (left < right) return -1;
+    if (left > right) return 1;
+    return 0;
+  }
+
+  if (typeof left === 'boolean' && typeof right === 'boolean') {
+    return Number(left) - Number(right);
+  }
+
+  const compared = String(left).localeCompare(String(right), undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  });
+  if (compared < 0) return -1;
+  if (compared > 0) return 1;
+  return 0;
+}
+
 export function sortBrowserCards(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
   if (!sortModel?.length) return rows;
 
-  const [{ colId, sort }] = sortModel;
-  const dir = sort === 'desc' ? -1 : 1;
-  const key = String(colId || '');
+  const normalizedSortModel = normalizeSortModel(sortModel);
+
+  if (!normalizedSortModel.length) {
+    return rows;
+  }
+
   const copy = [...rows];
 
   copy.sort((a, b) => {
-    const av = (a as Record<string, unknown>)?.[key];
-    const bv = (b as Record<string, unknown>)?.[key];
+    for (const { colId, sort } of normalizedSortModel) {
+      const dir = sort === 'desc' ? -1 : 1;
+      const key = String(colId || '').trim();
+      const av = toComparableSortValue(a, key);
+      const bv = toComparableSortValue(b, key);
 
-    if (av == null && bv == null) return 0;
-    if (av == null) return -1 * dir;
-    if (bv == null) return 1 * dir;
-    if (av instanceof Date && bv instanceof Date) return (av.getTime() - bv.getTime()) * dir;
-    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      if (av == null || bv == null) {
+        if (av == null && bv == null) {
+          continue;
+        }
+        // Keep invalid values at the bottom regardless of sort direction.
+        return av == null ? 1 : -1;
+      }
 
-    return String(av).localeCompare(String(bv)) * dir;
+      const compared = compareSortValues(av, bv);
+      if (compared !== 0) {
+        return compared * dir;
+      }
+    }
+
+    const blockCompare = String(a.blockId || '').localeCompare(String(b.blockId || ''));
+    if (blockCompare !== 0) {
+      return blockCompare;
+    }
+    return String(a.id || '').localeCompare(String(b.id || ''));
   });
 
   return copy;
@@ -368,14 +544,23 @@ export function sortAndPaginateBrowserCards(
   return paginateBrowserCards(sortedRows, startRow, endRow);
 }
 
+export function isMissingBlockCard(card: BrowserCard): boolean {
+  return (card.meta as { blockType?: unknown } | undefined)?.blockType === 'missing';
+}
+
 export function applyDocFilter(cards: BrowserCard[], docId?: string): BrowserCard[] {
-  if (!docId) {
-    return cards;
+  const normalizedDocId = String(docId || '').trim();
+
+  if (normalizedDocId === '__lost__') {
+    return cards.filter((card) => isMissingBlockCard(card));
   }
-  if (docId === '__lost__') {
-    return cards.filter((card) => !String(card.rootId || ''));
+
+  const nonMissingCards = cards.filter((card) => !isMissingBlockCard(card));
+  if (!normalizedDocId) {
+    return nonMissingCards;
   }
-  return cards.filter((card) => card.rootId === docId);
+
+  return nonMissingCards.filter((card) => card.rootId === normalizedDocId);
 }
 
 export function applyLegacyPresetFilter(cards: BrowserCard[], preset?: string): BrowserCard[] {
@@ -408,8 +593,6 @@ export function applyCardTypeFilter(cards: BrowserCard[], cardType?: string): Br
   }
 
   const normalized = cardType as CardTypeFilterValue;
-  const isMissingBlockCard = (card: BrowserCard): boolean =>
-    (card.meta as { blockType?: unknown } | undefined)?.blockType === 'missing';
 
   return cards.filter((card) => {
     switch (normalized) {

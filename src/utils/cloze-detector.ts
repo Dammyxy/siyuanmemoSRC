@@ -15,12 +15,15 @@ export class ClozeDetector {
 
     let match: RegExpExecArray | null;
 
-    const braceRegex = /\{\{([^}]*)\}\}/g;
+    const braceRegex = /(^|[^{}])\{\{(?!\{)([\s\S]*?)\}\}(?!\})/g;
     while ((match = braceRegex.exec(content)) !== null) {
+      const prefix = match[1] ?? '';
+      const clozeStart = match.index + prefix.length;
+      const clozeLength = match[0].length - prefix.length;
       clozes.push({
-        text: match[1].trim(),
-        start: match.index,
-        end: match.index + match[0].length,
+        text: (match[2] ?? '').trim(),
+        start: clozeStart,
+        end: clozeStart + clozeLength,
         type: 'brace',
       });
     }

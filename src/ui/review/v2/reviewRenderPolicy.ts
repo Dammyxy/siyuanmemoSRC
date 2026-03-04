@@ -13,6 +13,8 @@ export interface ReviewRenderPolicyKeyInput {
   forceQuickRender?: NullableBoolean;
 }
 
+export type ReviewRenderProfile = string | null | undefined;
+
 function toToken(value: unknown): string {
   if (value === null || value === undefined || value === '') {
     return '_';
@@ -54,6 +56,10 @@ export function isNeuralRoamNonFlashcard(card?: FSRSCard | null): boolean {
   return isFlashcard === false;
 }
 
+export function shouldVerifyQuickDefaultProfile(profile: ReviewRenderProfile): boolean {
+  return profile === 'quick-default';
+}
+
 export function buildReviewRenderCacheKey(input: ReviewRenderPolicyKeyInput): string {
   return buildBaseSegments(input).join('|');
 }
@@ -64,4 +70,3 @@ export function buildReviewRenderWatchKey(input: ReviewRenderPolicyKeyInput): st
     `ct:${toToken(input.contentType)}`,
   ].join('|');
 }
-

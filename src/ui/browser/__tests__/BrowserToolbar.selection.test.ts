@@ -41,6 +41,7 @@ const baseProps = {
   selectedCount: 0,
   selectionMode: 'explicit' as const,
   canSelectAllMatching: true,
+  activeDocId: null,
 };
 
 let resizeObserverCallback: ResizeObserverCallback | null = null;
@@ -82,6 +83,16 @@ function findSelectionToggleButton(wrapper: ReturnType<typeof mountToolbar>) {
 
 function findButtonByTitle(wrapper: ReturnType<typeof mountToolbar>, title: string) {
   return wrapper.findAll('button').find((button) => button.attributes('title') === title);
+}
+
+function getCardTypeSelectValues(wrapper: ReturnType<typeof mountToolbar>): string[] {
+  const selects = wrapper.findAll('select');
+  const cardTypeSelect = selects[1];
+  if (!cardTypeSelect) {
+    return [];
+  }
+
+  return cardTypeSelect.findAll('option').map((option) => option.attributes('value'));
 }
 
 describe('BrowserToolbar selection actions', () => {
@@ -187,5 +198,23 @@ describe('BrowserToolbar selection actions', () => {
 
     await repairButton!.trigger('click');
     expect(wrapper.emitted('repairCardTypeConsistency')).toBeTruthy();
+  });
+
+  it('hides missing-block-only card type option in non-lost view', () => {
+    const wrapper = mountToolbar({
+      activeQueueId: null,
+      activeDocId: null,
+    });
+
+    expect(getCardTypeSelectValues(wrapper)).not.toContain('missing-block-only');
+  });
+
+  it('shows missing-block-only card type option in __lost__ view', () => {
+    const wrapper = mountToolbar({
+      activeQueueId: null,
+      activeDocId: '__lost__',
+    });
+
+    expect(getCardTypeSelectValues(wrapper)).toContain('missing-block-only');
   });
 });

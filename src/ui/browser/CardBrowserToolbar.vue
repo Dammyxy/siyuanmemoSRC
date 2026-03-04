@@ -151,7 +151,7 @@ const props = defineProps<Props>();
 
 // 🆕 根据队列类型计算可用的卡片类型筛选选项
 const availableCardTypeFilters = computed(() => {
-  return getAvailableCardTypeFilters(props.activeQueueId || null);
+  return getAvailableCardTypeFilters(props.activeQueueId || null, { docId: props.activeDocId });
 });
 
 // 定义 emits

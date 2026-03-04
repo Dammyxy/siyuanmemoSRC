@@ -35,7 +35,9 @@ function normalizeBoundary(value: number | undefined, fallback: number): number 
 }
 
 function resolveSessionIdFromCard(card: BrowserCard): string {
-  return String(card.blockId || card.fsrsCardId || card.id || '');
+  // blockId is not unique when one block maps to multiple cards.
+  // Session identity must be card-level stable to keep sort/page order deterministic.
+  return String(card.fsrsCardId || card.id || card.blockId || '');
 }
 
 function toUniqueIds(ids: string[]): string[] {

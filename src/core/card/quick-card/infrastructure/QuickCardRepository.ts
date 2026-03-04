@@ -291,7 +291,8 @@ export class QuickCardRepository {
       return { type: 'descriptor', symbol: content.includes(';;') ? ';;' : '；；' };
     }
     // 检测填空符号：{{}} 或 ==
-    if (content.includes('{{') && content.includes('}}')) {
+    // 注意：需要排除三花括号（如超级块语法 {{{row ...}}}）
+    if (/(^|[^{}])\{\{(?!\{)[\s\S]*?\}\}(?!\})/.test(content)) {
       return { type: 'cloze', symbol: '{{}}' };
     }
     if (content.match(/==[^=]+==/)) {

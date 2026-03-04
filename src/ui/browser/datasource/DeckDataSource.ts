@@ -360,11 +360,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     rows = applyCardTypeFilter(rows, this.options.cardType);
     rows = applySimpleQueryFilter(rows, this.options.queryText, { secondaryField: 'fullContent' });
 
-    if (this.options.currentDocId === '__lost__') {
-      rows = rows.filter((card) => !String(card.rootId || ''));
-    } else {
-      rows = applyDocFilter(rows, this.options.currentDocId);
-    }
+    rows = applyDocFilter(rows, this.options.currentDocId);
 
     return sortBrowserCards(rows, sortModel);
   }
@@ -438,7 +434,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
       interval: card.scheduledDays || 0,
       firstReview: firstReviewDate,
       firstReviewFormatted: this.formatHistoryDate(firstReviewDate),
-      priority: card.priority || 50,
+      priority: card.priority ?? 50,
       suspended: (card.meta?.suspended as boolean) || false,
       tags: card.tags || [],
       note: (card.meta?.note as string) || '',

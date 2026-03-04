@@ -66,7 +66,7 @@ type QuickRenderHintMeta = {
 };
 
 type RiffSyncMetaSource = 'riff-sync';
-type RiffClozeRenderMode = 'inline-formula-cloze' | 'default';
+type RiffClozeRenderMode = 'inline-formula-cloze';
 type RiffRenderProfile =
     | 'quick-default'
     | 'quick-inline-formula'
@@ -342,13 +342,18 @@ export class XiuyuanSyncService {
         });
     }
 
-    private resolveRiffClozeRenderMode(plan: PostCreationPlan): RiffClozeRenderMode {
-        return plan.renderMode === 'inline-formula-cloze'
-            ? 'inline-formula-cloze'
-            : 'default';
+    private resolveRiffClozeRenderMode(plan: PostCreationPlan): RiffClozeRenderMode | undefined {
+        if (plan.renderMode === 'inline-formula-cloze') {
+            return 'inline-formula-cloze';
+        }
+        return undefined;
     }
 
-    private resolveRiffRenderProfile(plan: PostCreationPlan): RiffRenderProfile {
+    private resolveRiffRenderProfile(plan: PostCreationPlan): RiffRenderProfile | undefined {
+        if (plan.templateId === 'builtin-riff-sync') {
+            return undefined;
+        }
+
         if (plan.renderMode === 'inline-formula-cloze') {
             return 'quick-inline-formula';
         }
@@ -1376,6 +1381,8 @@ export class XiuyuanSyncService {
             throw new Error(`Failed to create TemplateId: ${errorMsg}`);
         }
 
+        const clozeRenderMode = this.resolveRiffClozeRenderMode(postCreationPlan);
+        const renderProfile = this.resolveRiffRenderProfile(postCreationPlan);
         const xiuyuanResult = Xiuyuan.create({
             id: xiuyuanId,
             blockIDs: [blockId],
@@ -1388,8 +1395,8 @@ export class XiuyuanSyncService {
                 cardType,
                 cardTypeMarker,
                 source: 'riff-sync' as RiffSyncMetaSource,
-                clozeRenderMode: this.resolveRiffClozeRenderMode(postCreationPlan),
-                renderProfile: this.resolveRiffRenderProfile(postCreationPlan),
+                ...(clozeRenderMode ? { clozeRenderMode } : {}),
+                ...(renderProfile ? { renderProfile } : {}),
                 creationRuleId: postCreationPlan.hints?.ruleId,
                 creationMode: this.resolveRiffCreationMode(postCreationPlan),
                 riffPrimaryCardId: riffBlock.id,
@@ -1457,6 +1464,8 @@ export class XiuyuanSyncService {
             throw new Error(`Failed to create TemplateId: ${errorMsg}`);
         }
 
+        const clozeRenderMode = this.resolveRiffClozeRenderMode(postCreationPlan);
+        const renderProfile = this.resolveRiffRenderProfile(postCreationPlan);
         const xiuyuanResult = Xiuyuan.create({
             id: xiuyuanId,
             blockIDs: [blockId],
@@ -1468,8 +1477,8 @@ export class XiuyuanSyncService {
                 cardType,
                 cardTypeMarker,
                 source: 'riff-sync' as RiffSyncMetaSource,
-                clozeRenderMode: this.resolveRiffClozeRenderMode(postCreationPlan),
-                renderProfile: this.resolveRiffRenderProfile(postCreationPlan),
+                ...(clozeRenderMode ? { clozeRenderMode } : {}),
+                ...(renderProfile ? { renderProfile } : {}),
                 creationRuleId: postCreationPlan.hints?.ruleId,
                 creationMode: this.resolveRiffCreationMode(postCreationPlan),
                 riffPrimaryCardId: riffBlock.id,

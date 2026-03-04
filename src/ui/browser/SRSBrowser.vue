@@ -40,6 +40,7 @@
         :queue-type="currentQueueType"
         :applied-filter="appliedFilter"
         :active-queue-id="activeQueueId"
+        :active-doc-id="activeDocId"
         :selected-count="globalSelection.selectedCount.value"
         :selection-mode="globalSelection.mode.value"
         :can-select-all-matching="canSelectAllMatching"
@@ -206,7 +207,6 @@ import type {
   GridApi,
   ColDef,
   CellContextMenuEvent,
-  ColumnState,
   DisplayedColumnsChangedEvent,
   GridReadyEvent,
   IDatasource,
@@ -284,6 +284,11 @@ import { extractSqlStatement } from './utils/cardFilters';
 import { extractBlockIds } from './utils/helpers';
 import { interpolateI18n } from './utils/i18n';
 import { mergeExplicitSelectionByPage } from './utils/paginatedSelection';
+import { resolveEffectiveSortModel } from './utils/sortModel';
+import {
+  isNeuralQueueId,
+  resolveQueueCardTypeOnSwitch,
+} from './utils/queueCardTypePolicy';
 import {
   createQueueDataSource,
   createDeckDataSource,
@@ -406,10 +411,12 @@ const globalLostCount = ref<number | null>(null);
 const currentDataSource = ref<ICardDataSource | null>(null);
 const currentPreset = ref<PresetFilter>('all');
 const currentCardType = ref<CardTypeFilter>('all');
+const previousNonNeuralCardType = ref<CardTypeFilter | null>(null);
 const selectedRows = ref<BrowserCard[]>([]);
 const globalSelection = useGlobalSelection();
 const gridApi = ref<GridApi | null>(null);
 const currentSortModel = ref<SortModel[]>([]);
+const sortModelRevision = ref(0);
 const currentSortField = ref<SortField>('due');
 const currentSortOrder = ref<SortOrder>('asc');
 const searchQuery = ref('');
@@ -930,7 +937,7 @@ async function refreshGlobalStats(force = false): Promise<void> {
 
   const taskId = ++globalStatsTaskId;
   try {
-    const deckDataSource = createDeckDataSource(
+    const allCardsDataSource = createDeckDataSource(
       unifiedDataSourceManager,
       {
         docId: null,
@@ -942,13 +949,28 @@ async function refreshGlobalStats(force = false): Promise<void> {
       props.plugin
     );
 
-    const cards = await fetchAllRowsFromDataSource(deckDataSource, []);
+    const lostCardsDataSource = createDeckDataSource(
+      unifiedDataSourceManager,
+      {
+        docId: '__lost__',
+        preset: 'all',
+        queryText: '',
+        cardType: 'all',
+      },
+      props.currentDocId || null,
+      props.plugin
+    );
+
+    const [visibleCards, lostCards] = await Promise.all([
+      fetchAllRowsFromDataSource(allCardsDataSource, []),
+      fetchAllRowsFromDataSource(lostCardsDataSource, []),
+    ]);
     if (taskId !== globalStatsTaskId) {
       return;
     }
 
-    globalTotalCount.value = cards.length;
-    globalLostCount.value = cards.filter((card) => !String(card.rootId || '')).length;
+    globalTotalCount.value = visibleCards.length;
+    globalLostCount.value = lostCards.length;
   } catch (error) {
     if (taskId !== globalStatsTaskId) {
       return;
@@ -963,12 +985,15 @@ async function refreshGlobalStats(force = false): Promise<void> {
   }
 }
 
-function createInfiniteDatasource(version: number): IDatasource {
+function createInfiniteDatasource(
+  version: number,
+  dataSourceSnapshot: ICardDataSource | null
+): IDatasource {
   return {
     getRows: (params: IGetRowsParams) => {
       void (async () => {
         try {
-          const dataSource = currentDataSource.value;
+          const dataSource = dataSourceSnapshot;
           if (!dataSource) {
             if (version === datasourceVersion) {
               scheduleDatasourceUiUpdate(version, () => {
@@ -983,6 +1008,7 @@ function createInfiniteDatasource(version: number): IDatasource {
 
           let rowsForBlock: BrowserCard[] = [];
           let totalCount = 0;
+          let requestSortRevision = sortModelRevision.value;
 
           if (randomSortRows.value) {
             const fullRows = randomSortRows.value;
@@ -991,8 +1017,14 @@ function createInfiniteDatasource(version: number): IDatasource {
             const end = Math.max(start, Math.min(params.endRow, totalCount));
             rowsForBlock = fullRows.slice(start, end);
           } else {
+            const effectiveSortModel = resolveEffectiveSortModel({
+              requestSortModel: (params.sortModel || []) as SortModel[],
+              currentSortModel: currentSortModel.value,
+              api: gridApi.value,
+            });
+            requestSortRevision = sortModelRevision.value;
             const result = await dataSource.fetchRows({
-              sortModel: (params.sortModel || []) as SortModel[],
+              sortModel: effectiveSortModel,
               filterModel: params.filterModel || {},
               startRow: params.startRow,
               endRow: params.endRow,
@@ -1002,6 +1034,14 @@ function createInfiniteDatasource(version: number): IDatasource {
           }
 
           if (version !== datasourceVersion) {
+            // Stale request from an old datasource version: resolve it explicitly
+            // so AG Grid does not keep blank placeholder rows.
+            params.failCallback();
+            return;
+          }
+
+          if (requestSortRevision !== sortModelRevision.value) {
+            params.failCallback();
             return;
           }
 
@@ -1054,7 +1094,7 @@ function rebuildInfiniteDatasource(forceRefresh = false): void {
   hasFirstDataBlockLoaded.value = false;
   clearLoadedRowsCache();
   totalRowCount.value = randomSortRows.value?.length || 0;
-  pendingGridDatasource = createInfiniteDatasource(version);
+  pendingGridDatasource = createInfiniteDatasource(version, currentDataSource.value);
   applyPendingDatasourceToGrid();
 }
 
@@ -1436,36 +1476,17 @@ function onPaginationChanged(_params: PaginationChangedEvent<BrowserCard>) {
   applyGlobalSelectionToLoadedRows();
 }
 
-function toSortModelFromColumnState(columnState: ColumnState[]): SortModel[] {
-  return (columnState || [])
-    .filter((col) => typeof col.colId === 'string' && (col.sort === 'asc' || col.sort === 'desc'))
-    .sort((a, b) => {
-      const aIndex = Number.isFinite(a.sortIndex) ? Number(a.sortIndex) : Number.MAX_SAFE_INTEGER;
-      const bIndex = Number.isFinite(b.sortIndex) ? Number(b.sortIndex) : Number.MAX_SAFE_INTEGER;
-      return aIndex - bIndex;
-    })
-    .map((col) => ({
-      colId: String(col.colId),
-      sort: col.sort as 'asc' | 'desc',
-    }));
-}
-
 function onSortChanged(params: SortChangedEvent<BrowserCard>) {
   const api = params?.api || gridApi.value;
-  const columnState = (api?.getColumnState?.() ?? []) as ColumnState[];
-  currentSortModel.value = toSortModelFromColumnState(columnState);
-
-  if (currentSortModel.value.length === 0 && api) {
-    type LegacySortApi = GridApi & { getSortModel?: () => SortModel[] };
-    const legacySortModel = (api as LegacySortApi).getSortModel?.();
-    if (Array.isArray(legacySortModel)) {
-      currentSortModel.value = legacySortModel.filter(
-        (item): item is SortModel =>
-          Boolean(item)
-          && typeof item.colId === 'string'
-          && (item.sort === 'asc' || item.sort === 'desc')
-      );
-    }
+  const columnState = api?.getColumnState?.() ?? [];
+  const previousSortSignature = JSON.stringify(currentSortModel.value || []);
+  currentSortModel.value = resolveEffectiveSortModel({
+    currentSortModel: [],
+    api,
+  });
+  const nextSortSignature = JSON.stringify(currentSortModel.value || []);
+  if (previousSortSignature !== nextSortSignature) {
+    sortModelRevision.value += 1;
   }
 
   const sortArray = [...currentSortModel.value];
@@ -1493,7 +1514,7 @@ function onSortChanged(params: SortChangedEvent<BrowserCard>) {
     hasGetSortModel: typeof api?.getSortModel === 'function',
     hasGetDisplayedRowCount: typeof api?.getDisplayedRowCount === 'function',
     hasGetColumnState: typeof api?.getColumnState === 'function',
-    columnState: columnState.filter((c: ColumnState) => c.colId === 'priority'),
+    columnState: columnState.filter((c) => c.colId === 'priority'),
   });
 
   if (api) {
@@ -1502,7 +1523,15 @@ function onSortChanged(params: SortChangedEvent<BrowserCard>) {
       if (!isGridApiAlive(currentApi)) {
         return;
       }
-      currentApi.refreshInfiniteCache?.();
+      const infiniteApi = currentApi as GridApi & {
+        purgeInfiniteCache?: () => void;
+        refreshInfiniteCache?: () => void;
+      };
+      if (typeof infiniteApi.purgeInfiniteCache === 'function') {
+        infiniteApi.purgeInfiniteCache();
+        return;
+      }
+      infiniteApi.refreshInfiniteCache?.();
     }, 0);
   }
   syncSelectionForQueryChange();
@@ -2576,6 +2605,10 @@ onBeforeUnmount(() => {
     clearTimeout(backgroundSnapshotTimer);
     backgroundSnapshotTimer = null;
   }
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = null;
+  }
   if (loadedRowsFlushTimer) {
     clearTimeout(loadedRowsFlushTimer);
     loadedRowsFlushTimer = null;
@@ -3151,8 +3184,17 @@ async function handleSelectQueue(queueId: string) {
     return;
   }
 
+  const fromQueueId = activeQueueId.value;
+  const cardTypeTransition = resolveQueueCardTypeOnSwitch({
+    fromQueueId,
+    toQueueId: queueId,
+    currentCardType: currentCardType.value,
+    previousNonNeuralCardType: previousNonNeuralCardType.value,
+  });
+
   logger.info('[SiYuanMemo][SRSBrowser] 馃攳 handleSelectQueue called:', {
     queueId,
+    fromQueueId,
     beforeActiveDocId: activeDocId.value,
   });
   
@@ -3160,29 +3202,19 @@ async function handleSelectQueue(queueId: string) {
   activeDocId.value = null;
   shouldFocusDocList.value = true;
   syncSelectionForQueryChange();
-  
 
-  if (queueId === 'neural' || queueId === 'neural-roam') {
-    if (currentCardType.value !== 'concept-only' && currentCardType.value !== 'missing-block-only') {
-      currentCardType.value = 'concept-only';
-    }
+  currentCardType.value = cardTypeTransition.nextCardType;
+  previousNonNeuralCardType.value = cardTypeTransition.nextPreviousNonNeuralCardType;
+
+  if (isNeuralQueueId(queueId)) {
     neuralSubview.value = 'concept-cards';
-  } else if (queueId === 'retrieval' || queueId === 'final-drill') {
-    const isAllowedInPracticeQueue =
-      currentCardType.value === 'all'
-      || currentCardType.value === 'item-only'
-      || currentCardType.value === 'descriptor-only'
-      || currentCardType.value === 'missing-block-only';
-    if (!isAllowedInPracticeQueue) {
-      currentCardType.value = 'all';
-    }
   }
-  // Keep current selection for other queues
   
   logger.info('[SiYuanMemo][SRSBrowser] 馃攳 After clearing activeDocId:', {
     activeDocId: activeDocId.value,
     shouldFocusDocList: shouldFocusDocList.value,
     currentCardType: currentCardType.value,
+    previousNonNeuralCardType: previousNonNeuralCardType.value,
   });
   
   await loadData(false, { refreshQueueCounts: false, snapshotDelayMs: 120 });
@@ -3198,8 +3230,10 @@ async function applyInitialBrowserView(forceRefresh = false): Promise<void> {
   await handleSelectQueue(initialQueueId);
 
   if (forceRefresh) {
-    await loadData(true);
+    await loadData(true, { refreshQueueCounts: false });
   }
+
+  await refreshQueueCounts();
 
   if (initialQueueId === 'neural-roam') {
     const initialSubview = props.initialNeuralSubview;
@@ -3228,7 +3262,7 @@ function handleSelectGlobal(type: '__all__' | '__lost__') {
   }
 
   currentPreset.value = 'all';
-  currentCardType.value = 'all';
+  currentCardType.value = type === '__lost__' ? 'missing-block-only' : 'all';
   searchQuery.value = '';
   shouldFocusDocList.value = false;
   void loadData(false, { refreshQueueCounts: false });
@@ -3243,12 +3277,18 @@ function handleSelectDoc(docId: string) {
   const id = String(docId || '');
 
   activeDocId.value = id;
+  if (id !== '__lost__' && currentCardType.value === 'missing-block-only') {
+    currentCardType.value = 'all';
+  }
   void loadData(false, { refreshQueueCounts: false });
 }
 
 function handleFilterDoc(docId: string) {
   syncSelectionForQueryChange();
   activeDocId.value = docId;
+  if (docId !== '__lost__' && currentCardType.value === 'missing-block-only') {
+    currentCardType.value = 'all';
+  }
   searchQuery.value = `doc:${docId}`;
 }
 

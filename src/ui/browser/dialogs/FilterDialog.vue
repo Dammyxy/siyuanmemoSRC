@@ -335,7 +335,7 @@ const numericFields: NumericFieldConfig[] = [
   { key: 'interval', labelKey: 'filterInterval', range: { min: 0, max: 9999 } },
   { key: 'difficulty', labelKey: 'filterDifficulty', range: { min: 0, max: 10 }, allowDecimal: true },
   { key: 'stability', labelKey: 'filterStability', range: { min: 0, max: 9999 }, allowDecimal: true },
-  { key: 'retrievability', labelKey: 'filterRetrievability', range: { min: 0, max: 9999 } },
+  { key: 'retrievability', labelKey: 'filterRetrievability', range: { min: 0, max: 1 }, allowDecimal: true },
   { key: 'postpones', labelKey: 'filterPostpones', range: { min: 0, max: 100 }, allowDecimal: true },
 ];
 
@@ -374,7 +374,7 @@ const filterState = ref<FilterState>({
     nextReview: { min: new Date(), max: new Date() },
     difficulty: { min: 0, max: 10 },
     stability: { min: 0, max: 100 },
-    retrievability: { min: 0, max: 9999 },
+    retrievability: { min: 0, max: 1 },
     postpones: { min: 0, max: 100 },
     cardType: new Set<string>(['item']),
     cardStatus: new Set<string>(['new', 'learning', 'review', 'relearning']),

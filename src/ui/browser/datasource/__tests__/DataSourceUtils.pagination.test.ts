@@ -59,15 +59,151 @@ describe('DataSourceUtils pagination', () => {
     expect(merged).toEqual(['b2', 'b3', 'b1', 'b4']);
   });
 
+  it('sorts by multiple fields before pagination', () => {
+    const rows: BrowserCard[] = [
+      buildCard({ id: 'c1', blockId: 'b1', priority: 10, due: new Date('2026-01-03T00:00:00.000Z') }),
+      buildCard({ id: 'c2', blockId: 'b2', priority: 20, due: new Date('2026-01-01T00:00:00.000Z') }),
+      buildCard({ id: 'c3', blockId: 'b3', priority: 10, due: new Date('2026-01-01T00:00:00.000Z') }),
+      buildCard({ id: 'c4', blockId: 'b4', priority: 10, due: new Date('2026-01-02T00:00:00.000Z') }),
+    ];
+
+    const sortModel = [
+      { colId: 'priority', sort: 'asc' as const },
+      { colId: 'due', sort: 'asc' as const },
+    ];
+
+    const page1 = sortAndPaginateBrowserCards(rows, sortModel, 0, 2);
+    const page2 = sortAndPaginateBrowserCards(rows, sortModel, 2, 4);
+    const merged = [...page1.rows, ...page2.rows].map((card) => card.blockId);
+
+    expect(page1.totalCount).toBe(4);
+    expect(page2.totalCount).toBe(4);
+    expect(merged).toEqual(['b3', 'b4', 'b1', 'b2']);
+  });
+
+  it('uses stable blockId->id tie-breaker when sort values are equal', () => {
+    const rows: BrowserCard[] = [
+      buildCard({ id: 'c2', blockId: 'b1', priority: 10 }),
+      buildCard({ id: 'c1', blockId: 'b1', priority: 10 }),
+      buildCard({ id: 'c3', blockId: 'b0', priority: 10 }),
+    ];
+
+    const page1 = sortAndPaginateBrowserCards(rows, [{ colId: 'priority', sort: 'asc' }], 0, 2);
+    const page2 = sortAndPaginateBrowserCards(rows, [{ colId: 'priority', sort: 'asc' }], 2, 4);
+    const merged = [...page1.rows, ...page2.rows].map((card) => `${card.blockId}:${card.id}`);
+
+    expect(merged).toEqual(['b0:c3', 'b1:c1', 'b1:c2']);
+  });
+
+  it('sorts formatted date columns by raw date values globally', () => {
+    const rows: BrowserCard[] = [
+      buildCard({
+        id: 'c1',
+        blockId: 'b1',
+        due: new Date('2026-01-10T00:00:00.000Z'),
+        dueFormatted: '2026-1-10',
+      }),
+      buildCard({
+        id: 'c2',
+        blockId: 'b2',
+        due: new Date('2026-01-02T00:00:00.000Z'),
+        dueFormatted: '2026-1-2',
+      }),
+      buildCard({
+        id: 'c3',
+        blockId: 'b3',
+        due: new Date('2026-01-01T00:00:00.000Z'),
+        dueFormatted: '2026-1-1',
+      }),
+      buildCard({
+        id: 'c4',
+        blockId: 'b4',
+        due: new Date('2026-01-09T00:00:00.000Z'),
+        dueFormatted: '2026-1-9',
+      }),
+    ];
+
+    const page1 = sortAndPaginateBrowserCards(rows, [{ colId: 'dueFormatted', sort: 'asc' }], 0, 2);
+    const page2 = sortAndPaginateBrowserCards(rows, [{ colId: 'dueFormatted', sort: 'asc' }], 2, 4);
+    const merged = [...page1.rows, ...page2.rows].map((card) => card.blockId);
+
+    expect(merged).toEqual(['b3', 'b2', 'b4', 'b1']);
+  });
+
+  it('keeps invalid numeric values at the bottom for both asc and desc', () => {
+    const rows: BrowserCard[] = [
+      buildCard({ id: 'c1', blockId: 'b1', priority: 50 }),
+      buildCard({ id: 'c2', blockId: 'b2', priority: 46 }),
+      buildCard({ id: 'c3', blockId: 'b3', priority: 48 }),
+      buildCard({ id: 'c4', blockId: 'b4', priority: 48 }),
+      buildCard({ id: 'c5', blockId: 'b5', priority: 47 }),
+    ];
+
+    (rows[1] as Record<string, unknown>).priority = '46';
+    (rows[2] as Record<string, unknown>).priority = Number.NaN;
+    (rows[3] as Record<string, unknown>).priority = '48%';
+
+    const asc = sortAndPaginateBrowserCards(rows, [{ colId: 'priority', sort: 'asc' }], 0, 10);
+    const desc = sortAndPaginateBrowserCards(rows, [{ colId: 'priority', sort: 'desc' }], 0, 10);
+
+    expect(asc.rows.map((card) => card.blockId)).toEqual(['b2', 'b5', 'b1', 'b3', 'b4']);
+    expect(desc.rows.map((card) => card.blockId)).toEqual(['b1', 'b5', 'b2', 'b3', 'b4']);
+  });
+
+  it('keeps priority 0 as a real sortable value', () => {
+    const rows: BrowserCard[] = [
+      buildCard({ id: 'c1', blockId: 'b1', priority: 0 }),
+      buildCard({ id: 'c2', blockId: 'b2', priority: 46 }),
+      buildCard({ id: 'c3', blockId: 'b3', priority: 98 }),
+      buildCard({ id: 'c4', blockId: 'b4', priority: 50 }),
+    ];
+
+    const asc = sortAndPaginateBrowserCards(rows, [{ colId: 'priority', sort: 'asc' }], 0, 10);
+    const desc = sortAndPaginateBrowserCards(rows, [{ colId: 'priority', sort: 'desc' }], 0, 10);
+
+    expect(asc.rows.map((card) => card.blockId)).toEqual(['b1', 'b2', 'b4', 'b3']);
+    expect(desc.rows.map((card) => card.blockId)).toEqual(['b3', 'b4', 'b2', 'b1']);
+  });
+
+  it('sorts retrievability by raw 0-1 values across pages', () => {
+    const rows: BrowserCard[] = [
+      buildCard({ id: 'c1', blockId: 'b1', retrievability: 0.98 }),
+      buildCard({ id: 'c2', blockId: 'b2', retrievability: 0.5 }),
+      buildCard({ id: 'c3', blockId: 'b3', retrievability: 0.48 }),
+      buildCard({ id: 'c4', blockId: 'b4', retrievability: 0.46 }),
+      buildCard({ id: 'c5', blockId: 'b5', retrievability: 0.5 }),
+    ];
+
+    const page1 = sortAndPaginateBrowserCards(rows, [{ colId: 'retrievability', sort: 'asc' }], 0, 2);
+    const page2 = sortAndPaginateBrowserCards(rows, [{ colId: 'retrievability', sort: 'asc' }], 2, 5);
+    const merged = [...page1.rows, ...page2.rows].map((card) => card.blockId);
+
+    expect(merged).toEqual(['b4', 'b3', 'b2', 'b5', 'b1']);
+  });
+
   it('supports __lost__ doc filter semantics', () => {
     const rows: BrowserCard[] = [
       buildCard({ id: 'c1', blockId: 'b1', rootId: 'doc-a' }),
-      buildCard({ id: 'c2', blockId: 'b2', rootId: '' }),
-      buildCard({ id: 'c3', blockId: 'b3', rootId: '' }),
+      buildCard({ id: 'c2', blockId: 'b2', rootId: 'doc-a', meta: { blockType: 'missing' } }),
+      buildCard({ id: 'c3', blockId: 'b3', rootId: 'doc-b', meta: { blockType: 'missing' } }),
     ];
 
     const lostOnly = applyDocFilter(rows, '__lost__').map((card) => card.blockId);
     expect(lostOnly).toEqual(['b2', 'b3']);
+  });
+
+  it('excludes missing cards outside __lost__ view', () => {
+    const rows: BrowserCard[] = [
+      buildCard({ id: 'c1', blockId: 'b1', rootId: 'doc-a' }),
+      buildCard({ id: 'c2', blockId: 'b2', rootId: 'doc-a', meta: { blockType: 'missing' } }),
+      buildCard({ id: 'c3', blockId: 'b3', rootId: 'doc-b' }),
+    ];
+
+    const allVisible = applyDocFilter(rows, undefined).map((card) => card.blockId);
+    const docAVisible = applyDocFilter(rows, 'doc-a').map((card) => card.blockId);
+
+    expect(allVisible).toEqual(['b1', 'b3']);
+    expect(docAVisible).toEqual(['b1']);
   });
 
   it('applies advanced query semantics via parseQuery matcher', () => {

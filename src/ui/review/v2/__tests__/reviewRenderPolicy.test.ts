@@ -4,6 +4,7 @@ import {
   buildReviewRenderCacheKey,
   buildReviewRenderWatchKey,
   isNeuralRoamNonFlashcard,
+  shouldVerifyQuickDefaultProfile,
 } from '../reviewRenderPolicy';
 
 function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
@@ -101,5 +102,10 @@ describe('reviewRenderPolicy', () => {
     expect(keyA).not.toBe(keyC);
     expect(keyA).not.toBe(keyD);
   });
-});
 
+  it('requires verification before quick-default render profile can use quick renderer', () => {
+    expect(shouldVerifyQuickDefaultProfile('quick-default')).toBe(true);
+    expect(shouldVerifyQuickDefaultProfile('descriptor')).toBe(false);
+    expect(shouldVerifyQuickDefaultProfile(null)).toBe(false);
+  });
+});

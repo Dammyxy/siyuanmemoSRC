@@ -1,0 +1,200 @@
+[31m[1m[A] t() fallback 触发 — key 不在 i18n 文件中，运行时显示 fallback 英文 (0 处)[0m
+  [32m✓ 无问题[0m
+[31m[1m[B] i18n?.key || fallback — key 不存在，运行时显示硬编码文字 (0 处)[0m
+  [32m✓ 无问题[0m
+[33m[1m[C] 硬编码 UI 字符串 — 完全绕过 i18n，语言切换无效 (58 处)[0m
+  src/App.vue:104
+    值: "Option 1"
+    代码: { value: '1', text: 'Option 1' },
+  src/App.vue:105
+    值: "Option 2"
+    代码: { value: '2', text: 'Option 2' },
+  src/App.vue:106
+    值: "Option 3"
+    代码: { value: '3', text: 'Option 3' },
+  src/App.vue:131
+    值: "Plugin Sample"
+    代码: title: 'Plugin Sample',
+  src/application/managers/DialogManager.ts:1482
+    值: "选择卡片类型"
+    代码: title: '选择卡片类型',
+  src/core/card/common/ui/CardLoadingState.vue:12
+    值: "加载中..."
+    代码: text: '加载中...'
+  src/types/unified-data-source.ts:745
+    值: "添加到最终训练"
+    代码: { id: 'add-to-final-drill', label: '添加到最终训练' },
+  src/types/unified-data-source.ts:746
+    值: "切换调度器"
+    代码: { id: 'switch-scheduler', label: '切换调度器' },
+  src/types/unified-data-source.ts:747
+    值: "修改卡片类型"
+    代码: { id: 'modify-card-type', label: '修改卡片类型' },
+  src/types/unified-data-source.ts:748
+    值: "设置优先级"
+    代码: { id: 'set-priority', label: '设置优先级' },
+  src/types/unified-data-source.ts:749
+    值: "同步到 Riff"
+    代码: { id: 'sync-to-riff', label: '同步到 Riff' },
+  src/ui/browser/composables/useContextMenu.ts:36
+    值: "到期时间"
+    代码: { colId: 'dueFormatted', label: '到期时间', icon: 'iconCalendar' },
+  src/ui/browser/composables/useContextMenu.ts:37
+    值: "稳定性"
+    代码: { colId: 'stability', label: '稳定性', icon: 'iconBarChart' },
+  src/ui/browser/composables/useContextMenu.ts:39
+    值: "可提取性"
+    代码: { colId: 'retrievability', label: '可提取性', icon: 'iconPointer' },
+  src/ui/browser/composables/useContextMenu.ts:40
+    值: "复习次数"
+    代码: { colId: 'reps', label: '复习次数', icon: 'iconNumbers' },
+  src/ui/browser/composables/useContextMenu.ts:41
+    值: "遗忘次数"
+    代码: { colId: 'lapses', label: '遗忘次数', icon: 'iconRefresh' },
+  src/ui/browser/composables/useContextMenu.ts:42
+    值: "优先级"
+    代码: { colId: 'priority', label: '优先级', icon: 'iconMark' },
+  src/ui/browser/composables/useSorting.ts:241
+    值: "随机排序"
+    代码: label: '随机排序',
+  src/ui/browser/constants.ts:262
+    值: "优先级"
+    代码: { colId: 'priority', label: '优先级', i18nKey: 'sortByPriority', icon: 'iconStar' }
+  src/ui/browser/constants.ts:264
+    值: "复习次数"
+    代码: { colId: 'reps', label: '复习次数', i18nKey: 'sortByReps', icon: 'iconRefresh' },
+  src/ui/browser/constants.ts:265
+    值: "遗忘次数"
+    代码: { colId: 'lapses', label: '遗忘次数', i18nKey: 'sortByLapses', icon: 'iconWarn' },
+  src/ui/browser/constants.ts:267
+    值: "可提取性"
+    代码: { colId: 'retrievability', label: '可提取性', i18nKey: 'sortByRetrievability', icon:
+  src/ui/browser/constants.ts:268
+    值: "稳定性"
+    代码: { colId: 'stability', label: '稳定性', i18nKey: 'sortByStability', icon: 'iconLock'
+  src/ui/browser/constants.ts:270
+    值: "上次复习"
+    代码: { colId: 'lastReviewFormatted', label: '上次复习', i18nKey: 'sortByLastReview', icon
+  src/ui/browser/constants.ts:271
+    值: "下次复习"
+    代码: { colId: 'dueFormatted', label: '下次复习', i18nKey: 'sortByDueDate', icon: 'iconCal
+  src/ui/browser/constants.ts:272
+    值: "首次复习"
+    代码: { colId: 'firstReviewFormatted', label: '首次复习', i18nKey: 'sortByFirstReview', ic
+  src/ui/browser/datasource/DeckDataSource.ts:374
+    值: "Review Subset"
+    代码: actions.unshift({ id: 'review-subset', label: 'Review Subset', icon: 'iconPlay' 
+  src/ui/browser/datasource/IncrementalLearningDataSource.ts:369
+    值: "设置优先级"
+    代码: label: '设置优先级',
+  src/ui/browser/types.ts:85
+    值: "全部卡片"
+    代码: { key: 'all',             i18nKey: 'filterPresetAll',             label: '全部卡片',
+  src/ui/browser/types.ts:86
+    值: "今日到期"
+    代码: { key: 'due',             i18nKey: 'filterPresetDue',             label: '今日到期',
+  src/ui/browser/types.ts:87
+    值: "已过期"
+    代码: { key: 'overdue',         i18nKey: 'filterPresetOverdue',         label: '已过期', 
+  src/ui/browser/types.ts:88
+    值: "新卡片"
+    代码: { key: 'new',             i18nKey: 'filterPresetNew',             label: '新卡片', 
+  src/ui/browser/types.ts:89
+    值: "学习中"
+    代码: { key: 'learning',        i18nKey: 'filterPresetLearning',        label: '学习中', 
+  src/ui/browser/types.ts:90
+    值: "难点卡片"
+    代码: { key: 'leech',           i18nKey: 'filterPresetLeech',           label: '难点卡片',
+  src/ui/browser/types.ts:91
+    值: "已暂停"
+    代码: { key: 'suspended',       i18nKey: 'filterPresetSuspended',       label: '已暂停', 
+  src/ui/browser/types.ts:92
+    值: "当前文档"
+    代码: { key: 'current-doc',     i18nKey: 'filterPresetCurrentDoc',      label: '当前文档',
+  src/ui/browser/types.ts:94
+    值: "仅主题"
+    代码: { key: 'topic-only',      i18nKey: 'filterPresetTopicOnly',       label: '仅主题', 
+  src/ui/browser/types.ts:95
+    值: "仅卡片"
+    代码: { key: 'item-only',       i18nKey: 'filterPresetItemOnly',        label: '仅卡片', 
+  src/ui/browser/types.ts:96
+    值: "仅概念卡"
+    代码: { key: 'concept-only',    i18nKey: 'filterPresetConceptOnly',     label: '仅概念卡',
+  src/ui/browser/types.ts:97
+    值: "仅描述符卡"
+    代码: { key: 'descriptor-only', i18nKey: 'filterPresetDescriptorOnly',  label: '仅描述符卡'
+  src/ui/browser/types.ts:111
+    值: "所有类型"
+    代码: { value: 'all',             i18nKey: 'cardTypeAll',             label: '所有类型' },
+  src/ui/browser/types.ts:112
+    值: "仅卡片"
+    代码: { value: 'item-only',       i18nKey: 'cardTypeItemOnly',        label: '仅卡片' },
+  src/ui/browser/types.ts:113
+    值: "仅描述符卡"
+    代码: { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅描述符卡' }
+  src/ui/browser/types.ts:120
+    值: "仅概念卡"
+    代码: { value: 'concept-only',    i18nKey: 'cardTypeConceptOnly',     label: '仅概念卡' },
+  src/ui/browser/types.ts:121
+    值: "仅描述符卡"
+    代码: { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅描述符卡' }
+  src/ui/browser/types.ts:127
+    值: "所有类型"
+    代码: { value: 'all',             i18nKey: 'cardTypeAll',             label: '所有类型' },
+  src/ui/browser/types.ts:128
+    值: "仅主题"
+    代码: { value: 'topic-only',      i18nKey: 'cardTypeTopicOnly',       label: '仅主题' },
+  src/ui/browser/types.ts:129
+    值: "仅卡片"
+    代码: { value: 'item-only',       i18nKey: 'cardTypeItemOnly',        label: '仅卡片' },
+  src/ui/browser/types.ts:130
+    值: "仅概念卡"
+    代码: { value: 'concept-only',    i18nKey: 'cardTypeConceptOnly',     label: '仅概念卡' },
+  src/ui/browser/types.ts:131
+    值: "仅描述符卡"
+    代码: { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅描述符卡' }
+  src/ui/browser/types.ts:156
+    值: "重新调度"
+    代码: { key: 'reschedule', i18nKey: 'batchReschedule', label: '重新调度', icon: 'iconCalen
+  src/ui/browser/types.ts:157
+    值: "重置为新卡"
+    代码: { key: 'reset',      i18nKey: 'batchReset',      label: '重置为新卡', icon: 'iconRefr
+  src/ui/browser/types.ts:158
+    值: "暂停卡片"
+    代码: { key: 'suspend',    i18nKey: 'batchSuspend',    label: '暂停卡片', icon: 'iconPause
+  src/ui/browser/types.ts:159
+    值: "取消暂停"
+    代码: { key: 'unsuspend',  i18nKey: 'batchUnsuspend',  label: '取消暂停', icon: 'iconPlay'
+  src/ui/browser/types.ts:160
+    值: "设置优先级"
+    代码: { key: 'priority',   i18nKey: 'batchSetPriority',label: '设置优先级', icon: 'iconMark
+  src/ui/browser/types.ts:161
+    值: "取消闪卡"
+    代码: { key: 'delete',     i18nKey: 'batchDeleteCard', label: '取消闪卡', icon: 'iconTrash
+  src/ui/browser/utils/dataSourceFactory.ts:232
+    值: "神经漫游"
+    代码: label: '神经漫游',
+  src/ui/review/ReviewViewAdapter.ts:252
+    值: "下一个"
+    代码: label: '下一个',
+[33m[1m[D] i18n 文件内容异常 — en 混入中文 / zh 未翻译 (3 处)[0m
+  key: "schedulerFsrsV6"  (zh值与en相同，可能未翻译)
+    zh_CN: "FSRS v6"
+    en_US: "FSRS v6"
+  key: "schedulerAFactorV2"  (zh值与en相同，可能未翻译)
+    zh_CN: "A-Factor v2"
+    en_US: "A-Factor v2"
+  key: "aFactor"  (zh值与en相同，可能未翻译)
+    zh_CN: "A-Factor"
+    en_US: "A-Factor"
+[36m[1m[E] i18n key 不对称 — 一个文件有另一个没有 (0 处)[0m
+  [32m✓ 无问题[0m
+────────────────────────────────────────────────────────────
+[1m汇总[0m
+  [A] t() key 缺失导致 fallback:     [32m0 处[0m
+  [B] i18n?.key 缺失导致 fallback:   [32m0 处[0m
+  [C] 硬编码 UI 字符串:              [33m58 处[0m
+  [D] i18n 文件内容异常:             [33m3 处[0m
+  [E] key 不对称:                    [32m0 处[0m
+  ──────────────────────────────
+  合计: [31m[1m61 处问题[0m

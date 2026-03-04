@@ -35,6 +35,12 @@ function getLatestMenuInstance(): MockMenuInstance {
   return result?.value as MockMenuInstance;
 }
 
+function getMenuLabels(menu: MockMenuInstance): string[] {
+  return menu.addItem.mock.calls
+    .map((call) => call[0]?.label)
+    .filter((label): label is string => typeof label === 'string');
+}
+
 describe('SkipMenuButton', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -104,5 +110,21 @@ describe('SkipMenuButton', () => {
       w: 44,
       isLeft: true,
     });
+  });
+
+  it('hides schedule action when canScheduleDate is false', async () => {
+    const wrapper = mount(SkipMenuButton, {
+      props: {
+        canScheduleDate: false,
+      },
+    });
+
+    await wrapper.get('.skip-menu-button__dropdown').trigger('click');
+
+    const menuInstance = getLatestMenuInstance();
+    const labels = getMenuLabels(menuInstance);
+
+    expect(labels).toContain('插入到队列指定位置');
+    expect(labels).not.toContain('安排复习日期');
   });
 });

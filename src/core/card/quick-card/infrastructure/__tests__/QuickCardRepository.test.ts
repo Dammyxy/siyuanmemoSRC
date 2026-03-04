@@ -138,4 +138,14 @@ describe('QuickCardRepository', () => {
     expect(card?.getFace('back').html).toContain('{\\color{#166534}mc^2}');
     expect(mockAdapter.kramdownToHtml).not.toHaveBeenCalled();
   });
+
+  it('does not treat superblock triple braces as quick cloze card', async () => {
+    mockAdapter.getBlock.mockResolvedValue(
+      createBlock('{{{row 超级块测试1\n3333}}}')
+    );
+
+    const card = await repository.loadCard('20260301120000-quick01');
+
+    expect(card).toBeNull();
+  });
 });
