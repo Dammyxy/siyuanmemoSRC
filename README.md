@@ -5,7 +5,7 @@
 This plugin lets you:
 
 1. Better leverage the **Spaced Repetition System (SRS)** to drive two strategies, **Retrieval Practice** and **Drill Practice**, to memorize anything.
-2. Through SiYuan's **bidirectional links** and **Spaced Repetition System**, deeply connect rote-memorized information with the knowledge in your brain, promote transfer learning and fine-grained encoding, wire your brain to the internet, and build your own knowledge system.
+2. Through SiYuan's **bidirectional links** and **Spaced Repetition System**, deeply connect rote-memorized information with the knowledge in your brain, promote transfer learning and fine-grained encoding, wire your brain to the internet, keep knowledge from becoming isolated, and build your own knowledge system.
 
 It currently has these features:
 
@@ -13,8 +13,8 @@ It currently has these features:
 
    - Retrieval Practice driven by the spaced repetition algorithm (FSRS)
    - Drill Practice driven by the SuperMemo Final Drill dynamic algorithm
-2. **Neural Roaming System:** combines SiYuan bidirectional links with SuperMemo neural review
-3. **Concept/Descriptor Framework (CDF):** a RemNote-style template card-making system that helps you quickly break down information and create cards
+2. **Neural Roaming System:** combines SiYuan bidirectional links with SuperMemo neural review, enabling inquiry-based learning so knowledge can truly grow freely
+3. **Concept/Descriptor Framework (CDF):** a RemNote-style template card-making system that helps you quickly break down information and create cards based on focused, precise, and consistent card-making principles
 4. **Comprehensive card-making features**:
 
    - Formula card creation
@@ -99,20 +99,20 @@ When SiYuan was about to build flashcards, I had these ideas in mind. Now the ti
 - Explanation:
 
   - Simply put, this is template-based card creation. I first saw it in Ye Ge's article [【随笔】间隔重复软件的两大进路](https://zhuanlan.zhihu.com/p/396445859).
-  - It comes from RemNote's **CDF** (Concept/Descriptor Framework), a highly formalized knowledge decomposition tool.
+  - It comes from RemNote's **CDF** (Concept/Descriptor Framework), a highly formalized information decomposition tool.
 - Essence:
 
-  - It is not only for easier form filling (implementing SuperTag), it is also a kind of "attention programming" that introduces an expert perspective. Like prompts for AI, experts use descriptors in CDF to guide your attention so you can identify useful parts of information. It is like wearing a persona mask to reuse expert experience.
-  - For students, this kind of formalized (structured) tool is very convenient.
+  - It is not only for easier form filling (implementing SuperTag), it is also a kind of "attention programming" that introduces an expert perspective. Like AI prompts, you can guide your attention by customizing descriptors in CDF, helping you identify useful parts of information. It is like wearing a persona mask to reuse an expert perspective.
+  - For students, this kind of structured tool is very convenient.
 - How to create?
 
-  - You need to write it using **传递型双链 (Transitive bidirectional links)**, demonstrated below.
+  - You need to use **transitive bidirectional links** to bind concepts, as demonstrated below.
 
 ## Concept (Concept Card):
 
 - Explanation:
 
-  - This is not the "concept" in CDF (Concept/Descriptor Framework). It is the SuperMemo concept used for neural review. In this plugin, concepts are the core nodes of the **Neural Roaming** queue.
+  - It is not only the concept used to bind descriptors in CDF (Concept/Descriptor Framework), but also the concept used for neural review in SuperMemo. In this plugin, concepts are the seed nodes of the **Neural Roaming** queue.
 - In terms of bidirectional links, a concept card is a document block in SiYuan.
 - How to create?
 
@@ -168,13 +168,13 @@ When SiYuan was about to build flashcards, I had these ideas in mind. Now the ti
 ## One Queue That Is Hard to Classify - Neural Roaming
 
 - Design origin: SiYuan bidirectional links + SuperMemo neural review
-- Queue card sources: The roaming objects are SiYuan blocks. This queue automatically fetches backlinks of concept cards and descriptor cards for roaming.
+- Queue card sources: The roaming objects are SiYuan blocks. This queue automatically fetches concept-card backlinks, references that appear in backlinks, and descriptor cards of concepts for roaming.
 - Algorithm: Spreading activation.
-- Tip: During roaming, when you encounter block-reference anchor text, right-click and choose "Create as Concept Card and Add to Queue". Then the forward links of that concept card can also join the queue for roaming. The logic is:
+- Tip: During roaming, when you encounter document-block reference anchor text, right-click and choose "Create as Concept Card and Add to Queue". Then the forward links of that concept card can also join the queue for roaming. The logic is:
 
-  - Forward links = references to other concepts (document blocks) in the main text
+  - Forward links = references to other concepts (document blocks) in the concept card's main text
   - Backlinks = main text
-  - Forward links = references to other concepts in backlinks
+  - Forward links = references to other concepts in the concept card's backlinks
   - ![image](https://raw.githubusercontent.com/Dammyxy/siyuan-plugin-siyuanmemo/main/assets/image-20260217163333-r5n304c.png)
 
 # Quick Card Creation
