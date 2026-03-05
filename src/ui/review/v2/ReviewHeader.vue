@@ -160,11 +160,6 @@ const filteredToolbar = computed(() => {
     }
   }
 
-  if (props.mode === 'tab') {
-    // Tab 模式：移除 sticktab 按钮（已经在 Tab 中了，不需要"在 Tab 中打开"按钮）
-    toolbar = toolbar.filter(btn => btn.type !== 'sticktab');
-  }
-
   if (props.isMobile) {
     toolbar = toolbar.filter(btn => btn.type !== 'fullscreen' && btn.type !== 'close-review');
   }

@@ -59,6 +59,14 @@ const logger = createLogger('ClozeCardStrategy');
  * ```
  */
 export class ClozeCardStrategy implements ICardFaceStrategy {
+  private normalizeEqualMarkerOutput(html: string, side: 'front' | 'back'): string {
+    const equalMarkerRegex = /==([\s\S]*?)==/g;
+    if (side === 'front') {
+      return html.replace(equalMarkerRegex, '<mark>[...]</mark>');
+    }
+    return html.replace(equalMarkerRegex, (_match, answer: string) => `<mark>${answer.trim()}</mark>`);
+  }
+
   /**
    * 提取所有填空
    * 
@@ -109,13 +117,17 @@ export class ClozeCardStrategy implements ICardFaceStrategy {
     // 构建正面和反面 HTML
     let frontHtml = cleanContent;
     let backHtml = cleanContent;
+    const isEqualMarker = metadata.symbol === '==';
     
     // 从后往前替换，避免位置偏移
     for (let i = clozes.length - 1; i >= 0; i--) {
       const cloze = clozes[i];
       const isLatexCloze = cloze.type === 'latex';
       const latexFrontPlaceholder = createFormulaClozePlaceholderExpression();
-      const frontPlaceholder = isLatexCloze ? latexFrontPlaceholder : '<mark>[...]</mark>';
+      const multiFrontPlaceholder = isLatexCloze ? latexFrontPlaceholder : '<mark>[...]</mark>';
+      const singleFrontPlaceholder = isLatexCloze
+        ? latexFrontPlaceholder
+        : (isEqualMarker ? '<mark>[...]</mark>' : '[...]');
       const backAnswer = isLatexCloze
         ? createFormulaClozeAnswerExpression(cloze.text)
         : `<mark>${cloze.text}</mark>`;
@@ -124,7 +136,7 @@ export class ClozeCardStrategy implements ICardFaceStrategy {
         // 多填空模式：只隐藏目标索引的填空
         if (i === targetIndex) {
           // 目标填空：正面显示淡绿色背景的 [...]，反面高亮显示答案
-          frontHtml = frontHtml.substring(0, cloze.start) + frontPlaceholder + frontHtml.substring(cloze.end);
+          frontHtml = frontHtml.substring(0, cloze.start) + multiFrontPlaceholder + frontHtml.substring(cloze.end);
           backHtml = backHtml.substring(0, cloze.start) + backAnswer + backHtml.substring(cloze.end);
         } else {
           // 其他填空：正反面都显示普通文本（不高亮）
@@ -133,7 +145,7 @@ export class ClozeCardStrategy implements ICardFaceStrategy {
         }
       } else {
         // 单填空模式：隐藏所有填空
-        frontHtml = frontHtml.substring(0, cloze.start) + (isLatexCloze ? latexFrontPlaceholder : '[...]') + frontHtml.substring(cloze.end);
+        frontHtml = frontHtml.substring(0, cloze.start) + singleFrontPlaceholder + frontHtml.substring(cloze.end);
         backHtml = backHtml.substring(0, cloze.start) + backAnswer + backHtml.substring(cloze.end);
       }
     }
@@ -142,6 +154,11 @@ export class ClozeCardStrategy implements ICardFaceStrategy {
     if (hasLatexCloze && !hasMathDelimiters(cleanContent)) {
       frontHtml = ensureDisplayMathDelimiters(frontHtml);
       backHtml = ensureDisplayMathDelimiters(backHtml);
+    }
+
+    if (isEqualMarker) {
+      frontHtml = this.normalizeEqualMarkerOutput(frontHtml, 'front');
+      backHtml = this.normalizeEqualMarkerOutput(backHtml, 'back');
     }
     
     return {

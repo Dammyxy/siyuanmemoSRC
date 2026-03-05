@@ -637,6 +637,7 @@
   "openBy": "打开为",
   "openCard": "打开",
   "openInRight": "右侧",
+  "openRightReviewAndLocateSource": "右侧复习并定位原块",
   "neuralRoamMenu": "神经漫游菜单",
   "neuralHistoryMenu": "漫游路径",
   "srsEditorTitle": "编辑间隔重复数据",
@@ -1032,5 +1033,6 @@
   "viewAnchors": "查看世界线锚点",
   "jumpAnchorInPath": "回到原路径",
   "anchorNotInPath": "当前主线中不存在此锚点",
-  "noWorldlineAnchors": "暂无世界线锚点"
+  "noWorldlineAnchors": "暂无世界线锚点",
+  "locateSourceBlock": "定位到原块位置"
 }

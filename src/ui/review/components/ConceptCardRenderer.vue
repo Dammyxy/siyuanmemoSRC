@@ -42,13 +42,14 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { openTab } from 'siyuan';
+import type { App } from 'siyuan';
 import { ConceptCardRenderService } from '@/core/card/concept/application/ConceptCardRenderService';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import type { ConceptCardViewModel } from '@/core/card/concept/application/ConceptCardRenderService';
 import { createLogger } from '@/utils/logger';
+import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 
 const logger = createLogger('ConceptCardRenderer');
@@ -57,12 +58,10 @@ interface ConceptCardInput {
   xiuyuanID?: string;
 }
 
-type OpenTabOptions = Parameters<typeof openTab>[0];
-type OpenTabApp = OpenTabOptions['app'];
 type SiyuanWindow = Window & {
   siyuan?: {
     ws?: {
-      app?: OpenTabApp;
+      app?: App;
     };
   };
 };
@@ -135,12 +134,10 @@ function jumpToConcept() {
     return;
   }
 
-  openTab({
+  openReviewBlockAtSource({
     app,
-    doc: {
-      id: viewModel.value.conceptBlockId,
-      zoomIn: false,
-    },
+    blockId: viewModel.value.conceptBlockId,
+    zoomIn: false,
   });
 }
 

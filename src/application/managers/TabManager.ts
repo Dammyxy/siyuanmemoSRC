@@ -149,12 +149,13 @@ export class TabManager {
   }
 
   openBrowserTab(): void {
+    const browserModelType = this.buildCustomModelType(this.TAB_TYPE);
     openTab({
       app: this.plugin.app,
       custom: {
         icon: 'iconCard',
         title: this.context.getI18n()?.srsBrowser || 'SRS Browser',
-        id: this.plugin.name + this.TAB_TYPE,
+        id: browserModelType,
         data: {},
       },
       position: 'right',
@@ -212,6 +213,10 @@ export class TabManager {
 
   private getDefaultReviewTitle(): string {
     return this.context.getI18n()?.reviewTitle || 'Review';
+  }
+
+  private buildCustomModelType(tabType: string): string {
+    return this.plugin.name + tabType;
   }
 
   private resolveReviewTabData(options: ReviewTabOptions): ReviewTabData {
@@ -301,6 +306,23 @@ export class TabManager {
     });
   }
 
+  private triggerQueuePreparationInBackground(queueType: QueueType): void {
+    const prepare = this.prepareQueueBeforeOpen(queueType);
+    if (!prepare) {
+      return;
+    }
+
+    logger.debug('Start review queue preparation in background before opening new window', {
+      queueType,
+    });
+
+    void prepare.then(() => {
+      logger.debug('Review queue preparation finished in background', {
+        queueType,
+      });
+    });
+  }
+
   private canOpenInNewWindow(): boolean {
     return typeof ipcRenderer !== 'undefined' && typeof ipcRenderer.send === 'function';
   }
@@ -311,6 +333,7 @@ export class TabManager {
   ): Promise<void> {
     try {
       const tabData = this.resolveReviewTabData(options);
+      const reviewModelType = this.buildCustomModelType(this.REVIEW_TAB_TYPE);
       const prepare = this.prepareQueueBeforeOpen(tabData.queueType);
       if (prepare) {
         await prepare;
@@ -321,7 +344,7 @@ export class TabManager {
         custom: {
           icon: 'iconSiyuanMemo',
           title: tabData.title,
-          id: this.plugin.name + this.REVIEW_TAB_TYPE,
+          id: reviewModelType,
           data: tabData,
         },
         position: tabOpenOptions.position,
@@ -339,10 +362,8 @@ export class TabManager {
         throw new Error('ipcRenderer is unavailable');
       }
       const tabData = this.resolveReviewTabData(options);
-      const prepare = this.prepareQueueBeforeOpen(tabData.queueType);
-      if (prepare) {
-        await prepare;
-      }
+      const reviewModelType = this.buildCustomModelType(this.REVIEW_TAB_TYPE);
+      this.triggerQueuePreparationInBackground(tabData.queueType);
 
       const json = [
         {
@@ -351,7 +372,7 @@ export class TabManager {
           instance: 'Tab',
           children: {
             instance: 'Custom',
-            customModelType: this.REVIEW_TAB_TYPE,
+            customModelType: reviewModelType,
             customModelData: tabData,
           },
         },

@@ -49,6 +49,10 @@ export class QuickCardRenderService extends BaseCardRenderService {
     super();
   }
 
+  private shouldFallbackToNativeRender(metadata: QuickCardMetadata): boolean {
+    return metadata.symbol === '==';
+  }
+
   /**
    * 准备视图模型（新架构方法）
    * 
@@ -65,6 +69,13 @@ export class QuickCardRenderService extends BaseCardRenderService {
     try {
       const card = await this.repository.loadCard(blockId, cardId);
       if (!card) {
+        return null;
+      }
+      if (this.shouldFallbackToNativeRender(card.metadata)) {
+        logger.debug('[QuickCardRenderService] Use native renderer for == cloze card', {
+          blockId,
+          cardId,
+        });
         return null;
       }
 
@@ -97,7 +108,13 @@ export class QuickCardRenderService extends BaseCardRenderService {
   async isQuickCard(blockId: string, cardId?: string): Promise<boolean> {
     try {
       const card = await this.repository.loadCard(blockId, cardId);
-      return card !== null;
+      if (!card) {
+        return false;
+      }
+      if (this.shouldFallbackToNativeRender(card.metadata)) {
+        return false;
+      }
+      return true;
     } catch (error) {
       logger.error('[QuickCardRenderService] Failed to detect quick card:', error);
       return false;

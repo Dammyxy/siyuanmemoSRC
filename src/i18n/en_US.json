@@ -631,6 +631,7 @@
   "temporaryDrill": "Temporary Drill",
   "openCard": "Open",
   "openInRight": "Right Side",
+  "openRightReviewAndLocateSource": "Open Review on Right and Locate Source Block",
   "neuralRoamMenu": "Neural Roam Menu",
   "neuralHistoryMenu": "Roam Path",
   "srsEditorTitle": "Edit SRS Data",
@@ -1032,5 +1033,6 @@
   "repairCardTypeConsistencyConfirmMessage": "This will scan all flashcards and unify custom-fsrs-card-type with local card types. Continue?",
   "repairCardTypeConsistencyRunning": "Scanning and repairing card type consistency...",
   "repairCardTypeConsistencyDone": "Repair completed: scanned {total}; conflicts {conflicts}; attrs backfilled {attrs}; local fixed {local}; detected {detected}",
-  "repairCardTypeConsistencyFailed": "Failed to repair card type consistency"
+  "repairCardTypeConsistencyFailed": "Failed to repair card type consistency",
+  "locateSourceBlock": "Locate Source Block"
 }

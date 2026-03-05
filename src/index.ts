@@ -102,6 +102,35 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   private topBarContextMenuHandler: ((ev: MouseEvent) => void) | null = null;
   private isInitialized = false;
   private didWarnTopbarMount = false;
+  private isUninstalling = false;
+
+  private static readonly LOCAL_DATA_FILES_TO_REMOVE = [
+    'unified-cards.msgpack',
+    'unified-cards.json',
+    'queues.msgpack',
+    'queues.json',
+    'cards.msgpack',
+    'cards.json',
+    'settings.json',
+    'xiuyuan.msgpack',
+    'reschedule-configs.json',
+    'riff-blacklist.msgpack',
+    'riff-blacklist.json',
+    'practice-queue.msgpack',
+    'practice-queue.json',
+    'practice-queue-backup.msgpack',
+    'incremental-learning-queue.msgpack',
+    'incremental-learning-queue.json',
+    'queue-final-drill.json',
+    'queue-retrieval-practice.json',
+    'queue-neural-roam.json',
+    'queue-incremental-learning.json',
+    'review-v2-final-drill.json',
+    'queue-final-drill.backup.json',
+    'queue-retrieval-practice.backup.json',
+    'queue-neural-roam.backup.json',
+    'queue-incremental-learning.backup.json',
+  ] as const;
 
   async onload() {
     this.logger.info('Plugin loading...');
@@ -177,20 +206,30 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     this.imageOcclusionHandler?.dispose();
     this.imageOcclusionHandler = null;
     if (this.context) {
-      this.context.dispose({ persistStorage: false }).catch(err => this.logger.error('Error disposing context:', err));
+      this.context.dispose({ persistStorage: false })
+        .catch(err => this.logger.error('Error disposing context:', err))
+        .finally(() => {
+          if (this.isUninstalling) {
+            void this.cleanupLocalDataFiles();
+          }
+        });
+    } else if (this.isUninstalling) {
+      void this.cleanupLocalDataFiles();
     }
   }
 
-  uninstall() {
-    const files = [
-      'cards.msgpack', 'cards.json', 'settings.json', 'xiuyuan.msgpack', 'reschedule-configs.json',
-      'riff-blacklist.msgpack', 'riff-blacklist.json', 'practice-queue.msgpack', 'practice-queue.json',
-      'practice-queue-backup.msgpack', 'incremental-learning-queue.msgpack', 'incremental-learning-queue.json',
-      'queue-final-drill.json', 'queue-retrieval-practice.json', 'queue-neural-roam.json',
-      'queue-incremental-learning.json', 'review-v2-final-drill.json', 'queue-final-drill.backup.json',
-      'queue-retrieval-practice.backup.json', 'queue-neural-roam.backup.json', 'queue-incremental-learning.backup.json',
-    ];
-    files.forEach(f => this.removeData(f).catch(() => {}));
+  async uninstall(): Promise<void> {
+    this.isUninstalling = true;
+    await this.cleanupLocalDataFiles();
+  }
+
+  private async cleanupLocalDataFiles(): Promise<void> {
+    const tasks = FSRSPlugin.LOCAL_DATA_FILES_TO_REMOVE.map((file) =>
+      this.removeData(file).catch((error) => {
+        this.logger.debug('[uninstall] removeData skipped/failed:', { file, error });
+      })
+    );
+    await Promise.all(tasks);
   }
 
   // ========================================================================

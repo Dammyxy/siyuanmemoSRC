@@ -82,7 +82,7 @@
 </template>
 
 <script setup lang="ts">
-import { Menu, openTab, showMessage, type App } from 'siyuan';
+import { Menu, showMessage, type App } from 'siyuan';
 import { onMounted, onUnmounted, ref, watch } from 'vue';
 import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
@@ -93,6 +93,7 @@ import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import { ProviderBackedQueueStrategy, type QueueProvider } from '@/core/extensions';
 import { createVueDialog } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
+import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import {
   type CardFilter,
@@ -722,9 +723,9 @@ function buildCardStatsHTML(meta: NonNullable<ReviewUIState['actions']['cardMeta
 function handleContext(payload: { id: string; openNewTab: boolean }) {
   const id = String(payload?.id || '');
   if (!id || !props.app) return;
-  void openTab({
+  openReviewBlockAtSource({
     app: props.app,
-    doc: { id },
+    blockId: id,
     openNewTab: Boolean(payload?.openNewTab),
   });
 }
@@ -955,6 +956,13 @@ function handleOpenAsMenu(ev: MouseEvent) {
   logger.debug('[SiYuanMemo][ReviewView] handleOpenAsMenu called', ev);
 
   const menu = new Menu();
+  const currentBlockId = String(
+    state.value.actions.cardMeta?.blockID
+    || state.value.content.card?.blockId
+    || state.value.content.data
+    || state.value.content.id
+    || ''
+  );
 
   const pluginCandidate = isRecord(props.plugin) ? (props.plugin as ReviewPluginLike) : null;
   const pluginFromWindow = getWindowPlugin();
@@ -973,6 +981,44 @@ function handleOpenAsMenu(ev: MouseEvent) {
     adapter: props.adapter,
     title: props.title || t('reviewTitle', 'Review'),
   };
+
+  menu.addItem({
+    id: 'locateSourceBlock',
+    icon: 'iconOpen',
+    label: t('locateSourceBlock', '定位到原块位置'),
+    disabled: !props.app || !currentBlockId,
+    click() {
+      if (!props.app || !currentBlockId) {
+        return;
+      }
+      openReviewBlockAtSource({
+        app: props.app,
+        blockId: currentBlockId,
+      });
+    },
+  });
+  menu.addItem({
+    id: 'openRightReviewAndLocateSource',
+    icon: 'iconLayoutRight',
+    label: t('openRightReviewAndLocateSource', '右侧复习并定位原块'),
+    disabled: !props.app || !currentBlockId,
+    async click() {
+      if (!props.app || !currentBlockId) {
+        return;
+      }
+      try {
+        await openReviewBlockAtSource({
+          app: props.app,
+          blockId: currentBlockId,
+        });
+      } catch (error) {
+        logger.warn('[SiYuanMemo][ReviewView] Failed to locate source block before opening review:', error);
+      }
+      tabManager.openReviewTab(reviewTabOptions);
+      emit('close');
+    },
+  });
+  menu.addSeparator();
 
   // 在新标签中打开
   menu.addItem({
@@ -1075,9 +1121,9 @@ function openSrsEditorDialog(blockId: string) {
 function openCardInTab(blockId: string, openInRight: boolean) {
   if (!props.app) return;
 
-  openTab({
+  openReviewBlockAtSource({
     app: props.app,
-    doc: { id: blockId },
+    blockId,
     position: openInRight ? 'right' : undefined,
   });
 }
@@ -1086,9 +1132,9 @@ function openCardInTab(blockId: string, openInRight: boolean) {
 function openCardInNewWindow(blockId: string) {
   if (!props.app) return;
 
-  openTab({
+  openReviewBlockAtSource({
     app: props.app,
-    doc: { id: blockId },
+    blockId,
     openInNewWindow: true,
   });
 }

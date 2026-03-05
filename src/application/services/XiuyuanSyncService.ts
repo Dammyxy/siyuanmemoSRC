@@ -263,6 +263,78 @@ export class XiuyuanSyncService {
         
         logger.info('Sync service started');
     }
+
+    private extractXiuyuanBindingId(attrs: Record<string, string> | null | undefined): string {
+        const raw = attrs?.['custom-xiuyuan-id'] || attrs?.['custom-fsrs-xiuyuan-id'];
+        if (typeof raw !== 'string') {
+            return '';
+        }
+        return raw.trim();
+    }
+
+    private async clearStaleXiuyuanBindingAttrs(
+        blockId: string,
+        attrs: Record<string, string> | null | undefined
+    ): Promise<void> {
+        const keysToClear = [
+            'custom-xiuyuan-id',
+            'custom-fsrs-xiuyuan-id',
+            'custom-xiuyuan-template',
+            'custom-fsrs-template-id',
+        ] as const;
+
+        const nextAttrs: Record<string, string> = {};
+        for (const key of keysToClear) {
+            if (!attrs || key in attrs) {
+                nextAttrs[key] = '';
+            }
+        }
+
+        if (Object.keys(nextAttrs).length === 0) {
+            return;
+        }
+
+        try {
+            await this.siyuanApi.setBlockAttrs(blockId, nextAttrs);
+            logger.info(`Cleared stale Xiuyuan binding attrs for block ${blockId}`);
+        } catch (error) {
+            logger.warn(`Failed to clear stale Xiuyuan binding attrs for block ${blockId}:`, error);
+        }
+    }
+
+    private async shouldSkipByXiuyuanBinding(
+        blockId: string,
+        attrs: Record<string, string> | null | undefined
+    ): Promise<boolean> {
+        const bindingId = this.extractXiuyuanBindingId(attrs);
+        if (!bindingId) {
+            return false;
+        }
+
+        const boundXiuyuanIdResult = XiuyuanId.create(bindingId);
+        if (!boundXiuyuanIdResult.ok) {
+            logger.warn(`Block ${blockId} has invalid Xiuyuan binding "${bindingId}", trying self-heal`);
+            await this.clearStaleXiuyuanBindingAttrs(blockId, attrs);
+            return false;
+        }
+
+        const existingByBindingResult = await this.xiuyuanRepository.findById(boundXiuyuanIdResult.value);
+        if (!existingByBindingResult.ok) {
+            const errorMsg = 'error' in existingByBindingResult ? existingByBindingResult.error : 'Unknown error';
+            logger.error(`Failed to verify Xiuyuan binding for block ${blockId}:`, errorMsg);
+            // Keep old conservative behavior when repository check itself fails.
+            return true;
+        }
+
+        if (existingByBindingResult.value) {
+            logger.info(`Block ${blockId} already has Xiuyuan: ${bindingId}, skipping`);
+            return true;
+        }
+
+        logger.warn(`Block ${blockId} has stale Xiuyuan binding: ${bindingId}, clearing and re-syncing`);
+        await this.clearStaleXiuyuanBindingAttrs(blockId, attrs);
+        return false;
+    }
     
     /**
      * 停止同步服务
@@ -710,9 +782,7 @@ export class XiuyuanSyncService {
                     // 🔧 防护 1：检查块属性，避免重复创建
                     try {
                         const attrs = await this.siyuanApi.getBlockAttrs(riffCard.id);
-                        if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
-                            const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
-                            logger.info(`Block ${riffCard.id} already has Xiuyuan: ${existingXiuyuanId}, skipping`);
+                        if (await this.shouldSkipByXiuyuanBinding(riffCard.id, attrs)) {
                             skippedCount++;
                             continue;
                         }

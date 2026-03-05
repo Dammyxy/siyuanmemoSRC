@@ -46,7 +46,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { Protyle, type App } from 'siyuan';
 import type { BrowserCard } from './types';
 import { applyProtyleReadonly } from './utils/protyleControl';
@@ -74,6 +74,10 @@ const bodyRef = ref<HTMLElement | null>(null);
 const isLocked = ref(true);
 const breadcrumbs = ref<IBreadcrumbItem[]>([]);
 let currentProtyle: Protyle | null = null;
+let currentHostElement: HTMLElement | null = null;
+let loadToken = 0;
+let lastPreviewGutterInteractionAt = 0;
+const PREVIEW_MENU_ERROR_SUPPRESS_WINDOW_MS = 1500;
 
 // 面包屑接口
 interface IBreadcrumbItem {
@@ -82,6 +86,18 @@ interface IBreadcrumbItem {
   type: string;
   subType: string;
   children: [];
+}
+
+interface ProtyleWithReadonlyPreviewElements {
+  protyle?: {
+    gutter?: {
+      element?: HTMLElement;
+      renderMenu?: (...args: unknown[]) => unknown;
+    };
+    wysiwyg?: {
+      element?: HTMLElement;
+    };
+  };
 }
 
 // 国际化
@@ -117,64 +133,232 @@ function updateProtyleReadonly() {
   applyProtyleReadonly(currentProtyle, isLocked.value);
 }
 
+let hasPatchedMenuFallbacks = false;
+
+function isMissingMenuComponentReferenceError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  return /(ViewSelect|MenuSeparator) is not defined/i.test(error.message);
+}
+
+function decorateMenuFallbackNode(node: HTMLElement): HTMLElement {
+  const state = node as unknown as Record<string, unknown>;
+  state.element = node;
+  state.render = () => node;
+  state.mount = () => node;
+  state.destroy = () => undefined;
+  state.update = () => node;
+  state.onSelect = () => undefined;
+  return node;
+}
+
+function buildFallbackViewSelectItem(args: unknown[]): HTMLElement {
+  const item = document.createElement('button');
+  item.type = 'button';
+  item.className = 'b3-menu__item';
+
+  const icon = document.createElement('span');
+  icon.className = 'b3-menu__icon';
+  item.appendChild(icon);
+
+  const label = document.createElement('span');
+  label.className = 'b3-menu__label';
+  const textArg = args.find((arg) => typeof arg === 'string') as string | undefined;
+  label.textContent = textArg ?? '';
+  item.appendChild(label);
+
+  return decorateMenuFallbackNode(item);
+}
+
+function buildFallbackMenuSeparator(): HTMLElement {
+  const separator = document.createElement('button');
+  separator.type = 'button';
+  separator.className = 'b3-menu__separator';
+  separator.tabIndex = -1;
+  separator.setAttribute('aria-hidden', 'true');
+  return decorateMenuFallbackNode(separator);
+}
+
+function installMenuComponentFallback(name: string, creator: (args: unknown[]) => HTMLElement): boolean {
+  const globalObject = globalThis as Record<string, unknown>;
+  if (typeof globalObject[name] !== 'undefined') {
+    return false;
+  }
+
+  globalObject[name] = function MenuComponentFallback(...args: unknown[]) {
+    return creator(args);
+  };
+  return true;
+}
+
+function ensurePreviewMenuGlobalFallbacks() {
+  const patchedNames: string[] = [];
+  if (installMenuComponentFallback('ViewSelect', buildFallbackViewSelectItem)) {
+    patchedNames.push('ViewSelect');
+  }
+  if (installMenuComponentFallback('MenuSeparator', () => buildFallbackMenuSeparator())) {
+    patchedNames.push('MenuSeparator');
+  }
+
+  if (!hasPatchedMenuFallbacks && patchedNames.length > 0) {
+    hasPatchedMenuFallbacks = true;
+    logger.trace(`[BrowserPreview] Patched missing global menu fallbacks: ${patchedNames.join(', ')}`);
+  }
+}
+
+function markPreviewGutterInteraction() {
+  lastPreviewGutterInteractionAt = Date.now();
+}
+
+function shouldSuppressPreviewMenuInjectionError(event: ErrorEvent): boolean {
+  if (Date.now() - lastPreviewGutterInteractionAt > PREVIEW_MENU_ERROR_SUPPRESS_WINDOW_MS) {
+    return false;
+  }
+
+  const message = event.message ?? '';
+  const stack = event.error instanceof Error && typeof event.error.stack === 'string'
+    ? event.error.stack
+    : '';
+  const relatedToMenuInjector = /(InsertMenuItem|MenuShow)/i.test(`${message}\n${stack}`);
+  if (!relatedToMenuInjector) {
+    return false;
+  }
+
+  return [
+    /(ViewSelect|MenuSeparator) is not defined/i,
+    /Failed to execute 'insertBefore' on 'Node': parameter 1 is not of type 'Node'/i,
+    /Failed to execute 'insertBefore' on 'Node': The node before which the new node is to be inserted is not a child of this node/i,
+  ].some((pattern) => pattern.test(message));
+}
+
+function handlePreviewWindowError(event: ErrorEvent) {
+  if (!shouldSuppressPreviewMenuInjectionError(event)) {
+    return;
+  }
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  logger.trace('[BrowserPreview] Suppressed external preview menu injection error:', event.message);
+}
+
+function stabilizePreviewGutterMenu(protyle: unknown) {
+  const gutter = (protyle as ProtyleWithReadonlyPreviewElements | null)?.protyle?.gutter;
+  if (!gutter || typeof gutter.renderMenu !== 'function') {
+    return;
+  }
+
+  const gutterElement = gutter.element;
+  gutterElement?.addEventListener('pointerdown', markPreviewGutterInteraction, true);
+  gutterElement?.addEventListener('click', markPreviewGutterInteraction, true);
+  gutterElement?.addEventListener('contextmenu', markPreviewGutterInteraction, true);
+
+  const originalRenderMenu = gutter.renderMenu.bind(gutter);
+  const safeRenderMenu = (...args: unknown[]) => {
+    try {
+      return originalRenderMenu(...args);
+    } catch (error) {
+      if (!isMissingMenuComponentReferenceError(error)) {
+        throw error;
+      }
+      ensurePreviewMenuGlobalFallbacks();
+      return originalRenderMenu(...args);
+    }
+  };
+  gutter.renderMenu = safeRenderMenu;
+}
+
+function destroyCurrentProtyle() {
+  if (currentProtyle) {
+    currentProtyle.destroy();
+    currentProtyle = null;
+  }
+  if (currentHostElement?.parentElement) {
+    currentHostElement.parentElement.removeChild(currentHostElement);
+  }
+  currentHostElement = null;
+}
+
+function createProtyleHost(): HTMLElement | null {
+  const previewBody = bodyRef.value;
+  if (!previewBody) {
+    return null;
+  }
+  const host = document.createElement('div');
+  host.className = 'preview__protyle-host';
+  previewBody.appendChild(host);
+  currentHostElement = host;
+  return host;
+}
+
 // 获取面包屑数据
-async function fetchBreadcrumbs(blockId: string) {
+async function fetchBreadcrumbs(blockId: string, token: number = loadToken) {
+  if (token !== loadToken) {
+    return;
+  }
   breadcrumbs.value = [];
   if (!props.app) return;
-  
+
   try {
     const response = await fetch('/api/block/getBlockBreadcrumb', {
       method: 'POST',
       body: JSON.stringify({ id: blockId }),
     });
     const data = await response.json();
+    if (token !== loadToken) {
+      return;
+    }
     if (data.code === 0 && data.data) {
       let rawBreadcrumbs = data.data;
-      
-      // 🔧 检查是否是 Xiuyuan 列表模板卡
+
+      // Xiuyuan list template cards append two trailing path items we do not need.
       const isXiuyuanListTemplate = props.card?.meta?.templateID === 'builtin-list-item';
-      
       if (isXiuyuanListTemplate) {
-        // Xiuyuan 列表模板卡：排除最后两项（段落块 + 列表项块）
         rawBreadcrumbs = rawBreadcrumbs.slice(0, -2);
       }
-      
-      // 🔧 去重：使用 Map 按标准化后的 name 去重
+
+      // Deduplicate by normalized breadcrumb text.
       const dedupMap = new Map<string, IBreadcrumbItem>();
-      
       for (const item of rawBreadcrumbs) {
-        // 标准化文本：去掉列表符号
-        const normalizedName = item.name.replace(/^[•\-\d]+\.?\s*/, '').trim();
-        
-        // 使用标准化后的 name 作为 key，保留标准化后的名称
+        const normalizedName = item.name.replace(/^[\u2022\-\d]+\.?\s*/, '').trim();
         dedupMap.set(normalizedName, {
           ...item,
           name: normalizedName,
         });
       }
-      
+
+      if (token !== loadToken) {
+        return;
+      }
       breadcrumbs.value = Array.from(dedupMap.values());
     }
   } catch (err) {
+    if (token !== loadToken) {
+      return;
+    }
     logger.error('[BrowserPreview] Fetch breadcrumbs error:', err);
   }
 }
 
 // 加载预览内容
-async function loadContent(blockId: string) {
+async function loadContent(blockId: string, token: number = loadToken) {
   if (!bodyRef.value || !props.app) return;
-  
-  // 清理之前的 Protyle
-  if (currentProtyle) {
-    currentProtyle.destroy();
-    currentProtyle = null;
+  if (token !== loadToken) {
+    return;
   }
-  
-  // 清空容器
-  bodyRef.value.innerHTML = '';
-  
+
+  ensurePreviewMenuGlobalFallbacks();
+
+  destroyCurrentProtyle();
+  if (token !== loadToken) {
+    return;
+  }
+  const host = createProtyleHost();
+  if (!host) {
+    return;
+  }
+
   try {
-    currentProtyle = new Protyle(props.app, bodyRef.value, {
+    const nextProtyle = new Protyle(props.app, host, {
       blockId: blockId,
       mode: 'wysiwyg',
       render: {
@@ -186,25 +370,46 @@ async function loadContent(blockId: string) {
       },
       after: (protyle: unknown) => {
         applyProtyleReadonly(protyle, isLocked.value);
+        stabilizePreviewGutterMenu(protyle);
       },
     });
+
+    if (token !== loadToken) {
+      nextProtyle.destroy();
+      if (currentHostElement === host) {
+        currentHostElement = null;
+      }
+      if (host.parentElement) {
+        host.parentElement.removeChild(host);
+      }
+      return;
+    }
+
+    currentProtyle = nextProtyle;
   } catch (err) {
+    if (token !== loadToken) {
+      return;
+    }
     logger.error('[BrowserPreview] Protyle load error:', err);
-    bodyRef.value.innerHTML = `<div class="preview-error">加载失败</div>`;
+    destroyCurrentProtyle();
+    if (bodyRef.value) {
+      bodyRef.value.innerHTML = `<div class="preview-error">加载失败</div>`;
+    }
   }
 }
 
 // 监听卡片变化
 watch(() => props.card, async (newCard) => {
+  const token = ++loadToken;
   if (newCard?.blockId) {
-    await fetchBreadcrumbs(newCard.blockId);
-    await loadContent(newCard.blockId);
+    await fetchBreadcrumbs(newCard.blockId, token);
+    if (token !== loadToken) {
+      return;
+    }
+    await loadContent(newCard.blockId, token);
   } else {
     breadcrumbs.value = [];
-    if (currentProtyle) {
-      currentProtyle.destroy();
-      currentProtyle = null;
-    }
+    destroyCurrentProtyle();
     if (bodyRef.value) {
       bodyRef.value.innerHTML = '';
     }
@@ -212,11 +417,15 @@ watch(() => props.card, async (newCard) => {
 }, { immediate: true });
 
 // 清理
+onMounted(() => {
+  ensurePreviewMenuGlobalFallbacks();
+  window.addEventListener('error', handlePreviewWindowError, true);
+});
+
 onBeforeUnmount(() => {
-  if (currentProtyle) {
-    currentProtyle.destroy();
-    currentProtyle = null;
-  }
+  loadToken += 1;
+  destroyCurrentProtyle();
+  window.removeEventListener('error', handlePreviewWindowError, true);
 });
 
 // 暴露方法供父组件调用

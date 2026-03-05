@@ -41,7 +41,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { openTab } from 'siyuan';
+import type { App } from 'siyuan';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
@@ -52,6 +52,7 @@ import type {
 } from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
 import { resolveSiyuanApp } from '@/core/card/concept-definition/application/runtime';
 import { createLogger } from '@/utils/logger';
+import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 
 const props = defineProps<{
@@ -132,15 +133,15 @@ function jumpToConcept() {
     return;
   }
 
-  const app = resolveSiyuanApp<Parameters<typeof openTab>[0]['app']>();
+  const app = resolveSiyuanApp<App>();
   if (!app) {
     logger.error('App instance not found');
     return;
   }
 
-  openTab({
+  openReviewBlockAtSource({
     app,
-    doc: { id: viewModel.value.conceptBlockId },
+    blockId: viewModel.value.conceptBlockId,
   });
 }
 
