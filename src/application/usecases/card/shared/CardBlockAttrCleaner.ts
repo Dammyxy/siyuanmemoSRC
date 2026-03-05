@@ -1,26 +1,10 @@
+import { ALL_PLUGIN_BLOCK_ATTR_KEYS } from '@/application/services/BlockAttrPolicy';
+
 const ATTR_IMAGE_OCCLUSION = 'custom-fsrs-image-occlusion';
 const ATTR_IMAGE_OCCLUSION_VERSION = 'custom-fsrs-image-occlusion-version';
 const ATTR_IMAGE_OCCLUSION_CARD_IDS = 'custom-fsrs-image-occlusion-card-ids';
 
-export const CARD_BLOCK_ATTRS_TO_REMOVE = Object.freeze([
-  'custom-card-id',
-  'custom-card-type',
-  'custom-fsrs-card-id',
-  'custom-fsrs-card-type',
-  'custom-fsrs-xiuyuan-id',
-  'custom-fsrs-template-id',
-  'custom-fsrs-priority',
-  'custom-fsrs-flashcard',
-  'custom-fsrs-neural-focus',
-  'custom-fsrs-suspended',
-  'custom-fsrs-leech-tag',
-  'custom-xiuyuan-id',
-  'custom-xiuyuan-template',
-  'custom-template-id',
-  'custom-list-template',
-  'custom-priority',
-  'custom-fsrs-a-factor',
-]);
+export const CARD_BLOCK_ATTRS_TO_REMOVE = Object.freeze([...ALL_PLUGIN_BLOCK_ATTR_KEYS]);
 
 type ImageOcclusionPayload = {
   version?: number;
@@ -138,7 +122,7 @@ function applyImageOcclusionCleanup(
 
   nextAttrs[ATTR_IMAGE_OCCLUSION_CARD_IDS] = JSON.stringify(remainingTrackedCardIds);
 
-  // payload 无法解析时，至少确保 card-ids 正确。
+  // Keep card-id list cleaned even when payload JSON is invalid.
   if (!payload) {
     return;
   }

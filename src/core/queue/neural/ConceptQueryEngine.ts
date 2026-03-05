@@ -11,6 +11,7 @@
 import * as api from '../../siyuan/api';
 import { createLogger } from '@/utils/logger';
 import { QueryCache } from '@/utils/queryCache';
+import { hasConceptDefinitionSyntax } from '@/core/xiuyuan/cardMeta';
 
 const logger = createLogger('ConceptQueryEngine');
 
@@ -241,18 +242,46 @@ export class ConceptQueryEngine {
    */
   async fetchDescriptors(conceptId: string): Promise<string[]> {
     try {
-      const stmt = `
-        SELECT DISTINCT b.id
-        FROM blocks b
-        INNER JOIN attributes a ON b.id = a.block_id
-        WHERE b.parent_id = '${this.escapeSQL(conceptId)}'
-          AND a.name = 'custom-fsrs-card-type'
-          AND a.value = 'descriptor'
-      `;
+      const escapedConceptId = this.escapeSQL(conceptId);
+      const childRows = await api.sql(`
+        SELECT DISTINCT id
+        FROM blocks
+        WHERE parent_id = '${escapedConceptId}'
+      `);
+      const childIds = this.extractIds(childRows);
+      if (childIds.length === 0) {
+        return [];
+      }
 
-      const rows = await api.sql(stmt);
-      const descriptorIds = this.extractIds(rows, conceptId);
-      logger.debug(`Found ${descriptorIds.length} descriptors`);
+      try {
+        const childIdsStr = childIds.map((id) => `'${this.escapeSQL(id)}'`).join(',');
+        const localRows = await api.sql(`
+          SELECT DISTINCT block_id AS id
+          FROM fsrs_cards
+          WHERE block_id IN (${childIdsStr})
+            AND (type = 'descriptor' OR card_type_marker = 'descriptor')
+        `);
+        const descriptorIds = this.extractIds(localRows, conceptId);
+        if (descriptorIds.length > 0) {
+          logger.debug(`Found ${descriptorIds.length} descriptors from local cards`);
+          return descriptorIds;
+        }
+      } catch {
+        // fsrs_cards table may be unavailable in some environments
+      }
+
+      const syntaxRows = await api.sql(`
+        SELECT DISTINCT id
+        FROM blocks
+        WHERE parent_id = '${escapedConceptId}'
+          AND (
+            content LIKE '%;;%'
+            OR content LIKE '%;<%'
+            OR content LIKE '%;<>%'
+          )
+      `);
+      const descriptorIds = this.extractIds(syntaxRows, conceptId);
+      logger.debug(`Found ${descriptorIds.length} descriptors from syntax`);
       return descriptorIds;
     } catch (error) {
       logger.error('Failed to fetch descriptors:', error);
@@ -271,51 +300,31 @@ export class ConceptQueryEngine {
    */
   async isConceptCard(blockId: string): Promise<boolean> {
     try {
-      // 方法1：检查块属性（custom-fsrs-card-type）
-      const stmt1 = `
-        SELECT value as card_type
-        FROM attributes
-        WHERE block_id = '${this.escapeSQL(blockId)}'
-          AND name = 'custom-fsrs-card-type'
-      `;
-      
-      const rows1 = await api.sql(stmt1);
-      
-      logger.debug(`isConceptCard(${blockId}): 块属性查询结果 =`, rows1);
-      
-      if (rows1 && rows1.length > 0) {
-        const isConceptType = rows1[0].card_type === 'concept';
-        logger.debug(`isConceptCard(${blockId}): 从块属性判断 card_type=${rows1[0].card_type}, result=${isConceptType}`);
-        
-        if (isConceptType) {
-          return true;
-        }
-      }
-      
-      // 方法2（兼容）：块属性缺失时，尝试从 FSRSCard 数据源判定。
-      // 注意：不同环境下可能不存在 fsrs_cards 或 SQL 方言差异，失败时静默降级为 false。
       try {
-        const stmt2 = `
+        const stmt = `
           SELECT block_id
           FROM fsrs_cards
           WHERE block_id = '${this.escapeSQL(blockId)}'
-            AND type = 'concept'
+            AND (type = 'concept' OR card_type_marker = 'concept')
+          LIMIT 1
         `;
 
-        const rows2 = await api.sql(stmt2);
-
-        logger.debug(`isConceptCard(${blockId}): FSRSCard 查询结果 =`, rows2);
-
-        if (rows2 && rows2.length > 0) {
-          logger.debug(`isConceptCard(${blockId}): 从 FSRSCard 判断为 concept 卡`);
+        const rows = await api.sql(stmt);
+        if (rows && rows.length > 0) {
           return true;
         }
       } catch {
-        logger.debug(`isConceptCard(${blockId}): FSRSCard 兼容查询不可用，按非概念卡处理`);
+        // fsrs_cards table may be unavailable in some environments
       }
-      
-      logger.debug(`isConceptCard(${blockId}): 不是 concept 卡`);
-      return false;
+
+      const rows = await api.sql(`
+        SELECT content
+        FROM blocks
+        WHERE id = '${this.escapeSQL(blockId)}'
+        LIMIT 1
+      `);
+      const content = typeof rows?.[0]?.content === 'string' ? rows[0].content : '';
+      return hasConceptDefinitionSyntax(content);
     } catch (error) {
       logger.error('Failed to check if concept card:', error);
       return false;

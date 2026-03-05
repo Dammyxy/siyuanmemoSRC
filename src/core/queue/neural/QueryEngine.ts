@@ -8,9 +8,9 @@
  */
 
 import * as api from '../../siyuan/api.ts';
-import { ATTR_CARD_ID } from '../../siyuan/block.ts';
 import { AssociationType, NeighborQueryResult, NeuralQueueConfig, NeuralBlockType } from './types.ts';
 import { createLogger } from '@/utils/logger';
+import { hasConceptDefinitionSyntax } from '@/core/xiuyuan/cardMeta';
 
 const logger = createLogger('QueryEngine');
 
@@ -162,14 +162,31 @@ export class QueryEngine {
    */
   async isConceptCard(blockId: string): Promise<boolean> {
     try {
-      const stmt = `
-        SELECT value
-        FROM attributes
-        WHERE block_id = '${this.escapeSQL(blockId)}'
-          AND name = 'custom-fsrs-card-type'
-      `;
-      const rows = await api.sql(stmt);
-      return rows.length > 0 && rows[0].value === 'concept';
+      const escapedId = this.escapeSQL(blockId);
+      try {
+        const localRows = await api.sql(`
+          SELECT type, card_type_marker
+          FROM fsrs_cards
+          WHERE block_id = '${escapedId}'
+          LIMIT 5
+        `);
+        if (Array.isArray(localRows) && localRows.length > 0) {
+          return localRows.some((row) =>
+            row?.type === 'concept' || row?.card_type_marker === 'concept'
+          );
+        }
+      } catch {
+        // fsrs_cards table may be unavailable in some environments
+      }
+
+      const blockRows = await api.sql(`
+        SELECT content
+        FROM blocks
+        WHERE id = '${escapedId}'
+        LIMIT 1
+      `);
+      const content = typeof blockRows?.[0]?.content === 'string' ? blockRows[0].content : '';
+      return hasConceptDefinitionSyntax(content);
     } catch (error) {
       logger.error('Failed to check if concept card:', error);
       return false;
@@ -288,18 +305,54 @@ export class QueryEngine {
    */
   async fetchDescriptorCards(blockId: string): Promise<NeighborQueryResult[]> {
     try {
-      // 查询子块中的描述符卡
-      const stmt = `
+      const escapedId = this.escapeSQL(blockId);
+      const childRows = await api.sql(`
         SELECT DISTINCT b.id
         FROM blocks b
-        INNER JOIN attributes a ON b.id = a.block_id
-        WHERE b.parent_id = '${this.escapeSQL(blockId)}'
-          AND a.name = 'custom-fsrs-card-type'
-          AND a.value = 'descriptor'
-      `;
+        WHERE b.parent_id = '${escapedId}'
+      `);
+      const childIds = childRows
+        .map((row) => (typeof row?.id === 'string' ? row.id : ''))
+        .filter((id): id is string => id.length > 0);
 
-      const rows = await api.sql(stmt);
-      return rows.map(row => ({
+      if (childIds.length === 0) {
+        return [];
+      }
+
+      try {
+        const idList = childIds.map((id) => `'${this.escapeSQL(id)}'`).join(',');
+        const localRows = await api.sql(`
+          SELECT DISTINCT block_id
+          FROM fsrs_cards
+          WHERE block_id IN (${idList})
+            AND (type = 'descriptor' OR card_type_marker = 'descriptor')
+        `);
+        const descriptorIds = localRows
+          .map((row) => (typeof row?.block_id === 'string' ? row.block_id : ''))
+          .filter((id): id is string => id.length > 0);
+
+        if (descriptorIds.length > 0) {
+          return descriptorIds.map((id) => ({
+            id,
+            type: AssociationType.DESCRIPTOR,
+          }));
+        }
+      } catch {
+        // fsrs_cards table may be unavailable in some environments
+      }
+
+      // Syntax fallback: treat descriptor-like lines as descriptor cards.
+      const syntaxRows = await api.sql(`
+        SELECT DISTINCT b.id
+        FROM blocks b
+        WHERE b.parent_id = '${escapedId}'
+          AND (
+            b.content LIKE '%;;%'
+            OR b.content LIKE '%;<%'
+            OR b.content LIKE '%;<>%'
+          )
+      `);
+      return syntaxRows.map((row) => ({
         id: row.id,
         type: AssociationType.DESCRIPTOR,
       }));
@@ -323,22 +376,18 @@ export class QueryEngine {
       const allowedTypes = this.config.topicMode.allowedBlockTypes.map(t => `'${t}'`).join(',');
 
       if (!topicModeEnabled) {
-        // 仅查询闪卡（旧逻辑）
+        // Local-card source only.
         const outgoingStmt = `
           SELECT DISTINCT r.def_block_id as id, 'ref' as type
           FROM refs r
-          INNER JOIN attributes a ON r.def_block_id = a.block_id
+          INNER JOIN fsrs_cards c ON r.def_block_id = c.block_id
           WHERE r.block_id = '${this.escapeSQL(blockId)}'
-            AND a.name = '${ATTR_CARD_ID}'
-            AND a.value != ''
         `;
         const incomingStmt = `
           SELECT DISTINCT r.block_id as id, 'ref' as type
           FROM refs r
-          INNER JOIN attributes a ON r.block_id = a.block_id
+          INNER JOIN fsrs_cards c ON r.block_id = c.block_id
           WHERE r.def_block_id = '${this.escapeSQL(blockId)}'
-            AND a.name = '${ATTR_CARD_ID}'
-            AND a.value != ''
         `;
         const outgoing = await api.sql(outgoingStmt);
         const incoming = await api.sql(incomingStmt);
@@ -348,7 +397,7 @@ export class QueryEngine {
         ];
       }
 
-      // 查询所有有意义的块（闪卡 + 主题）
+      // Query meaningful blocks (local cards + topics).
       const outgoingStmt = `
         SELECT DISTINCT 
           r.def_block_id as id, 
@@ -356,12 +405,15 @@ export class QueryEngine {
           b.type as block_type,
           b.content,
           CASE 
-            WHEN a.value IS NOT NULL AND a.value != '' THEN 1
+            WHEN fc.block_id IS NOT NULL THEN 1
             ELSE 0
           END as has_flashcard
         FROM refs r
         INNER JOIN blocks b ON r.def_block_id = b.id
-        LEFT JOIN attributes a ON b.id = a.block_id AND a.name = '${ATTR_CARD_ID}'
+        LEFT JOIN (
+          SELECT DISTINCT block_id
+          FROM fsrs_cards
+        ) fc ON b.id = fc.block_id
         WHERE r.block_id = '${this.escapeSQL(blockId)}'
           AND b.type IN (${allowedTypes})
           AND LENGTH(b.content) >= ${minLength}
@@ -374,12 +426,15 @@ export class QueryEngine {
           b.type as block_type,
           b.content,
           CASE 
-            WHEN a.value IS NOT NULL AND a.value != '' THEN 1
+            WHEN fc.block_id IS NOT NULL THEN 1
             ELSE 0
           END as has_flashcard
         FROM refs r
         INNER JOIN blocks b ON r.block_id = b.id
-        LEFT JOIN attributes a ON b.id = a.block_id AND a.name = '${ATTR_CARD_ID}'
+        LEFT JOIN (
+          SELECT DISTINCT block_id
+          FROM fsrs_cards
+        ) fc ON b.id = fc.block_id
         WHERE r.def_block_id = '${this.escapeSQL(blockId)}'
           AND b.type IN (${allowedTypes})
           AND LENGTH(b.content) >= ${minLength}
@@ -417,15 +472,13 @@ export class QueryEngine {
       const allowedTypes = this.config.topicMode.allowedBlockTypes.map(t => `'${t}'`).join(',');
 
       if (!topicModeEnabled) {
-        // 仅查询闪卡（旧逻辑）
+        // Local-card source only.
         const stmt = `
           SELECT DISTINCT b.id, 'context' as type
           FROM blocks b
-          INNER JOIN attributes a ON b.id = a.block_id
+          INNER JOIN fsrs_cards c ON b.id = c.block_id
           WHERE b.root_id = '${this.escapeSQL(rootId)}'
             AND b.id != '${this.escapeSQL(blockId)}'
-            AND a.name = '${ATTR_CARD_ID}'
-            AND a.value != ''
           LIMIT ${limit}
         `;
         const rows = await api.sql(stmt);
@@ -439,11 +492,14 @@ export class QueryEngine {
           'context' as type,
           b.type as block_type,
           CASE 
-            WHEN a.value IS NOT NULL AND a.value != '' THEN 1
+            WHEN fc.block_id IS NOT NULL THEN 1
             ELSE 0
           END as has_flashcard
         FROM blocks b
-        LEFT JOIN attributes a ON b.id = a.block_id AND a.name = '${ATTR_CARD_ID}'
+        LEFT JOIN (
+          SELECT DISTINCT block_id
+          FROM fsrs_cards
+        ) fc ON b.id = fc.block_id
         WHERE b.root_id = '${this.escapeSQL(rootId)}'
           AND b.id != '${this.escapeSQL(blockId)}'
           AND b.type IN (${allowedTypes})
@@ -474,15 +530,13 @@ export class QueryEngine {
 
       const limit = this.config.queryLimits.tagCards;
 
-      // 查询具有相同标签的其他闪卡
+      // Query local cards with similar tags.
       const stmt = `
         SELECT DISTINCT b.id, 'tag' as type
         FROM blocks b
-        INNER JOIN attributes a ON b.id = a.block_id
+        INNER JOIN fsrs_cards c ON b.id = c.block_id
         WHERE b.id != '${this.escapeSQL(blockId)}'
           AND b.ial LIKE '%#%'
-          AND a.name = '${ATTR_CARD_ID}'
-          AND a.value != ''
         LIMIT ${limit}
       `;
 
@@ -507,15 +561,13 @@ export class QueryEngine {
       const parentId = await this.getParentId(blockId);
       if (!parentId) return [];
 
-      // 查询同一父块下的其他闪卡
+      // Query sibling local cards.
       const stmt = `
         SELECT DISTINCT b.id, 'sibling' as type
         FROM blocks b
-        INNER JOIN attributes a ON b.id = a.block_id
+        INNER JOIN fsrs_cards c ON b.id = c.block_id
         WHERE b.parent_id = '${this.escapeSQL(parentId)}'
           AND b.id != '${this.escapeSQL(blockId)}'
-          AND a.name = '${ATTR_CARD_ID}'
-          AND a.value != ''
         LIMIT 10
       `;
 
@@ -535,26 +587,33 @@ export class QueryEngine {
    */
   async fetchRandomCard(): Promise<string | null> {
     try {
-      // 🔒 只选择概念卡作为神经漫游的种子
-      const stmt = `
-        SELECT DISTINCT b.id
-        FROM blocks b
-        INNER JOIN attributes a1 ON b.id = a1.block_id
-        INNER JOIN attributes a2 ON b.id = a2.block_id
-        WHERE a1.name = '${ATTR_CARD_ID}'
-          AND a1.value != ''
-          AND a2.name = 'custom-fsrs-card-type'
-          AND a2.value = 'concept'
+      try {
+        const localRows = await api.sql(`
+          SELECT DISTINCT block_id AS id
+          FROM fsrs_cards
+          WHERE type = 'concept' OR card_type_marker = 'concept'
+          ORDER BY RANDOM()
+          LIMIT 1
+        `);
+        if (Array.isArray(localRows) && localRows.length > 0 && typeof localRows[0].id === 'string') {
+          return localRows[0].id;
+        }
+      } catch {
+        // fsrs_cards table may be unavailable in some environments
+      }
+
+      const syntaxRows = await api.sql(`
+        SELECT id
+        FROM blocks
+        WHERE content LIKE '%::%' OR content LIKE '%：：%'
         ORDER BY RANDOM()
         LIMIT 1
-      `;
-
-      const rows = await api.sql(stmt);
-      if (rows.length === 0) {
+      `);
+      if (!syntaxRows || syntaxRows.length === 0) {
         logger.warn('No concept cards found for neural roaming seed');
         return null;
       }
-      return rows[0].id;
+      return syntaxRows[0].id;
     } catch (error) {
       logger.error('Failed to fetch random card:', error);
       return null;
@@ -573,13 +632,15 @@ export class QueryEngine {
       const stmt = `
         SELECT 
           b.*,
-          a.value as card_id,
           CASE 
-            WHEN a.value IS NOT NULL AND a.value != '' THEN 1
+            WHEN fc.block_id IS NOT NULL THEN 1
             ELSE 0
           END as has_flashcard
         FROM blocks b
-        LEFT JOIN attributes a ON b.id = a.block_id AND a.name = '${ATTR_CARD_ID}'
+        LEFT JOIN (
+          SELECT DISTINCT block_id
+          FROM fsrs_cards
+        ) fc ON b.id = fc.block_id
         WHERE b.id = '${this.escapeSQL(cardId)}'
       `;
 

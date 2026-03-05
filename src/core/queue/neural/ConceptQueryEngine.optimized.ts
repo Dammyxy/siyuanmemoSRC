@@ -12,6 +12,7 @@ import * as api from '../../siyuan/api';
 import { createLogger } from '@/utils/logger';
 import { QueryCache } from '@/utils/queryCache';
 import { PerformanceMonitor } from '@/utils/performance';
+import { hasConceptDefinitionSyntax } from '@/core/xiuyuan/cardMeta';
 
 const logger = createLogger('ConceptQueryEngine');
 
@@ -224,23 +225,56 @@ export class ConceptQueryEngineOptimized {
   async fetchDescriptors(conceptId: string): Promise<string[]> {
     return PerformanceMonitor.measure('fetchDescriptors', async () => {
       try {
-        const stmt = `
-          SELECT DISTINCT b.id
-          FROM blocks b
-          INNER JOIN attributes a ON b.id = a.block_id
-          WHERE b.parent_id = '${this.escapeSQL(conceptId)}'
-            AND a.name = 'custom-fsrs-card-type'
-            AND a.value = 'descriptor'
-        `;
-
-        const rows = await api.sql(stmt);
-        
-        if (!rows || !Array.isArray(rows)) {
+        const escapedConceptId = this.escapeSQL(conceptId);
+        const childRows = await api.sql(`
+          SELECT DISTINCT id
+          FROM blocks
+          WHERE parent_id = '${escapedConceptId}'
+        `);
+        if (!childRows || !Array.isArray(childRows) || childRows.length === 0) {
           return [];
         }
 
-        const descriptorIds = rows.map(row => row.id);
-        logger.debug(`Found ${descriptorIds.length} descriptors`);
+        const childIds = childRows
+          .map((row) => (typeof row?.id === 'string' ? row.id : ''))
+          .filter((id): id is string => id.length > 0);
+        if (childIds.length === 0) {
+          return [];
+        }
+
+        try {
+          const idsStr = childIds.map((id) => `'${this.escapeSQL(id)}'`).join(',');
+          const localRows = await api.sql(`
+            SELECT DISTINCT block_id AS id
+            FROM fsrs_cards
+            WHERE block_id IN (${idsStr})
+              AND (type = 'descriptor' OR card_type_marker = 'descriptor')
+          `);
+          if (localRows && Array.isArray(localRows) && localRows.length > 0) {
+            const descriptorIds = localRows
+              .map((row) => (typeof row?.id === 'string' ? row.id : ''))
+              .filter((id): id is string => id.length > 0);
+            logger.debug(`Found ${descriptorIds.length} descriptors from local cards`);
+            return descriptorIds;
+          }
+        } catch {
+          // fsrs_cards table may be unavailable in some environments
+        }
+
+        const syntaxRows = await api.sql(`
+          SELECT DISTINCT id
+          FROM blocks
+          WHERE parent_id = '${escapedConceptId}'
+            AND (
+              content LIKE '%;;%'
+              OR content LIKE '%;<%'
+              OR content LIKE '%;<>%'
+            )
+        `);
+        const descriptorIds = (syntaxRows || [])
+          .map((row) => (typeof row?.id === 'string' ? row.id : ''))
+          .filter((id): id is string => id.length > 0);
+        logger.debug(`Found ${descriptorIds.length} descriptors from syntax`);
         return descriptorIds;
       } catch (error) {
         logger.error('Failed to fetch descriptors:', error);
@@ -260,14 +294,16 @@ export class ConceptQueryEngineOptimized {
     return PerformanceMonitor.measure('areConceptCards', async () => {
       try {
         const idsStr = blockIds.map(id => `'${this.escapeSQL(id)}'`).join(',');
-        const stmt = `
-          SELECT block_id, value
-          FROM attributes
-          WHERE block_id IN (${idsStr})
-            AND name = 'custom-fsrs-card-type'
-        `;
-        
-        const rows = await api.sql(stmt);
+        let rows: unknown[] = [];
+        try {
+          rows = await api.sql(`
+            SELECT block_id, type, card_type_marker
+            FROM fsrs_cards
+            WHERE block_id IN (${idsStr})
+          `);
+        } catch {
+          rows = [];
+        }
         const result = new Map<string, boolean>();
         
         // 初始化所有为 false
@@ -277,11 +313,32 @@ export class ConceptQueryEngineOptimized {
         
         // 设置概念卡为 true
         for (const row of rows || []) {
-          if (row.value === 'concept') {
-            result.set(row.block_id, true);
+          const localBlockId = typeof row?.block_id === 'string' ? row.block_id : '';
+          if (!localBlockId) {
+            continue;
+          }
+          if (row?.type === 'concept' || row?.card_type_marker === 'concept') {
+            result.set(localBlockId, true);
           }
         }
-        
+
+        const unresolvedIds = blockIds.filter((id) => result.get(id) !== true);
+        if (unresolvedIds.length > 0) {
+          const unresolvedStr = unresolvedIds.map((id) => `'${this.escapeSQL(id)}'`).join(',');
+          const syntaxRows = await api.sql(`
+            SELECT id, content
+            FROM blocks
+            WHERE id IN (${unresolvedStr})
+          `);
+          for (const row of syntaxRows || []) {
+            const syntaxId = typeof row?.id === 'string' ? row.id : '';
+            const content = typeof row?.content === 'string' ? row.content : '';
+            if (syntaxId && hasConceptDefinitionSyntax(content)) {
+              result.set(syntaxId, true);
+            }
+          }
+        }
+
         return result;
       } catch (error) {
         logger.error('Failed to check concept cards:', error);

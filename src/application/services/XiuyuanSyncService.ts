@@ -121,7 +121,6 @@ export class XiuyuanSyncService {
     private syncMutex: Promise<void> = Promise.resolve();
     private readonly inFlightSyncs: Map<SyncType, Promise<SyncResult>> = new Map();
     private readonly syncEventHandlers: Map<string, Map<(data: unknown) => void, EventHandler<DomainEvent>>> = new Map();
-    private hasRunLegacyCardTypeMigration = false;
     private readonly postCreationPlanner = new QuickCardPostCreationPlanner();
     
     // 默认重试配置
@@ -253,8 +252,6 @@ export class XiuyuanSyncService {
      */
     async start(): Promise<void> {
         logger.info('Starting sync service...');
-
-        await this.migrateLegacyCardTypeAttrOnce();
         
         // 执行初始增量同步
         if (this.config.incrementalSync.enabled) {
@@ -298,6 +295,11 @@ export class XiuyuanSyncService {
             await this.siyuanApi.setBlockAttrs(blockId, nextAttrs);
             logger.info(`Cleared stale Xiuyuan binding attrs for block ${blockId}`);
         } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (message.includes('tree not found')) {
+                logger.info(`Skip clearing stale Xiuyuan binding attrs for removed block ${blockId}`);
+                return;
+            }
             logger.warn(`Failed to clear stale Xiuyuan binding attrs for block ${blockId}:`, error);
         }
     }
@@ -344,6 +346,10 @@ export class XiuyuanSyncService {
         logger.info('Sync service stopped');
     }
 
+    async runWithGlobalSyncLock<T>(operation: () => Promise<T>): Promise<T> {
+        return this.withGlobalSyncLock(operation);
+    }
+
     /**
      * 更新同步配置
      *
@@ -371,9 +377,9 @@ export class XiuyuanSyncService {
     }
 
     private resolveCardTypeFromIAL(ial?: Record<string, string>): ResolvedSyncCardType {
-        const fsrsCardType = ial?.['custom-fsrs-card-type'];
+        const rawCardType = ial?.['custom-card-type'];
 
-        if (!this.isSupportedCardType(fsrsCardType)) {
+        if (!this.isSupportedCardType(rawCardType)) {
             return {
                 cardType: undefined,
                 cardTypeMarker: undefined,
@@ -381,9 +387,9 @@ export class XiuyuanSyncService {
         }
 
         return {
-            cardType: fsrsCardType,
-            cardTypeMarker: fsrsCardType === 'concept' || fsrsCardType === 'descriptor'
-                ? fsrsCardType
+            cardType: rawCardType,
+            cardTypeMarker: rawCardType === 'concept' || rawCardType === 'descriptor'
+                ? rawCardType
                 : undefined,
         };
     }
@@ -394,7 +400,7 @@ export class XiuyuanSyncService {
             return resolvedType;
         }
 
-        // custom-fsrs-card-type 缺失时回退自动检测（只会返回 topic/item）
+        // 块 IAL 类型缺失时回退自动检测（只会返回 topic/item）
         const detectedCardType = await this.cardTypeDetectionService.detectCardType(riffBlock.id);
         return {
             cardType: detectedCardType,
@@ -615,56 +621,6 @@ export class XiuyuanSyncService {
         return true;
     }
 
-    private async migrateLegacyCardTypeAttrOnce(): Promise<void> {
-        if (this.hasRunLegacyCardTypeMigration) {
-            return;
-        }
-        this.hasRunLegacyCardTypeMigration = true;
-
-        let scanned = 0;
-        let migrated = 0;
-        let skipped = 0;
-        let failed = 0;
-
-        try {
-            const riffCards = await this.siyuanApi.getRiffCards(this.config.deckId, { includeNew: true });
-            scanned = riffCards.length;
-
-            for (const riffCard of riffCards) {
-                const legacyCardType = riffCard.ial?.['custom-card-type'];
-                const fsrsCardType = riffCard.ial?.['custom-fsrs-card-type'];
-
-                if (!legacyCardType || fsrsCardType) {
-                    skipped++;
-                    continue;
-                }
-
-                if (!this.isSupportedCardType(legacyCardType)) {
-                    skipped++;
-                    continue;
-                }
-
-                try {
-                    await this.siyuanApi.setBlockAttrs(riffCard.id, {
-                        'custom-fsrs-card-type': legacyCardType,
-                        'custom-card-type': '',
-                    });
-                    migrated++;
-                } catch (error) {
-                    failed++;
-                    logger.warn(`Failed to migrate legacy card type attr for block ${riffCard.id}:`, error);
-                }
-            }
-        } catch (error) {
-            failed++;
-            logger.warn('Failed to scan legacy custom-card-type attrs, skip migration for this run:', error);
-        } finally {
-            logger.info(
-                `Legacy card type migration completed: scanned ${scanned}, migrated ${migrated}, skipped ${skipped}, failed ${failed}`
-            );
-        }
-    }
-
     private beginSync(type: SyncType): number {
         const startTime = Date.now();
         logger.info(`Starting ${type} sync...`);
@@ -845,7 +801,7 @@ export class XiuyuanSyncService {
                         let needsUpdate = false;
 
                         // 从块 IAL 属性读取卡片类型元数据（非调度数据，合法同步）
-                        // 只认 custom-fsrs-card-type；缺失时回退自动检测。
+                        // 只认 custom-card-type；缺失时回退自动检测。
                         const resolvedType = await this.resolveCardTypeForRiffBlock(riffCard);
                         const newCardTypeMarker = resolvedType.cardTypeMarker;
                         const newCardType = resolvedType.cardType;
@@ -1281,39 +1237,20 @@ export class XiuyuanSyncService {
         const blockIds = cardsToDetect.map(c => c.id);
         const typeMap = await this.cardTypeDetectionService.batchDetectCardTypes(blockIds);
         
-        // 2. 批量更新块属性（每批 50 张，避免阻塞）
+        // 2. 停止写回块属性：类型统一维护在本地卡数据
+        // 仅统计可检测数量，避免继续产生 legacy block attrs。
         let updated = 0;
         let failed = 0;
-        const BATCH_SIZE = 50;
-        
-        for (let i = 0; i < cardsToDetect.length; i += BATCH_SIZE) {
-            const batch = cardsToDetect.slice(i, i + BATCH_SIZE);
-            
-            await Promise.all(batch.map(async (card) => {
-                try {
-                    const cardType = typeMap.get(card.id);
-                    if (!cardType) {
-                        failed++;
-                        return;
-                    }
-                    
-                    const attrs: Record<string, string> = {
-                        [this.siyuanApi.ATTR_CARD_TYPE]: cardType,
-                    };
-                    
-                    // 🔧 修复：不再写入 A-Factor 块属性，只保留在卡片数据中
-                    // Topic 卡片的 A-Factor 存储在 FSRSCard.aFactor 中
-                    
-                    await this.siyuanApi.setBlockAttrs(card.id, attrs);
-                    updated++;
-                } catch (err) {
-                    logger.error(`Failed to update card type for ${card.id}:`, err);
-                    failed++;
-                }
-            }));
+        for (const card of cardsToDetect) {
+            const cardType = typeMap.get(card.id);
+            if (!cardType) {
+                failed++;
+                continue;
+            }
+            updated++;
         }
         
-        logger.info(`Auto-detection completed: ${updated} updated, ${failed} failed, ${skippedWithType} skipped (total: ${cards.length})`);
+        logger.info(`Auto-detection completed (local-only): ${updated} detected, ${failed} failed, ${skippedWithType} skipped (total: ${cards.length})`);
         return updated;
     }
     
@@ -1336,9 +1273,9 @@ export class XiuyuanSyncService {
      *   2. 可追溯性：通过前缀 "riff" 可以识别来源（区别于用户手动创建的 `xy_{timestamp}_{random}`）
      *   3. 防止冲突：与手动创建的 ID 格式不同，不会产生冲突
      * 
-     * 卡片类型统一从 `custom-fsrs-card-type` 读取。
+     * 卡片类型统一从 `custom-card-type` 读取。
      * 如果缺失则自动检测 Topic/Item。
-     * cardTypeMarker（concept/descriptor）同样从 `custom-fsrs-card-type` 推导。
+     * cardTypeMarker（concept/descriptor）同样从 `custom-card-type` 推导。
      * 
      * 🆕 智能识别 Topic/Item（快速制卡）：
      * - 如果没有块属性标记，自动检测：

@@ -8,7 +8,6 @@ import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { createVueDialog } from '@/utils/dialog';
 import { DEFAULT_PRIORITY } from '@/core/queue';
-import type { CardAttributeRow } from '@/core/queue/types';
 import { QueueType } from '@/types/unified-data-source';
 import { CardType, type FSRSCard } from '@/types/card';
 
@@ -91,14 +90,6 @@ interface BlockTypeRow {
 
 interface BlockIdRow {
   id?: string;
-}
-
-interface CardAttributeWithTypeRow extends CardAttributeRow {
-  card_type?: string;
-}
-
-interface AttributeValueRow {
-  value?: string;
 }
 
 interface NeuralRoamQueueLike {
@@ -970,48 +961,26 @@ export class BlockMenuHandler {
     const result: DrillCardPayload[] = [];
     const seen = new Set<string>();
 
-    for (let i = 0; i < uniqueIds.length; i += 200) {
-      const batch = uniqueIds.slice(i, i + 200);
-      const idsStr = batch.map((id) => `'${this.escapeSQL(id)}'`).join(',');
-      
-      // 查询卡片属性，包括卡片类型
-      const rows = await this.siyuanApi.sql(`
-        SELECT 
-          a1.block_id, 
-          a1.value as card_id,
-          a2.value as card_type
-        FROM attributes a1
-        LEFT JOIN attributes a2 ON a1.block_id = a2.block_id AND a2.name = 'custom-fsrs-card-type'
-        WHERE a1.name = '${this.siyuanApi.CARD_ID_ATTR}' 
-          AND a1.block_id IN (${idsStr}) 
-          AND a1.value != ''
-      `) as CardAttributeWithTypeRow[];
-
-      for (const row of rows) {
-        const blockID = row.block_id || row.blockID;
-        const cardID = row.value;
-        const cardType = row.card_type;
-        
-        if (!blockID || !cardID || seen.has(cardID)) {
+    for (const blockID of uniqueIds) {
+      const cards = this.getStorage().getCardsByBlockId(blockID);
+      for (const card of cards) {
+        const cardID = card.id;
+        if (!cardID || seen.has(cardID)) {
           continue;
         }
-        
-        // 过滤：只接受 Item 类型的卡片（或未标记类型的卡片）
-        // Topic 卡片不应该加入提取练习队列
-        if (cardType === 'topic') {
+        if (card.type === CardType.Topic) {
           continue;
         }
-        
         seen.add(cardID);
         result.push({
           cardID,
           blockID,
           deckID: this.siyuanApi.BUILTIN_DECK_ID,
-          priority: DEFAULT_PRIORITY,
+          priority: card.priority || DEFAULT_PRIORITY,
           nextDues: { 1: '', 2: '', 3: '', 4: '' },
-          state: 0,
-          lapses: 0,
-          reps: 0,
+          state: card.state || 0,
+          lapses: card.lapses || 0,
+          reps: card.reps || 0,
         });
       }
     }
@@ -1275,9 +1244,7 @@ export class BlockMenuHandler {
         });
         
         if (result.ok) {
-          // 概念卡采用 Xiuyuan 最小属性模型：
-          // 由 XiuyuanRepository 负责写入 custom-xiuyuan-* + custom-fsrs-card-type
-          // 这里不再额外写 legacy custom-fsrs-card-id/custom-fsrs-flashcard/custom-fsrs-priority。
+          // 概念卡采用本地卡数据模型，不再写入块级 legacy 卡片属性。
 
           // ✅ 添加到 Riff（确保同步）
           await this.siyuanApi.addRiffCards(this.siyuanApi.BUILTIN_DECK_ID, [blockId]);
@@ -1304,11 +1271,6 @@ export class BlockMenuHandler {
           });
           
           if (result.ok) {
-            // 更新块属性
-            await this.siyuanApi.setBlockAttrs(blockId, {
-              'custom-fsrs-card-type': 'concept'
-            });
-            
             logger.info(`[BlockMenuHandler] Updated card type to concept for block: ${blockId}`);
             await this.siyuanApi.pushMsg('✅ 已更新为概念卡');
           } else {
@@ -1319,7 +1281,7 @@ export class BlockMenuHandler {
         }
       }
       
-      // 🔧 等待属性写入完成（增加等待时间并添加重试逻辑）
+      // 等待本地卡类型更新完成（增加等待时间并添加重试逻辑）
       let retries = 5;
       let isConceptVerified = false;
       
@@ -1328,13 +1290,13 @@ export class BlockMenuHandler {
         isConceptVerified = await this.isConceptCard(blockId);
         
         if (!isConceptVerified) {
-          logger.info(`[BlockMenuHandler] Waiting for concept card attribute to be written... (retries left: ${retries})`);
+          logger.info(`[BlockMenuHandler] Waiting for local concept card state to be visible... (retries left: ${retries})`);
           retries--;
         }
       }
       
       if (!isConceptVerified) {
-        logger.warn(`[BlockMenuHandler] Concept card attribute verification failed after retries, but continuing...`);
+        logger.warn(`[BlockMenuHandler] Concept card verification failed after retries, but continuing...`);
       }
       
       // 4. 获取神经漫游队列（✅ DDD 架构：通过 ApplicationContext）
@@ -1373,14 +1335,12 @@ export class BlockMenuHandler {
    */
   private async isConceptCard(blockId: string): Promise<boolean> {
     try {
-      const stmt = `
-        SELECT value
-        FROM attributes
-        WHERE block_id = '${this.escapeSQL(blockId)}'
-          AND name = 'custom-fsrs-card-type'
-      `;
-      const rows = await this.siyuanApi.sql(stmt) as AttributeValueRow[];
-      return rows && rows.length > 0 && rows[0].value === 'concept';
+      const card = this.getStorage().getCardByBlockId(blockId);
+      if (!card) {
+        return false;
+      }
+      const metaMarker = (card.meta as { cardTypeMarker?: string } | undefined)?.cardTypeMarker;
+      return card.type === CardType.Concept || card.cardTypeMarker === 'concept' || metaMarker === 'concept';
     } catch (error) {
       logger.error('[BlockMenuHandler] Failed to check if concept card:', error);
       return false;
@@ -1395,14 +1355,12 @@ export class BlockMenuHandler {
    */
   private async isDescriptorCard(blockId: string): Promise<boolean> {
     try {
-      const stmt = `
-        SELECT value
-        FROM attributes
-        WHERE block_id = '${this.escapeSQL(blockId)}'
-          AND name = 'custom-fsrs-card-type'
-      `;
-      const rows = await this.siyuanApi.sql(stmt) as AttributeValueRow[];
-      return rows && rows.length > 0 && rows[0].value === 'descriptor';
+      const card = this.getStorage().getCardByBlockId(blockId);
+      if (!card) {
+        return false;
+      }
+      const metaMarker = (card.meta as { cardTypeMarker?: string } | undefined)?.cardTypeMarker;
+      return card.type === CardType.Descriptor || card.cardTypeMarker === 'descriptor' || metaMarker === 'descriptor';
     } catch (error) {
       logger.error('[BlockMenuHandler] Failed to check if descriptor card:', error);
       return false;

@@ -46,6 +46,10 @@ import {
   type CdfMultilineTemplateId,
 } from '@/application/usecases/xiuyuan/shared/CdfTailMarker';
 import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
+import {
+  BlockAttrCleanupService,
+  type BlockAttrCleanupMode,
+} from '@/application/services';
 
 const logger = createLogger('DialogManager');
 
@@ -99,11 +103,6 @@ interface BlockSqlRow {
   parent_id?: string;
   content?: string;
   markdown?: string;
-}
-
-interface AttributeSqlRow {
-  name?: string;
-  value?: string;
 }
 
 const HIDDEN_TEMPLATE_IDS_IN_QUICK_CARD_DIALOG = new Set<string>(['builtin-concept-simple']);
@@ -166,6 +165,32 @@ export class DialogManager implements IDialogManager {
     if (screenWidth < 1440) return { width: '92vw', height: '90vh' };
     if (screenWidth < 1920) return { width: '90vw', height: '90vh' };
     return { width: '88vw', height: '90vh' };
+  }
+
+  private hasXiuyuanBinding(attrs: Record<string, string> | null | undefined): boolean {
+    if (!attrs) {
+      return false;
+    }
+    const xiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
+    return typeof xiuyuanId === 'string' && xiuyuanId.trim().length > 0;
+  }
+
+  private isLocalConceptCard(blockId: string): boolean {
+    const card = this.context.getStorage().getCardByBlockId(blockId);
+    if (!card) {
+      return false;
+    }
+    const marker = (card.meta as { cardTypeMarker?: string } | undefined)?.cardTypeMarker ?? card.cardTypeMarker;
+    return card.type === 'concept' || marker === 'concept';
+  }
+
+  private createBlockAttrCleanupService(): BlockAttrCleanupService {
+    const syncLock = this.context.getHybridSyncService();
+    return new BlockAttrCleanupService(
+      this.siyuanApi,
+      this.context.getUnifiedStorage(),
+      syncLock ? { runWithGlobalSyncLock: (operation) => syncLock.runWithGlobalSyncLock(operation) } : undefined
+    );
   }
 
   private resolveReviewDialogSize(): { width: string; height: string } {
@@ -333,6 +358,34 @@ export class DialogManager implements IDialogManager {
           } catch (err) {
             logger.error('[DialogManager] Failed to repair dates:', err);
             this.siyuanApi.pushErrMsg(`修复失败: ${(err as Error).message}`);
+          }
+        },
+        'scan-block-attrs-cleanup': async (
+          mode: BlockAttrCleanupMode,
+          resolve?: (result: unknown) => void,
+          reject?: (error: Error) => void
+        ) => {
+          try {
+            const cleanupService = this.createBlockAttrCleanupService();
+            const result = await cleanupService.scan(mode || 'safe');
+            resolve?.(result);
+          } catch (error) {
+            logger.error('[DialogManager] Failed to scan block attrs cleanup:', error);
+            reject?.(error instanceof Error ? error : new Error(String(error)));
+          }
+        },
+        'run-block-attrs-cleanup': async (
+          mode: BlockAttrCleanupMode,
+          resolve?: (result: unknown) => void,
+          reject?: (error: Error) => void
+        ) => {
+          try {
+            const cleanupService = this.createBlockAttrCleanupService();
+            const result = await cleanupService.run(mode || 'safe');
+            resolve?.(result);
+          } catch (error) {
+            logger.error('[DialogManager] Failed to run block attrs cleanup:', error);
+            reject?.(error instanceof Error ? error : new Error(String(error)));
           }
         }
       },
@@ -1107,31 +1160,8 @@ export class DialogManager implements IDialogManager {
       }
 
       const conceptName = conceptRows[0].content || '未命名概念';
-      const attrRows = await this.siyuanApi.sql<AttributeSqlRow>(`
-        SELECT name, value
-        FROM attributes
-        WHERE block_id = '${safeConceptBlockId}'
-          AND name IN (
-            'custom-fsrs-card-id',
-            'custom-xiuyuan-id',
-            'custom-fsrs-xiuyuan-id',
-            'custom-fsrs-card-type'
-          )
-      `);
-
-      const hasXiuyuanId = (attrRows || []).some((row) => {
-        if (row.name !== 'custom-xiuyuan-id' && row.name !== 'custom-fsrs-xiuyuan-id') {
-          return false;
-        }
-        return typeof row.value === 'string' && row.value.trim().length > 0;
-      });
-      const hasLegacyCardId = (attrRows || []).some(
-        (row) => row.name === 'custom-fsrs-card-id' && typeof row.value === 'string' && row.value.trim().length > 0
-      );
-      const isConceptType = (attrRows || []).some(
-        (row) => row.name === 'custom-fsrs-card-type' && row.value === 'concept'
-      );
-      if (hasXiuyuanId || hasLegacyCardId || isConceptType) {
+      const attrs = await this.siyuanApi.getBlockAttrs(conceptBlockId);
+      if (this.hasXiuyuanBinding(attrs) || this.isLocalConceptCard(conceptBlockId)) {
         return;
       }
 
@@ -1148,9 +1178,6 @@ export class DialogManager implements IDialogManager {
         return;
       }
 
-      await this.siyuanApi.setBlockAttrs(conceptBlockId, {
-        'custom-fsrs-card-type': 'concept',
-      });
       this.siyuanApi.pushMsg(`✅ 已为概念「${conceptName}」创建概念卡`);
     } catch (error) {
       logger.error('[DialogManager] Failed to ensure concept card:', error);
@@ -1588,15 +1615,10 @@ export class DialogManager implements IDialogManager {
       const { xiuyuan, cards } = result.value;
       logger.info('[DialogManager] Concept definition card created:', { xiuyuan, cards });
 
-      // 6. 设置定义块的卡片类型为 descriptor
-      await this.siyuanApi.setBlockAttrs(blockId, {
-        'custom-fsrs-card-type': 'descriptor'
-      });
-
-      // 7. 自动为概念文档块创建概念卡
+      // 6. 自动为概念文档块创建概念卡
       await this.ensureConceptDocumentCard({ concept: conceptBlockId }, xiuyuanAppService);
 
-      // 8. 显示成功消息
+      // 7. 显示成功消息
       const directionText = actualTemplateId === 'builtin-concept-definition' ? '双向' : 
                            actualTemplateId === 'builtin-concept-definition-forward' ? '正向' : '反向';
       this.siyuanApi.pushMsg(
@@ -2054,13 +2076,6 @@ export class DialogManager implements IDialogManager {
                   templateId === 'builtin-concept-definition-forward' ||
                   templateId === 'builtin-concept-definition-reverse') {
                 await this.ensureConceptDocumentCard(fieldMapping, xiuyuanAppService);
-                
-                // 🆕 设置定义块的卡片类型为 descriptor（概念定义卡本质是描述符卡）
-                          const definitionBlockId = blockIds[0];  // 定义块是第一个块
-                await this.siyuanApi.setBlockAttrs(definitionBlockId, {
-                  'custom-fsrs-card-type': 'descriptor'
-                });
-                logger.info('[DialogManager] Set definition block card type to descriptor:', definitionBlockId);
               }
 
               this.siyuanApi.pushMsg(
@@ -2169,35 +2184,8 @@ export class DialogManager implements IDialogManager {
 
       this.conceptCardEnsureInFlight.add(conceptDocumentId);
       try {
-        const safeConceptDocumentId = conceptDocumentId.replace(/'/g, "''");
-        const attrRows = await this.siyuanApi.sql<AttributeSqlRow>(`
-          SELECT name, value
-          FROM attributes
-          WHERE block_id = '${safeConceptDocumentId}'
-            AND name IN (
-              'custom-fsrs-card-id',
-              'custom-xiuyuan-id',
-              'custom-fsrs-xiuyuan-id',
-              'custom-fsrs-card-type'
-            )
-        `);
-
-        const hasXiuyuanId = (attrRows || []).some((row) => {
-          if (row.name !== 'custom-xiuyuan-id' && row.name !== 'custom-fsrs-xiuyuan-id') {
-            return false;
-          }
-          return typeof row.value === 'string' && row.value.trim().length > 0;
-        });
-
-        const hasLegacyCardId = (attrRows || []).some((row) =>
-          row.name === 'custom-fsrs-card-id' && typeof row.value === 'string' && row.value.trim().length > 0
-        );
-
-        const isConceptType = (attrRows || []).some((row) =>
-          row.name === 'custom-fsrs-card-type' && row.value === 'concept'
-        );
-
-        if (hasXiuyuanId || hasLegacyCardId || isConceptType) {
+        const attrs = await this.siyuanApi.getBlockAttrs(conceptDocumentId);
+        if (this.hasXiuyuanBinding(attrs) || this.isLocalConceptCard(conceptDocumentId)) {
           logger.info('[DialogManager] Concept document already has card metadata:', conceptDocumentId);
           return;
         }
@@ -2220,10 +2208,6 @@ export class DialogManager implements IDialogManager {
           logger.error('[DialogManager] Failed to create concept card:', errorMsg);
           return;
         }
-
-        await this.siyuanApi.setBlockAttrs(conceptDocumentId, {
-          'custom-fsrs-card-type': 'concept',
-        });
 
         logger.info('[DialogManager] Concept card created for document:', conceptDocumentId);
         this.siyuanApi.pushMsg(`✅ 已为概念「${conceptName}」创建概念卡`);

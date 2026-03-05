@@ -31,26 +31,13 @@ export const ATTR_TOPIC_STATE = `${ATTR_PREFIX}topic-state`;
  * 将块标记为闪卡
  */
 export async function markBlockAsCard(
-    blockId: string, 
-    cardId: string, 
-    priority?: number,
-    cardType?: 'topic' | 'item' | 'concept' | 'descriptor'
+    _blockId: string,
+    _cardId: string,
+    _priority?: number,
+    _cardType?: 'topic' | 'item' | 'concept' | 'descriptor'
 ): Promise<void> {
-    const attrs: Record<string, string> = {
-        [ATTR_CARD_ID]: cardId,
-        [ATTR_IS_FLASHCARD]: 'true',
-    };
-
-    if (priority !== undefined) {
-        attrs[ATTR_PRIORITY] = String(priority);
-    }
-
-    // 设置卡片类型（默认为 item）
-    if (cardType) {
-        attrs[ATTR_CARD_TYPE] = cardType;
-    }
-
-    await api.setBlockAttrs(blockId, attrs);
+    // Legacy shim: block-level fsrs attrs are deprecated and no longer written.
+    return;
 }
 
 /**

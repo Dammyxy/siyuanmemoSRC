@@ -349,7 +349,7 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
   async isDescriptorCard(blockId: string): Promise<boolean> {
     try {
       logger.debug('[SiYuanMemo][DescriptorCardRenderService] Checking if descriptor card:', blockId);
-      // 检查块属性中的 custom-fsrs-card-type
+      // 根据仓储的本地卡/语法判定检查是否为描述符卡
       const cardTypeMarker = await this.repository.getCardTypeMarker(blockId);
       logger.debug('[SiYuanMemo][DescriptorCardRenderService] Card type marker:', cardTypeMarker);
       return cardTypeMarker === 'descriptor';

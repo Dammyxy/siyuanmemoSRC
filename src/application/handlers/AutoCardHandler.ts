@@ -224,6 +224,31 @@ export class AutoCardHandler implements ITransactionHandler {
         const xiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
         return typeof xiuyuanId === 'string' && xiuyuanId.trim().length > 0;
     }
+
+    private getLocalCardByBlockId(blockId: string): unknown {
+        return this.getCardService().getCardByBlockId(blockId);
+    }
+
+    private hasLocalCard(blockId: string): boolean {
+        return Boolean(this.getLocalCardByBlockId(blockId));
+    }
+
+    private isLocalConceptCard(card: unknown): boolean {
+        if (!card || typeof card !== 'object') {
+            return false;
+        }
+        const candidate = card as {
+            type?: string;
+            cardTypeMarker?: string;
+            meta?: { cardTypeMarker?: string };
+        };
+        const marker = candidate.cardTypeMarker ?? candidate.meta?.cardTypeMarker;
+        return candidate.type === 'concept' || marker === 'concept';
+    }
+
+    private hasLocalConceptCard(blockId: string): boolean {
+        return this.isLocalConceptCard(this.getLocalCardByBlockId(blockId));
+    }
     
     private async createConceptCardViaDDD(
         blockId: string,
@@ -612,18 +637,6 @@ export class AutoCardHandler implements ITransactionHandler {
                 source,
                 ruleId: decision.id,
                 executorKind: decision.executorKind,
-            });
-            return false;
-        }
-
-        const legacyCardId = typeof attrs?.['custom-fsrs-card-id'] === 'string'
-            ? attrs['custom-fsrs-card-id'].trim()
-            : '';
-        if (legacyCardId.length > 0) {
-            logger.debug('[SiYuanMemo][AutoCard] Skip planner decision: block already has legacy card id', {
-                blockId,
-                source,
-                ruleId: decision.id,
             });
             return false;
         }
@@ -1438,11 +1451,6 @@ export class AutoCardHandler implements ITransactionHandler {
                     logger.debug('[SiYuanMemo][AutoCard] Created', cardCount, 'concept definition card(s)');
                 }
                 
-
-                                await this.siyuanApi.setBlockAttrs(blockId, {
-                    'custom-fsrs-card-type': 'descriptor'
-                });
-                
                 logger.debug('[SiYuanMemo][AutoCard] Concept definition card created successfully:', blockId);
                 
 
@@ -1885,13 +1893,9 @@ export class AutoCardHandler implements ITransactionHandler {
 
             const attrs = await this.siyuanApi.getBlockAttrs(conceptBlockId);
             const hasXiuyuanId = this.hasXiuyuanBinding(attrs);
-            const hasLegacyCardId = typeof attrs?.['custom-fsrs-card-id'] === 'string'
-                && attrs['custom-fsrs-card-id'].trim().length > 0;
-            const isConceptType = attrs?.['custom-fsrs-card-type'] === 'concept';
+            const existingCard = this.getLocalCardByBlockId(conceptBlockId);
 
-            const existingCard = this.getCardService().getCardByBlockId(conceptBlockId);
-
-            if (hasXiuyuanId || hasLegacyCardId || isConceptType || existingCard) {
+            if (hasXiuyuanId || existingCard) {
                 logger.debug('[SiYuanMemo][AutoCard] Concept document already has card metadata:', conceptBlockId);
                 return;
             }
@@ -1914,11 +1918,6 @@ export class AutoCardHandler implements ITransactionHandler {
                 logger.error('[SiYuanMemo][AutoCard] Failed to create concept card:', errorMsg);
                 return;
             }
-            
-
-                        await this.siyuanApi.setBlockAttrs(conceptBlockId, {
-                'custom-fsrs-card-type': 'concept'
-            });
             
             logger.debug('[SiYuanMemo][AutoCard] Concept card created for document:', conceptBlockId);
             
@@ -1968,21 +1967,11 @@ export class AutoCardHandler implements ITransactionHandler {
             }
 
 
-                        for (const match of matches) {
+            for (const match of matches) {
                 const refId = match[1];
                 logger.debug('[SiYuanMemo][AutoCard] Checking block reference:', refId);
-                
-                const cardTypeQuery = `
-                    SELECT value 
-                    FROM attributes 
-                    WHERE block_id = '${refId}' 
-                      AND name = 'custom-fsrs-card-type'
-                `;
-                const result = await this.siyuanApi.sql(cardTypeQuery);
-                
-                logger.debug('[SiYuanMemo][AutoCard] Block reference card type:', result?.[0]?.value || 'none');
-                
-                if (result && result.length > 0 && result[0].value === 'concept') {
+
+                if (this.hasLocalConceptCard(refId)) {
                     logger.debug('[SiYuanMemo][AutoCard] Found concept card in block reference:', refId);
                     return refId;
                 }
@@ -2029,16 +2018,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 
                 logger.debug('[SiYuanMemo][AutoCard] Block reference is a document block:', refId);
                 
-
-                const cardTypeQuery = `
-                    SELECT value 
-                    FROM attributes 
-                    WHERE block_id = '${refId}' 
-                      AND name = 'custom-fsrs-card-type'
-                `;
-                const result = await this.siyuanApi.sql(cardTypeQuery);
-                
-                if (result && result.length > 0 && result[0].value === 'concept') {
+                if (this.hasLocalConceptCard(refId)) {
                     logger.debug('[SiYuanMemo][AutoCard] Found existing concept card:', refId);
                     return refId;
                 }
@@ -2064,13 +2044,6 @@ export class AutoCardHandler implements ITransactionHandler {
                 
                 const conceptName = blockResult[0].content;
                 logger.debug('[SiYuanMemo][AutoCard] Marking as concept card:', conceptName);
-                
-
-                await this.siyuanApi.setBlockAttrs(refId, {
-                    'custom-fsrs-card-type': 'concept'
-                });
-                
-                logger.debug('[SiYuanMemo][AutoCard] Successfully marked as concept card:', refId);
                 
 
                 try {
@@ -2248,11 +2221,8 @@ export class AutoCardHandler implements ITransactionHandler {
         if (normalizedSkipDocId && conceptType === 'document' && conceptId === normalizedSkipDocId) {
             const attrs = await this.siyuanApi.getBlockAttrs(conceptId);
             const hasXiuyuanId = this.hasXiuyuanBinding(attrs);
-            const hasLegacyCardId = typeof attrs?.['custom-fsrs-card-id'] === 'string'
-                && attrs['custom-fsrs-card-id'].trim().length > 0;
-            const isConceptType = attrs?.['custom-fsrs-card-type'] === 'concept';
-            const existingCard = this.getCardService().getCardByBlockId(conceptId);
-            if (!hasXiuyuanId && !hasLegacyCardId && !isConceptType && !existingCard) {
+            const existingCard = this.getLocalCardByBlockId(conceptId);
+            if (!hasXiuyuanId && !existingCard) {
                 logger.info('[SiYuanMemo][AutoCard] Skip auto-creating concept card on current document block during doc scan', {
                     blockId,
                     conceptId,
@@ -2261,12 +2231,6 @@ export class AutoCardHandler implements ITransactionHandler {
                 return null;
             }
         }
-        
-
-        await this.siyuanApi.setBlockAttrs(conceptId, {
-            'custom-fsrs-card-type': 'concept'
-        });
-        
 
         try {
 
@@ -2334,17 +2298,8 @@ export class AutoCardHandler implements ITransactionHandler {
 
                 if (this.patterns.concept.test(parentContent)) {
                     logger.debug(`[SiYuanMemo][AutoCard] Found concept card with :: symbol at depth ${depth}:`, parentId);
-                    
 
-                    const cardTypeQuery = `
-                        SELECT value 
-                        FROM attributes 
-                        WHERE block_id = '${parentId}' 
-                          AND name = 'custom-fsrs-card-type'
-                    `;
-                    const typeResult = await this.siyuanApi.sql(cardTypeQuery);
-                    
-                    if (typeResult && typeResult.length > 0 && typeResult[0].value === 'concept') {
+                    if (this.hasLocalConceptCard(parentId)) {
                         logger.debug(`[SiYuanMemo][AutoCard] Parent is already marked as concept card`);
                         return parentId;
                     }

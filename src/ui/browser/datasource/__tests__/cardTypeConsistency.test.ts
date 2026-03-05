@@ -79,15 +79,13 @@ function createManagerMock(cards: FSRSCard[]) {
 }
 
 describe('cardTypeConsistency', () => {
-  it('uses block attribute card type as source of truth and fixes local mismatch', async () => {
+  it('uses local row card type as source of truth and fixes local storage mismatch', async () => {
     const rows = [buildBrowserCard({ blockId: 'block-1', cardType: 'concept' })];
     const deps: CardTypeConsistencyDependencies = {
-      runSql: vi.fn(async () => [{ block_id: 'block-1', value: 'item' }]),
-      setBlockType: vi.fn(async () => undefined),
       detectTypes: vi.fn(async () => new Map()),
     };
     const { manager, updateCard } = createManagerMock([
-      buildFsrsCard({ id: 'card-1', blockId: 'block-1', type: 'concept' }),
+      buildFsrsCard({ id: 'card-1', blockId: 'block-1', type: 'item' }),
     ]);
 
     const result = await reconcileBrowserCardTypes(rows, {
@@ -96,19 +94,18 @@ describe('cardTypeConsistency', () => {
       deps,
     });
 
-    expect(result.rows[0]?.cardType).toBe('item');
-    expect(result.conflictBlockIds).toEqual(['block-1']);
+    expect(result.rows[0]?.cardType).toBe('concept');
+    expect(result.conflictBlockIds).toEqual([]);
     expect(result.attributeBackfillBlockIds).toEqual([]);
-    expect(deps.setBlockType).not.toHaveBeenCalled();
+    expect(result.repairedBlockAttrs).toEqual([]);
+    expect(result.repairedLocalCardIds).toEqual(['card-1']);
     expect(updateCard).toHaveBeenCalledTimes(1);
-    expect(updateCard.mock.calls[0][0].type).toBe('item');
+    expect(updateCard.mock.calls[0][0].type).toBe('concept');
   });
 
-  it('backfills block attribute from local card type when attribute is missing', async () => {
+  it('does not repair when local row type already matches local card type', async () => {
     const rows = [buildBrowserCard({ blockId: 'block-2', cardType: 'concept' })];
     const deps: CardTypeConsistencyDependencies = {
-      runSql: vi.fn(async () => []),
-      setBlockType: vi.fn(async () => undefined),
       detectTypes: vi.fn(async () => new Map()),
     };
     const { manager, updateCard } = createManagerMock([
@@ -122,17 +119,15 @@ describe('cardTypeConsistency', () => {
     });
 
     expect(result.rows[0]?.cardType).toBe('concept');
-    expect(result.attributeBackfillBlockIds).toEqual(['block-2']);
+    expect(result.attributeBackfillBlockIds).toEqual([]);
     expect(result.detectedBlockIds).toEqual([]);
-    expect(deps.setBlockType).toHaveBeenCalledWith('block-2', 'concept');
+    expect(result.repairedLocalCardIds).toEqual([]);
     expect(updateCard).not.toHaveBeenCalled();
   });
 
-  it('detects missing card type and repairs both block attribute and local card type', async () => {
+  it('detects missing card type and repairs local card only', async () => {
     const rows = [buildBrowserCard({ blockId: 'block-3', cardType: undefined })];
     const deps: CardTypeConsistencyDependencies = {
-      runSql: vi.fn(async () => []),
-      setBlockType: vi.fn(async () => undefined),
       detectTypes: vi.fn(async () => new Map<string, 'topic' | 'item'>([['block-3', 'topic']])),
     };
     const { manager, updateCard } = createManagerMock([
@@ -148,16 +143,15 @@ describe('cardTypeConsistency', () => {
     expect(result.rows[0]?.cardType).toBe('topic');
     expect(result.attributeBackfillBlockIds).toEqual(['block-3']);
     expect(result.detectedBlockIds).toEqual(['block-3']);
-    expect(deps.setBlockType).toHaveBeenCalledWith('block-3', 'topic');
+    expect(result.repairedBlockAttrs).toEqual([]);
+    expect(result.repairedLocalCardIds).toEqual(['card-3']);
     expect(updateCard).toHaveBeenCalledTimes(1);
     expect(updateCard.mock.calls[0][0].type).toBe('topic');
   });
 
-  it('does not write any repair changes when repair=false', async () => {
-    const rows = [buildBrowserCard({ blockId: 'block-4', cardType: 'concept' })];
+  it('does not repair local cards when repair=false', async () => {
+    const rows = [buildBrowserCard({ blockId: 'block-4', cardType: undefined })];
     const deps: CardTypeConsistencyDependencies = {
-      runSql: vi.fn(async () => []),
-      setBlockType: vi.fn(async () => undefined),
       detectTypes: vi.fn(async () => new Map<string, 'topic' | 'item'>([['block-4', 'item']])),
     };
     const { manager, updateCard, getCards } = createManagerMock([
@@ -170,9 +164,9 @@ describe('cardTypeConsistency', () => {
       deps,
     });
 
-    expect(result.rows[0]?.cardType).toBe('concept');
+    expect(result.rows[0]?.cardType).toBe('item');
     expect(result.attributeBackfillBlockIds).toEqual(['block-4']);
-    expect(deps.setBlockType).not.toHaveBeenCalled();
+    expect(result.repairedLocalCardIds).toEqual([]);
     expect(getCards).not.toHaveBeenCalled();
     expect(updateCard).not.toHaveBeenCalled();
   });

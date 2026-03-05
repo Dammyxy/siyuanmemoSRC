@@ -137,10 +137,13 @@ export class SiyuanBlockAdapter {
       const query = `
         SELECT b.id, b.content
         FROM blocks b
-        LEFT JOIN attributes a ON b.id = a.block_id AND a.name = 'custom-fsrs-card-type'
         WHERE b.parent_id = '${parentBlockId}'
           AND b.id != '${currentDescriptorId}'
-          AND a.value = 'descriptor'
+          AND (
+            b.content LIKE '%;;%'
+            OR b.content LIKE '%;<%'
+            OR b.content LIKE '%;<>%'
+          )
         ORDER BY b.created ASC
       `;
 

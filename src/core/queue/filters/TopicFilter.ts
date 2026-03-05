@@ -3,7 +3,7 @@
  * 
  * Provides shared Topic filtering logic that can be reused by queues and browsers.
  * This utility helps separate Topic cards (reading material) from Item cards (flashcards)
- * based on the 'custom-fsrs-card-type' attribute.
+ * based on local card type metadata.
  * 
  * ## Use Cases
  * 
@@ -33,22 +33,35 @@
  * ```
  */
 
-import { sql } from '@/core/siyuan/api';
 import type { QueueItem } from '../types';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('TopicFilter');
 
-type CardTypeRow = {
-  block_id?: string;
-  blockId?: string;
-  value?: string;
-};
-
 /**
  * Topic/Item card filter utility
  */
 export class TopicFilter {
+  private static resolveQueueItemCardType(item: QueueItem): string {
+    const candidate = item as QueueItem & { type?: unknown };
+    if (typeof candidate.type === 'string' && candidate.type.length > 0) {
+      return candidate.type;
+    }
+    const meta = candidate.meta;
+    if (meta && typeof meta === 'object') {
+      const metaRecord = meta as Record<string, unknown>;
+      const cardType = metaRecord.cardType;
+      if (typeof cardType === 'string' && cardType.length > 0) {
+        return cardType;
+      }
+      const type = metaRecord.type;
+      if (typeof type === 'string' && type.length > 0) {
+        return type;
+      }
+    }
+    return 'item';
+  }
+
   /**
    * Filters out Topic cards, only keeps Item cards
    * 
@@ -73,12 +86,8 @@ export class TopicFilter {
     if (items.length === 0) return items;
 
     try {
-      const cardTypes = await this.batchGetCardTypes(
-        items.map(item => item.blockID)
-      );
-
       const filtered = items.filter(item => {
-        const cardType = cardTypes.get(item.blockID);
+        const cardType = this.resolveQueueItemCardType(item);
         // Cards without the attribute are treated as Items (backward compatible)
         return cardType !== 'topic';
       });
@@ -119,12 +128,8 @@ export class TopicFilter {
     if (items.length === 0) return items;
 
     try {
-      const cardTypes = await this.batchGetCardTypes(
-        items.map(item => item.blockID)
-      );
-
       const filtered = items.filter(item => {
-        const cardType = cardTypes.get(item.blockID);
+        const cardType = this.resolveQueueItemCardType(item);
         return cardType === 'topic';
       });
 
@@ -174,15 +179,11 @@ export class TopicFilter {
     }
 
     try {
-      const cardTypes = await this.batchGetCardTypes(
-        items.map(item => item.blockID)
-      );
-
       const topics: QueueItem[] = [];
       const itemCards: QueueItem[] = [];
 
       for (const item of items) {
-        const cardType = cardTypes.get(item.blockID);
+        const cardType = this.resolveQueueItemCardType(item);
         if (cardType === 'topic') {
           topics.push(item);
         } else {
@@ -204,79 +205,4 @@ export class TopicFilter {
     }
   }
 
-  /**
-   * Batch queries card types from block attributes
-   * 
-   * Efficiently retrieves card types for multiple blocks using batched SQL queries.
-   * Each batch processes up to 200 block IDs to balance performance and query size.
-   * 
-   * ## Performance Optimization
-   * - Processes blocks in batches of 200 to avoid query size limits
-   * - Uses SQL IN clause for efficient batch querying
-   * - Returns a Map for O(1) lookup performance
-   * 
-   * ## Error Handling
-   * If the query fails, this method throws.
-   * 
-   * @param blockIds - Array of block IDs to query
-   * @returns Map of block ID to card type ('topic' or undefined for items)
-   * 
-   * @private
-   * @internal
-   */
-  private static async batchGetCardTypes(blockIds: string[]): Promise<Map<string, string>> {
-    const result = new Map<string, string>();
-    if (blockIds.length === 0) return result;
-
-    try {
-      // Batch query (200 per batch)
-      for (let i = 0; i < blockIds.length; i += 200) {
-        const batch = blockIds.slice(i, i + 200);
-        const inList = batch.map(id => `'${this.escapeSQL(id)}'`).join(',');
-        const stmt = `
-          SELECT block_id, value
-          FROM attributes
-          WHERE name = 'custom-fsrs-card-type'
-          AND block_id IN (${inList})
-        `;
-
-        const rows = await sql(stmt);
-
-        for (const row of rows as CardTypeRow[]) {
-          const blockId = String(row?.block_id || row?.blockId || '');
-          const cardType = String(row?.value || '');
-          if (blockId && cardType) {
-            result.set(blockId, cardType);
-          }
-        }
-      }
-
-      return result;
-    } catch (error) {
-      logger.error('Failed to batch get card types', error);
-      throw error instanceof Error ? error : new Error(String(error));
-    }
-  }
-
-  /**
-   * Escapes SQL string values to prevent SQL injection
-   * 
-   * Replaces single quotes with double single quotes, following SQL standard escaping.
-   * This is a critical security measure when building dynamic SQL queries.
-   * 
-   * @param value - String value to escape
-   * @returns Escaped string safe for SQL queries
-   * 
-   * @example
-   * ```typescript
-   * escapeSQL("O'Brien") // Returns "O''Brien"
-   * escapeSQL("Normal text") // Returns "Normal text"
-   * ```
-   * 
-   * @private
-   * @internal
-   */
-  private static escapeSQL(value: string): string {
-    return String(value || '').replace(/'/g, "''");
-  }
 }

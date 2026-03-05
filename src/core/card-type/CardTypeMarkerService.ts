@@ -1,31 +1,30 @@
-/**
+﻿/**
  * CardTypeMarkerService
  * 
- * 管理卡片类型标记系统，提供概念卡和描述符卡的标记功能。
+ * 绠＄悊鍗＄墖绫诲瀷鏍囪绯荤粺锛屾彁渚涙蹇靛崱鍜屾弿杩扮鍗＄殑鏍囪鍔熻兘銆?
  * 
- * 职责：
- * - 设置和获取卡片类型标记（concept/descriptor）
- * - 根据类型标记推导技术类型（item/topic）
- * - 同步块属性
- * - 批量操作支持
+ * 鑱岃矗锛?
+ * - 璁剧疆鍜岃幏鍙栧崱鐗囩被鍨嬫爣璁帮紙concept/descriptor锛?
+ * - 鏍规嵁绫诲瀷鏍囪鎺ㄥ鎶€鏈被鍨嬶紙item/topic锛?
+ * - 鍚屾鍧楀睘鎬?
+ * - 鎵归噺鎿嶄綔鏀寔
  * 
- * @see .kiro/specs/card-type-system-enhancement/design.md 第 2.1 节
+ * @see .kiro/specs/card-type-system-enhancement/design.md 绗?2.1 鑺?
  */
 
 import type { FSRSCard } from '@/types/card';
 import { CardType } from '@/types/card';
 import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
-import * as siyuanApi from '@/core/siyuan/api';
 import { TYPE_MAPPING } from './type-mapping';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('CardTypeMarkerService');
 
-/** 卡片类型标记 */
+/** 鍗＄墖绫诲瀷鏍囪 */
 export type CardTypeMarker = 'concept' | 'descriptor';
 
 /**
- * 卡片类型标记服务
+ * 鍗＄墖绫诲瀷鏍囪鏈嶅姟
  */
 export class CardTypeMarkerService {
   private storage: CardTypeMarkerStoragePort;
@@ -36,10 +35,10 @@ export class CardTypeMarkerService {
   }
 
   /**
-   * 设置卡片类型标记
+   * 璁剧疆鍗＄墖绫诲瀷鏍囪
    * 
-   * @param cardId - 卡片 ID
-   * @param marker - 类型标记（concept 或 descriptor）
+   * @param cardId - 鍗＄墖 ID
+   * @param marker - 绫诲瀷鏍囪锛坈oncept 鎴?descriptor锛?
    * 
    * @example
    * ```typescript
@@ -52,30 +51,27 @@ export class CardTypeMarkerService {
       throw new Error(`Card not found: ${cardId}`);
     }
 
-    // 1. 更新卡片的类型标记
+    // 1. 鏇存柊鍗＄墖鐨勭被鍨嬫爣璁?
     card.cardTypeMarker = marker;
 
-    // 2. 根据标记推导技术类型
+    // 2. 鏍规嵁鏍囪鎺ㄥ鎶€鏈被鍨?
     card.type = this.inferTechnicalType(marker);
 
-    // 3. 更新存储
+    // 3. 鏇存柊瀛樺偍
     this.storage.setCard(card);
     await this.storage.saveCards();
 
-    // 4. 同步块属性
-    await this.syncBlockAttributes(card);
-
-    // 5. 更新缓存
+    // 5. 鏇存柊缂撳瓨
     this.markerCache.set(cardId, marker);
 
     logger.info(`Set card type marker: ${cardId} -> ${marker} (type: ${card.type})`);
   }
 
   /**
-   * 获取卡片类型标记
+   * 鑾峰彇鍗＄墖绫诲瀷鏍囪
    * 
-   * @param cardId - 卡片 ID
-   * @returns 类型标记，如果未设置则返回 undefined
+   * @param cardId - 鍗＄墖 ID
+   * @returns 绫诲瀷鏍囪锛屽鏋滄湭璁剧疆鍒欒繑鍥?undefined
    * 
    * @example
    * ```typescript
@@ -86,16 +82,16 @@ export class CardTypeMarkerService {
    * ```
    */
   getCardTypeMarker(cardId: string): CardTypeMarker | undefined {
-    // 1. 检查缓存
+    // 1. 妫€鏌ョ紦瀛?
     if (this.markerCache.has(cardId)) {
       return this.markerCache.get(cardId);
     }
 
-    // 2. 从存储读取
+    // 2. 浠庡瓨鍌ㄨ鍙?
     const card = this.storage.getCard(cardId);
     const marker = card?.cardTypeMarker;
 
-    // 3. 更新缓存
+    // 3. 鏇存柊缂撳瓨
     if (marker) {
       this.markerCache.set(cardId, marker);
     }
@@ -104,14 +100,14 @@ export class CardTypeMarkerService {
   }
 
   /**
-   * 根据类型标记推导技术类型
+   * 鏍规嵁绫诲瀷鏍囪鎺ㄥ鎶€鏈被鍨?
    * 
-   * 映射规则：
-   * - concept -> concept (使用 FSRS 调度器)
-   * - descriptor -> descriptor (使用 FSRS 调度器)
+   * 鏄犲皠瑙勫垯锛?
+   * - concept -> concept (浣跨敤 FSRS 璋冨害鍣?
+   * - descriptor -> descriptor (浣跨敤 FSRS 璋冨害鍣?
    * 
-   * @param marker - 类型标记
-   * @returns 技术类型
+   * @param marker - 绫诲瀷鏍囪
+   * @returns 鎶€鏈被鍨?
    * 
    * @example
    * ```typescript
@@ -124,10 +120,10 @@ export class CardTypeMarkerService {
   }
 
   /**
-   * 批量设置类型标记
+   * 鎵归噺璁剧疆绫诲瀷鏍囪
    * 
-   * @param cardIds - 卡片 ID 列表
-   * @param marker - 类型标记
+   * @param cardIds - 鍗＄墖 ID 鍒楄〃
+   * @param marker - 绫诲瀷鏍囪
    * 
    * @example
    * ```typescript
@@ -136,9 +132,8 @@ export class CardTypeMarkerService {
    */
   async batchSetMarker(cardIds: string[], marker: CardTypeMarker): Promise<void> {
     const technicalType = this.inferTechnicalType(marker);
-    const updatedCards: FSRSCard[] = [];
 
-    // 1. 批量更新卡片
+    // 1. 鎵归噺鏇存柊鍗＄墖
     for (const cardId of cardIds) {
       const card = this.storage.getCard(cardId);
       if (!card) {
@@ -149,79 +144,39 @@ export class CardTypeMarkerService {
       card.cardTypeMarker = marker;
       card.type = technicalType;
       this.storage.setCard(card);
-      updatedCards.push(card);
 
-      // 更新缓存
+      // 鏇存柊缂撳瓨
       this.markerCache.set(cardId, marker);
     }
 
-    // 2. 批量保存
+    // 2. 鎵归噺淇濆瓨
     await this.storage.saveCards();
 
-    // 3. 批量同步块属性
-    await this.batchSyncBlockAttributes(updatedCards);
 
     logger.info(`Batch set marker: ${cardIds.length} cards -> ${marker}`);
   }
 
-  /**
-   * 同步块属性
-   * 
-   * 将卡片类型标记同步到思源块属性中
-   * 
-   * @param card - 卡片对象
-   */
-  private async syncBlockAttributes(card: FSRSCard): Promise<void> {
-    const attrs: Record<string, string> = {};
-
-    // 添加类型标记属性
-    if (card.cardTypeMarker) {
-      attrs['custom-fsrs-card-type'] = card.cardTypeMarker;
-    }
-
-    // 如果是概念卡且是神经漫游焦点，添加焦点标记
-    if (card.cardTypeMarker === 'concept' && card.neuralRoamSeed) {
-      attrs['custom-fsrs-neural-focus'] = 'true';
-    }
-
-    // 更新块属性
-    if (Object.keys(attrs).length > 0) {
-      await siyuanApi.setBlockAttrs(card.blockId, attrs);
-    }
-  }
 
   /**
-   * 批量同步块属性
+   * 娓呴櫎缂撳瓨
    * 
-   * @param cards - 卡片列表
-   */
-  private async batchSyncBlockAttributes(cards: FSRSCard[]): Promise<void> {
-    // 批量更新块属性
-    for (const card of cards) {
-      await this.syncBlockAttributes(card);
-    }
-  }
-
-  /**
-   * 清除缓存
-   * 
-   * 在需要强制重新读取数据时调用
+   * 鍦ㄩ渶瑕佸己鍒堕噸鏂拌鍙栨暟鎹椂璋冪敤
    */
   clearCache(): void {
     this.markerCache.clear();
   }
 
   /**
-   * 验证类型映射一致性
+   * 楠岃瘉绫诲瀷鏄犲皠涓€鑷存€?
    * 
-   * 检查卡片的 cardTypeMarker 和 type 字段是否符合映射规则
+   * 妫€鏌ュ崱鐗囩殑 cardTypeMarker 鍜?type 瀛楁鏄惁绗﹀悎鏄犲皠瑙勫垯
    * 
-   * @param card - 卡片对象
-   * @returns 是否一致
+   * @param card - 鍗＄墖瀵硅薄
+   * @returns 鏄惁涓€鑷?
    */
   validateTypeMapping(card: FSRSCard): boolean {
     if (!card.cardTypeMarker) {
-      return true; // 没有标记的卡片不需要验证
+      return true; // 娌℃湁鏍囪鐨勫崱鐗囦笉闇€瑕侀獙璇?
     }
 
     const expectedType = this.inferTechnicalType(card.cardTypeMarker);
@@ -229,11 +184,11 @@ export class CardTypeMarkerService {
   }
 
   /**
-   * 修复类型映射不一致的卡片
+   * 淇绫诲瀷鏄犲皠涓嶄竴鑷寸殑鍗＄墖
    * 
-   * 扫描所有卡片，修复类型映射不一致的情况
+   * 鎵弿鎵€鏈夊崱鐗囷紝淇绫诲瀷鏄犲皠涓嶄竴鑷寸殑鎯呭喌
    * 
-   * @returns 修复的卡片数量
+   * @returns 淇鐨勫崱鐗囨暟閲?
    */
   async fixInconsistentCards(): Promise<number> {
     const allCards = this.storage.getAllCards();

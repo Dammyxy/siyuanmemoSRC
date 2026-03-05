@@ -56,6 +56,14 @@ export class DescriptorCardRepository {
     private siyuanAdapter: SiyuanBlockAdapter
   ) {}
 
+  private hasConceptSyntax(content: string): boolean {
+    return content.includes('::') || content.includes('：：');
+  }
+
+  private hasDescriptorSyntax(content: string): boolean {
+    return content.includes(';;') || content.includes(';<') || content.includes(';<>');
+  }
+
   /**
    * 加载描述符卡数据
    * 
@@ -169,20 +177,14 @@ export class DescriptorCardRepository {
 
         logger.debug(`[SiYuanMemo][DescriptorCardRepository] Checking parent at depth ${depth}:`, parentId);
 
-        // 检查父块是否是概念卡
-        const cardTypeMarker = await this.siyuanAdapter.getBlockAttribute(
-          parentId,
-          'custom-fsrs-card-type'
-        );
-        
-        if (cardTypeMarker === 'concept') {
+        const parentBlock = await this.siyuanAdapter.getBlock(parentId);
+        if (parentBlock?.content && this.hasConceptSyntax(parentBlock.content)) {
           foundConceptId = parentId;
           logger.debug(`[SiYuanMemo][DescriptorCardRepository] Found concept card at depth ${depth}:`, parentId);
           break;
         }
 
         // 如果父块不是概念卡，检查是否包含概念卡的块引用
-        const parentBlock = await this.siyuanAdapter.getBlock(parentId);
         if (parentBlock?.content) {
           const refConceptId = await this.findConceptCardInBlockRef(parentBlock.content);
           if (refConceptId) {
@@ -307,8 +309,8 @@ export class DescriptorCardRepository {
       // 检查每个引用是否是概念卡
       for (const match of matches) {
         const refId = match[1];
-        const cardType = await this.siyuanAdapter.getBlockAttribute(refId, 'custom-fsrs-card-type');
-        if (cardType === 'concept') {
+        const refBlock = await this.siyuanAdapter.getBlock(refId);
+        if (refBlock?.content && this.hasConceptSyntax(refBlock.content)) {
           return refId;
         }
       }
@@ -324,6 +326,16 @@ export class DescriptorCardRepository {
    * 获取卡片类型标记
    */
   async getCardTypeMarker(blockId: string): Promise<string | null> {
-    return await this.siyuanAdapter.getBlockAttribute(blockId, 'custom-fsrs-card-type');
+    const block = await this.siyuanAdapter.getBlock(blockId);
+    if (!block) {
+      return null;
+    }
+    if (this.hasConceptSyntax(block.content)) {
+      return 'concept';
+    }
+    if (this.hasDescriptorSyntax(block.content)) {
+      return 'descriptor';
+    }
+    return null;
   }
 }

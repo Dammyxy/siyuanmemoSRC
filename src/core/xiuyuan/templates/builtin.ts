@@ -93,7 +93,18 @@ export const LIST_CONCEPT_MULTILINE_TEMPLATE: ICardTemplate = {
   name: '概念多行列表卡',
   nameKey: 'templateNameListConceptMultiline',
   descriptionKey: 'templateDescListConceptMultiline',
-  description: '用于 CDF `:::` 多行制卡。支持有序子级渐进式 + 无序子级汇总式，自动关联概念并补建概念卡。',
+  description: `CDF \`:::\` 多行制卡。有序/无序子级处理方式一致，要求父块包含文档块引用概念。【需选中概念引用所在的列表项块使用】
+<div style="margin-top: 8px; padding: 8px; background: var(--b3-theme-surface); border-radius: 4px;">
+  <div style="font-weight: 500; margin-bottom: 4px;">【示例】：</div>
+  <ul style="margin: 0; padding-left: 20px; line-height: 1.6;">
+    <li>[[中子星]]:::
+      <ul style="padding-left: 20px;">
+        <li>恒星爆发后留下的残骸</li>
+        <li>通过新星爆发生成</li>
+      </ul>
+    </li>
+  </ul>
+</div>`,
   category: 'list',
   fields: [
     { name: 'question', description: '问题（父列表项）' },
@@ -114,7 +125,22 @@ export const LIST_DESCRIPTOR_MULTILINE_TEMPLATE: ICardTemplate = {
   name: '描述符多行列表卡',
   nameKey: 'templateNameListDescriptorMultiline',
   descriptionKey: 'templateDescListDescriptorMultiline',
-  description: '用于 CDF `;;;` 多行制卡。支持有序子级渐进式 + 无序子级汇总式，自动向上探路关联概念并补建概念卡。',
+  description: `CDF \`;;;\` 多行制卡。有序/无序子级处理方式一致，概念由向上探路自动查找。【需选中描述符所在的列表项块使用】
+<div style="margin-top: 8px; padding: 8px; background: var(--b3-theme-surface); border-radius: 4px;">
+  <div style="font-weight: 500; margin-bottom: 4px;">【示例】：</div>
+  <ul style="margin: 0; padding-left: 20px; line-height: 1.6;">
+    <li>[[中子星]]
+      <ul style="padding-left: 20px;">
+        <li>形成过程;;;
+          <ol style="padding-left: 20px;">
+            <li>前身→恒星</li>
+            <li>时期→末期</li>
+          </ol>
+        </li>
+      </ul>
+    </li>
+  </ul>
+</div>`,
   category: 'list',
   fields: [
     { name: 'question', description: '问题（父列表项）' },

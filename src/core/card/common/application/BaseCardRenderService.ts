@@ -1,15 +1,15 @@
-/**
- * 基础卡片渲染服务
+﻿/**
+ * 鍩虹鍗＄墖娓叉煋鏈嶅姟
  * 
- * 职责：
- * - 提供通用的渲染辅助方法
- * - 不包含业务逻辑，只是工具方法集合
- * - 供各个卡片类型的 RenderService 继承使用
+ * 鑱岃矗锛?
+ * - 鎻愪緵閫氱敤鐨勬覆鏌撹緟鍔╂柟娉?
+ * - 涓嶅寘鍚笟鍔￠€昏緫锛屽彧鏄伐鍏锋柟娉曢泦鍚?
+ * - 渚涘悇涓崱鐗囩被鍨嬬殑 RenderService 缁ф壙浣跨敤
  * 
- * 注意：这不是一个完整的 DDD 层，只是共享代码
+ * 娉ㄦ剰锛氳繖涓嶆槸涓€涓畬鏁寸殑 DDD 灞傦紝鍙槸鍏变韩浠ｇ爜
  */
 
-import { getBlockBreadcrumb, getBlockAttrs } from '@/core/siyuan/api';
+import { getBlockBreadcrumb } from '@/core/siyuan/api';
 import { extractConceptName, hasConceptDefinitionSyntax } from '@/core/xiuyuan/cardMeta';
 import type { BreadcrumbItem } from './types';
 import { createLogger } from '@/utils/logger';
@@ -24,19 +24,19 @@ type RawBreadcrumbItem = {
 
 export abstract class BaseCardRenderService {
   /**
-   * 加载块的面包屑
+   * 鍔犺浇鍧楃殑闈㈠寘灞?
    * 
-   * @param blockId 块 ID
-   * @param excludeLast 排除最后几项（默认 1，排除当前块）
-   * @returns 面包屑列表
+   * @param blockId 鍧?ID
+   * @param excludeLast 鎺掗櫎鏈€鍚庡嚑椤癸紙榛樿 1锛屾帓闄ゅ綋鍓嶅潡锛?
+   * @returns 闈㈠寘灞戝垪琛?
    * 
    * @description
-   * CDF 规则：概念块只显示名称，隐藏定义
-   * - 检查块属性 custom-fsrs-card-type === 'concept'
-   * - 或检查内容是否包含 :: 语法
-   * - 如果是概念块，使用 extractConceptName 提取名称
+   * CDF 瑙勫垯锛氭蹇靛潡鍙樉绀哄悕绉帮紝闅愯棌瀹氫箟
+   * - 妫€鏌ュ潡灞炴€?custom-fsrs-card-type === 'concept'
+   * - 鎴栨鏌ュ唴瀹规槸鍚﹀寘鍚?:: 璇硶
+   * - 濡傛灉鏄蹇靛潡锛屼娇鐢?extractConceptName 鎻愬彇鍚嶇О
    * 
-   * 🆕 只显示到文档块为止，过滤掉文档块之后的所有内容（避免剧透）
+   * 馃啎 鍙樉绀哄埌鏂囨。鍧椾负姝紝杩囨护鎺夋枃妗ｅ潡涔嬪悗鐨勬墍鏈夊唴瀹癸紙閬垮厤鍓ч€忥級
    */
   protected async loadBreadcrumbs(
     blockId: string,
@@ -49,10 +49,10 @@ export abstract class BaseCardRenderService {
         return [];
       }
       
-      // 排除最后 N 项
+      // 鎺掗櫎鏈€鍚?N 椤?
       const parentBreadcrumbs = breadcrumbResult.slice(0, -excludeLast);
       
-      // 🆕 找到最后一个文档块的位置
+      // 馃啎 鎵惧埌鏈€鍚庝竴涓枃妗ｅ潡鐨勪綅缃?
       let lastDocumentIndex = -1;
       for (let i = parentBreadcrumbs.length - 1; i >= 0; i--) {
         if (parentBreadcrumbs[i].type === 'NodeDocument') {
@@ -61,21 +61,21 @@ export abstract class BaseCardRenderService {
         }
       }
       
-      // 🆕 只保留到最后一个文档块（包含）
+      // 馃啎 鍙繚鐣欏埌鏈€鍚庝竴涓枃妗ｅ潡锛堝寘鍚級
       const filteredBreadcrumbs = lastDocumentIndex >= 0 
         ? parentBreadcrumbs.slice(0, lastDocumentIndex + 1)
         : parentBreadcrumbs;
       
-      // 处理每个面包屑项，应用 CDF 规则
+      // 澶勭悊姣忎釜闈㈠寘灞戦」锛屽簲鐢?CDF 瑙勫垯
       const processedBreadcrumbs = await Promise.all(
         filteredBreadcrumbs.map(async (item: RawBreadcrumbItem) => {
           const itemId = item.id || '';
           let itemName = item.name || '';
           
-          // 检查是否是概念块
+          // 妫€鏌ユ槸鍚︽槸姒傚康鍧?
           const isConcept = await this.isConceptBlock(itemId, itemName);
           
-          // 如果是概念块，只显示概念名称（隐藏定义）
+          // 濡傛灉鏄蹇靛潡锛屽彧鏄剧ず姒傚康鍚嶇О锛堥殣钘忓畾涔夛級
           if (isConcept) {
             itemName = extractConceptName(itemName);
           }
@@ -88,7 +88,7 @@ export abstract class BaseCardRenderService {
         })
       );
       
-      // 去重：使用 Map 按标准化后的 name 去重
+      // 鍘婚噸锛氫娇鐢?Map 鎸夋爣鍑嗗寲鍚庣殑 name 鍘婚噸
       return this.deduplicateBreadcrumbs(processedBreadcrumbs);
     } catch (error) {
       logger.error('[BaseCardRenderService] Failed to load breadcrumbs:', error);
@@ -97,17 +97,17 @@ export abstract class BaseCardRenderService {
   }
 
   /**
-   * 加载概念上下文（仅概念块）
+   * 鍔犺浇姒傚康涓婁笅鏂囷紙浠呮蹇靛潡锛?
    * 
-   * @param blockId 块 ID
-   * @param excludeLast 排除最后几项（默认 1，排除当前块）
-   * @returns 概念上下文列表
+   * @param blockId 鍧?ID
+   * @param excludeLast 鎺掗櫎鏈€鍚庡嚑椤癸紙榛樿 1锛屾帓闄ゅ綋鍓嶅潡锛?
+   * @returns 姒傚康涓婁笅鏂囧垪琛?
    * 
    * @description
-   * RemNote CDF 规则：只显示概念层级，过滤掉文档、标题等非概念块
-   * - 只保留概念块（custom-fsrs-card-type === 'concept' 或包含 :: 语法）
-   * - 提取概念名称（隐藏定义）
-   * - 🆕 保留文档块作为路径，但标记为非概念
+   * RemNote CDF 瑙勫垯锛氬彧鏄剧ず姒傚康灞傜骇锛岃繃婊ゆ帀鏂囨。銆佹爣棰樼瓑闈炴蹇靛潡
+   * - 鍙繚鐣欐蹇靛潡锛坈ustom-fsrs-card-type === 'concept' 鎴栧寘鍚?:: 璇硶锛?
+   * - 鎻愬彇姒傚康鍚嶇О锛堥殣钘忓畾涔夛級
+   * - 馃啎 淇濈暀鏂囨。鍧椾綔涓鸿矾寰勶紝浣嗘爣璁颁负闈炴蹇?
    */
   protected async loadConceptContext(
     blockId: string,
@@ -122,12 +122,12 @@ export abstract class BaseCardRenderService {
       
       logger.debug('[BaseCardRenderService] loadConceptContext - breadcrumbResult:', breadcrumbResult);
       
-      // 排除最后 N 项
+      // 鎺掗櫎鏈€鍚?N 椤?
       const parentBreadcrumbs = breadcrumbResult.slice(0, -excludeLast);
       
       logger.debug('[BaseCardRenderService] loadConceptContext - parentBreadcrumbs:', parentBreadcrumbs);
       
-      // 🆕 处理所有块，标记是否为概念块
+      // 馃啎 澶勭悊鎵€鏈夊潡锛屾爣璁版槸鍚︿负姒傚康鍧?
       const contextItems: Array<BreadcrumbItem & { isConcept: boolean }> = [];
       
       for (const item of parentBreadcrumbs) {
@@ -137,13 +137,13 @@ export abstract class BaseCardRenderService {
         
         logger.debug('[BaseCardRenderService] loadConceptContext - checking item:', { itemId, itemName, itemType });
         
-        // 检查是否是概念块
+        // 妫€鏌ユ槸鍚︽槸姒傚康鍧?
         const isConcept = await this.isConceptBlock(itemId, itemName);
         
         logger.debug('[BaseCardRenderService] loadConceptContext - isConcept:', isConcept);
         
         if (isConcept) {
-          // 提取概念名称（隐藏定义）
+          // 鎻愬彇姒傚康鍚嶇О锛堥殣钘忓畾涔夛級
           itemName = extractConceptName(itemName);
           logger.debug('[BaseCardRenderService] loadConceptContext - extracted name:', itemName);
         }
@@ -152,7 +152,7 @@ export abstract class BaseCardRenderService {
           id: itemId,
           name: itemName,
           type: itemType,
-          isConcept, // 🆕 标记是否为概念
+          isConcept, // 馃啎 鏍囪鏄惁涓烘蹇?
         });
       }
       
@@ -166,22 +166,22 @@ export abstract class BaseCardRenderService {
   }
 
   /**
-   * 检查块是否是概念块
+   * 妫€鏌ュ潡鏄惁鏄蹇靛潡
    * 
-   * @param blockId 块 ID
-   * @param content 块内容（可能只是标题，不完整）
-   * @returns 是否是概念块
+   * @param blockId 鍧?ID
+   * @param content 鍧楀唴瀹癸紙鍙兘鍙槸鏍囬锛屼笉瀹屾暣锛?
+   * @returns 鏄惁鏄蹇靛潡
    * 
    * @description
-   * 检查顺序：
-   * 1. 先排除文档块（type === 'd'）
-   * 2. 检查块属性 custom-fsrs-card-type === 'concept'
-   * 3. 如果是列表项，查询其段落子块的内容
-   * 4. 检查内容是否包含块引用 ((block-id)) 或 :: 语法
+   * 妫€鏌ラ『搴忥細
+   * 1. 鍏堟帓闄ゆ枃妗ｅ潡锛坱ype === 'd'锛?
+   * 2. 妫€鏌ュ潡灞炴€?custom-fsrs-card-type === 'concept'
+   * 3. 濡傛灉鏄垪琛ㄩ」锛屾煡璇㈠叾娈佃惤瀛愬潡鐨勫唴瀹?
+   * 4. 妫€鏌ュ唴瀹规槸鍚﹀寘鍚潡寮曠敤 ((block-id)) 鎴?:: 璇硶
    */
   private async isConceptBlock(blockId: string, content: string): Promise<boolean> {
     try {
-      // 🆕 方法 1：先获取块信息，排除文档块
+      // 馃啎 鏂规硶 1锛氬厛鑾峰彇鍧椾俊鎭紝鎺掗櫎鏂囨。鍧?
       const { sql } = await import('@/core/siyuan/api');
       const blockResult = await sql(`
         SELECT content, markdown, type FROM blocks
@@ -195,22 +195,14 @@ export abstract class BaseCardRenderService {
       
       const blockType = blockResult[0].type || '';
       
-      // 🆕 优先排除文档块
+      // 馃啎 浼樺厛鎺掗櫎鏂囨。鍧?
       if (blockType === 'd') {
         logger.debug('[BaseCardRenderService] isConceptBlock - document block, excluded');
         return false;
       }
       
-      // 方法 2：检查块属性
-      const attrs = await getBlockAttrs(blockId);
       
-      logger.debug('[BaseCardRenderService] isConceptBlock - attrs:', { blockId, attrs, blockType });
-      
-      if (attrs?.['custom-fsrs-card-type'] === 'concept') {
-        return true;
-      }
-      
-      // 方法 3：如果是列表项，查询其段落子块的内容
+      // 鏂规硶 3锛氬鏋滄槸鍒楄〃椤癸紝鏌ヨ鍏舵钀藉瓙鍧楃殑鍐呭
       if (blockType === 'i') {
         const paragraphResult = await sql(`
           SELECT content, markdown FROM blocks
@@ -230,7 +222,7 @@ export abstract class BaseCardRenderService {
         }
       }
       
-      // 方法 4：其他类型块，直接检查 content 和 markdown
+      // 鏂规硶 4锛氬叾浠栫被鍨嬪潡锛岀洿鎺ユ鏌?content 鍜?markdown
       const blockContent = blockResult[0].content || '';
       const blockMarkdown = blockResult[0].markdown || '';
       logger.debug('[BaseCardRenderService] isConceptBlock - block data:', { 
@@ -242,45 +234,45 @@ export abstract class BaseCardRenderService {
       return this.hasConceptSyntax(blockContent) || this.hasBlockReference(blockMarkdown);
     } catch (error) {
       logger.error('[BaseCardRenderService] isConceptBlock error:', error);
-      // 如果查询失败，fallback 到内容检查
+      // 濡傛灉鏌ヨ澶辫触锛宖allback 鍒板唴瀹规鏌?
       return this.hasConceptSyntax(content);
     }
   }
 
   /**
-   * 检查内容是否包含概念语法
+   * 妫€鏌ュ唴瀹规槸鍚﹀寘鍚蹇佃娉?
    * 
-   * @param content 内容
-   * @returns 是否包含 :: 语法
+   * @param content 鍐呭
+   * @returns 鏄惁鍖呭惈 :: 璇硶
    */
   private hasConceptSyntax(content: string): boolean {
     return hasConceptDefinitionSyntax(content);
   }
 
   /**
-   * 检查 markdown 是否包含块引用
+   * 妫€鏌?markdown 鏄惁鍖呭惈鍧楀紩鐢?
    * 
-   * @param markdown markdown 内容
-   * @returns 是否包含块引用 ((block-id))
+   * @param markdown markdown 鍐呭
+   * @returns 鏄惁鍖呭惈鍧楀紩鐢?((block-id))
    */
   private hasBlockReference(markdown: string): boolean {
-    // 匹配块引用：((block-id)) 或 ((block-id '名称'))
+    // 鍖归厤鍧楀紩鐢細((block-id)) 鎴?((block-id '鍚嶇О'))
     const blockRefPattern = /\(\((\d{14}-[a-z0-9]{7})[^\)]*\)\)/;
     return blockRefPattern.test(markdown);
   }
 
   /**
-   * 去重面包屑
+   * 鍘婚噸闈㈠寘灞?
    * 
-   * @param breadcrumbs 原始面包屑列表
-   * @returns 去重后的面包屑列表
+   * @param breadcrumbs 鍘熷闈㈠寘灞戝垪琛?
+   * @returns 鍘婚噸鍚庣殑闈㈠寘灞戝垪琛?
    */
   private deduplicateBreadcrumbs(breadcrumbs: BreadcrumbItem[]): BreadcrumbItem[] {
     const dedupMap = new Map<string, BreadcrumbItem>();
     
     for (const item of breadcrumbs) {
-      // 标准化文本：去掉列表符号
-      const normalizedName = item.name.replace(/^[•\-\d]+\.?\s*/, '').trim();
+      // 鏍囧噯鍖栨枃鏈細鍘绘帀鍒楄〃绗﹀彿
+      const normalizedName = item.name.replace(/^[鈥-\d]+\.?\s*/, '').trim();
       dedupMap.set(normalizedName, {
         id: item.id,
         name: normalizedName,
@@ -292,47 +284,47 @@ export abstract class BaseCardRenderService {
   }
 
   /**
-   * 创建答案分隔线 HTML
+   * 鍒涘缓绛旀鍒嗛殧绾?HTML
    * 
-   * @param label 分隔线标签（默认"答案"）
-   * @returns HTML 字符串
+   * @param label 鍒嗛殧绾挎爣绛撅紙榛樿"绛旀"锛?
+   * @returns HTML 瀛楃涓?
    */
-  protected createAnswerDivider(label: string = '答案'): string {
+  protected createAnswerDivider(label: string = '绛旀'): string {
     return `<div class="card-renderer__answer-divider"><span>${label}</span></div>`;
   }
 
   /**
-   * 创建正面预览 HTML（灰显）
+   * 鍒涘缓姝ｉ潰棰勮 HTML锛堢伆鏄撅級
    * 
-   * @param frontHtml 正面 HTML
-   * @returns 包装后的 HTML
+   * @param frontHtml 姝ｉ潰 HTML
+   * @returns 鍖呰鍚庣殑 HTML
    */
   protected createFrontPreview(frontHtml: string): string {
     return `<div class="card-renderer__front-preview">${frontHtml}</div>`;
   }
 
   /**
-   * 包装答案 HTML
+   * 鍖呰绛旀 HTML
    * 
-   * @param answerHtml 答案 HTML
-   * @returns 包装后的 HTML
+   * @param answerHtml 绛旀 HTML
+   * @returns 鍖呰鍚庣殑 HTML
    */
   protected wrapAnswer(answerHtml: string): string {
     return `<div class="card-renderer__answer">${answerHtml}</div>`;
   }
 
   /**
-   * 组合背面 HTML（正面预览 + 分隔线 + 答案）
+   * 缁勫悎鑳岄潰 HTML锛堟闈㈤瑙?+ 鍒嗛殧绾?+ 绛旀锛?
    * 
-   * @param frontHtml 正面 HTML
-   * @param answerHtml 答案 HTML
-   * @param dividerLabel 分隔线标签
-   * @returns 完整的背面 HTML
+   * @param frontHtml 姝ｉ潰 HTML
+   * @param answerHtml 绛旀 HTML
+   * @param dividerLabel 鍒嗛殧绾挎爣绛?
+   * @returns 瀹屾暣鐨勮儗闈?HTML
    */
   protected composeBackHtml(
     frontHtml: string,
     answerHtml: string,
-    dividerLabel: string = '答案'
+    dividerLabel: string = '绛旀'
   ): string {
     const preview = this.createFrontPreview(frontHtml);
     const divider = this.createAnswerDivider(dividerLabel);

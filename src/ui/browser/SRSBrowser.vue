@@ -2461,10 +2461,10 @@ async function handleRepairCardTypeConsistency(): Promise<void> {
   }
 
   const ok = await confirmDialog({
-    title: t('repairCardTypeConsistencyConfirmTitle', '扫描并修复卡片类型一致性'),
+    title: t('repairLocalCardTypeConfirmTitle', '扫描并修复本地卡片类型'),
     content: t(
-      'repairCardTypeConsistencyConfirmMessage',
-      '将全量扫描所有闪卡，统一 custom-fsrs-card-type 与本地卡片类型。是否继续？'
+      'repairLocalCardTypeConfirmMessage',
+      '将全量扫描所有闪卡，修复本地卡片类型（不再回写块属性）。是否继续？'
     ),
     confirmText: t('confirm', '确认'),
     cancelText: t('cancel', '取消'),
@@ -2475,7 +2475,7 @@ async function handleRepairCardTypeConsistency(): Promise<void> {
 
   loading.value = true;
   try {
-    await pushMsg(t('repairCardTypeConsistencyRunning', '正在扫描并修复卡片类型一致性...'), 2500);
+    await pushMsg(t('repairLocalCardTypeRunning', '正在扫描并修复本地卡片类型...'), 2500);
     const cards = await manager.getCards();
     const candidates = cards
       .map((card) => ({
@@ -2491,13 +2491,12 @@ async function handleRepairCardTypeConsistency(): Promise<void> {
 
     const summary = interpolateI18n(
       t(
-        'repairCardTypeConsistencyDone',
-        '修复完成：扫描 {total} 张；冲突 {conflicts}；属性补写 {attrs}；本地修复 {local}；结构检测 {detected}'
+        'repairLocalCardTypeDone',
+        '修复完成：扫描 {total} 张；冲突 {conflicts}；本地修复 {local}；自动检测 {detected}'
       ),
       {
         total: String(candidates.length),
         conflicts: String(result.conflictBlockIds.length),
-        attrs: String(result.repairedBlockAttrs.length),
         local: String(result.repairedLocalCardIds.length),
         detected: String(result.detectedBlockIds.length),
       }

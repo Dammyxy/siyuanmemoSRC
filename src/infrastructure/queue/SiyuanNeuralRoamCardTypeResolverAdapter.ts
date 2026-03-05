@@ -1,59 +1,60 @@
 import { sql } from '@/infrastructure/siyuan/api';
 import type { NeuralRoamCardTypeResolverPort } from '@/core/queue/domain/ports';
+import { hasConceptDefinitionSyntax } from '@/core/xiuyuan/cardMeta';
 
-type AttributeRow = {
-  name?: unknown;
-  value?: unknown;
+type LocalCardRow = {
+  type?: unknown;
+  card_type_marker?: unknown;
 };
 
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
+function resolveTopicLikeType(row: LocalCardRow): boolean {
+  return row.type === 'topic' || row.type === 'concept' || row.card_type_marker === 'concept';
 }
 
 export class SiyuanNeuralRoamCardTypeResolverAdapter implements NeuralRoamCardTypeResolverPort {
   async resolveCardType(blockId: string): Promise<'item' | 'topic'> {
     const escapedId = this.escapeSQL(blockId);
-    const stmt = `
-      SELECT name, value
-      FROM attributes
-      WHERE block_id = '${escapedId}'
-        AND name IN (
-          'custom-fsrs-card-id',
-          'custom-xiuyuan-id',
-          'custom-fsrs-xiuyuan-id',
-          'custom-fsrs-card-type'
-        )
-    `;
+    try {
+      const rows = (await sql(`
+        SELECT type, card_type_marker
+        FROM fsrs_cards
+        WHERE block_id = '${escapedId}'
+        LIMIT 5
+      `)) as LocalCardRow[] | null | undefined;
 
-    const rows = (await sql(stmt)) as AttributeRow[] | null | undefined;
-    if (!rows || rows.length === 0) {
-      return 'topic';
-    }
-
-    const attrMap = new Map<string, string>();
-    for (const row of rows) {
-      if (typeof row?.name !== 'string') {
-        continue;
+      if (rows && rows.length > 0) {
+        if (rows.some(resolveTopicLikeType)) {
+          return 'topic';
+        }
+        return 'item';
       }
-      attrMap.set(row.name, typeof row.value === 'string' ? row.value : '');
+    } catch {
+      // fsrs_cards table may be unavailable in some environments
     }
 
-    const cardType = attrMap.get('custom-fsrs-card-type');
-    if (cardType === 'concept' || cardType === 'topic') {
+    const blockRows = await sql(`
+      SELECT content
+      FROM blocks
+      WHERE id = '${escapedId}'
+      LIMIT 1
+    `);
+    const content = typeof blockRows?.[0]?.content === 'string' ? blockRows[0].content : '';
+    if (!content) {
       return 'topic';
     }
-    if (cardType === 'item' || cardType === 'descriptor' || cardType === 'cloze') {
-      return 'item';
+    if (hasConceptDefinitionSyntax(content)) {
+      return 'topic';
     }
-
     if (
-      isNonEmptyString(attrMap.get('custom-fsrs-card-id')) ||
-      isNonEmptyString(attrMap.get('custom-xiuyuan-id')) ||
-      isNonEmptyString(attrMap.get('custom-fsrs-xiuyuan-id'))
+      content.includes(';;')
+      || content.includes(';<>')
+      || content.includes('>>')
+      || content.includes('<<')
+      || content.includes('{{')
+      || content.includes('==')
     ) {
       return 'item';
     }
-
     return 'topic';
   }
 
@@ -61,4 +62,3 @@ export class SiyuanNeuralRoamCardTypeResolverAdapter implements NeuralRoamCardTy
     return value.replace(/'/g, "''");
   }
 }
-

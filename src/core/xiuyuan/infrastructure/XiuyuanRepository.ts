@@ -1,28 +1,28 @@
-/**
- * XiuyuanRepository - 修缘仓储实现
+﻿/**
+ * XiuyuanRepository - 淇紭浠撳偍瀹炵幇
  * 
  * @description
- * 实现 IXiuyuanRepository 接口，协调 msgpack、块属性、Riff 三个数据源。
+ * 瀹炵幇 IXiuyuanRepository 鎺ュ彛锛屽崗璋?msgpack銆佸潡灞炴€с€丷iff 涓変釜鏁版嵁婧愩€?
  * 
- * **职责**：
- * - 领域模型与持久化模型的转换
- * - 协调多个数据源（msgpack, block attributes, Riff）
- * - 发布领域事件
- * - 统一错误处理
+ * **鑱岃矗**锛?
+ * - 棰嗗煙妯″瀷涓庢寔涔呭寲妯″瀷鐨勮浆鎹?
+ * - 鍗忚皟澶氫釜鏁版嵁婧愶紙msgpack, block attributes, Riff锛?
+ * - 鍙戝竷棰嗗煙浜嬩欢
+ * - 缁熶竴閿欒澶勭悊
  * 
- * **数据源协调**：
+ * **鏁版嵁婧愬崗璋?*锛?
  * ```
  * save(xiuyuan)
- *   ├─> msgpack: 保存 Xiuyuan 数据
- *   ├─> block attributes: 写入块属性
- *   ├─> Riff: 同步卡片
- *   └─> events: 发布领域事件
+ *   鈹溾攢> msgpack: 淇濆瓨 Xiuyuan 鏁版嵁
+ *   鈹溾攢> block attributes: 鍐欏叆鍧楀睘鎬?
+ *   鈹溾攢> Riff: 鍚屾鍗＄墖
+ *   鈹斺攢> events: 鍙戝竷棰嗗煙浜嬩欢
  * 
  * delete(xiuyuan)
- *   ├─> msgpack: 删除 Xiuyuan 数据
- *   ├─> block attributes: 清除块属性
- *   ├─> Riff: 删除卡片
- *   └─> events: 发布领域事件
+ *   鈹溾攢> msgpack: 鍒犻櫎 Xiuyuan 鏁版嵁
+ *   鈹溾攢> block attributes: 娓呴櫎鍧楀睘鎬?
+ *   鈹溾攢> Riff: 鍒犻櫎鍗＄墖
+ *   鈹斺攢> events: 鍙戝竷棰嗗煙浜嬩欢
  * ```
  */
 
@@ -154,14 +154,14 @@ function pickImageOcclusionMeta(meta: XiuyuanMeta): Record<string, unknown> {
 }
 
 /**
- * XiuyuanRepository 实现
+ * XiuyuanRepository 瀹炵幇
  * 
  * @class XiuyuanRepository
  * @implements {IXiuyuanRepository}
  */
 export class XiuyuanRepository implements IXiuyuanRepository {
   private templateRegistry: TemplateRegistry;
-  // 🚀 性能优化：卡片ID到XiuyuanID的索引映射
+  // 馃殌 鎬ц兘浼樺寲锛氬崱鐗嘔D鍒癤iuyuanID鐨勭储寮曟槧灏?
   private cardToXiuyuanIndex: Map<string, string> = new Map();
 
   constructor(
@@ -172,84 +172,84 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   /**
-   * 🚀 快速查找：通过卡片ID获取XiuyuanID
-   * 时间复杂度：O(1)
+   * 馃殌 蹇€熸煡鎵撅細閫氳繃鍗＄墖ID鑾峰彇XiuyuanID
+   * 鏃堕棿澶嶆潅搴︼細O(1)
    */
   getXiuyuanIdByCardId(cardId: string): string | undefined {
     return this.cardToXiuyuanIndex.get(cardId);
   }
 
   /**
-   * 保存 Xiuyuan 聚合根
+   * 淇濆瓨 Xiuyuan 鑱氬悎鏍?
    * 
-   * @param xiuyuan - Xiuyuan 聚合根
+   * @param xiuyuan - Xiuyuan 鑱氬悎鏍?
    * @returns Result<void>
    */
   async save(xiuyuan: Xiuyuan): Promise<Result<void>> {
     try {
       const xiuyuanId = xiuyuan.getId().getValue();
       
-      // 1. 转换为持久化模型
+      // 1. 杞崲涓烘寔涔呭寲妯″瀷
       const persistenceModel = this.toPersistenceWithId(xiuyuan);
       
-      // 2. 检查是否已存在
+      // 2. 妫€鏌ユ槸鍚﹀凡瀛樺湪
       const existing = this.storage.getXiuYuan(xiuyuanId);
       
       if (existing) {
-        // 更新现有 XiuYuan - 直接更新 Map 中的数据
+        // 鏇存柊鐜版湁 XiuYuan - 鐩存帴鏇存柊 Map 涓殑鏁版嵁
         this.storage.upsertXiuYuan(persistenceModel);
       } else {
-        // 创建新 XiuYuan - 添加到 Map
+        // 鍒涘缓鏂?XiuYuan - 娣诲姞鍒?Map
         this.storage.upsertXiuYuan(persistenceModel);
       }
 
-      // 3. 同步卡片状态：保存现有卡片，删除已移除的卡片
+      // 3. 鍚屾鍗＄墖鐘舵€侊細淇濆瓨鐜版湁鍗＄墖锛屽垹闄ゅ凡绉婚櫎鐨勫崱鐗?
       const cards = xiuyuan.getCards();
       const currentCardIds = new Set(cards.map(card => card.getId().getValue()));
       
-      // 3.1 查找需要删除的卡片（存在于 storage 但不在 xiuyuan 中）
+      // 3.1 鏌ユ壘闇€瑕佸垹闄ょ殑鍗＄墖锛堝瓨鍦ㄤ簬 storage 浣嗕笉鍦?xiuyuan 涓級
       const allStorageCards = this.storage.getAllCards();
       const cardsToDelete = allStorageCards.filter(
         storageCard => storageCard.meta?.xiuyuanID === xiuyuanId && !currentCardIds.has(storageCard.id)
       );
       
-      // 3.2 删除已移除的卡片
+      // 3.2 鍒犻櫎宸茬Щ闄ょ殑鍗＄墖
       for (const cardToDelete of cardsToDelete) {
         await this.storage.deleteCard(cardToDelete.id);
       }
       
-      // 3.3 保存/更新当前卡片
+      // 3.3 淇濆瓨/鏇存柊褰撳墠鍗＄墖
       for (const card of cards) {
-        const fsrsCard = await this.cardToFSRSCard(card, xiuyuan);  // ✅ 添加 await
+        const fsrsCard = await this.cardToFSRSCard(card, xiuyuan);  // 鉁?娣诲姞 await
         const existingCard = this.storage.getCard(card.getId().getValue());
         
         if (existingCard) {
-          // 更新现有卡片
+          // 鏇存柊鐜版湁鍗＄墖
           await this.storage.updateCard(fsrsCard);
         } else {
-          // 创建新卡片
+          // 鍒涘缓鏂板崱鐗?
           await this.storage.createCard(persistenceModel, fsrsCard);
         }
       }
       
-      // 🚀 更新索引：重建该Xiuyuan的所有卡片索引
-      // 先清理该Xiuyuan的所有旧索引
+      // 馃殌 鏇存柊绱㈠紩锛氶噸寤鸿Xiuyuan鐨勬墍鏈夊崱鐗囩储寮?
+      // 鍏堟竻鐞嗚Xiuyuan鐨勬墍鏈夋棫绱㈠紩
       for (const [cardId, indexedXiuyuanId] of this.cardToXiuyuanIndex.entries()) {
         if (indexedXiuyuanId === xiuyuanId) {
           this.cardToXiuyuanIndex.delete(cardId);
         }
       }
-      // 再添加当前的卡片索引
+      // 鍐嶆坊鍔犲綋鍓嶇殑鍗＄墖绱㈠紩
       for (const card of cards) {
         this.cardToXiuyuanIndex.set(card.getId().getValue(), xiuyuanId);
       }
       
-      // 🚀 清理索引：删除已移除卡片的索引（额外保险）
+      // 馃殌 娓呯悊绱㈠紩锛氬垹闄ゅ凡绉婚櫎鍗＄墖鐨勭储寮曪紙棰濆淇濋櫓锛?
       for (const cardToDelete of cardsToDelete) {
         this.cardToXiuyuanIndex.delete(cardToDelete.id);
       }
 
-      // 4. 🔧 立即保存（删除操作需要立即持久化，避免被后续操作覆盖）
+      // 4. 馃敡 绔嬪嵆淇濆瓨锛堝垹闄ゆ搷浣滈渶瑕佺珛鍗虫寔涔呭寲锛岄伩鍏嶈鍚庣画鎿嶄綔瑕嗙洊锛?
       if (cardsToDelete.length > 0) {
         logger.info(`Deleted ${cardsToDelete.length} cards, forcing immediate save`);
         const saveResult = await this.storage.save();
@@ -260,112 +260,57 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         }
       }
 
-      // 5. 写入块属性
+      // 5. 鍐欏叆鍧楀睘鎬?
       const blockIDs = xiuyuan.getBlockIDs();
-      const meta = this.toXiuyuanMeta(xiuyuan.getMeta());
-      const listTemplateChildren = this.extractListTemplateChildren(meta);
-      const hasListTemplateChildren = listTemplateChildren.length > 0;
-      const isLegacyListTemplate = this.isLegacyListTemplate(meta);
       
-      // 5.1 确定卡片类型
-      let cardType: XiuyuanCardType = 'item';
-      
-      // 🆕 优先使用 meta 中明确指定的 cardType
-      if (meta.cardType) {
-        cardType = meta.cardType;
-        logger.debug(`Using explicit cardType from meta: ${cardType}`);
-      } else {
-        const templateID = xiuyuan.getTemplateID().getValue();
-        const template = this.templateRegistry.get(templateID);
-        
-        if (template && (template.category === 'basic' || template.category === 'cloze')) {
-          // ✅ 基础类模板：默认为 item
-          cardType = 'item';
-          logger.debug(`Template ${templateID} is basic/cloze category, using cardType: item`);
-        } else if (hasListTemplateChildren) {
-          // 列表模版卡：强制为 item
-          cardType = 'item';
-          logger.debug('List template detected, using cardType: item');
-        } else if (this.cardTypeDetectionService && blockIDs.length > 0) {
-          // 其他情况：检测类型
-          try {
-            cardType = await this.cardTypeDetectionService.detectCardType(blockIDs[0].getValue());
-            logger.debug(`Detected cardType: ${cardType} for block ${blockIDs[0].getValue()}`);
-          } catch (error) {
-            logger.warn('Failed to detect cardType, using default "item":', error);
-          }
-        }
-      }
-      
-      // 5.2 写入块属性
-      // 🆕 对于 concept-descriptor 模板，需要分别设置两个块的类型
-      const templateID = xiuyuan.getTemplateID().getValue();
-      
-      // ✅ 使用 Xiuyuan 实体方法获取代表性块 ID（Domain 层逻辑）
+      // 鉁?浣跨敤 Xiuyuan 瀹炰綋鏂规硶鑾峰彇浠ｈ〃鎬у潡 ID锛圖omain 灞傞€昏緫锛?
       const representativeBlockId = xiuyuan.getRepresentativeBlockId();
       const isDescriptorTemplate = representativeBlockId !== blockIDs[0]?.getValue();
       
       if (isDescriptorTemplate && blockIDs.length >= 2) {
-        // 概念-描述符卡：第一个块是概念卡，第二个块是描述符卡
-        // ⚠️ 注意：概念卡可能已经有自己的 Xiuyuan（作为独立的概念卡）
-        // 因此，我们只设置描述符块的属性，不修改概念卡的属性
+        // 姒傚康-鎻忚堪绗﹀崱锛氱涓€涓潡鏄蹇靛崱锛岀浜屼釜鍧楁槸鎻忚堪绗﹀崱
+        // 鈿狅笍 娉ㄦ剰锛氭蹇靛崱鍙兘宸茬粡鏈夎嚜宸辩殑 Xiuyuan锛堜綔涓虹嫭绔嬬殑姒傚康鍗★級
+        // 鍥犳锛屾垜浠彧璁剧疆鎻忚堪绗﹀潡鐨勫睘鎬э紝涓嶄慨鏀规蹇靛崱鐨勫睘鎬?
         const descriptorBlockId = blockIDs[1].getValue();
         
         try {
-          // 只设置描述符卡属性
+          // 鍙缃弿杩扮鍗″睘鎬?
           await setBlockAttrs(descriptorBlockId, {
             'custom-xiuyuan-id': xiuyuan.getId().getValue(),
-            'custom-xiuyuan-template': templateID,
-            'custom-fsrs-card-type': 'descriptor',  // 描述符卡设置为 descriptor 类型
           });
           
           logger.debug(`Set descriptor attributes: descriptor=${descriptorBlockId}`);
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
-          if (!errorMsg.includes('未找到') && !errorMsg.includes('not found')) {
+          const lowerErrorMsg = errorMsg.toLowerCase();
+          if (!lowerErrorMsg.includes('not found') && !lowerErrorMsg.includes('tree not found')) {
             logger.warn('Failed to write descriptor attributes:', error);
           }
         }
       } else if (blockIDs.length > 0) {
-        // 其他模板：只设置代表块（第一个块）
+        // 鍏朵粬妯℃澘锛氬彧璁剧疆浠ｈ〃鍧楋紙绗竴涓潡锛?
         const representativeBlockId = blockIDs[0].getValue();
         try {
           await setBlockAttrs(representativeBlockId, {
             'custom-xiuyuan-id': xiuyuan.getId().getValue(),
-            'custom-xiuyuan-template': templateID,
-            'custom-fsrs-card-type': cardType,  // ✅ 使用 fsrs-card-type 存储卡片类型
           });
         } catch (error) {
-          // 块属性写入失败不应该阻止保存
-          // 常见原因：块已被删除、移动或不存在
+          // 鍧楀睘鎬у啓鍏ュけ璐ヤ笉搴旇闃绘淇濆瓨
+          // 甯歌鍘熷洜锛氬潡宸茶鍒犻櫎銆佺Щ鍔ㄦ垨涓嶅瓨鍦?
           const errorMsg = error instanceof Error ? error.message : String(error);
-          if (errorMsg.includes('未找到') || errorMsg.includes('not found')) {
-            // 块不存在，这是正常情况（用户可能删除了块）
+          const lowerErrorMsg = errorMsg.toLowerCase();
+          if (lowerErrorMsg.includes('not found') || lowerErrorMsg.includes('tree not found')) {
+            // 鍧椾笉瀛樺湪锛岃繖鏄甯告儏鍐碉紙鐢ㄦ埛鍙兘鍒犻櫎浜嗗潡锛?
             logger.debug(`Block ${representativeBlockId} not found, skipping attribute write`);
           } else {
-            // 其他错误，记录警告
+            // 鍏朵粬閿欒锛岃褰曡鍛?
             logger.warn('Failed to write block attributes:', error);
           }
         }
       }
       
-      // 5.3 列表模版卡：为所有子块设置 item 类型
-      if (hasListTemplateChildren && isLegacyListTemplate) {
-        for (const child of listTemplateChildren) {
-          try {
-            await setBlockAttrs(child.id, {
-              'custom-fsrs-card-type': 'item',  // ✅ 子块设置为 item
-            });
-          } catch (error) {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            if (!errorMsg.includes('未找到') && !errorMsg.includes('not found')) {
-              logger.warn(`Failed to write attributes for child block ${child.id}:`, error);
-            }
-          }
-        }
-      }
 
-      // 6. 发布领域事件
+      // 6. 鍙戝竷棰嗗煙浜嬩欢
       await this.publishDomainEvents(xiuyuan);
 
       return ok(undefined);
@@ -375,7 +320,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   /**
-   * 根据 ID 查找 Xiuyuan
+   * 鏍规嵁 ID 鏌ユ壘 Xiuyuan
    * 
    * @param id - Xiuyuan ID
    * @returns Result<Xiuyuan | null>
@@ -404,19 +349,19 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   /**
-   * 根据块 ID 查找 Xiuyuan
+   * 鏍规嵁鍧?ID 鏌ユ壘 Xiuyuan
    * 
-   * @param blockId - 块 ID
+   * @param blockId - 鍧?ID
    * @returns Result<Xiuyuan[]>
    */
   async findByBlockId(blockId: BlockId): Promise<Result<Xiuyuan[]>> {
     try {
-      // 通过 UnifiedStorageManager 查询所有 XiuYuans
+      // 閫氳繃 UnifiedStorageManager 鏌ヨ鎵€鏈?XiuYuans
       const allXiuyuans = this.storage.getAllXiuYuans();
       const xiuyuans: Xiuyuan[] = [];
       const repairCandidates: XiuyuanReadCardRepairCandidate[] = [];
 
-      // 过滤包含指定 blockID 的 XiuYuans
+      // 杩囨护鍖呭惈鎸囧畾 blockID 鐨?XiuYuans
       for (const data of allXiuyuans) {
         if (data.blockIDs.includes(blockId.getValue())) {
           const result = this.toDomain(data);
@@ -438,7 +383,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   /**
-   * 查找所有 Xiuyuan
+   * 鏌ユ壘鎵€鏈?Xiuyuan
    * 
    * @returns Result<Xiuyuan[]>
    */
@@ -458,7 +403,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
             repairCandidates.push(candidate);
           }
           
-          // 🚀 初始化索引：构建卡片ID -> XiuyuanID映射
+          // 馃殌 鍒濆鍖栫储寮曪細鏋勫缓鍗＄墖ID -> XiuyuanID鏄犲皠
           const xiuyuan = result.value.xiuyuan;
           const xiuyuanId = xiuyuan.getId().getValue();
           for (const card of xiuyuan.getCards()) {
@@ -475,45 +420,44 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   /**
-   * 删除 Xiuyuan
+   * 鍒犻櫎 Xiuyuan
    * 
-   * @param xiuyuan - Xiuyuan 聚合根
+   * @param xiuyuan - Xiuyuan 鑱氬悎鏍?
    * @returns Result<void>
    */
   async delete(xiuyuan: Xiuyuan): Promise<Result<void>> {
     try {
       const xiuyuanId = xiuyuan.getId().getValue();
       
-      // 🚀 清理索引：删除所有关联卡片的索引
+      // 馃殌 娓呯悊绱㈠紩锛氬垹闄ゆ墍鏈夊叧鑱斿崱鐗囩殑绱㈠紩
       const cards = xiuyuan.getCards();
       for (const card of cards) {
         this.cardToXiuyuanIndex.delete(card.getId().getValue());
       }
       
-      // 1. 使用 UnifiedStorageManager 删除 XiuYuan（会级联删除所有关联卡片）
+      // 1. 浣跨敤 UnifiedStorageManager 鍒犻櫎 XiuYuan锛堜細绾ц仈鍒犻櫎鎵€鏈夊叧鑱斿崱鐗囷級
       const deleteResult = await this.storage.deleteXiuYuan(xiuyuanId);
       if (!deleteResult.ok) {
         return deleteResult;
       }
 
-      // 2. 删除块属性
+      // 2. 鍒犻櫎鍧楀睘鎬?
       const blockIDs = xiuyuan.getBlockIDs();
       if (blockIDs.length > 0) {
         const representativeBlockId = blockIDs[0].getValue();
         try {
           await setBlockAttrs(representativeBlockId, {
             'custom-xiuyuan-id': '',
-            'custom-xiuyuan-template': '',
           });
         } catch (error) {
           logger.warn('Failed to clear block attributes:', error);
         }
       }
 
-      // 3. 从 Riff 删除
+      // 3. 浠?Riff 鍒犻櫎
       if (cards.length > 0) {
         try {
-          // Note: 实际的 Riff 删除需要根据项目的 API 实现
+          // Note: 瀹為檯鐨?Riff 鍒犻櫎闇€瑕佹牴鎹」鐩殑 API 瀹炵幇
           // const cardBlockIds = cards.map(card => card.getId().getValue());
           // await this.plugin.removeRiffCards(cardBlockIds);
         } catch (error) {
@@ -521,7 +465,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         }
       }
 
-      // 4. 发布领域事件
+      // 4. 鍙戝竷棰嗗煙浜嬩欢
       await this.publishDomainEvents(xiuyuan);
 
       return ok(undefined);
@@ -531,9 +475,9 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   /**
-   * 批量保存 Xiuyuan
+   * 鎵归噺淇濆瓨 Xiuyuan
    * 
-   * @param xiuyuans - Xiuyuan 列表
+   * @param xiuyuans - Xiuyuan 鍒楄〃
    * @returns Result<void>
    */
   async saveMany(xiuyuans: Xiuyuan[]): Promise<Result<void>> {
@@ -551,9 +495,9 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   /**
-   * 批量删除 Xiuyuan
+   * 鎵归噺鍒犻櫎 Xiuyuan
    * 
-   * @param xiuyuans - Xiuyuan 列表
+   * @param xiuyuans - Xiuyuan 鍒楄〃
    * @returns Result<void>
    */
   async deleteMany(xiuyuans: Xiuyuan[]): Promise<Result<void>> {
@@ -570,7 +514,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     }
   }
 
-  // ============ 私有方法 ============
+  // ============ 绉佹湁鏂规硶 ============
 
   private toXiuyuanMeta(meta: Record<string, unknown>): XiuyuanMeta {
     return meta as XiuyuanMeta;
@@ -616,10 +560,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   /**
-   * 将 Card 领域实体转换为 FSRSCard
+   * 灏?Card 棰嗗煙瀹炰綋杞崲涓?FSRSCard
    * 
-   * @param card - Card 领域实体
-   * @param xiuyuan - 关联的 Xiuyuan 聚合根
+   * @param card - Card 棰嗗煙瀹炰綋
+   * @param xiuyuan - 鍏宠仈鐨?Xiuyuan 鑱氬悎鏍?
    * @returns FSRSCard
    * @private
    */
@@ -631,33 +575,33 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     // Get schedulerType from meta, default to 'fsrs-v6' (Requirement 5.5)
     const schedulerType: SchedulerType = meta.schedulerType || 'fsrs-v6';
     
-    // ✅ 确定卡片类型（使用与块属性相同的逻辑）
+    // 鉁?纭畾鍗＄墖绫诲瀷锛堜娇鐢ㄤ笌鍧楀睘鎬х浉鍚岀殑閫昏緫锛?
     let cardType: XiuyuanCardType = 'item';
     
-    // 🆕 获取模板（在外层声明，供后续使用）
+    // 馃啎 鑾峰彇妯℃澘锛堝湪澶栧眰澹版槑锛屼緵鍚庣画浣跨敤锛?
     const templateID = xiuyuan.getTemplateID().getValue();
     const template = this.templateRegistry.get(templateID);
     
-    // ✅ 使用 Xiuyuan 实体方法获取代表性块 ID（Domain 层逻辑）
+    // 鉁?浣跨敤 Xiuyuan 瀹炰綋鏂规硶鑾峰彇浠ｈ〃鎬у潡 ID锛圖omain 灞傞€昏緫锛?
     const blockId = xiuyuan.getRepresentativeBlockId();
     logger.debug(`Using representative blockId: ${blockId}`);
     
-    // 🆕 优先使用 meta 中明确指定的 cardType
+    // 馃啎 浼樺厛浣跨敤 meta 涓槑纭寚瀹氱殑 cardType
     logger.debug('Checking meta.cardType:', meta.cardType, 'for blockId:', blockId);
     if (meta.cardType) {
       cardType = meta.cardType;
       logger.debug(`Using explicit cardType from meta: ${cardType}`);
     } else {
       if (template && (template.category === 'basic' || template.category === 'cloze')) {
-        // ✅ 基础类模板：默认为 item
+        // 鉁?鍩虹绫绘ā鏉匡細榛樿涓?item
         cardType = 'item';
         logger.debug(`Template ${templateID} is basic/cloze category, card type: item`);
       } else if (this.extractListTemplateChildren(meta).length > 0) {
-        // 列表模版卡：所有子卡片都是 item 类型
+        // 鍒楄〃妯＄増鍗★細鎵€鏈夊瓙鍗＄墖閮芥槸 item 绫诲瀷
         cardType = 'item';
         logger.debug(`List template card detected, forcing cardType to 'item'`);
       } else if (this.cardTypeDetectionService && blockId) {
-        // 其他情况：使用 CardTypeDetectionService 检测
+        // 鍏朵粬鎯呭喌锛氫娇鐢?CardTypeDetectionService 妫€娴?
         try {
           cardType = await this.cardTypeDetectionService.detectCardType(blockId);
           logger.debug(`Detected cardType for ${blockId}: ${cardType}`);
@@ -667,7 +611,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       }
     }
     
-    // 🆕 列表模版卡：提取当前卡片的 cue、answer 和 allChildren
+    // 馃啎 鍒楄〃妯＄増鍗★細鎻愬彇褰撳墠鍗＄墖鐨?cue銆乤nswer 鍜?allChildren
     const listTemplateMeta: Record<string, unknown> = {};
     const listTemplateChildren = this.extractListTemplateChildren(meta);
     const listTemplateIndex = this.resolveListTemplateCurrentIndex(meta) ?? faceIndex;
@@ -690,7 +634,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     const normalizedFieldMapping = normalizeFieldMapping(meta.fieldMapping);
     const imageOcclusionMeta = pickImageOcclusionMeta(meta);
     
-    // 🆕 提取 typeMarker（用于双向卡片识别正反面）
+    // 馃啎 鎻愬彇 typeMarker锛堢敤浜庡弻鍚戝崱鐗囪瘑鍒鍙嶉潰锛?
     let typeMarker: string | undefined;
     if (template && template.cardRules && template.cardRules[faceIndex]) {
       typeMarker = template.cardRules[faceIndex].typeMarker;
@@ -702,7 +646,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       xiuyuanID: card.getXiuyuanId().getValue(),
       blockId,
       
-      // FSRS 核心字段
+      // FSRS 鏍稿績瀛楁
       due: scheduleInfo.due.getTime(),
       stability: scheduleInfo.stability,
       difficulty: scheduleInfo.difficulty,
@@ -714,24 +658,24 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       scheduledDays: scheduleInfo.scheduledDays,
       learning_step: scheduleInfo.learning_step,
       
-      // 类型和模板
+      // 绫诲瀷鍜屾ā鏉?
       type: this.toFsrsCardType(cardType),
       templateID: xiuyuan.getTemplateID().getValue(),
       schedulerType: schedulerType, // Use schedulerType from meta (Requirement 5.5)
       
-      // 优先级
+      // 浼樺厛绾?
       priority: xiuyuan.getPriority().getValue(),
       
-      // 🔧 修复：A-Factor（从 Xiuyuan.meta 复制到 FSRSCard）
+      // 馃敡 淇锛欰-Factor锛堜粠 Xiuyuan.meta 澶嶅埗鍒?FSRSCard锛?
       aFactor: meta.aFactor,
       
-      // 扩展功能
+      // 鎵╁睍鍔熻兘
       tags: [],
       leechCount: 0,
       isLeech: false,
       skipped: false,
       
-      // 元数据
+      // 鍏冩暟鎹?
       meta: {
         ...imageOcclusionMeta,
         xiuyuanID: card.getXiuyuanId().getValue(),
@@ -741,34 +685,34 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         ...(typeof meta.clozeRenderMode === 'string' ? { clozeRenderMode: meta.clozeRenderMode } : {}),
         ...(typeof meta.forceQuickRender === 'boolean' ? { forceQuickRender: meta.forceQuickRender } : {}),
         ...(typeof meta.quickDetectReason === 'string' ? { quickDetectReason: meta.quickDetectReason } : {}),
-        // ✅ 使用 Xiuyuan 实体方法获取 blockIDs（Domain 层逻辑）
+        // 鉁?浣跨敤 Xiuyuan 瀹炰綋鏂规硶鑾峰彇 blockIDs锛圖omain 灞傞€昏緫锛?
         frontBlockIDs: xiuyuan.getFrontBlockIDs(faceIndex),
         backBlockIDs: xiuyuan.getBackBlockIDs(faceIndex),
         ...(normalizedFieldMapping ? { fieldMapping: normalizedFieldMapping } : {}),
-        // 🆕 添加 faces 信息，用于多挖空卡渲染
+        // 馃啎 娣诲姞 faces 淇℃伅锛岀敤浜庡鎸栫┖鍗℃覆鏌?
         faces: xiuyuan.getFaces().map(face => ({
           question: face.question,
           answer: face.answer,
           questionBlockId: face.questionBlockId,
           answerBlockId: face.answerBlockId,
         })),
-        // 🆕 添加 typeMarker，用于双向卡片识别正反面
+        // 馃啎 娣诲姞 typeMarker锛岀敤浜庡弻鍚戝崱鐗囪瘑鍒鍙嶉潰
         typeMarker,
-        // 🆕 列表模版卡专用字段
+        // 馃啎 鍒楄〃妯＄増鍗′笓鐢ㄥ瓧娈?
         ...listTemplateMeta,
       },
       
-      // 时间戳
+      // 鏃堕棿鎴?
       createdAt: card.getCreatedAt().getTime(),
       updatedAt: card.getUpdatedAt().getTime(),
     };
   }
   
   /**
-   * 将领域模型转换为持久化模型（不包含 ID 和时间戳）
+   * 灏嗛鍩熸ā鍨嬭浆鎹负鎸佷箙鍖栨ā鍨嬶紙涓嶅寘鍚?ID 鍜屾椂闂存埑锛?
    * 
-   * @param xiuyuan - Xiuyuan 聚合根
-   * @returns 持久化模型
+   * @param xiuyuan - Xiuyuan 鑱氬悎鏍?
+   * @returns 鎸佷箙鍖栨ā鍨?
    * @private
    */
   private toPersistence(xiuyuan: Xiuyuan): Omit<IXiuyuan, 'id' | 'createdAt' | 'updatedAt'> {
@@ -795,17 +739,17 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           questionBlockId: face.questionBlockId,
           answerBlockId: face.answerBlockId
         })),
-        // ✅ 只存储 Card ID 引用，不存储完整的 Card 数据
+        // 鉁?鍙瓨鍌?Card ID 寮曠敤锛屼笉瀛樺偍瀹屾暣鐨?Card 鏁版嵁
         cardIds
       }
     };
   }
 
   /**
-   * 将领域模型转换为完整的持久化模型（包含 ID 和时间戳）
+   * 灏嗛鍩熸ā鍨嬭浆鎹负瀹屾暣鐨勬寔涔呭寲妯″瀷锛堝寘鍚?ID 鍜屾椂闂存埑锛?
    * 
-   * @param xiuyuan - Xiuyuan 聚合根
-   * @returns 完整的持久化模型
+   * @param xiuyuan - Xiuyuan 鑱氬悎鏍?
+   * @returns 瀹屾暣鐨勬寔涔呭寲妯″瀷
    * @private
    */
   private toPersistenceWithId(xiuyuan: Xiuyuan): IXiuyuan {
@@ -818,9 +762,9 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   /**
-   * 从 CardPersistenceDTO 重建 Card 领域实体
+   * 浠?CardPersistenceDTO 閲嶅缓 Card 棰嗗煙瀹炰綋
    * 
-   * @param dto - Card 持久化 DTO
+   * @param dto - Card 鎸佷箙鍖?DTO
    * @param xiuyuanId - Xiuyuan ID
    * @returns Result<Card>
    * @private
@@ -847,7 +791,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       const cardResult = Card.create({
         id: cardIdResult.value,
         xiuyuanId: xiuyuanId,
-        faceIndex: dto.meta?.faceIndex ?? dto.meta?.ruleIndex ?? 0, // 兼容旧数据
+        faceIndex: dto.meta?.faceIndex ?? dto.meta?.ruleIndex ?? 0, // 鍏煎鏃ф暟鎹?
         scheduleInfo: scheduleInfoResult.value,
         createdAt: new Date(dto.createdAt),
         updatedAt: new Date(dto.updatedAt)
@@ -860,29 +804,29 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   /**
-   * 将持久化模型转换为领域模型
+   * 灏嗘寔涔呭寲妯″瀷杞崲涓洪鍩熸ā鍨?
    * 
-   * @param data - 持久化模型
+   * @param data - 鎸佷箙鍖栨ā鍨?
    * @returns Result<Xiuyuan | null>
    * @private
    */
   private toDomain(data: IXiuyuan): Result<{ xiuyuan: Xiuyuan | null; cardIdStats: CardIdResolutionStats }> {
     try {
-      // 1. 转换 ID
+      // 1. 杞崲 ID
       const idResult = XiuyuanId.create(data.id);
       if (!idResult.ok) return err(new Error(`Invalid XiuyuanId: ${data.id}`));
 
-      // 2. 转换 BlockIDs
+      // 2. 杞崲 BlockIDs
       const blockIDResults = data.blockIDs.map(id => BlockId.create(id));
       const failedBlockId = blockIDResults.find(r => !r.ok);
       if (failedBlockId) return err(new Error(`Invalid BlockId in blockIDs`));
       const blockIDs = blockIDResults.map(r => r.ok ? r.value : null).filter((v): v is BlockId => v !== null);
 
-      // 3. 转换 TemplateID
+      // 3. 杞崲 TemplateID
       const templateIDResult = TemplateId.create(data.templateID);
       if (!templateIDResult.ok) return err(new Error(`Invalid TemplateId: ${data.templateID}`));
 
-      // 4. 转换 Faces（从 meta 中恢复）
+      // 4. 杞崲 Faces锛堜粠 meta 涓仮澶嶏級
       const rawFaces = data.meta?.faces;
       const facesData = Array.isArray(rawFaces) ? rawFaces.filter(isFaceSnapshot) : [];
       const faceResults = facesData.map(f => CardFace.create({
@@ -895,16 +839,16 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       if (failedFace) return err(new Error(`Invalid CardFace in faces`));
       const faces = faceResults.map(r => r.ok ? r.value : null).filter((v): v is CardFace => v !== null);
 
-      // 5. 转换 Priority
+      // 5. 杞崲 Priority
       const priorityValue = (data.meta?.priority as number) || 0;
       const priorityResult = Priority.create(priorityValue);
       if (!priorityResult.ok) {
-        // 如果优先级无效，使用默认值
+        // 濡傛灉浼樺厛绾ф棤鏁堬紝浣跨敤榛樿鍊?
         logger.warn('Invalid priority value, using default:', priorityValue);
       }
       const priority = priorityResult.ok ? priorityResult.value : Priority.createDefault();
 
-      // 6. 转换 Cards（从 cardIds 加载）
+      // 6. 杞崲 Cards锛堜粠 cardIds 鍔犺浇锛?
       const cardsMap = new Map<CardId, Card>();
       const cardIds = this.extractCardIdsFromMeta(data.meta);
       const missingDtoCardIds: string[] = [];
@@ -939,7 +883,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       
       logger.debug(`toDomain: Loaded ${cardsMap.size} cards for Xiuyuan ${data.id}`);
 
-      // 7. 重建 Xiuyuan
+      // 7. 閲嶅缓 Xiuyuan
       const xiuyuanProps: XiuyuanProps = {
         id: idResult.value,
         blockIDs,
@@ -971,9 +915,9 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   /**
-   * 发布领域事件
+   * 鍙戝竷棰嗗煙浜嬩欢
    * 
-   * @param xiuyuan - Xiuyuan 聚合根
+   * @param xiuyuan - Xiuyuan 鑱氬悎鏍?
    * @private
    */
   private extractCardIdsFromMeta(meta: Record<string, unknown> | undefined): string[] {
@@ -1079,8 +1023,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   private async publishDomainEvents(xiuyuan: Xiuyuan): Promise<void> {
     const events = xiuyuan.getDomainEvents();
     
-    // ✅ 只记录事件，不清除
-    // 事件的发布和清除由 UseCase 负责
+    // 鉁?鍙褰曚簨浠讹紝涓嶆竻闄?
+    // 浜嬩欢鐨勫彂甯冨拰娓呴櫎鐢?UseCase 璐熻矗
     for (const event of events) {
       logger.debug('Domain event:', event.getEventName());
     }

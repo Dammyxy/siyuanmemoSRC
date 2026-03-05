@@ -270,6 +270,82 @@
           <p class="form-hint">{{ t('modelParamsHint', '使用优化器可以根据你的复习数据自动优化这些参数') }}</p>
         </div>
 
+        <div class="fn__hr"></div>
+
+        <h3>{{ t('blockAttrsCleanupTitle', '块属性清理') }}</h3>
+
+        <div class="form-item">
+          <label>{{ t('blockAttrsCleanupModeLabel', '清理模式') }}</label>
+          <div class="form-control">
+            <select v-model="blockAttrsCleanupMode" class="scheduler-select">
+              <option value="safe">{{ t('blockAttrsCleanupModeSafe', 'SAFE（推荐）') }}</option>
+              <option value="full">{{ t('blockAttrsCleanupModeFull', 'FULL（危险）') }}</option>
+            </select>
+          </div>
+          <p class="form-hint">
+            {{ t('blockAttrsCleanupModeHint', 'SAFE 仅清理废弃属性和无效 custom-xiuyuan-id；FULL 清理全部插件块属性。') }}
+          </p>
+        </div>
+
+        <div class="form-actions">
+          <button
+            class="btn-secondary"
+            :disabled="blockAttrsCleanupBusy"
+            @click="handleScanBlockAttrsCleanup"
+          >
+            {{ blockAttrsCleanupBusy ? t('blockAttrsCleanupScanning', '扫描中...') : t('blockAttrsCleanupScanBtn', '1) 扫描并预览') }}
+          </button>
+          <button
+            class="btn-primary"
+            :disabled="blockAttrsCleanupBusy || !blockAttrsCleanupHasScan"
+            @click="handleRunBlockAttrsCleanup"
+          >
+            {{ blockAttrsCleanupBusy ? t('blockAttrsCleanupRunning', '执行中...') : t('blockAttrsCleanupRunBtn', '2) 确认并执行清理') }}
+          </button>
+        </div>
+
+        <p v-if="blockAttrsCleanupError" class="form-hint form-hint--warning">
+          {{ t('blockAttrsCleanupErrorPrefix', '执行失败：') }}{{ blockAttrsCleanupError }}
+        </p>
+
+        <div v-if="blockAttrsCleanupScanResult" class="form-example">
+          <div class="example-label">{{ t('blockAttrsCleanupScanSummary', '扫描结果') }}</div>
+          <div class="example-value">
+            {{ t('blockAttrsCleanupTotalBlocks', '总块数') }}: {{ blockAttrsCleanupScanResult.totalBlocks }}
+            |
+            {{ t('blockAttrsCleanupRemovableBlocks', '可清理块数') }}: {{ blockAttrsCleanupScanResult.removableBlocks }}
+            |
+            {{ t('blockAttrsCleanupStaleXiuyuan', '失效 Xiuyuan 绑定') }}: {{ blockAttrsCleanupScanResult.staleXiuyuanCount }}
+          </div>
+          <div class="example-value" style="margin-top: 6px;">
+            {{ t('blockAttrsCleanupSkippedTreeNotFound', 'tree not found 跳过数') }}: {{ blockAttrsCleanupScanResult.skippedTreeNotFoundCount }}
+          </div>
+          <div v-if="blockAttrsCleanupAttrRows.length > 0" style="margin-top: 8px;">
+            <div class="example-label">{{ t('blockAttrsCleanupAttrDistribution', '属性分布') }}</div>
+            <div
+              v-for="[name, count] in blockAttrsCleanupAttrRows"
+              :key="name"
+              class="example-value"
+              style="display: flex; justify-content: space-between; gap: 12px;"
+            >
+              <code>{{ name }}</code>
+              <span>{{ count }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="blockAttrsCleanupRunResult" class="form-example">
+          <div class="example-label">{{ t('blockAttrsCleanupRunSummary', '执行结果') }}</div>
+          <div class="example-value">
+            mode: {{ blockAttrsCleanupRunResult.mode }} |
+            {{ t('blockAttrsCleanupCleanedBlocks', '已清理块') }}: {{ blockAttrsCleanupRunResult.cleanedBlocks }} |
+            {{ t('blockAttrsCleanupCleanedAttrs', '已清理属性') }}: {{ blockAttrsCleanupRunResult.cleanedAttrs }}
+          </div>
+          <div class="example-value" style="margin-top: 6px;">
+            {{ t('blockAttrsCleanupSkippedTreeNotFound', 'tree not found 跳过数') }}: {{ blockAttrsCleanupRunResult.skippedTreeNotFoundCount }}
+          </div>
+        </div>
+
         <div class="form-actions">
           <button class="btn-primary" @click="saveSettings">{{ t('saveSettings', '保存设置') }}</button>
           <button class="btn-secondary" @click="resetSettings">{{ t('resetDefault', '重置默认') }}</button>
@@ -292,13 +368,26 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { DEFAULT_FSRS_WEIGHTS, FSRS_WEIGHT_COUNT, type FilterGroupDefinition, type FSRSParameters, type QueueSettings, type SchedulerConfig, type QuickCardSettings } from '../../types';
 import { getTodayRange, formatTodayRange } from '../../utils/dateUtils';  // 🆕 导入日期工具
 import { createLogger } from '@/utils/logger';
 
 type OptimizationConfig = Record<string, unknown>;
 type ConflictResolutionStrategy = 'merge' | 'prefer-local' | 'prefer-remote';
+type CleanupMode = 'safe' | 'full';
+type CleanupScanResult = {
+  totalBlocks: number;
+  removableBlocks: number;
+  attrCounts: Record<string, number>;
+  staleXiuyuanCount: number;
+  skippedTreeNotFoundCount: number;
+};
+type CleanupRunResult = CleanupScanResult & {
+  mode: CleanupMode;
+  cleanedBlocks: number;
+  cleanedAttrs: number;
+};
 
 const logger = createLogger('SettingsPanel');
 
@@ -310,6 +399,8 @@ const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'repair-dates'): void;  // 🆕 数据修复事件
   (e: 'optimize-parameters', config: OptimizationConfig): Promise<OptimizationConfig | void>;  // 🆕 参数优化事件
+  (e: 'scan-block-attrs-cleanup', mode: CleanupMode, resolve?: (result: CleanupScanResult) => void, reject?: (error: Error) => void): void;
+  (e: 'run-block-attrs-cleanup', mode: CleanupMode, resolve?: (result: CleanupRunResult) => void, reject?: (error: Error) => void): void;
 }>();
 
 const props = defineProps<{
@@ -475,6 +566,29 @@ const todayRangeText = computed(() => {
   return formatTodayRange(range);
 });
 
+const blockAttrsCleanupMode = ref<CleanupMode>('safe');
+const blockAttrsCleanupScanResult = ref<CleanupScanResult | null>(null);
+const blockAttrsCleanupRunResult = ref<CleanupRunResult | null>(null);
+const blockAttrsCleanupBusy = ref(false);
+const blockAttrsCleanupError = ref('');
+const blockAttrsCleanupHasScan = computed(() => blockAttrsCleanupScanResult.value !== null);
+const blockAttrsCleanupAttrRows = computed(() => {
+  const counts = blockAttrsCleanupScanResult.value?.attrCounts || {};
+  return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+});
+
+watch(
+  () => blockAttrsCleanupMode.value,
+  (mode, prevMode) => {
+    if (mode === prevMode) {
+      return;
+    }
+    blockAttrsCleanupScanResult.value = null;
+    blockAttrsCleanupRunResult.value = null;
+    blockAttrsCleanupError.value = '';
+  }
+);
+
 function normalizeConflictResolutionStrategy(value: unknown): ConflictResolutionStrategy {
   if (value === 'prefer-local' || value === 'prefer-remote' || value === 'merge') {
     return value;
@@ -511,6 +625,74 @@ function normalizeAutoPostponeSkipTopN(value: unknown): number {
     return 20;
   }
   return Math.max(0, Math.min(2000, Math.floor(numeric)));
+}
+
+function requestBlockAttrsCleanupScan(mode: CleanupMode): Promise<CleanupScanResult> {
+  return new Promise((resolve, reject) => {
+    emit('scan-block-attrs-cleanup', mode, resolve, reject);
+  });
+}
+
+function requestBlockAttrsCleanupRun(mode: CleanupMode): Promise<CleanupRunResult> {
+  return new Promise((resolve, reject) => {
+    emit('run-block-attrs-cleanup', mode, resolve, reject);
+  });
+}
+
+async function handleScanBlockAttrsCleanup(): Promise<void> {
+  if (blockAttrsCleanupBusy.value) {
+    return;
+  }
+  blockAttrsCleanupBusy.value = true;
+  blockAttrsCleanupError.value = '';
+  blockAttrsCleanupRunResult.value = null;
+  try {
+    const result = await requestBlockAttrsCleanupScan(blockAttrsCleanupMode.value);
+    blockAttrsCleanupScanResult.value = result;
+  } catch (error) {
+    blockAttrsCleanupError.value = (error instanceof Error ? error.message : String(error)) || '扫描失败';
+  } finally {
+    blockAttrsCleanupBusy.value = false;
+  }
+}
+
+async function handleRunBlockAttrsCleanup(): Promise<void> {
+  if (blockAttrsCleanupBusy.value || !blockAttrsCleanupHasScan.value) {
+    return;
+  }
+
+  if (blockAttrsCleanupMode.value === 'full') {
+    const firstConfirm = window.confirm(
+      t('blockAttrsCleanupFullFirstConfirm', 'FULL 模式会清除所有插件块属性（包含 custom-xiuyuan-id 与功能字段），是否继续？')
+    );
+    if (!firstConfirm) {
+      return;
+    }
+    const secondConfirm = window.confirm(
+      t('blockAttrsCleanupFullSecondConfirm', '这是第二次确认：执行后不可恢复，确定立即执行 FULL 清理吗？')
+    );
+    if (!secondConfirm) {
+      return;
+    }
+  } else {
+    const safeConfirm = window.confirm(
+      t('blockAttrsCleanupSafeConfirm', '将执行 SAFE 清理（保留功能字段与有效 custom-xiuyuan-id），是否继续？')
+    );
+    if (!safeConfirm) {
+      return;
+    }
+  }
+
+  blockAttrsCleanupBusy.value = true;
+  blockAttrsCleanupError.value = '';
+  try {
+    const result = await requestBlockAttrsCleanupRun(blockAttrsCleanupMode.value);
+    blockAttrsCleanupRunResult.value = result;
+  } catch (error) {
+    blockAttrsCleanupError.value = (error instanceof Error ? error.message : String(error)) || '执行失败';
+  } finally {
+    blockAttrsCleanupBusy.value = false;
+  }
 }
 
 // 加载设置
@@ -1021,6 +1203,12 @@ async function handleRepairDates() {
 
 .btn-secondary:hover {
   background: var(--b3-list-hover);
+}
+
+.btn-primary:disabled,
+.btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .settings-section ul {
