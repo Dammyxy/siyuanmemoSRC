@@ -246,7 +246,7 @@ export function useReviewSession<TItem>(
     state.value = withSessionMeta(mainState);
 
     if (adapter.fetchAuxiliaryData) {
-      adapter.fetchAuxiliaryData(currentItem.value)
+      adapter.fetchAuxiliaryData(currentItem.value, queue, context.value)
         .then((aux) => {
           if (seq !== updateSeq) return;
           state.value = withSessionMeta(mergeAux(state.value, aux));

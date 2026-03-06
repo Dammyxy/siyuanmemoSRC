@@ -12,6 +12,7 @@ function createHeaderState(): ReviewUIState['header'] {
       queueName: 'retrieval',
     },
     counterSummary: {
+      kind: 'ratio',
       text: '(2+1)/3',
       tooltip: 'Item 2/2 · Descriptor 1/1',
       ariaLabel: 'Item 2/2 · Descriptor 1/1',
@@ -25,12 +26,12 @@ function createHeaderState(): ReviewUIState['header'] {
     counterBadges: [
       {
         id: 'answered',
-        label: '已答',
+        label: '\u5df2\u7b54',
         kind: 'value',
         tone: 'progress',
         text: '3',
         value: 3,
-        ariaLabel: '已答 3',
+        ariaLabel: '\u5df2\u7b54 3',
       },
     ],
     priorityBadge: {
@@ -75,7 +76,7 @@ describe('ReviewHeader', () => {
 
     const badges = wrapper.findAll('.siyuanmemo-review-header__badge');
     expect(badges).toHaveLength(1);
-    expect(badges[0]?.text()).toContain('已答');
+    expect(badges[0]?.text()).toContain('\u5df2\u7b54');
     expect(badges[0]?.text()).toContain('3');
 
     const priority = wrapper.get('.siyuanmemo-review-header__priority');
@@ -87,6 +88,7 @@ describe('ReviewHeader', () => {
   it('renders fixed-slot incremental summary tooltip including zero values', () => {
     const header = createHeaderState();
     header.counterSummary = {
+      kind: 'ratio',
       text: '(1+0+0+11)/12',
       tooltip: 'Item 1/1 · Descriptor 0/0 · Topic 0/0 · Concept 11/11',
       ariaLabel: 'Item 1/1 · Descriptor 0/0 · Topic 0/0 · Concept 11/11',
@@ -113,6 +115,32 @@ describe('ReviewHeader', () => {
     expect(summary.text()).toBe('(1+0+0+11)/12');
     expect(summary.attributes('title')).toContain('Descriptor 0/0');
     expect(summary.attributes('title')).toContain('Topic 0/0');
+  });
+
+  it('renders value summary without neural path badge', () => {
+    const header = createHeaderState();
+    header.counterSummary = {
+      kind: 'value',
+      text: '40',
+      tooltip: '\u5df2\u6f2b\u6e38 40 \u5f20\u5361',
+      ariaLabel: '\u5df2\u6f2b\u6e38 40 \u5f20\u5361',
+      value: 40,
+    };
+    header.counterBadges = [];
+
+    const wrapper = mount(ReviewHeader, {
+      props: {
+        header,
+        isMobile: false,
+        mode: 'dialog',
+      },
+    });
+
+    const summary = wrapper.get('.siyuanmemo-review-header__summary');
+    expect(summary.text()).toBe('40');
+    expect(summary.classes()).toContain('siyuanmemo-review-header__summary--value');
+    expect(summary.attributes('title')).toBe('\u5df2\u6f2b\u6e38 40 \u5f20\u5361');
+    expect(wrapper.findAll('.siyuanmemo-review-header__badge')).toHaveLength(0);
   });
 
   it('renders close-review action in dedicated top-right slot on mobile dialog mode', async () => {

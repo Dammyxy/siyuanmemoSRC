@@ -61,6 +61,10 @@ function toQueueType(value: unknown): QueueType | undefined {
     return typeof value === 'string' ? (value as QueueType) : undefined;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
 function formatNextDue(diffMs: number): string {
     if (diffMs < 60 * 1000) {
         return '< 1 min';
@@ -131,7 +135,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
                 if (!replayCard) {
                     return null;
                 }
-                const replayCardWithNextDues = await this.addNextDues(replayCard);
+                const replayCardWithNextDues = await this.maybeAddNextDues(replayCard);
                 this.currentItem = replayCardWithNextDues;
                 return replayCardWithNextDues;
             }
@@ -160,7 +164,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
                     return null;
                 }
 
-                const cardWithNextDues = await this.addNextDues(nextCard);
+                const cardWithNextDues = await this.maybeAddNextDues(nextCard);
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Next card (spreading activation):`, {
                     queueType: this.queueType,
                     cardId: nextCard.id,
@@ -181,7 +185,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
 
             this.applyPendingRotationIfNeeded();
             const card = this.cachedCards[this.currentIndex++];
-            const cardWithNextDues = await this.addNextDues(card);
+            const cardWithNextDues = await this.maybeAddNextDues(card);
 
             logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Next card:`, {
                 queueType: this.queueType,
@@ -315,7 +319,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
             this.pushForwardItem(activeItem);
         }
 
-        const previousWithNextDues = await this.addNextDues(previous);
+        const previousWithNextDues = await this.maybeAddNextDues(previous);
         this.currentItem = previousWithNextDues;
         return previousWithNextDues;
     }
@@ -575,6 +579,25 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
             logger.error('[SiYuanMemo][UnifiedQueueStrategy] Failed to calculate nextDues:', error);
             return card;
         }
+    }
+
+    private async maybeAddNextDues(card: FSRSCard): Promise<CardWithNextDues> {
+        if (!this.shouldComputeNextDues(card)) {
+            return card;
+        }
+        return this.addNextDues(card);
+    }
+
+    private shouldComputeNextDues(card: FSRSCard): boolean {
+        if (this.queueType !== QueueType.NeuralRoam) {
+            return true;
+        }
+
+        const neuralContext = isRecord(card.meta?.neuralContext)
+            ? card.meta.neuralContext as Record<string, unknown>
+            : null;
+
+        return neuralContext?.isFlashcard === true;
     }
 
     private async reloadCards(): Promise<void> {

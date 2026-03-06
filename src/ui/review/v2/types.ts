@@ -28,12 +28,14 @@ export interface ReviewHeaderCounterSummaryPart {
 }
 
 export interface ReviewHeaderCounterSummary {
+  kind: 'ratio' | 'value';
   text: string;
   tooltip: string;
   ariaLabel: string;
-  parts: ReviewHeaderCounterSummaryPart[];
-  total: number;
-  forceParentheses: boolean;
+  value?: number | string;
+  parts?: ReviewHeaderCounterSummaryPart[];
+  total?: number;
+  forceParentheses?: boolean;
 }
 
 export interface ReviewHeaderCounterBadge {

@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { UnifiedReviewAdapter } from '../UnifiedReviewAdapter';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
-import type { AdapterContext } from '@/ui/review/v2/types';
+import type { AdapterContext, ReviewUIState } from '@/ui/review/v2/types';
 
 function createCard(
   id: string,
@@ -49,7 +49,7 @@ function createContext(overrides?: Partial<NonNullable<AdapterContext['session']
   };
 }
 
-function createNeuralUnderlyingQueue(pathLength = 5, currentPathIndex = 1) {
+function createNeuralUnderlyingQueue(pathLength = 5, currentPathIndex = 1, historyLength = 0) {
   return {
     getCards: async () => [
       createCard('concept-1', CardType.Concept),
@@ -66,7 +66,9 @@ function createNeuralUnderlyingQueue(pathLength = 5, currentPathIndex = 1) {
     clearFocusPool: async () => undefined,
     setCurrentFocus: async () => undefined,
     startRoamingFromFocus: async () => undefined,
-    getHistorySnapshot: () => [],
+    getHistorySnapshot: () => Array.from({ length: historyLength }, (_, index) => ({
+      nodeId: `node-${index}`,
+    })),
     getSessionFocusStack: () => [],
     getPinnedFocusBlocks: () => [],
     setPinnedFocusBlock: async () => undefined,
@@ -105,6 +107,53 @@ function createQueue(options: {
   };
 }
 
+function mergeUiState(base: ReviewUIState, aux: Partial<ReviewUIState> | undefined): ReviewUIState {
+  if (!aux) {
+    return base;
+  }
+
+  return {
+    ...base,
+    ...aux,
+    header: {
+      ...base.header,
+      ...(aux.header ?? {}),
+      stats: {
+        ...base.header.stats,
+        ...(aux.header?.stats ?? {}),
+      },
+      breadcrumbs: aux.header?.breadcrumbs ?? base.header.breadcrumbs,
+      toolbar: aux.header?.toolbar ?? base.header.toolbar,
+    },
+    content: {
+      ...base.content,
+      ...(aux.content ?? {}),
+    },
+    actions: {
+      ...base.actions,
+      ...(aux.actions ?? {}),
+      grades: aux.actions?.grades ?? base.actions.grades,
+      menu: aux.actions?.menu ?? base.actions.menu,
+    },
+    meta: {
+      ...base.meta,
+      ...(aux.meta ?? {}),
+    },
+    overlay: aux.overlay === undefined ? base.overlay : aux.overlay,
+  };
+}
+
+async function renderState(
+  adapter: UnifiedReviewAdapter,
+  queue: ReturnType<typeof createQueue>,
+  item: FSRSCard | null,
+  context: AdapterContext,
+): Promise<ReviewUIState> {
+  const main = await adapter.toUIState(queue as never, item as never, context);
+  const aux = await adapter.fetchAuxiliaryData?.(item as never, queue as never, context);
+  return mergeUiState(main, aux);
+}
+
 describe('UnifiedReviewAdapter', () => {
   it('builds retrieval-practice compact summary and priority badge', async () => {
     const liveCards = [
@@ -114,13 +163,15 @@ describe('UnifiedReviewAdapter', () => {
     ];
     const adapter = new UnifiedReviewAdapter({ headerVariant: 'retrieval-practice' });
 
-    const ui = await adapter.toUIState(
-      createQueue({ queueType: 'retrieval-practice', liveCards }) as never,
-      liveCards[0] as never,
+    const ui = await renderState(
+      adapter,
+      createQueue({ queueType: 'retrieval-practice', liveCards }),
+      liveCards[0],
       createContext(),
     );
 
     expect(ui.header.counterSummary).toEqual({
+      kind: 'ratio',
       text: '(2+1)/3',
       tooltip: 'Item 2/2 · Descriptor 1/1',
       ariaLabel: 'Item 2/2 · Descriptor 1/1',
@@ -148,15 +199,16 @@ describe('UnifiedReviewAdapter', () => {
     ];
     const adapter = new UnifiedReviewAdapter({ headerVariant: 'incremental-learning' });
 
-    const ui = await adapter.toUIState(
-      createQueue({ queueType: 'incremental-learning', liveCards }) as never,
-      liveCards[0] as never,
+    const ui = await renderState(
+      adapter,
+      createQueue({ queueType: 'incremental-learning', liveCards }),
+      liveCards[0],
       createContext(),
     );
 
     expect(ui.header.counterSummary?.text).toBe('(1+1+0+1)/3');
     expect(ui.header.counterSummary?.tooltip).toBe('Item 1/1 · Descriptor 1/1 · Topic 0/0 · Concept 1/1');
-    expect(ui.header.counterSummary?.parts.map(part => part.id)).toEqual([
+    expect(ui.header.counterSummary?.parts?.map(part => part.id)).toEqual([
       'item',
       'descriptor',
       'topic',
@@ -172,9 +224,10 @@ describe('UnifiedReviewAdapter', () => {
     ];
     const adapter = new UnifiedReviewAdapter({ headerVariant: 'final-drill' });
 
-    const ui = await adapter.toUIState(
-      createQueue({ queueType: 'final-drill', liveCards }) as never,
-      liveCards[0] as never,
+    const ui = await renderState(
+      adapter,
+      createQueue({ queueType: 'final-drill', liveCards }),
+      liveCards[0],
       createContext({ answeredCount: 3, correctCount: 2 }),
     );
 
@@ -182,21 +235,21 @@ describe('UnifiedReviewAdapter', () => {
     expect(ui.header.counterBadges).toEqual([
       {
         id: 'answered',
-        label: '已答',
+        label: '\u5df2\u7b54',
         kind: 'value',
         tone: 'progress',
         text: '3',
         value: 3,
-        ariaLabel: '已答 3',
+        ariaLabel: '\u5df2\u7b54 3',
       },
       {
         id: 'correct',
-        label: '答对',
+        label: '\u7b54\u5bf9',
         kind: 'value',
         tone: 'success',
         text: '2',
         value: 2,
-        ariaLabel: '答对 2',
+        ariaLabel: '\u7b54\u5bf9 2',
       },
     ]);
   });
@@ -209,18 +262,20 @@ describe('UnifiedReviewAdapter', () => {
     const adapter = new UnifiedReviewAdapter({ headerVariant: 'filter-group' });
     const context = createContext();
 
-    await adapter.toUIState(
-      createQueue({ queueType: 'filter-group', liveCards: baselineCards }) as never,
-      baselineCards[0] as never,
+    await renderState(
+      adapter,
+      createQueue({ queueType: 'filter-group', liveCards: baselineCards }),
+      baselineCards[0],
       context,
     );
 
     const remainingCards = [
       createCard('concept-1', CardType.Concept),
     ];
-    const ui = await adapter.toUIState(
-      createQueue({ queueType: 'filter-group', liveCards: remainingCards }) as never,
-      remainingCards[0] as never,
+    const ui = await renderState(
+      adapter,
+      createQueue({ queueType: 'filter-group', liveCards: remainingCards }),
+      remainingCards[0],
       context,
     );
 
@@ -229,7 +284,7 @@ describe('UnifiedReviewAdapter', () => {
     expect(ui.header.toolbar?.some(item => item.type === 'plan-review-scope')).toBe(true);
   });
 
-  it('builds neural-roam single-type summary and path badge while hiding priority for non-flashcard nodes', async () => {
+  it('builds neural-roam value summary from history count while hiding priority for non-flashcard nodes', async () => {
     const adapter = new UnifiedReviewAdapter({ headerVariant: 'neural-roam' });
     const currentItem = createCard('concept-1', CardType.Concept, {
       priority: 4,
@@ -241,29 +296,27 @@ describe('UnifiedReviewAdapter', () => {
       },
     });
 
-    const ui = await adapter.toUIState(
-      createQueue({
-        queueType: 'neural-roam',
-        liveCards: [currentItem],
-        underlyingQueue: createNeuralUnderlyingQueue(5, 1),
-      }) as never,
-      currentItem as never,
+    const queue = createQueue({
+      queueType: 'neural-roam',
+      liveCards: [currentItem],
+      underlyingQueue: createNeuralUnderlyingQueue(5, 1, 40),
+    });
+
+    const ui = await renderState(
+      adapter,
+      queue,
+      currentItem,
       createContext(),
     );
 
-    expect(ui.header.counterSummary?.text).toBe('2/2');
-    expect(ui.header.counterBadges).toEqual([
-      {
-        id: 'path',
-        label: '路径',
-        kind: 'ratio',
-        tone: 'progress',
-        text: '2/5',
-        remaining: 2,
-        total: 5,
-        ariaLabel: '路径 2/5',
-      },
-    ]);
+    expect(ui.header.counterSummary).toEqual({
+      kind: 'value',
+      text: '40',
+      tooltip: '\u5df2\u6f2b\u6e38 40 \u5f20\u5361',
+      ariaLabel: '\u5df2\u6f2b\u6e38 40 \u5f20\u5361',
+      value: 40,
+    });
+    expect(ui.header.counterBadges).toEqual([]);
     expect(ui.header.priorityBadge).toEqual({
       label: 'P',
       value: '-',
@@ -278,9 +331,10 @@ describe('UnifiedReviewAdapter', () => {
     ];
     const adapter = new UnifiedReviewAdapter({ headerVariant: 'subset-review' });
 
-    const ui = await adapter.toUIState(
-      createQueue({ queueType: 'final-drill', liveCards }) as never,
-      liveCards[0] as never,
+    const ui = await renderState(
+      adapter,
+      createQueue({ queueType: 'final-drill', liveCards }),
+      liveCards[0],
       createContext(),
     );
 
@@ -288,13 +342,13 @@ describe('UnifiedReviewAdapter', () => {
     expect(ui.header.counterBadges).toEqual([
       {
         id: 'remaining',
-        label: '剩余',
+        label: '\u5269\u4f59',
         kind: 'ratio',
         tone: 'neutral',
         text: '1/1',
         remaining: 1,
         total: 1,
-        ariaLabel: '剩余 1/1',
+        ariaLabel: '\u5269\u4f59 1/1',
       },
     ]);
     expect(ui.header.priorityBadge).toEqual({
@@ -302,6 +356,36 @@ describe('UnifiedReviewAdapter', () => {
       value: '-',
       priority: null,
       ariaLabel: 'Priority -',
+    });
+  });
+
+  it('keeps neural-roam main path off getCards and computes auxiliary header from stats plus history only', async () => {
+    const currentItem = createCard('concept-1', CardType.Concept);
+    const getCards = vi.fn(async () => [currentItem]);
+    const trackedUnderlyingQueue = {
+      ...createNeuralUnderlyingQueue(5, 1, 7),
+      getCards,
+    };
+    const queue = createQueue({
+      queueType: 'neural-roam',
+      liveCards: [currentItem],
+      underlyingQueue: trackedUnderlyingQueue,
+    });
+    const adapter = new UnifiedReviewAdapter({ headerVariant: 'neural-roam' });
+    const context = createContext({ initialTotal: 9 });
+
+    const main = await adapter.toUIState(queue as never, currentItem as never, context);
+    expect(main.header.counterSummary).toBeNull();
+    expect(getCards).not.toHaveBeenCalled();
+
+    const aux = await adapter.fetchAuxiliaryData?.(currentItem as never, queue as never, context);
+    expect(getCards).not.toHaveBeenCalled();
+    expect(aux?.header?.counterSummary).toEqual({
+      kind: 'value',
+      text: '7',
+      tooltip: '\u5df2\u6f2b\u6e38 7 \u5f20\u5361',
+      ariaLabel: '\u5df2\u6f2b\u6e38 7 \u5f20\u5361',
+      value: 7,
     });
   });
 });

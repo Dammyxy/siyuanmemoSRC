@@ -47,13 +47,13 @@ describe('SubsetPracticeAdapter', () => {
     expect(ui.header.counterBadges).toEqual([
       {
         id: 'remaining',
-        label: '剩余',
+        label: '\u5269\u4f59',
         kind: 'ratio',
         tone: 'neutral',
         text: '3/5',
         remaining: 3,
         total: 5,
-        ariaLabel: '剩余 3/5',
+        ariaLabel: '\u5269\u4f59 3/5',
       },
     ]);
     expect(ui.header.priorityBadge).toEqual({

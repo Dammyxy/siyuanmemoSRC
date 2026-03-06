@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
+import type { QueueFeedback } from '@/core/queue/abstraction/Strategy';
 
 function createSyntheticNeuralCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = Date.now();
@@ -65,7 +66,10 @@ function createQueueStub(): IReviewQueue {
   return queue;
 }
 
-function createStrategyWithQueue(queue: IReviewQueue): {
+function createStrategyWithQueue(
+  queue: IReviewQueue,
+  schedulerRouter: { preview: ReturnType<typeof vi.fn> } | null = null,
+): {
   strategy: UnifiedQueueStrategy;
   manager: {
     getQueue: ReturnType<typeof vi.fn>;
@@ -91,7 +95,7 @@ function createStrategyWithQueue(queue: IReviewQueue): {
     QueueType.NeuralRoam,
     manager as never,
     eventBus as never,
-    null
+    schedulerRouter as never
   );
 
   return { strategy, manager };
@@ -145,5 +149,36 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
     expect(remaining).toBe(17);
     expect(queue.getSize).toHaveBeenCalledTimes(1);
     expect(queue.getCards).not.toHaveBeenCalled();
+  });
+
+  it('skips nextDues preview for non-flashcard neural nodes in next and goBack paths', async () => {
+    const queue = createQueueStub() as IReviewQueue & {
+      getNextCard: ReturnType<typeof vi.fn>;
+    };
+    const preview = vi.fn(() => new Map());
+    const topicNode = createSyntheticNeuralCard({
+      meta: {
+        neuralContext: {
+          isFlashcard: false,
+        },
+      },
+    });
+    queue.getNextCard.mockResolvedValueOnce(topicNode);
+
+    const { strategy } = createStrategyWithQueue(queue, { preview });
+
+    const nextCard = await strategy.next();
+    expect(nextCard).toBe(topicNode);
+    expect(preview).not.toHaveBeenCalled();
+
+    await strategy.onFeedback(nextCard, {
+      action: 'custom',
+      customActionId: 'noop',
+    } as QueueFeedback);
+
+    const previous = await strategy.goBack(null);
+    expect(previous?.id).toBe(topicNode.id);
+    expect(preview).not.toHaveBeenCalled();
+    expect(previous && 'nextDues' in previous).toBe(false);
   });
 });

@@ -16,9 +16,17 @@ export interface ReviewHeaderCounterBadgeInput {
   value?: number | string;
 }
 
+export interface ReviewHeaderValueSummaryInput {
+  label: string;
+  value: number | string;
+  tooltip?: string;
+  ariaLabel?: string;
+}
+
 export interface ReviewHeaderCounterPresentationOptions {
   parts?: ReviewHeaderCounterSummaryPart[];
   badges?: ReviewHeaderCounterBadgeInput[];
+  summaryValue?: ReviewHeaderValueSummaryInput;
   total: number;
   showZeroVisible?: boolean;
   forceParentheses?: boolean;
@@ -82,6 +90,7 @@ export function createReviewHeaderCounterSummary(
     .join(' · ');
 
   return {
+    kind: 'ratio',
     text,
     tooltip,
     ariaLabel: tooltip || text,
@@ -91,11 +100,31 @@ export function createReviewHeaderCounterSummary(
   };
 }
 
+export function createReviewHeaderValueSummary(
+  input: ReviewHeaderValueSummaryInput,
+): ReviewHeaderCounterSummary {
+  const value = typeof input.value === 'number'
+    ? Math.max(0, Math.trunc(input.value))
+    : String(input.value ?? 0);
+  const text = String(value);
+  const tooltip = input.tooltip || createAriaLabel(input.label, text);
+
+  return {
+    kind: 'value',
+    text,
+    tooltip,
+    ariaLabel: input.ariaLabel || tooltip,
+    value,
+  };
+}
+
 export function createReviewHeaderCounterPresentation(
   options: ReviewHeaderCounterPresentationOptions,
 ): { counterSummary: ReviewHeaderCounterSummary | null; counterBadges: ReviewHeaderCounterBadge[] } {
   return {
-    counterSummary: createReviewHeaderCounterSummary(options.parts || [], options),
+    counterSummary: options.summaryValue
+      ? createReviewHeaderValueSummary(options.summaryValue)
+      : createReviewHeaderCounterSummary(options.parts || [], options),
     counterBadges: (options.badges || []).map(createReviewHeaderCounterBadge),
   };
 }

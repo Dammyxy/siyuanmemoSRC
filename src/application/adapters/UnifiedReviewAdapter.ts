@@ -50,6 +50,15 @@ type HeaderBaselineSnapshot = {
   buckets: Map<HeaderBucket, number>;
 };
 
+type CachedHeaderState = {
+  queueType: string;
+  stats: ReviewUIState['header']['stats'];
+  counterSummary: ReviewUIState['header']['counterSummary'];
+  counterBadges: ReviewUIState['header']['counterBadges'];
+  queueSize: number;
+  remainingSize: number;
+};
+
 const ANSWER_TEMPLATE_IDS = new Set<string>([
   'builtin-list-item',
   'builtin-basic-qa',
@@ -246,6 +255,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
   private readonly headerVariant?: ReviewHeaderVariant;
   private headerBaselineVersion = -1;
   private headerBaseline: HeaderBaselineSnapshot | null = null;
+  private cachedHeaderState: CachedHeaderState | null = null;
 
   constructor(options?: { i18n?: Record<string, string>; headerVariant?: ReviewHeaderVariant }) {
     this.i18n = options?.i18n;
@@ -258,7 +268,10 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     context: AdapterContext,
   ): Promise<ReviewUIState> {
     const queueType = hasQueueType(queue) ? queue.getType() : '';
-    const headerVariant = this.headerVariant || resolveReviewHeaderVariant(queueType);
+    const { stats, counterSummary, counterBadges, queueSize, remainingSize } = this.resolveHeaderPlaceholder(
+      queueType,
+      context,
+    );
     const isFilterGroup = queueType === 'filter-group';
     const toolbarWithFilterScope = (
       base: NonNullable<ReviewUIState['header']['toolbar']>,
@@ -277,21 +290,6 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       ];
     };
 
-    const stats = normalizeStats(await queue.getStats?.());
-    const liveCards = await this.loadLiveCards(queue);
-    const liveBuckets = countHeaderBuckets(liveCards);
-    const baseline = this.ensureHeaderBaseline(liveCards, liveBuckets, context);
-    const overallRemaining = stats.size || readCount(liveBuckets, 'all');
-    const overallTotal = Math.max(baseline.totalCards, overallRemaining, readCount(liveBuckets, 'all'));
-
-    const { counterSummary, counterBadges } = this.buildCounterPresentation({
-      headerVariant,
-      liveBuckets,
-      baseline,
-      context,
-      queue,
-      total: overallTotal,
-    });
     const priorityBadge = this.buildPriorityBadge(item, queueType);
 
     let toolbar: NonNullable<ReviewUIState['header']['toolbar']> = [
@@ -313,12 +311,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       return {
         header: {
           title: t(this.i18n, 'reviewTitle', 'Review'),
-          stats: {
-            current: overallRemaining,
-            total: overallTotal,
-            label: stats.label,
-            queueName: t(this.i18n, 'unifiedQueue', 'Unified Queue'),
-          },
+          stats,
           counterSummary,
           counterBadges,
           priorityBadge,
@@ -338,8 +331,8 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         meta: {
           transition: 'fade',
           hasHiddenContent: false,
-          queueSize: overallTotal,
-          remainingSize: overallRemaining,
+          queueSize,
+          remainingSize,
         },
         overlay: null,
       };
@@ -357,20 +350,14 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       cardId,
       blockId,
       cardType,
-      headerVariant,
-      remaining: overallRemaining,
-      total: overallTotal,
+      remaining: remainingSize,
+      total: queueSize,
     });
 
     return {
       header: {
         title: t(this.i18n, 'reviewTitle', 'Review'),
-        stats: {
-          current: overallRemaining,
-          total: overallTotal,
-          label: stats.label,
-          queueName: t(this.i18n, 'unifiedQueue', 'Unified Queue'),
-        },
+        stats,
         counterSummary,
         counterBadges,
         priorityBadge,
@@ -413,23 +400,91 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       meta: {
         transition: 'slide-left',
         hasHiddenContent: isTopicLike ? false : !context.showAnswer,
-        queueSize: overallTotal,
-        remainingSize: overallRemaining,
+        queueSize,
+        remainingSize,
       },
       overlay: null,
     };
   }
 
-  async fetchAuxiliaryData(item: UnifiedReviewItem | null): Promise<Partial<ReviewUIState>> {
-    if (!item) {
+  async fetchAuxiliaryData(
+    _item: UnifiedReviewItem | null,
+    queue?: IQueueStrategy<UnifiedReviewItem>,
+    context?: AdapterContext,
+  ): Promise<Partial<ReviewUIState>> {
+    if (!queue) {
       return {};
     }
-    return {};
+
+    const queueType = hasQueueType(queue) ? queue.getType() : '';
+    const headerVariant = this.headerVariant || resolveReviewHeaderVariant(queueType);
+    const stats = normalizeStats(await queue.getStats?.());
+    const safeContext = context ?? { showAnswer: false };
+
+    let liveBuckets = createEmptyBucketMap();
+    let overallRemaining = Math.max(0, stats.size);
+    let overallTotal = Math.max(0, Number(safeContext.session?.initialTotal) || 0, overallRemaining);
+
+    if (queueType === 'neural-roam') {
+      liveBuckets.set('all', overallRemaining);
+      const baseline = this.ensureHeaderBaseline([], liveBuckets, safeContext);
+      overallTotal = Math.max(
+        baseline.totalCards,
+        overallRemaining,
+        Number(safeContext.session?.initialTotal) || 0,
+      );
+      const presentation = this.buildCounterPresentation({
+        headerVariant,
+        liveBuckets,
+        baseline,
+        context: safeContext,
+        queue,
+        total: overallTotal,
+      });
+
+      return this.cacheAndBuildAuxHeader(queueType, {
+        stats: {
+          current: overallRemaining,
+          total: overallTotal,
+          label: stats.label,
+          queueName: t(this.i18n, 'unifiedQueue', 'Unified Queue'),
+        },
+        counterSummary: presentation.counterSummary,
+        counterBadges: presentation.counterBadges,
+      });
+    }
+
+    const liveCards = await this.loadLiveCards(queue);
+    liveBuckets = countHeaderBuckets(liveCards);
+    const baseline = this.ensureHeaderBaseline(liveCards, liveBuckets, safeContext);
+    overallRemaining = stats.size || readCount(liveBuckets, 'all');
+    overallTotal = Math.max(baseline.totalCards, overallRemaining, readCount(liveBuckets, 'all'));
+
+    const presentation = this.buildCounterPresentation({
+      headerVariant,
+      liveBuckets,
+      baseline,
+      context: safeContext,
+      queue,
+      total: overallTotal,
+    });
+
+    return this.cacheAndBuildAuxHeader(queueType, {
+      stats: {
+        current: overallRemaining,
+        total: overallTotal,
+        label: stats.label,
+        queueName: t(this.i18n, 'unifiedQueue', 'Unified Queue'),
+      },
+      counterSummary: presentation.counterSummary,
+      counterBadges: presentation.counterBadges,
+    });
   }
 
   resetSessionState(): void {
     this.headerBaseline = null;
     this.headerBaselineVersion = -1;
+    this.cachedHeaderState = null;
   }
 
   cleanup(): void {
@@ -449,6 +504,61 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       logger.warn('Failed to load live header cards from underlying queue:', error);
       return [];
     }
+  }
+
+  private resolveHeaderPlaceholder(
+    queueType: string,
+    context: AdapterContext,
+  ): Pick<ReviewUIState['header'], 'stats' | 'counterSummary' | 'counterBadges'> & Pick<ReviewUIState['meta'], 'queueSize' | 'remainingSize'> {
+    if (this.cachedHeaderState && this.cachedHeaderState.queueType === queueType) {
+      return {
+        stats: this.cachedHeaderState.stats,
+        counterSummary: this.cachedHeaderState.counterSummary,
+        counterBadges: this.cachedHeaderState.counterBadges,
+        queueSize: this.cachedHeaderState.queueSize,
+        remainingSize: this.cachedHeaderState.remainingSize,
+      };
+    }
+
+    const initialTotal = Math.max(0, Number(context.session?.initialTotal) || 0);
+    const answeredCount = Math.max(0, Number(context.session?.answeredCount) || 0);
+    const remainingSize = Math.max(0, initialTotal - answeredCount);
+    const queueSize = Math.max(initialTotal, remainingSize);
+
+    return {
+      stats: {
+        current: remainingSize,
+        total: queueSize,
+        label: initialTotal > 0 ? `${remainingSize} due` : '',
+        queueName: t(this.i18n, 'unifiedQueue', 'Unified Queue'),
+      },
+      counterSummary: null,
+      counterBadges: [],
+      queueSize,
+      remainingSize,
+    };
+  }
+
+  private cacheAndBuildAuxHeader(
+    queueType: string,
+    payload: Pick<ReviewUIState['header'], 'stats' | 'counterSummary' | 'counterBadges'>,
+  ): Partial<ReviewUIState> {
+    this.cachedHeaderState = {
+      queueType,
+      stats: payload.stats,
+      counterSummary: payload.counterSummary,
+      counterBadges: payload.counterBadges,
+      queueSize: payload.stats.total,
+      remainingSize: payload.stats.current,
+    };
+
+    return {
+      header: payload,
+      meta: {
+        queueSize: payload.stats.total,
+        remainingSize: payload.stats.current,
+      },
+    };
   }
 
   private ensureHeaderBaseline(
@@ -583,16 +693,19 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
           ),
         });
       }
-      case 'neural-roam':
+      case 'neural-roam': {
+        const roamedCount = this.getNeuralRoamedCount(queue);
+        const roamedTooltip = `${t(this.i18n, 'headerRoamed', '\u5df2\u6f2b\u6e38')} ${roamedCount} ${t(this.i18n, 'headerCardsUnit', '\u5f20\u5361')}`;
         return createReviewHeaderCounterPresentation({
           total,
-          parts: [
-            makeRatioPart('concept', t(this.i18n, 'headerConcept', 'Concept'), 'concept', 'concept'),
-          ],
-          badges: [
-            this.buildNeuralPathBadge(queue),
-          ],
+          summaryValue: {
+            label: t(this.i18n, 'headerRoamed', '\u5df2\u6f2b\u6e38'),
+            value: roamedCount,
+            tooltip: roamedTooltip,
+            ariaLabel: roamedTooltip,
+          },
         });
+      }
       case 'subset-review':
       case 'temporary-drill':
       case 'leech':
@@ -606,28 +719,12 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     }
   }
 
-  private buildNeuralPathBadge(queue: IQueueStrategy<UnifiedReviewItem>): ReviewHeaderCounterBadgeInput {
+  private getNeuralRoamedCount(queue: IQueueStrategy<UnifiedReviewItem>): number {
     const underlying = resolveUnderlyingQueue(queue);
     if (underlying && isNeuralRoamSessionQueue(underlying)) {
-      const navigationState = underlying.getNavigationState();
-      return {
-        id: 'path',
-        label: t(this.i18n, 'headerPath', '\u8def\u5f84'),
-        kind: 'ratio',
-        tone: 'progress',
-        remaining: Math.max(0, navigationState.currentPathIndex + 1),
-        total: Math.max(0, navigationState.pathLength),
-      };
+      return Math.max(0, underlying.getHistorySnapshot().length);
     }
-
-    return {
-      id: 'path',
-      label: t(this.i18n, 'headerPath', '\u8def\u5f84'),
-      kind: 'ratio',
-      tone: 'progress',
-      remaining: 0,
-      total: 0,
-    };
+    return 0;
   }
 
   private buildPriorityBadge(item: UnifiedReviewItem | null, queueType: string): ReviewHeaderPriorityBadge {

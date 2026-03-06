@@ -78,6 +78,32 @@ interface PathItemOptions {
   focusPath?: boolean;
 }
 
+interface TraversalStateSnapshot {
+  currentFocus: string | null;
+  currentSessionId: string | null;
+  visitedBlocks: Set<string>;
+  exhaustedFocuses: Set<string>;
+  displayPath: string[];
+  seedPool: Map<string, FocusState>;
+  anchorPool: Map<string, FocusState>;
+  history: NeuralRoamHistoryEntry[];
+  navigationMode: NeuralNavigationMode;
+  currentPathIndex: number;
+  bookmarkPathIndex: number | null;
+  followCurrentNodeOnce: boolean;
+}
+
+interface TraversalResolution {
+  item: QueueItem | null;
+  nextState: TraversalStateSnapshot;
+}
+
+interface PreloadedNextState {
+  baseVersion: number;
+  item: QueueItem;
+  nextState: TraversalStateSnapshot;
+}
+
 export type ConceptCardValidator = (blockId: string) => Promise<boolean>;
 
 export interface ConceptNeuralQueueOptions {
@@ -123,6 +149,9 @@ export class ConceptNeuralQueue {
   private currentPathIndex = -1;
   private bookmarkPathIndex: number | null = null;
   private followCurrentNodeOnce = false;
+  private preloadedNext: PreloadedNextState | null = null;
+  private stateVersion = 0;
+  private isPreloading = false;
 
   private neighborsPerRound = 5;
   private prefetchNeighborCount = 2;
@@ -140,74 +169,23 @@ export class ConceptNeuralQueue {
 
   async getNextCard(): Promise<QueueItem | null> {
     try {
-      logger.debug('getNextCard called', {
-        navigationMode: this.navigationMode,
-        pathLength: this.displayPath.length,
-        currentPathIndex: this.currentPathIndex,
-        currentSessionId: this.currentSessionId,
-      });
-
-      if (this.navigationMode === 'follow') {
-        const followCard = await this.getNextCardFromPath();
-        if (followCard) {
-          return followCard;
-        }
-        this.navigationMode = 'explore';
+      const preloaded = this.preloadedNext;
+      if (preloaded && preloaded.baseVersion === this.stateVersion) {
+        this.preloadedNext = null;
+        this.applyTraversalState(preloaded.nextState);
+        this.stateVersion += 1;
+        this.schedulePreload();
+        return preloaded.item;
       }
 
-      while (true) {
-        if (!this.currentFocus || this.shouldRotateFocus()) {
-          this.currentFocus = this.selectNextFocus();
-          if (!this.currentFocus) {
-            logger.debug('No unvisited focus blocks available');
-            return null;
-          }
-        }
-
-        const neighbors = await this.queryEngine.fetchNeighbors(this.currentFocus);
-        const unvisitedNeighbors = neighbors.filter((n) => !this.visitedBlocks.has(n.id));
-
-        if (unvisitedNeighbors.length > 0) {
-          const selected = this.weightedRandomSelect(unvisitedNeighbors);
-          const card = await this.activateNode(selected.id, {
-            associationType: selected.type,
-            reason: this.getReasonText(selected.type),
-            focusId: this.currentFocus,
-            isVirtual: this.getNodeKind(selected.id) === 'virtual',
-          });
-
-          if (!card) {
-            this.visitedBlocks.add(selected.id);
-            continue;
-          }
-
-          const focusState = this.seedPool.get(this.currentFocus);
-          if (focusState) {
-            focusState.neighborsViewed += 1;
-          }
-
-          this.prefetchLikelyNextNeighborBlocks(unvisitedNeighbors, selected.id);
-          return card;
-        }
-
-        if (!this.visitedBlocks.has(this.currentFocus)) {
-          const currentFocusKind = this.getNodeKind(this.currentFocus);
-          const focusCard = await this.activateNode(this.currentFocus, {
-            associationType: 'focus',
-            reason: this.getReasonText('focus'),
-            focusId: this.currentFocus,
-            isVirtual: currentFocusKind === 'virtual',
-          });
-          if (focusCard) {
-            return focusCard;
-          }
-          this.currentFocus = null;
-          continue;
-        }
-
-        this.exhaustedFocuses.add(this.currentFocus);
-        this.rotateFocus();
+      const resolved = await this.resolveNextCardFromState(this.cloneTraversalState());
+      this.preloadedNext = null;
+      this.applyTraversalState(resolved.nextState);
+      this.stateVersion += 1;
+      if (resolved.item) {
+        this.schedulePreload();
       }
+      return resolved.item;
     } catch (error) {
       logger.error('Error in getNextCard', error);
       return null;
@@ -219,6 +197,7 @@ export class ConceptNeuralQueue {
     priority: 'normal' | 'high' = 'normal',
     options: { skipConceptValidation?: boolean } = {}
   ): Promise<void> {
+    this.invalidatePreload();
     const isConcept = options.skipConceptValidation
       ? true
       : await this.isConceptCard(blockId);
@@ -233,6 +212,7 @@ export class ConceptNeuralQueue {
   }
 
   removeConceptBlock(blockId: string): void {
+    this.invalidatePreload();
     this.seedPool.delete(blockId);
     this.exhaustedFocuses.delete(blockId);
     if (this.currentFocus === blockId) {
@@ -276,6 +256,7 @@ export class ConceptNeuralQueue {
   }
 
   async setSeedEntry(nodeId: string, enabled = true): Promise<void> {
+    this.invalidatePreload();
     await this.setSeedEntryInternal(nodeId, enabled);
   }
 
@@ -297,10 +278,12 @@ export class ConceptNeuralQueue {
   }
 
   async setAnchorEntry(nodeId: string, enabled = true): Promise<void> {
+    this.invalidatePreload();
     await this.setAnchorEntryInternal(nodeId, enabled);
   }
 
   async clearAnchors(): Promise<void> {
+    this.invalidatePreload();
     this.anchorPool.clear();
     if (this.currentFocus && !this.seedPool.has(this.currentFocus)) {
       this.currentFocus = null;
@@ -413,6 +396,7 @@ export class ConceptNeuralQueue {
       bookmarkCurrentPath?: boolean;
     } = {}
   ): Promise<void> {
+    this.invalidatePreload();
     const previousPathIndex = this.currentPathIndex;
     await this.setAnchorEntryInternal(focusId, true);
     await this.startRoamingFromFocus(focusId, options);
@@ -428,6 +412,7 @@ export class ConceptNeuralQueue {
       resetHistory?: boolean;
     } = {}
   ): Promise<void> {
+    this.invalidatePreload();
     const isConcept = await this.isConceptCard(focusId);
     if (isConcept && !this.seedPool.has(focusId)) {
       await this.addConceptBlock(focusId, 'normal');
@@ -465,6 +450,7 @@ export class ConceptNeuralQueue {
   }
 
   async jumpToHistoryNode(nodeId: string): Promise<boolean> {
+    this.invalidatePreload();
     const target = this.findLatestHistoryEntry(nodeId);
     if (target) {
       const pathForSession = this.buildPathForSession(target.sessionId);
@@ -519,6 +505,7 @@ export class ConceptNeuralQueue {
   }
 
   clearHistory(scope: 'current' | 'all' = 'current'): void {
+    this.invalidatePreload();
     if (scope === 'all') {
       this.history = [];
     } else if (this.currentSessionId) {
@@ -561,10 +548,12 @@ export class ConceptNeuralQueue {
   }
 
   setNavigationMode(mode: NeuralNavigationMode): void {
+    this.invalidatePreload();
     this.navigationMode = mode;
   }
 
   returnToBookmark(): boolean {
+    this.invalidatePreload();
     if (this.bookmarkPathIndex === null) {
       return false;
     }
@@ -591,16 +580,22 @@ export class ConceptNeuralQueue {
     const reason = latestHistory?.reason
       ?? this.getReasonText(associationType);
 
+    let navigationChanged = false;
     if (options.focusPath !== false) {
       const targetIndex = this.findLatestPathIndex(blockId);
       if (targetIndex >= 0) {
         if (this.currentPathIndex >= 0 && this.currentPathIndex !== targetIndex) {
           this.bookmarkPathIndex = this.currentPathIndex;
         }
+        navigationChanged = this.currentPathIndex !== targetIndex || this.navigationMode !== 'follow';
         this.currentPathIndex = targetIndex;
         this.navigationMode = 'follow';
         this.followCurrentNodeOnce = false;
       }
+    }
+
+    if (navigationChanged) {
+      this.invalidatePreload();
     }
 
     return this.buildQueueItem(blockData, associationType, reason);
@@ -711,6 +706,7 @@ export class ConceptNeuralQueue {
   }
 
   restoreSessionState(state: Partial<ConceptNeuralSessionState> | null | undefined): void {
+    this.invalidatePreload();
     if (!isRecord(state)) {
       this.resetNavigationState();
       return;
@@ -1079,9 +1075,13 @@ export class ConceptNeuralQueue {
     return reasonMap[type] || '未知关联';
   }
 
-  private prefetchLikelyNextNeighborBlocks(neighbors: Neighbor[], selectedId: string): void {
+  private prefetchLikelyNextNeighborBlocks(
+    neighbors: Neighbor[],
+    selectedId: string,
+    visitedBlocks: Set<string> = this.visitedBlocks,
+  ): void {
     const candidateIds = neighbors
-      .filter((neighbor) => neighbor.id !== selectedId && !this.visitedBlocks.has(neighbor.id))
+      .filter((neighbor) => neighbor.id !== selectedId && !visitedBlocks.has(neighbor.id))
       .sort((a, b) => b.weight - a.weight)
       .slice(0, this.prefetchNeighborCount)
       .map((neighbor) => neighbor.id);
@@ -1228,6 +1228,7 @@ export class ConceptNeuralQueue {
   }
 
   private resetNavigationState(): void {
+    this.invalidatePreload();
     this.visitedBlocks.clear();
     this.exhaustedFocuses.clear();
     this.displayPath = [];
@@ -1244,5 +1245,329 @@ export class ConceptNeuralQueue {
     for (const focus of this.anchorPool.values()) {
       focus.neighborsViewed = 0;
     }
+  }
+
+  private cloneTraversalState(): TraversalStateSnapshot {
+    return {
+      currentFocus: this.currentFocus,
+      currentSessionId: this.currentSessionId,
+      visitedBlocks: new Set(this.visitedBlocks),
+      exhaustedFocuses: new Set(this.exhaustedFocuses),
+      displayPath: [...this.displayPath],
+      seedPool: this.cloneFocusPool(this.seedPool),
+      anchorPool: this.cloneFocusPool(this.anchorPool),
+      history: this.history.map((entry) => ({ ...entry })),
+      navigationMode: this.navigationMode,
+      currentPathIndex: this.currentPathIndex,
+      bookmarkPathIndex: this.bookmarkPathIndex,
+      followCurrentNodeOnce: this.followCurrentNodeOnce,
+    };
+  }
+
+  private cloneFocusPool(pool: Map<string, FocusState>): Map<string, FocusState> {
+    return new Map(
+      Array.from(pool.entries()).map(([id, state]) => [id, { ...state }]),
+    );
+  }
+
+  private applyTraversalState(snapshot: TraversalStateSnapshot): void {
+    this.currentFocus = snapshot.currentFocus;
+    this.currentSessionId = snapshot.currentSessionId;
+    this.visitedBlocks = new Set(snapshot.visitedBlocks);
+    this.exhaustedFocuses = new Set(snapshot.exhaustedFocuses);
+    this.displayPath = [...snapshot.displayPath];
+    this.seedPool = this.cloneFocusPool(snapshot.seedPool);
+    this.anchorPool = this.cloneFocusPool(snapshot.anchorPool);
+    this.history = snapshot.history.map((entry) => ({ ...entry }));
+    this.navigationMode = snapshot.navigationMode;
+    this.currentPathIndex = snapshot.currentPathIndex;
+    this.bookmarkPathIndex = snapshot.bookmarkPathIndex;
+    this.followCurrentNodeOnce = snapshot.followCurrentNodeOnce;
+  }
+
+  private invalidatePreload(): void {
+    this.preloadedNext = null;
+    this.stateVersion += 1;
+  }
+
+  private schedulePreload(): void {
+    if (this.isPreloading || this.preloadedNext) {
+      return;
+    }
+
+    const baseVersion = this.stateVersion;
+    const snapshot = this.cloneTraversalState();
+    this.isPreloading = true;
+
+    void this.resolveNextCardFromState(snapshot)
+      .then((resolved) => {
+        if (baseVersion !== this.stateVersion || !resolved.item) {
+          return;
+        }
+
+        this.preloadedNext = {
+          baseVersion,
+          item: resolved.item,
+          nextState: resolved.nextState,
+        };
+      })
+      .catch((error) => {
+        logger.debug('Preload next roam card failed', { error });
+      })
+      .finally(() => {
+        this.isPreloading = false;
+      });
+  }
+
+  private async resolveNextCardFromState(snapshot: TraversalStateSnapshot): Promise<TraversalResolution> {
+    logger.debug('getNextCard called', {
+      navigationMode: snapshot.navigationMode,
+      pathLength: snapshot.displayPath.length,
+      currentPathIndex: snapshot.currentPathIndex,
+      currentSessionId: snapshot.currentSessionId,
+      stateVersion: this.stateVersion,
+    });
+
+    if (snapshot.navigationMode === 'follow') {
+      const followCard = await this.getNextCardFromPathState(snapshot);
+      if (followCard) {
+        return { item: followCard, nextState: snapshot };
+      }
+      snapshot.navigationMode = 'explore';
+    }
+
+    while (true) {
+      if (!snapshot.currentFocus || this.shouldRotateFocusState(snapshot)) {
+        snapshot.currentFocus = this.selectNextFocusState(snapshot);
+        if (!snapshot.currentFocus) {
+          logger.debug('No unvisited focus blocks available');
+          return { item: null, nextState: snapshot };
+        }
+      }
+
+      const neighborsResult = await this.queryEngine.fetchNeighbors(snapshot.currentFocus);
+      const neighbors = Array.isArray(neighborsResult) ? neighborsResult : [];
+      const unvisitedNeighbors = neighbors.filter((neighbor) => !snapshot.visitedBlocks.has(neighbor.id));
+
+      if (unvisitedNeighbors.length > 0) {
+        const selected = this.weightedRandomSelect(unvisitedNeighbors);
+        const focusId = snapshot.currentFocus;
+        const card = await this.activateNodeState(selected.id, {
+          associationType: selected.type,
+          reason: this.getReasonText(selected.type),
+          focusId,
+          isVirtual: this.getNodeKindFromState(snapshot, selected.id) === 'virtual',
+        }, snapshot);
+
+        if (!card) {
+          snapshot.visitedBlocks.add(selected.id);
+          continue;
+        }
+
+        const focusState = focusId ? snapshot.seedPool.get(focusId) : null;
+        if (focusState) {
+          focusState.neighborsViewed += 1;
+        }
+
+        this.prefetchLikelyNextNeighborBlocks(unvisitedNeighbors, selected.id, snapshot.visitedBlocks);
+        return { item: card, nextState: snapshot };
+      }
+
+      if (snapshot.currentFocus && !snapshot.visitedBlocks.has(snapshot.currentFocus)) {
+        const currentFocus = snapshot.currentFocus;
+        const focusCard = await this.activateNodeState(currentFocus, {
+          associationType: 'focus',
+          reason: this.getReasonText('focus'),
+          focusId: currentFocus,
+          isVirtual: this.getNodeKindFromState(snapshot, currentFocus) === 'virtual',
+        }, snapshot);
+        if (focusCard) {
+          return { item: focusCard, nextState: snapshot };
+        }
+        snapshot.currentFocus = null;
+        continue;
+      }
+
+      if (snapshot.currentFocus) {
+        snapshot.exhaustedFocuses.add(snapshot.currentFocus);
+      }
+      this.rotateFocusState(snapshot);
+    }
+  }
+
+  private async getNextCardFromPathState(snapshot: TraversalStateSnapshot): Promise<QueueItem | null> {
+    if (snapshot.followCurrentNodeOnce) {
+      snapshot.followCurrentNodeOnce = false;
+      const currentNodeId = this.getCurrentPathNodeIdFromState(snapshot);
+      if (currentNodeId) {
+        const currentCard = await this.getPathItemByNodeIdFromState(currentNodeId, snapshot, { focusPath: false });
+        if (currentCard) {
+          return currentCard;
+        }
+      }
+    }
+
+    const nextIndex = snapshot.currentPathIndex + 1;
+    if (nextIndex < 0 || nextIndex >= snapshot.displayPath.length) {
+      return null;
+    }
+
+    const nodeId = snapshot.displayPath[nextIndex];
+    const card = await this.getPathItemByNodeIdFromState(nodeId, snapshot, { focusPath: false });
+    if (!card) {
+      return null;
+    }
+
+    snapshot.currentPathIndex = nextIndex;
+    return card;
+  }
+
+  private async activateNodeState(
+    nodeId: string,
+    meta: ActivateNodeMeta,
+    snapshot: TraversalStateSnapshot,
+  ): Promise<QueueItem | null> {
+    const blockData = await this.queryEngine.fetchBlockData(nodeId);
+    if (!blockData) {
+      return null;
+    }
+
+    if (!snapshot.currentSessionId) {
+      snapshot.currentSessionId = createSessionId();
+    }
+
+    if (snapshot.currentPathIndex >= 0 && snapshot.currentPathIndex < snapshot.displayPath.length - 1) {
+      snapshot.displayPath = snapshot.displayPath.slice(0, snapshot.currentPathIndex + 1);
+    }
+
+    snapshot.displayPath.push(nodeId);
+    snapshot.currentPathIndex = snapshot.displayPath.length - 1;
+    snapshot.navigationMode = 'explore';
+    snapshot.bookmarkPathIndex = null;
+    snapshot.followCurrentNodeOnce = false;
+    snapshot.visitedBlocks.add(nodeId);
+
+    const nodePreview = this.compressText(blockData.content || nodeId);
+    snapshot.history.push({
+      nodeId,
+      focusId: meta.focusId,
+      sessionId: snapshot.currentSessionId,
+      associationType: meta.associationType,
+      reason: meta.reason,
+      visitedAt: Date.now(),
+      isVirtual: meta.isVirtual,
+      nodePreview,
+    });
+    if (snapshot.history.length > this.historyLimit) {
+      snapshot.history.splice(0, snapshot.history.length - this.historyLimit);
+    }
+
+    return this.buildQueueItem(blockData, meta.associationType, meta.reason);
+  }
+
+  private shouldRotateFocusState(snapshot: TraversalStateSnapshot): boolean {
+    if (!snapshot.currentFocus) {
+      return true;
+    }
+
+    const focusState = snapshot.seedPool.get(snapshot.currentFocus);
+    if (!focusState) {
+      return false;
+    }
+
+    return focusState.neighborsViewed >= this.neighborsPerRound;
+  }
+
+  private rotateFocusState(snapshot: TraversalStateSnapshot): void {
+    if (snapshot.currentFocus) {
+      const focusState = snapshot.seedPool.get(snapshot.currentFocus);
+      if (focusState) {
+        focusState.neighborsViewed = 0;
+      }
+    }
+    snapshot.currentFocus = null;
+  }
+
+  private selectNextFocusState(snapshot: TraversalStateSnapshot): string | null {
+    const candidateFocuses = Array.from(snapshot.seedPool.entries())
+      .filter(([id]) => !snapshot.exhaustedFocuses.has(id))
+      .map(([id, state]) => ({ id, ...state }));
+
+    if (candidateFocuses.length === 0) {
+      return null;
+    }
+
+    return this.weightedRandomSelectFocus(candidateFocuses);
+  }
+
+  private getNodeKindFromState(snapshot: TraversalStateSnapshot, nodeId: string): NeuralFocusNodeKind {
+    if (snapshot.seedPool.has(nodeId)) {
+      return 'concept';
+    }
+    return snapshot.anchorPool.get(nodeId)?.nodeKind ?? 'virtual';
+  }
+
+  private async getPathItemByNodeIdFromState(
+    blockId: string,
+    snapshot: TraversalStateSnapshot,
+    options: PathItemOptions = {},
+  ): Promise<QueueItem | null> {
+    const blockData = await this.queryEngine.fetchBlockData(blockId);
+    if (!blockData) {
+      return null;
+    }
+
+    const latestHistory = this.findLatestHistoryEntryInHistory(snapshot.history, blockId);
+    const associationType = latestHistory?.associationType
+      ?? (this.getNodeStateFromState(snapshot, blockId) ? 'focus' : 'path');
+    const reason = latestHistory?.reason
+      ?? this.getReasonText(associationType);
+
+    if (options.focusPath !== false) {
+      const targetIndex = this.findLatestPathIndexInPath(snapshot.displayPath, blockId);
+      if (targetIndex >= 0) {
+        if (snapshot.currentPathIndex >= 0 && snapshot.currentPathIndex !== targetIndex) {
+          snapshot.bookmarkPathIndex = snapshot.currentPathIndex;
+        }
+        snapshot.currentPathIndex = targetIndex;
+        snapshot.navigationMode = 'follow';
+        snapshot.followCurrentNodeOnce = false;
+      }
+    }
+
+    return this.buildQueueItem(blockData, associationType, reason);
+  }
+
+  private getNodeStateFromState(snapshot: TraversalStateSnapshot, nodeId: string): FocusState | null {
+    return snapshot.seedPool.get(nodeId) ?? snapshot.anchorPool.get(nodeId) ?? null;
+  }
+
+  private getCurrentPathNodeIdFromState(snapshot: TraversalStateSnapshot): string | null {
+    if (snapshot.currentPathIndex < 0 || snapshot.currentPathIndex >= snapshot.displayPath.length) {
+      return null;
+    }
+    return snapshot.displayPath[snapshot.currentPathIndex];
+  }
+
+  private findLatestPathIndexInPath(displayPath: string[], blockId: string): number {
+    for (let index = displayPath.length - 1; index >= 0; index -= 1) {
+      if (displayPath[index] === blockId) {
+        return index;
+      }
+    }
+    return -1;
+  }
+
+  private findLatestHistoryEntryInHistory(
+    history: NeuralRoamHistoryEntry[],
+    blockId: string,
+  ): NeuralRoamHistoryEntry | null {
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      const entry = history[index];
+      if (entry.nodeId === blockId) {
+        return entry;
+      }
+    }
+    return null;
   }
 }

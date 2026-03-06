@@ -11,6 +11,7 @@
       <span
         v-if="counterSummary"
         class="b3-tooltips b3-tooltips__sw siyuanmemo-review-header__summary"
+        :class="{ 'siyuanmemo-review-header__summary--value': counterSummary.kind === 'value' }"
         :aria-label="counterSummary.ariaLabel"
         :title="counterSummary.tooltip"
       >
@@ -282,6 +283,11 @@ function handleCloseClick(event: MouseEvent): void {
 .siyuanmemo-review-header__summary:hover {
   border-color: color-mix(in srgb, var(--b3-theme-on-surface-light) 28%, transparent);
   background-color: color-mix(in srgb, var(--b3-theme-on-surface-light) 10%, transparent);
+}
+
+.siyuanmemo-review-header__summary--value {
+  justify-content: center;
+  min-width: 34px;
 }
 
 .siyuanmemo-review-header__badge,

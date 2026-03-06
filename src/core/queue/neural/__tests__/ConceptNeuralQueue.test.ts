@@ -1,6 +1,11 @@
 ﻿import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConceptNeuralQueue } from '../ConceptNeuralQueue';
 
+async function flushAsync(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 describe('ConceptNeuralQueue', () => {
   let queue: ConceptNeuralQueue;
   let mockQueryEngine: any;
@@ -322,6 +327,7 @@ describe('ConceptNeuralQueue', () => {
       resetHistory: true,
     });
     await queue.getNextCard();
+    await flushAsync();
     await queue.getNextCard();
 
     const jumped = await queue.jumpToHistoryNode('neighbor-1');
@@ -389,5 +395,112 @@ describe('ConceptNeuralQueue', () => {
     expect(result.changed).toBe(false);
     expect(result.removedNodeIds).toEqual([]);
     expect(customQueue.getSeedSnapshot().map((entry) => entry.nodeId).sort()).toEqual(['concept-a', 'concept-b']);
+  });
+
+  it('reuses preloaded next card on the second getNextCard call', async () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+    mockQueryEngine.fetchNeighbors = vi.fn(async () => [
+      { id: 'neighbor-1', type: 'backlink', weight: 10 },
+      { id: 'neighbor-2', type: 'outgoing-direct', weight: 9 },
+    ]);
+
+    await queue.addConceptBlock('concept-1');
+    await queue.startRoamingFromFocus('concept-1', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    const first = await queue.getNextCard();
+    expect(first?.blockId).toBe('neighbor-1');
+
+    await flushAsync();
+
+    expect((queue as any).preloadedNext?.item.blockId).toBe('neighbor-2');
+
+    const fetchCountBeforeSecond = mockQueryEngine.fetchNeighbors.mock.calls.length;
+    (queue as any).isPreloading = true;
+    const second = await queue.getNextCard();
+    (queue as any).isPreloading = false;
+
+    expect(second?.blockId).toBe('neighbor-2');
+    expect(mockQueryEngine.fetchNeighbors).toHaveBeenCalledTimes(fetchCountBeforeSecond);
+    randomSpy.mockRestore();
+  });
+
+  it('invalidates preloaded next card when current focus changes', async () => {
+    mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+    mockQueryEngine.fetchNeighbors = vi.fn(async () => [
+      { id: 'neighbor-1', type: 'backlink', weight: 10 },
+      { id: 'neighbor-2', type: 'outgoing-direct', weight: 9 },
+    ]);
+
+    await queue.addConceptBlock('concept-1');
+    await queue.startRoamingFromFocus('concept-1', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    await queue.getNextCard();
+    await flushAsync();
+
+    expect((queue as any).preloadedNext).not.toBeNull();
+
+    await queue.setCurrentFocus('virtual-focus-2', {
+      includeFocusAsFirst: true,
+      resetHistory: false,
+    });
+
+    expect((queue as any).preloadedNext).toBeNull();
+  });
+
+  it('falls back to synchronous traversal when preload fails', async () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+
+    let fetchNeighborCall = 0;
+    mockQueryEngine.fetchNeighbors = vi.fn(async () => {
+      fetchNeighborCall += 1;
+      if (fetchNeighborCall === 2) {
+        throw new Error('preload failed');
+      }
+      return [
+        { id: 'neighbor-1', type: 'backlink', weight: 10 },
+        { id: 'neighbor-2', type: 'outgoing-direct', weight: 9 },
+      ];
+    });
+
+    await queue.addConceptBlock('concept-1');
+    await queue.startRoamingFromFocus('concept-1', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    const first = await queue.getNextCard();
+    expect(first?.blockId).toBe('neighbor-1');
+
+    await flushAsync();
+    expect((queue as any).preloadedNext).toBeNull();
+
+    (queue as any).isPreloading = true;
+    const second = await queue.getNextCard();
+    (queue as any).isPreloading = false;
+    expect(second?.blockId).toBe('neighbor-2');
+    expect(mockQueryEngine.fetchNeighbors).toHaveBeenCalledTimes(3);
+    randomSpy.mockRestore();
   });
 });

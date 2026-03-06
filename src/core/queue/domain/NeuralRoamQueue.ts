@@ -52,6 +52,10 @@ interface NeuralRoamQueueOptions {
 }
 
 type LocalConceptStatus = 'concept' | 'non-concept' | 'unknown';
+type CachedCardType = {
+  value: 'item' | 'topic';
+  expiresAt: number;
+};
 
 const DEFAULT_CARD_TYPE_RESOLVER: NeuralRoamCardTypeResolverPort = {
   async resolveCardType(): Promise<'item' | 'topic'> {
@@ -161,6 +165,9 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   private readonly STORAGE_KEY = 'neuralRoamQueue';
   private readonly queuePersistence: QueuePersistencePort;
   private readonly cardTypeResolver: NeuralRoamCardTypeResolverPort;
+  private readonly cardTypeCache = new Map<string, CachedCardType>();
+  private readonly cardTypeCacheTtlMs = 60_000;
+  private readonly maxCardTypeCacheSize = 256;
 
   constructor(
     manager: UnifiedDataSourceManager,
@@ -596,12 +603,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   private async convertToFSRSCard(queueItem: ConceptQueueItem): Promise<FSRSCard> {
     const now = Date.now();
 
-    let cardType: 'item' | 'topic' = 'topic';
-    try {
-      cardType = await this.cardTypeResolver.resolveCardType(queueItem.blockId);
-    } catch (error) {
-      logger.warn('Failed to resolve neural roam card type, fallback to topic:', error);
-    }
+    const cardType = await this.resolveCachedCardType(queueItem.blockId);
 
     return {
       id: queueItem.blockId,
@@ -633,5 +635,72 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         },
       },
     };
+  }
+
+  private async resolveCachedCardType(blockId: string): Promise<'item' | 'topic'> {
+    const normalizedBlockId = String(blockId || '').trim();
+    if (!normalizedBlockId) {
+      return 'topic';
+    }
+
+    const cached = this.getCachedCardType(normalizedBlockId);
+    if (cached) {
+      return cached;
+    }
+
+    let resolved: 'item' | 'topic' = 'topic';
+    try {
+      resolved = await this.cardTypeResolver.resolveCardType(normalizedBlockId);
+    } catch (error) {
+      logger.warn('Failed to resolve neural roam card type, fallback to topic:', error);
+    }
+
+    this.setCachedCardType(normalizedBlockId, resolved);
+    return resolved;
+  }
+
+  private getCachedCardType(blockId: string): 'item' | 'topic' | null {
+    const cached = this.cardTypeCache.get(blockId);
+    if (!cached) {
+      return null;
+    }
+
+    if (cached.expiresAt <= Date.now()) {
+      this.cardTypeCache.delete(blockId);
+      return null;
+    }
+
+    this.cardTypeCache.delete(blockId);
+    this.cardTypeCache.set(blockId, cached);
+    return cached.value;
+  }
+
+  private setCachedCardType(blockId: string, value: 'item' | 'topic'): void {
+    this.evictExpiredCardTypes();
+    if (this.cardTypeCache.has(blockId)) {
+      this.cardTypeCache.delete(blockId);
+    }
+
+    this.cardTypeCache.set(blockId, {
+      value,
+      expiresAt: Date.now() + this.cardTypeCacheTtlMs,
+    });
+
+    while (this.cardTypeCache.size > this.maxCardTypeCacheSize) {
+      const oldestKey = this.cardTypeCache.keys().next().value;
+      if (!oldestKey) {
+        break;
+      }
+      this.cardTypeCache.delete(oldestKey);
+    }
+  }
+
+  private evictExpiredCardTypes(): void {
+    const now = Date.now();
+    for (const [blockId, cached] of this.cardTypeCache.entries()) {
+      if (cached.expiresAt <= now) {
+        this.cardTypeCache.delete(blockId);
+      }
+    }
   }
 }

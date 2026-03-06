@@ -378,4 +378,27 @@ describe('NeuralRoamQueue', () => {
     expect(queue.returnToBookmark()).toBe(true);
     expect(queue.getNavigationState().currentNodeId).toBe('virtual-1');
   });
+
+  it('caches resolved card type across repeated neural card conversions', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager();
+    const resolveCardType = vi.fn(async () => 'item' as const);
+    const queue = new NeuralRoamQueue(
+      manager.manager,
+      persistence,
+      {
+        cardTypeResolver: {
+          resolveCardType,
+        },
+      }
+    );
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    await queue.getPathItemByNodeId('virtual-1');
+    await queue.getPathItemByNodeId('virtual-1');
+
+    expect(resolveCardType).toHaveBeenCalledTimes(1);
+  });
 });

@@ -29,7 +29,11 @@ export interface IAdapter<TItem = unknown, TUIState = unknown> {
     context: AdapterContext,
   ): Promise<TUIState>;
 
-  fetchAuxiliaryData?(item: TItem | null): Promise<Partial<TUIState>>;
+  fetchAuxiliaryData?(
+    item: TItem | null,
+    queue?: QueueProvider<TItem> | unknown,
+    context?: AdapterContext,
+  ): Promise<Partial<TUIState>>;
   resetSessionState?(): void;
   cleanup?(): void;
 }

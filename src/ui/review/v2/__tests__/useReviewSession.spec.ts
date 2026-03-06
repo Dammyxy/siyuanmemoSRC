@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
-import { createEmptyReviewUIState, type ReviewSessionHook } from '../types';
+import { createEmptyReviewUIState, type ReviewSessionHook, type ReviewUIState } from '../types';
 import { useReviewSession } from '../useReviewSession';
 
 function createItem(id: string) {
@@ -34,22 +34,28 @@ function createQueue() {
   };
 }
 
-function createAdapter() {
+function createAdapter(overrides: Record<string, unknown> = {}) {
   return {
     toUIState: vi.fn(async () => createEmptyReviewUIState()),
     resetSessionState: vi.fn(),
     cleanup: vi.fn(),
+    ...overrides,
   };
 }
 
 async function flushAsync(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
-function mountHook() {
-  const queue = createQueue();
-  const adapter = createAdapter();
+function mountHook(options: {
+  queue?: ReturnType<typeof createQueue>;
+  adapter?: ReturnType<typeof createAdapter>;
+} = {}) {
+  const queue = options.queue ?? createQueue();
+  const adapter = options.adapter ?? createAdapter();
   let hook: ReviewSessionHook | null = null;
 
   const Harness = defineComponent({
@@ -71,6 +77,36 @@ function mountHook() {
       return hook;
     },
   };
+}
+
+function createReviewState(itemId: string): ReviewUIState {
+  return {
+    ...createEmptyReviewUIState(),
+    header: {
+      ...createEmptyReviewUIState().header,
+      stats: {
+        current: 0,
+        total: 0,
+        label: '',
+        queueName: 'Unified Queue',
+      },
+    },
+    content: {
+      type: 'html',
+      data: itemId,
+      id: itemId,
+    },
+  };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 describe('useReviewSession', () => {
@@ -129,6 +165,78 @@ describe('useReviewSession', () => {
     expect(hook.context.value.session?.baselineVersion).toBe(1);
     expect(adapter.resetSessionState).toHaveBeenCalledTimes(2);
     expect(queue.resetSessionState).toHaveBeenCalledTimes(1);
+
+    wrapper.unmount();
+  });
+
+  it('updates content before auxiliary header and ignores stale auxiliary results', async () => {
+    const queue = createQueue();
+    const card1Aux = createDeferred<Partial<ReviewUIState>>();
+    const card2Aux = createDeferred<Partial<ReviewUIState>>();
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
+      fetchAuxiliaryData: vi.fn((item: { id?: string } | null) => {
+        if (item?.id === 'card-1') {
+          return card1Aux.promise;
+        }
+        if (item?.id === 'card-2') {
+          return card2Aux.promise;
+        }
+        return Promise.resolve({});
+      }),
+    });
+
+    const { getHook, wrapper } = mountHook({ queue, adapter });
+    await flushAsync();
+
+    const hook = getHook();
+    expect(hook.state.value.content.id).toBe('card-1');
+
+    await hook.grade(3);
+    await flushAsync();
+
+    expect(hook.state.value.content.id).toBe('card-2');
+    expect(hook.state.value.header.stats.label).toBe('');
+
+    card1Aux.resolve({
+      header: {
+        stats: {
+          current: 99,
+          total: 100,
+          label: 'stale',
+          queueName: 'Unified Queue',
+        },
+      },
+      meta: {
+        queueSize: 100,
+        remainingSize: 99,
+      },
+    });
+    await flushAsync();
+
+    expect(hook.state.value.content.id).toBe('card-2');
+    expect(hook.state.value.header.stats.label).toBe('');
+    expect(hook.state.value.meta.queueSize).not.toBe(100);
+
+    card2Aux.resolve({
+      header: {
+        stats: {
+          current: 2,
+          total: 3,
+          label: '2 due',
+          queueName: 'Unified Queue',
+        },
+      },
+      meta: {
+        queueSize: 3,
+        remainingSize: 2,
+      },
+    });
+    await flushAsync();
+
+    expect(hook.state.value.header.stats.label).toBe('2 due');
+    expect(hook.state.value.meta.queueSize).toBe(3);
+    expect(hook.state.value.meta.remainingSize).toBe(2);
 
     wrapper.unmount();
   });

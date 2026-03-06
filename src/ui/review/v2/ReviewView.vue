@@ -120,7 +120,7 @@ type ReviewProviderLike = {
 type ReviewUIConfigLike = {
   adapter?: {
     toUIState: (provider: unknown, item: unknown, context: unknown) => Promise<unknown>;
-    fetchAuxiliaryData?: (item: unknown) => Promise<unknown>;
+    fetchAuxiliaryData?: (item: unknown, queue?: unknown, context?: unknown) => Promise<unknown>;
   };
   context?: {
     queue?: Record<string, unknown>;
@@ -476,7 +476,7 @@ const bridgedAdapter = provider && providerAdapter
   ? {
       toUIState: (_queue: unknown, item: unknown, context: unknown) => providerAdapter.toUIState(provider, item, context),
       fetchAuxiliaryData: typeof providerAdapter.fetchAuxiliaryData === 'function'
-        ? (item: unknown) => providerAdapter.fetchAuxiliaryData(item)
+        ? (item: unknown, _queue?: unknown, context?: unknown) => providerAdapter.fetchAuxiliaryData(item, provider, context)
         : undefined,
     }
   : null;
