@@ -51,6 +51,8 @@ interface NeuralRoamQueueOptions {
   cardTypeResolver?: NeuralRoamCardTypeResolverPort;
 }
 
+type LocalConceptStatus = 'concept' | 'non-concept' | 'unknown';
+
 const DEFAULT_CARD_TYPE_RESOLVER: NeuralRoamCardTypeResolverPort = {
   async resolveCardType(): Promise<'item' | 'topic'> {
     return 'topic';
@@ -168,7 +170,15 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     super(manager, QueueType.NeuralRoam);
     this.queuePersistence = queuePersistence;
     this.cardTypeResolver = options.cardTypeResolver ?? DEFAULT_CARD_TYPE_RESOLVER;
-    this.conceptQueue = new ConceptNeuralQueue();
+    this.conceptQueue = new ConceptNeuralQueue({
+      isConceptCard: async (blockId: string) => {
+        const conceptStatus = await this.resolveConceptStatusFromLocalCards(blockId);
+        if (conceptStatus === 'unknown') {
+          throw new Error(`Local concept status unavailable for block ${blockId}`);
+        }
+        return conceptStatus === 'concept';
+      },
+    });
   }
 
   async load(): Promise<void> {
@@ -186,6 +196,8 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       return;
     }
 
+    let persistRequired = false;
+
     if (isNeuralRoamPersistedStateV5(rawState)) {
       this.conceptQueue.restoreSeedPoolState(rawState.seedPool);
       this.conceptQueue.restoreAnchorPoolState(rawState.anchorPool);
@@ -193,10 +205,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       if (fromStorage) {
         logger.info(`Loaded neural roam state (v5), seedPool=${rawState.seedPool.length}, anchorPool=${rawState.anchorPool.length}`);
       }
-      return;
-    }
-
-    if (isNeuralRoamPersistedStateV4(rawState)) {
+    } else if (isNeuralRoamPersistedStateV4(rawState)) {
       const { seedPool, anchorPool } = splitFocusPoolToSeedAndAnchor(rawState.focusPool);
       this.conceptQueue.restoreSeedPoolState(seedPool);
       this.conceptQueue.restoreAnchorPoolState(anchorPool);
@@ -208,11 +217,8 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       if (fromStorage) {
         logger.info(`Migrated neural roam state v4->v5, seedPool=${seedPool.length}, anchorPool=${anchorPool.length}`);
       }
-      await this.save();
-      return;
-    }
-
-    if (isNeuralRoamPersistedStateV3(rawState)) {
+      persistRequired = true;
+    } else if (isNeuralRoamPersistedStateV3(rawState)) {
       const mergedFocusPool = mergeLegacyFocusPool(rawState.conceptBlocks, rawState.session);
       const { seedPool, anchorPool } = splitFocusPoolToSeedAndAnchor(mergedFocusPool);
       this.conceptQueue.restoreSeedPoolState(seedPool);
@@ -225,17 +231,30 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       if (fromStorage) {
         logger.info(`Migrated neural roam state v3->v5, seedPool=${seedPool.length}, anchorPool=${anchorPool.length}`);
       }
-      await this.save();
-      return;
+      persistRequired = true;
+    } else {
+      // Hard-cut migration strategy: reset legacy/v2 state silently to v5 schema.
+      logger.info('Legacy neural roam state detected, reset to v5 schema');
+      this.conceptQueue.restoreSeedPoolState([]);
+      this.conceptQueue.restoreAnchorPoolState([]);
+      this.conceptQueue.restoreSessionState(null);
+      this.conceptQueue.clearHistory('all');
+      persistRequired = true;
     }
 
-    // Hard-cut migration strategy: reset legacy/v2 state silently to v5 schema.
-    logger.info('Legacy neural roam state detected, reset to v5 schema');
-    this.conceptQueue.restoreSeedPoolState([]);
-    this.conceptQueue.restoreAnchorPoolState([]);
-    this.conceptQueue.restoreSessionState(null);
-    this.conceptQueue.clearHistory('all');
-    await this.save();
+    const normalization = await this.conceptQueue.normalizeSeedPoolToConceptCards({
+      validationErrorPolicy: 'keep',
+    });
+    if (normalization.changed) {
+      persistRequired = true;
+      logger.info(`Normalized neural roam seed pool after load, removed=${normalization.removedNodeIds.length}`, {
+        removedNodeIds: normalization.removedNodeIds,
+      });
+    }
+
+    if (persistRequired) {
+      await this.save();
+    }
   }
 
   async save(): Promise<void> {
@@ -281,12 +300,27 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async addCard(card: FSRSCard | ReviewQueueItem | string, priority: 'normal' | 'high' = 'normal'): Promise<void> {
     await this.ensureInitialLoad();
-    const blockId = typeof card === 'string' ? card : resolveCardId(card);
+    const { blockId, conceptHint } = this.resolveAddTarget(card);
     if (!blockId) {
       throw new Error('Invalid card or block ID');
     }
 
-    await this.conceptQueue.addConceptBlock(blockId, priority);
+    let skipConceptValidation = conceptHint;
+    if (!skipConceptValidation) {
+      const conceptStatus = await this.resolveConceptStatusFromLocalCards(blockId);
+      if (conceptStatus === 'unknown') {
+        throw new Error(`Failed to validate concept card ${blockId} from local storage`);
+      }
+      if (conceptStatus !== 'concept') {
+        throw new Error(`Block ${blockId} is not a concept card`);
+      }
+      skipConceptValidation = true;
+    }
+
+    await this.conceptQueue.addConceptBlock(blockId, priority, {
+      // Skip duplicate validation after local concept check.
+      skipConceptValidation,
+    });
     await this.save();
   }
 
@@ -493,6 +527,70 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   public async getSize(): Promise<number> {
     await this.ensureInitialLoad();
     return this.conceptQueue.getSeedSnapshot().length;
+  }
+
+  private resolveAddTarget(card: FSRSCard | ReviewQueueItem | string): { blockId: string; conceptHint: boolean } {
+    if (typeof card === 'string') {
+      return {
+        blockId: card,
+        conceptHint: false,
+      };
+    }
+
+    const raw = card as Record<string, unknown>;
+    const blockId = typeof raw.blockId === 'string' && raw.blockId.trim().length > 0
+      ? raw.blockId
+      : resolveCardId(card);
+
+    return {
+      blockId,
+      conceptHint: this.hasConceptHint(raw),
+    };
+  }
+
+  private hasConceptHint(raw: Record<string, unknown>): boolean {
+    const type = typeof raw.type === 'string' ? raw.type : '';
+    const cardType = typeof raw.cardType === 'string' ? raw.cardType : '';
+    const cardTypeMarker = typeof raw.cardTypeMarker === 'string' ? raw.cardTypeMarker : '';
+    const meta = isRecord(raw.meta) ? raw.meta : null;
+    const metaCardTypeMarker = meta && typeof meta.cardTypeMarker === 'string'
+      ? meta.cardTypeMarker
+      : '';
+
+    return type === 'concept'
+      || cardType === 'concept'
+      || cardTypeMarker === 'concept'
+      || metaCardTypeMarker === 'concept';
+  }
+
+  private async resolveConceptStatusFromLocalCards(blockId: string): Promise<LocalConceptStatus> {
+    const normalizedBlockId = String(blockId || '').trim();
+    if (!normalizedBlockId) {
+      return 'non-concept';
+    }
+
+    try {
+      const cards = await this.manager.getCards({
+        blockIds: [normalizedBlockId],
+      });
+      const localCard = cards.find((card) => card.blockId === normalizedBlockId) ?? cards[0] ?? null;
+      if (!localCard) {
+        return 'non-concept';
+      }
+      return this.isLocalConceptCard(localCard) ? 'concept' : 'non-concept';
+    } catch (error) {
+      logger.warn(`Failed to resolve local concept status for block ${normalizedBlockId}:`, error);
+      return 'unknown';
+    }
+  }
+
+  private isLocalConceptCard(card: FSRSCard): boolean {
+    const marker = typeof card.cardTypeMarker === 'string' ? card.cardTypeMarker : '';
+    const metaMarker = isRecord(card.meta) && typeof card.meta.cardTypeMarker === 'string'
+      ? card.meta.cardTypeMarker
+      : '';
+
+    return card.type === 'concept' || marker === 'concept' || metaMarker === 'concept';
   }
 
   private async convertToFSRSCard(queueItem: ConceptQueueItem): Promise<FSRSCard> {

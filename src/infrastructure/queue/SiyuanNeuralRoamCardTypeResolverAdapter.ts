@@ -1,6 +1,5 @@
 import { sql } from '@/infrastructure/siyuan/api';
 import type { NeuralRoamCardTypeResolverPort } from '@/core/queue/domain/ports';
-import { hasConceptDefinitionSyntax } from '@/core/xiuyuan/cardMeta';
 
 type LocalCardRow = {
   type?: unknown;
@@ -29,32 +28,9 @@ export class SiyuanNeuralRoamCardTypeResolverAdapter implements NeuralRoamCardTy
         return 'item';
       }
     } catch {
-      // fsrs_cards table may be unavailable in some environments
+      return 'topic';
     }
 
-    const blockRows = await sql(`
-      SELECT content
-      FROM blocks
-      WHERE id = '${escapedId}'
-      LIMIT 1
-    `);
-    const content = typeof blockRows?.[0]?.content === 'string' ? blockRows[0].content : '';
-    if (!content) {
-      return 'topic';
-    }
-    if (hasConceptDefinitionSyntax(content)) {
-      return 'topic';
-    }
-    if (
-      content.includes(';;')
-      || content.includes(';<>')
-      || content.includes('>>')
-      || content.includes('<<')
-      || content.includes('{{')
-      || content.includes('==')
-    ) {
-      return 'item';
-    }
     return 'topic';
   }
 

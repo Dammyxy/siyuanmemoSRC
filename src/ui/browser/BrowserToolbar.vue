@@ -159,17 +159,6 @@
         <svg><use xlink:href="#iconRefresh"></use></svg>
       </button>
 
-      <button
-        v-if="!props.mobileMode && !activeQueueId"
-        class="b3-button b3-button--outline"
-        @click="$emit('repairCardTypeConsistency')"
-        :disabled="loading"
-        :title="t('repairCardTypeConsistency', '扫描并修复卡片类型一致性')"
-      >
-        <svg><use xlink:href="#iconRefresh"></use></svg>
-        {{ t('repairCardTypeConsistencyShort', '修复类型') }}
-      </button>
-
       <!-- 更多菜单按钮 -->
       <!-- 🔇 已隐藏：更多菜单
       <button 
@@ -278,7 +267,6 @@ const emit = defineEmits<{
   (e: 'applySortToQueue'): void;
   (e: 'toggleViewMode'): void;
   (e: 'forceRefresh'): void;
-  (e: 'repairCardTypeConsistency'): void;
   (e: 'migrateTopicItem'): void;
   (e: 'showPerformanceReport'): void;
   (e: 'convertToTab'): void;

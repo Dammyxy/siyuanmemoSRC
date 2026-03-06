@@ -201,8 +201,19 @@ type QueueCandidate = {
   cardType?: BrowserCard['cardType'];
 };
 
+type QueueAddInput = string | {
+  id: string;
+  blockId: string;
+  type?: string;
+  cardType?: BrowserCard['cardType'];
+  cardTypeMarker?: string;
+  meta?: {
+    cardTypeMarker?: string;
+  };
+};
+
 type QueueAddLike = {
-  addCard?: (cardIdOrBlockId: string, source?: QueueAddSource) => Promise<void> | void;
+  addCard?: (card: QueueAddInput, source?: QueueAddSource) => Promise<void> | void;
 };
 
 type UnifiedStorageLike = CardReadPort & {
@@ -508,7 +519,7 @@ export async function adjustTime(
 async function addCardsDeterministically(
   queue: QueueAddLike | undefined,
   items: QueueCandidate[],
-  getAddTargetId: (item: QueueCandidate) => string,
+  resolveAddInput: (item: QueueCandidate) => QueueAddInput,
   source: QueueAddSource
 ) : Promise<{ added: number; failed: number; firstError?: string; conceptTypeConflict: number }> {
   if (!queue || typeof queue.addCard !== 'function') {
@@ -521,13 +532,14 @@ async function addCardsDeterministically(
   let conceptTypeConflict = 0;
 
   for (const item of items) {
-    const targetId = getAddTargetId(item);
+    const addInput = resolveAddInput(item);
+    const targetId = typeof addInput === 'string' ? addInput : addInput.blockId;
     if (!targetId) {
       failed++;
       continue;
     }
     try {
-      await Promise.resolve(queue.addCard(targetId, source));
+      await Promise.resolve(queue.addCard(addInput, source));
       added++;
     } catch (error) {
       failed++;
@@ -597,7 +609,16 @@ export async function addToQueue(
     addResult = await addCardsDeterministically(
       queue,
       filtered.items,
-      queueType === 'neural-roam' ? (item) => item.blockId : (item) => item.cardId,
+      queueType === 'neural-roam'
+        ? (item) => ({
+            id: item.blockId,
+            blockId: item.blockId,
+            type: 'concept',
+            cardType: item.cardType,
+            cardTypeMarker: 'concept',
+            meta: { cardTypeMarker: 'concept' },
+          })
+        : (item) => item.cardId,
       source
     );
   } catch (error) {

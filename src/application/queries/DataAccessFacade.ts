@@ -663,6 +663,7 @@ export class DataAccessFacade implements IDataRouter {
                 SELECT id
                 FROM blocks
                 WHERE id IN (${this.toSqlInClauseValues(batchBlockIds)})
+                LIMIT ${batchBlockIds.length}
             `;
 
             try {

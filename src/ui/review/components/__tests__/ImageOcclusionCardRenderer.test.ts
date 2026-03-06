@@ -114,6 +114,55 @@ describe('ImageOcclusionCardRenderer.vue', () => {
     expect(wrapper.find('.image-occlusion-card-renderer__hint').exists()).toBe(false);
   });
 
+  it('uses explicit non-fullscreen frame dimensions for tall images and keeps percent mask positioning', async () => {
+    const cardId = 'card-tall';
+    getBlockAttrsMock.mockResolvedValue({
+      'custom-fsrs-image-occlusion': createPayload(cardId),
+      'custom-fsrs-image-occlusion-card-ids': JSON.stringify([cardId]),
+    });
+    getBlockKramdownMock.mockResolvedValue({ kramdown: '' });
+
+    const wrapper = mount(ImageOcclusionCardRenderer, {
+      props: {
+        blockId: 'block-tall',
+        showAnswer: false,
+        card: createImageOcclusionCard(cardId),
+      },
+    });
+
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    const viewport = wrapper.get('.image-occlusion-card-renderer__viewport').element as HTMLElement;
+    Object.defineProperty(viewport, 'clientWidth', {
+      configurable: true,
+      get: () => 620,
+    });
+
+    const image = wrapper.get('.image-occlusion-card-renderer__image').element as HTMLImageElement;
+    Object.defineProperty(image, 'naturalWidth', {
+      configurable: true,
+      get: () => 1000,
+    });
+    Object.defineProperty(image, 'naturalHeight', {
+      configurable: true,
+      get: () => 3000,
+    });
+
+    await wrapper.get('.image-occlusion-card-renderer__image').trigger('load');
+    await wrapper.vm.$nextTick();
+
+    const frame = wrapper.get('.image-occlusion-card-renderer__frame').element as HTMLElement;
+    expect(frame.style.width).toBe('620px');
+    expect(frame.style.height).toBe('1860px');
+
+    const mask = wrapper.get('.image-occlusion-card-renderer__mask').element as HTMLElement;
+    expect(mask.style.left).toBe('10%');
+    expect(mask.style.top).toBe('20%');
+    expect(mask.style.width).toBe('30%');
+    expect(mask.style.height).toBe('20%');
+  });
+
   it('toggles image fullscreen by floating button', async () => {
     const cardId = 'card-3';
     getBlockAttrsMock.mockResolvedValue({

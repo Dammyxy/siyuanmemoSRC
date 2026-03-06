@@ -1,6 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { FSRSCard } from '@/types/card';
-import type { IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import type { BrowserCard } from '../../types';
 import {
   reconcileBrowserCardTypes,
@@ -42,132 +40,44 @@ function buildBrowserCard(overrides: Partial<BrowserCard>): BrowserCard {
   };
 }
 
-function buildFsrsCard(overrides: Partial<FSRSCard>): FSRSCard {
-  return {
-    id: overrides.id ?? 'card-1',
-    xiuyuanID: overrides.xiuyuanID ?? overrides.id ?? 'card-1',
-    blockId: overrides.blockId ?? 'block-1',
-    due: overrides.due ?? Date.now(),
-    stability: overrides.stability ?? 1,
-    difficulty: overrides.difficulty ?? 1,
-    reps: overrides.reps ?? 0,
-    lapses: overrides.lapses ?? 0,
-    state: overrides.state ?? 0,
-    lastReview: overrides.lastReview ?? Date.now(),
-    elapsedDays: overrides.elapsedDays ?? 0,
-    scheduledDays: overrides.scheduledDays ?? 0,
-    priority: overrides.priority ?? 50,
-    type: overrides.type ?? 'item',
-    tags: overrides.tags ?? [],
-    leechCount: overrides.leechCount ?? 0,
-    isLeech: overrides.isLeech ?? false,
-    skipped: overrides.skipped ?? false,
-    createdAt: overrides.createdAt ?? Date.now(),
-    updatedAt: overrides.updatedAt ?? Date.now(),
-    meta: overrides.meta ?? {},
-  };
-}
-
-function createManagerMock(cards: FSRSCard[]) {
-  const getCards = vi.fn(async () => cards);
-  const updateCard = vi.fn(async () => undefined);
-  const manager = {
-    getCards,
-    updateCard,
-  } as unknown as IUnifiedDataSourceManagerFacade;
-  return { manager, getCards, updateCard };
-}
-
 describe('cardTypeConsistency', () => {
-  it('uses local row card type as source of truth and fixes local storage mismatch', async () => {
+  it('keeps explicit local row card type and skips detection for resolved rows', async () => {
     const rows = [buildBrowserCard({ blockId: 'block-1', cardType: 'concept' })];
     const deps: CardTypeConsistencyDependencies = {
       detectTypes: vi.fn(async () => new Map()),
     };
-    const { manager, updateCard } = createManagerMock([
-      buildFsrsCard({ id: 'card-1', blockId: 'block-1', type: 'item' }),
-    ]);
 
-    const result = await reconcileBrowserCardTypes(rows, {
-      repair: true,
-      manager,
-      deps,
-    });
+    const result = await reconcileBrowserCardTypes(rows, { deps });
 
     expect(result.rows[0]?.cardType).toBe('concept');
     expect(result.conflictBlockIds).toEqual([]);
-    expect(result.attributeBackfillBlockIds).toEqual([]);
-    expect(result.repairedBlockAttrs).toEqual([]);
-    expect(result.repairedLocalCardIds).toEqual(['card-1']);
-    expect(updateCard).toHaveBeenCalledTimes(1);
-    expect(updateCard.mock.calls[0][0].type).toBe('concept');
+    expect(result.detectedBlockIds).toEqual([]);
+    expect(deps.detectTypes).not.toHaveBeenCalled();
   });
 
-  it('does not repair when local row type already matches local card type', async () => {
-    const rows = [buildBrowserCard({ blockId: 'block-2', cardType: 'concept' })];
+  it('detects missing card type and patches row type in result only', async () => {
+    const rows = [buildBrowserCard({ blockId: 'block-2', cardType: undefined })];
+    const deps: CardTypeConsistencyDependencies = {
+      detectTypes: vi.fn(async () => new Map<string, 'topic' | 'item'>([['block-2', 'topic']])),
+    };
+
+    const result = await reconcileBrowserCardTypes(rows, { deps });
+
+    expect(result.rows[0]?.cardType).toBe('topic');
+    expect(result.detectedBlockIds).toEqual(['block-2']);
+    expect(result.conflictBlockIds).toEqual([]);
+  });
+
+  it('returns empty reconciliation for empty rows', async () => {
     const deps: CardTypeConsistencyDependencies = {
       detectTypes: vi.fn(async () => new Map()),
     };
-    const { manager, updateCard } = createManagerMock([
-      buildFsrsCard({ id: 'card-2', blockId: 'block-2', type: 'concept' }),
-    ]);
 
-    const result = await reconcileBrowserCardTypes(rows, {
-      repair: true,
-      manager,
-      deps,
-    });
+    const result = await reconcileBrowserCardTypes([], { deps });
 
-    expect(result.rows[0]?.cardType).toBe('concept');
-    expect(result.attributeBackfillBlockIds).toEqual([]);
+    expect(result.rows).toEqual([]);
     expect(result.detectedBlockIds).toEqual([]);
-    expect(result.repairedLocalCardIds).toEqual([]);
-    expect(updateCard).not.toHaveBeenCalled();
-  });
-
-  it('detects missing card type and repairs local card only', async () => {
-    const rows = [buildBrowserCard({ blockId: 'block-3', cardType: undefined })];
-    const deps: CardTypeConsistencyDependencies = {
-      detectTypes: vi.fn(async () => new Map<string, 'topic' | 'item'>([['block-3', 'topic']])),
-    };
-    const { manager, updateCard } = createManagerMock([
-      buildFsrsCard({ id: 'card-3', blockId: 'block-3', type: 'item' }),
-    ]);
-
-    const result = await reconcileBrowserCardTypes(rows, {
-      repair: true,
-      manager,
-      deps,
-    });
-
-    expect(result.rows[0]?.cardType).toBe('topic');
-    expect(result.attributeBackfillBlockIds).toEqual(['block-3']);
-    expect(result.detectedBlockIds).toEqual(['block-3']);
-    expect(result.repairedBlockAttrs).toEqual([]);
-    expect(result.repairedLocalCardIds).toEqual(['card-3']);
-    expect(updateCard).toHaveBeenCalledTimes(1);
-    expect(updateCard.mock.calls[0][0].type).toBe('topic');
-  });
-
-  it('does not repair local cards when repair=false', async () => {
-    const rows = [buildBrowserCard({ blockId: 'block-4', cardType: undefined })];
-    const deps: CardTypeConsistencyDependencies = {
-      detectTypes: vi.fn(async () => new Map<string, 'topic' | 'item'>([['block-4', 'item']])),
-    };
-    const { manager, updateCard, getCards } = createManagerMock([
-      buildFsrsCard({ id: 'card-4', blockId: 'block-4', type: 'concept' }),
-    ]);
-
-    const result = await reconcileBrowserCardTypes(rows, {
-      repair: false,
-      manager,
-      deps,
-    });
-
-    expect(result.rows[0]?.cardType).toBe('item');
-    expect(result.attributeBackfillBlockIds).toEqual(['block-4']);
-    expect(result.repairedLocalCardIds).toEqual([]);
-    expect(getCards).not.toHaveBeenCalled();
-    expect(updateCard).not.toHaveBeenCalled();
+    expect(result.conflictBlockIds).toEqual([]);
+    expect(deps.detectTypes).not.toHaveBeenCalled();
   });
 });

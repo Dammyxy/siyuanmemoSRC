@@ -4,6 +4,7 @@
  */
 
 const API_BASE = '/api';
+const DEFAULT_SQL_LIMIT = 100000;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -23,6 +24,26 @@ function isRecord(value: unknown): value is JsonRecord {
 
 function isApiEnvelope(value: unknown): value is ApiEnvelope<unknown> {
     return isRecord(value) && typeof value.code === 'number';
+}
+
+function trimTrailingSemicolon(stmt: string): string {
+    return stmt.trim().replace(/;+\s*$/u, '');
+}
+
+function normalizeSqlStatement(stmt: string): string {
+    const normalized = trimTrailingSemicolon(String(stmt || ''));
+    if (!normalized) {
+        return normalized;
+    }
+
+    // Siyuan search settings can cap SQL-like query rows when LIMIT is omitted.
+    const startsWithSelectOrWith = /^(SELECT|WITH)\b/ui.test(normalized);
+    const hasLimitClause = /\bLIMIT\b/ui.test(normalized);
+    if (!startsWithSelectOrWith || hasLimitClause) {
+        return normalized;
+    }
+
+    return `${normalized} LIMIT ${DEFAULT_SQL_LIMIT}`;
 }
 
 /**
@@ -192,7 +213,7 @@ export async function setBlockAttrs(id: string, attrs: Record<string, string>): 
  * 执行 SQL 查询
  */
 export async function sql<TRow extends JsonRecord = JsonRecord>(stmt: string): Promise<TRow[]> {
-    return request<TRow[]>('/query/sql', { stmt });
+    return request<TRow[]>('/query/sql', { stmt: normalizeSqlStatement(stmt) });
 }
 
 /**

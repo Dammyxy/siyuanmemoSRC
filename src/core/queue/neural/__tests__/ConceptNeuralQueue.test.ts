@@ -333,4 +333,61 @@ describe('ConceptNeuralQueue', () => {
     expect(returned).toBe(true);
     expect(queue.getNavigationState().currentNodeId).toBe('neighbor-2');
   });
+
+  it('supports injected concept validator for concept-only seed entry checks', async () => {
+    const customQueue = new ConceptNeuralQueue({
+      isConceptCard: vi.fn(async (blockId: string) => blockId.startsWith('concept-')),
+    });
+    const customQueryEngine = (customQueue as any).queryEngine;
+    customQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+
+    await customQueue.setSeedEntry('concept-seed-1', true);
+    await expect(customQueue.setSeedEntry('virtual-seed-1', true)).rejects.toThrow('not a concept card');
+    expect(customQueue.getSeedSnapshot().map((entry) => entry.nodeId)).toEqual(['concept-seed-1']);
+  });
+
+  it('preserves seed entries on validation errors when normalization policy is keep', async () => {
+    const customQueue = new ConceptNeuralQueue({
+      isConceptCard: vi.fn(async () => {
+        throw new Error('validator unavailable');
+      }),
+    });
+    const customQueryEngine = (customQueue as any).queryEngine;
+    customQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+
+    customQueue.restoreSeedPoolState([
+      {
+        nodeId: 'concept-a',
+        nodeKind: 'concept',
+        priority: 0.65,
+        neighborsViewed: 0,
+        addedAt: Date.now(),
+        nodePreview: 'concept-a',
+      },
+      {
+        nodeId: 'concept-b',
+        nodeKind: 'concept',
+        priority: 0.65,
+        neighborsViewed: 0,
+        addedAt: Date.now(),
+        nodePreview: 'concept-b',
+      },
+    ]);
+
+    const result = await customQueue.normalizeSeedPoolToConceptCards({
+      validationErrorPolicy: 'keep',
+    });
+
+    expect(result.changed).toBe(false);
+    expect(result.removedNodeIds).toEqual([]);
+    expect(customQueue.getSeedSnapshot().map((entry) => entry.nodeId).sort()).toEqual(['concept-a', 'concept-b']);
+  });
 });

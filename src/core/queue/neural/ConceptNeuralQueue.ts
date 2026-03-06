@@ -78,6 +78,14 @@ interface PathItemOptions {
   focusPath?: boolean;
 }
 
+export type ConceptCardValidator = (blockId: string) => Promise<boolean>;
+
+export interface ConceptNeuralQueueOptions {
+  isConceptCard?: ConceptCardValidator;
+}
+
+export type SeedValidationErrorPolicy = 'remove' | 'keep';
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -123,9 +131,11 @@ export class ConceptNeuralQueue {
   private previewLength = 28;
 
   private queryEngine: ConceptQueryEngine;
+  private readonly conceptCardValidator: ConceptCardValidator;
 
-  constructor() {
+  constructor(options: ConceptNeuralQueueOptions = {}) {
     this.queryEngine = new ConceptQueryEngine();
+    this.conceptCardValidator = options.isConceptCard ?? (async (blockId: string) => this.queryEngine.isConceptCard(blockId));
   }
 
   async getNextCard(): Promise<QueueItem | null> {
@@ -204,8 +214,14 @@ export class ConceptNeuralQueue {
     }
   }
 
-  async addConceptBlock(blockId: string, priority: 'normal' | 'high' = 'normal'): Promise<void> {
-    const isConcept = await this.queryEngine.isConceptCard(blockId);
+  async addConceptBlock(
+    blockId: string,
+    priority: 'normal' | 'high' = 'normal',
+    options: { skipConceptValidation?: boolean } = {}
+  ): Promise<void> {
+    const isConcept = options.skipConceptValidation
+      ? true
+      : await this.isConceptCard(blockId);
     if (!isConcept) {
       throw new Error(`Block ${blockId} is not a concept card`);
     }
@@ -412,7 +428,7 @@ export class ConceptNeuralQueue {
       resetHistory?: boolean;
     } = {}
   ): Promise<void> {
-    const isConcept = await this.queryEngine.isConceptCard(focusId);
+    const isConcept = await this.isConceptCard(focusId);
     if (isConcept && !this.seedPool.has(focusId)) {
       await this.addConceptBlock(focusId, 'normal');
     }
@@ -769,6 +785,55 @@ export class ConceptNeuralQueue {
     this.followCurrentNodeOnce = false;
   }
 
+  async normalizeSeedPoolToConceptCards(
+    options: { validationErrorPolicy?: SeedValidationErrorPolicy } = {}
+  ): Promise<{ changed: boolean; removedNodeIds: string[] }> {
+    const removedNodeIds: string[] = [];
+    const validationErrorPolicy = options.validationErrorPolicy ?? 'remove';
+
+    for (const nodeId of Array.from(this.seedPool.keys())) {
+      let isConcept = false;
+      try {
+        isConcept = await this.isConceptCard(nodeId);
+      } catch (error) {
+        if (validationErrorPolicy === 'keep') {
+          logger.warn('Failed to validate seed entry as concept card, preserving entry', {
+            nodeId,
+            error,
+          });
+          continue;
+        }
+        logger.warn('Failed to validate seed entry as concept card, removing entry defensively', {
+          nodeId,
+          error,
+        });
+      }
+
+      if (isConcept) {
+        continue;
+      }
+
+      this.seedPool.delete(nodeId);
+      this.exhaustedFocuses.delete(nodeId);
+      removedNodeIds.push(nodeId);
+    }
+
+    if (removedNodeIds.length === 0) {
+      return { changed: false, removedNodeIds: [] };
+    }
+
+    const removedSet = new Set(removedNodeIds);
+    if (this.currentFocus && removedSet.has(this.currentFocus) && !this.anchorPool.has(this.currentFocus)) {
+      this.currentFocus = null;
+      if (this.navigationMode === 'follow') {
+        this.navigationMode = 'explore';
+      }
+      this.followCurrentNodeOnce = false;
+    }
+
+    return { changed: true, removedNodeIds };
+  }
+
   private async setSeedEntryInternal(
     nodeId: string,
     enabled: boolean,
@@ -789,7 +854,7 @@ export class ConceptNeuralQueue {
     const existing = this.seedPool.get(nodeId);
     const isConcept = options.preferredKind
       ? options.preferredKind === 'concept'
-      : await this.queryEngine.isConceptCard(nodeId);
+      : await this.isConceptCard(nodeId);
     if (!isConcept) {
       throw new Error(`Block ${nodeId} is not a concept card`);
     }
@@ -828,7 +893,7 @@ export class ConceptNeuralQueue {
     const existing = this.anchorPool.get(nodeId);
     const isConcept = options.preferredKind
       ? options.preferredKind === 'concept'
-      : await this.queryEngine.isConceptCard(nodeId);
+      : await this.isConceptCard(nodeId);
     const nodeKind: NeuralFocusNodeKind = isConcept ? 'concept' : 'virtual';
     const blockData = await this.queryEngine.fetchBlockData(nodeId);
 
@@ -847,6 +912,10 @@ export class ConceptNeuralQueue {
 
   private getNodeState(nodeId: string): FocusState | null {
     return this.seedPool.get(nodeId) ?? this.anchorPool.get(nodeId) ?? null;
+  }
+
+  private async isConceptCard(blockId: string): Promise<boolean> {
+    return this.conceptCardValidator(blockId);
   }
 
   private getNodeKind(nodeId: string): NeuralFocusNodeKind {

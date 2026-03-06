@@ -79,9 +79,7 @@ function createManager(params: { queueAddCard?: ReturnType<typeof vi.fn>; cards:
       .map((blockId) => cardByBlockId.get(blockId))
       .filter((card): card is FSRSCard => Boolean(card));
   });
-  const updateCard = vi.fn(async (card: FSRSCard) => {
-    cardByBlockId.set(card.blockId, card);
-  });
+  const updateCard = vi.fn(async (_card: FSRSCard) => undefined);
   const getQueue = vi.fn(() => ({ addCard: queueAddCard }));
 
   const manager = {
@@ -96,21 +94,18 @@ function createManager(params: { queueAddCard?: ReturnType<typeof vi.fn>; cards:
     getCards,
     updateCard,
     queueAddCard,
-    cardByBlockId,
   };
 }
 
 describe('DeckDataSource neural-roam card type consistency', () => {
-  it('skips addCard and repairs local type when attribute says non-concept', async () => {
+  it('skips non-concept rows without mutating local cards', async () => {
     const selectedRow = buildBrowserCard({
       id: 'card-1',
       fsrsCardId: 'card-1',
       blockId: 'block-1',
-      cardType: 'concept',
+      cardType: 'item',
     });
     const deps: CardTypeConsistencyDependencies = {
-      runSql: vi.fn(async () => [{ block_id: 'block-1', value: 'item' }]),
-      setBlockType: vi.fn(async () => undefined),
       detectTypes: vi.fn(async () => new Map()),
     };
     const ctx = createManager({
@@ -128,20 +123,17 @@ describe('DeckDataSource neural-roam card type consistency', () => {
 
     expect(result.added).toBe(0);
     expect(ctx.queueAddCard).not.toHaveBeenCalled();
-    expect(ctx.updateCard).toHaveBeenCalledTimes(1);
-    expect(ctx.updateCard.mock.calls[0][0].type).toBe('item');
+    expect(ctx.updateCard).not.toHaveBeenCalled();
   });
 
-  it('repairs local type to concept and adds card to neural-roam queue', async () => {
+  it('adds concept rows to neural-roam queue without local repair writeback', async () => {
     const selectedRow = buildBrowserCard({
       id: 'card-2',
       fsrsCardId: 'card-2',
       blockId: 'block-2',
-      cardType: 'item',
+      cardType: 'concept',
     });
     const deps: CardTypeConsistencyDependencies = {
-      runSql: vi.fn(async () => [{ block_id: 'block-2', value: 'concept' }]),
-      setBlockType: vi.fn(async () => undefined),
       detectTypes: vi.fn(async () => new Map()),
     };
     const ctx = createManager({
@@ -159,8 +151,15 @@ describe('DeckDataSource neural-roam card type consistency', () => {
 
     expect(result.added).toBe(1);
     expect(ctx.queueAddCard).toHaveBeenCalledTimes(1);
-    expect(ctx.queueAddCard).toHaveBeenCalledWith('block-2', 'manual');
-    expect(ctx.updateCard).toHaveBeenCalledTimes(1);
-    expect(ctx.updateCard.mock.calls[0][0].type).toBe('concept');
+    expect(ctx.queueAddCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'block-2',
+        blockId: 'block-2',
+        type: 'concept',
+      }),
+      'manual'
+    );
+    expect(deps.detectTypes).not.toHaveBeenCalled();
+    expect(ctx.updateCard).not.toHaveBeenCalled();
   });
 });

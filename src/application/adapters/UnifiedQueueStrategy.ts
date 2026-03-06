@@ -353,6 +353,22 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
 
     async getStats(): Promise<QueueStats> {
         try {
+            if (this.queueType === QueueType.NeuralRoam) {
+                const size = await this.queue.getSize();
+                const stats: QueueStats = {
+                    size,
+                    label: `${size} due`,
+                    extra: `${size} total`,
+                };
+
+                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
+                    queueType: this.queueType,
+                    ...stats,
+                });
+
+                return stats;
+            }
+
             if (!this.cacheValid) {
                 await this.reloadCards();
             }
@@ -487,6 +503,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
 
     async getRemainingSize(): Promise<number> {
         try {
+            if (this.queueType === QueueType.NeuralRoam) {
+                return await this.queue.getSize();
+            }
+
             if (this.cacheValid) {
                 return Math.max(0, this.cachedCards.length - this.currentIndex);
             }

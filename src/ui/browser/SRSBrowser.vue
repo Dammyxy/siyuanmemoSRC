@@ -49,7 +49,6 @@
         @applySortToQueue="handleApplySortToQueue"
         @toggleViewMode="toggleViewMode"
         @forceRefresh="forceRefreshData"
-        @repairCardTypeConsistency="handleRepairCardTypeConsistency"
         @migrateTopicItem="migrateTopicItem"
         @showPerformanceReport="showPerformanceReport"
         @convertToTab="convertToTab"
@@ -239,7 +238,6 @@ import type {
 } from './datasource/types';
 import { isBrowserQueryableDataSource } from './datasource/types';
 import { adjustTime } from './datasource/MenuActions';  // Import adjustTime
-import { reconcileBrowserCardTypes } from './datasource/cardTypeConsistency';
 import ActionParamsDialog from './ActionParamsDialog.vue';
 import BrowserHierarchy from './BrowserHierarchy.vue';
 import BrowserPreview from './BrowserPreview.vue';
@@ -2448,70 +2446,6 @@ function forceRefreshData() {
   invalidateCardCache();
   void refreshGlobalStats(true);
   void refreshData(true);
-}
-
-async function handleRepairCardTypeConsistency(): Promise<void> {
-  if (loading.value) {
-    return;
-  }
-  const manager = pluginUnifiedDataSourceManager.value;
-  if (!manager) {
-    await pushErrMsg(t('envNotInit', 'Environment not initialized'));
-    return;
-  }
-
-  const ok = await confirmDialog({
-    title: t('repairLocalCardTypeConfirmTitle', '扫描并修复本地卡片类型'),
-    content: t(
-      'repairLocalCardTypeConfirmMessage',
-      '将全量扫描所有闪卡，修复本地卡片类型（不再回写块属性）。是否继续？'
-    ),
-    confirmText: t('confirm', '确认'),
-    cancelText: t('cancel', '取消'),
-  });
-  if (!ok) {
-    return;
-  }
-
-  loading.value = true;
-  try {
-    await pushMsg(t('repairLocalCardTypeRunning', '正在扫描并修复本地卡片类型...'), 2500);
-    const cards = await manager.getCards();
-    const candidates = cards
-      .map((card) => ({
-        blockId: String(card.blockId || '').trim(),
-        cardType: typeof card.type === 'string' ? card.type : undefined,
-      }))
-      .filter((item) => item.blockId.length > 0);
-
-    const result = await reconcileBrowserCardTypes(candidates, {
-      repair: true,
-      manager,
-    });
-
-    const summary = interpolateI18n(
-      t(
-        'repairLocalCardTypeDone',
-        '修复完成：扫描 {total} 张；冲突 {conflicts}；本地修复 {local}；自动检测 {detected}'
-      ),
-      {
-        total: String(candidates.length),
-        conflicts: String(result.conflictBlockIds.length),
-        local: String(result.repairedLocalCardIds.length),
-        detected: String(result.detectedBlockIds.length),
-      }
-    );
-    await pushMsg(summary, 5000);
-
-    invalidateCardCache();
-    await refreshData(true, true);
-  } catch (error) {
-    logger.error('[SiYuanMemo][SRSBrowser] Failed to repair card type consistency:', error);
-    const reason = getErrorMessage(error, t('repairCardTypeConsistencyFailed', '修复卡片类型一致性失败'));
-    await pushErrMsg(reason, 5000);
-  } finally {
-    loading.value = false;
-  }
 }
 
 // 🆕 处理同步完成事件

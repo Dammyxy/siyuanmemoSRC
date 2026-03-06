@@ -1,5 +1,7 @@
 ﻿import { ATTR_CARD_ID } from './block.ts';
 
+const CARD_BLOCK_QUERY_LIMIT = 100000;
+
 export type CardBlockFilter =
   | { type: 'doc'; docId: string }
   | { type: 'tree'; box: string; pathPrefix: string }
@@ -18,6 +20,7 @@ export function buildCardBlockIdStmt(filter: CardBlockFilter): string {
     WHERE b.root_id = '${escapeSql(filter.docId)}'
       AND a.name = '${ATTR_CARD_ID}'
       AND a.value != ''
+    LIMIT ${CARD_BLOCK_QUERY_LIMIT}
   `;
   }
   if (filter.type === 'tree') {
@@ -28,6 +31,7 @@ export function buildCardBlockIdStmt(filter: CardBlockFilter): string {
       AND b.path LIKE '${escapeSql(filter.pathPrefix)}%'
       AND a.name = '${ATTR_CARD_ID}'
       AND a.value != ''
+    LIMIT ${CARD_BLOCK_QUERY_LIMIT}
   `;
   }
   if (filter.type === 'backlink') {
@@ -38,6 +42,7 @@ export function buildCardBlockIdStmt(filter: CardBlockFilter): string {
     WHERE r.def_block_id = '${escapeSql(filter.defBlockId)}'
       AND a.name = '${ATTR_CARD_ID}'
       AND a.value != ''
+    LIMIT ${CARD_BLOCK_QUERY_LIMIT}
   `;
   }
   return `
@@ -45,6 +50,7 @@ export function buildCardBlockIdStmt(filter: CardBlockFilter): string {
     INNER JOIN attributes a ON b.id = a.block_id
     WHERE a.name = '${ATTR_CARD_ID}'
       AND a.value != ''
+    LIMIT ${CARD_BLOCK_QUERY_LIMIT}
   `;
 }
 

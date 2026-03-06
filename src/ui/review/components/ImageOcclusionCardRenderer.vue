@@ -103,6 +103,12 @@ import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import { getBlockAttrs, getBlockKramdown } from '@/infrastructure/siyuan/api';
 import type { FSRSCard } from '@/types/card';
+import {
+  clamp01,
+  computeFitWidthScale,
+  computeScaledSize,
+  toPercentMaskStyle,
+} from '@/utils/imageOcclusionGeometry';
 import { createLogger } from '@/utils/logger';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 
@@ -166,29 +172,40 @@ const viewportRef = ref<HTMLElement | null>(null);
 const imageRef = ref<HTMLImageElement | null>(null);
 const imageNaturalWidth = ref(0);
 const imageNaturalHeight = ref(0);
+const viewportInnerWidth = ref(0);
 const { showLoading } = useDeferredLoadingIndicator(loading);
 let loadSeq = 0;
 let zoomCompensationVersion = 0;
+let viewportResizeObserver: ResizeObserver | null = null;
+let hasWindowResizeListener = false;
 
 const MIN_ZOOM_PERCENT = 50;
 const MAX_ZOOM_PERCENT = 300;
 const ZOOM_STEP_PERCENT = 10;
 
 const zoomValueLabel = computed(() => `${zoomPercent.value}%`);
+const nonFullscreenFrameDimensions = computed(() => {
+  if (isImageFullscreen.value || imageNaturalWidth.value <= 0 || imageNaturalHeight.value <= 0) {
+    return null;
+  }
+
+  const maxWidth = viewportInnerWidth.value > 0 ? viewportInnerWidth.value : imageNaturalWidth.value;
+  const scale = computeFitWidthScale(imageNaturalWidth.value, maxWidth, false);
+  return computeScaledSize(imageNaturalWidth.value, imageNaturalHeight.value, scale);
+});
+
 const fullscreenFrameDimensions = computed(() => {
   if (!isImageFullscreen.value || imageNaturalWidth.value <= 0 || imageNaturalHeight.value <= 0) {
     return null;
   }
 
-  const scale = zoomPercent.value / 100;
-  return {
-    width: Math.max(1, imageNaturalWidth.value * scale),
-    height: Math.max(1, imageNaturalHeight.value * scale),
-  };
+  return computeScaledSize(imageNaturalWidth.value, imageNaturalHeight.value, zoomPercent.value / 100);
 });
 
 const frameStyle = computed<Record<string, string>>(() => {
-  const dimensions = fullscreenFrameDimensions.value;
+  const dimensions = isImageFullscreen.value
+    ? fullscreenFrameDimensions.value
+    : nonFullscreenFrameDimensions.value;
   if (!dimensions) {
     return {};
   }
@@ -215,10 +232,6 @@ function traceImageOcclusion(message: string, payload?: Record<string, unknown>)
       // ignore stringify error
     }
   }
-}
-
-function clamp01(value: number): number {
-  return Math.min(1, Math.max(0, value));
 }
 
 function parseImageSourceFromKramdown(kramdown: string): string {
@@ -389,16 +402,60 @@ function toViewMasks(
 }
 
 function maskStyle(mask: ViewMask): Record<string, string> {
-  return {
-    left: `${mask.x * 100}%`,
-    top: `${mask.y * 100}%`,
-    width: `${mask.w * 100}%`,
-    height: `${mask.h * 100}%`,
-  };
+  return toPercentMaskStyle(mask);
 }
 
 function clampZoomPercent(value: number): number {
   return Math.max(MIN_ZOOM_PERCENT, Math.min(MAX_ZOOM_PERCENT, value));
+}
+
+function parsePixelValue(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function updateViewportInnerWidth(): void {
+  const viewport = viewportRef.value;
+  if (!viewport) {
+    viewportInnerWidth.value = 0;
+    return;
+  }
+
+  const style = window.getComputedStyle(viewport);
+  const horizontalPadding = parsePixelValue(style.paddingLeft) + parsePixelValue(style.paddingRight);
+  viewportInnerWidth.value = Math.max(0, viewport.clientWidth - horizontalPadding);
+}
+
+function teardownViewportMetricsObserver(): void {
+  if (viewportResizeObserver) {
+    viewportResizeObserver.disconnect();
+    viewportResizeObserver = null;
+  }
+  if (hasWindowResizeListener) {
+    window.removeEventListener('resize', updateViewportInnerWidth);
+    hasWindowResizeListener = false;
+  }
+}
+
+function setupViewportMetricsObserver(): void {
+  teardownViewportMetricsObserver();
+  const viewport = viewportRef.value;
+  if (!viewport) {
+    return;
+  }
+
+  updateViewportInnerWidth();
+
+  if (typeof ResizeObserver !== 'undefined') {
+    viewportResizeObserver = new ResizeObserver(() => {
+      updateViewportInnerWidth();
+    });
+    viewportResizeObserver.observe(viewport);
+    return;
+  }
+
+  window.addEventListener('resize', updateViewportInnerWidth);
+  hasWindowResizeListener = true;
 }
 
 function handleImageLoad(event: Event): void {
@@ -408,6 +465,7 @@ function handleImageLoad(event: Event): void {
   }
   imageNaturalWidth.value = image.naturalWidth || image.width || 0;
   imageNaturalHeight.value = image.naturalHeight || image.height || 0;
+  updateViewportInnerWidth();
 }
 
 function resetViewportScrollToOrigin(): void {
@@ -583,6 +641,7 @@ async function loadViewModel(): Promise<void> {
   try {
     loading.value = true;
     error.value = null;
+    viewportInnerWidth.value = 0;
     imageNaturalWidth.value = 0;
     imageNaturalHeight.value = 0;
 
@@ -672,6 +731,9 @@ async function loadViewModel(): Promise<void> {
       return;
     }
     viewModel.value = nextViewModel;
+    void nextTick(() => {
+      updateViewportInnerWidth();
+    });
     emit('loaded', nextViewModel);
   } catch (err) {
     if (seq !== loadSeq) {
@@ -700,13 +762,28 @@ watch(
   },
 );
 
+watch(viewportRef, () => {
+  setupViewportMetricsObserver();
+  void nextTick(() => {
+    updateViewportInnerWidth();
+  });
+});
+
+watch(isImageFullscreen, () => {
+  void nextTick(() => {
+    updateViewportInnerWidth();
+  });
+});
+
 onMounted(() => {
+  setupViewportMetricsObserver();
   document.addEventListener('keydown', handleGlobalKeyDown);
   void loadViewModel();
 });
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleGlobalKeyDown);
+  teardownViewportMetricsObserver();
   resetImageFullscreenState();
 });
 </script>
@@ -770,7 +847,7 @@ onUnmounted(() => {
   min-height: 0;
   width: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 14px;
   overflow: auto;
@@ -862,9 +939,9 @@ onUnmounted(() => {
 
 .image-occlusion-card-renderer__frame {
   position: relative;
-  display: inline-block;
-  max-width: 100%;
-  max-height: 100%;
+  display: block;
+  max-width: none;
+  max-height: none;
   flex: 0 0 auto;
   transition: width 0.15s ease, height 0.15s ease;
 }
@@ -877,20 +954,13 @@ onUnmounted(() => {
 
 .image-occlusion-card-renderer__image {
   display: block;
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: 100%;
-  pointer-events: none;
-  user-select: none;
-  background: var(--b3-theme-background);
-}
-
-.image-occlusion-card-renderer__stage.is-image-fullscreen .image-occlusion-card-renderer__image {
   width: 100%;
   height: 100%;
   max-width: none;
   max-height: none;
+  pointer-events: none;
+  user-select: none;
+  background: var(--b3-theme-background);
 }
 
 .image-occlusion-card-renderer__overlay {

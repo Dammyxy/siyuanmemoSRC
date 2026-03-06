@@ -209,6 +209,7 @@
 .siyuanmemo-image-occlusion__canvas {
   position: relative;
   width: calc(var(--siyuanmemo-image-occlusion-base-width, 980px) * var(--siyuanmemo-image-occlusion-zoom, 1));
+  height: calc(var(--siyuanmemo-image-occlusion-base-height, 640px) * var(--siyuanmemo-image-occlusion-zoom, 1));
   max-width: none;
   flex: 0 0 auto;
   border-radius: 8px;
@@ -219,10 +220,9 @@
 .siyuanmemo-image-occlusion__image {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
   max-width: none;
   max-height: none;
-  object-fit: contain;
 }
 
 .siyuanmemo-image-occlusion__overlay {

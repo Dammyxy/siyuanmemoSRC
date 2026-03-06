@@ -27,7 +27,6 @@ import { FinalDrillQueue } from '@/core/queue/domain/FinalDrillQueue';
 import { NeuralRoamQueue } from '@/core/queue/domain/NeuralRoamQueue';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
 import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
-import { SiyuanNeuralRoamCardTypeResolverAdapter } from '@/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter';
 import type { QueueInitialLoadAware, QueueSchedulerPort } from '@/core/queue/managers/UnifiedDataSourceManager';
 import type { AutoFailedCardSinkPort, QueuePersistencePort } from '@/core/queue/domain/ports';
 import { createLogger } from '@/utils/logger';
@@ -686,7 +685,9 @@ export class UnifiedDataSourceManager {
             
             case QueueType.NeuralRoam:
                 return new NeuralRoamQueue(this, this.queuePersistence!, {
-                    cardTypeResolver: new SiyuanNeuralRoamCardTypeResolverAdapter(),
+                    cardTypeResolver: {
+                        resolveCardType: async (blockId: string) => this.resolveNeuralRoamCardTypeFromLocalCard(blockId),
+                    },
                 });
             
             case QueueType.Leech:
@@ -696,6 +697,42 @@ export class UnifiedDataSourceManager {
             
             default:
                 throw new QueueError(`Unknown queue type: ${type}`);
+        }
+    }
+
+    private async resolveNeuralRoamCardTypeFromLocalCard(blockId: string): Promise<'item' | 'topic'> {
+        const normalizedBlockId = String(blockId || '').trim();
+        if (!normalizedBlockId) {
+            return 'topic';
+        }
+
+        try {
+            const cards = await this.getCards({
+                blockIds: [normalizedBlockId],
+            });
+            const localCard = cards.find((card) => card.blockId === normalizedBlockId) ?? cards[0] ?? null;
+            if (!localCard) {
+                return 'topic';
+            }
+
+            const marker = typeof localCard.cardTypeMarker === 'string' ? localCard.cardTypeMarker : '';
+            const metaMarker = typeof (localCard.meta as { cardTypeMarker?: unknown } | undefined)?.cardTypeMarker === 'string'
+                ? String((localCard.meta as { cardTypeMarker?: string }).cardTypeMarker)
+                : '';
+
+            if (
+                localCard.type === 'topic'
+                || localCard.type === 'concept'
+                || marker === 'concept'
+                || metaMarker === 'concept'
+            ) {
+                return 'topic';
+            }
+
+            return 'item';
+        } catch (error) {
+            logger.warn(`Failed to resolve neural roam card type from local card ${normalizedBlockId}:`, error);
+            return 'topic';
         }
     }
 

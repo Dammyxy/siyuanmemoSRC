@@ -14,28 +14,23 @@ describe('SiyuanNeuralRoamCardTypeResolverAdapter', () => {
     mockedSql.mockReset();
   });
 
-  it('returns topic when no card attributes are found', async () => {
+  it('returns topic when no fsrs rows are found', async () => {
     mockedSql.mockResolvedValue([]);
     await expect(adapter.resolveCardType('block-1')).resolves.toBe('topic');
   });
 
-  it('returns item when custom-fsrs-card-type indicates item/descriptor/cloze', async () => {
-    mockedSql.mockResolvedValue([{ name: 'custom-fsrs-card-type', value: 'descriptor' }]);
+  it('returns item when fsrs rows are non-topic', async () => {
+    mockedSql.mockResolvedValue([{ type: 'item', card_type_marker: 'descriptor' }]);
     await expect(adapter.resolveCardType('block-2')).resolves.toBe('item');
   });
 
-  it('returns topic when custom-fsrs-card-type indicates concept/topic', async () => {
-    mockedSql.mockResolvedValue([{ name: 'custom-fsrs-card-type', value: 'concept' }]);
+  it('returns topic when fsrs row indicates concept/topic marker', async () => {
+    mockedSql.mockResolvedValue([{ type: 'item', card_type_marker: 'concept' }]);
     await expect(adapter.resolveCardType('block-3')).resolves.toBe('topic');
   });
 
-  it('returns item when any supported card-id attribute exists', async () => {
-    mockedSql.mockResolvedValue([
-      { name: 'custom-fsrs-card-id', value: 'cid-1' },
-      { name: 'custom-xiuyuan-id', value: '' },
-      { name: 'custom-fsrs-xiuyuan-id', value: '' },
-    ]);
-    await expect(adapter.resolveCardType('block-4')).resolves.toBe('item');
+  it('returns topic when fsrs query fails', async () => {
+    mockedSql.mockRejectedValueOnce(new Error('no such table: fsrs_cards'));
+    await expect(adapter.resolveCardType('block-4')).resolves.toBe('topic');
   });
 });
-

@@ -23,11 +23,63 @@ function createPersistence(initial: unknown): {
   return { persistence, store };
 }
 
+type LocalCardSeed = {
+  blockId: string;
+  type: 'concept' | 'item' | 'topic';
+  cardTypeMarker?: 'concept' | 'descriptor';
+  meta?: { cardTypeMarker?: 'concept' | 'descriptor' };
+};
+
+function createManager(options: {
+  cards?: LocalCardSeed[];
+  throwOnLookup?: boolean;
+} = {}) {
+  const cardByBlockId = new Map<string, LocalCardSeed>();
+  for (const card of options.cards ?? []) {
+    cardByBlockId.set(card.blockId, card);
+  }
+
+  const getCards = vi.fn(async (filter?: { blockIds?: string[] }) => {
+    if (options.throwOnLookup) {
+      throw new Error('local card lookup failed');
+    }
+    const blockIds = Array.isArray(filter?.blockIds) ? filter?.blockIds : [];
+    if (blockIds.length === 0) {
+      return Array.from(cardByBlockId.values()) as any[];
+    }
+    return blockIds
+      .map((blockId) => cardByBlockId.get(blockId))
+      .filter((card): card is LocalCardSeed => Boolean(card)) as any[];
+  });
+
+  return {
+    manager: {
+      getCards,
+    } as never,
+    getCards,
+  };
+}
+
+function conceptCard(blockId: string): LocalCardSeed {
+  return {
+    blockId,
+    type: 'concept',
+    cardTypeMarker: 'concept',
+    meta: { cardTypeMarker: 'concept' },
+  };
+}
+
+function itemCard(blockId: string): LocalCardSeed {
+  return {
+    blockId,
+    type: 'item',
+  };
+}
+
 function mockNeuralEngine(queue: NeuralRoamQueue): void {
   const conceptQueue = (queue as any).conceptQueue;
   const mockQueryEngine = conceptQueue.queryEngine;
 
-  mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
   mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
     id: blockId,
     content: `${blockId} content`,
@@ -71,8 +123,11 @@ describe('NeuralRoamQueue', () => {
         exhaustedFocuses: [],
       },
     });
+    const manager = createManager({
+      cards: [conceptCard('concept-a'), itemCard('virtual-1')],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
 
-    const queue = new NeuralRoamQueue({} as never, persistence);
     await queue.load();
 
     expect(queue.getSeedSnapshot().map((entry) => entry.nodeId)).toContain('concept-a');
@@ -87,10 +142,131 @@ describe('NeuralRoamQueue', () => {
     expect(saved?.anchorPool.map((entry: { nodeId: string }) => entry.nodeId)).toContain('virtual-1');
   });
 
+  it('normalizes seed pool on load and removes non-concept entries', async () => {
+    const { persistence, store } = createPersistence({
+      version: 5,
+      seedPool: [
+        {
+          nodeId: 'concept-a',
+          nodeKind: 'concept',
+          priority: 0.8,
+          neighborsViewed: 0,
+          addedAt: 1000,
+          nodePreview: 'concept-a',
+        },
+        {
+          nodeId: 'virtual-1',
+          nodeKind: 'virtual',
+          priority: 0.5,
+          neighborsViewed: 0,
+          addedAt: 1001,
+          nodePreview: 'virtual-1',
+        },
+      ],
+      anchorPool: [],
+      session: {
+        displayPath: [],
+        currentPathIndex: -1,
+        navigationMode: 'explore',
+        bookmarkPathIndex: null,
+        history: [],
+        currentFocus: 'virtual-1',
+        currentSessionId: 'session-1',
+        visitedBlocks: [],
+        exhaustedFocuses: [],
+      },
+    });
+    const manager = createManager({
+      cards: [conceptCard('concept-a'), itemCard('virtual-1')],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+
+    expect(queue.getSeedSnapshot().map((entry) => entry.nodeId)).toEqual(['concept-a']);
+    const conceptQueue = (queue as any).conceptQueue;
+    expect(conceptQueue.currentFocus).toBeNull();
+
+    const saved = store.get('neuralRoamQueue') as any;
+    expect(saved?.version).toBe(5);
+    expect(saved?.seedPool.map((entry: { nodeId: string }) => entry.nodeId)).toEqual(['concept-a']);
+    expect(saved?.anchorPool).toEqual([]);
+  });
+
+  it('keeps seed pool unchanged when local concept lookup fails during load normalization', async () => {
+    const { persistence } = createPersistence({
+      version: 5,
+      seedPool: [
+        {
+          nodeId: 'concept-a',
+          nodeKind: 'concept',
+          priority: 0.8,
+          neighborsViewed: 0,
+          addedAt: 1000,
+          nodePreview: 'concept-a',
+        },
+        {
+          nodeId: 'virtual-1',
+          nodeKind: 'virtual',
+          priority: 0.5,
+          neighborsViewed: 0,
+          addedAt: 1001,
+          nodePreview: 'virtual-1',
+        },
+      ],
+      anchorPool: [],
+      session: {
+        displayPath: [],
+        currentPathIndex: -1,
+        navigationMode: 'explore',
+        bookmarkPathIndex: null,
+        history: [],
+        currentFocus: null,
+        currentSessionId: 'session-1',
+        visitedBlocks: [],
+        exhaustedFocuses: [],
+      },
+    });
+    const manager = createManager({ throwOnLookup: true });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+
+    expect(queue.getSeedSnapshot().map((entry) => entry.nodeId).sort()).toEqual(['concept-a', 'virtual-1']);
+  });
+
+  it('accepts trusted concept add payload when local card type is concept', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager();
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+    const conceptQueue = (queue as any).conceptQueue;
+    const mockQueryEngine = conceptQueue.queryEngine;
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+      root_id: 'doc-1',
+    }));
+
+    await queue.addCard({
+      id: 'card-concept-1',
+      blockId: 'block-concept-1',
+      type: 'concept',
+      cardTypeMarker: 'concept',
+      meta: { cardTypeMarker: 'concept' },
+    } as any);
+
+    expect(queue.getSeedSnapshot().map((entry) => entry.nodeId)).toContain('block-concept-1');
+    expect(manager.getCards).not.toHaveBeenCalled();
+  });
+
   it('clearAnchors (and clearFocusPool alias) does not clear roam history', async () => {
     const { persistence } = createPersistence(undefined);
+    const manager = createManager();
     const queue = new NeuralRoamQueue(
-      {} as never,
+      manager.manager,
       persistence,
       {
         cardTypeResolver: {
@@ -122,8 +298,9 @@ describe('NeuralRoamQueue', () => {
 
   it('clears history by current/all scope', async () => {
     const { persistence } = createPersistence(undefined);
+    const manager = createManager();
     const queue = new NeuralRoamQueue(
-      {} as never,
+      manager.manager,
       persistence,
       {
         cardTypeResolver: {
@@ -163,7 +340,10 @@ describe('NeuralRoamQueue', () => {
 
   it('forwards seed/anchor wrapper calls', async () => {
     const { persistence } = createPersistence(undefined);
-    const queue = new NeuralRoamQueue({} as never, persistence);
+    const manager = createManager({
+      cards: [conceptCard('concept-seed-1')],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
 
     await queue.load();
     mockNeuralEngine(queue);
@@ -177,7 +357,8 @@ describe('NeuralRoamQueue', () => {
 
   it('forwards bookmarkCurrentPath option in setCurrentFocus to enable returnToBookmark', async () => {
     const { persistence } = createPersistence(undefined);
-    const queue = new NeuralRoamQueue({} as never, persistence);
+    const manager = createManager();
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
 
     await queue.load();
     mockNeuralEngine(queue);
@@ -198,4 +379,3 @@ describe('NeuralRoamQueue', () => {
     expect(queue.getNavigationState().currentNodeId).toBe('virtual-1');
   });
 });
-

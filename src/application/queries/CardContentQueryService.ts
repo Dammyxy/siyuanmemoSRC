@@ -166,7 +166,7 @@ export class CardContentQueryService {
         
         // 查询块的 id, type, content
         // 注意：对于文档块（type='d'），content 字段就是文档标题
-        const result = await this.siyuanApi.sql(`SELECT id, type, content FROM blocks WHERE id IN (${inClause})`);
+        const result = await this.siyuanApi.sql(`SELECT id, type, content FROM blocks WHERE id IN (${inClause}) LIMIT ${batchIds.length}`);
         
         for (const row of result || []) {
           const content = String(row.content || '').trim();

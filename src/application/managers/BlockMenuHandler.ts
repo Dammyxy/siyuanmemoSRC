@@ -1303,7 +1303,12 @@ export class BlockMenuHandler {
       const neuralQueue = this.getQueue(QueueType.NeuralRoam) as unknown as NeuralRoamQueueLike;
       
       // 5. 添加到队列
-      await neuralQueue.addCard(blockId, priority);
+      const localConceptCard = this.getStorage().getCardByBlockId(blockId);
+      if (localConceptCard) {
+        await neuralQueue.addCard(localConceptCard, priority);
+      } else {
+        await neuralQueue.addCard(blockId, priority);
+      }
       
       // 6. 如果是高优先级，自动打开神经漫游对话框
       if (priority === 'high') {

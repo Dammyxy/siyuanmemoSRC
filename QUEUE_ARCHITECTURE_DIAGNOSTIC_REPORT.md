@@ -1,15 +1,15 @@
 # 队列架构诊断报告
 
-**生成时间**: 2026-03-04T11:54:47.997Z
+**生成时间**: 2026-03-06T02:21:48.890Z
 
 ## 摘要
 
 | 指标 | 数量 |
 |------|------|
-| 总文件数 | 502 |
+| 总文件数 | 508 |
 | 旧架构文件 | 0 |
-| 新架构文件 | 99 |
-| 混合使用文件 | 163 |
+| 新架构文件 | 98 |
+| 混合使用文件 | 166 |
 | 验证错误 | 46 |
 | 验证警告 | 5 |
 
@@ -41,20 +41,20 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 296 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 296 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 323 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 389 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 465 | instantiation | new | new Error(`Queue type ${this.queueType} does not support insertAt`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 516 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 542 | instantiation | new | new Date(previewCard.due) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 594 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 604 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 609 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 405 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 481 | instantiation | new | new Error(`Queue type ${this.queueType} does not support insertAt`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 536 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 562 | instantiation | new | new Date(previewCard.due) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 614 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 644 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 644 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 670 | instantiation | new | new Map<QueueType, QueueRollbackCapable>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 732 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 732 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 733 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 624 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 629 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 634 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 664 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 664 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 690 | instantiation | new | new Map<QueueType, QueueRollbackCapable>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 752 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 752 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts | 753 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedReviewAdapter.ts | 13 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedReviewAdapter.ts | 25 | instantiation | new | new Set<string>([
     'builtin-list-item',
@@ -84,43 +84,43 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\interfaces\ICardStorage.ts | 54 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\interfaces\ICardStorage.ts | 62 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\interfaces\ICardStorage.ts | 69 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 105 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 123 | instantiation | new | new ManagerSiyuanAdapter() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 128 | instantiation | new | new CoreReviewEntryService({
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 96 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 114 | instantiation | new | new ManagerSiyuanAdapter() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 119 | instantiation | new | new CoreReviewEntryService({
       i18n: this.deps.i18n,
       dialogManager: th |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 168 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 189 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 198 | instantiation | new | new Set<string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 218 | instantiation | new | new Map<string, FSRSCard>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 218 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 231 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 251 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 252 | instantiation | new | new Set<string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 253 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 282 | instantiation | new | new Set(
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 159 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 180 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 189 | instantiation | new | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 209 | instantiation | new | new Map<string, FSRSCard>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 209 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 222 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 242 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 243 | instantiation | new | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 244 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 273 | instantiation | new | new Set(
       blockIds
         .map((id) => (typeof id === 'string' ? id.trim() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 313 | instantiation | new | new Set<string>([...normalizedRoots, ...subtreeIds]) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 438 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 493 | instantiation | new | new Promise((resolve) => {
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 304 | instantiation | new | new Set<string>([...normalizedRoots, ...subtreeIds]) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 429 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 484 | instantiation | new | new Promise((resolve) => {
       const { Dialog } = require('siyuan');
       c |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 495 | instantiation | new | new Dialog({
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 486 | instantiation | new | new Dialog({
         title: this.deps.i18n?.finalDrillQueueTitle \|\| '刻意练习队列', |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 544 | instantiation | new | new Promise((resolve) => {
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 535 | instantiation | new | new Promise((resolve) => {
       const { Dialog } = require('siyuan');
       c |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 546 | instantiation | new | new Dialog({
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 537 | instantiation | new | new Dialog({
         title: this.deps.i18n?.startPracticeTitle \|\| '开始练习？',
   |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 584 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 738 | instantiation | new | new Set<string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 889 | instantiation | new | new Set<string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 919 | instantiation | new | new Set<string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 965 | instantiation | new | new Set(blockIds) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 971 | instantiation | new | new Set<string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 1327 | instantiation | new | new Promise(resolve => setTimeout(resolve, 200)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 575 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 729 | instantiation | new | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 880 | instantiation | new | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 910 | instantiation | new | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 956 | instantiation | new | new Set(blockIds) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 962 | instantiation | new | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\BlockMenuHandler.ts | 1289 | instantiation | new | new Promise(resolve => setTimeout(resolve, 200)) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\MenuManager.ts | 35 | instantiation | new | new Set<TopBarQuickEntryActionId>([
   'one-click-symbol-current-doc',
   'one-cli |
@@ -176,35 +176,40 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\card\ICardReadModel.ts | 81 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\card\ICardReadModel.ts | 98 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 150 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 154 | instantiation | new | new Set<string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 174 | instantiation | new | new QuerySiyuanAdapter() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 177 | instantiation | new | new CardFilterService() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 178 | instantiation | new | new BlockRepository() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 220 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 224 | instantiation | new | new Error(`Card not found: ${cardId}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 254 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 259 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 335 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 355 | instantiation | new | new Error(`Failed to update card ${card.id}: ${result.error}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 391 | instantiation | new | new Error(`Failed to delete card ${cardId}: ${result.error}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 426 | instantiation | new | new Date(card.due) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 490 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 490 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 516 | instantiation | new | new Date(dayEnd) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 589 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 624 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 646 | instantiation | new | new Map<string, string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 658 | instantiation | new | new Error('[SiYuanMemo][DataAccessFacade] CardContentQueryService is required bu |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 155 | instantiation | new | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 175 | instantiation | new | new QuerySiyuanAdapter() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 178 | instantiation | new | new CardFilterService() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 179 | instantiation | new | new BlockRepository() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 221 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 226 | instantiation | new | new Error(`Card not found: ${cardId}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 232 | instantiation | new | new Error(`Card has invalid blockId: ${cardId}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 237 | instantiation | new | new Error(`Block not found for card ${cardId}: ${blockId}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 265 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 270 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 361 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 381 | instantiation | new | new Error(`Failed to update card ${card.id}: ${result.error}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 417 | instantiation | new | new Error(`Failed to delete card ${cardId}: ${result.error}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 452 | instantiation | new | new Date(card.due) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 516 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 516 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 542 | instantiation | new | new Date(dayEnd) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 616 | instantiation | new | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 653 | instantiation | new | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 654 | instantiation | new | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 670 | instantiation | new | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 720 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 735 | instantiation | new | new Map<string, string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts | 747 | instantiation | new | new Error('[SiYuanMemo][DataAccessFacade] CardContentQueryService is required bu |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BrowserApplicationService.ts | 61 | instantiation | new | new BrowserSiyuanAdapter() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BrowserApplicationService.ts | 63 | instantiation | new | new GetBrowserCardsQueryHandler(
       storageManager,
       cardScheduleService |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BrowserApplicationService.ts | 119 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BrowserApplicationService.ts | 235 | instantiation | new | new DeckDataSource(
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BrowserApplicationService.ts | 243 | instantiation | new | new DeckDataSource(
         this.unifiedDataSourceManager,
         { preset, que |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BrowserApplicationService.ts | 251 | instantiation | new | new Error(`Unknown queue data source: ${queueId}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BrowserApplicationService.ts | 261 | instantiation | new | new Error(`Unknown data source type: ${type}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BrowserApplicationService.ts | 259 | instantiation | new | new Error(`Unknown queue data source: ${queueId}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BrowserApplicationService.ts | 269 | instantiation | new | new Error(`Unknown data source type: ${type}`) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\CardApplicationService.ts | 88 | instantiation | new | new GetDueCardsQueryHandler(
       readModel,
       scheduleService
@@ -234,36 +239,35 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\ReviewApplicationService.ts | 146 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\ReviewApplicationService.ts | 166 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\ReviewApplicationService.ts | 176 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 97 | instantiation | new | new UnifiedDataSourceManager() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 173 | instantiation | new | new Set<IDataSourceObserver>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 179 | instantiation | new | new Map<QueueType, IReviewQueue>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 181 | instantiation | new | new Map<string, DataChangeEvent>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 224 | instantiation | new | new Error('AdvancedDataRouter not initialized. Call setAdvancedRouter() first.') |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 249 | instantiation | new | new Error('SchedulerRouter not available - plugin initialization failed') |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 374 | instantiation | new | new Set([...(previous.cardIds ?? []), ...(next.cardIds ?? [])]) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 407 | instantiation | new | new Error(String(error)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 472 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 485 | instantiation | new | new Error(`获取卡片失败 (${cardId}): ${errorMessage}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 500 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 508 | instantiation | new | new Error(`获取卡片列表失败: ${errorMessage}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 529 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 540 | instantiation | new | new Error(`更新卡片失败 (${card.id}): ${errorMessage}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 551 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 554 | instantiation | new | new Set([card.id, card.blockId].filter(Boolean)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 598 | instantiation | new | new Set([cardId, deletedBlockId].filter(Boolean)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 609 | instantiation | new | new Error(`删除卡片失败 (${cardId}): ${errorMessage}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 669 | instantiation | new | new QueueError('QueuePersistence not initialized. Call setQueuePersistence() fir |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 676 | instantiation | new | new RetrievalPracticeQueue(this, this.queuePersistence!, { autoFailedSink }) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 679 | instantiation | new | new IncrementalLearningQueue(this, this.queuePersistence!, { autoFailedSink }) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 682 | instantiation | new | new FilterGroupQueue(this, this.queuePersistence!, {}, { autoFailedSink }) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 685 | instantiation | new | new FinalDrillQueue(this, this.queuePersistence!) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 688 | instantiation | new | new NeuralRoamQueue(this, this.queuePersistence!, {
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 96 | instantiation | new | new UnifiedDataSourceManager() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 172 | instantiation | new | new Set<IDataSourceObserver>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 178 | instantiation | new | new Map<QueueType, IReviewQueue>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 180 | instantiation | new | new Map<string, DataChangeEvent>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 223 | instantiation | new | new Error('AdvancedDataRouter not initialized. Call setAdvancedRouter() first.') |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 248 | instantiation | new | new Error('SchedulerRouter not available - plugin initialization failed') |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 373 | instantiation | new | new Set([...(previous.cardIds ?? []), ...(next.cardIds ?? [])]) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 406 | instantiation | new | new Error(String(error)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 471 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 484 | instantiation | new | new Error(`获取卡片失败 (${cardId}): ${errorMessage}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 499 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 507 | instantiation | new | new Error(`获取卡片列表失败: ${errorMessage}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 528 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 539 | instantiation | new | new Error(`更新卡片失败 (${card.id}): ${errorMessage}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 550 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 553 | instantiation | new | new Set([card.id, card.blockId].filter(Boolean)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 597 | instantiation | new | new Set([cardId, deletedBlockId].filter(Boolean)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 608 | instantiation | new | new Error(`删除卡片失败 (${cardId}): ${errorMessage}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 668 | instantiation | new | new QueueError('QueuePersistence not initialized. Call setQueuePersistence() fir |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 675 | instantiation | new | new RetrievalPracticeQueue(this, this.queuePersistence!, { autoFailedSink }) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 678 | instantiation | new | new IncrementalLearningQueue(this, this.queuePersistence!, { autoFailedSink }) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 681 | instantiation | new | new FilterGroupQueue(this, this.queuePersistence!, {}, { autoFailedSink }) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 684 | instantiation | new | new FinalDrillQueue(this, this.queuePersistence!) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 687 | instantiation | new | new NeuralRoamQueue(this, this.queuePersistence!, {
                     cardType |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 689 | instantiation | new | new SiyuanNeuralRoamCardTypeResolverAdapter() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 693 | instantiation | new | new LeechReviewQueue(this, {
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 694 | instantiation | new | new LeechReviewQueue(this, {
                     effects: new SiyuanLeechActionE |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 694 | instantiation | new | new SiyuanLeechActionEffectsAdapter() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 698 | instantiation | new | new QueueError(`Unknown queue type: ${type}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 695 | instantiation | new | new SiyuanLeechActionEffectsAdapter() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts | 699 | instantiation | new | new QueueError(`Unknown queue type: ${type}`) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateFSRSCardUseCase.ts | 70 | instantiation | new | new Error(`Card not found: ${command.cardId}`) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateFSRSCardUseCase.ts | 81 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateFSRSCardUseCase.ts | 98 | instantiation | new | new Error(String(error)) |
@@ -273,6 +277,7 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\box\TransactionObserver.ts | 95 | instantiation | new | new CardBuilderContext() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\box\TransactionObserver.ts | 135 | instantiation | new | new Error(errorMessage) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\box\TransactionObserver.ts | 140 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\box\TransactionObserver.ts | 254 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\domain\services\CardFilterService.ts | 27 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\domain\services\CardFilterService.ts | 55 | instantiation | new | new Set(states) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\domain\services\CardFilterService.ts | 68 | instantiation | new | new Map<string, number>() |
@@ -303,12 +308,9 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card-builder\strategies\DefaultStrategy.ts | 12 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card-builder\strategies\QAStrategy.ts | 14 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card-builder\types.ts | 12 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card-type\CardTypeMarkerService.ts | 32 | instantiation | new | new Map() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card-type\CardTypeMarkerService.ts | 52 | instantiation | new | new Error(`Card not found: ${cardId}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card-type\CardTypeMarkerService.ts | 139 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card-type\CardTypeMarkerService.ts | 174 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card-type\CardTypeMarkerService.ts | 198 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card-type\CardTypeMarkerService.ts | 222 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card-type\CardTypeMarkerService.ts | 31 | instantiation | new | new Map() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card-type\CardTypeMarkerService.ts | 51 | instantiation | new | new Error(`Card not found: ${cardId}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card-type\CardTypeMarkerService.ts | 177 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\extensions\QueueBackedStrategy.ts | 11 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\extensions\QueueBackedStrategy.ts | 14 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\extensions\QueueBackedStrategy.ts | 15 | type-annotation | new | FSRSCard |
@@ -414,17 +416,24 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\ManualCardSetStrategy.ts | 45 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\ManualCardSetStrategy.ts | 47 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\ManualCardSetStrategy.ts | 48 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 96 | instantiation | new | new Map<string, FocusPoolPersistedEntry>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 171 | instantiation | new | new ConceptNeuralQueue() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 262 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 279 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 282 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 286 | instantiation | new | new Error('Invalid card or block ID') |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 303 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 447 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 488 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 498 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 98 | instantiation | new | new Map<string, FocusPoolPersistedEntry>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 173 | instantiation | new | new ConceptNeuralQueue({
+      isConceptCard: async (blockId: string) => {
+      |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 177 | instantiation | new | new Error(`Local concept status unavailable for block ${blockId}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 281 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 298 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 301 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 305 | instantiation | new | new Error('Invalid card or block ID') |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 312 | instantiation | new | new Error(`Failed to validate concept card ${blockId} from local storage`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 315 | instantiation | new | new Error(`Block ${blockId} is not a concept card`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 337 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 481 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 522 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 532 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 587 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 596 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts | 620 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\OrderedStaticSubsetQueueBase.ts | 16 | instantiation | new | new Map<string, string>() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\OrderedStaticSubsetQueueBase.ts | 31 | instantiation | new | new Set((blockIds \|\| []).map((id) => String(id \|\| '')).filter(Boolean)) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\OrderedStaticSubsetQueueBase.ts | 40 | type-annotation | new | FSRSCard |
@@ -463,20 +472,20 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\TemporaryDrillQueue.ts | 30 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\TemporaryDrillQueue.ts | 30 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\TemporaryDrillQueue.ts | 36 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 72 | type-annotation | new | QueueItem |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 72 | type-annotation | new | QueueItem |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 95 | instantiation | new | new Error(String(error)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 118 | type-annotation | new | QueueItem |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 118 | type-annotation | new | QueueItem |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 140 | instantiation | new | new Error(String(error)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 168 | type-annotation | new | QueueItem |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 169 | type-annotation | new | QueueItem |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 170 | type-annotation | new | QueueItem |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 181 | type-annotation | new | QueueItem |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 45 | type-annotation | new | QueueItem |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 46 | type-annotation | new | QueueItem |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 85 | type-annotation | new | QueueItem |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 85 | type-annotation | new | QueueItem |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 104 | instantiation | new | new Error(String(error)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 127 | type-annotation | new | QueueItem |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 127 | type-annotation | new | QueueItem |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 145 | instantiation | new | new Error(String(error)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 173 | type-annotation | new | QueueItem |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 174 | type-annotation | new | QueueItem |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 175 | type-annotation | new | QueueItem |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 182 | type-annotation | new | QueueItem |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 203 | instantiation | new | new Error(String(error)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 228 | instantiation | new | new Map<string, string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 257 | instantiation | new | new Error(String(error)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 183 | type-annotation | new | QueueItem |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts | 204 | instantiation | new | new Error(String(error)) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\logging\LoggableQueue.ts | 90 | type-annotation | new | QueueItem |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\managers\UnifiedDataSourceManager.ts | 10 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\managers\UnifiedDataSourceManager.ts | 10 | type-annotation | new | FSRSCard |
@@ -484,27 +493,28 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\managers\UnifiedDataSourceManager.ts | 27 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\managers\UnifiedDataSourceManager.ts | 28 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\managers\UnifiedDataSourceManager.ts | 29 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 108 | instantiation | new | new Set() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 109 | instantiation | new | new Set() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 111 | instantiation | new | new Map() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 112 | instantiation | new | new Map() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 121 | instantiation | new | new Set<string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 128 | instantiation | new | new ConceptQueryEngine() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 131 | type-annotation | new | QueueItem |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 210 | instantiation | new | new Error(`Block ${blockId} is not a concept card`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 303 | instantiation | new | new Map<string, NeuralRoamHistoryEntry>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 310 | instantiation | new | new Set<string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 440 | instantiation | new | new Error(`Failed to start roaming from focus ${focusId}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 462 | instantiation | new | new Set(pathForSession) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 566 | type-annotation | new | QueueItem |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 727 | instantiation | new | new Set(state.visitedBlocks.map((id) => String(id)).filter(Boolean)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 728 | instantiation | new | new Set(displayPath) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 730 | instantiation | new | new Set(state.exhaustedFocuses.map((id) => String(id)).filter(Boolean)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 731 | instantiation | new | new Set<string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 794 | instantiation | new | new Error(`Block ${nodeId} is not a concept card`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 859 | type-annotation | new | QueueItem |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 886 | type-annotation | new | QueueItem |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 989 | type-annotation | new | QueueItem |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 116 | instantiation | new | new Set() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 117 | instantiation | new | new Set() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 119 | instantiation | new | new Map() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 120 | instantiation | new | new Map() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 129 | instantiation | new | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 137 | instantiation | new | new ConceptQueryEngine() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 141 | type-annotation | new | QueueItem |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 226 | instantiation | new | new Error(`Block ${blockId} is not a concept card`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 319 | instantiation | new | new Map<string, NeuralRoamHistoryEntry>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 326 | instantiation | new | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 456 | instantiation | new | new Error(`Failed to start roaming from focus ${focusId}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 478 | instantiation | new | new Set(pathForSession) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 582 | type-annotation | new | QueueItem |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 743 | instantiation | new | new Set(state.visitedBlocks.map((id) => String(id)).filter(Boolean)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 744 | instantiation | new | new Set(displayPath) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 746 | instantiation | new | new Set(state.exhaustedFocuses.map((id) => String(id)).filter(Boolean)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 747 | instantiation | new | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 825 | instantiation | new | new Set(removedNodeIds) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 859 | instantiation | new | new Error(`Block ${nodeId} is not a concept card`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 928 | type-annotation | new | QueueItem |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 955 | type-annotation | new | QueueItem |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts | 1058 | type-annotation | new | QueueItem |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts | 27 | type-annotation | new | QueueItem |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts | 53 | instantiation | new | new Set() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts | 56 | instantiation | new | new Map() |
@@ -958,33 +968,34 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts | 1551 | instantiation | new | new Error(`[UnifiedStorageManager] Xiuyuan not found: ${xiuyuanId}. Cannot creat |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts | 1591 | instantiation | new | new Error(errorMsg) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts | 1599 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 154 | instantiation | new | new Map() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 160 | instantiation | new | new TemplateRegistry() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 197 | instantiation | new | new Set(cards.map(card => card.getId().getValue())) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 246 | instantiation | new | new Error('Failed to save after deletion') |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 362 | instantiation | new | new Error(String(error)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 165 | instantiation | new | new Map() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 171 | instantiation | new | new TemplateRegistry() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 208 | instantiation | new | new Set(cards.map(card => card.getId().getValue())) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 257 | instantiation | new | new Error('Failed to save after deletion') |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 318 | instantiation | new | new Error(String(error)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 347 | instantiation | new | new Error(String(error)) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 381 | instantiation | new | new Error(String(error)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 409 | instantiation | new | new Error(String(error)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 440 | instantiation | new | new Error(String(error)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 496 | instantiation | new | new Error(String(error)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 516 | instantiation | new | new Error(String(error)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 536 | instantiation | new | new Error(String(error)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 593 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 798 | instantiation | new | new Error(`Invalid CardId: ${dto.id}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 801 | instantiation | new | new Date(dto.due) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 807 | instantiation | new | new Date(dto.lastReview) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 812 | instantiation | new | new Error('Invalid ScheduleInfo') |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 819 | instantiation | new | new Date(dto.createdAt) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 820 | instantiation | new | new Date(dto.updatedAt) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 825 | instantiation | new | new Error(String(error)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 840 | instantiation | new | new Error(`Invalid XiuyuanId: ${data.id}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 845 | instantiation | new | new Error(`Invalid BlockId in blockIDs`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 850 | instantiation | new | new Error(`Invalid TemplateId: ${data.templateID}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 862 | instantiation | new | new Error(`Invalid CardFace in faces`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 875 | instantiation | new | new Map<CardId, Card>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 907 | instantiation | new | new Date(data.createdAt) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 908 | instantiation | new | new Date(data.updatedAt) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 418 | instantiation | new | new Error(String(error)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 473 | instantiation | new | new Error(String(error)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 493 | instantiation | new | new Error(String(error)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 513 | instantiation | new | new Error(String(error)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 570 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 775 | instantiation | new | new Error(`Invalid CardId: ${dto.id}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 778 | instantiation | new | new Date(dto.due) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 784 | instantiation | new | new Date(dto.lastReview) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 789 | instantiation | new | new Error('Invalid ScheduleInfo') |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 796 | instantiation | new | new Date(dto.createdAt) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 797 | instantiation | new | new Date(dto.updatedAt) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 802 | instantiation | new | new Error(String(error)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 817 | instantiation | new | new Error(`Invalid XiuyuanId: ${data.id}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 822 | instantiation | new | new Error(`Invalid BlockId in blockIDs`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 827 | instantiation | new | new Error(`Invalid TemplateId: ${data.templateID}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 839 | instantiation | new | new Error(`Invalid CardFace in faces`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 852 | instantiation | new | new Map<CardId, Card>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 895 | instantiation | new | new Date(data.createdAt) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 896 | instantiation | new | new Date(data.updatedAt) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 913 | instantiation | new | new Error(String(error)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts | 954 | instantiation | new | new Set(resolvedCardIds) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\type-guards.ts | 78 | instantiation | new | new Date(dueCandidate) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\type-guards.ts | 98 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\type-guards.ts | 98 | type-annotation | new | FSRSCard |
@@ -1109,49 +1120,37 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1121 | instantiation | new | new Set((blockIds \|\| []).filter(Boolean)) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1140 | instantiation | new | new Map(cards.map((c) => [c.blockId, c])) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1148 | instantiation | new | new Map(allCards.map(c => [c.blockId, c])) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1179 | instantiation | new | new Date() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1274 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1274 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1276 | instantiation | new | new Set(blockIds.filter(Boolean)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1328 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1334 | instantiation | new | new Set(blockIds) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1363 | instantiation | new | new Set(blockIds.filter(Boolean)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1371 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1406 | instantiation | new | new Set(blockIds.filter(Boolean)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1423 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1466 | instantiation | new | new Set(blockIds.filter(Boolean)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1525 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1529 | instantiation | new | new Set(blockIds) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts | 78 | instantiation | new | new Map<string, CanonicalCardType>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts | 141 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts | 163 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts | 205 | instantiation | new | new Set(
-    safeRows
-      .map((row) => String(row.blockId \|\| '').trim())
-   |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts | 212 | instantiation | new | new Set<string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts | 213 | instantiation | new | new Set<string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts | 214 | instantiation | new | new Set<string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts | 215 | instantiation | new | new Set<string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts | 216 | instantiation | new | new Map<string, CanonicalCardType>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 35 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 36 | type-annotation | new | FSRSCard |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 107 | instantiation | new | new Error(`[${scope}] Queue removeCard is unavailable`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 143 | instantiation | new | new Error(`[${scope}] Queue insertAt is unavailable`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 252 | instantiation | new | new Error(`[${scope}] Spread action is not supported`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 287 | instantiation | new | new Date(newDue) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 395 | instantiation | new | new Date() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 396 | instantiation | new | new Date(now.getFullYear(), now.getMonth(), now.getDate()) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 401 | instantiation | new | new Date(card.due) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 403 | instantiation | new | new Date(card.due) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 515 | instantiation | new | new Set(values.filter(Boolean)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 578 | instantiation | new | new Set(deletedCardIds) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1180 | instantiation | new | new Date() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1275 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1275 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1277 | instantiation | new | new Set(blockIds.filter(Boolean)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1329 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1335 | instantiation | new | new Set(blockIds) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1364 | instantiation | new | new Set(blockIds.filter(Boolean)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1372 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1407 | instantiation | new | new Set(blockIds.filter(Boolean)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1424 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1467 | instantiation | new | new Set(blockIds.filter(Boolean)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1526 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts | 1530 | instantiation | new | new Set(blockIds) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 41 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 42 | type-annotation | new | FSRSCard |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 113 | instantiation | new | new Error(`[${scope}] Queue removeCard is unavailable`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 149 | instantiation | new | new Error(`[${scope}] Queue insertAt is unavailable`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 258 | instantiation | new | new Error(`[${scope}] Spread action is not supported`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 293 | instantiation | new | new Date(newDue) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 571 | instantiation | new | new Date() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 572 | instantiation | new | new Date(now.getFullYear(), now.getMonth(), now.getDate()) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 577 | instantiation | new | new Date(card.due) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 579 | instantiation | new | new Date(card.due) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 691 | instantiation | new | new Set(values.filter(Boolean)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts | 754 | instantiation | new | new Set(deletedCardIds) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DeckDataSource.ts | 65 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DeckDataSource.ts | 149 | instantiation | new | new BrowserQuerySession('DeckDataSource') |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DeckDataSource.ts | 389 | instantiation | new | new Date(card.due) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DeckDataSource.ts | 390 | instantiation | new | new Date(card.lastReview) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DeckDataSource.ts | 394 | instantiation | new | new Date(card.createdAt) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DeckDataSource.ts | 499 | instantiation | new | new Error('UnifiedDataSourceManager.deleteCard is unavailable') |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DeckDataSource.ts | 385 | instantiation | new | new Date(card.due) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DeckDataSource.ts | 386 | instantiation | new | new Date(card.lastReview) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DeckDataSource.ts | 390 | instantiation | new | new Date(card.createdAt) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DeckDataSource.ts | 495 | instantiation | new | new Error('UnifiedDataSourceManager.deleteCard is unavailable') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\FinalDrillDataSource.ts | 34 | type-annotation | new | FSRSCard |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\FinalDrillDataSource.ts | 56 | instantiation | new | new BrowserQuerySession('FinalDrillDataSource') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\QueueBrowserCardMapper.ts | 49 | type-annotation | new | FSRSCard |
@@ -1372,59 +1371,64 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 195 | instantiation | mixed | new Error('[AutoCard] CardApplicationService is unavailable') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 208 | instantiation | mixed | new Error('[AutoCard] XiuyuanApplicationService is unavailable') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 215 | instantiation | mixed | new CardCreationHelper(cardService) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 316 | instantiation | mixed | new DocumentPostCreationScanService(
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 341 | instantiation | mixed | new DocumentPostCreationScanService(
             this.siyuanApi,
             {
   |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 533 | instantiation | mixed | new Set(enabledDecisions.map((decision) => decision.id)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 755 | instantiation | mixed | new CreateCdfMultilineCardsUseCase(
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 558 | instantiation | mixed | new Set(enabledDecisions.map((decision) => decision.id)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 768 | instantiation | mixed | new CreateCdfMultilineCardsUseCase(
             xiuyuanAppService,
             { |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 1159 | instantiation | mixed | new Error(`Failed to create cards with back cloze: ${result.error?.message}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 1180 | instantiation | mixed | new Error(`Failed to create symbol card: ${result.error}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 1236 | instantiation | mixed | new Error(`Failed to create bidirectional card with back cloze: ${result.error?. |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 1255 | instantiation | mixed | new Error('Failed to create bidirectional card via Xiuyuan') |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 1172 | instantiation | mixed | new Error(`Failed to create cards with back cloze: ${result.error?.message}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 1193 | instantiation | mixed | new Error(`Failed to create symbol card: ${result.error}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 1249 | instantiation | mixed | new Error(`Failed to create bidirectional card with back cloze: ${result.error?. |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts | 1268 | instantiation | mixed | new Error('Failed to create bidirectional card via Xiuyuan') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\FormulaClozeAssistant.ts | 349 | instantiation | mixed | new Event('input', { bubbles: true }) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\FormulaClozeAssistant.ts | 383 | instantiation | mixed | new Event('input', { bubbles: true }) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 137 | instantiation | mixed | new Promise((resolve) => window.setTimeout(resolve, Math.max(0, ms))) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 202 | instantiation | mixed | new Map<string, Dialog>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 295 | instantiation | mixed | new Dialog({
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 112 | instantiation | mixed | new Promise((resolve) => window.setTimeout(resolve, Math.max(0, ms))) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 177 | instantiation | mixed | new Map<string, Dialog>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 270 | instantiation | mixed | new Dialog({
       title: this.t('imageOcclusionTitle', 'Image Occlusion Card'), |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 878 | instantiation | mixed | new Map<string, string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 959 | instantiation | mixed | new Set(trackedCardIds.map((id) => id.trim()).filter((id) => id.length > 0)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 1004 | instantiation | mixed | new Map<string, (typeof imageCards)[number]>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 1031 | instantiation | mixed | new Set(masks.map((mask) => mask.id.trim())) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 1032 | instantiation | mixed | new Map<string, string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 1094 | instantiation | mixed | new Error(`Failed to resolve created card id for mask ${mask.id}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 1173 | instantiation | mixed | new Error(`Image occlusion mapping is incomplete for mask ${mask.id}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 862 | instantiation | mixed | new Map<string, string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 943 | instantiation | mixed | new Set(trackedCardIds.map((id) => id.trim()).filter((id) => id.length > 0)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 988 | instantiation | mixed | new Map<string, (typeof imageCards)[number]>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 1015 | instantiation | mixed | new Set(masks.map((mask) => mask.id.trim())) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 1016 | instantiation | mixed | new Map<string, string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 1078 | instantiation | mixed | new Error(`Failed to resolve created card id for mask ${mask.id}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts | 1157 | instantiation | mixed | new Error(`Image occlusion mapping is incomplete for mask ${mask.id}`) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\RiffSyncHandler.ts | 64 | instantiation | mixed | new Promise(resolve => setTimeout(resolve, 500)) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.test.ts | 65 | instantiation | mixed | new DialogManager(mockContext, mockPlugin) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.test.ts | 197 | instantiation | mixed | new DialogManager(mockContext, mockPlugin) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 109 | instantiation | mixed | new Set<string>(['builtin-concept-simple']) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 139 | instantiation | mixed | new Set<string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 152 | instantiation | mixed | new ManagerSiyuanAdapter() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 673 | instantiation | mixed | new LeechReviewQueue(manager, {
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 108 | instantiation | mixed | new Set<string>(['builtin-concept-simple']) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 138 | instantiation | mixed | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 151 | instantiation | mixed | new ManagerSiyuanAdapter() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 189 | instantiation | mixed | new BlockAttrCleanupService(
+      this.siyuanApi,
+      this.context.getUnified |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 374 | instantiation | mixed | new Error(String(error)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 388 | instantiation | mixed | new Error(String(error)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 726 | instantiation | mixed | new LeechReviewQueue(manager, {
         threshold: Number(leech?.threshold) \|\| |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 677 | instantiation | mixed | new SiyuanLeechActionEffectsAdapter() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 707 | instantiation | mixed | new Set((blockIds \|\| []).map((x) => String(x \|\| '')).filter(Boolean)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 716 | instantiation | mixed | new SubsetReviewQueue(manager, ids, {
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 730 | instantiation | mixed | new SiyuanLeechActionEffectsAdapter() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 760 | instantiation | mixed | new Set((blockIds \|\| []).map((x) => String(x \|\| '')).filter(Boolean)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 769 | instantiation | mixed | new SubsetReviewQueue(manager, ids, {
         preferredCardId: preferredCardId.l |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 763 | instantiation | mixed | new Date() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 787 | instantiation | mixed | new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus, schedulerRout |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 788 | instantiation | mixed | new UnifiedReviewAdapter({ i18n: this.context.getI18n() \|\| {} }) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 857 | instantiation | mixed | new Date() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 881 | instantiation | mixed | new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus, schedulerRout |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 882 | instantiation | mixed | new UnifiedReviewAdapter({ i18n: this.context.getI18n() \|\| {} }) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 933 | instantiation | mixed | new Set((blockIds \|\| []).map((x) => String(x \|\| '')).filter(Boolean)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 941 | instantiation | mixed | new TemporaryDrillQueue(manager, ids) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 1030 | instantiation | mixed | new Promise((resolve) => {
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 816 | instantiation | mixed | new Date() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 840 | instantiation | mixed | new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus, schedulerRout |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 841 | instantiation | mixed | new UnifiedReviewAdapter({ i18n: this.context.getI18n() \|\| {} }) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 910 | instantiation | mixed | new Date() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 934 | instantiation | mixed | new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus, schedulerRout |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 935 | instantiation | mixed | new UnifiedReviewAdapter({ i18n: this.context.getI18n() \|\| {} }) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 986 | instantiation | mixed | new Set((blockIds \|\| []).map((x) => String(x \|\| '')).filter(Boolean)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 994 | instantiation | mixed | new TemporaryDrillQueue(manager, ids) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 1083 | instantiation | mixed | new Promise((resolve) => {
       const { Dialog } = require('siyuan');
       con |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 1032 | instantiation | mixed | new Dialog({
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 1085 | instantiation | mixed | new Dialog({
         title,
         content: `
           <div class="b3-dialog__ |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 1202 | instantiation | mixed | new CreateCdfMultilineCardsUseCase(
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts | 1229 | instantiation | mixed | new CreateCdfMultilineCardsUseCase(
         xiuyuanAppService,
         {
         |
@@ -1437,10 +1441,10 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.test.ts | 233 | instantiation | mixed | new Error('Failed to open tab') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.ts | 79 | instantiation | mixed | new ManagerSiyuanAdapter() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.ts | 129 | instantiation | mixed | new UnifiedReviewAdapter({ i18n: self.getPluginI18n() }) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.ts | 278 | instantiation | mixed | new UnifiedQueueStrategy(
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.ts | 283 | instantiation | mixed | new UnifiedQueueStrategy(
       queueType,
       this.context.getUnifiedDataSour |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.ts | 339 | instantiation | mixed | new Error('ipcRenderer is unavailable') |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.ts | 362 | instantiation | mixed | new Error('ipcRenderer is unavailable') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\observers\CacheManagerObserver.ts | 144 | instantiation | mixed | new LRUCache(options?.nextDuesCacheSize ?? 100) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\observers\CacheManagerObserver.ts | 145 | instantiation | mixed | new LRUCache(options?.cardTypeCacheSize ?? 50) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\observers\CacheManagerObserver.ts | 146 | instantiation | mixed | new LRUCache(options?.formattedDataCacheSize ?? 50) |
@@ -1451,6 +1455,14 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\CardContentQueryService.ts | 90 | instantiation | mixed | new Map() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\CardContentQueryService.ts | 99 | instantiation | mixed | new Map<string, BlockContentResult>() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\CardContentQueryService.ts | 153 | instantiation | mixed | new Map<string, BlockContentResult>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BlockAttrCleanupService.ts | 108 | instantiation | mixed | new Map<string, Record<string, string>>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BlockAttrPolicy.ts | 39 | instantiation | mixed | new Set([
+      ...BLOCK_ATTR_BINDING_KEYS,
+      ...BLOCK_ATTR_FUNCTIONAL_KEYS, |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BlockAttrPolicy.ts | 48 | instantiation | mixed | new Set<string>([
+  ...BLOCK_ATTR_DEPRECATED_KEYS,
+  ...BLOCK_ATTR_LEGACY_KEYS,
+ |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\DocumentPostCreationScanService.ts | 88 | instantiation | mixed | new UnifiedPostCreationPlanner() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\DocumentPostCreationScanService.ts | 89 | instantiation | mixed | new PostCreationConflictMediator() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\DocumentPostCreationScanService.ts | 129 | instantiation | mixed | new Set<string>() |
@@ -1519,35 +1531,35 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanApplicationService.ts | 106 | instantiation | mixed | new GetAllTemplatesQueryHandler(templateRegistry) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 122 | instantiation | mixed | new Map() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 123 | instantiation | mixed | new Map() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 125 | instantiation | mixed | new QuickCardPostCreationPlanner() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 141 | instantiation | mixed | new XiuyuanSyncSiyuanAdapter() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 165 | instantiation | mixed | new XiuyuanSyncBridgeEvent(domainEventName, eventData) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 230 | instantiation | mixed | new Map<(data: unknown) => void, EventHandler<DomainEvent>>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 630 | instantiation | mixed | new Promise<void>((resolve) => {
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 124 | instantiation | mixed | new QuickCardPostCreationPlanner() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 140 | instantiation | mixed | new XiuyuanSyncSiyuanAdapter() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 164 | instantiation | mixed | new XiuyuanSyncBridgeEvent(domainEventName, eventData) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 229 | instantiation | mixed | new Map<(data: unknown) => void, EventHandler<DomainEvent>>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 658 | instantiation | mixed | new Promise<void>((resolve) => {
             releaseLock = resolve;
         }) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 845 | instantiation | mixed | new Set(filtered.map(c => c.id)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 935 | instantiation | mixed | new Set(riffCards.map(c => c.id)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 942 | instantiation | mixed | new Error(`Failed to get all Xiuyuans: ${errorMsg}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1300 | instantiation | mixed | new Error(`Failed to create XiuyuanId: ${errorMsg}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1313 | instantiation | mixed | new Error(`Failed to create BlockId: ${errorMsg}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1375 | instantiation | mixed | new Error(`Failed to generate multi-cloze faces: ${message}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1381 | instantiation | mixed | new Error(`Failed to create TemplateId: ${errorMsg}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1408 | instantiation | mixed | new Error(`Failed to create Xiuyuan: ${errorMsg}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1416 | instantiation | mixed | new Error(`Failed to create multi-cloze card at face ${faceIndex}: ${errorMsg}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1458 | instantiation | mixed | new Error(`Failed to create CardFace: ${errorMsg}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1464 | instantiation | mixed | new Error(`Failed to create TemplateId: ${errorMsg}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1491 | instantiation | mixed | new Error(`Failed to create Xiuyuan: ${errorMsg}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1502 | instantiation | mixed | new Error(`Failed to create CardId: ${errorMsg}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1506 | instantiation | mixed | new Date(this.parseValidRiffDate(riffCard?.due, riffBlock.id) \|\| now) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1512 | instantiation | mixed | new Date(this.parseValidRiffDate(riffCard?.lastReview, riffBlock.id) \|\| now) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1519 | instantiation | mixed | new Error(`Failed to create ScheduleInfo: ${errorMsg}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1527 | instantiation | mixed | new Date(now) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1528 | instantiation | mixed | new Date(now) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1532 | instantiation | mixed | new Error(`Failed to create Card: ${errorMsg}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1538 | instantiation | mixed | new Error(`Failed to add Card to Xiuyuan: ${errorMsg}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1546 | instantiation | mixed | new Date(dateStr) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1664 | instantiation | mixed | new Promise(resolve => setTimeout(resolve, ms)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 871 | instantiation | mixed | new Set(filtered.map(c => c.id)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 961 | instantiation | mixed | new Set(riffCards.map(c => c.id)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 968 | instantiation | mixed | new Error(`Failed to get all Xiuyuans: ${errorMsg}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1307 | instantiation | mixed | new Error(`Failed to create XiuyuanId: ${errorMsg}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1320 | instantiation | mixed | new Error(`Failed to create BlockId: ${errorMsg}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1382 | instantiation | mixed | new Error(`Failed to generate multi-cloze faces: ${message}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1388 | instantiation | mixed | new Error(`Failed to create TemplateId: ${errorMsg}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1415 | instantiation | mixed | new Error(`Failed to create Xiuyuan: ${errorMsg}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1423 | instantiation | mixed | new Error(`Failed to create multi-cloze card at face ${faceIndex}: ${errorMsg}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1465 | instantiation | mixed | new Error(`Failed to create CardFace: ${errorMsg}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1471 | instantiation | mixed | new Error(`Failed to create TemplateId: ${errorMsg}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1498 | instantiation | mixed | new Error(`Failed to create Xiuyuan: ${errorMsg}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1509 | instantiation | mixed | new Error(`Failed to create CardId: ${errorMsg}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1513 | instantiation | mixed | new Date(this.parseValidRiffDate(riffCard?.due, riffBlock.id) \|\| now) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1519 | instantiation | mixed | new Date(this.parseValidRiffDate(riffCard?.lastReview, riffBlock.id) \|\| now) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1526 | instantiation | mixed | new Error(`Failed to create ScheduleInfo: ${errorMsg}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1534 | instantiation | mixed | new Date(now) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1535 | instantiation | mixed | new Date(now) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1539 | instantiation | mixed | new Error(`Failed to create Card: ${errorMsg}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1545 | instantiation | mixed | new Error(`Failed to add Card to Xiuyuan: ${errorMsg}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1553 | instantiation | mixed | new Date(dateStr) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts | 1671 | instantiation | mixed | new Promise(resolve => setTimeout(resolve, ms)) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts | 55 | instantiation | mixed | new CardCreationSiyuanAdapter() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts | 68 | instantiation | mixed | new Error(`Invalid command: ${validationError}`) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts | 80 | instantiation | mixed | new Error('Failed to select template') |
@@ -1573,13 +1585,13 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteFSRSCardUseCase.ts | 113 | instantiation | mixed | new Error(String(error)) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteFSRSCardUseCase.ts | 127 | instantiation | mixed | new Error(`Failed to delete card via removeCard(): ${cardId}`) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteFSRSCardUseCase.ts | 132 | instantiation | mixed | new Error('No available delete capability on DeleteFSRSCardStoragePort') |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\shared\CardBlockAttrCleaner.ts | 93 | instantiation | mixed | new Set(
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\shared\CardBlockAttrCleaner.ts | 77 | instantiation | mixed | new Set(
     deletedCardIds
       .filter((id): id is string => typeof id === 's |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\shared\CardBlockAttrCleaner.ts | 116 | instantiation | mixed | new Set(
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\shared\CardBlockAttrCleaner.ts | 100 | instantiation | mixed | new Set(
         Object.values(fromPayload)
           .map((cardId) => (typeof c |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\shared\CardBlockAttrCleaner.ts | 160 | instantiation | mixed | new Set(Object.keys(nextMaskToCardId)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\shared\CardBlockAttrCleaner.ts | 144 | instantiation | mixed | new Set(Object.keys(nextMaskToCardId)) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\shared\StorageOperationResult.ts | 20 | instantiation | mixed | new Error(defaultMessage) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\shared\WarmupXiuyuanCardIndex.ts | 13 | instantiation | mixed | new Error('Failed to warm up Xiuyuan card index') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateCardUseCase.ts | 54 | instantiation | mixed | new Error(`Invalid command: ${validationError}`) |
@@ -1673,7 +1685,7 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\ListChildrenResolver.ts | 54 | instantiation | mixed | new Error(`Only list-item blocks are supported (current type: ${String(parentTyp |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\ListChildrenResolver.ts | 65 | instantiation | mixed | new Error('Parent list-item is missing paragraph block') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\ListChildrenResolver.ts | 77 | instantiation | mixed | new Error('List container not found under parent list-item') |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\common\application\BaseCardRenderService.ts | 279 | instantiation | mixed | new Map<string, BreadcrumbItem>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\common\application\BaseCardRenderService.ts | 271 | instantiation | mixed | new Map<string, BreadcrumbItem>() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts | 69 | instantiation | mixed | new Error('No xiuyuanID found in card') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts | 75 | instantiation | mixed | new Error(`Xiuyuan not found: ${xiuyuanID}`) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts | 81 | instantiation | mixed | new Error('Missing concept block ID in field mapping') |
@@ -1769,22 +1781,22 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\adapters\blockPracticeProgress.ts | 114 | instantiation | mixed | new Uint8Array(decrypted) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\adapters\storageFile.ts | 31 | instantiation | mixed | new Error('writePluginFile is not available') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\adapters\storageFile.ts | 38 | instantiation | mixed | new Error('writePluginFile is not available') |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 50 | instantiation | mixed | new Set<string>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 79 | instantiation | mixed | new QueryCache<Neighbor[]>(5000, 50) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 80 | instantiation | mixed | new QueryCache<string[]>(10000, 100) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 81 | instantiation | mixed | new QueryCache<BlockData \| null>(30000, 200) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 258 | instantiation | mixed | new Map() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 271 | instantiation | mixed | new Map<string, boolean>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 288 | instantiation | mixed | new Map() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 307 | instantiation | mixed | new Map() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 324 | instantiation | mixed | new Map<string, BlockData>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 347 | instantiation | mixed | new Map() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 370 | instantiation | mixed | new Map<string, Neighbor>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 51 | instantiation | mixed | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 80 | instantiation | mixed | new QueryCache<Neighbor[]>(5000, 50) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 81 | instantiation | mixed | new QueryCache<string[]>(10000, 100) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 82 | instantiation | mixed | new QueryCache<BlockData \| null>(30000, 200) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 292 | instantiation | mixed | new Map() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 307 | instantiation | mixed | new Map<string, boolean>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 345 | instantiation | mixed | new Map() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 364 | instantiation | mixed | new Map() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 381 | instantiation | mixed | new Map<string, BlockData>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 404 | instantiation | mixed | new Map() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts | 427 | instantiation | mixed | new Map<string, Neighbor>() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.ts | 34 | instantiation | mixed | new QueryCache<Neighbor[]>(5000, 80) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.ts | 35 | instantiation | mixed | new QueryCache<string[]>(10000, 120) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.ts | 36 | instantiation | mixed | new QueryCache<BlockData>(30000, 300) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.ts | 381 | instantiation | mixed | new Map<string, Neighbor>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.ts | 399 | instantiation | mixed | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.ts | 394 | instantiation | mixed | new Map<string, Neighbor>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.ts | 412 | instantiation | mixed | new Set<string>() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\HistoryFilter.ts | 25 | instantiation | mixed | new Error(`Invalid capacity: ${capacity}. Capacity must be at least 1.`) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\HistoryFilter.ts | 28 | instantiation | mixed | new Set<string>() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueueConfig.ts | 120 | instantiation | mixed | new ConfigValidationError(
@@ -1793,9 +1805,9 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts | 61 | instantiation | mixed | new Map() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts | 72 | instantiation | mixed | new Map<string, string>() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts | 85 | instantiation | mixed | new Map() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts | 199 | instantiation | mixed | new Error(`API request failed: ${response.status}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts | 205 | instantiation | mixed | new Error(`API error: ${message}`) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts | 715 | instantiation | mixed | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts | 216 | instantiation | mixed | new Error(`API request failed: ${response.status}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts | 222 | instantiation | mixed | new Error(`API error: ${message}`) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts | 776 | instantiation | mixed | new Set<string>() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\WeightedWalkEngine.ts | 120 | instantiation | mixed | new Error('Weighted random selection invariant violated: no candidate selected') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\schedulers\CompositeScheduler.ts | 62 | instantiation | mixed | new Error(`No scheduler found for ID '${schedulerId}' and no default configured` |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sync\QueueStateManager.ts | 55 | instantiation | mixed | new Map() |
@@ -2016,18 +2028,18 @@ _无使用点_
                 originalError: e |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\errors\DataSourceErrors.ts | 293 | instantiation | mixed | new DataSourceError(`${defaultMessage}: ${message}`, 'UNKNOWN_ERROR', {
         |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\index.ts | 116 | instantiation | mixed | new FormulaClozeAssistant(this) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\index.ts | 126 | instantiation | mixed | new ImageOcclusionHandler(this) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\index.ts | 417 | instantiation | mixed | new Set(this.topBarQuickSlashIds) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\index.ts | 422 | instantiation | mixed | new Set(this.coreReviewSlashIds) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\index.ts | 427 | instantiation | mixed | new Set(this.blockToolSlashIds) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\index.ts | 482 | instantiation | mixed | new BlockContextResolver({
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\index.ts | 145 | instantiation | mixed | new FormulaClozeAssistant(this) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\index.ts | 155 | instantiation | mixed | new ImageOcclusionHandler(this) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\index.ts | 456 | instantiation | mixed | new Set(this.topBarQuickSlashIds) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\index.ts | 461 | instantiation | mixed | new Set(this.coreReviewSlashIds) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\index.ts | 466 | instantiation | mixed | new Set(this.blockToolSlashIds) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\index.ts | 521 | instantiation | mixed | new BlockContextResolver({
       i18n: this.i18n \|\| {},
       notify: (message |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\index.ts | 555 | instantiation | mixed | new MutationObserver(() => {
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\index.ts | 594 | instantiation | mixed | new MutationObserver(() => {
       this.scheduleMobileMenuEnsure();
     }) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\index.ts | 581 | instantiation | mixed | new MutationObserver(() => {
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\index.ts | 620 | instantiation | mixed | new MutationObserver(() => {
       this.scheduleMobileSidebarToolbarEnsure();
    |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts | 81 | instantiation | mixed | new Error(String(error)) |
@@ -2050,7 +2062,6 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts | 335 | instantiation | mixed | new Error(String(error)) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts | 345 | instantiation | mixed | new Error(String(error)) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts | 353 | instantiation | mixed | new Error(String(error)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\queue\SiyuanNeuralRoamCardTypeResolverAdapter.ts | 33 | instantiation | mixed | new Map<string, string>() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\FileService.ts | 122 | instantiation | mixed | new FileOperationError(
         'read',
         fileName,
@@ -2161,27 +2172,33 @@ _无使用点_
         blockId: blockId,
         |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useQueueBridge.ts | 22 | instantiation | mixed | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\config\sortDisplayContract.ts | 25 | instantiation | mixed | new Date(value) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\config\sortDisplayContract.ts | 103 | instantiation | mixed | new Map<string, SortDisplayContract>() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\BlockIdsDataSource.ts | 83 | instantiation | mixed | new BrowserQuerySession('BlockIdsDataSource') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\BlockIdsDataSource.ts | 189 | instantiation | mixed | new Error('set-priority requires UnifiedDataSourceManager') |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts | 63 | instantiation | mixed | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts | 64 | instantiation | mixed | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts | 65 | instantiation | mixed | new Set<string>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts | 66 | instantiation | mixed | new Map<string, CanonicalCardType>() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\FilterGroupDataSource.ts | 65 | instantiation | mixed | new BrowserQuerySession('FilterGroupDataSource') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\FilterGroupDataSource.ts | 163 | instantiation | mixed | new Error('RescheduleService unavailable') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\IncrementalLearningDataSource.ts | 80 | instantiation | mixed | new BrowserQuerySession('IncrementalLearningDataSource') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\IncrementalLearningDataSource.ts | 193 | instantiation | mixed | new Error('RescheduleService unavailable') |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts | 282 | instantiation | mixed | new Date(Date.UTC(y, m, d, h, min, s)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts | 285 | instantiation | mixed | new Date(timeStr) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts | 393 | instantiation | mixed | new Map(selectedRows.map((row) => [row.blockId, row])) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts | 467 | instantiation | mixed | new ConfigManager(storage) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts | 515 | instantiation | mixed | new Error('Queue unavailable') |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts | 293 | instantiation | mixed | new Date(Date.UTC(y, m, d, h, min, s)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts | 296 | instantiation | mixed | new Date(timeStr) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts | 404 | instantiation | mixed | new Map(selectedRows.map((row) => [row.blockId, row])) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts | 478 | instantiation | mixed | new ConfigManager(storage) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts | 526 | instantiation | mixed | new Error('Queue unavailable') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\QueryDataSource.ts | 61 | instantiation | mixed | new Date() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\QueryDataSource.ts | 104 | instantiation | mixed | new BrowserQuerySession('QueryDataSource') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\QueryDataSource.ts | 162 | instantiation | mixed | new Map(joined.map((card) => [card.blockId, card])) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\RetrievalDataSource.ts | 59 | instantiation | mixed | new BrowserQuerySession('RetrievalDataSource') |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\RetrievalDataSource.ts | 159 | instantiation | mixed | new Error('RescheduleService unavailable') |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts | 42 | instantiation | mixed | new Set(ids.map((id) => String(id \|\| '')).filter(Boolean)) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts | 58 | instantiation | mixed | new Map<string, LiteRow>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts | 67 | instantiation | mixed | new LRUCache<string, BrowserCard>(maxHydratedCacheSize) |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts | 169 | instantiation | mixed | new Map<string, BrowserCard>() |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts | 198 | instantiation | mixed | new Map<string, BrowserCard>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts | 44 | instantiation | mixed | new Set(ids.map((id) => String(id \|\| '')).filter(Boolean)) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts | 60 | instantiation | mixed | new Map<string, LiteRow>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts | 69 | instantiation | mixed | new LRUCache<string, BrowserCard>(maxHydratedCacheSize) |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts | 171 | instantiation | mixed | new Map<string, BrowserCard>() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts | 200 | instantiation | mixed | new Map<string, BrowserCard>() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts | 224 | instantiation | mixed | new Map<string, string>() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts | 441 | instantiation | mixed | new Date() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts | 441 | instantiation | mixed | new Date() |
@@ -2199,7 +2216,7 @@ _无使用点_
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts | 685 | instantiation | mixed | new Date(dateRangeValue.lte) |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts | 715 | instantiation | mixed | new FilterService() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\SRSBrowserQueueView.ts | 174 | instantiation | mixed | new Error('No queue type selected') |
-| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\types.ts | 220 | instantiation | mixed | new Date() |
+| H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\types.ts | 209 | instantiation | mixed | new Date() |
 | H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\utils\dataSourceFactory.ts | 110 | instantiation | mixed | new FinalDrillDataSource(manager, {
         docId,
         preset,
@@ -2359,12 +2376,12 @@ _无使用点_
 - **ManualCardCollectionQueue.name**: Parameter types mismatch with IReviewQueue (H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\ManualCardCollectionQueue.ts:41)
 - **ManualCardCollectionQueue.type**: Return type mismatch: expected undefined, got undefined (H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\ManualCardCollectionQueue.ts:51)
 - **ManualCardCollectionQueue.type**: Parameter types mismatch with IReviewQueue (H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\ManualCardCollectionQueue.ts:51)
-- **NeuralRoamQueue.IReviewQueue**: Class does not implement IReviewQueue (H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts:155)
-- **NeuralRoamQueue.name**: Return type mismatch: expected undefined, got undefined (H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts:156)
-- **NeuralRoamQueue.name**: Parameter types mismatch with IReviewQueue (H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts:156)
+- **NeuralRoamQueue.IReviewQueue**: Class does not implement IReviewQueue (H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts:157)
+- **NeuralRoamQueue.name**: Return type mismatch: expected undefined, got undefined (H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts:158)
+- **NeuralRoamQueue.name**: Parameter types mismatch with IReviewQueue (H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts:158)
 - **NeuralRoamQueue.type**: Return type mismatch: expected undefined, got undefined (H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts:51)
 - **NeuralRoamQueue.type**: Parameter types mismatch with IReviewQueue (H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts:51)
-- **NeuralRoamQueue.addCard**: Parameter types mismatch with IReviewQueue (H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts:282)
+- **NeuralRoamQueue.addCard**: Parameter types mismatch with IReviewQueue (H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts:301)
 - **RetrievalPracticeQueue.name**: Return type mismatch: expected undefined, got undefined (H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\RetrievalPracticeQueue.ts:46)
 - **RetrievalPracticeQueue.name**: Parameter types mismatch with IReviewQueue (H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\RetrievalPracticeQueue.ts:46)
 - **RetrievalPracticeQueue.type**: Return type mismatch: expected undefined, got undefined (H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\RetrievalPracticeQueue.ts:51)
@@ -4107,7 +4124,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -4137,7 +4153,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -4167,7 +4182,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -4197,7 +4211,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -4227,7 +4240,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -4257,7 +4269,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -4287,7 +4298,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -4317,7 +4327,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -4347,7 +4356,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -4377,7 +4385,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -4407,7 +4414,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -4437,7 +4443,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -4467,7 +4472,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -4497,7 +4501,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -4527,7 +4530,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -4557,7 +4559,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -4587,7 +4588,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -5130,7 +5130,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 208: Migrate Date
+### 步骤 208: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -5143,7 +5143,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 209: Migrate Date
+### 步骤 209: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -5156,7 +5156,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 210: Migrate Map
+### 步骤 210: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -5169,7 +5169,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 211: Migrate Error
+### 步骤 211: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -5182,7 +5182,85 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 212: Migrate BrowserSiyuanAdapter
+### 步骤 212: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts
+- siyuan
+- @/infrastructure/siyuan/QuerySiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 213: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts
+- siyuan
+- @/infrastructure/siyuan/QuerySiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 214: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts
+- siyuan
+- @/infrastructure/siyuan/QuerySiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 215: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts
+- siyuan
+- @/infrastructure/siyuan/QuerySiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 216: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts
+- siyuan
+- @/infrastructure/siyuan/QuerySiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 217: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts
+- siyuan
+- @/infrastructure/siyuan/QuerySiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 218: Migrate BrowserSiyuanAdapter
 
 **预计时间**: 3-5 days
 
@@ -5203,7 +5281,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 213: Migrate GetBrowserCardsQueryHandler
+### 步骤 219: Migrate GetBrowserCardsQueryHandler
 
 **预计时间**: 3-5 days
 
@@ -5224,7 +5302,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 214: Migrate DeckDataSource
+### 步骤 220: Migrate DeckDataSource
 
 **预计时间**: 3-5 days
 
@@ -5245,7 +5323,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 215: Migrate Error
+### 步骤 221: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -5262,107 +5340,6 @@ Run unit tests and integration tests for affected queues
 - @/ui/browser/utils/dataSourceFactory
 - @/utils/logger
 - @/types/card
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 216: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BrowserApplicationService.ts
-- @/core/storage/ports
-- @/core/card/domain/services/CardScheduleService
-- @/core/card/domain/services/CardFilterService
-- @/core/card/domain/services/CardSortService
-- @/types/unified-data-source
-- @/application/ports/BrowserSiyuanPort
-- @/infrastructure/siyuan/BrowserSiyuanAdapter
-- @/ui/browser/datasource/DeckDataSource
-- @/ui/browser/utils/dataSourceFactory
-- @/utils/logger
-- @/types/card
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 217: Migrate GetDueCardsQueryHandler
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\CardApplicationService.ts
-- @/types/result
-- @/core/xiuyuan/domain/Card
-- @/types/card
-- @/core/card/domain/services/CardScheduleService
-- @/utils/logger
-- @/core/storage/ports
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 218: Migrate GetCardQueryHandler
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\CardApplicationService.ts
-- @/types/result
-- @/core/xiuyuan/domain/Card
-- @/types/card
-- @/core/card/domain/services/CardScheduleService
-- @/utils/logger
-- @/core/storage/ports
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 219: Migrate GetCardsQueryHandler
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\CardApplicationService.ts
-- @/types/result
-- @/core/xiuyuan/domain/Card
-- @/types/card
-- @/core/card/domain/services/CardScheduleService
-- @/utils/logger
-- @/core/storage/ports
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 220: Migrate UpdateFSRSCardUseCase
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\CardApplicationService.ts
-- @/types/result
-- @/core/xiuyuan/domain/Card
-- @/types/card
-- @/core/card/domain/services/CardScheduleService
-- @/utils/logger
-- @/core/storage/ports
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 221: Migrate DeleteFSRSCardUseCase
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\CardApplicationService.ts
-- @/types/result
-- @/core/xiuyuan/domain/Card
-- @/types/card
-- @/core/card/domain/services/CardScheduleService
-- @/utils/logger
-- @/core/storage/ports
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -5372,18 +5349,23 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\CardApplicationService.ts
-- @/types/result
-- @/core/xiuyuan/domain/Card
-- @/types/card
-- @/core/card/domain/services/CardScheduleService
-- @/utils/logger
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BrowserApplicationService.ts
 - @/core/storage/ports
+- @/core/card/domain/services/CardScheduleService
+- @/core/card/domain/services/CardFilterService
+- @/core/card/domain/services/CardSortService
+- @/types/unified-data-source
+- @/application/ports/BrowserSiyuanPort
+- @/infrastructure/siyuan/BrowserSiyuanAdapter
+- @/ui/browser/datasource/DeckDataSource
+- @/ui/browser/utils/dataSourceFactory
+- @/utils/logger
+- @/types/card
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 223: Migrate Error
+### 步骤 223: Migrate GetDueCardsQueryHandler
 
 **预计时间**: 3-5 days
 
@@ -5399,7 +5381,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 224: Migrate Error
+### 步骤 224: Migrate GetCardQueryHandler
 
 **预计时间**: 3-5 days
 
@@ -5415,7 +5397,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 225: Migrate Error
+### 步骤 225: Migrate GetCardsQueryHandler
 
 **预计时间**: 3-5 days
 
@@ -5431,7 +5413,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 226: Migrate Map
+### 步骤 226: Migrate UpdateFSRSCardUseCase
 
 **预计时间**: 3-5 days
 
@@ -5447,7 +5429,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 227: Migrate Error
+### 步骤 227: Migrate DeleteFSRSCardUseCase
 
 **预计时间**: 3-5 days
 
@@ -5463,18 +5445,18 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 228: Migrate ReviewSiyuanAdapter
+### 步骤 228: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\ReviewApplicationService.ts
-- @/core/storage/ports
-- @/core/scheduler
-- @/types
-- @/application/ports/ReviewSiyuanPort
-- @/infrastructure/siyuan/ReviewSiyuanAdapter
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\CardApplicationService.ts
+- @/types/result
+- @/core/xiuyuan/domain/Card
+- @/types/card
+- @/core/card/domain/services/CardScheduleService
 - @/utils/logger
+- @/core/storage/ports
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -5484,59 +5466,45 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\ReviewApplicationService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\CardApplicationService.ts
+- @/types/result
+- @/core/xiuyuan/domain/Card
+- @/types/card
+- @/core/card/domain/services/CardScheduleService
+- @/utils/logger
 - @/core/storage/ports
-- @/core/scheduler
-- @/types
-- @/application/ports/ReviewSiyuanPort
-- @/infrastructure/siyuan/ReviewSiyuanAdapter
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 230: Migrate UnifiedDataSourceManager
+### 步骤 230: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\CardApplicationService.ts
+- @/types/result
+- @/core/xiuyuan/domain/Card
 - @/types/card
-- @/core/queue/domain/RetrievalPracticeQueue
-- @/core/queue/domain/IncrementalLearningQueue
-- @/core/queue/domain/FilterGroupQueue
-- @/core/queue/domain/FinalDrillQueue
-- @/core/queue/domain/NeuralRoamQueue
-- @/core/queue/domain/LeechReviewQueue
-- @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
-- @/core/queue/managers/UnifiedDataSourceManager
-- @/core/queue/domain/ports
+- @/core/card/domain/services/CardScheduleService
 - @/utils/logger
+- @/core/storage/ports
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 231: Migrate Set
+### 步骤 231: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\CardApplicationService.ts
+- @/types/result
+- @/core/xiuyuan/domain/Card
 - @/types/card
-- @/core/queue/domain/RetrievalPracticeQueue
-- @/core/queue/domain/IncrementalLearningQueue
-- @/core/queue/domain/FilterGroupQueue
-- @/core/queue/domain/FinalDrillQueue
-- @/core/queue/domain/NeuralRoamQueue
-- @/core/queue/domain/LeechReviewQueue
-- @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
-- @/core/queue/managers/UnifiedDataSourceManager
-- @/core/queue/domain/ports
+- @/core/card/domain/services/CardScheduleService
 - @/utils/logger
+- @/core/storage/ports
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -5546,65 +5514,44 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\CardApplicationService.ts
+- @/types/result
+- @/core/xiuyuan/domain/Card
 - @/types/card
-- @/core/queue/domain/RetrievalPracticeQueue
-- @/core/queue/domain/IncrementalLearningQueue
-- @/core/queue/domain/FilterGroupQueue
-- @/core/queue/domain/FinalDrillQueue
-- @/core/queue/domain/NeuralRoamQueue
-- @/core/queue/domain/LeechReviewQueue
-- @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
-- @/core/queue/managers/UnifiedDataSourceManager
-- @/core/queue/domain/ports
+- @/core/card/domain/services/CardScheduleService
 - @/utils/logger
+- @/core/storage/ports
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 233: Migrate Map
+### 步骤 233: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\CardApplicationService.ts
+- @/types/result
+- @/core/xiuyuan/domain/Card
 - @/types/card
-- @/core/queue/domain/RetrievalPracticeQueue
-- @/core/queue/domain/IncrementalLearningQueue
-- @/core/queue/domain/FilterGroupQueue
-- @/core/queue/domain/FinalDrillQueue
-- @/core/queue/domain/NeuralRoamQueue
-- @/core/queue/domain/LeechReviewQueue
-- @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
-- @/core/queue/managers/UnifiedDataSourceManager
-- @/core/queue/domain/ports
+- @/core/card/domain/services/CardScheduleService
 - @/utils/logger
+- @/core/storage/ports
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 234: Migrate Error
+### 步骤 234: Migrate ReviewSiyuanAdapter
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts
-- @/types/unified-data-source
-- @/types/card
-- @/core/queue/domain/RetrievalPracticeQueue
-- @/core/queue/domain/IncrementalLearningQueue
-- @/core/queue/domain/FilterGroupQueue
-- @/core/queue/domain/FinalDrillQueue
-- @/core/queue/domain/NeuralRoamQueue
-- @/core/queue/domain/LeechReviewQueue
-- @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
-- @/core/queue/managers/UnifiedDataSourceManager
-- @/core/queue/domain/ports
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\ReviewApplicationService.ts
+- @/core/storage/ports
+- @/core/scheduler
+- @/types
+- @/application/ports/ReviewSiyuanPort
+- @/infrastructure/siyuan/ReviewSiyuanAdapter
 - @/utils/logger
 
 **测试策略**:
@@ -5615,25 +5562,18 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts
-- @/types/unified-data-source
-- @/types/card
-- @/core/queue/domain/RetrievalPracticeQueue
-- @/core/queue/domain/IncrementalLearningQueue
-- @/core/queue/domain/FilterGroupQueue
-- @/core/queue/domain/FinalDrillQueue
-- @/core/queue/domain/NeuralRoamQueue
-- @/core/queue/domain/LeechReviewQueue
-- @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
-- @/core/queue/managers/UnifiedDataSourceManager
-- @/core/queue/domain/ports
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\ReviewApplicationService.ts
+- @/core/storage/ports
+- @/core/scheduler
+- @/types
+- @/application/ports/ReviewSiyuanPort
+- @/infrastructure/siyuan/ReviewSiyuanAdapter
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 236: Migrate Set
+### 步骤 236: Migrate UnifiedDataSourceManager
 
 **预计时间**: 3-5 days
 
@@ -5648,7 +5588,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -5656,7 +5595,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 237: Migrate Error
+### 步骤 237: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -5671,7 +5610,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -5679,7 +5617,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 238: Migrate Error
+### 步骤 238: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -5694,7 +5632,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -5702,7 +5639,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 239: Migrate Error
+### 步骤 239: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -5717,7 +5654,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -5740,7 +5676,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -5748,7 +5683,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 241: Migrate Set
+### 步骤 241: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -5763,7 +5698,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -5786,7 +5720,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -5809,7 +5742,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -5817,7 +5749,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 244: Migrate QueueError
+### 步骤 244: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -5832,7 +5764,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -5840,7 +5771,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 245: Migrate RetrievalPracticeQueue
+### 步骤 245: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -5855,7 +5786,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -5863,7 +5793,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 246: Migrate IncrementalLearningQueue
+### 步骤 246: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -5878,7 +5808,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -5886,7 +5815,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 247: Migrate FilterGroupQueue
+### 步骤 247: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -5901,7 +5830,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -5909,7 +5837,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 248: Migrate FinalDrillQueue
+### 步骤 248: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -5924,7 +5852,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -5932,7 +5859,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 249: Migrate NeuralRoamQueue
+### 步骤 249: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -5947,7 +5874,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -5955,7 +5881,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 250: Migrate SiyuanNeuralRoamCardTypeResolverAdapter
+### 步骤 250: Migrate QueueError
 
 **预计时间**: 3-5 days
 
@@ -5970,7 +5896,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -5978,7 +5903,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 251: Migrate LeechReviewQueue
+### 步骤 251: Migrate RetrievalPracticeQueue
 
 **预计时间**: 3-5 days
 
@@ -5993,7 +5918,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -6001,7 +5925,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 252: Migrate SiyuanLeechActionEffectsAdapter
+### 步骤 252: Migrate IncrementalLearningQueue
 
 **预计时间**: 3-5 days
 
@@ -6016,7 +5940,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -6024,7 +5947,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 253: Migrate QueueError
+### 步骤 253: Migrate FilterGroupQueue
 
 **预计时间**: 3-5 days
 
@@ -6039,7 +5962,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -6047,86 +5969,112 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 254: Migrate Error
+### 步骤 254: Migrate FinalDrillQueue
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateFSRSCardUseCase.ts
-- @/core/storage/ports
-- @/types
-- @/types/result
-- @/application/commands/card/UpdateFSRSCardCommand
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts
+- @/types/unified-data-source
+- @/types/card
+- @/core/queue/domain/RetrievalPracticeQueue
+- @/core/queue/domain/IncrementalLearningQueue
+- @/core/queue/domain/FilterGroupQueue
+- @/core/queue/domain/FinalDrillQueue
+- @/core/queue/domain/NeuralRoamQueue
+- @/core/queue/domain/LeechReviewQueue
+- @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
+- @/core/queue/managers/UnifiedDataSourceManager
+- @/core/queue/domain/ports
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 255: Migrate Error
+### 步骤 255: Migrate NeuralRoamQueue
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateFSRSCardUseCase.ts
-- @/core/storage/ports
-- @/types
-- @/types/result
-- @/application/commands/card/UpdateFSRSCardCommand
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts
+- @/types/unified-data-source
+- @/types/card
+- @/core/queue/domain/RetrievalPracticeQueue
+- @/core/queue/domain/IncrementalLearningQueue
+- @/core/queue/domain/FilterGroupQueue
+- @/core/queue/domain/FinalDrillQueue
+- @/core/queue/domain/NeuralRoamQueue
+- @/core/queue/domain/LeechReviewQueue
+- @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
+- @/core/queue/managers/UnifiedDataSourceManager
+- @/core/queue/domain/ports
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 256: Migrate Set
+### 步骤 256: Migrate LeechReviewQueue
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\box\TransactionObserver.ts
-- @/index
-- @/core/card-builder
-- @/core/siyuan/api
-- @/core/siyuan/riff
-- @/core/siyuan/block
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts
+- @/types/unified-data-source
+- @/types/card
+- @/core/queue/domain/RetrievalPracticeQueue
+- @/core/queue/domain/IncrementalLearningQueue
+- @/core/queue/domain/FilterGroupQueue
+- @/core/queue/domain/FinalDrillQueue
+- @/core/queue/domain/NeuralRoamQueue
+- @/core/queue/domain/LeechReviewQueue
+- @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
+- @/core/queue/managers/UnifiedDataSourceManager
+- @/core/queue/domain/ports
 - @/utils/logger
-- @/types
-- @/core/storage/ports
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 257: Migrate Set
+### 步骤 257: Migrate SiyuanLeechActionEffectsAdapter
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\box\TransactionObserver.ts
-- @/index
-- @/core/card-builder
-- @/core/siyuan/api
-- @/core/siyuan/riff
-- @/core/siyuan/block
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts
+- @/types/unified-data-source
+- @/types/card
+- @/core/queue/domain/RetrievalPracticeQueue
+- @/core/queue/domain/IncrementalLearningQueue
+- @/core/queue/domain/FilterGroupQueue
+- @/core/queue/domain/FinalDrillQueue
+- @/core/queue/domain/NeuralRoamQueue
+- @/core/queue/domain/LeechReviewQueue
+- @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
+- @/core/queue/managers/UnifiedDataSourceManager
+- @/core/queue/domain/ports
 - @/utils/logger
-- @/types
-- @/core/storage/ports
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 258: Migrate CardBuilderContext
+### 步骤 258: Migrate QueueError
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\box\TransactionObserver.ts
-- @/index
-- @/core/card-builder
-- @/core/siyuan/api
-- @/core/siyuan/riff
-- @/core/siyuan/block
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\UnifiedDataSourceManager.ts
+- @/types/unified-data-source
+- @/types/card
+- @/core/queue/domain/RetrievalPracticeQueue
+- @/core/queue/domain/IncrementalLearningQueue
+- @/core/queue/domain/FilterGroupQueue
+- @/core/queue/domain/FinalDrillQueue
+- @/core/queue/domain/NeuralRoamQueue
+- @/core/queue/domain/LeechReviewQueue
+- @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
+- @/core/queue/managers/UnifiedDataSourceManager
+- @/core/queue/domain/ports
 - @/utils/logger
-- @/types
-- @/core/storage/ports
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -6136,6 +6084,36 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateFSRSCardUseCase.ts
+- @/core/storage/ports
+- @/types
+- @/types/result
+- @/application/commands/card/UpdateFSRSCardCommand
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 260: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateFSRSCardUseCase.ts
+- @/core/storage/ports
+- @/types
+- @/types/result
+- @/application/commands/card/UpdateFSRSCardCommand
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 261: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\box\TransactionObserver.ts
 - @/index
 - @/core/card-builder
@@ -6149,62 +6127,56 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 260: Migrate Set
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\domain\services\CardFilterService.ts
-- @/types/card
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 261: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\domain\services\CardFilterService.ts
-- @/types/card
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
 ### 步骤 262: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\domain\services\CardFilterService.ts
-- @/types/card
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\box\TransactionObserver.ts
+- @/index
+- @/core/card-builder
+- @/core/siyuan/api
+- @/core/siyuan/riff
+- @/core/siyuan/block
 - @/utils/logger
+- @/types
+- @/core/storage/ports
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 263: Migrate Set
+### 步骤 263: Migrate CardBuilderContext
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\domain\services\CardFilterService.ts
-- @/types/card
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\box\TransactionObserver.ts
+- @/index
+- @/core/card-builder
+- @/core/siyuan/api
+- @/core/siyuan/riff
+- @/core/siyuan/block
 - @/utils/logger
+- @/types
+- @/core/storage/ports
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 264: Migrate Set
+### 步骤 264: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\domain\services\CardFilterService.ts
-- @/types/card
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\box\TransactionObserver.ts
+- @/index
+- @/core/card-builder
+- @/core/siyuan/api
+- @/core/siyuan/riff
+- @/core/siyuan/block
 - @/utils/logger
+- @/types
+- @/core/storage/ports
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -6221,7 +6193,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 266: Migrate Set
+### 步骤 266: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -6233,7 +6205,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 267: Migrate Date
+### 步骤 267: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -6245,7 +6217,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 268: Migrate Date
+### 步骤 268: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -6257,7 +6229,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 269: Migrate Date
+### 步骤 269: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -6269,7 +6241,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 270: Migrate Date
+### 步骤 270: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -6281,7 +6253,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 271: Migrate Date
+### 步骤 271: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -6317,7 +6289,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 274: Migrate Set
+### 步骤 274: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -6329,7 +6301,67 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 275: Migrate Set
+### 步骤 275: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\domain\services\CardFilterService.ts
+- @/types/card
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 276: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\domain\services\CardFilterService.ts
+- @/types/card
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 277: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\domain\services\CardFilterService.ts
+- @/types/card
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 278: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\domain\services\CardFilterService.ts
+- @/types/card
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 279: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\domain\services\CardFilterService.ts
+- @/types/card
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 280: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -6340,7 +6372,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 276: Migrate QABuilderStrategy
+### 步骤 281: Migrate QABuilderStrategy
 
 **预计时间**: 3-5 days
 
@@ -6352,7 +6384,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 277: Migrate ClozeBuilderStrategy
+### 步骤 282: Migrate ClozeBuilderStrategy
 
 **预计时间**: 3-5 days
 
@@ -6364,7 +6396,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 278: Migrate DefaultBuilderStrategy
+### 步骤 283: Migrate DefaultBuilderStrategy
 
 **预计时间**: 3-5 days
 
@@ -6376,7 +6408,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 279: Migrate DefaultBuilderStrategy
+### 步骤 284: Migrate DefaultBuilderStrategy
 
 **预计时间**: 3-5 days
 
@@ -6388,7 +6420,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 280: Migrate Map
+### 步骤 285: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -6397,13 +6429,12 @@ Run unit tests and integration tests for affected queues
 - @/types/card
 - @/types/card
 - @/core/storage/ports
-- @/core/siyuan/api
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 281: Migrate Error
+### 步骤 286: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -6412,13 +6443,12 @@ Run unit tests and integration tests for affected queues
 - @/types/card
 - @/types/card
 - @/core/storage/ports
-- @/core/siyuan/api
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 282: Migrate Error
+### 步骤 287: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -6432,62 +6462,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 283: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 284: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 285: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 286: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 287: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 288: Migrate Date
+### 步骤 288: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -6509,7 +6484,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 290: Migrate Map
+### 步骤 290: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -6520,7 +6495,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 291: Migrate Set
+### 步骤 291: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -6531,7 +6506,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 292: Migrate Map
+### 步骤 292: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -6542,7 +6517,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 293: Migrate Set
+### 步骤 293: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -6564,7 +6539,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 295: Migrate Error
+### 步骤 295: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -6580,40 +6555,40 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\FilterGroupQueue.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 297: Migrate Set
+### 步骤 297: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\FilterGroupQueue.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 298: Migrate Map
+### 步骤 298: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\FinalDrillQueue.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 299: Migrate Map
+### 步骤 299: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\FinalDrillQueue.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
 - @/utils/logger
 
 **测试策略**:
@@ -6624,13 +6599,46 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 301: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\FilterGroupQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 302: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\FilterGroupQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 303: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\FinalDrillQueue.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 301: Migrate Map
+### 步骤 304: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -6641,7 +6649,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 302: Migrate Map
+### 步骤 305: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -6652,46 +6660,13 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 303: Migrate Date
+### 步骤 306: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\IncrementalLearningQueue.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\FinalDrillQueue.ts
 - @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 304: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\IncrementalLearningQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 305: Migrate Set
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\ManualCardSetStrategy.ts
-- @/types/card
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 306: Migrate Set
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\ManualCardSetStrategy.ts
-- @/types/card
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -6701,18 +6676,18 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\FinalDrillQueue.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 308: Migrate ConceptNeuralQueue
+### 步骤 308: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\IncrementalLearningQueue.ts
 - @/utils/logger
 
 **测试策略**:
@@ -6723,51 +6698,51 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\IncrementalLearningQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 310: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\ManualCardSetStrategy.ts
+- @/types/card
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 311: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\ManualCardSetStrategy.ts
+- @/types/card
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 312: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 310: Migrate Date
+### 步骤 313: Migrate ConceptNeuralQueue
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\RetrievalPracticeQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 311: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\RetrievalPracticeQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 312: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\RetrievalPracticeQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 313: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\RetrievalPracticeQueue.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts
 - @/utils/logger
 
 **测试策略**:
@@ -6778,8 +6753,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
-- @/core/siyuan/api
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts
 - @/utils/logger
 
 **测试策略**:
@@ -6790,8 +6764,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
-- @/core/siyuan/api
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts
 - @/utils/logger
 
 **测试策略**:
@@ -6802,38 +6775,101 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
-- @/core/siyuan/api
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 317: Migrate Map
+### 步骤 317: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 318: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\RetrievalPracticeQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 319: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\RetrievalPracticeQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 320: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\RetrievalPracticeQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 321: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\RetrievalPracticeQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 322: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
-- @/core/siyuan/api
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 318: Migrate Error
+### 步骤 323: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
-- @/core/siyuan/api
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 319: Migrate Set
+### 步骤 324: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 325: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -6845,7 +6881,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 320: Migrate Set
+### 步骤 326: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -6857,7 +6893,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 321: Migrate Map
+### 步骤 327: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -6869,79 +6905,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 322: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts
-- @/types/unified-data-source
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 323: Migrate Set
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts
-- @/types/unified-data-source
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 324: Migrate ConceptQueryEngine
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts
-- @/types/unified-data-source
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 325: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts
-- @/types/unified-data-source
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 326: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts
-- @/types/unified-data-source
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 327: Migrate Set
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts
-- @/types/unified-data-source
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 328: Migrate Error
+### 步骤 328: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -6965,7 +6929,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 330: Migrate Set
+### 步骤 330: Migrate ConceptQueryEngine
 
 **预计时间**: 3-5 days
 
@@ -6977,7 +6941,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 331: Migrate Set
+### 步骤 331: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -6989,7 +6953,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 332: Migrate Set
+### 步骤 332: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -7030,29 +6994,32 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts
+- @/types/unified-data-source
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 336: Migrate Map
+### 步骤 336: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts
+- @/types/unified-data-source
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 337: Migrate Map
+### 步骤 337: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts
+- @/types/unified-data-source
 - @/utils/logger
 
 **测试策略**:
@@ -7063,13 +7030,50 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts
+- @/types/unified-data-source
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 339: Migrate HistoryFilter
+### 步骤 339: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts
+- @/types/unified-data-source
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 340: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts
+- @/types/unified-data-source
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 341: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptNeuralQueue.ts
+- @/types/unified-data-source
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 342: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -7080,40 +7084,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 340: Migrate QueryEngine
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 341: Migrate WeightedWalkEngine
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 342: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 343: Migrate Error
+### 步骤 343: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -7135,7 +7106,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 345: Migrate Map
+### 步骤 345: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -7146,7 +7117,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 346: Migrate Map
+### 步骤 346: Migrate HistoryFilter
 
 **预计时间**: 3-5 days
 
@@ -7157,7 +7128,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 347: Migrate Map
+### 步骤 347: Migrate QueryEngine
 
 **预计时间**: 3-5 days
 
@@ -7168,7 +7139,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 348: Migrate Map
+### 步骤 348: Migrate WeightedWalkEngine
 
 **预计时间**: 3-5 days
 
@@ -7179,7 +7150,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 349: Migrate Map
+### 步骤 349: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -7190,7 +7161,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 350: Migrate Map
+### 步骤 350: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -7234,7 +7205,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 354: Migrate Set
+### 步骤 354: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -7245,7 +7216,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 355: Migrate Set
+### 步骤 355: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -7256,7 +7227,84 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 356: Migrate Error
+### 步骤 356: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 357: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 358: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 359: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 360: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 361: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 362: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\NeuralQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 363: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -7267,7 +7315,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 357: Migrate Error
+### 步骤 364: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -7278,7 +7326,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 358: Migrate Set
+### 步骤 365: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -7289,7 +7337,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 359: Migrate Set
+### 步骤 366: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -7300,7 +7348,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 360: Migrate Error
+### 步骤 367: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -7311,7 +7359,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 361: Migrate Error
+### 步骤 368: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -7322,7 +7370,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 362: Migrate Date
+### 步骤 369: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -7333,7 +7381,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 363: Migrate Date
+### 步骤 370: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -7344,7 +7392,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 364: Migrate Date
+### 步骤 371: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -7355,84 +7403,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 365: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sequencers\FSRSSequencer.test.ts
-- vitest
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 366: Migrate FSRSSequencer
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sequencers\FSRSSequencer.test.ts
-- vitest
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 367: Migrate FSRSSequencer
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sequencers\FSRSSequencer.test.ts
-- vitest
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 368: Migrate FSRSSequencer
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sequencers\FSRSSequencer.test.ts
-- vitest
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 369: Migrate FSRSSequencer
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sequencers\FSRSSequencer.test.ts
-- vitest
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 370: Migrate FSRSSequencer
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sequencers\FSRSSequencer.test.ts
-- vitest
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 371: Migrate FSRSSequencer
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sequencers\FSRSSequencer.test.ts
-- vitest
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 372: Migrate FSRSSequencer
+### 步骤 372: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -7465,7 +7436,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 375: Migrate Promise
+### 步骤 375: Migrate FSRSSequencer
 
 **预计时间**: 3-5 days
 
@@ -7542,7 +7513,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 382: Migrate FSRSSequencer
+### 步骤 382: Migrate Promise
 
 **预计时间**: 3-5 days
 
@@ -7586,7 +7557,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 386: Migrate Promise
+### 步骤 386: Migrate FSRSSequencer
 
 **预计时间**: 3-5 days
 
@@ -7630,7 +7601,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 390: Migrate Promise
+### 步骤 390: Migrate FSRSSequencer
 
 **预计时间**: 3-5 days
 
@@ -7663,7 +7634,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 393: Migrate FSRSSequencer
+### 步骤 393: Migrate Promise
 
 **预计时间**: 3-5 days
 
@@ -7707,7 +7678,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 397: Migrate FSRSSequencer
+### 步骤 397: Migrate Promise
 
 **预计时间**: 3-5 days
 
@@ -7773,7 +7744,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 403: Migrate Promise
+### 步骤 403: Migrate FSRSSequencer
 
 **预计时间**: 3-5 days
 
@@ -7806,7 +7777,84 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 406: Migrate Date
+### 步骤 406: Migrate FSRSSequencer
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sequencers\FSRSSequencer.test.ts
+- vitest
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 407: Migrate FSRSSequencer
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sequencers\FSRSSequencer.test.ts
+- vitest
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 408: Migrate FSRSSequencer
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sequencers\FSRSSequencer.test.ts
+- vitest
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 409: Migrate FSRSSequencer
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sequencers\FSRSSequencer.test.ts
+- vitest
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 410: Migrate Promise
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sequencers\FSRSSequencer.test.ts
+- vitest
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 411: Migrate FSRSSequencer
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sequencers\FSRSSequencer.test.ts
+- vitest
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 412: Migrate FSRSSequencer
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sequencers\FSRSSequencer.test.ts
+- vitest
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 413: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -7817,7 +7865,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 407: Migrate Map
+### 步骤 414: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -7831,7 +7879,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 408: Migrate Error
+### 步骤 415: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -7845,7 +7893,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 409: Migrate BatchProcessor
+### 步骤 416: Migrate BatchProcessor
 
 **预计时间**: 3-5 days
 
@@ -7857,7 +7905,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 410: Migrate Date
+### 步骤 417: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -7869,7 +7917,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 411: Migrate Date
+### 步骤 418: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -7881,7 +7929,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 412: Migrate Array
+### 步骤 419: Migrate Array
 
 **预计时间**: 3-5 days
 
@@ -7893,7 +7941,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 413: Migrate PostponeEngine
+### 步骤 420: Migrate PostponeEngine
 
 **预计时间**: 3-5 days
 
@@ -7908,7 +7956,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 414: Migrate AdvanceEngine
+### 步骤 421: Migrate AdvanceEngine
 
 **预计时间**: 3-5 days
 
@@ -7923,7 +7971,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 415: Migrate SpreadEngine
+### 步骤 422: Migrate SpreadEngine
 
 **预计时间**: 3-5 days
 
@@ -7938,7 +7986,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 416: Migrate Map
+### 步骤 423: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -7950,7 +7998,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 417: Migrate TSFSRSScheduler
+### 步骤 424: Migrate TSFSRSScheduler
 
 **预计时间**: 3-5 days
 
@@ -7962,7 +8010,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 418: Migrate SM15Scheduler
+### 步骤 425: Migrate SM15Scheduler
 
 **预计时间**: 3-5 days
 
@@ -7974,7 +8022,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 419: Migrate ImprovedTopicScheduler
+### 步骤 426: Migrate ImprovedTopicScheduler
 
 **预计时间**: 3-5 days
 
@@ -7986,7 +8034,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 420: Migrate Date
+### 步骤 427: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -7998,7 +8046,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 421: Migrate Date
+### 步骤 428: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -8010,7 +8058,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 422: Migrate Error
+### 步骤 429: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -8022,7 +8070,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 423: Migrate Date
+### 步骤 430: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -8034,7 +8082,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 424: Migrate Error
+### 步骤 431: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -8046,7 +8094,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 425: Migrate Error
+### 步骤 432: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -8058,7 +8106,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 426: Migrate Error
+### 步骤 433: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -8070,7 +8118,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 427: Migrate Error
+### 步骤 434: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -8082,7 +8130,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 428: Migrate Map
+### 步骤 435: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -8094,100 +8142,23 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 429: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 430: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 431: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 432: Migrate SM15
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\SM15Scheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 433: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\SM15Scheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 434: Migrate SM15Item
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\SM15Scheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 435: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\SM15Scheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
 ### 步骤 436: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\SM15Scheduler.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
 - @/types
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 437: Migrate Date
+### 步骤 437: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\SM15Scheduler.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
 - @/types
 
 **测试策略**:
@@ -8198,13 +8169,13 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\SM15Scheduler.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
 - @/types
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 439: Migrate Date
+### 步骤 439: Migrate SM15
 
 **预计时间**: 3-5 days
 
@@ -8215,7 +8186,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 440: Migrate Date
+### 步骤 440: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -8237,15 +8208,13 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 442: Migrate Map
+### 步骤 442: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\SM15Scheduler.ts
 - @/types
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -8255,23 +8224,19 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\SM15Scheduler.ts
 - @/types
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 444: Migrate Map
+### 步骤 444: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\SM15Scheduler.ts
 - @/types
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -8281,10 +8246,8 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\SM15Scheduler.ts
 - @/types
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -8294,10 +8257,8 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\SM15Scheduler.ts
 - @/types
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -8307,28 +8268,24 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\SM15Scheduler.ts
 - @/types
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 448: Migrate Date
+### 步骤 448: Migrate SM15Item
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\SM15Scheduler.ts
 - @/types
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 449: Migrate Date
+### 步骤 449: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -8354,7 +8311,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 451: Migrate Date
+### 步骤 451: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -8372,9 +8329,10 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduling\CardStorage.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
 - @/types
-- @/types
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -8384,9 +8342,10 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduling\CardStorage.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
 - @/types
-- @/types
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -8396,9 +8355,10 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduling\CardStorage.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
 - @/types
-- @/types
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -8408,9 +8368,10 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduling\CardStorage.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
 - @/types
-- @/types
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -8420,14 +8381,41 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduling\CardStorage.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
 - @/types
-- @/types
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
 ### 步骤 457: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 458: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 459: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -8439,7 +8427,67 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 458: Migrate Date
+### 步骤 460: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduling\CardStorage.ts
+- @/types
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 461: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduling\CardStorage.ts
+- @/types
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 462: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduling\CardStorage.ts
+- @/types
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 463: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduling\CardStorage.ts
+- @/types
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 464: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduling\CardStorage.ts
+- @/types
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 465: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -8451,7 +8499,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 459: Migrate Map
+### 步骤 466: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -8470,140 +8518,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 460: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\manager.ts
-- @/types
-- @/types
-- @/types/card
-- @/core/siyuan/api
-- @/core/siyuan/block
-- @/core/queue/abstraction/IPriority
-- @msgpack/msgpack
-- @/utils/cardMigration
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 461: Migrate Set
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\manager.ts
-- @/types
-- @/types
-- @/types/card
-- @/core/siyuan/api
-- @/core/siyuan/block
-- @/core/queue/abstraction/IPriority
-- @msgpack/msgpack
-- @/utils/cardMigration
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 462: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\manager.ts
-- @/types
-- @/types
-- @/types/card
-- @/core/siyuan/api
-- @/core/siyuan/block
-- @/core/queue/abstraction/IPriority
-- @msgpack/msgpack
-- @/utils/cardMigration
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 463: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\manager.ts
-- @/types
-- @/types
-- @/types/card
-- @/core/siyuan/api
-- @/core/siyuan/block
-- @/core/queue/abstraction/IPriority
-- @msgpack/msgpack
-- @/utils/cardMigration
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 464: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\manager.ts
-- @/types
-- @/types
-- @/types/card
-- @/core/siyuan/api
-- @/core/siyuan/block
-- @/core/queue/abstraction/IPriority
-- @msgpack/msgpack
-- @/utils/cardMigration
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 465: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\manager.ts
-- @/types
-- @/types
-- @/types/card
-- @/core/siyuan/api
-- @/core/siyuan/block
-- @/core/queue/abstraction/IPriority
-- @msgpack/msgpack
-- @/utils/cardMigration
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 466: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\manager.ts
-- @/types
-- @/types
-- @/types/card
-- @/core/siyuan/api
-- @/core/siyuan/block
-- @/core/queue/abstraction/IPriority
-- @msgpack/msgpack
-- @/utils/cardMigration
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 467: Migrate Map
+### 步骤 467: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -8641,7 +8556,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 469: Migrate Map
+### 步骤 469: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -8660,7 +8575,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 470: Migrate Uint8Array
+### 步骤 470: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -8679,34 +8594,58 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 471: Migrate Map
+### 步骤 471: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\manager.ts
+- @/types
+- @/types
+- @/types/card
+- @/core/siyuan/api
+- @/core/siyuan/block
+- @/core/queue/abstraction/IPriority
+- @msgpack/msgpack
+- @/utils/cardMigration
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 472: Migrate Map
+### 步骤 472: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\manager.ts
+- @/types
+- @/types
+- @/types/card
+- @/core/siyuan/api
+- @/core/siyuan/block
+- @/core/queue/abstraction/IPriority
+- @msgpack/msgpack
+- @/utils/cardMigration
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 473: Migrate Set
+### 步骤 473: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\manager.ts
+- @/types
+- @/types
+- @/types/card
+- @/core/siyuan/api
+- @/core/siyuan/block
+- @/core/queue/abstraction/IPriority
+- @msgpack/msgpack
+- @/utils/cardMigration
 - @/utils/logger
 
 **测试策略**:
@@ -8717,18 +8656,34 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\manager.ts
+- @/types
+- @/types
+- @/types/card
+- @/core/siyuan/api
+- @/core/siyuan/block
+- @/core/queue/abstraction/IPriority
+- @msgpack/msgpack
+- @/utils/cardMigration
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 475: Migrate Map
+### 步骤 475: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\manager.ts
+- @/types
+- @/types
+- @/types/card
+- @/core/siyuan/api
+- @/core/siyuan/block
+- @/core/queue/abstraction/IPriority
+- @msgpack/msgpack
+- @/utils/cardMigration
 - @/utils/logger
 
 **测试策略**:
@@ -8739,18 +8694,34 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\manager.ts
+- @/types
+- @/types
+- @/types/card
+- @/core/siyuan/api
+- @/core/siyuan/block
+- @/core/queue/abstraction/IPriority
+- @msgpack/msgpack
+- @/utils/cardMigration
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 477: Migrate Map
+### 步骤 477: Migrate Uint8Array
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\manager.ts
+- @/types
+- @/types
+- @/types/card
+- @/core/siyuan/api
+- @/core/siyuan/block
+- @/core/queue/abstraction/IPriority
+- @msgpack/msgpack
+- @/utils/cardMigration
 - @/utils/logger
 
 **测试策略**:
@@ -8778,7 +8749,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 480: Migrate Map
+### 步骤 480: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -8822,7 +8793,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 484: Migrate Error
+### 步骤 484: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -8833,7 +8804,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 485: Migrate Set
+### 步骤 485: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -8844,7 +8815,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 486: Migrate Error
+### 步骤 486: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -8855,7 +8826,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 487: Migrate Error
+### 步骤 487: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -8866,7 +8837,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 488: Migrate Error
+### 步骤 488: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -8877,7 +8848,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 489: Migrate Error
+### 步骤 489: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -8888,7 +8859,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 490: Migrate Set
+### 步骤 490: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -8899,7 +8870,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 491: Migrate Set
+### 步骤 491: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -8910,7 +8881,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 492: Migrate Error
+### 步骤 492: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -8965,7 +8936,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 497: Migrate Error
+### 步骤 497: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -8976,7 +8947,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 498: Migrate Map
+### 步骤 498: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -8987,7 +8958,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 499: Migrate Map
+### 步骤 499: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -8998,7 +8969,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 500: Migrate Map
+### 步骤 500: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -9009,7 +8980,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 501: Migrate Map
+### 步骤 501: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -9053,7 +9024,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 505: Migrate Error
+### 步骤 505: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -9064,7 +9035,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 506: Migrate Error
+### 步骤 506: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -9075,7 +9046,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 507: Migrate Error
+### 步骤 507: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -9086,7 +9057,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 508: Migrate Error
+### 步骤 508: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -9130,7 +9101,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 512: Migrate Map
+### 步骤 512: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -9141,7 +9112,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 513: Migrate Map
+### 步骤 513: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -9152,7 +9123,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 514: Migrate Map
+### 步骤 514: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -9163,7 +9134,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 515: Migrate Map
+### 步骤 515: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -9207,7 +9178,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 519: Migrate Error
+### 步骤 519: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -9218,7 +9189,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 520: Migrate Error
+### 步骤 520: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -9229,7 +9200,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 521: Migrate Error
+### 步骤 521: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -9240,7 +9211,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 522: Migrate Set
+### 步骤 522: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -9284,45 +9255,45 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 526: Migrate Map
+### 步骤 526: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 527: Migrate TemplateRegistry
+### 步骤 527: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 528: Migrate Set
+### 步骤 528: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 529: Migrate Error
+### 步骤 529: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
 - @/utils/logger
 
 **测试策略**:
@@ -9333,7 +9304,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
 - @/utils/logger
 
 **测试策略**:
@@ -9344,7 +9315,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
 - @/utils/logger
 
 **测试策略**:
@@ -9355,13 +9326,13 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 533: Migrate Error
+### 步骤 533: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -9372,7 +9343,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 534: Migrate Error
+### 步骤 534: Migrate TemplateRegistry
 
 **预计时间**: 3-5 days
 
@@ -9383,7 +9354,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 535: Migrate Error
+### 步骤 535: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -9416,7 +9387,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 538: Migrate Date
+### 步骤 538: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -9427,7 +9398,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 539: Migrate Date
+### 步骤 539: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -9449,7 +9420,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 541: Migrate Date
+### 步骤 541: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -9460,7 +9431,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 542: Migrate Date
+### 步骤 542: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -9493,7 +9464,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 545: Migrate Error
+### 步骤 545: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -9504,7 +9475,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 546: Migrate Error
+### 步骤 546: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -9526,7 +9497,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 548: Migrate Map
+### 步骤 548: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -9548,7 +9519,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 550: Migrate Date
+### 步骤 550: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -9575,130 +9546,74 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts
-- siyuan
-- @/application/ports/BrowserSiyuanPort
-- @/application/services/UnifiedDataSourceManager
-- @/types
-- @/utils/performance
-- @/utils/dateUtils
-- @/utils/configUtils
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts
 - @/utils/logger
-- @/core/card-builder
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 553: Migrate Set
+### 步骤 553: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts
-- siyuan
-- @/application/ports/BrowserSiyuanPort
-- @/application/services/UnifiedDataSourceManager
-- @/types
-- @/utils/performance
-- @/utils/dateUtils
-- @/utils/configUtils
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts
 - @/utils/logger
-- @/core/card-builder
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 554: Migrate Map
+### 步骤 554: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts
-- siyuan
-- @/application/ports/BrowserSiyuanPort
-- @/application/services/UnifiedDataSourceManager
-- @/types
-- @/utils/performance
-- @/utils/dateUtils
-- @/utils/configUtils
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts
 - @/utils/logger
-- @/core/card-builder
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 555: Migrate Set
+### 步骤 555: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts
-- siyuan
-- @/application/ports/BrowserSiyuanPort
-- @/application/services/UnifiedDataSourceManager
-- @/types
-- @/utils/performance
-- @/utils/dateUtils
-- @/utils/configUtils
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts
 - @/utils/logger
-- @/core/card-builder
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 556: Migrate Map
+### 步骤 556: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts
-- siyuan
-- @/application/ports/BrowserSiyuanPort
-- @/application/services/UnifiedDataSourceManager
-- @/types
-- @/utils/performance
-- @/utils/dateUtils
-- @/utils/configUtils
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts
 - @/utils/logger
-- @/core/card-builder
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 557: Migrate Map
+### 步骤 557: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts
-- siyuan
-- @/application/ports/BrowserSiyuanPort
-- @/application/services/UnifiedDataSourceManager
-- @/types
-- @/utils/performance
-- @/utils/dateUtils
-- @/utils/configUtils
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts
 - @/utils/logger
-- @/core/card-builder
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 558: Migrate Set
+### 步骤 558: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts
-- siyuan
-- @/application/ports/BrowserSiyuanPort
-- @/application/services/UnifiedDataSourceManager
-- @/types
-- @/utils/performance
-- @/utils/dateUtils
-- @/utils/configUtils
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts
 - @/utils/logger
-- @/core/card-builder
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -9708,21 +9623,13 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts
-- siyuan
-- @/application/ports/BrowserSiyuanPort
-- @/application/services/UnifiedDataSourceManager
-- @/types
-- @/utils/performance
-- @/utils/dateUtils
-- @/utils/configUtils
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\XiuyuanRepository.ts
 - @/utils/logger
-- @/core/card-builder
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 560: Migrate Set
+### 步骤 560: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -9741,7 +9648,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 561: Migrate Map
+### 步骤 561: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -9760,7 +9667,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 562: Migrate CardCacheManager
+### 步骤 562: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -9779,7 +9686,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 563: Migrate Date
+### 步骤 563: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -9798,7 +9705,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 564: Migrate Date
+### 步骤 564: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -9836,7 +9743,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 566: Migrate Map
+### 步骤 566: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -9855,7 +9762,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 567: Migrate Map
+### 步骤 567: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -9874,7 +9781,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 568: Migrate Map
+### 步骤 568: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -9893,7 +9800,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 569: Migrate Set
+### 步骤 569: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -9912,7 +9819,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 570: Migrate Set
+### 步骤 570: Migrate CardCacheManager
 
 **预计时间**: 3-5 days
 
@@ -9931,7 +9838,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 571: Migrate Set
+### 步骤 571: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -9950,7 +9857,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 572: Migrate Set
+### 步骤 572: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -9969,7 +9876,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 573: Migrate Date
+### 步骤 573: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -9988,7 +9895,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 574: Migrate Date
+### 步骤 574: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -10007,7 +9914,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 575: Migrate Date
+### 步骤 575: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -10026,7 +9933,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 576: Migrate Set
+### 步骤 576: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -10083,7 +9990,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 579: Migrate Map
+### 步骤 579: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -10102,7 +10009,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 580: Migrate Map
+### 步骤 580: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -10140,7 +10047,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 582: Migrate Set
+### 步骤 582: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -10159,7 +10066,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 583: Migrate Set
+### 步骤 583: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -10235,7 +10142,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 587: Migrate Set
+### 步骤 587: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -10259,25 +10166,35 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts
-- @/types/card
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts
+- siyuan
+- @/application/ports/BrowserSiyuanPort
+- @/application/services/UnifiedDataSourceManager
+- @/types
+- @/utils/performance
+- @/utils/dateUtils
+- @/utils/configUtils
 - @/utils/logger
-- @/core/card-builder/detectCardType
+- @/core/card-builder
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 589: Migrate Set
+### 步骤 589: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts
-- @/types/card
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts
+- siyuan
+- @/application/ports/BrowserSiyuanPort
+- @/application/services/UnifiedDataSourceManager
+- @/types
+- @/utils/performance
+- @/utils/dateUtils
+- @/utils/configUtils
 - @/utils/logger
-- @/core/card-builder/detectCardType
+- @/core/card-builder
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -10287,11 +10204,16 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts
-- @/types/card
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts
+- siyuan
+- @/application/ports/BrowserSiyuanPort
+- @/application/services/UnifiedDataSourceManager
+- @/types
+- @/utils/performance
+- @/utils/dateUtils
+- @/utils/configUtils
 - @/utils/logger
-- @/core/card-builder/detectCardType
+- @/core/card-builder
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -10301,11 +10223,16 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts
-- @/types/card
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts
+- siyuan
+- @/application/ports/BrowserSiyuanPort
+- @/application/services/UnifiedDataSourceManager
+- @/types
+- @/utils/performance
+- @/utils/dateUtils
+- @/utils/configUtils
 - @/utils/logger
-- @/core/card-builder/detectCardType
+- @/core/card-builder
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -10315,11 +10242,16 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts
-- @/types/card
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts
+- siyuan
+- @/application/ports/BrowserSiyuanPort
+- @/application/services/UnifiedDataSourceManager
+- @/types
+- @/utils/performance
+- @/utils/dateUtils
+- @/utils/configUtils
 - @/utils/logger
-- @/core/card-builder/detectCardType
+- @/core/card-builder
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -10329,37 +10261,54 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts
-- @/types/card
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts
+- siyuan
+- @/application/ports/BrowserSiyuanPort
+- @/application/services/UnifiedDataSourceManager
+- @/types
+- @/utils/performance
+- @/utils/dateUtils
+- @/utils/configUtils
 - @/utils/logger
-- @/core/card-builder/detectCardType
+- @/core/card-builder
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 594: Migrate Map
+### 步骤 594: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts
-- @/types/card
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts
+- siyuan
+- @/application/ports/BrowserSiyuanPort
+- @/application/services/UnifiedDataSourceManager
+- @/types
+- @/utils/performance
+- @/utils/dateUtils
+- @/utils/configUtils
 - @/utils/logger
-- @/core/card-builder/detectCardType
+- @/core/card-builder
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 595: Migrate Error
+### 步骤 595: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts
-- @/types/card
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\browserService.ts
+- siyuan
+- @/application/ports/BrowserSiyuanPort
+- @/application/services/UnifiedDataSourceManager
+- @/types
+- @/utils/performance
+- @/utils/dateUtils
+- @/utils/configUtils
 - @/utils/logger
+- @/core/card-builder
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -10388,7 +10337,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 598: Migrate Date
+### 步骤 598: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -10448,7 +10397,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 603: Migrate Set
+### 步骤 603: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -10472,22 +10421,19 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 605: Migrate BrowserQuerySession
+### 步骤 605: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DeckDataSource.ts
-- @/application/interfaces/ICardDataSource
-- @/types/unified-data-source
-- @/core/scheduler/rescheduleService
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DataSourceUtils.ts
 - @/types/card
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 606: Migrate Date
+### 步骤 606: Migrate BrowserQuerySession
 
 **预计时间**: 3-5 days
 
@@ -10532,7 +10478,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 609: Migrate Error
+### 步骤 609: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -10547,7 +10493,22 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 610: Migrate BrowserQuerySession
+### 步骤 610: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\DeckDataSource.ts
+- @/application/interfaces/ICardDataSource
+- @/types/unified-data-source
+- @/core/scheduler/rescheduleService
+- @/types/card
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 611: Migrate BrowserQuerySession
 
 **预计时间**: 3-5 days
 
@@ -10555,17 +10516,6 @@ Run unit tests and integration tests for affected queues
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\FinalDrillDataSource.ts
 - @/types/unified-data-source
 - @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 611: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\QueueBrowserCardMapper.ts
-- @/types/card
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -10597,12 +10547,8 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\SRSBrowserAdapter.ts
-- @/types/unified-data-source
-- @/application/interfaces/ICardDataSource
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\QueueBrowserCardMapper.ts
 - @/types/card
-- @/diagnostics/type-guards
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -10637,7 +10583,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 617: Migrate Error
+### 步骤 617: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -10652,7 +10598,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 618: Migrate Date
+### 步骤 618: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -10712,7 +10658,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 622: Migrate Error
+### 步骤 622: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -10727,7 +10673,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 623: Migrate Date
+### 步骤 623: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -10777,14 +10723,17 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\ReviewViewAdapter.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\SRSBrowserAdapter.ts
 - @/types/unified-data-source
+- @/application/interfaces/ICardDataSource
+- @/types/card
+- @/diagnostics/type-guards
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 627: Migrate ReviewViewController
+### 步骤 627: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -10796,7 +10745,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 628: Migrate Date
+### 步骤 628: Migrate ReviewViewController
 
 **预计时间**: 3-5 days
 
@@ -10820,7 +10769,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 630: Migrate Error
+### 步骤 630: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -10832,7 +10781,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 631: Migrate Date
+### 步骤 631: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -10844,7 +10793,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 632: Migrate Error
+### 步骤 632: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -10856,7 +10805,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 633: Migrate Date
+### 步骤 633: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -10868,7 +10817,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 634: Migrate Error
+### 步骤 634: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -10880,7 +10829,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 635: Migrate Date
+### 步骤 635: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -10892,7 +10841,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 636: Migrate Error
+### 步骤 636: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -10909,141 +10858,91 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
-- @/application/ports/ReviewSiyuanPort
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 638: Migrate StorageFileJsonAdapter
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
-- @/application/ports/ReviewSiyuanPort
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 639: Migrate Setting
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\plugin-sample\src\index.ts
-- siyuan
-- siyuan/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 640: Migrate Dialog
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\plugin-sample\src\index.ts
-- siyuan
-- siyuan/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 641: Migrate Protyle
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\plugin-sample\src\index.ts
-- siyuan
-- siyuan/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 642: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\plugin-sample\src\index.ts
-- siyuan
-- siyuan/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 643: Migrate Menu
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\plugin-sample\src\index.ts
-- siyuan
-- siyuan/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 644: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\ApplicationContext.ts
-- siyuan
-- @/index
-- @/core/storage
-- @/core/storage/UnifiedStorageManager
-- @/core/storage/UnifiedStoragePersistence
-- @/core/scheduler
-- @/core/scheduler/adapters/UnifiedStorageCardUpdateAdapter
-- @/infrastructure/notifications/SiyuanErrorNotificationAdapter
-- @/application/services/UnifiedDataSourceManager
-- @/application/managers/DialogManager
-- @/application/managers/MenuManager
-- @/application/managers/TabManager
-- @/application/managers/DockManager
-- @/application/managers/PracticeQueueManager
-- @/application/services/TabApplicationService
-- @/application/services/XiuyuanApplicationService
-- @/application/managers/BlockMenuHandler
-- @/application/services/XiuyuanSyncService
-- @/core/infrastructure/websocket/TransactionWebSocketService
-- @/application/handlers/AutoCardHandler
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\ReviewViewAdapter.ts
 - @/types/unified-data-source
-- @/application/queries/DataAccessFacade
-- @/core/xiuyuan/infrastructure/XiuyuanRepository
-- @/core/xiuyuan/domain/services/CardCreationService
-- @/core/xiuyuan/domain/services/CardDeletionService
-- @/core/xiuyuan/domain/services/CardTypeDetectionService
-- @/application/usecases/card/CreateCardUseCase
-- @/application/usecases/card/DeleteCardUseCase
-- @/application/usecases/card/DeleteCardsUseCase
-- @/application/usecases/card/UpdateCardUseCase
-- @/application/services/CardApplicationService
-- @/infrastructure/queries/CardReadModel
-- @/application/helpers/CardCreationHelper
-- @/core/card/domain/services/CardScheduleService
-- @/core/card/domain/services/CardFilterService
-- @/core/card/domain/services/CardSortService
-- @/application/services/BrowserApplicationService
-- @/application/services/ReviewApplicationService
-- @/core/shared/domain/events/EventBus
-- @/infrastructure/services/FileService
-- @/infrastructure/services/QueuePersistenceService
-- @/application/services/SettingsService
-- @/application/services/ReviewLogService
-- @/application/services/RiffBlacklistService
-- @/application/services/ReviewQueuePreparationService
-- @/application/queries/CardContentQueryService
-- @/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter
 - @/utils/logger
-- @/core/xiuyuan/types
-- @/core/xiuyuan/domain/services/IDeletionTracker
-- @/infrastructure/events/RiffSyncEventHandler
-- @/types/settings
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 638: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
+- @/application/ports/ReviewSiyuanPort
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 639: Migrate StorageFileJsonAdapter
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
+- @/application/ports/ReviewSiyuanPort
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 640: Migrate Setting
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\plugin-sample\src\index.ts
+- siyuan
+- siyuan/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 641: Migrate Dialog
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\plugin-sample\src\index.ts
+- siyuan
+- siyuan/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 642: Migrate Protyle
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\plugin-sample\src\index.ts
+- siyuan
+- siyuan/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 643: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\plugin-sample\src\index.ts
+- siyuan
+- siyuan/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 644: Migrate Menu
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\plugin-sample\src\index.ts
+- siyuan
+- siyuan/types
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -11110,7 +11009,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 646: Migrate Set
+### 步骤 646: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -11172,7 +11071,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 647: Migrate Map
+### 步骤 647: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -11234,7 +11133,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 648: Migrate EventBus
+### 步骤 648: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -11296,7 +11195,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 649: Migrate FileService
+### 步骤 649: Migrate EventBus
 
 **预计时间**: 3-5 days
 
@@ -11358,7 +11257,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 650: Migrate QueuePersistenceService
+### 步骤 650: Migrate FileService
 
 **预计时间**: 3-5 days
 
@@ -11420,7 +11319,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 651: Migrate SettingsService
+### 步骤 651: Migrate QueuePersistenceService
 
 **预计时间**: 3-5 days
 
@@ -11482,7 +11381,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 652: Migrate ReviewQueuePreparationService
+### 步骤 652: Migrate SettingsService
 
 **预计时间**: 3-5 days
 
@@ -11544,7 +11443,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 653: Migrate ReviewLogService
+### 步骤 653: Migrate ReviewQueuePreparationService
 
 **预计时间**: 3-5 days
 
@@ -11606,7 +11505,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 654: Migrate RiffBlacklistService
+### 步骤 654: Migrate ReviewLogService
 
 **预计时间**: 3-5 days
 
@@ -11668,7 +11567,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 655: Migrate CardContentQueryService
+### 步骤 655: Migrate RiffBlacklistService
 
 **预计时间**: 3-5 days
 
@@ -11730,7 +11629,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 656: Migrate DialogManager
+### 步骤 656: Migrate CardContentQueryService
 
 **预计时间**: 3-5 days
 
@@ -11792,7 +11691,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 657: Migrate MenuManager
+### 步骤 657: Migrate DialogManager
 
 **预计时间**: 3-5 days
 
@@ -11854,7 +11753,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 658: Migrate TabManager
+### 步骤 658: Migrate MenuManager
 
 **预计时间**: 3-5 days
 
@@ -11916,7 +11815,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 659: Migrate TabApplicationService
+### 步骤 659: Migrate TabManager
 
 **预计时间**: 3-5 days
 
@@ -11978,7 +11877,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 660: Migrate DockManager
+### 步骤 660: Migrate TabApplicationService
 
 **预计时间**: 3-5 days
 
@@ -12040,7 +11939,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 661: Migrate PracticeQueueManager
+### 步骤 661: Migrate DockManager
 
 **预计时间**: 3-5 days
 
@@ -12102,7 +12001,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 662: Migrate CardTypeDetectionService
+### 步骤 662: Migrate PracticeQueueManager
 
 **预计时间**: 3-5 days
 
@@ -12164,7 +12063,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 663: Migrate XiuyuanRepository
+### 步骤 663: Migrate CardTypeDetectionService
 
 **预计时间**: 3-5 days
 
@@ -12226,7 +12125,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 664: Migrate CardCreationService
+### 步骤 664: Migrate XiuyuanRepository
 
 **预计时间**: 3-5 days
 
@@ -12288,7 +12187,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 665: Migrate CardDeletionService
+### 步骤 665: Migrate CardCreationService
 
 **预计时间**: 3-5 days
 
@@ -12350,7 +12249,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 666: Migrate Error
+### 步骤 666: Migrate CardDeletionService
 
 **预计时间**: 3-5 days
 
@@ -12412,7 +12311,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 667: Migrate CreateCardUseCase
+### 步骤 667: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -12474,7 +12373,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 668: Migrate DeleteCardUseCase
+### 步骤 668: Migrate CreateCardUseCase
 
 **预计时间**: 3-5 days
 
@@ -12536,7 +12435,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 669: Migrate DeleteCardsUseCase
+### 步骤 669: Migrate DeleteCardUseCase
 
 **预计时间**: 3-5 days
 
@@ -12598,7 +12497,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 670: Migrate UpdateCardUseCase
+### 步骤 670: Migrate DeleteCardsUseCase
 
 **预计时间**: 3-5 days
 
@@ -12660,7 +12559,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 671: Migrate CardReadModel
+### 步骤 671: Migrate UpdateCardUseCase
 
 **预计时间**: 3-5 days
 
@@ -12722,7 +12621,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 672: Migrate CardScheduleService
+### 步骤 672: Migrate CardReadModel
 
 **预计时间**: 3-5 days
 
@@ -12784,7 +12683,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 673: Migrate CardApplicationService
+### 步骤 673: Migrate CardScheduleService
 
 **预计时间**: 3-5 days
 
@@ -12846,7 +12745,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 674: Migrate CardScheduleService
+### 步骤 674: Migrate CardApplicationService
 
 **预计时间**: 3-5 days
 
@@ -12908,7 +12807,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 675: Migrate CardFilterService
+### 步骤 675: Migrate CardScheduleService
 
 **预计时间**: 3-5 days
 
@@ -12970,7 +12869,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 676: Migrate CardSortService
+### 步骤 676: Migrate CardFilterService
 
 **预计时间**: 3-5 days
 
@@ -13032,7 +12931,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 677: Migrate BrowserApplicationService
+### 步骤 677: Migrate CardSortService
 
 **预计时间**: 3-5 days
 
@@ -13094,7 +12993,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 678: Migrate ReviewApplicationService
+### 步骤 678: Migrate BrowserApplicationService
 
 **预计时间**: 3-5 days
 
@@ -13156,7 +13055,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 679: Migrate Error
+### 步骤 679: Migrate ReviewApplicationService
 
 **预计时间**: 3-5 days
 
@@ -13280,7 +13179,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 681: Migrate StorageManager
+### 步骤 681: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -13342,7 +13241,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 682: Migrate UnifiedStorageManager
+### 步骤 682: Migrate StorageManager
 
 **预计时间**: 3-5 days
 
@@ -13404,7 +13303,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 683: Migrate Error
+### 步骤 683: Migrate UnifiedStorageManager
 
 **预计时间**: 3-5 days
 
@@ -13528,7 +13427,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 685: Migrate Date
+### 步骤 685: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -13776,7 +13675,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 689: Migrate XiuyuanRepository
+### 步骤 689: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -13838,7 +13737,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 690: Migrate CardTypeDetectionServiceClass
+### 步骤 690: Migrate XiuyuanRepository
 
 **预计时间**: 3-5 days
 
@@ -13900,7 +13799,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 691: Migrate XiuyuanRepository
+### 步骤 691: Migrate CardTypeDetectionServiceClass
 
 **预计时间**: 3-5 days
 
@@ -13962,7 +13861,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 692: Migrate CardCreationService
+### 步骤 692: Migrate XiuyuanRepository
 
 **预计时间**: 3-5 days
 
@@ -14024,7 +13923,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 693: Migrate CardDeletionService
+### 步骤 693: Migrate CardCreationService
 
 **预计时间**: 3-5 days
 
@@ -14086,7 +13985,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 694: Migrate CardScheduleService
+### 步骤 694: Migrate CardDeletionService
 
 **预计时间**: 3-5 days
 
@@ -14148,7 +14047,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 695: Migrate EventBus
+### 步骤 695: Migrate CardScheduleService
 
 **预计时间**: 3-5 days
 
@@ -14210,7 +14109,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 696: Migrate InMemoryDeletionTracker
+### 步骤 696: Migrate EventBus
 
 **预计时间**: 3-5 days
 
@@ -14272,7 +14171,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 697: Migrate CreateCardUseCase
+### 步骤 697: Migrate InMemoryDeletionTracker
 
 **预计时间**: 3-5 days
 
@@ -14334,7 +14233,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 698: Migrate DeleteCardUseCase
+### 步骤 698: Migrate CreateCardUseCase
 
 **预计时间**: 3-5 days
 
@@ -14396,7 +14295,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 699: Migrate DeleteCardsUseCase
+### 步骤 699: Migrate DeleteCardUseCase
 
 **预计时间**: 3-5 days
 
@@ -14458,7 +14357,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 700: Migrate UpdateCardUseCase
+### 步骤 700: Migrate DeleteCardsUseCase
 
 **预计时间**: 3-5 days
 
@@ -14520,7 +14419,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 701: Migrate CardReadModel
+### 步骤 701: Migrate UpdateCardUseCase
 
 **预计时间**: 3-5 days
 
@@ -14582,7 +14481,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 702: Migrate CardApplicationService
+### 步骤 702: Migrate CardReadModel
 
 **预计时间**: 3-5 days
 
@@ -14644,7 +14543,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 703: Migrate UnifiedStorageCardUpdateAdapter
+### 步骤 703: Migrate CardApplicationService
 
 **预计时间**: 3-5 days
 
@@ -14706,7 +14605,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 704: Migrate SiyuanErrorNotificationAdapter
+### 步骤 704: Migrate UnifiedStorageCardUpdateAdapter
 
 **预计时间**: 3-5 days
 
@@ -14768,7 +14667,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 705: Migrate RescheduleService
+### 步骤 705: Migrate SiyuanErrorNotificationAdapter
 
 **预计时间**: 3-5 days
 
@@ -14830,7 +14729,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 706: Migrate SchedulerRouter
+### 步骤 706: Migrate RescheduleService
 
 **预计时间**: 3-5 days
 
@@ -14892,7 +14791,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 707: Migrate CardCreationHelper
+### 步骤 707: Migrate SchedulerRouter
 
 **预计时间**: 3-5 days
 
@@ -14954,7 +14853,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 708: Migrate BlockMenuHandler
+### 步骤 708: Migrate CardCreationHelper
 
 **预计时间**: 3-5 days
 
@@ -15016,7 +14915,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 709: Migrate ApplicationContext
+### 步骤 709: Migrate BlockMenuHandler
 
 **预计时间**: 3-5 days
 
@@ -15078,7 +14977,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 710: Migrate AdvancedDataRouter
+### 步骤 710: Migrate ApplicationContext
 
 **预计时间**: 3-5 days
 
@@ -15140,7 +15039,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 711: Migrate XiuyuanSyncSiyuanAdapter
+### 步骤 711: Migrate AdvancedDataRouter
 
 **预计时间**: 3-5 days
 
@@ -15202,7 +15101,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 712: Migrate CardTypeDetectionServiceClass2
+### 步骤 712: Migrate XiuyuanSyncSiyuanAdapter
 
 **预计时间**: 3-5 days
 
@@ -15264,7 +15163,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 713: Migrate XiuyuanRepository
+### 步骤 713: Migrate CardTypeDetectionServiceClass2
 
 **预计时间**: 3-5 days
 
@@ -15326,7 +15225,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 714: Migrate CardTypeDetectionService
+### 步骤 714: Migrate XiuyuanRepository
 
 **预计时间**: 3-5 days
 
@@ -15388,7 +15287,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 715: Migrate Error
+### 步骤 715: Migrate CardTypeDetectionService
 
 **预计时间**: 3-5 days
 
@@ -15450,7 +15349,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 716: Migrate XiuyuanSyncService
+### 步骤 716: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -15512,7 +15411,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 717: Migrate RiffSyncEventHandler
+### 步骤 717: Migrate XiuyuanSyncService
 
 **预计时间**: 3-5 days
 
@@ -15574,7 +15473,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 718: Migrate TransactionWebSocketService
+### 步骤 718: Migrate RiffSyncEventHandler
 
 **预计时间**: 3-5 days
 
@@ -15636,7 +15535,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 719: Migrate RiffSyncHandler
+### 步骤 719: Migrate TransactionWebSocketService
 
 **预计时间**: 3-5 days
 
@@ -15698,7 +15597,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 720: Migrate AutoCardHandler
+### 步骤 720: Migrate RiffSyncHandler
 
 **预计时间**: 3-5 days
 
@@ -15760,7 +15659,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 721: Migrate CardTypeDetectionService
+### 步骤 721: Migrate AutoCardHandler
 
 **预计时间**: 3-5 days
 
@@ -15822,7 +15721,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 722: Migrate XiuyuanRepository
+### 步骤 722: Migrate CardTypeDetectionService
 
 **预计时间**: 3-5 days
 
@@ -15884,7 +15783,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 723: Migrate Map
+### 步骤 723: Migrate XiuyuanRepository
 
 **预计时间**: 3-5 days
 
@@ -15946,7 +15845,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 724: Migrate XiuyuanApplicationService
+### 步骤 724: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -16008,7 +15907,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 725: Migrate TransactionWebSocketService
+### 步骤 725: Migrate XiuyuanApplicationService
 
 **预计时间**: 3-5 days
 
@@ -16070,7 +15969,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 726: Migrate RiffSyncHandler
+### 步骤 726: Migrate TransactionWebSocketService
 
 **预计时间**: 3-5 days
 
@@ -16132,7 +16031,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 727: Migrate AutoCardHandler
+### 步骤 727: Migrate RiffSyncHandler
 
 **预计时间**: 3-5 days
 
@@ -16194,7 +16093,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 728: Migrate Error
+### 步骤 728: Migrate AutoCardHandler
 
 **预计时间**: 3-5 days
 
@@ -16380,7 +16279,69 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 731: Migrate Set
+### 步骤 731: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\ApplicationContext.ts
+- siyuan
+- @/index
+- @/core/storage
+- @/core/storage/UnifiedStorageManager
+- @/core/storage/UnifiedStoragePersistence
+- @/core/scheduler
+- @/core/scheduler/adapters/UnifiedStorageCardUpdateAdapter
+- @/infrastructure/notifications/SiyuanErrorNotificationAdapter
+- @/application/services/UnifiedDataSourceManager
+- @/application/managers/DialogManager
+- @/application/managers/MenuManager
+- @/application/managers/TabManager
+- @/application/managers/DockManager
+- @/application/managers/PracticeQueueManager
+- @/application/services/TabApplicationService
+- @/application/services/XiuyuanApplicationService
+- @/application/managers/BlockMenuHandler
+- @/application/services/XiuyuanSyncService
+- @/core/infrastructure/websocket/TransactionWebSocketService
+- @/application/handlers/AutoCardHandler
+- @/types/unified-data-source
+- @/application/queries/DataAccessFacade
+- @/core/xiuyuan/infrastructure/XiuyuanRepository
+- @/core/xiuyuan/domain/services/CardCreationService
+- @/core/xiuyuan/domain/services/CardDeletionService
+- @/core/xiuyuan/domain/services/CardTypeDetectionService
+- @/application/usecases/card/CreateCardUseCase
+- @/application/usecases/card/DeleteCardUseCase
+- @/application/usecases/card/DeleteCardsUseCase
+- @/application/usecases/card/UpdateCardUseCase
+- @/application/services/CardApplicationService
+- @/infrastructure/queries/CardReadModel
+- @/application/helpers/CardCreationHelper
+- @/core/card/domain/services/CardScheduleService
+- @/core/card/domain/services/CardFilterService
+- @/core/card/domain/services/CardSortService
+- @/application/services/BrowserApplicationService
+- @/application/services/ReviewApplicationService
+- @/core/shared/domain/events/EventBus
+- @/infrastructure/services/FileService
+- @/infrastructure/services/QueuePersistenceService
+- @/application/services/SettingsService
+- @/application/services/ReviewLogService
+- @/application/services/RiffBlacklistService
+- @/application/services/ReviewQueuePreparationService
+- @/application/queries/CardContentQueryService
+- @/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter
+- @/utils/logger
+- @/core/xiuyuan/types
+- @/core/xiuyuan/domain/services/IDeletionTracker
+- @/infrastructure/events/RiffSyncEventHandler
+- @/types/settings
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 732: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -16390,7 +16351,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 732: Migrate Map
+### 步骤 733: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -16400,7 +16361,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 733: Migrate Map
+### 步骤 734: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -16410,7 +16371,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 734: Migrate Error
+### 步骤 735: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -16428,7 +16389,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 735: Migrate UnifiedQueueStrategy
+### 步骤 736: Migrate UnifiedQueueStrategy
 
 **预计时间**: 3-5 days
 
@@ -16446,7 +16407,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 736: Migrate UnifiedReviewAdapter
+### 步骤 737: Migrate UnifiedReviewAdapter
 
 **预计时间**: 3-5 days
 
@@ -16464,7 +16425,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 737: Migrate UnifiedPostCreationPlanner
+### 步骤 738: Migrate UnifiedPostCreationPlanner
 
 **预计时间**: 3-5 days
 
@@ -16486,29 +16447,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 738: Migrate PostCreationConflictMediator
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts
-- @/index
-- @/infrastructure/siyuan/AutoCardSiyuanAdapter
-- @/infrastructure/siyuan/AutoCardRiffAdapter
-- @/utils/logger
-- @/utils/cloze-detector
-- @/types/result
-- @/core/card/post-creation/UnifiedPostCreationPlanner
-- @/core/card/post-creation/contracts
-- @/application/services/PostCreationConflictMediator
-- @/application/services/DocumentPostCreationScanService
-- @/application/usecases/xiuyuan/shared/ListChildrenResolver
-- @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 739: Migrate Set
+### 步骤 739: Migrate PostCreationConflictMediator
 
 **预计时间**: 3-5 days
 
@@ -16596,7 +16535,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 743: Migrate Map
+### 步骤 743: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -16618,7 +16557,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 744: Migrate AutoCardSiyuanAdapter
+### 步骤 744: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -16640,7 +16579,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 745: Migrate AutoCardRiffAdapter
+### 步骤 745: Migrate AutoCardSiyuanAdapter
 
 **预计时间**: 3-5 days
 
@@ -16662,7 +16601,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 746: Migrate Error
+### 步骤 746: Migrate AutoCardRiffAdapter
 
 **预计时间**: 3-5 days
 
@@ -16750,7 +16689,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 750: Migrate CardCreationHelper
+### 步骤 750: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -16772,7 +16711,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 751: Migrate DocumentPostCreationScanService
+### 步骤 751: Migrate CardCreationHelper
 
 **预计时间**: 3-5 days
 
@@ -16794,7 +16733,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 752: Migrate Set
+### 步骤 752: Migrate DocumentPostCreationScanService
 
 **预计时间**: 3-5 days
 
@@ -16816,7 +16755,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 753: Migrate CreateCdfMultilineCardsUseCase
+### 步骤 753: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -16838,7 +16777,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 754: Migrate Error
+### 步骤 754: Migrate CreateCdfMultilineCardsUseCase
 
 **预计时间**: 3-5 days
 
@@ -16926,15 +16865,24 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 758: Migrate Event
+### 步骤 758: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\FormulaClozeAssistant.ts
-- siyuan
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\AutoCardHandler.ts
 - @/index
+- @/infrastructure/siyuan/AutoCardSiyuanAdapter
+- @/infrastructure/siyuan/AutoCardRiffAdapter
 - @/utils/logger
+- @/utils/cloze-detector
+- @/types/result
+- @/core/card/post-creation/UnifiedPostCreationPlanner
+- @/core/card/post-creation/contracts
+- @/application/services/PostCreationConflictMediator
+- @/application/services/DocumentPostCreationScanService
+- @/application/usecases/xiuyuan/shared/ListChildrenResolver
+- @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -16952,21 +16900,20 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 760: Migrate Promise
+### 步骤 760: Migrate Event
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\FormulaClozeAssistant.ts
 - siyuan
 - @/index
-- @/infrastructure/siyuan/api
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 761: Migrate Map
+### 步骤 761: Migrate Promise
 
 **预计时间**: 3-5 days
 
@@ -16975,12 +16922,13 @@ Run unit tests and integration tests for affected queues
 - siyuan
 - @/index
 - @/infrastructure/siyuan/api
+- @/utils/imageOcclusionGeometry
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 762: Migrate Dialog
+### 步骤 762: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -16989,12 +16937,13 @@ Run unit tests and integration tests for affected queues
 - siyuan
 - @/index
 - @/infrastructure/siyuan/api
+- @/utils/imageOcclusionGeometry
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 763: Migrate Map
+### 步骤 763: Migrate Dialog
 
 **预计时间**: 3-5 days
 
@@ -17003,12 +16952,13 @@ Run unit tests and integration tests for affected queues
 - siyuan
 - @/index
 - @/infrastructure/siyuan/api
+- @/utils/imageOcclusionGeometry
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 764: Migrate Set
+### 步骤 764: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -17017,12 +16967,13 @@ Run unit tests and integration tests for affected queues
 - siyuan
 - @/index
 - @/infrastructure/siyuan/api
+- @/utils/imageOcclusionGeometry
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 765: Migrate Map
+### 步骤 765: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -17031,12 +16982,13 @@ Run unit tests and integration tests for affected queues
 - siyuan
 - @/index
 - @/infrastructure/siyuan/api
+- @/utils/imageOcclusionGeometry
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 766: Migrate Set
+### 步骤 766: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -17045,12 +16997,13 @@ Run unit tests and integration tests for affected queues
 - siyuan
 - @/index
 - @/infrastructure/siyuan/api
+- @/utils/imageOcclusionGeometry
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 767: Migrate Map
+### 步骤 767: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -17059,12 +17012,13 @@ Run unit tests and integration tests for affected queues
 - siyuan
 - @/index
 - @/infrastructure/siyuan/api
+- @/utils/imageOcclusionGeometry
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 768: Migrate Error
+### 步骤 768: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -17073,6 +17027,7 @@ Run unit tests and integration tests for affected queues
 - siyuan
 - @/index
 - @/infrastructure/siyuan/api
+- @/utils/imageOcclusionGeometry
 - @/utils/logger
 
 **测试策略**:
@@ -17087,12 +17042,28 @@ Run unit tests and integration tests for affected queues
 - siyuan
 - @/index
 - @/infrastructure/siyuan/api
+- @/utils/imageOcclusionGeometry
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 770: Migrate Promise
+### 步骤 770: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\ImageOcclusionHandler.ts
+- siyuan
+- @/index
+- @/infrastructure/siyuan/api
+- @/utils/imageOcclusionGeometry
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 771: Migrate Promise
 
 **预计时间**: 3-5 days
 
@@ -17100,18 +17071,6 @@ Run unit tests and integration tests for affected queues
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\handlers\RiffSyncHandler.ts
 - @/application/services/XiuyuanSyncService
 - @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 771: Migrate DialogManager
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.test.ts
-- vitest
-- siyuan
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -17128,39 +17087,14 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 773: Migrate Set
+### 步骤 773: Migrate DialogManager
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.test.ts
+- vitest
 - siyuan
-- @/utils/dialog
-- @/ui/settings
-- @/ui/browser/SRSBrowser.vue
-- @/ui/mobile/MobileReviewLauncher.vue
-- @/ui/xiuyuan
-- @/application/ports/ManagerSiyuanPort
-- @/infrastructure/siyuan/ManagerSiyuanAdapter
-- @/application/factories/createUnifiedReviewDialog
-- @/application/adapters/UnifiedQueueStrategy
-- @/application/adapters/UnifiedReviewAdapter
-- @/types/unified-data-source
-- @/ui/review/v2
-- @/core/queue/domain/LeechReviewQueue
-- @/core/queue/domain/SubsetReviewQueue
-- @/core/queue/domain/TemporaryDrillQueue
-- @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/utils/logger
-- @/types/settings
-- @/core/xiuyuan/types
-- @/application/services/XiuyuanApplicationService
-- @/application/usecases/xiuyuan/shared/ConceptLocator
-- @/application/usecases/xiuyuan/shared/ListChildrenResolver
-- @/application/usecases/xiuyuan/shared/CdfMultilineScanner
-- @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
-- @/application/usecases/xiuyuan/shared/CdfTailMarker
-- @/application/ports/XiuyuanSiyuanPort
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -17198,11 +17132,12 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 775: Migrate ManagerSiyuanAdapter
+### 步骤 775: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -17235,11 +17170,12 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 776: Migrate LeechReviewQueue
+### 步骤 776: Migrate ManagerSiyuanAdapter
 
 **预计时间**: 3-5 days
 
@@ -17272,11 +17208,12 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 777: Migrate SiyuanLeechActionEffectsAdapter
+### 步骤 777: Migrate BlockAttrCleanupService
 
 **预计时间**: 3-5 days
 
@@ -17309,11 +17246,12 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 778: Migrate Set
+### 步骤 778: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -17346,11 +17284,12 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 779: Migrate SubsetReviewQueue
+### 步骤 779: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -17383,11 +17322,12 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 780: Migrate Date
+### 步骤 780: Migrate LeechReviewQueue
 
 **预计时间**: 3-5 days
 
@@ -17420,11 +17360,12 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 781: Migrate UnifiedQueueStrategy
+### 步骤 781: Migrate SiyuanLeechActionEffectsAdapter
 
 **预计时间**: 3-5 days
 
@@ -17457,11 +17398,12 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 782: Migrate UnifiedReviewAdapter
+### 步骤 782: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -17494,11 +17436,12 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 783: Migrate Date
+### 步骤 783: Migrate SubsetReviewQueue
 
 **预计时间**: 3-5 days
 
@@ -17531,11 +17474,12 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 784: Migrate UnifiedQueueStrategy
+### 步骤 784: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -17568,11 +17512,12 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 785: Migrate UnifiedReviewAdapter
+### 步骤 785: Migrate UnifiedQueueStrategy
 
 **预计时间**: 3-5 days
 
@@ -17605,11 +17550,12 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 786: Migrate Set
+### 步骤 786: Migrate UnifiedReviewAdapter
 
 **预计时间**: 3-5 days
 
@@ -17642,11 +17588,12 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 787: Migrate TemporaryDrillQueue
+### 步骤 787: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -17679,11 +17626,12 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 788: Migrate Promise
+### 步骤 788: Migrate UnifiedQueueStrategy
 
 **预计时间**: 3-5 days
 
@@ -17716,11 +17664,12 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 789: Migrate Dialog
+### 步骤 789: Migrate UnifiedReviewAdapter
 
 **预计时间**: 3-5 days
 
@@ -17753,11 +17702,12 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 790: Migrate CreateCdfMultilineCardsUseCase
+### 步骤 790: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -17790,11 +17740,164 @@ Run unit tests and integration tests for affected queues
 - @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
 - @/application/usecases/xiuyuan/shared/CdfTailMarker
 - @/application/ports/XiuyuanSiyuanPort
+- @/application/services
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 791: Migrate MenuManager
+### 步骤 791: Migrate TemporaryDrillQueue
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts
+- siyuan
+- @/utils/dialog
+- @/ui/settings
+- @/ui/browser/SRSBrowser.vue
+- @/ui/mobile/MobileReviewLauncher.vue
+- @/ui/xiuyuan
+- @/application/ports/ManagerSiyuanPort
+- @/infrastructure/siyuan/ManagerSiyuanAdapter
+- @/application/factories/createUnifiedReviewDialog
+- @/application/adapters/UnifiedQueueStrategy
+- @/application/adapters/UnifiedReviewAdapter
+- @/types/unified-data-source
+- @/ui/review/v2
+- @/core/queue/domain/LeechReviewQueue
+- @/core/queue/domain/SubsetReviewQueue
+- @/core/queue/domain/TemporaryDrillQueue
+- @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
+- @/utils/logger
+- @/types/settings
+- @/core/xiuyuan/types
+- @/application/services/XiuyuanApplicationService
+- @/application/usecases/xiuyuan/shared/ConceptLocator
+- @/application/usecases/xiuyuan/shared/ListChildrenResolver
+- @/application/usecases/xiuyuan/shared/CdfMultilineScanner
+- @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
+- @/application/usecases/xiuyuan/shared/CdfTailMarker
+- @/application/ports/XiuyuanSiyuanPort
+- @/application/services
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 792: Migrate Promise
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts
+- siyuan
+- @/utils/dialog
+- @/ui/settings
+- @/ui/browser/SRSBrowser.vue
+- @/ui/mobile/MobileReviewLauncher.vue
+- @/ui/xiuyuan
+- @/application/ports/ManagerSiyuanPort
+- @/infrastructure/siyuan/ManagerSiyuanAdapter
+- @/application/factories/createUnifiedReviewDialog
+- @/application/adapters/UnifiedQueueStrategy
+- @/application/adapters/UnifiedReviewAdapter
+- @/types/unified-data-source
+- @/ui/review/v2
+- @/core/queue/domain/LeechReviewQueue
+- @/core/queue/domain/SubsetReviewQueue
+- @/core/queue/domain/TemporaryDrillQueue
+- @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
+- @/utils/logger
+- @/types/settings
+- @/core/xiuyuan/types
+- @/application/services/XiuyuanApplicationService
+- @/application/usecases/xiuyuan/shared/ConceptLocator
+- @/application/usecases/xiuyuan/shared/ListChildrenResolver
+- @/application/usecases/xiuyuan/shared/CdfMultilineScanner
+- @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
+- @/application/usecases/xiuyuan/shared/CdfTailMarker
+- @/application/ports/XiuyuanSiyuanPort
+- @/application/services
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 793: Migrate Dialog
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts
+- siyuan
+- @/utils/dialog
+- @/ui/settings
+- @/ui/browser/SRSBrowser.vue
+- @/ui/mobile/MobileReviewLauncher.vue
+- @/ui/xiuyuan
+- @/application/ports/ManagerSiyuanPort
+- @/infrastructure/siyuan/ManagerSiyuanAdapter
+- @/application/factories/createUnifiedReviewDialog
+- @/application/adapters/UnifiedQueueStrategy
+- @/application/adapters/UnifiedReviewAdapter
+- @/types/unified-data-source
+- @/ui/review/v2
+- @/core/queue/domain/LeechReviewQueue
+- @/core/queue/domain/SubsetReviewQueue
+- @/core/queue/domain/TemporaryDrillQueue
+- @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
+- @/utils/logger
+- @/types/settings
+- @/core/xiuyuan/types
+- @/application/services/XiuyuanApplicationService
+- @/application/usecases/xiuyuan/shared/ConceptLocator
+- @/application/usecases/xiuyuan/shared/ListChildrenResolver
+- @/application/usecases/xiuyuan/shared/CdfMultilineScanner
+- @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
+- @/application/usecases/xiuyuan/shared/CdfTailMarker
+- @/application/ports/XiuyuanSiyuanPort
+- @/application/services
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 794: Migrate CreateCdfMultilineCardsUseCase
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\DialogManager.ts
+- siyuan
+- @/utils/dialog
+- @/ui/settings
+- @/ui/browser/SRSBrowser.vue
+- @/ui/mobile/MobileReviewLauncher.vue
+- @/ui/xiuyuan
+- @/application/ports/ManagerSiyuanPort
+- @/infrastructure/siyuan/ManagerSiyuanAdapter
+- @/application/factories/createUnifiedReviewDialog
+- @/application/adapters/UnifiedQueueStrategy
+- @/application/adapters/UnifiedReviewAdapter
+- @/types/unified-data-source
+- @/ui/review/v2
+- @/core/queue/domain/LeechReviewQueue
+- @/core/queue/domain/SubsetReviewQueue
+- @/core/queue/domain/TemporaryDrillQueue
+- @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
+- @/utils/logger
+- @/types/settings
+- @/core/xiuyuan/types
+- @/application/services/XiuyuanApplicationService
+- @/application/usecases/xiuyuan/shared/ConceptLocator
+- @/application/usecases/xiuyuan/shared/ListChildrenResolver
+- @/application/usecases/xiuyuan/shared/CdfMultilineScanner
+- @/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase
+- @/application/usecases/xiuyuan/shared/CdfTailMarker
+- @/application/ports/XiuyuanSiyuanPort
+- @/application/services
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 795: Migrate MenuManager
 
 **预计时间**: 3-5 days
 
@@ -17806,7 +17909,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 792: Migrate ReviewSyncDomainEvent
+### 步骤 796: Migrate ReviewSyncDomainEvent
 
 **预计时间**: 3-5 days
 
@@ -17818,58 +17921,6 @@ Run unit tests and integration tests for affected queues
 - @/core/shared/domain/events/EventBus
 - @/core/shared/domain/events/DomainEvent
 - @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 793: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\ReviewSyncManager.ts
-- @/application/services/XiuyuanSyncService
-- @/types/unified-data-source
-- @/application/services/UnifiedDataSourceManager
-- @/core/shared/domain/events/EventBus
-- @/core/shared/domain/events/DomainEvent
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 794: Migrate TabManager
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.test.ts
-- vitest
-- siyuan
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 795: Migrate TabManager
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.test.ts
-- vitest
-- siyuan
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 796: Migrate TabManager
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.test.ts
-- vitest
-- siyuan
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -17879,6 +17930,22 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\ReviewSyncManager.ts
+- @/application/services/XiuyuanSyncService
+- @/types/unified-data-source
+- @/application/services/UnifiedDataSourceManager
+- @/core/shared/domain/events/EventBus
+- @/core/shared/domain/events/DomainEvent
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 798: Migrate TabManager
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.test.ts
 - vitest
 - siyuan
@@ -17886,77 +17953,26 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 798: Migrate ManagerSiyuanAdapter
+### 步骤 799: Migrate TabManager
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.test.ts
+- vitest
 - siyuan
-- siyuan
-- vue
-- @/ui/browser/SRSBrowser.vue
-- @/ui/review/v2
-- @/application/ports/ManagerSiyuanPort
-- @/infrastructure/siyuan/ManagerSiyuanAdapter
-- @/core/extensions/QueueProvider
-- @/core/queue/abstraction/Strategy
-- @/ui/review/v2/types
-- @/application/adapters/UnifiedQueueStrategy
-- @/application/adapters/UnifiedReviewAdapter
-- @/types/unified-data-source
-- @/utils/logger
-- electron
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 799: Migrate UnifiedReviewAdapter
+### 步骤 800: Migrate TabManager
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.test.ts
+- vitest
 - siyuan
-- siyuan
-- vue
-- @/ui/browser/SRSBrowser.vue
-- @/ui/review/v2
-- @/application/ports/ManagerSiyuanPort
-- @/infrastructure/siyuan/ManagerSiyuanAdapter
-- @/core/extensions/QueueProvider
-- @/core/queue/abstraction/Strategy
-- @/ui/review/v2/types
-- @/application/adapters/UnifiedQueueStrategy
-- @/application/adapters/UnifiedReviewAdapter
-- @/types/unified-data-source
-- @/utils/logger
-- electron
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 800: Migrate UnifiedQueueStrategy
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.ts
-- siyuan
-- siyuan
-- vue
-- @/ui/browser/SRSBrowser.vue
-- @/ui/review/v2
-- @/application/ports/ManagerSiyuanPort
-- @/infrastructure/siyuan/ManagerSiyuanAdapter
-- @/core/extensions/QueueProvider
-- @/core/queue/abstraction/Strategy
-- @/ui/review/v2/types
-- @/application/adapters/UnifiedQueueStrategy
-- @/application/adapters/UnifiedReviewAdapter
-- @/types/unified-data-source
-- @/utils/logger
-- electron
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -17966,6 +17982,18 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.test.ts
+- vitest
+- siyuan
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 802: Migrate ManagerSiyuanAdapter
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.ts
 - siyuan
 - siyuan
@@ -17986,7 +18014,82 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 802: Migrate LRUCache
+### 步骤 803: Migrate UnifiedReviewAdapter
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.ts
+- siyuan
+- siyuan
+- vue
+- @/ui/browser/SRSBrowser.vue
+- @/ui/review/v2
+- @/application/ports/ManagerSiyuanPort
+- @/infrastructure/siyuan/ManagerSiyuanAdapter
+- @/core/extensions/QueueProvider
+- @/core/queue/abstraction/Strategy
+- @/ui/review/v2/types
+- @/application/adapters/UnifiedQueueStrategy
+- @/application/adapters/UnifiedReviewAdapter
+- @/types/unified-data-source
+- @/utils/logger
+- electron
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 804: Migrate UnifiedQueueStrategy
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.ts
+- siyuan
+- siyuan
+- vue
+- @/ui/browser/SRSBrowser.vue
+- @/ui/review/v2
+- @/application/ports/ManagerSiyuanPort
+- @/infrastructure/siyuan/ManagerSiyuanAdapter
+- @/core/extensions/QueueProvider
+- @/core/queue/abstraction/Strategy
+- @/ui/review/v2/types
+- @/application/adapters/UnifiedQueueStrategy
+- @/application/adapters/UnifiedReviewAdapter
+- @/types/unified-data-source
+- @/utils/logger
+- electron
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 805: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\managers\TabManager.ts
+- siyuan
+- siyuan
+- vue
+- @/ui/browser/SRSBrowser.vue
+- @/ui/review/v2
+- @/application/ports/ManagerSiyuanPort
+- @/infrastructure/siyuan/ManagerSiyuanAdapter
+- @/core/extensions/QueueProvider
+- @/core/queue/abstraction/Strategy
+- @/ui/review/v2/types
+- @/application/adapters/UnifiedQueueStrategy
+- @/application/adapters/UnifiedReviewAdapter
+- @/types/unified-data-source
+- @/utils/logger
+- electron
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 806: Migrate LRUCache
 
 **预计时间**: 3-5 days
 
@@ -17999,7 +18102,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 803: Migrate LRUCache
+### 步骤 807: Migrate LRUCache
 
 **预计时间**: 3-5 days
 
@@ -18012,7 +18115,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 804: Migrate LRUCache
+### 步骤 808: Migrate LRUCache
 
 **预计时间**: 3-5 days
 
@@ -18025,7 +18128,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 805: Migrate Date
+### 步骤 809: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -18036,59 +18139,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 806: Migrate QuerySiyuanAdapter
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\CardContentQueryService.ts
-- @/application/ports/QuerySiyuanPort
-- @/infrastructure/siyuan/QuerySiyuanAdapter
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 807: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\CardContentQueryService.ts
-- @/application/ports/QuerySiyuanPort
-- @/infrastructure/siyuan/QuerySiyuanAdapter
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 808: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\CardContentQueryService.ts
-- @/application/ports/QuerySiyuanPort
-- @/infrastructure/siyuan/QuerySiyuanAdapter
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 809: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\CardContentQueryService.ts
-- @/application/ports/QuerySiyuanPort
-- @/infrastructure/siyuan/QuerySiyuanAdapter
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 810: Migrate Map
+### 步骤 810: Migrate QuerySiyuanAdapter
 
 **预计时间**: 3-5 days
 
@@ -18114,53 +18165,53 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 812: Migrate UnifiedPostCreationPlanner
+### 步骤 812: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\DocumentPostCreationScanService.ts
-- @/core/card/post-creation/UnifiedPostCreationPlanner
-- @/core/card/post-creation/contracts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\CardContentQueryService.ts
+- @/application/ports/QuerySiyuanPort
+- @/infrastructure/siyuan/QuerySiyuanAdapter
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 813: Migrate PostCreationConflictMediator
+### 步骤 813: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\DocumentPostCreationScanService.ts
-- @/core/card/post-creation/UnifiedPostCreationPlanner
-- @/core/card/post-creation/contracts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\CardContentQueryService.ts
+- @/application/ports/QuerySiyuanPort
+- @/infrastructure/siyuan/QuerySiyuanAdapter
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 814: Migrate Set
+### 步骤 814: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\DocumentPostCreationScanService.ts
-- @/core/card/post-creation/UnifiedPostCreationPlanner
-- @/core/card/post-creation/contracts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\CardContentQueryService.ts
+- @/application/ports/QuerySiyuanPort
+- @/infrastructure/siyuan/QuerySiyuanAdapter
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 815: Migrate Set
+### 步骤 815: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\DocumentPostCreationScanService.ts
-- @/core/card/post-creation/UnifiedPostCreationPlanner
-- @/core/card/post-creation/contracts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\CardContentQueryService.ts
+- @/application/ports/QuerySiyuanPort
+- @/infrastructure/siyuan/QuerySiyuanAdapter
 - @/utils/logger
 
 **测试策略**:
@@ -18171,8 +18222,10 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\PostCreationConflictMediator.ts
-- @/core/card/post-creation/contracts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BlockAttrCleanupService.ts
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/storage/UnifiedStorageManager
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -18182,44 +18235,43 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\PostCreationConflictMediator.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BlockAttrPolicy.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 818: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\BlockAttrPolicy.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 819: Migrate UnifiedPostCreationPlanner
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\DocumentPostCreationScanService.ts
+- @/core/card/post-creation/UnifiedPostCreationPlanner
 - @/core/card/post-creation/contracts
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 818: Migrate Date
+### 步骤 820: Migrate PostCreationConflictMediator
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\ReviewLogService.ts
-- @/types/review
-- @/types/scheduler
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 819: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\ReviewLogService.ts
-- @/types/review
-- @/types/scheduler
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 820: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\ReviewLogService.ts
-- @/types/review
-- @/types/scheduler
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\DocumentPostCreationScanService.ts
+- @/core/card/post-creation/UnifiedPostCreationPlanner
+- @/core/card/post-creation/contracts
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -18229,7 +18281,9 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\RiffBlacklistService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\DocumentPostCreationScanService.ts
+- @/core/card/post-creation/UnifiedPostCreationPlanner
+- @/core/card/post-creation/contracts
 - @/utils/logger
 
 **测试策略**:
@@ -18240,13 +18294,73 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\RiffBlacklistService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\DocumentPostCreationScanService.ts
+- @/core/card/post-creation/UnifiedPostCreationPlanner
+- @/core/card/post-creation/contracts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 823: Migrate Error
+### 步骤 823: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\PostCreationConflictMediator.ts
+- @/core/card/post-creation/contracts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 824: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\PostCreationConflictMediator.ts
+- @/core/card/post-creation/contracts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 825: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\ReviewLogService.ts
+- @/types/review
+- @/types/scheduler
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 826: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\ReviewLogService.ts
+- @/types/review
+- @/types/scheduler
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 827: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\ReviewLogService.ts
+- @/types/review
+- @/types/scheduler
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 828: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -18257,78 +18371,23 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 824: Migrate SettingsValidationError
+### 步骤 829: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\SettingsService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\RiffBlacklistService.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 825: Migrate SettingsValidationError
+### 步骤 830: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\SettingsService.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 826: Migrate SettingsValidationError
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\SettingsService.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 827: Migrate SettingsValidationError
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\SettingsService.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 828: Migrate SettingsValidationError
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\SettingsService.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 829: Migrate SettingsValidationError
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\SettingsService.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 830: Migrate SettingsValidationError
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\SettingsService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\RiffBlacklistService.ts
 - @/utils/logger
 
 **测试策略**:
@@ -18422,7 +18481,84 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 839: Migrate CreateXiuyuanFromBlocksUseCase
+### 步骤 839: Migrate SettingsValidationError
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\SettingsService.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 840: Migrate SettingsValidationError
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\SettingsService.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 841: Migrate SettingsValidationError
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\SettingsService.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 842: Migrate SettingsValidationError
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\SettingsService.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 843: Migrate SettingsValidationError
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\SettingsService.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 844: Migrate SettingsValidationError
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\SettingsService.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 845: Migrate SettingsValidationError
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\SettingsService.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 846: Migrate CreateXiuyuanFromBlocksUseCase
 
 **预计时间**: 3-5 days
 
@@ -18435,7 +18571,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 840: Migrate DeleteXiuyuanUseCase
+### 步骤 847: Migrate DeleteXiuyuanUseCase
 
 **预计时间**: 3-5 days
 
@@ -18448,7 +18584,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 841: Migrate GetXiuyuanQueryHandler
+### 步骤 848: Migrate GetXiuyuanQueryHandler
 
 **预计时间**: 3-5 days
 
@@ -18461,7 +18597,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 842: Migrate GetAllXiuyuansQueryHandler
+### 步骤 849: Migrate GetAllXiuyuansQueryHandler
 
 **预计时间**: 3-5 days
 
@@ -18474,7 +18610,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 843: Migrate CreateListTemplateCardsUseCase
+### 步骤 850: Migrate CreateListTemplateCardsUseCase
 
 **预计时间**: 3-5 days
 
@@ -18487,7 +18623,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 844: Migrate CreateConceptDescriptorCardsUseCase
+### 步骤 851: Migrate CreateConceptDescriptorCardsUseCase
 
 **预计时间**: 3-5 days
 
@@ -18500,7 +18636,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 845: Migrate CreateConceptDescriptorAutoUseCase
+### 步骤 852: Migrate CreateConceptDescriptorAutoUseCase
 
 **预计时间**: 3-5 days
 
@@ -18513,7 +18649,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 846: Migrate RebindDescriptorConceptUseCase
+### 步骤 853: Migrate RebindDescriptorConceptUseCase
 
 **预计时间**: 3-5 days
 
@@ -18526,7 +18662,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 847: Migrate CreateTemplateUseCase
+### 步骤 854: Migrate CreateTemplateUseCase
 
 **预计时间**: 3-5 days
 
@@ -18539,7 +18675,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 848: Migrate GetTemplateQueryHandler
+### 步骤 855: Migrate GetTemplateQueryHandler
 
 **预计时间**: 3-5 days
 
@@ -18552,7 +18688,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 849: Migrate GetAllTemplatesQueryHandler
+### 步骤 856: Migrate GetAllTemplatesQueryHandler
 
 **预计时间**: 3-5 days
 
@@ -18565,7 +18701,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 850: Migrate Map
+### 步骤 857: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -18594,7 +18730,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 851: Migrate Map
+### 步骤 858: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -18623,7 +18759,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 852: Migrate QuickCardPostCreationPlanner
+### 步骤 859: Migrate QuickCardPostCreationPlanner
 
 **预计时间**: 3-5 days
 
@@ -18652,7 +18788,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 853: Migrate XiuyuanSyncSiyuanAdapter
+### 步骤 860: Migrate XiuyuanSyncSiyuanAdapter
 
 **预计时间**: 3-5 days
 
@@ -18681,7 +18817,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 854: Migrate XiuyuanSyncBridgeEvent
+### 步骤 861: Migrate XiuyuanSyncBridgeEvent
 
 **预计时间**: 3-5 days
 
@@ -18710,7 +18846,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 855: Migrate Map
+### 步骤 862: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -18739,7 +18875,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 856: Migrate Promise
+### 步骤 863: Migrate Promise
 
 **预计时间**: 3-5 days
 
@@ -18768,7 +18904,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 857: Migrate Set
+### 步骤 864: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -18797,210 +18933,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 858: Migrate Set
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts
-- @/core/card-builder
-- @/application/ports/XiuyuanSyncSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter
-- @/core/shared/domain/events/EventBus
-- @/core/shared/domain/events/DomainEvent
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
-- @/core/xiuyuan/domain/services/CardTypeDetectionService
-- @/core/xiuyuan/domain/services/IDeletionTracker
-- @/utils/logger
-- @/types/card
-- @/utils/cloze-detector
-- @/core/xiuyuan/domain/services/ClozeCardGenerator
-- @/core/card/post-creation/QuickCardPostCreationPlanner
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 859: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts
-- @/core/card-builder
-- @/application/ports/XiuyuanSyncSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter
-- @/core/shared/domain/events/EventBus
-- @/core/shared/domain/events/DomainEvent
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
-- @/core/xiuyuan/domain/services/CardTypeDetectionService
-- @/core/xiuyuan/domain/services/IDeletionTracker
-- @/utils/logger
-- @/types/card
-- @/utils/cloze-detector
-- @/core/xiuyuan/domain/services/ClozeCardGenerator
-- @/core/card/post-creation/QuickCardPostCreationPlanner
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 860: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts
-- @/core/card-builder
-- @/application/ports/XiuyuanSyncSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter
-- @/core/shared/domain/events/EventBus
-- @/core/shared/domain/events/DomainEvent
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
-- @/core/xiuyuan/domain/services/CardTypeDetectionService
-- @/core/xiuyuan/domain/services/IDeletionTracker
-- @/utils/logger
-- @/types/card
-- @/utils/cloze-detector
-- @/core/xiuyuan/domain/services/ClozeCardGenerator
-- @/core/card/post-creation/QuickCardPostCreationPlanner
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 861: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts
-- @/core/card-builder
-- @/application/ports/XiuyuanSyncSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter
-- @/core/shared/domain/events/EventBus
-- @/core/shared/domain/events/DomainEvent
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
-- @/core/xiuyuan/domain/services/CardTypeDetectionService
-- @/core/xiuyuan/domain/services/IDeletionTracker
-- @/utils/logger
-- @/types/card
-- @/utils/cloze-detector
-- @/core/xiuyuan/domain/services/ClozeCardGenerator
-- @/core/card/post-creation/QuickCardPostCreationPlanner
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 862: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts
-- @/core/card-builder
-- @/application/ports/XiuyuanSyncSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter
-- @/core/shared/domain/events/EventBus
-- @/core/shared/domain/events/DomainEvent
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
-- @/core/xiuyuan/domain/services/CardTypeDetectionService
-- @/core/xiuyuan/domain/services/IDeletionTracker
-- @/utils/logger
-- @/types/card
-- @/utils/cloze-detector
-- @/core/xiuyuan/domain/services/ClozeCardGenerator
-- @/core/card/post-creation/QuickCardPostCreationPlanner
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 863: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts
-- @/core/card-builder
-- @/application/ports/XiuyuanSyncSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter
-- @/core/shared/domain/events/EventBus
-- @/core/shared/domain/events/DomainEvent
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
-- @/core/xiuyuan/domain/services/CardTypeDetectionService
-- @/core/xiuyuan/domain/services/IDeletionTracker
-- @/utils/logger
-- @/types/card
-- @/utils/cloze-detector
-- @/core/xiuyuan/domain/services/ClozeCardGenerator
-- @/core/card/post-creation/QuickCardPostCreationPlanner
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 864: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts
-- @/core/card-builder
-- @/application/ports/XiuyuanSyncSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter
-- @/core/shared/domain/events/EventBus
-- @/core/shared/domain/events/DomainEvent
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
-- @/core/xiuyuan/domain/services/CardTypeDetectionService
-- @/core/xiuyuan/domain/services/IDeletionTracker
-- @/utils/logger
-- @/types/card
-- @/utils/cloze-detector
-- @/core/xiuyuan/domain/services/ClozeCardGenerator
-- @/core/card/post-creation/QuickCardPostCreationPlanner
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 865: Migrate Error
+### 步骤 865: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -19145,7 +19078,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 870: Migrate Date
+### 步骤 870: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -19174,7 +19107,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 871: Migrate Date
+### 步骤 871: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -19232,7 +19165,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 873: Migrate Date
+### 步骤 873: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -19261,7 +19194,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 874: Migrate Date
+### 步骤 874: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -19377,7 +19310,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 878: Migrate Promise
+### 步骤 878: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -19406,71 +19339,89 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 879: Migrate CardCreationSiyuanAdapter
+### 步骤 879: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts
-- @/types/result
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts
+- @/core/card-builder
+- @/application/ports/XiuyuanSyncSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter
+- @/core/shared/domain/events/EventBus
+- @/core/shared/domain/events/DomainEvent
 - @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/services/CardCreationService
 - @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/XiuyuanId
 - @/core/xiuyuan/domain/BlockId
 - @/core/xiuyuan/domain/TemplateId
 - @/core/xiuyuan/domain/CardFace
 - @/core/xiuyuan/domain/Priority
-- @/core/shared/domain/events/EventBus
-- @/application/ports/CardCreationSiyuanPort
-- @/infrastructure/siyuan/CardCreationSiyuanAdapter
+- @/core/xiuyuan/domain/services/CardTypeDetectionService
+- @/core/xiuyuan/domain/services/IDeletionTracker
 - @/utils/logger
+- @/types/card
+- @/utils/cloze-detector
+- @/core/xiuyuan/domain/services/ClozeCardGenerator
+- @/core/card/post-creation/QuickCardPostCreationPlanner
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 880: Migrate Error
+### 步骤 880: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts
-- @/types/result
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts
+- @/core/card-builder
+- @/application/ports/XiuyuanSyncSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter
+- @/core/shared/domain/events/EventBus
+- @/core/shared/domain/events/DomainEvent
 - @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/services/CardCreationService
 - @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/XiuyuanId
 - @/core/xiuyuan/domain/BlockId
 - @/core/xiuyuan/domain/TemplateId
 - @/core/xiuyuan/domain/CardFace
 - @/core/xiuyuan/domain/Priority
-- @/core/shared/domain/events/EventBus
-- @/application/ports/CardCreationSiyuanPort
-- @/infrastructure/siyuan/CardCreationSiyuanAdapter
+- @/core/xiuyuan/domain/services/CardTypeDetectionService
+- @/core/xiuyuan/domain/services/IDeletionTracker
 - @/utils/logger
+- @/types/card
+- @/utils/cloze-detector
+- @/core/xiuyuan/domain/services/ClozeCardGenerator
+- @/core/card/post-creation/QuickCardPostCreationPlanner
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 881: Migrate Error
+### 步骤 881: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts
-- @/types/result
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts
+- @/core/card-builder
+- @/application/ports/XiuyuanSyncSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter
+- @/core/shared/domain/events/EventBus
+- @/core/shared/domain/events/DomainEvent
 - @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/services/CardCreationService
 - @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/XiuyuanId
 - @/core/xiuyuan/domain/BlockId
 - @/core/xiuyuan/domain/TemplateId
 - @/core/xiuyuan/domain/CardFace
 - @/core/xiuyuan/domain/Priority
-- @/core/shared/domain/events/EventBus
-- @/application/ports/CardCreationSiyuanPort
-- @/infrastructure/siyuan/CardCreationSiyuanAdapter
+- @/core/xiuyuan/domain/services/CardTypeDetectionService
+- @/core/xiuyuan/domain/services/IDeletionTracker
 - @/utils/logger
+- @/types/card
+- @/utils/cloze-detector
+- @/core/xiuyuan/domain/services/ClozeCardGenerator
+- @/core/card/post-creation/QuickCardPostCreationPlanner
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -19480,20 +19431,26 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts
-- @/types/result
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts
+- @/core/card-builder
+- @/application/ports/XiuyuanSyncSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter
+- @/core/shared/domain/events/EventBus
+- @/core/shared/domain/events/DomainEvent
 - @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/services/CardCreationService
 - @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/XiuyuanId
 - @/core/xiuyuan/domain/BlockId
 - @/core/xiuyuan/domain/TemplateId
 - @/core/xiuyuan/domain/CardFace
 - @/core/xiuyuan/domain/Priority
-- @/core/shared/domain/events/EventBus
-- @/application/ports/CardCreationSiyuanPort
-- @/infrastructure/siyuan/CardCreationSiyuanAdapter
+- @/core/xiuyuan/domain/services/CardTypeDetectionService
+- @/core/xiuyuan/domain/services/IDeletionTracker
 - @/utils/logger
+- @/types/card
+- @/utils/cloze-detector
+- @/core/xiuyuan/domain/services/ClozeCardGenerator
+- @/core/card/post-creation/QuickCardPostCreationPlanner
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -19503,86 +19460,106 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts
-- @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/services/CardCreationService
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/Card
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts
+- @/core/card-builder
+- @/application/ports/XiuyuanSyncSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter
 - @/core/shared/domain/events/EventBus
-- @/application/ports/CardCreationSiyuanPort
-- @/infrastructure/siyuan/CardCreationSiyuanAdapter
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 884: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts
-- @/types/result
+- @/core/shared/domain/events/DomainEvent
 - @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/services/CardCreationService
 - @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/Card
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
-- @/core/shared/domain/events/EventBus
-- @/application/ports/CardCreationSiyuanPort
-- @/infrastructure/siyuan/CardCreationSiyuanAdapter
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 885: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts
-- @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/services/CardCreationService
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/Card
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
-- @/core/shared/domain/events/EventBus
-- @/application/ports/CardCreationSiyuanPort
-- @/infrastructure/siyuan/CardCreationSiyuanAdapter
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 886: Migrate CardDeletionSiyuanAdapter
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteCardsUseCase.ts
-- @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/services/CardDeletionService
 - @/core/xiuyuan/domain/XiuyuanId
-- @/core/shared/domain/events/EventBus
-- @/core/xiuyuan/domain/events/CardsDeletedEvent
-- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/core/xiuyuan/domain/services/CardTypeDetectionService
 - @/core/xiuyuan/domain/services/IDeletionTracker
-- @/application/ports/CardDeletionSiyuanPort
-- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
+- @/utils/logger
+- @/types/card
+- @/utils/cloze-detector
+- @/core/xiuyuan/domain/services/ClozeCardGenerator
+- @/core/card/post-creation/QuickCardPostCreationPlanner
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 884: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts
+- @/core/card-builder
+- @/application/ports/XiuyuanSyncSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter
+- @/core/shared/domain/events/EventBus
+- @/core/shared/domain/events/DomainEvent
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/core/xiuyuan/domain/services/CardTypeDetectionService
+- @/core/xiuyuan/domain/services/IDeletionTracker
+- @/utils/logger
+- @/types/card
+- @/utils/cloze-detector
+- @/core/xiuyuan/domain/services/ClozeCardGenerator
+- @/core/card/post-creation/QuickCardPostCreationPlanner
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 885: Migrate Promise
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\services\XiuyuanSyncService.ts
+- @/core/card-builder
+- @/application/ports/XiuyuanSyncSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter
+- @/core/shared/domain/events/EventBus
+- @/core/shared/domain/events/DomainEvent
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/core/xiuyuan/domain/services/CardTypeDetectionService
+- @/core/xiuyuan/domain/services/IDeletionTracker
+- @/utils/logger
+- @/types/card
+- @/utils/cloze-detector
+- @/core/xiuyuan/domain/services/ClozeCardGenerator
+- @/core/card/post-creation/QuickCardPostCreationPlanner
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 886: Migrate CardCreationSiyuanAdapter
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/services/CardCreationService
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/core/shared/domain/events/EventBus
+- @/application/ports/CardCreationSiyuanPort
+- @/infrastructure/siyuan/CardCreationSiyuanAdapter
 - @/utils/logger
 
 **测试策略**:
@@ -19593,23 +19570,140 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteCardsUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts
 - @/types/result
 - @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/services/CardDeletionService
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/shared/domain/events/EventBus
-- @/core/xiuyuan/domain/events/CardsDeletedEvent
+- @/core/xiuyuan/domain/services/CardCreationService
 - @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/services/IDeletionTracker
-- @/application/ports/CardDeletionSiyuanPort
-- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
+- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/core/shared/domain/events/EventBus
+- @/application/ports/CardCreationSiyuanPort
+- @/infrastructure/siyuan/CardCreationSiyuanAdapter
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 888: Migrate Map
+### 步骤 888: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/services/CardCreationService
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/core/shared/domain/events/EventBus
+- @/application/ports/CardCreationSiyuanPort
+- @/infrastructure/siyuan/CardCreationSiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 889: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/services/CardCreationService
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/core/shared/domain/events/EventBus
+- @/application/ports/CardCreationSiyuanPort
+- @/infrastructure/siyuan/CardCreationSiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 890: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/services/CardCreationService
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/core/shared/domain/events/EventBus
+- @/application/ports/CardCreationSiyuanPort
+- @/infrastructure/siyuan/CardCreationSiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 891: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/services/CardCreationService
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/core/shared/domain/events/EventBus
+- @/application/ports/CardCreationSiyuanPort
+- @/infrastructure/siyuan/CardCreationSiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 892: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\CreateCardUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/services/CardCreationService
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/core/shared/domain/events/EventBus
+- @/application/ports/CardCreationSiyuanPort
+- @/infrastructure/siyuan/CardCreationSiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 893: Migrate CardDeletionSiyuanAdapter
 
 **预计时间**: 3-5 days
 
@@ -19630,7 +19724,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 889: Migrate CardsDeletedEvent
+### 步骤 894: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -19651,7 +19745,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 890: Migrate Map
+### 步骤 895: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -19672,7 +19766,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 891: Migrate Map
+### 步骤 896: Migrate CardsDeletedEvent
 
 **预计时间**: 3-5 days
 
@@ -19693,7 +19787,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 892: Migrate Set
+### 步骤 897: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -19714,7 +19808,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 893: Migrate Set
+### 步骤 898: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -19735,7 +19829,49 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 894: Migrate CardDeletionSiyuanAdapter
+### 步骤 899: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteCardsUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/services/CardDeletionService
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/shared/domain/events/EventBus
+- @/core/xiuyuan/domain/events/CardsDeletedEvent
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/services/IDeletionTracker
+- @/application/ports/CardDeletionSiyuanPort
+- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 900: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteCardsUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/services/CardDeletionService
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/shared/domain/events/EventBus
+- @/core/xiuyuan/domain/events/CardsDeletedEvent
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/services/IDeletionTracker
+- @/application/ports/CardDeletionSiyuanPort
+- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 901: Migrate CardDeletionSiyuanAdapter
 
 **预计时间**: 3-5 days
 
@@ -19748,138 +19884,6 @@ Run unit tests and integration tests for affected queues
 - @/core/xiuyuan/domain/XiuyuanId
 - @/core/xiuyuan/domain/Xiuyuan
 - @/core/shared/domain/events/EventBus
-- @/application/ports/CardDeletionSiyuanPort
-- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 895: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteCardUseCase.ts
-- @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/services/CardDeletionService
-- @/core/xiuyuan/domain/CardId
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/shared/domain/events/EventBus
-- @/application/ports/CardDeletionSiyuanPort
-- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 896: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteCardUseCase.ts
-- @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/services/CardDeletionService
-- @/core/xiuyuan/domain/CardId
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/shared/domain/events/EventBus
-- @/application/ports/CardDeletionSiyuanPort
-- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 897: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteCardUseCase.ts
-- @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/services/CardDeletionService
-- @/core/xiuyuan/domain/CardId
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/shared/domain/events/EventBus
-- @/application/ports/CardDeletionSiyuanPort
-- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 898: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteCardUseCase.ts
-- @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/services/CardDeletionService
-- @/core/xiuyuan/domain/CardId
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/shared/domain/events/EventBus
-- @/application/ports/CardDeletionSiyuanPort
-- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 899: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteCardUseCase.ts
-- @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/services/CardDeletionService
-- @/core/xiuyuan/domain/CardId
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/shared/domain/events/EventBus
-- @/application/ports/CardDeletionSiyuanPort
-- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 900: Migrate CardDeletionSiyuanAdapter
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteFSRSCardUseCase.ts
-- @/core/storage/ports
-- @/types/result
-- @/application/commands/card/DeleteFSRSCardCommand
-- @/application/ports/CardDeletionSiyuanPort
-- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 901: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteFSRSCardUseCase.ts
-- @/core/storage/ports
-- @/types/result
-- @/application/commands/card/DeleteFSRSCardCommand
 - @/application/ports/CardDeletionSiyuanPort
 - @/infrastructure/siyuan/CardDeletionSiyuanAdapter
 - @/utils/logger
@@ -19892,10 +19896,14 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteFSRSCardUseCase.ts
-- @/core/storage/ports
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteCardUseCase.ts
 - @/types/result
-- @/application/commands/card/DeleteFSRSCardCommand
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/services/CardDeletionService
+- @/core/xiuyuan/domain/CardId
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/shared/domain/events/EventBus
 - @/application/ports/CardDeletionSiyuanPort
 - @/infrastructure/siyuan/CardDeletionSiyuanAdapter
 - @/utils/logger
@@ -19908,6 +19916,86 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteCardUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/services/CardDeletionService
+- @/core/xiuyuan/domain/CardId
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/shared/domain/events/EventBus
+- @/application/ports/CardDeletionSiyuanPort
+- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 904: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteCardUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/services/CardDeletionService
+- @/core/xiuyuan/domain/CardId
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/shared/domain/events/EventBus
+- @/application/ports/CardDeletionSiyuanPort
+- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 905: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteCardUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/services/CardDeletionService
+- @/core/xiuyuan/domain/CardId
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/shared/domain/events/EventBus
+- @/application/ports/CardDeletionSiyuanPort
+- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 906: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteCardUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/services/CardDeletionService
+- @/core/xiuyuan/domain/CardId
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/shared/domain/events/EventBus
+- @/application/ports/CardDeletionSiyuanPort
+- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 907: Migrate CardDeletionSiyuanAdapter
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteFSRSCardUseCase.ts
 - @/core/storage/ports
 - @/types/result
@@ -19919,37 +20007,88 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 904: Migrate Set
+### 步骤 908: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteFSRSCardUseCase.ts
+- @/core/storage/ports
+- @/types/result
+- @/application/commands/card/DeleteFSRSCardCommand
+- @/application/ports/CardDeletionSiyuanPort
+- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 909: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteFSRSCardUseCase.ts
+- @/core/storage/ports
+- @/types/result
+- @/application/commands/card/DeleteFSRSCardCommand
+- @/application/ports/CardDeletionSiyuanPort
+- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 910: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\DeleteFSRSCardUseCase.ts
+- @/core/storage/ports
+- @/types/result
+- @/application/commands/card/DeleteFSRSCardCommand
+- @/application/ports/CardDeletionSiyuanPort
+- @/infrastructure/siyuan/CardDeletionSiyuanAdapter
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 911: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\shared\CardBlockAttrCleaner.ts
+- @/application/services/BlockAttrPolicy
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 905: Migrate Set
+### 步骤 912: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\shared\CardBlockAttrCleaner.ts
+- @/application/services/BlockAttrPolicy
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 906: Migrate Set
+### 步骤 913: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\shared\CardBlockAttrCleaner.ts
+- @/application/services/BlockAttrPolicy
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 907: Migrate Error
+### 步骤 914: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -19959,7 +20098,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 908: Migrate Error
+### 步骤 915: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -19971,7 +20110,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 909: Migrate Error
+### 步骤 916: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -19987,7 +20126,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 910: Migrate Error
+### 步骤 917: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -20003,7 +20142,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 911: Migrate Error
+### 步骤 918: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -20015,114 +20154,6 @@ Run unit tests and integration tests for affected queues
 - @/core/xiuyuan/domain/CardId
 - @/core/xiuyuan/domain/Card
 - @/core/xiuyuan/domain/Xiuyuan
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 912: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateCardUseCase.ts
-- @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/CardId
-- @/core/xiuyuan/domain/Card
-- @/core/xiuyuan/domain/Xiuyuan
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 913: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateCardUseCase.ts
-- @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/CardId
-- @/core/xiuyuan/domain/Card
-- @/core/xiuyuan/domain/Xiuyuan
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 914: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateCardUseCase.ts
-- @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/CardId
-- @/core/xiuyuan/domain/Card
-- @/core/xiuyuan/domain/Xiuyuan
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 915: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateCardUseCase.ts
-- @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/CardId
-- @/core/xiuyuan/domain/Card
-- @/core/xiuyuan/domain/Xiuyuan
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 916: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateCardUseCase.ts
-- @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/CardId
-- @/core/xiuyuan/domain/Card
-- @/core/xiuyuan/domain/Xiuyuan
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 917: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateCardUseCase.ts
-- @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/CardId
-- @/core/xiuyuan/domain/Card
-- @/core/xiuyuan/domain/Xiuyuan
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 918: Migrate RegExp
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateCdfMultilineCardsUseCase.ts
-- @/types/result
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -20132,9 +20163,13 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateCdfMultilineCardsUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateCardUseCase.ts
 - @/types/result
-- @/utils/logger
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/CardId
+- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/Xiuyuan
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -20144,9 +20179,13 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateCdfMultilineCardsUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateCardUseCase.ts
 - @/types/result
-- @/utils/logger
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/CardId
+- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/Xiuyuan
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -20156,6 +20195,70 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateCardUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/CardId
+- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/Xiuyuan
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 922: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateCardUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/CardId
+- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/Xiuyuan
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 923: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateCardUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/CardId
+- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/Xiuyuan
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 924: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\card\UpdateCardUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/CardId
+- @/core/xiuyuan/domain/Card
+- @/core/xiuyuan/domain/Xiuyuan
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 925: Migrate RegExp
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateCdfMultilineCardsUseCase.ts
 - @/types/result
 - @/utils/logger
@@ -20163,81 +20266,13 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 922: Migrate XiuyuanSiyuanAdapter
+### 步骤 926: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorAutoUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateCdfMultilineCardsUseCase.ts
 - @/types/result
-- @/application/ports/XiuyuanSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 923: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorAutoUseCase.ts
-- @/types/result
-- @/application/ports/XiuyuanSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 924: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorAutoUseCase.ts
-- @/types/result
-- @/application/ports/XiuyuanSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 925: Migrate CreateXiuyuanFromBlocksUseCase
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorAutoUseCase.ts
-- @/types/result
-- @/application/ports/XiuyuanSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 926: Migrate XiuyuanSiyuanAdapter
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorCardsUseCase.ts
-- @/types/result
-- @/application/ports/XiuyuanSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/types
 - @/utils/logger
 
 **测试策略**:
@@ -20248,12 +20283,8 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorCardsUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateCdfMultilineCardsUseCase.ts
 - @/types/result
-- @/application/ports/XiuyuanSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/types
 - @/utils/logger
 
 **测试策略**:
@@ -20264,23 +20295,19 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorCardsUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateCdfMultilineCardsUseCase.ts
 - @/types/result
-- @/application/ports/XiuyuanSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/types
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 929: Migrate Error
+### 步骤 929: Migrate XiuyuanSiyuanAdapter
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorCardsUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorAutoUseCase.ts
 - @/types/result
 - @/application/ports/XiuyuanSiyuanPort
 - @/infrastructure/siyuan/XiuyuanSiyuanAdapter
@@ -20296,7 +20323,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorCardsUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorAutoUseCase.ts
 - @/types/result
 - @/application/ports/XiuyuanSiyuanPort
 - @/infrastructure/siyuan/XiuyuanSiyuanAdapter
@@ -20307,7 +20334,39 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 931: Migrate Map
+### 步骤 931: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorAutoUseCase.ts
+- @/types/result
+- @/application/ports/XiuyuanSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 932: Migrate CreateXiuyuanFromBlocksUseCase
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorAutoUseCase.ts
+- @/types/result
+- @/application/ports/XiuyuanSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 933: Migrate XiuyuanSiyuanAdapter
 
 **预计时间**: 3-5 days
 
@@ -20323,7 +20382,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 932: Migrate Error
+### 步骤 934: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -20333,44 +20392,6 @@ Run unit tests and integration tests for affected queues
 - @/application/ports/XiuyuanSiyuanPort
 - @/infrastructure/siyuan/XiuyuanSiyuanAdapter
 - @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 933: Migrate CreateXiuyuanFromBlocksUseCase
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorCardsUseCase.ts
-- @/types/result
-- @/application/ports/XiuyuanSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 934: Migrate XiuyuanSiyuanAdapter
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateListTemplateCardsUseCase.ts
-- @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
-- @/application/ports/XiuyuanSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
 - @/core/xiuyuan/types
 - @/utils/logger
 
@@ -20382,17 +20403,11 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateListTemplateCardsUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorCardsUseCase.ts
 - @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
 - @/application/ports/XiuyuanSiyuanPort
 - @/infrastructure/siyuan/XiuyuanSiyuanAdapter
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
 - @/core/xiuyuan/types
 - @/utils/logger
 
@@ -20404,17 +20419,11 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateListTemplateCardsUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorCardsUseCase.ts
 - @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
 - @/application/ports/XiuyuanSiyuanPort
 - @/infrastructure/siyuan/XiuyuanSiyuanAdapter
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
 - @/core/xiuyuan/types
 - @/utils/logger
 
@@ -20426,39 +20435,27 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateListTemplateCardsUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorCardsUseCase.ts
 - @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
 - @/application/ports/XiuyuanSiyuanPort
 - @/infrastructure/siyuan/XiuyuanSiyuanAdapter
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
 - @/core/xiuyuan/types
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 938: Migrate Error
+### 步骤 938: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateListTemplateCardsUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorCardsUseCase.ts
 - @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
 - @/application/ports/XiuyuanSiyuanPort
 - @/infrastructure/siyuan/XiuyuanSiyuanAdapter
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
 - @/core/xiuyuan/types
 - @/utils/logger
 
@@ -20470,46 +20467,34 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateListTemplateCardsUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorCardsUseCase.ts
 - @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
 - @/application/ports/XiuyuanSiyuanPort
 - @/infrastructure/siyuan/XiuyuanSiyuanAdapter
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
 - @/core/xiuyuan/types
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 940: Migrate Error
+### 步骤 940: Migrate CreateXiuyuanFromBlocksUseCase
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateListTemplateCardsUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateConceptDescriptorCardsUseCase.ts
 - @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
 - @/application/ports/XiuyuanSiyuanPort
 - @/infrastructure/siyuan/XiuyuanSiyuanAdapter
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
 - @/core/xiuyuan/types
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 941: Migrate Map
+### 步骤 941: Migrate XiuyuanSiyuanAdapter
 
 **预计时间**: 3-5 days
 
@@ -20553,7 +20538,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 943: Migrate Set
+### 步骤 943: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -20624,8 +20609,17 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateTemplateUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateListTemplateCardsUseCase.ts
 - @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/application/ports/XiuyuanSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
 - @/core/xiuyuan/types
 - @/utils/logger
 
@@ -20637,21 +20631,39 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateTemplateUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateListTemplateCardsUseCase.ts
 - @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/application/ports/XiuyuanSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
 - @/core/xiuyuan/types
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 948: Migrate Error
+### 步骤 948: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateTemplateUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateListTemplateCardsUseCase.ts
 - @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/application/ports/XiuyuanSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
 - @/core/xiuyuan/types
 - @/utils/logger
 
@@ -20663,20 +20675,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateTemplateUseCase.ts
-- @/types/result
-- @/core/xiuyuan/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 950: Migrate XiuyuanSiyuanAdapter
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateXiuyuanFromBlocksUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateListTemplateCardsUseCase.ts
 - @/types/result
 - @/core/xiuyuan/domain/repositories/IXiuyuanRepository
 - @/core/xiuyuan/domain/Xiuyuan
@@ -20685,7 +20684,28 @@ Run unit tests and integration tests for affected queues
 - @/core/xiuyuan/domain/TemplateId
 - @/core/xiuyuan/domain/CardFace
 - @/core/xiuyuan/domain/Priority
-- @/core/xiuyuan/domain/services/ClozeCardGenerator
+- @/application/ports/XiuyuanSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
+- @/core/xiuyuan/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 950: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateListTemplateCardsUseCase.ts
+- @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
 - @/application/ports/XiuyuanSiyuanPort
 - @/infrastructure/siyuan/XiuyuanSiyuanAdapter
 - @/core/xiuyuan/types
@@ -20699,7 +20719,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateXiuyuanFromBlocksUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateListTemplateCardsUseCase.ts
 - @/types/result
 - @/core/xiuyuan/domain/repositories/IXiuyuanRepository
 - @/core/xiuyuan/domain/Xiuyuan
@@ -20708,7 +20728,6 @@ Run unit tests and integration tests for affected queues
 - @/core/xiuyuan/domain/TemplateId
 - @/core/xiuyuan/domain/CardFace
 - @/core/xiuyuan/domain/Priority
-- @/core/xiuyuan/domain/services/ClozeCardGenerator
 - @/application/ports/XiuyuanSiyuanPort
 - @/infrastructure/siyuan/XiuyuanSiyuanAdapter
 - @/core/xiuyuan/types
@@ -20722,7 +20741,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateXiuyuanFromBlocksUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateListTemplateCardsUseCase.ts
 - @/types/result
 - @/core/xiuyuan/domain/repositories/IXiuyuanRepository
 - @/core/xiuyuan/domain/Xiuyuan
@@ -20731,7 +20750,6 @@ Run unit tests and integration tests for affected queues
 - @/core/xiuyuan/domain/TemplateId
 - @/core/xiuyuan/domain/CardFace
 - @/core/xiuyuan/domain/Priority
-- @/core/xiuyuan/domain/services/ClozeCardGenerator
 - @/application/ports/XiuyuanSiyuanPort
 - @/infrastructure/siyuan/XiuyuanSiyuanAdapter
 - @/core/xiuyuan/types
@@ -20745,18 +20763,8 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateXiuyuanFromBlocksUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateTemplateUseCase.ts
 - @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
-- @/core/xiuyuan/domain/services/ClozeCardGenerator
-- @/application/ports/XiuyuanSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
 - @/core/xiuyuan/types
 - @/utils/logger
 
@@ -20768,18 +20776,8 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateXiuyuanFromBlocksUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateTemplateUseCase.ts
 - @/types/result
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/Xiuyuan
-- @/core/xiuyuan/domain/XiuyuanId
-- @/core/xiuyuan/domain/BlockId
-- @/core/xiuyuan/domain/TemplateId
-- @/core/xiuyuan/domain/CardFace
-- @/core/xiuyuan/domain/Priority
-- @/core/xiuyuan/domain/services/ClozeCardGenerator
-- @/application/ports/XiuyuanSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
 - @/core/xiuyuan/types
 - @/utils/logger
 
@@ -20791,6 +20789,32 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateTemplateUseCase.ts
+- @/types/result
+- @/core/xiuyuan/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 956: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateTemplateUseCase.ts
+- @/types/result
+- @/core/xiuyuan/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 957: Migrate XiuyuanSiyuanAdapter
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateXiuyuanFromBlocksUseCase.ts
 - @/types/result
 - @/core/xiuyuan/domain/repositories/IXiuyuanRepository
@@ -20809,55 +20833,47 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 956: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\GetTemplateQueryHandler.ts
-- @/core/xiuyuan/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 957: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\GetXiuyuanQueryHandler.ts
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/domain/XiuyuanId
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
 ### 步骤 958: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\GetXiuyuanQueryHandler.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateXiuyuanFromBlocksUseCase.ts
+- @/types/result
 - @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/Xiuyuan
 - @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/core/xiuyuan/domain/services/ClozeCardGenerator
+- @/application/ports/XiuyuanSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
+- @/core/xiuyuan/types
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 959: Migrate XiuyuanSiyuanAdapter
+### 步骤 959: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\RebindDescriptorConceptUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateXiuyuanFromBlocksUseCase.ts
 - @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/core/xiuyuan/domain/services/ClozeCardGenerator
 - @/application/ports/XiuyuanSiyuanPort
 - @/infrastructure/siyuan/XiuyuanSiyuanAdapter
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
 - @/core/xiuyuan/types
-- @/core/xiuyuan/domain/XiuyuanId
 - @/utils/logger
 
 **测试策略**:
@@ -20868,13 +20884,19 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\RebindDescriptorConceptUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateXiuyuanFromBlocksUseCase.ts
 - @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/core/xiuyuan/domain/services/ClozeCardGenerator
 - @/application/ports/XiuyuanSiyuanPort
 - @/infrastructure/siyuan/XiuyuanSiyuanAdapter
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
 - @/core/xiuyuan/types
-- @/core/xiuyuan/domain/XiuyuanId
 - @/utils/logger
 
 **测试策略**:
@@ -20885,13 +20907,19 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\RebindDescriptorConceptUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateXiuyuanFromBlocksUseCase.ts
 - @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/core/xiuyuan/domain/services/ClozeCardGenerator
 - @/application/ports/XiuyuanSiyuanPort
 - @/infrastructure/siyuan/XiuyuanSiyuanAdapter
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
 - @/core/xiuyuan/types
-- @/core/xiuyuan/domain/XiuyuanId
 - @/utils/logger
 
 **测试策略**:
@@ -20902,13 +20930,19 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\RebindDescriptorConceptUseCase.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\CreateXiuyuanFromBlocksUseCase.ts
 - @/types/result
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/Xiuyuan
+- @/core/xiuyuan/domain/XiuyuanId
+- @/core/xiuyuan/domain/BlockId
+- @/core/xiuyuan/domain/TemplateId
+- @/core/xiuyuan/domain/CardFace
+- @/core/xiuyuan/domain/Priority
+- @/core/xiuyuan/domain/services/ClozeCardGenerator
 - @/application/ports/XiuyuanSiyuanPort
 - @/infrastructure/siyuan/XiuyuanSiyuanAdapter
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
 - @/core/xiuyuan/types
-- @/core/xiuyuan/domain/XiuyuanId
 - @/utils/logger
 
 **测试策略**:
@@ -20919,14 +20953,8 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\RebindDescriptorConceptUseCase.ts
-- @/types/result
-- @/application/ports/XiuyuanSiyuanPort
-- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\GetTemplateQueryHandler.ts
 - @/core/xiuyuan/types
-- @/core/xiuyuan/domain/XiuyuanId
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -20936,6 +20964,32 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\GetXiuyuanQueryHandler.ts
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/XiuyuanId
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 965: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\GetXiuyuanQueryHandler.ts
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/domain/XiuyuanId
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 966: Migrate XiuyuanSiyuanAdapter
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\RebindDescriptorConceptUseCase.ts
 - @/types/result
 - @/application/ports/XiuyuanSiyuanPort
@@ -20948,32 +21002,19 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 965: Migrate Set
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\CdfMultilineScanner.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 966: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\CdfMultilineScanner.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
 ### 步骤 967: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\CdfMultilineScanner.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\RebindDescriptorConceptUseCase.ts
+- @/types/result
+- @/application/ports/XiuyuanSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/types
+- @/core/xiuyuan/domain/XiuyuanId
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -20983,27 +21024,48 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\CdfMultilineScanner.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\RebindDescriptorConceptUseCase.ts
+- @/types/result
+- @/application/ports/XiuyuanSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/types
+- @/core/xiuyuan/domain/XiuyuanId
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 969: Migrate RegExp
+### 步骤 969: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\CdfTailMarker.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\RebindDescriptorConceptUseCase.ts
+- @/types/result
+- @/application/ports/XiuyuanSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/types
+- @/core/xiuyuan/domain/XiuyuanId
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 970: Migrate RegExp
+### 步骤 970: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\CdfTailMarker.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\RebindDescriptorConceptUseCase.ts
+- @/types/result
+- @/application/ports/XiuyuanSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/types
+- @/core/xiuyuan/domain/XiuyuanId
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -21013,25 +21075,24 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\ConceptCardResolver.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\RebindDescriptorConceptUseCase.ts
+- @/types/result
 - @/application/ports/XiuyuanSiyuanPort
+- @/infrastructure/siyuan/XiuyuanSiyuanAdapter
 - @/core/xiuyuan/domain/repositories/IXiuyuanRepository
 - @/core/xiuyuan/types
+- @/core/xiuyuan/domain/XiuyuanId
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 972: Migrate CreateXiuyuanFromBlocksUseCase
+### 步骤 972: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\ConceptCardResolver.ts
-- @/application/ports/XiuyuanSiyuanPort
-- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
-- @/core/xiuyuan/types
-- @/utils/logger
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\CdfMultilineScanner.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -21041,6 +21102,56 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\CdfMultilineScanner.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 974: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\CdfMultilineScanner.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 975: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\CdfMultilineScanner.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 976: Migrate RegExp
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\CdfTailMarker.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 977: Migrate RegExp
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\CdfTailMarker.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 978: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\ConceptCardResolver.ts
 - @/application/ports/XiuyuanSiyuanPort
 - @/core/xiuyuan/domain/repositories/IXiuyuanRepository
@@ -21050,7 +21161,35 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 974: Migrate XiuyuanSiyuanAdapter
+### 步骤 979: Migrate CreateXiuyuanFromBlocksUseCase
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\ConceptCardResolver.ts
+- @/application/ports/XiuyuanSiyuanPort
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 980: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\ConceptCardResolver.ts
+- @/application/ports/XiuyuanSiyuanPort
+- @/core/xiuyuan/domain/repositories/IXiuyuanRepository
+- @/core/xiuyuan/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 981: Migrate XiuyuanSiyuanAdapter
 
 **预计时间**: 3-5 days
 
@@ -21063,7 +21202,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 975: Migrate Set
+### 步骤 982: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -21073,7 +21212,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 976: Migrate Set
+### 步骤 983: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -21083,7 +21222,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 977: Migrate RegExp
+### 步骤 984: Migrate RegExp
 
 **预计时间**: 3-5 days
 
@@ -21093,7 +21232,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 978: Migrate RegExp
+### 步骤 985: Migrate RegExp
 
 **预计时间**: 3-5 days
 
@@ -21103,7 +21242,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 979: Migrate RegExp
+### 步骤 986: Migrate RegExp
 
 **预计时间**: 3-5 days
 
@@ -21113,7 +21252,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 980: Migrate RegExp
+### 步骤 987: Migrate RegExp
 
 **预计时间**: 3-5 days
 
@@ -21123,7 +21262,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 981: Migrate RegExp
+### 步骤 988: Migrate RegExp
 
 **预计时间**: 3-5 days
 
@@ -21133,7 +21272,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 982: Migrate Error
+### 步骤 989: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -21147,100 +21286,12 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 983: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\ListChildrenResolver.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 984: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\ListChildrenResolver.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 985: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\ListChildrenResolver.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 986: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\ListChildrenResolver.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 987: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\common\application\BaseCardRenderService.ts
-- @/core/siyuan/api
-- @/core/xiuyuan/cardMeta
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 988: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts
-- @/core/card/common/application/BaseCardRenderService
-- @/core/card/common/application/types
-- @/core/siyuan/api
-- @/utils/logger
-- @/core/card/concept-definition/application/runtime
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 989: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts
-- @/core/card/common/application/BaseCardRenderService
-- @/core/card/common/application/types
-- @/core/siyuan/api
-- @/utils/logger
-- @/core/card/concept-definition/application/runtime
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
 ### 步骤 990: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts
-- @/core/card/common/application/BaseCardRenderService
-- @/core/card/common/application/types
-- @/core/siyuan/api
-- @/utils/logger
-- @/core/card/concept-definition/application/runtime
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\ListChildrenResolver.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -21250,12 +21301,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts
-- @/core/card/common/application/BaseCardRenderService
-- @/core/card/common/application/types
-- @/core/siyuan/api
-- @/utils/logger
-- @/core/card/concept-definition/application/runtime
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\ListChildrenResolver.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -21265,12 +21311,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts
-- @/core/card/common/application/BaseCardRenderService
-- @/core/card/common/application/types
-- @/core/siyuan/api
-- @/utils/logger
-- @/core/card/concept-definition/application/runtime
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\ListChildrenResolver.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -21280,27 +21321,20 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts
-- @/core/card/common/application/BaseCardRenderService
-- @/core/card/common/application/types
-- @/core/siyuan/api
-- @/utils/logger
-- @/core/card/concept-definition/application/runtime
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\usecases\xiuyuan\shared\ListChildrenResolver.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 994: Migrate Error
+### 步骤 994: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts
-- @/core/card/common/application/BaseCardRenderService
-- @/core/card/common/application/types
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\common\application\BaseCardRenderService.ts
 - @/core/siyuan/api
+- @/core/xiuyuan/cardMeta
 - @/utils/logger
-- @/core/card/concept-definition/application/runtime
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -21325,11 +21359,12 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept-definition\application\ConceptDefinitionCardRenderService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts
 - @/core/card/common/application/BaseCardRenderService
 - @/core/card/common/application/types
 - @/core/siyuan/api
 - @/utils/logger
+- @/core/card/concept-definition/application/runtime
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -21339,11 +21374,12 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept-definition\application\ConceptDefinitionCardRenderService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts
 - @/core/card/common/application/BaseCardRenderService
 - @/core/card/common/application/types
 - @/core/siyuan/api
 - @/utils/logger
+- @/core/card/concept-definition/application/runtime
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -21353,11 +21389,12 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept-definition\application\ConceptDefinitionCardRenderService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts
 - @/core/card/common/application/BaseCardRenderService
 - @/core/card/common/application/types
 - @/core/siyuan/api
 - @/utils/logger
+- @/core/card/concept-definition/application/runtime
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -21367,11 +21404,12 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept-definition\application\ConceptDefinitionCardRenderService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts
 - @/core/card/common/application/BaseCardRenderService
 - @/core/card/common/application/types
 - @/core/siyuan/api
 - @/utils/logger
+- @/core/card/concept-definition/application/runtime
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -21381,11 +21419,12 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept-definition\application\ConceptDefinitionCardRenderService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts
 - @/core/card/common/application/BaseCardRenderService
 - @/core/card/common/application/types
 - @/core/siyuan/api
 - @/utils/logger
+- @/core/card/concept-definition/application/runtime
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -21395,11 +21434,12 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept-definition\application\ConceptDefinitionCardRenderService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts
 - @/core/card/common/application/BaseCardRenderService
 - @/core/card/common/application/types
 - @/core/siyuan/api
 - @/utils/logger
+- @/core/card/concept-definition/application/runtime
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -21409,11 +21449,12 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept-definition\application\ConceptDefinitionCardRenderService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept\application\ConceptCardRenderService.ts
 - @/core/card/common/application/BaseCardRenderService
 - @/core/card/common/application/types
 - @/core/siyuan/api
 - @/utils/logger
+- @/core/card/concept-definition/application/runtime
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -21474,7 +21515,105 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1007: Migrate DescriptorCard
+### 步骤 1007: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept-definition\application\ConceptDefinitionCardRenderService.ts
+- @/core/card/common/application/BaseCardRenderService
+- @/core/card/common/application/types
+- @/core/siyuan/api
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1008: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept-definition\application\ConceptDefinitionCardRenderService.ts
+- @/core/card/common/application/BaseCardRenderService
+- @/core/card/common/application/types
+- @/core/siyuan/api
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1009: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept-definition\application\ConceptDefinitionCardRenderService.ts
+- @/core/card/common/application/BaseCardRenderService
+- @/core/card/common/application/types
+- @/core/siyuan/api
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1010: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept-definition\application\ConceptDefinitionCardRenderService.ts
+- @/core/card/common/application/BaseCardRenderService
+- @/core/card/common/application/types
+- @/core/siyuan/api
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1011: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept-definition\application\ConceptDefinitionCardRenderService.ts
+- @/core/card/common/application/BaseCardRenderService
+- @/core/card/common/application/types
+- @/core/siyuan/api
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1012: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept-definition\application\ConceptDefinitionCardRenderService.ts
+- @/core/card/common/application/BaseCardRenderService
+- @/core/card/common/application/types
+- @/core/siyuan/api
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1013: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card\concept-definition\application\ConceptDefinitionCardRenderService.ts
+- @/core/card/common/application/BaseCardRenderService
+- @/core/card/common/application/types
+- @/core/siyuan/api
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1014: Migrate DescriptorCard
 
 **预计时间**: 3-5 days
 
@@ -21487,7 +21626,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1008: Migrate SiyuanKramdownGateway
+### 步骤 1015: Migrate SiyuanKramdownGateway
 
 **预计时间**: 3-5 days
 
@@ -21500,7 +21639,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1009: Migrate Date
+### 步骤 1016: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -21511,7 +21650,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1010: Migrate Date
+### 步骤 1017: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -21522,7 +21661,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1011: Migrate Date
+### 步骤 1018: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -21533,7 +21672,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1012: Migrate UnifiedPostCreationPlanner
+### 步骤 1019: Migrate UnifiedPostCreationPlanner
 
 **预计时间**: 3-5 days
 
@@ -21543,7 +21682,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1013: Migrate Map
+### 步骤 1020: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -21553,7 +21692,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1014: Migrate CdfMultilineStructuralRule
+### 步骤 1021: Migrate CdfMultilineStructuralRule
 
 **预计时间**: 3-5 days
 
@@ -21563,7 +21702,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1015: Migrate ListTemplateStructuralRule
+### 步骤 1022: Migrate ListTemplateStructuralRule
 
 **预计时间**: 3-5 days
 
@@ -21573,7 +21712,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1016: Migrate NumberedLatexClozeRule
+### 步骤 1023: Migrate NumberedLatexClozeRule
 
 **预计时间**: 3-5 days
 
@@ -21583,7 +21722,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1017: Migrate ConceptDefinitionInlineRule
+### 步骤 1024: Migrate ConceptDefinitionInlineRule
 
 **预计时间**: 3-5 days
 
@@ -21593,7 +21732,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1018: Migrate DescriptorInlineRule
+### 步骤 1025: Migrate DescriptorInlineRule
 
 **预计时间**: 3-5 days
 
@@ -21603,7 +21742,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1019: Migrate GenericClozeRule
+### 步骤 1026: Migrate GenericClozeRule
 
 **预计时间**: 3-5 days
 
@@ -21613,7 +21752,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1020: Migrate BasicDirectionRule
+### 步骤 1027: Migrate BasicDirectionRule
 
 **预计时间**: 3-5 days
 
@@ -21623,7 +21762,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1021: Migrate DefaultRiffSyncRule
+### 步骤 1028: Migrate DefaultRiffSyncRule
 
 **预计时间**: 3-5 days
 
@@ -21633,7 +21772,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1022: Migrate Map
+### 步骤 1029: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -21643,7 +21782,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1023: Migrate BasicCardStrategy
+### 步骤 1030: Migrate BasicCardStrategy
 
 **预计时间**: 3-5 days
 
@@ -21653,7 +21792,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1024: Migrate ConceptCardStrategy
+### 步骤 1031: Migrate ConceptCardStrategy
 
 **预计时间**: 3-5 days
 
@@ -21663,7 +21802,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1025: Migrate DescriptorCardStrategy
+### 步骤 1032: Migrate DescriptorCardStrategy
 
 **预计时间**: 3-5 days
 
@@ -21673,7 +21812,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1026: Migrate ClozeCardStrategy
+### 步骤 1033: Migrate ClozeCardStrategy
 
 **预计时间**: 3-5 days
 
@@ -21683,7 +21822,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1027: Migrate MultiLineCardStrategy
+### 步骤 1034: Migrate MultiLineCardStrategy
 
 **预计时间**: 3-5 days
 
@@ -21693,7 +21832,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1028: Migrate Error
+### 步骤 1035: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -21703,7 +21842,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1029: Migrate Adapter
+### 步骤 1036: Migrate Adapter
 
 **预计时间**: 3-5 days
 
@@ -21713,7 +21852,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1030: Migrate Repository
+### 步骤 1037: Migrate Repository
 
 **预计时间**: 3-5 days
 
@@ -21723,7 +21862,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1031: Migrate Service
+### 步骤 1038: Migrate Service
 
 **预计时间**: 3-5 days
 
@@ -21733,7 +21872,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1032: Migrate DefaultQuickCardConfigProvider
+### 步骤 1039: Migrate DefaultQuickCardConfigProvider
 
 **预计时间**: 3-5 days
 
@@ -21745,7 +21884,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1033: Migrate DefaultQuickCardConfigProvider
+### 步骤 1040: Migrate DefaultQuickCardConfigProvider
 
 **预计时间**: 3-5 days
 
@@ -21757,7 +21896,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1034: Migrate DefaultQuickCardConfigProvider
+### 步骤 1041: Migrate DefaultQuickCardConfigProvider
 
 **预计时间**: 3-5 days
 
@@ -21768,7 +21907,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1035: Migrate CardFace
+### 步骤 1042: Migrate CardFace
 
 **预计时间**: 3-5 days
 
@@ -21779,7 +21918,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1036: Migrate CardFace
+### 步骤 1043: Migrate CardFace
 
 **预计时间**: 3-5 days
 
@@ -21790,7 +21929,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1037: Migrate QuickCard
+### 步骤 1044: Migrate QuickCard
 
 **预计时间**: 3-5 days
 
@@ -21801,7 +21940,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1038: Migrate SiyuanKramdownGateway
+### 步骤 1045: Migrate SiyuanKramdownGateway
 
 **预计时间**: 3-5 days
 
@@ -21813,7 +21952,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1039: Migrate Map
+### 步骤 1046: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -21826,7 +21965,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1040: Migrate Map
+### 步骤 1047: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -21837,7 +21976,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1041: Migrate Error
+### 步骤 1048: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -21848,7 +21987,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1042: Migrate Map
+### 步骤 1049: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -21858,7 +21997,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1043: Migrate Map
+### 步骤 1050: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -21868,7 +22007,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1044: Migrate Map
+### 步骤 1051: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -21878,7 +22017,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1045: Migrate Map
+### 步骤 1052: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -21888,7 +22027,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1046: Migrate Set
+### 步骤 1053: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -21898,7 +22037,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1047: Migrate Map
+### 步骤 1054: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -21908,7 +22047,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1048: Migrate Set
+### 步骤 1055: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -21920,7 +22059,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1049: Migrate Set
+### 步骤 1056: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -21932,7 +22071,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1050: Migrate WebSocket
+### 步骤 1057: Migrate WebSocket
 
 **预计时间**: 3-5 days
 
@@ -21944,7 +22083,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1051: Migrate Dialog
+### 步骤 1058: Migrate Dialog
 
 **预计时间**: 3-5 days
 
@@ -21961,7 +22100,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1052: Migrate Protyle
+### 步骤 1059: Migrate Protyle
 
 **预计时间**: 3-5 days
 
@@ -21978,7 +22117,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1053: Migrate MouseEvent
+### 步骤 1060: Migrate MouseEvent
 
 **预计时间**: 3-5 days
 
@@ -21995,7 +22134,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1054: Migrate Menu
+### 步骤 1061: Migrate Menu
 
 **预计时间**: 3-5 days
 
@@ -22012,7 +22151,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1055: Migrate Protyle
+### 步骤 1062: Migrate Protyle
 
 **预计时间**: 3-5 days
 
@@ -22029,7 +22168,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1056: Migrate Protyle
+### 步骤 1063: Migrate Protyle
 
 **预计时间**: 3-5 days
 
@@ -22046,7 +22185,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1057: Migrate Menu
+### 步骤 1064: Migrate Menu
 
 **预计时间**: 3-5 days
 
@@ -22063,7 +22202,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1058: Migrate Map
+### 步骤 1065: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -22073,7 +22212,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1059: Migrate TextEncoder
+### 步骤 1066: Migrate TextEncoder
 
 **预计时间**: 3-5 days
 
@@ -22083,7 +22222,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1060: Migrate TextDecoder
+### 步骤 1067: Migrate TextDecoder
 
 **预计时间**: 3-5 days
 
@@ -22093,7 +22232,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1061: Migrate Uint8Array
+### 步骤 1068: Migrate Uint8Array
 
 **预计时间**: 3-5 days
 
@@ -22103,7 +22242,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1062: Migrate Uint8Array
+### 步骤 1069: Migrate Uint8Array
 
 **预计时间**: 3-5 days
 
@@ -22113,7 +22252,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1063: Migrate Uint8Array
+### 步骤 1070: Migrate Uint8Array
 
 **预计时间**: 3-5 days
 
@@ -22123,7 +22262,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1064: Migrate Uint8Array
+### 步骤 1071: Migrate Uint8Array
 
 **预计时间**: 3-5 days
 
@@ -22133,7 +22272,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1065: Migrate Error
+### 步骤 1072: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -22143,7 +22282,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1066: Migrate Error
+### 步骤 1073: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -22153,7 +22292,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1067: Migrate Set
+### 步骤 1074: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -22162,11 +22301,12 @@ Run unit tests and integration tests for affected queues
 - @/utils/logger
 - @/utils/queryCache
 - @/utils/performance
+- @/core/xiuyuan/cardMeta
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1068: Migrate QueryCache
+### 步骤 1075: Migrate QueryCache
 
 **预计时间**: 3-5 days
 
@@ -22175,11 +22315,12 @@ Run unit tests and integration tests for affected queues
 - @/utils/logger
 - @/utils/queryCache
 - @/utils/performance
+- @/core/xiuyuan/cardMeta
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1069: Migrate QueryCache
+### 步骤 1076: Migrate QueryCache
 
 **预计时间**: 3-5 days
 
@@ -22188,11 +22329,12 @@ Run unit tests and integration tests for affected queues
 - @/utils/logger
 - @/utils/queryCache
 - @/utils/performance
+- @/core/xiuyuan/cardMeta
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1070: Migrate QueryCache
+### 步骤 1077: Migrate QueryCache
 
 **预计时间**: 3-5 days
 
@@ -22201,11 +22343,12 @@ Run unit tests and integration tests for affected queues
 - @/utils/logger
 - @/utils/queryCache
 - @/utils/performance
+- @/core/xiuyuan/cardMeta
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1071: Migrate Map
+### 步骤 1078: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -22214,11 +22357,12 @@ Run unit tests and integration tests for affected queues
 - @/utils/logger
 - @/utils/queryCache
 - @/utils/performance
+- @/core/xiuyuan/cardMeta
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1072: Migrate Map
+### 步骤 1079: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -22227,11 +22371,12 @@ Run unit tests and integration tests for affected queues
 - @/utils/logger
 - @/utils/queryCache
 - @/utils/performance
+- @/core/xiuyuan/cardMeta
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1073: Migrate Map
+### 步骤 1080: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -22240,94 +22385,7 @@ Run unit tests and integration tests for affected queues
 - @/utils/logger
 - @/utils/queryCache
 - @/utils/performance
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1074: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts
-- @/utils/logger
-- @/utils/queryCache
-- @/utils/performance
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1075: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts
-- @/utils/logger
-- @/utils/queryCache
-- @/utils/performance
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1076: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts
-- @/utils/logger
-- @/utils/queryCache
-- @/utils/performance
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1077: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts
-- @/utils/logger
-- @/utils/queryCache
-- @/utils/performance
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1078: Migrate QueryCache
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.ts
-- @/utils/logger
-- @/utils/queryCache
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1079: Migrate QueryCache
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.ts
-- @/utils/logger
-- @/utils/queryCache
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1080: Migrate QueryCache
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.ts
-- @/utils/logger
-- @/utils/queryCache
+- @/core/xiuyuan/cardMeta
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -22337,14 +22395,58 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts
 - @/utils/logger
 - @/utils/queryCache
+- @/utils/performance
+- @/core/xiuyuan/cardMeta
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1082: Migrate Set
+### 步骤 1082: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts
+- @/utils/logger
+- @/utils/queryCache
+- @/utils/performance
+- @/core/xiuyuan/cardMeta
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1083: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts
+- @/utils/logger
+- @/utils/queryCache
+- @/utils/performance
+- @/core/xiuyuan/cardMeta
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1084: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.optimized.ts
+- @/utils/logger
+- @/utils/queryCache
+- @/utils/performance
+- @/core/xiuyuan/cardMeta
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1085: Migrate QueryCache
 
 **预计时间**: 3-5 days
 
@@ -22356,7 +22458,55 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1083: Migrate Error
+### 步骤 1086: Migrate QueryCache
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.ts
+- @/utils/logger
+- @/utils/queryCache
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1087: Migrate QueryCache
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.ts
+- @/utils/logger
+- @/utils/queryCache
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1088: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.ts
+- @/utils/logger
+- @/utils/queryCache
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1089: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\ConceptQueryEngine.ts
+- @/utils/logger
+- @/utils/queryCache
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1090: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -22366,7 +22516,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1084: Migrate Set
+### 步骤 1091: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -22376,7 +22526,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1085: Migrate ConfigValidationError
+### 步骤 1092: Migrate ConfigValidationError
 
 **预计时间**: 3-5 days
 
@@ -22386,7 +22536,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1086: Migrate Map
+### 步骤 1093: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -22397,88 +22547,14 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1087: Migrate Map
+### 步骤 1094: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts
 - @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1088: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1089: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1090: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1091: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1092: Migrate Set
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1093: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\WeightedWalkEngine.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1094: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\schedulers\CompositeScheduler.ts
+- @/core/xiuyuan/cardMeta
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -22488,65 +22564,67 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sync\QueueStateManager.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts
 - @/utils/logger
+- @/core/xiuyuan/cardMeta
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1096: Migrate QueueStateManager
+### 步骤 1096: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sync\QueueStateManager.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts
 - @/utils/logger
+- @/core/xiuyuan/cardMeta
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1097: Migrate Set
+### 步骤 1097: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sync\QueueStateManager.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts
 - @/utils/logger
+- @/core/xiuyuan/cardMeta
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1098: Migrate Set
+### 步骤 1098: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sync\QueueStateManager.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts
 - @/utils/logger
+- @/core/xiuyuan/cardMeta
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1099: Migrate ImprovedTopicScheduler
+### 步骤 1099: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\index.ts
-- @/types
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\QueryEngine.ts
 - @/utils/logger
+- @/core/xiuyuan/cardMeta
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1100: Migrate SM15Scheduler
+### 步骤 1100: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\index.ts
-- @/types
-- @/utils/logger
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\neural\WeightedWalkEngine.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -22556,14 +22634,56 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\index.ts
-- @/types
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\schedulers\CompositeScheduler.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1102: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sync\QueueStateManager.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1102: Migrate TSFSRSScheduler
+### 步骤 1103: Migrate QueueStateManager
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sync\QueueStateManager.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1104: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sync\QueueStateManager.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1105: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\sync\QueueStateManager.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1106: Migrate ImprovedTopicScheduler
 
 **预计时间**: 3-5 days
 
@@ -22575,7 +22695,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1103: Migrate Error
+### 步骤 1107: Migrate SM15Scheduler
 
 **预计时间**: 3-5 days
 
@@ -22587,7 +22707,43 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1104: Migrate FI_G
+### 步骤 1108: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\index.ts
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1109: Migrate TSFSRSScheduler
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\index.ts
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1110: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\index.ts
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1111: Migrate FI_G
 
 **预计时间**: 3-5 days
 
@@ -22597,7 +22753,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1105: Migrate ForgettingCurve
+### 步骤 1112: Migrate ForgettingCurve
 
 **预计时间**: 3-5 days
 
@@ -22607,7 +22763,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1106: Migrate ForgettingCurves
+### 步骤 1113: Migrate ForgettingCurves
 
 **预计时间**: 3-5 days
 
@@ -22617,7 +22773,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1107: Migrate FI_G
+### 步骤 1114: Migrate FI_G
 
 **预计时间**: 3-5 days
 
@@ -22627,7 +22783,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1108: Migrate ForgettingCurves
+### 步骤 1115: Migrate ForgettingCurves
 
 **预计时间**: 3-5 days
 
@@ -22637,7 +22793,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1109: Migrate RFM
+### 步骤 1116: Migrate RFM
 
 **预计时间**: 3-5 days
 
@@ -22647,82 +22803,12 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1110: Migrate OFM
+### 步骤 1117: Migrate OFM
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1111: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1112: Migrate SM15
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1113: Migrate SM15
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1114: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15Item.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1115: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15Item.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1116: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15Item.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1117: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15Item.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -22732,27 +22818,27 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15Item.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1119: Migrate SM15Item
+### 步骤 1119: Migrate SM15
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15Item.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1120: Migrate Date
+### 步骤 1120: Migrate SM15
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15Item.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -22772,12 +22858,82 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15Item.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1123: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15Item.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1124: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15Item.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1125: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15Item.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1126: Migrate SM15Item
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15Item.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1127: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15Item.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1128: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\sm15\SM15Item.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1129: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\shared\domain\events\DomainEvent.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1123: Migrate Map
+### 步骤 1130: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -22788,7 +22944,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1124: Migrate Map
+### 步骤 1131: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -22798,7 +22954,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1125: Migrate Map
+### 步骤 1132: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -22810,104 +22966,34 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1126: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStoragePersistence.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1127: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStoragePersistence.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1128: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\BlockId.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1129: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\BlockId.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1130: Migrate BlockId
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\BlockId.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1131: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Card.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1132: Migrate Card
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Card.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
 ### 步骤 1133: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Card.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStoragePersistence.ts
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1134: Migrate Date
+### 步骤 1134: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Card.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStoragePersistence.ts
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1135: Migrate Card
+### 步骤 1135: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Card.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\BlockId.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -22917,12 +23003,22 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Card.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\BlockId.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1137: Migrate Card
+### 步骤 1137: Migrate BlockId
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\BlockId.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1138: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -22932,7 +23028,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1138: Migrate Date
+### 步骤 1139: Migrate Card
 
 **预计时间**: 3-5 days
 
@@ -22942,17 +23038,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1139: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Card.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1140: Migrate Card
+### 步骤 1140: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -22972,7 +23058,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1142: Migrate Date
+### 步骤 1142: Migrate Card
 
 **预计时间**: 3-5 days
 
@@ -22987,27 +23073,27 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\CardFace.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Card.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1144: Migrate Error
+### 步骤 1144: Migrate Card
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\CardFace.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Card.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1145: Migrate Error
+### 步骤 1145: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\CardFace.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Card.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23017,47 +23103,47 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\CardFace.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Card.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1147: Migrate CardFace
+### 步骤 1147: Migrate Card
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Card.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1148: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Card.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1149: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Card.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1150: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\CardFace.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1148: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\CardId.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1149: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\CardId.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1150: Migrate CardId
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\CardId.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23067,7 +23153,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Priority.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\CardFace.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23077,7 +23163,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Priority.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\CardFace.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23087,27 +23173,27 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Priority.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\CardFace.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1154: Migrate Priority
+### 步骤 1154: Migrate CardFace
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Priority.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\CardFace.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1155: Migrate Priority
+### 步骤 1155: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Priority.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\CardId.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23117,17 +23203,17 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\ScheduleInfo.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\CardId.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1157: Migrate Error
+### 步骤 1157: Migrate CardId
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\ScheduleInfo.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\CardId.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23137,7 +23223,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\ScheduleInfo.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Priority.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23147,7 +23233,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\ScheduleInfo.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Priority.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23157,12 +23243,32 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\ScheduleInfo.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Priority.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1161: Migrate Error
+### 步骤 1161: Migrate Priority
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Priority.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1162: Migrate Priority
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Priority.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1163: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -23172,7 +23278,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1162: Migrate Error
+### 步骤 1164: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -23182,7 +23288,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1163: Migrate ScheduleInfo
+### 步骤 1165: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -23192,7 +23298,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1164: Migrate Date
+### 步骤 1166: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -23202,27 +23308,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1165: Migrate ScheduleInfo
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\ScheduleInfo.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1166: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\ScheduleInfo.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1167: Migrate Date
+### 步骤 1167: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -23237,7 +23323,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardCreationService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\ScheduleInfo.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23247,57 +23333,57 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardCreationService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\ScheduleInfo.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1170: Migrate Error
+### 步骤 1170: Migrate ScheduleInfo
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardCreationService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\ScheduleInfo.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1171: Migrate Error
+### 步骤 1171: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardCreationService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\ScheduleInfo.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1172: Migrate Error
+### 步骤 1172: Migrate ScheduleInfo
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardCreationService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\ScheduleInfo.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1173: Migrate Error
+### 步骤 1173: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardDeletionService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\ScheduleInfo.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1174: Migrate Error
+### 步骤 1174: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardDeletionService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\ScheduleInfo.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23307,7 +23393,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardDeletionService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardCreationService.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23317,7 +23403,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardDeletionService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardCreationService.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23327,7 +23413,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardDeletionService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardCreationService.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23337,12 +23423,82 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardCreationService.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1179: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardCreationService.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1180: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardDeletionService.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1179: Migrate Map
+### 步骤 1181: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardDeletionService.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1182: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardDeletionService.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1183: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardDeletionService.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1184: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardDeletionService.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1185: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\services\CardDeletionService.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1186: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -23356,7 +23512,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1180: Migrate Error
+### 步骤 1187: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -23366,7 +23522,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1181: Migrate Error
+### 步骤 1188: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -23376,7 +23532,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1182: Migrate Error
+### 步骤 1189: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -23386,82 +23542,12 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1183: Migrate TemplateId
+### 步骤 1190: Migrate TemplateId
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\TemplateId.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1184: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Xiuyuan.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1185: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Xiuyuan.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1186: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Xiuyuan.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1187: Migrate Xiuyuan
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Xiuyuan.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1188: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Xiuyuan.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1189: Migrate XiuyuanCreatedEvent
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Xiuyuan.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1190: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Xiuyuan.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23476,7 +23562,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1192: Migrate Xiuyuan
+### 步骤 1192: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -23486,7 +23572,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1193: Migrate Error
+### 步骤 1193: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -23496,7 +23582,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1194: Migrate Date
+### 步骤 1194: Migrate Xiuyuan
 
 **预计时间**: 3-5 days
 
@@ -23506,7 +23592,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1195: Migrate CardCreatedEvent
+### 步骤 1195: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -23516,7 +23602,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1196: Migrate Error
+### 步骤 1196: Migrate XiuyuanCreatedEvent
 
 **预计时间**: 3-5 days
 
@@ -23546,7 +23632,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1199: Migrate Date
+### 步骤 1199: Migrate Xiuyuan
 
 **预计时间**: 3-5 days
 
@@ -23556,7 +23642,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1200: Migrate CardCreatedEvent
+### 步骤 1200: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -23566,7 +23652,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1201: Migrate Error
+### 步骤 1201: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -23576,7 +23662,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1202: Migrate Date
+### 步骤 1202: Migrate CardCreatedEvent
 
 **预计时间**: 3-5 days
 
@@ -23586,7 +23672,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1203: Migrate CardDeletedEvent
+### 步骤 1203: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -23626,7 +23712,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1207: Migrate Date
+### 步骤 1207: Migrate CardCreatedEvent
 
 **预计时间**: 3-5 days
 
@@ -23636,7 +23722,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1208: Migrate Date
+### 步骤 1208: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -23656,7 +23742,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1210: Migrate Date
+### 步骤 1210: Migrate CardDeletedEvent
 
 **预计时间**: 3-5 days
 
@@ -23676,7 +23762,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1212: Migrate Date
+### 步骤 1212: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -23686,54 +23772,52 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1213: Migrate Error
+### 步骤 1213: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\XiuyuanId.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Xiuyuan.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1214: Migrate Error
+### 步骤 1214: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\XiuyuanId.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Xiuyuan.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1215: Migrate XiuyuanId
+### 步骤 1215: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\XiuyuanId.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Xiuyuan.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1216: Migrate Set
+### 步骤 1216: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\InMemoryDeletionTracker.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Xiuyuan.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1217: Migrate Map
+### 步骤 1217: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\templates\TemplateRegistry.ts
-- @/types/result
-- @/utils/logger
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Xiuyuan.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23743,51 +23827,47 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\templates\TemplateRegistry.ts
-- @/types/result
-- @/utils/logger
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Xiuyuan.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1219: Migrate Set
+### 步骤 1219: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\templates\TemplateRegistry.ts
-- @/types/result
-- @/utils/logger
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\Xiuyuan.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1220: Migrate SafetyAnalyzer
+### 步骤 1220: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\analyzers\MigrationAnalyzer.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\XiuyuanId.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1221: Migrate PriorityCalculator
+### 步骤 1221: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\analyzers\MigrationAnalyzer.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\XiuyuanId.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1222: Migrate DependencyAnalyzer
+### 步骤 1222: Migrate XiuyuanId
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\analyzers\MigrationAnalyzer.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\domain\XiuyuanId.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23797,27 +23877,31 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\analyzers\MigrationAnalyzer.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\infrastructure\InMemoryDeletionTracker.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1224: Migrate Set
+### 步骤 1224: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\analyzers\MigrationAnalyzer.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\templates\TemplateRegistry.ts
+- @/types/result
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1225: Migrate Map
+### 步骤 1225: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\analyzers\MigrationAnalyzer.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\templates\TemplateRegistry.ts
+- @/types/result
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -23827,12 +23911,14 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\analyzers\MigrationAnalyzer.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\xiuyuan\templates\TemplateRegistry.ts
+- @/types/result
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1227: Migrate Set
+### 步骤 1227: Migrate SafetyAnalyzer
 
 **预计时间**: 3-5 days
 
@@ -23842,7 +23928,77 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1228: Migrate ArchitectureScanner
+### 步骤 1228: Migrate PriorityCalculator
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\analyzers\MigrationAnalyzer.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1229: Migrate DependencyAnalyzer
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\analyzers\MigrationAnalyzer.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1230: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\analyzers\MigrationAnalyzer.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1231: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\analyzers\MigrationAnalyzer.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1232: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\analyzers\MigrationAnalyzer.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1233: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\analyzers\MigrationAnalyzer.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1234: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\diagnostics\analyzers\MigrationAnalyzer.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1235: Migrate ArchitectureScanner
 
 **预计时间**: 3-5 days
 
@@ -23854,7 +24010,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1229: Migrate InterfaceValidator
+### 步骤 1236: Migrate InterfaceValidator
 
 **预计时间**: 3-5 days
 
@@ -23866,7 +24022,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1230: Migrate MigrationAnalyzer
+### 步骤 1237: Migrate MigrationAnalyzer
 
 **预计时间**: 3-5 days
 
@@ -23878,7 +24034,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1231: Migrate ReportGenerator
+### 步骤 1238: Migrate ReportGenerator
 
 **预计时间**: 3-5 days
 
@@ -23890,7 +24046,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1232: Migrate ApiCompatibilityChecker
+### 步骤 1239: Migrate ApiCompatibilityChecker
 
 **预计时间**: 3-5 days
 
@@ -23902,7 +24058,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1233: Migrate Date
+### 步骤 1240: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -23914,7 +24070,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1234: Migrate ImportAnalyzer
+### 步骤 1241: Migrate ImportAnalyzer
 
 **预计时间**: 3-5 days
 
@@ -23926,7 +24082,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1235: Migrate TypeUsageAnalyzer
+### 步骤 1242: Migrate TypeUsageAnalyzer
 
 **预计时间**: 3-5 days
 
@@ -23938,7 +24094,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1236: Migrate Set
+### 步骤 1243: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -23950,7 +24106,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1237: Migrate Set
+### 步骤 1244: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -23962,7 +24118,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1238: Migrate Set
+### 步骤 1245: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -23974,7 +24130,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1239: Migrate Map
+### 步骤 1246: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -23985,7 +24141,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1240: Migrate NodeDiagnosticsOutput
+### 步骤 1247: Migrate NodeDiagnosticsOutput
 
 **预计时间**: 3-5 days
 
@@ -23995,7 +24151,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1241: Migrate Set
+### 步骤 1248: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -24008,7 +24164,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1242: Migrate Map
+### 步骤 1249: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -24021,7 +24177,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1243: Migrate Map
+### 步骤 1250: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -24034,7 +24190,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1244: Migrate MethodChecker
+### 步骤 1251: Migrate MethodChecker
 
 **预计时间**: 3-5 days
 
@@ -24047,7 +24203,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1245: Migrate TypeChecker
+### 步骤 1252: Migrate TypeChecker
 
 **预计时间**: 3-5 days
 
@@ -24060,7 +24216,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1246: Migrate ModeError
+### 步骤 1253: Migrate ModeError
 
 **预计时间**: 3-5 days
 
@@ -24071,7 +24227,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1247: Migrate QueueError
+### 步骤 1254: Migrate QueueError
 
 **预计时间**: 3-5 days
 
@@ -24082,7 +24238,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1248: Migrate SyncError
+### 步骤 1255: Migrate SyncError
 
 **预计时间**: 3-5 days
 
@@ -24093,7 +24249,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1249: Migrate StorageError
+### 步骤 1256: Migrate StorageError
 
 **预计时间**: 3-5 days
 
@@ -24104,7 +24260,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1250: Migrate NetworkError
+### 步骤 1257: Migrate NetworkError
 
 **预计时间**: 3-5 days
 
@@ -24115,7 +24271,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1251: Migrate StorageError
+### 步骤 1258: Migrate StorageError
 
 **预计时间**: 3-5 days
 
@@ -24126,7 +24282,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1252: Migrate NetworkError
+### 步骤 1259: Migrate NetworkError
 
 **预计时间**: 3-5 days
 
@@ -24137,7 +24293,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1253: Migrate DataSourceError
+### 步骤 1260: Migrate DataSourceError
 
 **预计时间**: 3-5 days
 
@@ -24148,7 +24304,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1254: Migrate FormulaClozeAssistant
+### 步骤 1261: Migrate FormulaClozeAssistant
 
 **预计时间**: 3-5 days
 
@@ -24171,7 +24327,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1255: Migrate ImageOcclusionHandler
+### 步骤 1262: Migrate ImageOcclusionHandler
 
 **预计时间**: 3-5 days
 
@@ -24194,7 +24350,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1256: Migrate Set
+### 步骤 1263: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -24217,7 +24373,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1257: Migrate Set
+### 步骤 1264: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -24240,7 +24396,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1258: Migrate Set
+### 步骤 1265: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -24263,7 +24419,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1259: Migrate BlockContextResolver
+### 步骤 1266: Migrate BlockContextResolver
 
 **预计时间**: 3-5 days
 
@@ -24286,7 +24442,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1260: Migrate MutationObserver
+### 步骤 1267: Migrate MutationObserver
 
 **预计时间**: 3-5 days
 
@@ -24309,7 +24465,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1261: Migrate MutationObserver
+### 步骤 1268: Migrate MutationObserver
 
 **预计时间**: 3-5 days
 
@@ -24328,76 +24484,6 @@ Run unit tests and integration tests for affected queues
 - @/application/entries/CoreReviewEntryRegistry
 - @/application/entries/TopBarQuickEntryRegistry
 - @/index.scss
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1262: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1263: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1264: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1265: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1266: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1267: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1268: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -24532,25 +24618,22 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1282: Migrate Map
+### 步骤 1282: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\queue\SiyuanNeuralRoamCardTypeResolverAdapter.ts
-- @/infrastructure/siyuan/api
-- @/core/queue/domain/ports
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1283: Migrate FileOperationError
+### 步骤 1283: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\FileService.ts
-- @/utils/logger
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -24560,19 +24643,17 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\FileService.ts
-- @/utils/logger
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1285: Migrate FileOperationError
+### 步骤 1285: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\FileService.ts
-- @/utils/logger
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -24582,19 +24663,17 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\FileService.ts
-- @/utils/logger
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1287: Migrate FileOperationError
+### 步骤 1287: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\FileService.ts
-- @/utils/logger
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -24604,8 +24683,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\FileService.ts
-- @/utils/logger
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\persistence\CardRepository.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -24698,34 +24776,34 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1297: Migrate Map
+### 步骤 1297: Migrate FileOperationError
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\QueuePersistenceService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\FileService.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1298: Migrate Map
+### 步骤 1298: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\QueuePersistenceService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\FileService.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1299: Migrate QueuePersistenceError
+### 步骤 1299: Migrate FileOperationError
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\QueuePersistenceService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\FileService.ts
 - @/utils/logger
 
 **测试策略**:
@@ -24736,18 +24814,18 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\QueuePersistenceService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\FileService.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1301: Migrate QueuePersistenceError
+### 步骤 1301: Migrate FileOperationError
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\QueuePersistenceService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\FileService.ts
 - @/utils/logger
 
 **测试策略**:
@@ -24758,13 +24836,13 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\QueuePersistenceService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\FileService.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1303: Migrate QueuePersistenceError
+### 步骤 1303: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -24775,7 +24853,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1304: Migrate Error
+### 步骤 1304: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -24852,12 +24930,13 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1311: Migrate Error
+### 步骤 1311: Migrate QueuePersistenceError
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\siyuan\api.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\QueuePersistenceService.ts
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -24867,37 +24946,41 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\siyuan\api.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\QueuePersistenceService.ts
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1313: Migrate FormData
+### 步骤 1313: Migrate QueuePersistenceError
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\siyuan\api.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\QueuePersistenceService.ts
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1314: Migrate Blob
+### 步骤 1314: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\siyuan\api.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\QueuePersistenceService.ts
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1315: Migrate Error
+### 步骤 1315: Migrate QueuePersistenceError
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\siyuan\api.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\QueuePersistenceService.ts
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -24907,7 +24990,8 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\siyuan\api.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\services\QueuePersistenceService.ts
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -24917,12 +25001,72 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\scripts\migrate-xiuyuan-priority.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\siyuan\api.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
 ### 步骤 1318: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\siyuan\api.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1319: Migrate FormData
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\siyuan\api.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1320: Migrate Blob
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\siyuan\api.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1321: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\siyuan\api.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1322: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\infrastructure\siyuan\api.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1323: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\scripts\migrate-xiuyuan-priority.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1324: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -24937,97 +25081,14 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1319: Migrate Set
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useBrowserAdapterSync.ts
-- vue
-- @/types/unified-data-source
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1320: Migrate Set
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useBrowserAdapterSync.ts
-- vue
-- @/types/unified-data-source
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1321: Migrate Set
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useBrowserAdapterSync.ts
-- vue
-- @/types/unified-data-source
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1322: Migrate SRSBrowserAdapter
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useBrowserAdapterSync.ts
-- vue
-- @/types/unified-data-source
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1323: Migrate CardTypeMarkerService
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useCardActions.ts
-- vue
-- @/scripts/migrateToTopicItem
-- @/core/card-type/CardTypeMarkerService
-- @/core/storage/ports
-- @/types/card
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1324: Migrate Promise
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useCardActions.ts
-- vue
-- @/scripts/migrateToTopicItem
-- @/core/card-type/CardTypeMarkerService
-- @/core/storage/ports
-- @/types/card
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
 ### 步骤 1325: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useCardTypeDetection.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useBrowserAdapterSync.ts
 - vue
+- @/types/unified-data-source
 - @/utils/logger
 
 **测试策略**:
@@ -25038,56 +25099,68 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useCardTypeDetection.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useBrowserAdapterSync.ts
 - vue
+- @/types/unified-data-source
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1327: Migrate Promise
+### 步骤 1327: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useCardTypeDetection.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useBrowserAdapterSync.ts
 - vue
+- @/types/unified-data-source
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1328: Migrate Error
+### 步骤 1328: Migrate SRSBrowserAdapter
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useCardTypeDetection.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useBrowserAdapterSync.ts
 - vue
+- @/types/unified-data-source
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1329: Migrate Promise
+### 步骤 1329: Migrate CardTypeMarkerService
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useCardTypeDetection.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useCardActions.ts
 - vue
+- @/scripts/migrateToTopicItem
+- @/core/card-type/CardTypeMarkerService
+- @/core/storage/ports
+- @/types/card
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1330: Migrate Set
+### 步骤 1330: Migrate Promise
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useGlobalSelection.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useCardActions.ts
 - vue
+- @/scripts/migrateToTopicItem
+- @/core/card-type/CardTypeMarkerService
+- @/core/storage/ports
+- @/types/card
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -25097,8 +25170,9 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useGlobalSelection.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useCardTypeDetection.ts
 - vue
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -25108,41 +25182,45 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useGlobalSelection.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useCardTypeDetection.ts
 - vue
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1333: Migrate Set
+### 步骤 1333: Migrate Promise
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useGlobalSelection.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useCardTypeDetection.ts
 - vue
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1334: Migrate Set
+### 步骤 1334: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useGlobalSelection.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useCardTypeDetection.ts
 - vue
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1335: Migrate Set
+### 步骤 1335: Migrate Promise
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useGlobalSelection.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useCardTypeDetection.ts
 - vue
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -25207,23 +25285,19 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useIncrementalGridUpdates.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useGlobalSelection.ts
 - vue
-- ag-grid-community
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1342: Migrate Map
+### 步骤 1342: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useIncrementalGridUpdates.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useGlobalSelection.ts
 - vue
-- ag-grid-community
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -25233,10 +25307,8 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useIncrementalGridUpdates.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useGlobalSelection.ts
 - vue
-- ag-grid-community
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -25246,23 +25318,19 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useIncrementalGridUpdates.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useGlobalSelection.ts
 - vue
-- ag-grid-community
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1345: Migrate Map
+### 步骤 1345: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useIncrementalGridUpdates.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useGlobalSelection.ts
 - vue
-- ag-grid-community
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -25272,10 +25340,8 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useIncrementalGridUpdates.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useGlobalSelection.ts
 - vue
-- ag-grid-community
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -25293,7 +25359,85 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1348: Migrate Protyle
+### 步骤 1348: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useIncrementalGridUpdates.ts
+- vue
+- ag-grid-community
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1349: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useIncrementalGridUpdates.ts
+- vue
+- ag-grid-community
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1350: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useIncrementalGridUpdates.ts
+- vue
+- ag-grid-community
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1351: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useIncrementalGridUpdates.ts
+- vue
+- ag-grid-community
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1352: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useIncrementalGridUpdates.ts
+- vue
+- ag-grid-community
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1353: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\composables\useIncrementalGridUpdates.ts
+- vue
+- ag-grid-community
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1354: Migrate Protyle
 
 **预计时间**: 3-5 days
 
@@ -25306,7 +25450,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1349: Migrate Set
+### 步骤 1355: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -25320,169 +25464,82 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1350: Migrate BrowserQuerySession
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\BlockIdsDataSource.ts
-- @/types/unified-data-source
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1351: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\BlockIdsDataSource.ts
-- @/types/unified-data-source
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1352: Migrate BrowserQuerySession
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\FilterGroupDataSource.ts
-- @/types/unified-data-source
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1353: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\FilterGroupDataSource.ts
-- @/types/unified-data-source
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1354: Migrate BrowserQuerySession
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\IncrementalLearningDataSource.ts
-- @/types/unified-data-source
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1355: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\IncrementalLearningDataSource.ts
-- @/types/unified-data-source
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
 ### 步骤 1356: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts
-- @/core/scheduler/rescheduleService
-- @/core/scheduler/ConfigManager
-- @/core/storage/ports
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\config\sortDisplayContract.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1357: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\config\sortDisplayContract.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1358: Migrate BrowserQuerySession
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\BlockIdsDataSource.ts
 - @/types/unified-data-source
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1357: Migrate Date
+### 步骤 1359: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts
-- @/core/scheduler/rescheduleService
-- @/core/scheduler/ConfigManager
-- @/core/storage/ports
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\BlockIdsDataSource.ts
 - @/types/unified-data-source
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1358: Migrate Map
+### 步骤 1360: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts
-- @/core/scheduler/rescheduleService
-- @/core/scheduler/ConfigManager
-- @/core/storage/ports
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts
+- @/core/card-builder/detectCardType
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1359: Migrate ConfigManager
+### 步骤 1361: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts
-- @/core/scheduler/rescheduleService
-- @/core/scheduler/ConfigManager
-- @/core/storage/ports
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts
+- @/core/card-builder/detectCardType
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1360: Migrate Error
+### 步骤 1362: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts
-- @/core/scheduler/rescheduleService
-- @/core/scheduler/ConfigManager
-- @/core/storage/ports
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts
+- @/core/card-builder/detectCardType
 - @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1361: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\QueryDataSource.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1362: Migrate BrowserQuerySession
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\QueryDataSource.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -25492,7 +25549,9 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\QueryDataSource.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts
+- @/core/card-builder/detectCardType
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -25502,7 +25561,7 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\RetrievalDataSource.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\FilterGroupDataSource.ts
 - @/types/unified-data-source
 - @/utils/logger
 
@@ -25514,61 +25573,63 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\RetrievalDataSource.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\FilterGroupDataSource.ts
 - @/types/unified-data-source
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1366: Migrate Set
+### 步骤 1366: Migrate BrowserQuerySession
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts
-- @/utils/queryCache
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\IncrementalLearningDataSource.ts
+- @/types/unified-data-source
 - @/utils/logger
-- @/utils/performance
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1367: Migrate Map
+### 步骤 1367: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts
-- @/utils/queryCache
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\IncrementalLearningDataSource.ts
+- @/types/unified-data-source
 - @/utils/logger
-- @/utils/performance
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1368: Migrate LRUCache
+### 步骤 1368: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts
-- @/utils/queryCache
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts
+- @/core/scheduler/rescheduleService
+- @/core/scheduler/ConfigManager
+- @/core/storage/ports
+- @/types/unified-data-source
 - @/utils/logger
-- @/utils/performance
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1369: Migrate Map
+### 步骤 1369: Migrate Date
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts
-- @/utils/queryCache
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts
+- @/core/scheduler/rescheduleService
+- @/core/scheduler/ConfigManager
+- @/core/storage/ports
+- @/types/unified-data-source
 - @/utils/logger
-- @/utils/performance
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -25578,32 +25639,40 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts
-- @/utils/queryCache
-- @/utils/logger
-- @/utils/performance
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1371: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts
+- @/core/scheduler/rescheduleService
+- @/core/scheduler/ConfigManager
+- @/core/storage/ports
 - @/types/unified-data-source
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1372: Migrate Date
+### 步骤 1371: Migrate ConfigManager
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts
+- @/core/scheduler/rescheduleService
+- @/core/scheduler/ConfigManager
+- @/core/storage/ports
+- @/types/unified-data-source
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1372: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\MenuActions.ts
+- @/core/scheduler/rescheduleService
+- @/core/scheduler/ConfigManager
+- @/core/storage/ports
 - @/types/unified-data-source
 - @/utils/logger
 
@@ -25615,122 +25684,121 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
-- @/types/unified-data-source
-- @/utils/logger
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\QueryDataSource.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1374: Migrate Date
+### 步骤 1374: Migrate BrowserQuerySession
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
-- @/types/unified-data-source
-- @/utils/logger
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\QueryDataSource.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1375: Migrate Date
+### 步骤 1375: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
-- @/types/unified-data-source
-- @/utils/logger
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\QueryDataSource.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1376: Migrate Set
+### 步骤 1376: Migrate BrowserQuerySession
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\RetrievalDataSource.ts
 - @/types/unified-data-source
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1377: Migrate Set
+### 步骤 1377: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\RetrievalDataSource.ts
 - @/types/unified-data-source
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1378: Migrate Date
+### 步骤 1378: Migrate Set
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts
+- @/utils/queryCache
 - @/utils/logger
+- @/utils/performance
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1379: Migrate Date
+### 步骤 1379: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts
+- @/utils/queryCache
 - @/utils/logger
+- @/utils/performance
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1380: Migrate Date
+### 步骤 1380: Migrate LRUCache
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts
+- @/utils/queryCache
 - @/utils/logger
+- @/utils/performance
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1381: Migrate Date
+### 步骤 1381: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts
+- @/utils/queryCache
 - @/utils/logger
+- @/utils/performance
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1382: Migrate Set
+### 步骤 1382: Migrate Map
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
-- @/types/unified-data-source
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\session\BrowserQuerySession.ts
+- @/utils/queryCache
 - @/utils/logger
+- @/utils/performance
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1383: Migrate Set
+### 步骤 1383: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -25766,7 +25834,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1386: Migrate FilterService
+### 步骤 1386: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -25778,7 +25846,151 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1387: Migrate Error
+### 步骤 1387: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
+- @/types/unified-data-source
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1388: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
+- @/types/unified-data-source
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1389: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
+- @/types/unified-data-source
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1390: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
+- @/types/unified-data-source
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1391: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
+- @/types/unified-data-source
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1392: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
+- @/types/unified-data-source
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1393: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
+- @/types/unified-data-source
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1394: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
+- @/types/unified-data-source
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1395: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
+- @/types/unified-data-source
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1396: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
+- @/types/unified-data-source
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1397: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
+- @/types/unified-data-source
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1398: Migrate FilterService
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\services\FilterService.ts
+- @/types/unified-data-source
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1399: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -25791,7 +26003,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1388: Migrate Date
+### 步骤 1400: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -25801,7 +26013,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1389: Migrate FinalDrillDataSource
+### 步骤 1401: Migrate FinalDrillDataSource
 
 **预计时间**: 3-5 days
 
@@ -25813,7 +26025,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1390: Migrate RetrievalDataSource
+### 步骤 1402: Migrate RetrievalDataSource
 
 **预计时间**: 3-5 days
 
@@ -25825,7 +26037,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1391: Migrate FilterGroupDataSource
+### 步骤 1403: Migrate FilterGroupDataSource
 
 **预计时间**: 3-5 days
 
@@ -25837,7 +26049,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1392: Migrate IncrementalLearningDataSource
+### 步骤 1404: Migrate IncrementalLearningDataSource
 
 **预计时间**: 3-5 days
 
@@ -25849,7 +26061,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1393: Migrate BlockIdsDataSource
+### 步骤 1405: Migrate BlockIdsDataSource
 
 **预计时间**: 3-5 days
 
@@ -25861,7 +26073,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1394: Migrate BlockIdsDataSource
+### 步骤 1406: Migrate BlockIdsDataSource
 
 **预计时间**: 3-5 days
 
@@ -25873,7 +26085,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1395: Migrate DeckDataSource
+### 步骤 1407: Migrate DeckDataSource
 
 **预计时间**: 3-5 days
 
@@ -25885,7 +26097,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1396: Migrate QueryDataSource
+### 步骤 1408: Migrate QueryDataSource
 
 **预计时间**: 3-5 days
 
@@ -25897,7 +26109,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1397: Migrate FinalDrillDataSource
+### 步骤 1409: Migrate FinalDrillDataSource
 
 **预计时间**: 3-5 days
 
@@ -25909,7 +26121,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1398: Migrate RetrievalDataSource
+### 步骤 1410: Migrate RetrievalDataSource
 
 **预计时间**: 3-5 days
 
@@ -25921,7 +26133,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1399: Migrate FilterGroupDataSource
+### 步骤 1411: Migrate FilterGroupDataSource
 
 **预计时间**: 3-5 days
 
@@ -25933,7 +26145,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1400: Migrate IncrementalLearningDataSource
+### 步骤 1412: Migrate IncrementalLearningDataSource
 
 **预计时间**: 3-5 days
 
@@ -25945,7 +26157,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1401: Migrate BlockIdsDataSource
+### 步骤 1413: Migrate BlockIdsDataSource
 
 **预计时间**: 3-5 days
 
@@ -25957,7 +26169,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1402: Migrate DeckDataSource
+### 步骤 1414: Migrate DeckDataSource
 
 **预计时间**: 3-5 days
 
@@ -25969,7 +26181,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1403: Migrate Date
+### 步骤 1415: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -25979,7 +26191,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1404: Migrate RegExp
+### 步骤 1416: Migrate RegExp
 
 **预计时间**: 3-5 days
 
@@ -25989,7 +26201,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1405: Migrate Date
+### 步骤 1417: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -25999,7 +26211,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1406: Migrate Date
+### 步骤 1418: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -26009,7 +26221,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1407: Migrate Date
+### 步骤 1419: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -26019,7 +26231,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1408: Migrate Set
+### 步骤 1420: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -26029,7 +26241,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1409: Migrate Set
+### 步骤 1421: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -26039,7 +26251,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1410: Migrate Set
+### 步骤 1422: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -26049,7 +26261,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1411: Migrate Set
+### 步骤 1423: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -26059,7 +26271,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1412: Migrate Set
+### 步骤 1424: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -26069,7 +26281,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1413: Migrate Date
+### 步骤 1425: Migrate Date
 
 **预计时间**: 3-5 days
 
@@ -26079,7 +26291,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1414: Migrate URL
+### 步骤 1426: Migrate URL
 
 **预计时间**: 3-5 days
 
@@ -26089,7 +26301,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1415: Migrate Menu
+### 步骤 1427: Migrate Menu
 
 **预计时间**: 3-5 days
 
@@ -26102,7 +26314,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1416: Migrate LRUCache
+### 步骤 1428: Migrate LRUCache
 
 **预计时间**: 3-5 days
 
@@ -26115,7 +26327,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1417: Migrate Map
+### 步骤 1429: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -26126,7 +26338,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1418: Migrate SortedSequencer
+### 步骤 1430: Migrate SortedSequencer
 
 **预计时间**: 3-5 days
 
@@ -26138,7 +26350,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1419: Migrate Set
+### 步骤 1431: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -26148,7 +26360,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1420: Migrate Set
+### 步骤 1432: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -26158,7 +26370,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1421: Migrate Set
+### 步骤 1433: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -26168,7 +26380,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1422: Migrate Set
+### 步骤 1434: Migrate Set
 
 **预计时间**: 3-5 days
 
@@ -26178,7 +26390,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1423: Migrate Array
+### 步骤 1435: Migrate Array
 
 **预计时间**: 3-5 days
 
@@ -26188,155 +26400,12 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1424: Migrate Error
+### 步骤 1436: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\asyncHelpers.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1425: Migrate Promise
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\asyncHelpers.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1426: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\configUtils.ts
-- @/types/settings
-- siyuan
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1427: Migrate Error
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\configUtils.ts
-- @/types/settings
-- siyuan
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1428: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dateUtils.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1429: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dateUtils.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1430: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dateUtils.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1431: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dateUtils.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1432: Migrate Date
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dateUtils.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1433: Migrate Dialog
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dialog.ts
-- siyuan
-- vue
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1434: Migrate MouseEvent
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dialog.ts
-- siyuan
-- vue
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1435: Migrate Promise
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dialog.ts
-- siyuan
-- vue
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1436: Migrate Dialog
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dialog.ts
-- siyuan
-- vue
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -26346,6 +26415,97 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\asyncHelpers.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1438: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\configUtils.ts
+- @/types/settings
+- siyuan
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1439: Migrate Error
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\configUtils.ts
+- @/types/settings
+- siyuan
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1440: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dateUtils.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1441: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dateUtils.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1442: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dateUtils.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1443: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dateUtils.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1444: Migrate Date
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dateUtils.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1445: Migrate Dialog
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dialog.ts
 - siyuan
 - vue
@@ -26354,7 +26514,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1438: Migrate Dialog
+### 步骤 1446: Migrate MouseEvent
 
 **预计时间**: 3-5 days
 
@@ -26363,88 +26523,6 @@ Run unit tests and integration tests for affected queues
 - siyuan
 - vue
 - @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1439: Migrate ConsoleErrorReporter
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\errorReporter.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1440: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\EventEmitter.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1441: Migrate Set
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\EventEmitter.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1442: Migrate Logger
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\logger.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1443: Migrate Logger
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\logger.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1444: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance-helpers.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1445: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance-helpers.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1446: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance-helpers.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -26454,17 +26532,23 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance-helpers.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dialog.ts
+- siyuan
+- vue
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1448: Migrate Promise
+### 步骤 1448: Migrate Dialog
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance-helpers.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dialog.ts
+- siyuan
+- vue
+- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -26474,29 +26558,33 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance-helpers.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1450: Migrate Map
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dialog.ts
+- siyuan
+- vue
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1451: Migrate Map
+### 步骤 1450: Migrate Dialog
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance.ts
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\dialog.ts
+- siyuan
+- vue
 - @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1451: Migrate ConsoleErrorReporter
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\errorReporter.ts
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -26506,13 +26594,115 @@ Run unit tests and integration tests for affected queues
 **预计时间**: 3-5 days
 
 **涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\EventEmitter.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1453: Migrate Set
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\EventEmitter.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1454: Migrate Logger
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\logger.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1455: Migrate Logger
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\logger.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1456: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance-helpers.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1457: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance-helpers.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1458: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance-helpers.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1459: Migrate Promise
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance-helpers.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1460: Migrate Promise
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance-helpers.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1461: Migrate Promise
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance-helpers.ts
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1462: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance.ts
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1453: Migrate Map
+### 步骤 1463: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -26523,7 +26713,29 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1454: Migrate Map
+### 步骤 1464: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1465: Migrate Map
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\performance.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1466: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -26533,7 +26745,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1455: Migrate Map
+### 步骤 1467: Migrate Map
 
 **预计时间**: 3-5 days
 
@@ -26543,7 +26755,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1456: Migrate QueryCache
+### 步骤 1468: Migrate QueryCache
 
 **预计时间**: 3-5 days
 
@@ -26553,7 +26765,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1457: Migrate Error
+### 步骤 1469: Migrate Error
 
 **预计时间**: 3-5 days
 
@@ -26566,228 +26778,12 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1458: Migrate Error
+### 步骤 1470: Migrate Error
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\utils\sqlOptimizer.ts
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1459: Migrate UnifiedQueueStrategy.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
-- @/core/queue/abstraction/Strategy
-- @/core/queue/types
-- @/types/card
-- @/types/unified-data-source
-- @/types/unified-data-source
-- @/application/services/UnifiedDataSourceManager
-- @/core/shared/domain/events/EventBus
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1460: Migrate UnifiedQueueStrategy.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
-- @/core/queue/abstraction/Strategy
-- @/core/queue/types
-- @/types/card
-- @/types/unified-data-source
-- @/types/unified-data-source
-- @/application/services/UnifiedDataSourceManager
-- @/core/shared/domain/events/EventBus
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1461: Migrate UnifiedQueueStrategy.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
-- @/core/queue/abstraction/Strategy
-- @/core/queue/types
-- @/types/card
-- @/types/unified-data-source
-- @/types/unified-data-source
-- @/application/services/UnifiedDataSourceManager
-- @/core/shared/domain/events/EventBus
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1462: Migrate UnifiedQueueStrategy.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
-- @/core/queue/abstraction/Strategy
-- @/core/queue/types
-- @/types/card
-- @/types/unified-data-source
-- @/types/unified-data-source
-- @/application/services/UnifiedDataSourceManager
-- @/core/shared/domain/events/EventBus
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1463: Migrate UnifiedQueueStrategy.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
-- @/core/queue/abstraction/Strategy
-- @/core/queue/types
-- @/types/card
-- @/types/unified-data-source
-- @/types/unified-data-source
-- @/application/services/UnifiedDataSourceManager
-- @/core/shared/domain/events/EventBus
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1464: Migrate UnifiedQueueStrategy.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
-- @/core/queue/abstraction/Strategy
-- @/core/queue/types
-- @/types/card
-- @/types/unified-data-source
-- @/types/unified-data-source
-- @/application/services/UnifiedDataSourceManager
-- @/core/shared/domain/events/EventBus
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1465: Migrate UnifiedQueueStrategy.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
-- @/core/queue/abstraction/Strategy
-- @/core/queue/types
-- @/types/card
-- @/types/unified-data-source
-- @/types/unified-data-source
-- @/application/services/UnifiedDataSourceManager
-- @/core/shared/domain/events/EventBus
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1466: Migrate UnifiedQueueStrategy.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
-- @/core/queue/abstraction/Strategy
-- @/core/queue/types
-- @/types/card
-- @/types/unified-data-source
-- @/types/unified-data-source
-- @/application/services/UnifiedDataSourceManager
-- @/core/shared/domain/events/EventBus
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1467: Migrate UnifiedQueueStrategy.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
-- @/core/queue/abstraction/Strategy
-- @/core/queue/types
-- @/types/card
-- @/types/unified-data-source
-- @/types/unified-data-source
-- @/application/services/UnifiedDataSourceManager
-- @/core/shared/domain/events/EventBus
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1468: Migrate UnifiedQueueStrategy.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
-- @/core/queue/abstraction/Strategy
-- @/core/queue/types
-- @/types/card
-- @/types/unified-data-source
-- @/types/unified-data-source
-- @/application/services/UnifiedDataSourceManager
-- @/core/shared/domain/events/EventBus
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1469: Migrate UnifiedQueueStrategy.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
-- @/core/queue/abstraction/Strategy
-- @/core/queue/types
-- @/types/card
-- @/types/unified-data-source
-- @/types/unified-data-source
-- @/application/services/UnifiedDataSourceManager
-- @/core/shared/domain/events/EventBus
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1470: Migrate UnifiedQueueStrategy.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
-- @/core/queue/abstraction/Strategy
-- @/core/queue/types
-- @/types/card
-- @/types/unified-data-source
-- @/types/unified-data-source
-- @/application/services/UnifiedDataSourceManager
-- @/core/shared/domain/events/EventBus
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -27026,7 +27022,223 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1484: Migrate UnifiedReviewAdapter.ts
+### 步骤 1484: Migrate UnifiedQueueStrategy.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
+- @/core/queue/abstraction/Strategy
+- @/core/queue/types
+- @/types/card
+- @/types/unified-data-source
+- @/types/unified-data-source
+- @/application/services/UnifiedDataSourceManager
+- @/core/shared/domain/events/EventBus
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1485: Migrate UnifiedQueueStrategy.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
+- @/core/queue/abstraction/Strategy
+- @/core/queue/types
+- @/types/card
+- @/types/unified-data-source
+- @/types/unified-data-source
+- @/application/services/UnifiedDataSourceManager
+- @/core/shared/domain/events/EventBus
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1486: Migrate UnifiedQueueStrategy.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
+- @/core/queue/abstraction/Strategy
+- @/core/queue/types
+- @/types/card
+- @/types/unified-data-source
+- @/types/unified-data-source
+- @/application/services/UnifiedDataSourceManager
+- @/core/shared/domain/events/EventBus
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1487: Migrate UnifiedQueueStrategy.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
+- @/core/queue/abstraction/Strategy
+- @/core/queue/types
+- @/types/card
+- @/types/unified-data-source
+- @/types/unified-data-source
+- @/application/services/UnifiedDataSourceManager
+- @/core/shared/domain/events/EventBus
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1488: Migrate UnifiedQueueStrategy.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
+- @/core/queue/abstraction/Strategy
+- @/core/queue/types
+- @/types/card
+- @/types/unified-data-source
+- @/types/unified-data-source
+- @/application/services/UnifiedDataSourceManager
+- @/core/shared/domain/events/EventBus
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1489: Migrate UnifiedQueueStrategy.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
+- @/core/queue/abstraction/Strategy
+- @/core/queue/types
+- @/types/card
+- @/types/unified-data-source
+- @/types/unified-data-source
+- @/application/services/UnifiedDataSourceManager
+- @/core/shared/domain/events/EventBus
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1490: Migrate UnifiedQueueStrategy.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
+- @/core/queue/abstraction/Strategy
+- @/core/queue/types
+- @/types/card
+- @/types/unified-data-source
+- @/types/unified-data-source
+- @/application/services/UnifiedDataSourceManager
+- @/core/shared/domain/events/EventBus
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1491: Migrate UnifiedQueueStrategy.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
+- @/core/queue/abstraction/Strategy
+- @/core/queue/types
+- @/types/card
+- @/types/unified-data-source
+- @/types/unified-data-source
+- @/application/services/UnifiedDataSourceManager
+- @/core/shared/domain/events/EventBus
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1492: Migrate UnifiedQueueStrategy.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
+- @/core/queue/abstraction/Strategy
+- @/core/queue/types
+- @/types/card
+- @/types/unified-data-source
+- @/types/unified-data-source
+- @/application/services/UnifiedDataSourceManager
+- @/core/shared/domain/events/EventBus
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1493: Migrate UnifiedQueueStrategy.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
+- @/core/queue/abstraction/Strategy
+- @/core/queue/types
+- @/types/card
+- @/types/unified-data-source
+- @/types/unified-data-source
+- @/application/services/UnifiedDataSourceManager
+- @/core/shared/domain/events/EventBus
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1494: Migrate UnifiedQueueStrategy.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
+- @/core/queue/abstraction/Strategy
+- @/core/queue/types
+- @/types/card
+- @/types/unified-data-source
+- @/types/unified-data-source
+- @/application/services/UnifiedDataSourceManager
+- @/core/shared/domain/events/EventBus
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1495: Migrate UnifiedQueueStrategy.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\adapters\UnifiedQueueStrategy.ts
+- @/core/queue/abstraction/Strategy
+- @/core/queue/types
+- @/types/card
+- @/types/unified-data-source
+- @/types/unified-data-source
+- @/application/services/UnifiedDataSourceManager
+- @/core/shared/domain/events/EventBus
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1496: Migrate UnifiedReviewAdapter.ts
 
 **预计时间**: 3-5 days
 
@@ -27042,7 +27254,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1485: Migrate UpdateFSRSCardCommand.ts
+### 步骤 1497: Migrate UpdateFSRSCardCommand.ts
 
 **预计时间**: 3-5 days
 
@@ -27054,7 +27266,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1486: Migrate ReviewViewController.ts
+### 步骤 1498: Migrate ReviewViewController.ts
 
 **预计时间**: 3-5 days
 
@@ -27069,7 +27281,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1487: Migrate ReviewViewController.ts
+### 步骤 1499: Migrate ReviewViewController.ts
 
 **预计时间**: 3-5 days
 
@@ -27084,7 +27296,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1488: Migrate ReviewViewController.ts
+### 步骤 1500: Migrate ReviewViewController.ts
 
 **预计时间**: 3-5 days
 
@@ -27099,7 +27311,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1489: Migrate ReviewViewController.ts
+### 步骤 1501: Migrate ReviewViewController.ts
 
 **预计时间**: 3-5 days
 
@@ -27114,7 +27326,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1490: Migrate CoreReviewEntryService.ts
+### 步骤 1502: Migrate CoreReviewEntryService.ts
 
 **预计时间**: 3-5 days
 
@@ -27127,7 +27339,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1491: Migrate CoreReviewEntryService.ts
+### 步骤 1503: Migrate CoreReviewEntryService.ts
 
 **预计时间**: 3-5 days
 
@@ -27140,7 +27352,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1492: Migrate CoreReviewEntryService.ts
+### 步骤 1504: Migrate CoreReviewEntryService.ts
 
 **预计时间**: 3-5 days
 
@@ -27153,7 +27365,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1493: Migrate CoreReviewEntryService.ts
+### 步骤 1505: Migrate CoreReviewEntryService.ts
 
 **预计时间**: 3-5 days
 
@@ -27166,7 +27378,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1494: Migrate CoreReviewEntryService.ts
+### 步骤 1506: Migrate CoreReviewEntryService.ts
 
 **预计时间**: 3-5 days
 
@@ -27179,7 +27391,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1495: Migrate CoreReviewEntryService.ts
+### 步骤 1507: Migrate CoreReviewEntryService.ts
 
 **预计时间**: 3-5 days
 
@@ -27192,7 +27404,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1496: Migrate BlockMenuHandler.ts
+### 步骤 1508: Migrate BlockMenuHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27203,7 +27415,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -27222,7 +27433,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1497: Migrate BlockMenuHandler.ts
+### 步骤 1509: Migrate BlockMenuHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27233,7 +27444,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -27252,7 +27462,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1498: Migrate BlockMenuHandler.ts
+### 步骤 1510: Migrate BlockMenuHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27263,7 +27473,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -27282,7 +27491,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1499: Migrate BlockMenuHandler.ts
+### 步骤 1511: Migrate BlockMenuHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27293,7 +27502,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -27312,7 +27520,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1500: Migrate BlockMenuHandler.ts
+### 步骤 1512: Migrate BlockMenuHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27323,7 +27531,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -27342,7 +27549,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1501: Migrate BlockMenuHandler.ts
+### 步骤 1513: Migrate BlockMenuHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27353,7 +27560,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -27372,7 +27578,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1502: Migrate BlockMenuHandler.ts
+### 步骤 1514: Migrate BlockMenuHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27383,7 +27589,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -27402,7 +27607,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1503: Migrate BlockMenuHandler.ts
+### 步骤 1515: Migrate BlockMenuHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27413,7 +27618,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -27432,7 +27636,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1504: Migrate BlockMenuHandler.ts
+### 步骤 1516: Migrate BlockMenuHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27443,7 +27647,6 @@ Run unit tests and integration tests for affected queues
 - @/infrastructure/siyuan/ManagerSiyuanAdapter
 - @/utils/dialog
 - @/core/queue
-- @/core/queue/types
 - @/types/unified-data-source
 - @/types/card
 - @/ui/srs/SrsEditorDialog.vue
@@ -27462,7 +27665,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1505: Migrate MenuManager.ts
+### 步骤 1517: Migrate MenuManager.ts
 
 **预计时间**: 3-5 days
 
@@ -27481,7 +27684,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1506: Migrate MenuManager.ts
+### 步骤 1518: Migrate MenuManager.ts
 
 **预计时间**: 3-5 days
 
@@ -27500,7 +27703,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1507: Migrate MenuManager.ts
+### 步骤 1519: Migrate MenuManager.ts
 
 **预计时间**: 3-5 days
 
@@ -27519,7 +27722,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1508: Migrate MenuManager.ts
+### 步骤 1520: Migrate MenuManager.ts
 
 **预计时间**: 3-5 days
 
@@ -27538,7 +27741,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1509: Migrate MenuManager.ts
+### 步骤 1521: Migrate MenuManager.ts
 
 **预计时间**: 3-5 days
 
@@ -27557,7 +27760,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1510: Migrate MenuManager.ts
+### 步骤 1522: Migrate MenuManager.ts
 
 **预计时间**: 3-5 days
 
@@ -27576,7 +27779,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1511: Migrate PracticeQueueManager.ts
+### 步骤 1523: Migrate PracticeQueueManager.ts
 
 **预计时间**: 3-5 days
 
@@ -27591,7 +27794,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1512: Migrate PracticeQueueManager.ts
+### 步骤 1524: Migrate PracticeQueueManager.ts
 
 **预计时间**: 3-5 days
 
@@ -27606,7 +27809,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1513: Migrate PracticeQueueManager.ts
+### 步骤 1525: Migrate PracticeQueueManager.ts
 
 **预计时间**: 3-5 days
 
@@ -27621,7 +27824,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1514: Migrate PracticeQueueManager.ts
+### 步骤 1526: Migrate PracticeQueueManager.ts
 
 **预计时间**: 3-5 days
 
@@ -27636,7 +27839,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1515: Migrate PracticeQueueManager.ts
+### 步骤 1527: Migrate PracticeQueueManager.ts
 
 **预计时间**: 3-5 days
 
@@ -27651,7 +27854,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1516: Migrate GetBrowserCardsQueryHandler.ts
+### 步骤 1528: Migrate GetBrowserCardsQueryHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27670,7 +27873,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1517: Migrate GetBrowserCardsQueryHandler.ts
+### 步骤 1529: Migrate GetBrowserCardsQueryHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27689,7 +27892,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1518: Migrate GetBrowserCardsQueryHandler.ts
+### 步骤 1530: Migrate GetBrowserCardsQueryHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27708,7 +27911,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1519: Migrate GetBrowserCardsQueryHandler.ts
+### 步骤 1531: Migrate GetBrowserCardsQueryHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27727,7 +27930,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1520: Migrate GetBrowserCardsQueryHandler.ts
+### 步骤 1532: Migrate GetBrowserCardsQueryHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27746,7 +27949,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1521: Migrate GetBrowserCardsQueryHandler.ts
+### 步骤 1533: Migrate GetBrowserCardsQueryHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27765,7 +27968,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1522: Migrate GetBrowserCardsQueryHandler.ts
+### 步骤 1534: Migrate GetBrowserCardsQueryHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27784,7 +27987,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1523: Migrate GetBrowserCardsQueryHandler.ts
+### 步骤 1535: Migrate GetBrowserCardsQueryHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27803,7 +28006,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1524: Migrate GetBrowserCardsQueryHandler.ts
+### 步骤 1536: Migrate GetBrowserCardsQueryHandler.ts
 
 **预计时间**: 3-5 days
 
@@ -27822,7 +28025,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1525: Migrate GetCardsQuery.ts
+### 步骤 1537: Migrate GetCardsQuery.ts
 
 **预计时间**: 3-5 days
 
@@ -27833,7 +28036,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1526: Migrate GetCardsQuery.ts
+### 步骤 1538: Migrate GetCardsQuery.ts
 
 **预计时间**: 3-5 days
 
@@ -27844,7 +28047,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1527: Migrate ICardReadModel.ts
+### 步骤 1539: Migrate ICardReadModel.ts
 
 **预计时间**: 3-5 days
 
@@ -27855,7 +28058,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1528: Migrate ICardReadModel.ts
+### 步骤 1540: Migrate ICardReadModel.ts
 
 **预计时间**: 3-5 days
 
@@ -27866,7 +28069,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1529: Migrate ICardReadModel.ts
+### 步骤 1541: Migrate ICardReadModel.ts
 
 **预计时间**: 3-5 days
 
@@ -27877,7 +28080,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1530: Migrate ICardReadModel.ts
+### 步骤 1542: Migrate ICardReadModel.ts
 
 **预计时间**: 3-5 days
 
@@ -27888,7 +28091,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1531: Migrate ICardReadModel.ts
+### 步骤 1543: Migrate ICardReadModel.ts
 
 **预计时间**: 3-5 days
 
@@ -27899,7 +28102,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1532: Migrate DataAccessFacade.ts
+### 步骤 1544: Migrate DataAccessFacade.ts
 
 **预计时间**: 3-5 days
 
@@ -27912,7 +28115,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1533: Migrate DataAccessFacade.ts
+### 步骤 1545: Migrate DataAccessFacade.ts
 
 **预计时间**: 3-5 days
 
@@ -27925,7 +28128,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1534: Migrate DataAccessFacade.ts
+### 步骤 1546: Migrate DataAccessFacade.ts
 
 **预计时间**: 3-5 days
 
@@ -27938,7 +28141,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1535: Migrate DataAccessFacade.ts
+### 步骤 1547: Migrate DataAccessFacade.ts
 
 **预计时间**: 3-5 days
 
@@ -27951,7 +28154,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1536: Migrate DataAccessFacade.ts
+### 步骤 1548: Migrate DataAccessFacade.ts
 
 **预计时间**: 3-5 days
 
@@ -27964,7 +28167,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1537: Migrate DataAccessFacade.ts
+### 步骤 1549: Migrate DataAccessFacade.ts
 
 **预计时间**: 3-5 days
 
@@ -27977,7 +28180,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1538: Migrate DataAccessFacade.ts
+### 步骤 1550: Migrate DataAccessFacade.ts
 
 **预计时间**: 3-5 days
 
@@ -27990,7 +28193,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1539: Migrate DataAccessFacade.ts
+### 步骤 1551: Migrate DataAccessFacade.ts
 
 **预计时间**: 3-5 days
 
@@ -28003,20 +28206,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1540: Migrate DataAccessFacade.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\application\queries\DataAccessFacade.ts
-- siyuan
-- @/infrastructure/siyuan/QuerySiyuanAdapter
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1541: Migrate BrowserApplicationService.ts
+### 步骤 1552: Migrate BrowserApplicationService.ts
 
 **预计时间**: 3-5 days
 
@@ -28037,7 +28227,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1542: Migrate CardApplicationService.ts
+### 步骤 1553: Migrate CardApplicationService.ts
 
 **预计时间**: 3-5 days
 
@@ -28053,7 +28243,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1543: Migrate CardApplicationService.ts
+### 步骤 1554: Migrate CardApplicationService.ts
 
 **预计时间**: 3-5 days
 
@@ -28069,7 +28259,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1544: Migrate CardApplicationService.ts
+### 步骤 1555: Migrate CardApplicationService.ts
 
 **预计时间**: 3-5 days
 
@@ -28085,7 +28275,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1545: Migrate CardApplicationService.ts
+### 步骤 1556: Migrate CardApplicationService.ts
 
 **预计时间**: 3-5 days
 
@@ -28101,7 +28291,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1546: Migrate CardApplicationService.ts
+### 步骤 1557: Migrate CardApplicationService.ts
 
 **预计时间**: 3-5 days
 
@@ -28117,7 +28307,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1547: Migrate CardApplicationService.ts
+### 步骤 1558: Migrate CardApplicationService.ts
 
 **预计时间**: 3-5 days
 
@@ -28133,7 +28323,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1548: Migrate CardApplicationService.ts
+### 步骤 1559: Migrate CardApplicationService.ts
 
 **预计时间**: 3-5 days
 
@@ -28149,7 +28339,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1549: Migrate ReviewApplicationService.ts
+### 步骤 1560: Migrate ReviewApplicationService.ts
 
 **预计时间**: 3-5 days
 
@@ -28165,7 +28355,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1550: Migrate ReviewApplicationService.ts
+### 步骤 1561: Migrate ReviewApplicationService.ts
 
 **预计时间**: 3-5 days
 
@@ -28181,7 +28371,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1551: Migrate ReviewApplicationService.ts
+### 步骤 1562: Migrate ReviewApplicationService.ts
 
 **预计时间**: 3-5 days
 
@@ -28197,7 +28387,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1552: Migrate ReviewApplicationService.ts
+### 步骤 1563: Migrate ReviewApplicationService.ts
 
 **预计时间**: 3-5 days
 
@@ -28213,7 +28403,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1553: Migrate ReviewApplicationService.ts
+### 步骤 1564: Migrate ReviewApplicationService.ts
 
 **预计时间**: 3-5 days
 
@@ -28229,7 +28419,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1554: Migrate ReviewApplicationService.ts
+### 步骤 1565: Migrate ReviewApplicationService.ts
 
 **预计时间**: 3-5 days
 
@@ -28245,7 +28435,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1555: Migrate UnifiedDataSourceManager.ts
+### 步骤 1566: Migrate UnifiedDataSourceManager.ts
 
 **预计时间**: 3-5 days
 
@@ -28260,7 +28450,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -28268,7 +28457,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1556: Migrate UnifiedDataSourceManager.ts
+### 步骤 1567: Migrate UnifiedDataSourceManager.ts
 
 **预计时间**: 3-5 days
 
@@ -28283,7 +28472,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -28291,7 +28479,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1557: Migrate UnifiedDataSourceManager.ts
+### 步骤 1568: Migrate UnifiedDataSourceManager.ts
 
 **预计时间**: 3-5 days
 
@@ -28306,7 +28494,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -28314,7 +28501,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1558: Migrate UnifiedDataSourceManager.ts
+### 步骤 1569: Migrate UnifiedDataSourceManager.ts
 
 **预计时间**: 3-5 days
 
@@ -28329,7 +28516,6 @@ Run unit tests and integration tests for affected queues
 - @/core/queue/domain/NeuralRoamQueue
 - @/core/queue/domain/LeechReviewQueue
 - @/infrastructure/queue/SiyuanLeechActionEffectsAdapter
-- @/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter
 - @/core/queue/managers/UnifiedDataSourceManager
 - @/core/queue/domain/ports
 - @/utils/logger
@@ -28337,7 +28523,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1559: Migrate UpdateFSRSCardUseCase.ts
+### 步骤 1570: Migrate UpdateFSRSCardUseCase.ts
 
 **预计时间**: 3-5 days
 
@@ -28352,7 +28538,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1560: Migrate UpdateFSRSCardUseCase.ts
+### 步骤 1571: Migrate UpdateFSRSCardUseCase.ts
 
 **预计时间**: 3-5 days
 
@@ -28367,7 +28553,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1561: Migrate TransactionObserver.ts
+### 步骤 1572: Migrate TransactionObserver.ts
 
 **预计时间**: 3-5 days
 
@@ -28385,7 +28571,25 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1562: Migrate CardFilterService.ts
+### 步骤 1573: Migrate TransactionObserver.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\box\TransactionObserver.ts
+- @/index
+- @/core/card-builder
+- @/core/siyuan/api
+- @/core/siyuan/riff
+- @/core/siyuan/block
+- @/utils/logger
+- @/types
+- @/core/storage/ports
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1574: Migrate CardFilterService.ts
 
 **预计时间**: 3-5 days
 
@@ -28397,7 +28601,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1563: Migrate RenderProfileResolver.ts
+### 步骤 1575: Migrate RenderProfileResolver.ts
 
 **预计时间**: 3-5 days
 
@@ -28408,7 +28612,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1564: Migrate index.ts
+### 步骤 1576: Migrate index.ts
 
 **预计时间**: 3-5 days
 
@@ -28420,7 +28624,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1565: Migrate ClozeStrategy.ts
+### 步骤 1577: Migrate ClozeStrategy.ts
 
 **预计时间**: 3-5 days
 
@@ -28432,7 +28636,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1566: Migrate DefaultStrategy.ts
+### 步骤 1578: Migrate DefaultStrategy.ts
 
 **预计时间**: 3-5 days
 
@@ -28444,7 +28648,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1567: Migrate QAStrategy.ts
+### 步骤 1579: Migrate QAStrategy.ts
 
 **预计时间**: 3-5 days
 
@@ -28456,7 +28660,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1568: Migrate types.ts
+### 步骤 1580: Migrate types.ts
 
 **预计时间**: 3-5 days
 
@@ -28467,7 +28671,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1569: Migrate CardTypeMarkerService.ts
+### 步骤 1581: Migrate CardTypeMarkerService.ts
 
 **预计时间**: 3-5 days
 
@@ -28476,58 +28680,12 @@ Run unit tests and integration tests for affected queues
 - @/types/card
 - @/types/card
 - @/core/storage/ports
-- @/core/siyuan/api
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1570: Migrate CardTypeMarkerService.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card-type\CardTypeMarkerService.ts
-- @/types/card
-- @/types/card
-- @/core/storage/ports
-- @/core/siyuan/api
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1571: Migrate CardTypeMarkerService.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card-type\CardTypeMarkerService.ts
-- @/types/card
-- @/types/card
-- @/core/storage/ports
-- @/core/siyuan/api
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1572: Migrate CardTypeMarkerService.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\card-type\CardTypeMarkerService.ts
-- @/types/card
-- @/types/card
-- @/core/storage/ports
-- @/core/siyuan/api
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1573: Migrate QueueBackedStrategy.ts
+### 步骤 1582: Migrate QueueBackedStrategy.ts
 
 **预计时间**: 3-5 days
 
@@ -28539,7 +28697,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1574: Migrate QueueBackedStrategy.ts
+### 步骤 1583: Migrate QueueBackedStrategy.ts
 
 **预计时间**: 3-5 days
 
@@ -28551,7 +28709,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1575: Migrate QueueBackedStrategy.ts
+### 步骤 1584: Migrate QueueBackedStrategy.ts
 
 **预计时间**: 3-5 days
 
@@ -28563,7 +28721,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1576: Migrate QueueBackedStrategy.ts
+### 步骤 1585: Migrate QueueBackedStrategy.ts
 
 **预计时间**: 3-5 days
 
@@ -28575,7 +28733,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1577: Migrate QueueBackedStrategy.ts
+### 步骤 1586: Migrate QueueBackedStrategy.ts
 
 **预计时间**: 3-5 days
 
@@ -28587,7 +28745,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1578: Migrate QueueBackedStrategy.ts
+### 步骤 1587: Migrate QueueBackedStrategy.ts
 
 **预计时间**: 3-5 days
 
@@ -28599,7 +28757,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1579: Migrate adapter.ts
+### 步骤 1588: Migrate adapter.ts
 
 **预计时间**: 3-5 days
 
@@ -28608,105 +28766,6 @@ Run unit tests and integration tests for affected queues
 - @/global
 - @/core/siyuan
 - @/core/queue
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1580: Migrate BaseReviewQueue.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1581: Migrate BaseReviewQueue.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1582: Migrate BaseReviewQueue.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1583: Migrate BaseReviewQueue.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1584: Migrate BaseReviewQueue.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1585: Migrate BaseReviewQueue.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1586: Migrate BaseReviewQueue.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1587: Migrate BaseReviewQueue.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1588: Migrate BaseReviewQueue.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
 - @/utils/logger
 
 **测试策略**:
@@ -28877,7 +28936,106 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1604: Migrate FilterGroupQueue.ts
+### 步骤 1604: Migrate BaseReviewQueue.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1605: Migrate BaseReviewQueue.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1606: Migrate BaseReviewQueue.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1607: Migrate BaseReviewQueue.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1608: Migrate BaseReviewQueue.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1609: Migrate BaseReviewQueue.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1610: Migrate BaseReviewQueue.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1611: Migrate BaseReviewQueue.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1612: Migrate BaseReviewQueue.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\BaseReviewQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1613: Migrate FilterGroupQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -28888,7 +29046,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1605: Migrate FilterGroupQueue.ts
+### 步骤 1614: Migrate FilterGroupQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -28899,7 +29057,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1606: Migrate FilterGroupQueue.ts
+### 步骤 1615: Migrate FilterGroupQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -28910,7 +29068,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1607: Migrate FinalDrillQueue.ts
+### 步骤 1616: Migrate FinalDrillQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -28921,7 +29079,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1608: Migrate FinalDrillQueue.ts
+### 步骤 1617: Migrate FinalDrillQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -28932,7 +29090,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1609: Migrate FinalDrillQueue.ts
+### 步骤 1618: Migrate FinalDrillQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -28943,7 +29101,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1610: Migrate FinalDrillQueue.ts
+### 步骤 1619: Migrate FinalDrillQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -28954,7 +29112,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1611: Migrate FinalDrillQueue.ts
+### 步骤 1620: Migrate FinalDrillQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -28965,7 +29123,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1612: Migrate FinalDrillQueue.ts
+### 步骤 1621: Migrate FinalDrillQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -28976,7 +29134,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1613: Migrate IncrementalLearningQueue.ts
+### 步骤 1622: Migrate IncrementalLearningQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -28987,7 +29145,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1614: Migrate IncrementalLearningQueue.ts
+### 步骤 1623: Migrate IncrementalLearningQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -28998,7 +29156,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1615: Migrate IncrementalLearningQueue.ts
+### 步骤 1624: Migrate IncrementalLearningQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29009,7 +29167,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1616: Migrate IncrementalLearningQueue.ts
+### 步骤 1625: Migrate IncrementalLearningQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29020,7 +29178,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1617: Migrate IncrementalLearningQueue.ts
+### 步骤 1626: Migrate IncrementalLearningQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29031,7 +29189,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1618: Migrate IncrementalLearningQueue.ts
+### 步骤 1627: Migrate IncrementalLearningQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29042,7 +29200,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1619: Migrate IncrementalLearningQueue.ts
+### 步骤 1628: Migrate IncrementalLearningQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29053,7 +29211,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1620: Migrate IncrementalLearningQueue.ts
+### 步骤 1629: Migrate IncrementalLearningQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29064,7 +29222,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1621: Migrate IncrementalLearningQueue.ts
+### 步骤 1630: Migrate IncrementalLearningQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29075,7 +29233,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1622: Migrate ManualCardSetStrategy.ts
+### 步骤 1631: Migrate ManualCardSetStrategy.ts
 
 **预计时间**: 3-5 days
 
@@ -29086,7 +29244,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1623: Migrate ManualCardSetStrategy.ts
+### 步骤 1632: Migrate ManualCardSetStrategy.ts
 
 **预计时间**: 3-5 days
 
@@ -29097,7 +29255,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1624: Migrate ManualCardSetStrategy.ts
+### 步骤 1633: Migrate ManualCardSetStrategy.ts
 
 **预计时间**: 3-5 days
 
@@ -29108,7 +29266,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1625: Migrate NeuralRoamQueue.ts
+### 步骤 1634: Migrate NeuralRoamQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29119,7 +29277,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1626: Migrate NeuralRoamQueue.ts
+### 步骤 1635: Migrate NeuralRoamQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29130,7 +29288,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1627: Migrate NeuralRoamQueue.ts
+### 步骤 1636: Migrate NeuralRoamQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29141,7 +29299,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1628: Migrate NeuralRoamQueue.ts
+### 步骤 1637: Migrate NeuralRoamQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29152,7 +29310,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1629: Migrate NeuralRoamQueue.ts
+### 步骤 1638: Migrate NeuralRoamQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29163,7 +29321,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1630: Migrate NeuralRoamQueue.ts
+### 步骤 1639: Migrate NeuralRoamQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29174,7 +29332,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1631: Migrate NeuralRoamQueue.ts
+### 步骤 1640: Migrate NeuralRoamQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29185,7 +29343,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1632: Migrate NeuralRoamQueue.ts
+### 步骤 1641: Migrate NeuralRoamQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29196,7 +29354,29 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1633: Migrate PriorityQueueService.ts
+### 步骤 1642: Migrate NeuralRoamQueue.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1643: Migrate NeuralRoamQueue.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\domain\NeuralRoamQueue.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1644: Migrate PriorityQueueService.ts
 
 **预计时间**: 3-5 days
 
@@ -29207,7 +29387,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1634: Migrate PriorityQueueService.ts
+### 步骤 1645: Migrate PriorityQueueService.ts
 
 **预计时间**: 3-5 days
 
@@ -29218,7 +29398,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1635: Migrate PriorityQueueService.ts
+### 步骤 1646: Migrate PriorityQueueService.ts
 
 **预计时间**: 3-5 days
 
@@ -29229,7 +29409,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1636: Migrate PriorityQueueService.ts
+### 步骤 1647: Migrate PriorityQueueService.ts
 
 **预计时间**: 3-5 days
 
@@ -29240,7 +29420,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1637: Migrate PriorityQueueService.ts
+### 步骤 1648: Migrate PriorityQueueService.ts
 
 **预计时间**: 3-5 days
 
@@ -29251,7 +29431,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1638: Migrate PriorityQueueService.ts
+### 步骤 1649: Migrate PriorityQueueService.ts
 
 **预计时间**: 3-5 days
 
@@ -29262,7 +29442,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1639: Migrate RetrievalPracticeQueue.ts
+### 步骤 1650: Migrate RetrievalPracticeQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29273,7 +29453,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1640: Migrate RetrievalPracticeQueue.ts
+### 步骤 1651: Migrate RetrievalPracticeQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29284,7 +29464,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1641: Migrate RetrievalPracticeQueue.ts
+### 步骤 1652: Migrate RetrievalPracticeQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29295,7 +29475,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1642: Migrate RetrievalPracticeQueue.ts
+### 步骤 1653: Migrate RetrievalPracticeQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29306,7 +29486,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1643: Migrate RetrievalPracticeQueue.ts
+### 步骤 1654: Migrate RetrievalPracticeQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29317,7 +29497,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1644: Migrate RetrievalPracticeQueue.ts
+### 步骤 1655: Migrate RetrievalPracticeQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29328,7 +29508,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1645: Migrate RetrievalPracticeQueue.ts
+### 步骤 1656: Migrate RetrievalPracticeQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29339,7 +29519,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1646: Migrate RetrievalPracticeQueue.ts
+### 步骤 1657: Migrate RetrievalPracticeQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29350,7 +29530,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1647: Migrate RetrievalPracticeQueue.ts
+### 步骤 1658: Migrate RetrievalPracticeQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29361,7 +29541,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1648: Migrate RetrievalPracticeQueue.ts
+### 步骤 1659: Migrate RetrievalPracticeQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29372,7 +29552,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1649: Migrate SubsetReviewQueue.ts
+### 步骤 1660: Migrate SubsetReviewQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29384,7 +29564,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1650: Migrate SubsetReviewQueue.ts
+### 步骤 1661: Migrate SubsetReviewQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29396,7 +29576,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1651: Migrate TemporaryDrillQueue.ts
+### 步骤 1662: Migrate TemporaryDrillQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29408,7 +29588,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1652: Migrate TemporaryDrillQueue.ts
+### 步骤 1663: Migrate TemporaryDrillQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29420,7 +29600,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1653: Migrate TemporaryDrillQueue.ts
+### 步骤 1664: Migrate TemporaryDrillQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29432,115 +29612,128 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1654: Migrate TopicFilter.ts
+### 步骤 1665: Migrate TopicFilter.ts
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
-- @/core/siyuan/api
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1655: Migrate TopicFilter.ts
+### 步骤 1666: Migrate TopicFilter.ts
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
-- @/core/siyuan/api
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1656: Migrate TopicFilter.ts
+### 步骤 1667: Migrate TopicFilter.ts
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
-- @/core/siyuan/api
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1657: Migrate TopicFilter.ts
+### 步骤 1668: Migrate TopicFilter.ts
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
-- @/core/siyuan/api
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1658: Migrate TopicFilter.ts
+### 步骤 1669: Migrate TopicFilter.ts
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
-- @/core/siyuan/api
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1659: Migrate TopicFilter.ts
+### 步骤 1670: Migrate TopicFilter.ts
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
-- @/core/siyuan/api
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1660: Migrate TopicFilter.ts
+### 步骤 1671: Migrate TopicFilter.ts
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
-- @/core/siyuan/api
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1661: Migrate TopicFilter.ts
+### 步骤 1672: Migrate TopicFilter.ts
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
-- @/core/siyuan/api
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1662: Migrate TopicFilter.ts
+### 步骤 1673: Migrate TopicFilter.ts
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
-- @/core/siyuan/api
 - @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1663: Migrate UnifiedDataSourceManager.ts
+### 步骤 1674: Migrate TopicFilter.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1675: Migrate TopicFilter.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\queue\filters\TopicFilter.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1676: Migrate UnifiedDataSourceManager.ts
 
 **预计时间**: 3-5 days
 
@@ -29552,7 +29745,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1664: Migrate UnifiedDataSourceManager.ts
+### 步骤 1677: Migrate UnifiedDataSourceManager.ts
 
 **预计时间**: 3-5 days
 
@@ -29564,7 +29757,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1665: Migrate UnifiedDataSourceManager.ts
+### 步骤 1678: Migrate UnifiedDataSourceManager.ts
 
 **预计时间**: 3-5 days
 
@@ -29576,7 +29769,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1666: Migrate UnifiedDataSourceManager.ts
+### 步骤 1679: Migrate UnifiedDataSourceManager.ts
 
 **预计时间**: 3-5 days
 
@@ -29588,7 +29781,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1667: Migrate UnifiedDataSourceManager.ts
+### 步骤 1680: Migrate UnifiedDataSourceManager.ts
 
 **预计时间**: 3-5 days
 
@@ -29600,7 +29793,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1668: Migrate UnifiedDataSourceManager.ts
+### 步骤 1681: Migrate UnifiedDataSourceManager.ts
 
 **预计时间**: 3-5 days
 
@@ -29612,7 +29805,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1669: Migrate ConceptNeuralQueue.ts
+### 步骤 1682: Migrate ConceptNeuralQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29624,7 +29817,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1670: Migrate ConceptNeuralQueue.ts
+### 步骤 1683: Migrate ConceptNeuralQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29636,7 +29829,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1671: Migrate ConceptNeuralQueue.ts
+### 步骤 1684: Migrate ConceptNeuralQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29648,7 +29841,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1672: Migrate ConceptNeuralQueue.ts
+### 步骤 1685: Migrate ConceptNeuralQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29660,7 +29853,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1673: Migrate ConceptNeuralQueue.ts
+### 步骤 1686: Migrate ConceptNeuralQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29672,7 +29865,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1674: Migrate NeuralQueue.ts
+### 步骤 1687: Migrate NeuralQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29683,7 +29876,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1675: Migrate NeuralQueue.ts
+### 步骤 1688: Migrate NeuralQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29694,7 +29887,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1676: Migrate NeuralQueue.ts
+### 步骤 1689: Migrate NeuralQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29705,7 +29898,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1677: Migrate NeuralQueue.ts
+### 步骤 1690: Migrate NeuralQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29716,7 +29909,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1678: Migrate NeuralQueue.ts
+### 步骤 1691: Migrate NeuralQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29727,7 +29920,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1679: Migrate NeuralQueue.ts
+### 步骤 1692: Migrate NeuralQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29738,7 +29931,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1680: Migrate NeuralQueue.ts
+### 步骤 1693: Migrate NeuralQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29749,7 +29942,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1681: Migrate NeuralQueue.ts
+### 步骤 1694: Migrate NeuralQueue.ts
 
 **预计时间**: 3-5 days
 
@@ -29760,7 +29953,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1682: Migrate DualQueueSequencer.ts
+### 步骤 1695: Migrate DualQueueSequencer.ts
 
 **预计时间**: 3-5 days
 
@@ -29771,7 +29964,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1683: Migrate DualQueueSequencer.ts
+### 步骤 1696: Migrate DualQueueSequencer.ts
 
 **预计时间**: 3-5 days
 
@@ -29782,7 +29975,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1684: Migrate FinalDrillSequencer.ts
+### 步骤 1697: Migrate FinalDrillSequencer.ts
 
 **预计时间**: 3-5 days
 
@@ -29793,7 +29986,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1685: Migrate FSRSSequencer.test.ts
+### 步骤 1698: Migrate FSRSSequencer.test.ts
 
 **预计时间**: 3-5 days
 
@@ -29804,7 +29997,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1686: Migrate GroupSequencer.ts
+### 步骤 1699: Migrate GroupSequencer.ts
 
 **预计时间**: 3-5 days
 
@@ -29815,7 +30008,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1687: Migrate GroupSequencer.ts
+### 步骤 1700: Migrate GroupSequencer.ts
 
 **预计时间**: 3-5 days
 
@@ -29826,7 +30019,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1688: Migrate PrioritySequencer.ts
+### 步骤 1701: Migrate PrioritySequencer.ts
 
 **预计时间**: 3-5 days
 
@@ -29837,7 +30030,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1689: Migrate PrioritySequencer.ts
+### 步骤 1702: Migrate PrioritySequencer.ts
 
 **预计时间**: 3-5 days
 
@@ -29848,7 +30041,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1690: Migrate SortedSequencer.ts
+### 步骤 1703: Migrate SortedSequencer.ts
 
 **预计时间**: 3-5 days
 
@@ -29859,7 +30052,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1691: Migrate SortedSequencer.ts
+### 步骤 1704: Migrate SortedSequencer.ts
 
 **预计时间**: 3-5 days
 
@@ -29870,7 +30063,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1692: Migrate UnifiedStorageCardUpdateAdapter.ts
+### 步骤 1705: Migrate UnifiedStorageCardUpdateAdapter.ts
 
 **预计时间**: 3-5 days
 
@@ -29884,7 +30077,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1693: Migrate UnifiedStorageCardUpdateAdapter.ts
+### 步骤 1706: Migrate UnifiedStorageCardUpdateAdapter.ts
 
 **预计时间**: 3-5 days
 
@@ -29898,7 +30091,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1694: Migrate AdvanceEngine.ts
+### 步骤 1707: Migrate AdvanceEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -29910,7 +30103,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1695: Migrate AdvanceEngine.ts
+### 步骤 1708: Migrate AdvanceEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -29922,7 +30115,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1696: Migrate AdvanceEngine.ts
+### 步骤 1709: Migrate AdvanceEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -29934,7 +30127,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1697: Migrate AdvanceEngine.ts
+### 步骤 1710: Migrate AdvanceEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -29946,7 +30139,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1698: Migrate BaseRescheduleEngine.ts
+### 步骤 1711: Migrate BaseRescheduleEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -29958,7 +30151,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1699: Migrate BaseRescheduleEngine.ts
+### 步骤 1712: Migrate BaseRescheduleEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -29970,7 +30163,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1700: Migrate BaseRescheduleEngine.ts
+### 步骤 1713: Migrate BaseRescheduleEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -29982,7 +30175,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1701: Migrate BaseRescheduleEngine.ts
+### 步骤 1714: Migrate BaseRescheduleEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -29994,7 +30187,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1702: Migrate BatchProcessor.ts
+### 步骤 1715: Migrate BatchProcessor.ts
 
 **预计时间**: 3-5 days
 
@@ -30006,7 +30199,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1703: Migrate BatchProcessor.ts
+### 步骤 1716: Migrate BatchProcessor.ts
 
 **预计时间**: 3-5 days
 
@@ -30018,7 +30211,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1704: Migrate BatchProcessor.ts
+### 步骤 1717: Migrate BatchProcessor.ts
 
 **预计时间**: 3-5 days
 
@@ -30030,7 +30223,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1705: Migrate BatchProcessor.ts
+### 步骤 1718: Migrate BatchProcessor.ts
 
 **预计时间**: 3-5 days
 
@@ -30042,7 +30235,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1706: Migrate BatchProcessor.ts
+### 步骤 1719: Migrate BatchProcessor.ts
 
 **预计时间**: 3-5 days
 
@@ -30054,7 +30247,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1707: Migrate BatchProcessor.ts
+### 步骤 1720: Migrate BatchProcessor.ts
 
 **预计时间**: 3-5 days
 
@@ -30066,7 +30259,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1708: Migrate BatchProcessor.ts
+### 步骤 1721: Migrate BatchProcessor.ts
 
 **预计时间**: 3-5 days
 
@@ -30078,7 +30271,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1709: Migrate BatchProcessor.ts
+### 步骤 1722: Migrate BatchProcessor.ts
 
 **预计时间**: 3-5 days
 
@@ -30090,7 +30283,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1710: Migrate BatchProcessor.ts
+### 步骤 1723: Migrate BatchProcessor.ts
 
 **预计时间**: 3-5 days
 
@@ -30102,7 +30295,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1711: Migrate ports.ts
+### 步骤 1724: Migrate ports.ts
 
 **预计时间**: 3-5 days
 
@@ -30114,7 +30307,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1712: Migrate ports.ts
+### 步骤 1725: Migrate ports.ts
 
 **预计时间**: 3-5 days
 
@@ -30126,7 +30319,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1713: Migrate ports.ts
+### 步骤 1726: Migrate ports.ts
 
 **预计时间**: 3-5 days
 
@@ -30138,7 +30331,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1714: Migrate ports.ts
+### 步骤 1727: Migrate ports.ts
 
 **预计时间**: 3-5 days
 
@@ -30150,7 +30343,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1715: Migrate PostponeEngine.ts
+### 步骤 1728: Migrate PostponeEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -30162,7 +30355,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1716: Migrate PostponeEngine.ts
+### 步骤 1729: Migrate PostponeEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -30174,7 +30367,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1717: Migrate PostponeEngine.ts
+### 步骤 1730: Migrate PostponeEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -30186,7 +30379,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1718: Migrate PostponeEngine.ts
+### 步骤 1731: Migrate PostponeEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -30198,7 +30391,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1719: Migrate PostponeEngine.ts
+### 步骤 1732: Migrate PostponeEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -30210,7 +30403,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1720: Migrate PostponeEngine.ts
+### 步骤 1733: Migrate PostponeEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -30222,7 +30415,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1721: Migrate PostponeEngine.ts
+### 步骤 1734: Migrate PostponeEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -30234,7 +30427,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1722: Migrate PostponeEngine.ts
+### 步骤 1735: Migrate PostponeEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -30246,7 +30439,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1723: Migrate rescheduleService.ts
+### 步骤 1736: Migrate rescheduleService.ts
 
 **预计时间**: 3-5 days
 
@@ -30261,7 +30454,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1724: Migrate rescheduleService.ts
+### 步骤 1737: Migrate rescheduleService.ts
 
 **预计时间**: 3-5 days
 
@@ -30276,7 +30469,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1725: Migrate rescheduleService.ts
+### 步骤 1738: Migrate rescheduleService.ts
 
 **预计时间**: 3-5 days
 
@@ -30291,7 +30484,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1726: Migrate rescheduleService.ts
+### 步骤 1739: Migrate rescheduleService.ts
 
 **预计时间**: 3-5 days
 
@@ -30306,7 +30499,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1727: Migrate rescheduleService.ts
+### 步骤 1740: Migrate rescheduleService.ts
 
 **预计时间**: 3-5 days
 
@@ -30321,7 +30514,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1728: Migrate rescheduleService.ts
+### 步骤 1741: Migrate rescheduleService.ts
 
 **预计时间**: 3-5 days
 
@@ -30336,7 +30529,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1729: Migrate rescheduleService.ts
+### 步骤 1742: Migrate rescheduleService.ts
 
 **预计时间**: 3-5 days
 
@@ -30351,7 +30544,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1730: Migrate rescheduleService.ts
+### 步骤 1743: Migrate rescheduleService.ts
 
 **预计时间**: 3-5 days
 
@@ -30366,7 +30559,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1731: Migrate rescheduleService.ts
+### 步骤 1744: Migrate rescheduleService.ts
 
 **预计时间**: 3-5 days
 
@@ -30381,7 +30574,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1732: Migrate SchedulerRouter.ts
+### 步骤 1745: Migrate SchedulerRouter.ts
 
 **预计时间**: 3-5 days
 
@@ -30393,7 +30586,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1733: Migrate SchedulerRouter.ts
+### 步骤 1746: Migrate SchedulerRouter.ts
 
 **预计时间**: 3-5 days
 
@@ -30405,7 +30598,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1734: Migrate SchedulerRouter.ts
+### 步骤 1747: Migrate SchedulerRouter.ts
 
 **预计时间**: 3-5 days
 
@@ -30417,7 +30610,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1735: Migrate SchedulerRouter.ts
+### 步骤 1748: Migrate SchedulerRouter.ts
 
 **预计时间**: 3-5 days
 
@@ -30429,7 +30622,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1736: Migrate SchedulerRouter.ts
+### 步骤 1749: Migrate SchedulerRouter.ts
 
 **预计时间**: 3-5 days
 
@@ -30441,7 +30634,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1737: Migrate SchedulerRouter.ts
+### 步骤 1750: Migrate SchedulerRouter.ts
 
 **预计时间**: 3-5 days
 
@@ -30453,7 +30646,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1738: Migrate SchedulerRouter.ts
+### 步骤 1751: Migrate SchedulerRouter.ts
 
 **预计时间**: 3-5 days
 
@@ -30465,7 +30658,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1739: Migrate SchedulerRouter.ts
+### 步骤 1752: Migrate SchedulerRouter.ts
 
 **预计时间**: 3-5 days
 
@@ -30477,7 +30670,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1740: Migrate SpreadEngine.ts
+### 步骤 1753: Migrate SpreadEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -30489,7 +30682,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1741: Migrate SpreadEngine.ts
+### 步骤 1754: Migrate SpreadEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -30501,7 +30694,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1742: Migrate SpreadEngine.ts
+### 步骤 1755: Migrate SpreadEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -30513,7 +30706,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1743: Migrate SpreadEngine.ts
+### 步骤 1756: Migrate SpreadEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -30525,7 +30718,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1744: Migrate SpreadEngine.ts
+### 步骤 1757: Migrate SpreadEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -30537,7 +30730,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1745: Migrate SpreadEngine.ts
+### 步骤 1758: Migrate SpreadEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -30549,7 +30742,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1746: Migrate SpreadEngine.ts
+### 步骤 1759: Migrate SpreadEngine.ts
 
 **预计时间**: 3-5 days
 
@@ -30557,149 +30750,6 @@ Run unit tests and integration tests for affected queues
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\SpreadEngine.ts
 - @/types/card
 - @/types/reschedule
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1747: Migrate ImprovedTopicScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1748: Migrate ImprovedTopicScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1749: Migrate ImprovedTopicScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1750: Migrate ImprovedTopicScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1751: Migrate ImprovedTopicScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1752: Migrate ImprovedTopicScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1753: Migrate ImprovedTopicScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1754: Migrate ImprovedTopicScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1755: Migrate ImprovedTopicScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1756: Migrate ImprovedTopicScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1757: Migrate ImprovedTopicScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1758: Migrate ImprovedTopicScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
-- @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1759: Migrate ImprovedTopicScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
-- @/types
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -30726,7 +30776,150 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1762: Migrate migration.ts
+### 步骤 1762: Migrate ImprovedTopicScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1763: Migrate ImprovedTopicScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1764: Migrate ImprovedTopicScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1765: Migrate ImprovedTopicScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1766: Migrate ImprovedTopicScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1767: Migrate ImprovedTopicScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1768: Migrate ImprovedTopicScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1769: Migrate ImprovedTopicScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1770: Migrate ImprovedTopicScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1771: Migrate ImprovedTopicScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1772: Migrate ImprovedTopicScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1773: Migrate ImprovedTopicScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1774: Migrate ImprovedTopicScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\ImprovedTopicScheduler.ts
+- @/types
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1775: Migrate migration.ts
 
 **预计时间**: 3-5 days
 
@@ -30738,7 +30931,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1763: Migrate migration.ts
+### 步骤 1776: Migrate migration.ts
 
 **预计时间**: 3-5 days
 
@@ -30750,7 +30943,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1764: Migrate migration.ts
+### 步骤 1777: Migrate migration.ts
 
 **预计时间**: 3-5 days
 
@@ -30762,7 +30955,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1765: Migrate migration.ts
+### 步骤 1778: Migrate migration.ts
 
 **预计时间**: 3-5 days
 
@@ -30774,7 +30967,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1766: Migrate migration.ts
+### 步骤 1779: Migrate migration.ts
 
 **预计时间**: 3-5 days
 
@@ -30786,7 +30979,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1767: Migrate migration.ts
+### 步骤 1780: Migrate migration.ts
 
 **预计时间**: 3-5 days
 
@@ -30798,7 +30991,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1768: Migrate migration.ts
+### 步骤 1781: Migrate migration.ts
 
 **预计时间**: 3-5 days
 
@@ -30810,7 +31003,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1769: Migrate migration.ts
+### 步骤 1782: Migrate migration.ts
 
 **预计时间**: 3-5 days
 
@@ -30822,7 +31015,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1770: Migrate SM15Scheduler.ts
+### 步骤 1783: Migrate SM15Scheduler.ts
 
 **预计时间**: 3-5 days
 
@@ -30833,7 +31026,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1771: Migrate SM15Scheduler.ts
+### 步骤 1784: Migrate SM15Scheduler.ts
 
 **预计时间**: 3-5 days
 
@@ -30844,7 +31037,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1772: Migrate SM15Scheduler.ts
+### 步骤 1785: Migrate SM15Scheduler.ts
 
 **预计时间**: 3-5 days
 
@@ -30855,7 +31048,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1773: Migrate SM15Scheduler.ts
+### 步骤 1786: Migrate SM15Scheduler.ts
 
 **预计时间**: 3-5 days
 
@@ -30866,7 +31059,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1774: Migrate SM15Scheduler.ts
+### 步骤 1787: Migrate SM15Scheduler.ts
 
 **预计时间**: 3-5 days
 
@@ -30877,7 +31070,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1775: Migrate SM15Scheduler.ts
+### 步骤 1788: Migrate SM15Scheduler.ts
 
 **预计时间**: 3-5 days
 
@@ -30888,7 +31081,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1776: Migrate SM15Scheduler.ts
+### 步骤 1789: Migrate SM15Scheduler.ts
 
 **预计时间**: 3-5 days
 
@@ -30899,7 +31092,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1777: Migrate SM15Scheduler.ts
+### 步骤 1790: Migrate SM15Scheduler.ts
 
 **预计时间**: 3-5 days
 
@@ -30910,7 +31103,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1778: Migrate SM15Scheduler.ts
+### 步骤 1791: Migrate SM15Scheduler.ts
 
 **预计时间**: 3-5 days
 
@@ -30921,7 +31114,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1779: Migrate SM15Scheduler.ts
+### 步骤 1792: Migrate SM15Scheduler.ts
 
 **预计时间**: 3-5 days
 
@@ -30932,182 +31125,13 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1780: Migrate SM15Scheduler.ts
+### 步骤 1793: Migrate SM15Scheduler.ts
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\SM15Scheduler.ts
 - @/types
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1781: Migrate TSFSRSScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
-- @/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1782: Migrate TSFSRSScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
-- @/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1783: Migrate TSFSRSScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
-- @/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1784: Migrate TSFSRSScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
-- @/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1785: Migrate TSFSRSScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
-- @/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1786: Migrate TSFSRSScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
-- @/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1787: Migrate TSFSRSScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
-- @/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1788: Migrate TSFSRSScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
-- @/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1789: Migrate TSFSRSScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
-- @/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1790: Migrate TSFSRSScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
-- @/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1791: Migrate TSFSRSScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
-- @/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1792: Migrate TSFSRSScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
-- @/types
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1793: Migrate TSFSRSScheduler.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
-- ts-fsrs
-- @/types
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -31125,7 +31149,176 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1795: Migrate types.ts
+### 步骤 1795: Migrate TSFSRSScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1796: Migrate TSFSRSScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1797: Migrate TSFSRSScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1798: Migrate TSFSRSScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1799: Migrate TSFSRSScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1800: Migrate TSFSRSScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1801: Migrate TSFSRSScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1802: Migrate TSFSRSScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1803: Migrate TSFSRSScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1804: Migrate TSFSRSScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1805: Migrate TSFSRSScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1806: Migrate TSFSRSScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1807: Migrate TSFSRSScheduler.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\scheduler\strategies\TSFSRSScheduler.ts
+- ts-fsrs
+- @/types
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1808: Migrate types.ts
 
 **预计时间**: 3-5 days
 
@@ -31136,7 +31329,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1796: Migrate types.ts
+### 步骤 1809: Migrate types.ts
 
 **预计时间**: 3-5 days
 
@@ -31147,7 +31340,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1797: Migrate types.ts
+### 步骤 1810: Migrate types.ts
 
 **预计时间**: 3-5 days
 
@@ -31158,7 +31351,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1798: Migrate types.ts
+### 步骤 1811: Migrate types.ts
 
 **预计时间**: 3-5 days
 
@@ -31169,7 +31362,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1799: Migrate types.ts
+### 步骤 1812: Migrate types.ts
 
 **预计时间**: 3-5 days
 
@@ -31180,7 +31373,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1800: Migrate CardStorage.ts
+### 步骤 1813: Migrate CardStorage.ts
 
 **预计时间**: 3-5 days
 
@@ -31192,7 +31385,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1801: Migrate CardStorage.ts
+### 步骤 1814: Migrate CardStorage.ts
 
 **预计时间**: 3-5 days
 
@@ -31204,7 +31397,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1802: Migrate CardStorage.ts
+### 步骤 1815: Migrate CardStorage.ts
 
 **预计时间**: 3-5 days
 
@@ -31216,7 +31409,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1803: Migrate CardStorage.ts
+### 步骤 1816: Migrate CardStorage.ts
 
 **预计时间**: 3-5 days
 
@@ -31228,7 +31421,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1804: Migrate CardStorage.ts
+### 步骤 1817: Migrate CardStorage.ts
 
 **预计时间**: 3-5 days
 
@@ -31240,7 +31433,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1805: Migrate CardStorage.ts
+### 步骤 1818: Migrate CardStorage.ts
 
 **预计时间**: 3-5 days
 
@@ -31252,7 +31445,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1806: Migrate SortingStrategy.ts
+### 步骤 1819: Migrate SortingStrategy.ts
 
 **预计时间**: 3-5 days
 
@@ -31264,7 +31457,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1807: Migrate SortingStrategy.ts
+### 步骤 1820: Migrate SortingStrategy.ts
 
 **预计时间**: 3-5 days
 
@@ -31276,7 +31469,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1808: Migrate SortingStrategy.ts
+### 步骤 1821: Migrate SortingStrategy.ts
 
 **预计时间**: 3-5 days
 
@@ -31288,7 +31481,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1809: Migrate manager.ts
+### 步骤 1822: Migrate manager.ts
 
 **预计时间**: 3-5 days
 
@@ -31307,7 +31500,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1810: Migrate manager.ts
+### 步骤 1823: Migrate manager.ts
 
 **预计时间**: 3-5 days
 
@@ -31326,7 +31519,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1811: Migrate manager.ts
+### 步骤 1824: Migrate manager.ts
 
 **预计时间**: 3-5 days
 
@@ -31345,7 +31538,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1812: Migrate manager.ts
+### 步骤 1825: Migrate manager.ts
 
 **预计时间**: 3-5 days
 
@@ -31364,7 +31557,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1813: Migrate manager.ts
+### 步骤 1826: Migrate manager.ts
 
 **预计时间**: 3-5 days
 
@@ -31383,7 +31576,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1814: Migrate manager.ts
+### 步骤 1827: Migrate manager.ts
 
 **预计时间**: 3-5 days
 
@@ -31402,7 +31595,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1815: Migrate manager.ts
+### 步骤 1828: Migrate manager.ts
 
 **预计时间**: 3-5 days
 
@@ -31421,7 +31614,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1816: Migrate manager.ts
+### 步骤 1829: Migrate manager.ts
 
 **预计时间**: 3-5 days
 
@@ -31440,7 +31633,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1817: Migrate manager.ts
+### 步骤 1830: Migrate manager.ts
 
 **预计时间**: 3-5 days
 
@@ -31459,7 +31652,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1818: Migrate manager.ts
+### 步骤 1831: Migrate manager.ts
 
 **预计时间**: 3-5 days
 
@@ -31478,7 +31671,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1819: Migrate manager.ts
+### 步骤 1832: Migrate manager.ts
 
 **预计时间**: 3-5 days
 
@@ -31497,7 +31690,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1820: Migrate ports.ts
+### 步骤 1833: Migrate ports.ts
 
 **预计时间**: 3-5 days
 
@@ -31509,7 +31702,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1821: Migrate ports.ts
+### 步骤 1834: Migrate ports.ts
 
 **预计时间**: 3-5 days
 
@@ -31521,7 +31714,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1822: Migrate ports.ts
+### 步骤 1835: Migrate ports.ts
 
 **预计时间**: 3-5 days
 
@@ -31533,7 +31726,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1823: Migrate ports.ts
+### 步骤 1836: Migrate ports.ts
 
 **预计时间**: 3-5 days
 
@@ -31545,7 +31738,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1824: Migrate ports.ts
+### 步骤 1837: Migrate ports.ts
 
 **预计时间**: 3-5 days
 
@@ -31553,149 +31746,6 @@ Run unit tests and integration tests for affected queues
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\ports.ts
 - @/types/card
 - @/types/result
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1825: Migrate UnifiedStorageManager.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1826: Migrate UnifiedStorageManager.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1827: Migrate UnifiedStorageManager.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1828: Migrate UnifiedStorageManager.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1829: Migrate UnifiedStorageManager.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1830: Migrate UnifiedStorageManager.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1831: Migrate UnifiedStorageManager.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1832: Migrate UnifiedStorageManager.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1833: Migrate UnifiedStorageManager.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1834: Migrate UnifiedStorageManager.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1835: Migrate UnifiedStorageManager.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1836: Migrate UnifiedStorageManager.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
-- @/utils/logger
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1837: Migrate UnifiedStorageManager.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
-- @/utils/logger
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -31755,7 +31805,150 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1843: Migrate XiuyuanRepository.ts
+### 步骤 1843: Migrate UnifiedStorageManager.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1844: Migrate UnifiedStorageManager.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1845: Migrate UnifiedStorageManager.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1846: Migrate UnifiedStorageManager.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1847: Migrate UnifiedStorageManager.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1848: Migrate UnifiedStorageManager.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1849: Migrate UnifiedStorageManager.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1850: Migrate UnifiedStorageManager.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1851: Migrate UnifiedStorageManager.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1852: Migrate UnifiedStorageManager.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1853: Migrate UnifiedStorageManager.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1854: Migrate UnifiedStorageManager.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1855: Migrate UnifiedStorageManager.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\core\storage\UnifiedStorageManager.ts
+- @/utils/logger
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1856: Migrate XiuyuanRepository.ts
 
 **预计时间**: 3-5 days
 
@@ -31766,7 +31959,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1844: Migrate CardReadModel.ts
+### 步骤 1857: Migrate CardReadModel.ts
 
 **预计时间**: 3-5 days
 
@@ -31779,7 +31972,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1845: Migrate CardReadModel.ts
+### 步骤 1858: Migrate CardReadModel.ts
 
 **预计时间**: 3-5 days
 
@@ -31792,7 +31985,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1846: Migrate CardReadModel.ts
+### 步骤 1859: Migrate CardReadModel.ts
 
 **预计时间**: 3-5 days
 
@@ -31805,7 +31998,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1847: Migrate CardReadModel.ts
+### 步骤 1860: Migrate CardReadModel.ts
 
 **预计时间**: 3-5 days
 
@@ -31818,7 +32011,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1848: Migrate CardReadModel.ts
+### 步骤 1861: Migrate CardReadModel.ts
 
 **预计时间**: 3-5 days
 
@@ -31831,7 +32024,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1849: Migrate browserService.ts
+### 步骤 1862: Migrate browserService.ts
 
 **预计时间**: 3-5 days
 
@@ -31850,7 +32043,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1850: Migrate browserService.ts
+### 步骤 1863: Migrate browserService.ts
 
 **预计时间**: 3-5 days
 
@@ -31869,7 +32062,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1851: Migrate browserService.ts
+### 步骤 1864: Migrate browserService.ts
 
 **预计时间**: 3-5 days
 
@@ -31888,7 +32081,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1852: Migrate browserService.ts
+### 步骤 1865: Migrate browserService.ts
 
 **预计时间**: 3-5 days
 
@@ -31907,7 +32100,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1853: Migrate browserService.ts
+### 步骤 1866: Migrate browserService.ts
 
 **预计时间**: 3-5 days
 
@@ -31926,7 +32119,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1854: Migrate browserService.ts
+### 步骤 1867: Migrate browserService.ts
 
 **预计时间**: 3-5 days
 
@@ -31945,7 +32138,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1855: Migrate browserService.ts
+### 步骤 1868: Migrate browserService.ts
 
 **预计时间**: 3-5 days
 
@@ -31964,7 +32157,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1856: Migrate browserService.ts
+### 步骤 1869: Migrate browserService.ts
 
 **预计时间**: 3-5 days
 
@@ -31983,7 +32176,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1857: Migrate browserService.ts
+### 步骤 1870: Migrate browserService.ts
 
 **预计时间**: 3-5 days
 
@@ -32002,35 +32195,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1858: Migrate cardTypeConsistency.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts
-- @/types/card
-- @/types/unified-data-source
-- @/utils/logger
-- @/core/card-builder/detectCardType
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1859: Migrate cardTypeConsistency.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\browser\datasource\cardTypeConsistency.ts
-- @/types/card
-- @/types/unified-data-source
-- @/utils/logger
-- @/core/card-builder/detectCardType
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1860: Migrate DataSourceUtils.ts
+### 步骤 1871: Migrate DataSourceUtils.ts
 
 **预计时间**: 3-5 days
 
@@ -32042,7 +32207,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1861: Migrate DataSourceUtils.ts
+### 步骤 1872: Migrate DataSourceUtils.ts
 
 **预计时间**: 3-5 days
 
@@ -32054,7 +32219,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1862: Migrate DeckDataSource.ts
+### 步骤 1873: Migrate DeckDataSource.ts
 
 **预计时间**: 3-5 days
 
@@ -32069,7 +32234,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1863: Migrate FinalDrillDataSource.ts
+### 步骤 1874: Migrate FinalDrillDataSource.ts
 
 **预计时间**: 3-5 days
 
@@ -32081,7 +32246,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1864: Migrate QueueBrowserCardMapper.ts
+### 步骤 1875: Migrate QueueBrowserCardMapper.ts
 
 **预计时间**: 3-5 days
 
@@ -32092,7 +32257,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1865: Migrate QueueBrowserCardMapper.ts
+### 步骤 1876: Migrate QueueBrowserCardMapper.ts
 
 **预计时间**: 3-5 days
 
@@ -32103,7 +32268,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1866: Migrate SRSBrowserAdapter.ts
+### 步骤 1877: Migrate SRSBrowserAdapter.ts
 
 **预计时间**: 3-5 days
 
@@ -32118,7 +32283,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1867: Migrate ReviewViewAdapter.ts
+### 步骤 1878: Migrate ReviewViewAdapter.ts
 
 **预计时间**: 3-5 days
 
@@ -32130,7 +32295,7 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1868: Migrate ReviewViewAdapter.ts
+### 步骤 1879: Migrate ReviewViewAdapter.ts
 
 **预计时间**: 3-5 days
 
@@ -32142,134 +32307,13 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1869: Migrate reviewRenderPolicy.ts
+### 步骤 1880: Migrate reviewRenderPolicy.ts
 
 **预计时间**: 3-5 days
 
 **涉及文件**:
 - H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\reviewRenderPolicy.ts
 - @/types/card
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1870: Migrate FinalDrillV2Session.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
-- @/application/ports/ReviewSiyuanPort
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1871: Migrate FinalDrillV2Session.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
-- @/application/ports/ReviewSiyuanPort
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1872: Migrate FinalDrillV2Session.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
-- @/application/ports/ReviewSiyuanPort
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1873: Migrate FinalDrillV2Session.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
-- @/application/ports/ReviewSiyuanPort
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1874: Migrate FinalDrillV2Session.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
-- @/application/ports/ReviewSiyuanPort
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1875: Migrate FinalDrillV2Session.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
-- @/application/ports/ReviewSiyuanPort
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1876: Migrate FinalDrillV2Session.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
-- @/application/ports/ReviewSiyuanPort
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1877: Migrate FinalDrillV2Session.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
-- @/application/ports/ReviewSiyuanPort
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1878: Migrate FinalDrillV2Session.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
-- @/application/ports/ReviewSiyuanPort
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1879: Migrate FinalDrillV2Session.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
-- @/application/ports/ReviewSiyuanPort
-
-**测试策略**:
-Run unit tests and integration tests for affected queues
-
-### 步骤 1880: Migrate FinalDrillV2Session.ts
-
-**预计时间**: 3-5 days
-
-**涉及文件**:
-- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
-- @/application/ports/ReviewSiyuanPort
 
 **测试策略**:
 Run unit tests and integration tests for affected queues
@@ -32307,7 +32351,128 @@ Run unit tests and integration tests for affected queues
 **测试策略**:
 Run unit tests and integration tests for affected queues
 
-### 步骤 1884: Migrate types.ts
+### 步骤 1884: Migrate FinalDrillV2Session.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
+- @/application/ports/ReviewSiyuanPort
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1885: Migrate FinalDrillV2Session.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
+- @/application/ports/ReviewSiyuanPort
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1886: Migrate FinalDrillV2Session.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
+- @/application/ports/ReviewSiyuanPort
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1887: Migrate FinalDrillV2Session.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
+- @/application/ports/ReviewSiyuanPort
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1888: Migrate FinalDrillV2Session.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
+- @/application/ports/ReviewSiyuanPort
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1889: Migrate FinalDrillV2Session.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
+- @/application/ports/ReviewSiyuanPort
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1890: Migrate FinalDrillV2Session.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
+- @/application/ports/ReviewSiyuanPort
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1891: Migrate FinalDrillV2Session.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
+- @/application/ports/ReviewSiyuanPort
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1892: Migrate FinalDrillV2Session.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
+- @/application/ports/ReviewSiyuanPort
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1893: Migrate FinalDrillV2Session.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
+- @/application/ports/ReviewSiyuanPort
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1894: Migrate FinalDrillV2Session.ts
+
+**预计时间**: 3-5 days
+
+**涉及文件**:
+- H:\project-F\flashcard\siyuan-plugin-siyuanmemo\src\ui\review\v2\sessions\FinalDrillV2Session.ts
+- @/application/ports/ReviewSiyuanPort
+
+**测试策略**:
+Run unit tests and integration tests for affected queues
+
+### 步骤 1895: Migrate types.ts
 
 **预计时间**: 3-5 days
 

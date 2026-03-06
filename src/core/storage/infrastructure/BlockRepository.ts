@@ -45,7 +45,7 @@ export class BlockRepository {
       const inClause = batchIds.map(id => `'${this.escapeSQL(id)}'`).join(',');
       
       try {
-        const result = await sql(`SELECT id, root_id FROM blocks WHERE id IN (${inClause})`);
+        const result = await sql(`SELECT id, root_id FROM blocks WHERE id IN (${inClause}) LIMIT ${batchIds.length}`);
         
         for (const row of result || []) {
           rootIdMap.set(row.id, row.root_id || '');

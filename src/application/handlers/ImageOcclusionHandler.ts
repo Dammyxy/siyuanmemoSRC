@@ -1,6 +1,7 @@
 import { Dialog, showMessage } from 'siyuan';
 import type FSRSPlugin from '@/index';
 import { getBlockAttrs, getBlockKramdown, setBlockAttrs } from '@/infrastructure/siyuan/api';
+import { clamp01, normalizeRectFromPixels, toPercentMaskStyle } from '@/utils/imageOcclusionGeometry';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('ImageOcclusionHandler');
@@ -76,32 +77,6 @@ interface DialogEditorState {
 interface SyncImageOcclusionResult {
   orderedCardIds: string[];
   maskToCardId: Record<string, string>;
-}
-
-function clamp01(value: number): number {
-  return Math.min(1, Math.max(0, value));
-}
-
-function normalizeRect(
-  startX: number,
-  startY: number,
-  endX: number,
-  endY: number,
-  width: number,
-  height: number,
-): Omit<OcclusionMask, 'id' | 'groupId'> | null {
-  if (width <= 0 || height <= 0) return null;
-  const left = Math.min(startX, endX);
-  const top = Math.min(startY, endY);
-  const rectWidth = Math.abs(endX - startX);
-  const rectHeight = Math.abs(endY - startY);
-  if (rectWidth < 6 || rectHeight < 6) return null;
-  return {
-    x: clamp01(left / width),
-    y: clamp01(top / height),
-    w: clamp01(rectWidth / width),
-    h: clamp01(rectHeight / height),
-  };
 }
 
 function parseImageSourceFromKramdown(kramdown: string): string | null {
@@ -469,12 +444,19 @@ export class ImageOcclusionHandler {
       updateZoomControlState();
     };
 
-    const applyCanvasBaseWidthByNaturalSize = (): boolean => {
+    const applyCanvasBaseSizeByNaturalSize = (): boolean => {
       const naturalWidth = imageElement.naturalWidth;
-      if (!Number.isFinite(naturalWidth) || naturalWidth <= 0) {
+      const naturalHeight = imageElement.naturalHeight;
+      if (
+        !Number.isFinite(naturalWidth)
+        || naturalWidth <= 0
+        || !Number.isFinite(naturalHeight)
+        || naturalHeight <= 0
+      ) {
         return false;
       }
       canvasElement.style.setProperty('--siyuanmemo-image-occlusion-base-width', `${naturalWidth}px`);
+      canvasElement.style.setProperty('--siyuanmemo-image-occlusion-base-height', `${naturalHeight}px`);
       return true;
     };
 
@@ -484,10 +466,11 @@ export class ImageOcclusionHandler {
       if (state.selectedMaskId === mask.id) {
         el.classList.add('is-selected');
       }
-      el.style.left = `${mask.x * 100}%`;
-      el.style.top = `${mask.y * 100}%`;
-      el.style.width = `${mask.w * 100}%`;
-      el.style.height = `${mask.h * 100}%`;
+      const style = toPercentMaskStyle(mask);
+      el.style.left = style.left;
+      el.style.top = style.top;
+      el.style.width = style.width;
+      el.style.height = style.height;
       el.setAttribute('data-mask-id', mask.id);
       const label = document.createElement('span');
       label.className = 'siyuanmemo-image-occlusion-mask__label';
@@ -583,13 +566,14 @@ export class ImageOcclusionHandler {
       if (!drawing) return;
       drawing = false;
       const bounds = overlayElement.getBoundingClientRect();
-      const normalized = normalizeRect(
+      const normalized = normalizeRectFromPixels(
         startX,
         startY,
         event.clientX - bounds.left,
         event.clientY - bounds.top,
         bounds.width,
         bounds.height,
+        6,
       );
 
       if (normalized) {
@@ -741,9 +725,9 @@ export class ImageOcclusionHandler {
     });
 
     imageElement.src = imageSrc;
-    if (!applyCanvasBaseWidthByNaturalSize()) {
+    if (!applyCanvasBaseSizeByNaturalSize()) {
       bind(imageElement, 'load', () => {
-        applyCanvasBaseWidthByNaturalSize();
+        applyCanvasBaseSizeByNaturalSize();
       }, { once: true });
     }
     applyZoomPercent(100);

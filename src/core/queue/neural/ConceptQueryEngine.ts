@@ -11,7 +11,6 @@
 import * as api from '../../siyuan/api';
 import { createLogger } from '@/utils/logger';
 import { QueryCache } from '@/utils/queryCache';
-import { hasConceptDefinitionSyntax } from '@/core/xiuyuan/cardMeta';
 
 const logger = createLogger('ConceptQueryEngine');
 
@@ -35,6 +34,8 @@ export class ConceptQueryEngine {
   private readonly neighborsCache = new QueryCache<Neighbor[]>(5000, 80);
   private readonly backlinksCache = new QueryCache<string[]>(10000, 120);
   private readonly blockDataCache = new QueryCache<BlockData>(30000, 300);
+  private fsrsCardsTableAvailable: boolean | null = null;
+  private hasLoggedMissingFsrsCardsTable = false;
 
   /**
    * 获取概念卡的所有邻居
@@ -299,33 +300,36 @@ export class ConceptQueryEngine {
    * @returns 是否为概念卡
    */
   async isConceptCard(blockId: string): Promise<boolean> {
-    try {
-      try {
-        const stmt = `
-          SELECT block_id
-          FROM fsrs_cards
-          WHERE block_id = '${this.escapeSQL(blockId)}'
-            AND (type = 'concept' OR card_type_marker = 'concept')
-          LIMIT 1
-        `;
+    if (this.fsrsCardsTableAvailable === false) {
+      return false;
+    }
 
-        const rows = await api.sql(stmt);
-        if (rows && rows.length > 0) {
-          return true;
-        }
-      } catch {
-        // fsrs_cards table may be unavailable in some environments
+    try {
+      const stmt = `
+        SELECT COUNT(1) AS concept_count
+        FROM fsrs_cards
+        WHERE block_id = '${this.escapeSQL(blockId)}'
+          AND (type = 'concept' OR card_type_marker = 'concept')
+      `;
+
+      const rows = await api.sql(stmt);
+      this.fsrsCardsTableAvailable = true;
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return false;
       }
 
-      const rows = await api.sql(`
-        SELECT content
-        FROM blocks
-        WHERE id = '${this.escapeSQL(blockId)}'
-        LIMIT 1
-      `);
-      const content = typeof rows?.[0]?.content === 'string' ? rows[0].content : '';
-      return hasConceptDefinitionSyntax(content);
+      const row = rows[0] as UnknownRecord;
+      const conceptCount = Number(row.concept_count);
+      return Number.isFinite(conceptCount) && conceptCount > 0;
     } catch (error) {
+      if (this.isMissingFsrsCardsTableError(error)) {
+        this.fsrsCardsTableAvailable = false;
+        if (!this.hasLoggedMissingFsrsCardsTable) {
+          this.hasLoggedMissingFsrsCardsTable = true;
+          logger.warn('fsrs_cards table not found; concept SQL checks will return non-concept in this environment');
+        }
+        return false;
+      }
       logger.error('Failed to check if concept card:', error);
       return false;
     }
@@ -428,5 +432,11 @@ export class ConceptQueryEngine {
    */
   private escapeSQL(value: string): string {
     return value.replace(/'/g, "''");
+  }
+
+  private isMissingFsrsCardsTableError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error ?? '');
+    const normalized = message.toLowerCase();
+    return normalized.includes('no such table') && normalized.includes('fsrs_cards');
   }
 }

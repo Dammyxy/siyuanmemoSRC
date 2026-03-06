@@ -132,6 +132,10 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       return 0;
     }
 
+    if (queueId === 'neural-roam') {
+      return this.readQueueSize(queue, queueId);
+    }
+
     try {
       const cards = await queue.getCards();
       if (Array.isArray(cards)) {
@@ -144,6 +148,10 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       });
     }
 
+    return this.readQueueSize(queue, queueId);
+  }
+
+  private async readQueueSize(queue: IReviewQueue, queueId: string): Promise<number> {
     try {
       return await queue.getSize();
     } catch (error) {

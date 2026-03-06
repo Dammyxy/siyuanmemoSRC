@@ -71,47 +71,12 @@ describe('BrowserApplicationService queue counts', () => {
     );
   });
 
-  it('excludes missing cards from queue counts when getCards is available', async () => {
-    queueByType.set(
-      QueueType.RetrievalPractice,
-      createQueue([createCard('r1'), createCard('r2', { missing: true })], 99),
-    );
-    queueByType.set(
-      QueueType.FinalDrill,
-      createQueue([createCard('f1', { missing: true })], 88),
-    );
-    queueByType.set(
-      QueueType.NeuralRoam,
-      createQueue([createCard('n1'), createCard('n2')], 77),
-    );
-    queueByType.set(
-      QueueType.FilterGroup,
-      createQueue([createCard('g1'), createCard('g2', { missing: true }), createCard('g3')], 66),
-    );
-    queueByType.set(
-      QueueType.IncrementalLearning,
-      createQueue([createCard('i1', { missing: true }), createCard('i2')], 55),
-    );
-
-    const counts = await service.getQueueCounts();
-
-    expect(counts).toEqual({
-      retrieval: 1,
-      'final-drill': 0,
-      'neural-roam': 2,
-      'filter-group': 2,
-      'incremental-learning': 1,
-    });
-  });
-
-  it('falls back to getSize when getCards throws', async () => {
-    const retrievalQueue = createQueue([createCard('r1')], 11);
-    const finalQueue = createQueue([createCard('f1')], 22);
-    const neuralQueue = createQueue([createCard('n1')], 33);
-    const filterQueue = createQueue([createCard('g1')], 44);
-    const incrementalQueue = createQueue([createCard('i1')], 55);
-
-    neuralQueue.getCards.mockRejectedValueOnce(new Error('boom'));
+  it('uses getSize for neural-roam and visible cards for other queues', async () => {
+    const retrievalQueue = createQueue([createCard('r1'), createCard('r2', { missing: true })], 99);
+    const finalQueue = createQueue([createCard('f1', { missing: true })], 88);
+    const neuralQueue = createQueue([createCard('n1'), createCard('n2')], 77);
+    const filterQueue = createQueue([createCard('g1'), createCard('g2', { missing: true }), createCard('g3')], 66);
+    const incrementalQueue = createQueue([createCard('i1', { missing: true }), createCard('i2')], 55);
 
     queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
     queueByType.set(QueueType.FinalDrill, finalQueue);
@@ -121,7 +86,43 @@ describe('BrowserApplicationService queue counts', () => {
 
     const counts = await service.getQueueCounts();
 
+    expect(counts).toEqual({
+      retrieval: 1,
+      'final-drill': 0,
+      'neural-roam': 77,
+      'filter-group': 2,
+      'incremental-learning': 1,
+    });
+
+    expect(neuralQueue.getCards).not.toHaveBeenCalled();
+    expect(neuralQueue.getSize).toHaveBeenCalledTimes(1);
+    expect(retrievalQueue.getCards).toHaveBeenCalledTimes(1);
+    expect(finalQueue.getCards).toHaveBeenCalledTimes(1);
+    expect(filterQueue.getCards).toHaveBeenCalledTimes(1);
+    expect(incrementalQueue.getCards).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to getSize when non-neural getCards throws', async () => {
+    const retrievalQueue = createQueue([createCard('r1')], 11);
+    const finalQueue = createQueue([createCard('f1')], 22);
+    const neuralQueue = createQueue([createCard('n1')], 33);
+    const filterQueue = createQueue([createCard('g1')], 44);
+    const incrementalQueue = createQueue([createCard('i1')], 55);
+
+    retrievalQueue.getCards.mockRejectedValueOnce(new Error('boom'));
+
+    queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
+    queueByType.set(QueueType.FinalDrill, finalQueue);
+    queueByType.set(QueueType.NeuralRoam, neuralQueue);
+    queueByType.set(QueueType.FilterGroup, filterQueue);
+    queueByType.set(QueueType.IncrementalLearning, incrementalQueue);
+
+    const counts = await service.getQueueCounts();
+
+    expect(counts.retrieval).toBe(11);
     expect(counts['neural-roam']).toBe(33);
+    expect(retrievalQueue.getSize).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getCards).not.toHaveBeenCalled();
     expect(neuralQueue.getSize).toHaveBeenCalledTimes(1);
   });
 });

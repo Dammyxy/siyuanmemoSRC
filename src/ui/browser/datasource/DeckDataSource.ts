@@ -292,8 +292,6 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     const queue = this.manager.getQueue(route.queueType);
     const rowsForAdd = route.actionType === 'neural-roam'
       ? (await this.reconcileCardTypes(selectedRows, {
-          repair: true,
-          manager: this.manager,
           deps: this.cardTypeConsistencyDeps,
         })).rows
       : selectedRows;
@@ -351,8 +349,6 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     const allCards = await this.manager.getCards();
     let rows = allCards.map((card) => this.convertToBrowserCard(card as DeckCardRecord));
     rows = (await this.reconcileCardTypes(rows, {
-      repair: false,
-      manager: this.manager,
       deps: this.cardTypeConsistencyDeps,
     })).rows;
 
