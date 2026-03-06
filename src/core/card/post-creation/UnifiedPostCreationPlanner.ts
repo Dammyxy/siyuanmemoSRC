@@ -8,12 +8,13 @@ import type {
 import { resolveDefaultCapabilities } from './contracts';
 import {
   BasicDirectionRule,
+  BraceClozeRule,
   CdfMultilineStructuralRule,
   ConceptDefinitionInlineRule,
   DefaultRiffSyncRule,
   DescriptorInlineRule,
-  GenericClozeRule,
   ListTemplateStructuralRule,
+  MarkClozeRule,
   NumberedLatexClozeRule,
 } from './rules';
 
@@ -67,9 +68,10 @@ export class UnifiedPostCreationPlanner {
       new CdfMultilineStructuralRule(),
       new ListTemplateStructuralRule(),
       new NumberedLatexClozeRule(),
+      new BraceClozeRule(),
+      new MarkClozeRule(),
       new ConceptDefinitionInlineRule(),
       new DescriptorInlineRule(),
-      new GenericClozeRule(),
       new BasicDirectionRule(),
     ];
   }
@@ -111,4 +113,3 @@ export class UnifiedPostCreationPlanner {
     };
   }
 }
-

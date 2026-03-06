@@ -199,7 +199,7 @@ export class CardCreationHelper {
     // 构造命令
     const command: CreateCardCommand = {
       blockIds: [blockId],
-      cardType: 'item',
+      cardType: options.cardType || 'item',
       priority: options.priority ?? 50,
       metadata: {
         source: 'quick',

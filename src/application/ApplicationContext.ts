@@ -64,7 +64,7 @@ import { createLogger } from '@/utils/logger';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
 import type { RiffSyncEventHandler } from '@/infrastructure/events/RiffSyncEventHandler';
-import type { RiffIntegrationConfig } from '@/types/settings';
+import { DEFAULT_SETTINGS, type RiffIntegrationConfig } from '@/types/settings';
 
 const logger = createLogger('ApplicationContext');
 
@@ -82,6 +82,7 @@ interface ApplicationServiceRegistry {
   reviewQueuePreparationService: ReviewQueuePreparationService;
   reviewLogService: ReviewLogService;
   riffBlacklistService: RiffBlacklistService;
+  cardTypeDetectionService: CardTypeDetectionService;
   cardContentQueryService: CardContentQueryService;
   dialogManager: DialogManager;
   menuManager: MenuManager;
@@ -282,7 +283,6 @@ export class ApplicationContext {
     this.registerServiceFactory('fileService', (context) => {
       return new FileService(context.getPlugin() as unknown as SiyuanMemoPlugin);
     });
-    
     this.registerServiceFactory('queuePersistenceService', (context) => {
       const fileService = context.getFileService();
       const service = new QueuePersistenceService(fileService);
@@ -298,6 +298,18 @@ export class ApplicationContext {
       // 🔧 修复：延迟初始化（在首次使用前）
       // 注意：init() 会在 ApplicationContext.create() 中调用
       return service;
+    });
+
+    this.registerServiceFactory('cardTypeDetectionService', (context) => {
+      return new CardTypeDetectionService({
+        resolveFlashcardConfig: () => {
+          try {
+            return context.getSettingsService().getSettings().quickCard?.flashcard;
+          } catch {
+            return DEFAULT_SETTINGS.quickCard.flashcard;
+          }
+        },
+      });
     });
     
     this.registerServiceFactory('reviewQueuePreparationService', (context) => {
@@ -368,7 +380,7 @@ export class ApplicationContext {
       // UnifiedStorageManager 是统一的数据访问层，符合 DDD 原则
       
       // ✅ 创建 CardTypeDetectionService（领域服务）
-      const cardTypeDetectionService = new CardTypeDetectionService();
+      const cardTypeDetectionService = context.getCardTypeDetectionService();
       
       const xiuyuanRepo = new XiuyuanRepository(
         context.getUnifiedStorage(),  // ✅ 使用 UnifiedStorageManager
@@ -761,8 +773,16 @@ export class ApplicationContext {
     // 确保所有地方使用统一的数据访问层，避免数据不一致
     
     // ✅ 创建 CardTypeDetectionService
-    const { CardTypeDetectionService: CardTypeDetectionServiceClass } = await import('@/core/xiuyuan/domain/services/CardTypeDetectionService');
-    const cardTypeDetectionServiceTemp = new CardTypeDetectionServiceClass();
+    let settingsServiceRef: SettingsService | undefined;
+    const cardTypeDetectionServiceTemp = new CardTypeDetectionService({
+      resolveFlashcardConfig: () => {
+        try {
+          return settingsServiceRef?.getSettings().quickCard?.flashcard ?? DEFAULT_SETTINGS.quickCard.flashcard;
+        } catch {
+          return DEFAULT_SETTINGS.quickCard.flashcard;
+        }
+      },
+    });
     
     const xiuyuanRepoTemp = new XiuyuanRepository(
       unifiedStorageManager,
@@ -890,6 +910,7 @@ export class ApplicationContext {
     });
     
     // 设置 context 引用（用于 blockMenuHandler 的闭包）
+    context.serviceContainer.set('cardTypeDetectionService', cardTypeDetectionServiceTemp);
     contextRef = context;
     
     // ✅ 存储 deletionTracker 到 context（供 cardService 工厂复用）
@@ -903,6 +924,7 @@ export class ApplicationContext {
     
     // 13.5. 初始化 UnifiedDataSourceManager 的延迟依赖
     const settingsService = context.getSettingsService();
+    settingsServiceRef = settingsService;
     // 🔧 修复：初始化 SettingsService（加载配置文件）
     await settingsService.init();
     logger.info('[ApplicationContext] ✅ SettingsService initialized');
@@ -942,15 +964,14 @@ export class ApplicationContext {
       const eventBus = context.getEventBus();
       
       // ✅ 创建 CardTypeDetectionService
-      const { CardTypeDetectionService: CardTypeDetectionServiceClass2 } = await import('@/core/xiuyuan/domain/services/CardTypeDetectionService');
-      const cardTypeDetectionService2 = new CardTypeDetectionServiceClass2();
+      const cardTypeDetectionService2 = context.getCardTypeDetectionService();
       
       // ✅ 创建 XiuyuanRepository
       const xiuyuanRepository = new XiuyuanRepository(
         unifiedStorageManager,
         cardTypeDetectionService2  // ✅ 注入 CardTypeDetectionService
       );
-      const cardTypeDetectionService = new CardTypeDetectionService();
+      const cardTypeDetectionService = context.getCardTypeDetectionService();
       
       // ✅ 复用已创建的 DeletionTracker
       const deletionTracker = context.deletionTracker;
@@ -1140,7 +1161,7 @@ export class ApplicationContext {
       // 懒加载：首次调用时创建
       
       // 创建 CardTypeDetectionService（领域服务）
-      const cardTypeDetectionService = new CardTypeDetectionService();
+      const cardTypeDetectionService = this.getCardTypeDetectionService();
       
       // 创建 XiuyuanRepository
       const xiuyuanRepository = new XiuyuanRepository(
@@ -1435,6 +1456,10 @@ export class ApplicationContext {
    */
   getSettingsService(): SettingsService {
     return this.getService('settingsService');
+  }
+
+  getCardTypeDetectionService(): CardTypeDetectionService {
+    return this.getService('cardTypeDetectionService');
   }
   
   /**

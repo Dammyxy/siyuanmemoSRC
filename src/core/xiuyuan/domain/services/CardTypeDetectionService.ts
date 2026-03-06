@@ -1,78 +1,125 @@
 /**
- * CardTypeDetectionService - 卡片类型检测领域服务
+ * CardTypeDetectionService
  *
- * 智能检测卡片类型（Topic/Item）：
- * - 文档块 -> topic
- * - 有答案语法（==, {{}}, ::, ;;, 方向符）-> item
- * - 标题块 -> item
- * - 列表项有列表子级 -> item
- * - 超级块有子级 -> item
- * - 其他 -> topic
+ * Collects syntax/structure signals for Topic vs Item classification and
+ * delegates the final decision to a pure policy.
  */
 
 import { sql } from '@/core/siyuan/api';
-import { createLogger } from '@/utils/logger';
 import { batchQueryWithConcurrency } from '@/utils/batchQuery';
-import { detectAnswerSyntax, detectTypeByStructure, type CardType } from '@/core/card-type/detectionRules';
+import { createLogger } from '@/utils/logger';
+import {
+  detectAnswerSyntaxReasons,
+  detectNativeFlashcardKindsFromSyntaxReasons,
+  detectStructureFlashcardKinds,
+  type AnswerSyntaxReason,
+  type CardType,
+  type NativeFlashcardKind,
+} from '@/core/card-type/detectionRules';
+import { resolveTopicItemCardType, type TopicItemDetectionConfig } from '@/core/card-type/topicItemPolicy';
+import { DEFAULT_SETTINGS } from '@/types/settings';
 
 const logger = createLogger('CardTypeDetectionService');
 
+type BlockRow = {
+  type?: string;
+  markdown?: string;
+  content?: string;
+};
+
+export interface CardTypeDetectionInput {
+  blockId: string;
+  blockType?: string | null;
+  markdown?: string | null;
+  content?: string | null;
+  hasListChildren?: boolean;
+  hasAnyChildren?: boolean;
+}
+
+export interface CardTypeDetectionResult {
+  cardType: CardType;
+  matchedFlashcardKinds: NativeFlashcardKind[];
+  matchedSyntaxReasons: AnswerSyntaxReason[];
+}
+
+export interface CardTypeDetectionServiceOptions {
+  resolveFlashcardConfig?: () => Partial<TopicItemDetectionConfig> | undefined;
+}
+
 export type { CardType } from '@/core/card-type/detectionRules';
 
-/**
- * 卡片类型检测领域服务
- */
 export class CardTypeDetectionService {
-  /**
-   * 检测单个卡片的类型
-   */
+  constructor(private readonly options: CardTypeDetectionServiceOptions = {}) {}
+
   async detectCardType(blockId: string): Promise<CardType> {
+    const result = await this.detectCardTypeDetails({ blockId });
+    return result.cardType;
+  }
+
+  async detectCardTypeDetails(input: CardTypeDetectionInput): Promise<CardTypeDetectionResult> {
     try {
-      const blockData = await sql(`
-        SELECT type, markdown, content FROM blocks
-        WHERE id = '${blockId}'
-        LIMIT 1
-      `);
-
-      if (!blockData || blockData.length === 0) {
-        logger.debug(`Block ${blockId}: topic (block not found)`);
-        return 'topic';
+      const row = await this.loadBlockRow(input);
+      if (!row) {
+        logger.debug(`Block ${input.blockId}: topic (block not found)`);
+        return {
+          cardType: 'topic',
+          matchedFlashcardKinds: [],
+          matchedSyntaxReasons: [],
+        };
       }
 
-      const blockType = blockData[0].type;
-      const markdown = blockData[0].markdown || '';
-      const content = blockData[0].content || '';
+      const blockType = typeof input.blockType === 'string' ? input.blockType : String(row.type || '');
+      const markdown = typeof input.markdown === 'string' ? input.markdown : String(row.markdown || '');
+      const content = typeof input.content === 'string' ? input.content : String(row.content || '');
+      const hasListChildren = typeof input.hasListChildren === 'boolean'
+        ? input.hasListChildren
+        : blockType === 'i'
+          ? await this.checkHasChildren(input.blockId, ['i', 'l'])
+          : false;
+      const hasAnyChildren = typeof input.hasAnyChildren === 'boolean'
+        ? input.hasAnyChildren
+        : blockType === 's'
+          ? await this.checkHasChildren(input.blockId)
+          : false;
 
-      if (blockType === 'd') {
-        logger.debug(`Block ${blockId}: topic (document block)`);
-        return 'topic';
-      }
+      const matchedSyntaxReasons = detectAnswerSyntaxReasons(markdown, content, 'extended');
+      const matchedFlashcardKinds = Array.from(new Set([
+        ...detectNativeFlashcardKindsFromSyntaxReasons(matchedSyntaxReasons),
+        ...detectStructureFlashcardKinds({
+          blockType,
+          hasListChildren,
+          hasAnyChildren,
+        }),
+      ]));
 
-      const syntaxReason = detectAnswerSyntax(markdown, content, 'extended');
-      if (syntaxReason) {
-        logger.debug(`Block ${blockId}: item (${syntaxReason})`);
-        return 'item';
-      }
-
-      const hasListChildren = blockType === 'i' ? await this.checkHasChildren(blockId, ['i', 'l']) : false;
-      const hasAnyChildren = blockType === 's' ? await this.checkHasChildren(blockId) : false;
-      const cardType = detectTypeByStructure({
+      const result = resolveTopicItemCardType({
         blockType,
-        hasListChildren,
-        hasAnyChildren,
+        syntaxReasons: matchedSyntaxReasons,
+        matchedFlashcardKinds,
+        flashcardConfig: this.resolveFlashcardConfig(),
       });
 
-      logger.debug(`Block ${blockId}: ${cardType} (type: ${blockType})`);
-      return cardType;
+      logger.debug(`Block ${input.blockId}: ${result.cardType}`, {
+        blockType,
+        matchedFlashcardKinds,
+        matchedSyntaxReasons,
+      });
+
+      return {
+        cardType: result.cardType,
+        matchedFlashcardKinds: result.matchedFlashcardKinds,
+        matchedSyntaxReasons,
+      };
     } catch (err) {
-      logger.error(`Detection error for ${blockId}:`, err);
-      return 'topic';
+      logger.error(`Detection error for ${input.blockId}:`, err);
+      return {
+        cardType: 'topic',
+        matchedFlashcardKinds: [],
+        matchedSyntaxReasons: [],
+      };
     }
   }
 
-  /**
-   * 批量检测卡片类型
-   */
   async batchDetectCardTypes(blockIds: string[]): Promise<Map<string, CardType>> {
     const typeMap = new Map<string, CardType>();
 
@@ -98,9 +145,43 @@ export class CardTypeDetectionService {
     return typeMap;
   }
 
-  /**
-   * 检查块是否有特定类型的子级
-   */
+  private resolveFlashcardConfig(): TopicItemDetectionConfig {
+    const defaults = DEFAULT_SETTINGS.quickCard.flashcard;
+    const resolved = this.options.resolveFlashcardConfig?.();
+    return {
+      mark: resolved?.mark ?? defaults.mark,
+      list: resolved?.list ?? defaults.list,
+      heading: resolved?.heading ?? defaults.heading,
+      superBlock: resolved?.superBlock ?? defaults.superBlock,
+    };
+  }
+
+  private async loadBlockRow(input: CardTypeDetectionInput): Promise<BlockRow | null> {
+    if (
+      typeof input.blockType === 'string'
+      && input.markdown !== undefined
+      && input.content !== undefined
+    ) {
+      return {
+        type: input.blockType,
+        markdown: input.markdown,
+        content: input.content,
+      };
+    }
+
+    const rows = await sql(`
+      SELECT type, markdown, content FROM blocks
+      WHERE id = '${input.blockId}'
+      LIMIT 1
+    `) as BlockRow[];
+
+    if (!rows || rows.length === 0) {
+      return null;
+    }
+
+    return rows[0];
+  }
+
   private async checkHasChildren(blockId: string, childTypes?: string[]): Promise<boolean> {
     try {
       let typeFilter = '';
@@ -125,4 +206,3 @@ export class CardTypeDetectionService {
     }
   }
 }
-

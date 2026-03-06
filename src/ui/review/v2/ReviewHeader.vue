@@ -1,39 +1,47 @@
-﻿<template>
+<template>
   <div class="block__icons siyuanmemo-review-header" :class="{ 'siyuanmemo-review-header--mobile': props.isMobile }">
-    <!-- Logo + 队列名称 -->
     <div class="block__logo">
       <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>
-      <span>{{ title || header.stats.queueName || '闪卡' }}</span>
+      <span>{{ title || header.stats.queueName || '\u95ea\u5361' }}</span>
     </div>
 
-    <!-- 拖拽区域 -->
     <span v-if="!props.isMobile" class="fn__flex-1 resize__move" style="min-height: 100%"></span>
 
-    <!-- Counter: New Cards/Total New + Review Cards/Total Review (native format) -->
-    <div
-      data-type="count"
-      class="ft__on-surface ft__smaller fn__flex-center"
-    >
-      <!-- 新卡计数 -->
-      <span class="ariaLabel" :aria-label="t('flashcardNewCard', '新卡')">
-        <span class="ft__error">{{ header.stats.currentNewCards || 0 }}</span>
-        <span> / </span>
-        <span class="ft__primary">{{ header.stats.newCards || 0 }}</span>
+    <div data-type="count" class="siyuanmemo-review-header__metrics">
+      <span
+        v-if="counterSummary"
+        class="b3-tooltips b3-tooltips__sw siyuanmemo-review-header__summary"
+        :aria-label="counterSummary.ariaLabel"
+        :title="counterSummary.tooltip"
+      >
+        {{ counterSummary.text }}
       </span>
-      <span class="fn__space"></span>
-      <span>+</span>
-      <span class="fn__space"></span>
-      <!-- 复习卡计数 -->
-      <span class="ariaLabel" :aria-label="t('flashcardReviewCard', '复习卡')">
-        <span class="ft__error">{{ header.stats.currentReviewCards || 0 }}</span>
-        <span> / </span>
-        <span class="ft__success">{{ header.stats.reviewCards || 0 }}</span>
-      </span>
+
+      <div
+        v-for="badge in counterBadges"
+        :key="badge.id"
+        class="siyuanmemo-review-header__badge"
+        :style="getBadgeStyle(badge.tone)"
+        :aria-label="badge.ariaLabel"
+        :title="badge.ariaLabel"
+      >
+        <span class="siyuanmemo-review-header__badge-label">{{ badge.label }}</span>
+        <span class="siyuanmemo-review-header__badge-text">{{ badge.text }}</span>
+      </div>
     </div>
 
     <span class="fn__flex-1"></span>
 
-    <!-- 头部工具栏 -->
+    <div
+      class="siyuanmemo-review-header__priority"
+      :style="priorityBadgeStyle"
+      :aria-label="header.priorityBadge.ariaLabel"
+      :title="header.priorityBadge.ariaLabel"
+    >
+      <span class="siyuanmemo-review-header__priority-label">{{ header.priorityBadge.label }}</span>
+      <span class="siyuanmemo-review-header__priority-value">{{ header.priorityBadge.value }}</span>
+    </div>
+
     <div v-if="filteredToolbar.length > 0" class="siyuanmemo-review-header__toolbar">
       <template v-for="btn in filteredToolbar" :key="btn.type">
         <button
@@ -64,19 +72,20 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { ReviewUIState } from './types';
+import { getHeaderToneColor, getPriorityVisualToken } from '@/ui/shared/cardVisualTokens';
 import { createLogger } from '@/utils/logger';
+import type { ReviewHeaderCounterBadge, ReviewUIState } from './types';
 
 const props = defineProps<{
   header: ReviewUIState['header'];
   i18n?: Record<string, string>;
   isTabMode?: boolean;
-  title?: string; // 队列标题（如"提取练习"）
-  mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
-  showSidebarToggle?: boolean; // 🌌 是否显示侧边栏切换按钮
-  sidebarCollapsed?: boolean;  // 🌌 侧边栏是否折叠
+  title?: string;
+  mode?: 'dialog' | 'tab';
+  showSidebarToggle?: boolean;
+  sidebarCollapsed?: boolean;
   isMobile?: boolean;
-  navigationState?: { // 🆕 神经漫游导航状态
+  navigationState?: {
     currentPathIndex: number;
     navigationMode: 'explore' | 'follow';
     hasBookmark: boolean;
@@ -101,22 +110,33 @@ type WindowWithSiyuanLanguages = Window & {
   };
 };
 
-// 🆕 根据 mode 和侧边栏状态过滤工具栏按钮
+const counterSummary = computed(() => props.header?.counterSummary || null);
+const counterBadges = computed(() => props.header?.counterBadges || []);
+
+function createGhostStyle(color: string) {
+  return {
+    color,
+    borderColor: `color-mix(in srgb, ${color} 18%, transparent)`,
+    backgroundColor: `color-mix(in srgb, ${color} 6%, transparent)`,
+  };
+}
+
+const priorityBadgeStyle = computed(() => {
+  const token = getPriorityVisualToken(props.header?.priorityBadge?.priority ?? null);
+  return createGhostStyle(token.color);
+});
+
 const filteredToolbar = computed(() => {
   let toolbar = props.header?.toolbar || [];
   logger.debug('[SiYuanMemo][ReviewHeader] filteredToolbar computed:', {
     hasHeader: !!props.header,
     hasToolbar: !!props.header?.toolbar,
     toolbarLength: toolbar.length,
-    toolbar: toolbar,
+    toolbar,
     mode: props.mode,
-    showSidebarToggle: props.showSidebarToggle,
     navigationState: props.navigationState,
   });
 
-  // 🌌 如果需要显示侧边栏切换按钮（已删除）
-
-  // 神经漫游导航按钮（基于会话导航状态）
   const navState = props.navigationState;
   if (navState) {
     const navButtons: typeof toolbar = [];
@@ -130,11 +150,11 @@ const filteredToolbar = computed(() => {
             mode: modeText,
             current: navState.currentPathIndex + 1,
             total: navState.pathLength,
-          }
+          },
         )
       : interpolate(
           t('navStatusExplore', 'Current: {mode}'),
-          { mode: modeText }
+          { mode: modeText },
         );
 
     navButtons.push({
@@ -151,13 +171,10 @@ const filteredToolbar = computed(() => {
       disabled: !navState.hasBookmark,
     });
 
-    // 插入到工具栏开头
-    if (navButtons.length > 0) {
-      toolbar = [
-        ...navButtons,
-        ...toolbar,
-      ];
-    }
+    toolbar = [
+      ...navButtons,
+      ...toolbar,
+    ];
   }
 
   if (props.isMobile) {
@@ -184,9 +201,16 @@ function interpolate(template: string, values: Record<string, string | number>):
   return output;
 }
 
-function handleToolbarClick(btn: { type: string; icon?: string; label?: string; ariaLabel?: string; disabled?: boolean }, event: MouseEvent) {
+function getBadgeStyle(tone: ReviewHeaderCounterBadge['tone']) {
+  return createGhostStyle(getHeaderToneColor(tone));
+}
+
+function handleToolbarClick(
+  btn: { type: string; icon?: string; label?: string; ariaLabel?: string; disabled?: boolean },
+  event: MouseEvent,
+) {
   if (btn.disabled) return;
-  event.stopPropagation(); // 阻止事件冒泡，防止被其他处理器拦截
+  event.stopPropagation();
   emit('toolbar-action', btn.type, event);
 }
 
@@ -197,9 +221,11 @@ function handleCloseClick(event: MouseEvent): void {
 </script>
 
 <style scoped>
-/* 只影响插件复习界面的标题栏样式 */
 .block__icons.siyuanmemo-review-header {
-  /* 添加标题栏背景色，与原生复习界面一致 */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   background-color: var(--b3-theme-surface) !important;
   border-bottom: 1px solid var(--b3-theme-background);
 }
@@ -208,13 +234,80 @@ function handleCloseClick(event: MouseEvent): void {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
   font-weight: 500;
+}
+
+.block__logo span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.siyuanmemo-review-header__metrics {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  row-gap: 4px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.siyuanmemo-review-header__summary,
+.siyuanmemo-review-header__badge,
+.siyuanmemo-review-header__priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.siyuanmemo-review-header__summary {
+  color: var(--b3-theme-on-surface-light);
+  border-color: color-mix(in srgb, var(--b3-theme-on-surface-light) 18%, transparent);
+  background-color: color-mix(in srgb, var(--b3-theme-on-surface-light) 6%, transparent);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: help;
+}
+
+.siyuanmemo-review-header__summary:hover {
+  border-color: color-mix(in srgb, var(--b3-theme-on-surface-light) 28%, transparent);
+  background-color: color-mix(in srgb, var(--b3-theme-on-surface-light) 10%, transparent);
+}
+
+.siyuanmemo-review-header__badge,
+.siyuanmemo-review-header__priority {
+  flex-shrink: 0;
+}
+
+.siyuanmemo-review-header__badge-label,
+.siyuanmemo-review-header__priority-label {
+  opacity: 0.8;
+}
+
+.siyuanmemo-review-header__badge-text,
+.siyuanmemo-review-header__priority-value {
+  font-weight: 600;
+}
+
+.siyuanmemo-review-header__priority-value {
+  font-weight: 700;
 }
 
 .siyuanmemo-review-header__toolbar {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .siyuanmemo-review-header__toolbar-button {
@@ -235,14 +328,10 @@ function handleCloseClick(event: MouseEvent): void {
 }
 
 .siyuanmemo-review-header__mobile-close {
-  margin-left: 6px;
+  margin-left: 2px;
+  flex-shrink: 0;
 }
 
-/* 移除 .ariaLabel 的 flex 样式，让计数器横排显示 */
-/* .ariaLabel { display: flex; align-items: center; } */
-
-
-/* Part 6: 面包屑导航样式 - 使用思原生样式 */
 .protyle-breadcrumb {
   display: flex;
   padding: 0 8px;
@@ -325,21 +414,27 @@ function handleCloseClick(event: MouseEvent): void {
 }
 
 .siyuanmemo-review-header--mobile {
+  gap: 4px;
   padding: 0 6px;
 
   .block__logo {
     min-width: 0;
+    flex: 1 1 auto;
 
     span {
-      max-width: 116px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      max-width: 112px;
     }
   }
 
-  [data-type="count"] {
-    min-width: 0;
+  .siyuanmemo-review-header__metrics {
+    flex: 1 1 0;
+    justify-content: flex-start;
+  }
+
+  .siyuanmemo-review-header__summary,
+  .siyuanmemo-review-header__badge,
+  .siyuanmemo-review-header__priority {
+    padding: 0 7px;
   }
 
   .siyuanmemo-review-header__toolbar {

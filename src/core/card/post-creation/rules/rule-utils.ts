@@ -74,11 +74,21 @@ export function hasNumberedLatexCloze(content: string): boolean {
 
 const BRACE_CLOZE_PATTERN = /(^|[^{}])\{\{(?!\{)[\s\S]*?\}\}(?!\})/;
 
+export function hasBraceCloze(content: string): boolean {
+  const normalized = normalizeForSymbolDetection(content);
+  return BRACE_CLOZE_PATTERN.test(normalized);
+}
+
+export function hasMarkCloze(content: string): boolean {
+  const normalized = normalizeForSymbolDetection(content);
+  return /==([^=]+)==/.test(normalized)
+    || /<span data-type="mark">/.test(normalized);
+}
+
 export function hasGenericCloze(content: string): boolean {
   const normalized = normalizeForSymbolDetection(content);
-  return BRACE_CLOZE_PATTERN.test(normalized)
-    || /==([^=]+)==/.test(normalized)
-    || /<span data-type="mark">/.test(normalized)
+  return hasBraceCloze(normalized)
+    || hasMarkCloze(normalized)
     || hasNumberedLatexCloze(normalized);
 }
 

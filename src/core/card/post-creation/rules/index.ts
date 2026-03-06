@@ -1,9 +1,9 @@
 export { NumberedLatexClozeRule } from './NumberedLatexClozeRule';
-export { GenericClozeRule } from './GenericClozeRule';
+export { BraceClozeRule } from './BraceClozeRule';
+export { MarkClozeRule } from './MarkClozeRule';
 export { BasicDirectionRule } from './BasicDirectionRule';
 export { ConceptDefinitionInlineRule } from './ConceptDefinitionInlineRule';
 export { DescriptorInlineRule } from './DescriptorInlineRule';
 export { ListTemplateStructuralRule } from './ListTemplateStructuralRule';
 export { CdfMultilineStructuralRule } from './CdfMultilineStructuralRule';
 export { DefaultRiffSyncRule } from './DefaultRiffSyncRule';
-

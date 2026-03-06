@@ -1,6 +1,7 @@
 import type { AdapterContext, IAdapter, ReviewCardKind, ReviewUIState } from '../types';
 import type { QueueStats, QueueUIConfig } from '../../../../core/queue/types.ts';
 import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
+import { createReviewHeaderCounterBadge } from '../reviewHeaderCounterPresentation';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SubsetPracticeAdapter');
@@ -20,6 +21,7 @@ type SubsetReviewItem = {
   reps?: number;
   state?: number;
   lastReview?: number;
+  priority?: number;
   type?: string;
   nextDues?: NextDuesMap;
   meta?: Record<string, unknown>;
@@ -145,7 +147,7 @@ export class SubsetPracticeAdapter implements IAdapter<SubsetReviewItem> {
   }) {
     this.i18n = options?.i18n;
     this.siyuanApi = options?.siyuanApi || resolveSiyuanApiFromPlugin(options?.plugin);
-    this.label = String(options?.label || t(this.i18n, 'reviewSubsetTitle', '子集复习'));
+    this.label = String(options?.label || t(this.i18n, 'reviewSubsetTitle', '\u5b50\u96c6\u590d\u4e60'));
     this.queueName = String(options?.queueName || 'subset-practice');
   }
 
@@ -170,12 +172,14 @@ export class SubsetPracticeAdapter implements IAdapter<SubsetReviewItem> {
     const total = Math.max(initial, remaining);
     const current = remaining;
     const menu = Array.isArray(uiConfig.menuCommands) ? uiConfig.menuCommands : [];
+    const remainingLabel = t(this.i18n, 'headerRemaining', '\u5269\u4f59');
+    const priorityLabel = t(this.i18n, 'headerPriority', 'Priority');
 
     const grades = uiConfig.showRatingButtons ? [
-      { label: t(this.i18n, 'cardRatingAgain', '重来'), value: 1, color: 'var(--b3-theme-error)', kb: '1', emoji: '🙈', nextDue: getNextDue(item, 1) },
-      { label: t(this.i18n, 'cardRatingHard', '困难'), value: 2, color: 'var(--b3-theme-warning)', kb: '2', emoji: '😬', nextDue: getNextDue(item, 2) },
-      { label: t(this.i18n, 'cardRatingGood', '良好'), value: 3, color: 'var(--b3-theme-info)', kb: '3', emoji: '😊', nextDue: getNextDue(item, 3) },
-      { label: t(this.i18n, 'cardRatingEasy', '简单'), value: 4, color: 'var(--b3-theme-success)', kb: '4', emoji: '🌈', nextDue: getNextDue(item, 4) },
+      { label: t(this.i18n, 'cardRatingAgain', '\u91cd\u6765'), value: 1, color: 'var(--b3-theme-error)', kb: '1', emoji: '\uD83D\uDE48', nextDue: getNextDue(item, 1) },
+      { label: t(this.i18n, 'cardRatingHard', '\u56f0\u96be'), value: 2, color: 'var(--b3-theme-warning)', kb: '2', emoji: '\uD83D\uDE2C', nextDue: getNextDue(item, 2) },
+      { label: t(this.i18n, 'cardRatingGood', '\u826f\u597d'), value: 3, color: 'var(--b3-theme-info)', kb: '3', emoji: '\uD83D\uDE0A', nextDue: getNextDue(item, 3) },
+      { label: t(this.i18n, 'cardRatingEasy', '\u7b80\u5355'), value: 4, color: 'var(--b3-theme-success)', kb: '4', emoji: '\uD83C\uDF08', nextDue: getNextDue(item, 4) },
     ] : [];
 
     if (!item) {
@@ -186,10 +190,23 @@ export class SubsetPracticeAdapter implements IAdapter<SubsetReviewItem> {
             total: 0,
             label: this.label,
             queueName: this.queueName,
-            newCards: 0,
-            reviewCards: 0,
-            currentNewCards: 0,
-            currentReviewCards: 0,
+          },
+          counterSummary: null,
+          counterBadges: [
+            createReviewHeaderCounterBadge({
+              id: 'remaining',
+              label: remainingLabel,
+              kind: 'ratio',
+              tone: 'neutral',
+              remaining: 0,
+              total: 0,
+            }),
+          ],
+          priorityBadge: {
+            label: 'P',
+            value: '-',
+            priority: null,
+            ariaLabel: `${priorityLabel} -`,
           },
           breadcrumbs: [],
           toolbar: [
@@ -199,7 +216,7 @@ export class SubsetPracticeAdapter implements IAdapter<SubsetReviewItem> {
         },
         content: {
           type: 'html',
-          data: `<div class="ft__secondary" style="padding: 16px; text-align: center;">${t(this.i18n, 'completeToday', '今日复习已完成')}</div>`,
+          data: `<div class="ft__secondary" style="padding: 16px; text-align: center;">${t(this.i18n, 'completeToday', '\u4eca\u65e5\u590d\u4e60\u5df2\u5b8c\u6210')}</div>`,
           id: 'done',
         },
         actions: {
@@ -233,10 +250,25 @@ export class SubsetPracticeAdapter implements IAdapter<SubsetReviewItem> {
           total,
           label: this.label,
           queueName: this.queueName,
-          newCards: total,
-          reviewCards: 0,
-          currentNewCards: current,
-          currentReviewCards: 0,
+        },
+        counterSummary: null,
+        counterBadges: [
+          createReviewHeaderCounterBadge({
+            id: 'remaining',
+            label: remainingLabel,
+            kind: 'ratio',
+            tone: 'neutral',
+            remaining: current,
+            total,
+          }),
+        ],
+        priorityBadge: {
+          label: 'P',
+          value: Number.isFinite(Number(item.priority)) ? String(item.priority) : '-',
+          priority: Number.isFinite(Number(item.priority)) ? Number(item.priority) : null,
+          ariaLabel: Number.isFinite(Number(item.priority))
+            ? `${priorityLabel} ${Number(item.priority)}`
+            : `${priorityLabel} -`,
         },
         breadcrumbs: [],
         toolbar: [

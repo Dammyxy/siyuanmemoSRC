@@ -1,13 +1,25 @@
-﻿import type { Component } from 'vue';
+import type { Component } from 'vue';
 import type { QueueProvider } from './QueueProvider.ts';
+
+export interface ReviewSessionHistoryEntry {
+  action: 'rate' | 'skip' | 'custom';
+  answeredDelta: number;
+  correctDelta: number;
+}
+
+export interface AdapterSessionState {
+  startTime: number;
+  resumed?: boolean;
+  initialTotal?: number;
+  answeredCount?: number;
+  correctCount?: number;
+  baselineVersion?: number;
+  reviewHistory?: ReviewSessionHistoryEntry[];
+}
 
 export interface AdapterContext {
   showAnswer: boolean;
-  session?: {
-    startTime: number;
-    resumed?: boolean;
-    initialTotal?: number;
-  };
+  session?: AdapterSessionState;
 }
 
 export interface IAdapter<TItem = unknown, TUIState = unknown> {
@@ -18,6 +30,7 @@ export interface IAdapter<TItem = unknown, TUIState = unknown> {
   ): Promise<TUIState>;
 
   fetchAuxiliaryData?(item: TItem | null): Promise<Partial<TUIState>>;
+  resetSessionState?(): void;
   cleanup?(): void;
 }
 

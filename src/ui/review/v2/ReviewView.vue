@@ -89,6 +89,7 @@ import ReviewContent from './ReviewContent.vue';
 import ReviewHeader from './ReviewHeader.vue';
 import FilterDialog from '@/ui/browser/dialogs/FilterDialog.vue';
 import { useReviewSession } from './useReviewSession';
+import type { ReviewHeaderVariant } from './types';
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import { ProviderBackedQueueStrategy, type QueueProvider } from '@/core/extensions';
 import { createVueDialog } from '@/utils/dialog';
@@ -156,18 +157,21 @@ type ReviewPluginContextLike = {
           queue?: unknown;
           adapter?: unknown;
           title: string;
+          headerVariant?: ReviewHeaderVariant;
         }) => void;
         openReviewTabInNewTab?: (options: {
           provider?: unknown;
           queue?: unknown;
           adapter?: unknown;
           title: string;
+          headerVariant?: ReviewHeaderVariant;
         }) => void;
         openReviewInNewWindow?: (options: {
           provider?: unknown;
           queue?: unknown;
           adapter?: unknown;
           title: string;
+          headerVariant?: ReviewHeaderVariant;
         }) => void;
       }
     | undefined;
@@ -199,6 +203,7 @@ type ReviewPluginLike = {
     queue?: unknown;
     adapter?: unknown;
     title: string;
+    headerVariant?: ReviewHeaderVariant;
   }) => void;
 };
 
@@ -297,6 +302,7 @@ const props = defineProps<{
   provider?: unknown;
   reviewUI?: ReviewUIConfigLike;
   title?: string; // 队列标题（如"提取练习"）
+  headerVariant?: ReviewHeaderVariant;
   mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
   plugin?: unknown; // 🆕 插件实例，用于访问 hybridSyncService
   isMobile?: boolean;
@@ -980,6 +986,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
     queue: props.queue,
     adapter: props.adapter,
     title: props.title || t('reviewTitle', 'Review'),
+    headerVariant: props.headerVariant,
   };
 
   menu.addItem({

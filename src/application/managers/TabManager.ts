@@ -16,10 +16,11 @@ import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import type { QueueProvider } from '@/core/extensions/QueueProvider';
 import type { IQueueStrategy } from '@/core/queue/abstraction/Strategy';
-import type { IAdapter } from '@/ui/review/v2/types';
+import type { IAdapter, ReviewHeaderVariant } from '@/ui/review/v2/types';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
 import { QueueType } from '@/types/unified-data-source';
+import { resolveReviewHeaderVariant } from '@/ui/review/v2/types';
 import { createLogger } from '@/utils/logger';
 /// #if !BROWSER
 import { ipcRenderer } from 'electron';
@@ -34,6 +35,7 @@ interface ReviewTabData {
   providerId: string;
   title: string;
   queueType: QueueType | null;
+  headerVariant: ReviewHeaderVariant;
 }
 
 interface TabRuntimeContext {
@@ -57,6 +59,7 @@ export interface ReviewTabOptions {
   queue?: ReviewQueueRef;
   adapter?: IAdapter<unknown>;
   title: string;
+  headerVariant?: ReviewHeaderVariant;
 }
 
 interface ReviewTabOpenOptions {
@@ -122,17 +125,22 @@ export class TabManager {
         logger.info('Restoring review tab', {
           providerId: data.providerId,
           queueType: data.queueType,
+          headerVariant: data.headerVariant,
           title: data.title,
         });
 
         const queue = self.buildReviewQueue(data.queueType);
-        const adapter = new UnifiedReviewAdapter({ i18n: self.getPluginI18n() });
+        const adapter = new UnifiedReviewAdapter({
+          i18n: self.getPluginI18n(),
+          headerVariant: data.headerVariant,
+        });
 
         const app = createApp(ReviewView, {
           app: self.plugin.app,
           i18n: self.getPluginI18n(),
           mode: 'tab',
           title: data.title,
+          headerVariant: data.headerVariant,
           queue,
           adapter,
           plugin: self.plugin,
@@ -225,6 +233,7 @@ export class TabManager {
       providerId: this.resolveProviderId(options),
       title: String(options.title || this.getDefaultReviewTitle()),
       queueType,
+      headerVariant: options.headerVariant || resolveReviewHeaderVariant(queueType),
     };
   }
 
@@ -241,6 +250,9 @@ export class TabManager {
       providerId,
       title,
       queueType,
+      headerVariant: typeof data?.headerVariant === 'string'
+        ? data.headerVariant
+        : resolveReviewHeaderVariant(queueType),
     };
   }
 

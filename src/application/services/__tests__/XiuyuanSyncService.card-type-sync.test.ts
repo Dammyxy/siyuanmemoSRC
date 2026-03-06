@@ -177,4 +177,24 @@ describe('XiuyuanSyncService card type sync', () => {
     await expect(service.start()).resolves.toBeUndefined();
     expect(siyuanApi.setBlockAttrs).toHaveBeenCalledTimes(2);
   });
+
+  it('does not redetect cards that already have current explicit card type attrs', async () => {
+    (siyuanApi.getBlockAttrs as ReturnType<typeof vi.fn>).mockImplementation(async (blockId: string) => {
+      if (blockId === 'block-explicit') {
+        return { 'custom-fsrs-card-type': 'topic' };
+      }
+      return {};
+    });
+    batchDetectCardTypesMock.mockResolvedValue(new Map([
+      ['block-detect', 'item'],
+    ]));
+
+    const updated = await (service as any).detectCardTypesForNewCards([
+      createRiffBlock('block-explicit'),
+      createRiffBlock('block-detect'),
+    ]);
+
+    expect(updated).toBe(1);
+    expect(batchDetectCardTypesMock).toHaveBeenCalledWith(['block-detect']);
+  });
 });

@@ -1,32 +1,4 @@
-﻿interface FlashcardVisibilityConfig {
-  mark?: unknown;
-  list?: unknown;
-  superBlock?: unknown;
-  heading?: unknown;
-}
-
-function readFlashcardConfig(): FlashcardVisibilityConfig | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  const siyuan = (window as Window & { siyuan?: unknown }).siyuan;
-  if (!siyuan || typeof siyuan !== 'object') {
-    return null;
-  }
-
-  const config = (siyuan as { config?: unknown }).config;
-  if (!config || typeof config !== 'object') {
-    return null;
-  }
-
-  const flashcard = (config as { flashcard?: unknown }).flashcard;
-  if (!flashcard || typeof flashcard !== 'object') {
-    return null;
-  }
-
-  return flashcard as FlashcardVisibilityConfig;
-}
+import { readSiyuanFlashcardConfig } from '@/utils/siyuanFlashcardConfig';
 
 /**
  * 获取需要隐藏的内容类型
@@ -39,12 +11,12 @@ function readFlashcardConfig(): FlashcardVisibilityConfig | null {
 export function getHiddenContentTypes(): string[] {
   const hiddenContentTypes: string[] = [];
 
-  const config = readFlashcardConfig();
+  const config = readSiyuanFlashcardConfig();
   if (config) {
-    if (Boolean(config.mark)) hiddenContentTypes.push('mark');
-    if (Boolean(config.list)) hiddenContentTypes.push('list');
-    if (Boolean(config.superBlock)) hiddenContentTypes.push('superBlock');
-    if (Boolean(config.heading)) hiddenContentTypes.push('heading');
+    if (config.mark) hiddenContentTypes.push('mark');
+    if (config.list) hiddenContentTypes.push('list');
+    if (config.superBlock) hiddenContentTypes.push('superBlock');
+    if (config.heading) hiddenContentTypes.push('heading');
   }
 
   return hiddenContentTypes;

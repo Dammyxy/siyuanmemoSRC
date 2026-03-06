@@ -1,22 +1,12 @@
 import type { CreationDecision, PostCreationContext, PostCreationRule } from '../contracts';
-import { hasGenericCloze, hasNumberedLatexCloze } from './rule-utils';
+import { hasMarkCloze, hasNumberedLatexCloze } from './rule-utils';
 
-export class GenericClozeRule implements PostCreationRule {
-  readonly id = 'GenericClozeRule';
+export class MarkClozeRule implements PostCreationRule {
+  readonly id = 'MarkClozeRule';
 
   match(context: PostCreationContext): CreationDecision | null {
-    // Native riff sync cards should preserve Siyuan-native semantics by default.
-    if (context.source === 'native-riff-sync') {
-      return null;
-    }
-
     const content = String(context.content || '');
-    if (!hasGenericCloze(content)) {
-      return null;
-    }
-
-    if (hasNumberedLatexCloze(content)) {
-      // Let numbered-latex rule own this path.
+    if (!hasMarkCloze(content) || hasNumberedLatexCloze(content)) {
       return null;
     }
 
@@ -24,7 +14,7 @@ export class GenericClozeRule implements PostCreationRule {
       id: this.id,
       family: 'cloze',
       templateId: 'builtin-multi-cloze',
-      cardType: 'item',
+      cardType: context.resolvedCardType === 'topic' ? 'topic' : 'item',
       mode: 'multi-face',
       executorKind: 'quick-cloze',
       renderProfile: 'quick-default',

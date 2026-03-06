@@ -75,6 +75,7 @@ function normalizeSingleBlockDetectionContent(blockType: string, content: string
 export class DocumentPostCreationScanService {
   private readonly planner: UnifiedPostCreationPlanner;
   private readonly conflictMediator: PostCreationConflictMediator;
+  private readonly resolveCardType?: (params: { blockId: string; blockType: string; content: string }) => Promise<'topic' | 'item'>;
 
   constructor(
     private readonly siyuanApi: DocumentScanSiyuanPort,
@@ -83,11 +84,13 @@ export class DocumentPostCreationScanService {
       planner?: UnifiedPostCreationPlanner;
       conflictMediator?: PostCreationConflictMediator;
       promptPort?: ConflictPromptPort;
+      resolveCardType?: (params: { blockId: string; blockType: string; content: string }) => Promise<'topic' | 'item'>;
     }
   ) {
     this.planner = options?.planner || new UnifiedPostCreationPlanner();
     this.conflictMediator = options?.conflictMediator || new PostCreationConflictMediator();
     this.promptPort = options?.promptPort;
+    this.resolveCardType = options?.resolveCardType;
   }
 
   private readonly promptPort?: ConflictPromptPort;
@@ -166,11 +169,15 @@ export class DocumentPostCreationScanService {
           const { kramdown } = await this.siyuanApi.getBlockKramdown(row.id);
           const content = String(kramdown || '');
           const normalizedContent = normalizeSingleBlockDetectionContent(row.type, content);
+          const resolvedCardType = this.resolveCardType
+            ? await this.resolveCardType({ blockId: row.id, blockType: row.type, content: normalizedContent })
+            : undefined;
           const plan = this.planner.plan({
             blockId: row.id,
             blockType: row.type,
             content: normalizedContent,
             source: 'doc-oneclick-scan',
+            resolvedCardType,
           });
           const structuralDecisions = plan.decisions.filter((decision) =>
             decision.executorKind === 'list-template-structural'
@@ -248,11 +255,15 @@ export class DocumentPostCreationScanService {
         const { kramdown } = await this.siyuanApi.getBlockKramdown(row.id);
         const content = String(kramdown || '');
         const normalizedContent = normalizeSingleBlockDetectionContent(row.type, content);
+        const resolvedCardType = this.resolveCardType
+          ? await this.resolveCardType({ blockId: row.id, blockType: row.type, content: normalizedContent })
+          : undefined;
         const plan = this.planner.plan({
           blockId: row.id,
           blockType: row.type,
           content: normalizedContent,
           source: 'doc-oneclick-scan',
+          resolvedCardType,
         });
         const nonStructuralDecisions = plan.decisions.filter((decision) =>
           decision.executorKind !== 'list-template-structural'

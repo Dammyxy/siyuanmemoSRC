@@ -118,6 +118,7 @@ export class XiuyuanSyncService {
     private deletionTracker: IDeletionTracker;
     private lastSyncTime: number = 0;
     private lastFullSyncTime: number = 0;
+    private legacyCardTypeMigrationDone = false;
     private syncMutex: Promise<void> = Promise.resolve();
     private readonly inFlightSyncs: Map<SyncType, Promise<SyncResult>> = new Map();
     private readonly syncEventHandlers: Map<string, Map<(data: unknown) => void, EventHandler<DomainEvent>>> = new Map();
@@ -252,6 +253,8 @@ export class XiuyuanSyncService {
      */
     async start(): Promise<void> {
         logger.info('Starting sync service...');
+
+        await this.migrateLegacyCardTypeAttrsOnce();
         
         // 执行初始增量同步
         if (this.config.incrementalSync.enabled) {
@@ -377,7 +380,7 @@ export class XiuyuanSyncService {
     }
 
     private resolveCardTypeFromIAL(ial?: Record<string, string>): ResolvedSyncCardType {
-        const rawCardType = ial?.['custom-card-type'];
+        const rawCardType = ial?.[this.siyuanApi.ATTR_CARD_TYPE];
 
         if (!this.isSupportedCardType(rawCardType)) {
             return {
@@ -400,7 +403,7 @@ export class XiuyuanSyncService {
             return resolvedType;
         }
 
-        // 块 IAL 类型缺失时回退自动检测（只会返回 topic/item）
+        // 现行块属性类型缺失时回退自动检测（只会返回 topic/item）
         const detectedCardType = await this.cardTypeDetectionService.detectCardType(riffBlock.id);
         return {
             cardType: detectedCardType,
@@ -425,6 +428,60 @@ export class XiuyuanSyncService {
             return 'inline-formula-cloze';
         }
         return undefined;
+    }
+
+    private async migrateLegacyCardTypeAttrsOnce(): Promise<void> {
+        if (this.legacyCardTypeMigrationDone) {
+            return;
+        }
+        this.legacyCardTypeMigrationDone = true;
+
+        try {
+            const riffCards = await this.siyuanApi.getRiffCards(this.config.deckId, {
+                dueOnly: false,
+                includeNew: true,
+            });
+
+            let migrated = 0;
+            let skipped = 0;
+
+            for (const riffCard of riffCards) {
+                const attrs = riffCard.ial;
+                const currentCardType = attrs?.[this.siyuanApi.ATTR_CARD_TYPE];
+                const legacyCardType = attrs?.['custom-card-type'];
+
+                if (this.isSupportedCardType(currentCardType)) {
+                    skipped++;
+                    continue;
+                }
+                if (!this.isSupportedCardType(legacyCardType)) {
+                    continue;
+                }
+
+                try {
+                    await this.siyuanApi.setBlockAttrs(riffCard.id, {
+                        [this.siyuanApi.ATTR_CARD_TYPE]: legacyCardType,
+                        'custom-card-type': '',
+                    });
+                    migrated++;
+                } catch (error) {
+                    logger.warn('[XiuyuanSyncService] Failed to migrate legacy card type attr:', {
+                        blockId: riffCard.id,
+                        legacyCardType,
+                        error,
+                    });
+                }
+            }
+
+            if (migrated > 0 || skipped > 0) {
+                logger.info('[XiuyuanSyncService] Legacy card type migration completed', {
+                    migrated,
+                    skipped,
+                });
+            }
+        } catch (error) {
+            logger.warn('[XiuyuanSyncService] Failed to scan legacy card type attrs on startup:', error);
+        }
     }
 
     private resolveRiffRenderProfile(plan: PostCreationPlan): RiffRenderProfile | undefined {
@@ -801,7 +858,7 @@ export class XiuyuanSyncService {
                         let needsUpdate = false;
 
                         // 从块 IAL 属性读取卡片类型元数据（非调度数据，合法同步）
-                        // 只认 custom-card-type；缺失时回退自动检测。
+                        // 现行只认 custom-fsrs-card-type；legacy custom-card-type 仅在启动时迁移一次。
                         const resolvedType = await this.resolveCardTypeForRiffBlock(riffCard);
                         const newCardTypeMarker = resolvedType.cardTypeMarker;
                         const newCardType = resolvedType.cardType;
@@ -1215,7 +1272,7 @@ export class XiuyuanSyncService {
             const resolvedType = this.resolveCardTypeFromIAL(attrs);
             
             if (resolvedType.cardType) {
-                // 跳过已有明确类型的卡片（包括 topic/item/concept/descriptor）
+                // 跳过已有现行显式类型的卡片（包括 topic/item/concept/descriptor）
                 skippedWithType++;
                 logger.info(`Skipping card with existing cardType: ${card.id} (${resolvedType.cardType})`);
                 continue;
@@ -1273,9 +1330,9 @@ export class XiuyuanSyncService {
      *   2. 可追溯性：通过前缀 "riff" 可以识别来源（区别于用户手动创建的 `xy_{timestamp}_{random}`）
      *   3. 防止冲突：与手动创建的 ID 格式不同，不会产生冲突
      * 
-     * 卡片类型统一从 `custom-card-type` 读取。
+     * 卡片类型统一从 `custom-fsrs-card-type` 读取。
      * 如果缺失则自动检测 Topic/Item。
-     * cardTypeMarker（concept/descriptor）同样从 `custom-card-type` 推导。
+     * legacy `custom-card-type` 仅在启动时迁移，不参与现行读取。
      * 
      * 🆕 智能识别 Topic/Item（快速制卡）：
      * - 如果没有块属性标记，自动检测：

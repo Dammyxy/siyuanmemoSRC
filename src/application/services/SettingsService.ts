@@ -20,6 +20,7 @@ import type { IFileService } from '../../infrastructure/services/FileService';
 import type { PluginSettings, RiffIntegrationConfig } from '../../types/settings';
 import { DEFAULT_SETTINGS, DEFAULT_RIFF_CONFIG, FSRS_WEIGHT_COUNT, normalizePluginSettings } from '../../types/settings';
 import { createLogger } from '@/utils/logger';
+import { getDefaultSiyuanFlashcardConfig, readSiyuanFlashcardConfig } from '@/utils/siyuanFlashcardConfig';
 
 const logger = createLogger('SettingsService');
 
@@ -100,6 +101,7 @@ export class SettingsService implements ISettingsService {
         const mergedSettings = this.mergeWithDefaults(loadedSettings, DEFAULT_SETTINGS);
         const normalized = normalizePluginSettings(mergedSettings);
         this.currentSettings = normalized.settings;
+        const seededQuickCardFlashcard = this.seedQuickCardFlashcardSettings();
         
         // 🔍 调试日志：检查合并后的数据
         logger.info('[SettingsService] Merged settings:', this.currentSettings.quickCard);
@@ -111,14 +113,15 @@ export class SettingsService implements ISettingsService {
         } else {
           this.currentRiffConfig = { ...DEFAULT_RIFF_CONFIG };
         }
-        if (normalized.changed) {
+        if (normalized.changed || seededQuickCardFlashcard) {
           await this.saveSettings();
-          logger.info('[SettingsService] Migrated legacy FSRS settings to v6 defaults');
+          logger.info('[SettingsService] Persisted normalized or seeded settings');
         }
       } else {
         // 文件不存在，使用默认设置并保存
         this.currentSettings = { ...DEFAULT_SETTINGS };
         this.currentRiffConfig = { ...DEFAULT_RIFF_CONFIG };
+        this.seedQuickCardFlashcardSettings();
         await this.saveSettings();
       }
 
@@ -300,6 +303,18 @@ export class SettingsService implements ISettingsService {
         );
       }
     }
+
+    const quickCardFlashcard = settings.quickCard?.flashcard;
+    if (quickCardFlashcard) {
+      for (const [key, value] of Object.entries(quickCardFlashcard)) {
+        if (value !== undefined && typeof value !== 'boolean') {
+          throw new SettingsValidationError(
+            `quickCard.flashcard.${key} must be a boolean`,
+            `quickCard.flashcard.${key}`
+          );
+        }
+      }
+    }
   }
 
   /**
@@ -426,6 +441,25 @@ export class SettingsService implements ISettingsService {
    */
   private mergeWithDefaults<T>(loaded: Partial<T>, defaults: T): T {
     return this.deepMerge(defaults, loaded);
+  }
+
+  private seedQuickCardFlashcardSettings(): boolean {
+    if (this.currentSettings.quickCard?.flashcardSeededFromSiyuan === true) {
+      return false;
+    }
+
+    const flashcard = readSiyuanFlashcardConfig() ?? getDefaultSiyuanFlashcardConfig();
+    this.currentSettings = this.deepMerge(this.currentSettings, {
+      quickCard: {
+        flashcard,
+        flashcardSeededFromSiyuan: true,
+      },
+    } as Partial<PluginSettings>);
+
+    logger.info('[SettingsService] Seeded quickCard.flashcard settings from Siyuan config', {
+      flashcard,
+    });
+    return true;
   }
 
   /**

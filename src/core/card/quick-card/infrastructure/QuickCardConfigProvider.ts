@@ -26,6 +26,13 @@ export interface IQuickCardConfigProvider {
 export class DefaultQuickCardConfigProvider implements IQuickCardConfigProvider {
   private static readonly DEFAULT_CONFIG: QuickCardSettings = {
     enabled: true,
+    flashcard: {
+      mark: true,
+      list: true,
+      heading: true,
+      superBlock: true,
+    },
+    flashcardSeededFromSiyuan: false,
     enabledSymbols: {
       basic: true,
       concept: true,
@@ -66,7 +73,23 @@ export class PluginQuickCardConfigProvider implements IQuickCardConfigProvider {
         return new DefaultQuickCardConfigProvider().getConfig();
       }
 
-      return quickCardConfig;
+      const defaults = new DefaultQuickCardConfigProvider().getConfig();
+      return {
+        ...defaults,
+        ...quickCardConfig,
+        flashcard: {
+          ...defaults.flashcard,
+          ...(quickCardConfig.flashcard || {}),
+        },
+        enabledSymbols: {
+          ...defaults.enabledSymbols,
+          ...(quickCardConfig.enabledSymbols || {}),
+        },
+        debounceDelay: {
+          ...defaults.debounceDelay,
+          ...(quickCardConfig.debounceDelay || {}),
+        },
+      };
     } catch (error) {
       logger.error('[QuickCardConfigProvider] Failed to get config:', error);
       return new DefaultQuickCardConfigProvider().getConfig();

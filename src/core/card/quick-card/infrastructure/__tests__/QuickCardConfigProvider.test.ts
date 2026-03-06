@@ -17,6 +17,12 @@ describe('QuickCardConfigProvider', () => {
       expect(config.enabledSymbols.descriptor).toBe(true);
       expect(config.enabledSymbols.cloze).toBe(true);
       expect(config.enabledSymbols.multiLine).toBe(true);
+      expect(config.flashcard).toEqual({
+        mark: true,
+        list: true,
+        heading: true,
+        superBlock: true,
+      });
       expect(config.descriptorUseXiuyuan).toBe(false);
     });
 
@@ -34,6 +40,9 @@ describe('QuickCardConfigProvider', () => {
       const mockSettings = {
         quickCard: {
           enabled: true,
+          flashcard: {
+            mark: false,
+          },
           enabledSymbols: {
             basic: true,
             concept: false,
@@ -54,6 +63,8 @@ describe('QuickCardConfigProvider', () => {
       const config = provider.getConfig();
 
       expect(config.enabled).toBe(true);
+      expect(config.flashcard.mark).toBe(false);
+      expect(config.flashcard.heading).toBe(true);
       expect(config.enabledSymbols.concept).toBe(false);
       expect(config.enabledSymbols.multiLine).toBe(false);
       expect(config.descriptorUseXiuyuan).toBe(true);

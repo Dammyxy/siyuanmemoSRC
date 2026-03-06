@@ -134,6 +134,50 @@
           ✅ {{ t('quickCardSymbolsInfo', '支持的符号类型') }}：&gt;&gt;, &lt;&lt;, &lt;&gt;, ::, ;;, &#123;&#123;&#125;&#125;, &gt;&gt;&gt;
         </p>
 
+        <p class="form-hint" v-if="settings.quickCard.enabled">
+          {{ t('quickCardFlashcardHint', '只影响 SiyuanMemo 对新卡的 Topic/Item 识别，不回写思源原生设置。') }}
+        </p>
+
+        <div v-if="settings.quickCard.enabled" class="form-item">
+          <label>{{ t('quickCardFlashcardMarkLabel', '标记制卡') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.quickCard.flashcard.mark">
+          </div>
+          <p class="form-hint">
+            {{ t('quickCardFlashcardMarkHint', '启用后支持标记制卡，标记的文本被识别为挖空填空') }}
+          </p>
+        </div>
+
+        <div v-if="settings.quickCard.enabled" class="form-item">
+          <label>{{ t('quickCardFlashcardListLabel', '列表块制卡') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.quickCard.flashcard.list">
+          </div>
+          <p class="form-hint">
+            {{ t('quickCardFlashcardListHint', '启用后支持列表块制卡，列表的第一个列表项被识别为问题，子列表识别为答案') }}
+          </p>
+        </div>
+
+        <div v-if="settings.quickCard.enabled" class="form-item">
+          <label>{{ t('quickCardFlashcardHeadingLabel', '标题块制卡') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.quickCard.flashcard.heading">
+          </div>
+          <p class="form-hint">
+            {{ t('quickCardFlashcardHeadingHint', '启用后支持标题块制卡，标题块被识别为问题，下方块识别为答案') }}
+          </p>
+        </div>
+
+        <div v-if="settings.quickCard.enabled" class="form-item">
+          <label>{{ t('quickCardFlashcardSuperBlockLabel', '超级块制卡') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.quickCard.flashcard.superBlock">
+          </div>
+          <p class="form-hint">
+            {{ t('quickCardFlashcardSuperBlockHint', '启用后支持超级块制卡，超级块的第一个子块被识别为问题，其余子块识别为答案') }}
+          </p>
+        </div>
+
         <div class="fn__hr"></div>
 
         <!-- 🆕 每日刷新时间 -->
@@ -369,7 +413,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { DEFAULT_FSRS_WEIGHTS, FSRS_WEIGHT_COUNT, type FilterGroupDefinition, type FSRSParameters, type QueueSettings, type SchedulerConfig, type QuickCardSettings } from '../../types';
+import { DEFAULT_FSRS_WEIGHTS, DEFAULT_SETTINGS, FSRS_WEIGHT_COUNT, type FilterGroupDefinition, type FSRSParameters, type QueueSettings, type SchedulerConfig, type QuickCardSettings } from '../../types';
 import { getTodayRange, formatTodayRange } from '../../utils/dateUtils';  // 🆕 导入日期工具
 import { createLogger } from '@/utils/logger';
 
@@ -392,6 +436,32 @@ type CleanupRunResult = CleanupScanResult & {
 const logger = createLogger('SettingsPanel');
 
 const DEFAULT_PARAMS = [...DEFAULT_FSRS_WEIGHTS];
+
+function createDefaultQuickCardSettings(): QuickCardSettings {
+  return JSON.parse(JSON.stringify(DEFAULT_SETTINGS.quickCard)) as QuickCardSettings;
+}
+
+function mergeQuickCardSettings(source?: Partial<QuickCardSettings>): QuickCardSettings {
+  const defaults = createDefaultQuickCardSettings();
+  return {
+    ...defaults,
+    ...(source || {}),
+    flashcard: {
+      ...defaults.flashcard,
+      ...(source?.flashcard || {}),
+    },
+    enabledSymbols: {
+      ...defaults.enabledSymbols,
+      ...(source?.enabledSymbols || {}),
+    },
+    debounceDelay: {
+      ...defaults.debounceDelay,
+      ...(source?.debounceDelay || {}),
+    },
+    descriptorUseXiuyuan: source?.descriptorUseXiuyuan ?? defaults.descriptorUseXiuyuan,
+    flashcardSeededFromSiyuan: source?.flashcardSeededFromSiyuan ?? defaults.flashcardSeededFromSiyuan,
+  };
+}
 
 // Emits
 const emit = defineEmits<{
@@ -479,38 +549,7 @@ const settings = ref<Settings>({
   autoSortEnabled: true,
   addToOutstandingEveryNth: 2,
   priorityRandomness: 0.1,
-  quickCard: {  // 🆕 默认值
-    enabled: false,
-    enabledSymbols: {
-      basic: true,
-      concept: true,
-      descriptor: true,
-      cloze: true,
-      multiLine: true,
-    },
-    debounceDelay: {
-      quick: 300,
-      list: 2000,
-    },
-    descriptorUseXiuyuan: true,
-  },
-});
-
-// 🆕 快速制卡设置
-const quickCardSettings = ref<QuickCardSettings>({
-  enabled: true,
-  enabledSymbols: {
-    basic: true,
-    concept: true,
-    descriptor: true,
-    cloze: true,
-    multiLine: true,
-  },
-  debounceDelay: {
-    quick: 300,
-    list: 2000,
-  },
-  descriptorUseXiuyuan: true,
+  quickCard: createDefaultQuickCardSettings(),
 });
 
 // 🆕 调度器配置
@@ -712,45 +751,14 @@ function loadSettings() {
       autoSortEnabled: true,
       addToOutstandingEveryNth: 2,
       priorityRandomness: normalizePriorityRandomness(props.priorityRandomness),
-      quickCard: {  // 🆕 初始化完整的 quickCard 字段
-        enabled: props.quickCardSettings?.enabled ?? false,
-        enabledSymbols: props.quickCardSettings?.enabledSymbols || {
-          basic: true,
-          concept: true,
-          descriptor: true,
-          cloze: true,
-          multiLine: true,
-        },
-        debounceDelay: props.quickCardSettings?.debounceDelay || {
-          quick: 300,
-          list: 2000,
-        },
-        descriptorUseXiuyuan: props.quickCardSettings?.descriptorUseXiuyuan ?? true,
-      },
+      quickCard: mergeQuickCardSettings(props.quickCardSettings),
     };
     
     // 🔍 调试日志：检查初始化后的 settings.quickCard
     logger.debug('Initialized settings.quickCard', { quickCard: settings.value.quickCard });
   }
-  
-  // 🆕 加载快速制卡设置
-  if (props.quickCardSettings) {
-    quickCardSettings.value = {
-      enabled: props.quickCardSettings.enabled ?? false,  // 🔧 修改默认值为 false
-      enabledSymbols: {
-        basic: props.quickCardSettings.enabledSymbols?.basic ?? true,
-        concept: props.quickCardSettings.enabledSymbols?.concept ?? true,
-        descriptor: props.quickCardSettings.enabledSymbols?.descriptor ?? true,
-        cloze: props.quickCardSettings.enabledSymbols?.cloze ?? true,
-        multiLine: props.quickCardSettings.enabledSymbols?.multiLine ?? true,
-      },
-      debounceDelay: {
-        quick: props.quickCardSettings.debounceDelay?.quick ?? 300,
-        list: props.quickCardSettings.debounceDelay?.list ?? 2000,
-      },
-      descriptorUseXiuyuan: props.quickCardSettings.descriptorUseXiuyuan ?? true,
-    };
-  }
+
+  settings.value.quickCard = mergeQuickCardSettings(props.quickCardSettings);
   
   if (props.queueSettings) {
     const incoming = JSON.parse(JSON.stringify(props.queueSettings));
@@ -939,21 +947,7 @@ function resetSettings() {
     autoSortEnabled: true,
     addToOutstandingEveryNth: 2,
     priorityRandomness: 0.1,
-    quickCard: {  // 🆕 重置快速制卡设置
-      enabled: false,
-      enabledSymbols: {
-        basic: true,
-        concept: true,
-        descriptor: true,
-        cloze: true,
-        multiLine: true,
-      },
-      debounceDelay: {
-        quick: 300,
-        list: 2000,
-      },
-      descriptorUseXiuyuan: true,
-    },
+    quickCard: createDefaultQuickCardSettings(),
   };
 }
 

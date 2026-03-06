@@ -195,14 +195,6 @@ export async function pushBrowserErrMsg(msg: string, timeout?: number): Promise<
     await resolveSiyuanApi().pushErrMsg(msg, timeout);
 }
 
-export async function setBrowserCardType(
-    blockId: string,
-    cardType: 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage'
-): Promise<void> {
-    const siyuanApi = resolveSiyuanApi();
-    await siyuanApi.setBlockAttrs(blockId, { [siyuanApi.ATTR_CARD_TYPE]: cardType });
-}
-
 export async function setBrowserCardPriority(blockId: string, priority: number): Promise<void> {
     const siyuanApi = resolveSiyuanApi();
     await siyuanApi.setBlockAttrs(blockId, { [siyuanApi.ATTR_PRIORITY]: String(priority) });

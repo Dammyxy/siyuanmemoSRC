@@ -571,6 +571,7 @@ export class DialogManager implements IDialogManager {
         plugin: this.plugin,
         queueType: QueueType.RetrievalPractice,
         title: this.context.getI18n()?.retrievalPractice || '提取练习',
+        headerVariant: 'retrieval-practice',
         eventBus: this.context.getEventBus(),  // ✅ 显式传递 EventBus
         onClose: () => {
           this.currentReviewDialog = null;
@@ -597,6 +598,7 @@ export class DialogManager implements IDialogManager {
         plugin: this.plugin,
         queueType: QueueType.IncrementalLearning,
         title: this.context.getI18n()?.incrementalLearning || '渐进学习',
+        headerVariant: 'incremental-learning',
         eventBus: this.context.getEventBus(),  // ✅ 显式传递 EventBus
         onClose: () => {
           this.currentReviewDialog = null;
@@ -622,6 +624,7 @@ export class DialogManager implements IDialogManager {
         plugin: this.plugin,
         queueType: QueueType.FinalDrill,
         title: this.context.getI18n()?.finalDrill || '刻意练习',
+        headerVariant: 'final-drill',
         eventBus: this.context.getEventBus(),  // ✅ 显式传递 EventBus
         onClose: () => {
           this.currentReviewDialog = null;
@@ -647,6 +650,7 @@ export class DialogManager implements IDialogManager {
         plugin: this.plugin,
         queueType: QueueType.FilterGroup,
         title: this.context.getI18n()?.filterGroupPractice || '分组队列',
+        headerVariant: 'filter-group',
         eventBus: this.context.getEventBus(),  // ✅ 显式传递 EventBus
         onClose: () => {
           this.currentReviewDialog = null;
@@ -698,6 +702,7 @@ export class DialogManager implements IDialogManager {
         plugin: this.plugin,
         queueType: QueueType.NeuralRoam,
         title: this.context.getI18n()?.neuralReviewTitle || '神经漫游',
+        headerVariant: 'neural-roam',
         eventBus: this.context.getEventBus(),  // ✅ 显式传递 EventBus
         onClose: () => {
           this.currentReviewDialog = null;
@@ -735,6 +740,7 @@ export class DialogManager implements IDialogManager {
         queueType: QueueType.Leech,
         queueInstance: queue,
         title: this.context.getI18n()?.startLeechPractice || '难点攻坚',
+        headerVariant: 'leech',
         eventBus: this.context.getEventBus(),
         onClose: () => {
           this.currentReviewDialog = null;
@@ -776,6 +782,7 @@ export class DialogManager implements IDialogManager {
         queueType: QueueType.FilterGroup,
         queueInstance: queue,
         title,
+        headerVariant: 'subset-review',
         eventBus: this.context.getEventBus(),
         onClose: () => {
           this.currentReviewDialog = null;
@@ -838,7 +845,10 @@ export class DialogManager implements IDialogManager {
       const eventBus = this.context.getEventBus();
       const schedulerRouter = this.context.getSchedulerRouter();
       const queue = new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus, schedulerRouter);
-      const adapter = new UnifiedReviewAdapter({ i18n: this.context.getI18n() || {} });
+      const adapter = new UnifiedReviewAdapter({
+        i18n: this.context.getI18n() || {},
+        headerVariant: 'retrieval-practice',
+      });
       const { width, height } = this.resolveReviewDialogSize();
       const isMobile = this.isMobileFrontend();
       
@@ -853,6 +863,7 @@ export class DialogManager implements IDialogManager {
           app: this.plugin.app,
           i18n: this.context.getI18n() || {},
           title: this.context.getI18n()?.retrievalPractice || '提取练习',
+          headerVariant: 'retrieval-practice',
           queue,
           adapter,
           plugin: this.plugin,
@@ -932,7 +943,10 @@ export class DialogManager implements IDialogManager {
       const eventBus = this.context.getEventBus();
       const schedulerRouter = this.context.getSchedulerRouter();
       const queue = new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus, schedulerRouter);
-      const adapter = new UnifiedReviewAdapter({ i18n: this.context.getI18n() || {} });
+      const adapter = new UnifiedReviewAdapter({
+        i18n: this.context.getI18n() || {},
+        headerVariant: 'incremental-learning',
+      });
       const { width, height } = this.resolveReviewDialogSize();
       const isMobile = this.isMobileFrontend();
       
@@ -947,6 +961,7 @@ export class DialogManager implements IDialogManager {
           app: this.plugin.app,
           i18n: this.context.getI18n() || {},
           title: this.context.getI18n()?.incrementalLearning || '渐进学习',
+          headerVariant: 'incremental-learning',
           queue,
           adapter,
           plugin: this.plugin,
@@ -999,6 +1014,7 @@ export class DialogManager implements IDialogManager {
         queueType: QueueType.FinalDrill,
         queueInstance: queue,
         title,
+        headerVariant: 'temporary-drill',
         eventBus: this.context.getEventBus(),
         onClose: () => {
           this.currentReviewDialog = null;

@@ -13,6 +13,7 @@ import ReviewView from '@/ui/review/v2/ReviewView.vue';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
 import type { IReviewQueue, QueueType } from '@/types/unified-data-source';
+import type { ReviewHeaderVariant } from '@/ui/review/v2/types';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import { createLogger } from '@/utils/logger';
@@ -45,6 +46,9 @@ export interface CreateUnifiedReviewDialogOptions {
     
     /** 对话框标题 */
     title: string;
+
+    /** 顶栏计数展示变体 */
+    headerVariant: ReviewHeaderVariant;
     
     /** 事件总线（必需，用于依赖注入） */
     eventBus: EventBus;
@@ -75,7 +79,7 @@ export interface CreateUnifiedReviewDialogOptions {
  * @returns 对话框实例
  */
 export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOptions) {
-    const { plugin, queueType, queueInstance, title, eventBus, onClose } = options;
+    const { plugin, queueType, queueInstance, title, headerVariant, eventBus, onClose } = options;
     const isMobile = plugin.isMobile === true;
     
     try {
@@ -95,7 +99,10 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
         const queue = new UnifiedQueueStrategy(queueInstance ?? queueType, manager, eventBus, schedulerRouter);
         
         // 创建统一复习适配器
-        const adapter = new UnifiedReviewAdapter({ i18n: plugin.i18n || {} });
+        const adapter = new UnifiedReviewAdapter({
+            i18n: plugin.i18n || {},
+            headerVariant,
+        });
         
         // 创建对话框
         const dialog = createVueDialog({
@@ -109,6 +116,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
                 app: plugin.app,
                 i18n: plugin.i18n || {},
                 title: title,
+                headerVariant,
                 queue,
                 adapter,
                 plugin: plugin,  // 传递插件实例，用于访问 hybridSyncService

@@ -60,6 +60,41 @@ export function shouldVerifyQuickDefaultProfile(profile: ReviewRenderProfile): b
   return profile === 'quick-default';
 }
 
+export function shouldBypassSemanticFallback(
+  card?: FSRSCard | null,
+  profile?: ReviewRenderProfile
+): boolean {
+  if (!card || card.type !== 'item') {
+    return false;
+  }
+
+  const meta = card.meta as Record<string, unknown> | undefined;
+  if (meta?.forceProtyleRender === true || meta?.forceQuickRender === true) {
+    return false;
+  }
+
+  if (profile === 'descriptor' || profile === 'concept' || profile === 'concept-definition') {
+    return false;
+  }
+
+  const typeMarker = typeof meta?.typeMarker === 'string' ? meta.typeMarker : '';
+  if (
+    typeMarker === 'C'
+    || typeMarker.startsWith('concept-descriptor')
+    || typeMarker.includes('concept-definition')
+  ) {
+    return false;
+  }
+
+  const cardTypeMarker = typeof card.cardTypeMarker === 'string'
+    ? card.cardTypeMarker
+    : typeof meta?.cardTypeMarker === 'string'
+      ? meta.cardTypeMarker
+      : '';
+
+  return cardTypeMarker !== 'concept' && cardTypeMarker !== 'descriptor';
+}
+
 export function buildReviewRenderCacheKey(input: ReviewRenderPolicyKeyInput): string {
   return buildBaseSegments(input).join('|');
 }

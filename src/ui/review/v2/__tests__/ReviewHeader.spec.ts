@@ -6,14 +6,38 @@ import type { ReviewUIState } from '../types';
 function createHeaderState(): ReviewUIState['header'] {
   return {
     stats: {
-      current: 1,
-      total: 10,
+      current: 3,
+      total: 3,
       label: '',
       queueName: 'retrieval',
-      newCards: 3,
-      reviewCards: 7,
-      currentNewCards: 1,
-      currentReviewCards: 0,
+    },
+    counterSummary: {
+      text: '(2+1)/3',
+      tooltip: 'Item 2/2 · Descriptor 1/1',
+      ariaLabel: 'Item 2/2 · Descriptor 1/1',
+      parts: [
+        { id: 'item', label: 'Item', remaining: 2, total: 2, tone: 'item' },
+        { id: 'descriptor', label: 'Descriptor', remaining: 1, total: 1, tone: 'descriptor' },
+      ],
+      total: 3,
+      forceParentheses: false,
+    },
+    counterBadges: [
+      {
+        id: 'answered',
+        label: '已答',
+        kind: 'value',
+        tone: 'progress',
+        text: '3',
+        value: 3,
+        ariaLabel: '已答 3',
+      },
+    ],
+    priorityBadge: {
+      label: 'P',
+      value: '12',
+      priority: 12,
+      ariaLabel: 'Priority 12',
     },
     breadcrumbs: [],
     toolbar: [
@@ -33,6 +57,64 @@ describe('ReviewHeader', () => {
     };
   });
 
+  it('renders compact summary chip, auxiliary badge, and priority badge', () => {
+    const wrapper = mount(ReviewHeader, {
+      props: {
+        header: createHeaderState(),
+        isMobile: false,
+        mode: 'dialog',
+      },
+    });
+
+    expect(wrapper.findAll('.siyuanmemo-review-header__metric')).toHaveLength(0);
+
+    const summary = wrapper.get('.siyuanmemo-review-header__summary');
+    expect(summary.text()).toBe('(2+1)/3');
+    expect(summary.attributes('aria-label')).toBe('Item 2/2 · Descriptor 1/1');
+    expect(summary.attributes('title')).toBe('Item 2/2 · Descriptor 1/1');
+
+    const badges = wrapper.findAll('.siyuanmemo-review-header__badge');
+    expect(badges).toHaveLength(1);
+    expect(badges[0]?.text()).toContain('已答');
+    expect(badges[0]?.text()).toContain('3');
+
+    const priority = wrapper.get('.siyuanmemo-review-header__priority');
+    expect(priority.text()).toContain('P');
+    expect(priority.text()).toContain('12');
+    expect(priority.attributes('style')).toContain('var(--b3-card-warning-color)');
+  });
+
+  it('renders fixed-slot incremental summary tooltip including zero values', () => {
+    const header = createHeaderState();
+    header.counterSummary = {
+      text: '(1+0+0+11)/12',
+      tooltip: 'Item 1/1 · Descriptor 0/0 · Topic 0/0 · Concept 11/11',
+      ariaLabel: 'Item 1/1 · Descriptor 0/0 · Topic 0/0 · Concept 11/11',
+      parts: [
+        { id: 'item', label: 'Item', remaining: 1, total: 1, tone: 'item' },
+        { id: 'descriptor', label: 'Descriptor', remaining: 0, total: 0, tone: 'descriptor' },
+        { id: 'topic', label: 'Topic', remaining: 0, total: 0, tone: 'topic' },
+        { id: 'concept', label: 'Concept', remaining: 11, total: 11, tone: 'concept' },
+      ],
+      total: 12,
+      forceParentheses: true,
+    };
+    header.counterBadges = [];
+
+    const wrapper = mount(ReviewHeader, {
+      props: {
+        header,
+        isMobile: false,
+        mode: 'dialog',
+      },
+    });
+
+    const summary = wrapper.get('.siyuanmemo-review-header__summary');
+    expect(summary.text()).toBe('(1+0+0+11)/12');
+    expect(summary.attributes('title')).toContain('Descriptor 0/0');
+    expect(summary.attributes('title')).toContain('Topic 0/0');
+  });
+
   it('renders close-review action in dedicated top-right slot on mobile dialog mode', async () => {
     const wrapper = mount(ReviewHeader, {
       props: {
@@ -44,6 +126,7 @@ describe('ReviewHeader', () => {
 
     expect(wrapper.find('.siyuanmemo-review-header__toolbar button[data-type="close-review"]').exists()).toBe(false);
     expect(wrapper.get('.siyuanmemo-review-header__mobile-close').attributes('data-type')).toBe('close-review');
+    expect(wrapper.get('.siyuanmemo-review-header__summary').exists()).toBe(true);
 
     await wrapper.get('button[data-type="close-review"]').trigger('click');
     expect(wrapper.emitted('toolbar-action')?.[0]).toEqual(['close-review', expect.any(Object)]);
@@ -55,18 +138,6 @@ describe('ReviewHeader', () => {
         header: createHeaderState(),
         isMobile: true,
         mode: 'tab',
-      },
-    });
-
-    expect(wrapper.find('button[data-type="close-review"]').exists()).toBe(false);
-  });
-
-  it('does not render close-review action on desktop', () => {
-    const wrapper = mount(ReviewHeader, {
-      props: {
-        header: createHeaderState(),
-        isMobile: false,
-        mode: 'dialog',
       },
     });
 

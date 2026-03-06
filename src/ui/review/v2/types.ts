@@ -1,23 +1,89 @@
-﻿import type { IQueueCommand } from '@/core/queue/abstraction/Command';
-import type { Ref } from 'vue';
+import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import type { AdapterContext as CoreAdapterContext, IAdapter as CoreAdapter } from '@/core/extensions';
-
 import type { FSRSCard } from '@/types/card';
+import type { QueueType } from '@/types/unified-data-source';
+import type { HeaderVisualTone } from '@/ui/shared/cardVisualTokens';
+import type { Ref } from 'vue';
 
 export type ReviewCardKind = 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
 
+export type ReviewHeaderVariant =
+  | 'retrieval-practice'
+  | 'incremental-learning'
+  | 'final-drill'
+  | 'filter-group'
+  | 'neural-roam'
+  | 'subset-review'
+  | 'temporary-drill'
+  | 'leech';
+
+export type ReviewHeaderCounterBadgeKind = 'ratio' | 'value';
+
+export interface ReviewHeaderCounterSummaryPart {
+  id: string;
+  label: string;
+  tone?: HeaderVisualTone;
+  remaining: number;
+  total: number;
+}
+
+export interface ReviewHeaderCounterSummary {
+  text: string;
+  tooltip: string;
+  ariaLabel: string;
+  parts: ReviewHeaderCounterSummaryPart[];
+  total: number;
+  forceParentheses: boolean;
+}
+
+export interface ReviewHeaderCounterBadge {
+  id: string;
+  label: string;
+  kind: ReviewHeaderCounterBadgeKind;
+  tone?: HeaderVisualTone;
+  text: string;
+  ariaLabel: string;
+  remaining?: number;
+  total?: number;
+  value?: number | string;
+}
+
+export interface ReviewHeaderPriorityBadge {
+  label: string;
+  value: string;
+  priority: number | null;
+  ariaLabel: string;
+}
+
+const DEFAULT_REVIEW_HEADER_VARIANT_BY_QUEUE_TYPE: Record<QueueType, ReviewHeaderVariant> = {
+  'retrieval-practice': 'retrieval-practice',
+  'incremental-learning': 'incremental-learning',
+  'final-drill': 'final-drill',
+  'filter-group': 'filter-group',
+  'neural-roam': 'neural-roam',
+  'leech': 'leech',
+};
+
+export function resolveReviewHeaderVariant(
+  queueType: QueueType | string | null | undefined,
+  fallback: ReviewHeaderVariant = 'retrieval-practice',
+): ReviewHeaderVariant {
+  const key = String(queueType || '').trim() as QueueType;
+  return DEFAULT_REVIEW_HEADER_VARIANT_BY_QUEUE_TYPE[key] || fallback;
+}
+
 export interface ReviewUIState {
   header: {
+    title?: string;
     stats: {
       current: number;
-      currentNewCards?: number;
-      currentReviewCards?: number;
       total: number;
       label: string;
       queueName: string;
-      newCards?: number;
-      reviewCards?: number;
     };
+    counterSummary: ReviewHeaderCounterSummary | null;
+    counterBadges: ReviewHeaderCounterBadge[];
+    priorityBadge: ReviewHeaderPriorityBadge;
     breadcrumbs: Array<{
       icon: string;
       text: string;
@@ -26,12 +92,11 @@ export interface ReviewUIState {
     }>;
     toolbar?: Array<{
       icon: string;
-      type: string; // 按钮类型（fullscreen, edit-srs, sticktab, filter, more 等）
+      type: string;
       label?: string;
       ariaLabel?: string;
       disabled?: boolean;
     }>;
-    // 🆕 神经漫游导航状态（Phase 3: UI 控件）
     navigationState?: {
       currentPathIndex: number;
       currentNodeId?: string | null;
@@ -45,13 +110,9 @@ export interface ReviewUIState {
     type: 'protyle' | 'html' | 'empty';
     data: string;
     id: string;
-    /** Xiuyuan 模板卡片的答案块 ID（点击显示答案后渲染） */
     answerBlockID?: string;
-    /** 当前渲染的卡片对象（含 meta 等信息） */
     card?: FSRSCard;
-    /** Xiuyuan 列表模板卡标记 */
     isXiuyuanListTemplate?: boolean;
-    /** Xiuyuan 列表模板渲染元数据 */
     xiuyuanMeta?: Record<string, unknown> | null;
   };
 
@@ -81,8 +142,8 @@ export interface ReviewUIState {
       blockID?: string;
       deckID?: string;
       isReviewCard?: boolean;
-      type?: ReviewCardKind; // 🆕 卡片类型
-      cardType?: ReviewCardKind; // 🆕 兼容字段
+      type?: ReviewCardKind;
+      cardType?: ReviewCardKind;
     };
   };
 
@@ -104,8 +165,8 @@ export interface ReviewUIState {
     hasHiddenContent?: boolean;
     canSkip?: boolean;
     canBack?: boolean;
-    queueSize?: number; // 🆕 队列总大小
-    remainingSize?: number; // 🆕 剩余卡片数量
+    queueSize?: number;
+    remainingSize?: number;
   };
 }
 
@@ -121,8 +182,8 @@ export interface ReviewSessionHook {
   back: () => Promise<void>;
   executeCommand: (cmdId: string) => Promise<void>;
   reload: () => Promise<void>;
-  getQueueStrategy: () => unknown; // 🆕 获取底层队列策略（用于神经漫游等特殊功能）
-  loadCardByBlockId: (blockId: string) => Promise<void>; // 🆕 直接加载指定卡片（Phase 3: UI 控件）
+  getQueueStrategy: () => unknown;
+  loadCardByBlockId: (blockId: string) => Promise<void>;
   onMounted: () => void;
   onUnmounted: () => void;
 }
@@ -136,8 +197,16 @@ export function createEmptyReviewUIState(): ReviewUIState {
         label: '',
         queueName: '',
       },
+      counterSummary: null,
+      counterBadges: [],
+      priorityBadge: {
+        label: 'P',
+        value: '-',
+        priority: null,
+        ariaLabel: 'Priority -',
+      },
       breadcrumbs: [],
-      toolbar: [], // ✅ toolbar 在 header 中
+      toolbar: [],
     },
     content: {
       type: 'empty',

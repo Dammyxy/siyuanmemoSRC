@@ -4,6 +4,7 @@ import {
   buildReviewRenderCacheKey,
   buildReviewRenderWatchKey,
   isNeuralRoamNonFlashcard,
+  shouldBypassSemanticFallback,
   shouldVerifyQuickDefaultProfile,
 } from '../reviewRenderPolicy';
 
@@ -107,5 +108,32 @@ describe('reviewRenderPolicy', () => {
     expect(shouldVerifyQuickDefaultProfile('quick-default')).toBe(true);
     expect(shouldVerifyQuickDefaultProfile('descriptor')).toBe(false);
     expect(shouldVerifyQuickDefaultProfile(null)).toBe(false);
+  });
+
+  it('bypasses semantic fallback for explicit item cards in auto render mode', () => {
+    const card = createCard({
+      type: 'item',
+      meta: {},
+    });
+
+    expect(shouldBypassSemanticFallback(card, null)).toBe(true);
+  });
+
+  it('does not bypass semantic fallback when semantic route markers still exist', () => {
+    const card = createCard({
+      type: 'item',
+      meta: {
+        typeMarker: 'concept-descriptor-forward',
+      },
+    });
+
+    expect(shouldBypassSemanticFallback(card, null)).toBe(false);
+    expect(shouldBypassSemanticFallback(createCard({
+      type: 'item',
+      meta: {
+        forceQuickRender: true,
+      },
+    }), null)).toBe(false);
+    expect(shouldBypassSemanticFallback(createCard(), 'descriptor')).toBe(false);
   });
 });

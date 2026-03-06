@@ -124,6 +124,17 @@ export interface IncrementalSettings {
 export interface QuickCardSettings {
     /** 启用快速制卡 */
     enabled: boolean;
+
+    /** 思源原生闪卡类别对 Topic/Item 的映射开关 */
+    flashcard: {
+        mark: boolean;
+        list: boolean;
+        heading: boolean;
+        superBlock: boolean;
+    };
+
+    /** 是否已从思源原生 flashcard 设置做过一次性初始化 */
+    flashcardSeededFromSiyuan?: boolean;
     
     /** 启用的符号类型 */
     enabledSymbols: {
@@ -307,6 +318,14 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         ...settings,
         fsrs: { ...settings.fsrs },
         scheduler: settings.scheduler ? { ...settings.scheduler } : settings.scheduler,
+        quickCard: {
+            ...DEFAULT_SETTINGS.quickCard,
+            ...(settings.quickCard || {}),
+            flashcard: {
+                ...DEFAULT_SETTINGS.quickCard.flashcard,
+                ...(settings.quickCard?.flashcard || {}),
+            },
+        },
     };
 
     const normalizedWeights = normalizeFSRSWeights(normalized.fsrs?.weights);
@@ -329,6 +348,28 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         const nextItem = mapLegacySchedulerLiteral(normalized.scheduler.itemScheduler);
         if (nextItem !== normalized.scheduler.itemScheduler) {
             normalized.scheduler.itemScheduler = nextItem as typeof normalized.scheduler.itemScheduler;
+            changed = true;
+        }
+    }
+
+    const sourceQuickCard = settings.quickCard;
+    const normalizedQuickCard = normalized.quickCard;
+    if (!sourceQuickCard) {
+        changed = true;
+    } else {
+        const flashcardConfig = sourceQuickCard.flashcard;
+        if (!flashcardConfig) {
+            changed = true;
+        } else if (
+            flashcardConfig.mark !== normalizedQuickCard.flashcard.mark
+            || flashcardConfig.list !== normalizedQuickCard.flashcard.list
+            || flashcardConfig.heading !== normalizedQuickCard.flashcard.heading
+            || flashcardConfig.superBlock !== normalizedQuickCard.flashcard.superBlock
+        ) {
+            changed = true;
+        }
+
+        if ((sourceQuickCard.flashcardSeededFromSiyuan ?? false) !== normalizedQuickCard.flashcardSeededFromSiyuan) {
             changed = true;
         }
     }
@@ -408,6 +449,13 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     },
     quickCard: {
         enabled: false,  // 🆕 默认关闭，避免误触发
+        flashcard: {
+            mark: true,
+            list: true,
+            heading: true,
+            superBlock: true,
+        },
+        flashcardSeededFromSiyuan: false,
         enabledSymbols: {
             basic: true,
             concept: true,

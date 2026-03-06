@@ -7,6 +7,7 @@
 import type { ColDef, ValueGetterParams } from 'ag-grid-community';
 import type { BrowserCard } from '../types';
 import { formatSortContractDisplayValue } from './sortDisplayContract';
+import { getCardVisualColor } from '@/ui/shared/cardVisualTokens';
 
 function formatWithContract(card: BrowserCard | undefined, colId: string): string {
   if (!card) {
@@ -145,19 +146,13 @@ export function createColumnDefs(t?: (key: string, fallback: string) => string):
       },
       cellStyle: (params) => {
         const type = params.value;
-        if (type === 'topic') {
-          return { color: 'var(--b3-theme-info)', fontWeight: 500 };
+        if (type !== 'topic' && type !== 'item' && type !== 'concept' && type !== 'descriptor') {
+          return {};
         }
-        if (type === 'item') {
-          return { color: 'var(--b3-theme-success)', fontWeight: 500 };
-        }
-        if (type === 'concept') {
-          return { color: 'var(--b3-theme-primary)', fontWeight: 600 };
-        }
-        if (type === 'descriptor') {
-          return { color: 'var(--b3-theme-secondary)', fontWeight: 500 };
-        }
-        return {};
+        return {
+          color: getCardVisualColor(type),
+          fontWeight: type === 'concept' ? 600 : 500,
+        };
       },
     },
     // FirstRep - 首次复习

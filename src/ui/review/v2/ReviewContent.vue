@@ -144,6 +144,7 @@ import {
   buildReviewRenderCacheKey,
   buildReviewRenderWatchKey,
   isNeuralRoamNonFlashcard,
+  shouldBypassSemanticFallback,
   shouldVerifyQuickDefaultProfile,
 } from './reviewRenderPolicy';
 import { createLogger } from '@/utils/logger';
@@ -259,6 +260,7 @@ function resolveNeuralIsFlashcard(card: ReviewUIState['content']['card']): boole
 }
 
 const forceProtyleRender = computed(() => props.content.card?.meta?.forceProtyleRender === true);
+const isTopicReadModeCard = computed(() => String(props.content.card?.type || '') === 'topic');
 const forceQuickRenderRaw = computed(() => props.content.card?.meta?.forceQuickRender === true);
 const neuralIsFlashcard = computed(() => resolveNeuralIsFlashcard(props.content.card));
 const isNeuralRoamNonFlashcardCard = computed(() => isNeuralRoamNonFlashcard(props.content.card));
@@ -277,6 +279,7 @@ const resolvedRenderProfile = computed(() => resolveRenderProfile(props.content.
 const isLatexNumberedQuickHint = computed(() => quickDetectReason.value === 'cloze-latex-numbered');
 const forceQuickRender = computed(() => {
   if (forceProtyleRender.value) return false;
+  if (isTopicReadModeCard.value) return false;
   if (isNeuralRoamNonFlashcardCard.value) return false;
   return forceQuickRenderRaw.value;
 });
@@ -309,6 +312,7 @@ const renderWatchKey = computed(() =>
 // 🆕 判断是否应该使用多挖空卡渲染器
 const shouldUseMultiClozeRenderer = computed(() => {
   if (props.content.type !== 'protyle') return false;
+  if (isTopicReadModeCard.value) return false;
   if (isNeuralRoamNonFlashcardCard.value) return false;
   if (forceProtyleRender.value) return false;
   if (resolvedRenderProfile.value === 'quick-inline-formula') return true;
@@ -336,6 +340,7 @@ const isImageOcclusionCard = computed(() => {
 
 const shouldUseImageOcclusionRenderer = computed(() => {
   return props.content.type === 'protyle'
+    && !isTopicReadModeCard.value
     && !isNeuralRoamNonFlashcardCard.value
     && isImageOcclusionCard.value;
 });
@@ -343,6 +348,7 @@ const shouldUseImageOcclusionRenderer = computed(() => {
 const shouldUseConceptDefinitionRenderer = computed(() => {
   // 只有在 protyle 类型时才检测
   if (props.content.type !== 'protyle') return false;
+  if (isTopicReadModeCard.value) return false;
   if (isNeuralRoamNonFlashcardCard.value) return false;
   if (isImageOcclusionCard.value) return false;
   if (forceProtyleRender.value || forceQuickRender.value) return false;
@@ -389,6 +395,7 @@ const shouldUseConceptCardRenderer = computed(() => {
 const shouldUseDescriptorCardRenderer = computed(() => {
   if (resolvedRenderProfile.value === 'descriptor') {
     return props.content.type === 'protyle'
+      && !isTopicReadModeCard.value
       && !forceProtyleRender.value
       && !forceQuickRender.value
       && !isNeuralRoamNonFlashcardCard.value
@@ -398,6 +405,7 @@ const shouldUseDescriptorCardRenderer = computed(() => {
   // 只有在 protyle 类型且检测到描述符卡时才使用
   // 概念定义卡和概念卡优先级更高
   return props.content.type === 'protyle'
+    && !isTopicReadModeCard.value
     && !forceProtyleRender.value
     && !forceQuickRender.value
     && !isNeuralRoamNonFlashcardCard.value
@@ -411,6 +419,7 @@ const shouldUseDescriptorCardRenderer = computed(() => {
 const shouldUseQuickCardRenderer = computed(() => {
   if (resolvedRenderProfile.value === 'quick-default') {
     return props.content.type === 'protyle'
+      && !isTopicReadModeCard.value
       && !forceProtyleRender.value
       && !isNeuralRoamNonFlashcardCard.value
       && !isImageOcclusionCard.value
@@ -420,6 +429,7 @@ const shouldUseQuickCardRenderer = computed(() => {
   // 只有在 protyle 类型且检测到快速卡片时才使用
   // 概念定义卡、概念卡和描述符卡优先级更高
   return props.content.type === 'protyle'
+    && !isTopicReadModeCard.value
     && !forceProtyleRender.value
     && !isNeuralRoamNonFlashcardCard.value
     && !isImageOcclusionCard.value
@@ -561,7 +571,7 @@ async function renderProtyle(blockId: string): Promise<void> {
   const forceProtyleRenderFromMeta = forceProtyleRender.value;
   const forceQuickRenderFromMeta = forceQuickRender.value;
   const forceQuickRenderRawFromMeta = forceQuickRenderRaw.value;
-  const shouldForceProtyleOnly = isNeuralRoamNonFlashcardCard.value;
+  const shouldForceProtyleOnly = isNeuralRoamNonFlashcardCard.value || isTopicReadModeCard.value;
   const cacheKey = renderCacheKey.value;
 
   logger.debug('[SiYuanMemo][ReviewContent] renderProtyle called with blockId:', blockId);
@@ -683,9 +693,12 @@ async function renderProtyle(blockId: string): Promise<void> {
   }
 
   if (shouldForceProtyleOnly) {
-    logger.debug('[SiYuanMemo][ReviewContent] Neural roam non-flashcard detected, force Protyle renderer', {
+    logger.debug('[SiYuanMemo][ReviewContent] Force Protyle renderer by card policy', {
       blockId,
       cardId: props.content.card?.id,
+      cardType: props.content.card?.type,
+      forceTopicReadMode: isTopicReadModeCard.value,
+      neuralNonFlashcard: isNeuralRoamNonFlashcardCard.value,
       forceQuickRenderRaw: forceQuickRenderRawFromMeta,
     });
   } else if (forceQuickRenderFromMeta) {
@@ -756,6 +769,14 @@ async function renderProtyle(blockId: string): Promise<void> {
       });
     }
   } else if (!forceProtyleRenderFromMeta) {
+    const bypassSemanticFallbackDetection = shouldBypassSemanticFallback(
+      props.content.card,
+      resolvedRenderProfile.value
+    );
+
+    if (bypassSemanticFallbackDetection) {
+      logger.debug('[SiYuanMemo][ReviewContent] Bypassing semantic fallback detection for explicit item auto-render');
+    } else {
     // 🆕 检测是否为概念定义卡（优先级最高）
     try {
       const card = props.content.card;
@@ -855,6 +876,7 @@ async function renderProtyle(blockId: string): Promise<void> {
       }
     } catch (error) {
       logger.warn('[SiYuanMemo][ReviewContent] Descriptor card detection failed:', error);
+    }
     }
 
     // 🆕 检测是否为快速卡片

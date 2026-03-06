@@ -32,6 +32,8 @@ type SessionResettableQueue = {
   resetSessionState?: () => void;
 };
 
+type SessionHistoryEntry = NonNullable<NonNullable<AdapterContext['session']>['reviewHistory']>[number];
+
 type NeuralPathLoader<TItem> = {
   getPathItemByNodeId: (blockId: string) => Promise<TItem | null>;
 };
@@ -104,6 +106,44 @@ function resolveNeuralPathLoader<TItem>(queue: IQueueStrategy<TItem>): NeuralPat
   };
 }
 
+function ensureSessionState(context: AdapterContext, initialTotal?: number): NonNullable<AdapterContext['session']> {
+  const session = context.session ?? {
+    startTime: Date.now(),
+    resumed: false,
+  };
+
+  session.startTime = Number.isFinite(session.startTime) ? session.startTime : Date.now();
+  session.resumed = session.resumed === true;
+  session.initialTotal = initialTotal ?? session.initialTotal;
+  session.answeredCount = Math.max(0, Number(session.answeredCount) || 0);
+  session.correctCount = Math.max(0, Number(session.correctCount) || 0);
+  session.baselineVersion = Math.max(0, Number(session.baselineVersion) || 0);
+  session.reviewHistory = Array.isArray(session.reviewHistory) ? session.reviewHistory : [];
+  context.session = session;
+  return session;
+}
+
+function pushReviewHistory(context: AdapterContext, entry: SessionHistoryEntry): void {
+  const session = ensureSessionState(context);
+  session.reviewHistory = [...(session.reviewHistory || []), entry];
+  session.answeredCount = Math.max(0, (session.answeredCount || 0) + entry.answeredDelta);
+  session.correctCount = Math.max(0, (session.correctCount || 0) + entry.correctDelta);
+}
+
+function rollbackReviewHistory(context: AdapterContext): void {
+  const session = ensureSessionState(context);
+  const history = Array.isArray(session.reviewHistory) ? [...session.reviewHistory] : [];
+  const lastEntry = history.pop();
+  session.reviewHistory = history;
+
+  if (!lastEntry) {
+    return;
+  }
+
+  session.answeredCount = Math.max(0, (session.answeredCount || 0) - lastEntry.answeredDelta);
+  session.correctCount = Math.max(0, (session.correctCount || 0) - lastEntry.correctDelta);
+}
+
 function mergeAux(base: ReviewUIState, aux: Partial<ReviewUIState>): ReviewUIState {
   const headerAux = aux.header;
   const contentAux = aux.content;
@@ -167,7 +207,17 @@ export function useReviewSession<TItem>(
   const state = ref<ReviewUIState>(createEmptyReviewUIState());
   const currentItem = ref<TItem | null>(null);
   const now = Date.now();
-  const context = ref<AdapterContext>({ showAnswer: false, session: { startTime: now, resumed: false } });
+  const context = ref<AdapterContext>({
+    showAnswer: false,
+    session: {
+      startTime: now,
+      resumed: false,
+      answeredCount: 0,
+      correctCount: 0,
+      baselineVersion: 0,
+      reviewHistory: [],
+    },
+  });
 
   let updateSeq = 0;
   const getCanBack = (): boolean => {
@@ -226,6 +276,11 @@ export function useReviewSession<TItem>(
       }
 
       await queue.onFeedback(currentItem.value, feedback);
+      pushReviewHistory(context.value, {
+        action: 'rate',
+        answeredDelta: 1,
+        correctDelta: normalized >= 3 ? 1 : 0,
+      });
       const nextItem = await queue.next();
 
       currentItem.value = nextItem;
@@ -241,6 +296,11 @@ export function useReviewSession<TItem>(
   const skip = async (): Promise<void> => {
     try {
       await queue.onFeedback(currentItem.value, { action: 'skip' });
+      pushReviewHistory(context.value, {
+        action: 'skip',
+        answeredDelta: 0,
+        correctDelta: 0,
+      });
       currentItem.value = await queue.next();
       context.value.showAnswer = false;
       await updateState();
@@ -257,6 +317,11 @@ export function useReviewSession<TItem>(
       if (!id) return;
 
       await queue.onFeedback(currentItem.value, { action: 'custom', customActionId: id });
+      pushReviewHistory(context.value, {
+        action: 'custom',
+        answeredDelta: 0,
+        correctDelta: 0,
+      });
       currentItem.value = await queue.next();
       await updateState();
     } catch (error) {
@@ -277,6 +342,7 @@ export function useReviewSession<TItem>(
       }
 
       const previous = await queue.goBack(currentItem.value);
+      rollbackReviewHistory(context.value);
 
       if (!previous) {
         await updateState();
@@ -299,10 +365,15 @@ export function useReviewSession<TItem>(
         .then((stats) => Math.max(0, Number(stats?.size) || 0))
         .catch(() => undefined);
 
+      adapter.resetSessionState?.();
       context.value.session = {
         startTime: Date.now(),
         resumed: false,
         initialTotal,
+        answeredCount: 0,
+        correctCount: 0,
+        baselineVersion: 0,
+        reviewHistory: [],
       };
 
       currentItem.value = await queue.next();
@@ -321,6 +392,10 @@ export function useReviewSession<TItem>(
 
   const reload = async (): Promise<void> => {
     try {
+      const session = ensureSessionState(context.value);
+      session.baselineVersion = (session.baselineVersion || 0) + 1;
+      session.reviewHistory = [];
+      adapter.resetSessionState?.();
       (queue as unknown as SessionResettableQueue).resetSessionState?.();
       currentItem.value = await queue.next();
       context.value.showAnswer = false;

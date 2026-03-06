@@ -42,6 +42,7 @@ import { CardState, CardType } from '../../../types/card';
 import type { FSRSCard } from '../../../types/card';
 import { UnifiedStorageManager } from '../../storage/UnifiedStorageManager';
 import { setBlockAttrs } from '../../siyuan/api';
+import { ATTR_CARD_TYPE } from '../../siyuan/block';
 import { TemplateRegistry } from '../templates/TemplateRegistry';
 import { createLogger } from '@/utils/logger';
 import type { CardPersistenceDTO } from '../../../infrastructure/persistence/dto/CardPersistenceDTO';
@@ -188,6 +189,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   async save(xiuyuan: Xiuyuan): Promise<Result<void>> {
     try {
       const xiuyuanId = xiuyuan.getId().getValue();
+      const persistedCardType = this.resolvePersistedCardType(xiuyuan);
       
       // 1. 杞崲涓烘寔涔呭寲妯″瀷
       const persistenceModel = this.toPersistenceWithId(xiuyuan);
@@ -277,6 +279,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           // 鍙缃弿杩扮鍗″睘鎬?
           await setBlockAttrs(descriptorBlockId, {
             'custom-xiuyuan-id': xiuyuan.getId().getValue(),
+            ...(persistedCardType ? { [ATTR_CARD_TYPE]: persistedCardType } : {}),
           });
           
           logger.debug(`Set descriptor attributes: descriptor=${descriptorBlockId}`);
@@ -293,6 +296,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         try {
           await setBlockAttrs(representativeBlockId, {
             'custom-xiuyuan-id': xiuyuan.getId().getValue(),
+            ...(persistedCardType ? { [ATTR_CARD_TYPE]: persistedCardType } : {}),
           });
         } catch (error) {
           // 鍧楀睘鎬у啓鍏ュけ璐ヤ笉搴旇闃绘淇濆瓨
@@ -317,6 +321,13 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
     }
+  }
+
+  private resolvePersistedCardType(xiuyuan: Xiuyuan): 'topic' | 'item' | undefined {
+    const meta = xiuyuan.getMeta() as XiuyuanMeta | undefined;
+    return meta?.cardType === 'topic' || meta?.cardType === 'item'
+      ? meta.cardType
+      : undefined;
   }
 
   /**

@@ -4,11 +4,11 @@
  */
 import { type Ref } from 'vue';
 import { migrateExistingCards } from '@/scripts/migrateToTopicItem';
-import { invalidateCardCache, setBrowserCardType } from '../browserService';
+import { invalidateCardCache } from '../browserService';
 import type { BrowserCard } from '../types';
 import { CardTypeMarkerService } from '@/core/card-type/CardTypeMarkerService';
 import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
-import { CardType } from '@/types/card';
+import { CardType, type FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('useCardActions');
@@ -43,6 +43,18 @@ type RenderTarget =
 type RenderTargetSpec = {
   typeMarker?: string;
   templateID?: string;
+};
+
+type LocalCardMutation = (card: FSRSCard) => {
+  card: FSRSCard;
+  changed: boolean;
+};
+
+type LocalCardUpdateSummary = {
+  updated: number;
+  skipped: number;
+  missing: number;
+  unchanged: number;
 };
 
 const RENDER_TARGET_SPECS: Record<RenderTarget, RenderTargetSpec> = {
@@ -123,6 +135,33 @@ export function useCardActions(options: UseCardActionsOptions) {
     return { cardIds, skipped };
   }
 
+  function collectLocalCardIds(cards: BrowserCard[]): { cardIds: string[]; skipped: number } {
+    const cardIds: string[] = [];
+    const seen = new Set<string>();
+    let skipped = 0;
+
+    for (const card of cards) {
+      const preferredId = typeof card.fsrsCardId === 'string' ? card.fsrsCardId.trim() : '';
+      const fallbackId = typeof card.id === 'string' ? card.id.trim() : '';
+      const cardId = preferredId || fallbackId;
+
+      if (!cardId) {
+        skipped++;
+        logger.warn('Card missing local storage id, skipping:', card.id, card.blockId);
+        continue;
+      }
+
+      if (seen.has(cardId)) {
+        continue;
+      }
+
+      seen.add(cardId);
+      cardIds.push(cardId);
+    }
+
+    return { cardIds, skipped };
+  }
+
   function toMetaRecord(meta: unknown): Record<string, unknown> {
     if (meta && typeof meta === 'object') {
       return { ...(meta as Record<string, unknown>) };
@@ -185,6 +224,108 @@ export function useCardActions(options: UseCardActionsOptions) {
     }
 
     return { meta, changed };
+  }
+
+  function resetItemRenderMeta(sourceMeta: Record<string, unknown>): { meta: Record<string, unknown>; changed: boolean } {
+    const meta = { ...sourceMeta };
+    let changed = false;
+
+    if (Object.prototype.hasOwnProperty.call(meta, 'forceProtyleRender')) {
+      delete meta.forceProtyleRender;
+      changed = true;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(meta, 'forceQuickRender')) {
+      delete meta.forceQuickRender;
+      changed = true;
+    }
+
+    if (
+      meta.renderProfile === 'descriptor'
+      || meta.renderProfile === 'concept'
+      || meta.renderProfile === 'concept-definition'
+    ) {
+      delete meta.renderProfile;
+      changed = true;
+    }
+
+    if (typeof meta.typeMarker === 'string') {
+      const typeMarker = meta.typeMarker;
+      if (
+        typeMarker === 'C'
+        || typeMarker.startsWith('concept-descriptor')
+        || typeMarker.includes('concept-definition')
+      ) {
+        delete meta.typeMarker;
+        changed = true;
+      }
+    }
+
+    if (meta.cardTypeMarker === 'concept' || meta.cardTypeMarker === 'descriptor') {
+      delete meta.cardTypeMarker;
+      changed = true;
+    }
+
+    return { meta, changed };
+  }
+
+  function buildLocalCardUpdateDetail(summary: LocalCardUpdateSummary): string {
+    const detailParts: string[] = [];
+    if (summary.skipped > 0) detailParts.push(`缺少ID ${summary.skipped} 张`);
+    if (summary.missing > 0) detailParts.push(`存储缺失 ${summary.missing} 张`);
+    if (summary.unchanged > 0) detailParts.push(`已是目标类型 ${summary.unchanged} 张`);
+    return detailParts.length > 0 ? `（${detailParts.join('，')}）` : '';
+  }
+
+  async function updateLocalCardTypes(
+    cards: BrowserCard[],
+    mutation: LocalCardMutation
+  ): Promise<LocalCardUpdateSummary | null> {
+    if (!storage) {
+      await pushErrMsg('存储服务未初始化，无法更新卡片类型', 3000);
+      return null;
+    }
+
+    const { cardIds, skipped } = collectLocalCardIds(cards);
+    if (cardIds.length === 0) {
+      await pushErrMsg('未找到有效的卡片 ID', 3000);
+      return null;
+    }
+
+    let updated = 0;
+    let missing = 0;
+    let unchanged = 0;
+
+    for (const cardId of cardIds) {
+      const fsrsCard = storage.getCard(cardId);
+      if (!fsrsCard) {
+        missing++;
+        logger.warn(`Card not found in storage, skipping type update: ${cardId}`);
+        continue;
+      }
+
+      const result = mutation(fsrsCard);
+      if (!result.changed) {
+        unchanged++;
+        continue;
+      }
+
+      storage.setCard(result.card);
+      updated++;
+    }
+
+    if (updated > 0) {
+      await storage.saveCards();
+      invalidateCardCache();
+      await loadData();
+    }
+
+    return {
+      updated,
+      skipped,
+      missing,
+      unchanged,
+    };
   }
 
   async function convertCardsRender(cards: BrowserCard[], target: RenderTarget): Promise<void> {
@@ -258,35 +399,43 @@ export function useCardActions(options: UseCardActionsOptions) {
   async function markCardsAsTopic(cards: BrowserCard[]): Promise<void> {
     if (!cards?.length) return;
 
-    const blockIds = cards.map(c => c.blockId);
-    logger.info(`Marking ${blockIds.length} cards as Topic:`, blockIds);
+    logger.info('Marking selected cards as Topic:', cards.map((card) => card.fsrsCardId || card.id || card.blockId));
 
     try {
-      // 1. 更新块属性
-      for (const blockId of blockIds) {
-        await setBrowserCardType(blockId, 'topic');
-      }
+      const summary = await updateLocalCardTypes(cards, (fsrsCard) => {
+        const nextCard: FSRSCard = {
+          ...fsrsCard,
+          meta: fsrsCard.meta ? { ...fsrsCard.meta } : undefined,
+        };
+        const { meta, changed: metaChanged } = applyRenderTargetMeta(toMetaRecord(fsrsCard.meta), 'default');
+        let changed = metaChanged;
 
-      // 2. 更新 StorageManager 中的卡片类型
-      if (storage) {
-        for (const card of cards) {
-          const cardId = card.fsrsCardId || card.id;
-          if (cardId) {
-            const fsrsCard = storage.getCard(cardId);
-            if (fsrsCard) {
-              fsrsCard.type = CardType.Topic;
-              storage.setCard(fsrsCard);
-              logger.debug(`Updated card type in storage: ${cardId} -> topic`);
-            }
-          }
+        if (nextCard.type !== CardType.Topic) {
+          nextCard.type = CardType.Topic;
+          changed = true;
         }
-        await storage.saveCards();
+
+        nextCard.meta = meta;
+
+        if (changed) {
+          logger.debug(`Updated card type in storage: ${nextCard.id} -> topic`);
+        }
+
+        return { card: nextCard, changed };
+      });
+      if (!summary) {
+        return;
       }
 
-      await pushMsg(`✅ 已将 ${blockIds.length} 张卡片标记为 Topic`, 3000);
+      if (summary.updated === 0) {
+        await pushMsg('未发生类型变更（无可更新卡片）', 3000);
+        return;
+      }
 
-      invalidateCardCache();
-      await loadData();
+      await pushMsg(
+        `✅ 已将 ${summary.updated} 张卡片标记为 Topic，并切换为标准渲染${buildLocalCardUpdateDetail(summary)}`,
+        3000
+      );
     } catch (err: unknown) {
       logger.error('Failed to mark cards as Topic:', err);
       await pushErrMsg(`标记失败：${errorMessage(err, '未知错误')}`, 3000);
@@ -299,35 +448,45 @@ export function useCardActions(options: UseCardActionsOptions) {
   async function markCardsAsItem(cards: BrowserCard[]): Promise<void> {
     if (!cards?.length) return;
 
-    const blockIds = cards.map(c => c.blockId);
-    logger.info(`Marking ${blockIds.length} cards as Item:`, blockIds);
+    logger.info('Marking selected cards as Item:', cards.map((card) => card.fsrsCardId || card.id || card.blockId));
 
     try {
-      // 1. 更新块属性
-      for (const blockId of blockIds) {
-        await setBrowserCardType(blockId, 'item');
-      }
+      const summary = await updateLocalCardTypes(cards, (fsrsCard) => {
+        const nextCard: FSRSCard = {
+          ...fsrsCard,
+          meta: fsrsCard.meta ? { ...fsrsCard.meta } : undefined,
+        };
+        const { meta, changed: metaChanged } = resetItemRenderMeta(toMetaRecord(fsrsCard.meta));
+        let changed = metaChanged;
 
-      // 2. 更新 StorageManager 中的卡片类型
-      if (storage) {
-        for (const card of cards) {
-          const cardId = card.fsrsCardId || card.id;
-          if (cardId) {
-            const fsrsCard = storage.getCard(cardId);
-            if (fsrsCard) {
-              fsrsCard.type = CardType.Item;
-              storage.setCard(fsrsCard);
-              logger.debug(`Updated card type in storage: ${cardId} -> item`);
-            }
-          }
+        if (nextCard.type !== CardType.Item) {
+          nextCard.type = CardType.Item;
+          changed = true;
         }
-        await storage.saveCards();
+
+        if (nextCard.cardTypeMarker === 'concept' || nextCard.cardTypeMarker === 'descriptor') {
+          nextCard.cardTypeMarker = undefined;
+          changed = true;
+        }
+
+        nextCard.meta = meta;
+
+        if (changed) {
+          logger.debug(`Updated card type in storage: ${nextCard.id} -> item`);
+        }
+
+        return { card: nextCard, changed };
+      });
+      if (!summary) {
+        return;
       }
 
-      await pushMsg(`✅ 已将 ${blockIds.length} 张卡片标记为 Item`, 3000);
+      if (summary.updated === 0) {
+        await pushMsg('未发生类型变更（无可更新卡片）', 3000);
+        return;
+      }
 
-      invalidateCardCache();
-      await loadData();
+      await pushMsg(`✅ 已将 ${summary.updated} 张卡片标记为 Item${buildLocalCardUpdateDetail(summary)}`, 3000);
     } catch (err: unknown) {
       logger.error('Failed to mark cards as Item:', err);
       await pushErrMsg(`标记失败：${errorMessage(err, '未知错误')}`, 3000);

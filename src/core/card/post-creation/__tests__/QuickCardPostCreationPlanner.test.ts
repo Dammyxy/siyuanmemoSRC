@@ -26,7 +26,7 @@ describe('QuickCardPostCreationPlanner', () => {
     expect(listenerPlan).toEqual(nativePlan);
   });
 
-  it('keeps source-specific behavior for generic cloze content', () => {
+  it('routes native mark cloze through multi-cloze while preserving resolved cardType', () => {
     const nativePlan = planner.plan({
       blockId: '20260301120000-default1',
       content: 'alpha ==beta== gamma',
@@ -40,10 +40,26 @@ describe('QuickCardPostCreationPlanner', () => {
       resolvedCardType: 'item',
     });
 
-    expect(nativePlan.mode).toBe('single');
-    expect(nativePlan.templateId).toBe('builtin-riff-sync');
+    expect(nativePlan.mode).toBe('multi-cloze');
+    expect(nativePlan.templateId).toBe('builtin-multi-cloze');
+    expect(nativePlan.cardType).toBe('topic');
     expect(listenerPlan.mode).toBe('multi-cloze');
     expect(listenerPlan.templateId).toBe('builtin-multi-cloze');
+    expect(listenerPlan.cardType).toBe('item');
+  });
+
+  it('keeps list-template structural plan while switching cardType to topic when resolved as topic', () => {
+    const plan = planner.plan({
+      blockId: '20260301120000-list1',
+      blockType: 'i',
+      content: 'Question >>>',
+      source: 'block-menu-manual',
+      resolvedCardType: 'topic',
+    });
+
+    expect(plan.templateId).toBe('builtin-list-item');
+    expect(plan.cardType).toBe('topic');
+    expect(plan.hints.ruleId).toBe('ListTemplateStructuralRule');
   });
 
   it('does not route superblock triple braces to quick cloze for native riff sync', () => {

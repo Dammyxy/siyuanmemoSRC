@@ -55,6 +55,18 @@ describe('settings normalization', () => {
     expect(normalized.settings.scheduler?.itemScheduler).toBe(ACTIVE_FSRS_VERSION);
   });
 
+  it('fills quickCard.flashcard defaults when missing', () => {
+    const legacy = cloneSettings();
+    delete (legacy.quickCard as Partial<typeof legacy.quickCard>).flashcard;
+    delete (legacy.quickCard as Partial<typeof legacy.quickCard>).flashcardSeededFromSiyuan;
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.quickCard.flashcard).toEqual(DEFAULT_SETTINGS.quickCard.flashcard);
+    expect(normalized.settings.quickCard.flashcardSeededFromSiyuan).toBe(false);
+  });
+
   it('is idempotent after first normalization', () => {
     const legacy = cloneSettings();
     legacy.fsrs.weights = legacy.fsrs.weights.slice(0, FSRS_WEIGHT_COUNT - 2);
@@ -62,6 +74,8 @@ describe('settings normalization', () => {
       legacy.scheduler.defaultScheduler = LEGACY_FSRS_V5 as typeof legacy.scheduler.defaultScheduler;
       legacy.scheduler.itemScheduler = LEGACY_FSRS_V5 as typeof legacy.scheduler.itemScheduler;
     }
+    delete (legacy.quickCard as Partial<typeof legacy.quickCard>).flashcard;
+    delete (legacy.quickCard as Partial<typeof legacy.quickCard>).flashcardSeededFromSiyuan;
 
     const firstPass = normalizePluginSettings(legacy);
     const secondPass = normalizePluginSettings(firstPass.settings);

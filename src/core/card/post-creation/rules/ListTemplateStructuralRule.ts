@@ -22,7 +22,7 @@ export class ListTemplateStructuralRule implements PostCreationRule {
       id: this.id,
       family: 'list-template',
       templateId: 'builtin-list-item',
-      cardType: 'item',
+      cardType: context.resolvedCardType === 'topic' ? 'topic' : 'item',
       mode: 'split-list',
       executorKind: 'list-template-structural',
       renderProfile: 'list-progressive',
@@ -31,4 +31,3 @@ export class ListTemplateStructuralRule implements PostCreationRule {
     };
   }
 }
-
